@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Compiler for Sigil, a general-purpose language built on declarative patterns and mandatory testing"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/yourusername/sigil"
+repository = "https://github.com/upstat-io/sigil-lang"
 keywords = ["compiler", "programming-language", "sigil"]
 categories = ["compilers", "development-tools"]
 
@@ -24,3 +24,7 @@ rayon = "1.10"           # Parallel iterators
 
 [dev-dependencies]
 pretty_assertions = "1.4"
+
+# Inherit workspace lints
+[lints]
+workspace = true

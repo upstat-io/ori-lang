@@ -1,7 +1,7 @@
 use logos::Logos;
 
 #[derive(Logos, Debug, Clone, PartialEq)]
-#[logos(skip r"[ \t\r]+")]  // Skip whitespace (but not newlines)
+#[logos(skip r"[ \t\r]+")] // Skip whitespace (but not newlines)
 pub enum Token {
     // Comments
     #[regex(r"//[^\n]*", logos::skip)]

@@ -50,117 +50,162 @@ impl TypeContext {
 
     fn register_builtins(&mut self) {
         // print: any -> void
-        self.functions.insert("print".to_string(), FunctionSig {
-            type_params: vec![],
-            params: vec![("value".to_string(), TypeExpr::Named("any".to_string()))],
-            return_type: TypeExpr::Named("void".to_string()),
-        });
+        self.functions.insert(
+            "print".to_string(),
+            FunctionSig {
+                type_params: vec![],
+                params: vec![("value".to_string(), TypeExpr::Named("any".to_string()))],
+                return_type: TypeExpr::Named("void".to_string()),
+            },
+        );
 
         // str: any -> str (conversion)
-        self.functions.insert("str".to_string(), FunctionSig {
-            type_params: vec![],
-            params: vec![("value".to_string(), TypeExpr::Named("any".to_string()))],
-            return_type: TypeExpr::Named("str".to_string()),
-        });
+        self.functions.insert(
+            "str".to_string(),
+            FunctionSig {
+                type_params: vec![],
+                params: vec![("value".to_string(), TypeExpr::Named("any".to_string()))],
+                return_type: TypeExpr::Named("str".to_string()),
+            },
+        );
 
         // int: any -> int (conversion)
-        self.functions.insert("int".to_string(), FunctionSig {
-            type_params: vec![],
-            params: vec![("value".to_string(), TypeExpr::Named("any".to_string()))],
-            return_type: TypeExpr::Named("int".to_string()),
-        });
+        self.functions.insert(
+            "int".to_string(),
+            FunctionSig {
+                type_params: vec![],
+                params: vec![("value".to_string(), TypeExpr::Named("any".to_string()))],
+                return_type: TypeExpr::Named("int".to_string()),
+            },
+        );
 
         // float: any -> float (conversion)
-        self.functions.insert("float".to_string(), FunctionSig {
-            type_params: vec![],
-            params: vec![("value".to_string(), TypeExpr::Named("any".to_string()))],
-            return_type: TypeExpr::Named("float".to_string()),
-        });
+        self.functions.insert(
+            "float".to_string(),
+            FunctionSig {
+                type_params: vec![],
+                params: vec![("value".to_string(), TypeExpr::Named("any".to_string()))],
+                return_type: TypeExpr::Named("float".to_string()),
+            },
+        );
 
         // len: any -> int (polymorphic: works on strings and lists)
-        self.functions.insert("len".to_string(), FunctionSig {
-            type_params: vec![],
-            params: vec![("value".to_string(), TypeExpr::Named("any".to_string()))],
-            return_type: TypeExpr::Named("int".to_string()),
-        });
+        self.functions.insert(
+            "len".to_string(),
+            FunctionSig {
+                type_params: vec![],
+                params: vec![("value".to_string(), TypeExpr::Named("any".to_string()))],
+                return_type: TypeExpr::Named("int".to_string()),
+            },
+        );
 
         // assert: bool -> void
-        self.functions.insert("assert".to_string(), FunctionSig {
-            type_params: vec![],
-            params: vec![("condition".to_string(), TypeExpr::Named("bool".to_string()))],
-            return_type: TypeExpr::Named("void".to_string()),
-        });
+        self.functions.insert(
+            "assert".to_string(),
+            FunctionSig {
+                type_params: vec![],
+                params: vec![("condition".to_string(), TypeExpr::Named("bool".to_string()))],
+                return_type: TypeExpr::Named("void".to_string()),
+            },
+        );
 
         // assert_eq: (T, T) -> void
-        self.functions.insert("assert_eq".to_string(), FunctionSig {
-            type_params: vec!["T".to_string()],
-            params: vec![
-                ("actual".to_string(), TypeExpr::Named("T".to_string())),
-                ("expected".to_string(), TypeExpr::Named("T".to_string())),
-            ],
-            return_type: TypeExpr::Named("void".to_string()),
-        });
+        self.functions.insert(
+            "assert_eq".to_string(),
+            FunctionSig {
+                type_params: vec!["T".to_string()],
+                params: vec![
+                    ("actual".to_string(), TypeExpr::Named("T".to_string())),
+                    ("expected".to_string(), TypeExpr::Named("T".to_string())),
+                ],
+                return_type: TypeExpr::Named("void".to_string()),
+            },
+        );
 
         // assert_err: Result T E -> void
-        self.functions.insert("assert_err".to_string(), FunctionSig {
-            type_params: vec!["T".to_string(), "E".to_string()],
-            params: vec![("result".to_string(), TypeExpr::Generic(
-                "Result".to_string(),
-                vec![TypeExpr::Named("T".to_string()), TypeExpr::Named("E".to_string())],
-            ))],
-            return_type: TypeExpr::Named("void".to_string()),
-        });
+        self.functions.insert(
+            "assert_err".to_string(),
+            FunctionSig {
+                type_params: vec!["T".to_string(), "E".to_string()],
+                params: vec![(
+                    "result".to_string(),
+                    TypeExpr::Generic(
+                        "Result".to_string(),
+                        vec![
+                            TypeExpr::Named("T".to_string()),
+                            TypeExpr::Named("E".to_string()),
+                        ],
+                    ),
+                )],
+                return_type: TypeExpr::Named("void".to_string()),
+            },
+        );
 
         // Arithmetic operators as first-class functions
         // +: (T, T) -> T where T is numeric
-        self.functions.insert("+".to_string(), FunctionSig {
-            type_params: vec!["T".to_string()],
-            params: vec![
-                ("a".to_string(), TypeExpr::Named("T".to_string())),
-                ("b".to_string(), TypeExpr::Named("T".to_string())),
-            ],
-            return_type: TypeExpr::Named("T".to_string()),
-        });
+        self.functions.insert(
+            "+".to_string(),
+            FunctionSig {
+                type_params: vec!["T".to_string()],
+                params: vec![
+                    ("a".to_string(), TypeExpr::Named("T".to_string())),
+                    ("b".to_string(), TypeExpr::Named("T".to_string())),
+                ],
+                return_type: TypeExpr::Named("T".to_string()),
+            },
+        );
 
         // -: (T, T) -> T where T is numeric
-        self.functions.insert("-".to_string(), FunctionSig {
-            type_params: vec!["T".to_string()],
-            params: vec![
-                ("a".to_string(), TypeExpr::Named("T".to_string())),
-                ("b".to_string(), TypeExpr::Named("T".to_string())),
-            ],
-            return_type: TypeExpr::Named("T".to_string()),
-        });
+        self.functions.insert(
+            "-".to_string(),
+            FunctionSig {
+                type_params: vec!["T".to_string()],
+                params: vec![
+                    ("a".to_string(), TypeExpr::Named("T".to_string())),
+                    ("b".to_string(), TypeExpr::Named("T".to_string())),
+                ],
+                return_type: TypeExpr::Named("T".to_string()),
+            },
+        );
 
         // *: (T, T) -> T where T is numeric
-        self.functions.insert("*".to_string(), FunctionSig {
-            type_params: vec!["T".to_string()],
-            params: vec![
-                ("a".to_string(), TypeExpr::Named("T".to_string())),
-                ("b".to_string(), TypeExpr::Named("T".to_string())),
-            ],
-            return_type: TypeExpr::Named("T".to_string()),
-        });
+        self.functions.insert(
+            "*".to_string(),
+            FunctionSig {
+                type_params: vec!["T".to_string()],
+                params: vec![
+                    ("a".to_string(), TypeExpr::Named("T".to_string())),
+                    ("b".to_string(), TypeExpr::Named("T".to_string())),
+                ],
+                return_type: TypeExpr::Named("T".to_string()),
+            },
+        );
 
         // /: (T, T) -> T where T is numeric
-        self.functions.insert("/".to_string(), FunctionSig {
-            type_params: vec!["T".to_string()],
-            params: vec![
-                ("a".to_string(), TypeExpr::Named("T".to_string())),
-                ("b".to_string(), TypeExpr::Named("T".to_string())),
-            ],
-            return_type: TypeExpr::Named("T".to_string()),
-        });
+        self.functions.insert(
+            "/".to_string(),
+            FunctionSig {
+                type_params: vec!["T".to_string()],
+                params: vec![
+                    ("a".to_string(), TypeExpr::Named("T".to_string())),
+                    ("b".to_string(), TypeExpr::Named("T".to_string())),
+                ],
+                return_type: TypeExpr::Named("T".to_string()),
+            },
+        );
 
         // %: (int, int) -> int
-        self.functions.insert("%".to_string(), FunctionSig {
-            type_params: vec![],
-            params: vec![
-                ("a".to_string(), TypeExpr::Named("int".to_string())),
-                ("b".to_string(), TypeExpr::Named("int".to_string())),
-            ],
-            return_type: TypeExpr::Named("int".to_string()),
-        });
+        self.functions.insert(
+            "%".to_string(),
+            FunctionSig {
+                type_params: vec![],
+                params: vec![
+                    ("a".to_string(), TypeExpr::Named("int".to_string())),
+                    ("b".to_string(), TypeExpr::Named("int".to_string())),
+                ],
+                return_type: TypeExpr::Named("int".to_string()),
+            },
+        );
     }
 
     fn set_current_return_type(&mut self, ty: TypeExpr) {
@@ -216,7 +261,11 @@ pub fn check(module: Module) -> Result<TypedModule, String> {
             Item::Function(fd) => {
                 let sig = FunctionSig {
                     type_params: fd.type_params.clone(),
-                    params: fd.params.iter().map(|p| (p.name.clone(), p.ty.clone())).collect(),
+                    params: fd
+                        .params
+                        .iter()
+                        .map(|p| (p.name.clone(), p.ty.clone()))
+                        .collect(),
                     return_type: fd.return_type.clone(),
                 };
                 ctx.define_function(fd.name.clone(), sig);
@@ -304,11 +353,13 @@ fn check_config(cd: &ConfigDef, ctx: &TypeContext) -> Result<(), String> {
 }
 
 /// Check an expression with an optional expected type hint for bidirectional type inference
-fn check_expr_with_hint(expr: &Expr, ctx: &TypeContext, expected: Option<&TypeExpr>) -> Result<TypeExpr, String> {
+fn check_expr_with_hint(
+    expr: &Expr,
+    ctx: &TypeContext,
+    expected: Option<&TypeExpr>,
+) -> Result<TypeExpr, String> {
     match expr {
-        Expr::Lambda { params, body } => {
-            check_lambda(params, body, ctx, expected)
-        }
+        Expr::Lambda { params, body } => check_lambda(params, body, ctx, expected),
         // Empty list can be inferred from expected type
         Expr::List(exprs) if exprs.is_empty() => {
             if let Some(TypeExpr::List(elem_type)) = expected {
@@ -334,7 +385,11 @@ fn check_block_expr(expr: &Expr, ctx: &mut TypeContext) -> Result<TypeExpr, Stri
             ctx.define_local(target.clone(), value_type);
             Ok(TypeExpr::Named("void".to_string()))
         }
-        Expr::For { binding, iterator, body } => {
+        Expr::For {
+            binding,
+            iterator,
+            body,
+        } => {
             let iter_type = check_expr(iterator, ctx)?;
             // Get element type from iterator
             let elem_type = match &iter_type {
@@ -353,7 +408,12 @@ fn check_block_expr(expr: &Expr, ctx: &mut TypeContext) -> Result<TypeExpr, Stri
 }
 
 /// Check a lambda expression with optional expected function type
-fn check_lambda(params: &[String], body: &Expr, ctx: &TypeContext, expected: Option<&TypeExpr>) -> Result<TypeExpr, String> {
+fn check_lambda(
+    params: &[String],
+    body: &Expr,
+    ctx: &TypeContext,
+    expected: Option<&TypeExpr>,
+) -> Result<TypeExpr, String> {
     // Unwrap the expected type - handle single-element tuples containing function types
     // This happens because (int -> int) is parsed as Tuple([Function(int, int)])
     let unwrapped_expected: Option<&TypeExpr> = match expected {
@@ -368,7 +428,9 @@ fn check_lambda(params: &[String], body: &Expr, ctx: &TypeContext, expected: Opt
     };
 
     // Determine parameter types from expected type hint
-    let param_types: Vec<TypeExpr> = if let Some(TypeExpr::Function(param_type, _)) = unwrapped_expected {
+    let param_types: Vec<TypeExpr> = if let Some(TypeExpr::Function(param_type, _)) =
+        unwrapped_expected
+    {
         // Extract param types from expected function type
         match param_type.as_ref() {
             TypeExpr::Tuple(types) => types.clone(),
@@ -385,7 +447,8 @@ fn check_lambda(params: &[String], body: &Expr, ctx: &TypeContext, expected: Opt
     if param_types.len() != params.len() {
         return Err(format!(
             "Lambda expects {} parameters but context provides {} parameter types",
-            params.len(), param_types.len()
+            params.len(),
+            param_types.len()
         ));
     }
 
@@ -439,11 +502,10 @@ fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> 
             }
         }
 
-        Expr::Config(name) => {
-            ctx.lookup_config(name)
-                .cloned()
-                .ok_or_else(|| format!("Unknown config: ${}", name))
-        }
+        Expr::Config(name) => ctx
+            .lookup_config(name)
+            .cloned()
+            .ok_or_else(|| format!("Unknown config: ${}", name)),
 
         Expr::List(exprs) => {
             if exprs.is_empty() {
@@ -486,18 +548,29 @@ fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> 
                     check_expr(right, ctx)?;
                     Ok(TypeExpr::Named("bool".to_string()))
                 }
-                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div |
-                BinaryOp::IntDiv | BinaryOp::Mod => {
+                BinaryOp::Add
+                | BinaryOp::Sub
+                | BinaryOp::Mul
+                | BinaryOp::Div
+                | BinaryOp::IntDiv
+                | BinaryOp::Mod => {
                     let left_type = check_expr(left, ctx)?;
                     let right_type = check_expr(right, ctx)?;
                     if is_numeric(&left_type) && is_numeric(&right_type) {
                         Ok(left_type)
-                    } else if matches!((&left_type, op), (TypeExpr::Named(n), BinaryOp::Add) if n == "str") {
+                    } else if matches!((&left_type, op), (TypeExpr::Named(n), BinaryOp::Add) if n == "str")
+                    {
                         Ok(TypeExpr::Named("str".to_string()))
-                    } else if matches!((&left_type, &right_type, op), (TypeExpr::List(_), TypeExpr::List(_), BinaryOp::Add)) {
+                    } else if matches!(
+                        (&left_type, &right_type, op),
+                        (TypeExpr::List(_), TypeExpr::List(_), BinaryOp::Add)
+                    ) {
                         Ok(left_type)
                     } else {
-                        Err(format!("Cannot apply {:?} to {:?} and {:?}", op, left_type, right_type))
+                        Err(format!(
+                            "Cannot apply {:?} to {:?} and {:?}",
+                            op, left_type, right_type
+                        ))
                     }
                 }
                 BinaryOp::And | BinaryOp::Or => {
@@ -521,7 +594,9 @@ fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> 
                     for arg in args {
                         check_expr(arg, ctx)?;
                     }
-                    return ctx.current_return_type.clone()
+                    return ctx
+                        .current_return_type
+                        .clone()
                         .ok_or_else(|| "self() called outside of a function context".to_string());
                 }
 
@@ -539,7 +614,10 @@ fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> 
                         }
                         return Ok(*ret.clone());
                     }
-                    return Err(format!("Variable '{}' is not callable: {:?}", name, local_type));
+                    return Err(format!(
+                        "Variable '{}' is not callable: {:?}",
+                        name, local_type
+                    ));
                 }
 
                 // Check if it's a defined function
@@ -548,7 +626,9 @@ fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> 
                     if args.len() != sig.params.len() {
                         return Err(format!(
                             "Function '{}' expects {} arguments, got {}",
-                            name, sig.params.len(), args.len()
+                            name,
+                            sig.params.len(),
+                            args.len()
                         ));
                     }
 
@@ -562,7 +642,11 @@ fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> 
                             if let TypeExpr::Named(type_name) = param_type {
                                 if sig.type_params.contains(type_name) {
                                     // It's a type parameter
-                                    let arg_type = check_expr_with_hint(arg, ctx, inferred_types.get(type_name))?;
+                                    let arg_type = check_expr_with_hint(
+                                        arg,
+                                        ctx,
+                                        inferred_types.get(type_name),
+                                    )?;
                                     if let Some(inferred) = inferred_types.get(type_name) {
                                         // Verify type matches
                                         if !types_compatible(&arg_type, inferred, ctx) {
@@ -658,7 +742,10 @@ fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> 
                     return Ok(TypeExpr::Optional(inner.clone()));
                 }
             }
-            Err("Cannot infer type of None. Use in a context where the optional type is clear.".to_string())
+            Err(
+                "Cannot infer type of None. Use in a context where the optional type is clear."
+                    .to_string(),
+            )
         }
 
         Expr::Match(m) => {
@@ -705,7 +792,11 @@ fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> 
 
         Expr::Pattern(p) => check_pattern_expr(p, ctx),
 
-        Expr::MethodCall { receiver, method, args } => {
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
             let receiver_type = check_expr(receiver, ctx)?;
             for arg in args {
                 check_expr(arg, ctx)?;
@@ -729,10 +820,16 @@ fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> 
                         _ => Err(format!("Unknown string method: {}", method)),
                     }
                 } else {
-                    Err(format!("Cannot call method '{}' on type {:?}", method, receiver_type))
+                    Err(format!(
+                        "Cannot call method '{}' on type {:?}",
+                        method, receiver_type
+                    ))
                 }
             } else {
-                Err(format!("Cannot call method '{}' on type {:?}", method, receiver_type))
+                Err(format!(
+                    "Cannot call method '{}' on type {:?}",
+                    method, receiver_type
+                ))
             }
         }
 
@@ -751,7 +848,11 @@ fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> 
             }
         }
 
-        Expr::If { condition, then_branch, else_branch } => {
+        Expr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
             let cond_type = check_expr(condition, ctx)?;
             if !types_compatible(&cond_type, &TypeExpr::Named("bool".to_string()), ctx) {
                 return Err(format!("If condition must be bool, got {:?}", cond_type));
@@ -777,7 +878,10 @@ fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> 
             let start_type = check_expr(start, ctx)?;
             let end_type = check_expr(end, ctx)?;
             if !is_numeric(&start_type) || !is_numeric(&end_type) {
-                return Err(format!("Range bounds must be numeric, got {:?}..{:?}", start_type, end_type));
+                return Err(format!(
+                    "Range bounds must be numeric, got {:?}..{:?}",
+                    start_type, end_type
+                ));
             }
             // Range is a special type that can be iterated
             Ok(TypeExpr::Named("Range".to_string()))
@@ -790,9 +894,7 @@ fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> 
         }
 
         Expr::Tuple(exprs) => {
-            let types: Result<Vec<_>, _> = exprs.iter()
-                .map(|e| check_expr(e, ctx))
-                .collect();
+            let types: Result<Vec<_>, _> = exprs.iter().map(|e| check_expr(e, ctx)).collect();
             Ok(TypeExpr::Tuple(types?))
         }
 
@@ -820,10 +922,16 @@ fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> 
                             Err(format!("Type '{}' is not a struct", type_name))
                         }
                     } else {
-                        Err(format!("Cannot access field '{}' on type {:?}", field, expr_type))
+                        Err(format!(
+                            "Cannot access field '{}' on type {:?}",
+                            field, expr_type
+                        ))
                     }
                 }
-                _ => Err(format!("Cannot access field '{}' on type {:?}", field, expr_type)),
+                _ => Err(format!(
+                    "Cannot access field '{}' on type {:?}",
+                    field, expr_type
+                )),
             }
         }
 
@@ -844,14 +952,24 @@ fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> 
                 if types_compatible(&default_type, &inner, ctx) {
                     Ok(*inner)
                 } else {
-                    Err(format!("Coalesce default type {:?} doesn't match optional inner type {:?}", default_type, inner))
+                    Err(format!(
+                        "Coalesce default type {:?} doesn't match optional inner type {:?}",
+                        default_type, inner
+                    ))
                 }
             } else {
-                Err(format!("Coalesce (??) requires optional type, got {:?}", value_type))
+                Err(format!(
+                    "Coalesce (??) requires optional type, got {:?}",
+                    value_type
+                ))
             }
         }
 
-        Expr::For { binding: _, iterator, body } => {
+        Expr::For {
+            binding: _,
+            iterator,
+            body,
+        } => {
             check_expr(iterator, ctx)?;
             check_expr(body, ctx)?;
             Ok(TypeExpr::Named("void".to_string()))
@@ -879,7 +997,10 @@ fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> 
                 TypeExpr::Generic(name, args) if name == "Result" && args.len() >= 1 => {
                     Ok(args[0].clone())
                 }
-                _ => Err(format!("Cannot unwrap non-optional/non-result type: {:?}", inner_type)),
+                _ => Err(format!(
+                    "Cannot unwrap non-optional/non-result type: {:?}",
+                    inner_type
+                )),
             }
         }
 
@@ -890,14 +1011,20 @@ fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> 
                     if is_numeric(&operand_type) {
                         Ok(operand_type)
                     } else {
-                        Err(format!("Cannot negate non-numeric type: {:?}", operand_type))
+                        Err(format!(
+                            "Cannot negate non-numeric type: {:?}",
+                            operand_type
+                        ))
                     }
                 }
                 UnaryOp::Not => {
                     if types_compatible(&operand_type, &TypeExpr::Named("bool".to_string()), ctx) {
                         Ok(TypeExpr::Named("bool".to_string()))
                     } else {
-                        Err(format!("Cannot apply ! to non-bool type: {:?}", operand_type))
+                        Err(format!(
+                            "Cannot apply ! to non-bool type: {:?}",
+                            operand_type
+                        ))
                     }
                 }
             }
@@ -907,7 +1034,11 @@ fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> 
 
 fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> Result<TypeExpr, String> {
     match p {
-        PatternExpr::Fold { collection, init, op } => {
+        PatternExpr::Fold {
+            collection,
+            init,
+            op,
+        } => {
             let coll_type = check_expr(collection, ctx)?;
             let init_type = check_expr(init, ctx)?;
 
@@ -927,7 +1058,10 @@ fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> Result<TypeExpr, St
             Ok(init_type)
         }
 
-        PatternExpr::Map { collection, transform } => {
+        PatternExpr::Map {
+            collection,
+            transform,
+        } => {
             let coll_type = check_expr(collection, ctx)?;
 
             // Get element type from collection
@@ -950,13 +1084,19 @@ fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> Result<TypeExpr, St
             let result_elem_type = if let TypeExpr::Function(_, ret) = transform_type {
                 *ret
             } else {
-                return Err(format!("Map transform must be a function, got {:?}", transform_type));
+                return Err(format!(
+                    "Map transform must be a function, got {:?}",
+                    transform_type
+                ));
             };
 
             Ok(TypeExpr::List(Box::new(result_elem_type)))
         }
 
-        PatternExpr::Filter { collection, predicate } => {
+        PatternExpr::Filter {
+            collection,
+            predicate,
+        } => {
             let coll_type = check_expr(collection, ctx)?;
 
             // Get element type from collection
@@ -990,13 +1130,21 @@ fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> Result<TypeExpr, St
             let elem_type = if let TypeExpr::Function(_, ret) = transform_type {
                 *ret
             } else {
-                return Err(format!("Collect transform must be a function, got {:?}", transform_type));
+                return Err(format!(
+                    "Collect transform must be a function, got {:?}",
+                    transform_type
+                ));
             };
 
             Ok(TypeExpr::List(Box::new(elem_type)))
         }
 
-        PatternExpr::Recurse { condition, base_value, step, .. } => {
+        PatternExpr::Recurse {
+            condition,
+            base_value,
+            step,
+            ..
+        } => {
             check_expr(condition, ctx)?;
             let base_type = check_expr(base_value, ctx)?;
             let step_type = check_expr(step, ctx)?;
@@ -1012,7 +1160,9 @@ fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> Result<TypeExpr, St
             Ok(base_type)
         }
 
-        PatternExpr::Iterate { over, into, with, .. } => {
+        PatternExpr::Iterate {
+            over, into, with, ..
+        } => {
             let coll_type = check_expr(over, ctx)?;
             let into_type = check_expr(into, ctx)?;
 
@@ -1020,7 +1170,12 @@ fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> Result<TypeExpr, St
             let elem_type = match &coll_type {
                 TypeExpr::List(inner) => inner.as_ref().clone(),
                 TypeExpr::Named(n) if n == "Range" => TypeExpr::Named("int".to_string()),
-                _ => return Err(format!("Iterate requires a list or range, got {:?}", coll_type)),
+                _ => {
+                    return Err(format!(
+                        "Iterate requires a list or range, got {:?}",
+                        coll_type
+                    ))
+                }
             };
 
             // Iterate lambda: (accumulator, element) -> accumulator
@@ -1050,7 +1205,10 @@ fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> Result<TypeExpr, St
             Ok(current_type)
         }
 
-        PatternExpr::Count { collection, predicate } => {
+        PatternExpr::Count {
+            collection,
+            predicate,
+        } => {
             let coll_type = check_expr(collection, ctx)?;
 
             // Get element type from collection
@@ -1068,7 +1226,9 @@ fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> Result<TypeExpr, St
             check_expr_with_hint(predicate, ctx, Some(&expected_lambda_type))?;
             Ok(TypeExpr::Named("int".to_string()))
         }
-        PatternExpr::Parallel { branches, timeout, .. } => {
+        PatternExpr::Parallel {
+            branches, timeout, ..
+        } => {
             // Check all branch expressions and build record type
             let mut field_types = Vec::new();
             for (name, expr) in branches {
@@ -1101,22 +1261,24 @@ fn types_compatible(actual: &TypeExpr, expected: &TypeExpr, _ctx: &TypeContext) 
         // Named types must match exactly
         (TypeExpr::Named(a), TypeExpr::Named(e)) => a == e,
 
-        (TypeExpr::Optional(a), TypeExpr::Optional(e)) => {
-            types_compatible(a, e, _ctx)
-        }
-        (TypeExpr::List(a), TypeExpr::List(e)) => {
-            types_compatible(a, e, _ctx)
-        }
+        (TypeExpr::Optional(a), TypeExpr::Optional(e)) => types_compatible(a, e, _ctx),
+        (TypeExpr::List(a), TypeExpr::List(e)) => types_compatible(a, e, _ctx),
         (TypeExpr::Generic(na, aa), TypeExpr::Generic(ne, ae)) => {
-            na == ne && aa.len() == ae.len() &&
-            aa.iter().zip(ae.iter()).all(|(a, e)| types_compatible(a, e, _ctx))
+            na == ne
+                && aa.len() == ae.len()
+                && aa
+                    .iter()
+                    .zip(ae.iter())
+                    .all(|(a, e)| types_compatible(a, e, _ctx))
         }
         (TypeExpr::Function(a_param, a_ret), TypeExpr::Function(e_param, e_ret)) => {
             types_compatible(a_param, e_param, _ctx) && types_compatible(a_ret, e_ret, _ctx)
         }
         (TypeExpr::Tuple(a), TypeExpr::Tuple(e)) => {
-            a.len() == e.len() &&
-            a.iter().zip(e.iter()).all(|(a, e)| types_compatible(a, e, _ctx))
+            a.len() == e.len()
+                && a.iter()
+                    .zip(e.iter())
+                    .all(|(a, e)| types_compatible(a, e, _ctx))
         }
         (TypeExpr::Map(ak, av), TypeExpr::Map(ek, ev)) => {
             types_compatible(ak, ek, _ctx) && types_compatible(av, ev, _ctx)
@@ -1147,7 +1309,12 @@ fn is_numeric(ty: &TypeExpr) -> bool {
 
 /// Check if a type name is a type parameter (single uppercase letter like T, E, K, V)
 fn is_type_parameter(name: &str) -> bool {
-    name.len() == 1 && name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false)
+    name.len() == 1
+        && name
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_uppercase())
+            .unwrap_or(false)
 }
 
 fn infer_type(expr: &Expr) -> Result<TypeExpr, String> {

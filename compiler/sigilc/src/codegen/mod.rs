@@ -118,7 +118,9 @@ impl CodeGen {
 
     fn emit_forward_decl(&mut self, f: &FunctionDef) -> Result<(), String> {
         let ret_type = self.type_to_c(&f.return_type);
-        let params: Vec<String> = f.params.iter()
+        let params: Vec<String> = f
+            .params
+            .iter()
             .map(|p| format!("{} {}", self.type_to_c(&p.ty), p.name))
             .collect();
 
@@ -127,18 +129,22 @@ impl CodeGen {
     }
 
     fn emit_config(&mut self, c: &ConfigDef) -> Result<(), String> {
-        let ty = c.ty.as_ref()
-            .map(|t| self.type_to_c(t))
-            .unwrap_or_else(|| self.infer_c_type(&c.value));
+        let ty =
+            c.ty.as_ref()
+                .map(|t| self.type_to_c(t))
+                .unwrap_or_else(|| self.infer_c_type(&c.value));
 
         let value = self.expr_to_c(&c.value)?;
 
         // Use const for configs
         if ty == "String" {
-            self.emit_line(&format!("String {} = {{ .data = \"{}\", .len = {} }};",
+            self.emit_line(&format!(
+                "String {} = {{ .data = \"{}\", .len = {} }};",
                 c.name,
                 self.extract_string_literal(&c.value).unwrap_or_default(),
-                self.extract_string_literal(&c.value).map(|s| s.len()).unwrap_or(0)
+                self.extract_string_literal(&c.value)
+                    .map(|s| s.len())
+                    .unwrap_or(0)
             ));
         } else {
             self.emit_line(&format!("const {} {} = {};", ty, c.name, value));
@@ -148,11 +154,17 @@ impl CodeGen {
 
     fn emit_function(&mut self, f: &FunctionDef) -> Result<(), String> {
         let ret_type = self.type_to_c(&f.return_type);
-        let params: Vec<String> = f.params.iter()
+        let params: Vec<String> = f
+            .params
+            .iter()
             .map(|p| format!("{} {}", self.type_to_c(&p.ty), p.name))
             .collect();
 
-        let params_str = if params.is_empty() { "void".to_string() } else { params.join(", ") };
+        let params_str = if params.is_empty() {
+            "void".to_string()
+        } else {
+            params.join(", ")
+        };
 
         // main is special
         if f.name == "main" {
@@ -238,7 +250,9 @@ impl CodeGen {
                 let r = self.expr_to_c(right)?;
 
                 // Check if string concatenation
-                if matches!(op, BinaryOp::Add) && (self.is_string_expr(left) || self.is_string_expr(right)) {
+                if matches!(op, BinaryOp::Add)
+                    && (self.is_string_expr(left) || self.is_string_expr(right))
+                {
                     return Ok(format!("str_concat({}, {})", l, r));
                 }
 
@@ -257,7 +271,9 @@ impl CodeGen {
                     BinaryOp::GtEq => ">=",
                     BinaryOp::And => "&&",
                     BinaryOp::Or => "||",
-                    BinaryOp::Pipe => return Err("Pipe operator not yet supported in codegen".to_string()),
+                    BinaryOp::Pipe => {
+                        return Err("Pipe operator not yet supported in codegen".to_string())
+                    }
                 };
                 Ok(format!("({} {} {})", l, op_str, r))
             }
@@ -291,13 +307,16 @@ impl CodeGen {
                     _ => {}
                 }
 
-                let args_c: Result<Vec<String>, String> = args.iter()
-                    .map(|a| self.expr_to_c(a))
-                    .collect();
+                let args_c: Result<Vec<String>, String> =
+                    args.iter().map(|a| self.expr_to_c(a)).collect();
                 Ok(format!("{}({})", func_name, args_c?.join(", ")))
             }
 
-            Expr::If { condition, then_branch, else_branch } => {
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 let cond = self.expr_to_c(condition)?;
                 let then_c = self.expr_to_c(then_branch)?;
                 if let Some(else_b) = else_branch {
@@ -308,9 +327,7 @@ impl CodeGen {
                 }
             }
 
-            Expr::Match(m) => {
-                self.match_to_c(m)
-            }
+            Expr::Match(m) => self.match_to_c(m),
 
             Expr::Block(exprs) => {
                 if let Some(last) = exprs.last() {
@@ -320,7 +337,10 @@ impl CodeGen {
                 }
             }
 
-            _ => Err(format!("Expression not yet supported in codegen: {:?}", expr)),
+            _ => Err(format!(
+                "Expression not yet supported in codegen: {:?}",
+                expr
+            )),
         }
     }
 
@@ -403,7 +423,11 @@ impl CodeGen {
         match expr {
             Expr::String(_) => true,
             Expr::Config(_) => true, // Assume configs could be strings
-            Expr::Binary { op: BinaryOp::Add, left, .. } => self.is_string_expr(left),
+            Expr::Binary {
+                op: BinaryOp::Add,
+                left,
+                ..
+            } => self.is_string_expr(left),
             Expr::Call { func, .. } => {
                 if let Expr::Ident(name) = func.as_ref() {
                     name == "str"

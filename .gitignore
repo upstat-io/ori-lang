@@ -1,2 +1,62 @@
-/target
-_repos/
+# Build artifacts
+/target/
+**/target/
+
+# Cargo lock for libraries (keep for binaries)
+# Cargo.lock  # We keep this since we have a binary
+
+# Reference repos (local development only)
+/_repos/
+/REFERENCE/
+/reference/
+
+# Comparison/benchmark data (local development)
+/comparison/
+/samples/
+/examples/*.si
+!/examples/
+
+# Editor and IDE
+*.swp
+*.swo
+*~
+.idea/
+*.iml
+.vscode/
+.vs/
+*.sublime-*
+.project
+.settings/
+.vim/
+.helix/
+.zed/
+
+# OS files
+.DS_Store
+desktop.ini
+Thumbs.db
+
+# Rust specific
+**/*.rs.bk
+*.pdb
+
+# Local configuration
+.cargo/
+.env
+.env.*
+!.env.example
+
+# Test artifacts
+*.profraw
+*.profdata
+
+# Generated files
+*.generated.*
+
+# ICE reports
+rustc-ice-*.txt
+
+# Temporary files
+*.tmp
+*.temp
+*.log

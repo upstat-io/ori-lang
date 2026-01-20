@@ -69,14 +69,25 @@ impl PartialEq for Value {
             // Functions are never equal (like Rust closures)
             (Value::Function { .. }, Value::Function { .. }) => false,
             // Structs compare by name and fields
-            (Value::Struct { name: n1, fields: f1 }, Value::Struct { name: n2, fields: f2 }) => {
-                n1 == n2 && f1.len() == f2.len() &&
-                f1.iter().all(|(k, v)| f2.get(k).map_or(false, |v2| v == v2))
+            (
+                Value::Struct {
+                    name: n1,
+                    fields: f1,
+                },
+                Value::Struct {
+                    name: n2,
+                    fields: f2,
+                },
+            ) => {
+                n1 == n2
+                    && f1.len() == f2.len()
+                    && f1
+                        .iter()
+                        .all(|(k, v)| f2.get(k).map_or(false, |v2| v == v2))
             }
             // Maps compare by contents
             (Value::Map(a), Value::Map(b)) => {
-                a.len() == b.len() &&
-                a.iter().all(|(k, v)| b.get(k).map_or(false, |v2| v == v2))
+                a.len() == b.len() && a.iter().all(|(k, v)| b.get(k).map_or(false, |v2| v == v2))
             }
             _ => false,
         }
@@ -94,7 +105,9 @@ impl fmt::Display for Value {
             Value::List(items) => {
                 write!(f, "[")?;
                 for (i, item) in items.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}", item)?;
                 }
                 write!(f, "]")
@@ -102,7 +115,9 @@ impl fmt::Display for Value {
             Value::Tuple(items) => {
                 write!(f, "(")?;
                 for (i, item) in items.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}", item)?;
                 }
                 write!(f, ")")
@@ -110,7 +125,9 @@ impl fmt::Display for Value {
             Value::Struct { name, fields } => {
                 write!(f, "{} {{ ", name)?;
                 for (i, (k, v)) in fields.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}: {}", k, v)?;
                 }
                 write!(f, " }}")
@@ -118,7 +135,9 @@ impl fmt::Display for Value {
             Value::Map(m) => {
                 write!(f, "{{")?;
                 for (i, (k, v)) in m.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}: {}", k, v)?;
                 }
                 write!(f, "}}")

@@ -4,16 +4,16 @@
 // It can be used as a library by other tools (LSP, formatter, etc.) or
 // as a standalone CLI via the sigilc binary.
 
-pub mod lexer;
 pub mod ast;
+pub mod codegen;
+pub mod eval;
+pub mod lexer;
 pub mod parser;
 pub mod types;
-pub mod eval;
-pub mod codegen;
 
 pub use ast::Module;
-pub use types::check as type_check;
 pub use eval::run as interpret;
+pub use types::check as type_check;
 
 /// Compile source code to a typed AST
 pub fn compile(source: &str, filename: &str) -> Result<Module, String> {

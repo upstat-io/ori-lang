@@ -1,13 +1,13 @@
-use sigilc::{lexer, ast, parser, types, eval, codegen};
+use sigilc::{ast, codegen, eval, lexer, parser, types};
 
+use ast::{Item, Module};
+use rayon::prelude::*;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
-use ast::{Item, Module};
-use rayon::prelude::*;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -172,7 +172,11 @@ fn build_file(path: &str, output: &str) {
     }
 
     // Compile with gcc/cc
-    let compiler = if cfg!(target_os = "windows") { "gcc" } else { "cc" };
+    let compiler = if cfg!(target_os = "windows") {
+        "gcc"
+    } else {
+        "cc"
+    };
     let status = Command::new(compiler)
         .args([&c_path, "-o", output, "-O2"])
         .status();
@@ -257,16 +261,14 @@ fn repl() {
                 }
             }
             _ if input.is_empty() => continue,
-            _ => {
-                match eval::eval_line(input, &mut env) {
-                    Ok(result) => {
-                        if !result.is_empty() {
-                            println!("{}", result);
-                        }
+            _ => match eval::eval_line(input, &mut env) {
+                Ok(result) => {
+                    if !result.is_empty() {
+                        println!("{}", result);
                     }
-                    Err(e) => eprintln!("Error: {}", e),
                 }
-            }
+                Err(e) => eprintln!("Error: {}", e),
+            },
         }
     }
 }
@@ -289,30 +291,38 @@ fn get_test_file_path(source_path: &str) -> String {
 }
 
 fn parse_file(path: &str) -> Result<Module, String> {
-    let source = fs::read_to_string(path)
-        .map_err(|e| format!("Error reading '{}': {}", path, e))?;
+    let source =
+        fs::read_to_string(path).map_err(|e| format!("Error reading '{}': {}", path, e))?;
     let tokens = lexer::tokenize(&source, path)?;
     parser::parse(tokens, path)
 }
 
 fn get_functions(module: &Module) -> Vec<String> {
-    module.items.iter().filter_map(|item| {
-        if let Item::Function(f) = item {
-            Some(f.name.clone())
-        } else {
-            None
-        }
-    }).collect()
+    module
+        .items
+        .iter()
+        .filter_map(|item| {
+            if let Item::Function(f) = item {
+                Some(f.name.clone())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn get_tested_functions(module: &Module) -> Vec<String> {
-    module.items.iter().filter_map(|item| {
-        if let Item::Test(t) = item {
-            Some(t.target.clone())
-        } else {
-            None
-        }
-    }).collect()
+    module
+        .items
+        .iter()
+        .filter_map(|item| {
+            if let Item::Test(t) = item {
+                Some(t.target.clone())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn check_coverage(source_path: &str) {
@@ -363,7 +373,10 @@ fn check_coverage(source_path: &str) {
         eprintln!();
         eprintln!("Create tests in: {}", test_path);
         eprintln!("Example:");
-        eprintln!("  @test_{} tests @{} () -> void = run(", missing[0], missing[0]);
+        eprintln!(
+            "  @test_{} tests @{} () -> void = run(",
+            missing[0], missing[0]
+        );
         eprintln!("      assert({}(...) == expected)", missing[0]);
         eprintln!("  )");
         std::process::exit(1);
@@ -426,12 +439,10 @@ fn load_imports(test_module: &Module, test_path: &str) -> Result<Vec<Item>, Stri
                     }
                 } else {
                     // Import specific item
-                    let found = source_module.items.iter().find(|item| {
-                        match item {
-                            Item::Function(f) => f.name == use_item.name,
-                            Item::Config(c) => c.name == use_item.name,
-                            _ => false,
-                        }
+                    let found = source_module.items.iter().find(|item| match item {
+                        Item::Function(f) => f.name == use_item.name,
+                        Item::Config(c) => c.name == use_item.name,
+                        _ => false,
                     });
 
                     if let Some(item) = found {
@@ -497,13 +508,17 @@ fn test_file(test_path: &str) {
     };
 
     // Run tests
-    let tests: Vec<_> = typed.items.iter().filter_map(|item| {
-        if let Item::Test(t) = item {
-            Some(t)
-        } else {
-            None
-        }
-    }).collect();
+    let tests: Vec<_> = typed
+        .items
+        .iter()
+        .filter_map(|item| {
+            if let Item::Test(t) = item {
+                Some(t)
+            } else {
+                None
+            }
+        })
+        .collect();
 
     if tests.is_empty() {
         eprintln!("No tests found in {}", test_path);
@@ -649,13 +664,17 @@ fn run_test_file(test_path: &Path) -> TestFileResult {
     };
 
     // Run tests
-    let tests: Vec<_> = typed.items.iter().filter_map(|item| {
-        if let Item::Test(t) = item {
-            Some(t)
-        } else {
-            None
-        }
-    }).collect();
+    let tests: Vec<_> = typed
+        .items
+        .iter()
+        .filter_map(|item| {
+            if let Item::Test(t) = item {
+                Some(t)
+            } else {
+                None
+            }
+        })
+        .collect();
 
     if tests.is_empty() {
         return TestFileResult {
@@ -728,8 +747,10 @@ fn test_all() {
             } else {
                 "✗"
             };
-            println!("[{}/{}] {} {} ({} passed)",
-                done, total_files, status, result.path, result.passed);
+            println!(
+                "[{}/{}] {} {} ({} passed)",
+                done, total_files, status, result.path, result.passed
+            );
 
             result
         })
@@ -743,9 +764,7 @@ fn test_all() {
     println!("\n{}", "=".repeat(60));
 
     // Print failures
-    let failures: Vec<_> = results.iter()
-        .filter(|r| !r.errors.is_empty())
-        .collect();
+    let failures: Vec<_> = results.iter().filter(|r| !r.errors.is_empty()).collect();
 
     if !failures.is_empty() {
         println!("\nFailures:\n");
@@ -759,8 +778,12 @@ fn test_all() {
     }
 
     // Print final summary
-    println!("Test Results: {} passed, {} failed ({:.2}s)",
-        passed, failed, elapsed.as_secs_f64());
+    println!(
+        "Test Results: {} passed, {} failed ({:.2}s)",
+        passed,
+        failed,
+        elapsed.as_secs_f64()
+    );
 
     if failed > 0 {
         std::process::exit(1);
