@@ -8,7 +8,7 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/yourusername/sigil"
+repository = "https://github.com/upstat-io/sigil-lang"
 
 [workspace.dependencies]
 logos = "0.14"
@@ -16,3 +16,38 @@ ariadne = "0.4"
 thiserror = "1.0"
 rayon = "1.10"
 pretty_assertions = "1.4"
+
+# Workspace-wide lint configuration
+[workspace.lints.rust]
+# Deny unsafe code by default
+unsafe_code = "deny"
+# Warn on missing docs for public items (can enable later)
+# missing_docs = "warn"
+
+[workspace.lints.clippy]
+# Correctness lints - these are errors
+correctness = { level = "deny", priority = -1 }
+
+# Suspicious code that is likely wrong
+suspicious = { level = "warn", priority = -1 }
+
+# Style lints
+style = { level = "warn", priority = -1 }
+
+# Complexity lints
+complexity = { level = "warn", priority = -1 }
+
+# Performance lints
+perf = { level = "warn", priority = -1 }
+
+# Specific lints we care about
+unwrap_used = "warn"
+expect_used = "warn"
+todo = "warn"
+unimplemented = "warn"
+dbg_macro = "warn"
+
+# Allow these (CLI needs to print, panics are sometimes appropriate)
+needless_return = "allow"
+print_stdout = "allow"
+print_stderr = "allow"

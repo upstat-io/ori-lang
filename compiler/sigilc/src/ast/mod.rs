@@ -32,7 +32,7 @@ pub enum Item {
 #[derive(Debug, Clone)]
 pub struct TestDef {
     pub name: String,
-    pub target: String,  // The function being tested
+    pub target: String, // The function being tested
     pub body: Expr,
     pub span: Span,
 }
@@ -51,7 +51,7 @@ pub struct ConfigDef {
 pub struct TypeDef {
     pub public: bool,
     pub name: String,
-    pub params: Vec<String>,  // Generic parameters
+    pub params: Vec<String>, // Generic parameters
     pub kind: TypeDefKind,
     pub span: Span,
 }
@@ -77,7 +77,7 @@ pub struct Field {
 #[derive(Debug, Clone)]
 pub struct Variant {
     pub name: String,
-    pub fields: Vec<Field>,  // Empty for unit variants
+    pub fields: Vec<Field>, // Empty for unit variants
 }
 
 /// Function definition
@@ -85,7 +85,7 @@ pub struct Variant {
 pub struct FunctionDef {
     pub public: bool,
     pub name: String,
-    pub type_params: Vec<String>,  // Generic type parameters
+    pub type_params: Vec<String>, // Generic type parameters
     pub params: Vec<Param>,
     pub return_type: TypeExpr,
     pub body: Expr,
@@ -295,11 +295,11 @@ pub enum PatternExpr {
     /// When condition is true, returns base_value; otherwise evaluates step
     /// step can use `self(...)` for recursive calls
     Recurse {
-        condition: Box<Expr>,       // Base case condition (e.g., n <= 1)
-        base_value: Box<Expr>,      // Value to return when condition is true
-        step: Box<Expr>,            // Recursive step using self()
-        memo: bool,                 // Enable memoization when true
-        parallel_threshold: i64,    // Parallelize when n > threshold (0 = no parallelism)
+        condition: Box<Expr>,    // Base case condition (e.g., n <= 1)
+        base_value: Box<Expr>,   // Value to return when condition is true
+        step: Box<Expr>,         // Recursive step using self()
+        memo: bool,              // Enable memoization when true
+        parallel_threshold: i64, // Parallelize when n > threshold (0 = no parallelism)
     },
 
     /// iterate(.over: x, .direction: dir, .into: init, .with: op)
@@ -311,10 +311,7 @@ pub enum PatternExpr {
     },
 
     /// transform(input, step1, step2, ...)
-    Transform {
-        input: Box<Expr>,
-        steps: Vec<Expr>,
-    },
+    Transform { input: Box<Expr>, steps: Vec<Expr> },
 
     /// count(collection, predicate)
     Count {
@@ -325,16 +322,16 @@ pub enum PatternExpr {
     /// parallel(.name: expr, .name2: expr2, ...) - concurrent execution
     /// Returns a struct with named fields containing results
     Parallel {
-        branches: Vec<(String, Expr)>,  // Named branches to execute concurrently
-        timeout: Option<Box<Expr>>,      // Optional timeout duration
-        on_error: OnError,               // Error handling strategy
+        branches: Vec<(String, Expr)>, // Named branches to execute concurrently
+        timeout: Option<Box<Expr>>,    // Optional timeout duration
+        on_error: OnError,             // Error handling strategy
     },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OnError {
-    FailFast,    // Cancel siblings on first error (default)
-    CollectAll,  // Wait for all, collect errors
+    FailFast,   // Cancel siblings on first error (default)
+    CollectAll, // Wait for all, collect errors
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -6,19 +6,19 @@
 // - operators.rs: Binary and unary operator evaluation
 // - builtins.rs: Builtin functions and method calls
 
-mod value;
-mod operators;
 mod builtins;
+mod operators;
+mod value;
 
 use crate::ast::*;
 use std::collections::HashMap;
 
 // Re-export core types for external use
-pub use value::{Value, Environment, is_truthy};
+pub use value::{is_truthy, Environment, Value};
 
 // Internal imports from submodules
-use operators::{eval_binary_op, eval_unary_op};
 use builtins::{eval_builtin, eval_method_call};
+use operators::{eval_binary_op, eval_unary_op};
 
 /// Run a module (find and execute main function)
 pub fn run(module: Module) -> Result<(), String> {
@@ -111,7 +111,11 @@ fn eval_block_expr(expr: &Expr, env: &mut Environment) -> Result<Value, String> 
             env.set(target.clone(), val);
             Ok(Value::Nil)
         }
-        Expr::For { binding, iterator, body } => {
+        Expr::For {
+            binding,
+            iterator,
+            body,
+        } => {
             let iter_val = eval_expr(iterator, env)?;
             match iter_val {
                 Value::List(items) => {
@@ -151,24 +155,20 @@ fn eval_expr(expr: &Expr, env: &Environment) -> Result<Value, String> {
                 .ok_or_else(|| format!("Unknown variable: {}", name))
         }
 
-        Expr::Config(name) => {
-            env.configs.get(name)
-                .cloned()
-                .ok_or_else(|| format!("Unknown config: ${}", name))
-        }
+        Expr::Config(name) => env
+            .configs
+            .get(name)
+            .cloned()
+            .ok_or_else(|| format!("Unknown config: ${}", name)),
 
         // Collections
         Expr::List(items) => {
-            let values: Result<Vec<_>, _> = items.iter()
-                .map(|e| eval_expr(e, env))
-                .collect();
+            let values: Result<Vec<_>, _> = items.iter().map(|e| eval_expr(e, env)).collect();
             Ok(Value::List(values?))
         }
 
         Expr::Tuple(items) => {
-            let values: Result<Vec<_>, _> = items.iter()
-                .map(|e| eval_expr(e, env))
-                .collect();
+            let values: Result<Vec<_>, _> = items.iter().map(|e| eval_expr(e, env)).collect();
             Ok(Value::Tuple(values?))
         }
 
@@ -186,9 +186,7 @@ fn eval_expr(expr: &Expr, env: &Environment) -> Result<Value, String> {
 
         // Function calls
         Expr::Call { func, args } => {
-            let arg_values: Result<Vec<_>, _> = args.iter()
-                .map(|a| eval_expr(a, env))
-                .collect();
+            let arg_values: Result<Vec<_>, _> = args.iter().map(|a| eval_expr(a, env)).collect();
             let arg_values = arg_values?;
 
             match func.as_ref() {
@@ -199,7 +197,12 @@ fn eval_expr(expr: &Expr, env: &Environment) -> Result<Value, String> {
                     }
 
                     // Check if it's a closure stored in a local variable
-                    if let Some(Value::Function { params, body, env: closure_env }) = env.get(name) {
+                    if let Some(Value::Function {
+                        params,
+                        body,
+                        env: closure_env,
+                    }) = env.get(name)
+                    {
                         // Create new environment with closure's captured environment
                         let mut call_env = Environment {
                             configs: env.configs.clone(),
@@ -226,7 +229,11 @@ fn eval_expr(expr: &Expr, env: &Environment) -> Result<Value, String> {
         }
 
         // Method calls
-        Expr::MethodCall { receiver, method, args } => {
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
             let recv = eval_expr(receiver, env)?;
 
             // Get length for $ substitution in method args (D-style)
@@ -237,9 +244,8 @@ fn eval_expr(expr: &Expr, env: &Environment) -> Result<Value, String> {
             };
 
             // Evaluate args with $ = length support
-            let arg_values: Result<Vec<_>, _> = args.iter()
-                .map(|a| eval_index_expr(a, env, len))
-                .collect();
+            let arg_values: Result<Vec<_>, _> =
+                args.iter().map(|a| eval_index_expr(a, env, len)).collect();
             eval_method_call(&recv, method, arg_values?, env)
         }
 
@@ -247,11 +253,10 @@ fn eval_expr(expr: &Expr, env: &Environment) -> Result<Value, String> {
         Expr::Field(expr, field) => {
             let value = eval_expr(expr, env)?;
             match value {
-                Value::Struct { fields, .. } => {
-                    fields.get(field)
-                        .cloned()
-                        .ok_or_else(|| format!("Unknown field: {}", field))
-                }
+                Value::Struct { fields, .. } => fields
+                    .get(field)
+                    .cloned()
+                    .ok_or_else(|| format!("Unknown field: {}", field)),
                 _ => Err("Cannot access field of non-struct".to_string()),
             }
         }
@@ -269,16 +274,15 @@ fn eval_expr(expr: &Expr, env: &Environment) -> Result<Value, String> {
             let idx = eval_index_expr(index, env, len)?;
 
             match (value, idx) {
-                (Value::List(items), Value::Int(i)) => {
-                    items.get(i as usize)
-                        .cloned()
-                        .ok_or_else(|| "Index out of bounds".to_string())
-                }
-                (Value::String(s), Value::Int(i)) => {
-                    s.chars().nth(i as usize)
-                        .map(|c| Value::String(c.to_string()))
-                        .ok_or_else(|| "Index out of bounds".to_string())
-                }
+                (Value::List(items), Value::Int(i)) => items
+                    .get(i as usize)
+                    .cloned()
+                    .ok_or_else(|| "Index out of bounds".to_string()),
+                (Value::String(s), Value::Int(i)) => s
+                    .chars()
+                    .nth(i as usize)
+                    .map(|c| Value::String(c.to_string()))
+                    .ok_or_else(|| "Index out of bounds".to_string()),
                 _ => Err("Cannot index".to_string()),
             }
         }
@@ -316,7 +320,11 @@ fn eval_expr(expr: &Expr, env: &Environment) -> Result<Value, String> {
             eval_match(&scrutinee, &m.arms, env)
         }
 
-        Expr::If { condition, then_branch, else_branch } => {
+        Expr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
             let cond = eval_expr(condition, env)?;
             if is_truthy(&cond) {
                 eval_expr(then_branch, env)
@@ -346,13 +354,11 @@ fn eval_expr(expr: &Expr, env: &Environment) -> Result<Value, String> {
         Expr::Pattern(p) => eval_pattern(p, env),
 
         // Lambda
-        Expr::Lambda { params, body } => {
-            Ok(Value::Function {
-                params: params.clone(),
-                body: *body.clone(),
-                env: env.locals.clone(),
-            })
-        }
+        Expr::Lambda { params, body } => Ok(Value::Function {
+            params: params.clone(),
+            body: *body.clone(),
+            env: env.locals.clone(),
+        }),
 
         // Struct literal
         Expr::Struct { name, fields } => {
@@ -405,14 +411,18 @@ fn eval_index_expr(expr: &Expr, env: &Environment, length: i64) -> Result<Value,
 }
 
 /// Evaluate a function call
-fn eval_function_call(fd: &FunctionDef, args: Vec<Value>, env: &Environment) -> Result<Value, String> {
+fn eval_function_call(
+    fd: &FunctionDef,
+    args: Vec<Value>,
+    env: &Environment,
+) -> Result<Value, String> {
     // Capture parameter names in order for recursion support
     let param_names: Vec<String> = fd.params.iter().map(|p| p.name.clone()).collect();
 
     let mut new_env = Environment {
         configs: env.configs.clone(),
         functions: env.functions.clone(),
-        locals: HashMap::new(), // Start with fresh locals
+        locals: HashMap::new(),      // Start with fresh locals
         current_params: param_names, // Store param names in order
     };
 
@@ -427,8 +437,9 @@ fn eval_function_call(fd: &FunctionDef, args: Vec<Value>, env: &Environment) -> 
 fn eval_match(scrutinee: &Value, arms: &[MatchArm], env: &Environment) -> Result<Value, String> {
     for arm in arms {
         if let Some(bindings) = match_pattern(&arm.pattern, scrutinee, env)? {
-            let mut new_env = Environment { 
-                configs: env.configs.clone(), current_params: env.current_params.clone(),
+            let mut new_env = Environment {
+                configs: env.configs.clone(),
+                current_params: env.current_params.clone(),
                 functions: env.functions.clone(),
                 locals: env.locals.clone(),
             };
@@ -442,13 +453,15 @@ fn eval_match(scrutinee: &Value, arms: &[MatchArm], env: &Environment) -> Result
 }
 
 /// Match a pattern against a value, returning bindings if successful
-fn match_pattern(pattern: &Pattern, value: &Value, env: &Environment) -> Result<Option<Vec<(String, Value)>>, String> {
+fn match_pattern(
+    pattern: &Pattern,
+    value: &Value,
+    env: &Environment,
+) -> Result<Option<Vec<(String, Value)>>, String> {
     match pattern {
         Pattern::Wildcard => Ok(Some(Vec::new())),
 
-        Pattern::Binding(name) => {
-            Ok(Some(vec![(name.clone(), value.clone())]))
-        }
+        Pattern::Binding(name) => Ok(Some(vec![(name.clone(), value.clone())])),
 
         Pattern::Literal(expr) => {
             let expected = eval_expr(expr, env)?;
@@ -459,51 +472,49 @@ fn match_pattern(pattern: &Pattern, value: &Value, env: &Environment) -> Result<
             }
         }
 
-        Pattern::Variant { name, fields } => {
-            match (name.as_str(), value) {
-                ("Ok", Value::Ok(inner)) => {
-                    let mut bindings = Vec::new();
-                    for (fname, fpat) in fields {
-                        if fname == "value" {
-                            if let Some(bs) = match_pattern(fpat, inner, env)? {
-                                bindings.extend(bs);
-                            } else {
-                                return Ok(None);
-                            }
+        Pattern::Variant { name, fields } => match (name.as_str(), value) {
+            ("Ok", Value::Ok(inner)) => {
+                let mut bindings = Vec::new();
+                for (fname, fpat) in fields {
+                    if fname == "value" {
+                        if let Some(bs) = match_pattern(fpat, inner, env)? {
+                            bindings.extend(bs);
+                        } else {
+                            return Ok(None);
                         }
                     }
-                    Ok(Some(bindings))
                 }
-                ("Err", Value::Err(inner)) => {
-                    let mut bindings = Vec::new();
-                    for (fname, fpat) in fields {
-                        if fname == "error" {
-                            if let Some(bs) = match_pattern(fpat, inner, env)? {
-                                bindings.extend(bs);
-                            } else {
-                                return Ok(None);
-                            }
-                        }
-                    }
-                    Ok(Some(bindings))
-                }
-                ("Some", Value::Some(inner)) => {
-                    let mut bindings = Vec::new();
-                    for (fname, fpat) in fields {
-                        if fname == "value" {
-                            if let Some(bs) = match_pattern(fpat, inner, env)? {
-                                bindings.extend(bs);
-                            } else {
-                                return Ok(None);
-                            }
-                        }
-                    }
-                    Ok(Some(bindings))
-                }
-                ("None", Value::None_) => Ok(Some(Vec::new())),
-                _ => Ok(None),
+                Ok(Some(bindings))
             }
-        }
+            ("Err", Value::Err(inner)) => {
+                let mut bindings = Vec::new();
+                for (fname, fpat) in fields {
+                    if fname == "error" {
+                        if let Some(bs) = match_pattern(fpat, inner, env)? {
+                            bindings.extend(bs);
+                        } else {
+                            return Ok(None);
+                        }
+                    }
+                }
+                Ok(Some(bindings))
+            }
+            ("Some", Value::Some(inner)) => {
+                let mut bindings = Vec::new();
+                for (fname, fpat) in fields {
+                    if fname == "value" {
+                        if let Some(bs) = match_pattern(fpat, inner, env)? {
+                            bindings.extend(bs);
+                        } else {
+                            return Ok(None);
+                        }
+                    }
+                }
+                Ok(Some(bindings))
+            }
+            ("None", Value::None_) => Ok(Some(Vec::new())),
+            _ => Ok(None),
+        },
 
         Pattern::Condition(expr) => {
             let result = eval_expr(expr, env)?;
@@ -522,7 +533,11 @@ fn match_pattern(pattern: &Pattern, value: &Value, env: &Environment) -> Result<
 
 fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, String> {
     match pattern {
-        PatternExpr::Fold { collection, init, op } => {
+        PatternExpr::Fold {
+            collection,
+            init,
+            op,
+        } => {
             let coll = eval_expr(collection, env)?;
             let initial = eval_expr(init, env)?;
 
@@ -543,12 +558,17 @@ fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, Strin
                     Value::BuiltinFunction(name) if name == "*" => {
                         eval_binary_op(&BinaryOp::Mul, acc, item)?
                     }
-                    Value::Function { params, body, env: fn_env } => {
+                    Value::Function {
+                        params,
+                        body,
+                        env: fn_env,
+                    } => {
                         if params.len() != 2 {
                             return Err("fold function must take 2 arguments".to_string());
                         }
-                        let mut call_env = Environment { 
-                            configs: env.configs.clone(), current_params: env.current_params.clone(),
+                        let mut call_env = Environment {
+                            configs: env.configs.clone(),
+                            current_params: env.current_params.clone(),
                             functions: env.functions.clone(),
                             locals: fn_env.clone(),
                         };
@@ -562,7 +582,10 @@ fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, Strin
             Ok(acc)
         }
 
-        PatternExpr::Map { collection, transform } => {
+        PatternExpr::Map {
+            collection,
+            transform,
+        } => {
             let coll = eval_expr(collection, env)?;
             let transform_val = eval_expr(transform, env)?;
 
@@ -574,9 +597,14 @@ fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, Strin
             let mut results = Vec::new();
             for item in items {
                 let result = match &transform_val {
-                    Value::Function { params, body, env: fn_env } => {
-                        let mut call_env = Environment { 
-                            configs: env.configs.clone(), current_params: env.current_params.clone(),
+                    Value::Function {
+                        params,
+                        body,
+                        env: fn_env,
+                    } => {
+                        let mut call_env = Environment {
+                            configs: env.configs.clone(),
+                            current_params: env.current_params.clone(),
                             functions: env.functions.clone(),
                             locals: fn_env.clone(),
                         };
@@ -592,7 +620,10 @@ fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, Strin
             Ok(Value::List(results))
         }
 
-        PatternExpr::Filter { collection, predicate } => {
+        PatternExpr::Filter {
+            collection,
+            predicate,
+        } => {
             let coll = eval_expr(collection, env)?;
             let pred_val = eval_expr(predicate, env)?;
 
@@ -604,9 +635,14 @@ fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, Strin
             let mut results = Vec::new();
             for item in items {
                 let keep = match &pred_val {
-                    Value::Function { params, body, env: fn_env } => {
-                        let mut call_env = Environment { 
-                            configs: env.configs.clone(), current_params: env.current_params.clone(),
+                    Value::Function {
+                        params,
+                        body,
+                        env: fn_env,
+                    } => {
+                        let mut call_env = Environment {
+                            configs: env.configs.clone(),
+                            current_params: env.current_params.clone(),
                             functions: env.functions.clone(),
                             locals: fn_env.clone(),
                         };
@@ -636,9 +672,14 @@ fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, Strin
             let mut results = Vec::new();
             for item in items {
                 let result = match &transform_val {
-                    Value::Function { params, body, env: fn_env } => {
-                        let mut call_env = Environment { 
-                            configs: env.configs.clone(), current_params: env.current_params.clone(),
+                    Value::Function {
+                        params,
+                        body,
+                        env: fn_env,
+                    } => {
+                        let mut call_env = Environment {
+                            configs: env.configs.clone(),
+                            current_params: env.current_params.clone(),
                             functions: env.functions.clone(),
                             locals: fn_env.clone(),
                         };
@@ -655,7 +696,7 @@ fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, Strin
                                 return Err(format!("Unknown function: {}", name));
                             }
                         } else {
-                            return Err("collect transform must be a function".to_string())
+                            return Err("collect transform must be a function".to_string());
                         }
                     }
                 };
@@ -664,7 +705,10 @@ fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, Strin
             Ok(Value::List(results))
         }
 
-        PatternExpr::Count { collection, predicate } => {
+        PatternExpr::Count {
+            collection,
+            predicate,
+        } => {
             let coll = eval_expr(collection, env)?;
             let pred_val = eval_expr(predicate, env)?;
 
@@ -677,9 +721,14 @@ fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, Strin
             let mut count = 0;
             for item in items {
                 let matches = match &pred_val {
-                    Value::Function { params, body, env: fn_env } => {
-                        let mut call_env = Environment { 
-                            configs: env.configs.clone(), current_params: env.current_params.clone(),
+                    Value::Function {
+                        params,
+                        body,
+                        env: fn_env,
+                    } => {
+                        let mut call_env = Environment {
+                            configs: env.configs.clone(),
+                            current_params: env.current_params.clone(),
                             functions: env.functions.clone(),
                             locals: fn_env.clone(),
                         };
@@ -697,7 +746,13 @@ fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, Strin
             Ok(Value::Int(count))
         }
 
-        PatternExpr::Recurse { condition, base_value, step, memo, parallel_threshold } => {
+        PatternExpr::Recurse {
+            condition,
+            base_value,
+            step,
+            memo,
+            parallel_threshold,
+        } => {
             // For recurse, we need to be inside a function context
             // The recurse pattern creates a recursive function that:
             // 1. Checks condition - if true, returns base_value
@@ -715,16 +770,35 @@ fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, Strin
             } else {
                 // Recursive case: evaluate step
                 // Get current n value to check against parallel threshold (use first int param)
-                let current_n = param_names.iter()
+                let current_n = param_names
+                    .iter()
                     .find_map(|name| {
-                        if let Some(Value::Int(n)) = env.get(name) { Some(n) } else { None }
+                        if let Some(Value::Int(n)) = env.get(name) {
+                            Some(n)
+                        } else {
+                            None
+                        }
                     })
                     .unwrap_or(0);
-                eval_recurse_step(step, condition, base_value, env, *memo, *parallel_threshold, current_n, param_names)
+                eval_recurse_step(
+                    step,
+                    condition,
+                    base_value,
+                    env,
+                    *memo,
+                    *parallel_threshold,
+                    current_n,
+                    param_names,
+                )
             }
         }
 
-        PatternExpr::Iterate { over, direction, into, with } => {
+        PatternExpr::Iterate {
+            over,
+            direction,
+            into,
+            with,
+        } => {
             let collection = eval_expr(over, env)?;
             let initial = eval_expr(into, env)?;
             let op_val = eval_expr(with, env)?;
@@ -744,9 +818,14 @@ fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, Strin
             let mut acc = initial;
             for (i, item) in items.into_iter().enumerate() {
                 acc = match &op_val {
-                    Value::Function { params, body, env: fn_env } => {
-                        let mut call_env = Environment { 
-                            configs: env.configs.clone(), current_params: env.current_params.clone(),
+                    Value::Function {
+                        params,
+                        body,
+                        env: fn_env,
+                    } => {
+                        let mut call_env = Environment {
+                            configs: env.configs.clone(),
+                            current_params: env.current_params.clone(),
                             functions: env.functions.clone(),
                             locals: fn_env.clone(),
                         };
@@ -778,9 +857,14 @@ fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, Strin
                 // Each step can be a function or a lambda
                 let step_val = eval_expr(step_expr, env)?;
                 value = match step_val {
-                    Value::Function { params, body, env: fn_env } => {
-                        let mut call_env = Environment { 
-                            configs: env.configs.clone(), current_params: env.current_params.clone(),
+                    Value::Function {
+                        params,
+                        body,
+                        env: fn_env,
+                    } => {
+                        let mut call_env = Environment {
+                            configs: env.configs.clone(),
+                            current_params: env.current_params.clone(),
                             functions: env.functions.clone(),
                             locals: fn_env.clone(),
                         };
@@ -788,7 +872,14 @@ fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, Strin
                             call_env.set(param.clone(), value);
                         }
                         // Also bind 'x' as common transform variable
-                        call_env.set("x".to_string(), call_env.locals.get(params.first().unwrap_or(&"x".to_string())).cloned().unwrap_or(Value::Nil));
+                        call_env.set(
+                            "x".to_string(),
+                            call_env
+                                .locals
+                                .get(params.first().unwrap_or(&"x".to_string()))
+                                .cloned()
+                                .unwrap_or(Value::Nil),
+                        );
                         eval_expr(&body, &call_env)?
                     }
                     _ => {
@@ -800,7 +891,7 @@ fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, Strin
                                 return Err(format!("Unknown transform function: {}", name));
                             }
                         } else {
-                            return Err("Transform step must be a function".to_string())
+                            return Err("Transform step must be a function".to_string());
                         }
                     }
                 };
@@ -808,7 +899,11 @@ fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, Strin
             Ok(value)
         }
 
-        PatternExpr::Parallel { branches, timeout: _, on_error } => {
+        PatternExpr::Parallel {
+            branches,
+            timeout: _,
+            on_error,
+        } => {
             // Execute all branches concurrently using threads
             use std::sync::mpsc;
             use std::thread;
@@ -855,18 +950,17 @@ fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, Strin
                     Ok((name, Ok(value))) => {
                         results.insert(name, value);
                     }
-                    Ok((name, Err(e))) => {
-                        match on_error {
-                            OnError::FailFast => {
-                                if first_error.is_none() {
-                                    first_error = Some(format!("parallel branch '{}' failed: {}", name, e));
-                                }
-                            }
-                            OnError::CollectAll => {
-                                results.insert(name, Value::Err(Box::new(Value::String(e))));
+                    Ok((name, Err(e))) => match on_error {
+                        OnError::FailFast => {
+                            if first_error.is_none() {
+                                first_error =
+                                    Some(format!("parallel branch '{}' failed: {}", name, e));
                             }
                         }
-                    }
+                        OnError::CollectAll => {
+                            results.insert(name, Value::Err(Box::new(Value::String(e))));
+                        }
+                    },
                     Err(_) => break,
                 }
             }
@@ -904,7 +998,18 @@ fn eval_recurse_step(
     param_names: &[String],
 ) -> Result<Value, String> {
     // For self() calls, we need to substitute them with recursive evaluations
-    eval_recurse_expr(step, step, condition, base_value, env, memo, parallel_threshold, current_n, &mut HashMap::new(), param_names)
+    eval_recurse_expr(
+        step,
+        step,
+        condition,
+        base_value,
+        env,
+        memo,
+        parallel_threshold,
+        current_n,
+        &mut HashMap::new(),
+        param_names,
+    )
 }
 
 /// Recursively evaluate an expression, handling self() calls
@@ -932,16 +1037,37 @@ fn eval_recurse_expr(
                 if name == "self" {
                     // This is a recursive call
                     // Evaluate the arguments in current environment
-                    let arg_values: Result<Vec<Value>, String> = args.iter()
-                        .map(|a| eval_recurse_expr(a, step, condition, base_value, env, memo, parallel_threshold, current_n, cache, param_names))
+                    let arg_values: Result<Vec<Value>, String> = args
+                        .iter()
+                        .map(|a| {
+                            eval_recurse_expr(
+                                a,
+                                step,
+                                condition,
+                                base_value,
+                                env,
+                                memo,
+                                parallel_threshold,
+                                current_n,
+                                cache,
+                                param_names,
+                            )
+                        })
                         .collect();
                     let arg_values = arg_values?;
 
                     // Create cache key from integer arguments
                     let cache_key: Vec<i64> = if memo {
-                        arg_values.iter().filter_map(|v| {
-                            if let Value::Int(n) = v { Some(*n) } else { None }
-                        }).collect()
+                        arg_values
+                            .iter()
+                            .filter_map(|v| {
+                                if let Value::Int(n) = v {
+                                    Some(*n)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect()
                     } else {
                         vec![]
                     };
@@ -954,8 +1080,9 @@ fn eval_recurse_expr(
                     }
 
                     // Create new environment with updated parameters
-                    let mut new_env = Environment { 
-                        configs: env.configs.clone(), current_params: env.current_params.clone(),
+                    let mut new_env = Environment {
+                        configs: env.configs.clone(),
+                        current_params: env.current_params.clone(),
                         functions: env.functions.clone(),
                         locals: env.locals.clone(),
                     };
@@ -969,8 +1096,15 @@ fn eval_recurse_expr(
                     }
 
                     // Get the new n value for threshold comparison (use first int arg)
-                    let new_n = arg_values.iter()
-                        .find_map(|v| if let Value::Int(n) = v { Some(*n) } else { None })
+                    let new_n = arg_values
+                        .iter()
+                        .find_map(|v| {
+                            if let Value::Int(n) = v {
+                                Some(*n)
+                            } else {
+                                None
+                            }
+                        })
                         .unwrap_or(0);
 
                     // Check base condition with new environment
@@ -981,7 +1115,18 @@ fn eval_recurse_expr(
                     } else {
                         // Recursively evaluate the STEP expression with new environment
                         // Pass the new n value for threshold comparison
-                        eval_recurse_expr(step, step, condition, base_value, &new_env, memo, parallel_threshold, new_n, cache, param_names)?
+                        eval_recurse_expr(
+                            step,
+                            step,
+                            condition,
+                            base_value,
+                            &new_env,
+                            memo,
+                            parallel_threshold,
+                            new_n,
+                            cache,
+                            param_names,
+                        )?
                     };
 
                     // Cache the result if memoization is enabled
@@ -994,8 +1139,22 @@ fn eval_recurse_expr(
             }
 
             // Regular function call - evaluate normally but recurse into args
-            let arg_values: Result<Vec<Value>, String> = args.iter()
-                .map(|a| eval_recurse_expr(a, step, condition, base_value, env, memo, parallel_threshold, current_n, cache, param_names))
+            let arg_values: Result<Vec<Value>, String> = args
+                .iter()
+                .map(|a| {
+                    eval_recurse_expr(
+                        a,
+                        step,
+                        condition,
+                        base_value,
+                        env,
+                        memo,
+                        parallel_threshold,
+                        current_n,
+                        cache,
+                        param_names,
+                    )
+                })
                 .collect();
             let arg_values = arg_values?;
 
@@ -1020,7 +1179,10 @@ fn eval_recurse_expr(
         // If parallel threshold is exceeded, run left and right in separate threads
         Expr::Binary { op, left, right } => {
             // Only parallelize when current_n > parallel_threshold and both sides have self() calls
-            if current_n > parallel_threshold && contains_self_call(left) && contains_self_call(right) {
+            if current_n > parallel_threshold
+                && contains_self_call(left)
+                && contains_self_call(right)
+            {
                 // Both sides have self() calls - parallelize them
                 use std::thread;
 
@@ -1028,8 +1190,9 @@ fn eval_recurse_expr(
                 let condition_clone = condition.clone();
                 let base_value_clone = base_value.clone();
                 let left_clone = left.as_ref().clone();
-                let env_left = Environment { 
-                    configs: env.configs.clone(), current_params: env.current_params.clone(),
+                let env_left = Environment {
+                    configs: env.configs.clone(),
+                    current_params: env.current_params.clone(),
                     functions: env.functions.clone(),
                     locals: env.locals.clone(),
                 };
@@ -1053,17 +1216,51 @@ fn eval_recurse_expr(
                 });
 
                 // Evaluate right side in current thread
-                let r = eval_recurse_expr(right, step, condition, base_value, env, memo, parallel_threshold, current_n, cache, param_names)?;
+                let r = eval_recurse_expr(
+                    right,
+                    step,
+                    condition,
+                    base_value,
+                    env,
+                    memo,
+                    parallel_threshold,
+                    current_n,
+                    cache,
+                    param_names,
+                )?;
 
                 // Wait for left side
-                let l = left_handle.join()
+                let l = left_handle
+                    .join()
                     .map_err(|_| "Parallel recursion thread panicked".to_string())??;
 
                 eval_binary_op(op, l, r)
             } else {
                 // Sequential evaluation
-                let l = eval_recurse_expr(left, step, condition, base_value, env, memo, parallel_threshold, current_n, cache, param_names)?;
-                let r = eval_recurse_expr(right, step, condition, base_value, env, memo, parallel_threshold, current_n, cache, param_names)?;
+                let l = eval_recurse_expr(
+                    left,
+                    step,
+                    condition,
+                    base_value,
+                    env,
+                    memo,
+                    parallel_threshold,
+                    current_n,
+                    cache,
+                    param_names,
+                )?;
+                let r = eval_recurse_expr(
+                    right,
+                    step,
+                    condition,
+                    base_value,
+                    env,
+                    memo,
+                    parallel_threshold,
+                    current_n,
+                    cache,
+                    param_names,
+                )?;
                 eval_binary_op(op, l, r)
             }
         }
@@ -1088,9 +1285,7 @@ fn extract_primary_param<'a>(expr: &Expr, param_names: &'a [String]) -> Option<&
             extract_primary_param(left, param_names)
                 .or_else(|| extract_primary_param(right, param_names))
         }
-        Expr::Unary { operand, .. } => {
-            extract_primary_param(operand, param_names)
-        }
+        Expr::Unary { operand, .. } => extract_primary_param(operand, param_names),
         Expr::Call { args, .. } => {
             // Check arguments
             for arg in args {
@@ -1100,11 +1295,17 @@ fn extract_primary_param<'a>(expr: &Expr, param_names: &'a [String]) -> Option<&
             }
             None
         }
-        Expr::If { condition, then_branch, else_branch } => {
-            extract_primary_param(condition, param_names)
-                .or_else(|| extract_primary_param(then_branch, param_names))
-                .or_else(|| else_branch.as_ref().and_then(|e| extract_primary_param(e, param_names)))
-        }
+        Expr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => extract_primary_param(condition, param_names)
+            .or_else(|| extract_primary_param(then_branch, param_names))
+            .or_else(|| {
+                else_branch
+                    .as_ref()
+                    .and_then(|e| extract_primary_param(e, param_names))
+            }),
         _ => None,
     }
 }
@@ -1120,9 +1321,7 @@ fn contains_self_call(expr: &Expr) -> bool {
             }
             args.iter().any(contains_self_call)
         }
-        Expr::Binary { left, right, .. } => {
-            contains_self_call(left) || contains_self_call(right)
-        }
+        Expr::Binary { left, right, .. } => contains_self_call(left) || contains_self_call(right),
         Expr::Unary { operand, .. } => contains_self_call(operand),
         _ => false,
     }

@@ -1,7 +1,7 @@
 // Binary and unary operator evaluation
 
-use crate::ast::{BinaryOp, UnaryOp};
 use super::value::Value;
+use crate::ast::{BinaryOp, UnaryOp};
 
 /// Evaluate a binary operation
 pub fn eval_binary_op(op: &BinaryOp, left: Value, right: Value) -> Result<Value, String> {
@@ -9,7 +9,9 @@ pub fn eval_binary_op(op: &BinaryOp, left: Value, right: Value) -> Result<Value,
         (BinaryOp::Add, Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
         (BinaryOp::Add, Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
         (BinaryOp::Add, Value::String(a), Value::String(b)) => Ok(Value::String(a + &b)),
-        (BinaryOp::Add, Value::String(a), Value::Int(b)) => Ok(Value::String(format!("{}{}", a, b))),
+        (BinaryOp::Add, Value::String(a), Value::Int(b)) => {
+            Ok(Value::String(format!("{}{}", a, b)))
+        }
         (BinaryOp::Add, Value::List(mut a), Value::List(b)) => {
             a.extend(b);
             Ok(Value::List(a))

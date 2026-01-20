@@ -1,6 +1,6 @@
 // Builtin functions and method calls
 
-use super::value::{Value, Environment};
+use super::value::{Environment, Value};
 
 /// Evaluate a builtin function call
 /// Returns Ok(Some(value)) if handled, Ok(None) if not a builtin
@@ -8,7 +8,9 @@ pub fn eval_builtin(name: &str, args: &[Value]) -> Result<Option<Value>, String>
     match name {
         "print" => {
             for (i, arg) in args.iter().enumerate() {
-                if i > 0 { print!(" "); }
+                if i > 0 {
+                    print!(" ");
+                }
                 print!("{}", arg);
             }
             println!();
@@ -27,7 +29,8 @@ pub fn eval_builtin(name: &str, args: &[Value]) -> Result<Option<Value>, String>
             match &args[0] {
                 Value::Int(n) => Ok(Some(Value::Int(*n))),
                 Value::Float(f) => Ok(Some(Value::Int(*f as i64))),
-                Value::String(s) => s.parse::<i64>()
+                Value::String(s) => s
+                    .parse::<i64>()
                     .map(|n| Some(Value::Int(n)))
                     .map_err(|_| "Cannot parse as int".to_string()),
                 _ => Err("Cannot convert to int".to_string()),
@@ -77,7 +80,12 @@ pub fn eval_builtin(name: &str, args: &[Value]) -> Result<Option<Value>, String>
 }
 
 /// Evaluate a method call on a value
-pub fn eval_method_call(recv: &Value, method: &str, args: Vec<Value>, _env: &Environment) -> Result<Value, String> {
+pub fn eval_method_call(
+    recv: &Value,
+    method: &str,
+    args: Vec<Value>,
+    _env: &Environment,
+) -> Result<Value, String> {
     match (recv, method) {
         // String methods
         (Value::String(s), "len") => Ok(Value::Int(s.len() as i64)),
@@ -92,7 +100,8 @@ pub fn eval_method_call(recv: &Value, method: &str, args: Vec<Value>, _env: &Env
         }
         (Value::String(s), "split") => {
             if let Some(Value::String(sep)) = args.first() {
-                let parts: Vec<Value> = s.split(sep.as_str())
+                let parts: Vec<Value> = s
+                    .split(sep.as_str())
                     .map(|p| Value::String(p.to_string()))
                     .collect();
                 Ok(Value::List(parts))
@@ -121,20 +130,22 @@ pub fn eval_method_call(recv: &Value, method: &str, args: Vec<Value>, _env: &Env
         (Value::List(items), "len") => Ok(Value::Int(items.len() as i64)),
         (Value::List(items), "join") => {
             if let Some(Value::String(sep)) = args.first() {
-                let s: Vec<String> = items.iter()
-                    .map(|v| format!("{}", v))
-                    .collect();
+                let s: Vec<String> = items.iter().map(|v| format!("{}", v)).collect();
                 Ok(Value::String(s.join(sep)))
             } else {
                 Err("join() requires a string argument".to_string())
             }
         }
-        (Value::List(items), "first") => {
-            Ok(items.first().cloned().map(|v| Value::Some(Box::new(v))).unwrap_or(Value::None_))
-        }
-        (Value::List(items), "last") => {
-            Ok(items.last().cloned().map(|v| Value::Some(Box::new(v))).unwrap_or(Value::None_))
-        }
+        (Value::List(items), "first") => Ok(items
+            .first()
+            .cloned()
+            .map(|v| Value::Some(Box::new(v)))
+            .unwrap_or(Value::None_)),
+        (Value::List(items), "last") => Ok(items
+            .last()
+            .cloned()
+            .map(|v| Value::Some(Box::new(v)))
+            .unwrap_or(Value::None_)),
         (Value::List(items), "push") => {
             let mut new_items = items.clone();
             for arg in args {
@@ -146,7 +157,7 @@ pub fn eval_method_call(recv: &Value, method: &str, args: Vec<Value>, _env: &Env
             if items.is_empty() {
                 Ok(Value::List(vec![]))
             } else {
-                let new_items: Vec<_> = items[..items.len()-1].to_vec();
+                let new_items: Vec<_> = items[..items.len() - 1].to_vec();
                 Ok(Value::List(new_items))
             }
         }

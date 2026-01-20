@@ -34,9 +34,7 @@ impl Parser {
 
     fn expect(&mut self, expected: Token) -> Result<&SpannedToken, String> {
         match self.current() {
-            Some(t) if *t == expected => {
-                Ok(self.advance().unwrap())
-            }
+            Some(t) if *t == expected => Ok(self.advance().unwrap()),
             Some(t) => Err(format!("Expected {:?}, found {:?}", expected, t)),
             None => Err(format!("Expected {:?}, found end of input", expected)),
         }
@@ -129,7 +127,8 @@ impl Parser {
         }
 
         // Otherwise, parse as function
-        self.parse_function_rest(public, name, start).map(Item::Function)
+        self.parse_function_rest(public, name, start)
+            .map(Item::Function)
     }
 
     fn parse_test(&mut self, name: String, start: usize) -> Result<Item, String> {
@@ -156,7 +155,9 @@ impl Parser {
         self.expect(Token::Eq)?;
         let body = self.parse_expr()?;
 
-        let end = self.tokens.get(self.pos.saturating_sub(1))
+        let end = self
+            .tokens
+            .get(self.pos.saturating_sub(1))
             .map(|t| t.span.end)
             .unwrap_or(start);
 
@@ -192,7 +193,9 @@ impl Parser {
         self.expect(Token::Eq)?;
 
         let value = self.parse_expr()?;
-        let end = self.tokens.get(self.pos.saturating_sub(1))
+        let end = self
+            .tokens
+            .get(self.pos.saturating_sub(1))
             .map(|t| t.span.end)
             .unwrap_or(start);
 
@@ -204,7 +207,12 @@ impl Parser {
         })
     }
 
-    fn parse_function_rest(&mut self, public: bool, name: String, start: usize) -> Result<FunctionDef, String> {
+    fn parse_function_rest(
+        &mut self,
+        public: bool,
+        name: String,
+        start: usize,
+    ) -> Result<FunctionDef, String> {
         // Optional type parameters
         let type_params = if matches!(self.current(), Some(Token::Ident(_))) {
             // Check if next is also an identifier (type param) or LParen (params)
@@ -235,7 +243,9 @@ impl Parser {
         self.skip_newlines();
         let body = self.parse_expr()?;
 
-        let end = self.tokens.get(self.pos.saturating_sub(1))
+        let end = self
+            .tokens
+            .get(self.pos.saturating_sub(1))
             .map(|t| t.span.end)
             .unwrap_or(start);
 
@@ -386,12 +396,30 @@ impl Parser {
 
         // Named type
         let name = match self.current() {
-            Some(Token::IntType) => { self.advance(); "int".to_string() }
-            Some(Token::FloatType) => { self.advance(); "float".to_string() }
-            Some(Token::StrType) => { self.advance(); "str".to_string() }
-            Some(Token::BoolType) => { self.advance(); "bool".to_string() }
-            Some(Token::VoidType) => { self.advance(); "void".to_string() }
-            Some(Token::ResultType) => { self.advance(); "Result".to_string() }
+            Some(Token::IntType) => {
+                self.advance();
+                "int".to_string()
+            }
+            Some(Token::FloatType) => {
+                self.advance();
+                "float".to_string()
+            }
+            Some(Token::StrType) => {
+                self.advance();
+                "str".to_string()
+            }
+            Some(Token::BoolType) => {
+                self.advance();
+                "bool".to_string()
+            }
+            Some(Token::VoidType) => {
+                self.advance();
+                "void".to_string()
+            }
+            Some(Token::ResultType) => {
+                self.advance();
+                "Result".to_string()
+            }
             Some(Token::Ident(n)) => {
                 let n = n.clone();
                 self.advance();
@@ -401,16 +429,31 @@ impl Parser {
         };
 
         // Check for generic type arguments
-        if matches!(self.current(), Some(Token::Ident(_)) | Some(Token::IntType) |
-                    Some(Token::StrType) | Some(Token::BoolType) | Some(Token::Question) |
-                    Some(Token::LBracket)) {
+        if matches!(
+            self.current(),
+            Some(Token::Ident(_))
+                | Some(Token::IntType)
+                | Some(Token::StrType)
+                | Some(Token::BoolType)
+                | Some(Token::Question)
+                | Some(Token::LBracket)
+        ) {
             // Could be generic arguments like `Result T E`
             let mut args = Vec::new();
-            while matches!(self.current(), Some(Token::Ident(_)) | Some(Token::IntType) |
-                          Some(Token::StrType) | Some(Token::BoolType) | Some(Token::Question) |
-                          Some(Token::LBracket)) {
+            while matches!(
+                self.current(),
+                Some(Token::Ident(_))
+                    | Some(Token::IntType)
+                    | Some(Token::StrType)
+                    | Some(Token::BoolType)
+                    | Some(Token::Question)
+                    | Some(Token::LBracket)
+            ) {
                 // Stop if we hit something that looks like a new declaration
-                if matches!(self.peek(1), Some(Token::Colon) | Some(Token::Arrow) | Some(Token::Eq)) {
+                if matches!(
+                    self.peek(1),
+                    Some(Token::Colon) | Some(Token::Arrow) | Some(Token::Eq)
+                ) {
                     break;
                 }
                 args.push(self.parse_type()?);
@@ -449,7 +492,10 @@ impl Parser {
         // Optional type parameters
         let mut params = Vec::new();
         while let Some(Token::Ident(p)) = self.current() {
-            if matches!(self.peek(1), Some(Token::Eq) | Some(Token::LBrace) | Some(Token::Pipe)) {
+            if matches!(
+                self.peek(1),
+                Some(Token::Eq) | Some(Token::LBrace) | Some(Token::Pipe)
+            ) {
                 break;
             }
             params.push(p.clone());
@@ -476,7 +522,9 @@ impl Parser {
             return Err("Expected =, {, or | after type name".to_string());
         };
 
-        let end = self.tokens.get(self.pos.saturating_sub(1))
+        let end = self
+            .tokens
+            .get(self.pos.saturating_sub(1))
             .map(|t| t.span.end)
             .unwrap_or(start);
 
@@ -640,7 +688,9 @@ impl Parser {
 
         self.expect(Token::RBrace)?;
 
-        let end = self.tokens.get(self.pos.saturating_sub(1))
+        let end = self
+            .tokens
+            .get(self.pos.saturating_sub(1))
             .map(|t| t.span.end)
             .unwrap_or(start);
 
@@ -726,8 +776,10 @@ impl Parser {
     fn parse_comparison_expr(&mut self) -> Result<Expr, String> {
         let mut left = self.parse_additive_expr()?;
 
-        while matches!(self.current(), Some(Token::Lt) | Some(Token::LtEq) |
-                       Some(Token::Gt) | Some(Token::GtEq)) {
+        while matches!(
+            self.current(),
+            Some(Token::Lt) | Some(Token::LtEq) | Some(Token::Gt) | Some(Token::GtEq)
+        ) {
             let op = match self.current() {
                 Some(Token::Lt) => BinaryOp::Lt,
                 Some(Token::LtEq) => BinaryOp::LtEq,
@@ -771,8 +823,10 @@ impl Parser {
     fn parse_multiplicative_expr(&mut self) -> Result<Expr, String> {
         let mut left = self.parse_unary_expr()?;
 
-        while matches!(self.current(), Some(Token::Star) | Some(Token::Slash) |
-                       Some(Token::Percent) | Some(Token::Div)) {
+        while matches!(
+            self.current(),
+            Some(Token::Star) | Some(Token::Slash) | Some(Token::Percent) | Some(Token::Div)
+        ) {
             let op = match self.current() {
                 Some(Token::Star) => BinaryOp::Mul,
                 Some(Token::Slash) => BinaryOp::Div,
@@ -1040,12 +1094,13 @@ impl Parser {
                     if matches!(self.current(), Some(Token::Arrow)) {
                         self.advance();
                         // Convert exprs to param names
-                        let params: Result<Vec<String>, String> = exprs.into_iter().map(|e| {
-                            match e {
+                        let params: Result<Vec<String>, String> = exprs
+                            .into_iter()
+                            .map(|e| match e {
                                 Expr::Ident(n) => Ok(n),
                                 _ => Err("Lambda parameters must be identifiers".to_string()),
-                            }
-                        }).collect();
+                            })
+                            .collect();
                         let body = self.parse_expr()?;
                         return Ok(Expr::Lambda {
                             params: params?,
@@ -1216,7 +1271,13 @@ impl Parser {
                 // Could be unary minus or standalone operator
                 // Check if followed by a number/expr
                 self.advance();
-                if matches!(self.current(), Some(Token::Int(_)) | Some(Token::Float(_)) | Some(Token::Ident(_)) | Some(Token::LParen)) {
+                if matches!(
+                    self.current(),
+                    Some(Token::Int(_))
+                        | Some(Token::Float(_))
+                        | Some(Token::Ident(_))
+                        | Some(Token::LParen)
+                ) {
                     let operand = self.parse_primary_expr()?;
                     Ok(Expr::Unary {
                         op: UnaryOp::Neg,
@@ -1226,7 +1287,10 @@ impl Parser {
                     Ok(Expr::Ident("-".to_string()))
                 }
             }
-            _ => Err(format!("Unexpected token in expression: {:?}", self.current())),
+            _ => Err(format!(
+                "Unexpected token in expression: {:?}",
+                self.current()
+            )),
         }
     }
 
@@ -1288,8 +1352,7 @@ impl Parser {
 
     /// Check if the current position has named arg syntax (.property:)
     fn is_named_arg_start(&self) -> bool {
-        matches!(self.current(), Some(Token::Dot)) &&
-        matches!(self.peek(1), Some(Token::Ident(_)))
+        matches!(self.current(), Some(Token::Dot)) && matches!(self.peek(1), Some(Token::Ident(_)))
     }
 
     fn parse_match_expr(&mut self) -> Result<Expr, String> {
@@ -1374,9 +1437,16 @@ impl Parser {
                     Some(Token::Ok_) => "Ok",
                     Some(Token::Err_) => "Err",
                     Some(Token::Some_) => "Some",
-                    Some(Token::None_) => { self.advance(); return Ok(Pattern::Variant { name: "None".to_string(), fields: Vec::new() }); }
+                    Some(Token::None_) => {
+                        self.advance();
+                        return Ok(Pattern::Variant {
+                            name: "None".to_string(),
+                            fields: Vec::new(),
+                        });
+                    }
                     _ => unreachable!(),
-                }.to_string();
+                }
+                .to_string();
                 self.advance();
 
                 let fields = if matches!(self.current(), Some(Token::LBrace)) {
@@ -1434,7 +1504,10 @@ impl Parser {
 
                 Ok(Pattern::Binding(n))
             }
-            Some(Token::Int(_)) | Some(Token::String(_)) | Some(Token::True) | Some(Token::False) => {
+            Some(Token::Int(_))
+            | Some(Token::String(_))
+            | Some(Token::True)
+            | Some(Token::False) => {
                 let expr = self.parse_primary_expr()?;
                 Ok(Pattern::Literal(expr))
             }
@@ -1465,11 +1538,11 @@ impl Parser {
 
         // Check if arg count matches pattern signature
         let is_pattern = match keyword {
-            "fold" => args.len() == 3,      // fold(collection, init, op)
-            "map" => args.len() == 2,       // map(collection, transform)
-            "filter" => args.len() == 2,    // filter(collection, predicate)
-            "collect" => args.len() == 2,   // collect(range, transform)
-            "recurse" => args.len() == 3 || args.len() == 4,   // recurse(cond, base, step) or recurse(cond, base, step, memo)
+            "fold" => args.len() == 3,    // fold(collection, init, op)
+            "map" => args.len() == 2,     // map(collection, transform)
+            "filter" => args.len() == 2,  // filter(collection, predicate)
+            "collect" => args.len() == 2, // collect(range, transform)
+            "recurse" => args.len() == 3 || args.len() == 4, // recurse(cond, base, step) or recurse(cond, base, step, memo)
             _ => false,
         };
 
@@ -1504,7 +1577,7 @@ impl Parser {
                         base_value: Box::new(args[1].clone()),
                         step: Box::new(args[2].clone()),
                         memo,
-                        parallel_threshold: 0,  // positional syntax doesn't support parallel yet
+                        parallel_threshold: 0, // positional syntax doesn't support parallel yet
                     }))
                 }
                 _ => Ok(Expr::Call {
@@ -1534,22 +1607,27 @@ impl Parser {
             "recurse" => {
                 // Required: cond, base, step
                 // Optional: memo (default false), parallel (default false)
-                let condition = props.remove("cond")
+                let condition = props
+                    .remove("cond")
                     .ok_or_else(|| "recurse pattern requires .cond: property".to_string())?;
-                let base_value = props.remove("base")
+                let base_value = props
+                    .remove("base")
                     .ok_or_else(|| "recurse pattern requires .base: property".to_string())?;
-                let step = props.remove("step")
+                let step = props
+                    .remove("step")
                     .ok_or_else(|| "recurse pattern requires .step: property".to_string())?;
-                let memo = props.remove("memo")
+                let memo = props
+                    .remove("memo")
                     .map(|e| matches!(e, Expr::Bool(true)))
                     .unwrap_or(false);
                 // .parallel: N means parallelize when n > N
                 // .parallel: 0 means always parallelize
                 // absent means no parallelization
-                let parallel_threshold = props.remove("parallel")
+                let parallel_threshold = props
+                    .remove("parallel")
                     .map(|e| match e {
                         Expr::Int(n) => n,
-                        _ => i64::MAX,  // invalid value = no parallelization
+                        _ => i64::MAX, // invalid value = no parallelization
                     })
                     .unwrap_or(i64::MAX);
 
@@ -1563,11 +1641,14 @@ impl Parser {
             }
             "fold" => {
                 // Required: over, init, op
-                let collection = props.remove("over")
+                let collection = props
+                    .remove("over")
                     .ok_or_else(|| "fold pattern requires .over: property".to_string())?;
-                let init = props.remove("init")
+                let init = props
+                    .remove("init")
                     .ok_or_else(|| "fold pattern requires .init: property".to_string())?;
-                let op = props.remove("op")
+                let op = props
+                    .remove("op")
                     .ok_or_else(|| "fold pattern requires .op: property".to_string())?;
 
                 Ok(Expr::Pattern(PatternExpr::Fold {
@@ -1578,9 +1659,11 @@ impl Parser {
             }
             "map" => {
                 // Required: over, transform
-                let collection = props.remove("over")
+                let collection = props
+                    .remove("over")
                     .ok_or_else(|| "map pattern requires .over: property".to_string())?;
-                let transform = props.remove("transform")
+                let transform = props
+                    .remove("transform")
                     .ok_or_else(|| "map pattern requires .transform: property".to_string())?;
 
                 Ok(Expr::Pattern(PatternExpr::Map {
@@ -1590,9 +1673,11 @@ impl Parser {
             }
             "filter" => {
                 // Required: over, predicate
-                let collection = props.remove("over")
+                let collection = props
+                    .remove("over")
                     .ok_or_else(|| "filter pattern requires .over: property".to_string())?;
-                let predicate = props.remove("predicate")
+                let predicate = props
+                    .remove("predicate")
                     .ok_or_else(|| "filter pattern requires .predicate: property".to_string())?;
 
                 Ok(Expr::Pattern(PatternExpr::Filter {
@@ -1602,9 +1687,11 @@ impl Parser {
             }
             "collect" => {
                 // Required: range, transform
-                let range = props.remove("range")
+                let range = props
+                    .remove("range")
                     .ok_or_else(|| "collect pattern requires .range: property".to_string())?;
-                let transform = props.remove("transform")
+                let transform = props
+                    .remove("transform")
                     .ok_or_else(|| "collect pattern requires .transform: property".to_string())?;
 
                 Ok(Expr::Pattern(PatternExpr::Collect {
@@ -1616,7 +1703,8 @@ impl Parser {
                 // Optional: timeout, on_error
                 // All other properties become branches
                 let timeout = props.remove("timeout").map(|e| Box::new(e));
-                let on_error = props.remove("on_error")
+                let on_error = props
+                    .remove("on_error")
                     .map(|e| {
                         if let Expr::Ident(s) = &e {
                             if s == "collect_all" {
@@ -1643,11 +1731,13 @@ impl Parser {
                     on_error,
                 }))
             }
-            _ => Err(format!("Unknown pattern keyword with named args: {}", keyword)),
+            _ => Err(format!(
+                "Unknown pattern keyword with named args: {}",
+                keyword
+            )),
         }
     }
 }
-
 
 pub fn parse(tokens: Vec<SpannedToken>, filename: &str) -> Result<Module, String> {
     let mut parser = Parser::new(tokens);
