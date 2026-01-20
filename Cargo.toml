@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "compiler/sigilc",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/yourusername/sigil"
+
+[workspace.dependencies]
+logos = "0.14"
+ariadne = "0.4"
+thiserror = "1.0"
+rayon = "1.10"
+pretty_assertions = "1.4"

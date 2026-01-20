@@ -1,0 +1,30 @@
+// Tests for Fibonacci
+
+use fibonacci { fib, fib_parallel }
+
+@test_fib_base tests @fib () -> void = run(
+    assert(fib(0) == 0),
+    assert(fib(1) == 1)
+)
+
+@test_fib_sequence tests @fib () -> void = run(
+    assert(fib(2) == 1),
+    assert(fib(3) == 2),
+    assert(fib(4) == 3),
+    assert(fib(5) == 5),
+    assert(fib(6) == 8),
+    assert(fib(7) == 13)
+)
+
+@test_fib_larger tests @fib () -> void = run(
+    assert(fib(10) == 55),
+    assert(fib(15) == 610),
+    assert(fib(20) == 6765)
+)
+
+@test_fib_parallel tests @fib_parallel () -> void = run(
+    // Compute fib(10), fib(15), fib(20) in parallel
+    assert(fib_parallel(10, 15, 20).first == 55),
+    assert(fib_parallel(10, 15, 20).second == 610),
+    assert(fib_parallel(10, 15, 20).third == 6765)
+)

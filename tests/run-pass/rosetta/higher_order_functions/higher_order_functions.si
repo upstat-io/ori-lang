@@ -1,0 +1,23 @@
+// Rosetta Code: Higher-order functions
+// Task: Demonstrate passing functions as arguments
+
+// Apply a function to each element (using map pattern)
+@apply_to_all (arr: [int], f: int -> int) -> [int] = map(arr, f)
+
+// Double each element using map
+@double_all (arr: [int]) -> [int] = map(arr, x -> x * 2)
+
+// Square each element using map
+@square_all (arr: [int]) -> [int] = map(arr, x -> x * x)
+
+// Filter elements using predicate
+@filter_positive (arr: [int]) -> [int] = filter(arr, x -> x > 0)
+
+// Filter even numbers
+@filter_even (arr: [int]) -> [int] = filter(arr, x -> x % 2 == 0)
+
+// Reduce a list using fold
+@sum (arr: [int]) -> int = fold(arr, 0, +)
+
+// Product using fold
+@product (arr: [int]) -> int = fold(arr, 1, *)

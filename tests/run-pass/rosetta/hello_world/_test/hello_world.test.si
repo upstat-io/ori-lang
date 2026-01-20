@@ -1,0 +1,7 @@
+// Tests for Hello world/Text
+
+use hello_world { hello }
+
+@test_hello tests @hello () -> void = run(
+    assert(hello() == "Hello world!")
+)

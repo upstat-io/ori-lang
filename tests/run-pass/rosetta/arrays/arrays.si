@@ -1,0 +1,12 @@
+// Rosetta Code: Arrays
+// Task: Create an array, assign a value, retrieve an element
+
+@create_array () -> [int] = [1, 2, 3, 4, 5]
+
+@get_first (arr: [int]) -> int = arr[0]
+
+@get_last (arr: [int]) -> int = arr[# - 1]
+
+@get_at (arr: [int], index: int) -> int = arr[index]
+
+@array_length (arr: [int]) -> int = len(arr)

@@ -1,0 +1,6 @@
+// Compile-fail test: wrong number of arguments
+// Expected error: Function 'add' expects 2 arguments, got 1
+
+@add (a: int, b: int) -> int = a + b
+
+@test () -> int = add(1)

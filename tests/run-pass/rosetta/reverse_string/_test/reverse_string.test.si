@@ -1,0 +1,18 @@
+// Tests for Reverse a string
+
+use reverse_string { reverse, is_palindrome }
+
+@test_reverse tests @reverse () -> void = run(
+    assert(reverse("") == ""),
+    assert(reverse("a") == "a"),
+    assert(reverse("hello") == "olleh"),
+    assert(reverse("abc") == "cba")
+)
+
+@test_is_palindrome tests @is_palindrome () -> void = run(
+    assert(is_palindrome("") == true),
+    assert(is_palindrome("a") == true),
+    assert(is_palindrome("aba") == true),
+    assert(is_palindrome("racecar") == true),
+    assert(is_palindrome("hello") == false)
+)

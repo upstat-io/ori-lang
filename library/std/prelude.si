@@ -1,0 +1,11 @@
+// Sigil Standard Library - Prelude
+// These functions are automatically available in all Sigil programs
+
+// Identity function
+@identity T (x: T) -> T = x
+
+// Constant function - always returns first argument
+@const T U (x: T, _y: U) -> T = x
+
+// Function composition (future: when we have better generic support)
+// @compose (f: B -> C, g: A -> B) -> (A -> C) = a -> f(g(a))

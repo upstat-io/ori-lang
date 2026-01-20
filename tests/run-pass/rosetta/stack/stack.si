@@ -1,0 +1,20 @@
+// Rosetta Code: Stack
+// Task: Implement a LIFO (Last In First Out) stack
+
+// Create an empty stack
+@empty_stack () -> [int] = []
+
+// Check if stack is empty
+@is_empty (stack: [int]) -> bool = len(stack) == 0
+
+// Push an element onto the stack (returns new stack)
+@push (stack: [int], value: int) -> [int] = stack.push(value)
+
+// Get the top element without removing it
+@peek (stack: [int]) -> int = stack[# - 1]
+
+// Pop the top element (returns new stack without top)
+@pop (stack: [int]) -> [int] = stack.pop()
+
+// Get stack size
+@size (stack: [int]) -> int = len(stack)

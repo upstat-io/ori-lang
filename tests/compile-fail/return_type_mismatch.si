@@ -1,0 +1,4 @@
+// Compile-fail test: return type mismatch
+// Expected error: Function 'greet' returns Named("int") but body has type Named("str")
+
+@greet (name: str) -> int = "Hello, " + name

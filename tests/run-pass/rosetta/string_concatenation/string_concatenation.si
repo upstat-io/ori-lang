@@ -1,0 +1,11 @@
+// Rosetta Code: String concatenation
+// Task: Concatenate two strings
+
+// Concatenate two strings
+@concat (a: str, b: str) -> str = a + b
+
+// Concatenate with separator
+@join (a: str, b: str, sep: str) -> str = a + sep + b
+
+// Concatenate multiple strings (using fold pattern)
+@concat_all (strings: [str]) -> str = fold(strings, "", +)

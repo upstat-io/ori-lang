@@ -1,0 +1,59 @@
+// Tests for Function definition
+
+use function_definition { greeting, square, add, repeat_string, range_list, is_even, sum_of_squares, factorial, fizzbuzz, apply_twice }
+
+@test_greeting tests @greeting () -> void = run(
+    assert_eq(greeting(), "Hello, World!")
+)
+
+@test_square tests @square () -> void = run(
+    assert_eq(square(0), 0),
+    assert_eq(square(5), 25),
+    assert_eq(square(-3), 9)
+)
+
+@test_add tests @add () -> void = run(
+    assert_eq(add(2, 3), 5),
+    assert_eq(add(-1, 1), 0),
+    assert_eq(add(0, 0), 0)
+)
+
+@test_repeat tests @repeat_string () -> void = run(
+    assert_eq(repeat_string("ab", 3), "ababab"),
+    assert_eq(repeat_string("x", 1), "x"),
+    assert_eq(repeat_string("x", 0), "")
+)
+
+@test_range tests @range_list () -> void = run(
+    assert_eq(range_list(1, 5), [1, 2, 3, 4]),
+    assert_eq(range_list(0, 3), [0, 1, 2])
+)
+
+@test_is_even tests @is_even () -> void = run(
+    assert_eq(is_even(4), true),
+    assert_eq(is_even(3), false),
+    assert_eq(is_even(0), true)
+)
+
+@test_sum_squares tests @sum_of_squares () -> void = run(
+    assert_eq(sum_of_squares(3, 4), 25),
+    assert_eq(sum_of_squares(0, 5), 25)
+)
+
+@test_factorial tests @factorial () -> void = run(
+    assert_eq(factorial(0), 1),
+    assert_eq(factorial(1), 1),
+    assert_eq(factorial(5), 120)
+)
+
+@test_fizzbuzz tests @fizzbuzz () -> void = run(
+    assert_eq(fizzbuzz(3), "Fizz"),
+    assert_eq(fizzbuzz(5), "Buzz"),
+    assert_eq(fizzbuzz(15), "FizzBuzz"),
+    assert_eq(fizzbuzz(7), "7")
+)
+
+@test_apply tests @apply_twice () -> void = run(
+    assert_eq(apply_twice(x -> x * 2, 3), 12),
+    assert_eq(apply_twice(x -> x + 1, 0), 2)
+)
