@@ -1,0 +1,22 @@
+// Tests for String concatenation
+
+use string_concatenation { concat, join, concat_all }
+
+@test_concat tests @concat () -> void = run(
+    assert(concat("Hello", "World") == "HelloWorld"),
+    assert(concat("", "test") == "test"),
+    assert(concat("test", "") == "test"),
+    assert(concat("", "") == "")
+)
+
+@test_join tests @join () -> void = run(
+    assert(join("Hello", "World", " ") == "Hello World"),
+    assert(join("foo", "bar", "-") == "foo-bar"),
+    assert(join("a", "b", "") == "ab")
+)
+
+@test_concat_all tests @concat_all () -> void = run(
+    assert(concat_all(["a", "b", "c"]) == "abc"),
+    assert(concat_all(["Hello", " ", "World"]) == "Hello World"),
+    assert(concat_all([]) == "")
+)

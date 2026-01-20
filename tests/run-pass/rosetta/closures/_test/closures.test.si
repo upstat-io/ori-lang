@@ -1,0 +1,49 @@
+// Tests for Closures/Value capture
+
+use closures { make_adder, make_multiplier, scale_list, create_square_closures, make_linear, filter_above, sum_with_offset }
+
+@test_adder tests @make_adder () -> void = run(
+    add5 := make_adder(5),
+    add10 := make_adder(10),
+    assert_eq(add5(3), 8),
+    assert_eq(add10(3), 13),
+    assert_eq(add5(0), 5)
+)
+
+@test_multiplier tests @make_multiplier () -> void = run(
+    times2 := make_multiplier(2),
+    times5 := make_multiplier(5),
+    assert_eq(times2(7), 14),
+    assert_eq(times5(7), 35)
+)
+
+@test_scale tests @scale_list () -> void = run(
+    assert_eq(scale_list([1, 2, 3], 10), [10, 20, 30]),
+    assert_eq(scale_list([1, 2, 3], 0), [0, 0, 0]),
+    assert_eq(scale_list([], 5), [])
+)
+
+@test_squares tests @create_square_closures () -> void = run(
+    assert_eq(create_square_closures(5), [0, 1, 4, 9, 16]),
+    assert_eq(create_square_closures(1), [0]),
+    assert_eq(create_square_closures(0), [])
+)
+
+@test_linear tests @make_linear () -> void = run(
+    f := make_linear(2, 3),
+    assert_eq(f(0), 3),
+    assert_eq(f(5), 13),
+    assert_eq(f(-1), 1)
+)
+
+@test_filter tests @filter_above () -> void = run(
+    assert_eq(filter_above([1, 5, 3, 8, 2], 3), [5, 8]),
+    assert_eq(filter_above([1, 2, 3], 10), []),
+    assert_eq(filter_above([1, 2, 3], 0), [1, 2, 3])
+)
+
+@test_sum_offset tests @sum_with_offset () -> void = run(
+    assert_eq(sum_with_offset([1, 2, 3], 100), 106),
+    assert_eq(sum_with_offset([], 50), 50),
+    assert_eq(sum_with_offset([10], 0), 10)
+)

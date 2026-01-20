@@ -1,0 +1,13 @@
+// Math functions in Sigil
+
+@add (a: int, b: int) -> int = a + b
+
+@multiply (a: int, b: int) -> int = a * b
+
+@square (n: int) -> int = n * n
+
+@main () -> void = run(
+    print("2 + 3 = " + str(add(2, 3))),
+    print("4 * 5 = " + str(multiply(4, 5))),
+    print("6^2 = " + str(square(6)))
+)

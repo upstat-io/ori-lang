@@ -1,0 +1,20 @@
+// Rosetta Code: Queue
+// Task: Implement a FIFO (First In First Out) queue
+
+// Create an empty queue
+@empty_queue () -> [int] = []
+
+// Check if queue is empty
+@is_empty (queue: [int]) -> bool = len(queue) == 0
+
+// Add element to back of queue (enqueue)
+@enqueue (queue: [int], value: int) -> [int] = queue.push(value)
+
+// Get the front element without removing it
+@front (queue: [int]) -> int = queue[0]
+
+// Remove front element (dequeue) - returns queue without front
+@dequeue (queue: [int]) -> [int] = queue.slice(1, #)
+
+// Get queue size
+@size (queue: [int]) -> int = len(queue)

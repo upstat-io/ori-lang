@@ -1,0 +1,52 @@
+// Tests for Conditional structures
+
+use conditional_structures { abs, sign, grade, classify_number, max3, can_vote, temperature_feel }
+
+@test_abs tests @abs () -> void = run(
+    assert_eq(abs(-5), 5),
+    assert_eq(abs(5), 5),
+    assert_eq(abs(0), 0)
+)
+
+@test_sign tests @sign () -> void = run(
+    assert_eq(sign(5), "positive"),
+    assert_eq(sign(-5), "negative"),
+    assert_eq(sign(0), "zero")
+)
+
+@test_grade tests @grade () -> void = run(
+    assert_eq(grade(95), "A"),
+    assert_eq(grade(85), "B"),
+    assert_eq(grade(75), "C"),
+    assert_eq(grade(65), "D"),
+    assert_eq(grade(55), "F")
+)
+
+@test_classify tests @classify_number () -> void = run(
+    assert_eq(classify_number(0), "zero"),
+    assert_eq(classify_number(4), "positive even"),
+    assert_eq(classify_number(3), "positive odd"),
+    assert_eq(classify_number(-4), "negative even"),
+    assert_eq(classify_number(-3), "negative odd")
+)
+
+@test_max3 tests @max3 () -> void = run(
+    assert_eq(max3(1, 2, 3), 3),
+    assert_eq(max3(3, 2, 1), 3),
+    assert_eq(max3(2, 3, 1), 3),
+    assert_eq(max3(5, 5, 5), 5)
+)
+
+@test_vote tests @can_vote () -> void = run(
+    assert_eq(can_vote(21, true), true),
+    assert_eq(can_vote(21, false), false),
+    assert_eq(can_vote(16, true), false)
+)
+
+@test_temp tests @temperature_feel () -> void = run(
+    assert_eq(temperature_feel(-5), "freezing"),
+    assert_eq(temperature_feel(5), "cold"),
+    assert_eq(temperature_feel(15), "cool"),
+    assert_eq(temperature_feel(25), "warm"),
+    assert_eq(temperature_feel(35), "hot")
+)

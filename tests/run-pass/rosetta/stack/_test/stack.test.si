@@ -1,0 +1,38 @@
+// Tests for Stack
+
+use stack { empty_stack, is_empty, push, peek, pop, size }
+
+@test_empty_stack tests @empty_stack () -> void = run(
+    assert(is_empty(empty_stack()) == true),
+    assert(size(empty_stack()) == 0)
+)
+
+@test_is_empty tests @is_empty () -> void = run(
+    assert(is_empty([]) == true),
+    assert(is_empty([1]) == false),
+    assert(is_empty([1, 2, 3]) == false)
+)
+
+@test_push tests @push () -> void = run(
+    assert(size(push([], 1)) == 1),
+    assert(size(push([1], 2)) == 2),
+    assert(peek(push([1, 2], 3)) == 3)
+)
+
+@test_peek tests @peek () -> void = run(
+    assert(peek([1]) == 1),
+    assert(peek([1, 2, 3]) == 3),
+    assert(peek(push([1, 2], 99)) == 99)
+)
+
+@test_pop tests @pop () -> void = run(
+    assert(size(pop([1])) == 0),
+    assert(size(pop([1, 2, 3])) == 2),
+    assert(peek(pop([1, 2, 3])) == 2)
+)
+
+@test_size tests @size () -> void = run(
+    assert(size([]) == 0),
+    assert(size([1]) == 1),
+    assert(size([1, 2, 3, 4, 5]) == 5)
+)

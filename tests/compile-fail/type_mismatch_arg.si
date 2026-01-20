@@ -1,0 +1,6 @@
+// Compile-fail test: argument type mismatch
+// Expected error: Argument 'a' has type Named("str") but expected Named("int")
+
+@add (a: int, b: int) -> int = a + b
+
+@bad_call () -> int = add("hello", 5)

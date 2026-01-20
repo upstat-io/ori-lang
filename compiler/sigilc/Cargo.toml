@@ -1,0 +1,26 @@
+[package]
+name = "sigilc"
+version = "0.1.0"
+edition = "2021"
+description = "Compiler for Sigil, a general-purpose language built on declarative patterns and mandatory testing"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/yourusername/sigil"
+keywords = ["compiler", "programming-language", "sigil"]
+categories = ["compilers", "development-tools"]
+
+[lib]
+name = "sigilc"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sigil"
+path = "src/main.rs"
+
+[dependencies]
+logos = "0.14"           # Fast lexer generator
+ariadne = "0.4"          # Beautiful error reporting
+thiserror = "1.0"        # Error derive macros
+rayon = "1.10"           # Parallel iterators
+
+[dev-dependencies]
+pretty_assertions = "1.4"

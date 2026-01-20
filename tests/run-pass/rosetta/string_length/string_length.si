@@ -1,0 +1,11 @@
+// Rosetta Code: String length
+// Task: Find the character length of a string
+
+// Get character length of a string
+@string_length (s: str) -> int = len(s)
+
+// Check if string is empty
+@is_empty (s: str) -> bool = len(s) == 0
+
+// Check if string has content
+@has_content (s: str) -> bool = len(s) > 0

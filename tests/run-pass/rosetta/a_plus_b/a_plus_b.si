@@ -1,0 +1,4 @@
+// Rosetta Code: A+B
+// Task: Given two integers A and B, compute A + B
+
+@add (a: int, b: int) -> int = a + b

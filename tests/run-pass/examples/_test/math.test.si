@@ -1,0 +1,27 @@
+// Tests for math.al
+
+use math { add, multiply, square }
+
+@test_add_positive tests @add () -> void = run(
+    assert(add(2, 3) == 5),
+    assert(add(0, 0) == 0),
+    assert(add(100, 200) == 300)
+)
+
+@test_add_negative tests @add () -> void = run(
+    assert(add(-1, 1) == 0),
+    assert(add(-5, -3) == -8)
+)
+
+@test_multiply tests @multiply () -> void = run(
+    assert(multiply(2, 3) == 6),
+    assert(multiply(0, 100) == 0),
+    assert(multiply(-2, 3) == -6)
+)
+
+@test_square tests @square () -> void = run(
+    assert(square(0) == 0),
+    assert(square(1) == 1),
+    assert(square(5) == 25),
+    assert(square(-3) == 9)
+)

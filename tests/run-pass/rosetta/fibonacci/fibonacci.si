@@ -1,0 +1,18 @@
+// Rosetta Code: Fibonacci sequence
+// Task: Compute the nth Fibonacci number
+
+// Single fibonacci with memoization
+@fib (n: int) -> int = recurse(
+    .cond: n <= 1,
+    .base: n,
+    .step: self(n - 1) + self(n - 2),
+    .memo: true
+)
+
+// Compute multiple fibonacci numbers in parallel
+// Returns anonymous record { first: int, second: int, third: int }
+@fib_parallel (a: int, b: int, c: int) -> { first: int, second: int, third: int } = parallel(
+    .first: fib(a),
+    .second: fib(b),
+    .third: fib(c)
+)

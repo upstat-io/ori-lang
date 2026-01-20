@@ -1,0 +1,38 @@
+// Tests for Queue
+
+use queue { empty_queue, is_empty, enqueue, front, dequeue, size }
+
+@test_empty_queue tests @empty_queue () -> void = run(
+    assert(is_empty(empty_queue()) == true),
+    assert(size(empty_queue()) == 0)
+)
+
+@test_is_empty tests @is_empty () -> void = run(
+    assert(is_empty([]) == true),
+    assert(is_empty([1]) == false),
+    assert(is_empty([1, 2, 3]) == false)
+)
+
+@test_enqueue tests @enqueue () -> void = run(
+    assert(size(enqueue([], 1)) == 1),
+    assert(size(enqueue([1], 2)) == 2),
+    assert(front(enqueue([], 42)) == 42)
+)
+
+@test_front tests @front () -> void = run(
+    assert(front([1]) == 1),
+    assert(front([1, 2, 3]) == 1),
+    assert(front(enqueue([1, 2], 99)) == 1)
+)
+
+@test_dequeue tests @dequeue () -> void = run(
+    assert(size(dequeue([1])) == 0),
+    assert(size(dequeue([1, 2, 3])) == 2),
+    assert(front(dequeue([1, 2, 3])) == 2)
+)
+
+@test_size tests @size () -> void = run(
+    assert(size([]) == 0),
+    assert(size([1]) == 1),
+    assert(size([1, 2, 3, 4, 5]) == 5)
+)
