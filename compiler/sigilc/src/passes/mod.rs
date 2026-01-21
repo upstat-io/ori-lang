@@ -19,12 +19,16 @@ mod context;
 mod dead_code;
 mod manager;
 mod pattern_lower;
+pub mod pipeline;
+pub mod registry;
 
 pub use const_fold::ConstantFoldingPass;
 pub use context::{CallGraph, DebugConfig, PassContext};
 pub use dead_code::DeadCodePass;
 pub use manager::PassManager;
 pub use pattern_lower::PatternLoweringPass;
+pub use pipeline::PassPipeline;
+pub use registry::{get_pass, has_pass, pass_names, PassInfo, PassRegistry};
 
 use crate::ir::TModule;
 use std::time::Duration;

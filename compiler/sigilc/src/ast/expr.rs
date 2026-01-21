@@ -95,8 +95,15 @@ pub enum Expr {
         body: Box<Expr>,
     },
 
-    /// Assignment: x := value
-    Assign {
+    /// Variable binding: let x = value or let mut x = value
+    Let {
+        name: String,
+        mutable: bool,
+        value: Box<Expr>,
+    },
+
+    /// Reassignment: x = value (only for mutable bindings)
+    Reassign {
         target: String,
         value: Box<Expr>,
     },

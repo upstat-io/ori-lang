@@ -77,9 +77,9 @@ pub fn check_for(
     let elem_type = get_iterable_element_type(&iter_type)
         .map_err(|_| format!("Cannot iterate over {:?}", iter_type))?;
 
-    // Create a child context with the binding
-    let child_ctx = TypeContext::child_with_locals(ctx, |locals| {
-        locals.insert(binding.to_string(), elem_type);
+    // Create a child context with the binding (loop bindings are immutable)
+    let child_ctx = ctx.child_with_locals(|locals| {
+        locals.insert(binding.to_string(), crate::types::LocalBinding::immutable(elem_type));
     });
     check_expr(body, &child_ctx)?;
     Ok(TypeExpr::Named("void".to_string()))

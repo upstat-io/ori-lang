@@ -121,7 +121,8 @@ pub fn eval_recurse_expr(
                     // param_names is in the correct order from the function definition
                     for (i, param_name) in param_names.iter().enumerate() {
                         if let Some(arg_val) = arg_values.get(i) {
-                            new_env.set(param_name.clone(), arg_val.clone());
+                            // Parameters are immutable bindings
+                            new_env.define(param_name.clone(), arg_val.clone(), false);
                         }
                     }
 

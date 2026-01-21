@@ -8,11 +8,13 @@
 // - matching.rs: Match expressions
 // - operators.rs: Binary and unary operators
 
+pub mod dispatch;
 mod expr;
 mod items;
 mod matching;
 mod operators;
 mod patterns;
+pub mod processor;
 mod types;
 pub mod visit;
 
@@ -23,6 +25,8 @@ pub use matching::{MatchArm, MatchExpr, Pattern};
 pub use operators::{BinaryOp, UnaryOp};
 pub use patterns::{IterDirection, OnError, PatternExpr};
 pub use types::TypeExpr;
+pub use dispatch::{ExprHandler, dispatch_to_handler, EXPR_VARIANTS};
+pub use processor::{ExprProcessor, dispatch_to_processor, DefaultExprProcessor};
 pub use visit::ExprVisitor;
 
 /// A complete source file / module

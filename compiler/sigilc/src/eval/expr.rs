@@ -14,9 +14,16 @@ use super::value::{is_truthy, Environment, Value};
 /// Evaluate an expression within a block context (where assignments are allowed)
 pub fn eval_block_expr(expr: &Expr, env: &mut Environment) -> Result<Value, String> {
     match expr {
-        Expr::Assign { target, value } => {
+        // New let binding: let x = value or let mut x = value
+        Expr::Let { name, mutable, value } => {
             let val = eval_expr(value, env)?;
-            env.set(target.clone(), val);
+            env.define(name.clone(), val, *mutable);
+            Ok(Value::Nil)
+        }
+        // Reassignment: x = value (only for mutable bindings)
+        Expr::Reassign { target, value } => {
+            let val = eval_expr(value, env)?;
+            env.set(target, val)?;
             Ok(Value::Nil)
         }
         Expr::For {
@@ -28,7 +35,8 @@ pub fn eval_block_expr(expr: &Expr, env: &mut Environment) -> Result<Value, Stri
             match iter_val {
                 Value::List(items) => {
                     for item in items {
-                        env.set(binding.clone(), item);
+                        // Loop bindings are immutable (like Rust)
+                        env.define(binding.clone(), item, false);
                         eval_block_expr(body, env)?;
                     }
                 }
@@ -115,12 +123,12 @@ pub fn eval_expr(expr: &Expr, env: &Environment) -> Result<Value, String> {
                         let mut call_env = Environment {
                             configs: env.configs.clone(),
                             functions: env.functions.clone(),
-                            locals: closure_env.clone(),
+                            locals: Environment::locals_from_values(closure_env.clone()),
                             current_params: params.clone(),
                         };
-                        // Bind arguments to parameters
+                        // Bind arguments to parameters (parameters are immutable)
                         for (param, arg) in params.iter().zip(arg_values.iter()) {
-                            call_env.set(param.clone(), arg.clone());
+                            call_env.define(param.clone(), arg.clone(), false);
                         }
                         return eval_expr(&body, &call_env);
                     }
@@ -265,7 +273,7 @@ pub fn eval_expr(expr: &Expr, env: &Environment) -> Result<Value, String> {
         Expr::Lambda { params, body } => Ok(Value::Function {
             params: params.clone(),
             body: *body.clone(),
-            env: env.locals.clone(),
+            env: env.locals_values(),
         }),
 
         // Struct literal

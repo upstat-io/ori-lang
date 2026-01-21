@@ -1,0 +1,36 @@
+// Test let and let mut variable bindings
+
+@increment (n: int) -> int = run(
+    let mut result = n,
+    result = result + 1,
+    result
+)
+
+@test_increment tests @increment () -> void = run(
+    assert_eq(increment(5), 6),
+    assert_eq(increment(0), 1),
+    assert_eq(increment(-1), 0)
+)
+
+@counter () -> int = run(
+    let mut count = 0,
+    count = count + 1,
+    count = count + 1,
+    count = count + 1,
+    count
+)
+
+@test_counter tests @counter () -> void = run(
+    assert_eq(counter(), 3)
+)
+
+// Test immutable let (no reassignment)
+@double (n: int) -> int = run(
+    let x = n * 2,
+    x
+)
+
+@test_double tests @double () -> void = run(
+    assert_eq(double(5), 10),
+    assert_eq(double(0), 0)
+)

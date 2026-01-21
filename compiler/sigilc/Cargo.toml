@@ -21,6 +21,8 @@ logos = "0.14"           # Fast lexer generator
 ariadne = "0.4"          # Beautiful error reporting
 thiserror = "1.0"        # Error derive macros
 rayon = "1.10"           # Parallel iterators
+serde = { version = "1.0", features = ["derive"] }  # Serialization
+serde_json = "1.0"       # JSON serialization
 
 [dev-dependencies]
 pretty_assertions = "1.4"

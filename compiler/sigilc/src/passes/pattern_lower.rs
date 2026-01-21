@@ -201,8 +201,8 @@ impl PatternLowerer {
         span: std::ops::Range<usize>,
     ) -> TExpr {
         // Create locals for accumulator and item
-        let acc_id = self.locals.add("__acc".to_string(), result_ty.clone(), false);
-        let item_id = self.locals.add("__item".to_string(), elem_ty.clone(), false);
+        let acc_id = self.locals.add("__acc".to_string(), result_ty.clone(), false, true);  // mutable
+        let item_id = self.locals.add("__item".to_string(), elem_ty.clone(), false, false);  // immutable
 
         // Build: acc := op(acc, item)
         let acc_ref = TExpr::new(TExprKind::Local(acc_id), result_ty.clone(), span.clone());
@@ -262,8 +262,8 @@ impl PatternLowerer {
         let result_ty = Type::List(Box::new(result_elem_ty.clone()));
 
         // Create locals
-        let result_id = self.locals.add("__result".to_string(), result_ty.clone(), false);
-        let item_id = self.locals.add("__item".to_string(), elem_ty.clone(), false);
+        let result_id = self.locals.add("__result".to_string(), result_ty.clone(), false, true);  // mutable
+        let item_id = self.locals.add("__item".to_string(), elem_ty.clone(), false, false);  // immutable
 
         let result_ref = TExpr::new(TExprKind::Local(result_id), result_ty.clone(), span.clone());
         let item_ref = TExpr::new(TExprKind::Local(item_id), elem_ty.clone(), span.clone());
@@ -322,8 +322,8 @@ impl PatternLowerer {
         let result_ty = Type::List(Box::new(elem_ty.clone()));
 
         // Create locals
-        let result_id = self.locals.add("__result".to_string(), result_ty.clone(), false);
-        let item_id = self.locals.add("__item".to_string(), elem_ty.clone(), false);
+        let result_id = self.locals.add("__result".to_string(), result_ty.clone(), false, true);  // mutable
+        let item_id = self.locals.add("__item".to_string(), elem_ty.clone(), false, false);  // immutable
 
         let result_ref = TExpr::new(TExprKind::Local(result_id), result_ty.clone(), span.clone());
         let item_ref = TExpr::new(TExprKind::Local(item_id), elem_ty.clone(), span.clone());
@@ -403,8 +403,8 @@ impl PatternLowerer {
         span: std::ops::Range<usize>,
     ) -> TExpr {
         // Create locals
-        let count_id = self.locals.add("__count".to_string(), Type::Int, false);
-        let item_id = self.locals.add("__item".to_string(), elem_ty.clone(), false);
+        let count_id = self.locals.add("__count".to_string(), Type::Int, false, true);  // mutable
+        let item_id = self.locals.add("__item".to_string(), elem_ty.clone(), false, false);  // immutable
 
         let count_ref = TExpr::new(TExprKind::Local(count_id), Type::Int, span.clone());
         let item_ref = TExpr::new(TExprKind::Local(item_id), elem_ty.clone(), span.clone());

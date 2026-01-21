@@ -137,6 +137,30 @@ impl Parser {
                 self.advance();
                 Ok(Expr::LengthPlaceholder)
             }
+            Some(Token::Let) => {
+                self.advance();
+                let mutable = if matches!(self.current(), Some(Token::Mut)) {
+                    self.advance();
+                    true
+                } else {
+                    false
+                };
+                let name = match self.current() {
+                    Some(Token::Ident(n)) => {
+                        let n = n.clone();
+                        self.advance();
+                        n
+                    }
+                    _ => return Err("Expected identifier after 'let'".to_string()),
+                };
+                self.expect(Token::Eq)?;
+                let value = self.parse_expr()?;
+                Ok(Expr::Let {
+                    name,
+                    mutable,
+                    value: Box::new(value),
+                })
+            }
             Some(Token::Match) => {
                 self.advance();
                 self.parse_match_expr()
@@ -311,11 +335,12 @@ impl Parser {
             }
         }
 
-        // Check for assignment
-        if matches!(self.current(), Some(Token::ColonEq)) {
+        // Check for reassignment with = (for mutable bindings)
+        if matches!(self.current(), Some(Token::Eq)) {
+            // Make sure it's not == (equality check)
             self.advance();
             let value = self.parse_expr()?;
-            return Ok(Expr::Assign {
+            return Ok(Expr::Reassign {
                 target: n,
                 value: Box::new(value),
             });

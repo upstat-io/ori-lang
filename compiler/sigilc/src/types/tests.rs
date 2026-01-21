@@ -370,11 +370,11 @@ fn test_undefined_variable() {
 }
 
 #[test]
-fn test_assignment_creates_binding() {
+fn test_let_creates_binding() {
     check_ok(
         r#"
 @f () -> int = run(
-    x := 5,
+    let x = 5,
     x + 1
 )
 "#,
@@ -387,12 +387,12 @@ fn test_assignment_creates_binding() {
 
 #[test]
 fn test_ok_type() {
-    check_ok("@f () -> Result int str = Ok(42)");
+    check_ok("@f () -> Result<int, str> = Ok(42)");
 }
 
 #[test]
 fn test_err_type() {
-    check_ok(r#"@f () -> Result int str = Err("error")"#);
+    check_ok(r#"@f () -> Result<int, str> = Err("error")"#);
 }
 
 #[test]

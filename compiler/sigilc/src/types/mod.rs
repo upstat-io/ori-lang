@@ -2,16 +2,27 @@
 // Validates types and produces a typed AST or TIR
 // STRICT: No unknown types allowed - all types must be determined at compile time
 
+mod builtins;
 mod check;
-mod check_pattern;
+pub mod check_pattern;
 mod compat;
-mod context;
+pub mod context;
+pub mod diagnostics;
 pub mod lower;
+mod registries;
+mod scope;
+pub mod traits;
 
 pub use check::{check_block_expr, check_expr, check_expr_with_hint};
 pub use check::lambdas::check_lambda;
-pub use compat::{infer_type, is_numeric, is_type_parameter, types_compatible};
+pub use compat::{
+    get_function_return_type, get_iterable_element_type, get_list_element_type,
+    infer_type, is_numeric, is_type_parameter, types_compatible,
+};
 pub use context::{FunctionSig, TypeContext};
+pub use registries::FunctionSig as FunctionSignature; // Alias for direct access
+pub use diagnostics::{format_type, TypeResultExt};
+pub use scope::LocalBinding;
 pub use lower::{type_expr_to_type, Lowerer};
 
 use crate::ast::*;
@@ -20,8 +31,8 @@ use crate::ir::TModule;
 /// Type-checked AST (same structure, but verified)
 pub type TypedModule = Module;
 
-/// Main entry point: type check an entire module
-pub fn check(module: Module) -> Result<TypedModule, String> {
+/// Internal: Collect definitions and type check a module
+fn collect_and_check_module(module: &Module) -> Result<TypeContext, String> {
     let mut ctx = TypeContext::new();
 
     // First pass: collect all type and function definitions
@@ -43,11 +54,10 @@ pub fn check(module: Module) -> Result<TypedModule, String> {
                 ctx.define_function(fd.name.clone(), sig);
             }
             Item::Config(cd) => {
-                let ty = if let Some(t) = cd.ty.clone() {
-                    t
-                } else {
-                    infer_type(&cd.value).map_err(|e| format!("Config '{}': {}", cd.name, e))?
-                };
+                let ty = cd.ty.clone().map_or_else(
+                    || infer_type(&cd.value).map_err(|e| format!("Config '{}': {}", cd.name, e)),
+                    Ok,
+                )?;
                 ctx.define_config(cd.name.clone(), ty);
             }
             Item::Use(_) => {
@@ -75,67 +85,19 @@ pub fn check(module: Module) -> Result<TypedModule, String> {
         }
     }
 
+    Ok(ctx)
+}
+
+/// Main entry point: type check an entire module
+pub fn check(module: Module) -> Result<TypedModule, String> {
+    collect_and_check_module(&module)?;
     Ok(module)
 }
 
 /// Type check and lower a module to TIR
 /// This combines type checking with IR generation
 pub fn check_and_lower(module: Module) -> Result<TModule, String> {
-    // First, do the regular type checking
-    let mut ctx = TypeContext::new();
-
-    // First pass: collect all type and function definitions
-    for item in &module.items {
-        match item {
-            Item::TypeDef(td) => {
-                ctx.define_type(td.name.clone(), td.clone());
-            }
-            Item::Function(fd) => {
-                let sig = FunctionSig {
-                    type_params: fd.type_params.clone(),
-                    params: fd
-                        .params
-                        .iter()
-                        .map(|p| (p.name.clone(), p.ty.clone()))
-                        .collect(),
-                    return_type: fd.return_type.clone(),
-                };
-                ctx.define_function(fd.name.clone(), sig);
-            }
-            Item::Config(cd) => {
-                let ty = if let Some(t) = cd.ty.clone() {
-                    t
-                } else {
-                    infer_type(&cd.value).map_err(|e| format!("Config '{}': {}", cd.name, e))?
-                };
-                ctx.define_config(cd.name.clone(), ty);
-            }
-            Item::Use(_) => {
-                // TODO: Handle imports
-            }
-            Item::Test(_) => {
-                // Tests are checked separately
-            }
-        }
-    }
-
-    // Second pass: type check all expressions
-    for item in &module.items {
-        match item {
-            Item::Function(fd) => {
-                check_function(fd, &mut ctx)?;
-            }
-            Item::Config(cd) => {
-                check_config(cd, &ctx)?;
-            }
-            Item::Test(td) => {
-                check_test(td, &ctx)?;
-            }
-            _ => {}
-        }
-    }
-
-    // Third pass: lower to TIR
+    let ctx = collect_and_check_module(&module)?;
     Lowerer::lower_module(&module, &ctx)
 }
 
@@ -147,9 +109,9 @@ fn check_function(fd: &FunctionDef, ctx: &mut TypeContext) -> Result<(), String>
     // Set current return type for self() calls
     ctx.set_current_return_type(fd.return_type.clone());
 
-    // Add parameters to local scope
+    // Add parameters to local scope (function parameters are immutable by default)
     for param in &fd.params {
-        ctx.define_local(param.name.clone(), param.ty.clone());
+        ctx.define_local(param.name.clone(), param.ty.clone(), false);
     }
 
     // Check body expression with return type as hint (for lambdas that are directly returned)

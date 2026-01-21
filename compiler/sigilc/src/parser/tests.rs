@@ -80,7 +80,7 @@ fn test_public_function() {
 
 #[test]
 fn test_function_with_type_params() {
-    let module = parse_ok("@identity T (x: T) -> T = x");
+    let module = parse_ok("@identity<T> (x: T) -> T = x");
     let func = first_function(&module);
     assert_eq!(func.type_params, vec!["T"]);
 }
@@ -198,7 +198,7 @@ fn test_enum_with_fields() {
 
 #[test]
 fn test_generic_type() {
-    let module = parse_ok("type Box T = T");
+    let module = parse_ok("type Box<T> = T");
     match first_item(&module) {
         Item::TypeDef(td) => {
             assert_eq!(td.name, "Box");
@@ -719,14 +719,14 @@ fn test_range() {
 
 #[test]
 fn test_ok_constructor() {
-    let module = parse_ok("@f () -> Result int str = Ok(42)");
+    let module = parse_ok("@f () -> Result<int, str> = Ok(42)");
     let func = first_function(&module);
     assert!(matches!(&func.body, Expr::Ok(_)));
 }
 
 #[test]
 fn test_err_constructor() {
-    let module = parse_ok("@f () -> Result int str = Err(\"failed\")");
+    let module = parse_ok("@f () -> Result<int, str> = Err(\"failed\")");
     let func = first_function(&module);
     assert!(matches!(&func.body, Expr::Err(_)));
 }
@@ -920,7 +920,7 @@ fn test_type_function() {
 
 #[test]
 fn test_type_generic() {
-    let module = parse_ok("@f () -> Result int str = Ok(0)");
+    let module = parse_ok("@f () -> Result<int, str> = Ok(0)");
     let func = first_function(&module);
     assert!(
         matches!(&func.return_type, TypeExpr::Generic(name, args) if name == "Result" && args.len() == 2)
@@ -955,11 +955,23 @@ fn test_type_record() {
 // ============================================================================
 
 #[test]
-fn test_assignment() {
-    let module = parse_ok("@f () -> void = run(x := 1, print(x))");
+fn test_let_binding() {
+    let module = parse_ok("@f () -> void = run(let x = 1, print(x))");
     let func = first_function(&module);
     if let Expr::Block(exprs) = &func.body {
-        assert!(matches!(&exprs[0], Expr::Assign { target, .. } if target == "x"));
+        assert!(matches!(&exprs[0], Expr::Let { name, mutable: false, .. } if name == "x"));
+    } else {
+        panic!("expected block");
+    }
+}
+
+#[test]
+fn test_let_mut_binding() {
+    let module = parse_ok("@f () -> void = run(let mut x = 1, x = 2)");
+    let func = first_function(&module);
+    if let Expr::Block(exprs) = &func.body {
+        assert!(matches!(&exprs[0], Expr::Let { name, mutable: true, .. } if name == "x"));
+        assert!(matches!(&exprs[1], Expr::Reassign { target, .. } if target == "x"));
     } else {
         panic!("expected block");
     }

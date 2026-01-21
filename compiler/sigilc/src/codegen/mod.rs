@@ -9,6 +9,7 @@
 // - expr.rs: Expression translation
 // - tir/: TIR-based code generation (new)
 
+pub mod backend;
 mod decl;
 mod emitter;
 mod expr;
@@ -18,6 +19,11 @@ mod types;
 
 #[cfg(test)]
 mod tests;
+
+// Re-export backend types for convenience
+pub use backend::{
+    Backend, BackendRegistry, CBackend, CodegenOptions, GeneratedCode, OutputFormat,
+};
 
 use crate::ast::*;
 use crate::ir::TModule;

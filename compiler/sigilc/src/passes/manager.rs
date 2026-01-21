@@ -10,7 +10,7 @@ use std::time::Instant;
 
 /// Manages and runs compiler passes
 pub struct PassManager {
-    passes: Vec<Box<dyn Pass>>,
+    pub(crate) passes: Vec<Box<dyn Pass>>,
     disabled: HashSet<String>,
 }
 

@@ -50,10 +50,10 @@ pub fn check_lambda(
         ));
     }
 
-    // Create a child context with lambda parameters
-    let child_ctx = TypeContext::child_with_locals(ctx, |locals| {
+    // Create a child context with lambda parameters (parameters are immutable)
+    let child_ctx = ctx.child_with_locals(|locals| {
         for (name, ty) in params.iter().zip(param_types.iter()) {
-            locals.insert(name.clone(), ty.clone());
+            locals.insert(name.clone(), crate::types::LocalBinding::immutable(ty.clone()));
         }
     });
 

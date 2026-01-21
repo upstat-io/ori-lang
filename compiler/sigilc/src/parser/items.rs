@@ -114,19 +114,25 @@ impl Parser {
         name: String,
         start: usize,
     ) -> Result<FunctionDef, String> {
-        // Optional type parameters
-        // Type params are identifiers before the opening paren.
-        // We stop when we see an identifier followed by colon (that's a param name: type)
-        let type_params = if matches!(self.current(), Some(Token::Ident(_))) {
+        // Optional type parameters with angle bracket syntax: @func<T, U>(...)
+        let type_params = if matches!(self.current(), Some(Token::Lt)) {
+            self.advance(); // consume '<'
             let mut params = Vec::new();
-            while let Some(Token::Ident(p)) = self.current() {
-                // If next token is colon, this ident is a param name, not a type param
-                if matches!(self.peek(1), Some(Token::Colon)) {
+            while !matches!(self.current(), Some(Token::Gt)) {
+                match self.current() {
+                    Some(Token::Ident(p)) => {
+                        params.push(p.clone());
+                        self.advance();
+                    }
+                    _ => return Err("Expected type parameter name".to_string()),
+                }
+                if matches!(self.current(), Some(Token::Comma)) {
+                    self.advance();
+                } else {
                     break;
                 }
-                params.push(p.clone());
-                self.advance();
             }
+            self.expect(Token::Gt)?;
             params
         } else {
             Vec::new()
@@ -204,13 +210,25 @@ impl Parser {
             _ => return Err("Expected type name".to_string()),
         };
 
-        // Optional type parameters for generic types
-        let params = if matches!(self.current(), Some(Token::Ident(_))) {
+        // Optional type parameters for generic types with angle bracket syntax: type Box<T>
+        let params = if matches!(self.current(), Some(Token::Lt)) {
+            self.advance(); // consume '<'
             let mut p = Vec::new();
-            while let Some(Token::Ident(param)) = self.current() {
-                p.push(param.clone());
-                self.advance();
+            while !matches!(self.current(), Some(Token::Gt)) {
+                match self.current() {
+                    Some(Token::Ident(param)) => {
+                        p.push(param.clone());
+                        self.advance();
+                    }
+                    _ => return Err("Expected type parameter name".to_string()),
+                }
+                if matches!(self.current(), Some(Token::Comma)) {
+                    self.advance();
+                } else {
+                    break;
+                }
             }
+            self.expect(Token::Gt)?;
             p
         } else {
             Vec::new()
