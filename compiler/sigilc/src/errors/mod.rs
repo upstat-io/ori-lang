@@ -4,7 +4,13 @@
 // Replaces ad-hoc `Result<T, String>` with `Result<T, Diagnostic>`.
 
 pub mod codes;
+pub mod collector;
+pub mod json;
 pub mod render;
+pub mod result;
+
+pub use collector::DiagnosticCollector;
+pub use result::{from_string_result, PhaseResult};
 
 use std::ops::Range;
 
@@ -102,6 +108,49 @@ impl Label {
     }
 }
 
+/// A suggested fix for a diagnostic
+#[derive(Debug, Clone)]
+pub struct Suggestion {
+    /// Description of the suggestion
+    pub message: String,
+    /// Optional replacement to apply
+    pub replacement: Option<Replacement>,
+}
+
+/// A text replacement to fix an issue
+#[derive(Debug, Clone)]
+pub struct Replacement {
+    /// The span to replace
+    pub span: Span,
+    /// The replacement text
+    pub text: String,
+}
+
+impl Suggestion {
+    /// Create a suggestion with a message only (no automatic fix).
+    pub fn hint(message: impl Into<String>) -> Self {
+        Suggestion {
+            message: message.into(),
+            replacement: None,
+        }
+    }
+
+    /// Create a suggestion with a replacement.
+    pub fn with_replacement(
+        message: impl Into<String>,
+        span: Span,
+        text: impl Into<String>,
+    ) -> Self {
+        Suggestion {
+            message: message.into(),
+            replacement: Some(Replacement {
+                span,
+                text: text.into(),
+            }),
+        }
+    }
+}
+
 /// A structured compiler diagnostic
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
@@ -117,6 +166,8 @@ pub struct Diagnostic {
     pub notes: Vec<String>,
     /// Help suggestions
     pub help: Vec<String>,
+    /// Suggested fixes (for AI tooling and quick-fixes)
+    pub suggestions: Vec<Suggestion>,
 }
 
 impl Diagnostic {
@@ -129,6 +180,7 @@ impl Diagnostic {
             labels: Vec::new(),
             notes: Vec::new(),
             help: Vec::new(),
+            suggestions: Vec::new(),
         }
     }
 
@@ -141,6 +193,20 @@ impl Diagnostic {
             labels: Vec::new(),
             notes: Vec::new(),
             help: Vec::new(),
+            suggestions: Vec::new(),
+        }
+    }
+
+    /// Create a new note diagnostic
+    pub fn note(code: codes::ErrorCode, message: impl Into<String>) -> Self {
+        Diagnostic {
+            level: Level::Note,
+            code,
+            message: message.into(),
+            labels: Vec::new(),
+            notes: Vec::new(),
+            help: Vec::new(),
+            suggestions: Vec::new(),
         }
     }
 
@@ -167,6 +233,27 @@ impl Diagnostic {
         self.help.push(help.into());
         self
     }
+
+    /// Add a suggestion (for AI tooling and quick-fixes)
+    pub fn with_suggestion(
+        mut self,
+        message: impl Into<String>,
+        span: Option<Span>,
+        replacement: Option<String>,
+    ) -> Self {
+        let suggestion = match (span, replacement) {
+            (Some(span), Some(text)) => Suggestion::with_replacement(message, span, text),
+            _ => Suggestion::hint(message),
+        };
+        self.suggestions.push(suggestion);
+        self
+    }
+
+    /// Add a suggestion object directly
+    pub fn with_suggestion_obj(mut self, suggestion: Suggestion) -> Self {
+        self.suggestions.push(suggestion);
+        self
+    }
 }
 
 impl std::fmt::Display for Diagnostic {
@@ -184,6 +271,48 @@ pub type DiagnosticResult<T> = Result<T, Diagnostic>;
 pub fn from_string_error(msg: String, filename: &str) -> Diagnostic {
     Diagnostic::error(codes::ErrorCode::E0000, msg)
         .with_label(Span::new(filename, 0..0), "error occurred here")
+}
+
+/// Trait for converting String errors to Diagnostic
+pub trait IntoDiagnostic {
+    fn into_diagnostic(self, filename: &str) -> Diagnostic;
+}
+
+impl IntoDiagnostic for String {
+    fn into_diagnostic(self, filename: &str) -> Diagnostic {
+        from_string_error(self, filename)
+    }
+}
+
+/// Extension trait for Result<T, String> -> DiagnosticResult<T>
+pub trait ResultExt<T> {
+    fn map_err_diagnostic(self, filename: &str) -> DiagnosticResult<T>;
+}
+
+impl<T> ResultExt<T> for Result<T, String> {
+    fn map_err_diagnostic(self, filename: &str) -> DiagnosticResult<T> {
+        self.map_err(|e| from_string_error(e, filename))
+    }
+}
+
+// Convenience constructors for common errors
+
+/// Create a type mismatch diagnostic
+pub fn type_mismatch(expected: &str, found: &str, span: Span) -> Diagnostic {
+    Diagnostic::error(
+        codes::ErrorCode::E3001,
+        format!("type mismatch: expected {}, found {}", expected, found),
+    )
+    .with_label(span, format!("expected {}", expected))
+}
+
+/// Create an unknown identifier diagnostic
+pub fn unknown_identifier(name: &str, span: Span) -> Diagnostic {
+    Diagnostic::error(
+        codes::ErrorCode::E3002,
+        format!("unknown identifier '{}'", name),
+    )
+    .with_label(span, "not found in this scope")
 }
 
 #[cfg(test)]
@@ -225,5 +354,43 @@ mod tests {
         assert_eq!(format!("{}", Level::Warning), "warning");
         assert_eq!(format!("{}", Level::Note), "note");
         assert_eq!(format!("{}", Level::Help), "help");
+    }
+
+    #[test]
+    fn test_into_diagnostic() {
+        let error = "some error".to_string();
+        let diag = error.into_diagnostic("test.si");
+        assert_eq!(diag.level, Level::Error);
+        assert!(diag.message.contains("some error"));
+    }
+
+    #[test]
+    fn test_result_ext() {
+        let ok_result: Result<i32, String> = Ok(42);
+        let converted = ok_result.map_err_diagnostic("test.si");
+        assert_eq!(converted.unwrap(), 42);
+
+        let err_result: Result<i32, String> = Err("failed".to_string());
+        let converted = err_result.map_err_diagnostic("test.si");
+        assert!(converted.is_err());
+        let diag = converted.unwrap_err();
+        assert!(diag.message.contains("failed"));
+    }
+
+    #[test]
+    fn test_type_mismatch() {
+        let diag = type_mismatch("int", "string", Span::new("test.si", 10..20));
+        assert_eq!(diag.level, Level::Error);
+        assert!(diag.message.contains("type mismatch"));
+        assert!(diag.message.contains("int"));
+        assert!(diag.message.contains("string"));
+    }
+
+    #[test]
+    fn test_unknown_identifier() {
+        let diag = unknown_identifier("foo", Span::new("test.si", 5..8));
+        assert_eq!(diag.level, Level::Error);
+        assert!(diag.message.contains("foo"));
+        assert!(diag.message.contains("unknown identifier"));
     }
 }

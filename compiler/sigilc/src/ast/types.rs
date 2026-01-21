@@ -2,7 +2,7 @@
 // Contains TypeExpr enum representing type annotations
 
 /// Type expressions
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeExpr {
     /// Named type: int, str, User, etc.
     Named(String),

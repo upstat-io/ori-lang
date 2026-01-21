@@ -20,7 +20,8 @@ pub fn eval_match(
                 locals: env.locals.clone(),
             };
             for (name, value) in bindings {
-                new_env.set(name, value);
+                // Match bindings are immutable
+                new_env.define(name, value, false);
             }
             return eval_expr(&arm.body, &new_env);
         }

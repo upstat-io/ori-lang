@@ -11,12 +11,17 @@
 pub mod ast;
 pub mod builtins;
 pub mod codegen;
+pub mod context;
+pub mod core;
 pub mod errors;
 pub mod eval;
 pub mod ir;
 pub mod lexer;
 pub mod parser;
 pub mod passes;
+pub mod patterns;
+pub mod symbols;
+pub mod traits;
 pub mod types;
 
 pub use ast::Module;

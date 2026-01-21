@@ -42,10 +42,37 @@ pub fn check_expr(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> {
 /// Check an expression within a block context (where assignments can modify scope)
 pub fn check_block_expr(expr: &Expr, ctx: &mut TypeContext) -> Result<TypeExpr, String> {
     match expr {
-        Expr::Assign { target, value } => {
+        // New let binding: let x = value or let mut x = value
+        Expr::Let { name, mutable, value } => {
             let value_type = check_expr_with_hint(value, ctx, None)?;
-            // Add the variable to the context so subsequent expressions can use it
-            ctx.define_local(target.clone(), value_type);
+            ctx.define_local(name.clone(), value_type, *mutable);
+            Ok(TypeExpr::Named("void".to_string()))
+        }
+        // Reassignment: x = value (only for mutable bindings)
+        Expr::Reassign { target, value } => {
+            let binding = ctx.lookup_local_binding(target).ok_or_else(|| {
+                format!("Cannot assign to undeclared variable '{}'", target)
+            })?;
+
+            if !binding.is_mutable() {
+                return Err(format!(
+                    "Cannot assign twice to immutable variable '{}'\n\
+                     help: consider making this binding mutable: `let mut {}`",
+                    target, target
+                ));
+            }
+
+            let expected_ty = binding.get().clone();
+            let value_type = check_expr_with_hint(value, ctx, Some(&expected_ty))?;
+
+            // Check type compatibility
+            if !crate::types::compat::types_compatible(&value_type, &expected_ty, ctx) {
+                return Err(format!(
+                    "Type mismatch: expected {:?}, found {:?}",
+                    expected_ty, value_type
+                ));
+            }
+
             Ok(TypeExpr::Named("void".to_string()))
         }
         Expr::For {
@@ -60,8 +87,8 @@ pub fn check_block_expr(expr: &Expr, ctx: &mut TypeContext) -> Result<TypeExpr, 
                 TypeExpr::Named(n) if n == "Range" => TypeExpr::Named("int".to_string()),
                 _ => return Err(format!("Cannot iterate over {:?}", iter_type)),
             };
-            // Add loop binding to context
-            ctx.define_local(binding.clone(), elem_type);
+            // Add loop binding to context (immutable, like Rust)
+            ctx.define_local(binding.clone(), elem_type, false);
             check_block_expr(body, ctx)?;
             Ok(TypeExpr::Named("void".to_string()))
         }
@@ -136,7 +163,11 @@ pub fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, Stri
 
         // Special
         Expr::LengthPlaceholder => Ok(TypeExpr::Named("int".to_string())),
-        Expr::Assign { value, .. } => {
+        Expr::Let { value, .. } => {
+            check_expr(value, ctx)?;
+            Ok(TypeExpr::Named("void".to_string()))
+        }
+        Expr::Reassign { value, .. } => {
             check_expr(value, ctx)?;
             Ok(TypeExpr::Named("void".to_string()))
         }

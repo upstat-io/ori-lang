@@ -152,37 +152,19 @@ impl Parser {
             _ => return Err("Expected type".to_string()),
         };
 
-        // Check for generic type arguments (only for types that can be generic)
-        if can_be_generic
-            && matches!(
-                self.current(),
-                Some(Token::Ident(_))
-                    | Some(Token::IntType)
-                    | Some(Token::StrType)
-                    | Some(Token::BoolType)
-                    | Some(Token::FloatType)
-                    | Some(Token::VoidType)
-                    | Some(Token::Question)
-                    | Some(Token::LBracket)
-                    | Some(Token::LParen)
-            )
-        {
-            // Collect generic arguments until we hit a non-type token
+        // Check for generic type arguments with angle bracket syntax: Type<T, U>
+        if can_be_generic && matches!(self.current(), Some(Token::Lt)) {
+            self.advance(); // consume '<'
             let mut args = Vec::new();
-            while matches!(
-                self.current(),
-                Some(Token::Ident(_))
-                    | Some(Token::IntType)
-                    | Some(Token::StrType)
-                    | Some(Token::BoolType)
-                    | Some(Token::FloatType)
-                    | Some(Token::VoidType)
-                    | Some(Token::Question)
-                    | Some(Token::LBracket)
-                    | Some(Token::LParen)
-            ) {
+            while !matches!(self.current(), Some(Token::Gt)) {
                 args.push(self.parse_type()?);
+                if matches!(self.current(), Some(Token::Comma)) {
+                    self.advance();
+                } else {
+                    break;
+                }
             }
+            self.expect(Token::Gt)?;
             if !args.is_empty() {
                 return Ok(TypeExpr::Generic(name, args));
             }

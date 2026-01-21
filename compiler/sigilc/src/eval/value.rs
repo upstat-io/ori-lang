@@ -4,8 +4,12 @@
 // Other eval submodules depend on this module.
 
 use crate::ast::{Expr, FunctionDef};
+use crate::core::Binding as CoreBinding;
 use std::collections::HashMap;
 use std::fmt;
+
+/// Local variable binding - alias for core Binding<Value>
+pub type Binding = CoreBinding<Value>;
 
 /// Runtime values
 #[derive(Debug, Clone)]
@@ -146,14 +150,31 @@ impl fmt::Display for Value {
     }
 }
 
+/// Extension methods for Binding to provide backward compatibility
+pub trait BindingExt {
+    /// Get the value of this binding.
+    fn value(&self) -> &Value;
+    /// Check if this binding is mutable.
+    fn mutable(&self) -> bool;
+}
+
+impl BindingExt for Binding {
+    fn value(&self) -> &Value {
+        self.get()
+    }
+    fn mutable(&self) -> bool {
+        self.is_mutable()
+    }
+}
+
 /// Runtime environment
 pub struct Environment {
     /// Global config values
     pub configs: HashMap<String, Value>,
     /// Global functions
     pub functions: HashMap<String, FunctionDef>,
-    /// Local variables
-    pub locals: HashMap<String, Value>,
+    /// Local variables with mutability tracking
+    pub locals: HashMap<String, Binding>,
     /// Current function parameter names (in order, for recursion)
     pub current_params: Vec<String>,
 }
@@ -174,12 +195,36 @@ impl Environment {
         }
     }
 
+    /// Get the value of a local variable
     pub fn get(&self, name: &str) -> Option<Value> {
-        self.locals.get(name).cloned()
+        self.locals.get(name).map(|b| b.cloned())
     }
 
-    pub fn set(&mut self, name: String, value: Value) {
-        self.locals.insert(name, value);
+    /// Define a new local variable with mutability
+    pub fn define(&mut self, name: String, value: Value, mutable: bool) {
+        self.locals.insert(name, Binding::new(value, mutable));
+    }
+
+    /// Set (reassign) an existing mutable variable
+    /// Returns an error if the variable doesn't exist or isn't mutable
+    pub fn set(&mut self, name: &str, value: Value) -> Result<(), String> {
+        match self.locals.get_mut(name) {
+            Some(binding) if binding.is_mutable() => {
+                // Use the internal set method which will always succeed here
+                let _ = binding.set(value);
+                Ok(())
+            }
+            Some(_) => Err(format!(
+                "Cannot assign to immutable variable '{}'",
+                name
+            )),
+            None => Err(format!("Variable '{}' not found", name)),
+        }
+    }
+
+    /// Legacy set method for backwards compatibility (treats as mutable)
+    pub fn set_mutable(&mut self, name: String, value: Value) {
+        self.locals.insert(name, Binding::mutable(value));
     }
 
     pub fn get_function(&self, name: &str) -> Option<&FunctionDef> {
@@ -192,6 +237,24 @@ impl Environment {
 
     pub fn set_config(&mut self, name: String, value: Value) {
         self.configs.insert(name, value);
+    }
+
+    /// Get a HashMap of just the values (for lambda captures)
+    /// This extracts just the values, discarding mutability info
+    pub fn locals_values(&self) -> HashMap<String, Value> {
+        self.locals
+            .iter()
+            .map(|(k, b)| (k.clone(), b.cloned()))
+            .collect()
+    }
+
+    /// Create locals from a HashMap of values (for restoring closure env)
+    /// All restored values are treated as immutable (captures are immutable)
+    pub fn locals_from_values(values: HashMap<String, Value>) -> HashMap<String, Binding> {
+        values
+            .into_iter()
+            .map(|(k, v)| (k, Binding::immutable(v)))
+            .collect()
     }
 }
 

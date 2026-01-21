@@ -45,6 +45,12 @@ pub enum Token {
     #[token("None")]
     None_,
 
+    // Variable bindings
+    #[token("let")]
+    Let,
+    #[token("mut")]
+    Mut,
+
     // Testing
     #[token("tests")]
     Tests,

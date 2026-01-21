@@ -15,7 +15,7 @@ mod calls;
 mod expr;
 mod match_eval;
 mod operators;
-mod patterns;
+pub mod patterns;
 pub mod value;
 
 #[cfg(test)]
@@ -26,14 +26,15 @@ use crate::ast::*;
 // Re-export core types for external use
 pub use value::{is_truthy, Environment, Value};
 
-// Internal imports
-use expr::eval_expr;
+// Re-export expression evaluation for pattern handlers
+pub use calls::eval_function_call;
+pub use expr::eval_expr;
+pub use operators::eval_binary_op;
 
-/// Run a module (find and execute main function)
-pub fn run(module: Module) -> Result<Value, String> {
+/// Internal: Initialize environment from a module (load configs and functions)
+fn initialize_environment(module: &Module) -> Result<Environment, String> {
     let mut env = Environment::new();
 
-    // First pass: collect configs and functions
     for item in &module.items {
         match item {
             Item::Config(cd) => {
@@ -47,7 +48,13 @@ pub fn run(module: Module) -> Result<Value, String> {
         }
     }
 
-    // Find and run main function
+    Ok(env)
+}
+
+/// Run a module (find and execute main function)
+pub fn run(module: Module) -> Result<Value, String> {
+    let env = initialize_environment(&module)?;
+
     if let Some(main_fn) = env.get_function("main").cloned() {
         eval_expr(&main_fn.body, &env)
     } else {
@@ -57,25 +64,8 @@ pub fn run(module: Module) -> Result<Value, String> {
 
 /// Run a single test
 pub fn run_test(module: &Module, test: &TestDef) -> Result<(), String> {
-    let mut env = Environment::new();
-
-    // First pass: collect configs and functions
-    for item in &module.items {
-        match item {
-            Item::Config(cd) => {
-                let value = eval_expr(&cd.value, &env)?;
-                env.set_config(cd.name.clone(), value);
-            }
-            Item::Function(fd) => {
-                env.define_function(fd.name.clone(), fd.clone());
-            }
-            _ => {}
-        }
-    }
-
-    // Run the test body
+    let env = initialize_environment(module)?;
     eval_expr(&test.body, &env)?;
-
     Ok(())
 }
 

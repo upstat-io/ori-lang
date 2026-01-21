@@ -446,10 +446,13 @@ fn test_range_expression() {
 
 #[test]
 fn test_result_type() {
-    let toks = tokens("Result int str");
+    let toks = tokens("Result<int, str>");
     assert!(toks.contains(&Token::ResultType));
+    assert!(toks.contains(&Token::Lt));
     assert!(toks.contains(&Token::IntType));
+    assert!(toks.contains(&Token::Comma));
     assert!(toks.contains(&Token::StrType));
+    assert!(toks.contains(&Token::Gt));
 }
 
 #[test]

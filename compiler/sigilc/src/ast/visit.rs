@@ -86,7 +86,6 @@ pub trait ExprVisitor {
                 iterator,
                 body,
             } => self.visit_for(binding, iterator, body),
-            Expr::Assign { target, value } => self.visit_assign(target, value),
             Expr::Block(exprs) => self.visit_block(exprs),
 
             Expr::Range { start, end } => self.visit_range(start, end),
@@ -99,6 +98,9 @@ pub trait ExprVisitor {
             Expr::None_ => self.visit_none(),
             Expr::Coalesce { value, default } => self.visit_coalesce(value, default),
             Expr::Unwrap(inner) => self.visit_unwrap(inner),
+
+            Expr::Let { name, mutable, value } => self.visit_let(name, *mutable, value),
+            Expr::Reassign { target, value } => self.visit_reassign(target, value),
         }
     }
 
@@ -260,7 +262,11 @@ pub trait ExprVisitor {
         self.combine_results(i, b)
     }
 
-    fn visit_assign(&mut self, _target: &str, value: &Expr) -> Self::Result {
+    fn visit_let(&mut self, _name: &str, _mutable: bool, value: &Expr) -> Self::Result {
+        self.visit_expr(value)
+    }
+
+    fn visit_reassign(&mut self, _target: &str, value: &Expr) -> Self::Result {
         self.visit_expr(value)
     }
 

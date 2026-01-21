@@ -468,12 +468,12 @@ fn test_list_join() {
 // ============================================================================
 
 #[test]
-fn test_assignment_in_block() {
+fn test_let_in_block() {
     let result = eval_ok(
         r#"
 @main () -> int = run(
-    x := 5,
-    y := x + 3,
+    let x = 5,
+    let y = x + 3,
     y * 2
 )
 "#,
@@ -515,13 +515,13 @@ fn test_range_collect() {
 
 #[test]
 fn test_ok_value() {
-    let result = eval_ok("@main () -> Result int str = Ok(42)");
+    let result = eval_ok("@main () -> Result<int, str> = Ok(42)");
     assert_eq!(result, Value::Ok(Box::new(Value::Int(42))));
 }
 
 #[test]
 fn test_err_value() {
-    let result = eval_ok(r#"@main () -> Result int str = Err("error")"#);
+    let result = eval_ok(r#"@main () -> Result<int, str> = Err("error")"#);
     assert_eq!(
         result,
         Value::Err(Box::new(Value::String("error".to_string())))

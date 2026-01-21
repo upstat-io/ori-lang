@@ -1,0 +1,36 @@
+// Test variable shadowing with let
+
+@shadow_int () -> int = run(
+    let x = 5,
+    let x = x + 10,  // OK: shadowing, not reassignment
+    x
+)
+
+@test_shadow_int tests @shadow_int () -> void = run(
+    assert_eq(shadow_int(), 15)
+)
+
+// Test type change through shadowing
+@shadow_type_change () -> str = run(
+    let x = 42,
+    let x = str(x),  // OK: shadowing with different type
+    x
+)
+
+@test_shadow_type tests @shadow_type_change () -> void = run(
+    assert_eq(shadow_type_change(), "42")
+)
+
+// Test nested shadowing in blocks
+@nested_shadow () -> int = run(
+    let x = 1,
+    let y = run(
+        let x = 100,  // Inner x shadows outer x
+        x
+    ),
+    x + y  // Should be 1 + 100 = 101
+)
+
+@test_nested_shadow tests @nested_shadow () -> void = run(
+    assert_eq(nested_shadow(), 101)
+)

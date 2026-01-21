@@ -138,9 +138,9 @@ impl LocalTable {
     }
 
     /// Add a new local variable and return its ID
-    pub fn add(&mut self, name: String, ty: Type, is_param: bool) -> super::expr::LocalId {
+    pub fn add(&mut self, name: String, ty: Type, is_param: bool, mutable: bool) -> super::expr::LocalId {
         let id = super::expr::LocalId(self.entries.len() as u32);
-        self.entries.push(LocalInfo { name, ty, is_param });
+        self.entries.push(LocalInfo { name, ty, is_param, mutable });
         id
     }
 
@@ -183,6 +183,7 @@ pub struct LocalInfo {
     pub name: String,
     pub ty: Type,
     pub is_param: bool,
+    pub mutable: bool,
 }
 
 /// Typed test definition
@@ -217,8 +218,8 @@ mod tests {
     #[test]
     fn test_local_table() {
         let mut table = LocalTable::new();
-        let id1 = table.add("x".to_string(), Type::Int, false);
-        let id2 = table.add("y".to_string(), Type::Bool, false);
+        let id1 = table.add("x".to_string(), Type::Int, false, false);
+        let id2 = table.add("y".to_string(), Type::Bool, false, false);
 
         assert_eq!(id1.index(), 0);
         assert_eq!(id2.index(), 1);

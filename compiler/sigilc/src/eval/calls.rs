@@ -23,7 +23,8 @@ pub fn eval_function_call(
     };
 
     for (param, value) in fd.params.iter().zip(args.into_iter()) {
-        new_env.set(param.name.clone(), value);
+        // Parameters are immutable bindings
+        new_env.define(param.name.clone(), value, false);
     }
 
     eval_expr(&fd.body, &new_env)

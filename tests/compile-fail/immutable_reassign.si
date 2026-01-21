@@ -1,0 +1,7 @@
+// Test that immutable variables cannot be reassigned
+// Expected error: Cannot assign twice to immutable variable 'x'
+
+@main () -> void = run(
+    let x = 5,
+    x = 10  // ERROR: cannot assign to immutable variable
+)
