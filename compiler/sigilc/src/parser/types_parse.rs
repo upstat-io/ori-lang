@@ -97,7 +97,10 @@ impl Parser {
                 self.advance();
                 let ret = self.parse_type()?;
                 let param_type = if types.len() == 1 {
-                    types.into_iter().next().unwrap()
+                    types
+                        .into_iter()
+                        .next()
+                        .unwrap_or_else(|| TypeExpr::Named("void".to_string()))
                 } else {
                     TypeExpr::Tuple(types)
                 };
@@ -106,7 +109,10 @@ impl Parser {
 
             // Single-element parens are grouping, not tuple
             if types.len() == 1 {
-                return Ok(types.into_iter().next().unwrap());
+                return Ok(types
+                    .into_iter()
+                    .next()
+                    .unwrap_or_else(|| TypeExpr::Named("void".to_string())));
             }
 
             return Ok(TypeExpr::Tuple(types));

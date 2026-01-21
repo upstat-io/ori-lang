@@ -8,6 +8,8 @@
 // - Line continuation
 // - Comments
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use super::*;
 use proptest::prelude::*;
 use test_case::test_case;
@@ -166,6 +168,7 @@ fn test_integer_values(input: &str) -> Token {
 // ============================================================================
 
 #[test]
+#[allow(clippy::approx_constant)] // Testing that source literal "3.14" parses correctly
 fn test_float_simple() {
     assert_eq!(single_token("3.14"), Token::Float(3.14));
 }

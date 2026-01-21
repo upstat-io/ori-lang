@@ -9,6 +9,8 @@
 // - Match expression generation
 // - Snapshot tests for generated C code
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use crate::codegen::generate;
 use crate::lexer::tokenize;
 use crate::parser::parse;
@@ -114,7 +116,7 @@ fn test_string_literal() {
 
 #[test]
 fn test_nil_literal() {
-    let code = gen_ok("@f () -> void = nil");
+    let _code = gen_ok("@f () -> void = nil");
     // void functions don't return nil, they just execute
 }
 

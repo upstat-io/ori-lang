@@ -1,8 +1,15 @@
 // Pattern expression type checking for Sigil
 // Handles fold, map, filter, recurse, and other pattern expressions
+//
+// Uses helper functions from compat.rs to reduce code duplication:
+// - get_list_element_type: for patterns requiring list (fold, filter, count)
+// - get_iterable_element_type: for patterns accepting list or range (map, iterate)
+// - get_function_return_type: for extracting transform return types
 
-use super::check_expr::{check_expr, check_expr_with_hint};
-use super::compat::types_compatible;
+use super::check::{check_expr, check_expr_with_hint};
+use super::compat::{
+    get_function_return_type, get_iterable_element_type, get_list_element_type, types_compatible,
+};
 use super::context::TypeContext;
 use crate::ast::*;
 
@@ -15,12 +22,8 @@ pub fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> Result<TypeExpr
         } => {
             let coll_type = check_expr(collection, ctx)?;
             let init_type = check_expr(init, ctx)?;
-
-            // Get element type from collection
-            let elem_type = match &coll_type {
-                TypeExpr::List(inner) => inner.as_ref().clone(),
-                _ => return Err(format!("Fold requires a list, got {:?}", coll_type)),
-            };
+            let elem_type = get_list_element_type(&coll_type)
+                .map_err(|_| format!("Fold requires a list, got {:?}", coll_type))?;
 
             // Fold lambda: (accumulator, element) -> accumulator
             let expected_lambda_type = TypeExpr::Function(
@@ -37,32 +40,18 @@ pub fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> Result<TypeExpr
             transform,
         } => {
             let coll_type = check_expr(collection, ctx)?;
+            let elem_type = get_iterable_element_type(&coll_type)
+                .map_err(|_| format!("Map requires a list or range, got {:?}", coll_type))?;
 
-            // Get element type from collection
-            let elem_type = match &coll_type {
-                TypeExpr::List(inner) => inner.as_ref().clone(),
-                TypeExpr::Named(n) if n == "Range" => TypeExpr::Named("int".to_string()),
-                _ => return Err(format!("Map requires a list or range, got {:?}", coll_type)),
-            };
-
-            // Map lambda: element -> result (we don't know result yet, so use a placeholder)
-            // Check the transform with the expected input type
+            // Map lambda: element -> result
             let expected_lambda_type = TypeExpr::Function(
                 Box::new(elem_type),
                 Box::new(TypeExpr::Named("_infer_".to_string())),
             );
 
             let transform_type = check_expr_with_hint(transform, ctx, Some(&expected_lambda_type))?;
-
-            // Extract return type from the checked transform
-            let result_elem_type = if let TypeExpr::Function(_, ret) = transform_type {
-                *ret
-            } else {
-                return Err(format!(
-                    "Map transform must be a function, got {:?}",
-                    transform_type
-                ));
-            };
+            let result_elem_type = get_function_return_type(&transform_type)
+                .map_err(|_| format!("Map transform must be a function, got {:?}", transform_type))?;
 
             Ok(TypeExpr::List(Box::new(result_elem_type)))
         }
@@ -72,12 +61,8 @@ pub fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> Result<TypeExpr
             predicate,
         } => {
             let coll_type = check_expr(collection, ctx)?;
-
-            // Get element type from collection
-            let elem_type = match &coll_type {
-                TypeExpr::List(inner) => inner.as_ref().clone(),
-                _ => return Err(format!("Filter requires a list, got {:?}", coll_type)),
-            };
+            let elem_type = get_list_element_type(&coll_type)
+                .map_err(|_| format!("Filter requires a list, got {:?}", coll_type))?;
 
             // Filter predicate: element -> bool
             let expected_lambda_type = TypeExpr::Function(
@@ -99,16 +84,8 @@ pub fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> Result<TypeExpr
             );
 
             let transform_type = check_expr_with_hint(transform, ctx, Some(&expected_lambda_type))?;
-
-            // Extract return type from the checked transform
-            let elem_type = if let TypeExpr::Function(_, ret) = transform_type {
-                *ret
-            } else {
-                return Err(format!(
-                    "Collect transform must be a function, got {:?}",
-                    transform_type
-                ));
-            };
+            let elem_type = get_function_return_type(&transform_type)
+                .map_err(|_| format!("Collect transform must be a function, got {:?}", transform_type))?;
 
             Ok(TypeExpr::List(Box::new(elem_type)))
         }
@@ -139,18 +116,8 @@ pub fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> Result<TypeExpr
         } => {
             let coll_type = check_expr(over, ctx)?;
             let into_type = check_expr(into, ctx)?;
-
-            // Get element type from collection
-            let elem_type = match &coll_type {
-                TypeExpr::List(inner) => inner.as_ref().clone(),
-                TypeExpr::Named(n) if n == "Range" => TypeExpr::Named("int".to_string()),
-                _ => {
-                    return Err(format!(
-                        "Iterate requires a list or range, got {:?}",
-                        coll_type
-                    ))
-                }
-            };
+            let elem_type = get_iterable_element_type(&coll_type)
+                .map_err(|_| format!("Iterate requires a list or range, got {:?}", coll_type))?;
 
             // Iterate lambda: (accumulator, element) -> accumulator
             let expected_lambda_type = TypeExpr::Function(
@@ -184,12 +151,8 @@ pub fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> Result<TypeExpr
             predicate,
         } => {
             let coll_type = check_expr(collection, ctx)?;
-
-            // Get element type from collection
-            let elem_type = match &coll_type {
-                TypeExpr::List(inner) => inner.as_ref().clone(),
-                _ => return Err(format!("Count requires a list, got {:?}", coll_type)),
-            };
+            let elem_type = get_list_element_type(&coll_type)
+                .map_err(|_| format!("Count requires a list, got {:?}", coll_type))?;
 
             // Count predicate: element -> bool
             let expected_lambda_type = TypeExpr::Function(

@@ -30,6 +30,12 @@ pub struct TypeContext {
     pub(super) current_return_type: Option<TypeExpr>,
 }
 
+impl Default for TypeContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TypeContext {
     pub fn new() -> Self {
         let mut ctx = TypeContext {

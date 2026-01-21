@@ -1,123 +1,16 @@
-// Test runner for Sigil
-// Handles running individual test files and parallel test discovery
+// Test execution
 
-use sigilc::ast::{Item, Module};
-use sigilc::{eval, types};
-
-use rayon::prelude::*;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-use super::import::{load_imports, parse_file};
+use rayon::prelude::*;
+use sigilc::ast::{Item, Module};
+use sigilc::{eval, types};
 
-/// Get the test file path for a given source file
-pub fn get_test_file_path(source_path: &str) -> String {
-    let path = Path::new(source_path);
-    let parent = path.parent().unwrap_or(Path::new("."));
-    let stem = path.file_stem().unwrap().to_str().unwrap();
-
-    // Try _test/name.test.si first
-    let test_dir = parent.join("_test");
-    let test_file = test_dir.join(format!("{}.test.si", stem));
-    if test_file.exists() {
-        return test_file.to_str().unwrap().to_string();
-    }
-
-    // Fall back to name.test.si in same directory
-    let test_file = parent.join(format!("{}.test.si", stem));
-    test_file.to_str().unwrap().to_string()
-}
-
-/// Get all function names from a module
-pub fn get_functions(module: &Module) -> Vec<String> {
-    module
-        .items
-        .iter()
-        .filter_map(|item| {
-            if let Item::Function(f) = item {
-                Some(f.name.clone())
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
-/// Get all tested function names from a module (from test targets)
-pub fn get_tested_functions(module: &Module) -> Vec<String> {
-    module
-        .items
-        .iter()
-        .filter_map(|item| {
-            if let Item::Test(t) = item {
-                Some(t.target.clone())
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
-/// Check test coverage for a source file
-pub fn check_coverage(source_path: &str) {
-    // Parse source file
-    let source_module = match parse_file(source_path) {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("{}", e);
-            std::process::exit(1);
-        }
-    };
-
-    let functions = get_functions(&source_module);
-    let test_path = get_test_file_path(source_path);
-
-    // Parse test file
-    let tested = if Path::new(&test_path).exists() {
-        match parse_file(&test_path) {
-            Ok(m) => get_tested_functions(&m),
-            Err(e) => {
-                eprintln!("Error parsing test file: {}", e);
-                std::process::exit(1);
-            }
-        }
-    } else {
-        Vec::new()
-    };
-
-    // Check coverage
-    let mut missing = Vec::new();
-    for func in &functions {
-        if func == "main" {
-            continue; // main is exempt
-        }
-        if !tested.contains(func) {
-            missing.push(func.clone());
-        }
-    }
-
-    if missing.is_empty() {
-        println!("✓ All functions have tests");
-        println!("  {} functions, {} tests", functions.len(), tested.len());
-    } else {
-        eprintln!("✗ Missing tests for {} function(s):", missing.len());
-        for func in &missing {
-            eprintln!("  - @{}", func);
-        }
-        eprintln!();
-        eprintln!("Create tests in: {}", test_path);
-        eprintln!("Example:");
-        eprintln!(
-            "  @test_{} tests @{} () -> void = run(",
-            missing[0], missing[0]
-        );
-        eprintln!("      assert({}(...) == expected)", missing[0]);
-        eprintln!("  )");
-        std::process::exit(1);
-    }
-}
+use super::discovery::discover_test_files;
+use super::result::TestFileResult;
+use super::super::import::{load_imports, parse_file};
 
 /// Run tests from a single test file
 pub fn test_file(test_path: &str) {
@@ -139,7 +32,7 @@ pub fn test_file(test_path: &str) {
     }
 
     // Load imported modules
-    let imported_items = match load_imports(&test_module, test_path) {
+    let imported_items: Vec<Item> = match load_imports(&test_module, test_path) {
         Ok(items) => items,
         Err(e) => {
             eprintln!("{}", e);
@@ -212,52 +105,6 @@ pub fn test_file(test_path: &str) {
     }
 }
 
-// ============================================================================
-// Parallel Test Runner
-// ============================================================================
-
-/// Discover all test files in the current directory and subdirectories
-fn discover_test_files() -> Vec<PathBuf> {
-    let mut test_files = Vec::new();
-    discover_test_files_recursive(Path::new("."), &mut test_files);
-    test_files.sort();
-    test_files
-}
-
-fn discover_test_files_recursive(dir: &Path, test_files: &mut Vec<PathBuf>) {
-    let entries = match fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-
-        // Skip hidden directories and common non-source directories
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if name.starts_with('.') || name == "target" || name == "node_modules" {
-                continue;
-            }
-        }
-
-        if path.is_dir() {
-            discover_test_files_recursive(&path, test_files);
-        } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if name.ends_with(".test.si") {
-                test_files.push(path);
-            }
-        }
-    }
-}
-
-/// Result of running a single test file
-struct TestFileResult {
-    path: String,
-    passed: usize,
-    failed: usize,
-    errors: Vec<String>,
-}
-
 /// Run a single test file and return results
 fn run_test_file(test_path: &Path) -> TestFileResult {
     let path_str = test_path.to_string_lossy().to_string();
@@ -287,7 +134,7 @@ fn run_test_file(test_path: &Path) -> TestFileResult {
     }
 
     // Load imported modules
-    let imported_items = match load_imports(&test_module, &path_str) {
+    let imported_items: Vec<Item> = match load_imports(&test_module, &path_str) {
         Ok(items) => items,
         Err(e) => {
             return TestFileResult {

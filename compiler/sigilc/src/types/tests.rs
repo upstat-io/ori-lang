@@ -8,11 +8,12 @@
 // - Generic function instantiation
 // - Error detection and messages
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use crate::ast::*;
 use crate::lexer::tokenize;
 use crate::parser::parse;
 use crate::types::check;
-use test_case::test_case;
 
 // ============================================================================
 // Helper Functions

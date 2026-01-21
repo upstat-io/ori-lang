@@ -162,7 +162,7 @@ pub enum Token {
     })]
     String(String),
 
-    // Duration literals (e.g., 24h, 100ms)
+    // Duration literals (e.g., 24h, 30m, 60s for hours, minutes, seconds)
     #[regex(r"[0-9]+[hms]", |lex| Some(lex.slice().to_string()))]
     Duration(String),
 

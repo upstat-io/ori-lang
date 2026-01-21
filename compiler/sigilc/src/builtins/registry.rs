@@ -287,6 +287,7 @@ impl Default for BuiltinRegistry {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
