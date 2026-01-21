@@ -1,0 +1,8 @@
+// TODO: Implement data encoding utilities
+//
+// No capability required (pure)
+//
+// Re-exports from submodules:
+// pub use std.encoding.base64 { encode as base64_encode, decode as base64_decode }
+// pub use std.encoding.hex { encode as hex_encode, decode as hex_decode }
+// pub use std.encoding.url { encode as url_encode, decode as url_decode }

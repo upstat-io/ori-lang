@@ -2,15 +2,15 @@
 // Contains top-level definition types: functions, tests, configs, types, imports
 
 use super::types::TypeExpr;
-use super::Expr;
 use super::Span;
+use super::SpannedExpr;
 
 /// Test definition
 #[derive(Debug, Clone)]
 pub struct TestDef {
     pub name: String,
     pub target: String, // The function being tested
-    pub body: Expr,
+    pub body: SpannedExpr,
     pub span: Span,
 }
 
@@ -19,7 +19,7 @@ pub struct TestDef {
 pub struct ConfigDef {
     pub name: String,
     pub ty: Option<TypeExpr>,
-    pub value: Expr,
+    pub value: SpannedExpr,
     pub span: Span,
 }
 
@@ -65,7 +65,7 @@ pub struct FunctionDef {
     pub type_params: Vec<String>, // Generic type parameters
     pub params: Vec<Param>,
     pub return_type: TypeExpr,
-    pub body: Expr,
+    pub body: SpannedExpr,
     pub span: Span,
 }
 

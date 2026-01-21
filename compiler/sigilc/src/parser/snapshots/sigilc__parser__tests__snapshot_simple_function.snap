@@ -27,14 +27,17 @@ Module {
                 return_type: Named(
                     "int",
                 ),
-                body: Binary {
-                    op: Add,
-                    left: Ident(
-                        "a",
-                    ),
-                    right: Ident(
-                        "b",
-                    ),
+                body: SpannedExpr {
+                    expr: Binary {
+                        op: Add,
+                        left: Ident(
+                            "a",
+                        ),
+                        right: Ident(
+                            "b",
+                        ),
+                    },
+                    span: 31..36,
                 },
                 span: 0..36,
             },

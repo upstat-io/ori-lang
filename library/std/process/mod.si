@@ -1,0 +1,31 @@
+// TODO: Implement process management
+//
+// Capabilities required: Process
+//
+// Types:
+// - Command (command builder)
+// - Child (spawned child process)
+// - Output (captured output)
+// - ExitStatus (process exit status)
+//
+// Command builder:
+// - new(program: str) -> Command
+// - arg(arg: str) -> Command
+// - args(args: [str]) -> Command
+// - env(key: str, value: str) -> Command
+// - current_dir(dir: str) -> Command
+// - stdin(cfg: Stdio) -> Command
+// - stdout(cfg: Stdio) -> Command
+// - stderr(cfg: Stdio) -> Command
+// - spawn() -> Result<Child, Error>
+// - output() -> Result<Output, Error>
+// - status() -> Result<ExitStatus, Error>
+//
+// Stdio options:
+// - Stdio.inherit() - inherit from parent
+// - Stdio.piped() - create pipe
+// - Stdio.null() - discard
+//
+// Functions:
+// - exit(code: int) -> Never
+// - abort() -> Never

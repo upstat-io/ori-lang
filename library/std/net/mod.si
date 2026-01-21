@@ -1,0 +1,20 @@
+// TODO: Implement networking primitives
+//
+// Capabilities required: Network
+//
+// Types:
+// - Addr (network address)
+// - IPAddr (IP address v4/v6)
+// - TCPAddr (TCP address)
+// - UDPAddr (UDP address)
+// - TCPListener (TCP server)
+// - TCPConn (TCP connection)
+// - UDPConn (UDP connection)
+//
+// Functions:
+// - dial(network: str, address: str) -> Result<Conn, Error>
+// - listen(network: str, address: str) -> Result<Listener, Error>
+// - resolve(host: str) -> Result<[IPAddr], Error>
+//
+// Re-exports:
+// pub use std.net.http { ... }

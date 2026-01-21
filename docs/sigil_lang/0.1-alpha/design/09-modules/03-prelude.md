@@ -2,6 +2,8 @@
 
 This document covers Sigil's prelude: items that are automatically available without explicit imports, and when to use explicit stdlib imports.
 
+> **Reference:** See [Standard Library § Prelude](../../modules/prelude.md) for complete API documentation.
+
 ---
 
 ## Overview
@@ -30,6 +32,18 @@ The prelude is a small set of items automatically imported into every Sigil modu
 
 These items are available in every module without any `use` statement.
 
+### Primitive Types
+
+| Type | Description |
+|------|-------------|
+| `int`, `float`, `bool`, `str` | Basic types |
+| `char` | Unicode scalar value |
+| `byte` | 8-bit unsigned integer |
+| `void` | Unit type |
+| `Never` | Bottom type |
+| `Duration` | Time span |
+| `Size` | Byte size |
+
 ### Error Handling Types
 
 | Item | Description |
@@ -41,16 +55,42 @@ These items are available in every module without any `use` statement.
 | `Ok(T)` | Constructor for success |
 | `Err(E)` | Constructor for failure |
 | `Error` | Standard error type |
+| `Ordering` | Comparison result (Less, Equal, Greater) |
+
+### Collection Types
+
+| Item | Description |
+|------|-------------|
+| `[T]` | List |
+| `{K: V}` | Map |
+| `Set<T>` | Unique collection |
+| `Range<T>` | Range (from `..` operator) |
+| `Channel<T>` | Async communication |
+
+### Core Traits
+
+| Trait | Description |
+|-------|-------------|
+| `Eq` | Equality comparison |
+| `Comparable` | Ordering comparison |
+| `Hashable` | Can be map/set key |
+| `Printable` | String conversion |
+| `Clone` | Explicit copying |
+| `Default` | Default value |
 
 ### Basic Functions
 
 | Item | Signature | Description |
 |------|-----------|-------------|
-| `print` | `(str) -> void` | Output to stdout |
-| `len` | `([T]) -> int` | Length of list/string |
-| `str` | `(T) -> str` | Convert to string |
+| `print` | `(Printable) -> void` | Output to stdout |
+| `len` | `(Collection) -> int` | Length of collection |
+| `str` | `(Printable) -> str` | Convert to string |
 | `int` | `(T) -> int` | Convert to integer |
 | `float` | `(T) -> float` | Convert to float |
+| `compare` | `(Comparable, Comparable) -> Ordering` | Compare values |
+| `panic` | `(str) -> Never` | Terminate with error |
+| `assert` | `(bool) -> void` | Runtime assertion |
+| `assert_eq` | `(T, T) -> void` | Equality assertion |
 
 ---
 
@@ -589,7 +629,9 @@ use std.string { split }
 
 ## See Also
 
+- [Standard Library § Prelude](../../modules/prelude.md) — Complete API documentation
 - [Module System](01-module-system.md)
 - [Imports](02-imports.md)
 - [Re-exports](04-re-exports.md)
 - [Result and Option](../05-error-handling/01-result-and-option.md)
+- [Types Specification](../../spec/06-types.md)

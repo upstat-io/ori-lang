@@ -1,0 +1,8 @@
+// TODO: Implement compression utilities
+//
+// No capability required (pure)
+//
+// Re-exports:
+// pub use std.compress.gzip { compress as gzip, decompress as gunzip }
+// pub use std.compress.zlib { compress as zlib_compress, decompress as zlib_decompress }
+// pub use std.compress.zip { ... }

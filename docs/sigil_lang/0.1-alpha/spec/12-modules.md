@@ -22,7 +22,9 @@ A file named `mod.si` represents the directory's index module.
 ```
 import        = "use" module_path [ import_list | "as" identifier ] .
 module_path   = identifier { "." identifier } .
-import_list   = "{" identifier { "," identifier } [ "," ] "}" .
+import_list   = "{" import_item { "," import_item } [ "," ] "}" .
+import_item   = import_name [ "as" identifier ] .
+import_name   = identifier | "$" identifier .
 ```
 
 ### Selective Import
@@ -32,6 +34,13 @@ Import specific items from a module:
 ```sigil
 use std.math { sqrt, abs, pow }
 use http.client { get, post }
+```
+
+Import with aliases and config bindings:
+
+```sigil
+use math { add as plus, subtract as minus }
+use config { $timeout, $max_retries as $retries }
 ```
 
 ### Module Alias
@@ -110,6 +119,10 @@ The compiler resolves module paths in this order:
 
 The source root is the directory from which relative module paths are resolved. Default is `src/`.
 
+### Absolute Paths Only
+
+Import paths are always absolute. Relative paths (such as `.` or `..`) are not permitted.
+
 ### Circular Dependencies
 
 Circular module dependencies are prohibited. If module A imports from B, and B imports from A, it is an error.
@@ -159,13 +172,88 @@ A module may contain:
 
 Certain items are available in all modules without explicit import:
 
-- Primitive types: `int`, `float`, `bool`, `str`, `byte`, `void`
-- Built-in types: `Option`, `Result`, `Duration`, `Size`
-- Variants: `Some`, `None`, `Ok`, `Err`
-- Functions: `len`, `print`, `assert`, `assert_eq`, `panic`
-- Type conversions: `int()`, `float()`, `str()`
+**Primitive types:**
+- `int`, `float`, `bool`, `str`, `char`, `byte`, `void`, `Never`
+- `Duration`, `Size`
 
-These are defined in the implicit prelude module.
+**Built-in generic types:**
+- `Option<T>` with variants `Some(T)`, `None`
+- `Result<T, E>` with variants `Ok(T)`, `Err(E)`
+- `Ordering` with variants `Less`, `Equal`, `Greater`
+- `Error` — standard error type
+- `Range<T>` — range type
+- `Set<T>` — set collection
+- `Channel<T>` — async communication
+
+**Collection types:**
+- `[T]` — list
+- `{K: V}` — map
+
+**Functions:**
+- `print` — output to stdout
+- `len` — collection length
+- `str`, `int`, `float` — type conversions
+- `compare` — value comparison
+- `panic` — terminate with error
+- `assert`, `assert_eq`, `assert_ne` — runtime assertions
+- `assert_some`, `assert_none` — option assertions
+- `assert_ok`, `assert_err` — result assertions
+- `assert_panics`, `assert_panics_with` — panic assertions
+
+**Traits:**
+- `Eq`, `Comparable`, `Hashable`, `Printable`, `Clone`, `Default`
+
+These are defined in the implicit prelude module. See [Standard Library § Prelude](../modules/prelude.md) for details.
+
+## Standard Library
+
+The standard library is a collection of modules that ship with every Sigil implementation. Standard library modules are imported using the `std` prefix:
+
+```sigil
+use std.time { Date, Time, DateTime }
+use std.fs { read_file, write_file }
+use std.net.http { get, post }
+use std.json { parse, stringify }
+```
+
+### Module Path Convention
+
+Standard library modules use dot-separated paths under the `std` namespace:
+
+| Module | Description |
+|--------|-------------|
+| `std.io` | I/O traits and operations |
+| `std.fs` | Filesystem operations |
+| `std.net` | Networking (TCP, UDP) |
+| `std.net.http` | HTTP client and server |
+| `std.time` | Date, time, and duration |
+| `std.json` | JSON encoding/decoding |
+| `std.math` | Mathematical functions |
+| `std.crypto` | Cryptographic functions |
+| `std.encoding` | Data encoding (base64, hex) |
+| `std.env` | Environment variables |
+| `std.process` | Process management |
+| `std.log` | Logging utilities |
+| `std.testing` | Test utilities |
+| `std.async` | Async utilities |
+| `std.collections` | Additional collections |
+| `std.compress` | Compression |
+
+See [Standard Library Documentation](../modules/README.md) for complete reference.
+
+### Capability Requirements
+
+Some standard library modules require capabilities:
+
+| Module | Capability |
+|--------|------------|
+| `std.io` | `IO` |
+| `std.fs` | `FileSystem` |
+| `std.net` | `Network` |
+| `std.env` | `Env` |
+| `std.process` | `Process` |
+
+Modules without listed capabilities (e.g., `std.math`, `std.json`, `std.time`) are pure and require no capabilities.
 
 ## Package Structure
 

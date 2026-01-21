@@ -58,8 +58,9 @@ rustc-ice-*.txt
 
 # Temporary files
 *.tmp
-*.temp
 *.log
+!std.log/
+*.temp
 
 #claude
 .claude/discussions

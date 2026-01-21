@@ -11,6 +11,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use crate::ast::*;
+use crate::errors::Diagnostic;
 use crate::lexer::tokenize;
 use crate::parser::parse;
 use crate::types::check;
@@ -19,9 +20,11 @@ use crate::types::check;
 // Helper Functions
 // ============================================================================
 
-fn check_source(source: &str) -> Result<Module, String> {
-    let tokens = tokenize(source, "test.si")?;
-    let module = parse(tokens, "test.si")?;
+fn check_source(source: &str) -> Result<Module, Diagnostic> {
+    let tokens = tokenize(source, "test.si")
+        .map_err(|e| Diagnostic::error(crate::errors::codes::ErrorCode::E0000, e))?;
+    let module = parse(tokens, "test.si")
+        .map_err(|e| Diagnostic::error(crate::errors::codes::ErrorCode::E0000, e))?;
     check(module)
 }
 
@@ -30,7 +33,8 @@ fn check_ok(source: &str) -> Module {
 }
 
 fn check_err(source: &str) -> String {
-    check_source(source).expect_err("type checking should fail")
+    let diag = check_source(source).expect_err("type checking should fail");
+    diag.message
 }
 
 // ============================================================================

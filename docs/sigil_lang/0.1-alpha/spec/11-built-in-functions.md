@@ -199,6 +199,68 @@ assert_eq(add(2, 3), 5)
 assert_eq(result, expected)
 ```
 
+### assert_ne
+
+Assert that two values are not equal.
+
+```
+@assert_ne (actual: T, unexpected: T) -> void
+```
+
+If `actual == unexpected`, the program panics with a diagnostic showing both values.
+
+### assert_some
+
+Assert that an `Option` is `Some`.
+
+```
+@assert_some (option: Option<T>) -> void
+```
+
+### assert_none
+
+Assert that an `Option` is `None`.
+
+```
+@assert_none (option: Option<T>) -> void
+```
+
+### assert_ok
+
+Assert that a `Result` is `Ok`.
+
+```
+@assert_ok (result: Result<T, E>) -> void
+```
+
+### assert_err
+
+Assert that a `Result` is `Err`.
+
+```
+@assert_err (result: Result<T, E>) -> void
+```
+
+### assert_panics
+
+Assert that evaluating an expression panics.
+
+```
+@assert_panics (expr: T) -> void
+```
+
+The argument expression is evaluated and must panic; otherwise the assertion fails.
+
+### assert_panics_with
+
+Assert that evaluating an expression panics with a specific message.
+
+```
+@assert_panics_with (expr: T, msg: str) -> void
+```
+
+The argument expression is evaluated and must panic with an error message equal to `msg`.
+
 ## I/O Functions
 
 ### print
@@ -249,10 +311,10 @@ Return the maximum of two values.
 Terminate execution with an error message.
 
 ```
-@panic (msg: str) -> !
+@panic (msg: str) -> Never
 ```
 
-The return type `!` indicates that this function never returns normally.
+The return type `Never` indicates that this function never returns normally.
 
 ```sigil
 panic("Unexpected state")
@@ -266,7 +328,7 @@ The following functions are available without import (prelude):
 - Collection: `len`, `is_empty`
 - Option: `is_some`, `is_none`, `Some`, `None`
 - Result: `is_ok`, `is_err`, `Ok`, `Err`
-- Assertion: `assert`, `assert_eq`
+- Assertion: `assert`, `assert_eq`, `assert_ne`, `assert_some`, `assert_none`, `assert_ok`, `assert_err`, `assert_panics`, `assert_panics_with`
 - I/O: `print`
 - Control: `panic`
 

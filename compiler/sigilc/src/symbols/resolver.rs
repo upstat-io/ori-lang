@@ -207,7 +207,7 @@ impl Resolver {
         }
 
         // Resolve the body
-        self.resolve_expr(&func.body);
+        self.resolve_expr(&func.body.expr);
 
         self.scopes.exit();
     }
@@ -232,7 +232,7 @@ impl Resolver {
 
         // Enter test scope and resolve body
         self.scopes.enter(ScopeKind::Function);
-        self.resolve_expr(&test.body);
+        self.resolve_expr(&test.body.expr);
         self.scopes.exit();
     }
 
@@ -242,7 +242,7 @@ impl Resolver {
             self.resolve_type(ty);
         }
         // Resolve the initializer expression
-        self.resolve_expr(&config.value);
+        self.resolve_expr(&config.value.expr);
     }
 
     fn resolve_typedef(&mut self, typedef: &TypeDef) {
@@ -681,7 +681,7 @@ mod tests {
             type_params: vec![],
             params: vec![],
             return_type: TypeExpr::Named("int".to_string()),
-            body: Expr::Int(42),
+            body: SpannedExpr::no_span(Expr::Int(42)),
             span: 0..0,
         })
     }
@@ -712,11 +712,11 @@ mod tests {
                 },
             ],
             return_type: TypeExpr::Named("int".to_string()),
-            body: Expr::Binary {
+            body: SpannedExpr::no_span(Expr::Binary {
                 left: Box::new(Expr::Ident("a".to_string())),
                 op: BinaryOp::Add,
                 right: Box::new(Expr::Ident("b".to_string())),
-            },
+            }),
             span: 0..0,
         })]);
 
@@ -732,7 +732,7 @@ mod tests {
             type_params: vec![],
             params: vec![],
             return_type: TypeExpr::Named("int".to_string()),
-            body: Expr::Ident("undefined_var".to_string()),
+            body: SpannedExpr::no_span(Expr::Ident("undefined_var".to_string())),
             span: 0..0,
         })]);
 
@@ -751,10 +751,10 @@ mod tests {
                 type_params: vec![],
                 params: vec![],
                 return_type: TypeExpr::Named("int".to_string()),
-                body: Expr::Call {
+                body: SpannedExpr::no_span(Expr::Call {
                     func: Box::new(Expr::Ident("bar".to_string())),
                     args: vec![],
-                },
+                }),
                 span: 0..0,
             }),
             Item::Function(FunctionDef {
@@ -763,7 +763,7 @@ mod tests {
                 type_params: vec![],
                 params: vec![],
                 return_type: TypeExpr::Named("int".to_string()),
-                body: Expr::Int(42),
+                body: SpannedExpr::no_span(Expr::Int(42)),
                 span: 0..0,
             }),
         ]);
@@ -784,14 +784,14 @@ mod tests {
                 ty: TypeExpr::Named("int".to_string()),
             }],
             return_type: TypeExpr::Named("int".to_string()),
-            body: Expr::Block(vec![
+            body: SpannedExpr::no_span(Expr::Block(vec![
                 Expr::Let {
                     name: "x".to_string(),
                     mutable: false,
                     value: Box::new(Expr::String("hello".to_string())),
                 },
                 Expr::Int(42),
-            ]),
+            ])),
             span: 0..0,
         })]);
 

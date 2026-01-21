@@ -1,0 +1,15 @@
+// TODO: Implement URL encoding/decoding
+//
+// No capability required (pure)
+//
+// Functions:
+// - encode(s: str) -> str (percent-encoding)
+// - decode(s: str) -> Result<str, Error>
+// - encode_path(s: str) -> str (path component)
+// - encode_query(s: str) -> str (query component)
+//
+// URL parsing:
+// - parse(s: str) -> Result<URL, Error>
+//
+// Types:
+// - URL { scheme, host, port, path, query, fragment }

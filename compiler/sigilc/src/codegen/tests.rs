@@ -12,6 +12,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use crate::codegen::generate;
+use crate::errors::Diagnostic;
 use crate::lexer::tokenize;
 use crate::parser::parse;
 use crate::types::check;
@@ -21,9 +22,10 @@ use crate::types::check;
 // ============================================================================
 
 fn gen_source(source: &str) -> Result<String, String> {
+    let to_string = |d: Diagnostic| d.message;
     let tokens = tokenize(source, "test.si")?;
     let module = parse(tokens, "test.si")?;
-    let typed = check(module)?;
+    let typed = check(module).map_err(to_string)?;
     generate(&typed)
 }
 

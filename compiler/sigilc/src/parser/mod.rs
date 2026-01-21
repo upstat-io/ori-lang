@@ -24,15 +24,24 @@ use crate::lexer::{SpannedToken, Token};
 pub struct Parser {
     tokens: Vec<SpannedToken>,
     pos: usize,
+    /// The end position of the source (for handling EOF spans)
+    source_len: usize,
 }
 
 impl Parser {
     pub fn new(tokens: Vec<SpannedToken>) -> Self {
-        Parser { tokens, pos: 0 }
+        // Calculate source length from the last token's end position
+        let source_len = tokens.last().map(|t| t.span.end).unwrap_or(0);
+        Parser { tokens, pos: 0, source_len }
     }
 
     pub(super) fn current(&self) -> Option<&Token> {
         self.tokens.get(self.pos).map(|t| &t.value)
+    }
+
+    /// Get the current token with its span
+    pub(super) fn current_spanned(&self) -> Option<&SpannedToken> {
+        self.tokens.get(self.pos)
     }
 
     pub(super) fn peek(&self, offset: usize) -> Option<&Token> {
@@ -47,6 +56,34 @@ impl Parser {
         } else {
             None
         }
+    }
+
+    /// Get the start position for the current token (or end of source if at EOF)
+    pub(super) fn current_start(&self) -> usize {
+        self.tokens.get(self.pos)
+            .map(|t| t.span.start)
+            .unwrap_or(self.source_len)
+    }
+
+    /// Get the end position of the previous token (or 0 if at start)
+    pub(super) fn previous_end(&self) -> usize {
+        if self.pos > 0 {
+            self.tokens.get(self.pos - 1)
+                .map(|t| t.span.end)
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    }
+
+    /// Create a span from start to the end of the previous token
+    pub(super) fn make_span(&self, start: usize) -> Span {
+        start..self.previous_end()
+    }
+
+    /// Wrap an expression with a span
+    pub(super) fn spanned(&self, expr: Expr, start: usize) -> SpannedExpr {
+        SpannedExpr::new(expr, self.make_span(start))
     }
 
     #[allow(clippy::expect_used)] // advance() cannot return None after current() returned Some

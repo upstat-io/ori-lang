@@ -29,6 +29,7 @@ pretty_assertions = "1.4"
 insta = "1.40"               # Snapshot testing
 proptest = "1.5"             # Property-based testing
 test-case = "3.3"            # Parameterized tests
+tempfile = "3.10"            # Temporary directories for tests
 
 # Inherit workspace lints
 [lints]

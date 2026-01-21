@@ -1,0 +1,28 @@
+// TODO: Implement regular expressions
+//
+// No capability required (pure)
+//
+// Types:
+// - Regex (compiled regular expression)
+// - Captures (captured groups from a match)
+// - RegexError (compilation errors)
+//
+// Regex methods:
+// - new(pattern: str) -> Result<Regex, RegexError>
+// - is_match(s: str) -> bool
+// - find(s: str) -> Option<str>
+// - find_all(s: str) -> [str]
+// - captures(s: str) -> Option<Captures>
+// - replace(s: str, replacement: str) -> str
+// - replace_all(s: str, replacement: str) -> str
+// - split(s: str) -> [str]
+//
+// Convenience functions (recompile each call):
+// - match(pattern: str, s: str) -> bool
+// - find(pattern: str, s: str) -> Option<str>
+// - replace(pattern: str, s: str, replacement: str) -> str
+//
+// Captures type:
+// - full: str (entire match)
+// - groups: [Option<str>] (numbered groups)
+// - named: {str: str} (named groups)

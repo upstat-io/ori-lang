@@ -30,7 +30,7 @@ impl Parser {
             // Parse the value expression
             let value = self.parse_expr()?;
 
-            args.push((prop_name, value));
+            args.push((prop_name, value.expr));
 
             self.skip_newlines();
             if matches!(self.current(), Some(Token::Comma)) {
@@ -49,7 +49,8 @@ impl Parser {
         matches!(self.current(), Some(Token::Dot)) && matches!(self.peek(1), Some(Token::Ident(_)))
     }
 
-    pub(super) fn parse_match_expr(&mut self) -> Result<Expr, String> {
+    /// Parse a match expression, starting from after 'match' keyword
+    pub(super) fn parse_match_expr_inner(&mut self, start: usize) -> Result<SpannedExpr, String> {
         self.expect(Token::LParen)?;
         self.skip_newlines();
 
@@ -64,14 +65,14 @@ impl Parser {
             self.advance(); // consume :
             let body = self.parse_expr()?;
             let first_arm = MatchArm {
-                pattern: Pattern::Condition(first_expr),
-                body,
+                pattern: Pattern::Condition(first_expr.expr),
+                body: body.expr,
             };
             (Expr::Bool(true), vec![first_arm])
         } else {
             // Standard match: match(scrutinee, pattern: body, ...)
             self.expect(Token::Comma)?;
-            (first_expr, Vec::new())
+            (first_expr.expr, Vec::new())
         };
 
         self.skip_newlines();
@@ -90,14 +91,14 @@ impl Parser {
                     self.advance();
                     let body = self.parse_expr()?;
                     arms.push(MatchArm {
-                        pattern: Pattern::Condition(cond_expr),
-                        body,
+                        pattern: Pattern::Condition(cond_expr.expr),
+                        body: body.expr,
                     });
                 } else {
                     // Default case: expr is the body, use wildcard pattern
                     arms.push(MatchArm {
                         pattern: Pattern::Wildcard,
-                        body: cond_expr,
+                        body: cond_expr.expr,
                     });
                 }
             } else {
@@ -105,7 +106,7 @@ impl Parser {
                 let pattern = self.parse_pattern()?;
                 self.expect(Token::Colon)?;
                 let body = self.parse_expr()?;
-                arms.push(MatchArm { pattern, body });
+                arms.push(MatchArm { pattern, body: body.expr });
             }
 
             self.skip_newlines();
@@ -117,7 +118,8 @@ impl Parser {
 
         self.expect(Token::RParen)?;
 
-        Ok(Expr::Match(Box::new(MatchExpr { scrutinee, arms })))
+        let expr = Expr::Match(Box::new(MatchExpr { scrutinee, arms }));
+        Ok(self.spanned(expr, start))
     }
 
     fn parse_pattern(&mut self) -> Result<Pattern, String> {
@@ -203,12 +205,12 @@ impl Parser {
             | Some(Token::True)
             | Some(Token::False) => {
                 let expr = self.parse_primary_expr()?;
-                Ok(Pattern::Literal(expr))
+                Ok(Pattern::Literal(expr.expr))
             }
             _ => {
                 // Try parsing as a condition
                 let expr = self.parse_expr()?;
-                Ok(Pattern::Condition(expr))
+                Ok(Pattern::Condition(expr.expr))
             }
         }
     }
@@ -216,21 +218,23 @@ impl Parser {
     /// Disambiguate between pattern keyword (fold, map, filter, etc.) and function call.
     /// Called after we've already consumed the identifier and know it's followed by '('.
     /// Supports both positional args and named property syntax (.property: value).
-    pub(super) fn parse_pattern_or_call_from_ident(
+    pub(super) fn parse_pattern_or_call_from_ident_with_start(
         &mut self,
         keyword: &str,
-    ) -> Result<Expr, String> {
+        start: usize,
+    ) -> Result<SpannedExpr, String> {
         // Parse args (we know current token is '(')
         self.advance(); // consume '('
         self.skip_newlines();
 
         // Check if we have named property syntax
         if self.is_named_arg_start() {
-            return self.parse_pattern_with_named_args(keyword);
+            return self.parse_pattern_with_named_args_with_start(keyword, start);
         }
 
         // Positional args
-        let args = self.parse_args()?;
+        let spanned_args = self.parse_args()?;
+        let args: Vec<Expr> = spanned_args.into_iter().map(|a| a.expr).collect();
         self.expect(Token::RParen)?;
 
         // Check if arg count matches pattern signature
@@ -243,25 +247,25 @@ impl Parser {
             _ => false,
         };
 
-        if is_pattern {
+        let expr = if is_pattern {
             match keyword {
-                "fold" => Ok(Expr::Pattern(PatternExpr::Fold {
+                "fold" => Expr::Pattern(PatternExpr::Fold {
                     collection: Box::new(args[0].clone()),
                     init: Box::new(args[1].clone()),
                     op: Box::new(args[2].clone()),
-                })),
-                "map" => Ok(Expr::Pattern(PatternExpr::Map {
+                }),
+                "map" => Expr::Pattern(PatternExpr::Map {
                     collection: Box::new(args[0].clone()),
                     transform: Box::new(args[1].clone()),
-                })),
-                "filter" => Ok(Expr::Pattern(PatternExpr::Filter {
+                }),
+                "filter" => Expr::Pattern(PatternExpr::Filter {
                     collection: Box::new(args[0].clone()),
                     predicate: Box::new(args[1].clone()),
-                })),
-                "collect" => Ok(Expr::Pattern(PatternExpr::Collect {
+                }),
+                "collect" => Expr::Pattern(PatternExpr::Collect {
                     range: Box::new(args[0].clone()),
                     transform: Box::new(args[1].clone()),
-                })),
+                }),
                 "recurse" => {
                     // Check if fourth arg is `true` for memoization
                     let memo = if args.len() >= 4 {
@@ -269,38 +273,40 @@ impl Parser {
                     } else {
                         false
                     };
-                    Ok(Expr::Pattern(PatternExpr::Recurse {
+                    Expr::Pattern(PatternExpr::Recurse {
                         condition: Box::new(args[0].clone()),
                         base_value: Box::new(args[1].clone()),
                         step: Box::new(args[2].clone()),
                         memo,
                         parallel_threshold: 0, // positional syntax doesn't support parallel yet
-                    }))
+                    })
                 }
-                _ => Ok(Expr::Call {
+                _ => Expr::Call {
                     func: Box::new(Expr::Ident(keyword.to_string())),
                     args,
-                }),
+                },
             }
         } else {
             // Not a pattern - treat as function call
-            Ok(Expr::Call {
+            Expr::Call {
                 func: Box::new(Expr::Ident(keyword.to_string())),
                 args,
-            })
-        }
+            }
+        };
+
+        Ok(self.spanned(expr, start))
     }
 
     /// Parse a pattern expression with named property syntax
     /// e.g., recurse(.cond: n <= 1, .base: 1, .step: n * self(n-1), .memo: true)
-    fn parse_pattern_with_named_args(&mut self, keyword: &str) -> Result<Expr, String> {
+    fn parse_pattern_with_named_args_with_start(&mut self, keyword: &str, start: usize) -> Result<SpannedExpr, String> {
         let named_args = self.parse_named_args()?;
         self.expect(Token::RParen)?;
 
         // Convert named args to a hashmap for easy lookup
         let mut props: std::collections::HashMap<String, Expr> = named_args.into_iter().collect();
 
-        match keyword {
+        let expr = match keyword {
             "recurse" => {
                 // Required: cond, base, step
                 // Optional: memo (default false), parallel (default false)
@@ -328,13 +334,13 @@ impl Parser {
                     })
                     .unwrap_or(i64::MAX);
 
-                Ok(Expr::Pattern(PatternExpr::Recurse {
+                Expr::Pattern(PatternExpr::Recurse {
                     condition: Box::new(condition),
                     base_value: Box::new(base_value),
                     step: Box::new(step),
                     memo,
                     parallel_threshold,
-                }))
+                })
             }
             "fold" => {
                 // Required: over, init, op
@@ -344,15 +350,17 @@ impl Parser {
                 let init = props
                     .remove("init")
                     .ok_or_else(|| "fold pattern requires .init: property".to_string())?;
+                // Support both .op and .with as the operator property
                 let op = props
                     .remove("op")
-                    .ok_or_else(|| "fold pattern requires .op: property".to_string())?;
+                    .or_else(|| props.remove("with"))
+                    .ok_or_else(|| "fold pattern requires .op: or .with: property".to_string())?;
 
-                Ok(Expr::Pattern(PatternExpr::Fold {
+                Expr::Pattern(PatternExpr::Fold {
                     collection: Box::new(collection),
                     init: Box::new(init),
                     op: Box::new(op),
-                }))
+                })
             }
             "map" => {
                 // Required: over, transform
@@ -363,10 +371,10 @@ impl Parser {
                     .remove("transform")
                     .ok_or_else(|| "map pattern requires .transform: property".to_string())?;
 
-                Ok(Expr::Pattern(PatternExpr::Map {
+                Expr::Pattern(PatternExpr::Map {
                     collection: Box::new(collection),
                     transform: Box::new(transform),
-                }))
+                })
             }
             "filter" => {
                 // Required: over, predicate
@@ -377,10 +385,10 @@ impl Parser {
                     .remove("predicate")
                     .ok_or_else(|| "filter pattern requires .predicate: property".to_string())?;
 
-                Ok(Expr::Pattern(PatternExpr::Filter {
+                Expr::Pattern(PatternExpr::Filter {
                     collection: Box::new(collection),
                     predicate: Box::new(predicate),
-                }))
+                })
             }
             "collect" => {
                 // Required: range, transform
@@ -391,10 +399,10 @@ impl Parser {
                     .remove("transform")
                     .ok_or_else(|| "collect pattern requires .transform: property".to_string())?;
 
-                Ok(Expr::Pattern(PatternExpr::Collect {
+                Expr::Pattern(PatternExpr::Collect {
                     range: Box::new(range),
                     transform: Box::new(transform),
-                }))
+                })
             }
             "parallel" => {
                 // Optional: timeout, on_error
@@ -422,16 +430,18 @@ impl Parser {
                     return Err("parallel pattern requires at least one branch".to_string());
                 }
 
-                Ok(Expr::Pattern(PatternExpr::Parallel {
+                Expr::Pattern(PatternExpr::Parallel {
                     branches,
                     timeout,
                     on_error,
-                }))
+                })
             }
-            _ => Err(format!(
+            _ => return Err(format!(
                 "Unknown pattern keyword with named args: {}",
                 keyword
             )),
-        }
+        };
+
+        Ok(self.spanned(expr, start))
     }
 }

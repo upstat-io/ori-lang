@@ -1,0 +1,9 @@
+// TODO: Implement Base64 encoding/decoding
+//
+// No capability required (pure)
+//
+// Functions:
+// - encode(data: [byte]) -> str
+// - decode(s: str) -> Result<[byte], Error>
+// - encode_url(data: [byte]) -> str (URL-safe variant)
+// - decode_url(s: str) -> Result<[byte], Error>

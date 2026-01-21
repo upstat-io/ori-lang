@@ -1,0 +1,18 @@
+// TODO: Implement I/O traits and operations
+//
+// Capabilities required: IO
+//
+// Types:
+// - Reader trait (read bytes)
+// - Writer trait (write bytes)
+// - Closer trait (close resources)
+// - Seeker trait (seek within stream)
+//
+// Functions:
+// - copy(dst: Writer, src: Reader) -> Result<int, Error>
+// - read_all(r: Reader) -> Result<[byte], Error>
+//
+// Standard streams:
+// - stdin: Reader
+// - stdout: Writer
+// - stderr: Writer

@@ -1,11 +1,295 @@
 // Sigil Standard Library - Prelude
-// These functions are automatically available in all Sigil programs
+// These items are automatically available in all Sigil programs without import.
+//
+// Primitive types (int, float, bool, str, char, byte, void, Never, Duration, Size)
+// and collection syntax ([T], {K: V}) are built into the compiler.
 
-// Identity function
-@identity<T> (x: T) -> T = x
+// -----------------------------------------------------------------------------
+// Error Handling Types
+// -----------------------------------------------------------------------------
 
-// Constant function - always returns first argument
-@const<T, U> (x: T, _y: U) -> T = x
+// #A value that may or may not exist
+pub type Option<T> = Some(T) | None
 
-// Function composition (future: when we have better generic support)
-// @compose (f: B -> C, g: A -> B) -> (A -> C) = a -> f(g(a))
+// #An operation that may succeed or fail
+pub type Result<T, E> = Ok(T) | Err(E)
+
+// #Standard error type
+// @field message human-readable error description
+// @field cause optional underlying error that caused this one
+pub type Error = { message: str, cause: Option<Error> }
+
+// #Result of comparing two values
+pub type Ordering = Less | Equal | Greater
+
+// -----------------------------------------------------------------------------
+// Core Traits
+// -----------------------------------------------------------------------------
+
+// #Equality comparison
+pub trait Eq {
+    @eq (self, other: Self) -> bool
+    @ne (self, other: Self) -> bool = !self.eq(other)
+}
+
+// #Ordering comparison
+pub trait Comparable: Eq {
+    @cmp (self, other: Self) -> Ordering
+    @lt (self, other: Self) -> bool = self.cmp(other) == Less
+    @le (self, other: Self) -> bool = self.cmp(other) != Greater
+    @gt (self, other: Self) -> bool = self.cmp(other) == Greater
+    @ge (self, other: Self) -> bool = self.cmp(other) != Less
+}
+
+// #Can be used as a map key or set element
+pub trait Hashable: Eq {
+    @hash (self) -> int
+}
+
+// #Can be converted to a string representation
+pub trait Printable {
+    @to_string (self) -> str
+}
+
+// #Can be explicitly copied
+pub trait Clone {
+    @clone (self) -> Self
+}
+
+// #Has a default value
+pub trait Default {
+    @default () -> Self
+}
+
+// -----------------------------------------------------------------------------
+// Basic Functions
+// -----------------------------------------------------------------------------
+
+// #Output a string to stdout
+pub @print (s: str) -> void = __builtin_print(s)
+
+// #Get the length of a list
+// >len([1, 2, 3]) -> 3
+// >len([]) -> 0
+pub @len<T> (items: [T]) -> int = __builtin_len(items)
+
+// #Convert any printable value to a string
+// >str(42) -> "42"
+// >str(true) -> "true"
+// >str([1, 2]) -> "[1, 2]"
+pub @str<T: Printable> (value: T) -> str = value.to_string()
+
+// #Convert a float to an integer (truncates)
+// >int(3.7) -> 3
+// >int(-2.9) -> -2
+pub @int (value: float) -> int = __builtin_float_to_int(value)
+
+// #Parse a string as an integer
+// @param value must contain only digits, optionally prefixed with -
+// >int("42") -> 42
+// >int("-5") -> -5
+pub @int (value: str) -> int = __builtin_parse_int(value)
+
+// #Convert a bool to an integer
+// >int(true) -> 1
+// >int(false) -> 0
+pub @int (value: bool) -> int = if value then 1 else 0
+
+// #Convert an integer to a float
+// >float(42) -> 42.0
+pub @float (value: int) -> float = __builtin_int_to_float(value)
+
+// #Parse a string as a float
+// >float("3.14") -> 3.14
+pub @float (value: str) -> float = __builtin_parse_float(value)
+
+// #Compare two comparable values
+// >compare(1, 2) -> Less
+// >compare(2, 2) -> Equal
+// >compare(3, 2) -> Greater
+pub @compare<T: Comparable> (a: T, b: T) -> Ordering = a.cmp(b)
+
+// #Terminate the program with an error message
+pub @panic (message: str) -> Never = __builtin_panic(message)
+
+// #Assert that a condition is true
+// !Panics if condition is false
+pub @assert (condition: bool) -> void =
+    if !condition then panic("assertion failed")
+
+// #Assert that two values are equal
+// !Panics if values are not equal
+// >assert_eq(1 + 1, 2) -> void
+pub @assert_eq<T: Eq + Printable> (a: T, b: T) -> void =
+    if a != b then panic("assertion failed: " + str(a) + " != " + str(b))
+
+// -----------------------------------------------------------------------------
+// Builtin Trait Implementations
+// -----------------------------------------------------------------------------
+
+impl Eq for int {
+    @eq (self, other: int) -> bool = __builtin_int_eq(self, other)
+}
+
+impl Comparable for int {
+    @cmp (self, other: int) -> Ordering =
+        if self < other then Less
+        else if self > other then Greater
+        else Equal
+}
+
+impl Hashable for int {
+    @hash (self) -> int = self
+}
+
+impl Printable for int {
+    @to_string (self) -> str = __builtin_int_to_string(self)
+}
+
+impl Default for int {
+    @default () -> int = 0
+}
+
+impl Eq for float {
+    @eq (self, other: float) -> bool = __builtin_float_eq(self, other)
+}
+
+impl Comparable for float {
+    @cmp (self, other: float) -> Ordering =
+        if self < other then Less
+        else if self > other then Greater
+        else Equal
+}
+
+impl Printable for float {
+    @to_string (self) -> str = __builtin_float_to_string(self)
+}
+
+impl Default for float {
+    @default () -> float = 0.0
+}
+
+impl Eq for bool {
+    @eq (self, other: bool) -> bool = __builtin_bool_eq(self, other)
+}
+
+impl Printable for bool {
+    @to_string (self) -> str = if self then "true" else "false"
+}
+
+impl Default for bool {
+    @default () -> bool = false
+}
+
+impl Eq for str {
+    @eq (self, other: str) -> bool = __builtin_str_eq(self, other)
+}
+
+impl Comparable for str {
+    @cmp (self, other: str) -> Ordering = __builtin_str_cmp(self, other)
+}
+
+impl Hashable for str {
+    @hash (self) -> int = __builtin_str_hash(self)
+}
+
+impl Printable for str {
+    @to_string (self) -> str = self
+}
+
+impl Default for str {
+    @default () -> str = ""
+}
+
+impl Eq for char {
+    @eq (self, other: char) -> bool = __builtin_char_eq(self, other)
+}
+
+impl Comparable for char {
+    @cmp (self, other: char) -> Ordering = __builtin_char_cmp(self, other)
+}
+
+impl Hashable for char {
+    @hash (self) -> int = __builtin_char_to_int(self)
+}
+
+impl Printable for char {
+    @to_string (self) -> str = __builtin_char_to_string(self)
+}
+
+impl<T: Eq> Eq for Option<T> {
+    @eq (self, other: Option<T>) -> bool =
+        match (self, other,
+            (Some(a), Some(b)) -> a == b,
+            (None, None) -> true,
+            _ -> false,
+        )
+}
+
+impl<T: Printable> Printable for Option<T> {
+    @to_string (self) -> str =
+        match (self,
+            Some(v) -> "Some(" + str(v) + ")",
+            None -> "None",
+        )
+}
+
+impl<T> Default for Option<T> {
+    @default () -> Option<T> = None
+}
+
+impl<T: Eq, E: Eq> Eq for Result<T, E> {
+    @eq (self, other: Result<T, E>) -> bool =
+        match (self, other,
+            (Ok(a), Ok(b)) -> a == b,
+            (Err(a), Err(b)) -> a == b,
+            _ -> false,
+        )
+}
+
+impl<T: Printable, E: Printable> Printable for Result<T, E> {
+    @to_string (self) -> str =
+        match (self,
+            Ok(v) -> "Ok(" + str(v) + ")",
+            Err(e) -> "Err(" + str(e) + ")",
+        )
+}
+
+impl Eq for Ordering {
+    @eq (self, other: Ordering) -> bool =
+        match (self, other,
+            (Less, Less) -> true,
+            (Equal, Equal) -> true,
+            (Greater, Greater) -> true,
+            _ -> false,
+        )
+}
+
+impl Printable for Ordering {
+    @to_string (self) -> str =
+        match (self,
+            Less -> "Less",
+            Equal -> "Equal",
+            Greater -> "Greater",
+        )
+}
+
+impl Eq for Error {
+    @eq (self, other: Error) -> bool = self.message == other.message
+}
+
+impl Printable for Error {
+    @to_string (self) -> str = self.message
+}
+
+impl<T: Eq> Eq for [T] {
+    @eq (self, other: [T]) -> bool = __builtin_list_eq(self, other)
+}
+
+impl<T: Printable> Printable for [T] {
+    @to_string (self) -> str = __builtin_list_to_string(self)
+}
+
+impl<T> Default for [T] {
+    @default () -> [T] = []
+}

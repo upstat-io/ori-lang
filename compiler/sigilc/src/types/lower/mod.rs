@@ -9,6 +9,7 @@
 // - expr.rs: Expression lowering
 // - patterns.rs: Match patterns and pattern expressions
 
+mod check_lower;
 mod expr;
 mod patterns;
 mod types;
@@ -153,11 +154,11 @@ impl Lowerer {
         let ty = if let Some(ref t) = cd.ty {
             type_expr_to_type(t, &self.ctx)?
         } else {
-            let inferred = infer_type(&cd.value)?;
+            let inferred = infer_type(&cd.value.expr)?;
             type_expr_to_type(&inferred, &self.ctx)?
         };
 
-        let value = self.lower_expr(&cd.value)?;
+        let value = self.lower_spanned_expr(&cd.value)?;
 
         Ok(TConfig {
             name: cd.name.clone(),
@@ -193,8 +194,8 @@ impl Lowerer {
 
         let return_type = type_expr_to_type(&fd.return_type, &self.ctx)?;
 
-        // Lower the body expression
-        let body = self.lower_expr(&fd.body)?;
+        // Lower the body expression (with span from SpannedExpr)
+        let body = self.lower_spanned_expr(&fd.body)?;
 
         Ok(TFunction {
             name: fd.name.clone(),
@@ -209,7 +210,7 @@ impl Lowerer {
 
     /// Lower a test definition
     fn lower_test(&mut self, td: &ast::TestDef) -> Result<TTest, String> {
-        let body = self.lower_expr(&td.body)?;
+        let body = self.lower_spanned_expr(&td.body)?;
 
         Ok(TTest {
             name: td.name.clone(),

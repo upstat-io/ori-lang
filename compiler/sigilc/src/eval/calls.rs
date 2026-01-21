@@ -27,5 +27,5 @@ pub fn eval_function_call(
         new_env.define(param.name.clone(), value, false);
     }
 
-    eval_expr(&fd.body, &new_env)
+    eval_expr(&fd.body.expr, &new_env)
 }

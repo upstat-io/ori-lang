@@ -68,6 +68,31 @@ type Internal = { ... }
 
 ---
 
+## Standard Library
+
+The standard library uses the `std` namespace:
+
+```sigil
+use std.time { Date, Time }
+use std.fs { read_file }
+use std.net.http { get, post }
+```
+
+**Module organization:**
+
+| Category | Modules |
+|----------|---------|
+| I/O | `std.io`, `std.fs` |
+| Network | `std.net`, `std.net.http` |
+| Data | `std.json`, `std.encoding` |
+| Utilities | `std.time`, `std.math`, `std.fmt`, `std.text` |
+| System | `std.env`, `std.process`, `std.log` |
+| Async | `std.async` |
+
+See [Standard Library Documentation](../../modules/README.md) for complete reference.
+
+---
+
 ## See Also
 
 - [Main Index](../00-index.md)

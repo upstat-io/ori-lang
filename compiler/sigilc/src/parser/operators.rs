@@ -7,54 +7,61 @@ use crate::ast::*;
 use crate::lexer::Token;
 
 impl Parser {
-    pub(super) fn parse_or_expr(&mut self) -> Result<Expr, String> {
+    pub(super) fn parse_or_expr(&mut self) -> Result<SpannedExpr, String> {
+        let start = self.current_start();
         let mut left = self.parse_and_expr()?;
 
         while matches!(self.current(), Some(Token::Or)) {
             self.advance();
             let right = self.parse_and_expr()?;
-            left = Expr::Binary {
+            let expr = Expr::Binary {
                 op: BinaryOp::Or,
-                left: Box::new(left),
-                right: Box::new(right),
+                left: Box::new(left.expr),
+                right: Box::new(right.expr),
             };
+            left = self.spanned(expr, start);
         }
 
         Ok(left)
     }
 
-    fn parse_and_expr(&mut self) -> Result<Expr, String> {
+    fn parse_and_expr(&mut self) -> Result<SpannedExpr, String> {
+        let start = self.current_start();
         let mut left = self.parse_range_expr()?;
 
         while matches!(self.current(), Some(Token::And)) {
             self.advance();
             let right = self.parse_range_expr()?;
-            left = Expr::Binary {
+            let expr = Expr::Binary {
                 op: BinaryOp::And,
-                left: Box::new(left),
-                right: Box::new(right),
+                left: Box::new(left.expr),
+                right: Box::new(right.expr),
             };
+            left = self.spanned(expr, start);
         }
 
         Ok(left)
     }
 
-    fn parse_range_expr(&mut self) -> Result<Expr, String> {
+    fn parse_range_expr(&mut self) -> Result<SpannedExpr, String> {
+        let start = self.current_start();
         let left = self.parse_equality_expr()?;
 
         if matches!(self.current(), Some(Token::DotDot)) {
             self.advance();
             let right = self.parse_equality_expr()?;
-            return Ok(Expr::Range {
-                start: Box::new(left),
-                end: Box::new(right),
-            });
+            let expr = Expr::Range {
+                start: Box::new(left.expr),
+                end: Box::new(right.expr),
+            };
+            return Ok(self.spanned(expr, start));
         }
 
         Ok(left)
     }
 
-    fn parse_equality_expr(&mut self) -> Result<Expr, String> {
+    fn parse_equality_expr(&mut self) -> Result<SpannedExpr, String> {
+        let start = self.current_start();
         let mut left = self.parse_comparison_expr()?;
 
         while matches!(self.current(), Some(Token::EqEq) | Some(Token::NotEq)) {
@@ -65,17 +72,19 @@ impl Parser {
             };
             self.advance();
             let right = self.parse_comparison_expr()?;
-            left = Expr::Binary {
+            let expr = Expr::Binary {
                 op,
-                left: Box::new(left),
-                right: Box::new(right),
+                left: Box::new(left.expr),
+                right: Box::new(right.expr),
             };
+            left = self.spanned(expr, start);
         }
 
         Ok(left)
     }
 
-    pub(super) fn parse_comparison_expr(&mut self) -> Result<Expr, String> {
+    pub(super) fn parse_comparison_expr(&mut self) -> Result<SpannedExpr, String> {
+        let start = self.current_start();
         let mut left = self.parse_additive_expr()?;
 
         while matches!(
@@ -91,17 +100,19 @@ impl Parser {
             };
             self.advance();
             let right = self.parse_additive_expr()?;
-            left = Expr::Binary {
+            let expr = Expr::Binary {
                 op,
-                left: Box::new(left),
-                right: Box::new(right),
+                left: Box::new(left.expr),
+                right: Box::new(right.expr),
             };
+            left = self.spanned(expr, start);
         }
 
         Ok(left)
     }
 
-    fn parse_additive_expr(&mut self) -> Result<Expr, String> {
+    fn parse_additive_expr(&mut self) -> Result<SpannedExpr, String> {
+        let start = self.current_start();
         let mut left = self.parse_multiplicative_expr()?;
 
         while matches!(self.current(), Some(Token::Plus) | Some(Token::Minus)) {
@@ -112,17 +123,19 @@ impl Parser {
             };
             self.advance();
             let right = self.parse_multiplicative_expr()?;
-            left = Expr::Binary {
+            let expr = Expr::Binary {
                 op,
-                left: Box::new(left),
-                right: Box::new(right),
+                left: Box::new(left.expr),
+                right: Box::new(right.expr),
             };
+            left = self.spanned(expr, start);
         }
 
         Ok(left)
     }
 
-    fn parse_multiplicative_expr(&mut self) -> Result<Expr, String> {
+    fn parse_multiplicative_expr(&mut self) -> Result<SpannedExpr, String> {
+        let start = self.current_start();
         let mut left = self.parse_unary_expr()?;
 
         while matches!(
@@ -138,33 +151,38 @@ impl Parser {
             };
             self.advance();
             let right = self.parse_unary_expr()?;
-            left = Expr::Binary {
+            let expr = Expr::Binary {
                 op,
-                left: Box::new(left),
-                right: Box::new(right),
+                left: Box::new(left.expr),
+                right: Box::new(right.expr),
             };
+            left = self.spanned(expr, start);
         }
 
         Ok(left)
     }
 
-    pub(super) fn parse_unary_expr(&mut self) -> Result<Expr, String> {
+    pub(super) fn parse_unary_expr(&mut self) -> Result<SpannedExpr, String> {
+        let start = self.current_start();
+
         if matches!(self.current(), Some(Token::Bang)) {
             self.advance();
             let operand = self.parse_unary_expr()?;
-            return Ok(Expr::Unary {
+            let expr = Expr::Unary {
                 op: UnaryOp::Not,
-                operand: Box::new(operand),
-            });
+                operand: Box::new(operand.expr),
+            };
+            return Ok(self.spanned(expr, start));
         }
 
         if matches!(self.current(), Some(Token::Minus)) {
             self.advance();
             let operand = self.parse_unary_expr()?;
-            return Ok(Expr::Unary {
+            let expr = Expr::Unary {
                 op: UnaryOp::Neg,
-                operand: Box::new(operand),
-            });
+                operand: Box::new(operand.expr),
+            };
+            return Ok(self.spanned(expr, start));
         }
 
         self.parse_postfix_expr()

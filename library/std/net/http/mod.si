@@ -1,0 +1,21 @@
+// TODO: Implement HTTP client and server
+//
+// Capabilities required: Network
+//
+// Client Functions:
+// - get(url: str) -> Result<Response, Error>
+// - post(url: str, body: str) -> Result<Response, Error>
+// - put(url: str, body: str) -> Result<Response, Error>
+// - delete(url: str) -> Result<Response, Error>
+// - request(req: Request) -> Result<Response, Error>
+//
+// Server Functions:
+// - serve(addr: str, handler: Handler) -> Result<void, Error>
+//
+// Types:
+// - Request { method, url, headers, body }
+// - Response { status, headers, body }
+// - Headers (map of header values)
+// - Handler trait (handle HTTP requests)
+// - Status (HTTP status codes)
+// - Method (GET, POST, PUT, DELETE, etc.)

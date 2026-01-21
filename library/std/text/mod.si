@@ -1,0 +1,27 @@
+// TODO: Implement text utilities
+//
+// No capability required (pure)
+//
+// Functions:
+// - pad_left(s: str, width: int, char: char) -> str
+// - pad_right(s: str, width: int, char: char) -> str
+// - repeat(s: str, n: int) -> str
+// - reverse(s: str) -> str
+// - words(s: str) -> [str]
+// - lines(s: str) -> [str]
+// - truncate(s: str, max: int, suffix: str) -> str
+// - wrap(s: str, width: int) -> str
+// - indent(s: str, prefix: str) -> str
+// - dedent(s: str) -> str
+//
+// Unicode functions:
+// - is_letter(c: char) -> bool
+// - is_digit(c: char) -> bool
+// - is_space(c: char) -> bool
+// - is_upper(c: char) -> bool
+// - is_lower(c: char) -> bool
+// - to_upper(c: char) -> char
+// - to_lower(c: char) -> char
+//
+// Re-exports:
+// pub use std.text.regex { Regex, match, find, replace }

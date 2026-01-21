@@ -1,0 +1,39 @@
+// TODO: Implement JSON encoding/decoding
+//
+// No capability required (pure)
+//
+// Types:
+// - Value (JSON value: null, bool, number, string, array, object)
+// - Object (JSON object, alias for {str: Value})
+// - Array (JSON array, alias for [Value])
+// - JsonError (parse/encode errors)
+//
+// Functions:
+// - parse(s: str) -> Result<Value, JsonError>
+// - stringify(v: Value) -> str
+// - stringify_pretty(v: Value, indent: str) -> str
+//
+// Value constructors:
+// - Value.null() -> Value
+// - Value.bool(b: bool) -> Value
+// - Value.number(n: float) -> Value
+// - Value.string(s: str) -> Value
+// - Value.array(items: [Value]) -> Value
+// - Value.object(fields: {str: Value}) -> Value
+//
+// Value methods:
+// - is_null() -> bool
+// - is_bool() -> bool
+// - is_number() -> bool
+// - is_string() -> bool
+// - is_array() -> bool
+// - is_object() -> bool
+// - as_bool() -> Option<bool>
+// - as_number() -> Option<float>
+// - as_string() -> Option<str>
+// - as_array() -> Option<[Value]>
+// - as_object() -> Option<{str: Value}>
+//
+// Traits:
+// - ToJson trait (serialize to JSON)
+// - FromJson trait (deserialize from JSON)

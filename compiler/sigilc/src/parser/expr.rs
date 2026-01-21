@@ -9,11 +9,13 @@ use crate::ast::*;
 use crate::lexer::Token;
 
 impl Parser {
-    pub(super) fn parse_expr(&mut self) -> Result<Expr, String> {
+    /// Parse an expression, returning it with its source span
+    pub(super) fn parse_expr(&mut self) -> Result<SpannedExpr, String> {
         self.parse_or_expr()
     }
 
-    pub(super) fn parse_args(&mut self) -> Result<Vec<Expr>, String> {
+    /// Parse arguments to a function/method call, returning spanned expressions
+    pub(super) fn parse_args(&mut self) -> Result<Vec<SpannedExpr>, String> {
         let mut args = Vec::new();
 
         self.skip_newlines();

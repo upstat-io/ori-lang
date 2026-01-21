@@ -5,12 +5,15 @@ This section defines the type system of Sigil.
 ## Type Syntax
 
 ```
-type          = type_path [ type_args ]
+type          = async_type
+              | type_path [ type_args ]
               | list_type
               | map_type
               | tuple_type
               | function_type
               | "dyn" type .
+
+async_type    = "async" type .
 
 type_path     = identifier { "." identifier } .
 type_args     = "<" type { "," type } ">" .
@@ -245,6 +248,23 @@ A function that takes parameters of types `T1`, `T2`, etc., and returns a value 
 () -> void              // function taking no args, returning void
 ```
 
+### Async Type
+
+```
+async T
+```
+
+An `async` type represents a computation that may suspend and eventually produce a value of type `T`.
+
+- `async T` values are awaitable with the `.await` postfix operator
+- `.await` yields a value of type `T`
+
+```sigil
+@fetch_user (id: int) -> async Result<User, Error> = ...
+
+let result: Result<User, Error> = fetch_user(42).await
+```
+
 ### Range Type
 
 ```
@@ -433,13 +453,15 @@ Newtypes are nominally distinct from their underlying type.
 ### Syntax
 
 ```
-type_def      = [ "pub" ] [ derive ] "type" identifier [ generics ] "=" type_body .
+type_def      = [ "pub" ] [ derive ] "type" identifier [ generics ] [ where_clause ] "=" type_body .
 derive        = "#[derive(" identifier { "," identifier } ")]" .
 generics      = "<" generic_param { "," generic_param } ">" .
 generic_param = identifier [ ":" bounds ] .
 bounds        = type_path { "+" type_path } .
 type_body     = struct_type | sum_type | type .
 ```
+
+The optional `where_clause` constrains type parameters. See [Properties of Types § Type Constraints](07-properties-of-types.md#type-constraints).
 
 ### Visibility
 
@@ -457,6 +479,10 @@ The `#[derive(...)]` attribute auto-implements traits:
 ```sigil
 #[derive(Eq, Hashable, Clone)]
 type Point = { x: int, y: int }
+
+type Cache<T> where T: Hashable = {
+    items: {T: str},
+}
 ```
 
 Derivable traits: `Eq`, `Hashable`, `Comparable`, `Printable`, `Clone`, `Default`, `Serialize`, `Deserialize`.

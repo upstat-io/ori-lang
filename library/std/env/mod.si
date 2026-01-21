@@ -1,0 +1,18 @@
+// TODO: Implement environment variable access
+//
+// Capabilities required: Env
+//
+// Functions:
+// - get(key: str) -> Option<str>
+// - set(key: str, value: str) -> void
+// - remove(key: str) -> void
+// - all() -> {str: str}
+// - has(key: str) -> bool
+//
+// Program info:
+// - args() -> [str] (command-line arguments)
+// - executable() -> str (path to current executable)
+// - current_dir() -> Result<str, Error>
+// - set_current_dir(path: str) -> Result<void, Error>
+// - home_dir() -> Option<str>
+// - temp_dir() -> str

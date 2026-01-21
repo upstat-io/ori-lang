@@ -1,0 +1,12 @@
+// TODO: Implement zlib compression
+//
+// No capability required (pure)
+//
+// Functions:
+// - compress(data: [byte]) -> [byte]
+// - compress_level(data: [byte], level: int) -> [byte]
+// - decompress(data: [byte]) -> Result<[byte], Error>
+//
+// Streaming:
+// - Writer type for incremental compression
+// - Reader type for incremental decompression

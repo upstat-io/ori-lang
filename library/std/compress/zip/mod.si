@@ -1,0 +1,23 @@
+// TODO: Implement ZIP archive support
+//
+// No capability required (pure, operates on byte arrays)
+//
+// Types:
+// - Archive (ZIP archive)
+// - Entry (file entry in archive)
+// - CompressionMethod (Store, Deflate)
+//
+// Reading:
+// - open(data: [byte]) -> Result<Archive, Error>
+// - Archive.entries() -> [Entry]
+// - Archive.read(name: str) -> Result<[byte], Error>
+// - Entry.name() -> str
+// - Entry.size() -> int
+// - Entry.compressed_size() -> int
+// - Entry.is_dir() -> bool
+//
+// Writing:
+// - Writer.new() -> Writer
+// - Writer.add(name: str, data: [byte]) -> void
+// - Writer.add_dir(name: str) -> void
+// - Writer.finish() -> [byte]
