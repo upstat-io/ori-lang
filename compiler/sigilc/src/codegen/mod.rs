@@ -1,15 +1,36 @@
 // C Code Generator for Sigil
 // Transforms typed AST into C source code
+//
+// The code generator is split into several submodules:
+// - emitter.rs: Low-level output helpers
+// - runtime.rs: C runtime code emission
+// - types.rs: Type mapping
+// - decl.rs: Declaration emission
+// - expr.rs: Expression translation
+// - tir/: TIR-based code generation (new)
+
+mod decl;
+mod emitter;
+mod expr;
+mod runtime;
+pub mod tir;
+mod types;
 
 #[cfg(test)]
 mod tests;
 
 use crate::ast::*;
-use std::fmt::Write;
+use crate::ir::TModule;
 
 pub struct CodeGen {
     output: String,
     indent: usize,
+}
+
+impl Default for CodeGen {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CodeGen {
@@ -18,30 +39,6 @@ impl CodeGen {
             output: String::new(),
             indent: 0,
         }
-    }
-
-    fn emit(&mut self, s: &str) {
-        self.output.push_str(s);
-    }
-
-    fn emit_line(&mut self, s: &str) {
-        self.emit_indent();
-        self.output.push_str(s);
-        self.output.push('\n');
-    }
-
-    fn emit_indent(&mut self) {
-        for _ in 0..self.indent {
-            self.output.push_str("    ");
-        }
-    }
-
-    fn indent(&mut self) {
-        self.indent += 1;
-    }
-
-    fn dedent(&mut self) {
-        self.indent = self.indent.saturating_sub(1);
     }
 
     pub fn generate(mut self, module: &Module) -> Result<String, String> {
@@ -85,371 +82,14 @@ impl CodeGen {
 
         Ok(self.output)
     }
-
-    fn emit_runtime(&mut self) {
-        self.emit_line("// Runtime helpers");
-        self.emit_line("typedef struct { char* data; size_t len; } String;");
-        self.emit_line("");
-        self.emit_line("String str_new(const char* s) {");
-        self.indent();
-        self.emit_line("String str = { strdup(s), strlen(s) };");
-        self.emit_line("return str;");
-        self.dedent();
-        self.emit_line("}");
-        self.emit_line("");
-        self.emit_line("String str_concat(String a, String b) {");
-        self.indent();
-        self.emit_line("size_t len = a.len + b.len;");
-        self.emit_line("char* data = malloc(len + 1);");
-        self.emit_line("memcpy(data, a.data, a.len);");
-        self.emit_line("memcpy(data + a.len, b.data, b.len);");
-        self.emit_line("data[len] = '\\0';");
-        self.emit_line("String str = { data, len };");
-        self.emit_line("return str;");
-        self.dedent();
-        self.emit_line("}");
-        self.emit_line("");
-        self.emit_line("String int_to_str(int64_t n) {");
-        self.indent();
-        self.emit_line("char buf[32];");
-        self.emit_line("snprintf(buf, sizeof(buf), \"%ld\", n);");
-        self.emit_line("return str_new(buf);");
-        self.dedent();
-        self.emit_line("}");
-        self.emit_line("");
-    }
-
-    fn emit_forward_decl(&mut self, f: &FunctionDef) -> Result<(), String> {
-        let ret_type = self.type_to_c(&f.return_type);
-        let params: Vec<String> = f
-            .params
-            .iter()
-            .map(|p| format!("{} {}", self.type_to_c(&p.ty), p.name))
-            .collect();
-
-        self.emit_line(&format!("{} {}({});", ret_type, f.name, params.join(", ")));
-        Ok(())
-    }
-
-    fn emit_config(&mut self, c: &ConfigDef) -> Result<(), String> {
-        let ty =
-            c.ty.as_ref()
-                .map(|t| self.type_to_c(t))
-                .unwrap_or_else(|| self.infer_c_type(&c.value));
-
-        let value = self.expr_to_c(&c.value)?;
-
-        // Use const for configs
-        if ty == "String" {
-            self.emit_line(&format!(
-                "String {} = {{ .data = \"{}\", .len = {} }};",
-                c.name,
-                self.extract_string_literal(&c.value).unwrap_or_default(),
-                self.extract_string_literal(&c.value)
-                    .map(|s| s.len())
-                    .unwrap_or(0)
-            ));
-        } else {
-            self.emit_line(&format!("const {} {} = {};", ty, c.name, value));
-        }
-        Ok(())
-    }
-
-    fn emit_function(&mut self, f: &FunctionDef) -> Result<(), String> {
-        let ret_type = self.type_to_c(&f.return_type);
-        let params: Vec<String> = f
-            .params
-            .iter()
-            .map(|p| format!("{} {}", self.type_to_c(&p.ty), p.name))
-            .collect();
-
-        let params_str = if params.is_empty() {
-            "void".to_string()
-        } else {
-            params.join(", ")
-        };
-
-        // main is special
-        if f.name == "main" {
-            self.emit_line("int main(void) {");
-            self.indent();
-            self.emit_block(&f.body)?;
-            self.emit_line("return 0;");
-            self.dedent();
-            self.emit_line("}");
-        } else {
-            self.emit_line(&format!("{} {}({}) {{", ret_type, f.name, params_str));
-            self.indent();
-
-            if ret_type != "void" {
-                let body = self.expr_to_c(&f.body)?;
-                self.emit_line(&format!("return {};", body));
-            } else {
-                self.emit_block(&f.body)?;
-            }
-
-            self.dedent();
-            self.emit_line("}");
-        }
-        Ok(())
-    }
-
-    fn emit_block(&mut self, expr: &Expr) -> Result<(), String> {
-        match expr {
-            Expr::Block(exprs) => {
-                for e in exprs {
-                    self.emit_statement(e)?;
-                }
-            }
-            _ => {
-                self.emit_statement(expr)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn emit_statement(&mut self, expr: &Expr) -> Result<(), String> {
-        match expr {
-            Expr::Call { func, args } => {
-                if let Expr::Ident(name) = func.as_ref() {
-                    if name == "print" {
-                        // Special handling for print
-                        if let Some(arg) = args.first() {
-                            let arg_c = self.expr_to_c(arg)?;
-                            if self.is_string_expr(arg) {
-                                self.emit_line(&format!("printf(\"%s\\n\", {}.data);", arg_c));
-                            } else {
-                                self.emit_line(&format!("printf(\"%ld\\n\", (long){});", arg_c));
-                            }
-                        }
-                        return Ok(());
-                    }
-                }
-                let call = self.expr_to_c(expr)?;
-                self.emit_line(&format!("{};", call));
-            }
-            _ => {
-                let code = self.expr_to_c(expr)?;
-                self.emit_line(&format!("{};", code));
-            }
-        }
-        Ok(())
-    }
-
-    fn expr_to_c(&self, expr: &Expr) -> Result<String, String> {
-        match expr {
-            Expr::Int(n) => Ok(format!("{}", n)),
-            Expr::Float(f) => Ok(format!("{}", f)),
-            Expr::String(s) => Ok(format!("str_new(\"{}\")", s)),
-            Expr::Bool(b) => Ok(if *b { "true" } else { "false" }.to_string()),
-            Expr::Nil => Ok("NULL".to_string()),
-
-            Expr::Ident(name) => Ok(name.clone()),
-
-            Expr::Config(name) => Ok(name.clone()),
-
-            Expr::Binary { op, left, right } => {
-                let l = self.expr_to_c(left)?;
-                let r = self.expr_to_c(right)?;
-
-                // Check if string concatenation
-                if matches!(op, BinaryOp::Add)
-                    && (self.is_string_expr(left) || self.is_string_expr(right))
-                {
-                    return Ok(format!("str_concat({}, {})", l, r));
-                }
-
-                let op_str = match op {
-                    BinaryOp::Add => "+",
-                    BinaryOp::Sub => "-",
-                    BinaryOp::Mul => "*",
-                    BinaryOp::Div => "/",
-                    BinaryOp::IntDiv => "/",
-                    BinaryOp::Mod => "%",
-                    BinaryOp::Eq => "==",
-                    BinaryOp::NotEq => "!=",
-                    BinaryOp::Lt => "<",
-                    BinaryOp::LtEq => "<=",
-                    BinaryOp::Gt => ">",
-                    BinaryOp::GtEq => ">=",
-                    BinaryOp::And => "&&",
-                    BinaryOp::Or => "||",
-                    BinaryOp::Pipe => {
-                        return Err("Pipe operator not yet supported in codegen".to_string())
-                    }
-                };
-                Ok(format!("({} {} {})", l, op_str, r))
-            }
-
-            Expr::Unary { op, operand } => {
-                let o = self.expr_to_c(operand)?;
-                let op_str = match op {
-                    UnaryOp::Neg => "-",
-                    UnaryOp::Not => "!",
-                };
-                Ok(format!("({}{})", op_str, o))
-            }
-
-            Expr::Call { func, args } => {
-                let func_name = match func.as_ref() {
-                    Expr::Ident(name) => name.clone(),
-                    _ => return Err("Complex function calls not yet supported".to_string()),
-                };
-
-                // Handle built-in functions
-                match func_name.as_str() {
-                    "str" => {
-                        if let Some(arg) = args.first() {
-                            let arg_c = self.expr_to_c(arg)?;
-                            return Ok(format!("int_to_str({})", arg_c));
-                        }
-                    }
-                    "print" => {
-                        // Handled in emit_statement
-                    }
-                    _ => {}
-                }
-
-                let args_c: Result<Vec<String>, String> =
-                    args.iter().map(|a| self.expr_to_c(a)).collect();
-                Ok(format!("{}({})", func_name, args_c?.join(", ")))
-            }
-
-            Expr::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                let cond = self.expr_to_c(condition)?;
-                let then_c = self.expr_to_c(then_branch)?;
-                if let Some(else_b) = else_branch {
-                    let else_c = self.expr_to_c(else_b)?;
-                    Ok(format!("({} ? {} : {})", cond, then_c, else_c))
-                } else {
-                    Ok(format!("({} ? {} : 0)", cond, then_c))
-                }
-            }
-
-            Expr::Match(m) => self.match_to_c(m),
-
-            Expr::Block(exprs) => {
-                if let Some(last) = exprs.last() {
-                    self.expr_to_c(last)
-                } else {
-                    Ok("0".to_string())
-                }
-            }
-
-            _ => Err(format!(
-                "Expression not yet supported in codegen: {:?}",
-                expr
-            )),
-        }
-    }
-
-    fn match_to_c(&self, m: &MatchExpr) -> Result<String, String> {
-        // For simple conditional matches, generate nested ternaries
-        let scrutinee = self.expr_to_c(&m.scrutinee)?;
-
-        let mut result = String::new();
-        for (i, arm) in m.arms.iter().enumerate() {
-            match &arm.pattern {
-                Pattern::Wildcard => {
-                    // Default case
-                    let body = self.expr_to_c(&arm.body)?;
-                    result.push_str(&body);
-                }
-                Pattern::Condition(cond) => {
-                    let cond_c = self.expr_to_c(cond)?;
-                    let body = self.expr_to_c(&arm.body)?;
-                    if i < m.arms.len() - 1 {
-                        result.push_str(&format!("({} ? {} : ", cond_c, body));
-                    } else {
-                        result.push_str(&body);
-                    }
-                }
-                Pattern::Literal(lit) => {
-                    let lit_c = self.expr_to_c(lit)?;
-                    let body = self.expr_to_c(&arm.body)?;
-                    if i < m.arms.len() - 1 {
-                        result.push_str(&format!("({} == {} ? {} : ", scrutinee, lit_c, body));
-                    } else {
-                        result.push_str(&body);
-                    }
-                }
-                _ => return Err("Complex patterns not yet supported in codegen".to_string()),
-            }
-        }
-
-        // Close parentheses for nested ternaries
-        for arm in &m.arms[..m.arms.len().saturating_sub(1)] {
-            if !matches!(arm.pattern, Pattern::Wildcard) {
-                result.push(')');
-            }
-        }
-
-        Ok(result)
-    }
-
-    fn type_to_c(&self, ty: &TypeExpr) -> String {
-        match ty {
-            TypeExpr::Named(name) => match name.as_str() {
-                "int" => "int64_t".to_string(),
-                "float" => "double".to_string(),
-                "bool" => "bool".to_string(),
-                "str" => "String".to_string(),
-                "void" => "void".to_string(),
-                other => other.to_string(),
-            },
-            TypeExpr::Optional(inner) => {
-                // For now, just use pointer for optional
-                format!("{}*", self.type_to_c(inner))
-            }
-            TypeExpr::List(inner) => {
-                format!("Array_{}", self.type_to_c(inner))
-            }
-            _ => "void*".to_string(),
-        }
-    }
-
-    fn infer_c_type(&self, expr: &Expr) -> String {
-        match expr {
-            Expr::Int(_) => "int64_t".to_string(),
-            Expr::Float(_) => "double".to_string(),
-            Expr::String(_) => "String".to_string(),
-            Expr::Bool(_) => "bool".to_string(),
-            _ => "void*".to_string(),
-        }
-    }
-
-    fn is_string_expr(&self, expr: &Expr) -> bool {
-        match expr {
-            Expr::String(_) => true,
-            Expr::Config(_) => true, // Assume configs could be strings
-            Expr::Binary {
-                op: BinaryOp::Add,
-                left,
-                ..
-            } => self.is_string_expr(left),
-            Expr::Call { func, .. } => {
-                if let Expr::Ident(name) = func.as_ref() {
-                    name == "str"
-                } else {
-                    false
-                }
-            }
-            _ => false,
-        }
-    }
-
-    fn extract_string_literal(&self, expr: &Expr) -> Option<String> {
-        match expr {
-            Expr::String(s) => Some(s.clone()),
-            _ => None,
-        }
-    }
 }
 
+/// Generate C code from AST (legacy)
 pub fn generate(module: &Module) -> Result<String, String> {
     CodeGen::new().generate(module)
+}
+
+/// Generate C code from TIR (new)
+pub fn generate_from_tir(module: &TModule) -> Result<String, String> {
+    tir::generate(module)
 }

@@ -39,9 +39,9 @@ fn main() {
         "test" | "--test" => {
             if args.len() < 3 {
                 // No file specified - discover and run all tests
-                cli::test_runner::test_all();
+                cli::test::test_all();
             } else {
-                cli::test_runner::test_file(&args[2]);
+                cli::test::test_file(&args[2]);
             }
         }
         "check" | "--check" => {
@@ -49,7 +49,7 @@ fn main() {
                 eprintln!("Usage: sigil check <file.si>");
                 std::process::exit(1);
             }
-            cli::test_runner::check_coverage(&args[2]);
+            cli::test::check_coverage(&args[2]);
         }
         "--repl" | "repl" => {
             println!("Sigil REPL v0.1.0");

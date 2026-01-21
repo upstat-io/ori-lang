@@ -78,16 +78,10 @@ impl PartialEq for Value {
                     name: n2,
                     fields: f2,
                 },
-            ) => {
-                n1 == n2
-                    && f1.len() == f2.len()
-                    && f1
-                        .iter()
-                        .all(|(k, v)| f2.get(k).map_or(false, |v2| v == v2))
-            }
+            ) => n1 == n2 && f1.len() == f2.len() && f1.iter().all(|(k, v)| f2.get(k) == Some(v)),
             // Maps compare by contents
             (Value::Map(a), Value::Map(b)) => {
-                a.len() == b.len() && a.iter().all(|(k, v)| b.get(k).map_or(false, |v2| v == v2))
+                a.len() == b.len() && a.iter().all(|(k, v)| b.get(k) == Some(v))
             }
             _ => false,
         }
@@ -162,6 +156,12 @@ pub struct Environment {
     pub locals: HashMap<String, Value>,
     /// Current function parameter names (in order, for recursion)
     pub current_params: Vec<String>,
+}
+
+impl Default for Environment {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Environment {

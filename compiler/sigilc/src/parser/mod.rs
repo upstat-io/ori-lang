@@ -9,7 +9,10 @@
 
 mod expr;
 mod items;
+mod operators;
 mod patterns;
+mod postfix;
+mod primary;
 mod types_parse;
 
 #[cfg(test)]
@@ -46,9 +49,10 @@ impl Parser {
         }
     }
 
+    #[allow(clippy::expect_used)] // advance() cannot return None after current() returned Some
     pub(super) fn expect(&mut self, expected: Token) -> Result<&SpannedToken, String> {
         match self.current() {
-            Some(t) if *t == expected => Ok(self.advance().unwrap()),
+            Some(t) if *t == expected => Ok(self.advance().expect("current() returned Some")),
             Some(t) => Err(format!("Expected {:?}, found {:?}", expected, t)),
             None => Err(format!("Expected {:?}, found end of input", expected)),
         }

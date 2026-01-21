@@ -399,7 +399,7 @@ impl Parser {
             "parallel" => {
                 // Optional: timeout, on_error
                 // All other properties become branches
-                let timeout = props.remove("timeout").map(|e| Box::new(e));
+                let timeout = props.remove("timeout").map(Box::new);
                 let on_error = props
                     .remove("on_error")
                     .map(|e| {

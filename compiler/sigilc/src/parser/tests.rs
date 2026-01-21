@@ -12,11 +12,12 @@
 // - Type expressions
 // - Operator precedence
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use crate::ast::*;
 use crate::lexer::tokenize;
 use crate::parser::parse;
 use insta::assert_debug_snapshot;
-use test_case::test_case;
 
 // ============================================================================
 // Helper Functions
@@ -298,6 +299,7 @@ fn test_int_literal() {
 }
 
 #[test]
+#[allow(clippy::approx_constant)] // Testing that source literal "3.14" parses correctly
 fn test_float_literal() {
     let module = parse_ok("@f () -> float = 3.14");
     let func = first_function(&module);

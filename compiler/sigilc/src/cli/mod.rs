@@ -5,7 +5,7 @@ pub mod build;
 pub mod import;
 pub mod repl;
 pub mod run;
-pub mod test_runner;
+pub mod test;
 
 /// Print usage information
 pub fn print_usage() {

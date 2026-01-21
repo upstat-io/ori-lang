@@ -37,7 +37,7 @@ pub fn resolve_import_path(from_file: &str, import_path: &[String]) -> String {
         }
     }
 
-    path.to_str().unwrap().to_string()
+    path.to_str().unwrap_or_default().to_string()
 }
 
 /// Load all items from modules referenced by `use` statements

@@ -10,7 +10,8 @@
 // - Builtins
 // - Method calls
 
-use crate::ast::*;
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use crate::eval::{run, value::Value};
 use crate::lexer::tokenize;
 use crate::parser::parse;
@@ -47,6 +48,7 @@ fn test_eval_int() {
 }
 
 #[test]
+#[allow(clippy::approx_constant)] // Testing that source literal "3.14" evaluates correctly
 fn test_eval_float() {
     let result = eval_ok("@main () -> float = 3.14");
     if let Value::Float(f) = result {
@@ -581,4 +583,161 @@ fn test_assert_failure() {
 fn test_assert_eq_failure() {
     let err = eval_err("@main () -> void = assert_eq(1, 2)");
     assert!(err.contains("Assertion") || err.contains("!="));
+}
+
+// ============================================================================
+// Pattern Tests - Additional Fold Variations
+// ============================================================================
+
+#[test]
+fn test_fold_find_max() {
+    let result = eval_ok("@main () -> int = fold([3, 1, 4, 1, 5, 9], 0, (acc, x) -> if x > acc :then x :else acc)");
+    assert_eq!(result, Value::Int(9));
+}
+
+#[test]
+fn test_fold_string_concat() {
+    let result = eval_ok(r#"@main () -> str = fold(["a", "b", "c"], "", (acc, s) -> acc + s)"#);
+    assert_eq!(result, Value::String("abc".to_string()));
+}
+
+#[test]
+fn test_fold_named_syntax() {
+    let result = eval_ok("@main () -> int = fold(.over: [1, 2, 3], .init: 10, .op: +)");
+    assert_eq!(result, Value::Int(16));
+}
+
+// ============================================================================
+// Pattern Tests - Additional Map Variations
+// ============================================================================
+
+#[test]
+fn test_map_named_syntax() {
+    let result = eval_ok("@main () -> [int] = map(.over: [1, 2, 3], .transform: x -> x * 10)");
+    assert_eq!(
+        result,
+        Value::List(vec![Value::Int(10), Value::Int(20), Value::Int(30)])
+    );
+}
+
+#[test]
+fn test_map_range() {
+    let result = eval_ok("@main () -> [int] = map(1..4, x -> x * x)");
+    assert_eq!(
+        result,
+        Value::List(vec![Value::Int(1), Value::Int(4), Value::Int(9)])
+    );
+}
+
+// ============================================================================
+// Pattern Tests - Additional Filter Variations
+// ============================================================================
+
+#[test]
+fn test_filter_named_syntax() {
+    let result = eval_ok("@main () -> [int] = filter(.over: [1, 2, 3, 4, 5], .predicate: x -> x > 2)");
+    assert_eq!(
+        result,
+        Value::List(vec![Value::Int(3), Value::Int(4), Value::Int(5)])
+    );
+}
+
+#[test]
+fn test_filter_empty_result() {
+    let result = eval_ok("@main () -> [int] = filter([1, 2, 3], x -> x > 100)");
+    assert_eq!(result, Value::List(vec![]));
+}
+
+// ============================================================================
+// Pattern Tests - Additional Recurse Variations
+// ============================================================================
+
+#[test]
+fn test_recurse_named_syntax() {
+    let result = eval_ok(
+        r#"
+@fib (n: int) -> int = recurse(.cond: n <= 1, .base: n, .step: self(n - 1) + self(n - 2), .memo: true)
+@main () -> int = fib(10)
+@test_fib tests @fib () -> void = assert(true)
+"#,
+    );
+    assert_eq!(result, Value::Int(55));
+}
+
+#[test]
+fn test_recurse_countdown() {
+    let result = eval_ok(
+        r#"
+@countdown (n: int) -> int = recurse(n <= 0, 0, self(n - 1) + 1)
+@main () -> int = countdown(5)
+@test_countdown tests @countdown () -> void = assert(true)
+"#,
+    );
+    assert_eq!(result, Value::Int(5));
+}
+
+// ============================================================================
+// Pattern Tests - Additional Collect Variations
+// ============================================================================
+
+#[test]
+fn test_collect_cubes() {
+    let result = eval_ok("@main () -> [int] = collect(1..4, x -> x * x * x)");
+    assert_eq!(
+        result,
+        Value::List(vec![Value::Int(1), Value::Int(8), Value::Int(27)])
+    );
+}
+
+#[test]
+fn test_collect_named_syntax() {
+    let result = eval_ok("@main () -> [int] = collect(.range: 1..5, .transform: x -> x + 10)");
+    assert_eq!(
+        result,
+        Value::List(vec![Value::Int(11), Value::Int(12), Value::Int(13), Value::Int(14)])
+    );
+}
+
+// ============================================================================
+// Pattern Tests - Parallel
+// ============================================================================
+
+#[test]
+fn test_parallel_basic() {
+    let result = eval_ok("@main () -> {a: int, b: int} = parallel(.a: 1 + 1, .b: 2 + 2)");
+    if let Value::Struct { fields, .. } = result {
+        assert_eq!(fields.get("a"), Some(&Value::Int(2)));
+        assert_eq!(fields.get("b"), Some(&Value::Int(4)));
+    } else {
+        panic!("Expected struct result from parallel");
+    }
+}
+
+#[test]
+fn test_parallel_different_types() {
+    let result = eval_ok(r#"@main () -> {n: int, s: str} = parallel(.n: 42, .s: "hello")"#);
+    if let Value::Struct { fields, .. } = result {
+        assert_eq!(fields.get("n"), Some(&Value::Int(42)));
+        assert_eq!(fields.get("s"), Some(&Value::String("hello".to_string())));
+    } else {
+        panic!("Expected struct result from parallel");
+    }
+}
+
+#[test]
+fn test_parallel_computations() {
+    let result = eval_ok(
+        r#"
+@main () -> {sum: int, product: int} = parallel(
+    .sum: fold([1, 2, 3], 0, +),
+    .product: fold([1, 2, 3], 1, *)
+)
+"#,
+    );
+    if let Value::Struct { fields, .. } = result {
+        assert_eq!(fields.get("sum"), Some(&Value::Int(6)));
+        assert_eq!(fields.get("product"), Some(&Value::Int(6)));
+    } else {
+        panic!("Expected struct result from parallel");
+    }
 }

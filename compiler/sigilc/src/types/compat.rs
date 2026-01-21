@@ -83,6 +83,34 @@ pub fn is_type_parameter(name: &str) -> bool {
             .unwrap_or(false)
 }
 
+/// Extract element type from a collection type (list only)
+/// Used by: fold, filter, count patterns
+pub fn get_list_element_type(coll_type: &TypeExpr) -> Result<TypeExpr, String> {
+    match coll_type {
+        TypeExpr::List(inner) => Ok(inner.as_ref().clone()),
+        _ => Err(format!("Expected a list, got {:?}", coll_type)),
+    }
+}
+
+/// Extract element type from a collection type (list or range)
+/// Used by: map, iterate patterns, for loops
+pub fn get_iterable_element_type(coll_type: &TypeExpr) -> Result<TypeExpr, String> {
+    match coll_type {
+        TypeExpr::List(inner) => Ok(inner.as_ref().clone()),
+        TypeExpr::Named(n) if n == "Range" => Ok(TypeExpr::Named("int".to_string())),
+        _ => Err(format!("Expected a list or range, got {:?}", coll_type)),
+    }
+}
+
+/// Extract return type from a function type
+/// Used by: map, collect, transform patterns
+pub fn get_function_return_type(func_type: &TypeExpr) -> Result<TypeExpr, String> {
+    match func_type {
+        TypeExpr::Function(_, ret) => Ok(ret.as_ref().clone()),
+        _ => Err(format!("Expected a function type, got {:?}", func_type)),
+    }
+}
+
 /// Infer the type of a simple expression (for config values without type annotations)
 pub fn infer_type(expr: &Expr) -> Result<TypeExpr, String> {
     match expr {

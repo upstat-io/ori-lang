@@ -3,7 +3,7 @@
 // Provides both simple text rendering and rich terminal rendering with
 // colors and source context.
 
-use super::{Diagnostic, Label, LabelStyle, Level};
+use super::{Diagnostic, LabelStyle, Level};
 
 /// Render a diagnostic as a simple text string (no colors)
 pub fn render_simple(diag: &Diagnostic) -> String {
@@ -97,9 +97,7 @@ pub fn render_with_source(diag: &Diagnostic, source: &str) -> String {
             "{:>width$} | {:>start$}{} {}\n",
             "",
             "",
-            std::iter::repeat(underline_char)
-                .take(underline_len)
-                .collect::<String>(),
+            std::iter::repeat_n(underline_char, underline_len).collect::<String>(),
             label.message,
             width = line_num_width,
             start = underline_start
@@ -226,9 +224,7 @@ pub fn render_colored(diag: &Diagnostic, source: &str) -> String {
             "|",
             "",
             underline_color,
-            std::iter::repeat(underline_char)
-                .take(underline_len)
-                .collect::<String>(),
+            std::iter::repeat_n(underline_char, underline_len).collect::<String>(),
             RESET,
             label.message,
             width = line_num_width,

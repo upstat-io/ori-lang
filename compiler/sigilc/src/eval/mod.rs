@@ -5,7 +5,7 @@
 // - expr.rs: Expression evaluation (eval_expr, eval_block_expr)
 // - calls.rs: Function call evaluation
 // - match_eval.rs: Match expression evaluation
-// - patterns.rs: Pattern evaluation (fold, map, filter, recurse, etc.)
+// - patterns/: Pattern evaluation (fold, map, filter, recurse, etc.)
 // - value.rs: Value type, Environment
 // - operators.rs: Binary and unary operator evaluation
 // - builtins.rs: Builtin functions and method calls
