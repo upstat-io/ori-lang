@@ -1,6 +1,9 @@
 // C Code Generator for Sigil
 // Transforms typed AST into C source code
 
+#[cfg(test)]
+mod tests;
+
 use crate::ast::*;
 use std::fmt::Write;
 

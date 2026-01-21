@@ -1,23 +1,46 @@
+<div align="center">
+
 # Sigil
 
-A general-purpose language built on declarative patterns and mandatory testing.
+**A general-purpose language built on declarative patterns and mandatory testing.**
+
+[Getting Started](#quick-start) | [Documentation](docs/) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
+
+</div>
 
 > **Experimental:** Sigil is under active development and not ready for production use. The language, APIs, and tooling may change without notice.
 
-## Overview
+## Why Sigil?
 
-Sigil treats common computational patterns—recursion, mapping, filtering, parallel execution—as first-class language constructs rather than library functions. Combined with mandatory testing, Sigil encourages code that is clear, correct, and easy to reason about.
+- **Declarative patterns:** Express *what* you want with first-class `recurse`, `map`, `filter`, `fold`, and `parallel` constructs—not *how* to do it with manual loops.
 
-- **Declarative patterns** - Express *what* you want, not *how* to do it
-- **Mandatory testing** - Every function requires tests to compile
-- **Explicit syntax** - `@` for functions, `$` for config, `.name:` for parameters
-- **Strict typing** - All types known at compile time, with inference where obvious
-- **Built-in concurrency** - `parallel` pattern for concurrent execution
+- **Mandatory testing:** Every function requires tests to compile. Testing isn't an afterthought; it's enforced by the language.
 
-## Quick Example
+- **Explicit syntax:** Clear visual markers—`@` for functions, `$` for config, `.name:` for named parameters—make code easy to scan and understand.
+
+## Quick Start
+
+Install Sigil:
+
+```bash
+curl -sSf https://raw.githubusercontent.com/upstat-io/sigil-lang/master/install.sh | sh
+```
+
+Write your first program (`hello.si`):
 
 ```sigil
-// Function definition with @ prefix
+@main () -> void = print("Hello, Sigil!")
+```
+
+Run it:
+
+```bash
+sigil run hello.si
+```
+
+## Example
+
+```sigil
 @fibonacci (n: int) -> int = recurse(
     .cond: n <= 1,
     .base: n,
@@ -25,7 +48,6 @@ Sigil treats common computational patterns—recursion, mapping, filtering, para
     .memo: true
 )
 
-// Test definition
 @test_fib tests @fibonacci () -> void = run(
     assert_eq(fibonacci(0), 0),
     assert_eq(fibonacci(10), 55)
@@ -34,112 +56,70 @@ Sigil treats common computational patterns—recursion, mapping, filtering, para
 
 ## Installation
 
-### From Source
+### Binary Distributions
 
-```bash
-git clone https://github.com/yourusername/sigil
-cd sigil
-cargo build --release
-cp target/release/sigil ~/.local/bin/
-```
+Official binaries are available at [GitHub Releases](https://github.com/upstat-io/sigil-lang/releases).
 
-### Requirements
+**Platforms:** Linux (x86_64, aarch64), macOS (x86_64, Apple Silicon), Windows (x86_64)
 
-- Rust 1.70+ (for building)
-- C compiler (for `sigil build`)
+### Install from Source
+
+See [Building from Source](#building-from-source) below.
 
 ## Usage
 
 ```bash
-# Run a program
-sigil run program.si
-
-# Run all tests
-sigil test
-
-# Compile to native binary (via C)
-sigil build program.si -o program
-
-# Emit C code
-sigil emit program.si -o program.c
-
-# Check test coverage
-sigil check program.si
-
-# Interactive REPL
-sigil repl
-```
-
-## Language Features
-
-### Functions
-
-```sigil
-@function_name (param: type) -> return_type = expression
-```
-
-### Config Variables
-
-```sigil
-$timeout = 30
-$api_url = "https://api.example.com"
-```
-
-### Pattern-Based Operations
-
-```sigil
-// Map over a collection
-@squares (nums: [int]) -> [int] = map(nums, n -> n * n)
-
-// Filter elements
-@evens (nums: [int]) -> [int] = filter(nums, n -> n % 2 == 0)
-
-// Fold/reduce
-@sum (nums: [int]) -> int = fold(nums, 0, (acc, n) -> acc + n)
-
-// Parallel execution
-@fetch_all (a: int, b: int) -> { first: int, second: int } = parallel(
-    .first: expensive_calc(a),
-    .second: expensive_calc(b)
-)
-```
-
-### Conditionals
-
-```sigil
-@sign (n: int) -> str =
-    if n > 0 :then "positive"
-    else if n < 0 :then "negative"
-    else "zero"
-```
-
-## Project Structure
-
-```
-sigil/
-├── compiler/sigilc/    # The Sigil compiler (Rust)
-├── library/            # Standard library (Sigil)
-├── docs/               # Documentation
-├── examples/           # Example programs
-└── tests/              # Test suites
-    ├── run-pass/       # Tests that should pass
-    └── compile-fail/   # Tests that should fail
+sigil run program.si      # Run a program
+sigil test                # Run all tests
+sigil build program.si    # Compile to native binary
+sigil check program.si    # Check test coverage
 ```
 
 ## Documentation
 
-- [Language Design](docs/language-design.md)
-- [Type System](docs/type-system.md)
+- [Language Design](docs/language-design.md) — Syntax, patterns, and semantics
+- [Type System](docs/type-system.md) — Static typing and inference
+
+## Getting Help
+
+- **Bug reports & feature requests:** [GitHub Issues](https://github.com/upstat-io/sigil-lang/issues)
+- **Discussions:** [GitHub Discussions](https://github.com/upstat-io/sigil-lang/discussions)
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Sigil is open source and we welcome contributions. Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+### Building from Source
+
+```bash
+git clone https://github.com/upstat-io/sigil-lang
+cd sigil-lang
+cargo build --release
+cp target/release/sigil ~/.local/bin/
+```
+
+Requires Rust 1.70+ and a C compiler (for `sigil build`).
+
+### Project Structure
+
+```
+sigil-lang/
+├── compiler/sigilc/    # Compiler (Rust)
+├── library/std/        # Standard library (Sigil)
+├── docs/               # Documentation
+├── examples/           # Example programs
+└── tests/              # Test suites
+```
+
+### Running Tests
+
+```bash
+cargo test              # Compiler tests
+sigil test              # Language tests
+```
 
 ## License
 
-Licensed under either of:
+Sigil is distributed under the terms of both the MIT license and the Apache License (Version 2.0).
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT License ([LICENSE-MIT](LICENSE-MIT))
-
-at your option.
+See [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE) for details.
