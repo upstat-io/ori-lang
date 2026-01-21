@@ -267,6 +267,10 @@ impl std::error::Error for Diagnostic {}
 /// Convenience type alias for Results with Diagnostic errors
 pub type DiagnosticResult<T> = Result<T, Diagnostic>;
 
+/// Result type that can hold multiple diagnostics (errors and warnings)
+/// Use this when you want to accumulate and report all errors at once
+pub type MultiDiagnosticResult<T> = Result<T, Vec<Diagnostic>>;
+
 /// Convert a String error to a Diagnostic (for gradual migration)
 pub fn from_string_error(msg: String, filename: &str) -> Diagnostic {
     Diagnostic::error(codes::ErrorCode::E0000, msg)

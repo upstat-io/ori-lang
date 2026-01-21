@@ -13,6 +13,10 @@ mod iterate;
 mod transform;
 mod count;
 mod parallel;
+mod find;
+mod try_pattern;
+mod retry;
+mod validate;
 
 pub use fold::FoldPattern;
 pub use map::MapPattern;
@@ -23,3 +27,7 @@ pub use iterate::IteratePattern;
 pub use transform::TransformPattern;
 pub use count::CountPattern;
 pub use parallel::ParallelPattern;
+pub use find::FindPattern;
+pub use try_pattern::TryPattern;
+pub use retry::RetryPattern;
+pub use validate::ValidatePattern;

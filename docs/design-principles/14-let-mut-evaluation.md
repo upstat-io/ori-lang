@@ -109,75 +109,50 @@ let mut buffer = []              // New mutable binding
 buffer = buffer + [item]         // Mutation of existing
 ```
 
-### 6. Backward Compatibility
+### 6. Binding Syntax
 
-**Rating: Needs Documentation**
+**Rating: Pass**
 
-The old syntax (bare `=` inside `run`) - does it still work?
+All bindings require explicit `let` or `let mut`:
 
-**Option A: Keep both (not recommended)**
 ```sigil
 run(
-    x = 5,           // Old style
-    let y = 10,      // New style
-)
-```
-This violates "one obvious way."
-
-**Option B: Require `let` everywhere (recommended)**
-```sigil
-run(
-    let x = 5,       // Required
-    let mut y = 10,  // Required for mutable
-    y = y + x,       // Reassignment (no let)
-    y
+    let x = 5,           // Immutable binding
+    let mut y = 10,      // Mutable binding
+    y = y + x,           // Reassignment (only valid for mut bindings)
+    y,
 )
 ```
 
-**Recommendation:** Deprecate bare `=` bindings. Require `let` for all new bindings.
+See [Syntax Improvements § 11](13-syntax-improvements.md) for rationale.
 
 ---
 
-## Comparison: Before and After
+## Examples
 
-### Pipeline Transformation
+### Pipeline Transformation with Shadowing
 
-**Before (shadowing):**
-```sigil
-@process (data: Data) -> Data = run(
-    data = step1(.data: data),
-    data = step2(.data: data),
-    data = step3(.data: data),
-    data
-)
-```
+Shadowing is allowed with `let`. Each `let` creates a new binding:
 
-**After (explicit):**
 ```sigil
 @process (data: Data) -> Data = run(
     let data = step1(.data: data),
     let data = step2(.data: data),
     let data = step3(.data: data),
-    data
+    data,
 )
 ```
 
-Both work! Shadowing is still allowed with `let`. The `let` just makes it explicit that each line creates a new binding.
+### Mutation with `let mut`
 
-### Actual Mutation
+Use `let mut` when you need actual mutation:
 
-**Before (impossible):**
-```sigil
-// Couldn't actually mutate
-```
-
-**After (explicit):**
 ```sigil
 @sum (items: [int]) -> int = run(
     let mut total = 0,
     for item in items do
         total = total + item,
-    total
+    total,
 )
 ```
 

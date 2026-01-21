@@ -94,6 +94,8 @@ impl Resolver {
                 Item::Config(config) => self.collect_config(config),
                 Item::TypeDef(typedef) => self.collect_typedef(typedef),
                 Item::Use(_) => {} // Handle imports later
+                Item::Trait(trait_def) => self.collect_trait(trait_def),
+                Item::Impl(impl_block) => self.collect_impl(impl_block),
             }
         }
     }
@@ -164,6 +166,53 @@ impl Resolver {
         self.scopes.define(typedef.name.clone(), id);
     }
 
+    fn collect_trait(&mut self, trait_def: &crate::ast::TraitDef) {
+        // Create trait symbol
+        let trait_methods: Vec<super::symbol::TraitMethod> = trait_def
+            .methods
+            .iter()
+            .map(|m| super::symbol::TraitMethod {
+                name: m.name.clone(),
+                param_types: m.params.iter().map(|p| p.ty.clone()).collect(),
+                return_type: m.return_type.clone(),
+                has_default: m.default_body.is_some(),
+            })
+            .collect();
+
+        let trait_symbol = super::symbol::TraitSymbol {
+            type_params: trait_def.type_params.clone(),
+            methods: trait_methods,
+            associated_types: trait_def.associated_types.iter().map(|at| at.name.clone()).collect(),
+            supertraits: trait_def.supertraits.clone(),
+        };
+
+        let symbol = Symbol::new(trait_def.name.clone(), SymbolKind::Trait(trait_symbol))
+            .at_span(trait_def.span.clone());
+
+        let id = self.symbols.insert(symbol);
+        self.scopes.define(trait_def.name.clone(), id);
+    }
+
+    fn collect_impl(&mut self, impl_block: &crate::ast::ImplBlock) {
+        // Register functions from impl block
+        for method in &impl_block.methods {
+            // Impl methods are registered with qualified names or just function names
+            let func_symbol = FunctionSymbol::new(
+                method.type_params.clone(),
+                method.params.iter().map(|p| p.name.clone()).collect(),
+                method.params.iter().map(|p| p.ty.clone()).collect(),
+                method.return_type.clone(),
+            );
+
+            let symbol = Symbol::new(method.name.clone(), SymbolKind::Function(func_symbol))
+                .at_span(method.span.clone());
+
+            let id = self.symbols.insert(symbol);
+            // Note: We don't add to scope directly - method resolution happens differently
+            let _ = id;
+        }
+    }
+
     // =========================================================================
     // Pass 2: Reference Resolution
     // =========================================================================
@@ -176,6 +225,8 @@ impl Resolver {
                 Item::Config(config) => self.resolve_config(config),
                 Item::TypeDef(typedef) => self.resolve_typedef(typedef),
                 Item::Use(_) => {}
+                Item::Trait(trait_def) => self.resolve_trait(trait_def),
+                Item::Impl(impl_block) => self.resolve_impl(impl_block),
             }
         }
     }
@@ -275,6 +326,127 @@ impl Resolver {
             TypeDefKind::Alias(target) => {
                 self.resolve_type(target);
             }
+        }
+
+        self.scopes.exit();
+    }
+
+    fn resolve_trait(&mut self, trait_def: &crate::ast::TraitDef) {
+        // Enter a scope for type parameters
+        self.scopes.enter(ScopeKind::Block);
+
+        for type_param in &trait_def.type_params {
+            let symbol = Symbol::new(
+                type_param.clone(),
+                SymbolKind::TypeParam(super::symbol::TypeParamSymbol { bounds: vec![] }),
+            );
+            let id = self.symbols.insert(symbol);
+            self.scopes.define(type_param.clone(), id);
+        }
+
+        // Resolve supertrait references
+        for supertrait in &trait_def.supertraits {
+            if self.scopes.lookup(supertrait).is_none() {
+                self.diagnostics.push(Diagnostic::error(
+                    ErrorCode::E3003,
+                    format!("cannot find trait '{}' in this scope", supertrait),
+                ));
+            }
+        }
+
+        // Resolve associated types
+        for assoc_type in &trait_def.associated_types {
+            for bound in &assoc_type.bounds {
+                if self.scopes.lookup(bound).is_none() && !is_builtin_type(bound) {
+                    self.diagnostics.push(Diagnostic::error(
+                        ErrorCode::E3003,
+                        format!("cannot find trait '{}' in this scope", bound),
+                    ));
+                }
+            }
+            if let Some(default) = &assoc_type.default {
+                self.resolve_type(default);
+            }
+        }
+
+        // Resolve method signatures and default bodies
+        for method in &trait_def.methods {
+            self.scopes.enter(ScopeKind::Function);
+
+            // Add method type parameters
+            for type_param in &method.type_params {
+                let symbol = Symbol::new(
+                    type_param.clone(),
+                    SymbolKind::TypeParam(super::symbol::TypeParamSymbol { bounds: vec![] }),
+                );
+                let id = self.symbols.insert(symbol);
+                self.scopes.define(type_param.clone(), id);
+            }
+
+            // Add parameters
+            for param in &method.params {
+                self.resolve_type(&param.ty);
+            }
+
+            self.resolve_type(&method.return_type);
+
+            // Resolve default body if present
+            if let Some(body) = &method.default_body {
+                self.resolve_expr(&body.expr);
+            }
+
+            self.scopes.exit();
+        }
+
+        self.scopes.exit();
+    }
+
+    fn resolve_impl(&mut self, impl_block: &crate::ast::ImplBlock) {
+        // Enter a scope for type parameters
+        self.scopes.enter(ScopeKind::Block);
+
+        for type_param in &impl_block.type_params {
+            let symbol = Symbol::new(
+                type_param.clone(),
+                SymbolKind::TypeParam(super::symbol::TypeParamSymbol { bounds: vec![] }),
+            );
+            let id = self.symbols.insert(symbol);
+            self.scopes.define(type_param.clone(), id);
+        }
+
+        // Resolve trait name if present
+        if let Some(trait_name) = &impl_block.trait_name {
+            if self.scopes.lookup(trait_name).is_none() {
+                self.diagnostics.push(Diagnostic::error(
+                    ErrorCode::E3003,
+                    format!("cannot find trait '{}' in this scope", trait_name),
+                ));
+            }
+        }
+
+        // Resolve for_type
+        self.resolve_type(&impl_block.for_type);
+
+        // Resolve where clause
+        for bound in &impl_block.where_clause {
+            for trait_name in &bound.bounds {
+                if self.scopes.lookup(trait_name).is_none() && !is_builtin_type(trait_name) {
+                    self.diagnostics.push(Diagnostic::error(
+                        ErrorCode::E3003,
+                        format!("cannot find trait '{}' in this scope", trait_name),
+                    ));
+                }
+            }
+        }
+
+        // Resolve associated type implementations
+        for assoc_type in &impl_block.associated_types {
+            self.resolve_type(&assoc_type.ty);
+        }
+
+        // Resolve methods
+        for method in &impl_block.methods {
+            self.resolve_function(method);
         }
 
         self.scopes.exit();
@@ -560,6 +732,33 @@ impl Resolver {
                 if let Some(timeout) = timeout {
                     self.resolve_expr(timeout);
                 }
+            }
+            PatternExpr::Find { collection, predicate, default } => {
+                self.resolve_expr(collection);
+                self.resolve_expr(predicate);
+                if let Some(d) = default {
+                    self.resolve_expr(d);
+                }
+            }
+            PatternExpr::Try { body, catch } => {
+                self.resolve_expr(body);
+                if let Some(c) = catch {
+                    self.resolve_expr(c);
+                }
+            }
+            PatternExpr::Retry { operation, max_attempts, delay_ms, .. } => {
+                self.resolve_expr(operation);
+                self.resolve_expr(max_attempts);
+                if let Some(d) = delay_ms {
+                    self.resolve_expr(d);
+                }
+            }
+            PatternExpr::Validate { rules, then_value } => {
+                for (cond, msg) in rules {
+                    self.resolve_expr(cond);
+                    self.resolve_expr(msg);
+                }
+                self.resolve_expr(then_value);
             }
         }
     }

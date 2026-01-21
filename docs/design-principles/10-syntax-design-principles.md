@@ -106,7 +106,7 @@ Syntactic patterns should be visually consistent.
 fold(
     .over: arr,
     .init: 0,
-    .with: +,
+    .op: +,
 )
 map(
     .over: arr,
@@ -114,7 +114,7 @@ map(
 )
 filter(
     .over: arr,
-    .pred: x -> x > 0,
+    .predicate: x -> x > 0,
 )
 recurse(
     .cond: n <= 1,
@@ -165,7 +165,10 @@ result = number + suffix  // Does this work? What type is result?
 
 ```sigil
 // Good: Explicit error propagation
-data = try fetch()    // try clearly marks possible failure
+data = try(
+    let result = fetch()?,
+    Ok(result),
+)
 
 // Bad: Hidden exceptions
 data = fetch()        // Might throw? Who knows!
@@ -292,7 +295,7 @@ Code should be readable in error messages, diffs, and grep output.
 @sum (arr: [int]) -> int = fold(
     .over: arr,
     .init: 0,
-    .with: +,
+    .op: +,
 )
 
 // Bad: Relies on color to distinguish
@@ -319,7 +322,7 @@ AI models work with tokens, not characters.
 @sum (arr: [int]) -> int = fold(
     .over: arr,
     .init: 0,
-    .with: +,
+    .op: +,
 )
 
 // Could be more token-efficient but less clear

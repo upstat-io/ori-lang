@@ -4,8 +4,9 @@
 use super::context::TypeContext;
 use crate::ast::{PatternExpr, TypeExpr};
 use crate::patterns::builtins::{
-    CollectPattern, CountPattern, FilterPattern, FoldPattern, IteratePattern, MapPattern,
-    ParallelPattern, RecursePattern, TransformPattern,
+    CollectPattern, CountPattern, FilterPattern, FindPattern, FoldPattern, IteratePattern,
+    MapPattern, ParallelPattern, RecursePattern, RetryPattern, TransformPattern, TryPattern,
+    ValidatePattern,
 };
 use crate::patterns::core::PatternDefinition;
 
@@ -21,6 +22,10 @@ pub fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> Result<TypeExpr
         PatternExpr::Iterate { .. } => IteratePattern.infer_type(p, ctx),
         PatternExpr::Transform { .. } => TransformPattern.infer_type(p, ctx),
         PatternExpr::Parallel { .. } => ParallelPattern.infer_type(p, ctx),
+        PatternExpr::Find { .. } => FindPattern.infer_type(p, ctx),
+        PatternExpr::Try { .. } => TryPattern.infer_type(p, ctx),
+        PatternExpr::Retry { .. } => RetryPattern.infer_type(p, ctx),
+        PatternExpr::Validate { .. } => ValidatePattern.infer_type(p, ctx),
     };
 
     // Convert DiagnosticResult to Result<TypeExpr, String>

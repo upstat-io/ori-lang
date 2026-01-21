@@ -9,6 +9,7 @@
 // - expr.rs: Expression lowering
 // - patterns.rs: Match patterns and pattern expressions
 
+mod captures;
 mod check_lower;
 mod expr;
 mod patterns;

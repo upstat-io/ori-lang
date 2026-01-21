@@ -436,6 +436,106 @@ impl Parser {
                     on_error,
                 })
             }
+            "find" => {
+                // Required: in, where
+                // Optional: default
+                let collection = props
+                    .remove("in")
+                    .ok_or_else(|| "find pattern requires .in: property".to_string())?;
+                let predicate = props
+                    .remove("where")
+                    .ok_or_else(|| "find pattern requires .where: property".to_string())?;
+                let default = props.remove("default").map(Box::new);
+
+                Expr::Pattern(PatternExpr::Find {
+                    collection: Box::new(collection),
+                    predicate: Box::new(predicate),
+                    default,
+                })
+            }
+            "try" => {
+                // Required: body
+                // Optional: catch
+                let body = props
+                    .remove("body")
+                    .ok_or_else(|| "try pattern requires .body: property".to_string())?;
+                let catch = props.remove("catch").map(Box::new);
+
+                Expr::Pattern(PatternExpr::Try {
+                    body: Box::new(body),
+                    catch,
+                })
+            }
+            "retry" => {
+                // Required: op, times
+                // Optional: backoff, delay
+                let operation = props
+                    .remove("op")
+                    .ok_or_else(|| "retry pattern requires .op: property".to_string())?;
+                let max_attempts = props
+                    .remove("times")
+                    .ok_or_else(|| "retry pattern requires .times: property".to_string())?;
+
+                // Parse backoff strategy
+                let backoff = props
+                    .remove("backoff")
+                    .map(|e| {
+                        if let Expr::Ident(s) = &e {
+                            match s.as_str() {
+                                "constant" => RetryBackoff::Constant,
+                                "linear" => RetryBackoff::Linear,
+                                "exponential" => RetryBackoff::Exponential,
+                                _ => RetryBackoff::None,
+                            }
+                        } else {
+                            RetryBackoff::None
+                        }
+                    })
+                    .unwrap_or(RetryBackoff::None);
+
+                let delay_ms = props.remove("delay").map(Box::new);
+
+                Expr::Pattern(PatternExpr::Retry {
+                    operation: Box::new(operation),
+                    max_attempts: Box::new(max_attempts),
+                    backoff,
+                    delay_ms,
+                })
+            }
+            "validate" => {
+                // Required: rules, then
+                // rules is a list of (condition | "error") pairs
+                let rules_expr = props
+                    .remove("rules")
+                    .ok_or_else(|| "validate pattern requires .rules: property".to_string())?;
+                let then_value = props
+                    .remove("then")
+                    .ok_or_else(|| "validate pattern requires .then: property".to_string())?;
+
+                // Parse the rules list - each element should be condition | "message"
+                let rules = match rules_expr {
+                    Expr::List(elements) => {
+                        elements
+                            .into_iter()
+                            .map(|elem| {
+                                // Each element should be a Binary with Pipe operator
+                                match elem {
+                                    Expr::Binary { op: BinaryOp::Pipe, left, right } => {
+                                        Ok((*left, *right))
+                                    }
+                                    _ => Err("validate rules must use syntax: condition | \"error message\"".to_string()),
+                                }
+                            })
+                            .collect::<Result<Vec<_>, _>>()?
+                    }
+                    _ => return Err("validate .rules: must be a list".to_string()),
+                };
+
+                Expr::Pattern(PatternExpr::Validate {
+                    rules,
+                    then_value: Box::new(then_value),
+                })
+            }
             _ => return Err(format!(
                 "Unknown pattern keyword with named args: {}",
                 keyword

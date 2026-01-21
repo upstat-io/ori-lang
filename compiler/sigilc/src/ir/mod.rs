@@ -32,5 +32,5 @@ pub use module::{
     LocalInfo, LocalTable, TConfig, TField, TFunction, TImport, TImportItem, TModule, TParam,
     TTest, TTypeDef, TTypeDefKind, TVariant,
 };
-pub use patterns::{IterDirection, OnError, TPattern};
+pub use patterns::{IterDirection, OnError, RetryBackoff, TPattern};
 pub use types::Type;

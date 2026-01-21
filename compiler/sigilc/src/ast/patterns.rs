@@ -65,6 +65,52 @@ pub enum PatternExpr {
         timeout: Option<Box<Expr>>,    // Optional timeout duration
         on_error: OnError,             // Error handling strategy
     },
+
+    /// find(.in: collection, .where: predicate) - find first matching element
+    /// Returns Option<T> (None if not found)
+    /// With .default: value, returns T instead of Option<T>
+    Find {
+        collection: Box<Expr>,
+        predicate: Box<Expr>,
+        default: Option<Box<Expr>>, // If provided, returns T instead of Option<T>
+    },
+
+    /// try(.body: expr) - wrap expression in Result
+    /// Catches errors and returns Result<T, Error>
+    Try {
+        body: Box<Expr>,
+        catch: Option<Box<Expr>>, // Optional error handler: (err) -> T
+    },
+
+    /// retry(.op: expr, .times: N, .backoff: strategy)
+    /// Retry an operation with configurable backoff strategy
+    Retry {
+        operation: Box<Expr>,
+        max_attempts: Box<Expr>,         // Maximum number of attempts
+        backoff: RetryBackoff,           // Backoff strategy
+        delay_ms: Option<Box<Expr>>,     // Base delay in milliseconds
+    },
+
+    /// validate(.rules: [...], .then: value)
+    /// Validate with error accumulation - runs ALL rules and collects errors
+    /// Returns Result<T, [str]> where [str] contains all validation error messages
+    Validate {
+        rules: Vec<(Expr, Expr)>,        // List of (condition, error_message) pairs
+        then_value: Box<Expr>,           // Value to return if all validations pass
+    },
+}
+
+/// Backoff strategy for retry pattern
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetryBackoff {
+    /// No delay between retries
+    None,
+    /// Constant delay between retries
+    Constant,
+    /// Linear increasing delay (delay * attempt)
+    Linear,
+    /// Exponential delay (delay * 2^attempt)
+    Exponential,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

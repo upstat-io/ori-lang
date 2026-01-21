@@ -106,6 +106,51 @@ pub enum TPattern {
         on_error: OnError,                    // Error handling strategy
         result_ty: Type,                      // Record type of results
     },
+
+    /// find(.in: collection, .where: predicate) -> Option<elem> or elem
+    /// Find first element matching predicate
+    Find {
+        collection: TExpr,
+        elem_ty: Type,
+        predicate: TExpr,          // Lambda: elem -> bool
+        default: Option<TExpr>,    // If provided, returns elem_ty instead of Option
+        result_ty: Type,           // Option<elem_ty> or elem_ty
+    },
+
+    /// try(.body: expr) -> Result<T, Error> or T
+    /// Wrap expression in error handling
+    Try {
+        body: TExpr,
+        catch: Option<TExpr>,      // Optional error handler: (err) -> T
+        result_ty: Type,           // Result<T, Error> or T (with catch)
+    },
+
+    /// retry(.op: expr, .times: N, .backoff: strategy, .delay: ms)
+    /// Retry operation with backoff
+    Retry {
+        operation: TExpr,
+        max_attempts: TExpr,
+        backoff: RetryBackoff,
+        delay_ms: Option<TExpr>,
+        result_ty: Type,           // Result<T, Error>
+    },
+
+    /// validate(.rules: [...], .then: value)
+    /// Validate with error accumulation
+    Validate {
+        rules: Vec<(TExpr, TExpr)>,  // List of (condition, error_message) pairs
+        then_value: TExpr,            // Value to return if all pass
+        result_ty: Type,              // Result<T, [str]>
+    },
+}
+
+/// Backoff strategy for retry pattern (mirrors AST)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetryBackoff {
+    None,
+    Constant,
+    Linear,
+    Exponential,
 }
 
 impl TPattern {
@@ -125,6 +170,10 @@ impl TPattern {
             TPattern::Transform { result_ty, .. } => result_ty,
             TPattern::Count { .. } => &Type::Int,
             TPattern::Parallel { result_ty, .. } => result_ty,
+            TPattern::Find { result_ty, .. } => result_ty,
+            TPattern::Try { result_ty, .. } => result_ty,
+            TPattern::Retry { result_ty, .. } => result_ty,
+            TPattern::Validate { result_ty, .. } => result_ty,
         }
     }
 

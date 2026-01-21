@@ -219,8 +219,14 @@ collect(
 
 **Examples:**
 ```sigil
-@squares (n: int) -> [int] = collect(1..n, x -> x * x)
-@fib_sequence (n: int) -> [int] = collect(0..n, fibonacci)
+@squares (n: int) -> [int] = collect(
+    .range: 1..n,
+    .transform: x -> x * x,
+)
+@fib_sequence (n: int) -> [int] = collect(
+    .range: 0..n,
+    .transform: fibonacci,
+)
 ```
 
 ---
@@ -473,10 +479,10 @@ match(value,
 )
 
 @fizzbuzz (n: int) -> str = match(n,
-    n if n % 15 == 0 -> "FizzBuzz",
-    n if n % 3 == 0 -> "Fizz",
-    n if n % 5 == 0 -> "Buzz",
-    n -> str(n)
+    n.match(n % 15 == 0) -> "FizzBuzz",
+    n.match(n % 3 == 0) -> "Fizz",
+    n.match(n % 5 == 0) -> "Buzz",
+    n -> str(n),
 )
 ```
 
@@ -500,9 +506,19 @@ run(
 **Examples:**
 ```sigil
 @process (items: [int]) -> int = run(
-    let doubled = map(items, x -> x * 2),
-    let filtered = filter(doubled, x -> x > 10),
-    fold(filtered, 0, +),
+    let doubled = map(
+        .over: items,
+        .transform: x -> x * 2,
+    ),
+    let filtered = filter(
+        .over: doubled,
+        .predicate: x -> x > 10,
+    ),
+    fold(
+        .over: filtered,
+        .init: 0,
+        .op: +,
+    ),
 )
 
 @main () -> void = run(

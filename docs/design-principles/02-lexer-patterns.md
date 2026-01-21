@@ -215,13 +215,15 @@ if a > 0 and \
 - Backslash before newline continues line
 - Lexer consumes `\` and newline, continues
 
-### Underscore Continuation (Sigil)
+### Natural Continuation (Sigil)
 ```
-if a > 0 && _
-   b > 0 then result
+if a > 0
+   && b > 0
+then result
 ```
-- `_` at end of line signals continuation
-- More visible than backslash
+- Lines continue naturally after binary operators
+- No explicit continuation character needed
+- Parentheses can also be used for grouping multi-line expressions
 
 ### Implicit Continuation
 - Inside `()`, `[]`, `{}` newlines are insignificant

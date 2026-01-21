@@ -1,10 +1,11 @@
 // Item parsing for Sigil
-// Handles functions, tests, configs, type definitions, and use statements
+// Handles functions, tests, configs, type definitions, use statements, traits, and impls
 
 use super::Parser;
 use crate::ast::{
-    ConfigDef, Field, FunctionDef, Item, Param, TestDef, TypeDef, TypeDefKind, UseDef, UseItem,
-    Variant,
+    AssociatedType, AssociatedTypeImpl, ConfigDef, Field, FunctionDef, ImplBlock, Item, Param,
+    TestDef, TraitDef, TraitMethodDef, TypeDef, TypeDefKind, TypeExpr, UseDef, UseItem, Variant,
+    WhereBound,
 };
 use crate::lexer::Token;
 
@@ -457,5 +458,369 @@ impl Parser {
             items,
             span: start..end,
         })
+    }
+
+    /// Parse a trait definition: trait Name<T>: Supertrait { ... }
+    pub(super) fn parse_trait(&mut self, public: bool) -> Result<TraitDef, String> {
+        let start = self.tokens[self.pos].span.start;
+        self.expect(Token::Trait)?;
+
+        // Trait name
+        let name = match self.current() {
+            Some(Token::Ident(n)) => {
+                let n = n.clone();
+                self.advance();
+                n
+            }
+            _ => return Err("Expected trait name".to_string()),
+        };
+
+        // Optional type parameters: trait Comparable<T>
+        let type_params = if matches!(self.current(), Some(Token::Lt)) {
+            self.parse_type_params()?
+        } else {
+            Vec::new()
+        };
+
+        // Optional supertraits: trait Ord: Eq + PartialOrd
+        let supertraits = if matches!(self.current(), Some(Token::Colon)) {
+            self.advance();
+            self.parse_trait_bounds()?
+        } else {
+            Vec::new()
+        };
+
+        // Trait body
+        self.expect(Token::LBrace)?;
+        self.skip_newlines();
+
+        let mut associated_types = Vec::new();
+        let mut methods = Vec::new();
+
+        while !matches!(self.current(), Some(Token::RBrace)) {
+            self.skip_newlines();
+            if matches!(self.current(), Some(Token::RBrace)) {
+                break;
+            }
+
+            // Associated type: type Item: Bound = Default
+            if matches!(self.current(), Some(Token::Type)) {
+                associated_types.push(self.parse_associated_type()?);
+            }
+            // Method: @name(...) -> Type or @name(...) -> Type = default_body
+            else if matches!(self.current(), Some(Token::At)) {
+                methods.push(self.parse_trait_method()?);
+            } else {
+                return Err("Expected 'type' or '@' in trait body".to_string());
+            }
+
+            self.skip_newlines();
+        }
+
+        self.expect(Token::RBrace)?;
+
+        let end = self
+            .tokens
+            .get(self.pos.saturating_sub(1))
+            .map(|t| t.span.end)
+            .unwrap_or(start);
+
+        Ok(TraitDef {
+            public,
+            name,
+            type_params,
+            supertraits,
+            associated_types,
+            methods,
+            span: start..end,
+        })
+    }
+
+    /// Parse an associated type: type Item: Bound = Default
+    fn parse_associated_type(&mut self) -> Result<AssociatedType, String> {
+        self.expect(Token::Type)?;
+
+        let name = match self.current() {
+            Some(Token::Ident(n)) => {
+                let n = n.clone();
+                self.advance();
+                n
+            }
+            _ => return Err("Expected associated type name".to_string()),
+        };
+
+        // Optional bounds: type Item: Comparable
+        let bounds = if matches!(self.current(), Some(Token::Colon)) {
+            self.advance();
+            self.parse_trait_bounds()?
+        } else {
+            Vec::new()
+        };
+
+        // Optional default: type Item = int
+        let default = if matches!(self.current(), Some(Token::Eq)) {
+            self.advance();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        self.skip_newlines();
+
+        Ok(AssociatedType {
+            name,
+            bounds,
+            default,
+        })
+    }
+
+    /// Parse a trait method: @name<T>(...) -> Type [= default_body]
+    fn parse_trait_method(&mut self) -> Result<TraitMethodDef, String> {
+        let start = self.tokens[self.pos].span.start;
+        self.expect(Token::At)?;
+
+        let name = match self.current() {
+            Some(Token::Ident(n)) => {
+                let n = n.clone();
+                self.advance();
+                n
+            }
+            _ => return Err("Expected method name after @".to_string()),
+        };
+
+        // Optional type parameters
+        let type_params = if matches!(self.current(), Some(Token::Lt)) {
+            self.parse_type_params()?
+        } else {
+            Vec::new()
+        };
+
+        // Parameters
+        self.expect(Token::LParen)?;
+        let params = self.parse_params()?;
+        self.expect(Token::RParen)?;
+
+        // Return type
+        self.expect(Token::Arrow)?;
+        let return_type = self.parse_type()?;
+
+        // Optional default body
+        let default_body = if matches!(self.current(), Some(Token::Eq)) {
+            self.advance();
+            self.skip_newlines();
+            Some(self.parse_expr()?)
+        } else {
+            None
+        };
+
+        let end = self
+            .tokens
+            .get(self.pos.saturating_sub(1))
+            .map(|t| t.span.end)
+            .unwrap_or(start);
+
+        Ok(TraitMethodDef {
+            name,
+            type_params,
+            params,
+            return_type,
+            default_body,
+            span: start..end,
+        })
+    }
+
+    /// Parse an impl block: impl<T> Trait for Type where T: Bound { ... }
+    pub(super) fn parse_impl(&mut self) -> Result<ImplBlock, String> {
+        let start = self.tokens[self.pos].span.start;
+        self.expect(Token::Impl)?;
+
+        // Optional type parameters: impl<T>
+        let type_params = if matches!(self.current(), Some(Token::Lt)) {
+            self.parse_type_params()?
+        } else {
+            Vec::new()
+        };
+
+        // First type - could be trait name or the type itself (inherent impl)
+        let first_type = self.parse_type()?;
+
+        // Check for "for Type" to determine if this is a trait impl
+        let (trait_name, for_type) = if matches!(self.current(), Some(Token::For)) {
+            self.advance();
+            let for_ty = self.parse_type()?;
+            // Extract trait name from first_type
+            let trait_name = match first_type {
+                TypeExpr::Named(n) => Some(n),
+                TypeExpr::Generic(n, _) => Some(n),
+                _ => return Err("Expected trait name before 'for'".to_string()),
+            };
+            (trait_name, for_ty)
+        } else {
+            // Inherent impl: impl Type { ... }
+            (None, first_type)
+        };
+
+        // Optional where clause
+        let where_clause = if matches!(self.current(), Some(Token::Where)) {
+            self.advance();
+            self.parse_where_clause()?
+        } else {
+            Vec::new()
+        };
+
+        // Impl body
+        self.expect(Token::LBrace)?;
+        self.skip_newlines();
+
+        let mut associated_types = Vec::new();
+        let mut methods = Vec::new();
+
+        while !matches!(self.current(), Some(Token::RBrace)) {
+            self.skip_newlines();
+            if matches!(self.current(), Some(Token::RBrace)) {
+                break;
+            }
+
+            // Associated type impl: type Item = ConcreteType
+            if matches!(self.current(), Some(Token::Type)) {
+                associated_types.push(self.parse_associated_type_impl()?);
+            }
+            // Method: @name(...) -> Type = body
+            else if matches!(self.current(), Some(Token::At)) {
+                let public = false; // Impl methods inherit visibility from impl block
+                let func = self.parse_function_or_test(public)?;
+                match func {
+                    Item::Function(f) => methods.push(f),
+                    _ => return Err("Expected function in impl block".to_string()),
+                }
+            } else {
+                return Err("Expected 'type' or '@' in impl body".to_string());
+            }
+
+            self.skip_newlines();
+        }
+
+        self.expect(Token::RBrace)?;
+
+        let end = self
+            .tokens
+            .get(self.pos.saturating_sub(1))
+            .map(|t| t.span.end)
+            .unwrap_or(start);
+
+        Ok(ImplBlock {
+            type_params,
+            trait_name,
+            for_type,
+            where_clause,
+            associated_types,
+            methods,
+            span: start..end,
+        })
+    }
+
+    /// Parse an associated type implementation: type Item = ConcreteType
+    fn parse_associated_type_impl(&mut self) -> Result<AssociatedTypeImpl, String> {
+        self.expect(Token::Type)?;
+
+        let name = match self.current() {
+            Some(Token::Ident(n)) => {
+                let n = n.clone();
+                self.advance();
+                n
+            }
+            _ => return Err("Expected associated type name".to_string()),
+        };
+
+        self.expect(Token::Eq)?;
+        let ty = self.parse_type()?;
+
+        self.skip_newlines();
+
+        Ok(AssociatedTypeImpl { name, ty })
+    }
+
+    /// Parse type parameters: <T, U, V>
+    fn parse_type_params(&mut self) -> Result<Vec<String>, String> {
+        self.expect(Token::Lt)?;
+        let mut params = Vec::new();
+
+        while !matches!(self.current(), Some(Token::Gt)) {
+            match self.current() {
+                Some(Token::Ident(p)) => {
+                    params.push(p.clone());
+                    self.advance();
+                }
+                _ => return Err("Expected type parameter name".to_string()),
+            }
+            if matches!(self.current(), Some(Token::Comma)) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        self.expect(Token::Gt)?;
+        Ok(params)
+    }
+
+    /// Parse trait bounds: Trait1 + Trait2 + Trait3
+    fn parse_trait_bounds(&mut self) -> Result<Vec<String>, String> {
+        let mut bounds = Vec::new();
+
+        loop {
+            match self.current() {
+                Some(Token::Ident(n)) => {
+                    bounds.push(n.clone());
+                    self.advance();
+                }
+                _ => {
+                    if bounds.is_empty() {
+                        return Err("Expected trait name in bounds".to_string());
+                    }
+                    break;
+                }
+            }
+
+            if matches!(self.current(), Some(Token::Plus)) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        Ok(bounds)
+    }
+
+    /// Parse where clause: T: Trait1, U: Trait2 + Trait3
+    fn parse_where_clause(&mut self) -> Result<Vec<WhereBound>, String> {
+        let mut bounds = Vec::new();
+
+        loop {
+            let type_param = match self.current() {
+                Some(Token::Ident(n)) => {
+                    let n = n.clone();
+                    self.advance();
+                    n
+                }
+                _ => break,
+            };
+
+            self.expect(Token::Colon)?;
+            let trait_bounds = self.parse_trait_bounds()?;
+
+            bounds.push(WhereBound {
+                type_param,
+                bounds: trait_bounds,
+            });
+
+            if matches!(self.current(), Some(Token::Comma)) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        Ok(bounds)
     }
 }

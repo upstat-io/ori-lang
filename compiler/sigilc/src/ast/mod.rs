@@ -21,10 +21,14 @@ pub mod visit;
 // Re-export all public types
 pub use expr::Expr;
 // SpannedExpr is defined in this file, no need to re-export
-pub use items::{ConfigDef, Field, FunctionDef, Param, TestDef, TypeDef, TypeDefKind, UseDef, UseItem, Variant};
+pub use items::{
+    AssociatedType, AssociatedTypeImpl, ConfigDef, Field, FunctionDef, ImplBlock, Param,
+    TestDef, TraitDef, TraitMethodDef, TypeDef, TypeDefKind, UseDef, UseItem, Variant,
+    WhereBound,
+};
 pub use matching::{MatchArm, MatchExpr, Pattern};
 pub use operators::{BinaryOp, UnaryOp};
-pub use patterns::{IterDirection, OnError, PatternExpr};
+pub use patterns::{IterDirection, OnError, PatternExpr, RetryBackoff};
 pub use types::TypeExpr;
 pub use dispatch::{ExprHandler, dispatch_to_handler, EXPR_VARIANTS};
 pub use processor::{ExprProcessor, dispatch_to_processor, DefaultExprProcessor};
@@ -54,6 +58,12 @@ pub enum Item {
 
     /// Use statement: use path { items }
     Use(UseDef),
+
+    /// Trait definition: trait Name<T>: Supertrait { methods }
+    Trait(TraitDef),
+
+    /// Implementation block: impl Trait for Type { methods }
+    Impl(ImplBlock),
 }
 
 /// Source span
