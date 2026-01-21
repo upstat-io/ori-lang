@@ -526,6 +526,67 @@ impl TIRPrinter {
                 }
                 self.write(")");
             }
+            TPattern::Find {
+                collection,
+                predicate,
+                default,
+                ..
+            } => {
+                self.write("find(.in: ");
+                self.print_expr(collection);
+                self.write(", .where: ");
+                self.print_expr(predicate);
+                if let Some(d) = default {
+                    self.write(", .default: ");
+                    self.print_expr(d);
+                }
+                self.write(")");
+            }
+            TPattern::Try { body, catch, .. } => {
+                self.write("try(.body: ");
+                self.print_expr(body);
+                if let Some(c) = catch {
+                    self.write(", .catch: ");
+                    self.print_expr(c);
+                }
+                self.write(")");
+            }
+            TPattern::Retry {
+                operation,
+                max_attempts,
+                backoff,
+                delay_ms,
+                ..
+            } => {
+                self.write("retry(.op: ");
+                self.print_expr(operation);
+                self.write(", .times: ");
+                self.print_expr(max_attempts);
+                self.write(&format!(", .backoff: {:?}", backoff));
+                if let Some(d) = delay_ms {
+                    self.write(", .delay: ");
+                    self.print_expr(d);
+                }
+                self.write(")");
+            }
+            TPattern::Validate {
+                rules,
+                then_value,
+                ..
+            } => {
+                self.write("validate(.rules: [");
+                for (i, (cond, msg)) in rules.iter().enumerate() {
+                    if i > 0 {
+                        self.write(", ");
+                    }
+                    self.print_expr(cond);
+                    self.write(" | ");
+                    self.print_expr(msg);
+                }
+                self.write("], .then: ");
+                self.print_expr(then_value);
+                self.write(")");
+            }
         }
     }
 

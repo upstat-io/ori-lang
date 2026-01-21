@@ -116,6 +116,40 @@ fn collect_and_check_module(module: &Module) -> DiagnosticResult<TypeContext> {
             Item::Test(_) => {
                 // Tests are checked separately
             }
+            Item::Trait(trait_def) => {
+                // Register trait in type context (trait system integration)
+                // For now, just register the trait name as a type
+                ctx.define_type(
+                    trait_def.name.clone(),
+                    TypeDef {
+                        public: trait_def.public,
+                        name: trait_def.name.clone(),
+                        params: trait_def.type_params.clone(),
+                        kind: TypeDefKind::Alias(TypeExpr::Named(trait_def.name.clone())),
+                        span: trait_def.span.clone(),
+                    },
+                );
+            }
+            Item::Impl(impl_block) => {
+                // Register impl block methods
+                for method in &impl_block.methods {
+                    let sig = FunctionSig {
+                        type_params: method.type_params.clone(),
+                        params: method
+                            .params
+                            .iter()
+                            .map(|p| (p.name.clone(), p.ty.clone()))
+                            .collect(),
+                        return_type: method.return_type.clone(),
+                    };
+                    // Register with qualified name: TypeName::method_name
+                    let type_name = match &impl_block.for_type {
+                        TypeExpr::Named(n) => n.clone(),
+                        _ => "Unknown".to_string(),
+                    };
+                    ctx.define_function(format!("{}::{}", type_name, method.name), sig);
+                }
+            }
         }
     }
 
@@ -144,13 +178,119 @@ fn collect_and_check_module(module: &Module) -> DiagnosticResult<TypeContext> {
         }
     }
 
-    // If we accumulated errors, fail with the first one
-    // (Future: return all errors via PhaseResult)
+    // If we accumulated errors, return all of them
     if collector.has_errors() {
         let errors: Vec<_> = collector.into_diagnostics();
+        // Return first error for backwards compatibility with DiagnosticResult
+        // The full error list is available through check_with_all_errors()
         Err(errors.into_iter().next().unwrap())
     } else {
         Ok(ctx)
+    }
+}
+
+/// Type check a module and return ALL errors (not just the first)
+/// This is the recommended entry point for tools that want to show all errors
+pub fn check_with_all_errors(module: Module) -> crate::errors::MultiDiagnosticResult<TypedModule> {
+    let mut ctx = TypeContext::with_filename(&module.name);
+    let mut collector = DiagnosticCollector::new();
+
+    // First pass: handle imports
+    let source_path = Path::new(&module.name);
+    let root_dir = source_path.parent().unwrap_or(Path::new("."));
+    let mut module_graph = ModuleGraph::new(root_dir);
+
+    for item in &module.items {
+        if let Item::Use(use_def) = item {
+            match module_graph.resolve_import(source_path, &use_def.path) {
+                Ok(import_path) => {
+                    match module_graph.load_module(&import_path) {
+                        Ok(loaded) => {
+                            match get_imported_items(use_def, &loaded.module) {
+                                Ok(imported_items) => {
+                                    for imported_item in imported_items {
+                                        register_item_in_context(imported_item, &mut ctx, use_def, &mut collector);
+                                    }
+                                }
+                                Err(msg) => {
+                                    collector.push(Diagnostic::error(ErrorCode::E3006, msg)
+                                        .with_label(ctx.make_span(use_def.span.clone()), "import error"));
+                                }
+                            }
+                        }
+                        Err(diag) => {
+                            collector.push(diag.with_label(ctx.make_span(use_def.span.clone()), "failed to load module"));
+                        }
+                    }
+                }
+                Err(msg) => {
+                    collector.push(Diagnostic::error(ErrorCode::E3006, msg)
+                        .with_label(ctx.make_span(use_def.span.clone()), "cannot resolve import"));
+                }
+            }
+        }
+    }
+
+    // Second pass: collect definitions
+    for item in &module.items {
+        match item {
+            Item::TypeDef(td) => {
+                ctx.define_type(td.name.clone(), td.clone());
+            }
+            Item::Function(fd) => {
+                let sig = FunctionSig {
+                    type_params: fd.type_params.clone(),
+                    params: fd.params.iter().map(|p| (p.name.clone(), p.ty.clone())).collect(),
+                    return_type: fd.return_type.clone(),
+                };
+                ctx.define_function(fd.name.clone(), sig);
+            }
+            Item::Config(cd) => {
+                match cd.ty.clone().map_or_else(
+                    || infer_type(&cd.value.expr).map_err(|e| format!("Config '{}': {}", cd.name, e)),
+                    Ok,
+                ) {
+                    Ok(ty) => ctx.define_config(cd.name.clone(), ty),
+                    Err(msg) => {
+                        collector.push(Diagnostic::error(ErrorCode::E3005, msg)
+                            .with_label(ctx.make_span(cd.value.span.clone()), "cannot infer type"));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Third pass: type check all expressions
+    for item in &module.items {
+        match item {
+            Item::Function(fd) => {
+                if let Err(msg) = check_function(fd, &mut ctx) {
+                    collector.push(Diagnostic::error(ErrorCode::E3001, msg)
+                        .with_label(ctx.make_span(fd.body.span.clone()), "type error in function body"));
+                }
+            }
+            Item::Config(cd) => {
+                if let Err(msg) = check_config(cd, &ctx) {
+                    collector.push(Diagnostic::error(ErrorCode::E3001, msg)
+                        .with_label(ctx.make_span(cd.value.span.clone()), "type error in config value"));
+                }
+            }
+            Item::Test(td) => {
+                if let Err(msg) = check_test(td, &ctx) {
+                    collector.push(Diagnostic::error(ErrorCode::E3001, msg)
+                        .with_label(ctx.make_span(td.body.span.clone()), "type error in test body"));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Return all errors or the module
+    if collector.has_errors() {
+        Err(collector.into_diagnostics())
+    } else {
+        Ok(module)
     }
 }
 

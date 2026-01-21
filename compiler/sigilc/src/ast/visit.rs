@@ -361,6 +361,51 @@ pub trait ExprVisitor {
                 }
                 self.combine_many(results)
             }
+            PatternExpr::Find {
+                collection,
+                predicate,
+                default,
+            } => {
+                let c = self.visit_expr(collection);
+                let p = self.visit_expr(predicate);
+                let mut results = vec![c, p];
+                if let Some(d) = default {
+                    results.push(self.visit_expr(d));
+                }
+                self.combine_many(results)
+            }
+            PatternExpr::Try { body, catch } => {
+                let b = self.visit_expr(body);
+                if let Some(c) = catch {
+                    let c_result = self.visit_expr(c);
+                    self.combine_results(b, c_result)
+                } else {
+                    b
+                }
+            }
+            PatternExpr::Retry {
+                operation,
+                max_attempts,
+                delay_ms,
+                ..
+            } => {
+                let o = self.visit_expr(operation);
+                let m = self.visit_expr(max_attempts);
+                let mut results = vec![o, m];
+                if let Some(d) = delay_ms {
+                    results.push(self.visit_expr(d));
+                }
+                self.combine_many(results)
+            }
+            PatternExpr::Validate { rules, then_value } => {
+                let mut results = Vec::new();
+                for (cond, msg) in rules {
+                    results.push(self.visit_expr(cond));
+                    results.push(self.visit_expr(msg));
+                }
+                results.push(self.visit_expr(then_value));
+                self.combine_many(results)
+            }
         }
     }
 

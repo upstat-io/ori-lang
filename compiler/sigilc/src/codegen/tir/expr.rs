@@ -354,6 +354,18 @@ impl TirCodeGen {
                 // Parallel execution would need runtime support
                 Err("Parallel pattern not yet supported in codegen".to_string())
             }
+            TPattern::Find { .. } => {
+                Err("Find pattern should be lowered before codegen".to_string())
+            }
+            TPattern::Try { .. } => {
+                Err("Try pattern should be lowered before codegen".to_string())
+            }
+            TPattern::Retry { .. } => {
+                Err("Retry pattern should be lowered before codegen".to_string())
+            }
+            TPattern::Validate { .. } => {
+                Err("Validate pattern should be lowered before codegen".to_string())
+            }
         }
     }
 }

@@ -271,6 +271,122 @@ impl Lowerer {
                     result_ty,
                 })
             }
+
+            PatternExpr::Find {
+                collection,
+                predicate,
+                default,
+            } => {
+                let coll = self.lower_expr(collection)?;
+                let elem_ty = match &coll.ty {
+                    Type::List(inner) => *inner.clone(),
+                    _ => Type::Any,
+                };
+                let pred_expr = self.lower_expr(predicate)?;
+                let default_expr = default
+                    .as_ref()
+                    .map(|d| self.lower_expr(d))
+                    .transpose()?;
+
+                // Result type is Option<elem_ty> without default, elem_ty with default
+                let result_ty = if default_expr.is_some() {
+                    elem_ty.clone()
+                } else {
+                    Type::Option(Box::new(elem_ty.clone()))
+                };
+
+                Ok(TPattern::Find {
+                    collection: coll,
+                    elem_ty,
+                    predicate: pred_expr,
+                    default: default_expr,
+                    result_ty,
+                })
+            }
+
+            PatternExpr::Try { body, catch } => {
+                let body_expr = self.lower_expr(body)?;
+                let body_ty = body_expr.ty.clone();
+                let catch_expr = catch
+                    .as_ref()
+                    .map(|c| self.lower_expr(c))
+                    .transpose()?;
+
+                // Result type is T with catch, Result<T, Error> without
+                let result_ty = if catch_expr.is_some() {
+                    body_ty
+                } else {
+                    Type::Result(Box::new(body_ty), Box::new(Type::Named("Error".to_string())))
+                };
+
+                Ok(TPattern::Try {
+                    body: body_expr,
+                    catch: catch_expr,
+                    result_ty,
+                })
+            }
+
+            PatternExpr::Retry {
+                operation,
+                max_attempts,
+                backoff,
+                delay_ms,
+            } => {
+                let op_expr = self.lower_expr(operation)?;
+                let op_ty = op_expr.ty.clone();
+                let attempts_expr = self.lower_expr(max_attempts)?;
+                let delay_expr = delay_ms
+                    .as_ref()
+                    .map(|d| self.lower_expr(d))
+                    .transpose()?;
+
+                let tir_backoff = match backoff {
+                    ast::RetryBackoff::None => crate::ir::RetryBackoff::None,
+                    ast::RetryBackoff::Constant => crate::ir::RetryBackoff::Constant,
+                    ast::RetryBackoff::Linear => crate::ir::RetryBackoff::Linear,
+                    ast::RetryBackoff::Exponential => crate::ir::RetryBackoff::Exponential,
+                };
+
+                let result_ty = Type::Result(
+                    Box::new(op_ty),
+                    Box::new(Type::Named("Error".to_string())),
+                );
+
+                Ok(TPattern::Retry {
+                    operation: op_expr,
+                    max_attempts: attempts_expr,
+                    backoff: tir_backoff,
+                    delay_ms: delay_expr,
+                    result_ty,
+                })
+            }
+
+            PatternExpr::Validate { rules, then_value } => {
+                // Lower each rule (condition, message) pair
+                let trules = rules
+                    .iter()
+                    .map(|(cond, msg)| {
+                        let tcond = self.lower_expr(cond)?;
+                        let tmsg = self.lower_expr(msg)?;
+                        Ok((tcond, tmsg))
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+
+                let then_expr = self.lower_expr(then_value)?;
+                let then_ty = then_expr.ty.clone();
+
+                // Result type is Result<T, [str]>
+                let result_ty = Type::Result(
+                    Box::new(then_ty),
+                    Box::new(Type::List(Box::new(Type::Str))),
+                );
+
+                Ok(TPattern::Validate {
+                    rules: trules,
+                    then_value: then_expr,
+                    result_ty,
+                })
+            }
         }
     }
 }

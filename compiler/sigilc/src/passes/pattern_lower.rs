@@ -187,6 +187,74 @@ impl PatternLowerer {
                     span,
                 )
             }
+
+            // find(coll, pred) →
+            //   run(result := None, for item in coll { if pred(item) then { result := Some(item); break } }, result)
+            TPattern::Find {
+                collection,
+                elem_ty,
+                predicate,
+                default,
+                result_ty,
+            } => self.lower_find(collection, elem_ty, predicate, default, result_ty, span),
+
+            // try(body) → keeps as pattern for now (needs runtime support)
+            TPattern::Try {
+                body,
+                catch,
+                result_ty,
+            } => {
+                // Keep as pattern - it's a runtime feature
+                TExpr::new(
+                    TExprKind::Pattern(Box::new(TPattern::Try {
+                        body,
+                        catch,
+                        result_ty: result_ty.clone(),
+                    })),
+                    result_ty,
+                    span,
+                )
+            }
+
+            // retry(op, times) → keeps as pattern for now (needs runtime support)
+            TPattern::Retry {
+                operation,
+                max_attempts,
+                backoff,
+                delay_ms,
+                result_ty,
+            } => {
+                // Keep as pattern - it's a runtime feature
+                TExpr::new(
+                    TExprKind::Pattern(Box::new(TPattern::Retry {
+                        operation,
+                        max_attempts,
+                        backoff,
+                        delay_ms,
+                        result_ty: result_ty.clone(),
+                    })),
+                    result_ty,
+                    span,
+                )
+            }
+
+            // validate(rules, then) → keeps as pattern for runtime accumulation
+            TPattern::Validate {
+                rules,
+                then_value,
+                result_ty,
+            } => {
+                // Keep as pattern - validation accumulation is a runtime feature
+                TExpr::new(
+                    TExprKind::Pattern(Box::new(TPattern::Validate {
+                        rules,
+                        then_value,
+                        result_ty: result_ty.clone(),
+                    })),
+                    result_ty,
+                    span,
+                )
+            }
         }
     }
 
@@ -466,6 +534,138 @@ impl PatternLowerer {
                 )),
             ),
             Type::Int,
+            span,
+        )
+    }
+
+    /// Lower find(coll, predicate) to a loop that returns first match
+    fn lower_find(
+        &mut self,
+        collection: TExpr,
+        elem_ty: Type,
+        predicate: TExpr,
+        default: Option<TExpr>,
+        result_ty: Type,
+        span: std::ops::Range<usize>,
+    ) -> TExpr {
+        // Create locals
+        let result_id = self.locals.add("__result".to_string(), result_ty.clone(), false, true); // mutable
+        let item_id = self.locals.add("__item".to_string(), elem_ty.clone(), false, false); // immutable
+        let found_id = self.locals.add("__found".to_string(), Type::Bool, false, true); // mutable
+
+        let result_ref = TExpr::new(TExprKind::Local(result_id), result_ty.clone(), span.clone());
+        let item_ref = TExpr::new(TExprKind::Local(item_id), elem_ty.clone(), span.clone());
+        let found_ref = TExpr::new(TExprKind::Local(found_id), Type::Bool, span.clone());
+
+        // Apply predicate
+        let pred_result = self.apply_transform(predicate, item_ref.clone(), Type::Bool, span.clone());
+
+        // Build: result := Some(item) (or just item if we have a default)
+        let set_result = if default.is_some() {
+            TExpr::new(
+                TExprKind::Assign {
+                    target: result_id,
+                    value: Box::new(item_ref.clone()),
+                },
+                Type::Void,
+                span.clone(),
+            )
+        } else {
+            TExpr::new(
+                TExprKind::Assign {
+                    target: result_id,
+                    value: Box::new(TExpr::new(
+                        TExprKind::Some(Box::new(item_ref.clone())),
+                        Type::Option(Box::new(elem_ty.clone())),
+                        span.clone(),
+                    )),
+                },
+                Type::Void,
+                span.clone(),
+            )
+        };
+
+        // Build: found := true
+        let set_found = TExpr::new(
+            TExprKind::Assign {
+                target: found_id,
+                value: Box::new(TExpr::new(TExprKind::Bool(true), Type::Bool, span.clone())),
+            },
+            Type::Void,
+            span.clone(),
+        );
+
+        // Build: if pred(item) && !found then { result := Some(item); found := true }
+        let if_found = TExpr::new(
+            TExprKind::If {
+                cond: Box::new(TExpr::new(
+                    TExprKind::Binary {
+                        op: BinaryOp::And,
+                        left: Box::new(pred_result),
+                        right: Box::new(TExpr::new(
+                            TExprKind::Unary {
+                                op: crate::ast::UnaryOp::Not,
+                                operand: Box::new(found_ref.clone()),
+                            },
+                            Type::Bool,
+                            span.clone(),
+                        )),
+                    },
+                    Type::Bool,
+                    span.clone(),
+                )),
+                then_branch: Box::new(TExpr::new(
+                    TExprKind::Block(
+                        vec![TStmt::Expr(set_result), TStmt::Expr(set_found)],
+                        Box::new(TExpr::nil(span.clone())),
+                    ),
+                    Type::Void,
+                    span.clone(),
+                )),
+                else_branch: Box::new(TExpr::nil(span.clone())),
+            },
+            Type::Void,
+            span.clone(),
+        );
+
+        // Build the for loop
+        let for_loop = TExpr::new(
+            TExprKind::For {
+                binding: item_id,
+                iter: Box::new(collection),
+                body: Box::new(if_found),
+            },
+            Type::Void,
+            span.clone(),
+        );
+
+        // Initial value: default or None
+        let init_value = if let Some(def) = default {
+            def
+        } else {
+            TExpr::new(TExprKind::None_, Type::Option(Box::new(elem_ty)), span.clone())
+        };
+
+        // Build: run(result := None, found := false, for ..., result)
+        TExpr::new(
+            TExprKind::Block(
+                vec![
+                    TStmt::Let {
+                        local: result_id,
+                        value: init_value,
+                    },
+                    TStmt::Let {
+                        local: found_id,
+                        value: TExpr::new(TExprKind::Bool(false), Type::Bool, span.clone()),
+                    },
+                ],
+                Box::new(TExpr::new(
+                    TExprKind::Block(vec![TStmt::Expr(for_loop)], Box::new(result_ref)),
+                    result_ty.clone(),
+                    span.clone(),
+                )),
+            ),
+            result_ty,
             span,
         )
     }

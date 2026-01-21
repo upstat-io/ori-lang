@@ -39,12 +39,8 @@ Based on research into what developers hate about language syntax and what makes
 
 **Decision: YES**
 
-**Before (allowed):**
-```sigil
-@sum (arr: [int]) -> int = fold(.over: arr, .init: 0, .op: +)
-```
+Patterns with 2+ properties must be stacked (one property per line):
 
-**After (required):**
 ```sigil
 @sum (arr: [int]) -> int = fold(
     .over: arr,
@@ -64,19 +60,12 @@ Based on research into what developers hate about language syntax and what makes
 
 ---
 
-### 2. Remove Line Continuation `_`
+### 2. Natural Line Continuation
 
-**Decision: YES — Remove**
+**Decision: YES**
 
-**Before:**
-```sigil
-if a > 0 && _
-   b > 0 && _
-   c > 0 then true
-else false
-```
+Lines continue naturally after binary operators:
 
-**After:** Natural line continuation after operators:
 ```sigil
 if a > 0
    && b > 0
@@ -172,27 +161,23 @@ let result = if very_long_condition_here
 
 ### 6. Lambda Type Annotation Syntax
 
-**Decision: Change to use `=`**
+**Decision: YES**
 
-**Before:**
-```sigil
-(x: int) -> int : x * 2
-```
+Typed lambdas use `=` to separate signature from body:
 
-**After:**
 ```sigil
 (x: int) -> int = x * 2
+(a: int, b: int) -> int = a + b
 ```
 
 **Why:**
 - Consistent with function definitions: `@double (x: int) -> int = x * 2`
-- The `:` before body was unusual
 - `=` clearly separates signature from implementation
 
-**Standard lambda (no change):**
+**Standard lambda (inferred types):**
 ```sigil
 x -> x * 2
-(x: int) -> x * 2
+(a, b) -> a + b
 ```
 
 ---
@@ -294,21 +279,13 @@ where
 
 **Decision: YES**
 
-**Before (deprecated):**
-```sigil
-run(
-    x = compute(),
-    y = transform(.value: x),
-    y
-)
-```
+All bindings require explicit `let`:
 
-**After (required):**
 ```sigil
 run(
     let x = compute(),
     let y = transform(.value: x),
-    y
+    y,
 )
 ```
 

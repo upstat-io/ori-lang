@@ -144,19 +144,29 @@ From the docs: "If code doesn't look like it calls a function, it shouldn't call
 
 ### 3.2 Visible Mutability
 
-**Rating: Partial**
+**Rating: Pass**
 
-Variables are immutable by default, and rebinding uses shadowing:
+Variables are immutable by default. `let` introduces immutable bindings, `let mut` introduces mutable bindings:
 
 ```sigil
+let x = 5           // immutable
+let mut y = 5       // mutable, clearly marked
+
 @process (data: Data) -> Data = run(
-    data = step1(data),
-    data = step2(data),  // shadowing, not mutation
-    data
+    let data = step1(data),
+    let data = step2(data),  // shadowing with new immutable binding
+    data,
+)
+
+@sum (items: [int]) -> int = run(
+    let mut total = 0,
+    for item in items do
+        total = total + item,  // mutation of mutable binding
+    total,
 )
 ```
 
-**Concern:** No explicit `let mut` vs `let` distinction documented. The shadowing approach is clean but some might prefer more explicit mutability markers like Rust's `let mut`.
+Mutation is syntactically obvious with the `mut` keyword, following Rust's proven approach. See [let-mut-evaluation.md](14-let-mut-evaluation.md) for the design rationale.
 
 ### 3.3 No Hidden Control Flow
 
@@ -368,7 +378,7 @@ Grammar designed for keyword-based recovery. All major constructs start with dis
 | **2.2** Similar Things Look Similar | Pass | Consistent `.name:` pattern syntax |
 | **2.3** Predictable Precedence | Pass | Standard math precedence |
 | **3.1** Explicit Over Implicit | Pass | No implicit conversions |
-| **3.2** Visible Mutability | Partial | Shadowing works but no `mut` keyword |
+| **3.2** Visible Mutability | Pass | `let` vs `let mut` makes mutation explicit |
 | **3.3** No Hidden Control Flow | Pass | `try` is explicit |
 | **4.1** Use Sigils | Pass | `@`, `$`, `.name:` |
 | **4.2** Consistent Sigil Meaning | Pass | No overloading |
@@ -384,7 +394,7 @@ Grammar designed for keyword-based recovery. All major constructs start with dis
 | **8.1** Helpful Errors | Pass | Suggestions included |
 | **8.2** Keyword Sync | Pass | Parser-friendly grammar |
 
-**Overall: 21 Pass, 1 Partial, 0 Needs Review, 0 Fail**
+**Overall: 22 Pass, 0 Partial, 0 Needs Review, 0 Fail**
 
 ---
 
@@ -392,11 +402,11 @@ Grammar designed for keyword-based recovery. All major constructs start with dis
 
 ### Minor Improvements
 
-1. **Mutability clarity:** Consider whether to add explicit `mut` syntax or document the shadowing-based approach more prominently. Current design is valid but could be more explicit.
+1. ~~**Mutability clarity:**~~ **Resolved.** The `let` / `let mut` syntax was added. See [let-mut-evaluation.md](14-let-mut-evaluation.md).
 
-2. **Line continuation:** The `_` for line continuation is unusual. Consider whether this adds value over just allowing expressions to span lines naturally (like JavaScript/Rust).
+2. ~~**Line continuation:**~~ **Resolved.** Natural line continuation after binary operators is now supported. See [syntax-improvements.md](13-syntax-improvements.md#2-natural-line-continuation).
 
-3. **Length operator:** `#` inside brackets (`arr[# - 1]`) is clever but might be confusing. Consider whether `arr.len - 1` or `arr[len - 1]` would be clearer, or document this prominently.
+3. **Length operator:** `#` inside brackets (`arr[# - 1]`) is clever but might be confusing. Document this prominently and consider adding `.first` / `.last` convenience accessors.
 
 ### Strengths to Preserve
 
@@ -414,6 +424,6 @@ Grammar designed for keyword-based recovery. All major constructs start with dis
 
 ## Conclusion
 
-Sigil's syntax design is remarkably well-aligned with established syntax design principles. It demonstrates strong awareness of parser-friendliness, consistency, and AI-first considerations. The few areas marked "Partial" are design choices rather than problems - reasonable people could disagree on whether explicit `mut` keywords are necessary when shadowing achieves immutability.
+Sigil's syntax design is remarkably well-aligned with established syntax design principles. It demonstrates strong awareness of parser-friendliness, consistency, and AI-first considerations. All evaluation criteria now pass.
 
-The pattern system with `.name:` property syntax is a standout design decision that other languages could learn from.
+The pattern system with `.name:` property syntax is a standout design decision that other languages could learn from. The recent additions of `let` / `let mut` for explicit mutability and natural line continuation further strengthen the design.

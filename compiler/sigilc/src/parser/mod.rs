@@ -153,11 +153,15 @@ impl Parser {
                     Some(Token::At) => self.parse_function_or_test(true),
                     Some(Token::Type) => self.parse_type_def(true).map(Item::TypeDef),
                     Some(Token::Use) => self.parse_use().map(Item::Use),
-                    _ => Err("Expected @, type, or use after pub".to_string()),
+                    Some(Token::Trait) => self.parse_trait(true).map(Item::Trait),
+                    Some(Token::Impl) => self.parse_impl().map(Item::Impl),
+                    _ => Err("Expected @, type, use, trait, or impl after pub".to_string()),
                 }
             }
             Some(Token::Type) => self.parse_type_def(false).map(Item::TypeDef),
             Some(Token::Use) => self.parse_use().map(Item::Use),
+            Some(Token::Trait) => self.parse_trait(false).map(Item::Trait),
+            Some(Token::Impl) => self.parse_impl().map(Item::Impl),
             Some(t) => Err(format!("Unexpected token at top level: {:?}", t)),
             None => Err("Unexpected end of input".to_string()),
         }

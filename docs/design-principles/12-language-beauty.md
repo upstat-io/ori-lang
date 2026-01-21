@@ -168,13 +168,13 @@ The mind completes incomplete shapes.
 ```sigil
 // Good: Clear boundaries
 @process () -> int = run(
-    x = fetch(),
-    y = transform(.value: x),
+    let x = fetch(),
+    let y = transform(.value: x),
     x + y,
 )
 
 // Bad: Boundaries unclear (no trailing comma, cramped)
-@process () -> int = run(x = fetch(), y = transform(.value: x), x + y)
+@process () -> int = run(let x = fetch(), let y = transform(.value: x), x + y)
 ```
 
 ---
@@ -185,8 +185,8 @@ The mind completes incomplete shapes.
 
 | Noisy | Clean | Why |
 |-------|-------|-----|
-| `function add(a, b) { return a + b; }` | `@add (a, b) = a + b` | Less ceremony |
-| `arr.map(function(x) { return x * 2; })` | `map(arr, x -> x * 2)` | Lambdas should be light |
+| `function add(a, b) { return a + b; }` | `@add (a: int, b: int) -> int = a + b` | Less ceremony |
+| `arr.map(function(x) { return x * 2; })` | `map(.over: arr, .transform: x -> x * 2)` | Named args are self-documenting |
 | `if (condition) { x } else { y }` | `if condition then x else y` | Braces add noise for expressions |
 
 **Research finding:** Code with excessive brackets, operators, and special characters forces readers to "mentally parse complex syntax before understanding what the code does."
@@ -209,11 +209,11 @@ Whitespace communicates:
 ```sigil
 // Good: Whitespace shows structure
 @process (items: [int]) -> int = run(
-    doubled = map(
+    let doubled = map(
         .over: items,
         .transform: x -> x * 2,
     ),
-    filtered = filter(
+    let filtered = filter(
         .over: doubled,
         .predicate: x -> x > 10,
     ),
@@ -346,7 +346,7 @@ Patterns capture common operations so completely that alternatives feel unnatura
 
 // This feels like unnecessary work
 @sum (arr: [int]) -> int = run(
-    result = 0,
+    let mut result = 0,
     for item in arr do result = result + item,
     result,
 )

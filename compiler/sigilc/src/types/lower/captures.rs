@@ -215,49 +215,77 @@ impl CaptureAnalyzer {
         use crate::ast::PatternExpr;
 
         match pattern {
-            PatternExpr::Fold { collection, initial, reducer, .. } => {
+            PatternExpr::Fold { collection, init, op } => {
                 self.visit_expr(collection);
-                self.visit_expr(initial);
-                self.visit_expr(reducer);
+                self.visit_expr(init);
+                self.visit_expr(op);
             }
-            PatternExpr::Map { collection, transform, .. } => {
+            PatternExpr::Map { collection, transform } => {
                 self.visit_expr(collection);
                 self.visit_expr(transform);
             }
-            PatternExpr::Filter { collection, predicate, .. } => {
+            PatternExpr::Filter { collection, predicate } => {
                 self.visit_expr(collection);
                 self.visit_expr(predicate);
             }
-            PatternExpr::Collect { range, transform, .. } => {
+            PatternExpr::Collect { range, transform } => {
                 self.visit_expr(range);
                 self.visit_expr(transform);
             }
-            PatternExpr::Recurse { condition, base_case, recursive_case, .. } => {
+            PatternExpr::Recurse { condition, base_value, step, .. } => {
                 self.visit_expr(condition);
-                self.visit_expr(base_case);
-                self.visit_expr(recursive_case);
+                self.visit_expr(base_value);
+                self.visit_expr(step);
             }
-            PatternExpr::Run { steps } => {
+            PatternExpr::Iterate { over, into, with, .. } => {
+                self.visit_expr(over);
+                self.visit_expr(into);
+                self.visit_expr(with);
+            }
+            PatternExpr::Transform { input, steps } => {
+                self.visit_expr(input);
                 for step in steps {
                     self.visit_expr(step);
                 }
             }
-            PatternExpr::Match { scrutinee, arms, .. } => {
-                self.visit_expr(scrutinee);
-                for (_, body) in arms {
-                    self.visit_expr(body);
-                }
+            PatternExpr::Count { collection, predicate } => {
+                self.visit_expr(collection);
+                self.visit_expr(predicate);
             }
-            PatternExpr::Parallel { tasks } => {
-                for (_, expr) in tasks {
+            PatternExpr::Parallel { branches, timeout, .. } => {
+                for (_, expr) in branches {
                     self.visit_expr(expr);
                 }
-            }
-            PatternExpr::Chain { initial, steps } => {
-                self.visit_expr(initial);
-                for step in steps {
-                    self.visit_expr(step);
+                if let Some(t) = timeout {
+                    self.visit_expr(t);
                 }
+            }
+            PatternExpr::Find { collection, predicate, default } => {
+                self.visit_expr(collection);
+                self.visit_expr(predicate);
+                if let Some(d) = default {
+                    self.visit_expr(d);
+                }
+            }
+            PatternExpr::Try { body, catch } => {
+                self.visit_expr(body);
+                if let Some(c) = catch {
+                    self.visit_expr(c);
+                }
+            }
+            PatternExpr::Retry { operation, max_attempts, delay_ms, .. } => {
+                self.visit_expr(operation);
+                self.visit_expr(max_attempts);
+                if let Some(d) = delay_ms {
+                    self.visit_expr(d);
+                }
+            }
+            PatternExpr::Validate { rules, then_value } => {
+                for (cond, msg) in rules {
+                    self.visit_expr(cond);
+                    self.visit_expr(msg);
+                }
+                self.visit_expr(then_value);
             }
         }
     }

@@ -45,6 +45,14 @@ pub enum Token {
     #[token("None")]
     None_,
 
+    // Trait system
+    #[token("trait")]
+    Trait,
+    #[token("impl")]
+    Impl,
+    #[token("where")]
+    Where,
+
     // Variable bindings
     #[token("let")]
     Let,

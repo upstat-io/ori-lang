@@ -88,3 +88,62 @@ pub struct UseItem {
     pub name: String,
     pub alias: Option<String>,
 }
+
+/// Trait definition
+/// trait Name<Params>: Supertraits { methods }
+#[derive(Debug, Clone)]
+pub struct TraitDef {
+    pub public: bool,
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub supertraits: Vec<String>,
+    pub associated_types: Vec<AssociatedType>,
+    pub methods: Vec<TraitMethodDef>,
+    pub span: Span,
+}
+
+/// Associated type in a trait: type Item: Bound
+#[derive(Debug, Clone)]
+pub struct AssociatedType {
+    pub name: String,
+    pub bounds: Vec<String>, // Trait bounds on the associated type
+    pub default: Option<TypeExpr>, // Optional default type
+}
+
+/// Method in a trait definition
+#[derive(Debug, Clone)]
+pub struct TraitMethodDef {
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub params: Vec<Param>,
+    pub return_type: TypeExpr,
+    pub default_body: Option<SpannedExpr>, // Default implementation
+    pub span: Span,
+}
+
+/// Implementation block
+/// impl<Params> Trait for Type where Bounds { methods }
+#[derive(Debug, Clone)]
+pub struct ImplBlock {
+    pub type_params: Vec<String>,
+    pub trait_name: Option<String>, // None for inherent impl
+    pub for_type: TypeExpr,
+    pub where_clause: Vec<WhereBound>,
+    pub associated_types: Vec<AssociatedTypeImpl>,
+    pub methods: Vec<FunctionDef>,
+    pub span: Span,
+}
+
+/// Where clause bound: T: Trait + Trait2
+#[derive(Debug, Clone)]
+pub struct WhereBound {
+    pub type_param: String,
+    pub bounds: Vec<String>,
+}
+
+/// Associated type implementation: type Item = ConcreteType
+#[derive(Debug, Clone)]
+pub struct AssociatedTypeImpl {
+    pub name: String,
+    pub ty: TypeExpr,
+}

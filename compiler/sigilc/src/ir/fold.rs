@@ -483,6 +483,53 @@ pub trait Folder {
                 on_error,
                 result_ty,
             },
+            TPattern::Find {
+                collection,
+                elem_ty,
+                predicate,
+                default,
+                result_ty,
+            } => TPattern::Find {
+                collection: self.fold_expr(collection),
+                elem_ty,
+                predicate: self.fold_expr(predicate),
+                default: default.map(|d| self.fold_expr(d)),
+                result_ty,
+            },
+            TPattern::Try {
+                body,
+                catch,
+                result_ty,
+            } => TPattern::Try {
+                body: self.fold_expr(body),
+                catch: catch.map(|c| self.fold_expr(c)),
+                result_ty,
+            },
+            TPattern::Retry {
+                operation,
+                max_attempts,
+                backoff,
+                delay_ms,
+                result_ty,
+            } => TPattern::Retry {
+                operation: self.fold_expr(operation),
+                max_attempts: self.fold_expr(max_attempts),
+                backoff,
+                delay_ms: delay_ms.map(|d| self.fold_expr(d)),
+                result_ty,
+            },
+            TPattern::Validate {
+                rules,
+                then_value,
+                result_ty,
+            } => TPattern::Validate {
+                rules: rules
+                    .into_iter()
+                    .map(|(cond, msg)| (self.fold_expr(cond), self.fold_expr(msg)))
+                    .collect(),
+                then_value: self.fold_expr(then_value),
+                result_ty,
+            },
         }
     }
 

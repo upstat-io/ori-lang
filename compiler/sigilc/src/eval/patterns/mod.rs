@@ -6,8 +6,9 @@ pub mod recurse;
 
 use crate::ast::PatternExpr;
 use crate::patterns::builtins::{
-    CollectPattern, CountPattern, FilterPattern, FoldPattern, IteratePattern, MapPattern,
-    ParallelPattern, RecursePattern, TransformPattern,
+    CollectPattern, CountPattern, FilterPattern, FindPattern, FoldPattern, IteratePattern,
+    MapPattern, ParallelPattern, RecursePattern, RetryPattern, TransformPattern, TryPattern,
+    ValidatePattern,
 };
 use crate::patterns::core::PatternDefinition;
 
@@ -25,5 +26,9 @@ pub fn eval_pattern(pattern: &PatternExpr, env: &Environment) -> Result<Value, S
         PatternExpr::Iterate { .. } => IteratePattern.evaluate(pattern, env),
         PatternExpr::Transform { .. } => TransformPattern.evaluate(pattern, env),
         PatternExpr::Parallel { .. } => ParallelPattern.evaluate(pattern, env),
+        PatternExpr::Find { .. } => FindPattern.evaluate(pattern, env),
+        PatternExpr::Try { .. } => TryPattern.evaluate(pattern, env),
+        PatternExpr::Retry { .. } => RetryPattern.evaluate(pattern, env),
+        PatternExpr::Validate { .. } => ValidatePattern.evaluate(pattern, env),
     }
 }

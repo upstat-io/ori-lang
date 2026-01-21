@@ -374,9 +374,12 @@ loop(
 ### Syntax
 
 ```
-lambda        = lambda_params "->" expression .
+lambda        = simple_lambda | typed_lambda .
+simple_lambda = lambda_params "->" expression .
+typed_lambda  = "(" [ typed_param { "," typed_param } ] ")" "->" type "=" expression .
 lambda_params = identifier
               | "(" [ identifier { "," identifier } ] ")" .
+typed_param   = identifier ":" type .
 ```
 
 ### Semantics
@@ -390,6 +393,18 @@ x -> x * 2
 ```
 
 Lambda parameter types are inferred from context.
+
+### Typed Lambdas
+
+When explicit type annotations are needed, use the typed lambda form with `=`:
+
+```sigil
+(x: int) -> int = x * 2
+(a: int, b: int) -> int = a + b
+() -> str = "hello"
+```
+
+The `=` separates the signature from the body, consistent with function definitions.
 
 ## Match Expression
 

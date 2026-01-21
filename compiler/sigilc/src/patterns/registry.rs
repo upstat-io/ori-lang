@@ -95,6 +95,10 @@ fn register_builtins(registry: &mut PatternRegistry) {
     registry.register(TransformPattern);
     registry.register(CountPattern);
     registry.register(ParallelPattern);
+    registry.register(FindPattern);
+    registry.register(TryPattern);
+    registry.register(RetryPattern);
+    registry.register(ValidatePattern);
 }
 
 /// Helper function to check types for a pattern expression.

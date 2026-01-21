@@ -3,6 +3,7 @@
 
 use crate::ast::{BinaryOp, Expr, SpannedExpr, Span};
 use crate::ir::{FuncRef, TExpr, TExprKind, TStmt, Type};
+use super::captures::{CaptureAnalyzer, resolve_captures};
 use super::types::is_builtin;
 use super::Lowerer;
 
@@ -367,6 +368,12 @@ impl Lowerer {
 
     /// Lower a lambda expression
     pub(super) fn lower_lambda(&mut self, params: &[String], body: &Expr) -> Result<TExprKind, String> {
+        // Analyze captures BEFORE modifying scope
+        // This determines which outer scope variables are used in the lambda body
+        let mut analyzer = CaptureAnalyzer::new();
+        let free_vars = analyzer.analyze(params, body);
+        let captures = resolve_captures(&free_vars, &self.local_scope);
+
         // Save current scope
         let old_scope = self.local_scope.clone();
         let old_params = self.param_indices.clone();
@@ -386,9 +393,6 @@ impl Lowerer {
         // Restore scope
         self.local_scope = old_scope;
         self.param_indices = old_params;
-
-        // Collect captures (locals from outer scope used in lambda)
-        let captures = vec![]; // TODO: Implement capture analysis
 
         Ok(TExprKind::Lambda {
             params: typed_params,

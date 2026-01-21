@@ -47,6 +47,20 @@ fn first_function(module: &Module) -> &FunctionDef {
     }
 }
 
+fn first_trait(module: &Module) -> &TraitDef {
+    match first_item(module) {
+        Item::Trait(t) => t,
+        _ => panic!("expected a trait"),
+    }
+}
+
+fn first_impl(module: &Module) -> &ImplBlock {
+    match first_item(module) {
+        Item::Impl(i) => i,
+        _ => panic!("expected an impl block"),
+    }
+}
+
 // ============================================================================
 // Function Definition Tests
 // ============================================================================
@@ -1088,4 +1102,160 @@ fn test_snapshot_match_expression() {
         "@classify (n: int) -> str = match(n < 0: \"negative\", n == 0: \"zero\", \"positive\")",
     );
     assert_debug_snapshot!(module);
+}
+
+// ============================================================================
+// Trait Definition Tests
+// ============================================================================
+
+#[test]
+fn test_simple_trait() {
+    let module = parse_ok(r#"
+trait Comparable {
+    @compare (self: Self, other: Self) -> int
+}
+"#);
+    let trait_def = first_trait(&module);
+    assert_eq!(trait_def.name, "Comparable");
+    assert!(trait_def.type_params.is_empty());
+    assert!(trait_def.supertraits.is_empty());
+    assert_eq!(trait_def.methods.len(), 1);
+    assert_eq!(trait_def.methods[0].name, "compare");
+}
+
+#[test]
+fn test_trait_with_type_params() {
+    let module = parse_ok(r#"
+trait Container<T> {
+    @get (self: Self, index: int) -> T
+    @len (self: Self) -> int
+}
+"#);
+    let trait_def = first_trait(&module);
+    assert_eq!(trait_def.name, "Container");
+    assert_eq!(trait_def.type_params, vec!["T"]);
+    assert_eq!(trait_def.methods.len(), 2);
+}
+
+#[test]
+fn test_trait_with_supertraits() {
+    let module = parse_ok(r#"
+trait Ord: Eq + PartialOrd {
+    @cmp (self: Self, other: Self) -> int
+}
+"#);
+    let trait_def = first_trait(&module);
+    assert_eq!(trait_def.name, "Ord");
+    assert_eq!(trait_def.supertraits, vec!["Eq", "PartialOrd"]);
+}
+
+#[test]
+fn test_trait_with_associated_type() {
+    let module = parse_ok(r#"
+trait Iterator {
+    type Item
+    @next (self: Self) -> ?Item
+}
+"#);
+    let trait_def = first_trait(&module);
+    assert_eq!(trait_def.name, "Iterator");
+    assert_eq!(trait_def.associated_types.len(), 1);
+    assert_eq!(trait_def.associated_types[0].name, "Item");
+}
+
+#[test]
+fn test_trait_with_default_method() {
+    let module = parse_ok(r#"
+trait Display {
+    @to_string (self: Self) -> str
+    @print (self: Self) -> void = print(self.to_string())
+}
+"#);
+    let trait_def = first_trait(&module);
+    assert_eq!(trait_def.methods.len(), 2);
+    assert!(trait_def.methods[0].default_body.is_none());
+    assert!(trait_def.methods[1].default_body.is_some());
+}
+
+#[test]
+fn test_pub_trait() {
+    let module = parse_ok(r#"
+pub trait Hashable {
+    @hash (self: Self) -> int
+}
+"#);
+    let trait_def = first_trait(&module);
+    assert!(trait_def.public);
+}
+
+// ============================================================================
+// Impl Block Tests
+// ============================================================================
+
+#[test]
+fn test_simple_impl() {
+    let module = parse_ok(r#"
+impl Comparable for int {
+    @compare (self: int, other: int) -> int = self - other
+}
+"#);
+    let impl_block = first_impl(&module);
+    assert_eq!(impl_block.trait_name, Some("Comparable".to_string()));
+    assert_eq!(impl_block.for_type, TypeExpr::Named("int".to_string()));
+    assert_eq!(impl_block.methods.len(), 1);
+}
+
+#[test]
+fn test_impl_with_type_params() {
+    let module = parse_ok(r#"
+impl<T> Container<T> for List<T> {
+    @get (self: List<T>, index: int) -> T = self.data[index]
+    @len (self: List<T>) -> int = self.size
+}
+"#);
+    let impl_block = first_impl(&module);
+    assert_eq!(impl_block.type_params, vec!["T"]);
+    assert_eq!(impl_block.trait_name, Some("Container".to_string()));
+    assert_eq!(impl_block.methods.len(), 2);
+}
+
+#[test]
+fn test_impl_with_where_clause() {
+    let module = parse_ok(r#"
+impl<T> Sortable for List<T> where T: Comparable {
+    @sort (self: List<T>) -> List<T> = self
+}
+"#);
+    let impl_block = first_impl(&module);
+    assert_eq!(impl_block.where_clause.len(), 1);
+    assert_eq!(impl_block.where_clause[0].type_param, "T");
+    assert_eq!(impl_block.where_clause[0].bounds, vec!["Comparable"]);
+}
+
+#[test]
+fn test_inherent_impl() {
+    let module = parse_ok(r#"
+impl User {
+    @new (name: str) -> User = User { name: name }
+    @greet (self: User) -> str = "Hello, " + self.name
+}
+"#);
+    let impl_block = first_impl(&module);
+    assert!(impl_block.trait_name.is_none());
+    assert_eq!(impl_block.for_type, TypeExpr::Named("User".to_string()));
+    assert_eq!(impl_block.methods.len(), 2);
+}
+
+#[test]
+fn test_impl_with_associated_type() {
+    let module = parse_ok(r#"
+impl Iterator for Range {
+    type Item = int
+    @next (self: Range) -> ?int = self.current
+}
+"#);
+    let impl_block = first_impl(&module);
+    assert_eq!(impl_block.associated_types.len(), 1);
+    assert_eq!(impl_block.associated_types[0].name, "Item");
+    assert_eq!(impl_block.associated_types[0].ty, TypeExpr::Named("int".to_string()));
 }
