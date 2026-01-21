@@ -1,6 +1,6 @@
 // Tests for Reverse a string
 
-use reverse_string { reverse, is_palindrome }
+use '../reverse_string' { reverse, is_palindrome }
 
 @test_reverse tests @reverse () -> void = run(
     assert(reverse("") == ""),

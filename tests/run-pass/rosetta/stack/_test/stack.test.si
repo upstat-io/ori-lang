@@ -1,6 +1,6 @@
 // Tests for Stack
 
-use stack { empty_stack, is_empty, push, peek, pop, size }
+use '../stack' { empty_stack, is_empty, push, peek, pop, size }
 
 @test_empty_stack tests @empty_stack () -> void = run(
     assert(is_empty(empty_stack()) == true),

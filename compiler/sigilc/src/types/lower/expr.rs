@@ -289,6 +289,21 @@ impl Lowerer {
                 let inner = self.lower_expr(inner)?;
                 TExprKind::Unwrap(Box::new(inner))
             }
+
+            Expr::With { capability, implementation, body } => {
+                let impl_expr = self.lower_expr(implementation)?;
+                let body_expr = self.lower_expr(body)?;
+                TExprKind::With {
+                    capability: capability.clone(),
+                    implementation: Box::new(impl_expr),
+                    body: Box::new(body_expr),
+                }
+            }
+
+            Expr::Await(inner) => {
+                let inner_expr = self.lower_expr(inner)?;
+                TExprKind::Await(Box::new(inner_expr))
+            }
         };
 
         Ok(TExpr::new(kind, ty, span))

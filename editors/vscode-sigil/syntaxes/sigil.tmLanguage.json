@@ -1,0 +1,116 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "Sigil",
+    "scopeName": "source.sigil",
+    "patterns": [
+        { "include": "#comment" },
+        { "include": "#string" },
+        { "include": "#number" },
+        { "include": "#attribute" },
+        { "include": "#function-declaration" },
+        { "include": "#config-var" },
+        { "include": "#keyword" },
+        { "include": "#constant" },
+        { "include": "#type" },
+        { "include": "#support-function" },
+        { "include": "#function-call" },
+        { "include": "#named-arg" },
+        { "include": "#operator" }
+    ],
+    "repository": {
+        "comment": {
+            "name": "comment.line.double-slash.sigil",
+            "match": "//.*$"
+        },
+        "string": {
+            "patterns": [
+                {
+                    "name": "string.quoted.double.sigil",
+                    "begin": "\"",
+                    "end": "\"",
+                    "patterns": [
+                        { "name": "constant.character.escape.sigil", "match": "\\\\." }
+                    ]
+                },
+                {
+                    "name": "string.quoted.single.sigil",
+                    "begin": "'",
+                    "end": "'"
+                }
+            ]
+        },
+        "number": {
+            "name": "constant.numeric.sigil",
+            "match": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?(ms|[hms]|[kmgt]?b)?\\b"
+        },
+        "attribute": {
+            "name": "meta.attribute.sigil",
+            "begin": "#\\[",
+            "end": "\\]",
+            "patterns": [
+                { "name": "entity.other.attribute-name.sigil", "match": "\\w+" }
+            ]
+        },
+        "function-declaration": {
+            "match": "@[_a-zA-Z][_a-zA-Z0-9]*",
+            "name": "meta.definition.function entity.name.function"
+        },
+        "config-var": {
+            "match": "(\\$)([_a-zA-Z][_a-zA-Z0-9]*)",
+            "captures": {
+                "1": { "name": "punctuation.definition.variable.sigil" },
+                "2": { "name": "variable.other.constant.sigil" }
+            }
+        },
+        "keyword": {
+            "name": "keyword.control.sigil",
+            "match": "\\b(if|then|else|match|for|in|do|yield|loop|break|continue|return|async|await|let|mut|use|pub|type|trait|impl|where|self|Self|tests|uses|with|dyn)\\b"
+        },
+        "constant": {
+            "name": "constant.language.sigil",
+            "match": "\\b(true|false|nil|Ok|Err|Some|None|Less|Equal|Greater)\\b"
+        },
+        "type": {
+            "patterns": [
+                {
+                    "name": "entity.name.type",
+                    "match": "\\b(int|float|str|bool|char|byte|void|Never)\\b"
+                },
+                {
+                    "name": "entity.name.type",
+                    "match": "\\b(Result|Option|Duration|Size|Range|Channel|Ordering|Error|Set)\\b"
+                },
+                {
+                    "name": "entity.name.type",
+                    "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+                }
+            ]
+        },
+        "support-function": {
+            "match": "(run|map|filter|fold|find|collect|recurse|parallel|timeout|retry|try|validate|cache|count|iterate|transform|print|println|len|compare|panic|assert|assert_eq|assert_err)(\\()",
+            "captures": {
+                "1": { "name": "entity.name.function meta.function-call.generic support.function" },
+                "2": { "name": "punctuation.brackets.round.sigil" }
+            }
+        },
+        "function-call": {
+            "match": "([_a-z][_a-zA-Z0-9]*)(\\()",
+            "captures": {
+                "1": { "name": "entity.name.function meta.function-call.generic" },
+                "2": { "name": "punctuation.brackets.round.sigil" }
+            }
+        },
+        "named-arg": {
+            "match": "(\\.)([:a-zA-Z_][a-zA-Z0-9_]*)(:)",
+            "captures": {
+                "1": { "name": "punctuation.accessor.sigil" },
+                "2": { "name": "variable.parameter.sigil" },
+                "3": { "name": "punctuation.separator.sigil" }
+            }
+        },
+        "operator": {
+            "name": "keyword.operator.sigil",
+            "match": "->|=>|==|!=|<=|>=|<|>|&&|\\|\\||[+\\-*/%=]|\\.\\.|\\|>|\\?\\?|\\?"
+        }
+    }
+}

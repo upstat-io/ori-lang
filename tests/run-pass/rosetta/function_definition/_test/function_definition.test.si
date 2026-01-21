@@ -1,6 +1,17 @@
 // Tests for Function definition
 
-use function_definition { greeting, square, add, repeat_string, range_list, is_even, sum_of_squares, factorial, fizzbuzz, apply_twice }
+use '../function_definition' {
+    greeting,
+    square,
+    add,
+    repeat_string,
+    range_list,
+    is_even,
+    sum_of_squares,
+    factorial,
+    fizzbuzz,
+    apply_twice,
+}
 
 @test_greeting tests @greeting () -> void = run(
     assert_eq(greeting(), "Hello, World!")

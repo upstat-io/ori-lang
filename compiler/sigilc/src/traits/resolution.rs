@@ -187,6 +187,7 @@ mod tests {
                     ("other".to_string(), TypeExpr::Named("Self".to_string())),
                 ],
                 return_type: TypeExpr::Named("int".to_string()),
+                capabilities: vec![],
             },
             has_default: false,
         });
@@ -251,6 +252,7 @@ mod tests {
                 type_param_bounds: vec![],
                 params: vec![],
                 return_type: TypeExpr::Named("void".to_string()),
+                capabilities: vec![],
             },
             has_default: false,
         });

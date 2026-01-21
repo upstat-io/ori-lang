@@ -1,6 +1,6 @@
 // Tests for Queue
 
-use queue { empty_queue, is_empty, enqueue, front, dequeue, size }
+use '../queue' { empty_queue, is_empty, enqueue, front, dequeue, size }
 
 @test_empty_queue tests @empty_queue () -> void = run(
     assert(is_empty(empty_queue()) == true),

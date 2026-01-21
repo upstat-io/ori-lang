@@ -334,6 +334,11 @@ impl ExprTraversal for DepthCounter {
             }
             Expr::Let { value, .. } => self.traverse(value)?,
             Expr::Reassign { value, .. } => self.traverse(value)?,
+            Expr::With { implementation, body, .. } => {
+                self.traverse(implementation)?;
+                self.traverse(body)?;
+            }
+            Expr::Await(inner) => self.traverse(inner)?,
         }
 
         self.current_depth -= 1;

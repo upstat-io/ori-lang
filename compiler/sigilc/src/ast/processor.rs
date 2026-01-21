@@ -189,6 +189,12 @@ pub trait ExprProcessor: Sized {
 
     /// Handle value! (unwrap)
     fn process_unwrap(&mut self, inner: &Expr) -> Result<Self::Output, Self::Error>;
+
+    /// Handle with Capability = impl in body (capability injection)
+    fn process_with(&mut self, capability: &str, implementation: &Expr, body: &Expr) -> Result<Self::Output, Self::Error>;
+
+    /// Handle await expression
+    fn process_await(&mut self, inner: &Expr) -> Result<Self::Output, Self::Error>;
 }
 
 /// Dispatch an expression to the appropriate processor method
@@ -231,6 +237,10 @@ pub fn dispatch_to_processor<P: ExprProcessor>(processor: &mut P, expr: &Expr) -
         Expr::None_ => processor.process_none(),
         Expr::Coalesce { value, default } => processor.process_coalesce(value, default),
         Expr::Unwrap(inner) => processor.process_unwrap(inner),
+        Expr::With { capability, implementation, body } => {
+            processor.process_with(capability, implementation, body)
+        }
+        Expr::Await(inner) => processor.process_await(inner),
     }
 }
 
@@ -407,6 +417,14 @@ mod tests {
 
         fn process_unwrap(&mut self, _: &Expr) -> Result<Self::Output, Self::Error> {
             Ok("Unwrap")
+        }
+
+        fn process_with(&mut self, _: &str, _: &Expr, _: &Expr) -> Result<Self::Output, Self::Error> {
+            Ok("With")
+        }
+
+        fn process_await(&mut self, _: &Expr) -> Result<Self::Output, Self::Error> {
+            Ok("Await")
         }
     }
 

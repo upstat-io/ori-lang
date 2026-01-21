@@ -49,14 +49,14 @@ try_expr           = "try" "(" { binding "," } expression ")" .
 **Semantics:**
 
 1. Evaluate each binding in order
-2. If any binding evaluates to `Err(e)`, return `Err(e)` immediately
-3. Use `?` suffix to unwrap `Result` values within bindings
+2. If any binding expression returns a `Result<T, E>`, the binding variable has type `T`
+3. If any binding expression evaluates to `Err(e)`, return `Err(e)` immediately
 4. The final expression is the result (typically wrapped in `Ok`)
 
 ```sigil
 try(
-    let content = read_file(path)?,
-    let parsed = parse(content)?,
+    let content = read_file(path),
+    let parsed = parse(content),
     Ok(transform(parsed)),
 )
 ```

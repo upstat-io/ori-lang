@@ -1,6 +1,13 @@
 // Tests for Higher-order functions
 
-use higher_order_functions { double_all, square_all, filter_positive, filter_even, sum, product }
+use '../higher_order_functions' {
+    double_all,
+    square_all,
+    filter_positive,
+    filter_even,
+    sum,
+    product,
+}
 
 @test_double_all tests @double_all () -> void = run(
     assert(double_all([]) == []),

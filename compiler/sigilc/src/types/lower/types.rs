@@ -88,6 +88,13 @@ pub fn type_expr_to_type(ty: &TypeExpr, ctx: &TypeContext) -> Result<Type, Strin
                 .collect::<Result<Vec<_>, String>>()?;
             Ok(Type::Record(field_types))
         }
+
+        TypeExpr::DynTrait(trait_name) => Ok(Type::DynTrait(trait_name.clone())),
+
+        TypeExpr::Async(inner) => {
+            let inner_ty = type_expr_to_type(inner, ctx)?;
+            Ok(Type::Async(Box::new(inner_ty)))
+        }
     }
 }
 

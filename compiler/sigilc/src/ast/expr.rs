@@ -102,6 +102,14 @@ pub enum Expr {
         value: Box<Expr>,
     },
 
+    /// Capability injection: with Capability = impl in body
+    /// Provides a capability implementation within a scope
+    With {
+        capability: String,
+        implementation: Box<Expr>,
+        body: Box<Expr>,
+    },
+
     /// Reassignment: x = value (only for mutable bindings)
     Reassign {
         target: String,
@@ -134,4 +142,8 @@ pub enum Expr {
 
     /// Unwrap: x.unwrap()
     Unwrap(Box<Expr>),
+
+    /// Await: expr.await
+    /// Suspends execution until the async expression completes
+    Await(Box<Expr>),
 }

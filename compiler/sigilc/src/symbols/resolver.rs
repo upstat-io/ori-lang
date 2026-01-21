@@ -656,6 +656,15 @@ impl Resolver {
                 self.resolve_expr(default);
             }
 
+            Expr::With { implementation, body, .. } => {
+                self.resolve_expr(implementation);
+                self.resolve_expr(body);
+            }
+
+            Expr::Await(inner) => {
+                self.resolve_expr(inner);
+            }
+
             // Literals and others that don't need resolution
             Expr::Int(_)
             | Expr::Float(_)
@@ -785,7 +794,7 @@ impl Resolver {
                     self.resolve_type(arg);
                 }
             }
-            TypeExpr::List(inner) | TypeExpr::Optional(inner) => {
+            TypeExpr::List(inner) | TypeExpr::Optional(inner) | TypeExpr::Async(inner) => {
                 self.resolve_type(inner);
             }
             TypeExpr::Tuple(elements) => {
@@ -804,6 +813,15 @@ impl Resolver {
             TypeExpr::Record(fields) => {
                 for (_, ty) in fields {
                     self.resolve_type(ty);
+                }
+            }
+            TypeExpr::DynTrait(trait_name) => {
+                // Check if the trait exists
+                if self.scopes.lookup(trait_name).is_none() {
+                    self.diagnostics.push(Diagnostic::error(
+                        ErrorCode::E3003,
+                        format!("cannot find trait '{}' in this scope", trait_name),
+                    ));
                 }
             }
         }
@@ -880,6 +898,7 @@ mod tests {
             type_params: vec![],
             type_param_bounds: vec![],
             where_clause: vec![],
+            uses_clause: vec![],
             params: vec![],
             return_type: TypeExpr::Named("int".to_string()),
             body: SpannedExpr::no_span(Expr::Int(42)),
@@ -904,6 +923,7 @@ mod tests {
             type_params: vec![],
             type_param_bounds: vec![],
             where_clause: vec![],
+            uses_clause: vec![],
             params: vec![
                 Param {
                     name: "a".to_string(),
@@ -935,6 +955,7 @@ mod tests {
             type_params: vec![],
             type_param_bounds: vec![],
             where_clause: vec![],
+            uses_clause: vec![],
             params: vec![],
             return_type: TypeExpr::Named("int".to_string()),
             body: SpannedExpr::no_span(Expr::Ident("undefined_var".to_string())),
@@ -956,6 +977,7 @@ mod tests {
                 type_params: vec![],
                 type_param_bounds: vec![],
                 where_clause: vec![],
+                uses_clause: vec![],
                 params: vec![],
                 return_type: TypeExpr::Named("int".to_string()),
                 body: SpannedExpr::no_span(Expr::Call {
@@ -970,6 +992,7 @@ mod tests {
                 type_params: vec![],
                 type_param_bounds: vec![],
                 where_clause: vec![],
+                uses_clause: vec![],
                 params: vec![],
                 return_type: TypeExpr::Named("int".to_string()),
                 body: SpannedExpr::no_span(Expr::Int(42)),
@@ -990,6 +1013,7 @@ mod tests {
             type_params: vec![],
             type_param_bounds: vec![],
             where_clause: vec![],
+            uses_clause: vec![],
             params: vec![Param {
                 name: "x".to_string(),
                 ty: TypeExpr::Named("int".to_string()),

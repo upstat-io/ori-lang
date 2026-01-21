@@ -206,6 +206,8 @@ pub fn format_type(ty: &TypeExpr) -> String {
                 .collect();
             format!("{{ {} }}", field_strs.join(", "))
         }
+        TypeExpr::DynTrait(trait_name) => format!("dyn {}", trait_name),
+        TypeExpr::Async(inner) => format!("async {}", format_type(inner)),
     }
 }
 

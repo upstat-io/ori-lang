@@ -1,6 +1,6 @@
 // Tests for math.al
 
-use math { add, multiply, square }
+use '../math' { add, multiply, square }
 
 @test_add_positive tests @add () -> void = run(
     assert(add(2, 3) == 5),

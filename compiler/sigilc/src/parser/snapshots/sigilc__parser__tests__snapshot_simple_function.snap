@@ -12,6 +12,7 @@ Module {
                 type_params: [],
                 type_param_bounds: [],
                 where_clause: [],
+                uses_clause: [],
                 params: [
                     Param {
                         name: "a",

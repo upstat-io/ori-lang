@@ -170,6 +170,28 @@ impl Parser {
                 };
                 Ok(self.spanned(expr, start))
             }
+            Some(Token::With) => {
+                // with Capability = implementation in body
+                self.advance();
+                let capability = match self.current() {
+                    Some(Token::Ident(n)) => {
+                        let n = n.clone();
+                        self.advance();
+                        n
+                    }
+                    _ => return Err("Expected capability name after 'with'".to_string()),
+                };
+                self.expect(Token::Eq)?;
+                let implementation = self.parse_expr()?;
+                self.expect(Token::In)?;
+                let body = self.parse_expr()?;
+                let expr = Expr::With {
+                    capability,
+                    implementation: Box::new(implementation.expr),
+                    body: Box::new(body.expr),
+                };
+                Ok(self.spanned(expr, start))
+            }
             Some(Token::Match) => {
                 self.advance();
                 self.parse_match_expr_with_start(start)

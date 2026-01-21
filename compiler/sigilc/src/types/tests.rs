@@ -545,3 +545,146 @@ fn test_parallel_returns_record() {
 "#,
     );
 }
+
+// ============================================================================
+// Capability System Tests
+// ============================================================================
+
+#[test]
+fn test_capability_function_with_uses_clause() {
+    // Function declaring 'uses Http' should type check
+    check_ok(
+        r#"
+@fetch_data () -> str uses Http = "data"
+@test_fetch tests @fetch_data () -> void = assert(true)
+"#,
+    );
+}
+
+#[test]
+fn test_capability_caller_has_required_capability() {
+    // A function with 'uses Http' can call another function requiring Http
+    check_ok(
+        r#"
+@internal_fetch () -> str uses Http = "data"
+@public_fetch () -> str uses Http = internal_fetch()
+@test_internal tests @internal_fetch () -> void = assert(true)
+@test_public tests @public_fetch () -> void = assert(true)
+"#,
+    );
+}
+
+#[test]
+fn test_capability_caller_missing_required_capability() {
+    // A function without 'uses Http' cannot call a function requiring Http
+    let err = check_err(
+        r#"
+@fetch_data () -> str uses Http = "data"
+@main () -> str = fetch_data()
+@test_fetch tests @fetch_data () -> void = assert(true)
+"#,
+    );
+    assert!(
+        err.contains("Http") && err.contains("not available"),
+        "Error should mention missing Http capability: {}",
+        err
+    );
+}
+
+#[test]
+fn test_capability_with_expression_provides_capability() {
+    // 'with Http = impl in body' should provide Http capability within body
+    check_ok(
+        r#"
+@fetch_data () -> str uses Http = "data"
+@main () -> str = with Http = nil in fetch_data()
+@test_fetch tests @fetch_data () -> void = assert(true)
+"#,
+    );
+}
+
+#[test]
+fn test_capability_multiple_uses() {
+    // Function can declare multiple capabilities
+    check_ok(
+        r#"
+@complex_op () -> str uses Http, FileSystem = "done"
+@test_complex tests @complex_op () -> void = assert(true)
+"#,
+    );
+}
+
+#[test]
+fn test_capability_transitive_requirement() {
+    // Capabilities must be explicitly declared at each level
+    let err = check_err(
+        r#"
+@inner () -> str uses Http = "data"
+@middle () -> str = inner()
+@outer () -> str uses Http = middle()
+@test_inner tests @inner () -> void = assert(true)
+@test_middle tests @middle () -> void = assert(true)
+"#,
+    );
+    assert!(
+        err.contains("Http") && err.contains("not available"),
+        "Error should mention missing Http capability in middle(): {}",
+        err
+    );
+}
+
+// ============================================================================
+// Async/Await Tests
+// ============================================================================
+
+#[test]
+fn test_async_type_in_return() {
+    // Function can return async type
+    check_ok(
+        r#"
+@fetch () -> async str = "data"
+@test_fetch tests @fetch () -> void = assert(true)
+"#,
+    );
+}
+
+#[test]
+fn test_async_result_type() {
+    // Function can return async Result
+    check_ok(
+        r#"
+@fetch () -> async Result<str, str> = Ok("data")
+@test_fetch tests @fetch () -> void = assert(true)
+"#,
+    );
+}
+
+#[test]
+fn test_await_unwraps_async() {
+    // await should unwrap async type
+    check_ok(
+        r#"
+@async_fetch () -> async str = "data"
+@use_fetch () -> str = async_fetch().await
+@test_fetch tests @async_fetch () -> void = assert(true)
+@test_use tests @use_fetch () -> void = assert(true)
+"#,
+    );
+}
+
+#[test]
+fn test_await_requires_async_type() {
+    // await on non-async should error
+    let err = check_err(
+        r#"
+@sync_fn () -> str = "data"
+@bad () -> str = sync_fn().await
+@test_sync tests @sync_fn () -> void = assert(true)
+"#,
+    );
+    assert!(
+        err.contains("await") && err.contains("async"),
+        "Error should mention await requires async type: {}",
+        err
+    );
+}

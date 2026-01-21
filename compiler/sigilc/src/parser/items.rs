@@ -142,6 +142,14 @@ impl Parser {
             Vec::new()
         };
 
+        // Optional uses clause: uses Http, FileSystem
+        let uses_clause = if matches!(self.current(), Some(Token::Uses)) {
+            self.advance();
+            self.parse_uses_clause()?
+        } else {
+            Vec::new()
+        };
+
         // Body (skip newlines to allow multi-line expressions)
         self.expect(Token::Eq)?;
         self.skip_newlines();
@@ -159,6 +167,7 @@ impl Parser {
             type_params,
             type_param_bounds,
             where_clause,
+            uses_clause,
             params,
             return_type,
             body,
@@ -837,5 +846,33 @@ impl Parser {
         }
 
         Ok(bounds)
+    }
+
+    /// Parse uses clause: Capability1, Capability2, ...
+    fn parse_uses_clause(&mut self) -> Result<Vec<String>, String> {
+        let mut capabilities = Vec::new();
+
+        loop {
+            match self.current() {
+                Some(Token::Ident(name)) => {
+                    capabilities.push(name.clone());
+                    self.advance();
+                }
+                _ => {
+                    if capabilities.is_empty() {
+                        return Err("Expected capability name after 'uses'".to_string());
+                    }
+                    break;
+                }
+            }
+
+            if matches!(self.current(), Some(Token::Comma)) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        Ok(capabilities)
     }
 }

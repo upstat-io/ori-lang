@@ -35,6 +35,8 @@ pub struct FunctionSig {
     pub type_param_bounds: Vec<TypeParamBound>,
     pub params: Vec<(String, TypeExpr)>,
     pub return_type: TypeExpr,
+    /// Capability requirements declared with `uses` clause
+    pub capabilities: Vec<String>,
 }
 
 /// Registry for type definitions
@@ -150,6 +152,7 @@ mod tests {
             type_param_bounds: vec![],
             params: vec![("x".to_string(), TypeExpr::Named("int".to_string()))],
             return_type: TypeExpr::Named("int".to_string()),
+            capabilities: vec![],
         };
         reg.define("foo".to_string(), sig);
         assert!(reg.contains("foo"));

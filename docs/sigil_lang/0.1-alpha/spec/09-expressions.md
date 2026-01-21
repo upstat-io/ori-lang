@@ -6,6 +6,7 @@ This section defines the expression syntax and semantics.
 
 ```
 expression    = with_expr
+              | let_expr
               | pattern_expr
               | if_expr
               | for_expr
@@ -14,6 +15,7 @@ expression    = with_expr
               | binary_expr .
 
 with_expr     = "with" identifier "=" expression "in" expression .
+let_expr      = "let" [ "mut" ] identifier [ ":" type ] "=" expression .
 ```
 
 ## Primary Expressions
@@ -287,6 +289,65 @@ with Http = RealHttp { base_url: "https://api.example.com" } in
 ```
 
 See [Capabilities](14-capabilities.md) for capability scoping rules.
+
+## Let Binding
+
+### Syntax
+
+```
+let_expr      = "let" [ "mut" ] identifier [ ":" type ] "=" expression .
+```
+
+### Semantics
+
+A `let` expression introduces a new binding in the current scope. Bindings are immutable by default.
+
+```sigil
+let x = 5
+let name = "Alice"
+let point = Point { x: 0, y: 0 }
+```
+
+The optional type annotation constrains the binding:
+
+```sigil
+let x: int = 5
+let items: [str] = []
+```
+
+### Mutable Bindings
+
+The `mut` modifier creates a mutable binding that can be reassigned:
+
+```sigil
+let mut counter = 0
+counter = counter + 1
+```
+
+Reassignment to an immutable binding is a compile-time error.
+
+### Shadowing
+
+A binding may shadow an outer binding with the same name:
+
+```sigil
+let x = 5
+let x = x + 1    // shadows outer x
+```
+
+Each `let` creates a new binding. Shadowing is distinct from mutation.
+
+### Destructuring
+
+Bindings support pattern destructuring:
+
+```sigil
+let { x, y } = point           // struct destructuring
+let (first, second) = pair     // tuple destructuring
+let [head, ..tail] = items     // list destructuring
+```
+
+See [Patterns § Match Patterns](10-patterns.md#match-patterns) for pattern syntax.
 
 ## Conditional Expression
 

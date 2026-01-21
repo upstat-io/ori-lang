@@ -241,6 +241,21 @@ impl TirCodeGen {
                 let inner_c = self.expr_to_c(inner)?;
                 Ok(format!("unwrap({})", inner_c))
             }
+
+            TExprKind::With { capability, implementation, body } => {
+                // For now, generate C code that just executes body with capability in scope
+                // A real implementation would set up capability context
+                let impl_c = self.expr_to_c(implementation)?;
+                let body_c = self.expr_to_c(body)?;
+                Ok(format!("with_capability(\"{}\", {}, {})", capability, impl_c, body_c))
+            }
+
+            TExprKind::Await(inner) => {
+                // For now, await just evaluates the inner expression
+                // A real implementation would handle async/await scheduling
+                let inner_c = self.expr_to_c(inner)?;
+                Ok(format!("await({})", inner_c))
+            }
         }
     }
 

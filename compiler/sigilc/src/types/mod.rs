@@ -96,6 +96,7 @@ fn collect_and_check_module(module: &Module) -> DiagnosticResult<TypeContext> {
                         .map(|p| (p.name.clone(), p.ty.clone()))
                         .collect(),
                     return_type: fd.return_type.clone(),
+                    capabilities: fd.uses_clause.clone(),
                 };
                 ctx.define_function(fd.name.clone(), sig);
             }
@@ -143,6 +144,7 @@ fn collect_and_check_module(module: &Module) -> DiagnosticResult<TypeContext> {
                             .map(|p| (p.name.clone(), p.ty.clone()))
                             .collect(),
                         return_type: method.return_type.clone(),
+                        capabilities: method.uses_clause.clone(),
                     };
                     // Register with qualified name: TypeName::method_name
                     let type_name = match &impl_block.for_type {
@@ -245,6 +247,7 @@ pub fn check_with_all_errors(module: Module) -> crate::errors::MultiDiagnosticRe
                     type_param_bounds: collect_type_param_bounds(fd),
                     params: fd.params.iter().map(|p| (p.name.clone(), p.ty.clone())).collect(),
                     return_type: fd.return_type.clone(),
+                    capabilities: fd.uses_clause.clone(),
                 };
                 ctx.define_function(fd.name.clone(), sig);
             }
@@ -315,9 +318,13 @@ fn check_function(fd: &FunctionDef, ctx: &mut TypeContext) -> Result<(), String>
     // Save old state
     let old_locals = ctx.save_locals();
     let old_return_type = ctx.current_return_type();
+    let old_capabilities = ctx.available_capabilities().clone();
 
     // Set current return type for self() calls
     ctx.set_current_return_type(fd.return_type.clone());
+
+    // Add function's declared capabilities to the context
+    ctx.add_capabilities(fd.uses_clause.iter().cloned());
 
     // Add parameters to local scope (function parameters are immutable by default)
     for param in &fd.params {
@@ -337,6 +344,7 @@ fn check_function(fd: &FunctionDef, ctx: &mut TypeContext) -> Result<(), String>
 
     // Restore state
     ctx.restore_locals(old_locals);
+    ctx.capabilities = old_capabilities;
     if let Some(ty) = old_return_type {
         ctx.set_current_return_type(ty);
     } else {
@@ -401,6 +409,7 @@ fn register_item_in_context(
                     .map(|p| (p.name.clone(), p.ty.clone()))
                     .collect(),
                 return_type: fd.return_type.clone(),
+                capabilities: fd.uses_clause.clone(),
             };
             ctx.define_function(name.clone(), sig);
         }

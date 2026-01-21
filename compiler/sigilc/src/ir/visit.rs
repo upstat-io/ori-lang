@@ -104,6 +104,10 @@ pub trait Visitor {
             TExprKind::None_ => self.visit_none(ty, span),
             TExprKind::Coalesce { value, default } => self.visit_coalesce(value, default, ty, span),
             TExprKind::Unwrap(inner) => self.visit_unwrap(inner, ty, span),
+            TExprKind::With { capability, implementation, body } => {
+                self.visit_with(capability, implementation, body, ty, span)
+            }
+            TExprKind::Await(inner) => self.visit_await(inner, ty, span),
         }
     }
 
@@ -509,6 +513,23 @@ pub trait Visitor {
     }
 
     fn visit_unwrap(&mut self, inner: &TExpr, _ty: &Type, _span: &Span) -> Self::Result {
+        self.visit_expr(inner)
+    }
+
+    fn visit_with(
+        &mut self,
+        _capability: &str,
+        implementation: &TExpr,
+        body: &TExpr,
+        _ty: &Type,
+        _span: &Span,
+    ) -> Self::Result {
+        let i = self.visit_expr(implementation);
+        let b = self.visit_expr(body);
+        self.combine_results(i, b)
+    }
+
+    fn visit_await(&mut self, inner: &TExpr, _ty: &Type, _span: &Span) -> Self::Result {
         self.visit_expr(inner)
     }
 }

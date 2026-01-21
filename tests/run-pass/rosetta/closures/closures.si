@@ -12,14 +12,17 @@
 // Each lambda captures the 'factor' value
 @scale_list (arr: [int], factor: int) -> [int] = map(
     .over: arr,
-    .transform: x -> x * factor
+    .transform: x -> x * factor,
 )
 
 // Create a list of closures, each capturing a different value
 // Returns a list where each element is i squared
 @create_square_closures (n: int) -> [int] = map(
-    .over: collect(0..n, i -> i),
-    .transform: i -> i * i
+    .over: collect(
+        .range: 0..n,
+        .transform: i -> i,
+    ),
+    .transform: i -> i * i,
 )
 
 // Closure capturing multiple values
@@ -28,14 +31,14 @@
 // Using closures with filter - capture threshold
 @filter_above (arr: [int], threshold: int) -> [int] = filter(
     .over: arr,
-    .predicate: x -> x > threshold
+    .predicate: x -> x > threshold,
 )
 
 // Closure in fold - capture an offset
 @sum_with_offset (arr: [int], offset: int) -> int = fold(
     .over: arr,
     .init: offset,
-    .op: (acc, x) -> acc + x
+    .op: (acc, x) -> acc + x,
 )
 
 @main () -> void = run(

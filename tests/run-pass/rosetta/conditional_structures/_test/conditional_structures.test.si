@@ -1,6 +1,14 @@
 // Tests for Conditional structures
 
-use conditional_structures { abs, sign, grade, classify_number, max3, can_vote, temperature_feel }
+use '../conditional_structures' {
+    abs,
+    sign,
+    grade,
+    classify_number,
+    max3,
+    can_vote,
+    temperature_feel,
+}
 
 @test_abs tests @abs () -> void = run(
     assert_eq(abs(-5), 5),

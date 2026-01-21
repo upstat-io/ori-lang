@@ -1,6 +1,14 @@
 // Tests for Closures/Value capture
 
-use closures { make_adder, make_multiplier, scale_list, create_square_closures, make_linear, filter_above, sum_with_offset }
+use '../closures' {
+    make_adder,
+    make_multiplier,
+    scale_list,
+    create_square_closures,
+    make_linear,
+    filter_above,
+    sum_with_offset,
+}
 
 @test_adder tests @make_adder () -> void = run(
     let add5 = make_adder(5),

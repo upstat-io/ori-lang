@@ -49,6 +49,13 @@ pub enum Type {
 
     // Any type (for builtins that accept any type)
     Any,
+
+    // Dynamic trait object: dyn Trait
+    // Represents a type-erased pointer to any type implementing the trait
+    DynTrait(String),
+
+    // Async type: represents a future that will produce a value
+    Async(Box<Type>),
 }
 
 impl Type {
@@ -144,6 +151,8 @@ impl fmt::Display for Type {
             }
             Type::Range => write!(f, "Range"),
             Type::Any => write!(f, "any"),
+            Type::DynTrait(trait_name) => write!(f, "dyn {}", trait_name),
+            Type::Async(inner) => write!(f, "async {}", inner),
         }
     }
 }

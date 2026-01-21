@@ -357,6 +357,18 @@ impl TIRPrinter {
                 self.print_expr(inner);
                 self.write(".unwrap()");
             }
+
+            TExprKind::With { capability, implementation, body } => {
+                self.write(&format!("with {} = ", capability));
+                self.print_expr(implementation);
+                self.write(" in ");
+                self.print_expr(body);
+            }
+
+            TExprKind::Await(inner) => {
+                self.print_expr(inner);
+                self.write(".await");
+            }
         }
 
         if self.config.show_types {
