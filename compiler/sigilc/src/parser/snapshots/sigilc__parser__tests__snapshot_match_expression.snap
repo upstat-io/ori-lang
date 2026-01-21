@@ -10,6 +10,8 @@ Module {
                 public: false,
                 name: "classify",
                 type_params: [],
+                type_param_bounds: [],
+                where_clause: [],
                 params: [
                     Param {
                         name: "n",

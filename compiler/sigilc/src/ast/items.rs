@@ -57,12 +57,34 @@ pub struct Variant {
     pub fields: Vec<Field>, // Empty for unit variants
 }
 
+/// A type parameter with optional trait bounds
+/// e.g., T or T: Comparable + Eq
+#[derive(Debug, Clone)]
+pub struct TypeParam {
+    pub name: String,
+    pub bounds: Vec<String>, // Trait bounds (can be empty)
+}
+
+impl TypeParam {
+    /// Create an unbounded type parameter
+    pub fn unbounded(name: String) -> Self {
+        Self { name, bounds: vec![] }
+    }
+
+    /// Create a bounded type parameter
+    pub fn bounded(name: String, bounds: Vec<String>) -> Self {
+        Self { name, bounds }
+    }
+}
+
 /// Function definition
 #[derive(Debug, Clone)]
 pub struct FunctionDef {
     pub public: bool,
     pub name: String,
-    pub type_params: Vec<String>, // Generic type parameters
+    pub type_params: Vec<String>, // Generic type parameters (names only, for compatibility)
+    pub type_param_bounds: Vec<TypeParam>, // Type parameters with bounds
+    pub where_clause: Vec<WhereBound>, // Additional where clause constraints
     pub params: Vec<Param>,
     pub return_type: TypeExpr,
     pub body: SpannedExpr,

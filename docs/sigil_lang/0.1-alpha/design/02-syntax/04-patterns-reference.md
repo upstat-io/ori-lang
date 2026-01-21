@@ -551,14 +551,14 @@ try(
 **Examples:**
 ```sigil
 @process (path: str) -> Result<Data, Error> = try(
-    let content = read_file(path),
-    let parsed = parse(content),
+    let content = read_file(path)?,
+    let parsed = parse(content)?,
     Ok(transform(parsed)),
 )
 
 @load (path: str) -> Result<Data, AppError> = try(
-    let content = read_file(path) | e -> AppError.Io(e),
-    Ok(parse(content)),
+    let content = read_file(path).map_err(e -> AppError.Io(e))?,
+    Ok(parse(content)?),
 )
 ```
 

@@ -27,4 +27,8 @@ pub enum TypeExpr {
 
     /// Anonymous record/struct type: { field1: T1, field2: T2 }
     Record(Vec<(String, TypeExpr)>),
+
+    /// Dynamic trait object: dyn Trait
+    /// Represents a type-erased reference to any type implementing the trait
+    DynTrait(String),
 }

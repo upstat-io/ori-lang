@@ -100,6 +100,64 @@ fn test_function_with_type_params() {
 }
 
 #[test]
+fn test_function_with_bounded_type_params() {
+    let module = parse_ok("@compare<T: Comparable> (a: T, b: T) -> int = 0");
+    let func = first_function(&module);
+    assert_eq!(func.type_params, vec!["T"]);
+    assert_eq!(func.type_param_bounds.len(), 1);
+    assert_eq!(func.type_param_bounds[0].name, "T");
+    assert_eq!(func.type_param_bounds[0].bounds, vec!["Comparable"]);
+}
+
+#[test]
+fn test_function_with_multiple_bounds() {
+    let module = parse_ok("@print_and_hash<T: Display + Hash> (x: T) -> int = 0");
+    let func = first_function(&module);
+    assert_eq!(func.type_params, vec!["T"]);
+    assert_eq!(func.type_param_bounds.len(), 1);
+    assert_eq!(func.type_param_bounds[0].name, "T");
+    assert!(func.type_param_bounds[0].bounds.contains(&"Display".to_string()));
+    assert!(func.type_param_bounds[0].bounds.contains(&"Hash".to_string()));
+}
+
+#[test]
+fn test_function_with_where_clause() {
+    let module = parse_ok("@sort<T> (items: [T]) -> [T] where T: Comparable = items");
+    let func = first_function(&module);
+    assert_eq!(func.type_params, vec!["T"]);
+    assert_eq!(func.where_clause.len(), 1);
+    assert_eq!(func.where_clause[0].type_param, "T");
+    assert_eq!(func.where_clause[0].bounds, vec!["Comparable"]);
+}
+
+#[test]
+fn test_function_with_inline_bounds_and_where() {
+    let module = parse_ok("@foo<T: Clone> (x: T) -> T where T: Display = x");
+    let func = first_function(&module);
+    assert_eq!(func.type_params, vec!["T"]);
+    // Inline bound
+    assert_eq!(func.type_param_bounds.len(), 1);
+    assert_eq!(func.type_param_bounds[0].bounds, vec!["Clone"]);
+    // Where clause
+    assert_eq!(func.where_clause.len(), 1);
+    assert_eq!(func.where_clause[0].bounds, vec!["Display"]);
+}
+
+#[test]
+fn test_function_with_multiple_type_params_bounded() {
+    let module = parse_ok("@compare_all<K: Comparable, V: Display> (k: K, v: V) -> str = \"\"");
+    let func = first_function(&module);
+    assert_eq!(func.type_params, vec!["K", "V"]);
+    assert_eq!(func.type_param_bounds.len(), 2);
+    // Check K bounds
+    let k_bound = func.type_param_bounds.iter().find(|b| b.name == "K").expect("K bound");
+    assert_eq!(k_bound.bounds, vec!["Comparable"]);
+    // Check V bounds
+    let v_bound = func.type_param_bounds.iter().find(|b| b.name == "V").expect("V bound");
+    assert_eq!(v_bound.bounds, vec!["Display"]);
+}
+
+#[test]
 fn test_function_returning_list() {
     let module = parse_ok("@empty () -> [int] = []");
     let func = first_function(&module);

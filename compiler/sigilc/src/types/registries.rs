@@ -1,13 +1,38 @@
 // Focused registries for type checking
 // Each registry handles a single responsibility (SRP)
 
-use crate::ast::{TypeDef, TypeExpr};
+use crate::ast::{TypeDef, TypeExpr, WhereBound};
 use std::collections::HashMap;
+
+/// Trait bound for a type parameter
+/// Maps a type parameter name to the list of trait bounds it must satisfy
+#[derive(Clone, Debug)]
+pub struct TypeParamBound {
+    pub type_param: String,
+    pub bounds: Vec<String>, // trait names
+}
+
+impl TypeParamBound {
+    pub fn new(type_param: String, bounds: Vec<String>) -> Self {
+        Self { type_param, bounds }
+    }
+}
+
+impl From<WhereBound> for TypeParamBound {
+    fn from(wb: WhereBound) -> Self {
+        Self {
+            type_param: wb.type_param,
+            bounds: wb.bounds,
+        }
+    }
+}
 
 /// Function signature for type checking
 #[derive(Clone, Debug)]
 pub struct FunctionSig {
     pub type_params: Vec<String>,
+    /// Trait bounds for type parameters (from inline syntax or where clause)
+    pub type_param_bounds: Vec<TypeParamBound>,
     pub params: Vec<(String, TypeExpr)>,
     pub return_type: TypeExpr,
 }
@@ -122,6 +147,7 @@ mod tests {
         let mut reg = FunctionRegistry::new();
         let sig = FunctionSig {
             type_params: vec![],
+            type_param_bounds: vec![],
             params: vec![("x".to_string(), TypeExpr::Named("int".to_string()))],
             return_type: TypeExpr::Named("int".to_string()),
         };

@@ -4,8 +4,8 @@
 use super::Parser;
 use crate::ast::{
     AssociatedType, AssociatedTypeImpl, ConfigDef, Field, FunctionDef, ImplBlock, Item, Param,
-    TestDef, TraitDef, TraitMethodDef, TypeDef, TypeDefKind, TypeExpr, UseDef, UseItem, Variant,
-    WhereBound,
+    TestDef, TraitDef, TraitMethodDef, TypeDef, TypeDefKind, TypeExpr, TypeParam, UseDef, UseItem,
+    Variant, WhereBound,
 };
 use crate::lexer::Token;
 
@@ -115,29 +115,15 @@ impl Parser {
         name: String,
         start: usize,
     ) -> Result<FunctionDef, String> {
-        // Optional type parameters with angle bracket syntax: @func<T, U>(...)
-        let type_params = if matches!(self.current(), Some(Token::Lt)) {
-            self.advance(); // consume '<'
-            let mut params = Vec::new();
-            while !matches!(self.current(), Some(Token::Gt)) {
-                match self.current() {
-                    Some(Token::Ident(p)) => {
-                        params.push(p.clone());
-                        self.advance();
-                    }
-                    _ => return Err("Expected type parameter name".to_string()),
-                }
-                if matches!(self.current(), Some(Token::Comma)) {
-                    self.advance();
-                } else {
-                    break;
-                }
-            }
-            self.expect(Token::Gt)?;
-            params
+        // Optional type parameters with bounds: @func<T, U: Comparable>(...)
+        let type_param_bounds = if matches!(self.current(), Some(Token::Lt)) {
+            self.parse_bounded_type_params()?
         } else {
             Vec::new()
         };
+
+        // Extract just the names for backward compatibility
+        let type_params: Vec<String> = type_param_bounds.iter().map(|p| p.name.clone()).collect();
 
         // Parameters
         self.expect(Token::LParen)?;
@@ -147,6 +133,14 @@ impl Parser {
         // Return type
         self.expect(Token::Arrow)?;
         let return_type = self.parse_type()?;
+
+        // Optional where clause: where T: Bound, U: Bound
+        let where_clause = if matches!(self.current(), Some(Token::Where)) {
+            self.advance();
+            self.parse_where_clause()?
+        } else {
+            Vec::new()
+        };
 
         // Body (skip newlines to allow multi-line expressions)
         self.expect(Token::Eq)?;
@@ -163,6 +157,8 @@ impl Parser {
             public,
             name,
             type_params,
+            type_param_bounds,
+            where_clause,
             params,
             return_type,
             body,
@@ -741,18 +737,37 @@ impl Parser {
     }
 
     /// Parse type parameters: <T, U, V>
+    /// For backward compatibility, returns just the names (no bounds)
     fn parse_type_params(&mut self) -> Result<Vec<String>, String> {
+        let bounded = self.parse_bounded_type_params()?;
+        Ok(bounded.into_iter().map(|p| p.name).collect())
+    }
+
+    /// Parse type parameters with optional bounds: <T, U: Comparable, V: Eq + Clone>
+    fn parse_bounded_type_params(&mut self) -> Result<Vec<TypeParam>, String> {
         self.expect(Token::Lt)?;
         let mut params = Vec::new();
 
         while !matches!(self.current(), Some(Token::Gt)) {
-            match self.current() {
+            let name = match self.current() {
                 Some(Token::Ident(p)) => {
-                    params.push(p.clone());
+                    let p = p.clone();
                     self.advance();
+                    p
                 }
                 _ => return Err("Expected type parameter name".to_string()),
-            }
+            };
+
+            // Check for optional bounds: T: Bound1 + Bound2
+            let bounds = if matches!(self.current(), Some(Token::Colon)) {
+                self.advance();
+                self.parse_trait_bounds()?
+            } else {
+                Vec::new()
+            };
+
+            params.push(TypeParam { name, bounds });
+
             if matches!(self.current(), Some(Token::Comma)) {
                 self.advance();
             } else {

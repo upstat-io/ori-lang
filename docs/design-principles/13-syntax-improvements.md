@@ -207,17 +207,18 @@ arr.last      // last element (Option)
 
 ### 8. Error Conversion Syntax
 
-**Decision: Keep as-is**
+**Decision: Use `.map_err()` method**
 
 ```sigil
-content = read_file(.path: path) | e -> AppError.Io(e)
+let content = read_file(path).map_err(e -> AppError.Io(e))?
 ```
 
 **Why:**
-- The `|` pipe is clear and chainable
-- Reads naturally: "or if error, transform it"
-
-**Formatter rule:** Enforce spacing: `| e -> ...` not `|e->...`
+- Consistent with Rust's well-established approach
+- No new syntax to learn — uses existing method call syntax
+- Composable with other Result methods (`.map()`, `.and_then()`, etc.)
+- Works naturally with `?` propagation
+- Explicit about what's happening at each step
 
 ---
 
@@ -351,10 +352,9 @@ warning: mutable binding `x` is never reassigned
 4. **`if` expressions:** Stack if exceeds line length
 5. **`where` clauses:** Stack if exceeds line length or 2+ constraints
 6. **Match arms:** One arm per line for 2+ arms
-7. **Error conversion:** Enforce spacing `| e -> ...`
-8. **Indentation:** 4 spaces, no tabs
-9. **Max line length:** 100 characters
-10. **Blank lines:** One between top-level definitions
+7. **Indentation:** 4 spaces, no tabs
+8. **Max line length:** 100 characters
+9. **Blank lines:** One between top-level definitions
 
 ---
 

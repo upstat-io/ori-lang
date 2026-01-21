@@ -242,6 +242,7 @@ mod tests {
             name: "hash".to_string(),
             sig: FunctionSig {
                 type_params: vec![],
+                type_param_bounds: vec![],
                 params: vec![("self".to_string(), TypeExpr::Named("Self".to_string()))],
                 return_type: TypeExpr::Named("int".to_string()),
             },
@@ -311,6 +312,7 @@ mod tests {
             name: "clone".to_string(),
             sig: FunctionSig {
                 type_params: vec![],
+                type_param_bounds: vec![],
                 params: vec![],
                 return_type: TypeExpr::Named("Self".to_string()),
             },

@@ -878,6 +878,8 @@ mod tests {
             public: false,
             name: name.to_string(),
             type_params: vec![],
+            type_param_bounds: vec![],
+            where_clause: vec![],
             params: vec![],
             return_type: TypeExpr::Named("int".to_string()),
             body: SpannedExpr::no_span(Expr::Int(42)),
@@ -900,6 +902,8 @@ mod tests {
             public: false,
             name: "add".to_string(),
             type_params: vec![],
+            type_param_bounds: vec![],
+            where_clause: vec![],
             params: vec![
                 Param {
                     name: "a".to_string(),
@@ -929,6 +933,8 @@ mod tests {
             public: false,
             name: "foo".to_string(),
             type_params: vec![],
+            type_param_bounds: vec![],
+            where_clause: vec![],
             params: vec![],
             return_type: TypeExpr::Named("int".to_string()),
             body: SpannedExpr::no_span(Expr::Ident("undefined_var".to_string())),
@@ -948,6 +954,8 @@ mod tests {
                 public: false,
                 name: "foo".to_string(),
                 type_params: vec![],
+                type_param_bounds: vec![],
+                where_clause: vec![],
                 params: vec![],
                 return_type: TypeExpr::Named("int".to_string()),
                 body: SpannedExpr::no_span(Expr::Call {
@@ -960,6 +968,8 @@ mod tests {
                 public: false,
                 name: "bar".to_string(),
                 type_params: vec![],
+                type_param_bounds: vec![],
+                where_clause: vec![],
                 params: vec![],
                 return_type: TypeExpr::Named("int".to_string()),
                 body: SpannedExpr::no_span(Expr::Int(42)),
@@ -978,6 +988,8 @@ mod tests {
             public: false,
             name: "foo".to_string(),
             type_params: vec![],
+            type_param_bounds: vec![],
+            where_clause: vec![],
             params: vec![Param {
                 name: "x".to_string(),
                 ty: TypeExpr::Named("int".to_string()),

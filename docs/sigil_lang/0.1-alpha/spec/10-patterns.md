@@ -227,6 +227,22 @@ find(
 
 **Result type:** `Option<T>` without default, `T` with default.
 
+**Variant: find with transformation (find_map)**
+
+```sigil
+find(
+    .over: collection,
+    .map: transform,
+)
+```
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `.over` | `[T]` | Collection to search |
+| `.map` | `T -> Option<U>` | Transformation returning optional |
+
+Returns the first `Some(value)` produced by the transformation, or `None` if all return `None`.
+
 ## Recursive Patterns
 
 ### recurse

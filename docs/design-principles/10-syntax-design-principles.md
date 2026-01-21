@@ -39,9 +39,12 @@ Design grammar so one token of lookahead determines the parse.
 - Confusing error messages
 
 ```sigil
-// Good: Braces required, no dangling else
-if condition { then_branch }
-else { else_branch }
+// Good: Keywords eliminate dangling else ambiguity
+if condition then result_a else result_b
+
+if condition
+then result_a
+else result_b
 
 // Bad: C-style optional braces
 if condition
@@ -50,7 +53,7 @@ else
     other;
 ```
 
-**Rust's approach:** Mandatory braces on `if`, optional parens around condition. This makes `else if` unambiguous and prevents ["goto fail" bugs](https://dwheeler.com/essays/apple-goto-fail.html).
+**Sigil's approach:** Use `then`/`else` keywords instead of braces. This makes `else if` unambiguous and prevents ["goto fail" bugs](https://dwheeler.com/essays/apple-goto-fail.html). Expression-based `if` always requires both branches.
 
 ### 1.3 Avoid Syntactic Ambiguity with Types
 
