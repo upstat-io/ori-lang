@@ -133,7 +133,7 @@ Operators have the following precedence, from highest (1) to lowest (13):
 
 | Precedence | Operators | Associativity |
 |------------|-----------|---------------|
-| 1 | `.` `[]` `()` `.await` `?` | Left |
+| 1 | `.` `[]` `()` `?` | Left |
 | 2 | `!` `-` `~` (unary) | Right |
 | 3 | `*` `/` `%` `div` | Left |
 | 4 | `+` `-` | Left |

@@ -436,22 +436,7 @@ User.from_json("{\"name\":\"Alice\",\"age\":30}")
 
 ## Async Traits
 
-### Future — Async Computation
-
-```sigil
-trait Future {
-    type Output
-    @poll (self) -> PollResult<Self.Output>
-}
-
-type PollResult<T> = Ready(T) | Pending
-```
-
-**Purpose:** Core abstraction for async operations.
-
-**Note:** Usually not implemented manually; async functions return futures automatically.
-
----
+> **Note:** Sigil uses capability-based async via `uses Async` instead of `async` type modifiers. See [Capabilities](../14-capabilities/index.md).
 
 ### AsyncIterable — Async Iteration
 
@@ -462,11 +447,11 @@ trait AsyncIterable {
 }
 ```
 
-**Purpose:** Enable async iteration.
+**Purpose:** Enable async iteration over a source that may suspend.
 
 ```sigil
-async @process (stream: dyn AsyncIterable<Item = Message>) -> async void =
-    for msg in stream do handle(msg).await
+@process (stream: dyn AsyncIterable<Item = Message>) -> void uses Async =
+    for msg in stream do handle(msg)
 ```
 
 ---
@@ -476,17 +461,17 @@ async @process (stream: dyn AsyncIterable<Item = Message>) -> async void =
 ```sigil
 trait AsyncIterator {
     type Item
-    @next (self) -> async Option<Self.Item>
+    @next (self) -> Option<Self.Item> uses Async
 }
 ```
 
-**Purpose:** Lazy async iteration protocol.
+**Purpose:** Lazy async iteration protocol. The `next()` method may suspend (requires `Async` capability).
 
 ```sigil
-async @collect_all<I> (iter: I) -> async [I.Item] where I: AsyncIterator = run(
+@collect_all<I> (iter: I) -> [I.Item] uses Async where I: AsyncIterator = run(
     let mut results = [],
     loop(
-        match(iter.next().await,
+        match(iter.next(),
             Some(item) -> results = results + [item],
             None -> break,
         ),
@@ -495,7 +480,7 @@ async @collect_all<I> (iter: I) -> async [I.Item] where I: AsyncIterator = run(
 )
 ```
 
-**Note:** The key difference from `Iterator` is that `next()` returns an async `Option`, allowing the iterator to await between items.
+**Note:** The key difference from `Iterator` is that `next()` uses the `Async` capability, allowing the iterator to suspend between items.
 
 ---
 

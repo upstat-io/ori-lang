@@ -4,16 +4,13 @@ This section defines the type system of Sigil.
 
 ## Type Syntax
 
-```
-type          = async_type
-              | type_path [ type_args ]
+```ebnf
+type          = type_path [ type_args ]
               | list_type
               | map_type
               | tuple_type
               | function_type
               | "dyn" type .
-
-async_type    = "async" type .
 
 type_path     = identifier { "." identifier } .
 type_args     = "<" type { "," type } ">" .
@@ -22,6 +19,8 @@ map_type      = "{" type ":" type "}" .
 tuple_type    = "(" type { "," type } ")" | "()" .
 function_type = "(" [ type { "," type } ] ")" "->" type .
 ```
+
+> **Note:** Sigil does not have an `async T` type modifier. Asynchronous behavior is tracked through the `Async` capability. See [Capabilities](14-capabilities.md).
 
 ## Primitive Types
 
@@ -248,23 +247,6 @@ A function that takes parameters of types `T1`, `T2`, etc., and returns a value 
 () -> void              // function taking no args, returning void
 ```
 
-### Async Type
-
-```
-async T
-```
-
-An `async` type represents a computation that may suspend and eventually produce a value of type `T`.
-
-- `async T` values are awaitable with the `.await` postfix operator
-- `.await` yields a value of type `T`
-
-```sigil
-@fetch_user (id: int) -> async Result<User, Error> = ...
-
-let result: Result<User, Error> = fetch_user(42).await
-```
-
 ### Range Type
 
 ```
@@ -390,19 +372,20 @@ Channel< T >
 A typed, bounded channel for communication between concurrent tasks.
 
 - All channels have a fixed buffer size (no unbounded channels)
-- Send blocks when the buffer is full
-- Receive blocks when the buffer is empty
+- Send blocks when the buffer is full (or suspends with `Async` capability)
+- Receive blocks when the buffer is empty (or suspends with `Async` capability)
 - Channels are the primary mechanism for sharing data between tasks
 
 ```sigil
-let ch = Channel<int>.new(buffer: 10)
-
-ch.send(42).await       // send a value
-let value = ch.receive().await  // receive a value (Option<T>)
-ch.close()              // close the channel
+@use_channel () -> void uses Async = run(
+    let ch = Channel<int>.new(buffer: 10),
+    ch.send(42),           // send a value (may suspend)
+    let value = ch.receive(),  // receive a value (Option<T>, may suspend)
+    ch.close(),            // close the channel
+)
 ```
 
-See [Capabilities § Async](14-capabilities.md) for details on async operations.
+See [Capabilities](14-capabilities.md) for details on async operations and the `Async` capability.
 
 ## User-Defined Types
 

@@ -1,10 +1,14 @@
 # Capabilities
 
-This section defines the capability system for effect tracking.
+This section defines the capability system for effect tracking and async behavior.
 
 ## Overview
 
-Capabilities are traits that represent access to external resources or side effects. Functions that perform effects must declare their capability requirements.
+Capabilities are traits that represent access to external resources, side effects, or operations that may suspend execution. Functions that perform effects must declare their capability requirements.
+
+Capabilities serve two purposes:
+1. **Effect tracking** - Making side effects explicit and injectable
+2. **Async tracking** - Identifying functions that may suspend execution
 
 ## Capability Declaration
 
@@ -12,13 +16,13 @@ Capabilities are traits that represent access to external resources or side effe
 
 A function declares required capabilities with the `uses` clause:
 
-```
+```ebnf
 function      = ... [ uses_clause ] "=" expression .
 uses_clause   = "uses" identifier { "," identifier } .
 ```
 
 ```sigil
-@fetch (url: str) -> Result<str, Error> uses Http = Http.get(url)
+@fetch (url: str) -> Result<Response, Error> uses Http = Http.get(url)
 
 @save (data: str) -> Result<void, Error> uses FileSystem =
     FileSystem.write("/data.txt", data)
@@ -29,7 +33,7 @@ uses_clause   = "uses" identifier { "," identifier } .
 ```sigil
 @fetch_and_save (url: str) -> Result<void, Error> uses Http, FileSystem = try(
     let content = Http.get(url)?,
-    FileSystem.write("/data.txt", content),
+    FileSystem.write("/data.txt", content.body),
 )
 ```
 
@@ -39,8 +43,8 @@ A capability is defined as a regular trait:
 
 ```sigil
 trait Http {
-    @get (url: str) -> Result<str, Error>
-    @post (url: str, body: str) -> Result<str, Error>
+    @get (url: str) -> Result<Response, Error>
+    @post (url: str, body: str) -> Result<Response, Error>
 }
 
 trait FileSystem {
@@ -53,13 +57,77 @@ trait Clock {
 }
 ```
 
+> **Note:** Capability methods do not use `async` return types. Suspension behavior is tracked implicitly through capability usage.
+
+## The Async Capability
+
+### Explicit Suspension Declaration
+
+`Async` is a capability that represents the ability to suspend execution. Functions that may suspend must explicitly declare `uses Async`:
+
+```sigil
+// Async is a marker capability
+trait Async {}
+
+// Function explicitly declares it may suspend
+@fetch_user (id: str) -> Result<User, Error> uses Http, Async =
+    Http.get("/users/" + id)?.parse()
+```
+
+### Sync vs Async Behavior
+
+The presence or absence of `Async` determines whether I/O operations block or suspend:
+
+```sigil
+// With Async: Http.get may suspend (non-blocking)
+@fetch_async (url: str) -> Result<Data, Error> uses Http, Async =
+    Http.get(url)?.body
+
+// Without Async: Http.get blocks until complete (synchronous)
+@fetch_blocking (url: str) -> Result<Data, Error> uses Http =
+    Http.get(url)?.body
+```
+
+### No async Type Modifier
+
+Unlike languages with `async/await`, Sigil does not have an `async T` type. The return type is the final value type:
+
+```sigil
+// Return type is Result<User, Error>, not async Result<User, Error>
+@fetch_user (id: str) -> Result<User, Error> uses Http, Async = ...
+```
+
+### No await Expression
+
+Sigil does not have an `.await` expression. Suspension is declared at the function level via `uses Async`, not at each call site:
+
+```sigil
+@fetch_data (url: str) -> Result<Data, Error> uses Http, Async = run(
+    // No .await needed - Async capability declares suspension
+    let response = Http.get(url)?,
+    Ok(parse(response.body)),
+)
+```
+
+### Concurrency with parallel
+
+Concurrent execution is achieved through the `parallel` pattern:
+
+```sigil
+@fetch_both (id: int) -> Result<{ user: User, posts: Posts }, Error> uses Http, Async =
+    parallel(
+        .user: fetch_user(id),
+        .posts: fetch_posts(id),
+    )
+```
+
 ## Providing Capabilities
 
 ### with...in Expression
 
 Capabilities are provided using `with...in`:
 
-```
+```ebnf
 with_expr     = "with" identifier "=" expression "in" expression .
 ```
 
@@ -87,7 +155,7 @@ A capability binding is in scope for the `in` expression:
 If function A calls function B, and B requires capability C, then A must also require C (or provide it):
 
 ```sigil
-@helper () -> Result<str, Error> uses Http = Http.get("/data")
+@helper () -> Result<str, Error> uses Http = Http.get("/data")?.body
 
 // Must declare Http because helper uses it
 @process () -> Result<str, Error> uses Http = run(
@@ -110,20 +178,26 @@ A function may provide a capability rather than requiring it:
 
 ### Http
 
-HTTP client operations:
+HTTP client operations (async capability - may suspend):
 
 ```sigil
 trait Http {
-    @get (url: str) -> Result<str, Error>
-    @post (url: str, body: str) -> Result<str, Error>
-    @put (url: str, body: str) -> Result<str, Error>
+    @get (url: str) -> Result<Response, Error>
+    @post (url: str, body: str) -> Result<Response, Error>
+    @put (url: str, body: str) -> Result<Response, Error>
     @delete (url: str) -> Result<void, Error>
+}
+
+type Response = {
+    status: int,
+    body: str,
+    headers: {str: str}
 }
 ```
 
 ### FileSystem
 
-File system operations:
+File system operations (async capability - may suspend):
 
 ```sigil
 trait FileSystem {
@@ -136,7 +210,7 @@ trait FileSystem {
 
 ### Clock
 
-Time operations:
+Time operations (sync capability - does not suspend):
 
 ```sigil
 trait Clock {
@@ -147,7 +221,7 @@ trait Clock {
 
 ### Random
 
-Random number generation:
+Random number generation (sync capability - does not suspend):
 
 ```sigil
 trait Random {
@@ -158,7 +232,7 @@ trait Random {
 
 ### Cache
 
-Caching operations:
+Caching operations (async capability - may suspend):
 
 ```sigil
 trait Cache {
@@ -170,7 +244,7 @@ trait Cache {
 
 ### Logger
 
-Logging operations:
+Logging operations (sync capability - does not suspend):
 
 ```sigil
 trait Logger {
@@ -183,7 +257,7 @@ trait Logger {
 
 ### Env
 
-Environment variable access:
+Environment variable access (sync capability - does not suspend):
 
 ```sigil
 trait Env {
@@ -199,13 +273,13 @@ Tests provide mock implementations of capabilities:
 
 ```sigil
 type MockHttp = {
-    responses: {str: str},
+    responses: {str: Response},
 }
 
 impl Http for MockHttp {
-    @get (url: str) -> Result<str, Error> =
-        match(self.responses[url],
-            Some(body) -> Ok(body),
+    @get (url: str) -> Result<Response, Error> =
+        match(self.responses.get(url),
+            Some(resp) -> Ok(resp),
             None -> Err(Error { message: "Not found" }),
         )
     // ... other methods
@@ -215,14 +289,16 @@ impl Http for MockHttp {
 ### Test Example
 
 ```sigil
-@get_user (id: str) -> Result<User, Error> uses Http = try(
-    let json = Http.get("/users/" + id)?,
-    Ok(parse(json)),
+// Production code uses Http + Async
+@get_user (id: str) -> Result<User, Error> uses Http, Async = try(
+    let response = Http.get("/users/" + id)?,
+    Ok(parse(response.body)),
 )
 
+// Tests use sync mock - no Async needed
 @test_get_user tests @get_user () -> void =
     with Http = MockHttp {
-        responses: {"/users/1": "{\"name\": \"Alice\"}"}
+        responses: {"/users/1": Response { status: 200, body: "{\"name\": \"Alice\"}", headers: {} }}
     } in
     run(
         let result = get_user("1"),
@@ -230,6 +306,8 @@ impl Http for MockHttp {
         assert_eq(result.unwrap().name, "Alice"),
     )
 ```
+
+Note: The test does not declare `Async` because `MockHttp` is synchronous - it returns immediately without suspending.
 
 ## Capability Constraints
 
@@ -267,12 +345,40 @@ Capabilities must be explicitly declared. There are no implicit effects.
 
 The distinction is semantic, not syntactic. A trait becomes a capability when it represents external effects.
 
+### The Async Capability
+
+`Async` is a special capability that indicates a function may suspend:
+
+| With `uses Async` | Without `uses Async` |
+|-------------------|----------------------|
+| Non-blocking | Blocking |
+| May suspend | Never suspends |
+| Requires async runtime | Runs synchronously |
+
 ## Effect Purity
 
 A function without a `uses` clause is pure: it produces no side effects beyond its return value. Pure functions:
 
 1. Always return the same result for the same arguments
 2. Have no observable effects
-3. Can be safely memoized, parallelized, or reordered
+3. Cannot suspend execution (no `uses Async`)
+4. Can be safely memoized, parallelized, or reordered
+
+A function with `uses` but without `Async` may have effects but will not suspend - it runs synchronously to completion.
 
 The capability system makes effect boundaries explicit and statically verified.
+
+## Rationale
+
+> **Note:** The following is informative.
+
+Sigil uses an explicit `Async` capability instead of `async/await` syntax because:
+
+1. **Same propagation cost** - Both `async` and `uses Async` propagate up the call stack
+2. **Additional benefits** - Capabilities provide easy testing via sync mock implementations
+3. **Cleaner types** - Return types are `T` instead of `async T`
+4. **Clear sync/async distinction** - Omitting `Async` means synchronous blocking behavior
+5. **Familiar keyword** - Developers recognize `Async` immediately
+6. **Unified model** - All effects (I/O, suspension, non-determinism) tracked uniformly
+
+See [Design: Async via Capabilities](../design/10-async/01-async-await.md) for detailed rationale.

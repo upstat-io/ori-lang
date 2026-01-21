@@ -42,8 +42,8 @@ Side effects should be visible:
 // Return type makes it clear this can fail
 @read_file (path: str) -> Result<str, IoError>
 
-// async indicates suspension
-@fetch (url: str) -> async Result<Data, Error>
+// uses clause indicates suspension and dependencies
+@fetch (url: str) -> Result<Data, Error> uses Http, Async
 ```
 
 ### No Magic
@@ -126,9 +126,9 @@ y = compute()
 Features compose without surprises:
 
 ```sigil
-// Patterns work with async
-@fetch () -> async Result<Data, Error> = retry(
-    .op: http_get(url).await,
+// Patterns work with capabilities
+@fetch (url: str) -> Result<Data, Error> uses Http, Async = retry(
+    .op: Http.get(url),
     .attempts: 3
 )
 

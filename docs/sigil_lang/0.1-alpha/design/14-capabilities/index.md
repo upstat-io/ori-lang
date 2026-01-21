@@ -1,28 +1,30 @@
 # Capabilities
 
-This section covers Sigil's capability system for managing side effects and enabling testable code.
+This section covers Sigil's capability system for managing side effects, enabling testable code, and tracking async behavior.
 
 ---
 
 ## Overview
 
-Capabilities are Sigil's solution to the tension between:
-- **Mandatory testing** — Every function must have tests
-- **No magic DI** — Dependencies should be explicit
-- **Side effects** — Real programs need I/O, network, time, etc.
+Capabilities are Sigil's solution to three related tensions:
+- **Mandatory testing** - Every function must have tests
+- **No magic DI** - Dependencies should be explicit
+- **Side effects** - Real programs need I/O, network, time, etc.
+- **Async tracking** - Know which functions may suspend
 
-The capability system makes effects explicit in function signatures while providing a clean mechanism for testing.
+The capability system makes effects explicit in function signatures while providing clean mechanisms for testing and async tracking.
 
 ```sigil
 // Declare a capability trait
 trait Http {
-    @get (url: str) -> Result<str, Error>
+    @get (url: str) -> Result<Response, Error>
 }
 
 // Function declares what capabilities it uses
+// No 'async' keyword - Http capability implies suspension
 @get_user (id: str) -> Result<User, Error> uses Http = try(
-    let json = Http.get("/users/" + id)?,
-    Ok(parse(json)),
+    let response = Http.get("/users/" + id)?,
+    Ok(parse(response.body)),
 )
 
 // Tests provide mock implementations
@@ -43,6 +45,54 @@ trait Http {
 | [Capability Traits](01-capability-traits.md) | Define interfaces for effects |
 | [Uses Clause](02-uses-clause.md) | Declare function dependencies |
 | [Testing Effectful Code](03-testing-effectful-code.md) | Mock capabilities in tests |
+
+---
+
+## The Async Capability
+
+A key insight: **the `Async` capability explicitly tracks suspension**.
+
+Traditional languages use `async/await`:
+```rust
+// Rust: async bubbles up the call stack
+async fn fetch() -> Result<Data, Error> { ... }
+async fn process() -> Result<Output, Error> {
+    let data = fetch().await?;
+    ...
+}
+```
+
+Sigil uses an explicit `Async` capability:
+```sigil
+// Sigil: Async capability explicitly declares suspension
+@fetch () -> Result<Data, Error> uses Http, Async = ...
+@process () -> Result<Output, Error> uses Http, Async =
+    let data = fetch()?,
+    ...
+```
+
+Both approaches have the same "propagation tax" - callers must know about effects. But the `Async` capability gives you more:
+
+| What You Get | async/await | uses Async |
+|--------------|-------------|------------|
+| Propagation info | Yes | Yes |
+| Easy testing | No | Yes (sync mocks) |
+| Explicit deps | No | Yes |
+| Clean types | No | Yes |
+| Sync/Async clear | Yes | Yes |
+
+### Sync vs Async
+
+The presence or absence of `Async` is explicit:
+```sigil
+// With Async: non-blocking, may suspend
+@fetch () -> Result<Data, Error> uses Http, Async = Http.get(url)?
+
+// Without Async: blocking, runs to completion
+@fetch_sync () -> Result<Data, Error> uses Http = Http.get(url)?
+```
+
+See [Async via Capabilities](../10-async/01-async-await.md) for the full explanation.
 
 ---
 
@@ -141,16 +191,29 @@ If function `f` calls function `g` which `uses Http`, then `f` must either:
 
 ---
 
+## The Trade-Off
+
+Capabilities have one trade-off: **implementation details propagate to callers**.
+
+If `fetch_user` uses `Http`, callers must either declare `uses Http` or provide it. This "leaks" the fact that HTTP is used somewhere in the call chain.
+
+**But this is the same trade-off as async/await.** In Rust/JS/Python, if you call an async function, your function must be async too. The "leaking" happens either way.
+
+The question is: **if you're paying this cost anyway, why not get testing benefits too?**
+
+---
+
 ## Documents in This Section
 
-1. **[Capability Traits](01-capability-traits.md)** — Defining capability interfaces
-2. **[Uses Clause](02-uses-clause.md)** — Declaring and propagating dependencies
-3. **[Testing Effectful Code](03-testing-effectful-code.md)** — Mocking and testing patterns
+1. **[Capability Traits](01-capability-traits.md)** - Defining capability interfaces
+2. **[Uses Clause](02-uses-clause.md)** - Declaring and propagating dependencies
+3. **[Testing Effectful Code](03-testing-effectful-code.md)** - Mocking and testing patterns
 
 ---
 
 ## See Also
 
-- [Traits](../04-traits/index.md) — Capabilities are traits
-- [Testing](../11-testing/index.md) — Mandatory testing requirements
-- [Error Handling](../05-error-handling/index.md) — Result types with capabilities
+- [Async](../10-async/index.md) - How capabilities track async
+- [Traits](../04-traits/index.md) - Capabilities are traits
+- [Testing](../11-testing/index.md) - Mandatory testing requirements
+- [Error Handling](../05-error-handling/index.md) - Result types with capabilities

@@ -351,6 +351,88 @@ Sigil does **not** support wildcard imports:
 
 ---
 
+## Extension Imports
+
+Extension imports are separate from regular imports. They use the `extension` keyword (not `use`) and bring trait extension methods into scope.
+
+### Why a Separate Keyword?
+
+| Aspect | `use` | `extension` |
+|--------|-------|-------------|
+| Purpose | Import types, functions, values | Import trait extension methods |
+| Syntax | `use path { item }` | `extension path { Trait.method }` |
+| Granularity | Item-level | Method-level |
+
+The separation makes it explicit that you're adding methods to types, not importing standalone items.
+
+### Basic Syntax
+
+```sigil
+extension std.iter.extensions { Iterator.count, Iterator.last }
+extension std.fmt.extensions { Display.print, Display.println }
+```
+
+### From Local Files
+
+```sigil
+extension './my_extensions' { Iterator.sum, Iterator.average }
+extension '../utils/iter_helpers' { Iterator.take, Iterator.skip }
+```
+
+### Method-Level Granularity
+
+You must specify individual methods, not entire traits:
+
+```sigil
+// Correct: specify each method
+extension std.iter.extensions { Iterator.count, Iterator.last }
+
+// NOT supported: trait wildcards
+extension std.iter.extensions { Iterator.* }  // ERROR
+extension std.iter.extensions { Iterator }    // ERROR
+```
+
+**Rationale:** This maximizes explicitness:
+- Clear which methods are added to which types
+- No hidden method pollution
+- Self-documenting imports
+
+### Combining with Regular Imports
+
+Extension imports go alongside regular imports at the top of the file:
+
+```sigil
+// Regular imports
+use std.collections { HashMap }
+use './types' { User, Order }
+
+// Extension imports
+extension std.iter.extensions { Iterator.count, Iterator.sum }
+extension './display_helpers' { Display.pretty_print }
+
+// Definitions below...
+```
+
+### Extension vs Blanket Implementations
+
+Sigil uses explicit extension imports instead of blanket implementations (like Rust's `impl<T: A> B for T`):
+
+| Aspect | Blanket Impls | Extension Imports |
+|--------|---------------|-------------------|
+| Activation | Implicit, always active | Explicit import required |
+| Visibility | Hidden, "where did this come from?" | Clear in import statement |
+| Conflicts | Can conflict silently | Must choose which to import |
+| Side effects | Methods appear without asking | You ask for what you want |
+
+Extension imports are explicit over implicit—no surprises about what methods are available.
+
+### See Also
+
+- [Trait Extensions](../04-traits/06-extensions.md) - Defining extensions
+- [Re-exports](04-re-exports.md) - Re-exporting extensions
+
+---
+
 ## Complex Import Patterns
 
 ### Multi-Level Modules

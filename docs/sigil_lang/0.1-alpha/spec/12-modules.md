@@ -19,7 +19,7 @@ A file named `mod.si` represents the directory's index module.
 
 ### Syntax
 
-```
+```ebnf
 import        = "use" import_path [ import_list | "as" identifier ] .
 import_path   = relative_path | module_path .
 relative_path = string_literal .
@@ -28,6 +28,57 @@ import_list   = "{" import_item { "," import_item } [ "," ] "}" .
 import_item   = import_name [ "as" identifier ] .
 import_name   = [ "::" ] identifier | "$" identifier .
 ```
+
+## Extension Imports
+
+Extension imports bring trait extension methods into scope. Unlike regular imports, extension imports use the `extension` keyword and specify methods at the trait-method level.
+
+### Syntax
+
+```ebnf
+extension_import = "extension" import_path "{" extension_item { "," extension_item } [ "," ] "}" .
+extension_item   = identifier "." identifier .
+```
+
+The first identifier is the trait name, the second is the method name.
+
+### From Local Files
+
+```sigil
+extension './my_extensions' { Iterator.count, Iterator.sum }
+extension '../utils/iter_extensions' { Iterator.take, Iterator.skip }
+```
+
+### From Standard Library
+
+```sigil
+extension std.iter.extensions { Iterator.count, Iterator.last }
+extension std.fmt.extensions { Display.print, Display.println }
+```
+
+### Method-Level Granularity
+
+Extension imports require specifying individual methods, not entire traits:
+
+```sigil
+// Correct: specify each method
+extension std.iter.extensions { Iterator.count, Iterator.last }
+
+// Invalid: wildcard imports not supported
+extension std.iter.extensions { Iterator.* }  // ERROR
+```
+
+This ensures:
+1. Explicit visibility of which methods are added to types
+2. No implicit namespace pollution
+3. Self-documenting imports
+
+### Constraints
+
+- It is an error if the specified trait does not exist in the extension module.
+- It is an error if the specified method does not exist in the trait's extension.
+- It is an error to import the same extension method twice in the same module.
+- Extension methods are only available in the importing module's scope.
 
 ### Relative Imports (Local Files)
 
@@ -241,6 +292,78 @@ Files in `_test/` directories with the `.test.si` extension have special access 
 
 This allows testing private implementation details without exposing them.
 
+## Extension Definitions
+
+Extensions add methods to existing traits without modifying the original trait definition.
+
+### Syntax
+
+```ebnf
+extension_def = "extend" identifier [ where_clause ] "{" { method_def } "}" .
+```
+
+### Basic Extension
+
+```sigil
+extend Iterator {
+    @count (self) -> int = run(
+        let n = 0,
+        while self.next().is_some() do n = n + 1,
+        n,
+    )
+
+    @last (self) -> Option<Self.Item> = run(
+        let result = None,
+        for item in self do result = Some(item),
+        result,
+    )
+}
+```
+
+### Constrained Extension
+
+Extensions may include constraints via `where` clauses:
+
+```sigil
+extend Iterator where Self.Item: Add {
+    @sum (self) -> Self.Item =
+        fold(self, Self.Item.default(), (acc, x) -> acc + x)
+}
+
+extend Iterator where Self.Item = int {
+    @average (self) -> float = run(
+        let sum = 0,
+        let count = 0,
+        for item in self do run(
+            sum = sum + item,
+            count = count + 1,
+        ),
+        float(sum) / float(count),
+    )
+}
+```
+
+### Extension with Capabilities
+
+Extension methods may use capabilities:
+
+```sigil
+extend Display {
+    @print (self) -> void uses Console =
+        Console.write(self.display())
+
+    @println (self) -> void uses Console =
+        Console.writeln(self.display())
+}
+```
+
+### Constraints
+
+- It is an error to define an extension for a trait that does not exist.
+- It is an error to define an extension method with the same name as an existing method on the trait.
+- Extension methods cannot be overridden by implementors; they apply uniformly to all implementations.
+- Extensions must be explicitly imported to use; they have no effect without an `extension` import.
+
 ## Module Items
 
 A module may contain:
@@ -249,9 +372,11 @@ A module may contain:
 - Type definitions (`type Name = ...`)
 - Trait definitions (`trait Name { ... }`)
 - Implementation blocks (`impl ... { ... }`)
+- Extension definitions (`extend Trait { ... }`)
 - Config variables (`$name = ...`)
 - Test declarations (`@name tests @target`)
 - Imports (`use ...`)
+- Extension imports (`extension ...`)
 
 ## Prelude
 

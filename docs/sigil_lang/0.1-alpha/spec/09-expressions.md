@@ -86,18 +86,19 @@ Point { x, y }              // field shorthand when variable matches field name
 
 ### Syntax
 
-```
+```ebnf
 postfix_expr  = primary { postfix_op } .
 postfix_op    = "." identifier [ call_args ]
               | "[" expression "]"
               | call_args
-              | ".await"
               | "?" .
 
 call_args     = "(" [ call_arg { "," call_arg } [ "," ] ] ")" .
 call_arg      = expression | named_arg .
 named_arg     = "." identifier ":" expression .
 ```
+
+> **Note:** Sigil does not have a `.await` postfix operator. Async behavior is declared at the function level via `uses Async`. See [Capabilities](14-capabilities.md).
 
 ### Field Access
 
@@ -145,17 +146,6 @@ Named arguments may be used in place of positional arguments. When named argumen
 add(.a: 1, .b: 2)
 fetch_user(.id: id)
 ```
-
-### Await
-
-The `.await` suffix awaits an async expression:
-
-```sigil
-result.await
-fetch(url).await
-```
-
-It is an error to apply `.await` to a non-`async` value. `.await` is only permitted within async function bodies.
 
 ### Error Propagation
 
@@ -420,8 +410,8 @@ continue_expr = "continue" .
 A `loop` expression repeats indefinitely until `break` is encountered:
 
 ```sigil
-loop(
-    match(ch.receive().await,
+@process_channel (ch: Channel<int>) -> void uses Async = loop(
+    match(ch.receive(),
         Some(value) -> process(value),
         None -> break,
     ),

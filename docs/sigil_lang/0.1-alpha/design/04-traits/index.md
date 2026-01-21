@@ -13,6 +13,7 @@ This section covers Sigil's trait system for behavior abstraction.
 | [Bounds and Constraints](03-bounds-and-constraints.md) | where clauses, multiple bounds |
 | [Derive](04-derive.md) | Auto-deriving trait implementations |
 | [Dynamic Dispatch](05-dynamic-dispatch.md) | dyn Trait for runtime polymorphism |
+| [Trait Extensions](06-extensions.md) | Extend traits with additional methods |
 
 ---
 
