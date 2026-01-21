@@ -54,6 +54,22 @@ pub fn check_call(func: &Expr, args: &[Expr], ctx: &TypeContext) -> Result<TypeE
                 ));
             }
 
+            // Check capability requirements
+            if !sig.capabilities.is_empty() {
+                let missing = ctx.check_capabilities(&sig.capabilities);
+                if !missing.is_empty() {
+                    return Err(format!(
+                        "Function '{}' requires capabilities [{}] but [{}] are not available. \
+                         Add 'uses {}' to the calling function or use 'with {} = impl in ...' to provide them.",
+                        name,
+                        sig.capabilities.join(", "),
+                        missing.join(", "),
+                        missing.join(", "),
+                        missing.first().unwrap_or(&String::new())
+                    ));
+                }
+            }
+
             // For generic functions like assert_eq, infer type param from first arg
             // then use it for subsequent args with the same type param
             let mut inferred_types: HashMap<String, TypeExpr> = HashMap::new();

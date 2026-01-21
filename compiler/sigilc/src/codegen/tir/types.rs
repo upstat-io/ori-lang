@@ -72,6 +72,16 @@ impl TirCodeGen {
                 let field_names: Vec<_> = fields.iter().map(|(n, _)| n.as_str()).collect();
                 format!("Record_{}", field_names.join("_"))
             }
+
+            Type::DynTrait(trait_name) => {
+                // Trait object - represented as a pointer to vtable struct
+                format!("Dyn{}*", trait_name)
+            }
+
+            Type::Async(inner) => {
+                // Async type - represented as a future struct
+                format!("Future<{}>*", self.type_to_c(inner))
+            }
         }
     }
 

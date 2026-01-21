@@ -92,6 +92,22 @@ pub fn check_block_expr(expr: &Expr, ctx: &mut TypeContext) -> Result<TypeExpr, 
             check_block_expr(body, ctx)?;
             Ok(TypeExpr::Named("void".to_string()))
         }
+        // Capability injection: with Capability = impl in body
+        Expr::With { capability, implementation, body } => {
+            // Check the implementation expression
+            check_expr(implementation, ctx)?;
+
+            // Add the capability to context for checking body
+            ctx.add_capability(capability.clone());
+
+            // Check the body with the capability available
+            let body_type = check_block_expr(body, ctx)?;
+
+            // Remove the capability after the with block
+            ctx.remove_capability(capability);
+
+            Ok(body_type)
+        }
         // For other expressions, delegate to immutable check
         _ => check_expr_with_hint(expr, ctx, None),
     }
@@ -170,6 +186,29 @@ pub fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, Stri
         Expr::Reassign { value, .. } => {
             check_expr(value, ctx)?;
             Ok(TypeExpr::Named("void".to_string()))
+        }
+        Expr::With { capability, implementation, body } => {
+            // Check the implementation expression
+            check_expr(implementation, ctx)?;
+
+            // Create a child context with the capability added
+            let mut child_ctx = ctx.child();
+            child_ctx.add_capability(capability.clone());
+
+            // Check the body with the capability available
+            check_expr(body, &child_ctx)
+        }
+
+        Expr::Await(inner) => {
+            let inner_type = check_expr(inner, ctx)?;
+            // Unwrap async type
+            match inner_type {
+                TypeExpr::Async(t) => Ok(*t),
+                _ => Err(format!(
+                    "await requires async type, got {:?}",
+                    inner_type
+                )),
+            }
         }
     }
 }

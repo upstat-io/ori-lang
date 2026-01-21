@@ -1,6 +1,6 @@
 // Tests for String length
 
-use string_length { string_length, is_empty, has_content }
+use '../string_length' { string_length, is_empty, has_content }
 
 @test_string_length tests @string_length () -> void = run(
     assert(string_length("") == 0),

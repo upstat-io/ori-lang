@@ -20,36 +20,83 @@ A file named `mod.si` represents the directory's index module.
 ### Syntax
 
 ```
-import        = "use" module_path [ import_list | "as" identifier ] .
+import        = "use" import_path [ import_list | "as" identifier ] .
+import_path   = relative_path | module_path .
+relative_path = string_literal .
 module_path   = identifier { "." identifier } .
 import_list   = "{" import_item { "," import_item } [ "," ] "}" .
 import_item   = import_name [ "as" identifier ] .
-import_name   = identifier | "$" identifier .
+import_name   = [ "::" ] identifier | "$" identifier .
 ```
 
-### Selective Import
+### Relative Imports (Local Files)
 
-Import specific items from a module:
+Local project files are imported using relative paths in quotes:
+
+```sigil
+use './math' { add, subtract }
+use '../utils/helpers' { format }
+use './http/client' { get, post }
+```
+
+Relative paths:
+- Start with `./` (same directory) or `../` (parent directory)
+- Are enclosed in single quotes
+- Resolve relative to the current file's location
+- Omit the `.si` extension
+
+This makes file locations explicit and unambiguous for both humans and AI.
+
+### Module Imports (Standard Library & Packages)
+
+External modules use dot-separated paths without quotes:
 
 ```sigil
 use std.math { sqrt, abs, pow }
-use http.client { get, post }
+use std.time { Time, Duration }
+use std.net.http { get, post }
 ```
 
-Import with aliases and config bindings:
+### Private Imports
+
+Private items (not marked `pub`) can be imported using the `::` prefix:
 
 ```sigil
-use math { add as plus, subtract as minus }
-use config { $timeout, $max_retries as $retries }
+use './math' { add, ::internal_helper }
+use './utils' { ::validate, ::parse }
+```
+
+The `::` prefix explicitly requests access to a non-public item. This works from any file.
+
+```sigil
+// In math.si
+@add (a: int, b: int) -> int = a + b           // private
+pub @subtract (a: int, b: int) -> int = a - b  // public
+
+// In another file
+use './math' { subtract }       // OK - public
+use './math' { add }            // ERROR - add is private
+use './math' { ::add }          // OK - explicit private access
+```
+
+### Import with Aliases
+
+Rename imports to avoid conflicts or improve clarity:
+
+```sigil
+use './math' { add as plus, subtract as minus }
+use std.collections { HashMap as Map }
+use './config' { $timeout, $max_retries as $retries }
+use './internal' { ::helper as h }  // private with alias
 ```
 
 ### Module Alias
 
-Import a module under an alias:
+Import an entire module under an alias:
 
 ```sigil
-use http.client as http
-use std.collections.hash_map as HashMap
+use std.net.http as http
+use './utilities/string_helpers' as strings
 ```
 
 ### Qualified Access
@@ -84,10 +131,12 @@ pub $timeout = 30s
 
 ### Visibility Rules
 
-| Declaration | Visible To |
-|-------------|------------|
-| No modifier | Same module only |
-| `pub` | Any importing module |
+| Declaration | Import Syntax | Notes |
+|-------------|---------------|-------|
+| No modifier (private) | `use '...' { ::name }` | Requires `::` prefix |
+| `pub` | `use '...' { name }` | Normal import |
+
+Private items can be imported from any file using explicit `::` syntax. This enables testing private internals without magic visibility rules.
 
 ## Re-exports
 
@@ -95,14 +144,14 @@ A module may re-export items from other modules:
 
 ```sigil
 // In http/mod.si
-pub use http.client { get, post }
-pub use http.server { serve }
+pub use './client' { get, post }
+pub use './server' { serve }
 ```
 
 Consumers can then import from the parent module:
 
 ```sigil
-use http { get, post, serve }
+use './http' { get, post, serve }
 ```
 
 ## Module Path Resolution
@@ -119,9 +168,45 @@ The compiler resolves module paths in this order:
 
 The source root is the directory from which relative module paths are resolved. Default is `src/`.
 
-### Absolute Paths Only
+### Path Types
 
-Import paths are always absolute. Relative paths (such as `.` or `..`) are not permitted.
+| Path Type | Syntax | Resolves To |
+|-----------|--------|-------------|
+| Relative | `'./foo'` | Same directory |
+| Relative | `'../foo'` | Parent directory |
+| Module | `std.foo` | Standard library |
+| Module | `pkg.foo` | External package |
+
+### Relative Path Resolution
+
+Relative paths resolve from the importing file's directory:
+
+```
+src/
+  math.si
+  utils/
+    helpers.si
+  _test/
+    math.test.si
+```
+
+```sigil
+// In src/_test/math.test.si
+use '../math' { add }           // resolves to src/math.si
+use '../utils/helpers' { fmt }  // resolves to src/utils/helpers.si
+```
+
+### Module Path Resolution
+
+Module paths resolve in this order:
+
+1. Standard library (`std.*`)
+2. Project dependencies (from manifest)
+
+```sigil
+use std.time { Duration }       // standard library
+use some_package { Widget }     // external dependency
+```
 
 ### Circular Dependencies
 

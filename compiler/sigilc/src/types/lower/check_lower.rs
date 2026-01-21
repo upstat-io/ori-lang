@@ -200,6 +200,28 @@ impl Lowerer {
                     Err(format!("Cannot assign to undeclared variable '{}'", target))
                 }
             }
+
+            Expr::With { capability, implementation, body } => {
+                // Lower the implementation and body
+                let impl_expr = self.lower_expr_fast(implementation, span.clone())?;
+                let body_expr = self.lower_expr_fast(body, span.clone())?;
+                let body_ty = body_expr.ty.clone();
+                Ok((TExprKind::With {
+                    capability: capability.clone(),
+                    implementation: Box::new(impl_expr),
+                    body: Box::new(body_expr),
+                }, body_ty))
+            }
+
+            Expr::Await(inner) => {
+                let inner_expr = self.lower_expr_fast(inner, span.clone())?;
+                // Unwrap the async type to get the result type
+                let result_ty = match &inner_expr.ty {
+                    Type::Async(t) => (**t).clone(),
+                    _ => return Err(format!("await requires async type, got {:?}", inner_expr.ty)),
+                };
+                Ok((TExprKind::Await(Box::new(inner_expr)), result_ty))
+            }
         }
     }
 

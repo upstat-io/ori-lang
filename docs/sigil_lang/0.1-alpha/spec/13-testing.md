@@ -168,26 +168,30 @@ src/
 ```sigil
 // _test/math.test.si
 
-use math { add }
+use '../math' { add }
 
 @test_add tests @add () -> void = run(
     assert_eq(add(2, 3), 5),
 )
 ```
 
-### Test File Access
+Test files use relative imports to reference their parent module. The `'../math'` path explicitly shows the file location.
 
-Test files in `_test/` directories have access to private items in their parent module:
+### Testing Private Items
+
+Private items can be imported using the `::` prefix:
 
 ```sigil
 // _test/math.test.si
 
-use math { add, helper }  // helper is private, but accessible from test
+use '../math' { add, ::helper }  // helper is private, :: makes access explicit
 
 @test_helper tests @helper () -> void = run(
     assert_eq(helper(5), 10),
 )
 ```
+
+The `::` prefix works from any file, not just test files. See [Modules § Private Imports](12-modules.md#private-imports).
 
 ## Test Execution
 

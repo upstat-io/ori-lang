@@ -207,6 +207,15 @@ impl CaptureAnalyzer {
 
             // Length placeholder
             Expr::LengthPlaceholder => {}
+
+            // Capability injection - visit implementation and body
+            Expr::With { implementation, body, .. } => {
+                self.visit_expr(implementation);
+                self.visit_expr(body);
+            }
+
+            // Await - visit the inner expression
+            Expr::Await(inner) => self.visit_expr(inner),
         }
     }
 

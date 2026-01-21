@@ -153,6 +153,16 @@ pub enum TExprKind {
         default: Box<TExpr>,
     },
     Unwrap(Box<TExpr>),
+
+    // Capability injection
+    With {
+        capability: String,
+        implementation: Box<TExpr>,
+        body: Box<TExpr>,
+    },
+
+    // Await (unwrap async)
+    Await(Box<TExpr>),
 }
 
 /// Typed statement (in blocks)

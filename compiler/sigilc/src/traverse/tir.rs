@@ -118,6 +118,14 @@ pub trait TExprTraversal: Sized {
 
             // Assignment
             TExprKind::Assign { target, value } => self.on_assign(*target, value, ty, span),
+
+            // Capability injection
+            TExprKind::With { capability, implementation, body } => {
+                self.on_with(capability, implementation, body, ty, span)
+            }
+
+            // Async
+            TExprKind::Await(inner) => self.on_await(inner, ty, span),
         }
     }
 
@@ -382,6 +390,36 @@ pub trait TExprTraversal: Sized {
     fn on_assign(&mut self, _target: crate::ir::LocalId, value: &TExpr, _ty: &Type, _span: &Span) -> Result<Self::Output, Self::Error> {
         if Self::AUTO_RECURSE {
             self.traverse(value)
+        } else {
+            self.default_result()
+        }
+    }
+
+    fn on_with(
+        &mut self,
+        _capability: &str,
+        implementation: &TExpr,
+        body: &TExpr,
+        _ty: &Type,
+        _span: &Span,
+    ) -> Result<Self::Output, Self::Error> {
+        if Self::AUTO_RECURSE {
+            let i = self.traverse(implementation)?;
+            let b = self.traverse(body)?;
+            Ok(self.combine_results(i, b))
+        } else {
+            self.default_result()
+        }
+    }
+
+    fn on_await(
+        &mut self,
+        inner: &TExpr,
+        _ty: &Type,
+        _span: &Span,
+    ) -> Result<Self::Output, Self::Error> {
+        if Self::AUTO_RECURSE {
+            self.traverse(inner)
         } else {
             self.default_result()
         }

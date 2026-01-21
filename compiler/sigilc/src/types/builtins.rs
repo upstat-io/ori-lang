@@ -79,6 +79,7 @@ macro_rules! define_builtins {
                         type_param_bounds: vec![],
                         params: vec![$( (stringify!($pname).to_string(), $pty) ),*],
                         return_type: $ret,
+                        capabilities: vec![],
                     },
                 );
             )*

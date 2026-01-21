@@ -1,6 +1,6 @@
 // Tests for String concatenation
 
-use string_concatenation { concat, join, concat_all }
+use '../string_concatenation' { concat, join, concat_all }
 
 @test_concat tests @concat () -> void = run(
     assert(concat("Hello", "World") == "HelloWorld"),

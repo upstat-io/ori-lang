@@ -85,6 +85,7 @@ pub struct FunctionDef {
     pub type_params: Vec<String>, // Generic type parameters (names only, for compatibility)
     pub type_param_bounds: Vec<TypeParam>, // Type parameters with bounds
     pub where_clause: Vec<WhereBound>, // Additional where clause constraints
+    pub uses_clause: Vec<String>, // Capability requirements: uses Http, FileSystem
     pub params: Vec<Param>,
     pub return_type: TypeExpr,
     pub body: SpannedExpr,

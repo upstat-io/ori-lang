@@ -154,6 +154,14 @@ pub trait ExprTraversal: Sized {
             // Bindings (in block context)
             Expr::Let { name, mutable, value } => self.on_let(name, *mutable, value),
             Expr::Reassign { target, value } => self.on_reassign(target, value),
+
+            // Capability injection
+            Expr::With { capability, implementation, body } => {
+                self.on_with(capability, implementation, body)
+            }
+
+            // Async
+            Expr::Await(inner) => self.on_await(inner),
         }
     }
 
@@ -478,6 +486,29 @@ pub trait ExprTraversal: Sized {
     fn on_reassign(&mut self, _target: &str, value: &Expr) -> Result<Self::Output, Self::Error> {
         if Self::AUTO_RECURSE {
             self.traverse(value)
+        } else {
+            self.default_result()
+        }
+    }
+
+    fn on_with(
+        &mut self,
+        _capability: &str,
+        implementation: &Expr,
+        body: &Expr,
+    ) -> Result<Self::Output, Self::Error> {
+        if Self::AUTO_RECURSE {
+            let i = self.traverse(implementation)?;
+            let b = self.traverse(body)?;
+            Ok(self.combine_results(i, b))
+        } else {
+            self.default_result()
+        }
+    }
+
+    fn on_await(&mut self, inner: &Expr) -> Result<Self::Output, Self::Error> {
+        if Self::AUTO_RECURSE {
+            self.traverse(inner)
         } else {
             self.default_result()
         }

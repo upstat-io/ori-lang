@@ -1022,6 +1022,31 @@ fn test_type_record() {
     assert!(matches!(&func.return_type, TypeExpr::Record(fields) if fields.len() == 2));
 }
 
+#[test]
+fn test_type_dyn_trait() {
+    let module = parse_ok("@f (callback: dyn Display) -> void = print(callback)");
+    let func = first_function(&module);
+    assert!(matches!(&func.params[0].ty, TypeExpr::DynTrait(name) if name == "Display"));
+}
+
+#[test]
+fn test_type_dyn_trait_in_list() {
+    let module = parse_ok("@f (handlers: [dyn Handler]) -> void = print(handlers)");
+    let func = first_function(&module);
+    if let TypeExpr::List(inner) = &func.params[0].ty {
+        assert!(matches!(inner.as_ref(), TypeExpr::DynTrait(name) if name == "Handler"));
+    } else {
+        panic!("expected list type");
+    }
+}
+
+#[test]
+fn test_type_dyn_trait_return() {
+    let module = parse_ok("@make_printer () -> dyn Printable = create_printer()");
+    let func = first_function(&module);
+    assert!(matches!(&func.return_type, TypeExpr::DynTrait(name) if name == "Printable"));
+}
+
 // ============================================================================
 // Assignment Tests
 // ============================================================================
@@ -1316,4 +1341,49 @@ impl Iterator for Range {
     assert_eq!(impl_block.associated_types.len(), 1);
     assert_eq!(impl_block.associated_types[0].name, "Item");
     assert_eq!(impl_block.associated_types[0].ty, TypeExpr::Named("int".to_string()));
+}
+
+// ============================================================================
+// Capability System Tests
+// ============================================================================
+
+#[test]
+fn test_function_with_uses_clause() {
+    let module = parse_ok(r#"
+@fetch (url: str) -> str uses Http = Http.get(url)
+"#);
+    let func = first_function(&module);
+    assert_eq!(func.name, "fetch");
+    assert_eq!(func.uses_clause, vec!["Http".to_string()]);
+}
+
+#[test]
+fn test_function_with_multiple_uses() {
+    let module = parse_ok(r#"
+@upload (path: str, url: str) -> str uses FileSystem, Http = run(
+    let content = FileSystem.read(path),
+    Http.post(url, content),
+)
+"#);
+    let func = first_function(&module);
+    assert_eq!(func.name, "upload");
+    assert_eq!(func.uses_clause, vec!["FileSystem".to_string(), "Http".to_string()]);
+}
+
+#[test]
+fn test_with_expression() {
+    let module = parse_ok(r#"
+@test_fetch () -> str = with Http = MockHttp {} in fetch("http://example.com")
+"#);
+    let func = first_function(&module);
+    match &func.body.expr {
+        Expr::With { capability, implementation, body } => {
+            assert_eq!(capability, "Http");
+            // Implementation should be a struct literal
+            matches!(implementation.as_ref(), Expr::Struct { name, .. } if name == "MockHttp");
+            // Body should be a function call
+            matches!(body.as_ref(), Expr::Call { .. });
+        }
+        _ => panic!("expected With expression"),
+    }
 }

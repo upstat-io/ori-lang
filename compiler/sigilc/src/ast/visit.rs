@@ -101,6 +101,10 @@ pub trait ExprVisitor {
 
             Expr::Let { name, mutable, value } => self.visit_let(name, *mutable, value),
             Expr::Reassign { target, value } => self.visit_reassign(target, value),
+            Expr::With { capability, implementation, body } => {
+                self.visit_with(capability, implementation, body)
+            }
+            Expr::Await(inner) => self.visit_await(inner),
         }
     }
 
@@ -268,6 +272,21 @@ pub trait ExprVisitor {
 
     fn visit_reassign(&mut self, _target: &str, value: &Expr) -> Self::Result {
         self.visit_expr(value)
+    }
+
+    fn visit_with(
+        &mut self,
+        _capability: &str,
+        implementation: &Expr,
+        body: &Expr,
+    ) -> Self::Result {
+        let i = self.visit_expr(implementation);
+        let b = self.visit_expr(body);
+        self.combine_results(i, b)
+    }
+
+    fn visit_await(&mut self, inner: &Expr) -> Self::Result {
+        self.visit_expr(inner)
     }
 
     fn visit_block(&mut self, exprs: &[Expr]) -> Self::Result {

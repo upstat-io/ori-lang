@@ -302,3 +302,51 @@ Size literals represent values of type `Size`.
 ## Semicolons
 
 Sigil does not require semicolons as statement terminators. Newlines serve this purpose in most contexts. Within pattern expressions (inside parentheses), commas separate elements.
+
+## Line Continuation
+
+### Natural Continuation
+
+A newline does not terminate an expression when it follows:
+
+1. A binary operator (`+`, `-`, `*`, `/`, `%`, `div`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `||`, `&`, `|`, `^`, `..`, `..=`, `??`)
+2. An opening delimiter (`(`, `[`, `{`)
+3. A comma
+
+This allows multi-line expressions without explicit continuation markers:
+
+```sigil
+if a > 0
+   && b > 0
+   && c > 0
+then result
+else fallback
+```
+
+### Continuation Within Delimiters
+
+Within parentheses, brackets, or braces, newlines are treated as whitespace. Commas separate elements:
+
+```sigil
+fold(
+    .over: items,
+    .init: 0,
+    .op: +,
+)
+```
+
+## Trailing Commas
+
+Trailing commas are syntactically permitted in all comma-separated lists:
+
+- Function parameters and arguments
+- Pattern properties
+- List and map literals
+- Struct fields
+- Match arms
+
+```
+list_elements = element { "," element } [ "," ] .
+```
+
+> **Note:** The canonical formatter enforces trailing commas in multi-line constructs. Single-line constructs omit trailing commas.

@@ -77,6 +77,10 @@ pub trait Folder {
             TExprKind::None_ => self.fold_none(ty, span),
             TExprKind::Coalesce { value, default } => self.fold_coalesce(*value, *default, ty, span),
             TExprKind::Unwrap(inner) => self.fold_unwrap(*inner, ty, span),
+            TExprKind::With { capability, implementation, body } => {
+                self.fold_with(capability, *implementation, *body, ty, span)
+            }
+            TExprKind::Await(inner) => self.fold_await(*inner, ty, span),
         }
     }
 
@@ -570,6 +574,32 @@ pub trait Folder {
     fn fold_unwrap(&mut self, inner: TExpr, ty: Type, span: Span) -> TExpr {
         let inner = self.fold_expr(inner);
         TExpr::new(TExprKind::Unwrap(Box::new(inner)), ty, span)
+    }
+
+    fn fold_with(
+        &mut self,
+        capability: String,
+        implementation: TExpr,
+        body: TExpr,
+        ty: Type,
+        span: Span,
+    ) -> TExpr {
+        let implementation = self.fold_expr(implementation);
+        let body = self.fold_expr(body);
+        TExpr::new(
+            TExprKind::With {
+                capability,
+                implementation: Box::new(implementation),
+                body: Box::new(body),
+            },
+            ty,
+            span,
+        )
+    }
+
+    fn fold_await(&mut self, inner: TExpr, ty: Type, span: Span) -> TExpr {
+        let inner = self.fold_expr(inner);
+        TExpr::new(TExprKind::Await(Box::new(inner)), ty, span)
     }
 }
 

@@ -14,6 +14,27 @@ impl Parser {
             return Ok(TypeExpr::Optional(Box::new(inner)));
         }
 
+        // Dynamic trait object: dyn Trait
+        if matches!(self.current(), Some(Token::Dyn)) {
+            self.advance();
+            let trait_name = match self.current() {
+                Some(Token::Ident(n)) => {
+                    let n = n.clone();
+                    self.advance();
+                    n
+                }
+                _ => return Err("Expected trait name after 'dyn'".to_string()),
+            };
+            return Ok(TypeExpr::DynTrait(trait_name));
+        }
+
+        // Async type: async T
+        if matches!(self.current(), Some(Token::Async)) {
+            self.advance();
+            let inner = self.parse_type()?;
+            return Ok(TypeExpr::Async(Box::new(inner)));
+        }
+
         // List type: [T]
         if matches!(self.current(), Some(Token::LBracket)) {
             self.advance();

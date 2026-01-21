@@ -67,7 +67,7 @@ Quick-reference guide to core language design philosophy and patterns.
 
 ### Context-Sensitive Keywords
 - Allow keywords as identifiers in non-conflicting contexts
-- Examples: `map`, `filter`, `type` usable as variable names
+- Examples: `map`, `filter`, `fold` usable as variable names (pattern names only)
 - Reduces reserved word count
 - Requires careful grammar design
 

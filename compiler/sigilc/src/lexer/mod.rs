@@ -55,6 +55,18 @@ pub enum Token {
     #[token("dyn")]
     Dyn,
 
+    // Capability system
+    #[token("uses")]
+    Uses,
+    #[token("with")]
+    With,
+
+    // Async
+    #[token("async")]
+    Async,
+    #[token("await")]
+    Await,
+
     // Variable bindings
     #[token("let")]
     Let,

@@ -5,7 +5,7 @@ use crate::ast::{TypeDef, TypeExpr};
 use super::builtins::register_builtins;
 use super::registries::{ConfigRegistry, FunctionRegistry, TypeRegistry};
 use super::scope::{LocalBinding, ScopeGuard, ScopeManager};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 // Re-export FunctionSig from registries for backwards compatibility
@@ -31,6 +31,11 @@ pub struct TypeContext {
 
     /// Source filename for diagnostic spans
     pub(crate) filename: String,
+
+    /// Available capabilities in the current scope
+    /// Capabilities are added by `uses` clauses in function definitions
+    /// and by `with` expressions for capability injection
+    pub(crate) capabilities: HashSet<String>,
 }
 
 impl Default for TypeContext {
@@ -51,6 +56,7 @@ impl TypeContext {
             configs: Arc::new(ConfigRegistry::new()),
             scopes: ScopeManager::new(),
             filename: String::new(),
+            capabilities: HashSet::new(),
         }
     }
 
@@ -104,6 +110,43 @@ impl TypeContext {
 
     pub fn lookup_config(&self, name: &str) -> Option<&TypeExpr> {
         self.configs.lookup(name)
+    }
+
+    // === Capability Management ===
+
+    /// Add a capability to the current scope
+    pub fn add_capability(&mut self, capability: String) {
+        self.capabilities.insert(capability);
+    }
+
+    /// Add multiple capabilities to the current scope
+    pub fn add_capabilities(&mut self, capabilities: impl IntoIterator<Item = String>) {
+        self.capabilities.extend(capabilities);
+    }
+
+    /// Remove a capability from the current scope
+    pub fn remove_capability(&mut self, capability: &str) {
+        self.capabilities.remove(capability);
+    }
+
+    /// Check if a capability is available in the current scope
+    pub fn has_capability(&self, capability: &str) -> bool {
+        self.capabilities.contains(capability)
+    }
+
+    /// Get all available capabilities
+    pub fn available_capabilities(&self) -> &HashSet<String> {
+        &self.capabilities
+    }
+
+    /// Check if a function's capability requirements are satisfied
+    /// Returns a list of missing capabilities
+    pub fn check_capabilities(&self, required: &[String]) -> Vec<String> {
+        required
+            .iter()
+            .filter(|cap| !self.capabilities.contains(*cap))
+            .cloned()
+            .collect()
     }
 
     // === Scope Manager Facade ===
@@ -177,6 +220,7 @@ impl TypeContext {
             configs: Arc::clone(&self.configs),
             scopes: self.scopes.clone(),
             filename: self.filename.clone(),
+            capabilities: self.capabilities.clone(),
         }
     }
 
@@ -188,5 +232,62 @@ impl TypeContext {
         let mut child = self.child();
         f(&mut child.scopes.locals);
         child
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_capability_management() {
+        let mut ctx = TypeContext::new();
+
+        // Initially no capabilities
+        assert!(!ctx.has_capability("Http"));
+        assert!(!ctx.has_capability("FileSystem"));
+
+        // Add a capability
+        ctx.add_capability("Http".to_string());
+        assert!(ctx.has_capability("Http"));
+        assert!(!ctx.has_capability("FileSystem"));
+
+        // Add multiple capabilities
+        ctx.add_capabilities(vec!["FileSystem".to_string(), "Clock".to_string()]);
+        assert!(ctx.has_capability("Http"));
+        assert!(ctx.has_capability("FileSystem"));
+        assert!(ctx.has_capability("Clock"));
+
+        // Remove a capability
+        ctx.remove_capability("Http");
+        assert!(!ctx.has_capability("Http"));
+        assert!(ctx.has_capability("FileSystem"));
+    }
+
+    #[test]
+    fn test_check_capabilities() {
+        let mut ctx = TypeContext::new();
+        ctx.add_capabilities(vec!["Http".to_string(), "Clock".to_string()]);
+
+        // All satisfied
+        let missing = ctx.check_capabilities(&["Http".to_string()]);
+        assert!(missing.is_empty());
+
+        // Some missing
+        let missing = ctx.check_capabilities(&["Http".to_string(), "FileSystem".to_string()]);
+        assert_eq!(missing, vec!["FileSystem".to_string()]);
+
+        // All missing
+        let missing = ctx.check_capabilities(&["FileSystem".to_string(), "Database".to_string()]);
+        assert_eq!(missing.len(), 2);
+    }
+
+    #[test]
+    fn test_capabilities_inherited_by_child() {
+        let mut ctx = TypeContext::new();
+        ctx.add_capability("Http".to_string());
+
+        let child = ctx.child();
+        assert!(child.has_capability("Http"));
     }
 }

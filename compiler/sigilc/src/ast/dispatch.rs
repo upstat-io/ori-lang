@@ -261,6 +261,18 @@ pub trait ExprHandler {
         let _ = inner;
         unimplemented!("handle_unwrap not implemented")
     }
+
+    /// Handle with Capability = impl in body (capability injection)
+    fn handle_with(&mut self, capability: &str, implementation: &Expr, body: &Expr) -> Result<Self::Output, Self::Error> {
+        let _ = (capability, implementation, body);
+        unimplemented!("handle_with not implemented")
+    }
+
+    /// Handle await expression
+    fn handle_await(&mut self, inner: &Expr) -> Result<Self::Output, Self::Error> {
+        let _ = inner;
+        unimplemented!("handle_await not implemented")
+    }
 }
 
 /// Dispatch an expression to the appropriate handler method
@@ -303,6 +315,10 @@ pub fn dispatch_to_handler<H: ExprHandler>(handler: &mut H, expr: &Expr) -> Resu
         Expr::None_ => handler.handle_none(),
         Expr::Coalesce { value, default } => handler.handle_coalesce(value, default),
         Expr::Unwrap(inner) => handler.handle_unwrap(inner),
+        Expr::With { capability, implementation, body } => {
+            handler.handle_with(capability, implementation, body)
+        }
+        Expr::Await(inner) => handler.handle_await(inner),
     }
 }
 
