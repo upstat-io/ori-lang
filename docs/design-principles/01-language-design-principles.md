@@ -37,12 +37,12 @@ Quick-reference guide to core language design philosophy and patterns.
 ## Syntax Design Patterns
 
 ### Sigils & Prefixes
-- `@` for decorators/attributes (Python, Java, Sigil functions)
+- `@` for function definitions (Sigil) or decorators/attributes (Python, Java)
 - `$` for variables (PHP, shell) or configuration (Sigil)
-- `#` for preprocessor/macros (C) or comments
+- `#` for preprocessor/macros (C), comments, or length in context (Sigil)
 - `_` for unused/private (Python, Rust, Go)
 - `!` for macros (Rust) or unwrap operations
-- `?` for optionals (Swift, Kotlin) or error propagation (Rust)
+- `?` for optionals (Swift, Kotlin) or error propagation (Rust, Sigil)
 
 ### Keywords vs Symbols
 - Keywords for control flow: `if`, `for`, `while`, `match`, `return`

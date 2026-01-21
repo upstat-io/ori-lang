@@ -37,6 +37,7 @@ pub mod builtins {
             name: "clone".to_string(),
             sig: FunctionSig {
                 type_params: vec![],
+                type_param_bounds: vec![],
                 params: vec![("self".to_string(), TypeExpr::Named("Self".to_string()))],
                 return_type: TypeExpr::Named("Self".to_string()),
             },
@@ -52,6 +53,7 @@ pub mod builtins {
             name: "eq".to_string(),
             sig: FunctionSig {
                 type_params: vec![],
+                type_param_bounds: vec![],
                 params: vec![
                     ("self".to_string(), TypeExpr::Named("Self".to_string())),
                     ("other".to_string(), TypeExpr::Named("Self".to_string())),
@@ -78,6 +80,7 @@ pub mod builtins {
             name: "hash".to_string(),
             sig: FunctionSig {
                 type_params: vec![],
+                type_param_bounds: vec![],
                 params: vec![("self".to_string(), TypeExpr::Named("Self".to_string()))],
                 return_type: TypeExpr::Named("int".to_string()),
             },
@@ -93,6 +96,7 @@ pub mod builtins {
             name: "to_string".to_string(),
             sig: FunctionSig {
                 type_params: vec![],
+                type_param_bounds: vec![],
                 params: vec![("self".to_string(), TypeExpr::Named("Self".to_string()))],
                 return_type: TypeExpr::Named("str".to_string()),
             },
@@ -108,6 +112,7 @@ pub mod builtins {
             name: "debug".to_string(),
             sig: FunctionSig {
                 type_params: vec![],
+                type_param_bounds: vec![],
                 params: vec![("self".to_string(), TypeExpr::Named("Self".to_string()))],
                 return_type: TypeExpr::Named("str".to_string()),
             },
@@ -123,6 +128,7 @@ pub mod builtins {
             name: "default".to_string(),
             sig: FunctionSig {
                 type_params: vec![],
+                type_param_bounds: vec![],
                 params: vec![], // No self parameter - static method
                 return_type: TypeExpr::Named("Self".to_string()),
             },

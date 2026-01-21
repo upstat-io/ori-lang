@@ -23,7 +23,7 @@ pub use expr::Expr;
 // SpannedExpr is defined in this file, no need to re-export
 pub use items::{
     AssociatedType, AssociatedTypeImpl, ConfigDef, Field, FunctionDef, ImplBlock, Param,
-    TestDef, TraitDef, TraitMethodDef, TypeDef, TypeDefKind, UseDef, UseItem, Variant,
+    TestDef, TraitDef, TraitMethodDef, TypeDef, TypeDefKind, TypeParam, UseDef, UseItem, Variant,
     WhereBound,
 };
 pub use matching::{MatchArm, MatchExpr, Pattern};

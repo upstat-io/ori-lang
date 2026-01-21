@@ -52,6 +52,8 @@ pub enum Token {
     Impl,
     #[token("where")]
     Where,
+    #[token("dyn")]
+    Dyn,
 
     // Variable bindings
     #[token("let")]

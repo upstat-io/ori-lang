@@ -139,6 +139,77 @@ is_none(None)       // true
 is_none(Some(42))   // false
 ```
 
+## Option Methods
+
+Methods available on `Option<T>` values.
+
+### map
+
+Transform the value if present.
+
+```
+Option<T>.map(T -> U) -> Option<U>
+```
+
+```sigil
+Some(2).map(x -> x * 2)  // Some(4)
+None.map(x -> x * 2)     // None
+```
+
+### unwrap_or
+
+Return the value if present, or a default.
+
+```
+Option<T>.unwrap_or(T) -> T
+```
+
+```sigil
+Some(42).unwrap_or(0)  // 42
+None.unwrap_or(0)      // 0
+```
+
+### ok_or
+
+Convert to `Result<T, E>`, using the provided error if `None`.
+
+```
+Option<T>.ok_or(E) -> Result<T, E>
+```
+
+```sigil
+Some(42).ok_or("missing")  // Ok(42)
+None.ok_or("missing")      // Err("missing")
+```
+
+### and_then
+
+Chain operations that may return `None`.
+
+```
+Option<T>.and_then(T -> Option<U>) -> Option<U>
+```
+
+```sigil
+Some(2).and_then(x -> Some(x * 2))  // Some(4)
+Some(2).and_then(x -> None)         // None
+None.and_then(x -> Some(x * 2))     // None
+```
+
+### filter
+
+Keep the value only if it satisfies a predicate.
+
+```
+Option<T>.filter(T -> bool) -> Option<T>
+```
+
+```sigil
+Some(4).filter(x -> x > 0)   // Some(4)
+Some(-1).filter(x -> x > 0)  // None
+None.filter(x -> x > 0)      // None
+```
+
 ## Result Functions
 
 ### is_ok
@@ -165,6 +236,95 @@ Test if a `Result` is an error.
 ```sigil
 is_err(Err("fail"))  // true
 is_err(Ok(42))       // false
+```
+
+## Result Methods
+
+Methods available on `Result<T, E>` values.
+
+### map
+
+Transform the success value, leaving errors unchanged.
+
+```
+Result<T, E>.map(T -> U) -> Result<U, E>
+```
+
+```sigil
+Ok(2).map(x -> x * 2)       // Ok(4)
+Err("fail").map(x -> x * 2) // Err("fail")
+```
+
+### map_err
+
+Transform the error value, leaving successes unchanged.
+
+```
+Result<T, E>.map_err(E -> F) -> Result<T, F>
+```
+
+```sigil
+Err("fail").map_err(e -> AppError.Parse(e))  // Err(AppError.Parse("fail"))
+Ok(42).map_err(e -> AppError.Parse(e))       // Ok(42)
+```
+
+Use `.map_err()` with `?` to convert and propagate errors:
+
+```sigil
+let content = read_file(path).map_err(e -> AppError.Io(e))?
+```
+
+### unwrap_or
+
+Return the success value, or a default if error.
+
+```
+Result<T, E>.unwrap_or(T) -> T
+```
+
+```sigil
+Ok(42).unwrap_or(0)        // 42
+Err("fail").unwrap_or(0)   // 0
+```
+
+### ok
+
+Convert to `Option<T>`, discarding error information.
+
+```
+Result<T, E>.ok() -> Option<T>
+```
+
+```sigil
+Ok(42).ok()       // Some(42)
+Err("fail").ok()  // None
+```
+
+### err
+
+Convert to `Option<E>`, discarding success value.
+
+```
+Result<T, E>.err() -> Option<E>
+```
+
+```sigil
+Err("fail").err()  // Some("fail")
+Ok(42).err()       // None
+```
+
+### and_then
+
+Chain operations that may fail.
+
+```
+Result<T, E>.and_then(T -> Result<U, E>) -> Result<U, E>
+```
+
+```sigil
+Ok(2).and_then(x -> Ok(x * 2))      // Ok(4)
+Ok(2).and_then(x -> Err("fail"))    // Err("fail")
+Err("fail").and_then(x -> Ok(x * 2)) // Err("fail")
 ```
 
 ## Assertion Functions

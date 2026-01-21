@@ -181,6 +181,7 @@ mod tests {
             name: "compare".to_string(),
             sig: FunctionSig {
                 type_params: vec![],
+                type_param_bounds: vec![],
                 params: vec![
                     ("self".to_string(), TypeExpr::Named("Self".to_string())),
                     ("other".to_string(), TypeExpr::Named("Self".to_string())),
@@ -247,6 +248,7 @@ mod tests {
             name: "generic_method".to_string(),
             sig: FunctionSig {
                 type_params: vec!["T".to_string()], // Generic!
+                type_param_bounds: vec![],
                 params: vec![],
                 return_type: TypeExpr::Named("void".to_string()),
             },

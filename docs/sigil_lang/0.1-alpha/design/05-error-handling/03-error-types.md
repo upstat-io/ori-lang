@@ -167,16 +167,16 @@ type AppError =
 
 @load_app (config_path: str) -> Result<App, AppError> = try(
     // Convert FileError to AppError
-    let content = read_file(config_path)? | e -> match(e,
+    let content = read_file(config_path).map_err(e -> match(e,
         FileError.NotFound(p) -> AppError.ConfigError("Config not found: " + p),
         e -> AppError.ConfigError("Config error: " + str(e)),
-    ),
+    ))?,
 
     // Convert ParseError to AppError
-    let config = parse_config(content)? | e -> AppError.ParseError(e),
+    let config = parse_config(content).map_err(e -> AppError.ParseError(e))?,
 
     // Convert NetworkError to AppError
-    let data = fetch(config.url)? | e -> AppError.NetworkError(e),
+    let data = fetch(config.url).map_err(e -> AppError.NetworkError(e))?,
 
     Ok(build_app(config, data)),
 )
@@ -197,8 +197,8 @@ Define reusable conversion functions:
 
 // Usage in try
 @load_app (path: str) -> Result<App, AppError> = try(
-    let content = read_file(path)? | file_to_app_error,
-    let config = parse(content)? | parse_to_app_error,
+    let content = read_file(path).map_err(file_to_app_error)?,
+    let config = parse(content).map_err(parse_to_app_error)?,
     Ok(build(config)),
 )
 ```
@@ -215,8 +215,8 @@ type HighLevelError =
 
 // Wrap preserves original error for inspection
 @process (path: str) -> Result<Output, HighLevelError> = try(
-    let content = read_file(path)? | e -> HighLevelError.IoError(e),
-    let data = parse(content)? | e -> HighLevelError.ParseError(e),
+    let content = read_file(path).map_err(e -> HighLevelError.IoError(e))?,
+    let data = parse(content).map_err(e -> HighLevelError.ParseError(e))?,
     Ok(transform(data)),
 )
 ```

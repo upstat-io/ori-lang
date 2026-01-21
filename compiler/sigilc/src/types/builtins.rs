@@ -76,6 +76,7 @@ macro_rules! define_builtins {
                     $name.to_string(),
                     FunctionSig {
                         type_params: vec![$( $(stringify!($tp).to_string()),* )?],
+                        type_param_bounds: vec![],
                         params: vec![$( (stringify!($pname).to_string(), $pty) ),*],
                         return_type: $ret,
                     },

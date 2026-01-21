@@ -113,36 +113,37 @@ The final expression must match the function's return type.
 
 ## Error Conversion
 
-When combining operations that return different error types, you must convert errors explicitly.
+When combining operations that return different error types, you must convert errors explicitly using the `.map_err()` method.
 
-### The `| e -> ...` Syntax
+### The `.map_err()` Method
 
-Use the pipe operator to convert errors inline:
+Use `.map_err()` to convert error types, then `?` to propagate:
 
 ```sigil
 @load (path: str) -> Result<Data, AppError> = try(
     // read_file returns Result<str, FileError>
-    // Convert FileError to AppError
-    let content = read_file(path) | e -> AppError.Io(e),
+    // Convert FileError to AppError, then propagate with ?
+    let content = read_file(path).map_err(e -> AppError.Io(e))?,
 
     // parse returns Result<Data, ParseError>
     // Convert ParseError to AppError
-    let data = parse(content) | e -> AppError.Parse(e),
+    let data = parse(content).map_err(e -> AppError.Parse(e))?,
 
     Ok(data),
 )
 ```
 
-### Conversion Syntax
+### Method Signature
 
 ```sigil
-expression | e -> converted_error
+Result<T, E>.map_err(E -> F) -> Result<T, F>
 ```
 
-This syntax:
-1. Evaluates `expression`
-2. If `Ok(value)`, returns `value` (unwrapped)
-3. If `Err(e)`, returns `Err(converted_error)`
+This method:
+1. If `Ok(value)`, returns `Ok(value)` unchanged
+2. If `Err(e)`, applies the conversion function and returns `Err(converted)`
+
+Combine with `?` to unwrap and propagate: `.map_err(e -> ...)? `
 
 ### Example: Multiple Error Types
 
@@ -154,8 +155,8 @@ type AppError =
 
 @process_file (path: str) -> Result<Output, AppError> = try(
     // Convert each error type
-    let content = read_file(path) | e -> AppError.FileError(e),
-    let config = parse_json(content) | e -> AppError.ParseError(e),
+    let content = read_file(path).map_err(e -> AppError.FileError(e))?,
+    let config = parse_json(content).map_err(e -> AppError.ParseError(e))?,
 
     // Inline validation with custom error
     if !is_valid(config) then
@@ -215,7 +216,7 @@ fn process(path: &str) -> Result<Data, Error> {
 | Visibility | Easy to miss single char | Explicit block |
 | Scope | Per-expression | Entire block |
 | Forgetting | Compile error per site | One pattern covers all |
-| Error conversion | `.map_err()?` | `\| e -> ...` |
+| Error conversion | `.map_err()?` | `.map_err()?` (same) |
 
 ### vs. Do-Notation (Haskell)
 
@@ -250,9 +251,9 @@ Only propagate errors under certain conditions:
     let result = read_file(path),
 
     let content = if required then
-        result | e -> e  // Propagate error
+        result?              // Propagate error
     else
-        result ?? "",    // Use default
+        result ?? "",        // Use default
 
     Ok(process(content)),
 )
@@ -269,7 +270,7 @@ Use nested `try` for sub-operations with different error handling:
         let raw = read(path),
         let parsed = parse(raw),
         Ok(validate(parsed)),
-    ) | e -> OuterError.from_inner(e),
+    ).map_err(e -> OuterError.from_inner(e))?,
 
     Ok(compute(data)),
 )
@@ -401,10 +402,10 @@ By default, `try` returns on the first error. For collecting multiple errors, us
 
 ```sigil
 // Good: explicit conversion
-content = read_file(path) | e -> AppError.Io(e)
+let content = read_file(path).map_err(e -> AppError.Io(e))?
 
 // Avoid: relying on implicit conversion (Sigil doesn't have this)
-content = read_file(path)  // Type error if errors don't match
+let content = read_file(path)?  // Type error if errors don't match
 ```
 
 ### 3. Keep Try Blocks Focused
@@ -435,10 +436,10 @@ content = read_file(path)  // Type error if errors don't match
 // @returns Err(ParseError) if file format is invalid
 // @returns Err(ValidationError) if config values are invalid
 @load_config (path: str) -> Result<Config, ConfigError> = try(
-    let content = read_file(path) | _ -> ConfigError.NotFound(path),
-    let config = parse(content) | e -> ConfigError.ParseError(e),
-    validate(config) | e -> ConfigError.ValidationError(e),
-    Ok(config),
+    let content = read_file(path).map_err(_ -> ConfigError.NotFound(path))?,
+    let config = parse(content).map_err(e -> ConfigError.ParseError(e))?,
+    let validated = validate(config).map_err(e -> ConfigError.ValidationError(e))?,
+    Ok(validated),
 )
 ```
 

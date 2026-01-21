@@ -20,7 +20,7 @@ pub use compat::{
     infer_type, is_numeric, is_type_parameter, types_compatible,
 };
 pub use context::{FunctionSig, TypeContext};
-pub use registries::FunctionSig as FunctionSignature; // Alias for direct access
+pub use registries::{FunctionSig as FunctionSignature, TypeParamBound}; // Aliases for direct access
 pub use diagnostics::{format_type, TypeResultExt};
 pub use scope::LocalBinding;
 pub use lower::{type_expr_to_type, Lowerer};
@@ -89,6 +89,7 @@ fn collect_and_check_module(module: &Module) -> DiagnosticResult<TypeContext> {
             Item::Function(fd) => {
                 let sig = FunctionSig {
                     type_params: fd.type_params.clone(),
+                    type_param_bounds: collect_type_param_bounds(fd),
                     params: fd
                         .params
                         .iter()
@@ -135,6 +136,7 @@ fn collect_and_check_module(module: &Module) -> DiagnosticResult<TypeContext> {
                 for method in &impl_block.methods {
                     let sig = FunctionSig {
                         type_params: method.type_params.clone(),
+                        type_param_bounds: collect_type_param_bounds(method),
                         params: method
                             .params
                             .iter()
@@ -240,6 +242,7 @@ pub fn check_with_all_errors(module: Module) -> crate::errors::MultiDiagnosticRe
             Item::Function(fd) => {
                 let sig = FunctionSig {
                     type_params: fd.type_params.clone(),
+                    type_param_bounds: collect_type_param_bounds(fd),
                     params: fd.params.iter().map(|p| (p.name.clone(), p.ty.clone())).collect(),
                     return_type: fd.return_type.clone(),
                 };
@@ -391,6 +394,7 @@ fn register_item_in_context(
             let name = find_alias(&use_def.items, &fd.name).unwrap_or(&fd.name);
             let sig = FunctionSig {
                 type_params: fd.type_params.clone(),
+                type_param_bounds: collect_type_param_bounds(fd),
                 params: fd
                     .params
                     .iter()
@@ -423,6 +427,64 @@ fn find_alias<'a>(items: &'a [UseItem], name: &str) -> Option<&'a String> {
     items.iter()
         .find(|i| i.name == name)
         .and_then(|i| i.alias.as_ref())
+}
+
+/// Collect type parameter bounds from a function definition
+/// Merges inline bounds (from TypeParam) and where clause bounds
+fn collect_type_param_bounds(fd: &FunctionDef) -> Vec<TypeParamBound> {
+    use std::collections::HashMap;
+
+    // Create a map from type param name to bounds
+    let mut bounds_map: HashMap<String, Vec<String>> = HashMap::new();
+
+    // First, collect bounds from inline syntax (type_param_bounds)
+    for tp in &fd.type_param_bounds {
+        if !tp.bounds.is_empty() {
+            bounds_map
+                .entry(tp.name.clone())
+                .or_default()
+                .extend(tp.bounds.clone());
+        }
+    }
+
+    // Then, add bounds from where clause
+    for wb in &fd.where_clause {
+        bounds_map
+            .entry(wb.type_param.clone())
+            .or_default()
+            .extend(wb.bounds.clone());
+    }
+
+    // Convert to Vec<TypeParamBound>, preserving original type param order
+    let mut result = Vec::new();
+    for param in &fd.type_params {
+        if let Some(bounds) = bounds_map.remove(param) {
+            // Deduplicate bounds
+            let unique_bounds: Vec<String> = bounds
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+            if !unique_bounds.is_empty() {
+                result.push(TypeParamBound::new(param.clone(), unique_bounds));
+            }
+        }
+    }
+
+    // Add any remaining bounds from where clause for type params not in type_params
+    // (This can happen with where clauses that reference associated types, etc.)
+    for (type_param, bounds) in bounds_map {
+        let unique_bounds: Vec<String> = bounds
+            .into_iter()
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        if !unique_bounds.is_empty() {
+            result.push(TypeParamBound::new(type_param, unique_bounds));
+        }
+    }
+
+    result
 }
 
 #[cfg(test)]

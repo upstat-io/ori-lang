@@ -417,8 +417,8 @@ For async programs, make `main` async:
 ```sigil
 // Good: error handling at logical boundaries
 @fetch_user_data (id: int) -> async Result<UserData, AppError> = try(
-    let user = fetch_user(id).await | e -> AppError.Network(e),
-    let profile = fetch_profile(user.id).await | e -> AppError.Network(e),
+    let user = fetch_user(id).await.map_err(e -> AppError.Network(e))?,
+    let profile = fetch_profile(user.id).await.map_err(e -> AppError.Network(e))?,
     Ok(UserData { user: user, profile: profile }),
 )
 ```
