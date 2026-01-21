@@ -1,550 +1,433 @@
-# Async/Await
+# Async via Capabilities
 
-This document covers Sigil's async/await model: function declarations, the `.await` syntax, and how async integrates with patterns.
+This document covers Sigil's approach to asynchronous programming: the explicit `Async` capability instead of async/await syntax.
 
 ---
 
 ## Overview
 
-Sigil uses async/await with explicit suspension points. Every async operation is marked in the type system, and every suspension point is visible in the code.
+Sigil takes a different approach to async than most languages. Instead of an `async` type modifier and `.await` syntax, **async behavior is tracked through an explicit `Async` capability**.
 
 ```sigil
-@fetch_user (id: int) -> async Result<User, Error> =
-    http_get($api_url + "/users/" + str(id)).await
+// Async capability explicitly declares "this function may suspend"
+@fetch_user (id: int) -> Result<User, Error> uses Http, Async =
+    let response = Http.get("/users/" + str(id))?,
+    Ok(parse(response))
 ```
 
-Key principles:
-- `async` in the return type marks functions that can suspend
-- `.await` marks exact suspension points
-- Async is transparent to patterns
-- No hidden control flow
+Key insight: **You're already paying the propagation cost with async/await. Capabilities give you more value for the same cost.**
 
 ---
 
-## Async Function Declaration
+## The Problem with Traditional Async/Await
 
-### The `async` Keyword
+Consider async in Rust, JavaScript, or Python. The `async` keyword propagates up the call stack:
 
-Place `async` before the return type to declare an async function:
-
-```sigil
-@fetch_data (url: str) -> async Result<Data, Error> = ...
-@sync_compute (n: int) -> int = ...  // clearly not async
+```rust
+// Rust: async propagates up
+async fn fetch_user(id: i32) -> Result<User, Error> { ... }
+async fn get_dashboard(id: i32) -> Result<Dashboard, Error> {
+    let user = fetch_user(id).await?;  // Caller must be async too
+    ...
+}
+async fn main() {
+    let dashboard = get_dashboard(1).await;  // And main must be async
+}
 ```
 
-### Why `async` in Return Type?
+This propagation tells you something true: somewhere in the call chain, there's an operation that may suspend. But you get **nothing else** from this propagation:
 
-The signature tells you everything:
-
-```sigil
-// Signature alone tells you this suspends
-@get_user (id: int) -> async Result<User, Error>
-
-// Signature alone tells you this doesn't
-@compute_hash (data: str) -> int
-```
-
-Benefits:
-1. **Call site visibility** - You know an operation may suspend before calling
-2. **Type system integration** - `async` is part of the type, not hidden metadata
-3. **AI readability** - Models generate correct call patterns based on signatures
-4. **No surprise blocking** - Sync functions never secretly perform I/O
-
-### Async vs Sync Signatures
-
-| Declaration | Meaning |
-|-------------|---------|
-| `-> T` | Synchronous, returns `T` immediately |
-| `-> async T` | Asynchronous, returns `T` after possible suspension |
-| `-> async Result<T, E>` | Async operation that may fail |
+- No help with mocking
+- No explicit dependency tracking
+- Tests still need runtime hacks to stub network calls
 
 ---
 
-## The `.await` Syntax
+## Sigil's Approach: The Async Capability
 
-### Postfix Await
+In Sigil, the `uses` clause already propagates up the call stack. Instead of an `async` keyword, we have an explicit `Async` capability:
 
-Sigil uses postfix `.await` syntax:
-
-```sigil
-@process () -> async Result<Data, Error> = try(
-    let response = http_get(url).await?,
-    let parsed = parse(response.body).await?,
-    Ok(transform(parsed)),
-)
-```
-
-### Why Postfix?
-
-Postfix `.await` chains naturally with data flow:
+1. **Same propagation** you'd have with `async` anyway
+2. **Plus** explicit dependencies
+3. **Plus** easy mocking for tests
+4. **Plus** cleaner return types
+5. **Plus** clear sync vs async distinction
 
 ```sigil
-// Reads left-to-right
-fetch(url).await.body
+// Async capability explicitly declares suspension
+@fetch_user (id: int) -> Result<User, Error> uses Http, Async =
+    let response = Http.get("/users/" + str(id))?,
+    Ok(parse(response))
 
-// Compare to prefix (hypothetical) - breaks flow
-(await fetch(url)).body
-```
+// Caller must declare both Http and Async (same as async propagation)
+@get_dashboard (id: int) -> Result<Dashboard, Error> uses Http, Async =
+    let user = fetch_user(id)?,
+    Dashboard { user: user, ... }
 
-Benefits:
-1. **Natural chaining** - Data flows left to right
-2. **Explicit suspension** - Every `.await` is a visible suspension point
-3. **Familiar syntax** - Matches Rust (large training corpus for AI)
-4. **No precedence confusion** - Always clear what is being awaited
-
-### Suspension Points
-
-Each `.await` is a point where:
-1. The function may pause execution
-2. Control returns to the runtime
-3. Other tasks may run
-4. Execution resumes when the operation completes
-
-```sigil
-@sequential_fetches () -> async [Data] = run(
-    // First fetch - may suspend
-    let data1 = fetch(url1).await,
-
-    // Second fetch - may suspend
-    let data2 = fetch(url2).await,
-
-    // Third fetch - may suspend
-    let data3 = fetch(url3).await,
-
-    [data1, data2, data3],
-)
-```
-
-### Chaining Awaits
-
-Multiple operations can be chained:
-
-```sigil
-// Chain operations, await at the end
-@get_user_name (id: int) -> async str =
-    fetch_user(id).await.name
-
-// Multiple awaits in expression
-@get_combined () -> async str =
-    fetch_first().await + " " + fetch_second().await
-```
-
-### Await and Error Handling
-
-`.await` works naturally with `try`:
-
-```sigil
-@fetch_and_parse (url: str) -> async Result<Data, Error> = try(
-    // Each await can fail, try propagates errors
-    let response = http_get(url).await?,
-    let validated = validate(response).await?,
-    let parsed = parse(validated.body).await?,
-    Ok(transform(parsed)),
-)
-```
-
----
-
-## Async in Patterns
-
-Sigil patterns work transparently with async operations. No special "async versions" needed.
-
-### With `parallel`
-
-Run multiple async operations concurrently:
-
-```sigil
-@fetch_dashboard (user_id: int) -> async Dashboard = run(
-    let data = parallel(
-        .user: get_user(user_id),
-        .posts: get_posts(user_id),
-        .notifications: get_notifications(user_id),
-    ).await,
-    Dashboard {
-        user: data.user,
-        posts: data.posts,
-        notifications: data.notifications,
-    },
-)
-```
-
-With concurrency limits:
-
-```sigil
-@fetch_all (ids: [int]) -> async [User] = parallel(
-    .tasks: map(ids, id -> fetch_user(id)),
-    .max_concurrent: 10
-).await
-```
-
-### With `retry`
-
-Retry failed async operations:
-
-```sigil
-@reliable_fetch (url: str) -> async Result<Data, Error> = retry(
-    .op: http_get(url).await,
-    .attempts: 3,
-    .backoff: exponential(base: 100ms, max: 5s)
-)
-```
-
-The pattern handles:
-- Waiting between retries
-- Tracking attempt count
-- Applying backoff delays
-
-### With `timeout`
-
-Bound async operation time:
-
-```sigil
-@bounded_fetch (url: str) -> async Result<Data, Error> = timeout(
-    .op: http_get(url).await,
-    .after: 30s,
-    .on_timeout: Err(TimeoutError { url: url })
-)
-```
-
-### With `map`
-
-Transform collections with async operations:
-
-```sigil
-// Sequential - one at a time
-@fetch_all_sequential (urls: [str]) -> async [Data] =
-    map(urls, url -> fetch(url).await)
-
-// Parallel - concurrent with limit
-@fetch_all_parallel (urls: [str]) -> async [Data] = parallel(
-    .tasks: map(urls, url -> fetch(url)),
-    .max_concurrent: 5
-).await
-```
-
-### With `try`
-
-Compose async operations with error handling:
-
-```sigil
-@complex_operation (id: int) -> async Result<Output, Error> = try(
-    let user = fetch_user(id).await?,
-    let permissions = fetch_permissions(user.role).await?,
-    let data = fetch_data_if_allowed(user, permissions).await?,
-    let processed = process(data).await?,
-    Ok(Output { user: user, data: processed }),
-)
-```
-
----
-
-## Async Types
-
-### The `async T` Type
-
-`async T` represents a computation that will eventually produce a `T`:
-
-```sigil
-// Type is: async Result<User, Error>
-@fetch_user (id: int) -> async Result<User, Error> = ...
-
-// Calling without await gives you the async value
-let pending = fetch_user(42)  // type: async Result<User, Error>
-
-// Awaiting extracts the value
-let user = pending.await      // type: Result<User, Error>
-```
-
-### Type Inference with Async
-
-Return types are inferred in lambdas:
-
-```sigil
-// Lambda return type inferred as async Result<Data, Error>
-urls.map(url -> fetch(url))
-```
-
-### Async in Generic Bounds
-
-Functions can accept async operations:
-
-```sigil
-@with_timeout<T> (op: async T, limit: Duration) -> async Result<T, TimeoutError> =
-    timeout(
-        .op: op.await,
-        .after: limit,
-        .on_timeout: Err(TimeoutError {})
+// Tests provide mock - sync, no Async needed!
+@test_fetch_user tests @fetch_user () -> void =
+    with Http = MockHttp { responses: {"/users/1": user_json} } in
+    run(
+        let result = fetch_user(1),
+        assert_eq(result, Ok(expected_user)),
     )
 ```
 
+Note: Tests don't need `Async` because MockHttp is synchronous - it returns immediately without suspending.
+
 ---
 
-## Async Function Bodies
+## Why This Works
 
-### Expression Bodies
+### The Propagation Tax
 
-Simple async functions use expression bodies:
+Any effect system has a "propagation tax" - callers must know about effects their callees have. This is true whether you use:
 
+- `async/await` (async propagates)
+- Checked exceptions (throws propagates)
+- Capabilities (uses propagates)
+
+**You're paying this tax anyway.** The question is: what do you get in return?
+
+| Approach | Propagates | Testing | Dependencies | Clean Types |
+|----------|------------|---------|--------------|-------------|
+| `async/await` | Yes | Hard | Hidden | No (`async T`) |
+| Capabilities | Yes | Easy | Explicit | Yes (`T`) |
+
+### Same Cost, More Value
+
+With traditional async:
 ```sigil
+// Hypothetical async/await syntax
+@fetch_user (id: int) -> async Result<User, Error> =
+    http_get("/users/" + str(id)).await  // Returns async Result
+
+// Awkward: .await returns Result, need ? for error, .body for field
 @fetch_json (url: str) -> async Result<Json, Error> =
-    http_get(url).await.body.parse_json()
+    http_get(url).await?.body.parse_json()  // .await?.body is clunky
 ```
 
-### Sequential Operations with `run`
-
-Use `run` for multiple sequential async operations:
-
+With the Async capability:
 ```sigil
-@multi_step () -> async Result<Output, Error> = run(
-    let step1 = perform_first().await,
-    let step2 = perform_second(step1).await,
-    let step3 = perform_third(step2).await,
-    Ok(step3),
-)
-```
+// Clean syntax - Http.get returns Result directly, Async declares suspension
+@fetch_user (id: int) -> Result<User, Error> uses Http, Async =
+    Http.get("/users/" + str(id))?.parse()
 
-### Conditional Async
-
-Conditionals work naturally with async:
-
-```sigil
-@fetch_if_needed (cached: Option<Data>, url: str) -> async Data =
-    if cached.is_some() then cached.unwrap()
-    else fetch(url).await
-```
-
-### Async in Loops
-
-Use patterns instead of explicit loops:
-
-```sigil
-// Process items sequentially
-@process_all (items: [Item]) -> async [Result<ProcessedItem, Error>] =
-    map(items, item -> process(item).await)
-
-// Process items in parallel
-@process_all_parallel (items: [Item]) -> async [Result<ProcessedItem, Error>] = parallel(
-    .tasks: map(items, item -> process(item)),
-    .max_concurrent: 10
-).await
+// Natural chaining - no .await interrupting the flow
+@fetch_json (url: str) -> Result<Json, Error> uses Http, Async =
+    Http.get(url)?.body.parse_json()
 ```
 
 ---
 
-## Calling Async Functions
+## How It Works
 
-### From Async Context
+### The Async Capability
 
-Async functions can only be awaited from async contexts:
+`Async` is a capability that represents the ability to suspend execution:
 
 ```sigil
-@outer () -> async void = run(
-    // Can await because outer is async
-    let data = fetch_data().await,
-    print(data),
+// Async is a marker capability - it has no methods
+trait Async {}
+```
+
+When you declare `uses Async`, you're explicitly stating: "this function may suspend execution."
+
+### Sync vs Async Operations
+
+The same I/O trait can be used synchronously or asynchronously:
+
+```sigil
+trait Http {
+    @get (url: str) -> Result<Response, Error>
+    @post (url: str, body: str) -> Result<Response, Error>
+}
+
+// With Async: Http.get may suspend (non-blocking)
+@fetch_async (url: str) -> Result<Data, Error> uses Http, Async =
+    Http.get(url)?.body
+
+// Without Async: Http.get blocks until complete (synchronous)
+@fetch_blocking (url: str) -> Result<Data, Error> uses Http =
+    Http.get(url)?.body
+```
+
+The presence or absence of `Async` tells you exactly what to expect:
+- `uses Http, Async` → Non-blocking, may suspend
+- `uses Http` → Blocking, waits for completion
+
+### Suspension is Explicit
+
+Suspension is NOT implicit - it's explicitly declared via the `Async` capability:
+
+```sigil
+@fetch_data (url: str) -> Result<Data, Error> uses Http, Async = run(
+    // Http.get may suspend because we declared 'uses Async'
+    let response = Http.get(url)?,
+
+    // Execution continues after response is ready
+    let data = parse(response.body)?,
+
+    Ok(data),
 )
 ```
 
-### From Sync Context
+No `.await` needed - the `Async` capability declaration makes suspension explicit at the function level rather than at every call site.
 
-Sync functions cannot await. Use `parallel` at the top level:
+### Propagation Rules
+
+The same rules apply as for any capability:
+
+1. **Functions must declare capabilities they use**
+   ```sigil
+   @fetch (url: str) -> Result<str, Error> uses Http = Http.get(url)?.body
+   ```
+
+2. **Callers must have capabilities their callees need**
+   ```sigil
+   // Must declare Http because fetch uses it
+   @process (url: str) -> Result<Data, Error> uses Http =
+       let raw = fetch(url)?,
+       Ok(parse(raw))
+   ```
+
+3. **`with` provides capabilities for a scope**
+   ```sigil
+   @main () -> void =
+       with Http = RealHttp { timeout: 30s } in
+       run_app()
+   ```
+
+---
+
+## Concurrency with `parallel`
+
+Without `.await`, how do you run operations concurrently? Use the `parallel` pattern:
+
+### Sequential (Default)
 
 ```sigil
-@main () -> void = run(
-    // Start async operations from main
-    let result = runtime.block_on(async_main()),
-    print(result),
-)
-
-@async_main () -> async Result<str, Error> = try(
-    let data = fetch_data().await?,
-    Ok(process(data)),
+@fetch_both (id: int) -> Result<(User, Posts), Error> uses Http, Async = run(
+    // These run sequentially - first user, then posts
+    let user = fetch_user(id)?,
+    let posts = fetch_posts(id)?,
+    Ok((user, posts)),
 )
 ```
 
-### The `@main` Function
-
-For async programs, make `main` async:
+### Concurrent with `parallel`
 
 ```sigil
-@main () -> async void = run(
-    let result = fetch_and_process().await,
-    print("Result: " + str(result)),
+@fetch_both (id: int) -> Result<{ user: User, posts: Posts }, Error> uses Http, Async =
+    // These run concurrently
+    parallel(
+        .user: fetch_user(id),
+        .posts: fetch_posts(id),
+    )
+```
+
+The `parallel` pattern:
+- Takes named operations as lambdas/thunks
+- Runs them concurrently (requires `Async`)
+- Returns a struct with the results
+- Inherits capability requirements from its operations
+
+### Concurrent with Limits
+
+```sigil
+@fetch_all (urls: [str]) -> [Result<Data, Error>] uses Http, Async = parallel(
+    .tasks: map(urls, url -> fetch(url)),
+    .max_concurrent: 10,
 )
 ```
 
 ---
 
-## Best Practices
+## Comparison to Other Languages
 
-### Mark Suspension Points Clearly
+### Rust
 
-```sigil
-// Good: suspension points visible
-@process () -> async Data = run(
-    let a = fetch_a().await,
-    let b = fetch_b().await,
-    combine(a, b),
-)
-
-// Avoid: hiding await deep in expressions
-@process () -> async Data =
-    combine(deep(nested(fetch_a().await).value).await, fetch_b().await)
+```rust
+// Rust: async is a type modifier
+async fn fetch() -> Result<Data, Error> { ... }
+let data = fetch().await?;  // .await extracts value
 ```
 
-### Prefer Parallel When Independent
-
 ```sigil
-// Good: independent fetches run concurrently
-@fetch_both () -> async (Data, Data) = run(
-    let results = parallel(
-        .a: fetch_a(),
-        .b: fetch_b(),
-    ).await,
-    (results.a, results.b),
-)
-
-// Less efficient: sequential when could be parallel
-@fetch_both_slow () -> async (Data, Data) = run(
-    let a = fetch_a().await,
-    let b = fetch_b().await,
-    (a, b),
-)
+// Sigil: Async capability is explicit
+@fetch () -> Result<Data, Error> uses Http, Async = ...
+let data = fetch()?  // No .await needed
 ```
 
-### Handle Errors at Appropriate Levels
+### JavaScript
 
-```sigil
-// Good: error handling at logical boundaries
-@fetch_user_data (id: int) -> async Result<UserData, AppError> = try(
-    let user = fetch_user(id).await.map_err(e -> AppError.Network(e))?,
-    let profile = fetch_profile(user.id).await.map_err(e -> AppError.Network(e))?,
-    Ok(UserData { user: user, profile: profile }),
-)
+```javascript
+// JavaScript: async/await keywords
+async function fetch() { return await httpGet(url); }
+const data = await fetch();
 ```
 
-### Use Patterns for Common Async Tasks
+```sigil
+// Sigil: Async capability declaration
+@fetch () -> Result<Data, Error> uses Http, Async = Http.get(url)?
+let data = fetch()?
+```
+
+### Go
+
+Go is actually similar in spirit - goroutines make code look synchronous:
+
+```go
+// Go: synchronous-looking code, but blocks
+func fetch() (Data, error) { return httpGet(url) }
+data, err := fetch()
+```
 
 ```sigil
-// Good: use retry for transient failures
-@reliable_fetch (url: str) -> async Result<Data, Error> = retry(
-    .op: http_get(url).await,
+// Sigil without Async: same blocking behavior
+@fetch () -> Result<Data, Error> uses Http = Http.get(url)?
+let data = fetch()?
+
+// Sigil with Async: non-blocking, may suspend
+@fetch () -> Result<Data, Error> uses Http, Async = Http.get(url)?
+let data = fetch()?
+```
+
+The difference: Sigil makes the sync/async distinction **explicit** via the `Async` capability.
+
+---
+
+## Testing Async Code
+
+The biggest benefit of capability-based async: **testing is trivial**.
+
+### The Problem with Traditional Async Testing
+
+```javascript
+// JavaScript: need to mock at module level or use DI frameworks
+jest.mock('./http', () => ({ get: jest.fn() }));
+test('fetch user', async () => {
+    http.get.mockResolvedValue({ body: '{"name": "Alice"}' });
+    const user = await fetchUser(1);
+    expect(user.name).toBe('Alice');
+});
+```
+
+### Sigil: Sync Mocks, No Async Needed
+
+```sigil
+// Production code uses Http + Async (non-blocking)
+@fetch_user (id: int) -> Result<User, Error> uses Http, Async =
+    Http.get("/users/" + str(id))?.parse()
+
+// Test uses Http only (blocking, sync) - MockHttp returns immediately
+@test_fetch_user tests @fetch_user () -> void =
+    with Http = MockHttp {
+        responses: { "/users/1": "{\"name\": \"Alice\"}" }
+    } in
+    run(
+        let result = fetch_user(1),
+        assert_eq(result, Ok(User { name: "Alice" })),
+    )
+```
+
+Notice: the test doesn't declare `Async` because MockHttp is synchronous. It returns the mocked response immediately without any suspension. This is natural - mocks don't need to simulate network delays.
+
+No mocking frameworks. No runtime hacks. No special test configuration. Just provide a sync implementation.
+
+---
+
+## Patterns That Work with Async
+
+All patterns work naturally with the Async capability:
+
+### `retry` - Retry Failed Operations
+
+```sigil
+@reliable_fetch (url: str) -> Result<Data, Error> uses Http, Async = retry(
+    .op: Http.get(url),
     .attempts: 3,
-    .backoff: exponential(base: 100ms, max: 5s)
+    .backoff: exponential(.base: 100ms, .max: 5s),
 )
+```
 
-// Good: use timeout for bounded operations
-@bounded_operation () -> async Result<Data, Error> = timeout(
-    .op: slow_operation().await,
+### `timeout` - Bound Operation Time
+
+```sigil
+@bounded_fetch (url: str) -> Result<Data, Error> uses Http, Async = timeout(
+    .op: Http.get(url),
     .after: 30s,
-    .on_timeout: Err(TimeoutError {})
+    .on_timeout: Err(TimeoutError { url: url }),
+)
+```
+
+### `map` with Concurrent Execution
+
+```sigil
+// Sequential - still async (may suspend between iterations)
+@fetch_all_seq (urls: [str]) -> [Result<Data, Error>] uses Http, Async =
+    map(urls, url -> Http.get(url))
+
+// Concurrent - async with parallelism
+@fetch_all_par (urls: [str]) -> [Result<Data, Error>] uses Http, Async = parallel(
+    .tasks: map(urls, url -> Http.get(url)),
+    .max_concurrent: 10,
+)
+```
+
+### `try` for Error Handling
+
+```sigil
+@complex_operation (id: int) -> Result<Output, Error> uses Http, Async = try(
+    let user = fetch_user(id)?,
+    let perms = fetch_permissions(user.role)?,
+    let data = fetch_data_if_allowed(user, perms)?,
+    Ok(Output { user: user, data: data }),
 )
 ```
 
 ---
 
-## Common Patterns
+## The Trade-Off
 
-### Fetch with Retry and Timeout
+The capability approach has one trade-off: **implementation details "leak" into the type signature**.
 
-```sigil
-@robust_fetch (url: str) -> async Result<Data, Error> = timeout(
-    .op: retry(
-        .op: http_get(url).await,
-        .attempts: 3,
-        .backoff: exponential(base: 100ms, max: 2s)
-    ),
-    .after: 30s,
-    .on_timeout: Err(TimeoutError { url: url })
-)
-```
+If `fetch_user` uses Http and Async, and `get_dashboard` calls `fetch_user`, then `get_dashboard` must also declare `uses Http, Async`. Callers know that somewhere in the call chain, HTTP is involved and the function may suspend.
 
-### Fan-Out/Fan-In
+**But this is the same trade-off as async/await.** In Rust, if you call an async function, your function must be async. In JavaScript, if you await something, your function must be async. The "leaking" happens either way.
+
+The question is: **if you're paying this cost anyway, why not get more value?**
 
 ```sigil
-@aggregate_data (sources: [str]) -> async Summary = run(
-    // Fan out: fetch all sources concurrently
-    let results = parallel(
-        .tasks: map(sources, src -> fetch(src)),
-        .max_concurrent: 20,
-    ).await,
+// With async/await (hypothetical): leaks that it's async, but nothing else
+@get_dashboard (id: int) -> async Result<Dashboard, Error>
 
-    // Fan in: combine results
-    fold(results, Summary.empty(), Summary.merge),
-)
-```
-
-### Dependent Async Operations
-
-```sigil
-@cascade_fetch (user_id: int) -> async FullProfile = run(
-    // Sequential because each step depends on previous
-    let user = fetch_user(user_id).await,
-    let posts = fetch_posts(user.id).await,
-    let comments = parallel(
-        .tasks: map(posts, p -> fetch_comments(p.id)),
-    ).await,
-
-    FullProfile {
-        user: user,
-        posts: posts,
-        comments: flatten(comments),
-    },
-)
-```
-
-### Polling with Backoff
-
-```sigil
-@poll_until_complete (job_id: str) -> async Result<JobResult, Error> = recurse(
-    .cond: check_status(job_id).await == Complete,
-    .base: fetch_result(job_id).await,
-    .step: run(
-        sleep(1s).await,
-        self(job_id),
-    ),
-)
+// With capabilities: leaks what it uses, AND you can mock it, AND sync/async is explicit
+@get_dashboard (id: int) -> Result<Dashboard, Error> uses Http, Async
 ```
 
 ---
 
-## Error Messages
+## Summary
 
-### Missing Await
+| Aspect | Traditional Async | Sigil Async Capability |
+|--------|------------------|------------------------|
+| Syntax | `async fn`, `.await` | `uses Http, Async` |
+| Return type | `async T` | `T` |
+| Propagation | `async` bubbles up | `uses` bubbles up |
+| Testing | Hard (need mocks) | Easy (sync mocks) |
+| Suspension | Per-call (`.await`) | Per-function (`Async`) |
+| Sync vs Async | Different APIs | Same API, different capabilities |
+| Concurrency | Manual with `.await` | `parallel` pattern |
 
-```
-error[E0123]: async value not awaited
-  --> src/main.si:10:5
-   |
-10 |     fetch_user(id)
-   |     ^^^^^^^^^^^^^^ this async operation is never awaited
-   |
-   = note: add `.await` to get the result: `fetch_user(id).await`
-```
+The `Async` capability approach gives you:
+- **Cleaner types** - no `async` wrapper
+- **Natural chaining** - no `.await` interrupting flow
+- **Easy testing** - sync mocks don't need Async
+- **Explicit dependencies** - know what effects your code has
+- **Clear sync/async distinction** - `uses Http` vs `uses Http, Async`
 
-### Await in Sync Function
-
-```
-error[E0124]: cannot await in sync function
-  --> src/main.si:5:10
-   |
-5  | @compute (n: int) -> int = fetch(n).await
-   |                                    ^^^^^^ await requires async context
-   |
-   = note: make the function async: `-> async int`
-```
-
-### Type Mismatch with Async
-
-```
-error[E0125]: type mismatch
-  --> src/main.si:8:5
-   |
-8  |     let x: int = fetch_number()
-   |         ^ expected `int`, found `async int`
-   |
-   = note: add `.await` to get the value: `fetch_number().await`
-```
+All for the same propagation cost you'd pay with async/await anyway.
 
 ---
 
@@ -553,5 +436,5 @@ error[E0125]: type mismatch
 - [Structured Concurrency](02-structured-concurrency.md)
 - [Cancellation](03-cancellation.md)
 - [Channels](04-channels.md)
-- [Patterns Reference](../02-syntax/04-patterns-reference.md)
-- [Error Handling](../05-error-handling/index.md)
+- [Capabilities](../14-capabilities/index.md)
+- [Testing Effectful Code](../14-capabilities/03-testing-effectful-code.md)

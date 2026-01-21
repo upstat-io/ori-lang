@@ -58,16 +58,6 @@ The return type must be specified. For functions that return no meaningful value
 @log (message: str) -> void = print(message)
 ```
 
-### Async Return Types
-
-An async function returns an `async` type:
-
-```sigil
-@fetch (url: str) -> async Result<str, Error> = ...
-```
-
-The function body is evaluated in an async context, and `.await` is permitted within it.
-
 ### Function Body
 
 The body is a single expression. Complex logic uses pattern expressions:

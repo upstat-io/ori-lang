@@ -638,37 +638,18 @@ fn test_capability_transitive_requirement() {
 // ============================================================================
 
 #[test]
-fn test_async_type_in_return() {
-    // Function can return async type
-    check_ok(
+fn test_async_type_mismatch() {
+    // Body type must match return type - async str != str
+    let err = check_err(
         r#"
 @fetch () -> async str = "data"
 @test_fetch tests @fetch () -> void = assert(true)
 "#,
     );
-}
-
-#[test]
-fn test_async_result_type() {
-    // Function can return async Result
-    check_ok(
-        r#"
-@fetch () -> async Result<str, str> = Ok("data")
-@test_fetch tests @fetch () -> void = assert(true)
-"#,
-    );
-}
-
-#[test]
-fn test_await_unwraps_async() {
-    // await should unwrap async type
-    check_ok(
-        r#"
-@async_fetch () -> async str = "data"
-@use_fetch () -> str = async_fetch().await
-@test_fetch tests @async_fetch () -> void = assert(true)
-@test_use tests @use_fetch () -> void = assert(true)
-"#,
+    assert!(
+        err.contains("Async"),
+        "Error should mention async type mismatch: {}",
+        err
     );
 }
 

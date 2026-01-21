@@ -26,8 +26,8 @@ $timeout = 30s
 )
 
 // Patterns replace boilerplate
-@fetch_data (url: str) -> async Result<Data, Error> = retry(
-    .op: http_get(url).await,
+@fetch_data (url: str) -> Result<Data, Error> uses Http, Async = retry(
+    .op: Http.get(url),
     .attempts: $max_retries,
     .backoff: exponential(
         .base: 100ms,
@@ -68,7 +68,7 @@ $timeout = 30s
 | Section | Description |
 |---------|-------------|
 | [Modules](09-modules/index.md) | File = module, imports, visibility |
-| [Async](10-async/index.md) | async/await, structured concurrency, channels |
+| [Async](10-async/index.md) | Capability-based async, structured concurrency, channels |
 
 ### Effects & Testing
 

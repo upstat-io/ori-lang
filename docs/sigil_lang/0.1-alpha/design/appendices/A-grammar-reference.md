@@ -252,7 +252,6 @@ postfix_expr = primary {postfix_op}
 postfix_op  = "." IDENT [call_args]
             | "[" expr "]"
             | call_args
-            | ".await"
             | "?"
 
 call_args   = "(" [expr {"," expr}] ")"
@@ -397,7 +396,7 @@ timeout     try         validate
 
 From highest to lowest:
 
-1. Postfix: `.`, `[]`, `()`, `.await`
+1. Postfix: `.`, `[]`, `()`, `?`
 2. Unary: `!`, `-`
 3. Multiplicative: `*`, `/`, `%`, `div`
 4. Additive: `+`, `-`

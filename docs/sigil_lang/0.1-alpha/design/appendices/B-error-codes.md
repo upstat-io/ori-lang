@@ -28,7 +28,7 @@ E[Category][Number]
 | `EF` | Function | Function-related errors |
 | `EC` | Config | Configuration errors |
 | `EI` | Import | Module and import errors |
-| `EA` | Async | Async/await errors |
+| `EA` | Async | Async capability errors |
 | `ES` | Test | Testing errors |
 | `EW` | Warning | Warnings (non-fatal) |
 
@@ -563,28 +563,28 @@ add(1)  // EF001: expected 2 arguments, found 1
 
 ---
 
-### EF005: Async Without Await
+### EF005: Missing Async Capability
 
-**Description:** Async function result not awaited.
+**Description:** Function calls code that may suspend without declaring `uses Async`.
 
 ```sigil
-@fetch () -> async str = ...
-@use_fetch () -> str = fetch()  // EF005: async result must be awaited
+@fetch (url: str) -> Result<str, Error> uses Http, Async = ...
+@use_fetch () -> str = fetch("...")  // EF005: missing Async capability
 ```
 
-**Fix:** Add `.await` to async call.
+**Fix:** Add `uses Async` to function signature, or provide capability with `with`.
 
 ---
 
-### EF006: Await Outside Async
+### EF006: Capability Not Provided
 
-**Description:** `.await` used in non-async function.
+**Description:** Required capability not in scope.
 
 ```sigil
-@foo () -> str = fetch().await  // EF006: await outside async function
+@process () -> Result<str, Error> uses Http = Http.get("/data")  // EF006: Http not provided
 ```
 
-**Fix:** Mark function as `async`.
+**Fix:** Provide capability with `with...in` or propagate with `uses`.
 
 ---
 

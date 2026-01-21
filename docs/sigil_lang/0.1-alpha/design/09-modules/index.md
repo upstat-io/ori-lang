@@ -46,6 +46,21 @@ use http.client as http
 // Use as: http.get()
 ```
 
+### Extension Imports
+
+Trait extension methods use a separate `extension` keyword:
+
+```sigil
+// Import extension methods (not use!)
+extension std.iter.extensions { Iterator.count, Iterator.sum }
+extension './my_extensions' { Display.pretty_print }
+
+// Now available on any Iterator
+range(1, 100).count()
+```
+
+See [Imports](02-imports.md#extension-imports) and [Trait Extensions](../04-traits/06-extensions.md) for details.
+
 ### Visibility
 
 ```sigil
