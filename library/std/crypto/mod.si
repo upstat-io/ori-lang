@@ -1,0 +1,24 @@
+// TODO: Implement cryptographic functions
+//
+// No capability required (pure, except for secure random)
+//
+// Hash functions:
+// - sha256(data: [byte]) -> [byte]
+// - sha512(data: [byte]) -> [byte]
+// - md5(data: [byte]) -> [byte] (legacy, not recommended)
+// - blake2b(data: [byte]) -> [byte]
+//
+// HMAC:
+// - hmac_sha256(key: [byte], data: [byte]) -> [byte]
+// - hmac_sha512(key: [byte], data: [byte]) -> [byte]
+//
+// Key derivation:
+// - pbkdf2(password: str, salt: [byte], iterations: int) -> [byte]
+// - scrypt(password: str, salt: [byte], params: ScryptParams) -> [byte]
+//
+// Constant-time comparison:
+// - constant_time_eq(a: [byte], b: [byte]) -> bool
+//
+// Re-exports:
+// pub use std.crypto.cipher { ... }
+// pub use std.crypto.rand { ... }

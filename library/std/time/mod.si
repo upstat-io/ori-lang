@@ -1,0 +1,29 @@
+// TODO: Implement time and duration types
+//
+// No capability required (pure)
+//
+// Types:
+// - Time (point in time)
+// - Date (calendar date)
+// - DateTime (date + time)
+// - Duration (time span) - in prelude
+// - Weekday (day of week enum)
+// - Month (month enum)
+//
+// Functions:
+// - now() -> Time (requires IO capability)
+// - today() -> Date (requires IO capability)
+// - parse(layout: str, s: str) -> Result<Time, Error>
+// - since(t: Time) -> Duration
+// - until(t: Time) -> Duration
+// - sleep(d: Duration) -> void (requires IO capability)
+//
+// Duration constructors:
+// - nanoseconds(n: int) -> Duration
+// - microseconds(n: int) -> Duration
+// - milliseconds(n: int) -> Duration
+// - seconds(n: int) -> Duration
+// - minutes(n: int) -> Duration
+// - hours(n: int) -> Duration
+//
+// Duration literals: 1s, 5m, 2h, 100ms, etc.

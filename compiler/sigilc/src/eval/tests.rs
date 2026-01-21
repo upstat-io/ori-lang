@@ -12,6 +12,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use crate::errors::Diagnostic;
 use crate::eval::{run, value::Value};
 use crate::lexer::tokenize;
 use crate::parser::parse;
@@ -23,9 +24,10 @@ use test_case::test_case;
 // ============================================================================
 
 fn eval_source(source: &str) -> Result<Value, String> {
+    let to_string = |d: Diagnostic| d.message;
     let tokens = tokenize(source, "test.si")?;
     let module = parse(tokens, "test.si")?;
-    let typed = check(module)?;
+    let typed = check(module).map_err(to_string)?;
     run(typed)
 }
 

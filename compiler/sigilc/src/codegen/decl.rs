@@ -22,17 +22,17 @@ impl CodeGen {
             .ty
             .as_ref()
             .map(|t| self.type_to_c(t))
-            .unwrap_or_else(|| self.infer_c_type(&c.value));
+            .unwrap_or_else(|| self.infer_c_type(&c.value.expr));
 
-        let value = self.expr_to_c(&c.value)?;
+        let value = self.expr_to_c(&c.value.expr)?;
 
         // Use const for configs
         if ty == "String" {
             self.emit_line(&format!(
                 "String {} = {{ .data = \"{}\", .len = {} }};",
                 c.name,
-                self.extract_string_literal(&c.value).unwrap_or_default(),
-                self.extract_string_literal(&c.value)
+                self.extract_string_literal(&c.value.expr).unwrap_or_default(),
+                self.extract_string_literal(&c.value.expr)
                     .map(|s| s.len())
                     .unwrap_or(0)
             ));
@@ -60,7 +60,7 @@ impl CodeGen {
         if f.name == "main" {
             self.emit_line("int main(void) {");
             self.indent();
-            self.emit_block(&f.body)?;
+            self.emit_block(&f.body.expr)?;
             self.emit_line("return 0;");
             self.dedent();
             self.emit_line("}");
@@ -69,10 +69,10 @@ impl CodeGen {
             self.indent();
 
             if ret_type != "void" {
-                let body = self.expr_to_c(&f.body)?;
+                let body = self.expr_to_c(&f.body.expr)?;
                 self.emit_line(&format!("return {};", body));
             } else {
-                self.emit_block(&f.body)?;
+                self.emit_block(&f.body.expr)?;
             }
 
             self.dedent();

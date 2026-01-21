@@ -103,6 +103,41 @@ assert_eq(add(2, 3), 5)
 
 If the values are not equal, the test fails with a diagnostic showing both values.
 
+### assert_ne
+
+Assert that two values are not equal:
+
+```sigil
+assert_ne(actual, unexpected)
+```
+
+### assert_some / assert_none
+
+Assert that an `Option` is `Some` or `None`:
+
+```sigil
+assert_some(option)
+assert_none(option)
+```
+
+### assert_ok / assert_err
+
+Assert that a `Result` is `Ok` or `Err`:
+
+```sigil
+assert_ok(result)
+assert_err(result)
+```
+
+### assert_panics / assert_panics_with
+
+Assert that evaluating an expression panics:
+
+```sigil
+assert_panics(expr)
+assert_panics_with(expr, "message")
+```
+
 ## Test Organization
 
 ### Inline Tests

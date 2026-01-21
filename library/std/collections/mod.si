@@ -1,0 +1,61 @@
+// TODO: Implement additional collection types
+//
+// No capability required (pure)
+//
+// Types:
+// - Deque<T> (double-ended queue)
+// - BTreeMap<K, V> (sorted map)
+// - BTreeSet<T> (sorted set)
+// - LinkedList<T> (doubly-linked list)
+// - PriorityQueue<T> (heap-based priority queue)
+//
+// Deque<T>:
+// - new() -> Deque<T>
+// - push_front(value: T) -> void
+// - push_back(value: T) -> void
+// - pop_front() -> Option<T>
+// - pop_back() -> Option<T>
+// - front() -> Option<T>
+// - back() -> Option<T>
+// - len() -> int
+// - is_empty() -> bool
+//
+// BTreeMap<K: Comparable, V>:
+// - new() -> BTreeMap<K, V>
+// - insert(key: K, value: V) -> Option<V>
+// - get(key: K) -> Option<V>
+// - remove(key: K) -> Option<V>
+// - contains(key: K) -> bool
+// - keys() -> [K]
+// - values() -> [V]
+// - entries() -> [(K, V)]
+// - range(start: K, end: K) -> [(K, V)]
+// - len() -> int
+//
+// BTreeSet<T: Comparable>:
+// - new() -> BTreeSet<T>
+// - insert(value: T) -> bool
+// - remove(value: T) -> bool
+// - contains(value: T) -> bool
+// - min() -> Option<T>
+// - max() -> Option<T>
+// - range(start: T, end: T) -> [T]
+// - union(other: BTreeSet<T>) -> BTreeSet<T>
+// - intersection(other: BTreeSet<T>) -> BTreeSet<T>
+// - len() -> int
+//
+// LinkedList<T>:
+// - new() -> LinkedList<T>
+// - push_front(value: T) -> void
+// - push_back(value: T) -> void
+// - pop_front() -> Option<T>
+// - pop_back() -> Option<T>
+// - len() -> int
+//
+// PriorityQueue<T: Comparable>:
+// - new() -> PriorityQueue<T> (max-heap)
+// - new_min() -> PriorityQueue<T> (min-heap)
+// - push(value: T) -> void
+// - pop() -> Option<T>
+// - peek() -> Option<T>
+// - len() -> int

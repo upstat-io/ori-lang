@@ -1,26 +1,33 @@
 // Expression lowering for AST to TIR
 // Converts typed AST expressions to TIR expressions
 
-use crate::ast::{BinaryOp, Expr};
+use crate::ast::{BinaryOp, Expr, SpannedExpr, Span};
 use crate::ir::{FuncRef, TExpr, TExprKind, TStmt, Type};
-use crate::types::check::check_expr;
-use super::types::{is_builtin, type_expr_to_type};
+use super::types::is_builtin;
 use super::Lowerer;
 
 impl Lowerer {
-    /// Lower an expression to TIR
-    pub fn lower_expr(&mut self, expr: &Expr) -> Result<TExpr, String> {
-        // First, type-check to get the type
-        let ty_expr = check_expr(expr, &self.ctx)?;
-        let ty = type_expr_to_type(&ty_expr, &self.ctx)?;
-
-        self.lower_expr_with_type(expr, ty)
+    /// Lower a spanned expression to TIR, preserving the span
+    /// This is the preferred entry point for top-level expressions (function bodies, etc.)
+    /// Uses the fast path that computes types inline, avoiding redundant type checking.
+    pub fn lower_spanned_expr(&mut self, spanned: &SpannedExpr) -> Result<TExpr, String> {
+        self.lower_expr_fast(&spanned.expr, spanned.span.clone())
     }
 
-    /// Lower an expression with a known type
+    /// Lower an expression to TIR (uses placeholder span for nested expressions)
+    /// Uses the fast path that computes types inline, avoiding redundant type checking.
+    pub fn lower_expr(&mut self, expr: &Expr) -> Result<TExpr, String> {
+        self.lower_expr_fast(expr, 0..0)
+    }
+
+    /// Lower an expression with a known type (uses placeholder span)
     pub(super) fn lower_expr_with_type(&mut self, expr: &Expr, ty: Type) -> Result<TExpr, String> {
-        // Get a default span - we'd need actual spans from the AST
-        let span = 0..0;
+        // For nested expressions without spans, use a placeholder
+        self.lower_expr_with_span(expr, ty, 0..0)
+    }
+
+    /// Lower an expression with a known type and span
+    fn lower_expr_with_span(&mut self, expr: &Expr, ty: Type, span: Span) -> Result<TExpr, String> {
 
         let kind = match expr {
             // Literals
@@ -330,7 +337,7 @@ impl Lowerer {
     }
 
     /// Lower a function call expression
-    fn lower_call(&mut self, func: &Expr, args: &[Expr]) -> Result<TExprKind, String> {
+    pub(super) fn lower_call(&mut self, func: &Expr, args: &[Expr]) -> Result<TExprKind, String> {
         let targs = args
             .iter()
             .map(|a| self.lower_expr(a))
@@ -359,7 +366,7 @@ impl Lowerer {
     }
 
     /// Lower a lambda expression
-    fn lower_lambda(&mut self, params: &[String], body: &Expr) -> Result<TExprKind, String> {
+    pub(super) fn lower_lambda(&mut self, params: &[String], body: &Expr) -> Result<TExprKind, String> {
         // Save current scope
         let old_scope = self.local_scope.clone();
         let old_params = self.param_indices.clone();

@@ -1,0 +1,33 @@
+// TODO: Implement test utilities
+//
+// No capability required (pure)
+//
+// Core assertions (in prelude):
+// - assert(condition: bool) -> void
+// - assert_eq<T: Eq>(a: T, b: T) -> void
+//
+// Additional assertions:
+// - assert_ne<T: Eq>(a: T, b: T) -> void
+// - assert_lt<T: Comparable>(a: T, b: T) -> void
+// - assert_le<T: Comparable>(a: T, b: T) -> void
+// - assert_gt<T: Comparable>(a: T, b: T) -> void
+// - assert_ge<T: Comparable>(a: T, b: T) -> void
+// - assert_contains<T: Eq>(items: [T], item: T) -> void
+// - assert_matches(s: str, pattern: str) -> void
+//
+// Result/Option assertions:
+// - assert_ok<T, E>(result: Result<T, E>) -> T
+// - assert_err<T, E>(result: Result<T, E>) -> E
+// - assert_some<T>(option: Option<T>) -> T
+// - assert_none<T>(option: Option<T>) -> void
+//
+// Panic assertions:
+// - assert_panics(f: () -> void) -> void
+// - assert_panics_with(f: () -> void, message: str) -> void
+//
+// Approximate equality (for floats):
+// - assert_approx_eq(a: float, b: float, epsilon: float) -> void
+//
+// Test utilities:
+// - fail(message: str) -> Never
+// - skip(reason: str) -> Never

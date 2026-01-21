@@ -1,0 +1,22 @@
+// TODO: Implement random number generation
+//
+// Capabilities required: IO (for seeding from system)
+//
+// Types:
+// - Rng (random number generator)
+// - Source (randomness source interface)
+//
+// Global functions (use global RNG, requires IO):
+// - random() -> float (0.0 to 1.0)
+// - random_int(min: int, max: int) -> int
+// - random_bool() -> bool
+// - shuffle<T>(items: [T]) -> [T]
+// - choice<T>(items: [T]) -> T
+// - sample<T>(items: [T], n: int) -> [T]
+//
+// Rng methods (pure once seeded):
+// - new(seed: int) -> Rng
+// - next_float() -> float
+// - next_int(min: int, max: int) -> int
+// - next_bool() -> bool
+// - shuffle<T>(items: [T]) -> [T]

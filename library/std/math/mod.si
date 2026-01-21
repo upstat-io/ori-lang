@@ -1,0 +1,47 @@
+// TODO: Implement mathematical functions
+//
+// No capability required (pure)
+//
+// Constants:
+// $pi: float = 3.14159265358979323846
+// $e: float = 2.71828182845904523536
+// $tau: float = 6.28318530717958647692
+//
+// Basic functions:
+// - abs(x: float) -> float
+// - min(a: float, b: float) -> float
+// - max(a: float, b: float) -> float
+// - clamp(x: float, min: float, max: float) -> float
+//
+// Rounding:
+// - floor(x: float) -> float
+// - ceil(x: float) -> float
+// - round(x: float) -> float
+// - trunc(x: float) -> float
+//
+// Powers and roots:
+// - sqrt(x: float) -> float
+// - cbrt(x: float) -> float
+// - pow(base: float, exp: float) -> float
+// - exp(x: float) -> float
+// - exp2(x: float) -> float
+// - log(x: float) -> float
+// - log2(x: float) -> float
+// - log10(x: float) -> float
+//
+// Trigonometry:
+// - sin(x: float) -> float
+// - cos(x: float) -> float
+// - tan(x: float) -> float
+// - asin(x: float) -> float
+// - acos(x: float) -> float
+// - atan(x: float) -> float
+// - atan2(y: float, x: float) -> float
+//
+// Hyperbolic:
+// - sinh(x: float) -> float
+// - cosh(x: float) -> float
+// - tanh(x: float) -> float
+//
+// Re-exports:
+// pub use std.math.rand { ... }

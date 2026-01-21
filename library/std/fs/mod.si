@@ -1,0 +1,27 @@
+// TODO: Implement filesystem operations
+//
+// Capabilities required: FileSystem
+//
+// Functions:
+// - read_file(path: str) -> Result<str, Error>
+// - read_bytes(path: str) -> Result<[byte], Error>
+// - write_file(path: str, content: str) -> Result<void, Error>
+// - write_bytes(path: str, content: [byte]) -> Result<void, Error>
+// - append_file(path: str, content: str) -> Result<void, Error>
+// - exists(path: str) -> bool
+// - is_file(path: str) -> bool
+// - is_dir(path: str) -> bool
+// - remove(path: str) -> Result<void, Error>
+// - remove_all(path: str) -> Result<void, Error>
+// - rename(old: str, new: str) -> Result<void, Error>
+// - copy(src: str, dst: str) -> Result<void, Error>
+// - mkdir(path: str) -> Result<void, Error>
+// - mkdir_all(path: str) -> Result<void, Error>
+// - read_dir(path: str) -> Result<[DirEntry], Error>
+// - walk(path: str, f: (str) -> void) -> Result<void, Error>
+//
+// Types:
+// - File (open file handle)
+// - DirEntry (directory entry metadata)
+// - FileInfo (file metadata)
+// - FileMode (permissions)

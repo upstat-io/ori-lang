@@ -1,0 +1,8 @@
+// TODO: Implement hexadecimal encoding/decoding
+//
+// No capability required (pure)
+//
+// Functions:
+// - encode(data: [byte]) -> str
+// - decode(s: str) -> Result<[byte], Error>
+// - encode_upper(data: [byte]) -> str (uppercase hex)

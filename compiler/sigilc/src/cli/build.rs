@@ -2,6 +2,7 @@
 // Handles compiling Sigil to C and native binaries
 
 use sigilc::{codegen, lexer, parser, types};
+use sigilc::errors::DiagnosticResult;
 use std::fs;
 use std::process::Command;
 
@@ -28,8 +29,8 @@ pub fn emit_file(path: &str, output: &str) {
             }
             println!("Emitted: {}", out_path);
         }
-        Err(e) => {
-            eprintln!("{}", e);
+        Err(diag) => {
+            eprintln!("{}", diag);
             std::process::exit(1);
         }
     }
@@ -48,8 +49,8 @@ pub fn build_file(path: &str, output: &str) {
     // Generate C code
     let c_code = match compile_to_c(&source, path) {
         Ok(c) => c,
-        Err(e) => {
-            eprintln!("{}", e);
+        Err(diag) => {
+            eprintln!("{}", diag);
             std::process::exit(1);
         }
     };
@@ -90,16 +91,24 @@ pub fn build_file(path: &str, output: &str) {
 }
 
 /// Compile source code to C
-pub fn compile_to_c(source: &str, filename: &str) -> Result<String, String> {
+pub fn compile_to_c(source: &str, filename: &str) -> DiagnosticResult<String> {
+    use sigilc::errors::{Diagnostic, codes::ErrorCode};
+
+    // Helper to convert string errors to diagnostics
+    let to_diag = |msg: String| {
+        Diagnostic::error(ErrorCode::E0000, msg)
+            .with_label(sigilc::errors::Span::new(filename, 0..0), "error occurred here")
+    };
+
     // Step 1: Tokenize
-    let tokens = lexer::tokenize(source, filename)?;
+    let tokens = lexer::tokenize(source, filename).map_err(to_diag)?;
 
     // Step 2: Parse
-    let ast = parser::parse(tokens, filename)?;
+    let ast = parser::parse(tokens, filename).map_err(to_diag)?;
 
     // Step 3: Type check
     let typed_ast = types::check(ast)?;
 
     // Step 4: Generate C
-    codegen::generate(&typed_ast)
+    codegen::generate(&typed_ast).map_err(to_diag)
 }

@@ -20,6 +20,7 @@ pub mod visit;
 
 // Re-export all public types
 pub use expr::Expr;
+// SpannedExpr is defined in this file, no need to re-export
 pub use items::{ConfigDef, Field, FunctionDef, Param, TestDef, TypeDef, TypeDefKind, UseDef, UseItem, Variant};
 pub use matching::{MatchArm, MatchExpr, Pattern};
 pub use operators::{BinaryOp, UnaryOp};
@@ -57,3 +58,23 @@ pub enum Item {
 
 /// Source span
 pub type Span = std::ops::Range<usize>;
+
+/// An expression with its source span.
+/// This wraps the `Expr` enum with location information for error reporting.
+#[derive(Debug, Clone)]
+pub struct SpannedExpr {
+    pub expr: Expr,
+    pub span: Span,
+}
+
+impl SpannedExpr {
+    /// Create a new spanned expression
+    pub fn new(expr: Expr, span: Span) -> Self {
+        SpannedExpr { expr, span }
+    }
+
+    /// Create a spanned expression with no source location (for generated code)
+    pub fn no_span(expr: Expr) -> Self {
+        SpannedExpr { expr, span: 0..0 }
+    }
+}

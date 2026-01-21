@@ -6,7 +6,8 @@ use crate::ast::*;
 use crate::lexer::Token;
 
 impl Parser {
-    pub(super) fn parse_postfix_expr(&mut self) -> Result<Expr, String> {
+    pub(super) fn parse_postfix_expr(&mut self) -> Result<SpannedExpr, String> {
+        let start = self.current_start();
         let mut expr = self.parse_primary_expr()?;
 
         loop {
@@ -27,37 +28,42 @@ impl Parser {
                         self.advance();
                         let args = self.parse_args()?;
                         self.expect(Token::RParen)?;
-                        expr = Expr::MethodCall {
-                            receiver: Box::new(expr),
+                        let new_expr = Expr::MethodCall {
+                            receiver: Box::new(expr.expr),
                             method: name,
-                            args,
+                            args: args.into_iter().map(|a| a.expr).collect(),
                         };
+                        expr = self.spanned(new_expr, start);
                     } else {
-                        expr = Expr::Field(Box::new(expr), name);
+                        let new_expr = Expr::Field(Box::new(expr.expr), name);
+                        expr = self.spanned(new_expr, start);
                     }
                 }
                 Some(Token::LBracket) => {
                     self.advance();
                     let index = self.parse_expr()?;
                     self.expect(Token::RBracket)?;
-                    expr = Expr::Index(Box::new(expr), Box::new(index));
+                    let new_expr = Expr::Index(Box::new(expr.expr), Box::new(index.expr));
+                    expr = self.spanned(new_expr, start);
                 }
                 Some(Token::LParen) => {
                     self.advance();
                     let args = self.parse_args()?;
                     self.expect(Token::RParen)?;
-                    expr = Expr::Call {
-                        func: Box::new(expr),
-                        args,
+                    let new_expr = Expr::Call {
+                        func: Box::new(expr.expr),
+                        args: args.into_iter().map(|a| a.expr).collect(),
                     };
+                    expr = self.spanned(new_expr, start);
                 }
                 Some(Token::DoubleQuestion) => {
                     self.advance();
                     let default = self.parse_unary_expr()?;
-                    expr = Expr::Coalesce {
-                        value: Box::new(expr),
-                        default: Box::new(default),
+                    let new_expr = Expr::Coalesce {
+                        value: Box::new(expr.expr),
+                        default: Box::new(default.expr),
                     };
+                    expr = self.spanned(new_expr, start);
                 }
                 _ => break,
             }

@@ -6,23 +6,31 @@ use super::builtins::register_builtins;
 use super::registries::{ConfigRegistry, FunctionRegistry, TypeRegistry};
 use super::scope::{LocalBinding, ScopeGuard, ScopeManager};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 // Re-export FunctionSig from registries for backwards compatibility
 pub use super::registries::FunctionSig;
 
 /// Type checking context (facade over focused registries)
+///
+/// Uses Arc for registries to enable cheap cloning when creating child contexts.
+/// The registries are shared during type checking and lowering phases, with
+/// copy-on-write semantics for the rare case of mutation after sharing.
 pub struct TypeContext {
-    /// Type definitions registry
-    pub(crate) types: TypeRegistry,
+    /// Type definitions registry (shared via Arc)
+    pub(crate) types: Arc<TypeRegistry>,
 
-    /// Function signatures registry
-    pub(crate) functions: FunctionRegistry,
+    /// Function signatures registry (shared via Arc)
+    pub(crate) functions: Arc<FunctionRegistry>,
 
-    /// Config variables registry
-    pub(crate) configs: ConfigRegistry,
+    /// Config variables registry (shared via Arc)
+    pub(crate) configs: Arc<ConfigRegistry>,
 
-    /// Scope manager for local variables
+    /// Scope manager for local variables (not shared - per-context)
     pub(crate) scopes: ScopeManager,
+
+    /// Source filename for diagnostic spans
+    pub(crate) filename: String,
 }
 
 impl Default for TypeContext {
@@ -33,22 +41,45 @@ impl Default for TypeContext {
 
 impl TypeContext {
     pub fn new() -> Self {
-        let mut ctx = TypeContext {
-            types: TypeRegistry::new(),
-            functions: FunctionRegistry::new(),
-            configs: ConfigRegistry::new(),
-            scopes: ScopeManager::new(),
-        };
-
+        let mut functions = FunctionRegistry::new();
         // Register builtin functions using declarative module
-        register_builtins(&mut ctx.functions);
+        register_builtins(&mut functions);
+
+        TypeContext {
+            types: Arc::new(TypeRegistry::new()),
+            functions: Arc::new(functions),
+            configs: Arc::new(ConfigRegistry::new()),
+            scopes: ScopeManager::new(),
+            filename: String::new(),
+        }
+    }
+
+    /// Create a new context with a filename for diagnostics
+    pub fn with_filename(filename: impl Into<String>) -> Self {
+        let mut ctx = Self::new();
+        ctx.filename = filename.into();
         ctx
+    }
+
+    /// Get the current filename
+    pub fn filename(&self) -> &str {
+        &self.filename
+    }
+
+    /// Set the filename for diagnostics
+    pub fn set_filename(&mut self, filename: impl Into<String>) {
+        self.filename = filename.into();
+    }
+
+    /// Create an error::Span from an ast::Span range
+    pub fn make_span(&self, range: std::ops::Range<usize>) -> crate::errors::Span {
+        crate::errors::Span::new(&self.filename, range)
     }
 
     // === Type Registry Facade ===
 
     pub fn define_type(&mut self, name: String, def: TypeDef) {
-        self.types.define(name, def);
+        Arc::make_mut(&mut self.types).define(name, def);
     }
 
     pub fn lookup_type(&self, name: &str) -> Option<&TypeDef> {
@@ -58,7 +89,7 @@ impl TypeContext {
     // === Function Registry Facade ===
 
     pub fn define_function(&mut self, name: String, sig: FunctionSig) {
-        self.functions.define(name, sig);
+        Arc::make_mut(&mut self.functions).define(name, sig);
     }
 
     pub fn lookup_function(&self, name: &str) -> Option<&FunctionSig> {
@@ -68,7 +99,7 @@ impl TypeContext {
     // === Config Registry Facade ===
 
     pub fn define_config(&mut self, name: String, ty: TypeExpr) {
-        self.configs.define(name, ty);
+        Arc::make_mut(&mut self.configs).define(name, ty);
     }
 
     pub fn lookup_config(&self, name: &str) -> Option<&TypeExpr> {
@@ -138,12 +169,14 @@ impl TypeContext {
     }
 
     /// Create a child context that inherits all state (for block scopes)
+    /// This is cheap because registries are shared via Arc.
     pub fn child(&self) -> Self {
         TypeContext {
-            types: self.types.clone(),
-            functions: self.functions.clone(),
-            configs: self.configs.clone(),
+            types: Arc::clone(&self.types),
+            functions: Arc::clone(&self.functions),
+            configs: Arc::clone(&self.configs),
             scopes: self.scopes.clone(),
+            filename: self.filename.clone(),
         }
     }
 

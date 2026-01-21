@@ -5,12 +5,15 @@ This section defines the expression syntax and semantics.
 ## Expression Categories
 
 ```
-expression    = pattern_expr
+expression    = with_expr
+              | pattern_expr
               | if_expr
               | for_expr
               | loop_expr
               | lambda
               | binary_expr .
+
+with_expr     = "with" identifier "=" expression "in" expression .
 ```
 
 ## Primary Expressions
@@ -89,7 +92,9 @@ postfix_op    = "." identifier [ call_args ]
               | ".await"
               | "?" .
 
-call_args     = "(" [ expression { "," expression } ] ")" .
+call_args     = "(" [ call_arg { "," call_arg } [ "," ] ] ")" .
+call_arg      = expression | named_arg .
+named_arg     = "." identifier ":" expression .
 ```
 
 ### Field Access
@@ -118,12 +123,25 @@ map["key"]
 
 The `#` symbol within index brackets refers to the length of the collection.
 
+Indexing rules:
+
+- Lists require an `int` index and panic on out-of-bounds access.
+- Strings require an `int` index, return a single-code-point `str`, and panic on out-of-bounds access.
+- Map indexing returns `Option<V>` and yields `None` if the key is missing.
+
 ### Function Call
 
 ```sigil
 add(1, 2)
 process(data)
 fetch_user(id)
+```
+
+Named arguments may be used in place of positional arguments. When named arguments are used, every argument must be named, each parameter may appear at most once, argument order is irrelevant, and names must match the function's parameter names.
+
+```sigil
+add(.a: 1, .b: 2)
+fetch_user(.id: id)
 ```
 
 ### Await
@@ -134,6 +152,8 @@ The `.await` suffix awaits an async expression:
 result.await
 fetch(url).await
 ```
+
+It is an error to apply `.await` to a non-`async` value. `.await` is only permitted within async function bodies.
 
 ### Error Propagation
 
@@ -151,7 +171,7 @@ Within a `try` block, `?` unwraps `Ok` values and returns early on `Err`.
 ### Syntax
 
 ```
-unary_expr    = [ "!" | "-" ] postfix_expr .
+unary_expr    = [ "!" | "-" | "~" ] postfix_expr .
 ```
 
 ### Logical Not
@@ -177,7 +197,10 @@ unary_expr    = [ "!" | "-" ] postfix_expr .
 ```
 binary_expr   = or_expr .
 or_expr       = and_expr { "||" and_expr } .
-and_expr      = eq_expr { "&&" eq_expr } .
+and_expr      = bit_or_expr { "&&" bit_or_expr } .
+bit_or_expr   = bit_xor_expr { "|" bit_xor_expr } .
+bit_xor_expr  = bit_and_expr { "^" bit_and_expr } .
+bit_and_expr  = eq_expr { "&" eq_expr } .
 eq_expr       = cmp_expr { ( "==" | "!=" ) cmp_expr } .
 cmp_expr      = range_expr { ( "<" | ">" | "<=" | ">=" ) range_expr } .
 range_expr    = add_expr [ ( ".." | "..=" ) add_expr ] .
@@ -242,6 +265,28 @@ expression ?? default
 ```
 
 If the left expression is `None` or `Err`, evaluates to `default`. Otherwise evaluates to the unwrapped value.
+
+### Bitwise Operators
+
+| Operator | Operation | Operand Types | Result Type |
+|----------|-----------|---------------|-------------|
+| `&` | Bitwise AND | `byte`, `byte` | `byte` |
+| `\|` | Bitwise OR | `byte`, `byte` | `byte` |
+| `^` | Bitwise XOR | `byte`, `byte` | `byte` |
+| `~` | Bitwise NOT | `byte` | `byte` |
+
+Bitwise operations wrap on overflow.
+
+## With Expression
+
+A `with` expression provides a capability implementation for the `in` expression.
+
+```sigil
+with Http = RealHttp { base_url: "https://api.example.com" } in
+    fetch_user("123")
+```
+
+See [Capabilities](14-capabilities.md) for capability scoping rules.
 
 ## Conditional Expression
 

@@ -7,7 +7,7 @@ This section defines functions, types, traits, and implementation blocks.
 ### Syntax
 
 ```
-function      = [ "pub" ] "@" identifier [ generics ] params "->" type [ uses_clause ] "=" expression .
+function      = [ "pub" ] "@" identifier [ generics ] params "->" type [ uses_clause ] [ where_clause ] "=" expression .
 params        = "(" [ param { "," param } ] ")" .
 param         = identifier ":" type .
 generics      = "<" generic_param { "," generic_param } ">" .
@@ -57,6 +57,16 @@ The return type must be specified. For functions that return no meaningful value
 ```sigil
 @log (message: str) -> void = print(message)
 ```
+
+### Async Return Types
+
+An async function returns an `async` type:
+
+```sigil
+@fetch (url: str) -> async Result<str, Error> = ...
+```
+
+The function body is evaluated in an async context, and `.await` is permitted within it.
 
 ### Function Body
 

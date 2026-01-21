@@ -1,0 +1,11 @@
+// TODO: Implement cryptographically secure random
+//
+// Capabilities required: IO (reads from system entropy)
+//
+// Functions:
+// - bytes(n: int) -> [byte]
+// - int(min: int, max: int) -> int
+// - fill(buffer: [byte]) -> void
+//
+// Note: These use the operating system's CSPRNG
+// (e.g., /dev/urandom on Unix, CryptGenRandom on Windows)

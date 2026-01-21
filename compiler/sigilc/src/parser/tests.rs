@@ -295,7 +295,7 @@ fn test_test_definition() {
 fn test_int_literal() {
     let module = parse_ok("@f () -> int = 42");
     let func = first_function(&module);
-    assert!(matches!(func.body, Expr::Int(42)));
+    assert!(matches!(func.body.expr, Expr::Int(42)));
 }
 
 #[test]
@@ -303,35 +303,35 @@ fn test_int_literal() {
 fn test_float_literal() {
     let module = parse_ok("@f () -> float = 3.14");
     let func = first_function(&module);
-    assert!(matches!(func.body, Expr::Float(f) if (f - 3.14).abs() < 0.001));
+    assert!(matches!(func.body.expr, Expr::Float(f) if (f - 3.14).abs() < 0.001));
 }
 
 #[test]
 fn test_string_literal() {
     let module = parse_ok(r#"@f () -> str = "hello""#);
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::String(s) if s == "hello"));
+    assert!(matches!(&func.body.expr, Expr::String(s) if s == "hello"));
 }
 
 #[test]
 fn test_bool_true() {
     let module = parse_ok("@f () -> bool = true");
     let func = first_function(&module);
-    assert!(matches!(func.body, Expr::Bool(true)));
+    assert!(matches!(func.body.expr, Expr::Bool(true)));
 }
 
 #[test]
 fn test_bool_false() {
     let module = parse_ok("@f () -> bool = false");
     let func = first_function(&module);
-    assert!(matches!(func.body, Expr::Bool(false)));
+    assert!(matches!(func.body.expr, Expr::Bool(false)));
 }
 
 #[test]
 fn test_nil_literal() {
     let module = parse_ok("@f () -> void = nil");
     let func = first_function(&module);
-    assert!(matches!(func.body, Expr::Nil));
+    assert!(matches!(func.body.expr, Expr::Nil));
 }
 
 // ============================================================================
@@ -342,21 +342,21 @@ fn test_nil_literal() {
 fn test_list_literal() {
     let module = parse_ok("@f () -> [int] = [1, 2, 3]");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::List(items) if items.len() == 3));
+    assert!(matches!(&func.body.expr, Expr::List(items) if items.len() == 3));
 }
 
 #[test]
 fn test_empty_list() {
     let module = parse_ok("@f () -> [int] = []");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::List(items) if items.is_empty()));
+    assert!(matches!(&func.body.expr, Expr::List(items) if items.is_empty()));
 }
 
 #[test]
 fn test_tuple_literal() {
     let module = parse_ok("@f () -> (int, str) = (1, \"a\")");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::Tuple(items) if items.len() == 2));
+    assert!(matches!(&func.body.expr, Expr::Tuple(items) if items.len() == 2));
 }
 
 #[test]
@@ -364,7 +364,7 @@ fn test_struct_literal() {
     let module = parse_ok("@f () -> Point = Point { x: 1, y: 2 }");
     let func = first_function(&module);
     assert!(
-        matches!(&func.body, Expr::Struct { name, fields } if name == "Point" && fields.len() == 2)
+        matches!(&func.body.expr, Expr::Struct { name, fields } if name == "Point" && fields.len() == 2)
     );
 }
 
@@ -377,7 +377,7 @@ fn test_binary_add() {
     let module = parse_ok("@f () -> int = 1 + 2");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Binary {
             op: BinaryOp::Add,
             ..
@@ -390,7 +390,7 @@ fn test_binary_sub() {
     let module = parse_ok("@f () -> int = 5 - 3");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Binary {
             op: BinaryOp::Sub,
             ..
@@ -403,7 +403,7 @@ fn test_binary_mul() {
     let module = parse_ok("@f () -> int = 2 * 3");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Binary {
             op: BinaryOp::Mul,
             ..
@@ -416,7 +416,7 @@ fn test_binary_div() {
     let module = parse_ok("@f () -> int = 6 / 2");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Binary {
             op: BinaryOp::Div,
             ..
@@ -429,7 +429,7 @@ fn test_binary_mod() {
     let module = parse_ok("@f () -> int = 7 % 3");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Binary {
             op: BinaryOp::Mod,
             ..
@@ -442,7 +442,7 @@ fn test_binary_eq() {
     let module = parse_ok("@f () -> bool = a == b");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Binary {
             op: BinaryOp::Eq,
             ..
@@ -455,7 +455,7 @@ fn test_binary_not_eq() {
     let module = parse_ok("@f () -> bool = a != b");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Binary {
             op: BinaryOp::NotEq,
             ..
@@ -468,7 +468,7 @@ fn test_binary_lt() {
     let module = parse_ok("@f () -> bool = a < b");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Binary {
             op: BinaryOp::Lt,
             ..
@@ -481,7 +481,7 @@ fn test_binary_and() {
     let module = parse_ok("@f () -> bool = a && b");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Binary {
             op: BinaryOp::And,
             ..
@@ -494,7 +494,7 @@ fn test_binary_or() {
     let module = parse_ok("@f () -> bool = a || b");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Binary {
             op: BinaryOp::Or,
             ..
@@ -507,7 +507,7 @@ fn test_unary_neg() {
     let module = parse_ok("@f () -> int = -x");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Unary {
             op: UnaryOp::Neg,
             ..
@@ -520,7 +520,7 @@ fn test_unary_not() {
     let module = parse_ok("@f () -> bool = !x");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Unary {
             op: UnaryOp::Not,
             ..
@@ -541,7 +541,7 @@ fn test_precedence_mul_over_add() {
         op: BinaryOp::Add,
         right,
         ..
-    } = &func.body
+    } = &func.body.expr
     {
         assert!(matches!(
             right.as_ref(),
@@ -564,7 +564,7 @@ fn test_precedence_and_over_or() {
         op: BinaryOp::Or,
         right,
         ..
-    } = &func.body
+    } = &func.body.expr
     {
         assert!(matches!(
             right.as_ref(),
@@ -587,7 +587,7 @@ fn test_precedence_comparison_over_and() {
         op: BinaryOp::And,
         left,
         right,
-    } = &func.body
+    } = &func.body.expr
     {
         assert!(matches!(
             left.as_ref(),
@@ -617,7 +617,7 @@ fn test_if_then_else() {
     let module = parse_ok("@f (x: int) -> int = if x > 0 :then 1 :else -1");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::If {
             else_branch: Some(_),
             ..
@@ -630,7 +630,7 @@ fn test_if_then_only() {
     let module = parse_ok("@f (x: int) -> int = if x > 0 :then 1");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::If {
             else_branch: None,
             ..
@@ -642,7 +642,7 @@ fn test_if_then_only() {
 fn test_match_expression() {
     let module = parse_ok("@f (x: int) -> str = match(x, 0: \"zero\", _: \"other\")");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::Match(_)));
+    assert!(matches!(&func.body.expr, Expr::Match(_)));
 }
 
 // ============================================================================
@@ -653,28 +653,28 @@ fn test_match_expression() {
 fn test_function_call() {
     let module = parse_ok("@f () -> int = add(1, 2)");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::Call { .. }));
+    assert!(matches!(&func.body.expr, Expr::Call { .. }));
 }
 
 #[test]
 fn test_method_call() {
     let module = parse_ok("@f (arr: [int]) -> int = arr.len()");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::MethodCall { method, .. } if method == "len"));
+    assert!(matches!(&func.body.expr, Expr::MethodCall { method, .. } if method == "len"));
 }
 
 #[test]
 fn test_field_access() {
     let module = parse_ok("@f (p: Point) -> int = p.x");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::Field(_, ref name) if name == "x"));
+    assert!(matches!(&func.body.expr, Expr::Field(_, ref name) if name == "x"));
 }
 
 #[test]
 fn test_index_access() {
     let module = parse_ok("@f (arr: [int]) -> int = arr[0]");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::Index(_, _)));
+    assert!(matches!(&func.body.expr, Expr::Index(_, _)));
 }
 
 // ============================================================================
@@ -685,21 +685,21 @@ fn test_index_access() {
 fn test_lambda_single_param() {
     let module = parse_ok("@f () -> (int -> int) = x -> x + 1");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::Lambda { params, .. } if params.len() == 1));
+    assert!(matches!(&func.body.expr, Expr::Lambda { params, .. } if params.len() == 1));
 }
 
 #[test]
 fn test_lambda_multiple_params() {
     let module = parse_ok("@f () -> ((int, int) -> int) = (a, b) -> a + b");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::Lambda { params, .. } if params.len() == 2));
+    assert!(matches!(&func.body.expr, Expr::Lambda { params, .. } if params.len() == 2));
 }
 
 #[test]
 fn test_lambda_no_params() {
     let module = parse_ok("@f () -> (() -> int) = () -> 42");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::Lambda { params, .. } if params.is_empty()));
+    assert!(matches!(&func.body.expr, Expr::Lambda { params, .. } if params.is_empty()));
 }
 
 // ============================================================================
@@ -710,7 +710,7 @@ fn test_lambda_no_params() {
 fn test_range() {
     let module = parse_ok("@f () -> [int] = 1..10");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::Range { .. }));
+    assert!(matches!(&func.body.expr, Expr::Range { .. }));
 }
 
 // ============================================================================
@@ -721,35 +721,35 @@ fn test_range() {
 fn test_ok_constructor() {
     let module = parse_ok("@f () -> Result<int, str> = Ok(42)");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::Ok(_)));
+    assert!(matches!(&func.body.expr, Expr::Ok(_)));
 }
 
 #[test]
 fn test_err_constructor() {
     let module = parse_ok("@f () -> Result<int, str> = Err(\"failed\")");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::Err(_)));
+    assert!(matches!(&func.body.expr, Expr::Err(_)));
 }
 
 #[test]
 fn test_some_constructor() {
     let module = parse_ok("@f () -> ?int = Some(42)");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::Some(_)));
+    assert!(matches!(&func.body.expr, Expr::Some(_)));
 }
 
 #[test]
 fn test_none_constructor() {
     let module = parse_ok("@f () -> ?int = None");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::None_));
+    assert!(matches!(&func.body.expr, Expr::None_));
 }
 
 #[test]
 fn test_coalesce() {
     let module = parse_ok("@f (x: ?int) -> int = x ?? 0");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::Coalesce { .. }));
+    assert!(matches!(&func.body.expr, Expr::Coalesce { .. }));
 }
 
 // ============================================================================
@@ -760,7 +760,7 @@ fn test_coalesce() {
 fn test_run_block() {
     let module = parse_ok("@f () -> void = run(print(\"a\"), print(\"b\"))");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::Block(items) if items.len() == 2));
+    assert!(matches!(&func.body.expr, Expr::Block(items) if items.len() == 2));
 }
 
 // ============================================================================
@@ -772,7 +772,7 @@ fn test_fold_pattern() {
     let module = parse_ok("@sum (arr: [int]) -> int = fold(arr, 0, +)");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Pattern(PatternExpr::Fold { .. })
     ));
 }
@@ -781,7 +781,7 @@ fn test_fold_pattern() {
 fn test_map_pattern() {
     let module = parse_ok("@double (arr: [int]) -> [int] = map(arr, x -> x * 2)");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::Pattern(PatternExpr::Map { .. })));
+    assert!(matches!(&func.body.expr, Expr::Pattern(PatternExpr::Map { .. })));
 }
 
 #[test]
@@ -789,7 +789,7 @@ fn test_filter_pattern() {
     let module = parse_ok("@evens (arr: [int]) -> [int] = filter(arr, x -> x % 2 == 0)");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Pattern(PatternExpr::Filter { .. })
     ));
 }
@@ -799,7 +799,7 @@ fn test_collect_pattern() {
     let module = parse_ok("@squares (n: int) -> [int] = collect(1..n, x -> x * x)");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Pattern(PatternExpr::Collect { .. })
     ));
 }
@@ -809,7 +809,7 @@ fn test_recurse_pattern() {
     let module = parse_ok("@factorial (n: int) -> int = recurse(n <= 1, 1, n * self(n - 1))");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Pattern(PatternExpr::Recurse { memo: false, .. })
     ));
 }
@@ -820,7 +820,7 @@ fn test_recurse_pattern_with_memo() {
         parse_ok("@fib (n: int) -> int = recurse(n <= 1, n, self(n - 1) + self(n - 2), true)");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Pattern(PatternExpr::Recurse { memo: true, .. })
     ));
 }
@@ -834,7 +834,7 @@ fn test_recurse_named_syntax() {
     let module = parse_ok("@fib (n: int) -> int = recurse(.cond: n <= 1, .base: n, .step: self(n-1) + self(n-2), .memo: true)");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Pattern(PatternExpr::Recurse { memo: true, .. })
     ));
 }
@@ -844,7 +844,7 @@ fn test_fold_named_syntax() {
     let module = parse_ok("@sum (arr: [int]) -> int = fold(.over: arr, .init: 0, .op: +)");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Pattern(PatternExpr::Fold { .. })
     ));
 }
@@ -854,7 +854,7 @@ fn test_map_named_syntax() {
     let module =
         parse_ok("@double (arr: [int]) -> [int] = map(.over: arr, .transform: x -> x * 2)");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::Pattern(PatternExpr::Map { .. })));
+    assert!(matches!(&func.body.expr, Expr::Pattern(PatternExpr::Map { .. })));
 }
 
 #[test]
@@ -863,7 +863,7 @@ fn test_filter_named_syntax() {
         parse_ok("@evens (arr: [int]) -> [int] = filter(.over: arr, .predicate: x -> x % 2 == 0)");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Pattern(PatternExpr::Filter { .. })
     ));
 }
@@ -873,7 +873,7 @@ fn test_parallel_named_syntax() {
     let module = parse_ok("@fetch () -> { a: int, b: int } = parallel(.a: getA(), .b: getB())");
     let func = first_function(&module);
     assert!(matches!(
-        &func.body,
+        &func.body.expr,
         Expr::Pattern(PatternExpr::Parallel { .. })
     ));
 }
@@ -958,7 +958,7 @@ fn test_type_record() {
 fn test_let_binding() {
     let module = parse_ok("@f () -> void = run(let x = 1, print(x))");
     let func = first_function(&module);
-    if let Expr::Block(exprs) = &func.body {
+    if let Expr::Block(exprs) = &func.body.expr {
         assert!(matches!(&exprs[0], Expr::Let { name, mutable: false, .. } if name == "x"));
     } else {
         panic!("expected block");
@@ -969,7 +969,7 @@ fn test_let_binding() {
 fn test_let_mut_binding() {
     let module = parse_ok("@f () -> void = run(let mut x = 1, x = 2)");
     let func = first_function(&module);
-    if let Expr::Block(exprs) = &func.body {
+    if let Expr::Block(exprs) = &func.body.expr {
         assert!(matches!(&exprs[0], Expr::Let { name, mutable: true, .. } if name == "x"));
         assert!(matches!(&exprs[1], Expr::Reassign { target, .. } if target == "x"));
     } else {
@@ -985,7 +985,7 @@ fn test_let_mut_binding() {
 fn test_for_loop() {
     let module = parse_ok("@f () -> void = for i in 1..10 { print(i) }");
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::For { binding, .. } if binding == "i"));
+    assert!(matches!(&func.body.expr, Expr::For { binding, .. } if binding == "i"));
 }
 
 // ============================================================================
@@ -996,7 +996,7 @@ fn test_for_loop() {
 fn test_length_placeholder() {
     let module = parse_ok("@last (arr: [int]) -> int = arr[# - 1]");
     let func = first_function(&module);
-    if let Expr::Index(_, index) = &func.body {
+    if let Expr::Index(_, index) = &func.body.expr {
         if let Expr::Binary { left, .. } = index.as_ref() {
             assert!(matches!(left.as_ref(), Expr::LengthPlaceholder));
         }
@@ -1028,7 +1028,7 @@ fn test_multiline_block() {
 "#;
     let module = parse_ok(source);
     let func = first_function(&module);
-    assert!(matches!(&func.body, Expr::Block(items) if items.len() == 2));
+    assert!(matches!(&func.body.expr, Expr::Block(items) if items.len() == 2));
 }
 
 // ============================================================================

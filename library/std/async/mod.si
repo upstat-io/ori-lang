@@ -1,0 +1,38 @@
+// TODO: Implement async utilities
+//
+// Capabilities required: IO (for actual async operations)
+//
+// Types:
+// - Future<T> (asynchronous computation)
+// - Task<T> (spawned async task)
+// - Channel<T> (in prelude, async communication)
+// - Sender<T> (channel send end)
+// - Receiver<T> (channel receive end)
+//
+// Task spawning:
+// - spawn<T>(f: async () -> T) -> Task<T>
+// - spawn_blocking<T>(f: () -> T) -> Task<T>
+//
+// Task methods:
+// - await() -> T (wait for completion)
+// - cancel() -> void
+// - is_done() -> bool
+//
+// Channel creation:
+// - channel<T>() -> (Sender<T>, Receiver<T>)
+// - channel_bounded<T>(capacity: int) -> (Sender<T>, Receiver<T>)
+//
+// Channel operations:
+// - send(value: T) -> Result<void, Error>
+// - recv() -> Result<T, Error>
+// - try_send(value: T) -> Result<void, Error>
+// - try_recv() -> Option<T>
+//
+// Combinators:
+// - join<T, U>(a: Future<T>, b: Future<U>) -> (T, U)
+// - race<T>(futures: [Future<T>]) -> T
+// - all<T>(futures: [Future<T>]) -> [T]
+// - timeout<T>(f: Future<T>, d: Duration) -> Result<T, Error>
+//
+// Sleeping:
+// - sleep(d: Duration) -> Future<void>

@@ -1,0 +1,18 @@
+// TODO: Implement symmetric encryption
+//
+// No capability required (pure)
+//
+// Types:
+// - Cipher trait (encrypt/decrypt interface)
+// - AesGcm (AES-GCM authenticated encryption)
+// - ChaCha20Poly1305 (ChaCha20-Poly1305 AEAD)
+//
+// AesGcm:
+// - new(key: [byte]) -> Result<AesGcm, Error>
+// - encrypt(plaintext: [byte], nonce: [byte], aad: [byte]) -> [byte]
+// - decrypt(ciphertext: [byte], nonce: [byte], aad: [byte]) -> Result<[byte], Error>
+//
+// Key sizes:
+// - AES-128-GCM: 16 bytes
+// - AES-256-GCM: 32 bytes
+// - ChaCha20-Poly1305: 32 bytes

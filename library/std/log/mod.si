@@ -1,0 +1,29 @@
+// TODO: Implement structured logging
+//
+// Capabilities required: IO
+//
+// Log levels:
+// - Level = Trace | Debug | Info | Warn | Error
+//
+// Functions:
+// - trace(message: str) -> void
+// - debug(message: str) -> void
+// - info(message: str) -> void
+// - warn(message: str) -> void
+// - error(message: str) -> void
+//
+// Structured logging:
+// - log(level: Level, message: str, fields: {str: str}) -> void
+//
+// Configuration:
+// - set_level(level: Level) -> void
+// - set_output(writer: Writer) -> void
+// - set_format(format: Format) -> void
+//
+// Formats:
+// - Format.text() - human-readable
+// - Format.json() - JSON lines
+//
+// Types:
+// - Logger (logger instance)
+// - Handler trait (log output handler)

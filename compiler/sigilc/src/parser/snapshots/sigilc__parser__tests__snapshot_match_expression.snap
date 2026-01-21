@@ -21,53 +21,56 @@ Module {
                 return_type: Named(
                     "str",
                 ),
-                body: Match(
-                    MatchExpr {
-                        scrutinee: Bool(
-                            true,
-                        ),
-                        arms: [
-                            MatchArm {
-                                pattern: Condition(
-                                    Binary {
-                                        op: Lt,
-                                        left: Ident(
-                                            "n",
-                                        ),
-                                        right: Int(
-                                            0,
-                                        ),
-                                    },
-                                ),
-                                body: String(
-                                    "negative",
-                                ),
-                            },
-                            MatchArm {
-                                pattern: Condition(
-                                    Binary {
-                                        op: Eq,
-                                        left: Ident(
-                                            "n",
-                                        ),
-                                        right: Int(
-                                            0,
-                                        ),
-                                    },
-                                ),
-                                body: String(
-                                    "zero",
-                                ),
-                            },
-                            MatchArm {
-                                pattern: Wildcard,
-                                body: String(
-                                    "positive",
-                                ),
-                            },
-                        ],
-                    },
-                ),
+                body: SpannedExpr {
+                    expr: Match(
+                        MatchExpr {
+                            scrutinee: Bool(
+                                true,
+                            ),
+                            arms: [
+                                MatchArm {
+                                    pattern: Condition(
+                                        Binary {
+                                            op: Lt,
+                                            left: Ident(
+                                                "n",
+                                            ),
+                                            right: Int(
+                                                0,
+                                            ),
+                                        },
+                                    ),
+                                    body: String(
+                                        "negative",
+                                    ),
+                                },
+                                MatchArm {
+                                    pattern: Condition(
+                                        Binary {
+                                            op: Eq,
+                                            left: Ident(
+                                                "n",
+                                            ),
+                                            right: Int(
+                                                0,
+                                            ),
+                                        },
+                                    ),
+                                    body: String(
+                                        "zero",
+                                    ),
+                                },
+                                MatchArm {
+                                    pattern: Wildcard,
+                                    body: String(
+                                        "positive",
+                                    ),
+                                },
+                            ],
+                        },
+                    ),
+                    span: 28..80,
+                },
                 span: 0..80,
             },
         ),

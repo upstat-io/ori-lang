@@ -38,7 +38,7 @@ fn initialize_environment(module: &Module) -> Result<Environment, String> {
     for item in &module.items {
         match item {
             Item::Config(cd) => {
-                let value = eval_expr(&cd.value, &env)?;
+                let value = eval_expr(&cd.value.expr, &env)?;
                 env.set_config(cd.name.clone(), value);
             }
             Item::Function(fd) => {
@@ -56,7 +56,7 @@ pub fn run(module: Module) -> Result<Value, String> {
     let env = initialize_environment(&module)?;
 
     if let Some(main_fn) = env.get_function("main").cloned() {
-        eval_expr(&main_fn.body, &env)
+        eval_expr(&main_fn.body.expr, &env)
     } else {
         Ok(Value::Nil)
     }
@@ -65,7 +65,7 @@ pub fn run(module: Module) -> Result<Value, String> {
 /// Run a single test
 pub fn run_test(module: &Module, test: &TestDef) -> Result<(), String> {
     let env = initialize_environment(module)?;
-    eval_expr(&test.body, &env)?;
+    eval_expr(&test.body.expr, &env)?;
     Ok(())
 }
 
@@ -77,7 +77,7 @@ pub fn eval_line(input: &str, env: &mut Environment) -> Result<String, String> {
     for item in module.items {
         match item {
             Item::Config(cd) => {
-                let value = eval_expr(&cd.value, env)?;
+                let value = eval_expr(&cd.value.expr, env)?;
                 env.set_config(cd.name.clone(), value.clone());
                 return Ok(format!("${} = {}", cd.name, value));
             }

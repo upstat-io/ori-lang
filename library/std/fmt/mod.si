@@ -1,0 +1,27 @@
+// TODO: Implement string formatting
+//
+// No capability required (pure)
+//
+// Functions:
+// - format(template: str, args: ...) -> str
+// - sprintf(template: str, args: ...) -> str
+// - println(args: ...) -> void (requires IO capability)
+//
+// Format specifiers:
+// - {} - default formatting
+// - {0}, {1} - positional arguments
+// - {name} - named arguments
+// - {:d} - integer
+// - {:f} - float
+// - {:s} - string
+// - {:b} - binary
+// - {:x} - hexadecimal
+// - {:o} - octal
+// - {:e} - scientific notation
+// - {:.2} - precision
+// - {:>10} - right align, width 10
+// - {:<10} - left align, width 10
+// - {:^10} - center align, width 10
+//
+// Traits:
+// - Formatter trait (custom formatting)

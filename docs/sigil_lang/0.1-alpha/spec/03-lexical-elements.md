@@ -56,12 +56,12 @@ doc_marker    = "#" | "@param" | "@field" | "!" | ">" .
 An identifier names a program entity such as a variable, function, type, or module.
 
 ```
-identifier    = letter { letter | digit | "_" } .
+identifier    = ( letter | "_" ) { letter | digit | "_" } .
 letter        = 'A' ... 'Z' | 'a' ... 'z' .
 digit         = '0' ... '9' .
 ```
 
-An identifier must start with a letter and may contain letters, digits, and underscores. Identifiers are case-sensitive.
+An identifier must start with a letter or underscore and may contain letters, digits, and underscores. Identifiers are case-sensitive.
 
 ```sigil
 x
@@ -111,11 +111,12 @@ timeout     try         validate
 ### Operators
 
 ```
-operator      = arith_op | comp_op | logic_op | other_op .
+operator      = arith_op | comp_op | logic_op | bit_op | other_op .
 
 arith_op      = "+" | "-" | "*" | "/" | "%" | "div" .
 comp_op       = "==" | "!=" | "<" | ">" | "<=" | ">=" .
 logic_op      = "&&" | "||" | "!" .
+bit_op        = "&" | "|" | "^" | "~" .
 other_op      = ".." | "..=" | "??" | "?" | "->" | "=>" .
 ```
 
@@ -128,20 +129,23 @@ delimiter     = "(" | ")" | "[" | "]" | "{" | "}"
 
 ### Operator Precedence
 
-Operators have the following precedence, from highest (1) to lowest (10):
+Operators have the following precedence, from highest (1) to lowest (13):
 
 | Precedence | Operators | Associativity |
 |------------|-----------|---------------|
 | 1 | `.` `[]` `()` `.await` `?` | Left |
-| 2 | `!` `-` (unary) | Right |
+| 2 | `!` `-` `~` (unary) | Right |
 | 3 | `*` `/` `%` `div` | Left |
 | 4 | `+` `-` | Left |
 | 5 | `..` `..=` | Left |
 | 6 | `<` `>` `<=` `>=` | Left |
 | 7 | `==` `!=` | Left |
-| 8 | `&&` | Left |
-| 9 | `\|\|` | Left |
-| 10 | `??` | Left |
+| 8 | `&` | Left |
+| 9 | `^` | Left |
+| 10 | `|` | Left |
+| 11 | `&&` | Left |
+| 12 | `\|\|` | Left |
+| 13 | `??` | Left |
 
 ## Literals
 
@@ -155,8 +159,10 @@ literal       = int_literal | float_literal | string_literal | char_literal
 ### Integer Literals
 
 ```
-int_literal   = decimal_lit .
+int_literal   = decimal_lit | hex_lit .
 decimal_lit   = digit { digit | "_" } .
+hex_lit       = "0x" hex_digit { hex_digit | "_" } .
+hex_digit     = digit | "a" ... "f" | "A" ... "F" .
 ```
 
 Underscores may appear between digits for readability but have no semantic meaning.
@@ -165,9 +171,11 @@ Underscores may appear between digits for readability but have no semantic meani
 42
 1_000_000
 0
+0x2a
+0xFF
 ```
 
-Integer literals represent values of type `int` (64-bit signed integer).
+Integer literals represent values of type `int` (64-bit signed integer). Hex literals use the `0x` prefix.
 
 ### Floating-Point Literals
 

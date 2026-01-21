@@ -17,61 +17,77 @@ pub mod errors;
 pub mod eval;
 pub mod ir;
 pub mod lexer;
+pub mod modules;
 pub mod parser;
 pub mod passes;
 pub mod patterns;
 pub mod symbols;
 pub mod traits;
+pub mod traverse;
 pub mod types;
 
 pub use ast::Module;
+pub use errors::{Diagnostic, DiagnosticResult};
 pub use eval::run as interpret;
 pub use ir::TModule;
 pub use types::check as type_check;
 pub use types::check_and_lower;
 
+use errors::codes::ErrorCode;
+
+/// Convert string error to diagnostic
+fn string_to_diag(msg: String, filename: &str) -> Diagnostic {
+    Diagnostic::error(ErrorCode::E0000, msg)
+        .with_label(errors::Span::new(filename, 0..0), "error occurred here")
+}
+
 /// Compile source code to a typed AST (for interpreter)
-pub fn compile(source: &str, filename: &str) -> Result<Module, String> {
-    let tokens = lexer::tokenize(source, filename)?;
-    let ast = parser::parse(tokens, filename)?;
-    let typed_ast = types::check(ast)?;
-    Ok(typed_ast)
+pub fn compile(source: &str, filename: &str) -> DiagnosticResult<Module> {
+    let tokens = lexer::tokenize(source, filename)
+        .map_err(|e| string_to_diag(e, filename))?;
+    let ast = parser::parse(tokens, filename)
+        .map_err(|e| string_to_diag(e, filename))?;
+    types::check(ast)
 }
 
 /// Compile source code to TIR (for codegen)
-pub fn compile_tir(source: &str, filename: &str) -> Result<TModule, String> {
-    let tokens = lexer::tokenize(source, filename)?;
-    let ast = parser::parse(tokens, filename)?;
-    let tir = types::check_and_lower(ast)?;
-    Ok(tir)
+pub fn compile_tir(source: &str, filename: &str) -> DiagnosticResult<TModule> {
+    let tokens = lexer::tokenize(source, filename)
+        .map_err(|e| string_to_diag(e, filename))?;
+    let ast = parser::parse(tokens, filename)
+        .map_err(|e| string_to_diag(e, filename))?;
+    types::check_and_lower(ast)
 }
 
 /// Run source code through the interpreter
-pub fn run(source: &str, filename: &str) -> Result<(), String> {
+pub fn run(source: &str, filename: &str) -> DiagnosticResult<()> {
     let typed_ast = compile(source, filename)?;
-    eval::run(typed_ast)?;
-    Ok(())
+    eval::run(typed_ast)
+        .map(|_| ())
+        .map_err(|e| string_to_diag(e, filename))
 }
 
-/// Compile to C code (legacy AST-based)
-pub fn emit_c(source: &str, filename: &str) -> Result<String, String> {
+/// Compile to C code (AST-based)
+pub fn emit_c(source: &str, filename: &str) -> DiagnosticResult<String> {
     let typed_ast = compile(source, filename)?;
     codegen::generate(&typed_ast)
+        .map_err(|e| string_to_diag(e, filename))
 }
 
 /// Compile to C code using TIR pipeline
-/// This is the new recommended path for code generation
-pub fn emit_c_tir(source: &str, filename: &str) -> Result<String, String> {
+/// This is the recommended path for code generation
+pub fn emit_c_tir(source: &str, filename: &str) -> DiagnosticResult<String> {
     let mut tir = compile_tir(source, filename)?;
 
     // Run passes
     let pm = passes::PassManager::default_pipeline();
     let mut ctx = passes::PassContext::new();
     pm.run(&mut tir, &mut ctx)
-        .map_err(|e| format!("Pass error: {}", e))?;
+        .map_err(|e| string_to_diag(format!("Pass error: {}", e), filename))?;
 
     // Generate C code from TIR
     codegen::generate_from_tir(&tir)
+        .map_err(|e| string_to_diag(e, filename))
 }
 
 #[cfg(test)]
