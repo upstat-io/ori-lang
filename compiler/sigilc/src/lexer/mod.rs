@@ -206,30 +206,4 @@ pub fn tokenize(source: &str, _filename: &str) -> Result<Vec<SpannedToken>, Stri
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_basic_tokens() {
-        let source = r#"
-            $config = 5
-            @hello (name: str) -> str
-        "#;
-
-        let tokens = tokenize(source, "test.al").unwrap();
-        let token_types: Vec<_> = tokens.iter().map(|t| &t.value).collect();
-
-        assert!(token_types.contains(&&Token::Dollar));
-        assert!(token_types.contains(&&Token::At));
-        assert!(token_types.contains(&&Token::Arrow));
-    }
-
-    #[test]
-    fn test_string_literal() {
-        let source = r#""hello world""#;
-        let tokens = tokenize(source, "test.al").unwrap();
-
-        assert_eq!(tokens.len(), 1);
-        assert!(matches!(&tokens[0].value, Token::String(s) if s == "hello world"));
-    }
-}
+mod tests;

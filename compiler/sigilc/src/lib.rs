@@ -5,7 +5,9 @@
 // as a standalone CLI via the sigilc binary.
 
 pub mod ast;
+pub mod builtins;
 pub mod codegen;
+pub mod errors;
 pub mod eval;
 pub mod lexer;
 pub mod parser;

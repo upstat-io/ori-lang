@@ -60,3 +60,6 @@ rustc-ice-*.txt
 *.tmp
 *.temp
 *.log
+
+#claude
+.claude/discussions

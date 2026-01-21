@@ -1,0 +1,68 @@
+---
+source: compiler/sigilc/src/parser/tests.rs
+expression: module
+---
+Module {
+    name: "test.si",
+    items: [
+        Function(
+            FunctionDef {
+                public: false,
+                name: "factorial",
+                type_params: [],
+                params: [
+                    Param {
+                        name: "n",
+                        ty: Named(
+                            "int",
+                        ),
+                    },
+                ],
+                return_type: Named(
+                    "int",
+                ),
+                body: Pattern(
+                    Recurse {
+                        condition: Binary {
+                            op: LtEq,
+                            left: Ident(
+                                "n",
+                            ),
+                            right: Int(
+                                1,
+                            ),
+                        },
+                        base_value: Int(
+                            1,
+                        ),
+                        step: Binary {
+                            op: Mul,
+                            left: Ident(
+                                "n",
+                            ),
+                            right: Call {
+                                func: Ident(
+                                    "self",
+                                ),
+                                args: [
+                                    Binary {
+                                        op: Sub,
+                                        left: Ident(
+                                            "n",
+                                        ),
+                                        right: Int(
+                                            1,
+                                        ),
+                                    },
+                                ],
+                            },
+                        },
+                        memo: false,
+                        parallel_threshold: 0,
+                    },
+                ),
+                span: 0..64,
+            },
+        ),
+    ],
+}

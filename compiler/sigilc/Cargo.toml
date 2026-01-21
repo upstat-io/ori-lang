@@ -1,6 +1,6 @@
 [package]
 name = "sigilc"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2021"
 description = "Compiler for Sigil, a general-purpose language built on declarative patterns and mandatory testing"
 license = "MIT OR Apache-2.0"
@@ -24,6 +24,9 @@ rayon = "1.10"           # Parallel iterators
 
 [dev-dependencies]
 pretty_assertions = "1.4"
+insta = "1.40"               # Snapshot testing
+proptest = "1.5"             # Property-based testing
+test-case = "3.3"            # Parameterized tests
 
 # Inherit workspace lints
 [lints]

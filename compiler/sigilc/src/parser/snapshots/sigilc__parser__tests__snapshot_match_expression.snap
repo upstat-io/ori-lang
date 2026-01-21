@@ -1,0 +1,75 @@
+---
+source: compiler/sigilc/src/parser/tests.rs
+expression: module
+---
+Module {
+    name: "test.si",
+    items: [
+        Function(
+            FunctionDef {
+                public: false,
+                name: "classify",
+                type_params: [],
+                params: [
+                    Param {
+                        name: "n",
+                        ty: Named(
+                            "int",
+                        ),
+                    },
+                ],
+                return_type: Named(
+                    "str",
+                ),
+                body: Match(
+                    MatchExpr {
+                        scrutinee: Bool(
+                            true,
+                        ),
+                        arms: [
+                            MatchArm {
+                                pattern: Condition(
+                                    Binary {
+                                        op: Lt,
+                                        left: Ident(
+                                            "n",
+                                        ),
+                                        right: Int(
+                                            0,
+                                        ),
+                                    },
+                                ),
+                                body: String(
+                                    "negative",
+                                ),
+                            },
+                            MatchArm {
+                                pattern: Condition(
+                                    Binary {
+                                        op: Eq,
+                                        left: Ident(
+                                            "n",
+                                        ),
+                                        right: Int(
+                                            0,
+                                        ),
+                                    },
+                                ),
+                                body: String(
+                                    "zero",
+                                ),
+                            },
+                            MatchArm {
+                                pattern: Wildcard,
+                                body: String(
+                                    "positive",
+                                ),
+                            },
+                        ],
+                    },
+                ),
+                span: 0..80,
+            },
+        ),
+    ],
+}
