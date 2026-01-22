@@ -241,6 +241,8 @@ pub struct TypeInterner {
     id_to_type: DashMap<u32, TypeKind>,
     /// Storage for type lists (function params, tuple elements, etc.).
     type_lists: parking_lot::RwLock<Vec<TypeId>>,
+    /// Map from type list content to TypeRange for deduplication.
+    list_to_range: DashMap<Vec<TypeId>, TypeRange>,
     /// Next compound type ID.
     next_id: AtomicU32,
 }
@@ -252,6 +254,7 @@ impl TypeInterner {
             type_to_id: DashMap::new(),
             id_to_type: DashMap::new(),
             type_lists: parking_lot::RwLock::new(Vec::with_capacity(1024)),
+            list_to_range: DashMap::new(),
             next_id: AtomicU32::new(TypeId::FIRST_COMPOUND),
         };
 
@@ -301,13 +304,39 @@ impl TypeInterner {
         self.id_to_type.get(&id.raw()).map(|r| r.clone())
     }
 
-    /// Allocate a type list, returning a TypeRange.
-    pub fn alloc_list(&self, types: impl IntoIterator<Item = TypeId>) -> TypeRange {
+    /// Allocate a type list without deduplication (internal use).
+    fn alloc_list_raw(&self, types: &[TypeId]) -> TypeRange {
         let mut guard = self.type_lists.write();
         let start = guard.len() as u32;
-        guard.extend(types);
-        let len = (guard.len() as u32 - start) as u16;
+        guard.extend(types.iter().copied());
+        let len = types.len() as u16;
         TypeRange::new(start, len)
+    }
+
+    /// Intern a type list with deduplication.
+    /// Returns the same TypeRange for identical type sequences.
+    pub fn intern_type_list(&self, types: &[TypeId]) -> TypeRange {
+        if types.is_empty() {
+            return TypeRange::EMPTY;
+        }
+
+        // Fast path: check if already interned
+        let key = types.to_vec();
+        if let Some(range) = self.list_to_range.get(&key) {
+            return *range;
+        }
+
+        // Slow path: allocate and cache
+        let range = self.alloc_list_raw(types);
+        self.list_to_range.insert(key, range);
+        range
+    }
+
+    /// Allocate a type list, returning a TypeRange.
+    /// Note: For function types and tuples, prefer `intern_type_list` for deduplication.
+    pub fn alloc_list(&self, types: impl IntoIterator<Item = TypeId>) -> TypeRange {
+        let types: Vec<_> = types.into_iter().collect();
+        self.alloc_list_raw(&types)
     }
 
     /// Get types from a range.
@@ -319,17 +348,19 @@ impl TypeInterner {
     }
 
     /// Intern a function type.
+    /// Identical function signatures return the same TypeId.
     pub fn intern_function(&self, params: &[TypeId], ret: TypeId) -> TypeId {
-        let params_range = self.alloc_list(params.iter().copied());
+        let params_range = self.intern_type_list(params);
         self.intern(TypeKind::Function { params: params_range, ret })
     }
 
     /// Intern a tuple type.
+    /// Identical tuple types return the same TypeId.
     pub fn intern_tuple(&self, elements: &[TypeId]) -> TypeId {
         if elements.is_empty() {
             return TypeId::VOID; // () is void
         }
-        let elems_range = self.alloc_list(elements.iter().copied());
+        let elems_range = self.intern_type_list(elements);
         self.intern(TypeKind::Tuple(elems_range))
     }
 
@@ -410,11 +441,13 @@ mod tests {
     fn test_type_interner_function() {
         let interner = TypeInterner::new();
 
-        // Note: Currently, each intern_function call creates a new TypeRange,
-        // so function types are not deduplicated. This is a known limitation
-        // that can be improved with structural deduplication later.
+        // Function types are now properly deduplicated
         let fn1 = interner.intern_function(&[TypeId::INT, TypeId::INT], TypeId::INT);
+        let fn2 = interner.intern_function(&[TypeId::INT, TypeId::INT], TypeId::INT);
         let fn3 = interner.intern_function(&[TypeId::INT], TypeId::INT);
+
+        // Same signature should return same TypeId
+        assert_eq!(fn1, fn2, "identical function types must be deduplicated");
 
         // Different parameter counts should give different types
         assert_ne!(fn1, fn3);
@@ -422,6 +455,41 @@ mod tests {
         // Both should be compound types
         assert!(!fn1.is_primitive());
         assert!(!fn3.is_primitive());
+    }
+
+    #[test]
+    fn test_function_type_deduplication() {
+        let interner = TypeInterner::new();
+
+        // Test various function signatures for deduplication
+        let void_to_int_1 = interner.intern_function(&[], TypeId::INT);
+        let void_to_int_2 = interner.intern_function(&[], TypeId::INT);
+        assert_eq!(void_to_int_1, void_to_int_2);
+
+        let int_int_to_bool_1 = interner.intern_function(&[TypeId::INT, TypeId::INT], TypeId::BOOL);
+        let int_int_to_bool_2 = interner.intern_function(&[TypeId::INT, TypeId::INT], TypeId::BOOL);
+        assert_eq!(int_int_to_bool_1, int_int_to_bool_2);
+
+        // Different return type = different function
+        let int_int_to_int = interner.intern_function(&[TypeId::INT, TypeId::INT], TypeId::INT);
+        assert_ne!(int_int_to_bool_1, int_int_to_int);
+
+        // Order matters
+        let int_str_to_void = interner.intern_function(&[TypeId::INT, TypeId::STR], TypeId::VOID);
+        let str_int_to_void = interner.intern_function(&[TypeId::STR, TypeId::INT], TypeId::VOID);
+        assert_ne!(int_str_to_void, str_int_to_void);
+    }
+
+    #[test]
+    fn test_tuple_type_deduplication() {
+        let interner = TypeInterner::new();
+
+        let tuple1 = interner.intern_tuple(&[TypeId::INT, TypeId::STR]);
+        let tuple2 = interner.intern_tuple(&[TypeId::INT, TypeId::STR]);
+        let tuple3 = interner.intern_tuple(&[TypeId::STR, TypeId::INT]);
+
+        assert_eq!(tuple1, tuple2, "identical tuples must be deduplicated");
+        assert_ne!(tuple1, tuple3, "different tuples must have different TypeIds");
     }
 
     #[test]

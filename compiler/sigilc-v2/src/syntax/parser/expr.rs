@@ -598,16 +598,19 @@ impl<'src, 'i> Parser<'src, 'i> {
             }
 
             if is_positional || !self.check(&TokenKind::Dot) {
-                let expr = self.expression()?;
+                // Use try_expression for positional argument recovery
+                let expr = self.try_expression();
                 positional.push(expr);
             } else {
-                self.consume(&TokenKind::Dot, "expected '.'")?;
-                let name = self.parse_name()?;
-                self.consume(&TokenKind::Colon, "expected ':'")?;
-                self.skip_newlines();
-                let value = self.expression()?;
-                let arg_span = start.merge(self.arena.get(value).span);
-                named.push(PatternArg { name, value, span: arg_span });
+                // For named args, try to parse the full structure
+                // If any part fails, skip to next comma or closing paren
+                match self.parse_named_pattern_arg(start) {
+                    Ok(arg) => named.push(arg),
+                    Err(diag) => {
+                        self.diagnostics.push(diag);
+                        self.recover_to_expr_sync();
+                    }
+                }
             }
 
             if !self.check(&TokenKind::Comma) {
@@ -626,6 +629,17 @@ impl<'src, 'i> Parser<'src, 'i> {
         })
     }
 
+    /// Parse a named pattern argument: .name: value
+    fn parse_named_pattern_arg(&mut self, start: crate::syntax::Span) -> Result<PatternArg, Diagnostic> {
+        self.consume(&TokenKind::Dot, "expected '.'")?;
+        let name = self.parse_name()?;
+        self.consume(&TokenKind::Colon, "expected ':'")?;
+        self.skip_newlines();
+        let value = self.expression()?;
+        let arg_span = start.merge(self.arena.get(value).span);
+        Ok(PatternArg { name, value, span: arg_span })
+    }
+
     // ===== Collections =====
 
     fn parse_list(&mut self) -> Result<ExprId, Diagnostic> {
@@ -635,7 +649,8 @@ impl<'src, 'i> Parser<'src, 'i> {
 
         let mut elements = Vec::new();
         while !self.check(&TokenKind::RBracket) && !self.at_end() {
-            elements.push(self.expression()?);
+            // Use try_expression for recovery - continue parsing on error
+            elements.push(self.try_expression());
 
             if !self.check(&TokenKind::Comma) {
                 break;
@@ -668,12 +683,14 @@ impl<'src, 'i> Parser<'src, 'i> {
 
         let mut entries = Vec::new();
         while !self.check(&TokenKind::RBrace) && !self.at_end() {
-            let key = self.expression()?;
+            // Use try_expression for key recovery
+            let key = self.try_expression();
 
             if self.check(&TokenKind::Colon) {
                 self.advance();
                 self.skip_newlines();
-                let value = self.expression()?;
+                // Use try_expression for value recovery
+                let value = self.try_expression();
                 let entry_span = self.arena.get(key).span.merge(self.arena.get(value).span);
                 entries.push(MapEntry { key, value, span: entry_span });
             } else {
@@ -710,7 +727,8 @@ impl<'src, 'i> Parser<'src, 'i> {
             )));
         }
 
-        let first = self.expression()?;
+        // Use try_expression for first element recovery
+        let first = self.try_expression();
 
         if self.check(&TokenKind::Comma) {
             let mut elements = vec![first];
@@ -720,7 +738,8 @@ impl<'src, 'i> Parser<'src, 'i> {
                 if self.check(&TokenKind::RParen) {
                     break;
                 }
-                elements.push(self.expression()?);
+                // Use try_expression for subsequent elements
+                elements.push(self.try_expression());
             }
             self.consume(&TokenKind::RParen, "expected ')'")?;
             let range = self.arena.alloc_expr_list(elements);
@@ -739,7 +758,8 @@ impl<'src, 'i> Parser<'src, 'i> {
         let mut args = Vec::new();
 
         while !self.check(&TokenKind::RParen) && !self.at_end() {
-            args.push(self.expression()?);
+            // Use try_expression for argument recovery
+            args.push(self.try_expression());
 
             if !self.check(&TokenKind::Comma) {
                 break;

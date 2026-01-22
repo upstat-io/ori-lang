@@ -224,18 +224,40 @@ impl<'src, 'i> Parser<'src, 'i> {
     }
 
     fn parse_type_def(&mut self, _visibility: Visibility) -> Result<Item, Diagnostic> {
+        // Must advance past keyword to avoid infinite loop in recovery
+        self.advance(); // consume 'type'
+        // Skip to end of line/item to allow recovery
+        while !self.at_end() && !self.check(&TokenKind::Newline) {
+            self.advance();
+        }
         Err(self.error("type definitions not yet implemented"))
     }
 
     fn parse_import(&mut self, _visibility: Visibility) -> Result<Item, Diagnostic> {
+        // Must advance past keyword to avoid infinite loop in recovery
+        self.advance(); // consume 'use'
+        // Skip to end of line/item to allow recovery
+        while !self.at_end() && !self.check(&TokenKind::Newline) {
+            self.advance();
+        }
         Err(self.error("imports not yet implemented"))
     }
 
     fn parse_trait(&mut self, _visibility: Visibility) -> Result<Item, Diagnostic> {
+        // Must advance past keyword to avoid infinite loop in recovery
+        self.advance(); // consume 'trait'
+        while !self.at_end() && !self.check(&TokenKind::Newline) {
+            self.advance();
+        }
         Err(self.error("traits not yet implemented"))
     }
 
     fn parse_impl(&mut self) -> Result<Item, Diagnostic> {
+        // Must advance past keyword to avoid infinite loop in recovery
+        self.advance(); // consume 'impl'
+        while !self.at_end() && !self.check(&TokenKind::Newline) {
+            self.advance();
+        }
         Err(self.error("impls not yet implemented"))
     }
 

@@ -1,8 +1,12 @@
 [workspace]
 resolver = "2"
 members = [
-    "compiler/sigilc",
     "compiler/sigilc-v2",
+]
+# V1 compiler kept for reference only, excluded from workspace
+# LSP excluded until updated to use v2 compiler
+exclude = [
+    "compiler/sigilc",
     "tools/sigil-lsp",
 ]
 

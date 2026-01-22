@@ -11,8 +11,10 @@
 //! | name_equality            | 392 ps    | u32 comparison (sub-nanosecond)   |
 //! | intern_primitive_types   | 52 ns     | 4 primitive types (~13ns each)    |
 //! | intern_list_type         | 15 ns     | Compound type interning           |
-//! | concurrent/1 thread      | 94 µs     | 100 strings, 1 thread             |
-//! | concurrent/4 threads     | 200 µs    | 100 strings each, 4 threads       |
+//! | concurrent/1 thread      | 28 µs     | 100 strings, 1 thread (rayon)     |
+//! | concurrent/2 threads     | 38 µs     | 100 strings each, 2 threads       |
+//! | concurrent/4 threads     | 112 µs    | 100 strings each, 4 threads       |
+//! | concurrent/8 threads     | 376 µs    | 100 strings each, 8 threads       |
 //!
 //! ## Phase 2 Baselines (Type System)
 //!
@@ -25,8 +27,10 @@
 //! | name_equality            | 391 ps    | stable   | u32 comparison unchanged     |
 //! | intern_primitive_types   | 51 ns     | -2%      | Slightly improved            |
 //! | intern_list_type         | 15 ns     | stable   | Compound type unchanged      |
-//! | concurrent/1 thread      | 97 µs     | stable   | Within noise                 |
-//! | concurrent/4 threads     | 197 µs    | stable   | Within noise                 |
+//! | concurrent/1 thread      | 28 µs     | -71%     | Now uses rayon thread pool   |
+//! | concurrent/2 threads     | 38 µs     | -74%     | Measures contention, not spawn |
+//! | concurrent/4 threads     | 112 µs    | -52%     | Contention visible at scale  |
+//! | concurrent/8 threads     | 376 µs    | -13%     | High contention              |
 //!
 //! Target: Keep existing string lookup under 10ns, new string under 500ns
 
@@ -121,31 +125,33 @@ fn bench_type_intern_compound(c: &mut Criterion) {
 
 fn bench_concurrent_interning(c: &mut Criterion) {
     use std::sync::Arc;
+    use rayon::prelude::*;
 
     let mut group = c.benchmark_group("concurrent_interning");
 
     for num_threads in [1, 2, 4, 8] {
+        // Create a fixed thread pool instead of spawning threads per iteration.
+        // The old implementation spawned threads inside b.iter(), causing thousands
+        // of thread creations which exhausted WSL's resources.
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(num_threads)
+            .build()
+            .expect("failed to build thread pool");
+
         group.bench_with_input(
             BenchmarkId::new("threads", num_threads),
             &num_threads,
             |b, &num_threads| {
                 let interner = Arc::new(StringInterner::new());
                 b.iter(|| {
-                    let handles: Vec<_> = (0..num_threads)
-                        .map(|t| {
-                            let interner = Arc::clone(&interner);
-                            std::thread::spawn(move || {
-                                for i in 0..100 {
-                                    let s = format!("thread_{}_{}", t, i);
-                                    black_box(interner.intern(&s));
-                                }
-                            })
-                        })
-                        .collect();
-
-                    for h in handles {
-                        h.join().unwrap();
-                    }
+                    pool.install(|| {
+                        (0..num_threads).into_par_iter().for_each(|t| {
+                            for i in 0..100 {
+                                let s = format!("thread_{}_{}", t, i);
+                                black_box(interner.intern(&s));
+                            }
+                        });
+                    });
                 })
             },
         );

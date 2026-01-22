@@ -32,11 +32,13 @@ mod file_parser;
 mod dependency;
 mod work_pool;
 mod codegen;
+mod typecheck;
 
 pub use file_parser::{ParallelParser, ParsedFile, ParserConfig};
 pub use dependency::{DependencyGraph, ModuleNode, DependencyLevel};
 pub use work_pool::{WorkPool, WorkItem, WorkResult};
 pub use codegen::{ParallelCodegen, CodegenTask, CodegenResult};
+pub use typecheck::{ParallelTypeChecker, TypeCheckedModule, TypeCheckStats};
 
 use rayon::prelude::*;
 use std::path::Path;

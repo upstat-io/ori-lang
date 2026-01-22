@@ -126,19 +126,20 @@ When a line exceeds 100 characters, the formatter breaks it according to determi
 
 ### Pattern Arguments
 
-**Rule: Single property can be inline; 2+ properties are always stacked.**
+**Rule: All named properties are always stacked vertically.**
 
 | Properties | Format |
 |------------|--------|
-| 1 property | Inline OK |
-| 2+ properties | Must stack vertically |
+| 1+ properties | Must stack vertically |
 
-**Single property (inline allowed):**
+**Single property (stacked):**
 ```sigil
-@get_length (arr: [int]) -> int = fold(.over: arr)  // single prop OK inline
+@get_length (arr: [int]) -> int = fold(
+    .over: arr,
+)
 ```
 
-**Two or more properties (always stack):**
+**Multiple properties (stacked):**
 
 ```sigil
 @fetch_with_retry () -> Result<Data, Error> = retry(
@@ -165,8 +166,9 @@ When a line exceeds 100 characters, the formatter breaks it according to determi
 ```
 
 **Rationale:**
-- The `.property:` syntax has a fluent, property-like feel when stacked
-- Consistent format makes code predictable
+- The `.property:` sigil creates a visual rail down the left side when stacked
+- Scanability: dots align vertically, making parameters instantly visible
+- Consistent format makes code predictable — no "sometimes inline, sometimes stacked"
 - Easy to scan and modify individual properties
 - Diffs are cleaner when adding/removing properties
 

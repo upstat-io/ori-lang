@@ -3,8 +3,10 @@
 use std::fs;
 use sigilc_v2::intern::StringInterner;
 use sigilc_v2::syntax::{Lexer, Parser, ItemKind};
-use sigilc_v2::eval::Evaluator;
+use sigilc_v2::eval::{Evaluator, Environment};
 use sigilc_v2::errors::Diagnostic;
+
+use super::run::{register_builtins, register_functions};
 
 /// Result of running tests
 pub struct TestResult {
@@ -44,31 +46,17 @@ pub fn test_source(source: &str, _filename: &str) -> Result<TestResult, String> 
         });
     }
 
-    // Step 3: Find and run test functions
+    // Step 3: Set up environment with functions and builtins
+    let mut env = Environment::new();
+    register_builtins(&mut env, &interner);
+    register_functions(&mut env, &parse_result.items, &parse_result.arena);
+
+    // Step 4: Find and run test functions
     let mut passed = 0;
     let mut failed = 0;
     let mut skipped = 0;
-    let mut evaluator = Evaluator::new(&interner, &parse_result.arena);
-    evaluator.register_prelude();
+    let mut evaluator = Evaluator::with_env(&interner, &parse_result.arena, env);
 
-    // First pass: register all functions
-    for item in &parse_result.items {
-        if let ItemKind::Function(func) = &item.kind {
-            // Create a function value and register it
-            let params: Vec<_> = parse_result.arena.get_params(func.params)
-                .iter()
-                .map(|p| p.name)
-                .collect();
-            let func_value = sigilc_v2::eval::Value::Function(sigilc_v2::eval::FunctionValue {
-                params,
-                body: func.body,
-                captures: std::rc::Rc::new(std::cell::RefCell::new(Default::default())),
-            });
-            evaluator.env_mut().define_global(func.name, func_value);
-        }
-    }
-
-    // Second pass: run tests
     for item in &parse_result.items {
         // Run formal tests (with `tests @target` syntax)
         if let ItemKind::Test(test) = &item.kind {
