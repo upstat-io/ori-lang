@@ -1,0 +1,87 @@
+// Spec Tests: 09-expressions.md - Bitwise Operators
+// Tests are the source of truth - the compiler must conform to these tests
+
+// =============================================================================
+// Bitwise AND (Spec: "&" operator)
+// =============================================================================
+
+#[skip("binary literals not yet supported")]
+@test_bitwise_and () -> void = run(
+    assert((0b1100 & 0b1010) == 0b1000),
+    assert((0xFF & 0x0F) == 0x0F),
+    assert((7 & 3) == 3),
+    assert((12 & 0) == 0),
+)
+
+// =============================================================================
+// Bitwise OR (Spec: "|" operator)
+// =============================================================================
+
+#[skip("binary literals not yet supported")]
+@test_bitwise_or () -> void = run(
+    assert((0b1100 | 0b1010) == 0b1110),
+    assert((0xF0 | 0x0F) == 0xFF),
+    assert((4 | 2) == 6),
+    assert((0 | 5) == 5),
+)
+
+// =============================================================================
+// Bitwise XOR (Spec: "^" operator)
+// =============================================================================
+
+#[skip("binary literals not yet supported")]
+@test_bitwise_xor () -> void = run(
+    assert((0b1100 ^ 0b1010) == 0b0110),
+    assert((0xFF ^ 0xFF) == 0),
+    assert((5 ^ 3) == 6),
+    assert((7 ^ 0) == 7),
+)
+
+// =============================================================================
+// Bitwise NOT (Spec: "~" unary operator)
+// =============================================================================
+
+@test_bitwise_not () -> void = run(
+    assert((~0) == -1),
+    assert((~1) == -2),
+    assert((~~5) == 5),
+)
+
+// =============================================================================
+// Operator Precedence (Spec: & > ^ > |)
+// =============================================================================
+
+@test_bitwise_precedence () -> void = run(
+    // & binds tighter than |
+    assert((1 | 2 & 3) == (1 | (2 & 3))),
+    // ^ is between & and |
+    assert((1 | 2 ^ 3 & 1) == (1 | (2 ^ (3 & 1)))),
+)
+
+// =============================================================================
+// Combined with Arithmetic
+// =============================================================================
+
+@test_bitwise_with_arithmetic () -> void = run(
+    // Arithmetic binds tighter than bitwise
+    assert((2 + 3 & 7) == ((2 + 3) & 7)),
+    assert((8 | 4 - 2) == (8 | (4 - 2))),
+)
+
+// =============================================================================
+// Practical Use Cases
+// =============================================================================
+
+@is_even (n: int) -> bool = (n & 1) == 0
+
+#[skip("shift operators not yet supported")]
+@set_bit (n: int, pos: int) -> int = n | (1 << pos)
+
+#[skip("shift operators not yet supported")]
+@clear_bit (n: int, pos: int) -> int = n & ~(1 << pos)
+
+#[skip("shift operators not yet supported")]
+@test_practical tests @is_even tests @set_bit tests @clear_bit () -> void = run(
+    assert(is_even(4) == true),
+    assert(is_even(7) == false),
+)

@@ -4,8 +4,8 @@
 //! run, try, match, map, filter, fold, find, collect, recurse,
 //! parallel, timeout, retry, cache, validate.
 
-use crate::intern::{Name, TypeId, TypeInterner, TypeKind, StringInterner};
-use crate::syntax::{Span, PatternKind, PatternArgsId, ExprArena};
+use crate::intern::{TypeId, TypeKind};
+use crate::syntax::{Span, PatternKind, PatternArgsId};
 use super::context::TypeContext;
 use super::{TypeError, TypeErrorKind};
 
@@ -35,7 +35,7 @@ pub fn check_pattern(
 }
 
 /// run(stmt1, stmt2, ..., result) -> type of result
-fn check_run(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> TypeId {
+fn check_run(ctx: &mut TypeContext<'_>, args: PatternArgsId, _span: Span) -> TypeId {
     let pattern_args = ctx.arena.get_pattern_args(args);
     let positional = ctx.arena.get_expr_list(pattern_args.positional);
 
@@ -52,13 +52,13 @@ fn check_run(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> Type
 }
 
 /// try(expr?, fallback) -> T
-fn check_try(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> TypeId {
+fn check_try(ctx: &mut TypeContext<'_>, _args: PatternArgsId, _span: Span) -> TypeId {
     // Simplified - would need proper argument handling
     ctx.unifier.fresh_var()
 }
 
 /// match(value, pat -> expr, ...) -> T
-fn check_match(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> TypeId {
+fn check_match(ctx: &mut TypeContext<'_>, _args: PatternArgsId, _span: Span) -> TypeId {
     ctx.unifier.fresh_var()
 }
 
@@ -106,7 +106,7 @@ fn check_map(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> Type
 }
 
 /// filter(.over: [T], .predicate: T -> bool) -> [T]
-fn check_filter(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> TypeId {
+fn check_filter(ctx: &mut TypeContext<'_>, args: PatternArgsId, _span: Span) -> TypeId {
     let pattern_args = ctx.arena.get_pattern_args(args);
 
     let over_name = ctx.interner.intern("over");
@@ -124,7 +124,7 @@ fn check_filter(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> T
 }
 
 /// fold(.over: [T], .init: U, .op: (U, T) -> U) -> U
-fn check_fold(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> TypeId {
+fn check_fold(ctx: &mut TypeContext<'_>, args: PatternArgsId, _span: Span) -> TypeId {
     let pattern_args = ctx.arena.get_pattern_args(args);
 
     let init_name = ctx.interner.intern("init");
@@ -139,7 +139,7 @@ fn check_fold(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> Typ
 }
 
 /// find(.over: [T], .where: T -> bool) -> Option<T>
-fn check_find(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> TypeId {
+fn check_find(ctx: &mut TypeContext<'_>, args: PatternArgsId, _span: Span) -> TypeId {
     let pattern_args = ctx.arena.get_pattern_args(args);
 
     let over_name = ctx.interner.intern("over");
@@ -158,13 +158,13 @@ fn check_find(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> Typ
 }
 
 /// collect(.range: Range<T>, .transform: T -> U) -> [U]
-fn check_collect(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> TypeId {
+fn check_collect(ctx: &mut TypeContext<'_>, _args: PatternArgsId, _span: Span) -> TypeId {
     let elem = ctx.unifier.fresh_var();
     ctx.types.intern_list(elem)
 }
 
 /// recurse(.cond: bool, .base: T, .step: T) -> T
-fn check_recurse(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> TypeId {
+fn check_recurse(ctx: &mut TypeContext<'_>, args: PatternArgsId, _span: Span) -> TypeId {
     let pattern_args = ctx.arena.get_pattern_args(args);
 
     let base_name = ctx.interner.intern("base");
@@ -179,7 +179,7 @@ fn check_recurse(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> 
 }
 
 /// parallel(.task1: T, .task2: U, ...) -> (T, U, ...)
-fn check_parallel(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> TypeId {
+fn check_parallel(ctx: &mut TypeContext<'_>, args: PatternArgsId, _span: Span) -> TypeId {
     let pattern_args = ctx.arena.get_pattern_args(args);
 
     let types: Vec<_> = pattern_args.named.iter()
@@ -190,7 +190,7 @@ fn check_parallel(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) ->
 }
 
 /// timeout(.op: T, .after: Duration) -> Result<T, Error>
-fn check_timeout(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> TypeId {
+fn check_timeout(ctx: &mut TypeContext<'_>, args: PatternArgsId, _span: Span) -> TypeId {
     let pattern_args = ctx.arena.get_pattern_args(args);
 
     let op_name = ctx.interner.intern("op");
@@ -210,7 +210,7 @@ fn check_timeout(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> 
 }
 
 /// retry(.op: T, .attempts: int, .backoff: Strategy) -> T
-fn check_retry(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> TypeId {
+fn check_retry(ctx: &mut TypeContext<'_>, args: PatternArgsId, _span: Span) -> TypeId {
     let pattern_args = ctx.arena.get_pattern_args(args);
 
     let op_name = ctx.interner.intern("op");
@@ -225,7 +225,7 @@ fn check_retry(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> Ty
 }
 
 /// cache(.key: K, .compute: () -> V) -> V
-fn check_cache(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> TypeId {
+fn check_cache(ctx: &mut TypeContext<'_>, args: PatternArgsId, _span: Span) -> TypeId {
     let pattern_args = ctx.arena.get_pattern_args(args);
 
     let compute_name = ctx.interner.intern("compute");
@@ -243,7 +243,7 @@ fn check_cache(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> Ty
 }
 
 /// validate(.value: T, .rules: [...]) -> Result<T, Error>
-fn check_validate(ctx: &mut TypeContext<'_>, args: PatternArgsId, span: Span) -> TypeId {
+fn check_validate(ctx: &mut TypeContext<'_>, args: PatternArgsId, _span: Span) -> TypeId {
     let pattern_args = ctx.arena.get_pattern_args(args);
 
     let value_name = ctx.interner.intern("value");

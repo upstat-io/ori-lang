@@ -79,6 +79,7 @@ pub enum TokenKind {
     Dyn,
     Extend,
     Extension,
+    Skip,
 
     // === Type Keywords ===
     IntType,     // int
@@ -112,6 +113,7 @@ pub enum TokenKind {
     Validate,
 
     // === Symbols ===
+    HashBracket,  // #[
     At,           // @
     Dollar,       // $
     Hash,         // #
@@ -246,6 +248,7 @@ impl TokenKind {
             TokenKind::Dyn => "dyn",
             TokenKind::Extend => "extend",
             TokenKind::Extension => "extension",
+            TokenKind::Skip => "skip",
             TokenKind::IntType => "int",
             TokenKind::FloatType => "float",
             TokenKind::BoolType => "bool",
@@ -270,6 +273,7 @@ impl TokenKind {
             TokenKind::Timeout => "timeout",
             TokenKind::Try => "try",
             TokenKind::Validate => "validate",
+            TokenKind::HashBracket => "#[",
             TokenKind::At => "@",
             TokenKind::Dollar => "$",
             TokenKind::Hash => "#",

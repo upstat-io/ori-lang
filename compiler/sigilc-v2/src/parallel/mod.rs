@@ -40,7 +40,6 @@ pub use codegen::{ParallelCodegen, CodegenTask, CodegenResult};
 
 use rayon::prelude::*;
 use std::path::Path;
-use std::sync::Arc;
 
 /// Configuration for parallel compilation.
 #[derive(Clone, Debug)]

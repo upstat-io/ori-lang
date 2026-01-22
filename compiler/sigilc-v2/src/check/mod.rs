@@ -16,9 +16,8 @@ pub use unify::{Unifier, UnifyError};
 pub use context::TypeContext;
 
 use crate::intern::{Name, TypeId, TypeInterner, TypeKind, StringInterner};
-use crate::syntax::{Span, ExprId, ExprArena};
-use crate::errors::{Diagnostic, DiagnosticBag};
-use crate::hir::{Scopes, DefinitionRegistry, Resolver, ResolvedName};
+use crate::syntax::{Span, ExprId};
+use crate::errors::Diagnostic;
 
 /// Result of type checking an expression.
 #[derive(Clone, Debug)]

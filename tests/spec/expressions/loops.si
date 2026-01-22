@@ -1,0 +1,93 @@
+// Spec Tests: 09-expressions.md - Loop Expressions
+// Tests are the source of truth - the compiler must conform to these tests
+
+// =============================================================================
+// For-In Loop (Spec: for_expr = "for" identifier "in" expression "do" expression)
+// =============================================================================
+
+#[skip("for-do loop evaluation not yet supported")]
+@test_for_do tests @test_for_yield () -> void = run(
+    let mut sum = 0,
+    for x in [1, 2, 3, 4, 5] do
+        sum = sum + x,
+    assert(sum == 15),
+)
+
+// =============================================================================
+// For-Yield Loop (Spec: for_expr = "for" identifier "in" expression "yield" expression)
+// =============================================================================
+
+#[skip("for-yield loop evaluation not yet supported")]
+@test_for_yield tests @test_for_do () -> void = run(
+    let doubled = for x in [1, 2, 3] yield x * 2,
+    assert(doubled == [2, 4, 6]),
+)
+
+#[skip("for-yield loop evaluation not yet supported")]
+@test_for_yield_transform tests @test_for_yield () -> void = run(
+    let squares = for n in [1, 2, 3, 4] yield n * n,
+    assert(squares == [1, 4, 9, 16]),
+)
+
+// =============================================================================
+// For-Yield with Guard (Spec: for_expr = "for" identifier "in" expression "if" expression "yield" expression)
+// =============================================================================
+
+#[skip("for-yield with guard not yet supported")]
+@test_for_yield_guard tests @test_for_yield () -> void = run(
+    let evens = for x in [1, 2, 3, 4, 5, 6] if x % 2 == 0 yield x,
+    assert(evens == [2, 4, 6]),
+)
+
+#[skip("for-yield with guard not yet supported")]
+@test_for_yield_guard_transform tests @test_for_yield () -> void = run(
+    let result = for x in [1, 2, 3, 4, 5] if x > 2 yield x * 10,
+    assert(result == [30, 40, 50]),
+)
+
+// =============================================================================
+// For with Range (Spec: for over range expressions)
+// =============================================================================
+
+#[skip("for over range not yet supported")]
+@test_for_range tests @test_for_yield () -> void = run(
+    let result = for i in 0..5 yield i,
+    assert(result == [0, 1, 2, 3, 4]),
+)
+
+#[skip("for over range not yet supported")]
+@test_for_range_inclusive tests @test_for_yield () -> void = run(
+    let result = for i in 1..=3 yield i * i,
+    assert(result == [1, 4, 9]),
+)
+
+// =============================================================================
+// Loop Expression (Spec: loop_expr = "loop" "(" expression ")")
+// =============================================================================
+
+#[skip("loop/break evaluation not yet supported")]
+@test_loop_break tests @test_for_do () -> void = run(
+    let mut i = 0,
+    let mut sum = 0,
+    loop(
+        if i >= 5 then break
+        else run(
+            sum = sum + i,
+            i = i + 1,
+        )
+    ),
+    assert(sum == 10),
+)
+
+// =============================================================================
+// Nested Loops
+// =============================================================================
+
+#[skip("nested loop evaluation not yet supported")]
+@test_nested_for tests @test_for_do () -> void = run(
+    let mut sum = 0,
+    for i in [1, 2, 3] do
+        for j in [10, 20] do
+            sum = sum + i * j,
+    assert(sum == 180),
+)

@@ -13,12 +13,14 @@
 
 // Function with different types
 @repeat_string (s: str, n: int) -> str =
-    if n <= 0 :then ""
-    :else s + repeat_string(s, n - 1)
+    if n <= 0 then ""
+    else s + repeat_string(s, n - 1)
 
 // Function returning a list
-@range_list (start: int, end: int) -> [int] =
-    collect(start..end, x -> x)
+@range_list (start: int, end: int) -> [int] = collect(
+    .range: start..end,
+    .transform: x -> x,
+)
 
 // Function with boolean return
 @is_even (n: int) -> bool = n % 2 == 0
@@ -30,19 +32,18 @@
 @factorial (n: int) -> int = recurse(
     .cond: n <= 1,
     .base: 1,
-    .step: n * self(n - 1)
+    .step: n * self(n - 1),
 )
 
-// Function with pattern matching body
-@fizzbuzz (n: int) -> str = match(
-    n % 15 == 0 : "FizzBuzz",
-    n % 3 == 0 : "Fizz",
-    n % 5 == 0 : "Buzz",
-    str(n)
-)
+// Function with conditional body
+@fizzbuzz (n: int) -> str =
+    if n % 15 == 0 then "FizzBuzz"
+    else if n % 3 == 0 then "Fizz"
+    else if n % 5 == 0 then "Buzz"
+    else str(n)
 
 // Function taking a function as parameter (via lambda)
-@apply_twice (f: int -> int, x: int) -> int = f(f(x))
+@apply_twice (f: (int) -> int, x: int) -> int = f(f(x))
 
 @main () -> void = run(
     print(greeting()),
@@ -54,5 +55,5 @@
     print("sum_of_squares(3, 4) = " + str(sum_of_squares(3, 4))),
     print("factorial(5) = " + str(factorial(5))),
     print("fizzbuzz(15) = " + fizzbuzz(15)),
-    print("apply_twice(square, 2) = " + str(apply_twice(x -> x * x, 2)))
+    print("apply_twice(square, 2) = " + str(apply_twice(x -> x * x, 2))),
 )

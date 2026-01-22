@@ -8,4 +8,8 @@
 @join (a: str, b: str, sep: str) -> str = a + sep + b
 
 // Concatenate multiple strings (using fold pattern)
-@concat_all (strings: [str]) -> str = fold(strings, "", +)
+@concat_all (strings: [str]) -> str = fold(
+    .over: strings,
+    .init: "",
+    .op: (acc, s) -> acc + s,
+)

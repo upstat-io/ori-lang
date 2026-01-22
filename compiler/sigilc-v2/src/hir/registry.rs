@@ -3,7 +3,7 @@
 //! These registries store the signatures and definitions that are
 //! available for name resolution and type checking.
 
-use crate::intern::{Name, TypeId, TypeRange};
+use crate::intern::{Name, TypeId};
 use crate::syntax::Span;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;

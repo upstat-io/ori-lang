@@ -22,7 +22,7 @@
 @collatz (n: int) -> [int] = recurse(
     .cond: n <= 1,
     .base: [1],
-    .step: [n] + self(if n % 2 == 0 :then n / 2 :else 3 * n + 1)
+    .step: [n] + self(if n % 2 == 0 then n / 2 else 3 * n + 1)
 )
 
 // Sum digits of a number (while n > 0)

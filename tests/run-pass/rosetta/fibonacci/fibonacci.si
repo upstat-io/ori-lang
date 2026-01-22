@@ -1,5 +1,8 @@
 // Rosetta Code: Fibonacci sequence
 // Task: Compute the nth Fibonacci number
+//
+// BLOCKED: Anonymous record types `{ field: Type }` not yet supported in V2
+// TODO: Enable in Phase 5 (Advanced Features)
 
 // Single fibonacci with memoization
 @fib (n: int) -> int = recurse(

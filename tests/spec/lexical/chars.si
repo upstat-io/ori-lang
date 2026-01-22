@@ -1,0 +1,44 @@
+// Spec Tests: 03-lexical-elements.md § Character Literals
+// Tests are the source of truth - the compiler must conform to these tests
+
+// =============================================================================
+// Basic Character Literals (Spec: char_literal = "'" char_content "'")
+// =============================================================================
+
+@test_char_basic () -> void = run(
+    // Spec: Simple ASCII characters
+    assert('a' == 'a'),
+    assert('Z' == 'Z'),
+    assert('0' == '0'),
+    assert(' ' == ' '),
+)
+
+// =============================================================================
+// Escape Sequences (Spec: escape = '\' ( '\' | "'" | 'n' | 't' | 'r' | '0' ))
+// =============================================================================
+
+@test_char_escapes () -> void = run(
+    // Spec: Backslash escape
+    assert('\\' == '\\'),
+    // Spec: Single quote escape
+    assert('\'' == '\''),
+    // Spec: Newline escape
+    assert('\n' == '\n'),
+    // Spec: Tab escape
+    assert('\t' == '\t'),
+    // Spec: Carriage return escape
+    assert('\r' == '\r'),
+    // Spec: Null escape
+    assert('\0' == '\0'),
+)
+
+// =============================================================================
+// Unicode Characters (Spec: char supports full Unicode)
+// =============================================================================
+
+@test_char_unicode () -> void = run(
+    // Spec: Unicode characters are valid
+    assert('λ' == 'λ'),
+    assert('中' == '中'),
+    assert('🎉' == '🎉'),
+)

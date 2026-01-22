@@ -4,7 +4,7 @@
 //! evaluation, and documentation.
 
 use crate::intern::{Name, TypeId};
-use crate::syntax::{PatternArgsId, Span, ExprArena};
+use crate::syntax::{Span, ExprArena};
 use super::param::ParamSpec;
 
 /// Result type for pattern operations.

@@ -3,11 +3,9 @@
 //! This module provides a work-stealing thread pool optimized for
 //! type checking tasks with varying complexity.
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
-use std::thread;
-use crossbeam::deque::{Injector, Stealer, Worker};
-use crossbeam::utils::Backoff;
+use crossbeam::deque::{Injector, Stealer};
 
 /// A unit of work to be processed.
 pub trait WorkItem: Send + 'static {

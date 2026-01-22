@@ -10,6 +10,7 @@ use sigilc_v2::errors::Diagnostic;
 pub struct TestResult {
     pub passed: usize,
     pub failed: usize,
+    pub skipped: usize,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -38,6 +39,7 @@ pub fn test_source(source: &str, _filename: &str) -> Result<TestResult, String> 
         return Ok(TestResult {
             passed: 0,
             failed: 0,
+            skipped: 0,
             diagnostics: parse_result.diagnostics,
         });
     }
@@ -45,20 +47,29 @@ pub fn test_source(source: &str, _filename: &str) -> Result<TestResult, String> 
     // Step 3: Find and run test functions
     let mut passed = 0;
     let mut failed = 0;
+    let mut skipped = 0;
     let mut evaluator = Evaluator::new(&interner, &parse_result.arena);
 
     for item in &parse_result.items {
         if let ItemKind::Test(test) = &item.kind {
             let test_name = interner.lookup(test.name);
 
+            // Check if test is skipped
+            if let Some(reason) = test.skip_reason {
+                let reason_str = interner.lookup(reason);
+                println!("  [SKIP] {} - {}", test_name, reason_str);
+                skipped += 1;
+                continue;
+            }
+
             // Evaluate the test body
             match evaluator.eval(test.body) {
                 Ok(_) => {
-                    println!("  ✓ {}", test_name);
+                    println!("  [PASS] {}", test_name);
                     passed += 1;
                 }
                 Err(e) => {
-                    println!("  ✗ {} - {}", test_name, e.message);
+                    println!("  [FAIL] {} - {}", test_name, e.message);
                     failed += 1;
                 }
             }
@@ -68,6 +79,7 @@ pub fn test_source(source: &str, _filename: &str) -> Result<TestResult, String> 
     Ok(TestResult {
         passed,
         failed,
+        skipped,
         diagnostics: vec![],
     })
 }
@@ -88,10 +100,15 @@ pub fn test_file_and_print(path: &str) {
             }
 
             println!();
-            if result.failed == 0 {
+            if result.failed == 0 && result.skipped == 0 {
                 println!("All {} tests passed.", result.passed);
-            } else {
+            } else if result.failed == 0 {
+                println!("{} passed, {} skipped.", result.passed, result.skipped);
+            } else if result.skipped == 0 {
                 println!("{} passed, {} failed.", result.passed, result.failed);
+                std::process::exit(1);
+            } else {
+                println!("{} passed, {} failed, {} skipped.", result.passed, result.failed, result.skipped);
                 std::process::exit(1);
             }
         }

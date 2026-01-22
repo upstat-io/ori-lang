@@ -3,10 +3,10 @@
 //       for multiples of 5 print "Buzz", for both print "FizzBuzz"
 
 @fizzbuzz (n: int) -> str =
-    if n % 15 == 0 :then "FizzBuzz"
-    :else if n % 3 == 0 :then "Fizz"
-    :else if n % 5 == 0 :then "Buzz"
-    :else str(n)
+    if n % 15 == 0 then "FizzBuzz"
+    else if n % 3 == 0 then "Fizz"
+    else if n % 5 == 0 then "Buzz"
+    else str(n)
 
 @is_fizz (n: int) -> bool = n % 3 == 0
 @is_buzz (n: int) -> bool = n % 5 == 0
