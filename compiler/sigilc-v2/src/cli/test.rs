@@ -49,8 +49,28 @@ pub fn test_source(source: &str, _filename: &str) -> Result<TestResult, String> 
     let mut failed = 0;
     let mut skipped = 0;
     let mut evaluator = Evaluator::new(&interner, &parse_result.arena);
+    evaluator.register_prelude();
 
+    // First pass: register all functions
     for item in &parse_result.items {
+        if let ItemKind::Function(func) = &item.kind {
+            // Create a function value and register it
+            let params: Vec<_> = parse_result.arena.get_params(func.params)
+                .iter()
+                .map(|p| p.name)
+                .collect();
+            let func_value = sigilc_v2::eval::Value::Function(sigilc_v2::eval::FunctionValue {
+                params,
+                body: func.body,
+                captures: std::rc::Rc::new(std::cell::RefCell::new(Default::default())),
+            });
+            evaluator.env_mut().define_global(func.name, func_value);
+        }
+    }
+
+    // Second pass: run tests
+    for item in &parse_result.items {
+        // Run formal tests (with `tests @target` syntax)
         if let ItemKind::Test(test) = &item.kind {
             let test_name = interner.lookup(test.name);
 
@@ -71,6 +91,24 @@ pub fn test_source(source: &str, _filename: &str) -> Result<TestResult, String> 
                 Err(e) => {
                     println!("  [FAIL] {} - {}", test_name, e.message);
                     failed += 1;
+                }
+            }
+        }
+
+        // Also run functions whose names start with "test_" (test functions without targets)
+        if let ItemKind::Function(func) = &item.kind {
+            let func_name = interner.lookup(func.name);
+            if func_name.starts_with("test_") {
+                // Call the test function with no arguments
+                match evaluator.eval(func.body) {
+                    Ok(_) => {
+                        println!("  [PASS] {}", func_name);
+                        passed += 1;
+                    }
+                    Err(e) => {
+                        println!("  [FAIL] {} - {}", func_name, e.message);
+                        failed += 1;
+                    }
                 }
             }
         }

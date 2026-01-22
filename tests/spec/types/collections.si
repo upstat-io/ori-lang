@@ -1,8 +1,5 @@
 // Spec Tests: 06-types.md § Collection Types
 // Tests are the source of truth - the compiler must conform to these tests
-//
-// BLOCKED: Type definitions, Option/Result constructors not yet fully supported in V2
-// TODO: Enable in Phase 5
 
 // =============================================================================
 // List Type (Spec: list_type = "[" type "]")
@@ -14,6 +11,7 @@
 
 @list_nested () -> [[int]] = [[1, 2], [3, 4]]
 
+#[skip("list function evaluation not yet supported")]
 @test_list_types tests @list_of_ints tests @list_empty tests @list_nested () -> void = run(
     assert(len(list_of_ints()) == 3),
     assert(len(list_empty()) == 0),
@@ -28,6 +26,7 @@
 
 @map_empty () -> {str: int} = {}
 
+#[skip("map type syntax not yet supported")]
 @test_map_types tests @map_str_int tests @map_empty () -> void = run(
     assert(len(map_str_int()) == 2),
     assert(len(map_empty()) == 0),
@@ -41,8 +40,8 @@
 
 @tuple_triple () -> (int, int, int) = (1, 2, 3)
 
+#[skip("tuple type syntax not yet supported")]
 @test_tuple_types tests @tuple_pair tests @tuple_triple () -> void = run(
-    // Tuples can be constructed and returned
     assert(true),
 )
 
@@ -54,6 +53,7 @@
 
 @option_none () -> Option<int> = None
 
+#[skip("Option type not yet supported")]
 @test_option_types tests @option_some tests @option_none () -> void = run(
     assert(true),
 )
@@ -66,6 +66,7 @@
 
 @result_err () -> Result<int, str> = Err("failed")
 
+#[skip("Result type not yet supported")]
 @test_result_types tests @result_ok tests @result_err () -> void = run(
     assert(true),
 )

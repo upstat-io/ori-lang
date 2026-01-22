@@ -7,8 +7,11 @@ use std::collections::HashMap;
 use crate::intern::Name;
 use crate::syntax::ExprId;
 
+/// Built-in function signature.
+pub type BuiltinFn = fn(&[Value]) -> Result<Value, String>;
+
 /// Runtime value in the Sigil interpreter.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum Value {
     /// Integer value.
     Int(i64),
@@ -42,6 +45,8 @@ pub enum Value {
     Struct(StructValue),
     /// Function value (closure).
     Function(FunctionValue),
+    /// Built-in function.
+    Builtin(BuiltinFn, &'static str),
     /// Duration value (in milliseconds).
     Duration(u64),
     /// Size value (in bytes).
@@ -98,6 +103,28 @@ impl StructLayout {
 }
 
 impl StructValue {
+    /// Create a new struct value from a name and field values.
+    pub fn new(name: Name, field_values: HashMap<Name, Value>) -> Self {
+        let field_names: Vec<Name> = field_values.keys().cloned().collect();
+        let layout = Rc::new(StructLayout::new(&field_names));
+        let mut fields = vec![Value::Void; field_names.len()];
+        for (name, value) in field_values {
+            if let Some(idx) = layout.get_index(name) {
+                fields[idx] = value;
+            }
+        }
+        StructValue {
+            type_name: name,
+            fields: Rc::new(fields),
+            layout,
+        }
+    }
+
+    /// Alias for type_name field access.
+    pub fn name(&self) -> Name {
+        self.type_name
+    }
+
     /// Get a field value by name with O(1) lookup.
     pub fn get_field(&self, field: Name) -> Option<&Value> {
         let index = self.layout.get_index(field)?;
@@ -162,6 +189,15 @@ impl RangeValue {
     /// Check if the range is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Check if a value is contained in the range.
+    pub fn contains(&self, value: i64) -> bool {
+        if self.inclusive {
+            value >= self.start && value <= self.end
+        } else {
+            value >= self.start && value < self.end
+        }
     }
 }
 
@@ -240,10 +276,39 @@ impl Value {
             Value::Err(_) => "Result",
             Value::Struct(_) => "struct",
             Value::Function(_) => "function",
+            Value::Builtin(_, _) => "builtin",
             Value::Duration(_) => "Duration",
             Value::Size(_) => "Size",
             Value::Range(_) => "Range",
             Value::Error(_) => "error",
+        }
+    }
+}
+
+impl fmt::Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Int(n) => write!(f, "Int({})", n),
+            Value::Float(n) => write!(f, "Float({})", n),
+            Value::Bool(b) => write!(f, "Bool({})", b),
+            Value::Str(s) => write!(f, "Str({:?})", s),
+            Value::Char(c) => write!(f, "Char({:?})", c),
+            Value::Byte(b) => write!(f, "Byte({:?})", b),
+            Value::Void => write!(f, "Void"),
+            Value::List(items) => write!(f, "List({:?})", items),
+            Value::Map(map) => write!(f, "Map({:?})", map),
+            Value::Tuple(items) => write!(f, "Tuple({:?})", items),
+            Value::Some(v) => write!(f, "Some({:?})", v),
+            Value::None => write!(f, "None"),
+            Value::Ok(v) => write!(f, "Ok({:?})", v),
+            Value::Err(v) => write!(f, "Err({:?})", v),
+            Value::Struct(s) => write!(f, "Struct({:?})", s),
+            Value::Function(func) => write!(f, "Function({:?})", func),
+            Value::Builtin(_, name) => write!(f, "Builtin({})", name),
+            Value::Duration(ms) => write!(f, "Duration({}ms)", ms),
+            Value::Size(bytes) => write!(f, "Size({}b)", bytes),
+            Value::Range(r) => write!(f, "Range({:?})", r),
+            Value::Error(msg) => write!(f, "Error({})", msg),
         }
     }
 }
@@ -288,6 +353,7 @@ impl fmt::Display for Value {
             Value::Err(e) => write!(f, "Err({})", e),
             Value::Struct(s) => write!(f, "<struct {:?}>", s.type_name),
             Value::Function(_) => write!(f, "<function>"),
+            Value::Builtin(_, name) => write!(f, "<builtin {}>", name),
             Value::Duration(ms) => {
                 if *ms >= 1000 {
                     write!(f, "{}s", ms / 1000)
@@ -332,6 +398,7 @@ impl PartialEq for Value {
             (Value::Err(a), Value::Err(b)) => a == b,
             (Value::List(a), Value::List(b)) => a == b,
             (Value::Tuple(a), Value::Tuple(b)) => a == b,
+            (Value::Builtin(_, name_a), Value::Builtin(_, name_b)) => name_a == name_b,
             _ => false,
         }
     }

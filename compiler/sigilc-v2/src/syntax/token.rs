@@ -144,8 +144,10 @@ pub enum TokenKind {
     NotEq,        // !=
     Lt,           // <
     LtEq,         // <=
+    Shl,          // <<
     Gt,           // >
     GtEq,         // >=
+    Shr,          // >>
     Plus,         // +
     Minus,        // -
     Star,         // *
@@ -302,8 +304,10 @@ impl TokenKind {
             TokenKind::NotEq => "!=",
             TokenKind::Lt => "<",
             TokenKind::LtEq => "<=",
+            TokenKind::Shl => "<<",
             TokenKind::Gt => ">",
             TokenKind::GtEq => ">=",
+            TokenKind::Shr => ">>",
             TokenKind::Plus => "+",
             TokenKind::Minus => "-",
             TokenKind::Star => "*",

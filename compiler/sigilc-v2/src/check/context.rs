@@ -407,7 +407,8 @@ impl<'a> TypeContext<'a> {
             }
 
             // Bitwise: int, int -> int
-            BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor => {
+            BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor |
+            BinaryOp::Shl | BinaryOp::Shr => {
                 self.check(left, TypeId::INT);
                 self.check(right, TypeId::INT);
                 TypeId::INT
