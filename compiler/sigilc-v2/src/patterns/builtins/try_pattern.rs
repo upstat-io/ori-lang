@@ -8,7 +8,7 @@
 //! ```
 
 use crate::patterns::definition::PatternDefinition;
-use crate::patterns::param::{ParamSpec, TypeConstraint};
+use crate::patterns::param::ParamSpec;
 
 /// Error handling pattern with early return on error.
 pub struct TryPattern;

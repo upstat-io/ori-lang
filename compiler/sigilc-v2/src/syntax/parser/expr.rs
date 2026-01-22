@@ -1,289 +1,40 @@
-//! Parser for Sigil that produces a flattened AST.
-//!
-//! This is a recursive descent parser that:
-//! - Allocates all expressions in an arena
-//! - Uses indices instead of Box for children
-//! - Handles error recovery to continue parsing after errors
+//! Expression parsing: operators, calls, lambdas, control flow.
 
-use crate::intern::{Name, StringInterner};
 use crate::errors::Diagnostic;
-use super::{
-    Token, TokenKind, TokenList, Span,
-    ExprArena, Expr, ExprKind, ExprId, ExprRange, PatternKind,
+use crate::syntax::{
+    TokenKind,
+    Expr, ExprKind, ExprId, ExprRange, PatternKind,
     BinaryOp, UnaryOp,
-    items::{Item, Import, Visibility},
-    expr::{
-        BindingPattern, MapEntry, Param, PatternArgs, PatternArg,
-        TypeExpr, TypeExprKind,
-    },
+    expr::{Param, MapEntry, PatternArgs, PatternArg, BindingPattern},
 };
-
-/// Parser state.
-pub struct Parser<'src, 'i> {
-    /// Token list from lexer.
-    tokens: &'src TokenList,
-    /// String interner.
-    interner: &'i StringInterner,
-    /// Expression arena.
-    arena: ExprArena,
-    /// Current token index.
-    pos: usize,
-    /// Collected diagnostics.
-    diagnostics: Vec<Diagnostic>,
-    /// Collected imports.
-    imports: Vec<Import>,
-    /// Collected items.
-    items: Vec<Item>,
-}
+use super::Parser;
 
 impl<'src, 'i> Parser<'src, 'i> {
-    /// Create a new parser.
-    pub fn new(tokens: &'src TokenList, interner: &'i StringInterner) -> Self {
-        Parser {
-            tokens,
-            interner,
-            arena: ExprArena::new(),
-            pos: 0,
-            diagnostics: Vec::new(),
-            imports: Vec::new(),
-            items: Vec::new(),
-        }
-    }
-
-    /// Parse a complete module.
-    pub fn parse_module(mut self) -> ParseResult {
-        self.skip_newlines();
-
-        while !self.at_end() {
-            match self.parse_item() {
-                Ok(item) => self.items.push(item),
-                Err(diag) => {
-                    self.diagnostics.push(diag);
-                    self.recover_to_next_item();
-                }
-            }
-            self.skip_newlines();
-        }
-
-        ParseResult {
-            items: self.items,
-            imports: self.imports,
-            arena: self.arena,
-            diagnostics: self.diagnostics,
-        }
-    }
-
-    /// Parse a single expression (for REPL/testing).
-    pub fn parse_expression(mut self) -> (ExprId, ExprArena, Vec<Diagnostic>) {
-        self.skip_newlines();
-        let expr = match self.expression() {
-            Ok(id) => id,
-            Err(diag) => {
-                self.diagnostics.push(diag);
-                self.arena.alloc(Expr::new(ExprKind::Error, self.current_span()))
-            }
-        };
-        (expr, self.arena, self.diagnostics)
-    }
-
-    // ===== Token access =====
-
-    fn current(&self) -> &Token {
-        &self.tokens.tokens[self.pos.min(self.tokens.tokens.len() - 1)]
-    }
-
-    fn current_kind(&self) -> &TokenKind {
-        &self.current().kind
-    }
-
-    fn current_span(&self) -> Span {
-        self.current().span
-    }
-
-    fn at_end(&self) -> bool {
-        matches!(self.current_kind(), TokenKind::Eof)
-    }
-
-    #[allow(dead_code)]
-    fn peek(&self, offset: usize) -> &TokenKind {
-        let idx = (self.pos + offset).min(self.tokens.tokens.len() - 1);
-        &self.tokens.tokens[idx].kind
-    }
-
-    fn advance(&mut self) -> &Token {
-        let _token = self.current();
-        if !self.at_end() {
-            self.pos += 1;
-        }
-        // Return reference from original position
-        &self.tokens.tokens[self.pos - 1]
-    }
-
-    fn check(&self, kind: &TokenKind) -> bool {
-        std::mem::discriminant(self.current_kind()) == std::mem::discriminant(kind)
-    }
-
-    fn consume(&mut self, kind: &TokenKind, msg: &str) -> Result<&Token, Diagnostic> {
-        if self.check(kind) {
-            Ok(self.advance())
-        } else {
-            Err(self.error(msg))
-        }
-    }
-
-    fn skip_newlines(&mut self) {
-        while matches!(self.current_kind(), TokenKind::Newline) {
-            self.advance();
-        }
-    }
-
-    fn error(&self, msg: &str) -> Diagnostic {
-        Diagnostic::error(msg.to_string(), self.current_span())
-    }
-
-    fn recover_to_next_item(&mut self) {
-        while !self.at_end() {
-            match self.current_kind() {
-                TokenKind::At | TokenKind::Dollar | TokenKind::Type |
-                TokenKind::Pub | TokenKind::Use | TokenKind::Trait |
-                TokenKind::Impl | TokenKind::Extend => break,
-                TokenKind::Newline => {
-                    self.advance();
-                    break;
-                }
-                _ => {
-                    self.advance();
-                }
-            }
-        }
-    }
-
-    // ===== Item parsing =====
-
-    fn parse_item(&mut self) -> Result<Item, Diagnostic> {
-        let visibility = if self.check(&TokenKind::Pub) {
-            self.advance();
-            Visibility::Public
-        } else {
-            Visibility::Private
-        };
-
-        match self.current_kind() {
-            TokenKind::At => self.parse_function(visibility),
-            TokenKind::Dollar => self.parse_config(visibility),
-            TokenKind::Type => self.parse_type_def(visibility),
-            TokenKind::Use => self.parse_import(visibility),
-            TokenKind::Trait => self.parse_trait(visibility),
-            TokenKind::Impl => self.parse_impl(),
-            _ => Err(self.error("expected item declaration")),
-        }
-    }
-
-    fn parse_function(&mut self, visibility: Visibility) -> Result<Item, Diagnostic> {
-        let start = self.current_span();
-        self.consume(&TokenKind::At, "expected '@'")?;
-
-        let name = self.parse_name()?;
-        let type_params = self.parse_type_params()?;
-
-        self.consume(&TokenKind::LParen, "expected '('")?;
-        let params = self.parse_params()?;
-        self.consume(&TokenKind::RParen, "expected ')'")?;
-
-        let return_type = if self.check(&TokenKind::Arrow) {
-            self.advance();
-            Some(self.parse_type_expr()?)
-        } else {
-            None
-        };
-
-        let capabilities = if self.check(&TokenKind::Uses) {
-            self.advance();
-            self.parse_capability_list()?
-        } else {
-            Vec::new()
-        };
-
-        self.consume(&TokenKind::Eq, "expected '='")?;
-        self.skip_newlines();
-
-        let body = self.expression()?;
-        let span = start.merge(self.arena.get(body).span);
-
-        Ok(Item {
-            kind: super::items::ItemKind::Function(super::items::Function {
-                name,
-                visibility,
-                type_params,
-                params: self.arena.alloc_params(params),
-                return_type: return_type.map(|t| self.arena.alloc_type_expr(t)),
-                capabilities,
-                body,
-                is_async: false,
-                sig_span: start,
-            }),
-            span,
-        })
-    }
-
-    fn parse_config(&mut self, visibility: Visibility) -> Result<Item, Diagnostic> {
-        let start = self.current_span();
-        self.consume(&TokenKind::Dollar, "expected '$'")?;
-
-        let name = self.parse_name()?;
-
-        let ty = if self.check(&TokenKind::Colon) {
-            self.advance();
-            Some(self.parse_type_expr()?)
-        } else {
-            None
-        };
-
-        self.consume(&TokenKind::Eq, "expected '='")?;
-        self.skip_newlines();
-
-        let value = self.expression()?;
-        let span = start.merge(self.arena.get(value).span);
-
-        Ok(Item {
-            kind: super::items::ItemKind::Config(super::items::Config {
-                name,
-                visibility,
-                ty: ty.map(|t| self.arena.alloc_type_expr(t)),
-                value,
-            }),
-            span,
-        })
-    }
-
-    fn parse_type_def(&mut self, _visibility: Visibility) -> Result<Item, Diagnostic> {
-        // Placeholder - full type definition parsing
-        Err(self.error("type definitions not yet implemented"))
-    }
-
-    fn parse_import(&mut self, _visibility: Visibility) -> Result<Item, Diagnostic> {
-        // Placeholder - full import parsing
-        Err(self.error("imports not yet implemented"))
-    }
-
-    fn parse_trait(&mut self, _visibility: Visibility) -> Result<Item, Diagnostic> {
-        // Placeholder - full trait parsing
-        Err(self.error("traits not yet implemented"))
-    }
-
-    fn parse_impl(&mut self) -> Result<Item, Diagnostic> {
-        // Placeholder - full impl parsing
-        Err(self.error("impls not yet implemented"))
-    }
-
-    // ===== Expression parsing =====
-
-    fn expression(&mut self) -> Result<ExprId, Diagnostic> {
+    /// Parse any expression.
+    pub(crate) fn expression(&mut self) -> Result<ExprId, Diagnostic> {
         self.parse_precedence(14) // Lowest precedence (assignment level)
     }
 
     fn parse_precedence(&mut self, max_prec: u8) -> Result<ExprId, Diagnostic> {
         let mut left = self.unary()?;
+
+        // Check for lambda: x -> body or (a, b) -> body
+        if self.check(&TokenKind::Arrow) {
+            return self.parse_lambda(left);
+        }
+
+        // Check for assignment: target = value
+        // Only parse assignment at the lowest precedence level (14)
+        if max_prec >= 14 && self.check(&TokenKind::Eq) {
+            self.advance();
+            self.skip_newlines();
+            let value = self.expression()?;
+            let span = self.arena.get(left).span.merge(self.arena.get(value).span);
+            return Ok(self.arena.alloc(Expr::new(
+                ExprKind::Assign { target: left, value },
+                span,
+            )));
+        }
 
         while let Some((op, prec)) = self.binary_op() {
             if prec > max_prec {
@@ -307,6 +58,80 @@ impl<'src, 'i> Parser<'src, 'i> {
         }
 
         Ok(left)
+    }
+
+    fn parse_lambda(&mut self, params_expr: ExprId) -> Result<ExprId, Diagnostic> {
+        let start = self.arena.get(params_expr).span;
+        self.consume(&TokenKind::Arrow, "expected '->'")?;
+        self.skip_newlines();
+
+        let params = self.expr_to_lambda_params(params_expr)?;
+        let params_range = self.arena.alloc_params(params);
+
+        let body = self.expression()?;
+        let span = start.merge(self.arena.get(body).span);
+
+        Ok(self.arena.alloc(Expr::new(
+            ExprKind::Lambda {
+                params: params_range,
+                ret_ty: None,
+                body,
+            },
+            span,
+        )))
+    }
+
+    fn expr_to_lambda_params(&self, expr: ExprId) -> Result<Vec<Param>, Diagnostic> {
+        let expr_data = self.arena.get(expr);
+        match &expr_data.kind {
+            ExprKind::Ident(name) => Ok(vec![Param {
+                name: *name,
+                ty: None,
+                default: None,
+                span: expr_data.span,
+            }]),
+
+            ExprKind::Tuple(elements) => {
+                let mut params = Vec::new();
+                for elem_id in self.arena.get_expr_list(*elements) {
+                    let elem = self.arena.get(*elem_id);
+                    match &elem.kind {
+                        ExprKind::Ident(name) => {
+                            params.push(Param {
+                                name: *name,
+                                ty: None,
+                                default: None,
+                                span: elem.span,
+                            });
+                        }
+                        _ => {
+                            return Err(Diagnostic {
+                                severity: crate::errors::Severity::Error,
+                                code: None,
+                                message: "expected parameter name in lambda".to_string(),
+                                span: elem.span,
+                                labels: vec![],
+                                notes: vec![],
+                                suggestions: vec![],
+                            });
+                        }
+                    }
+                }
+                Ok(params)
+            }
+
+            ExprKind::Unit => Ok(vec![]),
+
+            _ => Err(Diagnostic {
+                severity: crate::errors::Severity::Error,
+                code: None,
+                message: "invalid lambda parameters".to_string(),
+                span: expr_data.span,
+                labels: vec![],
+                notes: vec![],
+                suggestions: vec![],
+            }),
+        }
     }
 
     fn binary_op(&self) -> Option<(BinaryOp, u8)> {
@@ -368,7 +193,6 @@ impl<'src, 'i> Parser<'src, 'i> {
                     self.advance();
                     let field = self.parse_name()?;
 
-                    // Check for method call
                     if self.check(&TokenKind::LParen) {
                         self.advance();
                         let args = self.parse_call_args()?;
@@ -458,6 +282,13 @@ impl<'src, 'i> Parser<'src, 'i> {
                     span,
                 )))
             }
+            TokenKind::Size(value, unit) => {
+                self.advance();
+                Ok(self.arena.alloc(Expr::new(
+                    ExprKind::Size { value, unit },
+                    span,
+                )))
+            }
 
             // Identifiers and references
             TokenKind::Ident(name) => {
@@ -541,7 +372,7 @@ impl<'src, 'i> Parser<'src, 'i> {
             // Pattern expressions
             TokenKind::Run => self.parse_pattern(PatternKind::Run),
             TokenKind::Try => self.parse_pattern(PatternKind::Try),
-            TokenKind::Match => self.parse_pattern(PatternKind::Match),
+            TokenKind::Match => self.parse_match_expr(),
             TokenKind::Map => self.parse_pattern(PatternKind::Map),
             TokenKind::Filter => self.parse_pattern(PatternKind::Filter),
             TokenKind::Fold => self.parse_pattern(PatternKind::Fold),
@@ -559,9 +390,33 @@ impl<'src, 'i> Parser<'src, 'i> {
             TokenKind::LBrace => self.parse_map_or_struct(),
             TokenKind::LParen => self.parse_paren_or_tuple(),
 
+            // Builtin functions that are lexed as keywords
+            TokenKind::Assert => {
+                let name = self.interner.intern("assert");
+                self.advance();
+                Ok(self.arena.alloc(Expr::new(ExprKind::Ident(name), span)))
+            }
+            TokenKind::StrType => {
+                let name = self.interner.intern("str");
+                self.advance();
+                Ok(self.arena.alloc(Expr::new(ExprKind::Ident(name), span)))
+            }
+            TokenKind::IntType => {
+                let name = self.interner.intern("int");
+                self.advance();
+                Ok(self.arena.alloc(Expr::new(ExprKind::Ident(name), span)))
+            }
+            TokenKind::FloatType => {
+                let name = self.interner.intern("float");
+                self.advance();
+                Ok(self.arena.alloc(Expr::new(ExprKind::Ident(name), span)))
+            }
+
             _ => Err(self.error("expected expression")),
         }
     }
+
+    // ===== Control flow =====
 
     fn parse_if(&mut self) -> Result<ExprId, Diagnostic> {
         let start = self.current_span();
@@ -599,7 +454,6 @@ impl<'src, 'i> Parser<'src, 'i> {
         self.consume(&TokenKind::In, "expected 'in'")?;
         let iter = self.expression()?;
 
-        // Optional guard: if cond
         let guard = if self.check(&TokenKind::If) {
             self.advance();
             Some(self.expression()?)
@@ -607,7 +461,6 @@ impl<'src, 'i> Parser<'src, 'i> {
             None
         };
 
-        // do or yield
         let is_yield = if self.check(&TokenKind::Do) {
             self.advance();
             false
@@ -683,6 +536,8 @@ impl<'src, 'i> Parser<'src, 'i> {
         )))
     }
 
+    // ===== Patterns =====
+
     fn parse_pattern(&mut self, kind: PatternKind) -> Result<ExprId, Diagnostic> {
         let start = self.current_span();
         self.advance(); // Consume pattern keyword
@@ -708,7 +563,6 @@ impl<'src, 'i> Parser<'src, 'i> {
         let mut named = Vec::new();
         let mut positional = Vec::new();
 
-        // For 'run' pattern, arguments are positional
         let is_positional = matches!(kind, PatternKind::Run);
 
         loop {
@@ -717,11 +571,9 @@ impl<'src, 'i> Parser<'src, 'i> {
             }
 
             if is_positional || !self.check(&TokenKind::Dot) {
-                // Positional argument
                 let expr = self.expression()?;
                 positional.push(expr);
             } else {
-                // Named argument: .name: value
                 self.consume(&TokenKind::Dot, "expected '.'")?;
                 let name = self.parse_name()?;
                 self.consume(&TokenKind::Colon, "expected ':'")?;
@@ -746,6 +598,8 @@ impl<'src, 'i> Parser<'src, 'i> {
             span: start.merge(self.current_span()),
         })
     }
+
+    // ===== Collections =====
 
     fn parse_list(&mut self) -> Result<ExprId, Diagnostic> {
         let start = self.current_span();
@@ -780,14 +634,10 @@ impl<'src, 'i> Parser<'src, 'i> {
         if self.check(&TokenKind::RBrace) {
             self.advance();
             return Ok(self.arena.alloc(Expr::new(
-                ExprKind::Map(super::MapEntryRange::EMPTY),
+                ExprKind::Map(crate::syntax::MapEntryRange::EMPTY),
                 start.merge(self.current_span()),
             )));
         }
-
-        // Look ahead to determine if this is a map or struct field init
-        // Map: { key: value, ... }
-        // Struct: { field, field: value, ... }
 
         let mut entries = Vec::new();
         while !self.check(&TokenKind::RBrace) && !self.at_end() {
@@ -800,7 +650,6 @@ impl<'src, 'i> Parser<'src, 'i> {
                 let entry_span = self.arena.get(key).span.merge(self.arena.get(value).span);
                 entries.push(MapEntry { key, value, span: entry_span });
             } else {
-                // Shorthand: { x } means { x: x }
                 let span = self.arena.get(key).span;
                 entries.push(MapEntry { key, value: key, span });
             }
@@ -826,7 +675,6 @@ impl<'src, 'i> Parser<'src, 'i> {
         self.consume(&TokenKind::LParen, "expected '('")?;
         self.skip_newlines();
 
-        // Empty tuple: ()
         if self.check(&TokenKind::RParen) {
             self.advance();
             return Ok(self.arena.alloc(Expr::new(
@@ -837,12 +685,7 @@ impl<'src, 'i> Parser<'src, 'i> {
 
         let first = self.expression()?;
 
-        // Check for lambda: (params) -> body
-        // Check for tuple: (a, b, c)
-        // Otherwise: grouping (a)
-
         if self.check(&TokenKind::Comma) {
-            // Tuple
             let mut elements = vec![first];
             while self.check(&TokenKind::Comma) {
                 self.advance();
@@ -859,13 +702,12 @@ impl<'src, 'i> Parser<'src, 'i> {
                 start.merge(self.current_span()),
             )))
         } else {
-            // Grouping
             self.consume(&TokenKind::RParen, "expected ')'")?;
             Ok(first)
         }
     }
 
-    fn parse_call_args(&mut self) -> Result<ExprRange, Diagnostic> {
+    pub(crate) fn parse_call_args(&mut self) -> Result<ExprRange, Diagnostic> {
         self.skip_newlines();
         let mut args = Vec::new();
 
@@ -882,260 +724,7 @@ impl<'src, 'i> Parser<'src, 'i> {
         Ok(self.arena.alloc_expr_list(args))
     }
 
-    // ===== Helper parsers =====
-
-    fn parse_name(&mut self) -> Result<Name, Diagnostic> {
-        match self.current_kind().clone() {
-            TokenKind::Ident(name) => {
-                self.advance();
-                Ok(name)
-            }
-            // Allow pattern keywords as identifiers in non-pattern context
-            TokenKind::Map | TokenKind::Filter | TokenKind::Fold |
-            TokenKind::Run | TokenKind::Try | TokenKind::Find |
-            TokenKind::Collect | TokenKind::Recurse | TokenKind::Parallel |
-            TokenKind::Timeout | TokenKind::Retry | TokenKind::Cache |
-            TokenKind::Validate => {
-                let name = self.interner.intern(self.current_kind().display_name());
-                self.advance();
-                Ok(name)
-            }
-            _ => Err(self.error("expected identifier")),
-        }
-    }
-
-    fn parse_type_params(&mut self) -> Result<Vec<super::items::TypeParam>, Diagnostic> {
-        if !self.check(&TokenKind::Lt) {
-            return Ok(Vec::new());
-        }
-
-        self.advance();
-        let mut params = Vec::new();
-
-        loop {
-            let name = self.parse_name()?;
-            let start = self.current_span();
-
-            let bounds = if self.check(&TokenKind::Colon) {
-                self.advance();
-                self.parse_type_bounds()?
-            } else {
-                Vec::new()
-            };
-
-            params.push(super::items::TypeParam {
-                name,
-                bounds,
-                default: None,
-                span: start,
-            });
-
-            if !self.check(&TokenKind::Comma) {
-                break;
-            }
-            self.advance();
-        }
-
-        self.consume(&TokenKind::Gt, "expected '>'")?;
-        Ok(params)
-    }
-
-    fn parse_type_bounds(&mut self) -> Result<Vec<TypeExpr>, Diagnostic> {
-        let mut bounds = vec![self.parse_type_expr()?];
-
-        while self.check(&TokenKind::Plus) {
-            self.advance();
-            bounds.push(self.parse_type_expr()?);
-        }
-
-        Ok(bounds)
-    }
-
-    fn parse_params(&mut self) -> Result<Vec<Param>, Diagnostic> {
-        let mut params = Vec::new();
-
-        while !self.check(&TokenKind::RParen) && !self.at_end() {
-            let start = self.current_span();
-            let name = self.parse_name()?;
-
-            let ty = if self.check(&TokenKind::Colon) {
-                self.advance();
-                let type_expr = self.parse_type_expr()?;
-                Some(self.arena.alloc_type_expr(type_expr))
-            } else {
-                None
-            };
-
-            let default = if self.check(&TokenKind::Eq) {
-                self.advance();
-                Some(self.expression()?)
-            } else {
-                None
-            };
-
-            params.push(Param {
-                name,
-                ty,
-                default,
-                span: start.merge(self.current_span()),
-            });
-
-            if !self.check(&TokenKind::Comma) {
-                break;
-            }
-            self.advance();
-            self.skip_newlines();
-        }
-
-        Ok(params)
-    }
-
-    fn parse_capability_list(&mut self) -> Result<Vec<Name>, Diagnostic> {
-        let mut caps = vec![self.parse_name()?];
-
-        while self.check(&TokenKind::Comma) {
-            self.advance();
-            caps.push(self.parse_name()?);
-        }
-
-        Ok(caps)
-    }
-
-    fn parse_type_expr(&mut self) -> Result<TypeExpr, Diagnostic> {
-        let span = self.current_span();
-
-        match self.current_kind().clone() {
-            TokenKind::IntType => {
-                self.advance();
-                Ok(TypeExpr {
-                    kind: TypeExprKind::Named {
-                        name: self.interner.intern("int"),
-                        type_args: Vec::new(),
-                    },
-                    span,
-                })
-            }
-            TokenKind::FloatType => {
-                self.advance();
-                Ok(TypeExpr {
-                    kind: TypeExprKind::Named {
-                        name: self.interner.intern("float"),
-                        type_args: Vec::new(),
-                    },
-                    span,
-                })
-            }
-            TokenKind::BoolType => {
-                self.advance();
-                Ok(TypeExpr {
-                    kind: TypeExprKind::Named {
-                        name: self.interner.intern("bool"),
-                        type_args: Vec::new(),
-                    },
-                    span,
-                })
-            }
-            TokenKind::StrType => {
-                self.advance();
-                Ok(TypeExpr {
-                    kind: TypeExprKind::Named {
-                        name: self.interner.intern("str"),
-                        type_args: Vec::new(),
-                    },
-                    span,
-                })
-            }
-            TokenKind::Void => {
-                self.advance();
-                Ok(TypeExpr {
-                    kind: TypeExprKind::Named {
-                        name: self.interner.intern("void"),
-                        type_args: Vec::new(),
-                    },
-                    span,
-                })
-            }
-            TokenKind::Ident(name) => {
-                self.advance();
-                let type_args = if self.check(&TokenKind::Lt) {
-                    self.parse_type_args()?
-                } else {
-                    Vec::new()
-                };
-                Ok(TypeExpr {
-                    kind: TypeExprKind::Named { name, type_args },
-                    span: span.merge(self.current_span()),
-                })
-            }
-            TokenKind::LBracket => {
-                self.advance();
-                let inner = self.parse_type_expr()?;
-                self.consume(&TokenKind::RBracket, "expected ']'")?;
-                Ok(TypeExpr {
-                    kind: TypeExprKind::List(Box::new(inner)),
-                    span: span.merge(self.current_span()),
-                })
-            }
-            TokenKind::LParen => {
-                self.advance();
-                let mut types = Vec::new();
-
-                while !self.check(&TokenKind::RParen) && !self.at_end() {
-                    types.push(self.parse_type_expr()?);
-                    if !self.check(&TokenKind::Comma) {
-                        break;
-                    }
-                    self.advance();
-                }
-
-                self.consume(&TokenKind::RParen, "expected ')'")?;
-
-                // Check for function type
-                if self.check(&TokenKind::Arrow) {
-                    self.advance();
-                    let ret = self.parse_type_expr()?;
-                    Ok(TypeExpr {
-                        kind: TypeExprKind::Function {
-                            params: types,
-                            ret: Box::new(ret),
-                        },
-                        span: span.merge(self.current_span()),
-                    })
-                } else {
-                    Ok(TypeExpr {
-                        kind: TypeExprKind::Tuple(types),
-                        span: span.merge(self.current_span()),
-                    })
-                }
-            }
-            TokenKind::Underscore => {
-                self.advance();
-                Ok(TypeExpr {
-                    kind: TypeExprKind::Infer,
-                    span,
-                })
-            }
-            _ => Err(self.error("expected type")),
-        }
-    }
-
-    fn parse_type_args(&mut self) -> Result<Vec<TypeExpr>, Diagnostic> {
-        self.consume(&TokenKind::Lt, "expected '<'")?;
-        let mut args = Vec::new();
-
-        loop {
-            args.push(self.parse_type_expr()?);
-            if !self.check(&TokenKind::Comma) {
-                break;
-            }
-            self.advance();
-        }
-
-        self.consume(&TokenKind::Gt, "expected '>'")?;
-        Ok(args)
-    }
-
-    fn parse_binding_pattern(&mut self) -> Result<BindingPattern, Diagnostic> {
+    pub(crate) fn parse_binding_pattern(&mut self) -> Result<BindingPattern, Diagnostic> {
         match self.current_kind().clone() {
             TokenKind::Ident(name) => {
                 self.advance();
@@ -1186,16 +775,4 @@ impl<'src, 'i> Parser<'src, 'i> {
             _ => Err(self.error("expected binding pattern")),
         }
     }
-}
-
-/// Result of parsing a module.
-pub struct ParseResult {
-    /// Top-level items.
-    pub items: Vec<Item>,
-    /// Import declarations.
-    pub imports: Vec<Import>,
-    /// Expression arena.
-    pub arena: ExprArena,
-    /// Parse diagnostics.
-    pub diagnostics: Vec<Diagnostic>,
 }

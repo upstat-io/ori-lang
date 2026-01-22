@@ -1,53 +1,50 @@
 // Rosetta Code: Conditional structures
 // Task: Demonstrate conditional expressions
-// Sigil has two main forms: if/then/else and match
+// Sigil uses if/then/else for conditionals
 
 // Simple if/then/else
-@abs (n: int) -> int = if n < 0 :then -n :else n
+@abs (n: int) -> int = if n < 0 then -n else n
 
 // Chained if/else if/else
 @sign (n: int) -> str =
-    if n > 0 :then "positive"
-    :else if n < 0 :then "negative"
-    :else "zero"
+    if n > 0 then "positive"
+    else if n < 0 then "negative"
+    else "zero"
 
-// Match expression (pattern matching)
-@grade (score: int) -> str = match(
-    score >= 90 : "A",
-    score >= 80 : "B",
-    score >= 70 : "C",
-    score >= 60 : "D",
-    "F"
-)
+// Grade classification using if/else chain
+@grade (score: int) -> str =
+    if score >= 90 then "A"
+    else if score >= 80 then "B"
+    else if score >= 70 then "C"
+    else if score >= 60 then "D"
+    else "F"
 
-// Match with multiple conditions
-@classify_number (n: int) -> str = match(
-    n == 0 : "zero",
-    n > 0 && n % 2 == 0 : "positive even",
-    n > 0 : "positive odd",
-    n % 2 == 0 : "negative even",
-    "negative odd"
-)
+// Classify number using if/else chain
+@classify_number (n: int) -> str =
+    if n == 0 then "zero"
+    else if n > 0 && n % 2 == 0 then "positive even"
+    else if n > 0 then "positive odd"
+    else if n % 2 == 0 then "negative even"
+    else "negative odd"
 
 // Nested conditionals
 @max3 (a: int, b: int, c: int) -> int =
-    if a >= b :then
-        if a >= c :then a :else c
-    :else
-        if b >= c :then b :else c
+    if a >= b then
+        if a >= c then a else c
+    else
+        if b >= c then b else c
 
 // Boolean expressions as conditions
 @can_vote (age: int, is_citizen: bool) -> bool =
-    if age >= 18 && is_citizen :then true :else false
+    if age >= 18 && is_citizen then true else false
 
-// Using match for range checks
-@temperature_feel (temp: int) -> str = match(
-    temp < 0 : "freezing",
-    temp < 10 : "cold",
-    temp < 20 : "cool",
-    temp < 30 : "warm",
-    "hot"
-)
+// Temperature classification
+@temperature_feel (temp: int) -> str =
+    if temp < 0 then "freezing"
+    else if temp < 10 then "cold"
+    else if temp < 20 then "cool"
+    else if temp < 30 then "warm"
+    else "hot"
 
 @main () -> void = run(
     print("abs(-5) = " + str(abs(-5))),
@@ -57,5 +54,5 @@
     print("classify(-3) = " + classify_number(-3)),
     print("max3(3, 7, 5) = " + str(max3(3, 7, 5))),
     print("can_vote(21, true) = " + str(can_vote(21, true))),
-    print("temperature_feel(15) = " + temperature_feel(15))
+    print("temperature_feel(15) = " + temperature_feel(15)),
 )

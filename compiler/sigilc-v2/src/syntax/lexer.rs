@@ -25,7 +25,8 @@ enum RawToken {
     Newline,
 
     // === Line continuation ===
-    #[regex(r"_[ \t]*\n")]
+    // Note: Uses \\ instead of _ for line continuation to avoid conflict with wildcard
+    #[regex(r"\\[ \t]*\n")]
     LineContinuation,
 
     // === Keywords ===
@@ -150,7 +151,13 @@ enum RawToken {
     #[token("validate")]
     Validate,
 
+    // === Attribute keywords ===
+    #[token("skip")]
+    Skip,
+
     // === Symbols ===
+    #[token("#[")]
+    HashBracket,
     #[token("@")]
     At,
     #[token("$")]
@@ -239,6 +246,14 @@ enum RawToken {
     Div,
 
     // === Literals ===
+
+    // Hex integer with underscores
+    #[regex(r"0x[0-9a-fA-F][0-9a-fA-F_]*", |lex| {
+        let s = lex.slice();
+        // Skip "0x" prefix and remove underscores
+        i64::from_str_radix(&s[2..].replace('_', ""), 16).ok()
+    })]
+    HexInt(i64),
 
     // Integer with underscores
     #[regex(r"[0-9][0-9_]*", |lex| {
@@ -420,6 +435,7 @@ impl<'src, 'i> Lexer<'src, 'i> {
         match raw {
             // Literals
             RawToken::Int(n) => TokenKind::Int(n),
+            RawToken::HexInt(n) => TokenKind::Int(n),
             RawToken::Float(f) => TokenKind::Float(f.to_bits()),
             RawToken::String => {
                 // Remove quotes and process escapes
@@ -481,6 +497,7 @@ impl<'src, 'i> Lexer<'src, 'i> {
             RawToken::Dyn => TokenKind::Dyn,
             RawToken::Extend => TokenKind::Extend,
             RawToken::Extension => TokenKind::Extension,
+            RawToken::Skip => TokenKind::Skip,
 
             // Type keywords
             RawToken::IntType => TokenKind::IntType,
@@ -513,6 +530,7 @@ impl<'src, 'i> Lexer<'src, 'i> {
             RawToken::Validate => TokenKind::Validate,
 
             // Symbols
+            RawToken::HashBracket => TokenKind::HashBracket,
             RawToken::At => TokenKind::At,
             RawToken::Dollar => TokenKind::Dollar,
             RawToken::Hash => TokenKind::Hash,
@@ -692,3 +710,28 @@ mod tests {
         assert!(!tokens.leading_trivia[4].is_empty());
     }
 }
+
+    #[test]
+    fn test_lex_underscore() {
+        let interner = StringInterner::new();
+        let lexer = Lexer::new("_", &interner);
+        let tokens = lexer.lex_all();
+        
+        println!("Token for '_': {:?}", tokens.tokens[0].kind);
+        assert!(matches!(tokens.tokens[0].kind, TokenKind::Underscore));
+    }
+
+    #[test]
+    fn test_lex_underscore_in_context() {
+        let interner = StringInterner::new();
+        let lexer = Lexer::new("_ -> x", &interner);
+        let tokens = lexer.lex_all();
+        
+        println!("Tokens:");
+        for (i, t) in tokens.tokens.iter().enumerate() {
+            println!("  {}: {:?} at {:?}", i, t.kind, t.span);
+        }
+        
+        assert!(matches!(tokens.tokens[0].kind, TokenKind::Underscore), 
+            "Expected Underscore, got {:?}", tokens.tokens[0].kind);
+    }

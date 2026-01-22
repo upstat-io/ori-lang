@@ -3,10 +3,10 @@
 // Sigil uses lambda expressions: x -> expr
 
 // Create an adder function that captures a value
-@make_adder (n: int) -> (int -> int) = x -> x + n
+@make_adder (n: int) -> (int) -> int = x -> x + n
 
 // Create a multiplier that captures a value
-@make_multiplier (n: int) -> (int -> int) = x -> x * n
+@make_multiplier (n: int) -> (int) -> int = x -> x * n
 
 // Demonstrate closure capturing in map
 // Each lambda captures the 'factor' value
@@ -26,7 +26,7 @@
 )
 
 // Closure capturing multiple values
-@make_linear (m: int, b: int) -> (int -> int) = x -> m * x + b
+@make_linear (m: int, b: int) -> (int) -> int = x -> m * x + b
 
 // Using closures with filter - capture threshold
 @filter_above (arr: [int], threshold: int) -> [int] = filter(
@@ -55,5 +55,5 @@
     print("line(5) = 2*5+3 = " + str(line(5))),
 
     print("filter_above([1,5,3,8,2], 3) = " + str(filter_above([1, 5, 3, 8, 2], 3))),
-    print("sum_with_offset([1,2,3], 100) = " + str(sum_with_offset([1, 2, 3], 100)))
+    print("sum_with_offset([1,2,3], 100) = " + str(sum_with_offset([1, 2, 3], 100))),
 )

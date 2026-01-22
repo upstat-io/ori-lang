@@ -3,7 +3,7 @@
 //! Unification finds substitutions that make two types equal.
 //! It handles type variables, structural types, and generics.
 
-use crate::intern::{TypeId, TypeInterner, TypeKind, TypeRange};
+use crate::intern::{TypeId, TypeInterner, TypeKind};
 use rustc_hash::FxHashMap;
 
 /// Error during unification.

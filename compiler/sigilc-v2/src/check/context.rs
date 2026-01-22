@@ -492,7 +492,7 @@ impl<'a> TypeContext<'a> {
         &mut self,
         receiver: ExprId,
         method: Name,
-        args: crate::syntax::ExprRange,
+        _args: crate::syntax::ExprRange,
         span: Span,
     ) -> TypeId {
         let receiver_ty = self.infer(receiver);
@@ -605,7 +605,7 @@ impl<'a> TypeContext<'a> {
     fn infer_let(
         &mut self,
         pattern: BindingPattern,
-        ty: Option<crate::syntax::TypeExprId>,
+        _ty: Option<crate::syntax::TypeExprId>,
         init: ExprId,
         mutable: bool,
         _span: Span,
@@ -707,7 +707,7 @@ impl<'a> TypeContext<'a> {
     fn infer_struct(
         &mut self,
         name: Name,
-        fields: crate::syntax::FieldInitRange,
+        _fields: crate::syntax::FieldInitRange,
         span: Span,
     ) -> TypeId {
         // Look up struct type
@@ -829,9 +829,9 @@ impl<'a> TypeContext<'a> {
 
     fn infer_pattern(
         &mut self,
-        kind: crate::syntax::PatternKind,
-        args: crate::syntax::PatternArgsId,
-        span: Span,
+        _kind: crate::syntax::PatternKind,
+        _args: crate::syntax::PatternArgsId,
+        _span: Span,
     ) -> TypeId {
         // Delegate to pattern module
         // For now, simplified
@@ -845,7 +845,7 @@ impl<'a> TypeContext<'a> {
         arms: crate::syntax::ArmRange,
         span: Span,
     ) -> TypeId {
-        let scrutinee_ty = self.infer(scrutinee);
+        let _scrutinee_ty = self.infer(scrutinee);
         let arm_defs = self.arena.get_arms(arms);
 
         if arm_defs.is_empty() {

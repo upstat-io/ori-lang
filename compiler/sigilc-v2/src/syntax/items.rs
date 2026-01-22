@@ -166,6 +166,8 @@ pub struct Test {
     pub targets: Vec<Name>,
     /// Test body
     pub body: ExprId,
+    /// Skip reason (if #[skip("reason")] attribute is present)
+    pub skip_reason: Option<Name>,
 }
 
 /// Trait definition.

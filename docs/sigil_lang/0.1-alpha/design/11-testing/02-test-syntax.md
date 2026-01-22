@@ -151,6 +151,62 @@ Both `@parse` and `@format` are marked as having test coverage.
 
 ---
 
+## Skipping Tests
+
+Sometimes a test cannot run - perhaps it depends on a feature not yet implemented, or it's flaky and needs investigation. Use the `#[skip]` attribute:
+
+```sigil
+#[skip("tuple destructuring not yet supported")]
+@test_destructure tests @parse () -> void = run(
+    let (a, b) = parse("1, 2"),
+    assert_eq(.actual: a, .expected: 1),
+)
+```
+
+### Syntax
+
+```sigil
+#[skip("reason")]
+@test_name tests @target () -> void = ...
+```
+
+The reason string is required - it documents why the test is skipped.
+
+### Behavior
+
+A skipped test:
+
+1. **Is still parsed and type-checked** - syntax errors are caught
+2. **Is not executed** - the test body doesn't run
+3. **Counts as coverage** - target functions are considered tested
+4. **Appears in output** - visible but marked as skipped
+
+### Output
+
+```
+Running tests...
+  ✓ @test_add (3 assertions)
+  ⊘ @test_destructure (skipped: tuple destructuring not yet supported)
+  ✓ @test_multiply (2 assertions)
+
+2 passed, 0 failed, 1 skipped
+```
+
+### When to Use Skip
+
+- **Blocked features**: Test depends on unimplemented functionality
+- **Known issues**: Test exposed a bug being fixed
+- **Platform-specific**: Test only works on certain platforms
+- **Temporary**: Test needs refactoring
+
+### When NOT to Use Skip
+
+- **Permanently broken**: Delete the test or fix the code
+- **Slow tests**: Use a different mechanism for slow test filtering
+- **Conditional logic**: Use `if` in the test body instead
+
+---
+
 ## Assertion Functions
 
 Sigil provides built-in assertion functions for tests.
@@ -949,6 +1005,7 @@ For AI consumption:
 |---------|--------|
 | Test declaration | `@test_name tests @target () -> void = ...` |
 | Multiple targets | `tests @a tests @b` |
+| Skip test | `#[skip("reason")] @test_name tests @target ...` |
 | Boolean assert | `assert(.cond: condition)` |
 | Equality assert | `assert_eq(.actual: a, .expected: b)` |
 | Inequality assert | `assert_ne(.actual: a, .unexpected: b)` |

@@ -1,0 +1,79 @@
+// Spec Tests: 09-expressions.md § Lambda Expressions
+// Tests are the source of truth - the compiler must conform to these tests
+
+// =============================================================================
+// Single Parameter Lambda (Spec: lambda = identifier "->" expression)
+// =============================================================================
+
+@apply_fn (f: (int) -> int, x: int) -> int = f(x)
+
+@test_lambda_single_param () -> void = run(
+    let double = x -> x * 2,
+    assert(apply_fn(double, 5) == 10),
+)
+
+@test_lambda_inline () -> void = run(
+    assert(apply_fn(x -> x + 1, 10) == 11),
+)
+
+// =============================================================================
+// Multiple Parameter Lambda (Spec: lambda = "(" params ")" "->" expression)
+// =============================================================================
+
+@apply_binary (f: (int, int) -> int, a: int, b: int) -> int = f(a, b)
+
+@test_lambda_multi_param () -> void = run(
+    let add = (a, b) -> a + b,
+    assert(apply_binary(add, 3, 4) == 7),
+)
+
+@test_lambda_multi_inline () -> void = run(
+    assert(apply_binary((x, y) -> x * y, 6, 7) == 42),
+)
+
+// =============================================================================
+// No Parameter Lambda (Spec: lambda = "()" "->" expression)
+// =============================================================================
+
+@call_thunk (f: () -> int) -> int = f()
+
+@test_lambda_no_param () -> void = run(
+    let constant = () -> 42,
+    assert(call_thunk(constant) == 42),
+)
+
+// =============================================================================
+// Lambda Capturing (Spec: Lambdas capture variables from enclosing scope)
+// =============================================================================
+
+@test_lambda_capture () -> void = run(
+    let factor = 10,
+    let scale = x -> x * factor,
+    assert(apply_fn(scale, 5) == 50),
+)
+
+@test_lambda_capture_multiple () -> void = run(
+    let a = 2,
+    let b = 3,
+    let f = x -> x * a + b,
+    assert(apply_fn(f, 5) == 13),
+)
+
+// =============================================================================
+// Lambda with Patterns (map, filter, fold)
+// =============================================================================
+
+@test_lambda_in_map () -> void = run(
+    let result = map(.over: [1, 2, 3], .transform: x -> x * 2),
+    assert(result == [2, 4, 6]),
+)
+
+@test_lambda_in_filter () -> void = run(
+    let result = filter(.over: [1, 2, 3, 4, 5], .predicate: x -> x > 2),
+    assert(result == [3, 4, 5]),
+)
+
+@test_lambda_in_fold () -> void = run(
+    let result = fold(.over: [1, 2, 3, 4], .init: 0, .op: (acc, x) -> acc + x),
+    assert(result == 10),
+)

@@ -1,0 +1,100 @@
+// Spec Tests: 10-patterns.md § try
+// Tests are the source of truth - the compiler must conform to these tests
+
+// =============================================================================
+// Basic Try (Spec: try_expr = "try" "(" { binding "," } expression ")")
+// =============================================================================
+
+@safe_divide (a: int, b: int) -> Result<int, str> =
+    if b == 0 then Err("division by zero")
+    else Ok(a / b)
+
+@try_basic () -> Result<int, str> = try(
+    let x = safe_divide(10, 2)?,
+    Ok(x),
+)
+
+@test_try_basic tests @safe_divide tests @try_basic () -> void = run(
+    assert(try_basic() == Ok(5)),
+)
+
+// =============================================================================
+// Try with Error Propagation (Spec: "?" propagates Err/None)
+// =============================================================================
+
+@try_chain () -> Result<int, str> = try(
+    let a = safe_divide(100, 10)?,
+    let b = safe_divide(a, 2)?,
+    Ok(b),
+)
+
+@test_try_chain tests @try_chain () -> void = run(
+    assert(try_chain() == Ok(5)),
+)
+
+@try_fail () -> Result<int, str> = try(
+    let a = safe_divide(100, 0)?,
+    Ok(a),
+)
+
+@test_try_fail tests @try_fail () -> void = run(
+    assert(try_fail() == Err("division by zero")),
+)
+
+// =============================================================================
+// Try with Option (Spec: "?" on Option returns None on None)
+// =============================================================================
+
+@get_first (arr: [int]) -> Option<int> =
+    if len(arr) == 0 then None
+    else Some(arr[0])
+
+@try_option () -> Option<int> = try(
+    let x = get_first([1, 2, 3])?,
+    Some(x * 2),
+)
+
+@try_option_none () -> Option<int> = try(
+    let x = get_first([])?,
+    Some(x * 2),
+)
+
+@test_try_option tests @get_first tests @try_option tests @try_option_none () -> void = run(
+    assert(try_option() == Some(2)),
+    assert(try_option_none() == None),
+)
+
+// =============================================================================
+// Try with Multiple Operations
+// =============================================================================
+
+@parse_int (s: str) -> Result<int, str> =
+    if s == "42" then Ok(42)
+    else if s == "10" then Ok(10)
+    else Err("parse error")
+
+@try_multi () -> Result<int, str> = try(
+    let a = parse_int("42")?,
+    let b = parse_int("10")?,
+    let c = safe_divide(a, b)?,
+    Ok(c),
+)
+
+@test_try_multi tests @parse_int tests @try_multi () -> void = run(
+    assert(try_multi() == Ok(4)),
+)
+
+// =============================================================================
+// Early Return on Error
+// =============================================================================
+
+@try_early_return () -> Result<int, str> = try(
+    let x = safe_divide(10, 0)?,
+    let y = safe_divide(20, 2)?,  // Never reached
+    Ok(x + y),
+)
+
+@test_early_return tests @try_early_return () -> void = run(
+    // First error causes immediate return
+    assert(try_early_return() == Err("division by zero")),
+)

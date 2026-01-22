@@ -56,6 +56,67 @@ A single test may cover multiple functions:
 
 Both `@parse` and `@format` are considered tested.
 
+## Test Attributes
+
+Attributes modify test behavior. An attribute precedes the test declaration.
+
+### Syntax
+
+```ebnf
+attributed_test = { attribute } test .
+attribute       = "#[" attribute_name "(" string_literal ")" "]" .
+attribute_name  = "skip" .
+```
+
+### skip Attribute
+
+The `skip` attribute prevents a test from executing while keeping it in the test suite.
+
+```sigil
+#[skip("tuple destructuring not yet supported")]
+@test_destructure tests @parse () -> void = run(
+    let (a, b) = parse("1, 2"),
+    assert_eq(a, 1),
+)
+```
+
+### Constraints
+
+- The `skip` attribute requires exactly one argument: a string literal.
+- It is an error to omit the reason string.
+- It is an error to apply `skip` to a non-test declaration.
+
+### Semantics
+
+A test with the `skip` attribute:
+
+1. Is parsed and type-checked
+2. Is not executed
+3. Is reported separately in test output with the reason string
+4. Does not count as a pass or failure
+5. Satisfies the test requirement for its target functions
+
+### Test Output
+
+```
+Running tests...
+  ✓ @test_basic (2 assertions)
+  ⊘ @test_destructure (skipped: tuple destructuring not yet supported)
+  ✓ @test_other (1 assertion)
+
+2 passed, 0 failed, 1 skipped
+```
+
+### JSON Output
+
+```json
+{
+  "name": "@test_destructure",
+  "status": "skipped",
+  "reason": "tuple destructuring not yet supported"
+}
+```
+
 ## Test Functions
 
 ### Naming Convention
