@@ -1,0 +1,134 @@
+// Spec Tests: 09-expressions.md § Comparison Operators
+// Tests are the source of truth - the compiler must conform to these tests
+
+// =============================================================================
+// Equality (Spec: == and !=)
+// =============================================================================
+
+@test_equal_int () -> void = run(
+    // Spec: == Equal, != Not equal
+    assert(42 == 42),
+    assert(42 != 43),
+    assert(0 == 0),
+    assert(-1 == -1),
+)
+
+@test_equal_float () -> void = run(
+    assert(3.14 == 3.14),
+    assert(3.14 != 3.15),
+    assert(0.0 == 0.0),
+)
+
+@test_equal_str () -> void = run(
+    assert("hello" == "hello"),
+    assert("hello" != "world"),
+    assert("" == ""),
+)
+
+@test_equal_bool () -> void = run(
+    assert(true == true),
+    assert(false == false),
+    assert(true != false),
+)
+
+@test_equal_list () -> void = run(
+    assert([1, 2, 3] == [1, 2, 3]),
+    assert([1, 2] != [1, 2, 3]),
+    assert([] == []),
+)
+
+// =============================================================================
+// Ordering (Spec: < > <= >=)
+// =============================================================================
+
+@test_less_than () -> void = run(
+    // Spec: < Less than
+    assert(1 < 2),
+    assert(-1 < 0),
+    assert(!(2 < 1)),
+    assert(!(1 < 1)),
+)
+
+@test_greater_than () -> void = run(
+    // Spec: > Greater than
+    assert(2 > 1),
+    assert(0 > -1),
+    assert(!(1 > 2)),
+    assert(!(1 > 1)),
+)
+
+@test_less_equal () -> void = run(
+    // Spec: <= Less or equal
+    assert(1 <= 2),
+    assert(1 <= 1),
+    assert(!(2 <= 1)),
+)
+
+@test_greater_equal () -> void = run(
+    // Spec: >= Greater or equal
+    assert(2 >= 1),
+    assert(1 >= 1),
+    assert(!(1 >= 2)),
+)
+
+// =============================================================================
+// Logical Operators (Spec: && || with short-circuit)
+// =============================================================================
+
+@test_logical_and () -> void = run(
+    // Spec: && Logical AND, short-circuit
+    assert((true && true) == true),
+    assert((true && false) == false),
+    assert((false && true) == false),
+    assert((false && false) == false),
+)
+
+@test_logical_or () -> void = run(
+    // Spec: || Logical OR, short-circuit
+    assert((true || true) == true),
+    assert((true || false) == true),
+    assert((false || true) == true),
+    assert((false || false) == false),
+)
+
+@test_logical_not () -> void = run(
+    // Spec: ! Logical NOT
+    assert(!true == false),
+    assert(!false == true),
+    assert(!!true == true),
+)
+
+// =============================================================================
+// Short-Circuit Evaluation (Spec: right operand evaluated only if necessary)
+// =============================================================================
+
+// Helper that would fail if called
+@should_not_call () -> bool = run(
+    assert(false),  // This would fail if called
+    true,
+)
+
+@test_short_circuit_and () -> void = run(
+    // Spec: && short-circuits - right not evaluated if left is false
+    let result = false && should_not_call(),
+    assert(result == false),
+)
+
+@test_short_circuit_or () -> void = run(
+    // Spec: || short-circuits - right not evaluated if left is true
+    let result = true || should_not_call(),
+    assert(result == true),
+)
+
+// =============================================================================
+// Comparison Return Type (Spec: Comparison operators return bool)
+// =============================================================================
+
+@comparison_returns_bool (a: int, b: int) -> bool = a < b
+
+@test_comparison_type tests @comparison_returns_bool () -> void = run(
+    // Spec: Comparison operators return bool
+    // Note: Type annotation syntax may vary
+    let result = comparison_returns_bool(1, 2),
+    assert(result == true),
+)

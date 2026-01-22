@@ -19,6 +19,18 @@ pub fn resolve_import_path(from_file: &str, import_path: &[String]) -> String {
     let from = Path::new(from_file);
     let dir = from.parent().unwrap_or(Path::new("."));
 
+    // Check if this is a string path (starts with ./ or ../)
+    if import_path.len() == 1 && (import_path[0].starts_with("./") || import_path[0].starts_with("../")) {
+        // Relative string path like '../hello_world' or './math'
+        let relative_path = &import_path[0];
+        let mut path = dir.join(relative_path);
+        // Add .si extension if not present
+        if path.extension().is_none() {
+            path.set_extension("si");
+        }
+        return path.to_str().unwrap_or_default().to_string();
+    }
+
     // Convert dot-separated path to file path
     // e.g., "math" -> "../math.si" (relative to _test folder)
     // e.g., "utils.helpers" -> "../utils/helpers.si"

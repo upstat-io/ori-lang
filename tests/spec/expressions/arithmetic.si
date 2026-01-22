@@ -1,0 +1,121 @@
+// Spec Tests: 09-expressions.md § Arithmetic Operators
+// Tests are the source of truth - the compiler must conform to these tests
+
+// =============================================================================
+// Addition (Spec: + operator)
+// =============================================================================
+
+@test_add_int () -> void = run(
+    // Spec: + Addition | int, int | int
+    assert(1 + 1 == 2),
+    assert(0 + 0 == 0),
+    assert(-1 + 1 == 0),
+    assert(100 + 200 == 300),
+)
+
+@test_add_float () -> void = run(
+    // Spec: + Addition | float, float | float
+    assert(1.5 + 2.5 == 4.0),
+    assert(0.0 + 0.0 == 0.0),
+)
+
+@test_add_str () -> void = run(
+    // Spec: + Concatenation | str, str | str
+    assert("a" + "b" == "ab"),
+    assert("" + "" == ""),
+    assert("hello" + " world" == "hello world"),
+)
+
+@test_add_list () -> void = run(
+    // Spec: + Concatenation | [T], [T] | [T]
+    assert([1, 2] + [3, 4] == [1, 2, 3, 4]),
+    assert([] + [1] == [1]),
+    assert([1] + [] == [1]),
+)
+
+// =============================================================================
+// Subtraction (Spec: - operator)
+// =============================================================================
+
+@test_subtract () -> void = run(
+    // Spec: - Subtraction | numeric | same
+    assert(5 - 3 == 2),
+    assert(3 - 5 == -2),
+    assert(10.5 - 0.5 == 10.0),
+)
+
+// =============================================================================
+// Multiplication (Spec: * operator)
+// =============================================================================
+
+@test_multiply () -> void = run(
+    // Spec: * Multiplication | numeric | same
+    assert(3 * 4 == 12),
+    assert(0 * 100 == 0),
+    assert(-2 * 3 == -6),
+    assert(2.5 * 4.0 == 10.0),
+)
+
+// =============================================================================
+// Division (Spec: / operator - truncates toward zero for integers)
+// =============================================================================
+
+@test_divide_int () -> void = run(
+    // Spec: / Division truncates toward zero for integers
+    assert(10 / 3 == 3),
+    assert(10 / -3 == -3),  // Toward zero, not floor
+    assert(-10 / 3 == -3),  // Toward zero, not floor
+    assert(-10 / -3 == 3),
+)
+
+@test_divide_float () -> void = run(
+    // Spec: / Division | float, float | float
+    assert(10.0 / 4.0 == 2.5),
+    assert(1.0 / 2.0 == 0.5),
+)
+
+// =============================================================================
+// Modulo (Spec: % operator)
+// =============================================================================
+
+@test_modulo () -> void = run(
+    // Spec: % Modulo | int, int | int
+    assert(10 % 3 == 1),
+    assert(15 % 5 == 0),
+    assert(7 % 2 == 1),
+)
+
+// =============================================================================
+// Floor Division (Spec: div operator - truncates toward negative infinity)
+// =============================================================================
+
+@test_floor_div () -> void = run(
+    // Spec: div Floor division | int, int | int
+    // Truncates toward negative infinity (unlike / which truncates toward zero)
+    assert(10 div 3 == 3),
+    assert(-10 div 3 == -4),  // Floor, not toward zero
+    assert(10 div -3 == -4),  // Floor, not toward zero
+    assert(-10 div -3 == 3),
+)
+
+// =============================================================================
+// Unary Negation (Spec: - unary operator)
+// =============================================================================
+
+@test_unary_minus () -> void = run(
+    // Spec: Negation | -42, -x, -3.14
+    assert(-42 == 0 - 42),
+    assert(-(-5) == 5),
+    assert(-3.14 == 0.0 - 3.14),
+)
+
+// =============================================================================
+// Operator Precedence (Spec: * / % div before + -)
+// =============================================================================
+
+@test_precedence () -> void = run(
+    // Spec: Precedence 3: * / % div, Precedence 4: + -
+    assert(2 + 3 * 4 == 14),     // Not 20
+    assert(10 - 6 / 2 == 7),     // Not 2
+    assert(2 * 3 + 4 * 5 == 26), // 6 + 20
+)

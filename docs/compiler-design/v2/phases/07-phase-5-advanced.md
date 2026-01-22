@@ -3,7 +3,7 @@
 ## Goal
 
 Build production-ready advanced features:
-- Test-gated invalidation with semantic hashing
+- Signature-based invalidation with semantic hashing
 - Full LSP support with response time budgets
 - Lazy parsing for LSP performance
 - Tiered compilation modes
@@ -12,11 +12,18 @@ Build production-ready advanced features:
 
 ---
 
-## Week 17: Test-Gated Invalidation
+## Week 17: Signature-Based Invalidation
 
 ### Objective
 
-Use passing tests as semantic contracts to minimize recompilation.
+Use semantic hashing of public API signatures to minimize recompilation.
+
+> **Design Decision:** We evaluated test-gated invalidation (using test pass/fail to gate cache invalidation) but rejected it due to:
+> - Slow tests would negate incremental build benefits
+> - Flaky tests would cause non-deterministic builds
+> - Tests might not cover the changed code paths
+>
+> Instead, we use signature-based invalidation like Rust - hash the public API surface and skip downstream recompilation when signatures are unchanged.
 
 ### Semantic Hashing
 
@@ -100,94 +107,121 @@ fn hash_expr_semantics(hasher: &mut impl Hasher, expr: ExprId, db: &dyn Db) {
 }
 ```
 
-### Test Result Tracking
+### Signature Hash Computation
 
 ```rust
-/// Salsa query for test results
+/// Compute signature hash for a function's public API
 #[salsa::tracked]
-pub fn test_result(db: &dyn Db, test: Test) -> TestResult {
-    let typed = typed_function(db, test.function);
+pub fn signature_hash(db: &dyn Db, func: Function) -> SignatureHash {
+    let mut hasher = FxHasher::default();
 
-    // Run test
-    let result = run_test(db, &typed);
+    // Hash function name
+    func.name(db).hash(&mut hasher);
 
-    TestResult {
-        test,
-        passed: result.is_ok(),
-        duration: result.duration(),
-        error: result.err(),
+    // Hash parameter names and types
+    for (name, ty) in func.params(db) {
+        name.hash(&mut hasher);
+        ty.hash(&mut hasher);
     }
+
+    // Hash return type
+    func.return_type(db).hash(&mut hasher);
+
+    // Hash capabilities
+    for cap in func.capabilities(db) {
+        cap.hash(&mut hasher);
+    }
+
+    // Hash visibility
+    func.visibility(db).hash(&mut hasher);
+
+    SignatureHash(hasher.finish())
 }
 
-/// Typed function with test status
+/// Signature hash for a type definition
 #[salsa::tracked]
-pub fn typed_function_with_tests(
-    db: &dyn Db,
-    func: Function,
-) -> TypedFunctionWithTests {
-    let typed = typed_function(db, func);
+pub fn type_signature_hash(db: &dyn Db, ty: TypeDef) -> SignatureHash {
+    let mut hasher = FxHasher::default();
 
-    // Find tests for this function
-    let tests = db.tests_for_function(func);
+    ty.name(db).hash(&mut hasher);
+    ty.visibility(db).hash(&mut hasher);
 
-    // Run all tests
-    let test_results: Vec<_> = tests
-        .iter()
-        .map(|t| test_result(db, *t))
-        .collect();
-
-    let all_pass = test_results.iter().all(|r| r.passed);
-
-    // Compute semantic hash only if tests pass
-    let semantic_hash = if all_pass {
-        Some(SemanticHash::compute(&typed, db))
-    } else {
-        None
-    };
-
-    TypedFunctionWithTests {
-        typed,
-        tests: test_results,
-        semantic_hash,
+    match ty.kind(db) {
+        TypeDefKind::Struct { fields } => {
+            for (name, field_ty) in fields {
+                name.hash(&mut hasher);
+                field_ty.hash(&mut hasher);
+            }
+        }
+        TypeDefKind::Sum { variants } => {
+            for variant in variants {
+                variant.name.hash(&mut hasher);
+                for field_ty in &variant.fields {
+                    field_ty.hash(&mut hasher);
+                }
+            }
+        }
+        TypeDefKind::Alias { target } => {
+            target.hash(&mut hasher);
+        }
     }
+
+    SignatureHash(hasher.finish())
 }
 ```
 
-### Dependency Validation with Test-Gating
+### Module Export Hash
 
 ```rust
-/// Check if dependent needs full revalidation
+/// Hash all public exports from a module
+#[salsa::tracked]
+pub fn module_export_hash(db: &dyn Db, module: Module) -> ModuleExportHash {
+    let mut hasher = FxHasher::default();
+
+    // Hash all public function signatures
+    let mut funcs: Vec<_> = module.functions(db)
+        .iter()
+        .filter(|f| f.visibility(db) == Visibility::Public)
+        .collect();
+    funcs.sort_by_key(|f| f.name(db));  // Deterministic order
+
+    for func in funcs {
+        signature_hash(db, *func).hash(&mut hasher);
+    }
+
+    // Hash all public type definitions
+    let mut types: Vec<_> = module.types(db)
+        .iter()
+        .filter(|t| t.visibility(db) == Visibility::Public)
+        .collect();
+    types.sort_by_key(|t| t.name(db));
+
+    for ty in types {
+        type_signature_hash(db, *ty).hash(&mut hasher);
+    }
+
+    ModuleExportHash(hasher.finish())
+}
+```
+
+### Dependency Validation
+
+```rust
+/// Check if dependent module needs revalidation
 pub fn needs_revalidation(
     db: &dyn Db,
-    dependent: Function,
-    dependency: Function,
+    dependent: Module,
+    dependency: Module,
 ) -> bool {
-    let dep_result = typed_function_with_tests(db, dependency);
+    // Get current export hash of dependency
+    let current_hash = module_export_hash(db, dependency);
 
-    match dep_result.semantic_hash {
-        Some(hash) => {
-            // Tests pass - only check signature compatibility
-            !is_signature_compatible(db, dependent, dependency, hash)
-        }
-        None => {
-            // Tests fail or missing - full validation required
-            true
-        }
-    }
-}
+    // Get cached hash from when dependent was last compiled
+    let cached_hash = db.cached_dependency_hash(dependent, dependency);
 
-fn is_signature_compatible(
-    db: &dyn Db,
-    _dependent: Function,
-    dependency: Function,
-    expected_hash: SemanticHash,
-) -> bool {
-    // Check if dependency's semantic hash matches what dependent expects
-    let current_hash = db.cached_semantic_hash(dependency);
-
-    match current_hash {
-        Some(cached) => cached == expected_hash,
-        None => false,  // No cache = must revalidate
+    match cached_hash {
+        Some(cached) => cached != current_hash,  // Revalidate if changed
+        None => true,  // No cache = must revalidate
     }
 }
 ```
@@ -195,7 +229,7 @@ fn is_signature_compatible(
 ### Incremental Workflow
 
 ```rust
-/// Incremental compilation with test-gating
+/// Incremental compilation with signature-based invalidation
 pub fn compile_incremental(db: &mut CompilerDb, changed_file: SourceFile) {
     // 1. Update file content (Salsa handles query invalidation)
     let new_text = read_file(changed_file.path(db));
@@ -204,27 +238,28 @@ pub fn compile_incremental(db: &mut CompilerDb, changed_file: SourceFile) {
     // 2. Reparse changed file
     let module = parsed_module(db, changed_file);
 
-    // 3. Type check changed functions
-    for func in module.functions(db) {
-        let result = typed_function_with_tests(db, func);
+    // 3. Compute new export hash for changed module
+    let new_hash = module_export_hash(db, module);
+    let old_hash = db.cached_export_hash(module);
 
-        if result.semantic_hash.is_some() {
-            // Tests pass - downstream can skip full revalidation
-            db.update_semantic_hash_cache(func, result.semantic_hash.unwrap());
-        }
+    // 4. If public API unchanged, downstream modules skip revalidation
+    if Some(new_hash) == old_hash {
+        // Only internal changes - no downstream impact
+        // Just type check the changed module itself
+        let _ = typed_module(db, module);
+        return;
     }
 
-    // 4. Check dependents (only signature compatibility if tests passed)
+    // 5. Public API changed - update cache and revalidate dependents
+    db.update_export_hash_cache(module, new_hash);
+
     for dependent_module in db.modules_depending_on(module) {
-        for func in dependent_module.functions(db) {
-            for dep in func.dependencies(db) {
-                if !needs_revalidation(db, func, dep) {
-                    // Skip - semantic contract maintained
-                    continue;
-                }
-                // Full revalidation
-                let _ = typed_function(db, func);
-            }
+        if needs_revalidation(db, dependent_module, module) {
+            // Full revalidation of dependent
+            let _ = typed_module(db, dependent_module);
+
+            // Update dependency hash cache
+            db.update_dependency_hash_cache(dependent_module, module, new_hash);
         }
     }
 }
@@ -719,12 +754,12 @@ fn compile_release(db: &dyn Db) -> CompileResult {
 
 ## Phase 5 Deliverables Checklist
 
-### Week 17: Test-Gated Invalidation
-- [ ] `SemanticHash` computation
-- [ ] `test_result` Salsa query
-- [ ] `typed_function_with_tests` query
-- [ ] Dependency validation with test-gating
-- [ ] Semantic hash caching
+### Week 17: Signature-Based Invalidation
+- [ ] `SignatureHash` computation for functions
+- [ ] `type_signature_hash` for type definitions
+- [ ] `module_export_hash` query
+- [ ] Dependency validation with signature comparison
+- [ ] Export hash caching
 
 ### Weeks 18-19: LSP Support
 - [ ] `LspServer` structure
@@ -744,7 +779,7 @@ fn compile_release(db: &dyn Db) -> CompileResult {
 - [ ] Pattern fusion in release mode
 
 ### Tests
-- [ ] Test-gating correctness tests
+- [ ] Signature hashing correctness tests
 - [ ] LSP response time tests
 - [ ] Tiered compilation output tests
 - [ ] Incremental compilation tests

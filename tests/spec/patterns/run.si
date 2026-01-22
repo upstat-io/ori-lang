@@ -1,0 +1,112 @@
+// Spec Tests: 10-patterns.md § run
+// Tests are the source of truth - the compiler must conform to these tests
+
+// =============================================================================
+// Basic Run (Spec: run_expr = "run" "(" { binding "," } expression ")")
+// =============================================================================
+
+@run_basic () -> int = run(
+    let x = 10,
+    let y = 20,
+    x + y,
+)
+
+@test_run_basic tests @run_basic () -> void = run(
+    // Spec: Evaluate each binding in order, final expression is result
+    assert(run_basic() == 30),
+)
+
+// =============================================================================
+// Binding Order (Spec: Each binding introduces variable into scope for subsequent)
+// =============================================================================
+
+@run_sequential () -> int = run(
+    let a = 1,
+    let b = a + 1,
+    let c = b + 1,
+    c,
+)
+
+@test_run_sequential tests @run_sequential () -> void = run(
+    // Spec: Each binding is in scope for subsequent expressions
+    assert(run_sequential() == 3),
+)
+
+// =============================================================================
+// Shadowing in Run
+// =============================================================================
+
+@run_shadow () -> int = run(
+    let x = 1,
+    let x = x + 10,
+    let x = x + 100,
+    x,
+)
+
+@test_run_shadow tests @run_shadow () -> void = run(
+    // Spec: Bindings can shadow earlier bindings
+    assert(run_shadow() == 111),
+)
+
+// =============================================================================
+// Nested Run
+// =============================================================================
+
+@run_nested () -> int = run(
+    let outer = 10,
+    let inner = run(
+        let x = outer + 1,
+        x * 2,
+    ),
+    inner,
+)
+
+@test_run_nested tests @run_nested () -> void = run(
+    // Nested run expressions
+    assert(run_nested() == 22),  // (10 + 1) * 2
+)
+
+// =============================================================================
+// Run with Function Calls
+// =============================================================================
+
+@double (x: int) -> int = x * 2
+
+@run_with_calls () -> int = run(
+    let a = double(5),
+    let b = double(a),
+    b,
+)
+
+@test_run_with_calls tests @run_with_calls tests @double () -> void = run(
+    assert(run_with_calls() == 20),  // 5 * 2 * 2
+)
+
+// =============================================================================
+// Run Empty Intermediate Bindings
+// =============================================================================
+
+@run_single () -> int = run(
+    42,
+)
+
+@test_run_single tests @run_single () -> void = run(
+    // Spec: Run with just a final expression
+    assert(run_single() == 42),
+)
+
+// =============================================================================
+// Mutable Bindings in Run (Spec: "let" [ "mut" ] identifier)
+// =============================================================================
+
+@run_mutable () -> int = run(
+    let mut x = 0,
+    x = x + 1,
+    x = x + 2,
+    x,
+)
+
+@test_run_mutable tests @run_mutable () -> void = run(
+    // Spec: mut allows reassignment
+    assert(run_mutable() == 3),
+)

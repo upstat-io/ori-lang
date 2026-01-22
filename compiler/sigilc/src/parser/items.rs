@@ -384,22 +384,32 @@ impl Parser {
         let start = self.tokens[self.pos].span.start;
         self.expect(Token::Use)?;
 
-        // Parse module path (e.g., std.math or just math)
+        // Parse module path - either a string literal for relative paths
+        // or dot-separated identifiers for module paths
         let mut path = Vec::new();
-        loop {
-            match self.current() {
-                Some(Token::Ident(n)) => {
-                    let n = n.clone();
-                    self.advance();
-                    path.push(n);
-                }
-                _ => return Err("Expected module name in use statement".to_string()),
-            }
 
-            if matches!(self.current(), Some(Token::Dot)) {
-                self.advance();
-            } else {
-                break;
+        // Check for string literal (relative path like '../math' or "./math")
+        if let Some(Token::String(s)) = self.current() {
+            let s = s.clone();
+            self.advance();
+            path.push(s);
+        } else {
+            // Parse dot-separated module path (e.g., std.math or just math)
+            loop {
+                match self.current() {
+                    Some(Token::Ident(n)) => {
+                        let n = n.clone();
+                        self.advance();
+                        path.push(n);
+                    }
+                    _ => return Err("Expected module name or path string in use statement".to_string()),
+                }
+
+                if matches!(self.current(), Some(Token::Dot)) {
+                    self.advance();
+                } else {
+                    break;
+                }
             }
         }
 

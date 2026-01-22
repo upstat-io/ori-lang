@@ -674,4 +674,4 @@ impl ProgressTracker {
 
 ## Next Phase
 
-With parallel compilation complete, proceed to [Phase 5: Advanced](07-phase-5-advanced.md) for test-gated invalidation and LSP support.
+With parallel compilation complete, proceed to [Phase 5: Advanced](07-phase-5-advanced.md) for signature-based invalidation and LSP support.

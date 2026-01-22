@@ -1,0 +1,109 @@
+// Spec Tests: 06-types.md § Primitive Types
+// Tests are the source of truth - the compiler must conform to these tests
+
+// =============================================================================
+// Integer Type (Spec: 64-bit signed integer)
+// =============================================================================
+
+@int_default () -> int = 0
+
+@test_int_default tests @int_default () -> void = run(
+    // Spec: Default value: 0
+    assert(int_default() == 0),
+)
+
+@test_int_operations () -> void = run(
+    // Spec: int supports arithmetic operations
+    assert(2 + 3 == 5),
+    assert(10 - 4 == 6),
+    assert(3 * 4 == 12),
+    assert(15 / 3 == 5),
+    assert(17 % 5 == 2),
+)
+
+@test_int_comparison () -> void = run(
+    // Spec: int supports comparison
+    assert(1 < 2),
+    assert(2 > 1),
+    assert(3 <= 3),
+    assert(4 >= 4),
+    assert(5 == 5),
+    assert(5 != 6),
+)
+
+// =============================================================================
+// Floating-Point Type (Spec: 64-bit IEEE 754)
+// =============================================================================
+
+@float_default () -> float = 0.0
+
+@test_float_default tests @float_default () -> void = run(
+    // Spec: Default value: 0.0
+    assert(float_default() == 0.0),
+)
+
+@test_float_operations () -> void = run(
+    // Spec: float supports arithmetic operations
+    assert(2.0 + 3.0 == 5.0),
+    assert(10.0 - 4.0 == 6.0),
+    assert(3.0 * 4.0 == 12.0),
+    assert(15.0 / 3.0 == 5.0),
+)
+
+// =============================================================================
+// Boolean Type (Spec: Values: true, false)
+// =============================================================================
+
+@bool_default () -> bool = false
+
+@test_bool_default tests @bool_default () -> void = run(
+    // Spec: Default value: false
+    assert(bool_default() == false),
+)
+
+@test_bool_operations () -> void = run(
+    // Spec: bool supports logical operations
+    assert((true && true) == true),
+    assert((true && false) == false),
+    assert((true || false) == true),
+    assert((false || false) == false),
+    assert(!true == false),
+    assert(!false == true),
+)
+
+// =============================================================================
+// String Type (Spec: UTF-8 encoded string)
+// =============================================================================
+
+@str_default () -> str = ""
+
+@test_str_default tests @str_default () -> void = run(
+    // Spec: Default value: ""
+    assert(str_default() == ""),
+)
+
+@test_str_concatenation () -> void = run(
+    // Spec: + operator concatenates strings
+    assert("hello" + " " + "world" == "hello world"),
+    assert("" + "x" == "x"),
+)
+
+@test_str_comparison () -> void = run(
+    // Spec: str supports equality comparison
+    assert("abc" == "abc"),
+    assert("abc" != "def"),
+)
+
+// =============================================================================
+// Void Type (Spec: unit type, single value ())
+// =============================================================================
+
+@void_func () -> void = run(
+    // Spec: void represents absence of meaningful value
+    let x = 42,
+)
+
+@test_void tests @void_func () -> void = run(
+    void_func(),
+    assert(true),
+)

@@ -15,7 +15,7 @@ This documentation describes the architecture for `sigilc-v2`, a complete rewrit
 4. [Phase 2: Type System](phases/04-phase-2-type-system.md) - Type interning, bidirectional inference (Weeks 5-8)
 5. [Phase 3: Patterns](phases/05-phase-3-patterns.md) - Templates, fusion, self-registration (Weeks 9-12)
 6. [Phase 4: Parallelism](phases/06-phase-4-parallelism.md) - Rayon, work-stealing, parallel pipeline (Weeks 13-16)
-7. [Phase 5: Advanced](phases/07-phase-5-advanced.md) - Test-gating, semantic hashing, LSP (Weeks 17-20)
+7. [Phase 5: Advanced](phases/07-phase-5-advanced.md) - Signature hashing, LSP, tiered compilation (Weeks 17-20)
 8. [Phase 6: Formatter](phases/08-phase-6-formatter.md) - CST-based formatter (Weeks 21-22)
 
 **Technical Specifications** (Reference):
@@ -64,7 +64,7 @@ This documentation describes the architecture for `sigilc-v2`, a complete rewrit
 ## Key Innovations
 
 ### From Design-v2.md (Eric's Original Design)
-- **Test-Gated Invalidation** - Tests as semantic contracts between modules
+- **Signature-Based Invalidation** - Public API hashing like Rust (test-gating was evaluated but rejected)
 - **Pattern Template Compilation** - Compile once, instantiate many times
 - **Pattern Fusion** - map→filter→fold = single pass
 - **Durability Levels** - HIGH for stdlib (never revalidate)
@@ -79,7 +79,7 @@ This documentation describes the architecture for `sigilc-v2`, a complete rewrit
 ### Sigil-Specific Advantages
 - **No semicolons** - Clean statement boundaries for parallel parsing
 - **Pattern keywords** - Context-sensitive, no global reservations
-- **Mandatory testing** - Natural semantic hash boundaries
+- **Mandatory testing** - Ensures code quality at compile time
 - **Explicit sigils** - `@` for functions, `$` for config = fast tokenization
 
 ---

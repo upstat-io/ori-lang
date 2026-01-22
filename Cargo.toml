@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "compiler/sigilc",
+    "compiler/sigilc-v2",
     "tools/sigil-lsp",
 ]
 
@@ -17,6 +18,11 @@ ariadne = "0.4"
 thiserror = "1.0"
 rayon = "1.10"
 pretty_assertions = "1.4"
+salsa = "0.18"
+dashmap = "6.1"
+parking_lot = "0.12"
+crossbeam = "0.8"
+rustc-hash = "2.1"
 
 # Workspace-wide lint configuration
 [workspace.lints.rust]

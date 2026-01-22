@@ -1,0 +1,74 @@
+[package]
+name = "sigilc-v2"
+version = "0.1.0-alpha.1"
+edition = "2021"
+description = "V2 compiler for Sigil using Semantic Structural Compilation"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/upstat-io/sigil-lang"
+keywords = ["compiler", "programming-language", "sigil", "incremental"]
+categories = ["compilers", "development-tools"]
+
+[lib]
+name = "sigilc_v2"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sigil-v2"
+path = "src/main.rs"
+
+[features]
+default = []
+lsp = ["dep:tower-lsp", "dep:tokio"]
+
+[dependencies]
+# Incremental compilation
+salsa.workspace = true
+
+# Lexer generation
+logos.workspace = true
+
+# Error reporting
+ariadne.workspace = true
+thiserror.workspace = true
+
+# Parallelization
+rayon.workspace = true
+crossbeam.workspace = true
+
+# Concurrent data structures
+dashmap.workspace = true
+parking_lot.workspace = true
+
+# Hash maps
+rustc-hash.workspace = true
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# LSP (optional)
+tower-lsp = { version = "0.20", optional = true }
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"], optional = true }
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+insta = "1.40"
+proptest = "1.5"
+test-case = "3.3"
+tempfile = "3.10"
+criterion = "0.5"
+
+[[bench]]
+name = "parsing"
+harness = false
+
+[[bench]]
+name = "interning"
+harness = false
+
+[[bench]]
+name = "evaluation"
+harness = false
+
+[lints]
+workspace = true

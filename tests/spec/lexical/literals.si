@@ -1,0 +1,95 @@
+// Spec Tests: 03-lexical-elements.md § Literals
+// Tests are the source of truth - the compiler must conform to these tests
+
+// =============================================================================
+// Integer Literals (Spec: int_literal = decimal_lit | hex_lit)
+// =============================================================================
+
+@test_integer_decimal () -> void = run(
+    // Spec: decimal_lit = digit { digit | "_" }
+    assert(42 == 42),
+    assert(0 == 0),
+    assert(1_000_000 == 1000000),  // Underscores for readability
+    assert(123_456_789 == 123456789),
+)
+
+@test_integer_hex () -> void = run(
+    // Spec: hex_lit = "0x" hex_digit { hex_digit | "_" }
+    assert(0x2a == 42),
+    assert(0xFF == 255),
+    assert(0x0 == 0),
+    assert(0xDEAD_BEEF == 3735928559),  // Underscores in hex
+)
+
+// =============================================================================
+// Floating-Point Literals (Spec: float_literal)
+// =============================================================================
+
+@test_float_literals () -> void = run(
+    // Spec: float_literal = decimal_lit "." decimal_lit [ exponent ]
+    assert(3.14159 == 3.14159),
+    assert(0.5 == 0.5),
+    assert(1.0 == 1.0),
+)
+
+@test_float_exponent () -> void = run(
+    // Spec: exponent = ( "e" | "E" ) [ "+" | "-" ] decimal_lit
+    assert(1.5e10 == 15000000000.0),
+    assert(2.5e-8 == 0.000000025),
+    assert(1.0E5 == 100000.0),
+)
+
+// =============================================================================
+// String Literals (Spec: string_literal)
+// =============================================================================
+
+@test_string_basic () -> void = run(
+    // Spec: string_literal = '"' { string_char } '"'
+    assert("hello" == "hello"),
+    assert("" == ""),
+    assert("with spaces" == "with spaces"),
+)
+
+@test_string_escapes () -> void = run(
+    // Spec: escape = '\' ( '"' | '\' | 'n' | 't' | 'r' )
+    assert("line1\nline2" == "line1\nline2"),
+    assert("tab\there" == "tab\there"),
+    assert("quote\"inside" == "quote\"inside"),
+    assert("backslash\\" == "backslash\\"),
+)
+
+// =============================================================================
+// Boolean Literals (Spec: bool_literal = "true" | "false")
+// =============================================================================
+
+@test_boolean_literals () -> void = run(
+    assert(true == true),
+    assert(false == false),
+    assert(true != false),
+)
+
+// =============================================================================
+// Duration Literals (Spec: duration_literal = int_literal duration_unit)
+// =============================================================================
+
+@test_duration_literals () -> void = run(
+    // Spec: duration_unit = "ms" | "s" | "m" | "h"
+    let ms = 100ms,
+    let s = 30s,
+    let m = 5m,
+    let h = 2h,
+    assert(true),
+)
+
+// =============================================================================
+// Size Literals (Spec: size_literal = int_literal size_unit)
+// =============================================================================
+
+@test_size_literals () -> void = run(
+    // Spec: size_unit = "b" | "kb" | "mb" | "gb"
+    let bytes = 1024b,
+    let kb = 4kb,
+    let mb = 10mb,
+    let gb = 2gb,
+    assert(true),
+)
