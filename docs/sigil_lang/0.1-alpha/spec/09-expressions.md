@@ -262,12 +262,16 @@ If the left expression is `None` or `Err`, evaluates to `default`. Otherwise eva
 
 | Operator | Operation | Operand Types | Result Type |
 |----------|-----------|---------------|-------------|
-| `&` | Bitwise AND | `byte`, `byte` | `byte` |
-| `\|` | Bitwise OR | `byte`, `byte` | `byte` |
-| `^` | Bitwise XOR | `byte`, `byte` | `byte` |
-| `~` | Bitwise NOT | `byte` | `byte` |
+| `&` | Bitwise AND | `int`, `int` | `int` |
+| `\|` | Bitwise OR | `int`, `int` | `int` |
+| `^` | Bitwise XOR | `int`, `int` | `int` |
+| `~` | Bitwise NOT | `int` | `int` |
+| `<<` | Left shift | `int`, `int` | `int` |
+| `>>` | Right shift (arithmetic) | `int`, `int` | `int` |
 
-Bitwise operations wrap on overflow.
+Bitwise operations also work on `byte` operands, returning `byte`.
+
+The shift amount is taken modulo the bit width of the type. Negative shift amounts are undefined behavior.
 
 ## With Expression
 

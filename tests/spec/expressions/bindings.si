@@ -69,14 +69,12 @@
 // Tuple Destructuring (Spec: let "(" pattern ")" "=" expression)
 // =============================================================================
 
-#[skip("tuple destructuring not yet supported")]
 @test_let_tuple_destructure tests @test_let_basic () -> void = run(
     let (a, b) = (1, 2),
     assert(a == 1),
     assert(b == 2),
 )
 
-#[skip("tuple destructuring not yet supported")]
 @test_let_tuple_nested tests @test_let_basic () -> void = run(
     let (x, (y, z)) = (1, (2, 3)),
     assert(x == 1),
@@ -88,14 +86,12 @@
 // List Destructuring (Spec: let "[" pattern "]" "=" expression)
 // =============================================================================
 
-#[skip("list destructuring not yet supported")]
 @test_let_list_destructure tests @test_let_basic () -> void = run(
     let [first, second] = [1, 2],
     assert(first == 1),
     assert(second == 2),
 )
 
-#[skip("list destructuring not yet supported")]
 @test_let_list_rest tests @test_let_basic () -> void = run(
     let [head, ..tail] = [1, 2, 3, 4],
     assert(head == 1),

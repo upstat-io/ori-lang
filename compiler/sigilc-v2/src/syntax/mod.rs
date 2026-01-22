@@ -14,7 +14,7 @@ pub use span::Span;
 pub use ids::{ExprId, ExprRange, StmtRange, ArmRange, ParamRange, MapEntryRange, FieldInitRange, PatternArgsId, TypeExprId};
 pub use token::{Token, TokenKind, Trivia, TriviaKind, DurationUnit, SizeUnit};
 pub use arena::ExprArena;
-pub use expr::{Expr, ExprKind, PatternKind, BindingPattern, Stmt, StmtKind, PatternArg, PatternArgs};
+pub use expr::{Expr, ExprKind, PatternKind, BindingPattern, Stmt, StmtKind, PatternArg, PatternArgs, MatchPattern, MatchArm};
 pub use items::{Item, ItemId, ItemKind, Function, TypeDef, Config, Import, ImportPath, Test, Trait, Impl};
 pub use operators::{BinaryOp, UnaryOp};
 pub use lexer::{Lexer, TokenList};

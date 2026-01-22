@@ -14,7 +14,11 @@ pub enum BinaryOp {
     Mod,         // %
     FloorDiv,    // div
 
-    // Comparison (precedence 6-7)
+    // Shift (precedence 5)
+    Shl,         // <<
+    Shr,         // >>
+
+    // Comparison (precedence 7-8)
     Eq,          // ==
     Ne,          // !=
     Lt,          // <
@@ -22,20 +26,20 @@ pub enum BinaryOp {
     Gt,          // >
     Ge,          // >=
 
-    // Logical (precedence 11-12)
+    // Logical (precedence 12-13)
     And,         // &&
     Or,          // ||
 
-    // Bitwise (precedence 8-10)
+    // Bitwise (precedence 9-11)
     BitAnd,      // &
     BitOr,       // |
     BitXor,      // ^
 
-    // Range (precedence 5)
+    // Range (precedence 6)
     Range,       // ..
     RangeInc,    // ..=
 
-    // Null coalescing (precedence 13)
+    // Null coalescing (precedence 14)
     Coalesce,    // ??
 
     // String concatenation (same as Add)
@@ -53,32 +57,35 @@ impl BinaryOp {
             // 4: Additive
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Concat => 4,
 
-            // 5: Range
-            BinaryOp::Range | BinaryOp::RangeInc => 5,
+            // 5: Shift
+            BinaryOp::Shl | BinaryOp::Shr => 5,
 
-            // 6: Comparison
-            BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => 6,
+            // 6: Range
+            BinaryOp::Range | BinaryOp::RangeInc => 6,
 
-            // 7: Equality
-            BinaryOp::Eq | BinaryOp::Ne => 7,
+            // 7: Comparison
+            BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => 7,
 
-            // 8: Bitwise AND
-            BinaryOp::BitAnd => 8,
+            // 8: Equality
+            BinaryOp::Eq | BinaryOp::Ne => 8,
 
-            // 9: Bitwise XOR
-            BinaryOp::BitXor => 9,
+            // 9: Bitwise AND
+            BinaryOp::BitAnd => 9,
 
-            // 10: Bitwise OR
-            BinaryOp::BitOr => 10,
+            // 10: Bitwise XOR
+            BinaryOp::BitXor => 10,
 
-            // 11: Logical AND
-            BinaryOp::And => 11,
+            // 11: Bitwise OR
+            BinaryOp::BitOr => 11,
 
-            // 12: Logical OR
-            BinaryOp::Or => 12,
+            // 12: Logical AND
+            BinaryOp::And => 12,
 
-            // 13: Coalesce
-            BinaryOp::Coalesce => 13,
+            // 13: Logical OR
+            BinaryOp::Or => 13,
+
+            // 14: Coalesce
+            BinaryOp::Coalesce => 14,
         }
     }
 
@@ -112,6 +119,8 @@ impl BinaryOp {
             BinaryOp::Div => "/",
             BinaryOp::Mod => "%",
             BinaryOp::FloorDiv => "div",
+            BinaryOp::Shl => "<<",
+            BinaryOp::Shr => ">>",
             BinaryOp::Eq => "==",
             BinaryOp::Ne => "!=",
             BinaryOp::Lt => "<",

@@ -71,12 +71,10 @@
 // Error Propagation (Spec: postfix = expression "?")
 // =============================================================================
 
-#[skip("? propagation in functions not yet supported")]
 @test_propagation tests @test_index_list () -> void = run(
     assert(true),
 )
 
-#[skip("? propagation in functions not yet supported")]
 @test_result_propagation tests @test_propagation () -> void = run(
     assert(true),
 )

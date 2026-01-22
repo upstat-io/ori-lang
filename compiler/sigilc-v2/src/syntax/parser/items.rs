@@ -173,8 +173,14 @@ impl<'src, 'i> Parser<'src, 'i> {
         self.consume(&TokenKind::Eq, "expected '='")?;
         self.skip_newlines();
 
-        let body = self.expression()?;
-        let span = start.merge(self.arena.get(body).span);
+        // If test is skipped, skip parsing the body (may contain unsupported syntax)
+        let (body, span) = if skip_reason.is_some() {
+            let body = self.skip_test_body()?;
+            (body, start.merge(self.arena.get(body).span))
+        } else {
+            let body = self.expression()?;
+            (body, start.merge(self.arena.get(body).span))
+        };
 
         Ok(Item {
             kind: ItemKind::Test(Test {

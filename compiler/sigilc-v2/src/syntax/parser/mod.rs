@@ -35,6 +35,9 @@ pub struct Parser<'src, 'i> {
     pub(crate) imports: Vec<Import>,
     /// Collected items.
     pub(crate) items: Vec<Item>,
+    /// Pending '>' tokens from split '>>' or '>>>'.
+    /// Used to handle nested generics like `Option<Option<int>>`.
+    pub(crate) pending_gt: usize,
 }
 
 impl<'src, 'i> Parser<'src, 'i> {
@@ -48,6 +51,7 @@ impl<'src, 'i> Parser<'src, 'i> {
             diagnostics: Vec::new(),
             imports: Vec::new(),
             items: Vec::new(),
+            pending_gt: 0,
         }
     }
 
@@ -131,6 +135,30 @@ impl<'src, 'i> Parser<'src, 'i> {
         }
     }
 
+    /// Consume a '>' in type context, handling '>>' as two '>' tokens.
+    /// This is needed for nested generics like `Option<Option<int>>`.
+    pub(crate) fn consume_gt_in_type(&mut self) -> Result<(), Diagnostic> {
+        // First check if we have pending '>' from a previous '>>' split
+        if self.pending_gt > 0 {
+            self.pending_gt -= 1;
+            return Ok(());
+        }
+
+        match self.current_kind() {
+            TokenKind::Gt => {
+                self.advance();
+                Ok(())
+            }
+            TokenKind::Shr => {
+                // '>>' - consume it and add one pending '>'
+                self.advance();
+                self.pending_gt = 1;
+                Ok(())
+            }
+            _ => Err(self.error("expected '>'")),
+        }
+    }
+
     pub(crate) fn skip_newlines(&mut self) {
         while matches!(self.current_kind(), TokenKind::Newline) {
             self.advance();
@@ -159,6 +187,52 @@ impl<'src, 'i> Parser<'src, 'i> {
     }
 
     // ===== Helper parsers =====
+
+    /// Skip a test body without parsing it (for skipped tests with unsupported syntax).
+    /// Returns a placeholder expression.
+    pub(crate) fn skip_test_body(&mut self) -> Result<ExprId, Diagnostic> {
+        let start = self.current_span();
+        let mut depth = 0;
+
+        // Track nested parens/brackets/braces
+        // Stop when we see an item-starting token at depth 0
+        loop {
+            match self.current_kind() {
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                    depth += 1;
+                    self.advance();
+                }
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                    if depth == 0 {
+                        // Unexpected close bracket at depth 0 - stop
+                        break;
+                    }
+                    depth -= 1;
+                    self.advance();
+                    // If we just closed the outermost group, we're done
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                TokenKind::Eof => {
+                    break;
+                }
+                // Item-starting tokens - if at depth 0, we've gone past the body
+                TokenKind::At | TokenKind::Dollar | TokenKind::Pub |
+                TokenKind::Type | TokenKind::Use | TokenKind::Trait |
+                TokenKind::Impl | TokenKind::HashBracket if depth == 0 => {
+                    break;
+                }
+                _ => {
+                    self.advance();
+                }
+            }
+        }
+
+        // Create a placeholder void expression
+        let span = start.merge(self.current_span());
+        Ok(self.arena.alloc(Expr::new(ExprKind::Unit, span)))
+    }
 
     pub(crate) fn parse_name(&mut self) -> Result<Name, Diagnostic> {
         match self.current_kind().clone() {

@@ -146,8 +146,10 @@ impl<'src, 'i> Parser<'src, 'i> {
             TokenKind::NotEq => BinaryOp::Ne,
             TokenKind::Lt => BinaryOp::Lt,
             TokenKind::LtEq => BinaryOp::Le,
+            TokenKind::Shl => BinaryOp::Shl,
             TokenKind::Gt => BinaryOp::Gt,
             TokenKind::GtEq => BinaryOp::Ge,
+            TokenKind::Shr => BinaryOp::Shr,
             TokenKind::AmpAmp => BinaryOp::And,
             TokenKind::PipePipe => BinaryOp::Or,
             TokenKind::Amp => BinaryOp::BitAnd,
@@ -368,6 +370,31 @@ impl<'src, 'i> Parser<'src, 'i> {
             TokenKind::For => self.parse_for(),
             TokenKind::Loop => self.parse_loop(),
             TokenKind::Let => self.parse_let(),
+            TokenKind::Break => {
+                self.advance();
+                // Optional break value
+                let value = if !self.at_end() && !self.check(&TokenKind::Newline) &&
+                    !self.check(&TokenKind::Comma) && !self.check(&TokenKind::RParen) &&
+                    !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::RBracket) &&
+                    !self.check(&TokenKind::Else) {
+                    // Check if the next token could start an expression
+                    match self.current_kind() {
+                        TokenKind::Int(_) | TokenKind::Float(_) | TokenKind::String(_) |
+                        TokenKind::Char(_) | TokenKind::True | TokenKind::False |
+                        TokenKind::Ident(_) | TokenKind::LParen | TokenKind::LBracket |
+                        TokenKind::LBrace => Some(self.expression()?),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                let end_span = self.current_span();
+                Ok(self.arena.alloc(Expr::new(ExprKind::Break(value), span.merge(end_span))))
+            }
+            TokenKind::Continue => {
+                self.advance();
+                Ok(self.arena.alloc(Expr::new(ExprKind::Continue, span)))
+            }
 
             // Pattern expressions
             TokenKind::Run => self.parse_pattern(PatternKind::Run),
@@ -771,6 +798,33 @@ impl<'src, 'i> Parser<'src, 'i> {
 
                 self.consume(&TokenKind::RBrace, "expected '}'")?;
                 Ok(BindingPattern::Struct { fields })
+            }
+            TokenKind::LBracket => {
+                // List destructuring: [a, b] or [head, ..tail]
+                self.advance();
+                let mut elements = Vec::new();
+                let mut rest = None;
+
+                while !self.check(&TokenKind::RBracket) && !self.at_end() {
+                    // Check for rest pattern: ..name
+                    if self.check(&TokenKind::DotDot) {
+                        self.advance();
+                        let rest_name = self.parse_name()?;
+                        rest = Some(rest_name);
+                        // Rest pattern must be last
+                        break;
+                    }
+
+                    elements.push(self.parse_binding_pattern()?);
+
+                    if !self.check(&TokenKind::Comma) {
+                        break;
+                    }
+                    self.advance();
+                }
+
+                self.consume(&TokenKind::RBracket, "expected ']'")?;
+                Ok(BindingPattern::List { elements, rest })
             }
             _ => Err(self.error("expected binding pattern")),
         }

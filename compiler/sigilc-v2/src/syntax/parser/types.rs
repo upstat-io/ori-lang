@@ -123,6 +123,21 @@ impl<'src, 'i> Parser<'src, 'i> {
                     span,
                 })
             }
+            TokenKind::LBrace => {
+                // Map type: {K: V}
+                self.advance();
+                let key = self.parse_type_expr()?;
+                self.consume(&TokenKind::Colon, "expected ':' in map type")?;
+                let value = self.parse_type_expr()?;
+                self.consume(&TokenKind::RBrace, "expected '}'")?;
+                Ok(TypeExpr {
+                    kind: TypeExprKind::Map {
+                        key: Box::new(key),
+                        value: Box::new(value),
+                    },
+                    span: span.merge(self.current_span()),
+                })
+            }
             _ => Err(self.error("expected type")),
         }
     }
@@ -139,7 +154,8 @@ impl<'src, 'i> Parser<'src, 'i> {
             self.advance();
         }
 
-        self.consume(&TokenKind::Gt, "expected '>'")?;
+        // Use consume_gt_in_type to handle '>>' as two '>' for nested generics
+        self.consume_gt_in_type()?;
         Ok(args)
     }
 }

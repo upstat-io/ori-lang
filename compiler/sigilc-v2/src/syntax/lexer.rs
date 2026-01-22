@@ -212,10 +212,14 @@ enum RawToken {
     Eq,
     #[token("!=")]
     NotEq,
+    #[token("<<")]
+    Shl,
     #[token("<=")]
     LtEq,
     #[token("<")]
     Lt,
+    #[token(">>")]
+    Shr,
     #[token(">=")]
     GtEq,
     #[token(">")]
@@ -254,6 +258,14 @@ enum RawToken {
         i64::from_str_radix(&s[2..].replace('_', ""), 16).ok()
     })]
     HexInt(i64),
+
+    // Binary integer with underscores
+    #[regex(r"0b[01][01_]*", |lex| {
+        let s = lex.slice();
+        // Skip "0b" prefix and remove underscores
+        i64::from_str_radix(&s[2..].replace('_', ""), 2).ok()
+    })]
+    BinInt(i64),
 
     // Integer with underscores
     #[regex(r"[0-9][0-9_]*", |lex| {
@@ -436,6 +448,7 @@ impl<'src, 'i> Lexer<'src, 'i> {
             // Literals
             RawToken::Int(n) => TokenKind::Int(n),
             RawToken::HexInt(n) => TokenKind::Int(n),
+            RawToken::BinInt(n) => TokenKind::Int(n),
             RawToken::Float(f) => TokenKind::Float(f.to_bits()),
             RawToken::String => {
                 // Remove quotes and process escapes
@@ -561,8 +574,10 @@ impl<'src, 'i> Lexer<'src, 'i> {
             RawToken::NotEq => TokenKind::NotEq,
             RawToken::Lt => TokenKind::Lt,
             RawToken::LtEq => TokenKind::LtEq,
+            RawToken::Shl => TokenKind::Shl,
             RawToken::Gt => TokenKind::Gt,
             RawToken::GtEq => TokenKind::GtEq,
+            RawToken::Shr => TokenKind::Shr,
             RawToken::Plus => TokenKind::Plus,
             RawToken::Minus => TokenKind::Minus,
             RawToken::Star => TokenKind::Star,
