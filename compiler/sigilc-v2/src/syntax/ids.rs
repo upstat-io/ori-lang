@@ -9,6 +9,8 @@ pub struct ExprId(u32);
 
 impl ExprId {
     pub const INVALID: ExprId = ExprId(u32::MAX);
+    /// Placeholder for use in tests and initialization.
+    pub const PLACEHOLDER: ExprId = ExprId(u32::MAX);
 
     #[inline]
     pub const fn new(index: u32) -> Self {

@@ -283,6 +283,70 @@ impl Value {
             Value::Error(_) => "error",
         }
     }
+
+    /// Display value for user output (without type wrapper).
+    pub fn display_value(&self) -> String {
+        match self {
+            Value::Int(n) => n.to_string(),
+            Value::Float(f) => f.to_string(),
+            Value::Bool(b) => b.to_string(),
+            Value::Str(s) => s.to_string(),
+            Value::Char(c) => c.to_string(),
+            Value::Byte(b) => format!("0x{:02x}", b),
+            Value::Void => "void".to_string(),
+            Value::List(items) => {
+                let inner: Vec<_> = items.iter().map(|v| v.display_value()).collect();
+                format!("[{}]", inner.join(", "))
+            }
+            Value::Map(map) => {
+                let inner: Vec<_> = map.iter()
+                    .map(|(k, v)| format!("{}: {}", k, v.display_value()))
+                    .collect();
+                format!("{{{}}}", inner.join(", "))
+            }
+            Value::Tuple(items) => {
+                let inner: Vec<_> = items.iter().map(|v| v.display_value()).collect();
+                format!("({})", inner.join(", "))
+            }
+            Value::Some(v) => format!("Some({})", v.display_value()),
+            Value::None => "None".to_string(),
+            Value::Ok(v) => format!("Ok({})", v.display_value()),
+            Value::Err(v) => format!("Err({})", v.display_value()),
+            Value::Struct(s) => format!("{:?}", s),
+            Value::Function(_) => "<function>".to_string(),
+            Value::Builtin(_, name) => format!("<builtin {}>", name),
+            Value::Duration(ms) => format!("{}ms", ms),
+            Value::Size(bytes) => format!("{}b", bytes),
+            Value::Range(r) => format!("{:?}", r),
+            Value::Error(msg) => format!("Error({})", msg),
+        }
+    }
+
+    /// Check structural equality with another value.
+    pub fn equals(&self, other: &Value) -> bool {
+        match (self, other) {
+            (Value::Int(a), Value::Int(b)) => a == b,
+            (Value::Float(a), Value::Float(b)) => (a - b).abs() < f64::EPSILON,
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Str(a), Value::Str(b)) => a == b,
+            (Value::Char(a), Value::Char(b)) => a == b,
+            (Value::Byte(a), Value::Byte(b)) => a == b,
+            (Value::Void, Value::Void) => true,
+            (Value::None, Value::None) => true,
+            (Value::Some(a), Value::Some(b)) => a.equals(b),
+            (Value::Ok(a), Value::Ok(b)) => a.equals(b),
+            (Value::Err(a), Value::Err(b)) => a.equals(b),
+            (Value::List(a), Value::List(b)) => {
+                a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.equals(y))
+            }
+            (Value::Tuple(a), Value::Tuple(b)) => {
+                a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.equals(y))
+            }
+            (Value::Duration(a), Value::Duration(b)) => a == b,
+            (Value::Size(a), Value::Size(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Debug for Value {
@@ -398,6 +462,8 @@ impl PartialEq for Value {
             (Value::Err(a), Value::Err(b)) => a == b,
             (Value::List(a), Value::List(b)) => a == b,
             (Value::Tuple(a), Value::Tuple(b)) => a == b,
+            (Value::Duration(a), Value::Duration(b)) => a == b,
+            (Value::Size(a), Value::Size(b)) => a == b,
             (Value::Builtin(_, name_a), Value::Builtin(_, name_b)) => name_a == name_b,
             _ => false,
         }

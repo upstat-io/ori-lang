@@ -70,5 +70,9 @@ harness = false
 name = "evaluation"
 harness = false
 
+[[bench]]
+name = "e2e"
+harness = false
+
 [lints]
 workspace = true

@@ -11,5 +11,5 @@ pub use scope::{ScopeId, Scopes, Binding, LocalVar};
 pub use resolver::{Resolver, ResolvedName, ResolutionError, BuiltinKind};
 pub use registry::{
     FunctionSig, TypeDef as HirTypeDef, ConfigDef, TraitDef, ImplDef,
-    DefinitionRegistry,
+    DefinitionRegistry, ParamSig, TypeParam,
 };

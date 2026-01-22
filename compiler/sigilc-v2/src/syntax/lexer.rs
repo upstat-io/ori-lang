@@ -358,6 +358,17 @@ impl TokenList {
         Self::default()
     }
 
+    /// Create with estimated capacity based on source size.
+    /// Heuristic: ~1 token per 8 bytes of source.
+    pub fn with_capacity(source_len: usize) -> Self {
+        let estimated_tokens = source_len / 8;
+        TokenList {
+            tokens: Vec::with_capacity(estimated_tokens),
+            leading_trivia: Vec::with_capacity(estimated_tokens),
+            trailing_trivia: Vec::new(),
+        }
+    }
+
     /// Get number of tokens.
     pub fn len(&self) -> usize {
         self.tokens.len()
@@ -383,7 +394,7 @@ impl<'src, 'i> Lexer<'src, 'i> {
 
     /// Lex all tokens from the source.
     pub fn lex_all(&self) -> TokenList {
-        let mut result = TokenList::new();
+        let mut result = TokenList::with_capacity(self.source.len());
         let mut logos = RawToken::lexer(self.source);
         let mut current_trivia: Vec<Trivia> = Vec::new();
 

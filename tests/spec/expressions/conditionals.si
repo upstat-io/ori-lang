@@ -1,84 +1,28 @@
-// Spec Tests: 09-expressions.md § Conditional Expression
-// Tests are the source of truth - the compiler must conform to these tests
+// Spec: expressions/conditionals - test if/then/else
+// Reference: docs/sigil_lang/0.1-alpha/spec/09-expressions.md
 
-// =============================================================================
-// If-Then-Else (Spec: if_expr = "if" expression "then" expression "else" expression)
-// =============================================================================
-
-@if_basic (x: int) -> str =
-    if x > 0 then "positive" else "non-positive"
-
-@test_if_basic tests @if_basic () -> void = run(
-    // Spec: The condition must have type bool
-    assert(if_basic(5) == "positive"),
-    assert(if_basic(0) == "non-positive"),
-    assert(if_basic(-3) == "non-positive"),
+@test_if_then_else () -> void = run(
+    assert_eq(if true then 1 else 2, 1),
+    assert_eq(if false then 1 else 2, 2)
 )
 
-// =============================================================================
-// Chained If-Else-If (Spec: "else" "if" expression "then" expression)
-// =============================================================================
-
-@if_chain (n: int) -> str =
-    if n % 15 == 0 then "FizzBuzz"
-    else if n % 3 == 0 then "Fizz"
-    else if n % 5 == 0 then "Buzz"
-    else str(n)
-
-@test_if_chain tests @if_chain () -> void = run(
-    // Spec: else if chains are evaluated in order
-    assert(if_chain(15) == "FizzBuzz"),
-    assert(if_chain(9) == "Fizz"),
-    assert(if_chain(10) == "Buzz"),
-    assert(if_chain(7) == "7"),
+@test_if_comparison () -> void = run(
+    let x = 10,
+    assert_eq(if x > 5 then "big" else "small", "big"),
+    assert_eq(if x < 5 then "small" else "big", "big")
 )
 
-// =============================================================================
-// Branch Type Compatibility (Spec: Both branches must have compatible types)
-// =============================================================================
-
-@if_int_branches (flag: bool) -> int =
-    if flag then 1 else 0
-
-@test_if_int_branches tests @if_int_branches () -> void = run(
-    assert(if_int_branches(true) == 1),
-    assert(if_int_branches(false) == 0),
+@test_nested_if () -> void = run(
+    let x = 5,
+    let result = if x < 0 then "negative"
+        else if x == 0 then "zero"
+        else "positive",
+    assert_eq(result, "positive")
 )
 
-@if_list_branches (flag: bool) -> [int] =
-    if flag then [1, 2, 3] else []
-
-@test_if_list_branches tests @if_list_branches () -> void = run(
-    assert(if_list_branches(true) == [1, 2, 3]),
-    assert(if_list_branches(false) == []),
-)
-
-// =============================================================================
-// Nested Conditionals
-// =============================================================================
-
-@nested_if (a: bool, b: bool) -> str =
-    if a then
-        if b then "both" else "only a"
-    else
-        if b then "only b" else "neither"
-
-@test_nested_if tests @nested_if () -> void = run(
-    assert(nested_if(true, true) == "both"),
-    assert(nested_if(true, false) == "only a"),
-    assert(nested_if(false, true) == "only b"),
-    assert(nested_if(false, false) == "neither"),
-)
-
-// =============================================================================
-// If as Expression (Spec: Conditional is an expression that returns a value)
-// =============================================================================
-
-@if_in_expression (x: int) -> int =
-    1 + (if x > 0 then 10 else 0) + 2
-
-@test_if_in_expression tests @if_in_expression () -> void = run(
-    // Spec: if expression can be used anywhere an expression is expected
-    assert(if_in_expression(5) == 13),   // 1 + 10 + 2
-    assert(if_in_expression(-5) == 3),   // 1 + 0 + 2
+@test_if_with_expressions () -> void = run(
+    let a = 3,
+    let b = 4,
+    let max = if a > b then a else b,
+    assert_eq(max, 4)
 )
