@@ -72,6 +72,31 @@ impl ModuleResolver {
             return Err("Empty import path".to_string());
         }
 
+        // Check if this is a string path (starts with ./ or ../)
+        let is_string_path = import_path.len() == 1
+            && (import_path[0].starts_with("./") || import_path[0].starts_with("../"));
+
+        if is_string_path {
+            // For string paths, resolve directly relative to the importing file
+            if let Some(parent) = from.parent() {
+                let mut path = parent.join(&import_path[0]);
+                // Add .si extension if not present
+                if path.extension().is_none() {
+                    path.set_extension("si");
+                }
+                if path.exists() {
+                    // Use std::fs::canonicalize directly since path is relative to CWD
+                    return path.canonicalize()
+                        .map_err(|e| format!("Cannot canonicalize '{}': {}", path.display(), e));
+                }
+                return Err(format!(
+                    "Cannot find module '{}' (looked for {})",
+                    import_path[0],
+                    path.display()
+                ));
+            }
+        }
+
         // Convert import path to file path
         // e.g., ["std", "io"] -> "std/io.si"
         let relative_path = self.import_to_path(import_path);

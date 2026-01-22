@@ -2,7 +2,7 @@
 // Provides code formatting functionality
 
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::Path;
 
 /// Format a file and print to stdout or write back

@@ -176,21 +176,45 @@ pub enum Token {
     Div,
 
     // Literals
-    #[regex(r"[0-9]+", |lex| lex.slice().parse::<i64>().ok())]
+    // Spec: hex_lit = "0x" hex_digit { hex_digit | "_" }
+    #[regex(r"0[xX][0-9a-fA-F][0-9a-fA-F_]*", |lex| {
+        let s: String = lex.slice()[2..].chars().filter(|c| *c != '_').collect();
+        i64::from_str_radix(&s, 16).ok()
+    })]
+    // Spec: decimal_lit = digit { digit | "_" }
+    // Underscores are allowed between digits for readability
+    #[regex(r"[0-9][0-9_]*", |lex| {
+        let s: String = lex.slice().chars().filter(|c| *c != '_').collect();
+        s.parse::<i64>().ok()
+    })]
     Int(i64),
 
-    #[regex(r"[0-9]+\.[0-9]+", |lex| lex.slice().parse::<f64>().ok())]
+    // Spec: float_literal = decimal_lit "." decimal_lit [ exponent ]
+    #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?", |lex| {
+        let s: String = lex.slice().chars().filter(|c| *c != '_').collect();
+        s.parse::<f64>().ok()
+    })]
     Float(f64),
 
     #[regex(r#""([^"\\]|\\.)*""#, |lex| {
         let s = lex.slice();
         Some(s[1..s.len()-1].to_string())
     })]
+    #[regex(r#"'([^'\\]|\\.)*'"#, |lex| {
+        let s = lex.slice();
+        Some(s[1..s.len()-1].to_string())
+    })]
     String(String),
 
-    // Duration literals (e.g., 24h, 30m, 60s for hours, minutes, seconds)
-    #[regex(r"[0-9]+[hms]", |lex| Some(lex.slice().to_string()))]
+    // Duration literals (e.g., 24h, 30m, 60s, 100ms for hours, minutes, seconds, milliseconds)
+    // Spec: duration_unit = "ms" | "s" | "m" | "h"
+    #[regex(r"[0-9][0-9_]*(ms|[hms])", |lex| Some(lex.slice().to_string()))]
     Duration(String),
+
+    // Size literals (e.g., 1024b, 4kb, 10mb, 2gb)
+    // Spec: size_unit = "b" | "kb" | "mb" | "gb"
+    #[regex(r"[0-9][0-9_]*(gb|mb|kb|b)", |lex| Some(lex.slice().to_string()))]
+    Size(String),
 
     // Identifiers
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| Some(lex.slice().to_string()))]

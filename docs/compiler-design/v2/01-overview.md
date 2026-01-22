@@ -9,7 +9,7 @@ The Sigil V2 compiler implements **Semantic Structural Compilation (SSC)** - a n
 | Goal | Target | Strategy |
 |------|--------|----------|
 | **10x faster cold compile** | 50ms for 1K LOC | Interning, flat AST, parallelism |
-| **Sub-100ms incremental** | <50ms single file | Salsa queries, test-gated invalidation |
+| **Sub-100ms incremental** | <50ms single file | Salsa queries, signature hashing |
 | **Full V1 compatibility** | 100% test pass | Same semantics, new implementation |
 | **LSP foundation** | <100ms responses | Lazy parsing, incremental analysis |
 
@@ -56,11 +56,11 @@ The Sigil V2 compiler implements **Semantic Structural Compilation (SSC)** - a n
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         TEST-GATED INVALIDATION                                 │
+│                         SIGNATURE-BASED INVALIDATION                            │
 │                                                                                 │
-│   Implementation changes + tests pass = NO downstream invalidation              │
-│   Tests act as semantic contracts between modules                               │
-│   Semantic hashing enables content-addressed caching                            │
+│   Public API unchanged = NO downstream invalidation                             │
+│   Semantic hashing of signatures enables content-addressed caching              │
+│   Similar to Rust's approach - fast and deterministic                           │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -156,17 +156,19 @@ V2 introduces tiered compilation for different use cases:
 
 ## Novel Contributions
 
-### Test-Gated Invalidation
+### Signature-Based Invalidation
 
-Sigil's mandatory testing requirement enables a unique optimization:
+> **Design Decision:** We evaluated test-gated invalidation (using test results to gate cache invalidation) but rejected it due to concerns about slow tests, flaky tests, and non-deterministic builds. Instead, we use signature-based invalidation like Rust.
+
+Sigil uses semantic hashing of public API surfaces for incremental compilation:
 
 ```
-Module A (changed) → Tests pass → Semantic hash unchanged
-                                        ↓
-                   Downstream modules skip revalidation
+Module A (changed) → Public signature unchanged → Semantic hash unchanged
+                                                        ↓
+                                   Downstream modules skip revalidation
 ```
 
-When a module's implementation changes but its tests still pass, downstream dependents don't need full revalidation - only signature compatibility checks. This exploits Sigil's philosophy that tests define the semantic contract.
+When a module's implementation changes but its public API (function signatures, exported types) remains the same, downstream dependents don't need revalidation. This is the same approach used by Rust and provides fast, deterministic incremental builds.
 
 ### Pattern Template Compilation
 

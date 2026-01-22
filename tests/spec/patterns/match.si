@@ -1,0 +1,169 @@
+// Spec Tests: 10-patterns.md § match
+// Tests are the source of truth - the compiler must conform to these tests
+
+// =============================================================================
+// Basic Match (Spec: match_expr = "match" "(" expression "," match_arms ")")
+// =============================================================================
+
+@match_literal (n: int) -> str = match(n,
+    0 -> "zero",
+    1 -> "one",
+    _ -> "other",
+)
+
+@test_match_literal tests @match_literal () -> void = run(
+    // Spec: literal_pattern = literal
+    assert(match_literal(0) == "zero"),
+    assert(match_literal(1) == "one"),
+    assert(match_literal(42) == "other"),
+)
+
+// =============================================================================
+// Binding Pattern (Spec: binding_pattern = identifier)
+// =============================================================================
+
+@match_binding (n: int) -> int = match(n,
+    x -> x * 2,
+)
+
+@test_match_binding tests @match_binding () -> void = run(
+    // Spec: Binding pattern captures the value
+    assert(match_binding(5) == 10),
+    assert(match_binding(0) == 0),
+)
+
+// =============================================================================
+// Wildcard Pattern (Spec: wildcard_pattern = "_")
+// =============================================================================
+
+@match_wildcard (n: int) -> str = match(n,
+    1 -> "one",
+    2 -> "two",
+    _ -> "default",
+)
+
+@test_match_wildcard tests @match_wildcard () -> void = run(
+    // Spec: _ matches any value without binding
+    assert(match_wildcard(1) == "one"),
+    assert(match_wildcard(2) == "two"),
+    assert(match_wildcard(99) == "default"),
+)
+
+// =============================================================================
+// Or Pattern (Spec: or_pattern = pattern "|" pattern)
+// =============================================================================
+
+@match_or (n: int) -> str = match(n,
+    1 | 2 | 3 -> "small",
+    4 | 5 | 6 -> "medium",
+    _ -> "large",
+)
+
+@test_match_or tests @match_or () -> void = run(
+    // Spec: | combines patterns
+    assert(match_or(1) == "small"),
+    assert(match_or(2) == "small"),
+    assert(match_or(5) == "medium"),
+    assert(match_or(100) == "large"),
+)
+
+// =============================================================================
+// Variant Pattern (Spec: variant_pattern for Option)
+// =============================================================================
+
+@match_option (opt: Option<int>) -> int = match(opt,
+    Some(x) -> x,
+    None -> 0,
+)
+
+@test_match_option tests @match_option () -> void = run(
+    // Spec: variant_pattern = type_path [ "(" [ pattern ] ")" ]
+    assert(match_option(Some(42)) == 42),
+    assert(match_option(None) == 0),
+)
+
+// =============================================================================
+// Nested Variant Pattern
+// =============================================================================
+
+@match_nested_option (opt: Option<Option<int>>) -> int = match(opt,
+    Some(Some(x)) -> x,
+    Some(None) -> -1,
+    None -> -2,
+)
+
+@test_match_nested tests @match_nested_option () -> void = run(
+    assert(match_nested_option(Some(Some(5))) == 5),
+    assert(match_nested_option(Some(None)) == -1),
+    assert(match_nested_option(None) == -2),
+)
+
+// =============================================================================
+// List Pattern (Spec: list_pattern = "[" [ list_elem ] "]")
+// =============================================================================
+
+@match_list (items: [int]) -> str = match(items,
+    [] -> "empty",
+    [x] -> "single",
+    [x, y] -> "pair",
+    _ -> "many",
+)
+
+@test_match_list tests @match_list () -> void = run(
+    assert(match_list([]) == "empty"),
+    assert(match_list([1]) == "single"),
+    assert(match_list([1, 2]) == "pair"),
+    assert(match_list([1, 2, 3]) == "many"),
+)
+
+// =============================================================================
+// List Pattern with Rest (Spec: list_elem = pattern | ".." [ identifier ])
+// =============================================================================
+
+@match_list_rest (items: [int]) -> int = match(items,
+    [] -> 0,
+    [head, ..tail] -> head,
+)
+
+@test_match_list_rest tests @match_list_rest () -> void = run(
+    // Spec: ..identifier captures remaining elements
+    assert(match_list_rest([]) == 0),
+    assert(match_list_rest([5, 4, 3, 2, 1]) == 5),
+)
+
+// =============================================================================
+// Range Pattern (Spec: range_pattern)
+// =============================================================================
+
+@match_range (n: int) -> str = match(n,
+    0..10 -> "small",
+    10..100 -> "medium",
+    _ -> "large",
+)
+
+@test_match_range tests @match_range () -> void = run(
+    // Spec: range_pattern = [ literal ] ".." [ literal ]
+    assert(match_range(5) == "small"),
+    assert(match_range(10) == "medium"),
+    assert(match_range(50) == "medium"),
+    assert(match_range(100) == "large"),
+)
+
+// =============================================================================
+// Pattern Evaluation Order (Spec: Test each arm's pattern in order)
+// =============================================================================
+
+@match_order (n: int) -> str = match(n,
+    x.match(x < 0) -> "negative",
+    0 -> "zero",
+    x.match(x < 10) -> "small positive",
+    _ -> "large",
+)
+
+@test_match_order tests @match_order () -> void = run(
+    // Spec: Arms are tested in order, first match wins
+    assert(match_order(-5) == "negative"),
+    assert(match_order(0) == "zero"),
+    assert(match_order(5) == "small positive"),
+    assert(match_order(50) == "large"),
+)
