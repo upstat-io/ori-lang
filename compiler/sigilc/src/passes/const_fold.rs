@@ -5,8 +5,8 @@
 
 use super::{Pass, PassContext, PassError, PassResult};
 use crate::ast::BinaryOp;
-use crate::ir::{Folder, TExpr, TExprKind, TModule, Type};
 use crate::ast::Span;
+use crate::ir::{Folder, TExpr, TExprKind, TModule, Type};
 
 /// Constant folding optimization pass
 /// Folds: 1 + 2 → 3, "a" + "b" → "ab", if true then x else y → x

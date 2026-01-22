@@ -81,12 +81,16 @@ pub trait ExprTraversal: Sized {
     fn combine_many(&mut self, results: Vec<Self::Output>) -> Self::Output {
         let default = match self.default_result() {
             Ok(d) => d,
-            Err(_) => return results.into_iter().next().unwrap_or_else(|| {
-                // Fallback - should not happen in normal use
-                panic!("combine_many called with empty results and failing default_result")
-            }),
+            Err(_) => {
+                return results.into_iter().next().unwrap_or_else(|| {
+                    // Fallback - should not happen in normal use
+                    panic!("combine_many called with empty results and failing default_result")
+                })
+            }
         };
-        results.into_iter().fold(default, |acc, r| self.combine_results(acc, r))
+        results
+            .into_iter()
+            .fold(default, |acc, r| self.combine_results(acc, r))
     }
 
     // =========================================================================
@@ -120,9 +124,11 @@ pub trait ExprTraversal: Sized {
 
             // Calls
             Expr::Call { func, args } => self.on_call(func, args),
-            Expr::MethodCall { receiver, method, args } => {
-                self.on_method_call(receiver, method, args)
-            }
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+            } => self.on_method_call(receiver, method, args),
 
             // Operations
             Expr::Binary { op, left, right } => self.on_binary(*op, left, right),
@@ -133,10 +139,16 @@ pub trait ExprTraversal: Sized {
 
             // Control Flow
             Expr::Match(m) => self.on_match(m),
-            Expr::If { condition, then_branch, else_branch } => {
-                self.on_if(condition, then_branch, else_branch.as_deref())
-            }
-            Expr::For { binding, iterator, body } => self.on_for(binding, iterator, body),
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => self.on_if(condition, then_branch, else_branch.as_deref()),
+            Expr::For {
+                binding,
+                iterator,
+                body,
+            } => self.on_for(binding, iterator, body),
             Expr::Block(exprs) => self.on_block(exprs),
             Expr::Range { start, end } => self.on_range(start, end),
 
@@ -152,16 +164,19 @@ pub trait ExprTraversal: Sized {
             Expr::Unwrap(inner) => self.on_unwrap(inner),
 
             // Bindings (in block context)
-            Expr::Let { name, mutable, value } => self.on_let(name, *mutable, value),
+            Expr::Let {
+                name,
+                mutable,
+                value,
+            } => self.on_let(name, *mutable, value),
             Expr::Reassign { target, value } => self.on_reassign(target, value),
 
             // Capability injection
-            Expr::With { capability, implementation, body } => {
-                self.on_with(capability, implementation, body)
-            }
-
-            // Async
-            Expr::Await(inner) => self.on_await(inner),
+            Expr::With {
+                capability,
+                implementation,
+                body,
+            } => self.on_with(capability, implementation, body),
         }
     }
 
@@ -240,7 +255,11 @@ pub trait ExprTraversal: Sized {
         }
     }
 
-    fn on_struct(&mut self, _name: &str, fields: &[(String, Expr)]) -> Result<Self::Output, Self::Error> {
+    fn on_struct(
+        &mut self,
+        _name: &str,
+        fields: &[(String, Expr)],
+    ) -> Result<Self::Output, Self::Error> {
         if Self::AUTO_RECURSE {
             let results: Result<Vec<_>, _> = fields.iter().map(|(_, e)| self.traverse(e)).collect();
             Ok(self.combine_many(results?))
@@ -475,7 +494,12 @@ pub trait ExprTraversal: Sized {
     // Binding Handlers
     // =========================================================================
 
-    fn on_let(&mut self, _name: &str, _mutable: bool, value: &Expr) -> Result<Self::Output, Self::Error> {
+    fn on_let(
+        &mut self,
+        _name: &str,
+        _mutable: bool,
+        value: &Expr,
+    ) -> Result<Self::Output, Self::Error> {
         if Self::AUTO_RECURSE {
             self.traverse(value)
         } else {
@@ -501,14 +525,6 @@ pub trait ExprTraversal: Sized {
             let i = self.traverse(implementation)?;
             let b = self.traverse(body)?;
             Ok(self.combine_results(i, b))
-        } else {
-            self.default_result()
-        }
-    }
-
-    fn on_await(&mut self, inner: &Expr) -> Result<Self::Output, Self::Error> {
-        if Self::AUTO_RECURSE {
-            self.traverse(inner)
         } else {
             self.default_result()
         }

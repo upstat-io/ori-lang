@@ -6,7 +6,9 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{ConfigDef, Expr, FunctionDef, Item, Module, TestDef, TypeDef, TypeDefKind, TypeExpr};
+use crate::ast::{
+    ConfigDef, Expr, FunctionDef, Item, Module, TestDef, TypeDef, TypeDefKind, TypeExpr,
+};
 use crate::errors::{codes::ErrorCode, Diagnostic, DiagnosticCollector, Span};
 
 use super::id::{NodeId, SymbolId};
@@ -96,6 +98,8 @@ impl Resolver {
                 Item::Use(_) => {} // Handle imports later
                 Item::Trait(trait_def) => self.collect_trait(trait_def),
                 Item::Impl(impl_block) => self.collect_impl(impl_block),
+                Item::Extend(_) => {}    // Extension blocks handled separately
+                Item::Extension(_) => {} // Extension imports handled separately
             }
         }
     }
@@ -127,7 +131,10 @@ impl Resolver {
 
     fn collect_config(&mut self, config: &ConfigDef) {
         let config_symbol = ConfigSymbol {
-            ty: config.ty.clone().unwrap_or_else(|| TypeExpr::Named("void".to_string())),
+            ty: config
+                .ty
+                .clone()
+                .unwrap_or_else(|| TypeExpr::Named("void".to_string())),
         };
 
         let symbol = Symbol::new(config.name.clone(), SymbolKind::Config(config_symbol));
@@ -139,14 +146,21 @@ impl Resolver {
     fn collect_typedef(&mut self, typedef: &TypeDef) {
         let kind = match &typedef.kind {
             TypeDefKind::Struct(fields) => SymbolTypeDefKind::Struct {
-                fields: fields.iter().map(|f| (f.name.clone(), f.ty.clone())).collect(),
+                fields: fields
+                    .iter()
+                    .map(|f| (f.name.clone(), f.ty.clone()))
+                    .collect(),
             },
             TypeDefKind::Enum(variants) => SymbolTypeDefKind::Enum {
                 variants: variants
                     .iter()
                     .map(|v| super::symbol::EnumVariant {
                         name: v.name.clone(),
-                        fields: v.fields.iter().map(|f| (f.name.clone(), f.ty.clone())).collect(),
+                        fields: v
+                            .fields
+                            .iter()
+                            .map(|f| (f.name.clone(), f.ty.clone()))
+                            .collect(),
                     })
                     .collect(),
             },
@@ -182,7 +196,11 @@ impl Resolver {
         let trait_symbol = super::symbol::TraitSymbol {
             type_params: trait_def.type_params.clone(),
             methods: trait_methods,
-            associated_types: trait_def.associated_types.iter().map(|at| at.name.clone()).collect(),
+            associated_types: trait_def
+                .associated_types
+                .iter()
+                .map(|at| at.name.clone())
+                .collect(),
             supertraits: trait_def.supertraits.clone(),
         };
 
@@ -227,6 +245,8 @@ impl Resolver {
                 Item::Use(_) => {}
                 Item::Trait(trait_def) => self.resolve_trait(trait_def),
                 Item::Impl(impl_block) => self.resolve_impl(impl_block),
+                Item::Extend(extend_block) => self.resolve_extend(extend_block),
+                Item::Extension(_) => {} // Extension imports don't have references to resolve
             }
         }
     }
@@ -452,6 +472,51 @@ impl Resolver {
         self.scopes.exit();
     }
 
+    fn resolve_extend(&mut self, extend_block: &crate::ast::ExtendBlock) {
+        // Enter a scope for type parameters from where clause
+        self.scopes.enter(ScopeKind::Block);
+
+        // Resolve trait name
+        if self.scopes.lookup(&extend_block.trait_name).is_none() {
+            self.diagnostics.push(Diagnostic::error(
+                ErrorCode::E3003,
+                format!(
+                    "cannot find trait '{}' in this scope",
+                    extend_block.trait_name
+                ),
+            ));
+        }
+
+        // Resolve where clause
+        for bound in &extend_block.where_clause {
+            // Add type parameter to scope
+            let symbol = Symbol::new(
+                bound.type_param.clone(),
+                SymbolKind::TypeParam(super::symbol::TypeParamSymbol {
+                    bounds: bound.bounds.clone(),
+                }),
+            );
+            let id = self.symbols.insert(symbol);
+            self.scopes.define(bound.type_param.clone(), id);
+
+            for trait_name in &bound.bounds {
+                if self.scopes.lookup(trait_name).is_none() && !is_builtin_type(trait_name) {
+                    self.diagnostics.push(Diagnostic::error(
+                        ErrorCode::E3003,
+                        format!("cannot find trait '{}' in this scope", trait_name),
+                    ));
+                }
+            }
+        }
+
+        // Resolve methods
+        for method in &extend_block.methods {
+            self.resolve_function(method);
+        }
+
+        self.scopes.exit();
+    }
+
     fn resolve_expr(&mut self, expr: &Expr) {
         match expr {
             Expr::Ident(name) => {
@@ -511,7 +576,11 @@ impl Resolver {
                 self.scopes.exit();
             }
 
-            Expr::Let { name, mutable, value } => {
+            Expr::Let {
+                name,
+                mutable,
+                value,
+            } => {
                 // Resolve the value first
                 self.resolve_expr(value);
 
@@ -656,13 +725,13 @@ impl Resolver {
                 self.resolve_expr(default);
             }
 
-            Expr::With { implementation, body, .. } => {
+            Expr::With {
+                implementation,
+                body,
+                ..
+            } => {
                 self.resolve_expr(implementation);
                 self.resolve_expr(body);
-            }
-
-            Expr::Await(inner) => {
-                self.resolve_expr(inner);
             }
 
             // Literals and others that don't need resolution
@@ -697,16 +766,26 @@ impl Resolver {
     fn resolve_pattern(&mut self, pattern: &crate::ast::PatternExpr) {
         use crate::ast::PatternExpr;
         match pattern {
-            PatternExpr::Fold { collection, init, op } => {
+            PatternExpr::Fold {
+                collection,
+                init,
+                op,
+            } => {
                 self.resolve_expr(collection);
                 self.resolve_expr(init);
                 self.resolve_expr(op);
             }
-            PatternExpr::Map { collection, transform } => {
+            PatternExpr::Map {
+                collection,
+                transform,
+            } => {
                 self.resolve_expr(collection);
                 self.resolve_expr(transform);
             }
-            PatternExpr::Filter { collection, predicate } => {
+            PatternExpr::Filter {
+                collection,
+                predicate,
+            } => {
                 self.resolve_expr(collection);
                 self.resolve_expr(predicate);
             }
@@ -714,12 +793,19 @@ impl Resolver {
                 self.resolve_expr(range);
                 self.resolve_expr(transform);
             }
-            PatternExpr::Recurse { condition, base_value, step, .. } => {
+            PatternExpr::Recurse {
+                condition,
+                base_value,
+                step,
+                ..
+            } => {
                 self.resolve_expr(condition);
                 self.resolve_expr(base_value);
                 self.resolve_expr(step);
             }
-            PatternExpr::Iterate { over, into, with, .. } => {
+            PatternExpr::Iterate {
+                over, into, with, ..
+            } => {
                 self.resolve_expr(over);
                 self.resolve_expr(into);
                 self.resolve_expr(with);
@@ -730,11 +816,16 @@ impl Resolver {
                     self.resolve_expr(step);
                 }
             }
-            PatternExpr::Count { collection, predicate } => {
+            PatternExpr::Count {
+                collection,
+                predicate,
+            } => {
                 self.resolve_expr(collection);
                 self.resolve_expr(predicate);
             }
-            PatternExpr::Parallel { branches, timeout, .. } => {
+            PatternExpr::Parallel {
+                branches, timeout, ..
+            } => {
                 for (_, expr) in branches {
                     self.resolve_expr(expr);
                 }
@@ -742,7 +833,11 @@ impl Resolver {
                     self.resolve_expr(timeout);
                 }
             }
-            PatternExpr::Find { collection, predicate, default } => {
+            PatternExpr::Find {
+                collection,
+                predicate,
+                default,
+            } => {
                 self.resolve_expr(collection);
                 self.resolve_expr(predicate);
                 if let Some(d) = default {
@@ -755,7 +850,12 @@ impl Resolver {
                     self.resolve_expr(c);
                 }
             }
-            PatternExpr::Retry { operation, max_attempts, delay_ms, .. } => {
+            PatternExpr::Retry {
+                operation,
+                max_attempts,
+                delay_ms,
+                ..
+            } => {
                 self.resolve_expr(operation);
                 self.resolve_expr(max_attempts);
                 if let Some(d) = delay_ms {
@@ -794,7 +894,7 @@ impl Resolver {
                     self.resolve_type(arg);
                 }
             }
-            TypeExpr::List(inner) | TypeExpr::Optional(inner) | TypeExpr::Async(inner) => {
+            TypeExpr::List(inner) | TypeExpr::Optional(inner) => {
                 self.resolve_type(inner);
             }
             TypeExpr::Tuple(elements) => {

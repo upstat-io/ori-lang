@@ -86,18 +86,30 @@ pub trait ExprProcessor: Sized {
     fn process_list(&mut self, elems: &[Expr]) -> Result<Self::Output, Self::Error>;
 
     /// Handle a map literal
-    fn process_map_literal(&mut self, entries: &[(Expr, Expr)]) -> Result<Self::Output, Self::Error>;
+    fn process_map_literal(
+        &mut self,
+        entries: &[(Expr, Expr)],
+    ) -> Result<Self::Output, Self::Error>;
 
     /// Handle a tuple literal
     fn process_tuple(&mut self, elems: &[Expr]) -> Result<Self::Output, Self::Error>;
 
     /// Handle a struct literal
-    fn process_struct(&mut self, name: &str, fields: &[(String, Expr)]) -> Result<Self::Output, Self::Error>;
+    fn process_struct(
+        &mut self,
+        name: &str,
+        fields: &[(String, Expr)],
+    ) -> Result<Self::Output, Self::Error>;
 
     // === Operation Handlers ===
 
     /// Handle a binary operation
-    fn process_binary(&mut self, op: BinaryOp, left: &Expr, right: &Expr) -> Result<Self::Output, Self::Error>;
+    fn process_binary(
+        &mut self,
+        op: BinaryOp,
+        left: &Expr,
+        right: &Expr,
+    ) -> Result<Self::Output, Self::Error>;
 
     /// Handle a unary operation
     fn process_unary(&mut self, op: UnaryOp, operand: &Expr) -> Result<Self::Output, Self::Error>;
@@ -126,7 +138,11 @@ pub trait ExprProcessor: Sized {
     // === Lambda and Closure Handlers ===
 
     /// Handle a lambda expression
-    fn process_lambda(&mut self, params: &[String], body: &Expr) -> Result<Self::Output, Self::Error>;
+    fn process_lambda(
+        &mut self,
+        params: &[String],
+        body: &Expr,
+    ) -> Result<Self::Output, Self::Error>;
 
     // === Control Flow Handlers ===
 
@@ -155,10 +171,16 @@ pub trait ExprProcessor: Sized {
     // === Binding Handlers ===
 
     /// Handle a let binding
-    fn process_let(&mut self, name: &str, mutable: bool, value: &Expr) -> Result<Self::Output, Self::Error>;
+    fn process_let(
+        &mut self,
+        name: &str,
+        mutable: bool,
+        value: &Expr,
+    ) -> Result<Self::Output, Self::Error>;
 
     /// Handle a reassignment
-    fn process_reassign(&mut self, target: &str, value: &Expr) -> Result<Self::Output, Self::Error>;
+    fn process_reassign(&mut self, target: &str, value: &Expr)
+        -> Result<Self::Output, Self::Error>;
 
     // === Range Handler ===
 
@@ -185,20 +207,29 @@ pub trait ExprProcessor: Sized {
     fn process_none(&mut self) -> Result<Self::Output, Self::Error>;
 
     /// Handle value ?? default
-    fn process_coalesce(&mut self, value: &Expr, default: &Expr) -> Result<Self::Output, Self::Error>;
+    fn process_coalesce(
+        &mut self,
+        value: &Expr,
+        default: &Expr,
+    ) -> Result<Self::Output, Self::Error>;
 
     /// Handle value! (unwrap)
     fn process_unwrap(&mut self, inner: &Expr) -> Result<Self::Output, Self::Error>;
 
     /// Handle with Capability = impl in body (capability injection)
-    fn process_with(&mut self, capability: &str, implementation: &Expr, body: &Expr) -> Result<Self::Output, Self::Error>;
-
-    /// Handle await expression
-    fn process_await(&mut self, inner: &Expr) -> Result<Self::Output, Self::Error>;
+    fn process_with(
+        &mut self,
+        capability: &str,
+        implementation: &Expr,
+        body: &Expr,
+    ) -> Result<Self::Output, Self::Error>;
 }
 
 /// Dispatch an expression to the appropriate processor method
-pub fn dispatch_to_processor<P: ExprProcessor>(processor: &mut P, expr: &Expr) -> Result<P::Output, P::Error> {
+pub fn dispatch_to_processor<P: ExprProcessor>(
+    processor: &mut P,
+    expr: &Expr,
+) -> Result<P::Output, P::Error> {
     match expr {
         Expr::Int(n) => processor.process_int(*n),
         Expr::Float(f) => processor.process_float(*f),
@@ -217,17 +248,29 @@ pub fn dispatch_to_processor<P: ExprProcessor>(processor: &mut P, expr: &Expr) -
         Expr::Field(obj, field) => processor.process_field(obj, field),
         Expr::Index(obj, idx) => processor.process_index(obj, idx),
         Expr::Call { func, args } => processor.process_call(func, args),
-        Expr::MethodCall { receiver, method, args } => {
-            processor.process_method_call(receiver, method, args)
-        }
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => processor.process_method_call(receiver, method, args),
         Expr::Lambda { params, body } => processor.process_lambda(params, body),
         Expr::Match(m) => processor.process_match(m),
-        Expr::If { condition, then_branch, else_branch } => {
-            processor.process_if(condition, then_branch, else_branch.as_deref())
-        }
-        Expr::For { binding, iterator, body } => processor.process_for(binding, iterator, body),
+        Expr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => processor.process_if(condition, then_branch, else_branch.as_deref()),
+        Expr::For {
+            binding,
+            iterator,
+            body,
+        } => processor.process_for(binding, iterator, body),
         Expr::Block(exprs) => processor.process_block(exprs),
-        Expr::Let { name, mutable, value } => processor.process_let(name, *mutable, value),
+        Expr::Let {
+            name,
+            mutable,
+            value,
+        } => processor.process_let(name, *mutable, value),
         Expr::Reassign { target, value } => processor.process_reassign(target, value),
         Expr::Range { start, end } => processor.process_range(start, end),
         Expr::Pattern(p) => processor.process_pattern(p),
@@ -237,10 +280,11 @@ pub fn dispatch_to_processor<P: ExprProcessor>(processor: &mut P, expr: &Expr) -
         Expr::None_ => processor.process_none(),
         Expr::Coalesce { value, default } => processor.process_coalesce(value, default),
         Expr::Unwrap(inner) => processor.process_unwrap(inner),
-        Expr::With { capability, implementation, body } => {
-            processor.process_with(capability, implementation, body)
-        }
-        Expr::Await(inner) => processor.process_await(inner),
+        Expr::With {
+            capability,
+            implementation,
+            body,
+        } => processor.process_with(capability, implementation, body),
     }
 }
 
@@ -331,11 +375,20 @@ mod tests {
             Ok("Tuple")
         }
 
-        fn process_struct(&mut self, _: &str, _: &[(String, Expr)]) -> Result<Self::Output, Self::Error> {
+        fn process_struct(
+            &mut self,
+            _: &str,
+            _: &[(String, Expr)],
+        ) -> Result<Self::Output, Self::Error> {
             Ok("Struct")
         }
 
-        fn process_binary(&mut self, _: BinaryOp, _: &Expr, _: &Expr) -> Result<Self::Output, Self::Error> {
+        fn process_binary(
+            &mut self,
+            _: BinaryOp,
+            _: &Expr,
+            _: &Expr,
+        ) -> Result<Self::Output, Self::Error> {
             Ok("Binary")
         }
 
@@ -355,7 +408,12 @@ mod tests {
             Ok("Call")
         }
 
-        fn process_method_call(&mut self, _: &Expr, _: &str, _: &[Expr]) -> Result<Self::Output, Self::Error> {
+        fn process_method_call(
+            &mut self,
+            _: &Expr,
+            _: &str,
+            _: &[Expr],
+        ) -> Result<Self::Output, Self::Error> {
             Ok("MethodCall")
         }
 
@@ -367,11 +425,21 @@ mod tests {
             Ok("Match")
         }
 
-        fn process_if(&mut self, _: &Expr, _: &Expr, _: Option<&Expr>) -> Result<Self::Output, Self::Error> {
+        fn process_if(
+            &mut self,
+            _: &Expr,
+            _: &Expr,
+            _: Option<&Expr>,
+        ) -> Result<Self::Output, Self::Error> {
             Ok("If")
         }
 
-        fn process_for(&mut self, _: &str, _: &Expr, _: &Expr) -> Result<Self::Output, Self::Error> {
+        fn process_for(
+            &mut self,
+            _: &str,
+            _: &Expr,
+            _: &Expr,
+        ) -> Result<Self::Output, Self::Error> {
             Ok("For")
         }
 
@@ -419,12 +487,13 @@ mod tests {
             Ok("Unwrap")
         }
 
-        fn process_with(&mut self, _: &str, _: &Expr, _: &Expr) -> Result<Self::Output, Self::Error> {
+        fn process_with(
+            &mut self,
+            _: &str,
+            _: &Expr,
+            _: &Expr,
+        ) -> Result<Self::Output, Self::Error> {
             Ok("With")
-        }
-
-        fn process_await(&mut self, _: &Expr) -> Result<Self::Output, Self::Error> {
-            Ok("Await")
         }
     }
 

@@ -61,6 +61,20 @@ fn first_impl(module: &Module) -> &ImplBlock {
     }
 }
 
+fn first_extend(module: &Module) -> &ExtendBlock {
+    match first_item(module) {
+        Item::Extend(e) => e,
+        _ => panic!("expected an extend block"),
+    }
+}
+
+fn first_extension(module: &Module) -> &ExtensionImport {
+    match first_item(module) {
+        Item::Extension(e) => e,
+        _ => panic!("expected an extension import"),
+    }
+}
+
 // ============================================================================
 // Function Definition Tests
 // ============================================================================
@@ -116,8 +130,12 @@ fn test_function_with_multiple_bounds() {
     assert_eq!(func.type_params, vec!["T"]);
     assert_eq!(func.type_param_bounds.len(), 1);
     assert_eq!(func.type_param_bounds[0].name, "T");
-    assert!(func.type_param_bounds[0].bounds.contains(&"Display".to_string()));
-    assert!(func.type_param_bounds[0].bounds.contains(&"Hash".to_string()));
+    assert!(func.type_param_bounds[0]
+        .bounds
+        .contains(&"Display".to_string()));
+    assert!(func.type_param_bounds[0]
+        .bounds
+        .contains(&"Hash".to_string()));
 }
 
 #[test]
@@ -150,10 +168,18 @@ fn test_function_with_multiple_type_params_bounded() {
     assert_eq!(func.type_params, vec!["K", "V"]);
     assert_eq!(func.type_param_bounds.len(), 2);
     // Check K bounds
-    let k_bound = func.type_param_bounds.iter().find(|b| b.name == "K").expect("K bound");
+    let k_bound = func
+        .type_param_bounds
+        .iter()
+        .find(|b| b.name == "K")
+        .expect("K bound");
     assert_eq!(k_bound.bounds, vec!["Comparable"]);
     // Check V bounds
-    let v_bound = func.type_param_bounds.iter().find(|b| b.name == "V").expect("V bound");
+    let v_bound = func
+        .type_param_bounds
+        .iter()
+        .find(|b| b.name == "V")
+        .expect("V bound");
     assert_eq!(v_bound.bounds, vec!["Display"]);
 }
 
@@ -853,7 +879,10 @@ fn test_fold_pattern() {
 fn test_map_pattern() {
     let module = parse_ok("@double (arr: [int]) -> [int] = map(arr, x -> x * 2)");
     let func = first_function(&module);
-    assert!(matches!(&func.body.expr, Expr::Pattern(PatternExpr::Map { .. })));
+    assert!(matches!(
+        &func.body.expr,
+        Expr::Pattern(PatternExpr::Map { .. })
+    ));
 }
 
 #[test]
@@ -926,7 +955,10 @@ fn test_map_named_syntax() {
     let module =
         parse_ok("@double (arr: [int]) -> [int] = map(.over: arr, .transform: x -> x * 2)");
     let func = first_function(&module);
-    assert!(matches!(&func.body.expr, Expr::Pattern(PatternExpr::Map { .. })));
+    assert!(matches!(
+        &func.body.expr,
+        Expr::Pattern(PatternExpr::Map { .. })
+    ));
 }
 
 #[test]
@@ -1193,11 +1225,13 @@ fn test_snapshot_match_expression() {
 
 #[test]
 fn test_simple_trait() {
-    let module = parse_ok(r#"
+    let module = parse_ok(
+        r#"
 trait Comparable {
     @compare (self: Self, other: Self) -> int
 }
-"#);
+"#,
+    );
     let trait_def = first_trait(&module);
     assert_eq!(trait_def.name, "Comparable");
     assert!(trait_def.type_params.is_empty());
@@ -1208,12 +1242,14 @@ trait Comparable {
 
 #[test]
 fn test_trait_with_type_params() {
-    let module = parse_ok(r#"
+    let module = parse_ok(
+        r#"
 trait Container<T> {
     @get (self: Self, index: int) -> T
     @len (self: Self) -> int
 }
-"#);
+"#,
+    );
     let trait_def = first_trait(&module);
     assert_eq!(trait_def.name, "Container");
     assert_eq!(trait_def.type_params, vec!["T"]);
@@ -1222,11 +1258,13 @@ trait Container<T> {
 
 #[test]
 fn test_trait_with_supertraits() {
-    let module = parse_ok(r#"
+    let module = parse_ok(
+        r#"
 trait Ord: Eq + PartialOrd {
     @cmp (self: Self, other: Self) -> int
 }
-"#);
+"#,
+    );
     let trait_def = first_trait(&module);
     assert_eq!(trait_def.name, "Ord");
     assert_eq!(trait_def.supertraits, vec!["Eq", "PartialOrd"]);
@@ -1234,12 +1272,14 @@ trait Ord: Eq + PartialOrd {
 
 #[test]
 fn test_trait_with_associated_type() {
-    let module = parse_ok(r#"
+    let module = parse_ok(
+        r#"
 trait Iterator {
     type Item
     @next (self: Self) -> ?Item
 }
-"#);
+"#,
+    );
     let trait_def = first_trait(&module);
     assert_eq!(trait_def.name, "Iterator");
     assert_eq!(trait_def.associated_types.len(), 1);
@@ -1248,12 +1288,14 @@ trait Iterator {
 
 #[test]
 fn test_trait_with_default_method() {
-    let module = parse_ok(r#"
+    let module = parse_ok(
+        r#"
 trait Display {
     @to_string (self: Self) -> str
     @print (self: Self) -> void = print(self.to_string())
 }
-"#);
+"#,
+    );
     let trait_def = first_trait(&module);
     assert_eq!(trait_def.methods.len(), 2);
     assert!(trait_def.methods[0].default_body.is_none());
@@ -1262,11 +1304,13 @@ trait Display {
 
 #[test]
 fn test_pub_trait() {
-    let module = parse_ok(r#"
+    let module = parse_ok(
+        r#"
 pub trait Hashable {
     @hash (self: Self) -> int
 }
-"#);
+"#,
+    );
     let trait_def = first_trait(&module);
     assert!(trait_def.public);
 }
@@ -1277,11 +1321,13 @@ pub trait Hashable {
 
 #[test]
 fn test_simple_impl() {
-    let module = parse_ok(r#"
+    let module = parse_ok(
+        r#"
 impl Comparable for int {
     @compare (self: int, other: int) -> int = self - other
 }
-"#);
+"#,
+    );
     let impl_block = first_impl(&module);
     assert_eq!(impl_block.trait_name, Some("Comparable".to_string()));
     assert_eq!(impl_block.for_type, TypeExpr::Named("int".to_string()));
@@ -1290,12 +1336,14 @@ impl Comparable for int {
 
 #[test]
 fn test_impl_with_type_params() {
-    let module = parse_ok(r#"
+    let module = parse_ok(
+        r#"
 impl<T> Container<T> for List<T> {
     @get (self: List<T>, index: int) -> T = self.data[index]
     @len (self: List<T>) -> int = self.size
 }
-"#);
+"#,
+    );
     let impl_block = first_impl(&module);
     assert_eq!(impl_block.type_params, vec!["T"]);
     assert_eq!(impl_block.trait_name, Some("Container".to_string()));
@@ -1304,11 +1352,13 @@ impl<T> Container<T> for List<T> {
 
 #[test]
 fn test_impl_with_where_clause() {
-    let module = parse_ok(r#"
+    let module = parse_ok(
+        r#"
 impl<T> Sortable for List<T> where T: Comparable {
     @sort (self: List<T>) -> List<T> = self
 }
-"#);
+"#,
+    );
     let impl_block = first_impl(&module);
     assert_eq!(impl_block.where_clause.len(), 1);
     assert_eq!(impl_block.where_clause[0].type_param, "T");
@@ -1317,12 +1367,14 @@ impl<T> Sortable for List<T> where T: Comparable {
 
 #[test]
 fn test_inherent_impl() {
-    let module = parse_ok(r#"
+    let module = parse_ok(
+        r#"
 impl User {
     @new (name: str) -> User = User { name: name }
     @greet (self: User) -> str = "Hello, " + self.name
 }
-"#);
+"#,
+    );
     let impl_block = first_impl(&module);
     assert!(impl_block.trait_name.is_none());
     assert_eq!(impl_block.for_type, TypeExpr::Named("User".to_string()));
@@ -1331,16 +1383,21 @@ impl User {
 
 #[test]
 fn test_impl_with_associated_type() {
-    let module = parse_ok(r#"
+    let module = parse_ok(
+        r#"
 impl Iterator for Range {
     type Item = int
     @next (self: Range) -> ?int = self.current
 }
-"#);
+"#,
+    );
     let impl_block = first_impl(&module);
     assert_eq!(impl_block.associated_types.len(), 1);
     assert_eq!(impl_block.associated_types[0].name, "Item");
-    assert_eq!(impl_block.associated_types[0].ty, TypeExpr::Named("int".to_string()));
+    assert_eq!(
+        impl_block.associated_types[0].ty,
+        TypeExpr::Named("int".to_string())
+    );
 }
 
 // ============================================================================
@@ -1349,9 +1406,11 @@ impl Iterator for Range {
 
 #[test]
 fn test_function_with_uses_clause() {
-    let module = parse_ok(r#"
+    let module = parse_ok(
+        r#"
 @fetch (url: str) -> str uses Http = Http.get(url)
-"#);
+"#,
+    );
     let func = first_function(&module);
     assert_eq!(func.name, "fetch");
     assert_eq!(func.uses_clause, vec!["Http".to_string()]);
@@ -1359,25 +1418,36 @@ fn test_function_with_uses_clause() {
 
 #[test]
 fn test_function_with_multiple_uses() {
-    let module = parse_ok(r#"
+    let module = parse_ok(
+        r#"
 @upload (path: str, url: str) -> str uses FileSystem, Http = run(
     let content = FileSystem.read(path),
     Http.post(url, content),
 )
-"#);
+"#,
+    );
     let func = first_function(&module);
     assert_eq!(func.name, "upload");
-    assert_eq!(func.uses_clause, vec!["FileSystem".to_string(), "Http".to_string()]);
+    assert_eq!(
+        func.uses_clause,
+        vec!["FileSystem".to_string(), "Http".to_string()]
+    );
 }
 
 #[test]
 fn test_with_expression() {
-    let module = parse_ok(r#"
+    let module = parse_ok(
+        r#"
 @test_fetch () -> str = with Http = MockHttp {} in fetch("http://example.com")
-"#);
+"#,
+    );
     let func = first_function(&module);
     match &func.body.expr {
-        Expr::With { capability, implementation, body } => {
+        Expr::With {
+            capability,
+            implementation,
+            body,
+        } => {
             assert_eq!(capability, "Http");
             // Implementation should be a struct literal
             matches!(implementation.as_ref(), Expr::Struct { name, .. } if name == "MockHttp");
@@ -1386,4 +1456,157 @@ fn test_with_expression() {
         }
         _ => panic!("expected With expression"),
     }
+}
+
+// ============================================================================
+// Trait Extension Tests
+// ============================================================================
+
+#[test]
+fn test_simple_extend() {
+    let module = parse_ok(
+        r#"
+extend Iterator {
+    @count (self: Self) -> int = 0
+}
+"#,
+    );
+    let extend = first_extend(&module);
+    assert_eq!(extend.trait_name, "Iterator");
+    assert!(extend.where_clause.is_empty());
+    assert_eq!(extend.methods.len(), 1);
+    assert_eq!(extend.methods[0].name, "count");
+}
+
+#[test]
+fn test_extend_with_where_clause() {
+    let module = parse_ok(
+        r#"
+extend Iterator where Self: Add {
+    @sum (self: Self) -> Self = self
+}
+"#,
+    );
+    let extend = first_extend(&module);
+    assert_eq!(extend.trait_name, "Iterator");
+    assert_eq!(extend.where_clause.len(), 1);
+    assert_eq!(extend.where_clause[0].type_param, "Self");
+    assert_eq!(extend.where_clause[0].bounds, vec!["Add"]);
+    assert_eq!(extend.methods.len(), 1);
+}
+
+#[test]
+fn test_extend_with_multiple_where_bounds() {
+    let module = parse_ok(
+        r#"
+extend Iterator where Self: Add, T: Clone {
+    @process (self: Self) -> T = self
+}
+"#,
+    );
+    let extend = first_extend(&module);
+    assert_eq!(extend.where_clause.len(), 2);
+    assert_eq!(extend.where_clause[0].type_param, "Self");
+    assert_eq!(extend.where_clause[1].type_param, "T");
+}
+
+#[test]
+fn test_extend_with_multiple_methods() {
+    let module = parse_ok(
+        r#"
+extend Iterator {
+    @count (self: Self) -> int = 0
+    @last (self: Self) -> int = 0
+    @nth (self: Self, n: int) -> int = n
+}
+"#,
+    );
+    let extend = first_extend(&module);
+    assert_eq!(extend.methods.len(), 3);
+    assert_eq!(extend.methods[0].name, "count");
+    assert_eq!(extend.methods[1].name, "last");
+    assert_eq!(extend.methods[2].name, "nth");
+}
+
+#[test]
+fn test_extend_method_with_uses() {
+    let module = parse_ok(
+        r#"
+extend Display {
+    @print (self: Self) -> void uses Console = Console.write(self)
+}
+"#,
+    );
+    let extend = first_extend(&module);
+    assert_eq!(extend.methods.len(), 1);
+    assert_eq!(extend.methods[0].uses_clause, vec!["Console".to_string()]);
+}
+
+// ============================================================================
+// Extension Import Tests
+// ============================================================================
+
+#[test]
+fn test_simple_extension_import() {
+    let module = parse_ok(
+        r#"
+extension std.iter.extensions { Iterator.count }
+"#,
+    );
+    let ext = first_extension(&module);
+    assert_eq!(ext.path, vec!["std", "iter", "extensions"]);
+    assert_eq!(ext.items.len(), 1);
+    assert_eq!(ext.items[0].trait_name, "Iterator");
+    assert_eq!(ext.items[0].method_name, "count");
+}
+
+#[test]
+fn test_extension_import_multiple_methods() {
+    let module = parse_ok(
+        r#"
+extension std.iter.extensions { Iterator.count, Iterator.sum, Iterator.last }
+"#,
+    );
+    let ext = first_extension(&module);
+    assert_eq!(ext.path, vec!["std", "iter", "extensions"]);
+    assert_eq!(ext.items.len(), 3);
+    assert_eq!(ext.items[0].method_name, "count");
+    assert_eq!(ext.items[1].method_name, "sum");
+    assert_eq!(ext.items[2].method_name, "last");
+}
+
+#[test]
+fn test_extension_import_multiple_traits() {
+    let module = parse_ok(
+        r#"
+extension std.extensions { Iterator.count, Display.print }
+"#,
+    );
+    let ext = first_extension(&module);
+    assert_eq!(ext.items.len(), 2);
+    assert_eq!(ext.items[0].trait_name, "Iterator");
+    assert_eq!(ext.items[1].trait_name, "Display");
+}
+
+#[test]
+fn test_extension_import_string_path() {
+    let module = parse_ok(
+        r#"
+extension "./my_extensions" { Iterator.count }
+"#,
+    );
+    let ext = first_extension(&module);
+    assert_eq!(ext.path, vec!["my_extensions"]);
+    assert_eq!(ext.items.len(), 1);
+}
+
+#[test]
+fn test_extension_import_relative_path() {
+    let module = parse_ok(
+        r#"
+extension "./utils/extensions" { Display.format }
+"#,
+    );
+    let ext = first_extension(&module);
+    assert_eq!(ext.path, vec!["utils", "extensions"]);
 }

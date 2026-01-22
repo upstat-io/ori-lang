@@ -105,7 +105,10 @@ pub trait ExprHandler {
     }
 
     /// Handle a map literal
-    fn handle_map_literal(&mut self, entries: &[(Expr, Expr)]) -> Result<Self::Output, Self::Error> {
+    fn handle_map_literal(
+        &mut self,
+        entries: &[(Expr, Expr)],
+    ) -> Result<Self::Output, Self::Error> {
         let _ = entries;
         unimplemented!("handle_map_literal not implemented")
     }
@@ -117,13 +120,22 @@ pub trait ExprHandler {
     }
 
     /// Handle a struct literal
-    fn handle_struct(&mut self, name: &str, fields: &[(String, Expr)]) -> Result<Self::Output, Self::Error> {
+    fn handle_struct(
+        &mut self,
+        name: &str,
+        fields: &[(String, Expr)],
+    ) -> Result<Self::Output, Self::Error> {
         let _ = (name, fields);
         unimplemented!("handle_struct not implemented")
     }
 
     /// Handle a binary operation
-    fn handle_binary(&mut self, op: BinaryOp, left: &Expr, right: &Expr) -> Result<Self::Output, Self::Error> {
+    fn handle_binary(
+        &mut self,
+        op: BinaryOp,
+        left: &Expr,
+        right: &Expr,
+    ) -> Result<Self::Output, Self::Error> {
         let _ = (op, left, right);
         unimplemented!("handle_binary not implemented")
     }
@@ -164,7 +176,11 @@ pub trait ExprHandler {
     }
 
     /// Handle a lambda expression
-    fn handle_lambda(&mut self, params: &[String], body: &Expr) -> Result<Self::Output, Self::Error> {
+    fn handle_lambda(
+        &mut self,
+        params: &[String],
+        body: &Expr,
+    ) -> Result<Self::Output, Self::Error> {
         let _ = (params, body);
         unimplemented!("handle_lambda not implemented")
     }
@@ -204,7 +220,12 @@ pub trait ExprHandler {
     }
 
     /// Handle a let binding
-    fn handle_let(&mut self, name: &str, mutable: bool, value: &Expr) -> Result<Self::Output, Self::Error> {
+    fn handle_let(
+        &mut self,
+        name: &str,
+        mutable: bool,
+        value: &Expr,
+    ) -> Result<Self::Output, Self::Error> {
         let _ = (name, mutable, value);
         unimplemented!("handle_let not implemented")
     }
@@ -251,7 +272,11 @@ pub trait ExprHandler {
     }
 
     /// Handle value ?? default
-    fn handle_coalesce(&mut self, value: &Expr, default: &Expr) -> Result<Self::Output, Self::Error> {
+    fn handle_coalesce(
+        &mut self,
+        value: &Expr,
+        default: &Expr,
+    ) -> Result<Self::Output, Self::Error> {
         let _ = (value, default);
         unimplemented!("handle_coalesce not implemented")
     }
@@ -263,20 +288,22 @@ pub trait ExprHandler {
     }
 
     /// Handle with Capability = impl in body (capability injection)
-    fn handle_with(&mut self, capability: &str, implementation: &Expr, body: &Expr) -> Result<Self::Output, Self::Error> {
+    fn handle_with(
+        &mut self,
+        capability: &str,
+        implementation: &Expr,
+        body: &Expr,
+    ) -> Result<Self::Output, Self::Error> {
         let _ = (capability, implementation, body);
         unimplemented!("handle_with not implemented")
-    }
-
-    /// Handle await expression
-    fn handle_await(&mut self, inner: &Expr) -> Result<Self::Output, Self::Error> {
-        let _ = inner;
-        unimplemented!("handle_await not implemented")
     }
 }
 
 /// Dispatch an expression to the appropriate handler method
-pub fn dispatch_to_handler<H: ExprHandler>(handler: &mut H, expr: &Expr) -> Result<H::Output, H::Error> {
+pub fn dispatch_to_handler<H: ExprHandler>(
+    handler: &mut H,
+    expr: &Expr,
+) -> Result<H::Output, H::Error> {
     match expr {
         Expr::Int(n) => handler.handle_int(*n),
         Expr::Float(f) => handler.handle_float(*f),
@@ -295,17 +322,29 @@ pub fn dispatch_to_handler<H: ExprHandler>(handler: &mut H, expr: &Expr) -> Resu
         Expr::Field(obj, field) => handler.handle_field(obj, field),
         Expr::Index(obj, idx) => handler.handle_index(obj, idx),
         Expr::Call { func, args } => handler.handle_call(func, args),
-        Expr::MethodCall { receiver, method, args } => {
-            handler.handle_method_call(receiver, method, args)
-        }
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => handler.handle_method_call(receiver, method, args),
         Expr::Lambda { params, body } => handler.handle_lambda(params, body),
         Expr::Match(m) => handler.handle_match(m),
-        Expr::If { condition, then_branch, else_branch } => {
-            handler.handle_if(condition, then_branch, else_branch.as_deref())
-        }
-        Expr::For { binding, iterator, body } => handler.handle_for(binding, iterator, body),
+        Expr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => handler.handle_if(condition, then_branch, else_branch.as_deref()),
+        Expr::For {
+            binding,
+            iterator,
+            body,
+        } => handler.handle_for(binding, iterator, body),
         Expr::Block(exprs) => handler.handle_block(exprs),
-        Expr::Let { name, mutable, value } => handler.handle_let(name, *mutable, value),
+        Expr::Let {
+            name,
+            mutable,
+            value,
+        } => handler.handle_let(name, *mutable, value),
         Expr::Reassign { target, value } => handler.handle_reassign(target, value),
         Expr::Range { start, end } => handler.handle_range(start, end),
         Expr::Pattern(p) => handler.handle_pattern(p),
@@ -315,10 +354,11 @@ pub fn dispatch_to_handler<H: ExprHandler>(handler: &mut H, expr: &Expr) -> Resu
         Expr::None_ => handler.handle_none(),
         Expr::Coalesce { value, default } => handler.handle_coalesce(value, default),
         Expr::Unwrap(inner) => handler.handle_unwrap(inner),
-        Expr::With { capability, implementation, body } => {
-            handler.handle_with(capability, implementation, body)
-        }
-        Expr::Await(inner) => handler.handle_await(inner),
+        Expr::With {
+            capability,
+            implementation,
+            body,
+        } => handler.handle_with(capability, implementation, body),
     }
 }
 
@@ -415,11 +455,20 @@ mod tests {
             Ok("Tuple")
         }
 
-        fn handle_struct(&mut self, _: &str, _: &[(String, Expr)]) -> Result<Self::Output, Self::Error> {
+        fn handle_struct(
+            &mut self,
+            _: &str,
+            _: &[(String, Expr)],
+        ) -> Result<Self::Output, Self::Error> {
             Ok("Struct")
         }
 
-        fn handle_binary(&mut self, _: BinaryOp, _: &Expr, _: &Expr) -> Result<Self::Output, Self::Error> {
+        fn handle_binary(
+            &mut self,
+            _: BinaryOp,
+            _: &Expr,
+            _: &Expr,
+        ) -> Result<Self::Output, Self::Error> {
             Ok("Binary")
         }
 
@@ -439,7 +488,12 @@ mod tests {
             Ok("Call")
         }
 
-        fn handle_method_call(&mut self, _: &Expr, _: &str, _: &[Expr]) -> Result<Self::Output, Self::Error> {
+        fn handle_method_call(
+            &mut self,
+            _: &Expr,
+            _: &str,
+            _: &[Expr],
+        ) -> Result<Self::Output, Self::Error> {
             Ok("MethodCall")
         }
 
@@ -451,7 +505,12 @@ mod tests {
             Ok("Match")
         }
 
-        fn handle_if(&mut self, _: &Expr, _: &Expr, _: Option<&Expr>) -> Result<Self::Output, Self::Error> {
+        fn handle_if(
+            &mut self,
+            _: &Expr,
+            _: &Expr,
+            _: Option<&Expr>,
+        ) -> Result<Self::Output, Self::Error> {
             Ok("If")
         }
 

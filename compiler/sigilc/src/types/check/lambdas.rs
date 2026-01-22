@@ -1,6 +1,7 @@
 // Lambda type checking
 
 use crate::ast::{Expr, TypeExpr};
+use crate::errors::{codes::ErrorCode, Diagnostic, DiagnosticResult};
 
 use super::super::context::TypeContext;
 use super::check_expr_inner;
@@ -11,7 +12,7 @@ pub fn check_lambda(
     body: &Expr,
     ctx: &TypeContext,
     expected: Option<&TypeExpr>,
-) -> Result<TypeExpr, String> {
+) -> DiagnosticResult<TypeExpr> {
     // Unwrap the expected type - handle single-element tuples containing function types
     // This happens because (int -> int) is parsed as Tuple([Function(int, int)])
     let unwrapped_expected: Option<&TypeExpr> = match expected {
@@ -36,24 +37,33 @@ pub fn check_lambda(
         }
     } else {
         // No type hint - this is an error in strict mode
-        return Err(format!(
-            "Cannot infer types for lambda parameters {:?}. Lambda must be used in a context that provides type information (e.g., map, filter, fold).",
-            params
-        ));
+        return Err(Diagnostic::error(
+            ErrorCode::E3005,
+            format!("cannot infer types for lambda parameters {:?}", params),
+        )
+        .with_label(ctx.make_span(0..0), "type annotation needed")
+        .with_help("lambda must be used in a context that provides type information (e.g., map, filter, fold)"));
     };
 
     if param_types.len() != params.len() {
-        return Err(format!(
-            "Lambda expects {} parameters but context provides {} parameter types",
-            params.len(),
-            param_types.len()
-        ));
+        return Err(Diagnostic::error(
+            ErrorCode::E3004,
+            format!(
+                "lambda expects {} parameters but context provides {} parameter types",
+                params.len(),
+                param_types.len()
+            ),
+        )
+        .with_label(ctx.make_span(0..0), "parameter count mismatch"));
     }
 
     // Create a child context with lambda parameters (parameters are immutable)
     let child_ctx = ctx.child_with_locals(|locals| {
         for (name, ty) in params.iter().zip(param_types.iter()) {
-            locals.insert(name.clone(), crate::types::LocalBinding::immutable(ty.clone()));
+            locals.insert(
+                name.clone(),
+                crate::types::LocalBinding::immutable(ty.clone()),
+            );
         }
     });
 

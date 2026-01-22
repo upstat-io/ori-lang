@@ -146,7 +146,10 @@ mod tests {
     #[test]
     fn test_binding_immutable_set_fails() {
         let mut binding = Binding::immutable(42);
-        assert!(matches!(binding.set(100), Err(BindingError::ImmutableBinding)));
+        assert!(matches!(
+            binding.set(100),
+            Err(BindingError::ImmutableBinding)
+        ));
         assert_eq!(binding.get(), &42); // Value unchanged
     }
 

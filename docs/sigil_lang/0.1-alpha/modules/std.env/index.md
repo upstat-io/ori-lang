@@ -20,6 +20,76 @@ The `std.env` module provides:
 
 ---
 
+## The Env Capability
+
+```sigil
+trait Env {
+    @get (name: str) -> Option<str>
+    @set (name: str, value: str) -> void
+    @remove (name: str) -> void
+    @all () -> {str: str}
+    @args () -> [str]
+    @current_dir () -> Result<str, EnvError>
+}
+```
+
+The `Env` capability represents access to environment variables and process information. Functions that read or modify the environment must declare `uses Env` in their signature.
+
+```sigil
+@get_database_url () -> str uses Env =
+    Env.get("DATABASE_URL") ?? "postgres://localhost/dev"
+```
+
+**Implementations:**
+
+| Type | Description |
+|------|-------------|
+| `SystemEnv` | Real system environment (default) |
+| `MockEnv` | Configurable mock for testing |
+
+### MockEnv
+
+For testing environment-dependent code:
+
+```sigil
+type MockEnv = {
+    vars: {str: str},
+    arguments: [str],
+    cwd: str,
+}
+
+impl Env for MockEnv {
+    @get (name: str) -> Option<str> = self.vars.get(name)
+    @set (name: str, value: str) -> void = self.vars = self.vars.insert(name, value)
+    @remove (name: str) -> void = self.vars = self.vars.remove(name)
+    @all () -> {str: str} = self.vars
+    @args () -> [str] = self.arguments
+    @current_dir () -> Result<str, EnvError> = Ok(self.cwd)
+}
+```
+
+```sigil
+@test_database_url tests @get_database_url () -> void =
+    with Env = MockEnv {
+        vars: {"DATABASE_URL": "postgres://test/testdb"},
+        arguments: [],
+        cwd: "/tmp",
+    } in
+    run(
+        let url = get_database_url(),
+        assert_eq(url, "postgres://test/testdb"),
+    )
+
+@test_database_url_default tests @get_database_url () -> void =
+    with Env = MockEnv { vars: {}, arguments: [], cwd: "/tmp" } in
+    run(
+        let url = get_database_url(),
+        assert_eq(url, "postgres://localhost/dev"),
+    )
+```
+
+---
+
 ## Environment Variables
 
 ### @get_var

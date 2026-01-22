@@ -25,7 +25,10 @@ pub struct ParallelPattern;
 
 static PARALLEL_PARAMS: &[ParamSpec] = &[
     ParamSpec::optional(".timeout", "maximum execution time"),
-    ParamSpec::optional(".on_error", "error handling strategy (fail_fast/collect_all)"),
+    ParamSpec::optional(
+        ".on_error",
+        "error handling strategy (fail_fast/collect_all)",
+    ),
 ];
 
 impl PatternDefinition for ParallelPattern {
@@ -51,13 +54,12 @@ impl PatternDefinition for ParallelPattern {
         // Check all branch expressions and build record type
         let mut field_types = Vec::new();
         for (name, expr) in branches {
-            let ty =
-                check_expr(expr, ctx).map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+            let ty = check_expr(expr, ctx)?;
             field_types.push((name.clone(), ty));
         }
 
         if let Some(t) = timeout {
-            check_expr(t, ctx).map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+            check_expr(t, ctx)?;
         }
 
         // Returns an anonymous record type with the branch names as fields

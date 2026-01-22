@@ -91,7 +91,11 @@ pub trait Visitor {
             } => self.visit_if(cond, then_branch, else_branch, ty, span),
             TExprKind::Match(m) => self.visit_match(m, ty, span),
             TExprKind::Block(stmts, result) => self.visit_block(stmts, result, ty, span),
-            TExprKind::For { binding, iter, body } => self.visit_for(*binding, iter, body, ty, span),
+            TExprKind::For {
+                binding,
+                iter,
+                body,
+            } => self.visit_for(*binding, iter, body, ty, span),
 
             TExprKind::Assign { target, value } => self.visit_assign(*target, value, ty, span),
             TExprKind::Range { start, end } => self.visit_range(start, end, ty, span),
@@ -104,10 +108,11 @@ pub trait Visitor {
             TExprKind::None_ => self.visit_none(ty, span),
             TExprKind::Coalesce { value, default } => self.visit_coalesce(value, default, ty, span),
             TExprKind::Unwrap(inner) => self.visit_unwrap(inner, ty, span),
-            TExprKind::With { capability, implementation, body } => {
-                self.visit_with(capability, implementation, body, ty, span)
-            }
-            TExprKind::Await(inner) => self.visit_await(inner, ty, span),
+            TExprKind::With {
+                capability,
+                implementation,
+                body,
+            } => self.visit_with(capability, implementation, body, ty, span),
         }
     }
 
@@ -345,7 +350,13 @@ pub trait Visitor {
         self.visit_expr(value)
     }
 
-    fn visit_range(&mut self, start: &TExpr, end: &TExpr, _ty: &Type, _span: &Span) -> Self::Result {
+    fn visit_range(
+        &mut self,
+        start: &TExpr,
+        end: &TExpr,
+        _ty: &Type,
+        _span: &Span,
+    ) -> Self::Result {
         let s = self.visit_expr(start);
         let e = self.visit_expr(end);
         self.combine_results(s, e)
@@ -426,7 +437,10 @@ pub trait Visitor {
                 self.combine_results(c, p)
             }
             TPattern::Parallel { branches, .. } => {
-                let results: Vec<_> = branches.iter().map(|(_, e, _)| self.visit_expr(e)).collect();
+                let results: Vec<_> = branches
+                    .iter()
+                    .map(|(_, e, _)| self.visit_expr(e))
+                    .collect();
                 self.combine_many(results)
             }
             TPattern::Find {
@@ -467,9 +481,7 @@ pub trait Visitor {
                 self.combine_many(results)
             }
             TPattern::Validate {
-                rules,
-                then_value,
-                ..
+                rules, then_value, ..
             } => {
                 let mut results = Vec::new();
                 for (cond, msg) in rules {
@@ -527,10 +539,6 @@ pub trait Visitor {
         let i = self.visit_expr(implementation);
         let b = self.visit_expr(body);
         self.combine_results(i, b)
-    }
-
-    fn visit_await(&mut self, inner: &TExpr, _ty: &Type, _span: &Span) -> Self::Result {
-        self.visit_expr(inner)
     }
 }
 
@@ -636,9 +644,7 @@ mod tests {
 
         // Tuple
         let expr = TExpr::new(
-            TExprKind::Tuple(vec![
-                TExpr::new(TExprKind::Int(1), Type::Int, 0..1),
-            ]),
+            TExprKind::Tuple(vec![TExpr::new(TExprKind::Int(1), Type::Int, 0..1)]),
             Type::Tuple(vec![Type::Int]),
             0..1,
         );
@@ -649,9 +655,10 @@ mod tests {
         let expr = TExpr::new(
             TExprKind::Struct {
                 name: "Point".to_string(),
-                fields: vec![
-                    ("x".to_string(), TExpr::new(TExprKind::Int(1), Type::Int, 0..1)),
-                ],
+                fields: vec![(
+                    "x".to_string(),
+                    TExpr::new(TExprKind::Int(1), Type::Int, 0..1),
+                )],
             },
             Type::Struct {
                 name: "Point".to_string(),
@@ -738,7 +745,11 @@ mod tests {
         // MethodCall
         let expr = TExpr::new(
             TExprKind::MethodCall {
-                receiver: Box::new(TExpr::new(TExprKind::String("hi".to_string()), Type::Str, 0..1)),
+                receiver: Box::new(TExpr::new(
+                    TExprKind::String("hi".to_string()),
+                    Type::Str,
+                    0..1,
+                )),
                 method: "upper".to_string(),
                 args: vec![],
             },
@@ -807,7 +818,11 @@ mod tests {
 
         // Err
         let expr = TExpr::new(
-            TExprKind::Err(Box::new(TExpr::new(TExprKind::String("e".to_string()), Type::Str, 0..1))),
+            TExprKind::Err(Box::new(TExpr::new(
+                TExprKind::String("e".to_string()),
+                Type::Str,
+                0..1,
+            ))),
             Type::Result(Box::new(Type::Int), Box::new(Type::Str)),
             0..1,
         );
@@ -828,7 +843,11 @@ mod tests {
         // Coalesce
         let expr = TExpr::new(
             TExprKind::Coalesce {
-                value: Box::new(TExpr::new(TExprKind::None_, Type::Option(Box::new(Type::Int)), 0..1)),
+                value: Box::new(TExpr::new(
+                    TExprKind::None_,
+                    Type::Option(Box::new(Type::Int)),
+                    0..1,
+                )),
                 default: Box::new(TExpr::new(TExprKind::Int(0), Type::Int, 0..1)),
             },
             Type::Int,
@@ -861,7 +880,10 @@ mod tests {
                 captures: vec![],
                 body: Box::new(TExpr::new(TExprKind::Param(0), Type::Int, 0..1)),
             },
-            Type::Function { params: vec![Type::Int], ret: Box::new(Type::Int) },
+            Type::Function {
+                params: vec![Type::Int],
+                ret: Box::new(Type::Int),
+            },
             0..1,
         );
         assert_eq!(counter.visit_expr(&expr), 1);
@@ -891,12 +913,10 @@ mod tests {
 
         // MapLiteral
         let expr = TExpr::new(
-            TExprKind::MapLiteral(vec![
-                (
-                    TExpr::new(TExprKind::String("k".to_string()), Type::Str, 0..1),
-                    TExpr::new(TExprKind::Int(1), Type::Int, 0..1),
-                ),
-            ]),
+            TExprKind::MapLiteral(vec![(
+                TExpr::new(TExprKind::String("k".to_string()), Type::Str, 0..1),
+                TExpr::new(TExprKind::Int(1), Type::Int, 0..1),
+            )]),
             Type::Map(Box::new(Type::Str), Box::new(Type::Int)),
             0..1,
         );
@@ -928,8 +948,16 @@ mod tests {
         let expr = TExpr::new(
             TExprKind::Binary {
                 op: BinaryOp::Add,
-                left: Box::new(TExpr::new(TExprKind::String("hello".to_string()), Type::Str, 0..1)),
-                right: Box::new(TExpr::new(TExprKind::String("world".to_string()), Type::Str, 0..1)),
+                left: Box::new(TExpr::new(
+                    TExprKind::String("hello".to_string()),
+                    Type::Str,
+                    0..1,
+                )),
+                right: Box::new(TExpr::new(
+                    TExprKind::String("world".to_string()),
+                    Type::Str,
+                    0..1,
+                )),
             },
             Type::Str,
             0..1,
@@ -967,21 +995,21 @@ mod tests {
 
     #[test]
     fn test_custom_visitor_collects_calls() {
-        let mut collector = CallCollector { calls: HashSet::new() };
+        let mut collector = CallCollector {
+            calls: HashSet::new(),
+        };
 
         let expr = TExpr::new(
             TExprKind::Call {
                 func: FuncRef::User("foo".to_string()),
-                args: vec![
-                    TExpr::new(
-                        TExprKind::Call {
-                            func: FuncRef::Builtin("len".to_string()),
-                            args: vec![],
-                        },
-                        Type::Int,
-                        0..1,
-                    ),
-                ],
+                args: vec![TExpr::new(
+                    TExprKind::Call {
+                        func: FuncRef::Builtin("len".to_string()),
+                        args: vec![],
+                    },
+                    Type::Int,
+                    0..1,
+                )],
             },
             Type::Int,
             0..1,

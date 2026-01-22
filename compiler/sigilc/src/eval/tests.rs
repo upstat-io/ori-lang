@@ -593,7 +593,9 @@ fn test_assert_eq_failure() {
 
 #[test]
 fn test_fold_find_max() {
-    let result = eval_ok("@main () -> int = fold([3, 1, 4, 1, 5, 9], 0, (acc, x) -> if x > acc :then x :else acc)");
+    let result = eval_ok(
+        "@main () -> int = fold([3, 1, 4, 1, 5, 9], 0, (acc, x) -> if x > acc :then x :else acc)",
+    );
     assert_eq!(result, Value::Int(9));
 }
 
@@ -637,7 +639,8 @@ fn test_map_range() {
 
 #[test]
 fn test_filter_named_syntax() {
-    let result = eval_ok("@main () -> [int] = filter(.over: [1, 2, 3, 4, 5], .predicate: x -> x > 2)");
+    let result =
+        eval_ok("@main () -> [int] = filter(.over: [1, 2, 3, 4, 5], .predicate: x -> x > 2)");
     assert_eq!(
         result,
         Value::List(vec![Value::Int(3), Value::Int(4), Value::Int(5)])
@@ -696,7 +699,12 @@ fn test_collect_named_syntax() {
     let result = eval_ok("@main () -> [int] = collect(.range: 1..5, .transform: x -> x + 10)");
     assert_eq!(
         result,
-        Value::List(vec![Value::Int(11), Value::Int(12), Value::Int(13), Value::Int(14)])
+        Value::List(vec![
+            Value::Int(11),
+            Value::Int(12),
+            Value::Int(13),
+            Value::Int(14)
+        ])
     );
 }
 

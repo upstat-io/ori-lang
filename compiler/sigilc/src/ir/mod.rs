@@ -27,10 +27,10 @@ pub mod visit;
 pub use display::{dump_tir, DisplayConfig, TIRPrinter};
 pub use expr::{FuncRef, LocalId, TExpr, TExprKind, TMatch, TMatchArm, TMatchPattern, TStmt};
 pub use fold::Folder;
-pub use visit::Visitor;
 pub use module::{
     LocalInfo, LocalTable, TConfig, TField, TFunction, TImport, TImportItem, TModule, TParam,
     TTest, TTypeDef, TTypeDefKind, TVariant,
 };
 pub use patterns::{IterDirection, OnError, RetryBackoff, TPattern};
 pub use types::Type;
+pub use visit::Visitor;

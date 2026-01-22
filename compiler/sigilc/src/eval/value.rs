@@ -214,10 +214,7 @@ impl Environment {
                 let _ = binding.set(value);
                 Ok(())
             }
-            Some(_) => Err(format!(
-                "Cannot assign to immutable variable '{}'",
-                name
-            )),
+            Some(_) => Err(format!("Cannot assign to immutable variable '{}'", name)),
             None => Err(format!("Variable '{}' not found", name)),
         }
     }

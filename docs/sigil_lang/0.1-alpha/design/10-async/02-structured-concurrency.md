@@ -10,9 +10,9 @@ Sigil enforces **structured concurrency**: all concurrent tasks must be awaited,
 
 ```sigil
 // Structured: parallel waits for all tasks
-@fetch_all () -> async [Data] = parallel(
+@fetch_all () -> [Data] uses Http, Async = parallel(
     .tasks: [fetch_a(), fetch_b(), fetch_c()]
-).await
+)
 
 // NOT allowed: fire-and-forget
 @bad () -> void = run(
@@ -37,17 +37,17 @@ Think of it like structured programming for concurrency: just as functions retur
 ### The Concurrency Hierarchy
 
 ```sigil
-@main () -> async void = run(
+@main () -> void uses Async = run(
     // main waits for process_all
-    let result = process_all().await,
+    let result = process_all(),
     print(result),
 )
 
-@process_all () -> async [Data] = run(
+@process_all () -> [Data] uses Async = run(
     // process_all waits for parallel
     let data = parallel(
         .tasks: [task_a(), task_b(), task_c()],
-    ).await,
+    ),
     // All three tasks complete before we continue
     transform(data),
 )
@@ -92,12 +92,12 @@ Sigil simply doesn't allow detached tasks:
 If you need concurrent work, use `parallel`:
 
 ```sigil
-@good () -> async void = run(
+@good () -> void uses Async = run(
     // Explicitly wait for all concurrent work
     parallel(
         .main_work: handle_request(),
         .analytics: log_analytics(),
-    ).await,
+    ),
     print("all done"),
 )
 ```
@@ -113,12 +113,12 @@ If you need concurrent work, use `parallel`:
 Named tasks with struct result:
 
 ```sigil
-@fetch_dashboard (user_id: int) -> async Dashboard = run(
+@fetch_dashboard (user_id: int) -> Dashboard uses Http, Async = run(
     let data = parallel(
         .user: get_user(user_id),
         .posts: get_posts(user_id),
         .notifications: get_notifications(user_id),
-    ).await,
+    ),
     Dashboard {
         user: data.user,
         posts: data.posts,
@@ -130,9 +130,9 @@ Named tasks with struct result:
 List of tasks:
 
 ```sigil
-@fetch_all (urls: [str]) -> async [Data] = parallel(
+@fetch_all (urls: [str]) -> [Data] uses Http, Async = parallel(
     .tasks: map(urls, url -> fetch(url))
-).await
+)
 ```
 
 ### Concurrency Limits
@@ -140,10 +140,10 @@ List of tasks:
 Control maximum concurrent tasks:
 
 ```sigil
-@fetch_many (urls: [str]) -> async [Data] = parallel(
+@fetch_many (urls: [str]) -> [Data] uses Http, Async = parallel(
     .tasks: map(urls, url -> fetch(url)),
     .max_concurrent: 10  // at most 10 fetches at once
-).await
+)
 ```
 
 Why limit concurrency?
@@ -156,19 +156,19 @@ Why limit concurrency?
 By default, `parallel` fails fast - one failure stops everything:
 
 ```sigil
-@fetch_both () -> async Result<(Data, Data), Error> = parallel(
+@fetch_both () -> Result<(Data, Data), Error> uses Http, Async = parallel(
     .a: fetch_a(),  // if this fails...
     .b: fetch_b()   // ...this is cancelled
-).await
+)
 ```
 
 Collect all errors instead:
 
 ```sigil
-@fetch_all (urls: [str]) -> async [Result<Data, Error>] = parallel(
+@fetch_all (urls: [str]) -> [Result<Data, Error>] uses Http, Async = parallel(
     .tasks: map(urls, url -> fetch(url)),
     .on_error: collect_all  // collect successes and failures
-).await
+)
 ```
 
 ### Timeouts
@@ -176,11 +176,11 @@ Collect all errors instead:
 Add a timeout to parallel operations:
 
 ```sigil
-@fetch_with_limit () -> async Result<Data, Error> = parallel(
+@fetch_with_limit () -> Result<Data, Error> uses Http, Clock, Async = parallel(
     .a: fetch_slow(),
     .b: fetch_fast(),
     .timeout: 5s  // cancel all if not done in 5 seconds
-).await
+)
 ```
 
 ---
@@ -192,11 +192,11 @@ Add a timeout to parallel operations:
 When a function returns, all tasks it started have completed:
 
 ```sigil
-@process () -> async Result = run(
+@process () -> Result uses Async = run(
     parallel(
         .task_a: slow_operation(),
         .task_b: fast_operation(),
-    ).await,
+    ),
     // Both task_a and task_b are DONE here
     Ok(result),
 )
@@ -208,19 +208,19 @@ When a function returns, all tasks it started have completed:
 Cancelling a parent cancels all children:
 
 ```sigil
-@outer () -> async void = run(
+@outer () -> void uses Clock, Async = run(
     timeout(
-        .op: inner().await,
+        .op: inner(),
         .after: 5s,
         .on_timeout: handle_timeout()
     )
 )
 
-@inner () -> async void = parallel(
+@inner () -> void uses Async = parallel(
     .a: task_a(),  // cancelled if outer times out
     .b: task_b(),  // cancelled if outer times out
     .c: task_c()   // cancelled if outer times out
-).await
+)
 ```
 
 ### Guarantee 3: Error Propagation
@@ -228,23 +228,23 @@ Cancelling a parent cancels all children:
 Errors bubble up through the hierarchy:
 
 ```sigil
-@main () -> async void = run(
-    let result = top_level().await,
+@main () -> void uses Async = run(
+    let result = top_level(),
     match(result,
         Ok(data) -> print("Success: " + str(data)),
         Err(e) -> print("Failed: " + str(e)),
     ),
 )
 
-@top_level () -> async Result<Data, Error> = parallel(
+@top_level () -> Result<Data, Error> uses Async = parallel(
     .a: middle_a(),  // error here...
     .b: middle_b()
-).await  // ...propagates here
+)  // ...propagates here
 
-@middle_a () -> async Result<Data, Error> = parallel(
+@middle_a () -> Result<Data, Error> uses Async = parallel(
     .x: leaf_x(),  // error here...
     .y: leaf_y()
-).await  // ...propagates to top_level
+)  // ...propagates to top_level
 ```
 
 ---
@@ -257,17 +257,17 @@ Instead of fire-and-forget, make background work explicit:
 
 ```sigil
 // BAD: fire-and-forget (not allowed)
-@handle_request () -> async Response = run(
+@handle_request () -> Response uses Http, Async = run(
     spawn(log_analytics()),  // ERROR
     compute_response()
 )
 
 // GOOD: explicit concurrent work
-@handle_request () -> async Response = run(
+@handle_request () -> Response uses Http, Async = run(
     let results = parallel(
         .response: compute_response(),
         .analytics: log_analytics(),
-    ).await,
+    ),
     results.response,
 )
 ```
@@ -277,10 +277,10 @@ Instead of fire-and-forget, make background work explicit:
 Use `with` for cleanup instead of spawning cleanup tasks:
 
 ```sigil
-@process_file (path: str) -> async Result<Data, Error> = with(
-    .acquire: open_file(path).await,
-    .use: file -> process(file).await,
-    .release: file -> close_file(file).await  // always runs
+@process_file (path: str) -> Result<Data, Error> uses FileSystem, Async = with(
+    .acquire: open_file(path),
+    .use: file -> process(file),
+    .release: file -> close_file(file)  // always runs
 )
 ```
 
@@ -289,32 +289,32 @@ Use `with` for cleanup instead of spawning cleanup tasks:
 For processing a queue of work:
 
 ```sigil
-@process_queue (items: [Item]) -> async [Result<ProcessedItem, Error>] = parallel(
+@process_queue (items: [Item]) -> [Result<ProcessedItem, Error>] uses Async = parallel(
     .tasks: map(items, item -> process(item)),
     .max_concurrent: $worker_count
-).await
+)
 ```
 
 ### Periodic Work
 
-For recurring tasks, use explicit loops with await:
+For recurring tasks, use explicit loops:
 
 ```sigil
-@periodic_check (interval: Duration) -> async void =
+@periodic_check (interval: Duration) -> void uses Clock, Async =
     loop(
-        perform_check().await,
-        sleep(interval).await
+        perform_check(),
+        sleep(interval)
     )
 ```
 
 Call it within structured concurrency:
 
 ```sigil
-@main () -> async void = parallel(
+@main () -> void uses Http, Clock, Async = parallel(
     .server: run_server(),
     .health_check: periodic_check(30s),
     .metrics: periodic_metrics(1m)
-).await
+)
 ```
 
 ---
@@ -326,13 +326,13 @@ Call it within structured concurrency:
 For services that run "forever," structure them at the top level:
 
 ```sigil
-@main () -> async void = parallel(
+@main () -> void uses Http, Clock, Async = parallel(
     .http_server: run_http_server(),
     .background_jobs: run_job_processor(),
     .metrics_collector: run_metrics()
     // All three run concurrently
     // If any fails, others are cancelled
-).await
+)
 ```
 
 ### Graceful Shutdown
@@ -340,12 +340,12 @@ For services that run "forever," structure them at the top level:
 Use context-based cancellation for clean shutdown:
 
 ```sigil
-@main () -> async void = run(
+@main () -> void uses Http, Async = run(
     let ctx = Context.with_signal(SIGTERM),
     parallel(
         .server: run_server(ctx),
         .jobs: run_jobs(ctx),
-    ).await,
+    ),
     // SIGTERM cancels the context, tasks check and exit cleanly
 )
 ```
@@ -371,10 +371,10 @@ func handle() {
 Sigil requires explicit waiting:
 
 ```sigil
-@handle () -> async void = parallel(
+@handle () -> void uses Async = parallel(
     .main: main_task(),
     .background: background_task()
-).await  // must complete before return
+)  // must complete before return
 ```
 
 ### vs. JavaScript Promises
@@ -389,11 +389,11 @@ async function handle() {
 }
 ```
 
-Sigil async values must be awaited:
+Sigil async functions must declare capabilities:
 
 ```sigil
-@handle () -> async str = run(
-    background_task(),  // ERROR: async value not awaited
+@handle () -> str = run(
+    background_task(),  // ERROR: calling async function without Async capability
     "done"
 )
 ```
@@ -412,10 +412,10 @@ fn main() {
 Sigil has no `spawn`:
 
 ```sigil
-@main () -> async void = parallel(
+@main () -> void uses Async = parallel(
     .main: main_work(),
     .background: background_task()
-).await  // both must complete
+)  // both must complete
 ```
 
 ---
@@ -450,30 +450,30 @@ Sigil intentionally has **no escape hatch** for detached tasks. If you need trul
 
 ```sigil
 // Explicit long-running service
-@main () -> async void = parallel(
+@main () -> void uses Http, Async = parallel(
     .api: api_server(),
     .background: background_service()
-).await
+)
 ```
 
 ---
 
 ## Best Practices
 
-### Always Await Parallel Results
+### Always Use Parallel Results
 
 ```sigil
 // Good
 let data = parallel(
     .a: task_a(),
     .b: task_b(),
-).await
+)
 
-// Bad: parallel without await is useless
+// Bad: parallel result unused
 parallel(
     .a: task_a(),
     .b: task_b(),
-)  // ERROR: async not awaited
+)  // WARNING: result unused
 ```
 
 ### Use Named Tasks for Clarity
@@ -484,10 +484,10 @@ parallel(
     .user_data: fetch_user(id),
     .preferences: fetch_preferences(id),
     .history: fetch_history(id)
-).await
+)
 
 // Less clear: anonymous task list
-parallel(.tasks: [fetch_user(id), fetch_preferences(id), fetch_history(id)]).await
+parallel(.tasks: [fetch_user(id), fetch_preferences(id), fetch_history(id)])
 ```
 
 ### Set Appropriate Concurrency Limits
@@ -497,22 +497,22 @@ parallel(.tasks: [fetch_user(id), fetch_preferences(id), fetch_history(id)]).awa
 parallel(
     .tasks: map(urls, url -> fetch(url)),
     .max_concurrent: 10
-).await
+)
 
 // Risky: unbounded concurrent requests
 parallel(
     .tasks: map(thousands_of_urls, url -> fetch(url))
-).await  // might open thousands of connections
+)  // might open thousands of connections
 ```
 
 ### Handle Both Success and Failure
 
 ```sigil
-@robust_fetch () -> async [Data] = run(
+@robust_fetch () -> [Data] uses Http, Async = run(
     let results = parallel(
         .tasks: map(urls, url -> fetch(url)),
         .on_error: collect_all,
-    ).await,
+    ),
     // Handle mixed results
     filter(results, r -> r.is_ok()).map(r -> r.unwrap()),
 )
@@ -535,31 +535,31 @@ error[E0200]: cannot spawn detached task
    = help: parallel(
                .main: main_work(),
                .background: background_task(),
-           ).await
+           )
 ```
 
-### Async Value Not Awaited
+### Missing Async Capability
 
 ```
-error[E0201]: async value not awaited
+error[E0201]: missing capability for async operation
   --> src/main.si:8:5
    |
 8  |     parallel(
-   |     ^^^^^^^^ this parallel is never awaited
+   |     ^^^^^^^^ requires Async capability
    |
-   = note: add `.await` to wait for tasks
+   = note: add `uses Async` to function signature
 ```
 
-### Task Escaped Scope
+### Capability Not Propagated
 
 ```
-error[E0202]: task would escape scope
+error[E0202]: capability not propagated
   --> src/main.si:10:5
    |
-10 |     return some_async_value
-   |            ^^^^^^^^^^^^^^^^ async value escapes without being awaited
+10 |     return some_async_fn()
+   |            ^^^^^^^^^^^^^^^ calls function with Async capability
    |
-   = note: all async operations must complete before function returns
+   = note: caller must also declare `uses Async` capability
 ```
 
 ---

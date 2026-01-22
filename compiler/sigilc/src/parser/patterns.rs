@@ -106,7 +106,10 @@ impl Parser {
                 let pattern = self.parse_pattern()?;
                 self.expect(Token::Colon)?;
                 let body = self.parse_expr()?;
-                arms.push(MatchArm { pattern, body: body.expr });
+                arms.push(MatchArm {
+                    pattern,
+                    body: body.expr,
+                });
             }
 
             self.skip_newlines();
@@ -299,7 +302,11 @@ impl Parser {
 
     /// Parse a pattern expression with named property syntax
     /// e.g., recurse(.cond: n <= 1, .base: 1, .step: n * self(n-1), .memo: true)
-    fn parse_pattern_with_named_args_with_start(&mut self, keyword: &str, start: usize) -> Result<SpannedExpr, String> {
+    fn parse_pattern_with_named_args_with_start(
+        &mut self,
+        keyword: &str,
+        start: usize,
+    ) -> Result<SpannedExpr, String> {
         let named_args = self.parse_named_args()?;
         self.expect(Token::RParen)?;
 
@@ -536,10 +543,12 @@ impl Parser {
                     then_value: Box::new(then_value),
                 })
             }
-            _ => return Err(format!(
-                "Unknown pattern keyword with named args: {}",
-                keyword
-            )),
+            _ => {
+                return Err(format!(
+                    "Unknown pattern keyword with named args: {}",
+                    keyword
+                ))
+            }
         };
 
         Ok(self.spanned(expr, start))

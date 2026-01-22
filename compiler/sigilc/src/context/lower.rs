@@ -164,6 +164,9 @@ mod tests {
         let lower_ctx = LowerContext::new(type_ctx);
 
         // Builtin function 'len' should be available through delegation
-        assert!(FunctionLookup::<crate::types::FunctionSig>::lookup_function(&lower_ctx, "len").is_some());
+        assert!(
+            FunctionLookup::<crate::types::FunctionSig>::lookup_function(&lower_ctx, "len")
+                .is_some()
+        );
     }
 }

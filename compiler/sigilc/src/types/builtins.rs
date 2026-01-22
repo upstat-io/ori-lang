@@ -1,8 +1,8 @@
 // Declarative builtin function registration for Sigil
 // Reduces boilerplate by using macros to define builtin functions
 
-use crate::ast::TypeExpr;
 use super::registries::{FunctionRegistry, FunctionSig};
+use crate::ast::TypeExpr;
 
 // Helper macros for type expressions
 macro_rules! any {

@@ -6,9 +6,7 @@
 
 use super::{Pass, PassContext, PassError, PassResult};
 use crate::ast::BinaryOp;
-use crate::ir::{
-    FuncRef, Folder, LocalTable, TExpr, TExprKind, TModule, TPattern, TStmt, Type,
-};
+use crate::ir::{Folder, FuncRef, LocalTable, TExpr, TExprKind, TModule, TPattern, TStmt, Type};
 
 /// Pattern lowering pass
 /// Transforms: fold, map, filter, collect, count → loops
@@ -269,15 +267,25 @@ impl PatternLowerer {
         span: std::ops::Range<usize>,
     ) -> TExpr {
         // Create locals for accumulator and item
-        let acc_id = self.locals.add("__acc".to_string(), result_ty.clone(), false, true);  // mutable
-        let item_id = self.locals.add("__item".to_string(), elem_ty.clone(), false, false);  // immutable
+        let acc_id = self
+            .locals
+            .add("__acc".to_string(), result_ty.clone(), false, true); // mutable
+        let item_id = self
+            .locals
+            .add("__item".to_string(), elem_ty.clone(), false, false); // immutable
 
         // Build: acc := op(acc, item)
         let acc_ref = TExpr::new(TExprKind::Local(acc_id), result_ty.clone(), span.clone());
         let item_ref = TExpr::new(TExprKind::Local(item_id), elem_ty.clone(), span.clone());
 
         // Apply the operator
-        let apply_op = self.apply_op(op, acc_ref.clone(), item_ref, result_ty.clone(), span.clone());
+        let apply_op = self.apply_op(
+            op,
+            acc_ref.clone(),
+            item_ref,
+            result_ty.clone(),
+            span.clone(),
+        );
 
         // Build the loop body: acc := apply_op
         let loop_body = TExpr::new(
@@ -330,14 +338,19 @@ impl PatternLowerer {
         let result_ty = Type::List(Box::new(result_elem_ty.clone()));
 
         // Create locals
-        let result_id = self.locals.add("__result".to_string(), result_ty.clone(), false, true);  // mutable
-        let item_id = self.locals.add("__item".to_string(), elem_ty.clone(), false, false);  // immutable
+        let result_id = self
+            .locals
+            .add("__result".to_string(), result_ty.clone(), false, true); // mutable
+        let item_id = self
+            .locals
+            .add("__item".to_string(), elem_ty.clone(), false, false); // immutable
 
         let result_ref = TExpr::new(TExprKind::Local(result_id), result_ty.clone(), span.clone());
         let item_ref = TExpr::new(TExprKind::Local(item_id), elem_ty.clone(), span.clone());
 
         // Apply transform
-        let transformed = self.apply_transform(transform, item_ref, result_elem_ty.clone(), span.clone());
+        let transformed =
+            self.apply_transform(transform, item_ref, result_elem_ty.clone(), span.clone());
 
         // Build: result.push(transformed)
         let push_call = TExpr::new(
@@ -390,14 +403,19 @@ impl PatternLowerer {
         let result_ty = Type::List(Box::new(elem_ty.clone()));
 
         // Create locals
-        let result_id = self.locals.add("__result".to_string(), result_ty.clone(), false, true);  // mutable
-        let item_id = self.locals.add("__item".to_string(), elem_ty.clone(), false, false);  // immutable
+        let result_id = self
+            .locals
+            .add("__result".to_string(), result_ty.clone(), false, true); // mutable
+        let item_id = self
+            .locals
+            .add("__item".to_string(), elem_ty.clone(), false, false); // immutable
 
         let result_ref = TExpr::new(TExprKind::Local(result_id), result_ty.clone(), span.clone());
         let item_ref = TExpr::new(TExprKind::Local(item_id), elem_ty.clone(), span.clone());
 
         // Apply predicate
-        let pred_result = self.apply_transform(predicate, item_ref.clone(), Type::Bool, span.clone());
+        let pred_result =
+            self.apply_transform(predicate, item_ref.clone(), Type::Bool, span.clone());
 
         // Build: result.push(item)
         let push_call = TExpr::new(
@@ -471,8 +489,12 @@ impl PatternLowerer {
         span: std::ops::Range<usize>,
     ) -> TExpr {
         // Create locals
-        let count_id = self.locals.add("__count".to_string(), Type::Int, false, true);  // mutable
-        let item_id = self.locals.add("__item".to_string(), elem_ty.clone(), false, false);  // immutable
+        let count_id = self
+            .locals
+            .add("__count".to_string(), Type::Int, false, true); // mutable
+        let item_id = self
+            .locals
+            .add("__item".to_string(), elem_ty.clone(), false, false); // immutable
 
         let count_ref = TExpr::new(TExprKind::Local(count_id), Type::Int, span.clone());
         let item_ref = TExpr::new(TExprKind::Local(item_id), elem_ty.clone(), span.clone());
@@ -549,16 +571,23 @@ impl PatternLowerer {
         span: std::ops::Range<usize>,
     ) -> TExpr {
         // Create locals
-        let result_id = self.locals.add("__result".to_string(), result_ty.clone(), false, true); // mutable
-        let item_id = self.locals.add("__item".to_string(), elem_ty.clone(), false, false); // immutable
-        let found_id = self.locals.add("__found".to_string(), Type::Bool, false, true); // mutable
+        let result_id = self
+            .locals
+            .add("__result".to_string(), result_ty.clone(), false, true); // mutable
+        let item_id = self
+            .locals
+            .add("__item".to_string(), elem_ty.clone(), false, false); // immutable
+        let found_id = self
+            .locals
+            .add("__found".to_string(), Type::Bool, false, true); // mutable
 
         let result_ref = TExpr::new(TExprKind::Local(result_id), result_ty.clone(), span.clone());
         let item_ref = TExpr::new(TExprKind::Local(item_id), elem_ty.clone(), span.clone());
         let found_ref = TExpr::new(TExprKind::Local(found_id), Type::Bool, span.clone());
 
         // Apply predicate
-        let pred_result = self.apply_transform(predicate, item_ref.clone(), Type::Bool, span.clone());
+        let pred_result =
+            self.apply_transform(predicate, item_ref.clone(), Type::Bool, span.clone());
 
         // Build: result := Some(item) (or just item if we have a default)
         let set_result = if default.is_some() {
@@ -643,7 +672,11 @@ impl PatternLowerer {
         let init_value = if let Some(def) = default {
             def
         } else {
-            TExpr::new(TExprKind::None_, Type::Option(Box::new(elem_ty)), span.clone())
+            TExpr::new(
+                TExprKind::None_,
+                Type::Option(Box::new(elem_ty)),
+                span.clone(),
+            )
         };
 
         // Build: run(result := None, found := false, for ..., result)

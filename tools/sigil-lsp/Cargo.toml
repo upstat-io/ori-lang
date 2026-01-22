@@ -1,0 +1,21 @@
+[package]
+name = "sigil-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Language Server Protocol implementation for the Sigil programming language"
+
+[dependencies]
+sigilc = { path = "../../compiler/sigilc" }
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dashmap = "5"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "sigil-lsp"
+path = "src/main.rs"

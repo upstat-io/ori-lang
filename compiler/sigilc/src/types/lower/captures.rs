@@ -114,7 +114,11 @@ impl CaptureAnalyzer {
             }
 
             // If expression
-            Expr::If { condition, then_branch, else_branch } => {
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 self.visit_expr(condition);
                 self.visit_expr(then_branch);
                 if let Some(else_br) = else_branch {
@@ -139,7 +143,11 @@ impl CaptureAnalyzer {
             }
 
             // For loop
-            Expr::For { binding, iterator, body } => {
+            Expr::For {
+                binding,
+                iterator,
+                body,
+            } => {
                 self.visit_expr(iterator);
                 // The binding is local to the loop
                 let old_locals = self.locals.clone();
@@ -209,13 +217,14 @@ impl CaptureAnalyzer {
             Expr::LengthPlaceholder => {}
 
             // Capability injection - visit implementation and body
-            Expr::With { implementation, body, .. } => {
+            Expr::With {
+                implementation,
+                body,
+                ..
+            } => {
                 self.visit_expr(implementation);
                 self.visit_expr(body);
             }
-
-            // Await - visit the inner expression
-            Expr::Await(inner) => self.visit_expr(inner),
         }
     }
 
@@ -224,16 +233,26 @@ impl CaptureAnalyzer {
         use crate::ast::PatternExpr;
 
         match pattern {
-            PatternExpr::Fold { collection, init, op } => {
+            PatternExpr::Fold {
+                collection,
+                init,
+                op,
+            } => {
                 self.visit_expr(collection);
                 self.visit_expr(init);
                 self.visit_expr(op);
             }
-            PatternExpr::Map { collection, transform } => {
+            PatternExpr::Map {
+                collection,
+                transform,
+            } => {
                 self.visit_expr(collection);
                 self.visit_expr(transform);
             }
-            PatternExpr::Filter { collection, predicate } => {
+            PatternExpr::Filter {
+                collection,
+                predicate,
+            } => {
                 self.visit_expr(collection);
                 self.visit_expr(predicate);
             }
@@ -241,12 +260,19 @@ impl CaptureAnalyzer {
                 self.visit_expr(range);
                 self.visit_expr(transform);
             }
-            PatternExpr::Recurse { condition, base_value, step, .. } => {
+            PatternExpr::Recurse {
+                condition,
+                base_value,
+                step,
+                ..
+            } => {
                 self.visit_expr(condition);
                 self.visit_expr(base_value);
                 self.visit_expr(step);
             }
-            PatternExpr::Iterate { over, into, with, .. } => {
+            PatternExpr::Iterate {
+                over, into, with, ..
+            } => {
                 self.visit_expr(over);
                 self.visit_expr(into);
                 self.visit_expr(with);
@@ -257,11 +283,16 @@ impl CaptureAnalyzer {
                     self.visit_expr(step);
                 }
             }
-            PatternExpr::Count { collection, predicate } => {
+            PatternExpr::Count {
+                collection,
+                predicate,
+            } => {
                 self.visit_expr(collection);
                 self.visit_expr(predicate);
             }
-            PatternExpr::Parallel { branches, timeout, .. } => {
+            PatternExpr::Parallel {
+                branches, timeout, ..
+            } => {
                 for (_, expr) in branches {
                     self.visit_expr(expr);
                 }
@@ -269,7 +300,11 @@ impl CaptureAnalyzer {
                     self.visit_expr(t);
                 }
             }
-            PatternExpr::Find { collection, predicate, default } => {
+            PatternExpr::Find {
+                collection,
+                predicate,
+                default,
+            } => {
                 self.visit_expr(collection);
                 self.visit_expr(predicate);
                 if let Some(d) = default {
@@ -282,7 +317,12 @@ impl CaptureAnalyzer {
                     self.visit_expr(c);
                 }
             }
-            PatternExpr::Retry { operation, max_attempts, delay_ms, .. } => {
+            PatternExpr::Retry {
+                operation,
+                max_attempts,
+                delay_ms,
+                ..
+            } => {
                 self.visit_expr(operation);
                 self.visit_expr(max_attempts);
                 if let Some(d) = delay_ms {

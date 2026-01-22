@@ -15,9 +15,8 @@ pub fn render_diagnostic(diag: &Diagnostic) -> String {
 
 /// Render a single diagnostic as pretty-printed JSON.
 pub fn render_diagnostic_pretty(diag: &Diagnostic) -> String {
-    serde_json::to_string_pretty(&DiagnosticJson::from(diag)).unwrap_or_else(|_| {
-        render_diagnostic(diag)
-    })
+    serde_json::to_string_pretty(&DiagnosticJson::from(diag))
+        .unwrap_or_else(|_| render_diagnostic(diag))
 }
 
 /// Render multiple diagnostics as a JSON array.
@@ -60,7 +59,11 @@ pub fn render_compilation_result<T: serde::Serialize>(
     };
 
     serde_json::to_string(&result).unwrap_or_else(|_| {
-        format!(r#"{{"success":{},"error_count":{}}}"#, success, diagnostics.error_count())
+        format!(
+            r#"{{"success":{},"error_count":{}}}"#,
+            success,
+            diagnostics.error_count()
+        )
     })
 }
 
@@ -192,12 +195,11 @@ mod tests {
 
     #[test]
     fn test_render_diagnostic_with_suggestion() {
-        let diag = Diagnostic::error(ErrorCode::E3001, "type mismatch")
-            .with_suggestion(
-                "convert to int",
-                Some(Span::new("test.si", 10..15)),
-                Some("int(x)".to_string()),
-            );
+        let diag = Diagnostic::error(ErrorCode::E3001, "type mismatch").with_suggestion(
+            "convert to int",
+            Some(Span::new("test.si", 10..15)),
+            Some("int(x)".to_string()),
+        );
 
         let json = render_diagnostic(&diag);
 

@@ -75,7 +75,11 @@ impl Backend for CBackend {
         )
     }
 
-    fn generate(&self, module: &TModule, _options: &CodegenOptions) -> Result<GeneratedCode, String> {
+    fn generate(
+        &self,
+        module: &TModule,
+        _options: &CodegenOptions,
+    ) -> Result<GeneratedCode, String> {
         // Use the existing TIR code generator
         let source = crate::codegen::tir::generate(module)?;
 

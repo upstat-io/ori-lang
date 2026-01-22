@@ -22,8 +22,8 @@ pub use resolution::{MethodResolver, ResolvedMethod, TraitObject};
 /// Built-in traits that are always available.
 pub mod builtins {
     use super::*;
-    use crate::types::FunctionSig;
     use crate::ast::TypeExpr;
+    use crate::types::FunctionSig;
 
     /// Create the Copy trait definition.
     pub fn copy_trait() -> TraitDef {
@@ -69,8 +69,7 @@ pub mod builtins {
 
     /// Create the Ord trait definition.
     pub fn ord_trait() -> TraitDef {
-        let trait_def = TraitDef::new("Ord".to_string())
-            .with_supertraits(vec!["Eq".to_string()]);
+        let trait_def = TraitDef::new("Ord".to_string()).with_supertraits(vec!["Eq".to_string()]);
         // Note: methods would include compare, lt, gt, etc.
         trait_def
     }

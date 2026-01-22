@@ -175,11 +175,19 @@ mod tests {
     #[test]
     fn test_scope_guard_raii() {
         let mut manager = ScopeManager::new();
-        manager.define_local("outer".to_string(), TypeExpr::Named("int".to_string()), false);
+        manager.define_local(
+            "outer".to_string(),
+            TypeExpr::Named("int".to_string()),
+            false,
+        );
 
         {
             let mut guard = manager.enter_scope();
-            guard.define_local("inner".to_string(), TypeExpr::Named("str".to_string()), false);
+            guard.define_local(
+                "inner".to_string(),
+                TypeExpr::Named("str".to_string()),
+                false,
+            );
             assert!(guard.lookup_local("outer").is_some());
             assert!(guard.lookup_local("inner").is_some());
         }

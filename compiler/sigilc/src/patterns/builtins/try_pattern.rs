@@ -44,8 +44,7 @@ impl PatternDefinition for TryPattern {
         };
 
         // Check body type
-        let body_type = check_expr(body, ctx)
-            .map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+        let body_type = check_expr(body, ctx)?;
 
         // If catch handler is provided, verify it and return its result type
         if let Some(catch_expr) = catch {
@@ -55,9 +54,7 @@ impl PatternDefinition for TryPattern {
                 Box::new(body_type.clone()),
             );
 
-            check_expr_with_hint(catch_expr, ctx, Some(&expected_catch_type)).map_err(|msg| {
-                Diagnostic::error(ErrorCode::E3001, msg)
-            })?;
+            check_expr_with_hint(catch_expr, ctx, Some(&expected_catch_type))?;
 
             // With catch, returns body type directly (errors are handled)
             Ok(body_type)
@@ -105,11 +102,7 @@ impl PatternDefinition for TryPattern {
                                 functions: env.functions.clone(),
                                 locals: Environment::locals_from_values(fn_env),
                             };
-                            call_env.define(
-                                params[0].clone(),
-                                Value::String(error_msg),
-                                false,
-                            );
+                            call_env.define(params[0].clone(), Value::String(error_msg), false);
                             eval_expr(&catch_body, &call_env)
                         }
                         _ => Err("catch must be a function".to_string()),

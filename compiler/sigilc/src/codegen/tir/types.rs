@@ -77,11 +77,6 @@ impl TirCodeGen {
                 // Trait object - represented as a pointer to vtable struct
                 format!("Dyn{}*", trait_name)
             }
-
-            Type::Async(inner) => {
-                // Async type - represented as a future struct
-                format!("Future<{}>*", self.type_to_c(inner))
-            }
         }
     }
 

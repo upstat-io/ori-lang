@@ -14,13 +14,14 @@ mod structs;
 use super::check_pattern::check_pattern_expr;
 use super::context::TypeContext;
 use crate::ast::*;
+use crate::errors::DiagnosticResult;
 
 /// Check an expression with an optional expected type hint for bidirectional type inference
 pub fn check_expr_with_hint(
     expr: &Expr,
     ctx: &TypeContext,
     expected: Option<&TypeExpr>,
-) -> Result<TypeExpr, String> {
+) -> DiagnosticResult<TypeExpr> {
     match expr {
         Expr::Lambda { params, body } => lambdas::check_lambda(params, body, ctx, expected),
         // Empty list can be inferred from expected type
@@ -35,15 +36,21 @@ pub fn check_expr_with_hint(
     }
 }
 
-pub fn check_expr(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> {
+pub fn check_expr(expr: &Expr, ctx: &TypeContext) -> DiagnosticResult<TypeExpr> {
     check_expr_with_hint(expr, ctx, None)
 }
 
 /// Check an expression within a block context (where assignments can modify scope)
-pub fn check_block_expr(expr: &Expr, ctx: &mut TypeContext) -> Result<TypeExpr, String> {
+pub fn check_block_expr(expr: &Expr, ctx: &mut TypeContext) -> DiagnosticResult<TypeExpr> {
+    use crate::errors::{codes::ErrorCode, Diagnostic};
+
     match expr {
         // New let binding: let x = value or let mut x = value
-        Expr::Let { name, mutable, value } => {
+        Expr::Let {
+            name,
+            mutable,
+            value,
+        } => {
             let value_type = check_expr_with_hint(value, ctx, None)?;
             ctx.define_local(name.clone(), value_type, *mutable);
             Ok(TypeExpr::Named("void".to_string()))
@@ -51,15 +58,23 @@ pub fn check_block_expr(expr: &Expr, ctx: &mut TypeContext) -> Result<TypeExpr, 
         // Reassignment: x = value (only for mutable bindings)
         Expr::Reassign { target, value } => {
             let binding = ctx.lookup_local_binding(target).ok_or_else(|| {
-                format!("Cannot assign to undeclared variable '{}'", target)
+                Diagnostic::error(
+                    ErrorCode::E3002,
+                    format!("cannot assign to undeclared variable '{}'", target),
+                )
+                .with_label(ctx.make_span(0..0), "not declared")
             })?;
 
             if !binding.is_mutable() {
-                return Err(format!(
-                    "Cannot assign twice to immutable variable '{}'\n\
-                     help: consider making this binding mutable: `let mut {}`",
-                    target, target
-                ));
+                return Err(Diagnostic::error(
+                    ErrorCode::E3006,
+                    format!("cannot assign twice to immutable variable '{}'", target),
+                )
+                .with_label(ctx.make_span(0..0), "immutable binding")
+                .with_help(format!(
+                    "consider making this binding mutable: `let mut {}`",
+                    target
+                )));
             }
 
             let expected_ty = binding.get().clone();
@@ -67,10 +82,14 @@ pub fn check_block_expr(expr: &Expr, ctx: &mut TypeContext) -> Result<TypeExpr, 
 
             // Check type compatibility
             if !crate::types::compat::types_compatible(&value_type, &expected_ty, ctx) {
-                return Err(format!(
-                    "Type mismatch: expected {:?}, found {:?}",
-                    expected_ty, value_type
-                ));
+                return Err(Diagnostic::error(
+                    ErrorCode::E3001,
+                    format!(
+                        "type mismatch: expected {:?}, found {:?}",
+                        expected_ty, value_type
+                    ),
+                )
+                .with_label(ctx.make_span(0..0), format!("expected {:?}", expected_ty)));
             }
 
             Ok(TypeExpr::Named("void".to_string()))
@@ -85,7 +104,13 @@ pub fn check_block_expr(expr: &Expr, ctx: &mut TypeContext) -> Result<TypeExpr, 
             let elem_type = match &iter_type {
                 TypeExpr::List(inner) => inner.as_ref().clone(),
                 TypeExpr::Named(n) if n == "Range" => TypeExpr::Named("int".to_string()),
-                _ => return Err(format!("Cannot iterate over {:?}", iter_type)),
+                _ => {
+                    return Err(Diagnostic::error(
+                        ErrorCode::E3006,
+                        format!("cannot iterate over {:?}", iter_type),
+                    )
+                    .with_label(ctx.make_span(0..0), "expected iterable type"))
+                }
             };
             // Add loop binding to context (immutable, like Rust)
             ctx.define_local(binding.clone(), elem_type, false);
@@ -93,7 +118,11 @@ pub fn check_block_expr(expr: &Expr, ctx: &mut TypeContext) -> Result<TypeExpr, 
             Ok(TypeExpr::Named("void".to_string()))
         }
         // Capability injection: with Capability = impl in body
-        Expr::With { capability, implementation, body } => {
+        Expr::With {
+            capability,
+            implementation,
+            body,
+        } => {
             // Check the implementation expression
             check_expr(implementation, ctx)?;
 
@@ -113,7 +142,7 @@ pub fn check_block_expr(expr: &Expr, ctx: &mut TypeContext) -> Result<TypeExpr, 
     }
 }
 
-pub fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> {
+pub fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> DiagnosticResult<TypeExpr> {
     match expr {
         // Literals
         Expr::Int(_) => literals::check_int(),
@@ -187,7 +216,11 @@ pub fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, Stri
             check_expr(value, ctx)?;
             Ok(TypeExpr::Named("void".to_string()))
         }
-        Expr::With { capability, implementation, body } => {
+        Expr::With {
+            capability,
+            implementation,
+            body,
+        } => {
             // Check the implementation expression
             check_expr(implementation, ctx)?;
 
@@ -197,18 +230,6 @@ pub fn check_expr_inner(expr: &Expr, ctx: &TypeContext) -> Result<TypeExpr, Stri
 
             // Check the body with the capability available
             check_expr(body, &child_ctx)
-        }
-
-        Expr::Await(inner) => {
-            let inner_type = check_expr(inner, ctx)?;
-            // Unwrap async type
-            match inner_type {
-                TypeExpr::Async(t) => Ok(*t),
-                _ => Err(format!(
-                    "await requires async type, got {:?}",
-                    inner_type
-                )),
-            }
         }
     }
 }

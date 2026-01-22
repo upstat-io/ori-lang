@@ -160,9 +160,6 @@ pub enum TExprKind {
         implementation: Box<TExpr>,
         body: Box<TExpr>,
     },
-
-    // Await (unwrap async)
-    Await(Box<TExpr>),
 }
 
 /// Typed statement (in blocks)
@@ -171,10 +168,7 @@ pub enum TStmt {
     /// Expression statement
     Expr(TExpr),
     /// Let binding: name := value
-    Let {
-        local: LocalId,
-        value: TExpr,
-    },
+    Let { local: LocalId, value: TExpr },
 }
 
 /// Typed match expression

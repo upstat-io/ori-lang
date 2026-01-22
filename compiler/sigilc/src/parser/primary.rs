@@ -361,7 +361,11 @@ impl Parser {
         self.parse_match_expr_inner(start)
     }
 
-    fn parse_ident_continuation_with_start(&mut self, n: String, start: usize) -> Result<SpannedExpr, String> {
+    fn parse_ident_continuation_with_start(
+        &mut self,
+        n: String,
+        start: usize,
+    ) -> Result<SpannedExpr, String> {
         // Check for pattern keywords (context-sensitive)
         // These are only patterns when followed by ( and have the right arg count
         if matches!(self.current(), Some(Token::LParen)) {

@@ -51,6 +51,40 @@ fn main() {
             }
             cli::test::check_coverage(&args[2]);
         }
+        "fmt" | "format" => {
+            let mut in_place = false;
+            let mut check_only = false;
+            let mut path: Option<&str> = None;
+
+            for arg in args.iter().skip(2) {
+                match arg.as_str() {
+                    "-i" | "--in-place" => in_place = true,
+                    "--check" => check_only = true,
+                    _ if !arg.starts_with('-') => path = Some(arg),
+                    _ => {
+                        eprintln!("Unknown option: {}", arg);
+                        std::process::exit(1);
+                    }
+                }
+            }
+
+            if check_only {
+                let p = path.unwrap_or(".");
+                if !cli::format::check_directory(p) {
+                    std::process::exit(1);
+                }
+            } else if let Some(p) = path {
+                if std::path::Path::new(p).is_dir() {
+                    cli::format::format_directory(p, in_place);
+                } else {
+                    cli::format::format_file(p, in_place);
+                }
+            } else if in_place {
+                cli::format::format_directory(".", true);
+            } else {
+                cli::format::format_stdin();
+            }
+        }
         "--repl" | "repl" => {
             println!("Sigil REPL v0.1.0");
             println!("Type :help for help, :quit to exit\n");

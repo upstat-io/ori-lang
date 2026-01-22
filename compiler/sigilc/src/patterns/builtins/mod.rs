@@ -4,30 +4,30 @@
 // This trait provides type checking (infer_type), evaluation (evaluate),
 // and documentation (description, help, examples) in a single, self-contained module.
 
-mod fold;
-mod map;
-mod filter;
 mod collect;
-mod recurse;
-mod iterate;
-mod transform;
 mod count;
-mod parallel;
+mod filter;
 mod find;
-mod try_pattern;
+mod fold;
+mod iterate;
+mod map;
+mod parallel;
+mod recurse;
 mod retry;
+mod transform;
+mod try_pattern;
 mod validate;
 
-pub use fold::FoldPattern;
-pub use map::MapPattern;
-pub use filter::FilterPattern;
 pub use collect::CollectPattern;
-pub use recurse::RecursePattern;
-pub use iterate::IteratePattern;
-pub use transform::TransformPattern;
 pub use count::CountPattern;
-pub use parallel::ParallelPattern;
+pub use filter::FilterPattern;
 pub use find::FindPattern;
-pub use try_pattern::TryPattern;
+pub use fold::FoldPattern;
+pub use iterate::IteratePattern;
+pub use map::MapPattern;
+pub use parallel::ParallelPattern;
+pub use recurse::RecursePattern;
 pub use retry::RetryPattern;
+pub use transform::TransformPattern;
+pub use try_pattern::TryPattern;
 pub use validate::ValidatePattern;

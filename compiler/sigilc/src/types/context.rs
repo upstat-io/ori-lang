@@ -1,10 +1,10 @@
 // Type context for the Sigil type checker
 // Facade that delegates to focused registries for single-responsibility
 
-use crate::ast::{TypeDef, TypeExpr};
 use super::builtins::register_builtins;
-use super::registries::{ConfigRegistry, FunctionRegistry, TypeRegistry};
+use super::registries::{ConfigRegistry, ExtensionRegistry, FunctionRegistry, TypeRegistry};
 use super::scope::{LocalBinding, ScopeGuard, ScopeManager};
+use crate::ast::{TypeDef, TypeExpr, WhereBound};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -26,6 +26,9 @@ pub struct TypeContext {
     /// Config variables registry (shared via Arc)
     pub(crate) configs: Arc<ConfigRegistry>,
 
+    /// Extension methods registry (shared via Arc)
+    pub(crate) extensions: Arc<ExtensionRegistry>,
+
     /// Scope manager for local variables (not shared - per-context)
     pub(crate) scopes: ScopeManager,
 
@@ -36,6 +39,10 @@ pub struct TypeContext {
     /// Capabilities are added by `uses` clauses in function definitions
     /// and by `with` expressions for capability injection
     pub(crate) capabilities: HashSet<String>,
+
+    /// Imported extension methods (trait_name, method_name) pairs
+    /// Only extension methods that are explicitly imported are available
+    pub(crate) imported_extensions: HashSet<(String, String)>,
 }
 
 impl Default for TypeContext {
@@ -54,9 +61,11 @@ impl TypeContext {
             types: Arc::new(TypeRegistry::new()),
             functions: Arc::new(functions),
             configs: Arc::new(ConfigRegistry::new()),
+            extensions: Arc::new(ExtensionRegistry::new()),
             scopes: ScopeManager::new(),
             filename: String::new(),
             capabilities: HashSet::new(),
+            imported_extensions: HashSet::new(),
         }
     }
 
@@ -110,6 +119,52 @@ impl TypeContext {
 
     pub fn lookup_config(&self, name: &str) -> Option<&TypeExpr> {
         self.configs.lookup(name)
+    }
+
+    // === Extension Methods ===
+
+    /// Define an extension method for a trait
+    pub fn define_extension_method(
+        &mut self,
+        trait_name: String,
+        method_name: String,
+        sig: FunctionSig,
+        where_clause: Vec<WhereBound>,
+    ) {
+        Arc::make_mut(&mut self.extensions).define(trait_name, method_name, sig, where_clause);
+    }
+
+    /// Import an extension method (makes it available for use)
+    pub fn import_extension(&mut self, trait_name: String, method_name: String) {
+        self.imported_extensions.insert((trait_name, method_name));
+    }
+
+    /// Check if an extension method is imported
+    pub fn is_extension_imported(&self, trait_name: &str, method_name: &str) -> bool {
+        self.imported_extensions
+            .contains(&(trait_name.to_string(), method_name.to_string()))
+    }
+
+    /// Lookup an extension method (only if imported)
+    pub fn lookup_extension_method(
+        &self,
+        trait_name: &str,
+        method_name: &str,
+    ) -> Option<&super::registries::ExtensionMethod> {
+        if self.is_extension_imported(trait_name, method_name) {
+            self.extensions.lookup(trait_name, method_name)
+        } else {
+            None
+        }
+    }
+
+    /// Lookup an extension method regardless of import status (for error messages)
+    pub fn lookup_extension_method_unimported(
+        &self,
+        trait_name: &str,
+        method_name: &str,
+    ) -> Option<&super::registries::ExtensionMethod> {
+        self.extensions.lookup(trait_name, method_name)
     }
 
     // === Capability Management ===
@@ -218,9 +273,11 @@ impl TypeContext {
             types: Arc::clone(&self.types),
             functions: Arc::clone(&self.functions),
             configs: Arc::clone(&self.configs),
+            extensions: Arc::clone(&self.extensions),
             scopes: self.scopes.clone(),
             filename: self.filename.clone(),
             capabilities: self.capabilities.clone(),
+            imported_extensions: self.imported_extensions.clone(),
         }
     }
 

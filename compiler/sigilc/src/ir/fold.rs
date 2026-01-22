@@ -64,7 +64,11 @@ pub trait Folder {
             } => self.fold_if(*cond, *then_branch, *else_branch, ty, span),
             TExprKind::Match(m) => self.fold_match(*m, ty, span),
             TExprKind::Block(stmts, result) => self.fold_block(stmts, *result, ty, span),
-            TExprKind::For { binding, iter, body } => self.fold_for(binding, *iter, *body, ty, span),
+            TExprKind::For {
+                binding,
+                iter,
+                body,
+            } => self.fold_for(binding, *iter, *body, ty, span),
 
             TExprKind::Assign { target, value } => self.fold_assign(target, *value, ty, span),
             TExprKind::Range { start, end } => self.fold_range(*start, *end, ty, span),
@@ -75,12 +79,15 @@ pub trait Folder {
             TExprKind::Err(inner) => self.fold_err(*inner, ty, span),
             TExprKind::Some(inner) => self.fold_some(*inner, ty, span),
             TExprKind::None_ => self.fold_none(ty, span),
-            TExprKind::Coalesce { value, default } => self.fold_coalesce(*value, *default, ty, span),
-            TExprKind::Unwrap(inner) => self.fold_unwrap(*inner, ty, span),
-            TExprKind::With { capability, implementation, body } => {
-                self.fold_with(capability, *implementation, *body, ty, span)
+            TExprKind::Coalesce { value, default } => {
+                self.fold_coalesce(*value, *default, ty, span)
             }
-            TExprKind::Await(inner) => self.fold_await(*inner, ty, span),
+            TExprKind::Unwrap(inner) => self.fold_unwrap(*inner, ty, span),
+            TExprKind::With {
+                capability,
+                implementation,
+                body,
+            } => self.fold_with(capability, *implementation, *body, ty, span),
         }
     }
 
@@ -596,11 +603,6 @@ pub trait Folder {
             span,
         )
     }
-
-    fn fold_await(&mut self, inner: TExpr, ty: Type, span: Span) -> TExpr {
-        let inner = self.fold_expr(inner);
-        TExpr::new(TExprKind::Await(Box::new(inner)), ty, span)
-    }
 }
 
 /// Identity folder - returns expressions unchanged (useful as a base)
@@ -711,8 +713,14 @@ mod tests {
             TExprKind::Struct {
                 name: "Point".to_string(),
                 fields: vec![
-                    ("x".to_string(), TExpr::new(TExprKind::Int(1), Type::Int, 0..1)),
-                    ("y".to_string(), TExpr::new(TExprKind::Int(2), Type::Int, 0..1)),
+                    (
+                        "x".to_string(),
+                        TExpr::new(TExprKind::Int(1), Type::Int, 0..1),
+                    ),
+                    (
+                        "y".to_string(),
+                        TExpr::new(TExprKind::Int(2), Type::Int, 0..1),
+                    ),
                 ],
             },
             Type::Struct {
@@ -745,7 +753,13 @@ mod tests {
             0..1,
         );
         let result = folder.fold_expr(expr);
-        assert!(matches!(result.kind, TExprKind::Binary { op: BinaryOp::Add, .. }));
+        assert!(matches!(
+            result.kind,
+            TExprKind::Binary {
+                op: BinaryOp::Add,
+                ..
+            }
+        ));
 
         // Unary
         let expr = TExpr::new(
@@ -757,7 +771,13 @@ mod tests {
             0..1,
         );
         let result = folder.fold_expr(expr);
-        assert!(matches!(result.kind, TExprKind::Unary { op: UnaryOp::Neg, .. }));
+        assert!(matches!(
+            result.kind,
+            TExprKind::Unary {
+                op: UnaryOp::Neg,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -829,7 +849,11 @@ mod tests {
         // MethodCall
         let expr = TExpr::new(
             TExprKind::MethodCall {
-                receiver: Box::new(TExpr::new(TExprKind::String("hi".to_string()), Type::Str, 0..1)),
+                receiver: Box::new(TExpr::new(
+                    TExprKind::String("hi".to_string()),
+                    Type::Str,
+                    0..1,
+                )),
                 method: "upper".to_string(),
                 args: vec![],
             },
@@ -837,7 +861,9 @@ mod tests {
             0..1,
         );
         let result = folder.fold_expr(expr);
-        assert!(matches!(result.kind, TExprKind::MethodCall { ref method, .. } if method == "upper"));
+        assert!(
+            matches!(result.kind, TExprKind::MethodCall { ref method, .. } if method == "upper")
+        );
     }
 
     #[test]
@@ -902,7 +928,11 @@ mod tests {
 
         // Err
         let expr = TExpr::new(
-            TExprKind::Err(Box::new(TExpr::new(TExprKind::String("err".to_string()), Type::Str, 0..1))),
+            TExprKind::Err(Box::new(TExpr::new(
+                TExprKind::String("err".to_string()),
+                Type::Str,
+                0..1,
+            ))),
             Type::Result(Box::new(Type::Int), Box::new(Type::Str)),
             0..1,
         );
@@ -1015,12 +1045,10 @@ mod tests {
         let mut folder = IdentityFolder;
 
         let expr = TExpr::new(
-            TExprKind::MapLiteral(vec![
-                (
-                    TExpr::new(TExprKind::String("key".to_string()), Type::Str, 0..1),
-                    TExpr::new(TExprKind::Int(42), Type::Int, 0..1),
-                ),
-            ]),
+            TExprKind::MapLiteral(vec![(
+                TExpr::new(TExprKind::String("key".to_string()), Type::Str, 0..1),
+                TExpr::new(TExprKind::Int(42), Type::Int, 0..1),
+            )]),
             Type::Map(Box::new(Type::Str), Box::new(Type::Int)),
             0..1,
         );
@@ -1041,7 +1069,13 @@ mod tests {
             value: TExpr::new(TExprKind::Int(42), Type::Int, 0..1),
         };
         let result = folder.fold_stmt(stmt);
-        assert!(matches!(result, TStmt::Let { local: LocalId(0), .. }));
+        assert!(matches!(
+            result,
+            TStmt::Let {
+                local: LocalId(0),
+                ..
+            }
+        ));
     }
 
     /// Custom folder that doubles all integer literals

@@ -49,9 +49,7 @@ impl PatternDefinition for MapPattern {
         };
 
         // Check collection type
-        let coll_type = check_expr(collection, ctx).map_err(|msg| {
-            Diagnostic::error(ErrorCode::E3001, msg)
-        })?;
+        let coll_type = check_expr(collection, ctx)?;
 
         // Get element type from collection
         let elem_type = get_iterable_element_type(&coll_type).map_err(|_| {
@@ -67,8 +65,7 @@ impl PatternDefinition for MapPattern {
             Box::new(TypeExpr::Named("_infer_".to_string())),
         );
 
-        let transform_type = check_expr_with_hint(transform, ctx, Some(&expected_lambda_type))
-            .map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+        let transform_type = check_expr_with_hint(transform, ctx, Some(&expected_lambda_type))?;
 
         let result_elem_type = get_function_return_type(&transform_type).map_err(|_| {
             Diagnostic::error(
@@ -175,11 +172,7 @@ mod tests {
 
         // Create map pattern: map(.over: [1, 2, 3], .transform: x -> x * 2)
         let pattern = PatternExpr::Map {
-            collection: Box::new(Expr::List(vec![
-                Expr::Int(1),
-                Expr::Int(2),
-                Expr::Int(3),
-            ])),
+            collection: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2), Expr::Int(3)])),
             transform: Box::new(Expr::Lambda {
                 params: vec!["x".to_string()],
                 body: Box::new(Expr::Binary {
@@ -192,6 +185,9 @@ mod tests {
 
         let env = Environment::new();
         let result = map.evaluate(&pattern, &env).unwrap();
-        assert_eq!(result, Value::List(vec![Value::Int(2), Value::Int(4), Value::Int(6)]));
+        assert_eq!(
+            result,
+            Value::List(vec![Value::Int(2), Value::Int(4), Value::Int(6)])
+        );
     }
 }

@@ -110,7 +110,9 @@ impl<T> PhaseResult<T> {
     }
 
     /// Convert to a standard Result, including diagnostics on success.
-    pub fn into_result_with_diagnostics(self) -> Result<(T, DiagnosticCollector), DiagnosticCollector> {
+    pub fn into_result_with_diagnostics(
+        self,
+    ) -> Result<(T, DiagnosticCollector), DiagnosticCollector> {
         if self.has_errors() || self.value.is_none() {
             Err(self.diagnostics)
         } else {
@@ -218,10 +220,7 @@ impl<T> From<Result<T, DiagnosticCollector>> for PhaseResult<T> {
 }
 
 /// Convert a Result<T, String> to PhaseResult<T> using a fallback error code.
-pub fn from_string_result<T>(
-    result: Result<T, String>,
-    filename: &str,
-) -> PhaseResult<T> {
+pub fn from_string_result<T>(result: Result<T, String>, filename: &str) -> PhaseResult<T> {
     match result {
         Ok(v) => PhaseResult::ok(v),
         Err(msg) => PhaseResult::err(super::from_string_error(msg, filename)),
@@ -244,9 +243,8 @@ mod tests {
 
     #[test]
     fn test_err_result() {
-        let result: PhaseResult<i32> = PhaseResult::err(
-            Diagnostic::error(ErrorCode::E3001, "type mismatch")
-        );
+        let result: PhaseResult<i32> =
+            PhaseResult::err(Diagnostic::error(ErrorCode::E3001, "type mismatch"));
         assert!(result.is_err());
         assert!(!result.is_ok());
         assert!(result.has_errors());
@@ -269,9 +267,8 @@ mod tests {
         let ok_result = PhaseResult::ok(42);
         assert_eq!(ok_result.into_result().unwrap(), 42);
 
-        let err_result: PhaseResult<i32> = PhaseResult::err(
-            Diagnostic::error(ErrorCode::E3001, "error")
-        );
+        let err_result: PhaseResult<i32> =
+            PhaseResult::err(Diagnostic::error(ErrorCode::E3001, "error"));
         assert!(err_result.into_result().is_err());
     }
 
@@ -291,17 +288,16 @@ mod tests {
 
     #[test]
     fn test_and_then_with_error() {
-        let result: PhaseResult<i32> = PhaseResult::err(
-            Diagnostic::error(ErrorCode::E3001, "error")
-        );
+        let result: PhaseResult<i32> =
+            PhaseResult::err(Diagnostic::error(ErrorCode::E3001, "error"));
         let chained = result.and_then(|x| PhaseResult::ok(x * 2));
         assert!(chained.is_err());
     }
 
     #[test]
     fn test_with_diagnostic() {
-        let result = PhaseResult::ok(42)
-            .with_diagnostic(Diagnostic::warning(ErrorCode::E3005, "warning"));
+        let result =
+            PhaseResult::ok(42).with_diagnostic(Diagnostic::warning(ErrorCode::E3005, "warning"));
 
         assert!(result.is_ok());
         assert!(result.has_warnings());
@@ -317,9 +313,7 @@ mod tests {
 
     #[test]
     fn test_from_result_err() {
-        let std_result: Result<i32, Diagnostic> = Err(
-            Diagnostic::error(ErrorCode::E3001, "error")
-        );
+        let std_result: Result<i32, Diagnostic> = Err(Diagnostic::error(ErrorCode::E3001, "error"));
         let phase_result: PhaseResult<i32> = std_result.into();
         assert!(phase_result.is_err());
     }
@@ -329,9 +323,8 @@ mod tests {
         let ok_result = PhaseResult::ok(42);
         assert_eq!(ok_result.unwrap_or(0), 42);
 
-        let err_result: PhaseResult<i32> = PhaseResult::err(
-            Diagnostic::error(ErrorCode::E3001, "error")
-        );
+        let err_result: PhaseResult<i32> =
+            PhaseResult::err(Diagnostic::error(ErrorCode::E3001, "error"));
         assert_eq!(err_result.unwrap_or(0), 0);
     }
 }

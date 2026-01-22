@@ -1,9 +1,9 @@
 // Pattern lowering for AST to TIR
 // Handles match patterns and pattern expressions (fold, map, filter, etc.)
 
+use super::Lowerer;
 use crate::ast::{self, Pattern as AstPattern, PatternExpr};
 use crate::ir::{IterDirection, OnError, TMatchPattern, TPattern, Type};
-use super::Lowerer;
 
 impl Lowerer {
     /// Lower a match pattern
@@ -22,7 +22,9 @@ impl Lowerer {
 
             AstPattern::Binding(name) => {
                 // Match bindings are immutable
-                let local_id = self.locals.add(name.clone(), scrutinee_ty.clone(), false, false);
+                let local_id = self
+                    .locals
+                    .add(name.clone(), scrutinee_ty.clone(), false, false);
                 self.local_scope.insert(name.clone(), local_id);
                 Ok(TMatchPattern::Binding(local_id, scrutinee_ty.clone()))
             }
@@ -36,7 +38,12 @@ impl Lowerer {
                         let field_ty = Type::Any;
                         if let AstPattern::Binding(binding_name) = sub_pattern {
                             // Match bindings are immutable
-                            let local_id = self.locals.add(binding_name.clone(), field_ty.clone(), false, false);
+                            let local_id = self.locals.add(
+                                binding_name.clone(),
+                                field_ty.clone(),
+                                false,
+                                false,
+                            );
                             self.local_scope.insert(binding_name.clone(), local_id);
                             Ok((field_name.clone(), local_id, field_ty))
                         } else {
@@ -252,10 +259,7 @@ impl Lowerer {
                     tbranches.push((name.clone(), texpr, ty));
                 }
 
-                let timeout_expr = timeout
-                    .as_ref()
-                    .map(|t| self.lower_expr(t))
-                    .transpose()?;
+                let timeout_expr = timeout.as_ref().map(|t| self.lower_expr(t)).transpose()?;
 
                 let err = match on_error {
                     ast::OnError::FailFast => OnError::FailFast,
@@ -283,10 +287,7 @@ impl Lowerer {
                     _ => Type::Any,
                 };
                 let pred_expr = self.lower_expr(predicate)?;
-                let default_expr = default
-                    .as_ref()
-                    .map(|d| self.lower_expr(d))
-                    .transpose()?;
+                let default_expr = default.as_ref().map(|d| self.lower_expr(d)).transpose()?;
 
                 // Result type is Option<elem_ty> without default, elem_ty with default
                 let result_ty = if default_expr.is_some() {
@@ -307,16 +308,16 @@ impl Lowerer {
             PatternExpr::Try { body, catch } => {
                 let body_expr = self.lower_expr(body)?;
                 let body_ty = body_expr.ty.clone();
-                let catch_expr = catch
-                    .as_ref()
-                    .map(|c| self.lower_expr(c))
-                    .transpose()?;
+                let catch_expr = catch.as_ref().map(|c| self.lower_expr(c)).transpose()?;
 
                 // Result type is T with catch, Result<T, Error> without
                 let result_ty = if catch_expr.is_some() {
                     body_ty
                 } else {
-                    Type::Result(Box::new(body_ty), Box::new(Type::Named("Error".to_string())))
+                    Type::Result(
+                        Box::new(body_ty),
+                        Box::new(Type::Named("Error".to_string())),
+                    )
                 };
 
                 Ok(TPattern::Try {
@@ -335,10 +336,7 @@ impl Lowerer {
                 let op_expr = self.lower_expr(operation)?;
                 let op_ty = op_expr.ty.clone();
                 let attempts_expr = self.lower_expr(max_attempts)?;
-                let delay_expr = delay_ms
-                    .as_ref()
-                    .map(|d| self.lower_expr(d))
-                    .transpose()?;
+                let delay_expr = delay_ms.as_ref().map(|d| self.lower_expr(d)).transpose()?;
 
                 let tir_backoff = match backoff {
                     ast::RetryBackoff::None => crate::ir::RetryBackoff::None,
@@ -347,10 +345,8 @@ impl Lowerer {
                     ast::RetryBackoff::Exponential => crate::ir::RetryBackoff::Exponential,
                 };
 
-                let result_ty = Type::Result(
-                    Box::new(op_ty),
-                    Box::new(Type::Named("Error".to_string())),
-                );
+                let result_ty =
+                    Type::Result(Box::new(op_ty), Box::new(Type::Named("Error".to_string())));
 
                 Ok(TPattern::Retry {
                     operation: op_expr,
@@ -376,10 +372,8 @@ impl Lowerer {
                 let then_ty = then_expr.ty.clone();
 
                 // Result type is Result<T, [str]>
-                let result_ty = Type::Result(
-                    Box::new(then_ty),
-                    Box::new(Type::List(Box::new(Type::Str))),
-                );
+                let result_ty =
+                    Type::Result(Box::new(then_ty), Box::new(Type::List(Box::new(Type::Str))));
 
                 Ok(TPattern::Validate {
                     rules: trules,

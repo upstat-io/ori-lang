@@ -15,7 +15,11 @@ use super::value::{is_truthy, Environment, Value};
 pub fn eval_block_expr(expr: &Expr, env: &mut Environment) -> Result<Value, String> {
     match expr {
         // New let binding: let x = value or let mut x = value
-        Expr::Let { name, mutable, value } => {
+        Expr::Let {
+            name,
+            mutable,
+            value,
+        } => {
             let val = eval_expr(value, env)?;
             env.define(name.clone(), val, *mutable);
             Ok(Value::Nil)

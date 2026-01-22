@@ -21,9 +21,20 @@ pub struct RetryPattern;
 
 static RETRY_PARAMS: &[ParamSpec] = &[
     ParamSpec::required(".op", "operation to retry"),
-    ParamSpec::required_with(".times", "maximum number of attempts", TypeConstraint::Numeric),
-    ParamSpec::optional(".backoff", "backoff strategy: none, constant, linear, exponential"),
-    ParamSpec::optional_with(".delay", "base delay in milliseconds", TypeConstraint::Numeric),
+    ParamSpec::required_with(
+        ".times",
+        "maximum number of attempts",
+        TypeConstraint::Numeric,
+    ),
+    ParamSpec::optional(
+        ".backoff",
+        "backoff strategy: none, constant, linear, exponential",
+    ),
+    ParamSpec::optional_with(
+        ".delay",
+        "base delay in milliseconds",
+        TypeConstraint::Numeric,
+    ),
 ];
 
 impl PatternDefinition for RetryPattern {
@@ -50,12 +61,10 @@ impl PatternDefinition for RetryPattern {
         };
 
         // Check operation type - returns the success type
-        let op_type = check_expr(operation, ctx)
-            .map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+        let op_type = check_expr(operation, ctx)?;
 
         // Check max_attempts is numeric
-        let attempts_type = check_expr(max_attempts, ctx)
-            .map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+        let attempts_type = check_expr(max_attempts, ctx)?;
         if !matches!(attempts_type, TypeExpr::Named(ref n) if n == "int") {
             return Err(Diagnostic::error(
                 ErrorCode::E3001,
@@ -65,8 +74,7 @@ impl PatternDefinition for RetryPattern {
 
         // Check delay if provided
         if let Some(delay) = delay_ms {
-            let delay_type = check_expr(delay, ctx)
-                .map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+            let delay_type = check_expr(delay, ctx)?;
             if !matches!(delay_type, TypeExpr::Named(ref n) if n == "int") {
                 return Err(Diagnostic::error(
                     ErrorCode::E3001,

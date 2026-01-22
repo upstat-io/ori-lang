@@ -36,7 +36,13 @@ impl TirCodeGen {
             TExprKind::MapLiteral(entries) => {
                 let entries_c: Result<Vec<String>, String> = entries
                     .iter()
-                    .map(|(k, v)| Ok(format!("{{ {}, {} }}", self.expr_to_c(k)?, self.expr_to_c(v)?)))
+                    .map(|(k, v)| {
+                        Ok(format!(
+                            "{{ {}, {} }}",
+                            self.expr_to_c(k)?,
+                            self.expr_to_c(v)?
+                        ))
+                    })
                     .collect();
                 Ok(format!("{{ {} }}", entries_c?.join(", ")))
             }
@@ -167,7 +173,11 @@ impl TirCodeGen {
                 // A full implementation would create function pointers
                 let body_c = self.expr_to_c(body)?;
                 let params_str: Vec<_> = params.iter().map(|(n, _)| n.clone()).collect();
-                Ok(format!("/* lambda({}) */ {}", params_str.join(", "), body_c))
+                Ok(format!(
+                    "/* lambda({}) */ {}",
+                    params_str.join(", "),
+                    body_c
+                ))
             }
 
             // Control flow
@@ -242,19 +252,19 @@ impl TirCodeGen {
                 Ok(format!("unwrap({})", inner_c))
             }
 
-            TExprKind::With { capability, implementation, body } => {
+            TExprKind::With {
+                capability,
+                implementation,
+                body,
+            } => {
                 // For now, generate C code that just executes body with capability in scope
                 // A real implementation would set up capability context
                 let impl_c = self.expr_to_c(implementation)?;
                 let body_c = self.expr_to_c(body)?;
-                Ok(format!("with_capability(\"{}\", {}, {})", capability, impl_c, body_c))
-            }
-
-            TExprKind::Await(inner) => {
-                // For now, await just evaluates the inner expression
-                // A real implementation would handle async/await scheduling
-                let inner_c = self.expr_to_c(inner)?;
-                Ok(format!("await({})", inner_c))
+                Ok(format!(
+                    "with_capability(\"{}\", {}, {})",
+                    capability, impl_c, body_c
+                ))
             }
         }
     }
@@ -295,10 +305,8 @@ impl TirCodeGen {
                 TMatchPattern::Variant { name, .. } => {
                     let body = self.expr_to_c(&arm.body)?;
                     if i < m.arms.len() - 1 {
-                        result.push_str(&format!(
-                            "({}.tag == TAG_{} ? {} : ",
-                            scrutinee, name, body
-                        ));
+                        result
+                            .push_str(&format!("({}.tag == TAG_{} ? {} : ", scrutinee, name, body));
                     } else {
                         result.push_str(&body);
                     }
@@ -308,7 +316,10 @@ impl TirCodeGen {
 
         // Close parentheses for nested ternaries
         for arm in &m.arms[..m.arms.len().saturating_sub(1)] {
-            if !matches!(arm.pattern, TMatchPattern::Wildcard | TMatchPattern::Binding(_, _)) {
+            if !matches!(
+                arm.pattern,
+                TMatchPattern::Wildcard | TMatchPattern::Binding(_, _)
+            ) {
                 result.push(')');
             }
         }
@@ -347,9 +358,7 @@ impl TirCodeGen {
             TPattern::Fold { .. } => {
                 Err("Fold pattern should be lowered before codegen".to_string())
             }
-            TPattern::Map { .. } => {
-                Err("Map pattern should be lowered before codegen".to_string())
-            }
+            TPattern::Map { .. } => Err("Map pattern should be lowered before codegen".to_string()),
             TPattern::Filter { .. } => {
                 Err("Filter pattern should be lowered before codegen".to_string())
             }
@@ -372,9 +381,7 @@ impl TirCodeGen {
             TPattern::Find { .. } => {
                 Err("Find pattern should be lowered before codegen".to_string())
             }
-            TPattern::Try { .. } => {
-                Err("Try pattern should be lowered before codegen".to_string())
-            }
+            TPattern::Try { .. } => Err("Try pattern should be lowered before codegen".to_string()),
             TPattern::Retry { .. } => {
                 Err("Retry pattern should be lowered before codegen".to_string())
             }

@@ -300,12 +300,7 @@ mod tests {
 
     #[test]
     fn test_function_symbol() {
-        let func = FunctionSymbol::new(
-            vec![],
-            vec!["x".to_string()],
-            vec![int_type()],
-            int_type(),
-        );
+        let func = FunctionSymbol::new(vec![], vec!["x".to_string()], vec![int_type()], int_type());
 
         assert!(!func.is_test);
         assert!(!func.is_main);

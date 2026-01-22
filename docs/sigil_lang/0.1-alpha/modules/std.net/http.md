@@ -6,7 +6,7 @@ HTTP client and server.
 use std.net.http { Client, get, post, Server, Request, Response }
 ```
 
-**Capability required:** `Network`
+**Capability required:** `Http`, `Async`
 
 ---
 
@@ -18,6 +18,68 @@ The `std.net.http` module provides:
 - HTTP server for handling requests
 - Request and response types
 - Convenience functions (`get`, `post`)
+
+---
+
+## The Http Capability
+
+```sigil
+trait Http {
+    @get (url: str) -> Result<Response, HttpError>
+    @post (url: str, body: str) -> Result<Response, HttpError>
+    @put (url: str, body: str) -> Result<Response, HttpError>
+    @delete (url: str) -> Result<Response, HttpError>
+    @request (req: Request) -> Result<Response, HttpError>
+}
+```
+
+The `Http` capability represents the ability to make HTTP requests. Functions that perform HTTP operations must declare `uses Http` in their signature.
+
+```sigil
+@fetch_data (url: str) -> Result<Data, Error> uses Http, Async =
+    Http.get(url)?.json()
+```
+
+**Implementations:**
+
+| Type | Description |
+|------|-------------|
+| `Client` | Production HTTP client (default) |
+| `MockHttp` | Test mock with configurable responses |
+
+### MockHttp
+
+For testing, create a mock implementation:
+
+```sigil
+type MockHttp = {
+    responses: {str: Response},
+}
+
+impl Http for MockHttp {
+    @get (url: str) -> Result<Response, HttpError> =
+        match(self.responses.get(url),
+            Some(resp) -> Ok(resp),
+            None -> Err(HttpError.ConnectionFailed("No mock for: " + url)),
+        )
+
+    @post (url: str, body: str) -> Result<Response, HttpError> = self.get(url)
+    @put (url: str, body: str) -> Result<Response, HttpError> = self.get(url)
+    @delete (url: str) -> Result<Response, HttpError> = self.get(url)
+    @request (req: Request) -> Result<Response, HttpError> = self.get(req.url)
+}
+```
+
+```sigil
+@test_fetch tests @fetch_data () -> void =
+    with Http = MockHttp {
+        responses: {"https://api.example.com/data": Response { status: 200, headers: {}, body: "{}" }}
+    } in
+    run(
+        let result = fetch_data("https://api.example.com/data"),
+        assert(is_ok(result)),
+    )
+```
 
 ---
 
@@ -46,19 +108,19 @@ let response = client.get("https://api.example.com/users")?
 - `new() -> Client` — Create client with defaults
 - `timeout(d: Duration) -> Client` — Set request timeout
 - `header(key: str, value: str) -> Client` — Add default header
-- `get(url: str) -> async Result<Response, HttpError>` — GET request
-- `post(url: str, body: str) -> async Result<Response, HttpError>` — POST request
-- `put(url: str, body: str) -> async Result<Response, HttpError>` — PUT request
-- `delete(url: str) -> async Result<Response, HttpError>` — DELETE request
-- `request(req: Request) -> async Result<Response, HttpError>` — Custom request
+- `get(url: str) -> Result<Response, HttpError> uses Http, Async` — GET request
+- `post(url: str, body: str) -> Result<Response, HttpError> uses Http, Async` — POST request
+- `put(url: str, body: str) -> Result<Response, HttpError> uses Http, Async` — PUT request
+- `delete(url: str) -> Result<Response, HttpError> uses Http, Async` — DELETE request
+- `request(req: Request) -> Result<Response, HttpError> uses Http, Async` — Custom request
 
 ---
 
 ### Convenience Functions
 
 ```sigil
-@get (url: str) -> async Result<Response, HttpError>
-@post (url: str, body: str) -> async Result<Response, HttpError>
+@get (url: str) -> Result<Response, HttpError> uses Http, Async
+@post (url: str, body: str) -> Result<Response, HttpError> uses Http, Async
 ```
 
 Simple one-off requests.
@@ -66,8 +128,8 @@ Simple one-off requests.
 ```sigil
 use std.net.http { get, post }
 
-let resp = get("https://api.example.com/status").await?
-let resp = post("https://api.example.com/data", json_body).await?
+let resp = get("https://api.example.com/status")?
+let resp = post("https://api.example.com/data", json_body)?
 ```
 
 ---
@@ -109,7 +171,7 @@ type Response = {
 ```
 
 ```sigil
-let resp = get(url).await?
+let resp = get(url)?
 
 if resp.status == 200 then
     let data = parse<Data>(resp.body)?
@@ -139,10 +201,10 @@ HTTP server that handles requests.
 ```sigil
 use std.net.http { Server, Request, Response }
 
-@main () uses Network -> async Result<void, Error> = run(
+@main () -> Result<void, Error> uses Http, Async = run(
     let server = Server.bind("0.0.0.0:8080")?,
     print("Server running on :8080"),
-    server.serve(handle_request).await,
+    server.serve(handle_request),
 )
 
 @handle_request (req: Request) -> Response = match(req.method,
@@ -153,7 +215,7 @@ use std.net.http { Server, Request, Response }
 
 **Methods:**
 - `bind(addr: str) -> Result<Server, HttpError>` — Bind to address
-- `serve(handler: Request -> Response) -> async Result<void, HttpError>` — Start serving
+- `serve(handler: Request -> Response) -> Result<void, HttpError> uses Http, Async` — Start serving
 
 ---
 
@@ -181,8 +243,8 @@ use std.json { parse }
 
 type User = { id: int, name: str, email: str }
 
-@fetch_user (id: int) uses Network -> async Result<User, Error> = run(
-    let resp = get("https://api.example.com/users/" + str(id)).await?,
+@fetch_user (id: int) -> Result<User, Error> uses Http, Async = run(
+    let resp = get("https://api.example.com/users/" + str(id))?,
     if resp.status != 200 then
         Err(Error { message: "User not found", source: None })
     else
@@ -196,9 +258,9 @@ type User = { id: int, name: str, email: str }
 use std.net.http { Server, Request, Response }
 use std.json { stringify }
 
-@main () uses Network -> async Result<void, Error> = run(
+@main () -> Result<void, Error> uses Http, Async = run(
     let server = Server.bind(":8080")?,
-    server.serve(router).await,
+    server.serve(router),
 )
 
 @router (req: Request) -> Response = match((req.method, req.url),

@@ -49,13 +49,11 @@ impl TypeConstraint {
             TypeConstraint::List | TypeConstraint::ListOf(_) => {
                 matches!(ty, TypeExpr::List(_))
             }
-            TypeConstraint::Iterable => {
-                match ty {
-                    TypeExpr::List(_) => true,
-                    TypeExpr::Generic(name, _) => name == "Range" || name == "Iterator",
-                    _ => false,
-                }
-            }
+            TypeConstraint::Iterable => match ty {
+                TypeExpr::List(_) => true,
+                TypeExpr::Generic(name, _) => name == "Range" || name == "Iterator",
+                _ => false,
+            },
             TypeConstraint::Function | TypeConstraint::FunctionArity(_) => {
                 matches!(ty, TypeExpr::Function(_, _))
             }
@@ -233,7 +231,10 @@ mod tests {
 
     #[test]
     fn test_constraint_description() {
-        assert_eq!(TypeConstraint::Numeric.description(), "numeric (int or float)");
+        assert_eq!(
+            TypeConstraint::Numeric.description(),
+            "numeric (int or float)"
+        );
         assert_eq!(TypeConstraint::List.description(), "list");
     }
 }

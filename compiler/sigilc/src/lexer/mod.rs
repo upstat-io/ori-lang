@@ -54,18 +54,16 @@ pub enum Token {
     Where,
     #[token("dyn")]
     Dyn,
+    #[token("extend")]
+    Extend,
+    #[token("extension")]
+    Extension,
 
     // Capability system
     #[token("uses")]
     Uses,
     #[token("with")]
     With,
-
-    // Async
-    #[token("async")]
-    Async,
-    #[token("await")]
-    Await,
 
     // Variable bindings
     #[token("let")]

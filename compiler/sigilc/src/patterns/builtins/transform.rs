@@ -41,8 +41,7 @@ impl PatternDefinition for TransformPattern {
         };
 
         // Check input type
-        let mut current_type =
-            check_expr(input, ctx).map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+        let mut current_type = check_expr(input, ctx)?;
 
         // Check each step and chain types
         for step in steps {
@@ -52,8 +51,7 @@ impl PatternDefinition for TransformPattern {
                 Box::new(TypeExpr::Named("_infer_".to_string())),
             );
 
-            let step_type = check_expr_with_hint(step, ctx, Some(&expected_lambda_type))
-                .map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+            let step_type = check_expr_with_hint(step, ctx, Some(&expected_lambda_type))?;
 
             if let TypeExpr::Function(_, ret) = step_type {
                 current_type = *ret;

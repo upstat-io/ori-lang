@@ -101,6 +101,66 @@ pub struct ConfigRegistry {
     configs: HashMap<String, TypeExpr>,
 }
 
+/// An extension method definition
+#[derive(Clone, Debug)]
+pub struct ExtensionMethod {
+    /// The function signature
+    pub sig: FunctionSig,
+    /// Where clause constraints (e.g., Self.Item: Add)
+    pub where_clause: Vec<WhereBound>,
+}
+
+/// Registry for trait extension methods
+/// Extension methods are keyed by (trait_name, method_name)
+#[derive(Clone, Default)]
+pub struct ExtensionRegistry {
+    /// Map from trait name to its extension methods
+    extensions: HashMap<String, HashMap<String, ExtensionMethod>>,
+}
+
+impl ExtensionRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Define an extension method for a trait
+    pub fn define(
+        &mut self,
+        trait_name: String,
+        method_name: String,
+        sig: FunctionSig,
+        where_clause: Vec<WhereBound>,
+    ) {
+        let trait_extensions = self.extensions.entry(trait_name).or_default();
+        trait_extensions.insert(method_name, ExtensionMethod { sig, where_clause });
+    }
+
+    /// Lookup an extension method for a trait
+    pub fn lookup(&self, trait_name: &str, method_name: &str) -> Option<&ExtensionMethod> {
+        self.extensions.get(trait_name)?.get(method_name)
+    }
+
+    /// Get all extension methods for a trait
+    pub fn get_trait_extensions(
+        &self,
+        trait_name: &str,
+    ) -> Option<&HashMap<String, ExtensionMethod>> {
+        self.extensions.get(trait_name)
+    }
+
+    /// Check if an extension method exists
+    pub fn contains(&self, trait_name: &str, method_name: &str) -> bool {
+        self.extensions
+            .get(trait_name)
+            .map_or(false, |methods| methods.contains_key(method_name))
+    }
+
+    /// Iterate over all extensions
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &HashMap<String, ExtensionMethod>)> {
+        self.extensions.iter()
+    }
+}
+
 impl ConfigRegistry {
     pub fn new() -> Self {
         Self::default()

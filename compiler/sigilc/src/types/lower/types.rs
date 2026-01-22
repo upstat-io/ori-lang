@@ -29,14 +29,16 @@ pub fn type_expr_to_type(ty: &TypeExpr, ctx: &TypeContext) -> Result<Type, Strin
                 .collect::<Result<Vec<_>, _>>()?;
 
             match name.as_str() {
-                "Result" if targs.len() == 2 => {
-                    Ok(Type::Result(Box::new(targs[0].clone()), Box::new(targs[1].clone())))
-                }
+                "Result" if targs.len() == 2 => Ok(Type::Result(
+                    Box::new(targs[0].clone()),
+                    Box::new(targs[1].clone()),
+                )),
                 "Option" if targs.len() == 1 => Ok(Type::Option(Box::new(targs[0].clone()))),
                 "List" if targs.len() == 1 => Ok(Type::List(Box::new(targs[0].clone()))),
-                "Map" if targs.len() == 2 => {
-                    Ok(Type::Map(Box::new(targs[0].clone()), Box::new(targs[1].clone())))
-                }
+                "Map" if targs.len() == 2 => Ok(Type::Map(
+                    Box::new(targs[0].clone()),
+                    Box::new(targs[1].clone()),
+                )),
                 _ => Ok(Type::Named(name.clone())), // User-defined generic type
             }
         }
@@ -90,11 +92,6 @@ pub fn type_expr_to_type(ty: &TypeExpr, ctx: &TypeContext) -> Result<Type, Strin
         }
 
         TypeExpr::DynTrait(trait_name) => Ok(Type::DynTrait(trait_name.clone())),
-
-        TypeExpr::Async(inner) => {
-            let inner_ty = type_expr_to_type(inner, ctx)?;
-            Ok(Type::Async(Box::new(inner_ty)))
-        }
     }
 }
 

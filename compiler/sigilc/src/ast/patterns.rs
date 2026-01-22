@@ -86,17 +86,17 @@ pub enum PatternExpr {
     /// Retry an operation with configurable backoff strategy
     Retry {
         operation: Box<Expr>,
-        max_attempts: Box<Expr>,         // Maximum number of attempts
-        backoff: RetryBackoff,           // Backoff strategy
-        delay_ms: Option<Box<Expr>>,     // Base delay in milliseconds
+        max_attempts: Box<Expr>,     // Maximum number of attempts
+        backoff: RetryBackoff,       // Backoff strategy
+        delay_ms: Option<Box<Expr>>, // Base delay in milliseconds
     },
 
     /// validate(.rules: [...], .then: value)
     /// Validate with error accumulation - runs ALL rules and collects errors
     /// Returns Result<T, [str]> where [str] contains all validation error messages
     Validate {
-        rules: Vec<(Expr, Expr)>,        // List of (condition, error_message) pairs
-        then_value: Box<Expr>,           // Value to return if all validations pass
+        rules: Vec<(Expr, Expr)>, // List of (condition, error_message) pairs
+        then_value: Box<Expr>,    // Value to return if all validations pass
     },
 }
 
