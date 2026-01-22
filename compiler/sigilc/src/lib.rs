@@ -15,6 +15,8 @@ pub mod context;
 pub mod core;
 pub mod errors;
 pub mod eval;
+pub mod format;
+pub mod intern;
 pub mod ir;
 pub mod lexer;
 pub mod modules;
@@ -43,19 +45,15 @@ fn string_to_diag(msg: String, filename: &str) -> Diagnostic {
 
 /// Compile source code to a typed AST (for interpreter)
 pub fn compile(source: &str, filename: &str) -> DiagnosticResult<Module> {
-    let tokens = lexer::tokenize(source, filename)
-        .map_err(|e| string_to_diag(e, filename))?;
-    let ast = parser::parse(tokens, filename)
-        .map_err(|e| string_to_diag(e, filename))?;
+    let tokens = lexer::tokenize(source, filename).map_err(|e| string_to_diag(e, filename))?;
+    let ast = parser::parse(tokens, filename).map_err(|e| string_to_diag(e, filename))?;
     types::check(ast)
 }
 
 /// Compile source code to TIR (for codegen)
 pub fn compile_tir(source: &str, filename: &str) -> DiagnosticResult<TModule> {
-    let tokens = lexer::tokenize(source, filename)
-        .map_err(|e| string_to_diag(e, filename))?;
-    let ast = parser::parse(tokens, filename)
-        .map_err(|e| string_to_diag(e, filename))?;
+    let tokens = lexer::tokenize(source, filename).map_err(|e| string_to_diag(e, filename))?;
+    let ast = parser::parse(tokens, filename).map_err(|e| string_to_diag(e, filename))?;
     types::check_and_lower(ast)
 }
 
@@ -70,8 +68,7 @@ pub fn run(source: &str, filename: &str) -> DiagnosticResult<()> {
 /// Compile to C code (AST-based)
 pub fn emit_c(source: &str, filename: &str) -> DiagnosticResult<String> {
     let typed_ast = compile(source, filename)?;
-    codegen::generate(&typed_ast)
-        .map_err(|e| string_to_diag(e, filename))
+    codegen::generate(&typed_ast).map_err(|e| string_to_diag(e, filename))
 }
 
 /// Compile to C code using TIR pipeline
@@ -86,8 +83,7 @@ pub fn emit_c_tir(source: &str, filename: &str) -> DiagnosticResult<String> {
         .map_err(|e| string_to_diag(format!("Pass error: {}", e), filename))?;
 
     // Generate C code from TIR
-    codegen::generate_from_tir(&tir)
-        .map_err(|e| string_to_diag(e, filename))
+    codegen::generate_from_tir(&tir).map_err(|e| string_to_diag(e, filename))
 }
 
 #[cfg(test)]

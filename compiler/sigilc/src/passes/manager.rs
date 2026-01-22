@@ -1,9 +1,7 @@
 // Pass manager for Sigil compiler
 // Handles pass registration, ordering, and execution
 
-use super::{
-    ConstantFoldingPass, DeadCodePass, Pass, PassContext, PassError, PatternLoweringPass,
-};
+use super::{ConstantFoldingPass, DeadCodePass, Pass, PassContext, PassError, PatternLoweringPass};
 use crate::ir::{dump_tir, TModule};
 use std::collections::HashSet;
 use std::time::Instant;
@@ -78,10 +76,7 @@ impl PassManager {
             // Skip disabled passes (unless required)
             if self.disabled.contains(name) {
                 if pass.required() {
-                    return Err(PassError::new(
-                        name,
-                        "Cannot disable required pass",
-                    ));
+                    return Err(PassError::new(name, "Cannot disable required pass"));
                 }
                 if ctx.debug.verbose {
                     eprintln!("[pass] Skipping disabled pass: {}", name);
@@ -100,10 +95,7 @@ impl PassManager {
             if ctx.debug.print_timing {
                 eprintln!(
                     "[pass] {} completed in {:?} (changed: {}, items: {})",
-                    name,
-                    result.stats.duration,
-                    result.changed,
-                    result.stats.items_transformed
+                    name, result.stats.duration, result.changed, result.stats.items_transformed
                 );
             }
 

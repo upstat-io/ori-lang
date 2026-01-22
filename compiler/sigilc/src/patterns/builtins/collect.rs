@@ -45,7 +45,7 @@ impl PatternDefinition for CollectPattern {
         };
 
         // Check range type
-        check_expr(range, ctx).map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+        check_expr(range, ctx)?;
 
         // Collect iterates over a range (integers)
         let expected_lambda_type = TypeExpr::Function(
@@ -53,8 +53,7 @@ impl PatternDefinition for CollectPattern {
             Box::new(TypeExpr::Named("_infer_".to_string())),
         );
 
-        let transform_type = check_expr_with_hint(transform, ctx, Some(&expected_lambda_type))
-            .map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+        let transform_type = check_expr_with_hint(transform, ctx, Some(&expected_lambda_type))?;
 
         let elem_type = get_function_return_type(&transform_type).map_err(|_| {
             Diagnostic::error(

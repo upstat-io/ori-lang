@@ -252,10 +252,8 @@ mod tests {
         table.insert(Symbol::new("HashMap".to_string(), SymbolKind::Module));
 
         // Qualified lookup
-        let std_id = table.lookup_qualified(
-            &["std".to_string(), "collections".to_string()],
-            "HashMap",
-        );
+        let std_id =
+            table.lookup_qualified(&["std".to_string(), "collections".to_string()], "HashMap");
         assert!(std_id.is_some());
 
         // Simple lookup returns local HashMap

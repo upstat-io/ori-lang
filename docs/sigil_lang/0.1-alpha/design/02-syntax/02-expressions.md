@@ -254,10 +254,10 @@ loop(
 ### Loop with Break
 
 ```sigil
-@consume_channel (ch: Channel<int>) -> int = run(
+@consume_channel (ch: Channel<int>) -> int uses Async = run(
     let mut sum = 0,
     loop(
-        match(ch.receive().await,
+        match(ch.receive(),
             Some(value) -> sum = sum + value,
             None -> break,  // exit loop when channel closes
         ),
@@ -274,8 +274,8 @@ loop(
 | `continue` | Skip to next iteration |
 
 ```sigil
-@process_with_skip (ch: Channel<Item>) -> void = loop(
-    match(ch.receive().await,
+@process_with_skip (ch: Channel<Item>) -> void uses Async = loop(
+    match(ch.receive(),
         Some(item) ->
             if item.should_skip then continue  // skip this item
             else process(.item: item),
@@ -288,9 +288,9 @@ loop(
 
 **Channel consumer:**
 ```sigil
-@worker (work: Channel<Job>, results: Channel<Result<Output, Error>>) -> async void = loop(
-    match(work.receive().await,
-        Some(job) -> results.send(.value: process(.job: job)).await,
+@worker (work: Channel<Job>, results: Channel<Result<Output, Error>>) -> void uses Async = loop(
+    match(work.receive(),
+        Some(job) -> results.send(.value: process(.job: job)),
         None -> break,
     ),
 )
@@ -298,10 +298,10 @@ loop(
 
 **Polling with cancellation:**
 ```sigil
-@poll_until_cancelled (ctx: Context) -> async void = loop(
+@poll_until_cancelled (ctx: Context) -> void uses Async, Clock = loop(
     if ctx.is_cancelled() then break,
-    perform_check().await,
-    sleep(100ms).await,
+    perform_check(),
+    Clock.sleep(100ms),
 )
 ```
 

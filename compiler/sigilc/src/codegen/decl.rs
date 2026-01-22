@@ -18,11 +18,10 @@ impl CodeGen {
     }
 
     pub(super) fn emit_config(&mut self, c: &ConfigDef) -> Result<(), String> {
-        let ty = c
-            .ty
-            .as_ref()
-            .map(|t| self.type_to_c(t))
-            .unwrap_or_else(|| self.infer_c_type(&c.value.expr));
+        let ty =
+            c.ty.as_ref()
+                .map(|t| self.type_to_c(t))
+                .unwrap_or_else(|| self.infer_c_type(&c.value.expr));
 
         let value = self.expr_to_c(&c.value.expr)?;
 
@@ -31,7 +30,8 @@ impl CodeGen {
             self.emit_line(&format!(
                 "String {} = {{ .data = \"{}\", .len = {} }};",
                 c.name,
-                self.extract_string_literal(&c.value.expr).unwrap_or_default(),
+                self.extract_string_literal(&c.value.expr)
+                    .unwrap_or_default(),
                 self.extract_string_literal(&c.value.expr)
                     .map(|s| s.len())
                     .unwrap_or(0)

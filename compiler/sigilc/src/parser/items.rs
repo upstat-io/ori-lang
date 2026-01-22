@@ -3,9 +3,9 @@
 
 use super::Parser;
 use crate::ast::{
-    AssociatedType, AssociatedTypeImpl, ConfigDef, Field, FunctionDef, ImplBlock, Item, Param,
-    TestDef, TraitDef, TraitMethodDef, TypeDef, TypeDefKind, TypeExpr, TypeParam, UseDef, UseItem,
-    Variant, WhereBound,
+    AssociatedType, AssociatedTypeImpl, ConfigDef, ExtendBlock, ExtensionImport, ExtensionItem,
+    Field, FunctionDef, ImplBlock, Item, Param, TestDef, TraitDef, TraitMethodDef, TypeDef,
+    TypeDefKind, TypeExpr, TypeParam, UseDef, UseItem, Variant, WhereBound,
 };
 use crate::lexer::Token;
 
@@ -874,5 +874,171 @@ impl Parser {
         }
 
         Ok(capabilities)
+    }
+
+    /// Parse extend block: extend Trait where ... { methods }
+    pub(super) fn parse_extend(&mut self) -> Result<ExtendBlock, String> {
+        let start = self.tokens[self.pos].span.start;
+        self.expect(Token::Extend)?;
+
+        // Trait name
+        let trait_name = match self.current() {
+            Some(Token::Ident(n)) => {
+                let n = n.clone();
+                self.advance();
+                n
+            }
+            _ => return Err("Expected trait name after 'extend'".to_string()),
+        };
+
+        // Optional where clause
+        let where_clause = if matches!(self.current(), Some(Token::Where)) {
+            self.advance();
+            self.parse_where_clause()?
+        } else {
+            Vec::new()
+        };
+
+        // Extend body
+        self.expect(Token::LBrace)?;
+        self.skip_newlines();
+
+        let mut methods = Vec::new();
+
+        while !matches!(self.current(), Some(Token::RBrace)) {
+            self.skip_newlines();
+            if matches!(self.current(), Some(Token::RBrace)) {
+                break;
+            }
+
+            // Method: @name(...) -> Type = body
+            if matches!(self.current(), Some(Token::At)) {
+                let public = false; // Extension methods are not public individually
+                let func = self.parse_function_or_test(public)?;
+                match func {
+                    Item::Function(f) => methods.push(f),
+                    _ => return Err("Expected function in extend block".to_string()),
+                }
+            } else {
+                return Err("Expected '@' for method in extend body".to_string());
+            }
+
+            self.skip_newlines();
+        }
+
+        self.expect(Token::RBrace)?;
+
+        let end = self
+            .tokens
+            .get(self.pos.saturating_sub(1))
+            .map(|t| t.span.end)
+            .unwrap_or(start);
+
+        Ok(ExtendBlock {
+            trait_name,
+            where_clause,
+            methods,
+            span: start..end,
+        })
+    }
+
+    /// Parse extension import: extension path { Trait.method, ... }
+    pub(super) fn parse_extension(&mut self) -> Result<ExtensionImport, String> {
+        let start = self.tokens[self.pos].span.start;
+        self.expect(Token::Extension)?;
+
+        // Path - either 'path' (string literal) or dotted identifier
+        let path = if let Some(Token::String(s)) = self.current() {
+            let s = s.clone();
+            self.advance();
+            // Split string path into components
+            s.split('/')
+                .filter(|p| !p.is_empty() && *p != ".")
+                .map(|s| s.to_string())
+                .collect()
+        } else {
+            // Dotted identifier path: std.iter.extensions
+            let mut path = Vec::new();
+            loop {
+                match self.current() {
+                    Some(Token::Ident(n)) => {
+                        path.push(n.clone());
+                        self.advance();
+                    }
+                    _ => {
+                        if path.is_empty() {
+                            return Err("Expected module path after 'extension'".to_string());
+                        }
+                        break;
+                    }
+                }
+                if matches!(self.current(), Some(Token::Dot)) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            path
+        };
+
+        // Items: { Trait.method, ... }
+        self.expect(Token::LBrace)?;
+        self.skip_newlines();
+
+        let mut items = Vec::new();
+
+        while !matches!(self.current(), Some(Token::RBrace)) {
+            self.skip_newlines();
+            if matches!(self.current(), Some(Token::RBrace)) {
+                break;
+            }
+
+            // Parse Trait.method
+            let trait_name = match self.current() {
+                Some(Token::Ident(n)) => {
+                    let n = n.clone();
+                    self.advance();
+                    n
+                }
+                _ => return Err("Expected trait name in extension import".to_string()),
+            };
+
+            self.expect(Token::Dot)?;
+
+            let method_name = match self.current() {
+                Some(Token::Ident(n)) => {
+                    let n = n.clone();
+                    self.advance();
+                    n
+                }
+                _ => return Err("Expected method name after '.' in extension import".to_string()),
+            };
+
+            items.push(ExtensionItem {
+                trait_name,
+                method_name,
+            });
+
+            // Optional comma
+            if matches!(self.current(), Some(Token::Comma)) {
+                self.advance();
+            }
+
+            self.skip_newlines();
+        }
+
+        self.expect(Token::RBrace)?;
+
+        let end = self
+            .tokens
+            .get(self.pos.saturating_sub(1))
+            .map(|t| t.span.end)
+            .unwrap_or(start);
+
+        Ok(ExtensionImport {
+            path,
+            items,
+            span: start..end,
+        })
     }
 }

@@ -51,12 +51,10 @@ impl PatternDefinition for IteratePattern {
         };
 
         // Check collection type
-        let coll_type =
-            check_expr(over, ctx).map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+        let coll_type = check_expr(over, ctx)?;
 
         // Check init type
-        let into_type =
-            check_expr(into, ctx).map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+        let into_type = check_expr(into, ctx)?;
 
         // Get element type from collection
         let elem_type = get_iterable_element_type(&coll_type).map_err(|_| {
@@ -72,8 +70,7 @@ impl PatternDefinition for IteratePattern {
             Box::new(into_type.clone()),
         );
 
-        check_expr_with_hint(with, ctx, Some(&expected_lambda_type))
-            .map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+        check_expr_with_hint(with, ctx, Some(&expected_lambda_type))?;
 
         Ok(into_type)
     }

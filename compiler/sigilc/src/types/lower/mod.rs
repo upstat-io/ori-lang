@@ -20,8 +20,8 @@ pub use types::{is_builtin, is_type_param, type_expr_to_type};
 
 use crate::ast::{self, Module};
 use crate::ir::{
-    LocalId, LocalTable, TConfig, TField, TFunction, TImport, TImportItem,
-    TModule, TParam, TTest, TTypeDef, TTypeDefKind, TVariant,
+    LocalId, LocalTable, TConfig, TField, TFunction, TImport, TImportItem, TModule, TParam, TTest,
+    TTypeDef, TTypeDefKind, TVariant,
 };
 use crate::types::compat::infer_type;
 use crate::types::TypeContext;
@@ -175,7 +175,8 @@ impl Lowerer {
         for (i, param) in fd.params.iter().enumerate() {
             self.param_indices.insert(param.name.clone(), i);
             // Add parameter to context so check_expr can find it (parameters are immutable)
-            self.ctx.define_local(param.name.clone(), param.ty.clone(), false);
+            self.ctx
+                .define_local(param.name.clone(), param.ty.clone(), false);
         }
 
         // Set return type for self() calls in recurse patterns

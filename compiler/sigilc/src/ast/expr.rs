@@ -142,8 +142,4 @@ pub enum Expr {
 
     /// Unwrap: x.unwrap()
     Unwrap(Box<Expr>),
-
-    /// Await: expr.await
-    /// Suspends execution until the async expression completes
-    Await(Box<Expr>),
 }

@@ -3,6 +3,7 @@
 
 use super::context::TypeContext;
 use crate::ast::{PatternExpr, TypeExpr};
+use crate::errors::DiagnosticResult;
 use crate::patterns::builtins::{
     CollectPattern, CountPattern, FilterPattern, FindPattern, FoldPattern, IteratePattern,
     MapPattern, ParallelPattern, RecursePattern, RetryPattern, TransformPattern, TryPattern,
@@ -11,8 +12,8 @@ use crate::patterns::builtins::{
 use crate::patterns::core::PatternDefinition;
 
 /// Type check a pattern expression using the PatternDefinition trait
-pub fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> Result<TypeExpr, String> {
-    let result = match p {
+pub fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> DiagnosticResult<TypeExpr> {
+    match p {
         PatternExpr::Fold { .. } => FoldPattern.infer_type(p, ctx),
         PatternExpr::Map { .. } => MapPattern.infer_type(p, ctx),
         PatternExpr::Filter { .. } => FilterPattern.infer_type(p, ctx),
@@ -26,8 +27,5 @@ pub fn check_pattern_expr(p: &PatternExpr, ctx: &TypeContext) -> Result<TypeExpr
         PatternExpr::Try { .. } => TryPattern.infer_type(p, ctx),
         PatternExpr::Retry { .. } => RetryPattern.infer_type(p, ctx),
         PatternExpr::Validate { .. } => ValidatePattern.infer_type(p, ctx),
-    };
-
-    // Convert DiagnosticResult to Result<TypeExpr, String>
-    result.map_err(|d| d.message)
+    }
 }

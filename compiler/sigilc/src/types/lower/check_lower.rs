@@ -7,12 +7,12 @@
 // The key insight is that type checking and lowering visit the same
 // AST structure, so we can produce TIR nodes directly during type checking.
 
-use crate::ast::{BinaryOp, Expr, MatchExpr, Span, UnaryOp};
-use crate::ir::{FuncRef, TExpr, TExprKind, TMatch, TMatchArm, TStmt, Type};
-use crate::types::check_pattern::check_pattern_expr;
-use crate::types::check_expr;
 use super::types::{is_builtin, type_expr_to_type};
 use super::Lowerer;
+use crate::ast::{BinaryOp, Expr, MatchExpr, Span, UnaryOp};
+use crate::ir::{FuncRef, TExpr, TExprKind, TMatch, TMatchArm, TStmt, Type};
+use crate::types::check_expr;
+use crate::types::check_pattern::check_pattern_expr;
 
 impl Lowerer {
     /// Lower an expression to TIR without re-type-checking
@@ -40,7 +40,9 @@ impl Lowerer {
 
             // Config - look up in context
             Expr::Config(name) => {
-                let ty = self.ctx.lookup_config(name)
+                let ty = self
+                    .ctx
+                    .lookup_config(name)
                     .ok_or_else(|| format!("Unknown config ${}", name))?;
                 let ir_ty = type_expr_to_type(ty, &self.ctx)?;
                 Ok((TExprKind::Config(name.clone()), ir_ty))
@@ -72,61 +74,76 @@ impl Lowerer {
             // Calls - these still need type checking for overload resolution
             Expr::Call { func, args } => {
                 // Fall back to check_expr for complex call resolution
-                let ty_expr = check_expr(expr, &self.ctx)?;
+                let ty_expr = check_expr(expr, &self.ctx).map_err(|d| d.message)?;
                 let ty = type_expr_to_type(&ty_expr, &self.ctx)?;
                 let kind = self.lower_call(func, args)?;
                 Ok((kind, ty))
             }
 
-            Expr::MethodCall { receiver, method, args } => {
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+            } => {
                 let recv = self.lower_expr_fast(receiver, span.clone())?;
-                let targs: Vec<TExpr> = args.iter()
+                let targs: Vec<TExpr> = args
+                    .iter()
                     .map(|a| self.lower_expr_fast(a, span.clone()))
                     .collect::<Result<Vec<_>, _>>()?;
 
                 // Infer result type from method
                 let result_ty = self.infer_method_result_type(&recv.ty, method)?;
 
-                Ok((TExprKind::MethodCall {
-                    receiver: Box::new(recv),
-                    method: method.clone(),
-                    args: targs,
-                }, result_ty))
+                Ok((
+                    TExprKind::MethodCall {
+                        receiver: Box::new(recv),
+                        method: method.clone(),
+                        args: targs,
+                    },
+                    result_ty,
+                ))
             }
 
             // Lambdas - need type context for inference
             Expr::Lambda { params, body } => {
                 // Fall back to check_expr for lambda type inference
-                let ty_expr = check_expr(expr, &self.ctx)?;
+                let ty_expr = check_expr(expr, &self.ctx).map_err(|d| d.message)?;
                 let ty = type_expr_to_type(&ty_expr, &self.ctx)?;
                 let kind = self.lower_lambda(params, body)?;
                 Ok((kind, ty))
             }
 
             // Control flow
-            Expr::If { condition, then_branch, else_branch } => {
-                self.lower_if_fast(condition, then_branch, else_branch.as_deref(), span)
-            }
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => self.lower_if_fast(condition, then_branch, else_branch.as_deref(), span),
 
             Expr::Match(m) => self.lower_match_fast(m, span),
             Expr::Block(exprs) => self.lower_block_fast(exprs, span),
 
-            Expr::For { binding, iterator, body } => {
-                self.lower_for_fast(binding, iterator, body, span)
-            }
+            Expr::For {
+                binding,
+                iterator,
+                body,
+            } => self.lower_for_fast(binding, iterator, body, span),
 
             Expr::Range { start, end } => {
                 let s = self.lower_expr_fast(start, span.clone())?;
                 let e = self.lower_expr_fast(end, span.clone())?;
-                Ok((TExprKind::Range {
-                    start: Box::new(s),
-                    end: Box::new(e),
-                }, Type::Range))
+                Ok((
+                    TExprKind::Range {
+                        start: Box::new(s),
+                        end: Box::new(e),
+                    },
+                    Type::Range,
+                ))
             }
 
             // Patterns - need full type checking
             Expr::Pattern(p) => {
-                let ty_expr = check_pattern_expr(p, &self.ctx)?;
+                let ty_expr = check_pattern_expr(p, &self.ctx).map_err(|d| d.message)?;
                 let ty = type_expr_to_type(&ty_expr, &self.ctx)?;
                 let pattern = self.lower_pattern(p)?;
                 Ok((TExprKind::Pattern(Box::new(pattern)), ty))
@@ -136,35 +153,43 @@ impl Lowerer {
             Expr::Ok(inner) => {
                 let inner_expr = self.lower_expr_fast(inner, span.clone())?;
                 let inner_ty = inner_expr.ty.clone();
-                Ok((TExprKind::Ok(Box::new(inner_expr)),
-                    Type::Result(Box::new(inner_ty), Box::new(Type::Any))))
+                Ok((
+                    TExprKind::Ok(Box::new(inner_expr)),
+                    Type::Result(Box::new(inner_ty), Box::new(Type::Any)),
+                ))
             }
 
             Expr::Err(inner) => {
                 let inner_expr = self.lower_expr_fast(inner, span.clone())?;
                 let inner_ty = inner_expr.ty.clone();
-                Ok((TExprKind::Err(Box::new(inner_expr)),
-                    Type::Result(Box::new(Type::Any), Box::new(inner_ty))))
+                Ok((
+                    TExprKind::Err(Box::new(inner_expr)),
+                    Type::Result(Box::new(Type::Any), Box::new(inner_ty)),
+                ))
             }
 
             Expr::Some(inner) => {
                 let inner_expr = self.lower_expr_fast(inner, span.clone())?;
                 let inner_ty = inner_expr.ty.clone();
-                Ok((TExprKind::Some(Box::new(inner_expr)), Type::Option(Box::new(inner_ty))))
+                Ok((
+                    TExprKind::Some(Box::new(inner_expr)),
+                    Type::Option(Box::new(inner_ty)),
+                ))
             }
 
-            Expr::None_ => {
-                Ok((TExprKind::None_, Type::Option(Box::new(Type::Any))))
-            }
+            Expr::None_ => Ok((TExprKind::None_, Type::Option(Box::new(Type::Any)))),
 
             Expr::Coalesce { value, default } => {
                 let val = self.lower_expr_fast(value, span.clone())?;
                 let def = self.lower_expr_fast(default, span.clone())?;
                 let result_ty = def.ty.clone();
-                Ok((TExprKind::Coalesce {
-                    value: Box::new(val),
-                    default: Box::new(def),
-                }, result_ty))
+                Ok((
+                    TExprKind::Coalesce {
+                        value: Box::new(val),
+                        default: Box::new(def),
+                    },
+                    result_ty,
+                ))
             }
 
             Expr::Unwrap(inner) => {
@@ -178,49 +203,56 @@ impl Lowerer {
             }
 
             // Let/Reassign
-            Expr::Let { name, mutable, value } => {
+            Expr::Let {
+                name,
+                mutable,
+                value,
+            } => {
                 let val = self.lower_expr_fast(value, span.clone())?;
                 let val_ty = val.ty.clone();
                 let local_id = self.locals.add(name.clone(), val_ty, false, *mutable);
                 self.local_scope.insert(name.clone(), local_id);
-                Ok((TExprKind::Assign {
-                    target: local_id,
-                    value: Box::new(val),
-                }, Type::Void))
+                Ok((
+                    TExprKind::Assign {
+                        target: local_id,
+                        value: Box::new(val),
+                    },
+                    Type::Void,
+                ))
             }
 
             Expr::Reassign { target, value } => {
                 let val = self.lower_expr_fast(value, span.clone())?;
                 if let Some(&local_id) = self.local_scope.get(target) {
-                    Ok((TExprKind::Assign {
-                        target: local_id,
-                        value: Box::new(val),
-                    }, Type::Void))
+                    Ok((
+                        TExprKind::Assign {
+                            target: local_id,
+                            value: Box::new(val),
+                        },
+                        Type::Void,
+                    ))
                 } else {
                     Err(format!("Cannot assign to undeclared variable '{}'", target))
                 }
             }
 
-            Expr::With { capability, implementation, body } => {
+            Expr::With {
+                capability,
+                implementation,
+                body,
+            } => {
                 // Lower the implementation and body
                 let impl_expr = self.lower_expr_fast(implementation, span.clone())?;
                 let body_expr = self.lower_expr_fast(body, span.clone())?;
                 let body_ty = body_expr.ty.clone();
-                Ok((TExprKind::With {
-                    capability: capability.clone(),
-                    implementation: Box::new(impl_expr),
-                    body: Box::new(body_expr),
-                }, body_ty))
-            }
-
-            Expr::Await(inner) => {
-                let inner_expr = self.lower_expr_fast(inner, span.clone())?;
-                // Unwrap the async type to get the result type
-                let result_ty = match &inner_expr.ty {
-                    Type::Async(t) => (**t).clone(),
-                    _ => return Err(format!("await requires async type, got {:?}", inner_expr.ty)),
-                };
-                Ok((TExprKind::Await(Box::new(inner_expr)), result_ty))
+                Ok((
+                    TExprKind::With {
+                        capability: capability.clone(),
+                        implementation: Box::new(impl_expr),
+                        body: Box::new(body_expr),
+                    },
+                    body_ty,
+                ))
             }
         }
     }
@@ -228,7 +260,9 @@ impl Lowerer {
     fn lower_ident_fast(&self, name: &str) -> Result<(TExprKind, Type), String> {
         // Check local scope first
         if let Some(&local_id) = self.local_scope.get(name) {
-            let ty = self.locals.get(local_id)
+            let ty = self
+                .locals
+                .get(local_id)
                 .map(|info| info.ty.clone())
                 .unwrap_or(Type::Any);
             return Ok((TExprKind::Local(local_id), ty));
@@ -246,7 +280,9 @@ impl Lowerer {
         // Check functions
         if let Some(sig) = self.ctx.lookup_function(name) {
             let ret_ty = type_expr_to_type(&sig.return_type, &self.ctx)?;
-            let param_tys: Vec<Type> = sig.params.iter()
+            let param_tys: Vec<Type> = sig
+                .params
+                .iter()
                 .map(|(_, ty)| type_expr_to_type(ty, &self.ctx))
                 .collect::<Result<Vec<_>, _>>()?;
             return Ok((
@@ -258,20 +294,28 @@ impl Lowerer {
                     },
                     args: vec![],
                 },
-                Type::Function { params: param_tys, ret: Box::new(ret_ty) },
+                Type::Function {
+                    params: param_tys,
+                    ret: Box::new(ret_ty),
+                },
             ));
         }
 
         Err(format!("Unknown identifier '{}'", name))
     }
 
-    fn lower_list_fast(&mut self, exprs: &[Expr], span: &Span) -> Result<(TExprKind, Type), String> {
+    fn lower_list_fast(
+        &mut self,
+        exprs: &[Expr],
+        span: &Span,
+    ) -> Result<(TExprKind, Type), String> {
         if exprs.is_empty() {
             // Empty list - use Any as element type, will be resolved by context
             return Ok((TExprKind::List(vec![]), Type::List(Box::new(Type::Any))));
         }
 
-        let elems: Vec<TExpr> = exprs.iter()
+        let elems: Vec<TExpr> = exprs
+            .iter()
             .map(|e| self.lower_expr_fast(e, span.clone()))
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -279,12 +323,19 @@ impl Lowerer {
         Ok((TExprKind::List(elems), Type::List(Box::new(elem_ty))))
     }
 
-    fn lower_map_fast(&mut self, entries: &[(Expr, Expr)], span: &Span) -> Result<(TExprKind, Type), String> {
-        let tentries: Vec<(TExpr, TExpr)> = entries.iter()
-            .map(|(k, v)| Ok((
-                self.lower_expr_fast(k, span.clone())?,
-                self.lower_expr_fast(v, span.clone())?
-            )))
+    fn lower_map_fast(
+        &mut self,
+        entries: &[(Expr, Expr)],
+        span: &Span,
+    ) -> Result<(TExprKind, Type), String> {
+        let tentries: Vec<(TExpr, TExpr)> = entries
+            .iter()
+            .map(|(k, v)| {
+                Ok((
+                    self.lower_expr_fast(k, span.clone())?,
+                    self.lower_expr_fast(v, span.clone())?,
+                ))
+            })
             .collect::<Result<Vec<_>, String>>()?;
 
         let (key_ty, val_ty) = if let Some((k, v)) = tentries.first() {
@@ -293,11 +344,19 @@ impl Lowerer {
             (Type::Any, Type::Any)
         };
 
-        Ok((TExprKind::MapLiteral(tentries), Type::Map(Box::new(key_ty), Box::new(val_ty))))
+        Ok((
+            TExprKind::MapLiteral(tentries),
+            Type::Map(Box::new(key_ty), Box::new(val_ty)),
+        ))
     }
 
-    fn lower_tuple_fast(&mut self, exprs: &[Expr], span: &Span) -> Result<(TExprKind, Type), String> {
-        let elems: Vec<TExpr> = exprs.iter()
+    fn lower_tuple_fast(
+        &mut self,
+        exprs: &[Expr],
+        span: &Span,
+    ) -> Result<(TExprKind, Type), String> {
+        let elems: Vec<TExpr> = exprs
+            .iter()
             .map(|e| self.lower_expr_fast(e, span.clone()))
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -305,29 +364,53 @@ impl Lowerer {
         Ok((TExprKind::Tuple(elems), Type::Tuple(elem_tys)))
     }
 
-    fn lower_struct_fast(&mut self, name: &str, fields: &[(String, Expr)], span: &Span) -> Result<(TExprKind, Type), String> {
-        let tfields: Vec<(String, TExpr)> = fields.iter()
+    fn lower_struct_fast(
+        &mut self,
+        name: &str,
+        fields: &[(String, Expr)],
+        span: &Span,
+    ) -> Result<(TExprKind, Type), String> {
+        let tfields: Vec<(String, TExpr)> = fields
+            .iter()
             .map(|(n, e)| Ok((n.clone(), self.lower_expr_fast(e, span.clone())?)))
             .collect::<Result<Vec<_>, String>>()?;
 
-        Ok((TExprKind::Struct {
-            name: name.to_string(),
-            fields: tfields,
-        }, Type::Named(name.to_string())))
+        Ok((
+            TExprKind::Struct {
+                name: name.to_string(),
+                fields: tfields,
+            },
+            Type::Named(name.to_string()),
+        ))
     }
 
-    fn lower_binary_fast(&mut self, op: BinaryOp, left: &Expr, right: &Expr, span: &Span) -> Result<(TExprKind, Type), String> {
+    fn lower_binary_fast(
+        &mut self,
+        op: BinaryOp,
+        left: &Expr,
+        right: &Expr,
+        span: &Span,
+    ) -> Result<(TExprKind, Type), String> {
         let l = self.lower_expr_fast(left, span.clone())?;
         let r = self.lower_expr_fast(right, span.clone())?;
 
         let result_ty = match op {
             // Comparison operators always return bool
-            BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq |
-            BinaryOp::Eq | BinaryOp::NotEq => Type::Bool,
+            BinaryOp::Lt
+            | BinaryOp::LtEq
+            | BinaryOp::Gt
+            | BinaryOp::GtEq
+            | BinaryOp::Eq
+            | BinaryOp::NotEq => Type::Bool,
             // Logical operators return bool
             BinaryOp::And | BinaryOp::Or => Type::Bool,
             // Arithmetic operators return the type of operands
-            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::IntDiv | BinaryOp::Mod => {
+            BinaryOp::Add
+            | BinaryOp::Sub
+            | BinaryOp::Mul
+            | BinaryOp::Div
+            | BinaryOp::IntDiv
+            | BinaryOp::Mod => {
                 // For string concatenation, result is string
                 if matches!(l.ty, Type::Str) {
                     Type::Str
@@ -339,27 +422,43 @@ impl Lowerer {
             BinaryOp::Pipe => r.ty.clone(),
         };
 
-        Ok((TExprKind::Binary {
-            op,
-            left: Box::new(l),
-            right: Box::new(r),
-        }, result_ty))
+        Ok((
+            TExprKind::Binary {
+                op,
+                left: Box::new(l),
+                right: Box::new(r),
+            },
+            result_ty,
+        ))
     }
 
-    fn lower_unary_fast(&mut self, op: UnaryOp, operand: &Expr, span: &Span) -> Result<(TExprKind, Type), String> {
+    fn lower_unary_fast(
+        &mut self,
+        op: UnaryOp,
+        operand: &Expr,
+        span: &Span,
+    ) -> Result<(TExprKind, Type), String> {
         let inner = self.lower_expr_fast(operand, span.clone())?;
         let result_ty = match op {
             UnaryOp::Neg => inner.ty.clone(),
             UnaryOp::Not => Type::Bool,
         };
 
-        Ok((TExprKind::Unary {
-            op,
-            operand: Box::new(inner),
-        }, result_ty))
+        Ok((
+            TExprKind::Unary {
+                op,
+                operand: Box::new(inner),
+            },
+            result_ty,
+        ))
     }
 
-    fn lower_field_fast(&mut self, obj: &Expr, field: &str, span: &Span) -> Result<(TExprKind, Type), String> {
+    fn lower_field_fast(
+        &mut self,
+        obj: &Expr,
+        field: &str,
+        span: &Span,
+    ) -> Result<(TExprKind, Type), String> {
         use crate::ast::TypeDefKind;
         let obj_expr = self.lower_expr_fast(obj, span.clone())?;
 
@@ -369,7 +468,8 @@ impl Lowerer {
                 if let Some(td) = self.ctx.lookup_type(name) {
                     // Extract fields from TypeDefKind::Struct
                     if let TypeDefKind::Struct(fields) = &td.kind {
-                        fields.iter()
+                        fields
+                            .iter()
                             .find(|f| f.name == field)
                             .map(|f| type_expr_to_type(&f.ty, &self.ctx))
                             .transpose()?
@@ -381,12 +481,11 @@ impl Lowerer {
                     Type::Any
                 }
             }
-            Type::Record(fields) => {
-                fields.iter()
-                    .find(|(n, _)| n == field)
-                    .map(|(_, ty)| ty.clone())
-                    .unwrap_or(Type::Any)
-            }
+            Type::Record(fields) => fields
+                .iter()
+                .find(|(n, _)| n == field)
+                .map(|(_, ty)| ty.clone())
+                .unwrap_or(Type::Any),
             Type::Tuple(types) => {
                 // Handle tuple field access like .0, .1
                 if let Ok(idx) = field.parse::<usize>() {
@@ -398,10 +497,18 @@ impl Lowerer {
             _ => Type::Any,
         };
 
-        Ok((TExprKind::Field(Box::new(obj_expr), field.to_string()), field_ty))
+        Ok((
+            TExprKind::Field(Box::new(obj_expr), field.to_string()),
+            field_ty,
+        ))
     }
 
-    fn lower_index_fast(&mut self, obj: &Expr, idx: &Expr, span: &Span) -> Result<(TExprKind, Type), String> {
+    fn lower_index_fast(
+        &mut self,
+        obj: &Expr,
+        idx: &Expr,
+        span: &Span,
+    ) -> Result<(TExprKind, Type), String> {
         let obj_expr = self.lower_expr_fast(obj, span.clone())?;
         let idx_expr = self.lower_expr_fast(idx, span.clone())?;
 
@@ -420,10 +527,19 @@ impl Lowerer {
             _ => Type::Any,
         };
 
-        Ok((TExprKind::Index(Box::new(obj_expr), Box::new(idx_expr)), elem_ty))
+        Ok((
+            TExprKind::Index(Box::new(obj_expr), Box::new(idx_expr)),
+            elem_ty,
+        ))
     }
 
-    fn lower_if_fast(&mut self, cond: &Expr, then_br: &Expr, else_br: Option<&Expr>, span: &Span) -> Result<(TExprKind, Type), String> {
+    fn lower_if_fast(
+        &mut self,
+        cond: &Expr,
+        then_br: &Expr,
+        else_br: Option<&Expr>,
+        span: &Span,
+    ) -> Result<(TExprKind, Type), String> {
         let c = self.lower_expr_fast(cond, span.clone())?;
         let t = self.lower_expr_fast(then_br, span.clone())?;
         let e = if let Some(eb) = else_br {
@@ -434,19 +550,28 @@ impl Lowerer {
 
         let result_ty = t.ty.clone();
 
-        Ok((TExprKind::If {
-            cond: Box::new(c),
-            then_branch: Box::new(t),
-            else_branch: Box::new(e),
-        }, result_ty))
+        Ok((
+            TExprKind::If {
+                cond: Box::new(c),
+                then_branch: Box::new(t),
+                else_branch: Box::new(e),
+            },
+            result_ty,
+        ))
     }
 
-    fn lower_match_fast(&mut self, m: &MatchExpr, span: &Span) -> Result<(TExprKind, Type), String> {
+    fn lower_match_fast(
+        &mut self,
+        m: &MatchExpr,
+        span: &Span,
+    ) -> Result<(TExprKind, Type), String> {
         let scrutinee = self.lower_expr_fast(&m.scrutinee, span.clone())?;
         let scrutinee_ty = scrutinee.ty.clone();
 
         let mut result_ty = Type::Any;
-        let arms: Vec<TMatchArm> = m.arms.iter()
+        let arms: Vec<TMatchArm> = m
+            .arms
+            .iter()
             .map(|arm| {
                 let pattern = self.lower_match_pattern(&arm.pattern, &scrutinee_ty)?;
                 let body = self.lower_expr_fast(&arm.body, span.clone())?;
@@ -457,16 +582,26 @@ impl Lowerer {
             })
             .collect::<Result<Vec<_>, String>>()?;
 
-        Ok((TExprKind::Match(Box::new(TMatch {
-            scrutinee,
-            scrutinee_ty,
-            arms,
-        })), result_ty))
+        Ok((
+            TExprKind::Match(Box::new(TMatch {
+                scrutinee,
+                scrutinee_ty,
+                arms,
+            })),
+            result_ty,
+        ))
     }
 
-    fn lower_block_fast(&mut self, exprs: &[Expr], span: &Span) -> Result<(TExprKind, Type), String> {
+    fn lower_block_fast(
+        &mut self,
+        exprs: &[Expr],
+        span: &Span,
+    ) -> Result<(TExprKind, Type), String> {
         if exprs.is_empty() {
-            return Ok((TExprKind::Block(vec![], Box::new(TExpr::nil(span.clone()))), Type::Void));
+            return Ok((
+                TExprKind::Block(vec![], Box::new(TExpr::nil(span.clone()))),
+                Type::Void,
+            ));
         }
 
         let old_scope = self.local_scope.clone();
@@ -483,7 +618,11 @@ impl Lowerer {
             }
 
             match expr {
-                Expr::Let { name, mutable, value } => {
+                Expr::Let {
+                    name,
+                    mutable,
+                    value,
+                } => {
                     let val = self.lower_expr_fast(value, span.clone())?;
                     let val_ty = val.ty.clone();
                     let local_id = self.locals.add(name.clone(), val_ty, false, *mutable);
@@ -514,10 +653,19 @@ impl Lowerer {
         }
 
         self.local_scope = old_scope;
-        Ok((TExprKind::Block(stmts, Box::new(TExpr::nil(span.clone()))), Type::Void))
+        Ok((
+            TExprKind::Block(stmts, Box::new(TExpr::nil(span.clone()))),
+            Type::Void,
+        ))
     }
 
-    fn lower_for_fast(&mut self, binding: &str, iterator: &Expr, body: &Expr, span: &Span) -> Result<(TExprKind, Type), String> {
+    fn lower_for_fast(
+        &mut self,
+        binding: &str,
+        iterator: &Expr,
+        body: &Expr,
+        span: &Span,
+    ) -> Result<(TExprKind, Type), String> {
         let iter = self.lower_expr_fast(iterator, span.clone())?;
 
         let elem_ty = match &iter.ty {
@@ -534,11 +682,14 @@ impl Lowerer {
 
         self.local_scope = old_scope;
 
-        Ok((TExprKind::For {
-            binding: binding_id,
-            iter: Box::new(iter),
-            body: Box::new(body_expr),
-        }, Type::Void))
+        Ok((
+            TExprKind::For {
+                binding: binding_id,
+                iter: Box::new(iter),
+                body: Box::new(body_expr),
+            },
+            Type::Void,
+        ))
     }
 
     /// Infer the result type of a method call

@@ -9,10 +9,10 @@ This document covers Sigil's cancellation model: context-based cancellation, exp
 Sigil uses **cooperative cancellation** via a `Context` object. Tasks check for cancellation at explicit points and clean up gracefully.
 
 ```sigil
-@long_operation (ctx: Context) -> async Result<Data, Error> = try(
-    let data1 = fetch_part1(ctx).await?,
+@long_operation (ctx: Context) -> Result<Data, Error> uses Async, Http = try(
+    let data1 = fetch_part1(ctx)?,
     ctx.check_cancelled()?,  // throws if cancelled
-    let data2 = fetch_part2(ctx).await?,
+    let data2 = fetch_part2(ctx)?,
     Ok(combine(data1, data2)),
 )
 ```
@@ -50,13 +50,13 @@ child_ctx = ctx.with_timeout(5s)
 Contexts form a hierarchy. Cancelling a parent cancels all children:
 
 ```sigil
-@main () -> async void = run(
+@main () -> void uses Async, Clock = run(
     let parent_ctx = Context.with_timeout(60s),
 
     parallel(
         .task_a: operation_a(parent_ctx),
         .task_b: operation_b(parent_ctx),
-    ).await,
+    ),
     // If parent_ctx times out, both tasks are cancelled
 )
 ```
@@ -64,10 +64,10 @@ Contexts form a hierarchy. Cancelling a parent cancels all children:
 Child contexts can have shorter (but not longer) timeouts:
 
 ```sigil
-@operation_a (ctx: Context) -> async Result<Data, Error> = run(
+@operation_a (ctx: Context) -> Result<Data, Error> uses Async = run(
     // Child timeout must be <= parent timeout
     child_ctx = ctx.with_timeout(10s),
-    sub_operation(child_ctx).await
+    sub_operation(child_ctx)
 )
 ```
 
@@ -80,14 +80,14 @@ Child contexts can have shorter (but not longer) timeouts:
 Use `check_cancelled()` to check if cancellation was requested:
 
 ```sigil
-@long_computation (ctx: Context) -> async Result<Data, Error> = try(
-    let step1 = perform_step1().await?,
+@long_computation (ctx: Context) -> Result<Data, Error> uses Async = try(
+    let step1 = perform_step1()?,
     ctx.check_cancelled()?,  // returns Err(Cancelled) if cancelled
 
-    let step2 = perform_step2().await?,
+    let step2 = perform_step2()?,
     ctx.check_cancelled()?,
 
-    let step3 = perform_step3().await?,
+    let step3 = perform_step3()?,
     Ok(combine(step1, step2, step3)),
 )
 ```
@@ -115,11 +115,11 @@ Check for cancellation:
 - After I/O operations
 
 ```sigil
-@process_items (ctx: Context, items: [Item]) -> async Result<[Result<ProcessedItem, Error>], Error> = run(
+@process_items (ctx: Context, items: [Item]) -> Result<[Result<ProcessedItem, Error>], Error> uses Async = run(
     let results = [],
     for item in items do run(
         ctx.check_cancelled()?,  // check each iteration
-        let result = process(item).await,
+        let result = process(item),
         results = results.append(result),
     ),
     Ok(results),
@@ -148,8 +148,8 @@ child = ctx.with_timeout(5s)  // 5s or parent deadline, whichever is sooner
 The `timeout` pattern automatically manages context:
 
 ```sigil
-@bounded_fetch (url: str) -> async Result<Data, Error> = timeout(
-    .op: http_get(url).await,
+@bounded_fetch (url: str) -> Result<Data, Error> uses Async, Http, Clock = timeout(
+    .op: Http.get(url),
     .after: 30s,
     .on_timeout: Err(TimeoutError { url: url })
 )
@@ -158,9 +158,9 @@ The `timeout` pattern automatically manages context:
 This is equivalent to:
 
 ```sigil
-@bounded_fetch (url: str) -> async Result<Data, Error> = run(
+@bounded_fetch (url: str) -> Result<Data, Error> uses Async, Http, Clock = run(
     let ctx = Context.with_timeout(30s),
-    let result = http_get_with_context(ctx, url).await,
+    let result = Http.get_with_context(ctx, url),
     if ctx.is_cancelled() then Err(TimeoutError { url: url })
     else result,
 )
@@ -171,14 +171,14 @@ This is equivalent to:
 Timeouts nest naturally:
 
 ```sigil
-@outer () -> async Result<Data, Error> = timeout(
-    .op: inner().await,
+@outer () -> Result<Data, Error> uses Async, Http, Clock = timeout(
+    .op: inner(),
     .after: 60s,
     .on_timeout: Err(OuterTimeout {})
 )
 
-@inner () -> async Result<Data, Error> = timeout(
-    .op: fetch_data().await,
+@inner () -> Result<Data, Error> uses Async, Http, Clock = timeout(
+    .op: fetch_data(),
     .after: 10s,  // effective timeout is min(10s, remaining outer timeout)
     .on_timeout: Err(InnerTimeout {})
 )
@@ -191,10 +191,10 @@ Timeouts nest naturally:
 ### Retry with Cancellation
 
 ```sigil
-@reliable_fetch (ctx: Context, url: str) -> async Result<Data, Error> = retry(
+@reliable_fetch (ctx: Context, url: str) -> Result<Data, Error> uses Async, Http, Clock = retry(
     .op: run(
         ctx.check_cancelled()?,
-        http_get(url).await
+        Http.get(url)
     ),
     .attempts: 3,
     .backoff: exponential(base: 100ms, max: 5s)
@@ -206,12 +206,12 @@ Timeouts nest naturally:
 When one task fails, others are cancelled:
 
 ```sigil
-@fetch_all (ctx: Context) -> async Result<(Data, Data, Data), Error> = run(
+@fetch_all (ctx: Context) -> Result<(Data, Data, Data), Error> uses Async, Http = run(
     let results = parallel(
         .a: fetch_a(ctx),
         .b: fetch_b(ctx),
         .c: fetch_c(ctx),
-    ).await,
+    ),
     // If any fails or ctx is cancelled, others are cancelled
     Ok((results.a, results.b, results.c)),
 )
@@ -222,13 +222,13 @@ When one task fails, others are cancelled:
 Break long operations into cancellable chunks:
 
 ```sigil
-@process_large_file (ctx: Context, path: str) -> async Result<Summary, Error> = try(
-    let file = open_file(path).await?,
+@process_large_file (ctx: Context, path: str) -> Result<Summary, Error> uses Async, FileSystem = try(
+    let file = FileSystem.open(path)?,
     let summary = Summary.empty(),
 
     for chunk in file.chunks(1000) do run(
         ctx.check_cancelled()?,  // check each chunk
-        let partial = process_chunk(chunk).await,
+        let partial = process_chunk(chunk),
         summary = summary.merge(partial),
     ),
 
@@ -245,13 +245,13 @@ Break long operations into cancellable chunks:
 Create a context that cancels on OS signals:
 
 ```sigil
-@main () -> async void = run(
+@main () -> void uses Async, Signal = run(
     let ctx = Context.with_signal(SIGTERM, SIGINT),
 
     parallel(
         .server: run_server(ctx),
         .worker: run_worker(ctx),
-    ).await,
+    ),
 
     // SIGTERM or SIGINT will cancel ctx
     // Tasks should check and shut down gracefully
@@ -263,14 +263,14 @@ Create a context that cancels on OS signals:
 Use `with` for cleanup that must run even on cancellation:
 
 ```sigil
-@process_with_cleanup (ctx: Context) -> async Result<Data, Error> = with(
-    .acquire: open_connection().await,
+@process_with_cleanup (ctx: Context) -> Result<Data, Error> uses Async, Network = with(
+    .acquire: Network.open_connection(),
     .use: conn ->
         loop(
             ctx.check_cancelled()?,
-            process_next(conn).await
+            process_next(conn)
         ),
-    .release: conn -> close_connection(conn).await  // always runs
+    .release: conn -> Network.close_connection(conn)  // always runs
 )
 ```
 
@@ -279,14 +279,14 @@ Use `with` for cleanup that must run even on cancellation:
 Give tasks time to clean up:
 
 ```sigil
-@main () -> async void = run(
+@main () -> void uses Async, Signal = run(
     let ctx = Context.with_signal(SIGTERM),
 
     // Run main work
     let result = parallel(
         .server: run_server(ctx),
         .worker: run_worker(ctx),
-    ).await,
+    ),
 
     // On signal, ctx is cancelled
     // Tasks have a grace period to finish cleanup
@@ -302,19 +302,19 @@ Give tasks time to clean up:
 Context can carry values through the call chain:
 
 ```sigil
-@handle_request (request: Request) -> async Response = run(
+@handle_request (request: Request) -> Response uses Async, Http, Clock = run(
     let ctx = Context.new()
         .with_value("request_id", request.id)
         .with_value("user_id", request.user_id)
         .with_timeout(30s),
 
-    process_request(ctx, request).await,
+    process_request(ctx, request),
 )
 
-@process_request (ctx: Context, request: Request) -> async Response = run(
+@process_request (ctx: Context, request: Request) -> Response uses Async, Log = run(
     let request_id = ctx.get_value("request_id"),
-    log("Processing request: " + request_id),
-    do_work(ctx).await,
+    Log.info("Processing request: " + request_id),
+    do_work(ctx),
 )
 ```
 
@@ -323,14 +323,14 @@ Context can carry values through the call chain:
 Context is ideal for distributed tracing:
 
 ```sigil
-@traced_operation (ctx: Context) -> async Result<Data, Error> = run(
+@traced_operation (ctx: Context) -> Result<Data, Error> uses Async, Log = run(
     let trace_id = ctx.get_value("trace_id"),
     let span_id = generate_span_id(),
 
     let child_ctx = ctx.with_value("span_id", span_id),
 
     log_span_start(trace_id, span_id),
-    let result = perform_operation(child_ctx).await,
+    let result = perform_operation(child_ctx),
     log_span_end(trace_id, span_id),
 
     result,
@@ -361,16 +361,16 @@ Cooperative cancellation means:
 4. Resources are **properly released**
 
 ```sigil
-@safe_operation (ctx: Context) -> async Result<Data, Error> = with(
-    .acquire: get_resource().await,
+@safe_operation (ctx: Context) -> Result<Data, Error> uses Async = with(
+    .acquire: get_resource(),
     .use: resource ->
         loop(
             // Check for cancellation
             if ctx.is_cancelled() then break,
             // Do work
-            process(resource).await
+            process(resource)
         ),
-    .release: resource -> release_resource(resource).await
+    .release: resource -> release_resource(resource)
     // Always released, even on cancellation
 )
 ```
@@ -392,20 +392,20 @@ Cooperative cancellation means:
 
 ```sigil
 // Good: check between operations
-@long_task (ctx: Context) -> async Result<Data, Error> = try(
-    step1().await,
+@long_task (ctx: Context) -> Result<Data, Error> uses Async = try(
+    step1(),
     ctx.check_cancelled()?,
-    step2().await,
+    step2(),
     ctx.check_cancelled()?,
-    step3().await,
+    step3(),
     Ok(result)
 )
 
 // Bad: no cancellation checks
-@long_task_no_check () -> async Result<Data, Error> = try(
-    step1().await,
-    step2().await,
-    step3().await,  // might run even after cancellation requested
+@long_task_no_check () -> Result<Data, Error> uses Async = try(
+    step1(),
+    step2(),
+    step3(),  // might run even after cancellation requested
     Ok(result)
 )
 ```
@@ -414,15 +414,15 @@ Cooperative cancellation means:
 
 ```sigil
 // Good: context flows through
-@top (ctx: Context) -> async Result<Data, Error> =
-    middle(ctx).await
+@top (ctx: Context) -> Result<Data, Error> uses Async =
+    middle(ctx)
 
-@middle (ctx: Context) -> async Result<Data, Error> =
-    bottom(ctx).await
+@middle (ctx: Context) -> Result<Data, Error> uses Async =
+    bottom(ctx)
 
-@bottom (ctx: Context) -> async Result<Data, Error> = try(
+@bottom (ctx: Context) -> Result<Data, Error> uses Async = try(
     ctx.check_cancelled()?,
-    do_work().await
+    do_work()
 )
 ```
 
@@ -430,14 +430,14 @@ Cooperative cancellation means:
 
 ```sigil
 // Good: specific timeouts for different operations
-@process (ctx: Context) -> async Result<Data, Error> = run(
+@process (ctx: Context) -> Result<Data, Error> uses Async, Database, Http, Clock = run(
     // Database query: short timeout
     let db_ctx = ctx.with_timeout(5s),
-    let data = query_db(db_ctx).await,
+    let data = Database.query(db_ctx),
 
     // External API: longer timeout
     let api_ctx = ctx.with_timeout(30s),
-    let external = call_api(api_ctx, data).await,
+    let external = Http.call_api(api_ctx, data),
 
     Ok(combine(data, external)),
 )
@@ -446,15 +446,15 @@ Cooperative cancellation means:
 ### Handle Cancellation Gracefully
 
 ```sigil
-@graceful (ctx: Context) -> async Result<Data, Error> = run(
+@graceful (ctx: Context) -> Result<Data, Error> uses Async, Log = run(
     let result = try(
-        work(ctx).await,
+        work(ctx),
     ),
     match(result,
         Ok(data) -> Ok(data),
         Err(CancelledError) -> run(
-            log("Operation cancelled, cleaning up"),
-            cleanup().await,
+            Log.info("Operation cancelled, cleaning up"),
+            cleanup(),
             Err(CancelledError {}),
         ),
         Err(e) -> Err(e),
@@ -481,13 +481,13 @@ warning[W0300]: long operation without cancellation check
 ### Context Not Passed
 
 ```
-error[E0301]: async function called without context
+error[E0301]: function with Async capability called without context
   --> src/main.si:15:10
    |
-15 |     result = long_operation().await
+15 |     result = long_operation()
    |              ^^^^^^^^^^^^^^^^ expected Context parameter
    |
-   = note: pass parent context: `long_operation(ctx).await`
+   = note: pass parent context: `long_operation(ctx)`
 ```
 
 ### Timeout Exceeds Parent

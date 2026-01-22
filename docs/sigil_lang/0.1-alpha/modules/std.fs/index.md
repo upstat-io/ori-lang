@@ -21,6 +21,75 @@ The `std.fs` module provides:
 
 ---
 
+## The FileSystem Capability
+
+```sigil
+trait FileSystem {
+    @read (path: str) -> Result<str, FileError>
+    @read_bytes (path: str) -> Result<[byte], FileError>
+    @write (path: str, content: str) -> Result<void, FileError>
+    @write_bytes (path: str, data: [byte]) -> Result<void, FileError>
+    @exists (path: str) -> bool
+    @delete (path: str) -> Result<void, FileError>
+    @list (dir: str) -> Result<[DirEntry], FileError>
+    @metadata (path: str) -> Result<Metadata, FileError>
+}
+```
+
+The `FileSystem` capability represents the ability to perform file system operations. Functions that read, write, or query files must declare `uses FileSystem` in their signature.
+
+```sigil
+@load_config (path: str) -> Result<Config, Error> uses FileSystem =
+    FileSystem.read(path)?.parse()
+```
+
+**Implementations:**
+
+| Type | Description |
+|------|-------------|
+| `LocalFileSystem` | Real file system (default) |
+| `MockFileSystem` | In-memory mock for testing |
+
+### MockFileSystem
+
+For testing, create an in-memory mock:
+
+```sigil
+type MockFileSystem = {
+    files: {str: str},
+}
+
+impl FileSystem for MockFileSystem {
+    @read (path: str) -> Result<str, FileError> =
+        match(self.files.get(path),
+            Some(content) -> Ok(content),
+            None -> Err(FileError.NotFound(path)),
+        )
+
+    @write (path: str, content: str) -> Result<void, FileError> = run(
+        self.files = self.files.insert(path, content),
+        Ok(()),
+    )
+
+    @exists (path: str) -> bool = self.files.contains_key(path)
+
+    // ... other methods
+}
+```
+
+```sigil
+@test_load_config tests @load_config () -> void =
+    with FileSystem = MockFileSystem {
+        files: {"/config.json": "{\"debug\": true}"}
+    } in
+    run(
+        let config = load_config("/config.json")?,
+        assert(config.debug),
+    )
+```
+
+---
+
 ## Types
 
 ### Path

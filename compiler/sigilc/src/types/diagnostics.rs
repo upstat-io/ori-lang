@@ -16,7 +16,11 @@ pub fn type_mismatch_diagnostic(
 ) -> Diagnostic {
     let mut diag = Diagnostic::error(
         ErrorCode::E3001,
-        format!("type mismatch: expected {}, found {}", format_type(expected), format_type(found)),
+        format!(
+            "type mismatch: expected {}, found {}",
+            format_type(expected),
+            format_type(found)
+        ),
     )
     .with_label(span, format!("expected {}", format_type(expected)));
 
@@ -29,20 +33,14 @@ pub fn type_mismatch_diagnostic(
 
 /// Create an unknown identifier diagnostic
 pub fn unknown_ident_diagnostic(name: &str, span: Span) -> Diagnostic {
-    Diagnostic::error(
-        ErrorCode::E3002,
-        format!("unknown identifier '{}'", name),
-    )
-    .with_label(span, "not found in this scope")
+    Diagnostic::error(ErrorCode::E3002, format!("unknown identifier '{}'", name))
+        .with_label(span, "not found in this scope")
 }
 
 /// Create an unknown type diagnostic
 pub fn unknown_type_diagnostic(name: &str, span: Span) -> Diagnostic {
-    Diagnostic::error(
-        ErrorCode::E3003,
-        format!("unknown type '{}'", name),
-    )
-    .with_label(span, "type not found")
+    Diagnostic::error(ErrorCode::E3003, format!("unknown type '{}'", name))
+        .with_label(span, "type not found")
 }
 
 /// Create a wrong number of arguments diagnostic
@@ -63,7 +61,14 @@ pub fn wrong_arg_count_diagnostic(
             if found == 1 { "was" } else { "were" }
         ),
     )
-    .with_label(span, format!("expected {} argument{}", expected, if expected == 1 { "" } else { "s" }))
+    .with_label(
+        span,
+        format!(
+            "expected {} argument{}",
+            expected,
+            if expected == 1 { "" } else { "s" }
+        ),
+    )
 }
 
 /// Create a cannot infer type diagnostic
@@ -77,11 +82,7 @@ pub fn cannot_infer_diagnostic(context: &str, span: Span) -> Diagnostic {
 }
 
 /// Create an invalid operation diagnostic
-pub fn invalid_operation_diagnostic(
-    op: &str,
-    type_name: &str,
-    span: Span,
-) -> Diagnostic {
+pub fn invalid_operation_diagnostic(op: &str, type_name: &str, span: Span) -> Diagnostic {
     Diagnostic::error(
         ErrorCode::E3006,
         format!("cannot apply {} to {}", op, type_name),
@@ -96,18 +97,21 @@ pub fn missing_test_diagnostic(func_name: &str, span: Span) -> Diagnostic {
         format!("function '{}' has no tests", func_name),
     )
     .with_label(span, "no test found")
-    .with_help(format!("add a test: @test_name tests @{} () -> void = run(...)", func_name))
+    .with_help(format!(
+        "add a test: @test_name tests @{} () -> void = run(...)",
+        func_name
+    ))
 }
 
 /// Create an unknown method diagnostic
-pub fn unknown_method_diagnostic(
-    method: &str,
-    receiver_type: &TypeExpr,
-    span: Span,
-) -> Diagnostic {
+pub fn unknown_method_diagnostic(method: &str, receiver_type: &TypeExpr, span: Span) -> Diagnostic {
     Diagnostic::error(
         ErrorCode::E3008,
-        format!("no method '{}' found for type {}", method, format_type(receiver_type)),
+        format!(
+            "no method '{}' found for type {}",
+            method,
+            format_type(receiver_type)
+        ),
     )
     .with_label(span, "method not found")
 }
@@ -148,7 +152,10 @@ pub fn immutable_reassign_diagnostic(name: &str, span: Span) -> Diagnostic {
         format!("cannot assign twice to immutable variable '{}'", name),
     )
     .with_label(span, "cannot assign to immutable variable")
-    .with_help(format!("consider making this binding mutable: `let mut {}`", name))
+    .with_help(format!(
+        "consider making this binding mutable: `let mut {}`",
+        name
+    ))
 }
 
 /// Create an undeclared variable diagnostic
@@ -158,7 +165,10 @@ pub fn undeclared_var_diagnostic(name: &str, span: Span) -> Diagnostic {
         format!("cannot assign to undeclared variable '{}'", name),
     )
     .with_label(span, "variable not declared")
-    .with_help(format!("use `let {} = ...` to declare the variable first", name))
+    .with_help(format!(
+        "use `let {} = ...` to declare the variable first",
+        name
+    ))
 }
 
 /// Create a non-iterable type diagnostic
@@ -186,14 +196,21 @@ pub fn format_type(ty: &TypeExpr) -> String {
                 format!(
                     "{}<{}>",
                     name,
-                    params.iter().map(format_type).collect::<Vec<_>>().join(", ")
+                    params
+                        .iter()
+                        .map(format_type)
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )
             }
         }
         TypeExpr::List(inner) => format!("[{}]", format_type(inner)),
         TypeExpr::Map(key, value) => format!("Map<{}, {}>", format_type(key), format_type(value)),
         TypeExpr::Tuple(types) => {
-            format!("({})", types.iter().map(format_type).collect::<Vec<_>>().join(", "))
+            format!(
+                "({})",
+                types.iter().map(format_type).collect::<Vec<_>>().join(", ")
+            )
         }
         TypeExpr::Function(input, output) => {
             format!("{} -> {}", format_type(input), format_type(output))
@@ -207,7 +224,6 @@ pub fn format_type(ty: &TypeExpr) -> String {
             format!("{{ {} }}", field_strs.join(", "))
         }
         TypeExpr::DynTrait(trait_name) => format!("dyn {}", trait_name),
-        TypeExpr::Async(inner) => format!("async {}", format_type(inner)),
     }
 }
 
@@ -229,8 +245,7 @@ pub trait TypeResultExt<T> {
 impl<T> TypeResultExt<T> for Result<T, String> {
     fn with_span(self, span: Span) -> DiagnosticResult<T> {
         self.map_err(|msg| {
-            Diagnostic::error(ErrorCode::E0000, msg)
-                .with_label(span, "error occurred here")
+            Diagnostic::error(ErrorCode::E0000, msg).with_label(span, "error occurred here")
         })
     }
 

@@ -37,10 +37,7 @@ impl<'a> PatternArgs<'a> {
         self.get(name).ok_or_else(|| {
             Diagnostic::error(
                 ErrorCode::E2005,
-                format!(
-                    "pattern '{}' requires argument '{}'",
-                    self.keyword, name
-                ),
+                format!("pattern '{}' requires argument '{}'", self.keyword, name),
             )
         })
     }

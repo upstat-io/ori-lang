@@ -246,25 +246,27 @@ Lambdas created in a `uses` context can use those capabilities:
 
 ## Capabilities and Async
 
-Capabilities work with async functions:
+Capabilities work with async functions. The `Async` capability explicitly marks functions that may suspend:
 
 ```sigil
-trait AsyncHttp {
-    @get (url: str) -> async Result<str, Error>
+trait Http {
+    @get (url: str) -> Result<str, Error>
 }
 
-@fetch_user (id: str) -> async Result<User, Error> uses AsyncHttp = try(
-    let json = AsyncHttp.get("/users/" + id).await?,
+@fetch_user (id: str) -> Result<User, Error> uses Http, Async = try(
+    let json = Http.get("/users/" + id)?,
     Ok(parse(json)),
 )
 
-@main () -> async void =
-    with AsyncHttp = RealAsyncHttp {} in
+@main () -> void =
+    with Http = RealHttp {} in
     run(
-        let user = fetch_user("123").await,
+        let user = fetch_user("123"),
         print(user.name),
     )
 ```
+
+See [Async via Capabilities](../10-async/01-async-await.md) for details on how `uses Async` tracks suspension.
 
 ---
 

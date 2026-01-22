@@ -7,8 +7,8 @@
 // - Trait bounds on generics
 // - Method resolution
 
-use crate::ast::TypeExpr;
 use super::registries::FunctionSig;
+use crate::ast::TypeExpr;
 use std::collections::HashMap;
 
 /// A trait method signature
@@ -207,12 +207,17 @@ impl TraitRegistry {
     }
 
     /// Check if all bounds in a where clause are satisfied
-    pub fn check_bounds(&self, bounds: &[TraitBound], type_args: &HashMap<String, TypeExpr>) -> bool {
+    pub fn check_bounds(
+        &self,
+        bounds: &[TraitBound],
+        type_args: &HashMap<String, TypeExpr>,
+    ) -> bool {
         bounds.iter().all(|bound| {
             if let Some(type_expr) = type_args.get(&bound.type_param) {
-                bound.traits.iter().all(|trait_name| {
-                    self.type_implements_trait(type_expr, trait_name)
-                })
+                bound
+                    .traits
+                    .iter()
+                    .all(|trait_name| self.type_implements_trait(type_expr, trait_name))
             } else {
                 // Type parameter not found in type arguments
                 false
@@ -227,8 +232,8 @@ mod tests {
 
     #[test]
     fn test_trait_def_creation() {
-        let trait_def = TraitDef::new("Comparable".to_string())
-            .with_type_params(vec!["T".to_string()]);
+        let trait_def =
+            TraitDef::new("Comparable".to_string()).with_type_params(vec!["T".to_string()]);
 
         assert_eq!(trait_def.name, "Comparable");
         assert_eq!(trait_def.type_params, vec!["T".to_string()]);
@@ -266,10 +271,7 @@ mod tests {
 
     #[test]
     fn test_impl_def() {
-        let impl_def = ImplDef::new(
-            "Comparable".to_string(),
-            TypeExpr::Named("int".to_string()),
-        );
+        let impl_def = ImplDef::new("Comparable".to_string(), TypeExpr::Named("int".to_string()));
 
         assert_eq!(impl_def.trait_name, "Comparable");
         assert_eq!(impl_def.for_type, TypeExpr::Named("int".to_string()));
@@ -287,20 +289,11 @@ mod tests {
         assert!(!registry.contains_trait("Unknown"));
 
         // Add an implementation
-        let impl_def = ImplDef::new(
-            "Hashable".to_string(),
-            TypeExpr::Named("int".to_string()),
-        );
+        let impl_def = ImplDef::new("Hashable".to_string(), TypeExpr::Named("int".to_string()));
         registry.add_impl(impl_def);
 
-        assert!(registry.type_implements_trait(
-            &TypeExpr::Named("int".to_string()),
-            "Hashable"
-        ));
-        assert!(!registry.type_implements_trait(
-            &TypeExpr::Named("str".to_string()),
-            "Hashable"
-        ));
+        assert!(registry.type_implements_trait(&TypeExpr::Named("int".to_string()), "Hashable"));
+        assert!(!registry.type_implements_trait(&TypeExpr::Named("str".to_string()), "Hashable"));
     }
 
     #[test]

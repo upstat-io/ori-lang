@@ -6,7 +6,7 @@ Date, time, and timezone operations.
 use std.time { Date, Time, DateTime, now, parse_datetime }
 ```
 
-**No capability required** (pure computations)
+**Capability required:** `Clock` (for current time operations)
 
 ---
 
@@ -19,6 +19,64 @@ The `std.time` module provides:
 - `DateTime` — Combined date and time with timezone
 - Parsing and formatting
 - Duration arithmetic (see also: `Duration` in prelude)
+
+---
+
+## The Clock Capability
+
+```sigil
+trait Clock {
+    @now () -> DateTime
+    @today () -> Date
+    @timestamp () -> int
+}
+```
+
+The `Clock` capability represents the ability to read the current time. Functions that query the current time must declare `uses Clock` in their signature.
+
+```sigil
+@log_with_time (message: str) -> void uses Clock =
+    print("[" + Clock.now().format("%H:%M:%S") + "] " + message)
+```
+
+> **Note:** Pure time computations (parsing, formatting, arithmetic) don't require the `Clock` capability. Only reading the *current* time requires it.
+
+**Implementations:**
+
+| Type | Description |
+|------|-------------|
+| `SystemClock` | Real system clock (default) |
+| `MockClock` | Fixed or controllable time for testing |
+
+### MockClock
+
+For testing time-dependent code:
+
+```sigil
+type MockClock = {
+    fixed_time: DateTime,
+}
+
+impl Clock for MockClock {
+    @now () -> DateTime = self.fixed_time
+    @today () -> Date = self.fixed_time.date
+    @timestamp () -> int = self.fixed_time.timestamp()
+}
+```
+
+```sigil
+@test_token_expiry tests @is_expired () -> void =
+    with Clock = MockClock {
+        fixed_time: DateTime.parse("2024-01-15T10:00:00Z")?
+    } in
+    run(
+        let token = Token { expires_at: DateTime.parse("2024-01-15T09:00:00Z")? },
+        assert(is_expired(token)),  // Token expired 1 hour ago
+
+        let fresh = Token { expires_at: DateTime.parse("2024-01-15T11:00:00Z")? },
+        assert(not(is_expired(fresh))),  // Token valid for 1 more hour
+    )
+```
 
 ---
 

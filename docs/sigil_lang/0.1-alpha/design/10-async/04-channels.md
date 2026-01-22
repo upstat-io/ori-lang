@@ -9,20 +9,20 @@ This document covers Sigil's channel system: typed channels for communication, s
 Channels are Sigil's mechanism for communication between concurrent tasks. They are typed, bounded, and the only way to share data between tasks.
 
 ```sigil
-@producer (ch: Channel<int>) -> async void =
-    for i in 0..10 do ch.send(i).await
+@producer (ch: Channel<int>) -> void uses Async =
+    for i in 0..10 do ch.send(i)
 
-@consumer (ch: Channel<int>) -> async [int] = collect(
-    ch.receive().await,
+@consumer (ch: Channel<int>) -> [int] uses Async = collect(
+    ch.receive(),
     .until: ch.closed
 )
 
-@main () -> async void = run(
+@main () -> void uses Async = run(
     let ch = Channel<int>.new(buffer: 5),
     parallel(
         .producer: producer(ch),
         .consumer: consumer(ch),
-    ).await,
+    ),
 )
 ```
 
@@ -89,7 +89,7 @@ ch = Channel<int>.new()  // ERROR: buffer size required
 
 ```sigil
 // Send a value - blocks if buffer is full
-ch.send(value).await
+ch.send(value)
 
 // Returns void, cannot fail (unless channel is closed)
 ```
@@ -98,7 +98,7 @@ ch.send(value).await
 
 ```sigil
 // Receive a value - blocks if buffer is empty
-value = ch.receive().await
+value = ch.receive()
 
 // Returns Option<T> - None if channel is closed
 ```
@@ -106,15 +106,15 @@ value = ch.receive().await
 ### Example: Producer-Consumer
 
 ```sigil
-@producer (ch: Channel<int>) -> async void = run(
-    for i in 1..100 do ch.send(i).await,
+@producer (ch: Channel<int>) -> void uses Async = run(
+    for i in 1..100 do ch.send(i),
     ch.close(),  // signal no more values
 )
 
-@consumer (ch: Channel<int>) -> async int = run(
+@consumer (ch: Channel<int>) -> int uses Async = run(
     let sum = 0,
     loop(
-        match(ch.receive().await,
+        match(ch.receive(),
             Some(value) -> sum = sum + value,
             None -> break,  // channel closed
         ),
@@ -130,8 +130,8 @@ value = ch.receive().await
 ch.close()
 
 // After close:
-ch.send(value).await  // ERROR: channel closed
-ch.receive().await    // Returns None
+ch.send(value)  // ERROR: channel closed
+ch.receive()    // Returns None
 ```
 
 ---
@@ -141,7 +141,7 @@ ch.receive().await    // Returns None
 ### Fan-Out: One Producer, Multiple Consumers
 
 ```sigil
-@distribute_work (items: [Item]) -> async [Result<ProcessedItem, Error>] = run(
+@distribute_work (items: [Item]) -> [Result<ProcessedItem, Error>] uses Async = run(
     let work_ch = Channel<Item>.new(buffer: 100),
     let result_ch = Channel<Result<ProcessedItem, Error>>.new(buffer: 100),
 
@@ -151,19 +151,19 @@ ch.receive().await    // Returns None
     ),
 
     // Send work
-    for item in items do work_ch.send(item).await,
+    for item in items do work_ch.send(item),
     work_ch.close(),
 
     // Collect results
-    workers.await,
+    workers,
     result_ch.close(),
     result_ch.collect(),  // drain remaining items into list
 )
 
-@worker (work: Channel<Item>, results: Channel<Result<ProcessedItem, Error>>) -> async void = run(
+@worker (work: Channel<Item>, results: Channel<Result<ProcessedItem, Error>>) -> void uses Async = run(
     loop(
-        match(work.receive().await,
-            Some(item) -> results.send(process(item)).await,
+        match(work.receive(),
+            Some(item) -> results.send(process(item)),
             None -> break,
         ),
     ),
@@ -173,7 +173,7 @@ ch.receive().await    // Returns None
 ### Fan-In: Multiple Producers, One Consumer
 
 ```sigil
-@aggregate_sources (sources: [Source]) -> async [Data] = run(
+@aggregate_sources (sources: [Source]) -> [Data] uses Async = run(
     let data_ch = Channel<Data>.new(buffer: 100),
 
     // Start producers
@@ -185,7 +185,7 @@ ch.receive().await    // Returns None
     let result = [],
     let producers_done = 0,
     loop(
-        match(data_ch.receive().await,
+        match(data_ch.receive(),
             Some(data) -> result = result.append(data),
             None -> break,
         ),
@@ -197,7 +197,7 @@ ch.receive().await    // Returns None
 ### Pipeline: Chained Processing
 
 ```sigil
-@pipeline (input: [int]) -> async [int] = run(
+@pipeline (input: [int]) -> [int] uses Async = run(
     let ch1 = Channel<int>.new(buffer: 10),
     let ch2 = Channel<int>.new(buffer: 10),
     let ch3 = Channel<int>.new(buffer: 10),
@@ -207,13 +207,13 @@ ch.receive().await    // Returns None
         .stage1: transform(ch1, ch2, x -> x * 2),
         .stage2: transform(ch2, ch3, x -> x + 1),
         .sink: collect_channel(ch3),
-    ).await,
+    ),
 )
 
-@transform<T> (input: Channel<T>, output: Channel<T>, f: T -> T) -> async void = run(
+@transform<T> (input: Channel<T>, output: Channel<T>, f: T -> T) -> void uses Async = run(
     loop(
-        match(input.receive().await,
-            Some(value) -> output.send(f(value)).await,
+        match(input.receive(),
+            Some(value) -> output.send(f(value)),
             None -> run(output.close(), break),
         ),
     ),
@@ -225,13 +225,13 @@ ch.receive().await    // Returns None
 Wait on multiple channels:
 
 ```sigil
-@multiplex (ch1: Channel<int>, ch2: Channel<str>) -> async void = run(
+@multiplex (ch1: Channel<int>, ch2: Channel<str>) -> void uses Async = run(
     loop(
         select(
             ch1.receive() -> value -> print("int: " + str(value)),
             ch2.receive() -> value -> print("str: " + value),
             .closed: break,
-        ).await,
+        ),
     ),
 )
 ```
@@ -269,7 +269,7 @@ Sigil has no `Mutex`, `Lock`, or shared mutable variables:
 shared_counter = Mutex<int>.new(0)
 
 // ERROR: cannot share mutable reference
-@bad (shared: &mut int) -> async void = ...
+@bad (shared: &mut int) -> void uses Async = ...
 ```
 
 ### How to Share State
@@ -284,7 +284,7 @@ Instead of shared mutable state, use:
 
 ```sigil
 // Instead of shared counter, use channel
-@count_items (items: [Item]) -> async int = run(
+@count_items (items: [Item]) -> int uses Async = run(
     let count_ch = Channel<int>.new(buffer: 100),
 
     // Workers send counts to channel
@@ -292,28 +292,28 @@ Instead of shared mutable state, use:
         .tasks: map(chunk(items, 100), chunk ->
             count_chunk_and_send(chunk, count_ch)
         ),
-    ).await,
+    ),
 
     // Aggregate counts
     count_ch.close(),
     fold(count_ch.collect(), 0, +),
 )
 
-@count_chunk_and_send (items: [Item], ch: Channel<int>) -> async void = run(
+@count_chunk_and_send (items: [Item], ch: Channel<int>) -> void uses Async = run(
     let count = filter(items, item -> item.is_valid()).len(),
-    ch.send(count).await,
+    ch.send(count),
 )
 ```
 
 ### Example: Parallel Processing Without Locks
 
 ```sigil
-@process_documents (documents: [str]) -> async [ProcessedDoc] = run(
+@process_documents (documents: [str]) -> [ProcessedDoc] uses Async = run(
     // Process documents in parallel
     let results = parallel(
         .tasks: map(documents, doc -> process_doc(doc)),
         .max_concurrent: 10,
-    ).await,
+    ),
 
     // Combine results (functional, no locks needed)
     flatten(results),
@@ -331,8 +331,8 @@ Channels enforce type safety at compile time:
 ```sigil
 int_ch = Channel<int>.new(buffer: 10)
 
-int_ch.send(42).await     // OK
-int_ch.send("hello").await // ERROR: expected int, got str
+int_ch.send(42)     // OK
+int_ch.send("hello") // ERROR: expected int, got str
 ```
 
 ### Buffer Semantics
@@ -348,12 +348,12 @@ int_ch.send("hello").await // ERROR: expected int, got str
 Bounded buffers provide natural backpressure:
 
 ```sigil
-@fast_producer (ch: Channel<int>) -> async void =
-    for i in 0..1000000 do ch.send(i).await  // blocks when buffer full, slowing producer
+@fast_producer (ch: Channel<int>) -> void uses Async =
+    for i in 0..1000000 do ch.send(i)  // blocks when buffer full, slowing producer
 
-@slow_consumer (ch: Channel<int>) -> async void = run(
+@slow_consumer (ch: Channel<int>) -> void uses Async = run(
     loop(
-        let value = ch.receive().await,
+        let value = ch.receive(),
         process_slowly(value),  // consumer pace limits producer
     ),
 )
@@ -368,16 +368,16 @@ Bounded buffers provide natural backpressure:
 Use context with channel operations:
 
 ```sigil
-@send_with_timeout (ctx: Context, ch: Channel<Data>, value: Data) -> async Result<void, Error> =
+@send_with_timeout (ctx: Context, ch: Channel<Data>, value: Data) -> Result<void, Error> uses Async =
     timeout(
-        .op: ch.send(value).await,
+        .op: ch.send(value),
         .after: 5s,
         .on_timeout: Err(SendTimeout {})
     )
 
-@receive_with_timeout (ctx: Context, ch: Channel<Data>) -> async Result<Data, Error> =
+@receive_with_timeout (ctx: Context, ch: Channel<Data>) -> Result<Data, Error> uses Async =
     timeout(
-        .op: ch.receive().await,
+        .op: ch.receive(),
         .after: 5s,
         .on_timeout: Err(ReceiveTimeout {})
     )
@@ -386,17 +386,17 @@ Use context with channel operations:
 ### Graceful Shutdown with Channels
 
 ```sigil
-@worker (ctx: Context, work: Channel<Job>, results: Channel<Result<JobResult, Error>>) -> async void = run(
+@worker (ctx: Context, work: Channel<Job>, results: Channel<Result<JobResult, Error>>) -> void uses Async = run(
     loop(
         // Check for cancellation
         if ctx.is_cancelled() then break,
 
         // Try to receive with timeout
         match(timeout(
-            .op: work.receive().await,
+            .op: work.receive(),
             .after: 100ms,
         ),
-            Ok(job) -> results.send(process(job)).await,
+            Ok(job) -> results.send(process(job)),
             Err(_) -> continue,  // timeout, check cancellation again
         ),
     ),
@@ -454,14 +454,14 @@ ch = Channel<Job>.new(buffer: 1)  // unless intentional
 
 ```sigil
 // Good: explicit close signals completion
-@producer (ch: Channel<int>) -> async void = run(
-    for i in items do ch.send(i).await,
+@producer (ch: Channel<int>) -> void uses Async = run(
+    for i in items do ch.send(i),
     ch.close(),  // signal no more data
 )
 
 // Bad: consumers wait forever
-@producer_bad (ch: Channel<int>) -> async void =
-    for i in items do ch.send(i).await
+@producer_bad (ch: Channel<int>) -> void uses Async =
+    for i in items do ch.send(i)
     // forgot to close!
 ```
 
@@ -481,7 +481,7 @@ ch = Channel<any>.new(buffer: 10)  // avoid if possible
 ```sigil
 // Good: handle None from closed channel
 loop(
-    match(ch.receive().await,
+    match(ch.receive(),
         Some(value) -> process(value),
         None -> break,  // channel closed, exit gracefully
     ),
@@ -498,7 +498,7 @@ loop(
 error[E0400]: type mismatch in channel send
   --> src/main.si:10:14
    |
-10 |     ch.send("hello").await
+10 |     ch.send("hello")
    |             ^^^^^^^ expected `int`, found `str`
    |
    = note: channel type is `Channel<int>`
@@ -522,8 +522,8 @@ error[E0401]: channel buffer size required
 error[E0402]: send on closed channel
   --> src/main.si:15:5
    |
-15 |     ch.send(value).await
-   |     ^^^^^^^^^^^^^^^^^^^^ channel was closed
+15 |     ch.send(value)
+   |     ^^^^^^^^^^^^^^ channel was closed
    |
    = note: check if channel is open before sending
 ```
@@ -545,7 +545,7 @@ error[E0403]: shared mutable state not allowed
 
 ## See Also
 
-- [Async/Await](01-async-await.md)
+- [Capability-Based Async](01-capability-based-async.md)
 - [Structured Concurrency](02-structured-concurrency.md)
 - [Cancellation](03-cancellation.md)
 - [Patterns Reference](../02-syntax/04-patterns-reference.md)

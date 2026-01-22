@@ -286,39 +286,42 @@ impl Random for FixedRandom {
 
 ## Testing Async Code
 
-### Async Mock
+### Testing Async Code with Sync Mocks
+
+The biggest benefit of capability-based async: **tests use sync mocks and don't need the Async capability**.
 
 ```sigil
-trait AsyncHttp {
-    @get (url: str) -> async Result<str, Error>
-}
+// Production code uses Http + Async (non-blocking)
+@fetch_user (id: str) -> Result<User, Error> uses Http, Async =
+    Http.get("/users/" + id)?.parse()
 
-type MockAsyncHttp = {
+// MockHttp is synchronous - returns immediately without suspension
+type MockHttp = {
     responses: {str: str}
 }
 
-impl AsyncHttp for MockAsyncHttp {
-    @get (url: str) -> async Result<str, Error> = async run(
+impl Http for MockHttp {
+    @get (url: str) -> Result<str, Error> =
         match(self.responses.get(url),
             Some(body) -> Ok(body),
             None -> Err(Error { message: "Not found", cause: None })
         )
-    )
 }
 ```
 
-### Async Test
+### Sync Tests for Async Code
 
 ```sigil
-@fetch_user_async (id: str) -> async Result<User, Error> uses AsyncHttp = ...
-
-@test_fetch_async tests @fetch_user_async () -> void =
-    with AsyncHttp = MockAsyncHttp { responses: {"/users/1": "{...}"} } in
+// Test doesn't need Async because MockHttp is synchronous
+@test_fetch tests @fetch_user () -> void =
+    with Http = MockHttp { responses: {"/users/1": "{...}"} } in
     run(
-        let result = fetch_user_async("1").await,
+        let result = fetch_user("1"),  // No .await needed!
         assert(is_ok(result)),
     )
 ```
+
+Note: The test doesn't declare `uses Async` because MockHttp returns immediately without suspending. This is a key advantage of capability-based async over traditional async/await - tests run synchronously.
 
 ---
 

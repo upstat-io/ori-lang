@@ -1,23 +1,25 @@
 # std.async
 
-Async utilities and concurrency primitives.
+Capability-based async utilities and concurrency primitives.
 
 ```sigil
 use std.async { spawn, join, timeout, select }
 ```
 
-**No capability required** (for pure async operations)
+**Requires:** `Async` capability for async operations
 
 ---
 
 ## Overview
 
-The `std.async` module provides:
+The `std.async` module provides capability-based asynchronous programming:
 
 - Task spawning and joining
 - Timeouts and deadlines
 - Select for multiple futures
 - Async synchronization
+
+Sigil uses **capability-based async** rather than async/await syntax. Functions that perform async operations declare the `Async` capability in their signature with `uses Async`. The runtime automatically manages suspension and resumption — no explicit `.await` calls are needed.
 
 > **Note:** `Channel<T>` is built-in (see [prelude](../prelude.md)). This module provides additional async utilities.
 
@@ -28,7 +30,7 @@ The `std.async` module provides:
 ### @spawn
 
 ```sigil
-@spawn<T> (f: () -> async T) -> Task<T>
+@spawn<T> (f: () -> T uses Async) -> Task<T>
 ```
 
 Spawns an async task.
@@ -38,7 +40,7 @@ use std.async { spawn }
 
 let task = spawn(|| fetch_data(url))
 // ... do other work ...
-let result = task.await
+let result = task.result()
 ```
 
 ---
@@ -46,7 +48,7 @@ let result = task.await
 ### @join
 
 ```sigil
-@join<T> (tasks: [Task<T>]) -> async [T]
+@join<T> (tasks: [Task<T>]) -> [T] uses Async
 ```
 
 Waits for all tasks to complete.
@@ -55,7 +57,7 @@ Waits for all tasks to complete.
 use std.async { spawn, join }
 
 let tasks = urls | map(_, url -> spawn(|| fetch(url)))
-let results = join(tasks).await
+let results = join(tasks)
 ```
 
 ---
@@ -63,7 +65,7 @@ let results = join(tasks).await
 ### @join_any
 
 ```sigil
-@join_any<T> (tasks: [Task<T>]) -> async (T, [Task<T>])
+@join_any<T> (tasks: [Task<T>]) -> (T, [Task<T>]) uses Async
 ```
 
 Waits for first task to complete, returns result and remaining tasks.
@@ -72,7 +74,7 @@ Waits for first task to complete, returns result and remaining tasks.
 use std.async { spawn, join_any }
 
 let tasks = [spawn(|| slow()), spawn(|| fast())]
-let (first_result, remaining) = join_any(tasks).await
+let (first_result, remaining) = join_any(tasks)
 ```
 
 ---
@@ -88,7 +90,7 @@ type Task<T>
 A handle to a spawned async task.
 
 **Methods:**
-- `await -> T` — Wait for completion
+- `result() -> T uses Async` — Wait for completion and get result
 - `cancel() -> void` — Request cancellation
 - `is_done() -> bool` — Check if completed
 
@@ -99,15 +101,15 @@ A handle to a spawned async task.
 ### @timeout
 
 ```sigil
-@timeout<T> (future: async T, duration: Duration) -> async Result<T, TimeoutError>
+@timeout<T> (f: () -> T uses Async, duration: Duration) -> Result<T, TimeoutError> uses Async
 ```
 
-Wraps future with a timeout.
+Wraps an async operation with a timeout.
 
 ```sigil
 use std.async { timeout }
 
-let result = timeout(fetch_data(url), 30s).await
+let result = timeout(|| fetch_data(url), 30s)
 
 match(result,
     Ok(data) -> process(data),
@@ -120,17 +122,17 @@ match(result,
 ### @deadline
 
 ```sigil
-@deadline<T> (future: async T, time: DateTime) -> async Result<T, TimeoutError>
+@deadline<T> (f: () -> T uses Async, time: DateTime) -> Result<T, TimeoutError> uses Async
 ```
 
-Wraps future with an absolute deadline.
+Wraps an async operation with an absolute deadline.
 
 ```sigil
 use std.async { deadline }
 use std.time { now }
 
 let must_finish_by = now().add(1h)
-let result = deadline(long_operation(), must_finish_by).await
+let result = deadline(|| long_operation(), must_finish_by)
 ```
 
 ---
@@ -140,18 +142,18 @@ let result = deadline(long_operation(), must_finish_by).await
 ### @select
 
 ```sigil
-@select<T> (futures: [async T]) -> async (int, T)
+@select<T> (tasks: [() -> T uses Async]) -> (int, T) uses Async
 ```
 
-Waits for first future to complete, returns index and result.
+Waits for first operation to complete, returns index and result.
 
 ```sigil
 use std.async { select }
 
 let (index, result) = select([
-    fetch_from_primary(),
-    fetch_from_backup(),
-]).await
+    || fetch_from_primary(),
+    || fetch_from_backup(),
+])
 
 print("Got result from source " + str(index))
 ```
@@ -161,19 +163,19 @@ print("Got result from source " + str(index))
 ### @select_with
 
 ```sigil
-@select_with (branches: ...) -> async T
+@select_with (branches: ...) -> T uses Async
 ```
 
-Select with different future types.
+Select with different operation types.
 
 ```sigil
 use std.async { select_with }
 
 select_with(
-    channel.receive() -> msg -> handle_message(msg),
-    timer.tick() -> _ -> handle_tick(),
-    shutdown.recv() -> _ -> break,
-).await
+    || channel.receive() -> msg -> handle_message(msg),
+    || timer.tick() -> _ -> handle_tick(),
+    || shutdown.recv() -> _ -> break,
+)
 ```
 
 ---
@@ -193,9 +195,9 @@ use std.async { Semaphore }
 
 let sem = Semaphore.new(10)  // Max 10 concurrent
 
-@limited_fetch (url: str) -> async Result<Data, Error> = run(
-    sem.acquire().await,
-    let result = fetch(url).await,
+@limited_fetch (url: str) -> Result<Data, Error> uses Async = run(
+    sem.acquire(),
+    let result = fetch(url),
     sem.release(),
     result,
 )
@@ -203,7 +205,7 @@ let sem = Semaphore.new(10)  // Max 10 concurrent
 
 **Methods:**
 - `new(permits: int) -> Semaphore` — Create with permit count
-- `acquire() -> async void` — Acquire permit (waits if none available)
+- `acquire() -> void uses Async` — Acquire permit (waits if none available)
 - `try_acquire() -> bool` — Try to acquire without waiting
 - `release() -> void` — Release permit
 
@@ -225,7 +227,7 @@ let barrier = Barrier.new(3)
 // All three tasks must reach barrier before any proceeds
 for i in 0..3 do spawn(|| run(
     prepare(i),
-    barrier.wait().await,  // All wait here
+    barrier.wait(),  // All wait here
     execute(i),
 ))
 ```
@@ -245,8 +247,8 @@ use std.async { OnceCell }
 
 let config: OnceCell<Config> = OnceCell.new()
 
-@get_config () -> async Config =
-    config.get_or_init(|| load_config()).await
+@get_config () -> Config uses Async =
+    config.get_or_init(|| load_config())
 ```
 
 ---
@@ -256,7 +258,7 @@ let config: OnceCell<Config> = OnceCell.new()
 ### @sleep
 
 ```sigil
-@sleep (duration: Duration) -> async void
+@sleep (duration: Duration) -> void uses Async
 ```
 
 Pauses for duration.
@@ -264,11 +266,11 @@ Pauses for duration.
 ```sigil
 use std.async { sleep }
 
-@retry_with_backoff<T> (f: () -> async Result<T, Error>, attempts: int) -> async Result<T, Error> = run(
+@retry_with_backoff<T> (f: () -> Result<T, Error> uses Async, attempts: int) -> Result<T, Error> uses Async = run(
     for i in 0..attempts do
-        match(f().await,
+        match(f(),
             Ok(v) -> return Ok(v),
-            Err(_) if i < attempts - 1 -> sleep(100ms * pow(2, i)).await,
+            Err(_) if i < attempts - 1 -> sleep(100ms * pow(2, i)),
             Err(e) -> return Err(e),
         ),
 )
@@ -283,15 +285,15 @@ use std.async { sleep }
 ```sigil
 use std.async { Semaphore, spawn, join }
 
-@fetch_all (urls: [str], max_concurrent: int) -> async [Result<Data, Error>] = run(
+@fetch_all (urls: [str], max_concurrent: int) -> [Result<Data, Error>] uses Async = run(
     let sem = Semaphore.new(max_concurrent),
     let tasks = urls | map(_, url -> spawn(|| run(
-        sem.acquire().await,
-        let result = fetch(url).await,
+        sem.acquire(),
+        let result = fetch(url),
         sem.release(),
         result,
     ))),
-    join(tasks).await,
+    join(tasks),
 )
 ```
 
@@ -300,11 +302,11 @@ use std.async { Semaphore, spawn, join }
 ```sigil
 use std.async { select, timeout }
 
-@fetch_with_fallback (primary: str, backup: str) -> async Result<Data, Error> = run(
+@fetch_with_fallback (primary: str, backup: str) -> Result<Data, Error> uses Async = run(
     let (_, result) = select([
-        timeout(fetch(primary), 5s),
-        timeout(fetch(backup), 10s),
-    ]).await,
+        || timeout(|| fetch(primary), 5s),
+        || timeout(|| fetch(backup), 10s),
+    ]),
     result,
 )
 ```
@@ -317,13 +319,13 @@ use std.async { spawn, join }
 @process_batch<T, R> (
     items: [T],
     workers: int,
-    process: T -> async R
-) -> async [R] = run(
+    process: T -> R uses Async
+) -> [R] uses Async = run(
     let chunks = items.chunks(items.len() / workers + 1),
     let tasks = chunks | map(_, chunk ->
         spawn(|| map(chunk, process) | join(_))
     ),
-    join(tasks).await | flatten(_),
+    join(tasks) | flatten(_),
 )
 ```
 

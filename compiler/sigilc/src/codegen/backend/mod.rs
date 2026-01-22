@@ -8,16 +8,16 @@
 // - LLVM: Direct LLVM IR generation
 // - WebAssembly: WASM output
 
-mod traits;
-mod registry;
 pub mod c;
+mod registry;
+mod traits;
 
-pub use traits::{
-    Backend, CodegenMetadata, CodegenOptions, CodegenStats, ExecutableBackend,
-    GeneratedCode, GeneratedContent, OutputFormat,
-};
-pub use registry::{
-    backend_names, get_backend, get_default_backend, has_backend, registry,
-    BackendInfo, BackendRegistry,
-};
 pub use c::CBackend;
+pub use registry::{
+    backend_names, get_backend, get_default_backend, has_backend, registry, BackendInfo,
+    BackendRegistry,
+};
+pub use traits::{
+    Backend, CodegenMetadata, CodegenOptions, CodegenStats, ExecutableBackend, GeneratedCode,
+    GeneratedContent, OutputFormat,
+};

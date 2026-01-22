@@ -1,11 +1,11 @@
 // Expression lowering for AST to TIR
 // Converts typed AST expressions to TIR expressions
 
-use crate::ast::{BinaryOp, Expr, SpannedExpr, Span};
-use crate::ir::{FuncRef, TExpr, TExprKind, TStmt, Type};
-use super::captures::{CaptureAnalyzer, resolve_captures};
+use super::captures::{resolve_captures, CaptureAnalyzer};
 use super::types::is_builtin;
 use super::Lowerer;
+use crate::ast::{BinaryOp, Expr, Span, SpannedExpr};
+use crate::ir::{FuncRef, TExpr, TExprKind, TStmt, Type};
 
 impl Lowerer {
     /// Lower a spanned expression to TIR, preserving the span
@@ -29,7 +29,6 @@ impl Lowerer {
 
     /// Lower an expression with a known type and span
     fn lower_expr_with_span(&mut self, expr: &Expr, ty: Type, span: Span) -> Result<TExpr, String> {
-
         let kind = match expr {
             // Literals
             Expr::Int(n) => TExprKind::Int(*n),
@@ -45,12 +44,10 @@ impl Lowerer {
             Expr::Config(name) => TExprKind::Config(name.clone()),
 
             // Length placeholder
-            Expr::LengthPlaceholder => {
-                TExprKind::Call {
-                    func: FuncRef::Builtin("__length_placeholder".to_string()),
-                    args: vec![],
-                }
-            }
+            Expr::LengthPlaceholder => TExprKind::Call {
+                func: FuncRef::Builtin("__length_placeholder".to_string()),
+                args: vec![],
+            },
 
             // Collections
             Expr::List(exprs) => {
@@ -218,7 +215,11 @@ impl Lowerer {
             }
 
             // Let binding (outside block)
-            Expr::Let { name, mutable, value } => {
+            Expr::Let {
+                name,
+                mutable,
+                value,
+            } => {
                 let val = self.lower_expr(value)?;
                 let val_ty = val.ty.clone();
                 let local_id = self.locals.add(name.clone(), val_ty, false, *mutable);
@@ -290,7 +291,11 @@ impl Lowerer {
                 TExprKind::Unwrap(Box::new(inner))
             }
 
-            Expr::With { capability, implementation, body } => {
+            Expr::With {
+                capability,
+                implementation,
+                body,
+            } => {
                 let impl_expr = self.lower_expr(implementation)?;
                 let body_expr = self.lower_expr(body)?;
                 TExprKind::With {
@@ -298,11 +303,6 @@ impl Lowerer {
                     implementation: Box::new(impl_expr),
                     body: Box::new(body_expr),
                 }
-            }
-
-            Expr::Await(inner) => {
-                let inner_expr = self.lower_expr(inner)?;
-                TExprKind::Await(Box::new(inner_expr))
             }
         };
 
@@ -382,7 +382,11 @@ impl Lowerer {
     }
 
     /// Lower a lambda expression
-    pub(super) fn lower_lambda(&mut self, params: &[String], body: &Expr) -> Result<TExprKind, String> {
+    pub(super) fn lower_lambda(
+        &mut self,
+        params: &[String],
+        body: &Expr,
+    ) -> Result<TExprKind, String> {
         // Analyze captures BEFORE modifying scope
         // This determines which outer scope variables are used in the lambda body
         let mut analyzer = CaptureAnalyzer::new();
@@ -434,12 +438,20 @@ impl Lowerer {
                 last_expr = Some(self.lower_expr(e)?);
             } else {
                 // Check for let bindings
-                if let Expr::Let { name, mutable, value } = e {
+                if let Expr::Let {
+                    name,
+                    mutable,
+                    value,
+                } = e
+                {
                     let val = self.lower_expr(value)?;
                     let val_ty = val.ty.clone();
                     let local_id = self.locals.add(name.clone(), val_ty, false, *mutable);
                     self.local_scope.insert(name.clone(), local_id);
-                    stmts.push(TStmt::Let { local: local_id, value: val });
+                    stmts.push(TStmt::Let {
+                        local: local_id,
+                        value: val,
+                    });
                 }
                 // Check for reassignment (mutable only)
                 else if let Expr::Reassign { target, value } = e {

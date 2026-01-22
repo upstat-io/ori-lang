@@ -634,38 +634,34 @@ fn test_capability_transitive_requirement() {
 }
 
 // ============================================================================
-// Async/Await Tests
+// Trait Extension Tests
 // ============================================================================
 
 #[test]
-fn test_async_type_mismatch() {
-    // Body type must match return type - async str != str
-    let err = check_err(
+fn test_extend_block_registers_methods() {
+    // An extend block should register extension methods
+    check_ok(
         r#"
-@fetch () -> async str = "data"
-@test_fetch tests @fetch () -> void = assert(true)
+extend Iterator {
+    @count (self: Self) -> int = 0
+}
+@f () -> void = nil
+@test_f tests @f () -> void = assert(true)
 "#,
-    );
-    assert!(
-        err.contains("Async"),
-        "Error should mention async type mismatch: {}",
-        err
     );
 }
 
 #[test]
-fn test_await_requires_async_type() {
-    // await on non-async should error
-    let err = check_err(
+fn test_extension_import_makes_method_available() {
+    // After importing an extension method, it should be callable
+    check_ok(
         r#"
-@sync_fn () -> str = "data"
-@bad () -> str = sync_fn().await
-@test_sync tests @sync_fn () -> void = assert(true)
+extend Iterator {
+    @count (self: Self) -> int = 0
+}
+extension "./test" { Iterator.count }
+@f () -> void = nil
+@test_f tests @f () -> void = assert(true)
 "#,
-    );
-    assert!(
-        err.contains("await") && err.contains("async"),
-        "Error should mention await requires async type: {}",
-        err
     );
 }

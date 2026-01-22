@@ -50,15 +50,13 @@ impl PatternDefinition for RecursePattern {
         };
 
         // Check condition type (should be bool)
-        check_expr(condition, ctx).map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+        check_expr(condition, ctx)?;
 
         // Check base value type
-        let base_type =
-            check_expr(base_value, ctx).map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+        let base_type = check_expr(base_value, ctx)?;
 
         // Check step type
-        let step_type =
-            check_expr(step, ctx).map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+        let step_type = check_expr(step, ctx)?;
 
         // Base and step should have compatible types
         if !types_compatible(&base_type, &step_type, ctx) {

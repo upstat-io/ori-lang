@@ -150,7 +150,11 @@ impl TirCodeGen {
                 self.emit_line(&format!("{};", call));
             }
 
-            TExprKind::For { binding, iter, body } => {
+            TExprKind::For {
+                binding,
+                iter,
+                body,
+            } => {
                 // Emit a for loop
                 let iter_c = self.expr_to_c(iter)?;
                 self.emit_line(&format!(

@@ -31,8 +31,4 @@ pub enum TypeExpr {
     /// Dynamic trait object: dyn Trait
     /// Represents a type-erased reference to any type implementing the trait
     DynTrait(String),
-
-    /// Async type: async T
-    /// Represents a future that will eventually produce a value of type T
-    Async(Box<TypeExpr>),
 }

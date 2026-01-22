@@ -98,7 +98,12 @@ impl TIRPrinter {
                             .iter()
                             .map(|f| format!("{}: {}", f.name, f.ty))
                             .collect();
-                        self.writeln(&format!("{}{} {{ {} }}", prefix, variant.name, fields.join(", ")));
+                        self.writeln(&format!(
+                            "{}{} {{ {} }}",
+                            prefix,
+                            variant.name,
+                            fields.join(", ")
+                        ));
                     }
                 }
                 self.dedent();
@@ -267,7 +272,10 @@ impl TIRPrinter {
                     let caps: Vec<_> = captures.iter().map(|c| format!("l{}", c.0)).collect();
                     self.write(&format!("[{}] ", caps.join(", ")));
                 }
-                let ps: Vec<_> = params.iter().map(|(n, t)| format!("{}: {}", n, t)).collect();
+                let ps: Vec<_> = params
+                    .iter()
+                    .map(|(n, t)| format!("{}: {}", n, t))
+                    .collect();
                 self.write(&format!("({}) -> ", ps.join(", ")));
                 self.print_expr(body);
             }
@@ -304,7 +312,11 @@ impl TIRPrinter {
                 self.write(")");
             }
 
-            TExprKind::For { binding, iter, body } => {
+            TExprKind::For {
+                binding,
+                iter,
+                body,
+            } => {
                 self.write(&format!("for local_{} in ", binding.0));
                 self.print_expr(iter);
                 self.write(" { ");
@@ -358,16 +370,15 @@ impl TIRPrinter {
                 self.write(".unwrap()");
             }
 
-            TExprKind::With { capability, implementation, body } => {
+            TExprKind::With {
+                capability,
+                implementation,
+                body,
+            } => {
                 self.write(&format!("with {} = ", capability));
                 self.print_expr(implementation);
                 self.write(" in ");
                 self.print_expr(body);
-            }
-
-            TExprKind::Await(inner) => {
-                self.print_expr(inner);
-                self.write(".await");
             }
         }
 
@@ -582,9 +593,7 @@ impl TIRPrinter {
                 self.write(")");
             }
             TPattern::Validate {
-                rules,
-                then_value,
-                ..
+                rules, then_value, ..
             } => {
                 self.write("validate(.rules: [");
                 for (i, (cond, msg)) in rules.iter().enumerate() {

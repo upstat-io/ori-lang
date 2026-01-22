@@ -16,7 +16,8 @@ The standard library provides production-ready implementations for common progra
 | **Data** | [std.json](std.json/), [std.encoding](std.encoding/) | Serialization and encoding |
 | **Text** | [std.fmt](std.fmt/), [std.text](std.text/) | Formatting and text processing |
 | **Time** | [std.time](std.time/) | Dates, times, and durations |
-| **Math** | [std.math](std.math/) | Mathematical functions |
+| **Math** | [std.math](std.math/) | Mathematical functions and random |
+| **Caching** | [std.cache](std.cache/) | Key-value caching |
 | **Security** | [std.crypto](std.crypto/) | Cryptographic primitives |
 | **System** | [std.env](std.env/), [std.process](std.process/) | Environment and processes |
 | **Development** | [std.log](std.log/), [std.testing](std.testing/) | Logging and testing utilities |
@@ -73,22 +74,25 @@ Everything else requires explicit import.
 
 ## Capabilities
 
-Some modules require capabilities to use:
+Modules define capability traits that functions use to declare their effects:
 
-| Module | Capability | Reason |
-|--------|------------|--------|
-| `std.io` | `IO` | Reads/writes to streams |
-| `std.fs` | `FileSystem` | Accesses filesystem |
-| `std.net` | `Network` | Network communication |
-| `std.process` | `Process` | Spawns processes |
-| `std.env` | `Env` | Reads environment |
+| Module | Capability Trait | Purpose |
+|--------|------------------|---------|
+| `std.net.http` | `Http` | HTTP requests |
+| `std.fs` | `FileSystem` | Filesystem operations |
+| `std.time` | `Clock` | Current time queries |
+| `std.log` | `Logger` | Log messages |
+| `std.env` | `Env` | Environment variables |
+| `std.math.rand` | `Random` | Random number generation |
+| `std.cache` | `Cache` | Key-value caching |
+| prelude | `Async` | Marks functions that may suspend |
 
 Pure modules (no capabilities required):
-- `std.time` (Duration math, date calculations)
+- `std.time` date/duration math (only `Clock.now()` needs capability)
 - `std.fmt` (String formatting)
 - `std.text` (Text processing)
-- `std.json` (Encoding/decoding)
-- `std.math` (Mathematical functions)
+- `std.json` (Encoding/decoding — pure transformation)
+- `std.math` (Mathematical functions — except `std.math.rand`)
 - `std.collections` (Data structures)
 
 See [Capabilities](../spec/14-capabilities.md) for details.

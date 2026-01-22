@@ -54,7 +54,9 @@ impl ModuleResolver {
             path.canonicalize()
                 .map_err(|e| format!("Cannot canonicalize '{}': {}", path.display(), e))
         } else {
-            self.root.join(path).canonicalize()
+            self.root
+                .join(path)
+                .canonicalize()
                 .map_err(|e| format!("Cannot canonicalize '{}': {}", path.display(), e))
         }
     }
@@ -104,9 +106,10 @@ impl ModuleResolver {
         }
 
         // Build helpful error message
-        let mut searched = vec![
-            from.parent().map(|p| p.display().to_string()).unwrap_or_default(),
-        ];
+        let mut searched = vec![from
+            .parent()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default()];
         searched.extend(self.lib_paths.iter().map(|p| p.display().to_string()));
         searched.push(self.root.display().to_string());
 
@@ -134,8 +137,7 @@ impl ModuleResolver {
     /// Get the logical module name from a file path
     pub fn path_to_module_name(&self, path: &Path) -> String {
         // Try to make the path relative to root
-        let relative = path.strip_prefix(&self.root)
-            .unwrap_or(path);
+        let relative = path.strip_prefix(&self.root).unwrap_or(path);
 
         // Convert path components to module name
         let mut parts: Vec<&str> = relative
@@ -182,7 +184,11 @@ mod tests {
 
         // Create test files
         fs::write(temp_dir.path().join("main.si"), "@main () -> void = nil").unwrap();
-        fs::write(temp_dir.path().join("math.si"), "@add (a: int, b: int) -> int = a + b").unwrap();
+        fs::write(
+            temp_dir.path().join("math.si"),
+            "@add (a: int, b: int) -> int = a + b",
+        )
+        .unwrap();
 
         let resolver = ModuleResolver::new(temp_dir.path());
         let from = temp_dir.path().join("main.si");
@@ -197,9 +203,17 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
 
         // Create test files
-        fs::write(temp_dir.path().join("math.si"), "@add (a: int, b: int) -> int = a + b").unwrap();
+        fs::write(
+            temp_dir.path().join("math.si"),
+            "@add (a: int, b: int) -> int = a + b",
+        )
+        .unwrap();
         fs::create_dir(temp_dir.path().join("_test")).unwrap();
-        fs::write(temp_dir.path().join("_test/math.test.si"), "use math { add }").unwrap();
+        fs::write(
+            temp_dir.path().join("_test/math.test.si"),
+            "use math { add }",
+        )
+        .unwrap();
 
         let resolver = ModuleResolver::new(temp_dir.path());
         let from = temp_dir.path().join("_test/math.test.si");

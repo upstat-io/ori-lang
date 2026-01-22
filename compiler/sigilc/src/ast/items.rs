@@ -68,7 +68,10 @@ pub struct TypeParam {
 impl TypeParam {
     /// Create an unbounded type parameter
     pub fn unbounded(name: String) -> Self {
-        Self { name, bounds: vec![] }
+        Self {
+            name,
+            bounds: vec![],
+        }
     }
 
     /// Create a bounded type parameter
@@ -129,7 +132,7 @@ pub struct TraitDef {
 #[derive(Debug, Clone)]
 pub struct AssociatedType {
     pub name: String,
-    pub bounds: Vec<String>, // Trait bounds on the associated type
+    pub bounds: Vec<String>,       // Trait bounds on the associated type
     pub default: Option<TypeExpr>, // Optional default type
 }
 
@@ -169,4 +172,30 @@ pub struct WhereBound {
 pub struct AssociatedTypeImpl {
     pub name: String,
     pub ty: TypeExpr,
+}
+
+/// Trait extension block: extend Trait where ... { methods }
+/// Adds methods to all implementors of a trait
+#[derive(Debug, Clone)]
+pub struct ExtendBlock {
+    pub trait_name: String,
+    pub where_clause: Vec<WhereBound>,
+    pub methods: Vec<FunctionDef>,
+    pub span: Span,
+}
+
+/// Extension import: extension path { Trait.method, ... }
+/// Imports specific extension methods into scope
+#[derive(Debug, Clone)]
+pub struct ExtensionImport {
+    pub path: Vec<String>,
+    pub items: Vec<ExtensionItem>,
+    pub span: Span,
+}
+
+/// An item in an extension import: Trait.method
+#[derive(Debug, Clone)]
+pub struct ExtensionItem {
+    pub trait_name: String,
+    pub method_name: String,
 }

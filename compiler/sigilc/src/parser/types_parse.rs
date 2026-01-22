@@ -28,13 +28,6 @@ impl Parser {
             return Ok(TypeExpr::DynTrait(trait_name));
         }
 
-        // Async type: async T
-        if matches!(self.current(), Some(Token::Async)) {
-            self.advance();
-            let inner = self.parse_type()?;
-            return Ok(TypeExpr::Async(Box::new(inner)));
-        }
-
         // List type: [T]
         if matches!(self.current(), Some(Token::LBracket)) {
             self.advance();

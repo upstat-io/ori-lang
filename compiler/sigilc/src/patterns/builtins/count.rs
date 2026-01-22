@@ -49,8 +49,7 @@ impl PatternDefinition for CountPattern {
         };
 
         // Check collection type
-        let coll_type = check_expr(collection, ctx)
-            .map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+        let coll_type = check_expr(collection, ctx)?;
 
         // Get element type from collection
         let elem_type = get_list_element_type(&coll_type).map_err(|_| {
@@ -66,8 +65,7 @@ impl PatternDefinition for CountPattern {
             Box::new(TypeExpr::Named("bool".to_string())),
         );
 
-        check_expr_with_hint(predicate, ctx, Some(&expected_lambda_type))
-            .map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+        check_expr_with_hint(predicate, ctx, Some(&expected_lambda_type))?;
 
         // Count always returns int
         Ok(TypeExpr::Named("int".to_string()))

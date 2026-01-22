@@ -63,11 +63,11 @@ pub enum TPattern {
     /// recurse(cond, base, step) -> result
     /// Recursive function with optional memoization
     Recurse {
-        cond: TExpr,      // Base case condition
-        base: TExpr,      // Base case value
-        step: TExpr,      // Recursive step using self()
-        result_ty: Type,  // Return type
-        memo: bool,       // Enable memoization
+        cond: TExpr,             // Base case condition
+        base: TExpr,             // Base case value
+        step: TExpr,             // Recursive step using self()
+        result_ty: Type,         // Return type
+        memo: bool,              // Enable memoization
         parallel_threshold: i64, // Parallelize when n > threshold (0 = no parallelism)
     },
 
@@ -112,17 +112,17 @@ pub enum TPattern {
     Find {
         collection: TExpr,
         elem_ty: Type,
-        predicate: TExpr,          // Lambda: elem -> bool
-        default: Option<TExpr>,    // If provided, returns elem_ty instead of Option
-        result_ty: Type,           // Option<elem_ty> or elem_ty
+        predicate: TExpr,       // Lambda: elem -> bool
+        default: Option<TExpr>, // If provided, returns elem_ty instead of Option
+        result_ty: Type,        // Option<elem_ty> or elem_ty
     },
 
     /// try(.body: expr) -> Result<T, Error> or T
     /// Wrap expression in error handling
     Try {
         body: TExpr,
-        catch: Option<TExpr>,      // Optional error handler: (err) -> T
-        result_ty: Type,           // Result<T, Error> or T (with catch)
+        catch: Option<TExpr>, // Optional error handler: (err) -> T
+        result_ty: Type,      // Result<T, Error> or T (with catch)
     },
 
     /// retry(.op: expr, .times: N, .backoff: strategy, .delay: ms)
@@ -132,15 +132,15 @@ pub enum TPattern {
         max_attempts: TExpr,
         backoff: RetryBackoff,
         delay_ms: Option<TExpr>,
-        result_ty: Type,           // Result<T, Error>
+        result_ty: Type, // Result<T, Error>
     },
 
     /// validate(.rules: [...], .then: value)
     /// Validate with error accumulation
     Validate {
-        rules: Vec<(TExpr, TExpr)>,  // List of (condition, error_message) pairs
-        then_value: TExpr,            // Value to return if all pass
-        result_ty: Type,              // Result<T, [str]>
+        rules: Vec<(TExpr, TExpr)>, // List of (condition, error_message) pairs
+        then_value: TExpr,          // Value to return if all pass
+        result_ty: Type,            // Result<T, [str]>
     },
 }
 
@@ -158,13 +158,9 @@ impl TPattern {
     pub fn result_type(&self) -> &Type {
         match self {
             TPattern::Fold { result_ty, .. } => result_ty,
-            TPattern::Map {
-                result_elem_ty, ..
-            } => result_elem_ty,
+            TPattern::Map { result_elem_ty, .. } => result_elem_ty,
             TPattern::Filter { elem_ty, .. } => elem_ty,
-            TPattern::Collect {
-                result_elem_ty, ..
-            } => result_elem_ty,
+            TPattern::Collect { result_elem_ty, .. } => result_elem_ty,
             TPattern::Recurse { result_ty, .. } => result_ty,
             TPattern::Iterate { result_ty, .. } => result_ty,
             TPattern::Transform { result_ty, .. } => result_ty,

@@ -99,12 +99,17 @@ pub trait ExprVisitor {
             Expr::Coalesce { value, default } => self.visit_coalesce(value, default),
             Expr::Unwrap(inner) => self.visit_unwrap(inner),
 
-            Expr::Let { name, mutable, value } => self.visit_let(name, *mutable, value),
+            Expr::Let {
+                name,
+                mutable,
+                value,
+            } => self.visit_let(name, *mutable, value),
             Expr::Reassign { target, value } => self.visit_reassign(target, value),
-            Expr::With { capability, implementation, body } => {
-                self.visit_with(capability, implementation, body)
-            }
-            Expr::Await(inner) => self.visit_await(inner),
+            Expr::With {
+                capability,
+                implementation,
+                body,
+            } => self.visit_with(capability, implementation, body),
         }
     }
 
@@ -189,12 +194,7 @@ pub trait ExprVisitor {
         self.combine_results(f, self.combine_many(arg_results))
     }
 
-    fn visit_method_call(
-        &mut self,
-        receiver: &Expr,
-        _method: &str,
-        args: &[Expr],
-    ) -> Self::Result {
+    fn visit_method_call(&mut self, receiver: &Expr, _method: &str, args: &[Expr]) -> Self::Result {
         let r = self.visit_expr(receiver);
         let arg_results: Vec<_> = args.iter().map(|a| self.visit_expr(a)).collect();
         self.combine_results(r, self.combine_many(arg_results))
@@ -256,7 +256,9 @@ pub trait ExprVisitor {
     ) -> Self::Result {
         let c = self.visit_expr(condition);
         let t = self.visit_expr(then_branch);
-        let e = else_branch.map(|e| self.visit_expr(e)).unwrap_or_else(|| self.default_result());
+        let e = else_branch
+            .map(|e| self.visit_expr(e))
+            .unwrap_or_else(|| self.default_result());
         self.combine_results(c, self.combine_results(t, e))
     }
 
@@ -283,10 +285,6 @@ pub trait ExprVisitor {
         let i = self.visit_expr(implementation);
         let b = self.visit_expr(body);
         self.combine_results(i, b)
-    }
-
-    fn visit_await(&mut self, inner: &Expr) -> Self::Result {
-        self.visit_expr(inner)
     }
 
     fn visit_block(&mut self, exprs: &[Expr]) -> Self::Result {
@@ -373,8 +371,11 @@ pub trait ExprVisitor {
                 let p = self.visit_expr(predicate);
                 self.combine_results(c, p)
             }
-            PatternExpr::Parallel { branches, timeout, .. } => {
-                let mut results: Vec<_> = branches.iter().map(|(_, e)| self.visit_expr(e)).collect();
+            PatternExpr::Parallel {
+                branches, timeout, ..
+            } => {
+                let mut results: Vec<_> =
+                    branches.iter().map(|(_, e)| self.visit_expr(e)).collect();
                 if let Some(t) = timeout {
                     results.push(self.visit_expr(t));
                 }

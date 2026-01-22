@@ -39,40 +39,51 @@ impl PatternDefinition for ValidatePattern {
 
     fn infer_type(&self, pattern: &PatternExpr, ctx: &TypeContext) -> DiagnosticResult<TypeExpr> {
         let PatternExpr::Validate { rules, then_value } = pattern else {
-            return Err(Diagnostic::error(ErrorCode::E3009, "expected validate pattern"));
+            return Err(Diagnostic::error(
+                ErrorCode::E3009,
+                "expected validate pattern",
+            ));
         };
 
         // Validate each rule
         for (i, (condition, message)) in rules.iter().enumerate() {
             // Condition must be a boolean
-            let cond_type = check_expr(condition, ctx)
-                .map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+            let cond_type = check_expr(condition, ctx)?;
             if !matches!(cond_type, TypeExpr::Named(ref s) if s == "bool") {
                 return Err(Diagnostic::error(
                     ErrorCode::E3002,
-                    format!("validate rule {} condition must be bool, got {:?}", i + 1, cond_type),
+                    format!(
+                        "validate rule {} condition must be bool, got {:?}",
+                        i + 1,
+                        cond_type
+                    ),
                 ));
             }
 
             // Message must be a string
-            let msg_type = check_expr(message, ctx)
-                .map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+            let msg_type = check_expr(message, ctx)?;
             if !matches!(msg_type, TypeExpr::Named(ref s) if s == "str") {
                 return Err(Diagnostic::error(
                     ErrorCode::E3002,
-                    format!("validate rule {} message must be str, got {:?}", i + 1, msg_type),
+                    format!(
+                        "validate rule {} message must be str, got {:?}",
+                        i + 1,
+                        msg_type
+                    ),
                 ));
             }
         }
 
         // Check the then_value type
-        let then_type = check_expr(then_value, ctx)
-            .map_err(|msg| Diagnostic::error(ErrorCode::E3001, msg))?;
+        let then_type = check_expr(then_value, ctx)?;
 
         // Return type is Result<T, [str]>
         Ok(TypeExpr::Generic(
             "Result".to_string(),
-            vec![then_type, TypeExpr::List(Box::new(TypeExpr::Named("str".to_string())))],
+            vec![
+                then_type,
+                TypeExpr::List(Box::new(TypeExpr::Named("str".to_string()))),
+            ],
         ))
     }
 

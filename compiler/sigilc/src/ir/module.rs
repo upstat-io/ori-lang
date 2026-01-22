@@ -138,9 +138,20 @@ impl LocalTable {
     }
 
     /// Add a new local variable and return its ID
-    pub fn add(&mut self, name: String, ty: Type, is_param: bool, mutable: bool) -> super::expr::LocalId {
+    pub fn add(
+        &mut self,
+        name: String,
+        ty: Type,
+        is_param: bool,
+        mutable: bool,
+    ) -> super::expr::LocalId {
         let id = super::expr::LocalId(self.entries.len() as u32);
-        self.entries.push(LocalInfo { name, ty, is_param, mutable });
+        self.entries.push(LocalInfo {
+            name,
+            ty,
+            is_param,
+            mutable,
+        });
         id
     }
 
@@ -252,6 +263,8 @@ mod tests {
         };
 
         let sig = func.signature();
-        assert!(matches!(sig, Type::Function { params, ret } if params.len() == 2 && *ret == Type::Int));
+        assert!(
+            matches!(sig, Type::Function { params, ret } if params.len() == 2 && *ret == Type::Int)
+        );
     }
 }

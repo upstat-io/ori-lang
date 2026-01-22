@@ -8,13 +8,13 @@
 // This design allows patterns and other components to be generic over
 // the specific phase context while maintaining type safety.
 
-mod traits;
 mod check_impl;
 mod eval_impl;
 mod lower;
+mod traits;
 
-pub use traits::*;
 pub use lower::LowerContext;
+pub use traits::*;
 
 // Re-export concrete contexts from their original locations
 // This provides a unified import point while keeping implementations

@@ -13,8 +13,8 @@ mod resolver;
 pub use resolver::{ModuleResolver, ResolvedModule};
 
 use crate::ast::{Item, Module, UseDef};
-use crate::errors::{Diagnostic, DiagnosticResult};
 use crate::errors::codes::ErrorCode;
+use crate::errors::{Diagnostic, DiagnosticResult};
 use crate::{lexer, parser};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -52,14 +52,17 @@ impl ModuleGraph {
 
     /// Load a module and all its dependencies
     pub fn load_module(&mut self, path: &Path) -> DiagnosticResult<&LoadedModule> {
-        let canonical = self.resolver.canonicalize(path)
-            .map_err(|e| Diagnostic::error(ErrorCode::E1001, format!("Cannot resolve path: {}", e)))?;
+        let canonical = self.resolver.canonicalize(path).map_err(|e| {
+            Diagnostic::error(ErrorCode::E1001, format!("Cannot resolve path: {}", e))
+        })?;
 
         let key = canonical.to_string_lossy().to_string();
 
         // Check for circular import
         if self.loading_stack.contains(&key) {
-            let cycle = self.loading_stack.iter()
+            let cycle = self
+                .loading_stack
+                .iter()
                 .skip_while(|p| *p != &key)
                 .cloned()
                 .collect::<Vec<_>>()
@@ -84,7 +87,9 @@ impl ModuleGraph {
         // Load dependencies recursively
         let deps = loaded.dependencies.clone();
         for dep_path in &deps {
-            let resolved = self.resolver.resolve_import(&canonical, dep_path)
+            let resolved = self
+                .resolver
+                .resolve_import(&canonical, dep_path)
                 .map_err(|e| Diagnostic::error(ErrorCode::E1001, e))?;
             self.load_module(&resolved)?;
         }
@@ -98,20 +103,23 @@ impl ModuleGraph {
 
     /// Load a single module without loading dependencies
     fn load_single_module(&self, path: &Path) -> DiagnosticResult<LoadedModule> {
-        let source = std::fs::read_to_string(path)
-            .map_err(|e| Diagnostic::error(
+        let source = std::fs::read_to_string(path).map_err(|e| {
+            Diagnostic::error(
                 ErrorCode::E1001,
                 format!("Cannot read '{}': {}", path.display(), e),
-            ))?;
+            )
+        })?;
 
         let filename = path.to_string_lossy().to_string();
         let tokens = lexer::tokenize(&source, &filename)
             .map_err(|e| Diagnostic::error(ErrorCode::E1001, e))?;
-        let module = parser::parse(tokens, &filename)
-            .map_err(|e| Diagnostic::error(ErrorCode::E2001, e))?;
+        let module =
+            parser::parse(tokens, &filename).map_err(|e| Diagnostic::error(ErrorCode::E2001, e))?;
 
         // Extract dependencies from use statements
-        let dependencies: Vec<Vec<String>> = module.items.iter()
+        let dependencies: Vec<Vec<String>> = module
+            .items
+            .iter()
             .filter_map(|item| {
                 if let Item::Use(use_def) = item {
                     Some(use_def.path.clone())
@@ -208,11 +216,7 @@ mod tests {
     #[test]
     fn test_load_single_module() {
         let temp_dir = TempDir::new().unwrap();
-        let path = create_test_file(
-            temp_dir.path(),
-            "main.si",
-            "@main () -> void = nil",
-        );
+        let path = create_test_file(temp_dir.path(), "main.si", "@main () -> void = nil");
 
         let mut graph = ModuleGraph::new(temp_dir.path());
         let loaded = graph.load_module(&path).unwrap();

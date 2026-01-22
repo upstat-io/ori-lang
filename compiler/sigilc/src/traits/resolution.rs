@@ -194,10 +194,7 @@ mod tests {
         registry.define_trait(comparable);
 
         // Add implementation for int
-        let impl_def = ImplDef::new(
-            "Comparable".to_string(),
-            TypeExpr::Named("int".to_string()),
-        );
+        let impl_def = ImplDef::new("Comparable".to_string(), TypeExpr::Named("int".to_string()));
         registry.add_impl(impl_def);
 
         registry
@@ -208,10 +205,7 @@ mod tests {
         let registry = create_test_registry();
         let resolver = MethodResolver::new(&registry);
 
-        let result = resolver.resolve_method(
-            &TypeExpr::Named("int".to_string()),
-            "compare",
-        );
+        let result = resolver.resolve_method(&TypeExpr::Named("int".to_string()), "compare");
 
         assert!(result.is_some());
         let resolved = result.unwrap();
@@ -224,10 +218,7 @@ mod tests {
         let registry = create_test_registry();
         let resolver = MethodResolver::new(&registry);
 
-        let result = resolver.resolve_method(
-            &TypeExpr::Named("int".to_string()),
-            "nonexistent",
-        );
+        let result = resolver.resolve_method(&TypeExpr::Named("int".to_string()), "nonexistent");
 
         assert!(result.is_none());
     }

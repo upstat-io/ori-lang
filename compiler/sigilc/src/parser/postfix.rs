@@ -15,14 +15,6 @@ impl Parser {
                 Some(Token::Dot) => {
                     self.advance();
 
-                    // Handle .await specially
-                    if matches!(self.current(), Some(Token::Await)) {
-                        self.advance();
-                        let new_expr = Expr::Await(Box::new(expr.expr));
-                        expr = self.spanned(new_expr, start);
-                        continue;
-                    }
-
                     let name = match self.current() {
                         Some(Token::Ident(n)) => {
                             let n = n.clone();

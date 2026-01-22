@@ -1,6 +1,7 @@
 // Operator type checking (Binary, Unary)
 
 use crate::ast::{BinaryOp, Expr, TypeExpr, UnaryOp};
+use crate::errors::{codes::ErrorCode, Diagnostic, DiagnosticResult};
 
 use super::super::compat::{is_numeric, types_compatible};
 use super::super::context::TypeContext;
@@ -11,7 +12,7 @@ pub fn check_binary(
     left: &Expr,
     right: &Expr,
     ctx: &TypeContext,
-) -> Result<TypeExpr, String> {
+) -> DiagnosticResult<TypeExpr> {
     // For equality/comparison, use left type as hint for right
     match op {
         BinaryOp::Eq | BinaryOp::NotEq => {
@@ -25,7 +26,12 @@ pub fn check_binary(
             check_expr(right, ctx)?;
             Ok(TypeExpr::Named("bool".to_string()))
         }
-        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::IntDiv | BinaryOp::Mod => {
+        BinaryOp::Add
+        | BinaryOp::Sub
+        | BinaryOp::Mul
+        | BinaryOp::Div
+        | BinaryOp::IntDiv
+        | BinaryOp::Mod => {
             let left_type = check_expr(left, ctx)?;
             let right_type = check_expr(right, ctx)?;
             if is_numeric(&left_type) && is_numeric(&right_type) {
@@ -39,10 +45,14 @@ pub fn check_binary(
             ) {
                 Ok(left_type)
             } else {
-                Err(format!(
-                    "Cannot apply {:?} to {:?} and {:?}",
-                    op, left_type, right_type
-                ))
+                Err(Diagnostic::error(
+                    ErrorCode::E3006,
+                    format!(
+                        "cannot apply {:?} to {:?} and {:?}",
+                        op, left_type, right_type
+                    ),
+                )
+                .with_label(ctx.make_span(0..0), "invalid operation"))
             }
         }
         BinaryOp::And | BinaryOp::Or => {
@@ -58,27 +68,29 @@ pub fn check_binary(
     }
 }
 
-pub fn check_unary(op: &UnaryOp, operand: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> {
+pub fn check_unary(op: &UnaryOp, operand: &Expr, ctx: &TypeContext) -> DiagnosticResult<TypeExpr> {
     let operand_type = check_expr(operand, ctx)?;
     match op {
         UnaryOp::Neg => {
             if is_numeric(&operand_type) {
                 Ok(operand_type)
             } else {
-                Err(format!(
-                    "Cannot negate non-numeric type: {:?}",
-                    operand_type
-                ))
+                Err(Diagnostic::error(
+                    ErrorCode::E3006,
+                    format!("cannot negate non-numeric type: {:?}", operand_type),
+                )
+                .with_label(ctx.make_span(0..0), "expected numeric type"))
             }
         }
         UnaryOp::Not => {
             if types_compatible(&operand_type, &TypeExpr::Named("bool".to_string()), ctx) {
                 Ok(TypeExpr::Named("bool".to_string()))
             } else {
-                Err(format!(
-                    "Cannot apply ! to non-bool type: {:?}",
-                    operand_type
-                ))
+                Err(Diagnostic::error(
+                    ErrorCode::E3006,
+                    format!("cannot apply ! to non-bool type: {:?}", operand_type),
+                )
+                .with_label(ctx.make_span(0..0), "expected bool"))
             }
         }
     }

@@ -108,7 +108,7 @@ pub fn check_pattern_types(
     pattern: &crate::ast::PatternExpr,
     ctx: &crate::types::context::TypeContext,
 ) -> Result<crate::ast::TypeExpr, String> {
-    crate::types::check_pattern::check_pattern_expr(pattern, ctx)
+    crate::types::check_pattern::check_pattern_expr(pattern, ctx).map_err(|d| d.message)
 }
 
 /// Helper function to evaluate a pattern expression.

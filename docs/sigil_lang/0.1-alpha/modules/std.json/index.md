@@ -217,8 +217,8 @@ type ApiResponse<T> = {
 
 type User = { id: int, name: str }
 
-@fetch_user (id: int) uses Network -> async Result<User, Error> = run(
-    let resp = get("https://api.example.com/users/" + str(id)).await?,
+@fetch_user (id: int) -> Result<User, Error> uses Http, Async = run(
+    let resp = get("https://api.example.com/users/" + str(id))?,
     let api_resp = parse<ApiResponse<User>>(resp.body)?,
     match(api_resp,
         { success: true, data: Some(user), .. } -> Ok(user),

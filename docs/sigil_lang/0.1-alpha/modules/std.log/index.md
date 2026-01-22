@@ -6,7 +6,7 @@ Structured logging.
 use std.log { info, warn, error, debug, Logger }
 ```
 
-**Capability required:** `IO` (for output)
+**Capability required:** `Logger`
 
 ---
 
@@ -17,6 +17,74 @@ The `std.log` module provides:
 - Leveled logging (debug, info, warn, error)
 - Structured log fields
 - Configurable output
+
+---
+
+## The Logger Capability
+
+```sigil
+trait Logger {
+    @debug (message: str) -> void
+    @info (message: str) -> void
+    @warn (message: str) -> void
+    @error (message: str) -> void
+}
+```
+
+The `Logger` capability represents the ability to write log messages. Functions that perform logging must declare `uses Logger` in their signature.
+
+```sigil
+@process_order (order: Order) -> Result<void, Error> uses Logger =
+    run(
+        Logger.info("Processing order: " + order.id),
+        // ... processing logic
+        Logger.debug("Order validated"),
+    )
+```
+
+**Implementations:**
+
+| Type | Description |
+|------|-------------|
+| `StdoutLogger` | Logs to stdout (default) |
+| `FileLogger` | Logs to a file |
+| `NullLogger` | Discards all logs (for testing) |
+| `CapturingLogger` | Captures logs in memory (for testing) |
+
+### CapturingLogger
+
+For testing code that logs:
+
+```sigil
+type CapturingLogger = {
+    messages: [LogEntry],
+}
+
+type LogEntry = { level: Level, message: str }
+
+impl Logger for CapturingLogger {
+    @debug (message: str) -> void =
+        self.messages = self.messages + [LogEntry { level: Debug, message: message }]
+
+    @info (message: str) -> void =
+        self.messages = self.messages + [LogEntry { level: Info, message: message }]
+
+    @warn (message: str) -> void =
+        self.messages = self.messages + [LogEntry { level: Warn, message: message }]
+
+    @error (message: str) -> void =
+        self.messages = self.messages + [LogEntry { level: Error, message: message }]
+}
+```
+
+```sigil
+@test_order_logging tests @process_order () -> void =
+    with Logger = CapturingLogger { messages: [] } in
+    run(
+        process_order(test_order)?,
+        assert(Logger.messages.any(e -> e.message.contains("Processing order"))),
+    )
+```
 
 ---
 

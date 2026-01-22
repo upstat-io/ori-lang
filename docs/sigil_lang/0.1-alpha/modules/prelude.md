@@ -275,6 +275,44 @@ These traits are in the prelude:
 
 ---
 
+## Marker Capabilities
+
+### Async
+
+```sigil
+trait Async {}
+```
+
+A marker capability that indicates a function may suspend execution. Unlike resource capabilities (like `Http` or `FileSystem`), `Async` has no methods — it's a compile-time signal that affects how the runtime handles the function.
+
+```sigil
+// With Async: non-blocking, may suspend
+@fetch_user (id: str) -> Result<User, Error> uses Http, Async =
+    Http.get("/users/" + id)?.parse()
+
+// Without Async: blocking, runs to completion
+@fetch_user_sync (id: str) -> Result<User, Error> uses Http =
+    Http.get("/users/" + id)?.parse()
+```
+
+**Key properties:**
+- Empty trait — no methods to implement
+- Declares that a function may suspend (yield control to runtime)
+- Propagates through call chains (if `f` calls `g` which `uses Async`, then `f` must also declare `uses Async` or provide the capability)
+- Enables sync mocks in tests — mock implementations that don't declare `Async` run synchronously
+
+**Sync vs Async:**
+
+| With `uses Async` | Without `uses Async` |
+|-------------------|----------------------|
+| Non-blocking | Blocking |
+| May suspend | Runs to completion |
+| Requires async runtime | Runs synchronously |
+
+See [Async via Capabilities](../design/10-async/01-async-await.md) for detailed explanation.
+
+---
+
 ## See Also
 
 - [Types Specification](../spec/06-types.md)

@@ -317,9 +317,7 @@ mod tests {
 
     #[test]
     fn test_topological_sort_cycle_detection() {
-        let passes: HashSet<String> = vec!["a".to_string(), "b".to_string()]
-            .into_iter()
-            .collect();
+        let passes: HashSet<String> = vec!["a".to_string(), "b".to_string()].into_iter().collect();
         let deps: HashMap<String, Vec<String>> = vec![
             ("a".to_string(), vec!["b".to_string()]),
             ("b".to_string(), vec!["a".to_string()]),

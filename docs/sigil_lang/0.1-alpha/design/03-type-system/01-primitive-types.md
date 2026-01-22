@@ -595,13 +595,13 @@ Duration.from_secs(30)   // -> Duration
 
 ```sigil
 // timeout returns Result<T, TimeoutError>
-@fetch_data (url: str) -> async Result<Data, TimeoutError> =
-    timeout(http_get(url), 30s)
+@fetch_data (url: str) -> Result<Data, TimeoutError> uses Http, Async =
+    timeout(Http.get(url), 30s)
 
 // Periodic task using loop
-@periodic (interval: Duration, action: () -> void) -> async void =
+@periodic (interval: Duration, action: () -> void) -> void uses Clock, Async =
     loop(
-        sleep(interval).await,
+        Clock.sleep(interval),
         action()
     )
 
@@ -665,7 +665,7 @@ Size.from_bytes(1024)    // -> Size
 ### Usage
 
 ```sigil
-@read_chunked (path: str, chunk_size: Size) -> async Result<[str], Error> = ...
+@read_chunked (path: str, chunk_size: Size) -> Result<[str], Error> uses FileSystem, Async = ...
 
 // Common usage with config
 $buffer_size = 4kb
@@ -705,5 +705,5 @@ let f: float = float(i)  // explicit conversion
 - [Compound Types](02-compound-types.md)
 - [Type Inference](05-type-inference.md)
 - [Basic Syntax](../02-syntax/01-basic-syntax.md)
-- [Async/Await](../10-async/01-async-await.md) — Duration usage with timeouts
+- [Async via Capabilities](../10-async/01-async-await.md) — Duration usage with timeouts
 - [Patterns Reference](../02-syntax/04-patterns-reference.md) — timeout and cache patterns

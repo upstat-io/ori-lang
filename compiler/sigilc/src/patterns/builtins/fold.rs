@@ -45,21 +45,14 @@ impl PatternDefinition for FoldPattern {
             op,
         } = pattern
         else {
-            return Err(Diagnostic::error(
-                ErrorCode::E3009,
-                "expected fold pattern",
-            ));
+            return Err(Diagnostic::error(ErrorCode::E3009, "expected fold pattern"));
         };
 
         // Check collection type
-        let coll_type = check_expr(collection, ctx).map_err(|msg| {
-            Diagnostic::error(ErrorCode::E3001, msg)
-        })?;
+        let coll_type = check_expr(collection, ctx)?;
 
         // Check init type
-        let init_type = check_expr(init, ctx).map_err(|msg| {
-            Diagnostic::error(ErrorCode::E3001, msg)
-        })?;
+        let init_type = check_expr(init, ctx)?;
 
         // Get element type from collection
         let elem_type = get_list_element_type(&coll_type).map_err(|_| {
@@ -75,9 +68,7 @@ impl PatternDefinition for FoldPattern {
             Box::new(init_type.clone()),
         );
 
-        check_expr_with_hint(op, ctx, Some(&expected_lambda_type)).map_err(|msg| {
-            Diagnostic::error(ErrorCode::E3001, msg)
-        })?;
+        check_expr_with_hint(op, ctx, Some(&expected_lambda_type))?;
 
         Ok(init_type)
     }
@@ -202,11 +193,7 @@ mod tests {
 
         // Create fold pattern: fold(.over: [1, 2, 3], .init: 0, .with: +)
         let pattern = PatternExpr::Fold {
-            collection: Box::new(Expr::List(vec![
-                Expr::Int(1),
-                Expr::Int(2),
-                Expr::Int(3),
-            ])),
+            collection: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2), Expr::Int(3)])),
             init: Box::new(Expr::Int(0)),
             op: Box::new(Expr::Ident("+".to_string())),
         };

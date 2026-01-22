@@ -46,16 +46,11 @@ impl PatternDefinition for FindPattern {
             default,
         } = pattern
         else {
-            return Err(Diagnostic::error(
-                ErrorCode::E3009,
-                "expected find pattern",
-            ));
+            return Err(Diagnostic::error(ErrorCode::E3009, "expected find pattern"));
         };
 
         // Check collection type
-        let coll_type = check_expr(collection, ctx).map_err(|msg| {
-            Diagnostic::error(ErrorCode::E3001, msg)
-        })?;
+        let coll_type = check_expr(collection, ctx)?;
 
         // Get element type from collection
         let elem_type = get_list_element_type(&coll_type).map_err(|_| {
@@ -71,15 +66,11 @@ impl PatternDefinition for FindPattern {
             Box::new(TypeExpr::Named("bool".to_string())),
         );
 
-        check_expr_with_hint(predicate, ctx, Some(&expected_pred_type)).map_err(|msg| {
-            Diagnostic::error(ErrorCode::E3001, msg)
-        })?;
+        check_expr_with_hint(predicate, ctx, Some(&expected_pred_type))?;
 
         // If default is provided, return element type; otherwise return Option<elem_type>
         if let Some(default_expr) = default {
-            let default_type = check_expr(default_expr, ctx).map_err(|msg| {
-                Diagnostic::error(ErrorCode::E3001, msg)
-            })?;
+            let default_type = check_expr(default_expr, ctx)?;
 
             // Default must match element type
             if default_type != elem_type {

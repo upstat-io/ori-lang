@@ -2,6 +2,7 @@
 // Handles command-line interface and command dispatch
 
 pub mod build;
+pub mod format;
 pub mod import;
 pub mod repl;
 pub mod run;
@@ -18,6 +19,8 @@ pub fn print_usage() {
     eprintln!("  sigil test                       Run all tests (parallel)");
     eprintln!("  sigil test <file.si>             Run tests for specific file");
     eprintln!("  sigil check <file.si>            Check test coverage");
+    eprintln!("  sigil fmt [path] [-i]            Format code (-i for in-place)");
+    eprintln!("  sigil fmt --check [path]         Check if code is formatted");
     eprintln!("  sigil repl                       Start REPL");
     eprintln!("  sigil <file.si>                  Run file (shorthand)");
 }

@@ -109,7 +109,8 @@ pub trait Backend: Send + Sync {
     fn supports_format(&self, format: &OutputFormat) -> bool;
 
     /// Generate code from TIR.
-    fn generate(&self, module: &TModule, options: &CodegenOptions) -> Result<GeneratedCode, String>;
+    fn generate(&self, module: &TModule, options: &CodegenOptions)
+        -> Result<GeneratedCode, String>;
 
     /// Emit generated code to a file.
     fn emit(&self, code: &GeneratedCode, path: &Path) -> std::io::Result<()> {

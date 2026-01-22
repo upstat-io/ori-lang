@@ -423,10 +423,7 @@ mod tests {
         tree.enter_labeled(ScopeKind::Loop, "outer".to_string());
         tree.enter_labeled(ScopeKind::Loop, "inner".to_string());
 
-        assert_eq!(
-            tree.find_labeled("inner"),
-            Some(tree.current())
-        );
+        assert_eq!(tree.find_labeled("inner"), Some(tree.current()));
         assert!(tree.find_labeled("outer").is_some());
         assert!(tree.find_labeled("nonexistent").is_none());
     }

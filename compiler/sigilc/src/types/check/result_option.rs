@@ -1,12 +1,13 @@
 // Result/Option type checking (Ok, Err, Some, None, Coalesce, Unwrap)
 
 use crate::ast::{Expr, TypeExpr};
+use crate::errors::{codes::ErrorCode, Diagnostic, DiagnosticResult};
 
 use super::super::compat::types_compatible;
 use super::super::context::TypeContext;
 use super::check_expr;
 
-pub fn check_ok(inner: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> {
+pub fn check_ok(inner: &Expr, ctx: &TypeContext) -> DiagnosticResult<TypeExpr> {
     let inner_type = check_expr(inner, ctx)?;
     // For Ok, we know the success type but error type comes from context
     if let Some(TypeExpr::Generic(name, args)) = ctx.current_return_type() {
@@ -23,7 +24,7 @@ pub fn check_ok(inner: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> {
     ))
 }
 
-pub fn check_err(inner: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> {
+pub fn check_err(inner: &Expr, ctx: &TypeContext) -> DiagnosticResult<TypeExpr> {
     let inner_type = check_expr(inner, ctx)?;
     // For Err, we know the error type but success type comes from context
     if let Some(TypeExpr::Generic(name, args)) = ctx.current_return_type() {
@@ -40,19 +41,20 @@ pub fn check_err(inner: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> {
     ))
 }
 
-pub fn check_some(inner: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> {
+pub fn check_some(inner: &Expr, ctx: &TypeContext) -> DiagnosticResult<TypeExpr> {
     let inner_type = check_expr(inner, ctx)?;
     Ok(TypeExpr::Optional(Box::new(inner_type)))
 }
 
-pub fn check_none(ctx: &TypeContext) -> Result<TypeExpr, String> {
+pub fn check_none(ctx: &TypeContext) -> DiagnosticResult<TypeExpr> {
     // None needs context to determine the inner type
     if let Some(TypeExpr::Optional(inner)) = ctx.current_return_type() {
         return Ok(TypeExpr::Optional(inner));
     }
     Err(
-        "Cannot infer type of None. Use in a context where the optional type is clear."
-            .to_string(),
+        Diagnostic::error(ErrorCode::E3005, "cannot infer type of None")
+            .with_label(ctx.make_span(0..0), "type annotation needed")
+            .with_help("use in a context where the optional type is clear"),
     )
 }
 
@@ -60,7 +62,7 @@ pub fn check_coalesce(
     value: &Expr,
     default: &Expr,
     ctx: &TypeContext,
-) -> Result<TypeExpr, String> {
+) -> DiagnosticResult<TypeExpr> {
     let value_type = check_expr(value, ctx)?;
     let default_type = check_expr(default, ctx)?;
 
@@ -69,29 +71,38 @@ pub fn check_coalesce(
         if types_compatible(&default_type, &inner, ctx) {
             Ok(*inner)
         } else {
-            Err(format!(
-                "Coalesce default type {:?} doesn't match optional inner type {:?}",
-                default_type, inner
-            ))
+            Err(Diagnostic::error(
+                ErrorCode::E3001,
+                format!(
+                    "coalesce default type {:?} doesn't match optional inner type {:?}",
+                    default_type, inner
+                ),
+            )
+            .with_label(ctx.make_span(0..0), format!("expected {:?}", inner)))
         }
     } else {
-        Err(format!(
-            "Coalesce (??) requires optional type, got {:?}",
-            value_type
-        ))
+        Err(Diagnostic::error(
+            ErrorCode::E3006,
+            format!("coalesce (??) requires optional type, got {:?}", value_type),
+        )
+        .with_label(ctx.make_span(0..0), "expected optional type"))
     }
 }
 
-pub fn check_unwrap(inner: &Expr, ctx: &TypeContext) -> Result<TypeExpr, String> {
+pub fn check_unwrap(inner: &Expr, ctx: &TypeContext) -> DiagnosticResult<TypeExpr> {
     let inner_type = check_expr(inner, ctx)?;
     match inner_type {
         TypeExpr::Optional(t) => Ok(*t),
         TypeExpr::Generic(name, args) if name == "Result" && !args.is_empty() => {
             Ok(args[0].clone())
         }
-        _ => Err(format!(
-            "Cannot unwrap non-optional/non-result type: {:?}",
-            inner_type
-        )),
+        _ => Err(Diagnostic::error(
+            ErrorCode::E3006,
+            format!(
+                "cannot unwrap non-optional/non-result type: {:?}",
+                inner_type
+            ),
+        )
+        .with_label(ctx.make_span(0..0), "expected optional or Result type")),
     }
 }
