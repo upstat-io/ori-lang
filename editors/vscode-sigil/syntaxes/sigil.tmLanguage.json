@@ -35,7 +35,10 @@
                 {
                     "name": "string.quoted.single.sigil",
                     "begin": "'",
-                    "end": "'"
+                    "end": "'",
+                    "patterns": [
+                        { "name": "constant.character.escape.sigil", "match": "\\\\." }
+                    ]
                 }
             ]
         },

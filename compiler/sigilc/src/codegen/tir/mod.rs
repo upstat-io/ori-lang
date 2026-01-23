@@ -62,6 +62,20 @@ impl TirCodeGen {
         }
     }
 
+    /// Create a code generator with verbose ARC tracking enabled
+    ///
+    /// When enabled, the generated C code will print all ARC operations
+    /// (alloc, retain, release, free) to stderr, showing reference counts
+    /// and a summary at program end.
+    pub fn with_verbose_arc() -> Self {
+        TirCodeGen {
+            output: String::new(),
+            indent: 0,
+            use_arc: true,
+            arc_config: ArcConfig::verbose(),
+        }
+    }
+
     /// Generate code from an ARC-validated module
     ///
     /// This method uses pre-computed ARC information for code generation,
@@ -212,7 +226,7 @@ impl TirCodeGen {
             self.emit_line("");
             self.emit_line("SigilString str_concat(SigilString a, SigilString b) {");
             self.indent();
-            self.emit_line("return sigil_string_concat(a, b);");
+            self.emit_line("return sigil_string_concat(&a, &b);");
             self.dedent();
             self.emit_line("}");
             self.emit_line("");
@@ -271,4 +285,26 @@ pub fn generate(module: &TModule) -> Result<String, String> {
 /// retain/release placement during code generation.
 pub fn generate_from_validated(validated: &ArcValidatedModule) -> Result<String, String> {
     TirCodeGen::new().generate_validated(validated)
+}
+
+/// Generate C code with verbose ARC tracking enabled
+///
+/// The generated code will print all ARC operations to stderr:
+/// - ALLOC: New heap allocation with address and size
+/// - RETAIN: Reference count increment with old/new values
+/// - RELEASE: Reference count decrement, indicates if object was freed
+/// - SUMMARY: At program end, shows totals and detects leaks
+///
+/// Example output:
+/// ```text
+/// [ARC] ALLOC  0x5555555592a0 (24 bytes) | total allocs: 1
+/// [ARC] STRING HEAP "hello world..." (50 bytes)
+/// [ARC] RETAIN 0x5555555592a0 | refcount: 1 -> 2 | total retains: 1
+/// [ARC] RELEASE 0x5555555592a0 | refcount: 2 -> 1 | total releases: 1
+/// [ARC] RELEASE 0x5555555592a0 | refcount: 1 -> 0 (FREED) | releases: 2, frees: 1
+/// [ARC] === SUMMARY ===
+/// [ARC] All allocations freed - no leaks detected
+/// ```
+pub fn generate_from_validated_verbose(validated: &ArcValidatedModule) -> Result<String, String> {
+    TirCodeGen::with_verbose_arc().generate_validated(validated)
 }

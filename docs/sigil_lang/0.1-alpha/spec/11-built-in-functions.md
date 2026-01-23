@@ -349,14 +349,23 @@ assert(list.len() > 0)
 Assert that two values are equal.
 
 ```
-@assert_eq (actual: T, expected: T) -> void
+@assert_eq (.actual: T, .expected: T) -> void
 ```
 
 If `actual != expected`, the program panics with a diagnostic showing both values.
 
 ```sigil
-assert_eq(add(2, 3), 5)
-assert_eq(result, expected)
+assert_eq(
+    .actual: add(
+        .a: 2,
+        .b: 3,
+    ),
+    .expected: 5,
+)
+assert_eq(
+    .actual: result,
+    .expected: expected,
+)
 ```
 
 ### assert_ne
@@ -364,7 +373,7 @@ assert_eq(result, expected)
 Assert that two values are not equal.
 
 ```
-@assert_ne (actual: T, unexpected: T) -> void
+@assert_ne (.actual: T, .unexpected: T) -> void
 ```
 
 If `actual == unexpected`, the program panics with a diagnostic showing both values.
@@ -416,10 +425,10 @@ The argument expression is evaluated and must panic; otherwise the assertion fai
 Assert that evaluating an expression panics with a specific message.
 
 ```
-@assert_panics_with (expr: T, msg: str) -> void
+@assert_panics_with (.expr: T, .message: str) -> void
 ```
 
-The argument expression is evaluated and must panic with an error message equal to `msg`.
+The argument expression is evaluated and must panic with an error message equal to `message`.
 
 ## I/O Functions
 
@@ -443,7 +452,7 @@ print("Value: " + str(x))
 Compare two values.
 
 ```
-@compare (a: T, b: T) -> Ordering where T: Comparable
+@compare (.left: T, .right: T) -> Ordering where T: Comparable
 ```
 
 Returns `Less`, `Equal`, or `Greater`.
@@ -453,7 +462,7 @@ Returns `Less`, `Equal`, or `Greater`.
 Return the minimum of two values.
 
 ```
-@min (a: T, b: T) -> T where T: Comparable
+@min (.left: T, .right: T) -> T where T: Comparable
 ```
 
 ### max
@@ -461,7 +470,7 @@ Return the minimum of two values.
 Return the maximum of two values.
 
 ```
-@max (a: T, b: T) -> T where T: Comparable
+@max (.left: T, .right: T) -> T where T: Comparable
 ```
 
 ## Panic

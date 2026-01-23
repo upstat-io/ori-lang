@@ -80,8 +80,7 @@ enum RawToken {
     // Additional keywords
     #[token("tests")]
     Tests,
-    #[token("assert")]
-    Assert,
+    // NOTE: assert is NOT a keyword - it's a built-in function (see spec/11-built-in-functions.md)
     #[token("dyn")]
     Dyn,
     #[token("extend")]
@@ -429,7 +428,6 @@ fn convert_token(raw: RawToken, slice: &str, interner: &StringInterner) -> Token
         RawToken::With => TokenKind::With,
         RawToken::Yield => TokenKind::Yield,
         RawToken::Tests => TokenKind::Tests,
-        RawToken::Assert => TokenKind::Assert,
         RawToken::Dyn => TokenKind::Dyn,
         RawToken::Extend => TokenKind::Extend,
         RawToken::Extension => TokenKind::Extension,

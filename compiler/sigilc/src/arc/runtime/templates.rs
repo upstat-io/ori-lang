@@ -249,22 +249,29 @@ void* sigil_arc_alloc(size_t size) {
         abort();
     }
     SIGIL_REFCOUNT_INIT(header->refcount, 1);
-    return (char*)header + sizeof(SigilArcHeader);
+    void* ptr = (char*)header + sizeof(SigilArcHeader);
+    SIGIL_VERBOSE_ALLOC(ptr, size);
+    return ptr;
 }
 
 void sigil_arc_retain(void* ptr) {
     if (!ptr) return;
     SigilArcHeader* header = sigil_arc_header(ptr);
+    size_t old_rc = SIGIL_REFCOUNT_LOAD(header->refcount);
     SIGIL_REFCOUNT_INC(header->refcount);
+    SIGIL_VERBOSE_RETAIN(ptr, old_rc, old_rc + 1);
 }
 
 bool sigil_arc_release(void* ptr) {
     if (!ptr) return false;
     SigilArcHeader* header = sigil_arc_header(ptr);
+    size_t old_rc = SIGIL_REFCOUNT_LOAD(header->refcount);
     if (SIGIL_REFCOUNT_DEC(header->refcount) == 1) {
+        SIGIL_VERBOSE_RELEASE(ptr, old_rc, 0, true);
         free(header);
         return true;
     }
+    SIGIL_VERBOSE_RELEASE(ptr, old_rc, old_rc - 1, false);
     return false;
 }
 
@@ -295,6 +302,10 @@ SigilString sigil_string_new(const char* data, size_t len) {
         memcpy(s.storage.sso.data, data, len);
         s.storage.sso.len = (uint8_t)len;
         s.storage.sso.flags = 1;  /* is_sso = true */
+#ifdef SIGIL_VERBOSE_ARC
+        fprintf(stderr, "[ARC] STRING SSO \"%.*s\" (%zu bytes, no heap alloc)\n",
+                (int)len, data, len);
+#endif
     } else {
         /* Heap allocate */
         s.storage.heap.header = (SigilArcHeader*)malloc(sizeof(SigilArcHeader) + len + 1);
@@ -307,6 +318,11 @@ SigilString sigil_string_new(const char* data, size_t len) {
         memcpy(s.storage.heap.data, data, len);
         s.storage.heap.data[len] = '\0';
         s.storage.heap.len = len;
+        SIGIL_VERBOSE_ALLOC(s.storage.heap.data, len + 1);
+#ifdef SIGIL_VERBOSE_ARC
+        fprintf(stderr, "[ARC] STRING HEAP \"%.*s\" (%zu bytes)\n",
+                (int)(len > 40 ? 40 : len), data, len);
+#endif
     }
 
     return s;
@@ -318,16 +334,22 @@ SigilString sigil_string_from_cstr(const char* cstr) {
 
 void sigil_string_retain(SigilString* s) {
     if (!SIGIL_STRING_IS_SSO(s) && s->storage.heap.header) {
+        size_t old_rc = SIGIL_REFCOUNT_LOAD(s->storage.heap.header->refcount);
         SIGIL_REFCOUNT_INC(s->storage.heap.header->refcount);
+        SIGIL_VERBOSE_RETAIN(s->storage.heap.data, old_rc, old_rc + 1);
     }
 }
 
 void sigil_string_release(SigilString* s) {
     if (!SIGIL_STRING_IS_SSO(s) && s->storage.heap.header) {
+        size_t old_rc = SIGIL_REFCOUNT_LOAD(s->storage.heap.header->refcount);
         if (SIGIL_REFCOUNT_DEC(s->storage.heap.header->refcount) == 1) {
+            SIGIL_VERBOSE_RELEASE(s->storage.heap.data, old_rc, 0, true);
             free(s->storage.heap.header);
             s->storage.heap.header = NULL;
             s->storage.heap.data = NULL;
+        } else {
+            SIGIL_VERBOSE_RELEASE(s->storage.heap.data, old_rc, old_rc - 1, false);
         }
     }
 }
@@ -418,22 +440,32 @@ SigilList sigil_list_new(size_t elem_size) {
     }
     SIGIL_REFCOUNT_INIT(list.header->refcount, 1);
     list.data = (char*)(list.header + 1);
+    SIGIL_VERBOSE_ALLOC(list.data, data_size);
+#ifdef SIGIL_VERBOSE_ARC
+    fprintf(stderr, "[ARC] LIST   new (elem_size=%zu, capacity=%zu)\n", elem_size, list.capacity);
+#endif
 
     return list;
 }
 
 void sigil_list_retain(SigilList* list) {
     if (list->header) {
+        size_t old_rc = SIGIL_REFCOUNT_LOAD(list->header->refcount);
         SIGIL_REFCOUNT_INC(list->header->refcount);
+        SIGIL_VERBOSE_RETAIN(list->data, old_rc, old_rc + 1);
     }
 }
 
 void sigil_list_release(SigilList* list) {
     if (list->header) {
+        size_t old_rc = SIGIL_REFCOUNT_LOAD(list->header->refcount);
         if (SIGIL_REFCOUNT_DEC(list->header->refcount) == 1) {
+            SIGIL_VERBOSE_RELEASE(list->data, old_rc, 0, true);
             free(list->header);
             list->header = NULL;
             list->data = NULL;
+        } else {
+            SIGIL_VERBOSE_RELEASE(list->data, old_rc, old_rc - 1, false);
         }
     }
 }
@@ -549,4 +581,62 @@ void sigil_debug_free_wrapper(void* ptr) {
 }
 
 #endif /* SIGIL_DEBUG_ARC */
+"#;
+
+/// Verbose ARC operation tracking (prints every retain/release)
+pub const VERBOSE_TRACKING: &str = r#"
+/* Verbose ARC operation logging */
+#ifdef SIGIL_VERBOSE_ARC
+
+static size_t verbose_retain_count = 0;
+static size_t verbose_release_count = 0;
+static size_t verbose_alloc_count = 0;
+static size_t verbose_free_count = 0;
+
+#define SIGIL_VERBOSE_ALLOC(ptr, size) do { \
+    verbose_alloc_count++; \
+    fprintf(stderr, "[ARC] ALLOC  %p (%zu bytes) | total allocs: %zu\n", \
+            (void*)(ptr), (size_t)(size), verbose_alloc_count); \
+} while(0)
+
+#define SIGIL_VERBOSE_RETAIN(ptr, old_rc, new_rc) do { \
+    verbose_retain_count++; \
+    fprintf(stderr, "[ARC] RETAIN %p | refcount: %zu -> %zu | total retains: %zu\n", \
+            (void*)(ptr), (size_t)(old_rc), (size_t)(new_rc), verbose_retain_count); \
+} while(0)
+
+#define SIGIL_VERBOSE_RELEASE(ptr, old_rc, new_rc, freed) do { \
+    verbose_release_count++; \
+    if (freed) { \
+        verbose_free_count++; \
+        fprintf(stderr, "[ARC] RELEASE %p | refcount: %zu -> 0 (FREED) | releases: %zu, frees: %zu\n", \
+                (void*)(ptr), (size_t)(old_rc), verbose_release_count, verbose_free_count); \
+    } else { \
+        fprintf(stderr, "[ARC] RELEASE %p | refcount: %zu -> %zu | total releases: %zu\n", \
+                (void*)(ptr), (size_t)(old_rc), (size_t)(new_rc), verbose_release_count); \
+    } \
+} while(0)
+
+void sigil_arc_verbose_summary(void) {
+    fprintf(stderr, "\n[ARC] === SUMMARY ===\n");
+    fprintf(stderr, "[ARC] Total allocations: %zu\n", verbose_alloc_count);
+    fprintf(stderr, "[ARC] Total frees:       %zu\n", verbose_free_count);
+    fprintf(stderr, "[ARC] Total retains:     %zu\n", verbose_retain_count);
+    fprintf(stderr, "[ARC] Total releases:    %zu\n", verbose_release_count);
+    if (verbose_alloc_count != verbose_free_count) {
+        fprintf(stderr, "[ARC] WARNING: Possible leak - %zu allocations not freed\n",
+                verbose_alloc_count - verbose_free_count);
+    } else {
+        fprintf(stderr, "[ARC] All allocations freed - no leaks detected\n");
+    }
+    fprintf(stderr, "[ARC] =================\n");
+}
+
+#else
+
+#define SIGIL_VERBOSE_ALLOC(ptr, size) ((void)0)
+#define SIGIL_VERBOSE_RETAIN(ptr, old_rc, new_rc) ((void)0)
+#define SIGIL_VERBOSE_RELEASE(ptr, old_rc, new_rc, freed) ((void)0)
+
+#endif /* SIGIL_VERBOSE_ARC */
 "#;

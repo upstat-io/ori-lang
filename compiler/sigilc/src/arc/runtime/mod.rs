@@ -105,7 +105,8 @@ impl ArcEmitter for DefaultArcEmitter {
     }
 
     fn emit_runtime_impl(&self, config: &ArcConfig) -> String {
-        generate_impl(config)
+        // Use inline version since header is already embedded
+        impl_gen::generate_impl_inline(config)
     }
 
     fn emit_retain(&self, ty: &Type, var: &str) -> String {

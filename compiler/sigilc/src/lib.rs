@@ -97,6 +97,32 @@ pub fn emit_c_tir(source: &str, filename: &str) -> DiagnosticResult<String> {
     codegen::generate_from_validated(&validated).map_err(|e| string_to_diag(e, filename))
 }
 
+/// Compile to C code using TIR pipeline with verbose ARC tracking
+///
+/// The generated C code will print all ARC operations to stderr at runtime:
+/// - ALLOC/FREE: Memory allocations and deallocations
+/// - RETAIN/RELEASE: Reference count changes
+/// - SUMMARY: At program end, shows totals and detects leaks
+///
+/// This is useful for debugging memory management issues or understanding
+/// how ARC works in practice.
+pub fn emit_c_tir_verbose(source: &str, filename: &str) -> DiagnosticResult<String> {
+    let mut tir = compile_tir(source, filename)?;
+
+    // Run passes
+    let pm = passes::PassManager::default_pipeline();
+    let mut ctx = passes::PassContext::new();
+    pm.run(&mut tir, &mut ctx)
+        .map_err(|e| string_to_diag(format!("Pass error: {}", e), filename))?;
+
+    // Validate for ARC (MANDATORY)
+    let validated = arc::ArcValidatedModule::validate(tir)
+        .map_err(|e| string_to_diag(format!("ARC validation error: {}", e), filename))?;
+
+    // Generate C code with verbose ARC tracking
+    codegen::tir::generate_from_validated_verbose(&validated).map_err(|e| string_to_diag(e, filename))
+}
+
 /// Compile to C code using TIR pipeline, returning both code and ARC info
 ///
 /// This function is useful when you need access to the ARC analysis results,

@@ -416,6 +416,111 @@ See [Traits](../04-traits/index.md) for defining extensible abstractions.
 
 ---
 
+## Real-World Example: HTTP API
+
+This example demonstrates sum types, structs, newtypes, and pattern matching working together in a realistic HTTP routing scenario.
+
+### Defining the Types
+
+```sigil
+// Sum type for HTTP methods - a closed, known set
+type HttpMethod = Get | Post | Put | Delete | Patch
+
+// Sum type for response status - variants with associated data
+type HttpStatus =
+    | Ok                    // 200
+    | Created               // 201
+    | NoContent             // 204
+    | BadRequest(str)       // 400 + message
+    | NotFound              // 404
+    | InternalError(str)    // 500 + message
+
+// Struct for route configuration
+type Route = {
+    method: HttpMethod,
+    path: str,
+    handler: (Request) -> Response
+}
+
+// Struct for theming with known fields
+type Theme = {
+    primary: str,
+    secondary: str,
+    error: str
+}
+```
+
+### Using the Types
+
+```sigil
+// Route definitions are fully typed
+let routes: [Route] = [
+    { method: Get, path: "/users", handler: list_users },
+    { method: Post, path: "/users", handler: create_user },
+    { method: Put, path: "/users/{id}", handler: update_user },
+    { method: Delete, path: "/users/{id}", handler: delete_user },
+]
+
+// Theme with compile-time field checking
+let theme = Theme {
+    primary: "#3b82f6",
+    secondary: "#64748b",
+    error: "#ef4444",
+}
+
+theme.primary    // OK
+// theme.success // Compile error: 'success' not a field of Theme
+```
+
+### Exhaustive Matching
+
+```sigil
+// Convert method to string - compiler ensures all variants handled
+@method_to_str (m: HttpMethod) -> str = match(m,
+    Get -> "GET",
+    Post -> "POST",
+    Put -> "PUT",
+    Delete -> "DELETE",
+    Patch -> "PATCH"
+)
+
+// Get status code - pattern match with associated data
+@status_code (s: HttpStatus) -> int = match(s,
+    Ok -> 200,
+    Created -> 201,
+    NoContent -> 204,
+    BadRequest(_) -> 400,
+    NotFound -> 404,
+    InternalError(_) -> 500
+)
+```
+
+### Boundary Parsing
+
+At external boundaries (JSON input, HTTP headers), parse strings into proper types:
+
+```sigil
+@parse_method (s: str) -> Result<HttpMethod, ParseError> = match(s,
+    "GET" -> Ok(Get),
+    "POST" -> Ok(Post),
+    "PUT" -> Ok(Put),
+    "DELETE" -> Ok(Delete),
+    "PATCH" -> Ok(Patch),
+    _ -> Err(ParseError { message: "Invalid HTTP method: " + s })
+)
+```
+
+### Why Sum Types Over String Literals
+
+Some languages use string literal types (e.g., `"GET" | "POST"`). Sigil uses sum types because:
+
+1. **Distinct from strings** — `Get` is not a `str`, preventing accidental mixing
+2. **Exhaustive matching** — compiler verifies all variants are handled
+3. **Explicit boundaries** — parsing happens once at the edge, not throughout code
+4. **Self-documenting** — type definition shows all valid values
+
+---
+
 ## See Also
 
 - [Generics](04-generics.md)

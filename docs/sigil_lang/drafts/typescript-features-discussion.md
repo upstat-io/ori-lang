@@ -115,8 +115,9 @@ interface Processor<in I, out O> { process(i: I): O }
 ```
 **Sigil relevance**: Makes generic type relationships explicit. Catches errors at declaration site.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Considered three options: (1) inferred variance like Rust, (2) required annotations like Scala's `+`/`-`, (3) optional annotations like TypeScript's `in`/`out`. Explicit annotations add syntax complexity and require users to understand variance theory. Most users won't need this. Rust's approach works well in practice - the compiler infers variance from usage.
+
+**Decision**: **Use Rust-style inferred variance.** Compiler determines variance from how type parameters are used. No explicit annotations needed. Simpler for users, less syntax to learn.
 
 ---
 
@@ -129,8 +130,9 @@ type FirstArg<T> = T extends (x: infer A, ...args: any) => any ? A : never;
 ```
 **Sigil relevance**: Powerful type-level pattern matching. Enables extracting types from complex structures.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: The `infer` keyword only exists within conditional type expressions (`T extends X ? Y : Z`). Since conditional types were rejected, there's no context for `infer` to operate in.
+
+**Decision**: **Rejected.** Depends on conditional types, which were rejected.
 
 ---
 
@@ -148,8 +150,9 @@ if (isString(value)) {
 ```
 **Sigil relevance**: Enables custom narrowing logic. Useful for validation, parsing.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Sigil's `match` with type patterns already provides narrowing for sum types. Sigil doesn't have `unknown`/`any`, so the primary use case (narrowing dynamic types) doesn't apply. For validation of external data (JSON parsing), returning `Result<T, ParseError>` is more explicit and fits Sigil's error handling model better than a type predicate.
+
+**Decision**: **Rejected.** Use `match` for sum type narrowing, `Result<T, E>` for validation/parsing.
 
 ---
 
@@ -164,8 +167,9 @@ assertIsString(value);
 ```
 **Sigil relevance**: Integrates assertions with type system. Narrowing without if-blocks.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Sigil handles this through returning unwrapped values directly (e.g., `@assert_some<T> (opt: Option<T>) -> T`) or using `panic()`. This is cleaner than TypeScript's approach of mutating the type environment in-place - no "spooky action at a distance." The `?` operator handles error propagation for `Result` types.
+
+**Decision**: **Rejected.** Sigil's approach (return unwrapped value or panic) is more explicit and achieves the same goal.
 
 ---
 
@@ -183,8 +187,9 @@ switch (shape.kind) {
 ```
 **Sigil relevance**: Sigil has `Never` type. Question is whether exhaustiveness checking pattern is useful.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Sigil already has the `Never` type and we decided (Feature 1.1) that `match` must enforce exhaustiveness. The `assertNever` pattern only exists in TypeScript because switches aren't exhaustive by default. In Sigil, the compiler enforces this directly - no runtime helper needed.
+
+**Decision**: **Already implemented.** `Never` type exists, exhaustive `match` enforced by compiler. No additional work needed.
 
 ---
 
@@ -198,8 +203,9 @@ if (isValid) {
 ```
 **Sigil relevance**: More sophisticated narrowing. Reduces need for repeated checks.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: This is a compiler quality-of-life improvement, not a syntax change. The compiler should be smart enough to track narrowing through variable aliases (e.g., `let is_valid = x != None` should narrow `x` when `is_valid` is checked). Makes code more natural and DRY.
+
+**Decision**: **Compiler goal.** The Sigil compiler should track aliased conditions for type narrowing. No syntax change required - this is an implementation enhancement.
 
 ---
 
@@ -214,8 +220,9 @@ interface User { age: number }
 ```
 **Sigil relevance**: Controversial feature. Enables extension but can cause confusion.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Widely considered a footgun in TypeScript. Makes code harder to understand - a type's shape is scattered across files. Directly violates Sigil's explicitness philosophy. Sigil has `extend` for adding methods to traits, but extending data (fields) should require explicit composition.
+
+**Decision**: **Rejected.** Violates explicitness. Type definitions must be complete in one place.
 
 ---
 
@@ -228,8 +235,9 @@ declare module "express" {
 ```
 **Sigil relevance**: Useful for adding types to third-party code. Extension mechanism.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Same problems as declaration merging - type definitions scattered across the codebase. Alternatives are more explicit: wrapper types (`type MyRequest = { base: Request, user: User }`) or generics (`Request<UserContext>`).
+
+**Decision**: **Rejected.** Same reasoning as declaration merging. Use wrapper types or generics instead.
 
 ---
 
@@ -243,8 +251,9 @@ abstract class Animal {
 ```
 **Sigil relevance**: Sigil uses traits. Question is whether abstract classes add value.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Sigil's traits already provide everything abstract classes offer: required methods (no body), default implementations, and multiple inheritance (better than single class inheritance). Adding abstract classes would create two ways to do the same thing, violating Sigil's "one way to do it" philosophy.
+
+**Decision**: **Rejected.** Traits fully cover this use case.
 
 ---
 
@@ -258,8 +267,9 @@ function Timestamped<T extends Constructor>(Base: T) {
 ```
 **Sigil relevance**: Alternative to traits for horizontal code reuse.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: TypeScript mixins are a workaround for single class inheritance. Sigil's traits with multiple bounds (`T: A + B`) provide the same composition capability without the complexity of dynamically constructed classes.
+
+**Decision**: **Rejected.** Traits with multiple bounds cover this use case.
 
 ---
 
@@ -272,8 +282,9 @@ class Person {
 ```
 **Sigil relevance**: Syntactic sugar for common pattern. Useful with decorators.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: This is class/OOP sugar that doesn't fit Sigil's struct + impl model. Sigil uses direct field access on structs, with methods for computed/validated access. Sigil's immutable-by-default approach means "setters" return new values anyway.
+
+**Decision**: **Rejected.** Doesn't fit Sigil's data model.
 
 ---
 
@@ -287,8 +298,9 @@ class Counter {
 ```
 **Sigil relevance**: Sigil has `::` for private. Question is runtime vs compile-time privacy.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Runtime privacy matters in JavaScript because code runs in untrusted environments and dynamic property access (`obj[key]`) can bypass `private`. Sigil is compiled and doesn't have dynamic property access, so compile-time privacy is sufficient.
+
+**Decision**: **Compile-time privacy is sufficient.** Sigil's `::` prefix provides module-level privacy enforced at compile time. No runtime enforcement needed.
 
 ---
 
@@ -303,8 +315,9 @@ function parse(x: string | number) { ... }
 ```
 **Sigil relevance**: Enables different return types based on input types.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Function overloading complicates type inference and hides what a function actually does. Sigil's explicitness philosophy favors: (1) separate functions with clear names (`parse_str`, `parse_int`), or (2) generics with associated types for related operations. Both are more explicit than overloading.
+
+**Decision**: **Rejected.** Use separate named functions or generics instead.
 
 ---
 
@@ -317,8 +330,9 @@ function onClick(this: HTMLElement, e: Event) {
 ```
 **Sigil relevance**: Useful for callback patterns, method binding.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Sigil already has explicit `self` for methods and `Self` for the implementing type. There's no implicit `this` binding like JavaScript, so no need to type it. Callbacks use explicit closures that capture what they need.
+
+**Decision**: **Rejected.** `self`/`Self` already cover this use case.
 
 ---
 
@@ -330,8 +344,9 @@ function concat<T extends any[], U extends any[]>(a: T, b: U): [...T, ...U]
 ```
 **Sigil relevance**: Enables typed variadic functions, tuple manipulation.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Variadic tuples are powerful but niche, mainly useful for function wrappers and type-safe `apply`/`call`. Fixed-arity generics or lists cover most practical cases. Adds significant type system complexity for limited benefit.
+
+**Decision**: **Rejected.** Use fixed-arity generics or lists.
 
 ---
 
@@ -348,8 +363,9 @@ const colors = {
 ```
 **Sigil relevance**: Best of both worlds: validation + narrow types.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: `satisfies` requires literal types (strings/ints as types). While useful in TypeScript for retrofitting safety onto stringly-typed JavaScript, Sigil's sum types provide a cleaner solution. Sum types are properly distinct from their string representations, require explicit parsing at boundaries, and integrate with exhaustive matching. Example: `type HttpMethod = Get | Post | Put | Delete` is more explicit than `"GET" | "POST" | "PUT" | "DELETE"`.
+
+**Decision**: **Rejected.** Literal types not needed - use sum types. `satisfies` becomes unnecessary without literal types. Use structs for known-field validation.
 
 ---
 
@@ -361,8 +377,9 @@ const routes = ["home", "about", "contact"] as const;
 ```
 **Sigil relevance**: Useful for enum-like patterns, configuration objects.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Depends on literal types (which were rejected). Sigil is already immutable by default (`let` vs `let mut`), and sum types replace string literal enums. No need for a special assertion to preserve literals.
+
+**Decision**: **Rejected.** Depends on literal types. Sigil's immutability and sum types cover these use cases.
 
 ---
 
@@ -376,8 +393,9 @@ type Required<T> = { [K in keyof T]-?: T[K] };
 ```
 **Sigil relevance**: Standard library types. Question is which are useful for Sigil.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Utility types depend on mapped types and `keyof` (both rejected). Without those foundations, they can't be expressed generically. Sigil's alternative is explicit type variants (`UserCreate`, `UserUpdate`, `UserPreview`). More verbose but each type's shape is visible at definition.
+
+**Decision**: **Rejected.** Depends on mapped types. Use explicit type definitions instead.
 
 ---
 
@@ -390,8 +408,9 @@ type T = typeof x;  // { a: number }
 ```
 **Sigil relevance**: Foundation for mapped types, dynamic key access.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: `keyof` produces literal union types (rejected). `typeof` infers type from value - Sigil uses explicit annotations. Dynamic property access `obj[key]` isn't idiomatic in Sigil; use direct field access for structs, maps for dynamic keys.
+
+**Decision**: **Rejected.** Depends on literal types. Use explicit field access and maps.
 
 ---
 
@@ -405,8 +424,9 @@ async function read() {
 ```
 **Sigil relevance**: Sigil has `with` pattern. Similar concept, different syntax.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Both achieve RAII-style cleanup. Sigil's `with` pattern is more explicit - you see the acquire/use/release. TypeScript's `using` relies on a Symbol protocol. Sigil's approach fits its explicit philosophy better.
+
+**Decision**: **Already implemented.** Sigil's `with` pattern covers this use case.
 
 ---
 
@@ -420,8 +440,9 @@ enum Direction { Up = 1, Down, Left, Right }
 ```
 **Sigil relevance**: Sigil uses sum types. Numeric enums are a simpler alternative.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Sigil's sum types are more powerful and consistent. Numeric enums add a separate concept that overlaps with sum types. For cases needing numeric values, use a function: `@to_int (d: Direction) -> int = match(d, Up -> 1, Down -> 2, ...)`.
+
+**Decision**: **Rejected.** Sum types cover this. Use match for numeric mapping.
 
 ---
 
@@ -432,8 +453,9 @@ enum Status { Active = "ACTIVE", Pending = "PENDING" }
 ```
 **Sigil relevance**: More explicit, no reverse mapping issues.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Same as numeric enums - sum types are the Sigil way. For string serialization, use a function: `@to_str (s: Status) -> str = match(s, Active -> "ACTIVE", Pending -> "PENDING")`.
+
+**Decision**: **Rejected.** Sum types cover this. Use match for string mapping.
 
 ---
 
@@ -445,8 +467,9 @@ const enum Direction { Up, Down }
 ```
 **Sigil relevance**: Performance optimization. No runtime overhead.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: `const enum` is a TypeScript compile-time optimization. Sigil's compiler can inline sum type variants as an optimization without special syntax. This is an implementation detail, not a language feature.
+
+**Decision**: **Rejected.** Compiler optimization, not language feature. Sum type inlining is an implementation concern.
 
 ---
 
@@ -461,8 +484,9 @@ namespace Validation {
 ```
 **Sigil relevance**: Considered legacy in TS. ES modules preferred.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Namespaces are a legacy TypeScript feature from before ES modules. Even TypeScript recommends ES modules now. Sigil uses file-based modules with explicit imports.
+
+**Decision**: **Rejected.** Legacy feature. Sigil uses file-based modules.
 
 ---
 
@@ -474,8 +498,9 @@ namespace Validation {
 ```
 **Sigil relevance**: Build/tooling configuration. May not be relevant.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Triple-slash directives are TypeScript-specific build configuration for type references. Sigil's module system and build tooling don't need this pattern.
+
+**Decision**: **Rejected.** TypeScript-specific build tooling. Not applicable to Sigil.
 
 ---
 
@@ -489,8 +514,9 @@ class Greeter { ... }
 ```
 **Sigil relevance**: Metaprogramming, annotations. Sigil has `#[attr]` syntax.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: TypeScript decorators are runtime functions that can modify behavior - this adds hidden magic that's hard to trace. Sigil's `#[attr]` attributes are compile-time metadata (derive, skip, deprecated) that inform the compiler/tooling without runtime behavior modification. This fits Sigil's explicit philosophy.
+
+**Decision**: **Rejected.** Keep attributes compile-time only. No runtime decorators.
 
 ---
 
@@ -504,8 +530,9 @@ class Example {
 ```
 **Sigil relevance**: AOP patterns, validation, logging.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Same reasoning as class decorators. Runtime method interception adds hidden behavior. For logging/validation, use explicit wrapper functions or the `with` pattern.
+
+**Decision**: **Rejected.** Use explicit wrappers instead of hidden interception.
 
 ---
 
@@ -518,8 +545,9 @@ class Example {
 ```
 **Sigil relevance**: Dependency injection, validation metadata.
 
-**Discussion**: _pending_
-**Decision**: _pending_
+**Discussion**: Parameter decorators are primarily used for dependency injection frameworks. Sigil's capability system (`uses Http`, `uses FileSystem`) provides explicit dependency declaration without hidden injection magic.
+
+**Decision**: **Rejected.** Sigil's capability system handles dependency injection explicitly.
 
 ---
 
@@ -532,30 +560,58 @@ class Example {
 | Mapped Types | Types | No | **Rejected** |
 | Template Literal Types | Types | No | **Rejected** |
 | Branded Types | Types | **Yes (newtypes)** | **Already implemented** |
-| Variance Annotations | Types | No | _pending_ |
-| `infer` Keyword | Types | No | _pending_ |
-| User-Defined Type Guards | Narrowing | Partial | _pending_ |
-| Assertion Functions | Narrowing | No | _pending_ |
-| `never` Exhaustiveness | Narrowing | Has `Never` | _pending_ |
-| Declaration Merging | Objects | No | _pending_ |
-| Module Augmentation | Objects | No | _pending_ |
-| Abstract Classes | Objects | Has traits | _pending_ |
-| Mixins | Objects | Has traits | _pending_ |
-| Function Overloading | Functions | No | _pending_ |
-| Variadic Tuples | Functions | No | _pending_ |
-| `satisfies` | Utility | No | _pending_ |
-| `as const` | Utility | No | _pending_ |
-| Utility Types | Utility | Some | _pending_ |
-| `keyof`/`typeof` | Utility | No | _pending_ |
-| `using` (RAII) | Utility | Has `with` | _pending_ |
-| Enums | Enums | Has sum types | _pending_ |
-| Decorators | Meta | Has attributes | _pending_ |
+| Variance Annotations | Types | No | **Inferred (Rust-style)** |
+| `infer` Keyword | Types | No | **Rejected** |
+| User-Defined Type Guards | Narrowing | Has `match` | **Rejected** |
+| Assertion Functions | Narrowing | Has `panic`/`?` | **Rejected** |
+| `never` Exhaustiveness | Narrowing | Has `Never` | **Already implemented** |
+| Declaration Merging | Objects | No | **Rejected** |
+| Module Augmentation | Objects | No | **Rejected** |
+| Abstract Classes | Objects | Has traits | **Rejected** |
+| Mixins | Objects | Has traits | **Rejected** |
+| Function Overloading | Functions | No | **Rejected** |
+| Variadic Tuples | Functions | No | **Rejected** |
+| `satisfies` | Utility | No | **Rejected** |
+| `as const` | Utility | No | **Rejected** |
+| Utility Types | Utility | Some | **Rejected** |
+| `keyof`/`typeof` | Utility | No | **Rejected** |
+| `using` (RAII) | Utility | Has `with` | **Already implemented** |
+| Enums | Enums | Has sum types | **Rejected** |
+| Decorators | Meta | Has attributes | **Rejected** |
 
 ---
 
 ## Discussion Log
 
-_Each feature discussion will be logged here with date and outcome._
+### 2026-01-22: Complete Review
+
+All 23 TypeScript features reviewed. Summary of outcomes:
+
+**Already Implemented (4):**
+- Discriminated Unions → Sigil sum types + exhaustive match
+- Branded/Nominal Types → Sigil newtypes are nominal
+- `never` Exhaustiveness → Sigil `Never` + exhaustive match
+- `using` (RAII) → Sigil `with` pattern
+
+**Adopted as Compiler Goal (2):**
+- Variance Annotations → Inferred (Rust-style), no explicit syntax
+- Control Flow Analysis → Compiler should track aliased conditions
+
+**Rejected (17):**
+- Conditional Types, Mapped Types, Template Literal Types, `infer` → Too complex, type-level programming not a goal
+- Index Signatures → Keep clean struct/map separation
+- Type Guards, Assertion Functions → Use `match` and `Result<T, E>`
+- Declaration Merging, Module Augmentation → Violates explicitness
+- Abstract Classes, Mixins → Traits cover this
+- Auto-Accessors, Private Fields (runtime) → Compile-time privacy sufficient
+- Function Overloading → Use separate named functions or generics
+- `this` Parameter, Variadic Tuples → `self`/`Self` and fixed-arity cover this
+- `satisfies`, `as const`, Utility Types, `keyof`/`typeof` → Depend on rejected literal types
+- Enums (all 3) → Sum types are the Sigil way
+- Namespaces, Triple-Slash → Legacy/TS-specific
+- Decorators (all 3) → Keep attributes compile-time only
+
+**Key Principle:** Sigil's explicitness philosophy guided most rejections. Features that add hidden behavior, scattered definitions, or type-level complexity were rejected in favor of explicit alternatives (sum types, traits, `Result`, `with` pattern).
 
 ---
 

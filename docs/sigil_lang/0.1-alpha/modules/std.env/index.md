@@ -77,14 +77,20 @@ impl Env for MockEnv {
     } in
     run(
         let url = get_database_url(),
-        assert_eq(url, "postgres://test/testdb"),
+        assert_eq(
+            .actual: url,
+            .expected: "postgres://test/testdb",
+        ),
     )
 
 @test_database_url_default tests @get_database_url () -> void =
     with Env = MockEnv { vars: {}, arguments: [], cwd: "/tmp" } in
     run(
         let url = get_database_url(),
-        assert_eq(url, "postgres://localhost/dev"),
+        assert_eq(
+            .actual: url,
+            .expected: "postgres://localhost/dev",
+        ),
     )
 ```
 

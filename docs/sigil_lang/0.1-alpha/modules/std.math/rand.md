@@ -73,7 +73,10 @@ impl Random for MockRandom {
     with Random = MockRandom { int_value: 4, float_value: 0.0, bool_value: false } in
     run(
         let result = roll_dice(),
-        assert_eq(result, 4),
+        assert_eq(
+            .actual: result,
+            .expected: 4,
+        ),
     )
 ```
 

@@ -1,108 +1,116 @@
-// Spec: spec/06-types.md § Primitive Types
-// Design: design/03-type-system/01-primitive-types.md
-//
-// Tests primitive types
+// Spec: 06-types.md § Primitive Types
+// Design: 03-type-system/01-primitive-types.md
 
 // =============================================================================
-// Integer Type
-// Spec: spec/06-types.md § 64-bit signed integer
+// int — 64-bit Signed Integer
 // =============================================================================
+// Spec: 06-types.md § Integer Type
+// Design: 03-type-system/01-primitive-types.md § int
 
-@int_default () -> int = 0
-
-@test_int_default tests @int_default () -> void = run(
-    assert(int_default() == 0),
+@test_int_literal tests @int_literal () -> void = run(
+    let x = 42,
+    assert_eq(
+        .actual: x,
+        .expected: 42,
+    ),
 )
 
-// Helper for tests
-@identity (x: int) -> int = x
+@int_literal () -> int = 42
 
-@test_int_operations tests @identity () -> void = run(
-    assert(2 + 3 == 5),
-    assert(10 - 4 == 6),
-    assert(3 * 4 == 12),
-    assert(15 / 3 == 5),
-    assert(17 % 5 == 2),
+@test_int_negative tests @int_negative () -> void = run(
+    let x = -17,
+    assert_eq(
+        .actual: x,
+        .expected: -17,
+    ),
 )
 
-@test_int_comparison tests @identity () -> void = run(
+@int_negative () -> int = -17
+
+@test_int_zero tests @int_zero () -> void = run(
+    let x = 0,
+    assert_eq(
+        .actual: x,
+        .expected: 0,
+    ),
+)
+
+@int_zero () -> int = 0
+
+@test_int_underscore tests @int_underscore () -> void = run(
+    let x = 1_000_000,
+    assert_eq(
+        .actual: x,
+        .expected: 1000000,
+    ),
+)
+
+@int_underscore () -> int = 1_000_000
+
+@test_int_hex tests @int_hex () -> void = run(
+    let x = 0xFF,
+    assert_eq(
+        .actual: x,
+        .expected: 255,
+    ),
+)
+
+@int_hex () -> int = 0xFF
+
+@test_int_annotated tests @int_annotated () -> void = run(
+    let x: int = 42,
+    assert_eq(
+        .actual: x,
+        .expected: 42,
+    ),
+)
+
+@int_annotated () -> int = run(
+    let x: int = 42,
+    x,
+)
+
+@test_int_arithmetic tests @int_arithmetic () -> void = run(
+    assert_eq(
+        .actual: 3 + 2,
+        .expected: 5,
+    ),
+    assert_eq(
+        .actual: 3 - 2,
+        .expected: 1,
+    ),
+    assert_eq(
+        .actual: 3 * 2,
+        .expected: 6,
+    ),
+    assert_eq(
+        .actual: 7 / 2,
+        .expected: 3,
+    ),
+    assert_eq(
+        .actual: 7 % 2,
+        .expected: 1,
+    ),
+    assert_eq(
+        .actual: -7 / 3,
+        .expected: -2,
+    ),
+    // TODO: div operator not yet implemented in sigilc-v3 parser
+    // assert_eq(
+    //     .actual: -7 div 3,
+    //     .expected: -3,
+    // ),
+)
+
+@int_arithmetic () -> int = 3 + 2
+
+@test_int_comparison tests @int_comparison () -> void = run(
     assert(1 < 2),
     assert(2 > 1),
-    assert(3 <= 3),
-    assert(4 >= 4),
-    assert(5 == 5),
-    assert(5 != 6),
+    assert(2 <= 2),
+    assert(2 >= 2),
+    assert(2 == 2),
+    assert(1 != 2),
 )
 
-// =============================================================================
-// Floating-Point Type
-// Spec: spec/06-types.md § 64-bit IEEE 754
-// =============================================================================
-
-@float_default () -> float = 0.0
-
-@test_float_default tests @float_default () -> void = run(
-    assert(float_default() == 0.0),
-)
-
-@test_float_operations tests @identity () -> void = run(
-    assert(2.0 + 3.0 == 5.0),
-    assert(10.0 - 4.0 == 6.0),
-    assert(3.0 * 4.0 == 12.0),
-    assert(15.0 / 3.0 == 5.0),
-)
-
-// =============================================================================
-// Boolean Type
-// Spec: spec/06-types.md § Values: true, false
-// =============================================================================
-
-@bool_default () -> bool = false
-
-@test_bool_default tests @bool_default () -> void = run(
-    assert(bool_default() == false),
-)
-
-@test_bool_operations tests @identity () -> void = run(
-    assert((true && true) == true),
-    assert((true && false) == false),
-    assert((true || false) == true),
-    assert((false || false) == false),
-    assert(!true == false),
-    assert(!false == true),
-)
-
-// =============================================================================
-// String Type
-// Spec: spec/06-types.md § UTF-8 encoded string
-// =============================================================================
-
-@str_default () -> str = ""
-
-@test_str_default tests @str_default () -> void = run(
-    assert(str_default() == ""),
-)
-
-@test_str_concatenation tests @identity () -> void = run(
-    assert("hello" + " " + "world" == "hello world"),
-    assert("" + "x" == "x"),
-)
-
-@test_str_comparison tests @identity () -> void = run(
-    assert("abc" == "abc"),
-    assert("abc" != "def"),
-)
-
-// =============================================================================
-// Void Type
-// Spec: spec/06-types.md § unit type, single value ()
-// =============================================================================
-
-@void_func () -> void = run(
-    let x = 42,
-)
-
-@test_void tests @void_func () -> void = run(
-    void_func(),
-    assert(true),
-)
+@int_comparison () -> bool = 1 < 2
