@@ -7,17 +7,17 @@ pub mod operators;
 
 use crate::diagnostic::Diagnostic;
 use crate::ir::{
-    Name, Span, ExprId, ExprArena, Module, Function,
+    Name, Span, ExprId, ExprArena, Module, Function, TestDef,
     ExprKind, BinaryOp, UnaryOp,
     StringInterner, TypeId,
-    FunctionSeq, CallArgRange,
+    FunctionSeq, SeqBinding, CallArgRange,
 };
 use crate::parser::ParseResult;
 use crate::patterns::{PatternRegistry, TypeCheckContext};
 use crate::types::{Type, TypeEnv, InferenceContext, TypeError};
 use crate::context::CompilerContext;
 use operators::{TypeOperatorRegistry, TypeOpResult};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Type-checked module.
@@ -135,6 +135,11 @@ impl<'a> TypeChecker<'a> {
             self.check_function(func, func_type);
         }
 
+        // Third pass: type check test bodies
+        for test in &module.tests {
+            self.check_test(test);
+        }
+
         // Build expression types vector with resolved types
         let max_expr = self.expr_types.keys().max().copied().unwrap_or(0);
         let mut expr_types = vec![Type::Error; (max_expr + 1) as usize];
@@ -227,6 +232,50 @@ impl<'a> TypeChecker<'a> {
         // Unify with declared return type
         if let Err(e) = self.ctx.unify(&body_type, &func_type.return_type) {
             let span = self.arena.get_expr(func.body).span;
+            self.report_type_error(e, span);
+        }
+
+        // Restore environment
+        self.env = old_env;
+    }
+
+    /// Type check a test body.
+    fn check_test(&mut self, test: &TestDef) {
+        // Infer parameter types
+        let params: Vec<Type> = self.arena.get_params(test.params)
+            .iter()
+            .map(|p| {
+                match p.ty {
+                    Some(type_id) => self.type_id_to_type(type_id),
+                    None => self.ctx.fresh_var(),
+                }
+            })
+            .collect();
+
+        // Infer return type
+        let return_type = match test.return_ty {
+            Some(type_id) => self.type_id_to_type(type_id),
+            None => self.ctx.fresh_var(),
+        };
+
+        // Create scope for test parameters
+        let mut test_env = self.env.child();
+
+        // Bind parameters
+        let param_defs = self.arena.get_params(test.params);
+        for (param, param_type) in param_defs.iter().zip(params.iter()) {
+            test_env.bind(param.name, param_type.clone());
+        }
+
+        // Save current env and switch to test env
+        let old_env = std::mem::replace(&mut self.env, test_env);
+
+        // Infer body type
+        let body_type = self.infer_expr(test.body);
+
+        // Unify with declared return type
+        if let Err(e) = self.ctx.unify(&body_type, &return_type) {
+            let span = self.arena.get_expr(test.body).span;
             self.report_type_error(e, span);
         }
 
@@ -330,6 +379,9 @@ impl<'a> TypeChecker<'a> {
                             self.infer_expr(*e);
                         }
                         crate::ir::StmtKind::Let { pattern, ty, init, .. } => {
+                            // Check for closure self-capture before type checking
+                            self.check_closure_self_capture(pattern, *init, stmt.span);
+
                             let init_ty = self.infer_expr(*init);
                             // If type annotation present, unify with inferred type
                             let final_ty = if let Some(type_id) = ty {
@@ -360,6 +412,9 @@ impl<'a> TypeChecker<'a> {
 
             // Let binding (as expression)
             ExprKind::Let { pattern, ty, init, .. } => {
+                // Check for closure self-capture before type checking
+                self.check_closure_self_capture(pattern, *init, span);
+
                 let init_ty = self.infer_expr(*init);
                 // If type annotation present, unify with inferred type
                 let final_ty = if let Some(type_id) = ty {
@@ -441,10 +496,15 @@ impl<'a> TypeChecker<'a> {
             // Tuple
             ExprKind::Tuple(elements) => {
                 let element_ids = self.arena.get_expr_list(*elements);
-                let types: Vec<Type> = element_ids.iter()
-                    .map(|id| self.infer_expr(*id))
-                    .collect();
-                Type::Tuple(types)
+                if element_ids.is_empty() {
+                    // Empty tuple is unit type
+                    Type::Unit
+                } else {
+                    let types: Vec<Type> = element_ids.iter()
+                        .map(|id| self.infer_expr(*id))
+                        .collect();
+                    Type::Tuple(types)
+                }
             }
 
             // FunctionSeq: run, try, match
@@ -742,7 +802,8 @@ impl<'a> TypeChecker<'a> {
                 if let Err(e) = self.ctx.unify(&target_ty, &value_ty) {
                     self.report_type_error(e, self.arena.get_expr(*value).span);
                 }
-                Type::Unit
+                // Assignment returns the assigned value
+                value_ty
             }
 
             // Error placeholder
@@ -854,14 +915,25 @@ impl<'a> TypeChecker<'a> {
         match func_seq {
             FunctionSeq::Run { bindings, result, .. } => {
                 // Create child scope for bindings
-                let mut run_env = self.env.child();
+                let run_env = self.env.child();
                 let old_env = std::mem::replace(&mut self.env, run_env);
 
-                // Type check each binding and add to scope
+                // Type check each binding/statement and add to scope
                 let seq_bindings = self.arena.get_seq_bindings(*bindings);
                 for binding in seq_bindings {
-                    let init_ty = self.infer_expr(binding.value);
-                    self.bind_pattern(&binding.pattern, init_ty);
+                    match binding {
+                        SeqBinding::Let { pattern, value, span: binding_span, .. } => {
+                            // Check for closure self-capture
+                            self.check_closure_self_capture(pattern, *value, *binding_span);
+
+                            let init_ty = self.infer_expr(*value);
+                            self.bind_pattern(pattern, init_ty);
+                        }
+                        SeqBinding::Stmt { expr, .. } => {
+                            // Type check for side effects (e.g., assignment)
+                            self.infer_expr(*expr);
+                        }
+                    }
                 }
 
                 // Type check result expression
@@ -874,19 +946,30 @@ impl<'a> TypeChecker<'a> {
 
             FunctionSeq::Try { bindings, result, .. } => {
                 // Similar to Run, but bindings unwrap Result/Option
-                let mut try_env = self.env.child();
+                let try_env = self.env.child();
                 let old_env = std::mem::replace(&mut self.env, try_env);
 
                 let seq_bindings = self.arena.get_seq_bindings(*bindings);
                 for binding in seq_bindings {
-                    let init_ty = self.infer_expr(binding.value);
-                    // Unwrap Result<T, E> or Option<T> to get T
-                    let unwrapped = match &init_ty {
-                        Type::Result { ok, .. } => (**ok).clone(),
-                        Type::Option(some_ty) => (**some_ty).clone(),
-                        other => other.clone(),
-                    };
-                    self.bind_pattern(&binding.pattern, unwrapped);
+                    match binding {
+                        SeqBinding::Let { pattern, value, span: binding_span, .. } => {
+                            // Check for closure self-capture
+                            self.check_closure_self_capture(pattern, *value, *binding_span);
+
+                            let init_ty = self.infer_expr(*value);
+                            // Unwrap Result<T, E> or Option<T> to get T
+                            let unwrapped = match &init_ty {
+                                Type::Result { ok, .. } => (**ok).clone(),
+                                Type::Option(some_ty) => (**some_ty).clone(),
+                                other => other.clone(),
+                            };
+                            self.bind_pattern(pattern, unwrapped);
+                        }
+                        SeqBinding::Stmt { expr, .. } => {
+                            // Type check for side effects
+                            self.infer_expr(*expr);
+                        }
+                    }
                 }
 
                 // Result expression should be Result or Option
@@ -1111,6 +1194,378 @@ impl<'a> TypeChecker<'a> {
             code: diag.code,
         });
     }
+
+    // =========================================================================
+    // Cycle Detection
+    // =========================================================================
+
+    /// Collect free variable references from an expression.
+    ///
+    /// This is used for closure self-capture detection. A variable is "free"
+    /// if it's referenced but not bound within the expression.
+    fn collect_free_vars(&self, expr_id: ExprId, bound: &HashSet<Name>) -> HashSet<Name> {
+        let mut free = HashSet::new();
+        self.collect_free_vars_inner(expr_id, bound, &mut free);
+        free
+    }
+
+    /// Inner recursive helper for free variable collection.
+    fn collect_free_vars_inner(
+        &self,
+        expr_id: ExprId,
+        bound: &HashSet<Name>,
+        free: &mut HashSet<Name>,
+    ) {
+        let expr = self.arena.get_expr(expr_id);
+
+        match &expr.kind {
+            // Variable reference - free if not bound
+            ExprKind::Ident(name) => {
+                if !bound.contains(name) {
+                    free.insert(*name);
+                }
+            }
+
+            // Function reference - check if it refers to a local binding
+            ExprKind::FunctionRef(name) => {
+                // Function refs using @name syntax typically refer to top-level functions,
+                // not local bindings. However, if someone writes `let f = ...; @f()`,
+                // we should detect that too for completeness.
+                if !bound.contains(name) {
+                    free.insert(*name);
+                }
+            }
+
+            // Literals - no free variables
+            ExprKind::Int(_)
+            | ExprKind::Float(_)
+            | ExprKind::Bool(_)
+            | ExprKind::String(_)
+            | ExprKind::Char(_)
+            | ExprKind::Duration { .. }
+            | ExprKind::Size { .. }
+            | ExprKind::Unit
+            | ExprKind::Config(_)
+            | ExprKind::SelfRef
+            | ExprKind::HashLength
+            | ExprKind::None
+            | ExprKind::Continue
+            | ExprKind::Error => {}
+
+            // Binary - check both sides
+            ExprKind::Binary { left, right, .. } => {
+                self.collect_free_vars_inner(*left, bound, free);
+                self.collect_free_vars_inner(*right, bound, free);
+            }
+
+            // Unary - check operand
+            ExprKind::Unary { operand, .. } => {
+                self.collect_free_vars_inner(*operand, bound, free);
+            }
+
+            // Call - check function and args
+            ExprKind::Call { func, args } => {
+                self.collect_free_vars_inner(*func, bound, free);
+                for arg_id in self.arena.get_expr_list(*args) {
+                    self.collect_free_vars_inner(*arg_id, bound, free);
+                }
+            }
+
+            // Named call
+            ExprKind::CallNamed { func, args } => {
+                self.collect_free_vars_inner(*func, bound, free);
+                for arg in self.arena.get_call_args(*args) {
+                    self.collect_free_vars_inner(arg.value, bound, free);
+                }
+            }
+
+            // Method call
+            ExprKind::MethodCall { receiver, args, .. } => {
+                self.collect_free_vars_inner(*receiver, bound, free);
+                for arg_id in self.arena.get_expr_list(*args) {
+                    self.collect_free_vars_inner(*arg_id, bound, free);
+                }
+            }
+
+            // Field access
+            ExprKind::Field { receiver, .. } => {
+                self.collect_free_vars_inner(*receiver, bound, free);
+            }
+
+            // Index access
+            ExprKind::Index { receiver, index } => {
+                self.collect_free_vars_inner(*receiver, bound, free);
+                self.collect_free_vars_inner(*index, bound, free);
+            }
+
+            // If expression
+            ExprKind::If { cond, then_branch, else_branch } => {
+                self.collect_free_vars_inner(*cond, bound, free);
+                self.collect_free_vars_inner(*then_branch, bound, free);
+                if let Some(else_id) = else_branch {
+                    self.collect_free_vars_inner(*else_id, bound, free);
+                }
+            }
+
+            // Match expression
+            ExprKind::Match { scrutinee, arms } => {
+                self.collect_free_vars_inner(*scrutinee, bound, free);
+                for arm in self.arena.get_arms(*arms) {
+                    // TODO: arm patterns can bind variables
+                    self.collect_free_vars_inner(arm.body, bound, free);
+                }
+            }
+
+            // For loop - binding is bound in body
+            ExprKind::For { binding, iter, guard, body, .. } => {
+                self.collect_free_vars_inner(*iter, bound, free);
+                let mut body_bound = bound.clone();
+                body_bound.insert(*binding);
+                if let Some(guard_id) = guard {
+                    self.collect_free_vars_inner(*guard_id, &body_bound, free);
+                }
+                self.collect_free_vars_inner(*body, &body_bound, free);
+            }
+
+            // Loop
+            ExprKind::Loop { body } => {
+                self.collect_free_vars_inner(*body, bound, free);
+            }
+
+            // Block - statements can introduce bindings
+            ExprKind::Block { stmts, result } => {
+                let mut block_bound = bound.clone();
+                for stmt in self.arena.get_stmt_range(*stmts) {
+                    match &stmt.kind {
+                        crate::ir::StmtKind::Expr(e) => {
+                            self.collect_free_vars_inner(*e, &block_bound, free);
+                        }
+                        crate::ir::StmtKind::Let { pattern, init, .. } => {
+                            // Init is evaluated before the binding is in scope
+                            self.collect_free_vars_inner(*init, &block_bound, free);
+                            // Add pattern bindings for subsequent statements
+                            self.add_pattern_bindings(pattern, &mut block_bound);
+                        }
+                    }
+                }
+                if let Some(result_id) = result {
+                    self.collect_free_vars_inner(*result_id, &block_bound, free);
+                }
+            }
+
+            // Let binding (as expression)
+            ExprKind::Let { pattern: _, init, .. } => {
+                // Init is evaluated before the binding
+                self.collect_free_vars_inner(*init, bound, free);
+                // Note: the binding itself doesn't introduce scope here,
+                // that's handled by the containing block
+            }
+
+            // Lambda - params are bound in body
+            ExprKind::Lambda { params, body, .. } => {
+                let mut lambda_bound = bound.clone();
+                for param in self.arena.get_params(*params) {
+                    lambda_bound.insert(param.name);
+                }
+                self.collect_free_vars_inner(*body, &lambda_bound, free);
+            }
+
+            // List
+            ExprKind::List(elements) => {
+                for elem_id in self.arena.get_expr_list(*elements) {
+                    self.collect_free_vars_inner(*elem_id, bound, free);
+                }
+            }
+
+            // Map
+            ExprKind::Map(entries) => {
+                for entry in self.arena.get_map_entries(*entries) {
+                    self.collect_free_vars_inner(entry.key, bound, free);
+                    self.collect_free_vars_inner(entry.value, bound, free);
+                }
+            }
+
+            // Struct literal
+            ExprKind::Struct { fields, .. } => {
+                for init in self.arena.get_field_inits(*fields) {
+                    if let Some(value_id) = init.value {
+                        self.collect_free_vars_inner(value_id, bound, free);
+                    } else {
+                        // Shorthand field: { x } is equivalent to { x: x }
+                        if !bound.contains(&init.name) {
+                            free.insert(init.name);
+                        }
+                    }
+                }
+            }
+
+            // Tuple
+            ExprKind::Tuple(elements) => {
+                for elem_id in self.arena.get_expr_list(*elements) {
+                    self.collect_free_vars_inner(*elem_id, bound, free);
+                }
+            }
+
+            // Range
+            ExprKind::Range { start, end, .. } => {
+                if let Some(start_id) = start {
+                    self.collect_free_vars_inner(*start_id, bound, free);
+                }
+                if let Some(end_id) = end {
+                    self.collect_free_vars_inner(*end_id, bound, free);
+                }
+            }
+
+            // Variant constructors
+            ExprKind::Ok(inner) | ExprKind::Err(inner) => {
+                if let Some(id) = inner {
+                    self.collect_free_vars_inner(*id, bound, free);
+                }
+            }
+            ExprKind::Some(inner) => {
+                self.collect_free_vars_inner(*inner, bound, free);
+            }
+
+            // Control flow
+            ExprKind::Return(value) | ExprKind::Break(value) => {
+                if let Some(id) = value {
+                    self.collect_free_vars_inner(*id, bound, free);
+                }
+            }
+
+            ExprKind::Await(inner) | ExprKind::Try(inner) => {
+                self.collect_free_vars_inner(*inner, bound, free);
+            }
+
+            ExprKind::Assign { target, value } => {
+                self.collect_free_vars_inner(*target, bound, free);
+                self.collect_free_vars_inner(*value, bound, free);
+            }
+
+            // FunctionSeq
+            ExprKind::FunctionSeq(func_seq) => {
+                self.collect_free_vars_function_seq(func_seq, bound, free);
+            }
+
+            // FunctionExp
+            ExprKind::FunctionExp(func_exp) => {
+                for prop in self.arena.get_named_exprs(func_exp.props) {
+                    self.collect_free_vars_inner(prop.value, bound, free);
+                }
+            }
+        }
+    }
+
+    /// Collect free variables from a FunctionSeq (run, try, match).
+    fn collect_free_vars_function_seq(
+        &self,
+        func_seq: &FunctionSeq,
+        bound: &HashSet<Name>,
+        free: &mut HashSet<Name>,
+    ) {
+        match func_seq {
+            FunctionSeq::Run { bindings, result, .. }
+            | FunctionSeq::Try { bindings, result, .. } => {
+                let mut seq_bound = bound.clone();
+                for binding in self.arena.get_seq_bindings(*bindings) {
+                    match binding {
+                        SeqBinding::Let { pattern, value, .. } => {
+                            self.collect_free_vars_inner(*value, &seq_bound, free);
+                            self.add_pattern_bindings(pattern, &mut seq_bound);
+                        }
+                        SeqBinding::Stmt { expr, .. } => {
+                            self.collect_free_vars_inner(*expr, &seq_bound, free);
+                        }
+                    }
+                }
+                self.collect_free_vars_inner(*result, &seq_bound, free);
+            }
+            FunctionSeq::Match { scrutinee, arms, .. } => {
+                self.collect_free_vars_inner(*scrutinee, bound, free);
+                for arm in self.arena.get_arms(*arms) {
+                    // TODO: arm patterns can bind variables
+                    self.collect_free_vars_inner(arm.body, bound, free);
+                }
+            }
+        }
+    }
+
+    /// Add bindings from a pattern to the bound set.
+    fn add_pattern_bindings(&self, pattern: &crate::ir::BindingPattern, bound: &mut HashSet<Name>) {
+        use crate::ir::BindingPattern;
+        match pattern {
+            BindingPattern::Name(name) => {
+                bound.insert(*name);
+            }
+            BindingPattern::Wildcard => {}
+            BindingPattern::Tuple(patterns) => {
+                for p in patterns {
+                    self.add_pattern_bindings(p, bound);
+                }
+            }
+            BindingPattern::Struct { fields } => {
+                for (field_name, nested) in fields {
+                    if let Some(nested_pattern) = nested {
+                        self.add_pattern_bindings(nested_pattern, bound);
+                    } else {
+                        // Shorthand: { x } binds x
+                        bound.insert(*field_name);
+                    }
+                }
+            }
+            BindingPattern::List { elements, rest } => {
+                for p in elements {
+                    self.add_pattern_bindings(p, bound);
+                }
+                if let Some(rest_name) = rest {
+                    bound.insert(*rest_name);
+                }
+            }
+        }
+    }
+
+    /// Check for closure self-capture in a let binding.
+    ///
+    /// Detects patterns like: `let f = () -> f()` where a closure captures itself.
+    /// This would create a reference cycle and must be rejected at compile time.
+    fn check_closure_self_capture(
+        &mut self,
+        pattern: &crate::ir::BindingPattern,
+        init: ExprId,
+        span: Span,
+    ) {
+        // Get the names being bound
+        let mut bound_names = HashSet::new();
+        self.add_pattern_bindings(pattern, &mut bound_names);
+
+        // Check if init is a lambda that references any of the bound names
+        let expr = self.arena.get_expr(init);
+        if let ExprKind::Lambda { body, params, .. } = &expr.kind {
+            // The lambda's parameters are bound in its body
+            let mut lambda_bound = HashSet::new();
+            for param in self.arena.get_params(*params) {
+                lambda_bound.insert(param.name);
+            }
+
+            // Collect free variables from the lambda body
+            let free_vars = self.collect_free_vars(*body, &lambda_bound);
+
+            // Check if any bound name is in the free variables
+            for name in &bound_names {
+                if free_vars.contains(name) {
+                    let name_str = self.interner.lookup(*name);
+                    self.errors.push(TypeCheckError {
+                        message: format!(
+                            "closure cannot capture itself: `{}` references itself in its body",
+                            name_str
+                        ),
+                        span,
+                        code: crate::diagnostic::ErrorCode::E2007,
+                    });
+                }
+            }
+        }
+    }
 }
 
 /// Type check a parsed module.
@@ -1310,5 +1765,123 @@ mod tests {
         "#);
 
         assert!(!typed.has_errors());
+    }
+
+    // =========================================================================
+    // Closure Self-Capture Detection Tests
+    // =========================================================================
+
+    #[test]
+    fn test_closure_self_capture_direct() {
+        // Direct self-capture: let f = () -> f()
+        let (_, typed) = check_source(r#"
+            @test () -> int = run(
+                let f = () -> f,
+                0
+            )
+        "#);
+
+        assert!(typed.has_errors());
+        assert!(typed.errors.iter().any(|e|
+            e.message.contains("closure cannot capture itself") &&
+            e.code == crate::diagnostic::ErrorCode::E2007
+        ));
+    }
+
+    #[test]
+    fn test_closure_self_capture_call() {
+        // Self-capture with call: let f = () -> f()
+        let (_, typed) = check_source(r#"
+            @test () -> int = run(
+                let f = (x: int) -> f(x + 1),
+                0
+            )
+        "#);
+
+        assert!(typed.has_errors());
+        assert!(typed.errors.iter().any(|e|
+            e.message.contains("closure cannot capture itself")
+        ));
+    }
+
+    #[test]
+    fn test_no_self_capture_uses_outer_binding() {
+        // Using an outer binding with the same name is NOT self-capture
+        // Here f is already bound before the lambda is created
+        let (_, typed) = check_source(r#"
+            @test () -> int = run(
+                let f = 42,
+                let g = () -> f,
+                g()
+            )
+        "#);
+
+        // This should NOT be an error - g uses outer f, not itself
+        assert!(!typed.errors.iter().any(|e|
+            e.code == crate::diagnostic::ErrorCode::E2007
+        ));
+    }
+
+    #[test]
+    fn test_no_self_capture_non_lambda() {
+        // Non-lambda let bindings don't have self-capture issues
+        let (_, typed) = check_source(r#"
+            @test () -> int = run(
+                let x = 1 + 2,
+                x
+            )
+        "#);
+
+        assert!(!typed.has_errors());
+    }
+
+    #[test]
+    fn test_closure_self_capture_in_run() {
+        // Self-capture in run() context
+        let (_, typed) = check_source(r#"
+            @test () -> int = run(
+                let f = () -> f,
+                0
+            )
+        "#);
+
+        assert!(typed.has_errors());
+        assert!(typed.errors.iter().any(|e|
+            e.message.contains("closure cannot capture itself")
+        ));
+    }
+
+    #[test]
+    fn test_closure_self_capture_nested_expression() {
+        // Self-capture through nested expression
+        let (_, typed) = check_source(r#"
+            @test () -> int = run(
+                let f = () -> if true then f else f,
+                0
+            )
+        "#);
+
+        assert!(typed.has_errors());
+        assert!(typed.errors.iter().any(|e|
+            e.message.contains("closure cannot capture itself")
+        ));
+    }
+
+    #[test]
+    fn test_valid_mutual_recursion_via_outer_scope() {
+        // This tests that using a name from outer scope is valid
+        // (the fix for actual mutual recursion would require explicit rec annotations)
+        let (_, typed) = check_source(r#"
+            @f (x: int) -> int = x
+            @test () -> int = run(
+                let g = (x: int) -> @f(x),
+                g(1)
+            )
+        "#);
+
+        // Using @f is valid - it's a top-level function, not self-capture
+        assert!(!typed.errors.iter().any(|e|
+            e.code == crate::diagnostic::ErrorCode::E2007
+        ));
     }
 }

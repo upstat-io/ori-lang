@@ -1,8 +1,10 @@
 # Built-in Functions
 
-This section defines the core functions provided by the language.
+This section defines the core functions provided by the language. Built-in functions are function_exp constructs and use named argument syntax, with the exception of type conversion functions which allow positional syntax.
 
 ## Type Conversion Functions
+
+Type conversion functions are the only built-in functions that allow positional argument syntax.
 
 ### int
 
@@ -20,10 +22,17 @@ Convert a value to `int`.
 | `byte` | Zero-extends to int |
 
 ```sigil
-int(3.7)      // 3
-int(-3.7)     // -3
-int("42")     // 42
-int(true)     // 1
+// Returns 3
+int(3.7)
+
+// Returns -3
+int(-3.7)
+
+// Returns 42
+int("42")
+
+// Returns 1
+int(true)
 ```
 
 It is a run-time error if a string cannot be parsed as an integer.
@@ -42,8 +51,11 @@ Convert a value to `float`.
 | `str` | Parses as floating-point; panics on invalid |
 
 ```sigil
-float(42)       // 42.0
-float("3.14")   // 3.14
+// Returns 42.0
+float(42)
+
+// Returns 3.14
+float("3.14")
 ```
 
 ### str
@@ -61,9 +73,14 @@ Convert a value to `str`.
 | `bool` | "true" or "false" |
 
 ```sigil
-str(42)       // "42"
-str(3.14)     // "3.14"
-str(true)     // "true"
+// Returns "42"
+str(42)
+
+// Returns "3.14"
+str(3.14)
+
+// Returns "true"
+str(true)
 ```
 
 ### byte
@@ -86,7 +103,7 @@ Convert a value to `byte`.
 Return the length of a collection.
 
 ```
-@len (collection: T) -> int
+@len (.collection: T) -> int
 ```
 
 | Input Type | Result |
@@ -96,9 +113,20 @@ Return the length of a collection.
 | `str` | Number of Unicode code points |
 
 ```sigil
-len([1, 2, 3])     // 3
-len({"a": 1})      // 1
-len("hello")       // 5
+// Returns 3
+len(
+    .collection: [1, 2, 3],
+)
+
+// Returns 1
+len(
+    .collection: {"a": 1},
+)
+
+// Returns 5
+len(
+    .collection: "hello",
+)
 ```
 
 ### is_empty
@@ -106,10 +134,22 @@ len("hello")       // 5
 Test if a collection is empty.
 
 ```
-@is_empty (collection: T) -> bool
+@is_empty (.collection: T) -> bool
 ```
 
-Equivalent to `len(collection) == 0`.
+Equivalent to `len(.collection: collection) == 0`.
+
+```sigil
+// Returns true
+is_empty(
+    .collection: [],
+)
+
+// Returns false
+is_empty(
+    .collection: [1, 2],
+)
+```
 
 ## Option Functions
 
@@ -118,12 +158,19 @@ Equivalent to `len(collection) == 0`.
 Test if an `Option` contains a value.
 
 ```
-@is_some (opt: Option<T>) -> bool
+@is_some (.opt: Option<T>) -> bool
 ```
 
 ```sigil
-is_some(Some(42))   // true
-is_some(None)       // false
+// Returns true
+is_some(
+    .opt: Some(42),
+)
+
+// Returns false
+is_some(
+    .opt: None,
+)
 ```
 
 ### is_none
@@ -131,12 +178,19 @@ is_some(None)       // false
 Test if an `Option` is empty.
 
 ```
-@is_none (opt: Option<T>) -> bool
+@is_none (.opt: Option<T>) -> bool
 ```
 
 ```sigil
-is_none(None)       // true
-is_none(Some(42))   // false
+// Returns true
+is_none(
+    .opt: None,
+)
+
+// Returns false
+is_none(
+    .opt: Some(42),
+)
 ```
 
 ## Option Methods
@@ -148,12 +202,19 @@ Methods available on `Option<T>` values.
 Transform the value if present.
 
 ```
-Option<T>.map(T -> U) -> Option<U>
+Option<T>.map(.transform: T -> U) -> Option<U>
 ```
 
 ```sigil
-Some(2).map(x -> x * 2)  // Some(4)
-None.map(x -> x * 2)     // None
+// Returns Some(4)
+Some(2).map(
+    .transform: x -> x * 2,
+)
+
+// Returns None
+None.map(
+    .transform: x -> x * 2,
+)
 ```
 
 ### unwrap_or
@@ -161,12 +222,19 @@ None.map(x -> x * 2)     // None
 Return the value if present, or a default.
 
 ```
-Option<T>.unwrap_or(T) -> T
+Option<T>.unwrap_or(.default: T) -> T
 ```
 
 ```sigil
-Some(42).unwrap_or(0)  // 42
-None.unwrap_or(0)      // 0
+// Returns 42
+Some(42).unwrap_or(
+    .default: 0,
+)
+
+// Returns 0
+None.unwrap_or(
+    .default: 0,
+)
 ```
 
 ### ok_or
@@ -174,12 +242,19 @@ None.unwrap_or(0)      // 0
 Convert to `Result<T, E>`, using the provided error if `None`.
 
 ```
-Option<T>.ok_or(E) -> Result<T, E>
+Option<T>.ok_or(.err: E) -> Result<T, E>
 ```
 
 ```sigil
-Some(42).ok_or("missing")  // Ok(42)
-None.ok_or("missing")      // Err("missing")
+// Returns Ok(42)
+Some(42).ok_or(
+    .err: "missing",
+)
+
+// Returns Err("missing")
+None.ok_or(
+    .err: "missing",
+)
 ```
 
 ### and_then
@@ -187,13 +262,24 @@ None.ok_or("missing")      // Err("missing")
 Chain operations that may return `None`.
 
 ```
-Option<T>.and_then(T -> Option<U>) -> Option<U>
+Option<T>.and_then(.then: T -> Option<U>) -> Option<U>
 ```
 
 ```sigil
-Some(2).and_then(x -> Some(x * 2))  // Some(4)
-Some(2).and_then(x -> None)         // None
-None.and_then(x -> Some(x * 2))     // None
+// Returns Some(4)
+Some(2).and_then(
+    .then: x -> Some(x * 2),
+)
+
+// Returns None
+Some(2).and_then(
+    .then: x -> None,
+)
+
+// Returns None
+None.and_then(
+    .then: x -> Some(x * 2),
+)
 ```
 
 ### filter
@@ -201,13 +287,24 @@ None.and_then(x -> Some(x * 2))     // None
 Keep the value only if it satisfies a predicate.
 
 ```
-Option<T>.filter(T -> bool) -> Option<T>
+Option<T>.filter(.predicate: T -> bool) -> Option<T>
 ```
 
 ```sigil
-Some(4).filter(x -> x > 0)   // Some(4)
-Some(-1).filter(x -> x > 0)  // None
-None.filter(x -> x > 0)      // None
+// Returns Some(4)
+Some(4).filter(
+    .predicate: x -> x > 0,
+)
+
+// Returns None
+Some(-1).filter(
+    .predicate: x -> x > 0,
+)
+
+// Returns None
+None.filter(
+    .predicate: x -> x > 0,
+)
 ```
 
 ## Result Functions
@@ -217,12 +314,19 @@ None.filter(x -> x > 0)      // None
 Test if a `Result` is successful.
 
 ```
-@is_ok (result: Result<T, E>) -> bool
+@is_ok (.result: Result<T, E>) -> bool
 ```
 
 ```sigil
-is_ok(Ok(42))        // true
-is_ok(Err("fail"))   // false
+// Returns true
+is_ok(
+    .result: Ok(42),
+)
+
+// Returns false
+is_ok(
+    .result: Err("fail"),
+)
 ```
 
 ### is_err
@@ -230,12 +334,19 @@ is_ok(Err("fail"))   // false
 Test if a `Result` is an error.
 
 ```
-@is_err (result: Result<T, E>) -> bool
+@is_err (.result: Result<T, E>) -> bool
 ```
 
 ```sigil
-is_err(Err("fail"))  // true
-is_err(Ok(42))       // false
+// Returns true
+is_err(
+    .result: Err("fail"),
+)
+
+// Returns false
+is_err(
+    .result: Ok(42),
+)
 ```
 
 ## Result Methods
@@ -247,12 +358,19 @@ Methods available on `Result<T, E>` values.
 Transform the success value, leaving errors unchanged.
 
 ```
-Result<T, E>.map(T -> U) -> Result<U, E>
+Result<T, E>.map(.transform: T -> U) -> Result<U, E>
 ```
 
 ```sigil
-Ok(2).map(x -> x * 2)       // Ok(4)
-Err("fail").map(x -> x * 2) // Err("fail")
+// Returns Ok(4)
+Ok(2).map(
+    .transform: x -> x * 2,
+)
+
+// Returns Err("fail")
+Err("fail").map(
+    .transform: x -> x * 2,
+)
 ```
 
 ### map_err
@@ -260,18 +378,29 @@ Err("fail").map(x -> x * 2) // Err("fail")
 Transform the error value, leaving successes unchanged.
 
 ```
-Result<T, E>.map_err(E -> F) -> Result<T, F>
+Result<T, E>.map_err(.transform: E -> F) -> Result<T, F>
 ```
 
 ```sigil
-Err("fail").map_err(e -> AppError.Parse(e))  // Err(AppError.Parse("fail"))
-Ok(42).map_err(e -> AppError.Parse(e))       // Ok(42)
+// Returns Err(AppError.Parse("fail"))
+Err("fail").map_err(
+    .transform: e -> AppError.Parse(e),
+)
+
+// Returns Ok(42)
+Ok(42).map_err(
+    .transform: e -> AppError.Parse(e),
+)
 ```
 
 Use `.map_err()` with `?` to convert and propagate errors:
 
 ```sigil
-let content = read_file(path).map_err(e -> AppError.Io(e))?
+let content = read_file(
+    .path: path,
+).map_err(
+    .transform: e -> AppError.Io(e),
+)?
 ```
 
 ### unwrap_or
@@ -279,12 +408,19 @@ let content = read_file(path).map_err(e -> AppError.Io(e))?
 Return the success value, or a default if error.
 
 ```
-Result<T, E>.unwrap_or(T) -> T
+Result<T, E>.unwrap_or(.default: T) -> T
 ```
 
 ```sigil
-Ok(42).unwrap_or(0)        // 42
-Err("fail").unwrap_or(0)   // 0
+// Returns 42
+Ok(42).unwrap_or(
+    .default: 0,
+)
+
+// Returns 0
+Err("fail").unwrap_or(
+    .default: 0,
+)
 ```
 
 ### ok
@@ -296,8 +432,11 @@ Result<T, E>.ok() -> Option<T>
 ```
 
 ```sigil
-Ok(42).ok()       // Some(42)
-Err("fail").ok()  // None
+// Returns Some(42)
+Ok(42).ok()
+
+// Returns None
+Err("fail").ok()
 ```
 
 ### err
@@ -309,8 +448,11 @@ Result<T, E>.err() -> Option<E>
 ```
 
 ```sigil
-Err("fail").err()  // Some("fail")
-Ok(42).err()       // None
+// Returns Some("fail")
+Err("fail").err()
+
+// Returns None
+Ok(42).err()
 ```
 
 ### and_then
@@ -318,13 +460,24 @@ Ok(42).err()       // None
 Chain operations that may fail.
 
 ```
-Result<T, E>.and_then(T -> Result<U, E>) -> Result<U, E>
+Result<T, E>.and_then(.then: T -> Result<U, E>) -> Result<U, E>
 ```
 
 ```sigil
-Ok(2).and_then(x -> Ok(x * 2))      // Ok(4)
-Ok(2).and_then(x -> Err("fail"))    // Err("fail")
-Err("fail").and_then(x -> Ok(x * 2)) // Err("fail")
+// Returns Ok(4)
+Ok(2).and_then(
+    .then: x -> Ok(x * 2),
+)
+
+// Returns Err("fail")
+Ok(2).and_then(
+    .then: x -> Err("fail"),
+)
+
+// Returns Err("fail")
+Err("fail").and_then(
+    .then: x -> Ok(x * 2),
+)
 ```
 
 ## Assertion Functions
@@ -334,14 +487,19 @@ Err("fail").and_then(x -> Ok(x * 2)) // Err("fail")
 Assert that a condition is true.
 
 ```
-@assert (cond: bool) -> void
+@assert (.cond: bool) -> void
 ```
 
 If `cond` is false, the program panics with an assertion error.
 
 ```sigil
-assert(x > 0)
-assert(list.len() > 0)
+assert(
+    .cond: x > 0,
+)
+
+assert(
+    .cond: list.len() > 0,
+)
 ```
 
 ### assert_eq
@@ -383,7 +541,7 @@ If `actual == unexpected`, the program panics with a diagnostic showing both val
 Assert that an `Option` is `Some`.
 
 ```
-@assert_some (option: Option<T>) -> void
+@assert_some (.opt: Option<T>) -> void
 ```
 
 ### assert_none
@@ -391,7 +549,7 @@ Assert that an `Option` is `Some`.
 Assert that an `Option` is `None`.
 
 ```
-@assert_none (option: Option<T>) -> void
+@assert_none (.opt: Option<T>) -> void
 ```
 
 ### assert_ok
@@ -399,7 +557,7 @@ Assert that an `Option` is `None`.
 Assert that a `Result` is `Ok`.
 
 ```
-@assert_ok (result: Result<T, E>) -> void
+@assert_ok (.result: Result<T, E>) -> void
 ```
 
 ### assert_err
@@ -407,7 +565,7 @@ Assert that a `Result` is `Ok`.
 Assert that a `Result` is `Err`.
 
 ```
-@assert_err (result: Result<T, E>) -> void
+@assert_err (.result: Result<T, E>) -> void
 ```
 
 ### assert_panics
@@ -415,7 +573,7 @@ Assert that a `Result` is `Err`.
 Assert that evaluating an expression panics.
 
 ```
-@assert_panics (expr: T) -> void
+@assert_panics (.expr: T) -> void
 ```
 
 The argument expression is evaluated and must panic; otherwise the assertion fails.
@@ -437,12 +595,17 @@ The argument expression is evaluated and must panic with an error message equal 
 Print a message to standard output.
 
 ```
-@print (msg: str) -> void
+@print (.msg: str) -> void
 ```
 
 ```sigil
-print("Hello, World!")
-print("Value: " + str(x))
+print(
+    .msg: "Hello, World!",
+)
+
+print(
+    .msg: "Value: " + str(x),
+)
 ```
 
 ## Comparison Functions
@@ -480,13 +643,15 @@ Return the maximum of two values.
 Terminate execution with an error message.
 
 ```
-@panic (msg: str) -> Never
+@panic (.msg: str) -> Never
 ```
 
 The return type `Never` indicates that this function never returns normally.
 
 ```sigil
-panic("Unexpected state")
+panic(
+    .msg: "Unexpected state",
+)
 ```
 
 ## Prelude

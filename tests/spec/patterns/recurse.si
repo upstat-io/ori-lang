@@ -1,0 +1,131 @@
+// Spec: 10-patterns.md § recurse
+// Design: 02-syntax/04-patterns-reference.md § recurse
+
+// =============================================================================
+// recurse Pattern (Recursive Functions)
+// =============================================================================
+
+@test_factorial tests @factorial () -> void = run(
+    assert_eq(
+        .actual: factorial(0),
+        .expected: 1,
+    ),
+    assert_eq(
+        .actual: factorial(1),
+        .expected: 1,
+    ),
+    assert_eq(
+        .actual: factorial(5),
+        .expected: 120,
+    ),
+)
+
+@factorial (n: int) -> int = recurse(
+    .cond: n <= 1,
+    .base: 1,
+    .step: n * self(n - 1),
+)
+
+@test_fibonacci tests @fibonacci () -> void = run(
+    assert_eq(
+        .actual: fibonacci(0),
+        .expected: 0,
+    ),
+    assert_eq(
+        .actual: fibonacci(1),
+        .expected: 1,
+    ),
+    assert_eq(
+        .actual: fibonacci(10),
+        .expected: 55,
+    ),
+)
+
+@fibonacci (n: int) -> int = recurse(
+    .cond: n <= 1,
+    .base: n,
+    .step: self(n - 1) + self(n - 2),
+    .memo: true,
+)
+
+@test_sum_to_n tests @sum_to_n () -> void = run(
+    assert_eq(
+        .actual: sum_to_n(0),
+        .expected: 0,
+    ),
+    assert_eq(
+        .actual: sum_to_n(5),
+        .expected: 15,
+    ),
+    assert_eq(
+        .actual: sum_to_n(10),
+        .expected: 55,
+    ),
+)
+
+@sum_to_n (n: int) -> int = recurse(
+    .cond: n <= 0,
+    .base: 0,
+    .step: n + self(n - 1),
+)
+
+@test_power tests @power () -> void = run(
+    assert_eq(
+        .actual: power(
+            .base: 2,
+            .exp: 0,
+        ),
+        .expected: 1,
+    ),
+    assert_eq(
+        .actual: power(
+            .base: 2,
+            .exp: 10,
+        ),
+        .expected: 1024,
+    ),
+    assert_eq(
+        .actual: power(
+            .base: 3,
+            .exp: 4,
+        ),
+        .expected: 81,
+    ),
+)
+
+@power (base: int, exp: int) -> int = recurse(
+    .cond: exp <= 0,
+    .base: 1,
+    .step: base * self(
+        .base: base,
+        .exp: exp - 1,
+    ),
+)
+
+// =============================================================================
+// Parallel Recursion (stub - executes sequentially)
+// =============================================================================
+
+@test_fib_parallel tests @fib_parallel () -> void = run(
+    assert_eq(
+        .actual: fib_parallel(0),
+        .expected: 0,
+    ),
+    assert_eq(
+        .actual: fib_parallel(1),
+        .expected: 1,
+    ),
+    assert_eq(
+        .actual: fib_parallel(10),
+        .expected: 55,
+    ),
+)
+
+// .parallel: 5 means parallelize recursive calls when n > 5
+// Currently executes sequentially (stub) but syntax is accepted
+@fib_parallel (n: int) -> int = recurse(
+    .cond: n <= 1,
+    .base: n,
+    .step: self(n - 1) + self(n - 2),
+    .parallel: 5,
+)

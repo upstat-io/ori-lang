@@ -108,12 +108,12 @@ impl UnaryOperator for TryOperator {
 
     fn evaluate(&self, value: Value, _op: UnaryOp) -> EvalResult {
         match value {
-            Value::Ok(v) => Ok(*v),
+            Value::Ok(v) => Ok((*v).clone()),
             Value::Err(e) => Err(EvalError::propagate(
                 Value::Err(e.clone()),
                 format!("propagated error: {:?}", e),
             )),
-            Value::Some(v) => Ok(*v),
+            Value::Some(v) => Ok((*v).clone()),
             Value::None => {
                 Err(EvalError::propagate(Value::None, "propagated None"))
             }
@@ -220,7 +220,7 @@ mod tests {
     fn test_try_ok() {
         let registry = UnaryOperatorRegistry::new();
 
-        let ok_val = Value::Ok(Box::new(Value::Int(42)));
+        let ok_val = Value::ok(Value::Int(42));
         assert_eq!(
             registry.evaluate(ok_val, UnaryOp::Try).unwrap(),
             Value::Int(42)
@@ -231,7 +231,7 @@ mod tests {
     fn test_try_err() {
         let registry = UnaryOperatorRegistry::new();
 
-        let err_val = Value::Err(Box::new(Value::Str(std::rc::Rc::new("error".to_string()))));
+        let err_val = Value::err(Value::string("error"));
         let result = registry.evaluate(err_val, UnaryOp::Try);
         assert!(result.is_err());
     }
@@ -240,7 +240,7 @@ mod tests {
     fn test_try_some() {
         let registry = UnaryOperatorRegistry::new();
 
-        let some_val = Value::Some(Box::new(Value::Int(42)));
+        let some_val = Value::some(Value::Int(42));
         assert_eq!(
             registry.evaluate(some_val, UnaryOp::Try).unwrap(),
             Value::Int(42)

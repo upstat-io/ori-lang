@@ -59,7 +59,9 @@ run(
 
 ### function_exp — Named Expressions
 
-A **function_exp** contains named expressions (`.name: expr`). These are configuration-based constructs where names provide meaning.
+A **function_exp** contains named expressions (`.name: expr`). These are configuration-based constructs where names provide meaning. Both patterns and built-in functions are function_exp constructs.
+
+**Patterns:**
 
 | Pattern | Purpose |
 |---------|---------|
@@ -76,13 +78,40 @@ A **function_exp** contains named expressions (`.name: expr`). These are configu
 | `validate` | Input validation |
 | `with` | Resource management |
 
+**Built-in Functions:**
+
+| Builtin | Purpose |
+|---------|---------|
+| `int`, `float`, `str`, `byte` | Type conversion (positional allowed) |
+| `len`, `is_empty` | Collection inspection |
+| `is_some`, `is_none` | Option inspection |
+| `is_ok`, `is_err` | Result inspection |
+| `assert`, `assert_eq`, `assert_ne` | Assertion |
+| `assert_some`, `assert_none`, `assert_ok`, `assert_err` | Type-specific assertion |
+| `assert_panics`, `assert_panics_with` | Panic assertion |
+| `print` | Output |
+| `compare`, `min`, `max` | Comparison |
+| `panic` | Termination |
+
+**Exception:** Type conversion functions (`int`, `float`, `str`, `byte`) allow positional argument syntax for brevity.
+
 ```sigil
-// function_exp: named expressions, each on its own line
+// function_exp pattern: named expressions, each on its own line
 fold(
     .over: items,
     .init: 0,
     .op: +,
 )
+
+// function_exp builtin: same named expression syntax
+assert_eq(
+    .actual: result,
+    .expected: 42,
+)
+
+// Type conversions allow positional syntax
+int(3.14)
+str(42)
 ```
 
 ### Why Two Categories?

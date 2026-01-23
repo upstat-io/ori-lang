@@ -1,6 +1,6 @@
 # Compile-Fail Tests
 
-This document covers Sigil's compile-fail tests: testing that code correctly fails to compile with expected errors, using caret-based annotations to mark error locations.
+This document covers Sigil's compile-fail tests: testing that code correctly fails to compile with expected errors.
 
 ---
 
@@ -12,26 +12,90 @@ Compile-fail tests verify that the compiler correctly rejects invalid code. They
 2. **Regression testing** - Ensure fixed bugs don't reappear
 3. **Error message quality** - Confirm helpful diagnostics
 
-```sigil
-// In _test/compile-fail/type_errors.si
+---
 
-@bad_add (a: int, b: str) -> int = a + b
-//                                     ^ E0308: cannot add int and str
+## The compile_fail Attribute
+
+The primary mechanism for compile-fail tests is the `#compile_fail` attribute on a test function.
+
+### Basic Usage
+
+```sigil
+#compile_fail("type mismatch")
+@test_bad_return tests @main () -> void = run(
+    let x: int = "hello",
+    ()
+)
 ```
 
-The `// ^` annotation marks where the error should occur and what error code to expect.
+The test passes if:
+1. Compilation fails (parse error, type error, etc.)
+2. At least one error message contains the specified substring
+
+### Why This Design?
+
+The attribute approach has several advantages:
+
+1. **Real code** - The test contains actual Sigil code, not strings, so you get IDE support (syntax highlighting, completion)
+2. **Consistent with skip** - Uses the same attribute pattern as `#skip("reason")`
+3. **Clear semantics** - The test body is the code that should fail; the attribute specifies the expected error
+4. **Integrated** - Compile-fail tests live alongside regular tests, not in separate directories
+
+### Examples
+
+```sigil
+// Test: closure self-capture is detected
+#compile_fail("closure cannot capture itself")
+@test_self_capture tests @main () -> void = run(
+    let f = () -> f,
+    ()
+)
+
+// Test: type mismatch in binary operation
+#compile_fail("cannot add int and str")
+@test_add_mismatch tests @main () -> void = run(
+    let result = 1 + "two",
+    ()
+)
+
+// Test: unknown identifier
+#compile_fail("unknown identifier")
+@test_undefined tests @main () -> void = run(
+    let x = undefined_var,
+    ()
+)
+```
+
+### Combining with skip
+
+A test can have both attributes if needed:
+
+```sigil
+#skip("parser doesn't support this yet")
+#compile_fail("expected type annotation")
+@test_future_error tests @main () -> void = run(
+    let x = ambiguous_expression,
+    ()
+)
+```
 
 ---
 
-## Basic Syntax
+## Advanced: Caret-Based Annotations
 
-### Caret-Based Annotations
+For more precise error location assertions, Sigil supports caret-based annotations within compile-fail tests. These are optional and complement the `compile_fail` attribute.
+
+### Basic Syntax
 
 Expected errors use caret (`^`) annotations in comments:
 
 ```sigil
-@bad_func () -> int = "hello"
-//                    ^ E0308
+#compile_fail("E0308")
+@test_type_error tests @main () -> void = run(
+    let x: int = "hello",
+//               ^^^^^^^ E0308
+    ()
+)
 ```
 
 **Structure:**
@@ -168,11 +232,36 @@ If the same error occurs multiple times:
 
 ---
 
-## Test File Convention
+## Test File Organization
 
-### Directory Structure
+### Inline with Regular Tests (Recommended)
 
-Compile-fail tests live in a dedicated directory:
+With the `#compile_fail` attribute, compile-fail tests can live alongside regular tests:
+
+```sigil
+// math.si
+
+@add (a: int, b: int) -> int = a + b
+
+// Regular test
+@test_add tests @add () -> void = run(
+    assert_eq(
+        .actual: add(.a: 1, .b: 2),
+        .expected: 3,
+    ),
+)
+
+// Compile-fail test in same file
+#compile_fail("cannot add int and str")
+@test_add_type_error tests @add () -> void = run(
+    let result = add(.a: 1, .b: "two"),
+    ()
+)
+```
+
+### Dedicated Directory (Optional)
+
+For large test suites, a dedicated directory is still an option:
 
 ```
 src/
@@ -180,19 +269,15 @@ src/
     compile-fail/
       type_errors.si        # Type mismatch tests
       syntax_errors.si      # Parser error tests
-      coverage_errors.si    # Missing test coverage
-      import_errors.si      # Import failures
     math.test.si            # Normal passing tests
 ```
 
-### Naming
+### Naming Conventions
 
-Files in `compile-fail/` should describe what they test:
-
-| File | Tests |
-|------|-------|
-| `type_errors.si` | Type mismatches, wrong types |
-| `syntax_errors.si` | Parse failures |
+| Pattern | Purpose |
+|---------|---------|
+| `@test_*_error` | Compile-fail test |
+| `@test_*` | Regular test |
 | `coverage_errors.si` | Missing tests (E0500) |
 | `generic_errors.si` | Generic type issues |
 | `import_errors.si` | Module import failures |
@@ -693,6 +778,15 @@ Keep annotations close to their error:
 
 ## Summary
 
+### Primary Mechanism: compile_fail Attribute
+
+| Syntax | Meaning |
+|--------|---------|
+| `#compile_fail("msg")` | Test must fail to compile with error containing "msg" |
+| `#skip("reason")` | Skip the test (can combine with compile_fail) |
+
+### Advanced: Caret Annotations (Optional)
+
 | Annotation | Meaning |
 |------------|---------|
 | `// ^ E0308` | Expect error E0308 at this location |
@@ -702,15 +796,11 @@ Keep annotations close to their error:
 | `// ^ ok` | Assert NO error at this location |
 | `// !^ E0308` | Assert E0308 does NOT occur |
 
-| Directory | Purpose |
-|-----------|---------|
-| `_test/compile-fail/` | Tests that must fail compilation |
-| Regular test files | Tests that must pass |
+### Commands
 
 | Command | Action |
 |---------|--------|
-| `sigil test` | Run all tests |
-| `sigil test _test/compile-fail/` | Run only compile-fail tests |
+| `sigil test` | Run all tests (including compile-fail) |
 | `sigil test --format json` | JSON output for tooling |
 
 ---

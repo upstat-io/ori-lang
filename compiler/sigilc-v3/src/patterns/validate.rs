@@ -2,7 +2,6 @@
 //!
 //! `validate(.value: expr, .rules: [...])` - Validate value against rules.
 
-use std::rc::Rc;
 use crate::types::Type;
 use crate::eval::{Value, EvalResult, EvalError};
 use super::{PatternDefinition, TypeCheckContext, EvalContext, PatternExecutor};
@@ -53,15 +52,13 @@ impl PatternDefinition for ValidatePattern {
                         if let Some(on_error_expr) = on_error {
                             let error_fn = exec.eval(on_error_expr)?;
                             let error_val = exec.call(error_fn, vec![value.clone()])?;
-                            return Ok(Value::Err(Box::new(error_val)));
+                            return Ok(Value::err(error_val));
                         } else {
-                            return Ok(Value::Err(Box::new(Value::Str(
-                                Rc::new("validation failed".to_string())
-                            ))));
+                            return Ok(Value::err(Value::string("validation failed")));
                         }
                     }
                 }
-                Ok(Value::Ok(Box::new(value)))
+                Ok(Value::ok(value))
             }
             _ => Err(EvalError::new("validate .rules must be a list of predicates")),
         }
@@ -72,6 +69,6 @@ impl PatternDefinition for ValidatePattern {
 impl ValidatePattern {
     /// Create a validation error result.
     pub fn validation_error(message: &str) -> Value {
-        Value::Err(Box::new(Value::Str(Rc::new(message.to_string()))))
+        Value::err(Value::string(message))
     }
 }

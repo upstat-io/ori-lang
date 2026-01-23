@@ -1,0 +1,129 @@
+// Spec: 10-patterns.md § match
+// Design: 06-pattern-matching/index.md
+
+// =============================================================================
+// match Expression (Basic)
+// =============================================================================
+
+@test_match_literal tests @match_literal () -> void = run(
+    let result = match_literal(1),
+    assert_eq(
+        .actual: result,
+        .expected: "one",
+    ),
+    let result2 = match_literal(2),
+    assert_eq(
+        .actual: result2,
+        .expected: "two",
+    ),
+)
+
+@match_literal (n: int) -> str = match(n,
+    1 -> "one",
+    2 -> "two",
+    _ -> "other",
+)
+
+@test_match_wildcard tests @match_wildcard () -> void = run(
+    let result = match_wildcard(99),
+    assert_eq(
+        .actual: result,
+        .expected: "other",
+    ),
+)
+
+@match_wildcard (n: int) -> str = match(n,
+    1 -> "one",
+    _ -> "other",
+)
+
+@test_match_binding tests @match_binding () -> void = run(
+    let result = match_binding(5),
+    assert_eq(
+        .actual: result,
+        .expected: 10,
+    ),
+)
+
+@match_binding (n: int) -> int = match(n,
+    x -> x * 2,
+)
+
+@test_match_multiple_arms tests @match_multiple_arms () -> void = run(
+    assert_eq(
+        .actual: match_multiple_arms(0),
+        .expected: "zero",
+    ),
+    assert_eq(
+        .actual: match_multiple_arms(1),
+        .expected: "one",
+    ),
+    assert_eq(
+        .actual: match_multiple_arms(2),
+        .expected: "two",
+    ),
+    assert_eq(
+        .actual: match_multiple_arms(100),
+        .expected: "many",
+    ),
+)
+
+@match_multiple_arms (n: int) -> str = match(n,
+    0 -> "zero",
+    1 -> "one",
+    2 -> "two",
+    _ -> "many",
+)
+
+// =============================================================================
+// match with Option
+// =============================================================================
+
+@test_match_option_some tests @match_option_some () -> void = run(
+    let opt = Some(42),
+    let result = match_option(opt),
+    assert_eq(
+        .actual: result,
+        .expected: 42,
+    ),
+)
+
+@test_match_option_none tests @match_option_none () -> void = run(
+    let opt = None,
+    let result = match_option(opt),
+    assert_eq(
+        .actual: result,
+        .expected: 0,
+    ),
+)
+
+@match_option (opt) -> int = match(opt,
+    Some(x) -> x,
+    None -> 0,
+)
+
+// =============================================================================
+// match with Result
+// =============================================================================
+
+@test_match_result_ok tests @match_result_ok () -> void = run(
+    let result = match_result(Ok(10)),
+    assert_eq(
+        .actual: result,
+        .expected: 10,
+    ),
+)
+
+@test_match_result_err tests @match_result_err () -> void = run(
+    let result = match_result(Err("error")),
+    assert_eq(
+        .actual: result,
+        .expected: -1,
+    ),
+)
+
+@match_result (res) -> int = match(res,
+    Ok(x) -> x,
+    Err(_) -> -1,
+)
+

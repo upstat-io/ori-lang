@@ -18,6 +18,22 @@ enum FunctionOrTest {
     Test(TestDef),
 }
 
+/// Parsed attributes for a function or test.
+#[derive(Default)]
+struct ParsedAttrs {
+    skip_reason: Option<Name>,
+    compile_fail_expected: Option<Name>,
+    fail_expected: Option<Name>,
+}
+
+impl ParsedAttrs {
+    fn is_empty(&self) -> bool {
+        self.skip_reason.is_none()
+            && self.compile_fail_expected.is_none()
+            && self.fail_expected.is_none()
+    }
+}
+
 /// Parser state.
 pub struct Parser<'a> {
     tokens: &'a TokenList,
@@ -50,8 +66,11 @@ impl<'a> Parser<'a> {
                 break;
             }
 
+            // Parse attributes before function/test definitions
+            let attrs = self.parse_attributes(&mut errors);
+
             if self.check(TokenKind::At) {
-                match self.parse_function_or_test() {
+                match self.parse_function_or_test_with_attrs(attrs) {
                     Ok(FunctionOrTest::Function(func)) => module.functions.push(func),
                     Ok(FunctionOrTest::Test(test)) => module.tests.push(test),
                     Err(e) => {
@@ -60,6 +79,15 @@ impl<'a> Parser<'a> {
                         errors.push(e);
                     }
                 }
+            } else if !attrs.is_empty() {
+                // Attributes without a following function/test
+                errors.push(ParseError {
+                    code: crate::diagnostic::ErrorCode::E1006,
+                    message: "attributes must be followed by a function or test definition".to_string(),
+                    span: self.current_span(),
+                    context: None,
+                });
+                self.advance();
             } else {
                 // Skip unknown token
                 self.advance();
@@ -73,11 +101,117 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse a function or test definition.
+    /// Parse zero or more attributes: #[attr("value")]
+    fn parse_attributes(&mut self, errors: &mut Vec<ParseError>) -> ParsedAttrs {
+        let mut attrs = ParsedAttrs::default();
+
+        while self.check(TokenKind::HashBracket) {
+            self.advance(); // consume #[
+
+            // Parse attribute name
+            let attr_name = match self.expect_ident() {
+                Ok(name) => name,
+                Err(e) => {
+                    errors.push(e);
+                    // Try to recover by skipping to ]
+                    while !self.check(TokenKind::RBracket) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    if self.check(TokenKind::RBracket) {
+                        self.advance();
+                    }
+                    continue;
+                }
+            };
+
+            let attr_name_str = self.interner.lookup(attr_name);
+
+            // Expect (
+            if !self.check(TokenKind::LParen) {
+                errors.push(ParseError {
+                    code: crate::diagnostic::ErrorCode::E1006,
+                    message: format!("expected '(' after attribute name '{}'", attr_name_str),
+                    span: self.current_span(),
+                    context: None,
+                });
+                // Try to recover
+                while !self.check(TokenKind::RBracket) && !self.is_at_end() {
+                    self.advance();
+                }
+                if self.check(TokenKind::RBracket) {
+                    self.advance();
+                }
+                continue;
+            }
+            self.advance(); // consume (
+
+            // Parse string value
+            let value = if let TokenKind::String(string_name) = self.current_kind() {
+                self.advance();
+                Some(string_name)
+            } else {
+                errors.push(ParseError {
+                    code: crate::diagnostic::ErrorCode::E1006,
+                    message: format!("attribute '{}' requires a string argument", attr_name_str),
+                    span: self.current_span(),
+                    context: None,
+                });
+                None
+            };
+
+            // Expect )
+            if !self.check(TokenKind::RParen) {
+                errors.push(ParseError {
+                    code: crate::diagnostic::ErrorCode::E1006,
+                    message: "expected ')' after attribute value".to_string(),
+                    span: self.current_span(),
+                    context: None,
+                });
+            } else {
+                self.advance();
+            }
+
+            // Expect ]
+            if !self.check(TokenKind::RBracket) {
+                errors.push(ParseError {
+                    code: crate::diagnostic::ErrorCode::E1006,
+                    message: "expected ']' to close attribute".to_string(),
+                    span: self.current_span(),
+                    context: None,
+                });
+            } else {
+                self.advance();
+            }
+
+            // Store the attribute
+            if let Some(value) = value {
+                match attr_name_str {
+                    "skip" => attrs.skip_reason = Some(value),
+                    "compile_fail" => attrs.compile_fail_expected = Some(value),
+                    "fail" => attrs.fail_expected = Some(value),
+                    _ => {
+                        errors.push(ParseError {
+                            code: crate::diagnostic::ErrorCode::E1006,
+                            message: format!("unknown attribute '{}'", attr_name_str),
+                            span: self.current_span(),
+                            context: None,
+                        });
+                    }
+                }
+            }
+
+            self.skip_newlines();
+        }
+
+        attrs
+    }
+
+    /// Parse a function or test definition with attributes.
     ///
     /// Function: @name (params) -> Type = body
-    /// Test: @name tests @target1 tests @target2 (params) -> Type = body
-    fn parse_function_or_test(&mut self) -> Result<FunctionOrTest, ParseError> {
+    /// Targeted test: @name tests @target1 tests @target2 (params) -> Type = body
+    /// Free-floating test: @test_name (params) -> void = body
+    fn parse_function_or_test_with_attrs(&mut self, attrs: ParsedAttrs) -> Result<FunctionOrTest, ParseError> {
         let start_span = self.current_span();
 
         // @
@@ -85,8 +219,10 @@ impl<'a> Parser<'a> {
 
         // name
         let name = self.expect_ident()?;
+        let name_str = self.interner.lookup(name);
+        let is_test_named = name_str.starts_with("test_");
 
-        // Check if this is a test (has `tests` keyword)
+        // Check if this is a targeted test (has `tests` keyword)
         if self.check(TokenKind::Tests) {
             // Parse test targets: tests @target1 tests @target2 ...
             let mut targets = Vec::new();
@@ -124,7 +260,42 @@ impl<'a> Parser<'a> {
                 return_ty,
                 body,
                 span,
-                skip_reason: None,
+                skip_reason: attrs.skip_reason,
+                compile_fail_expected: attrs.compile_fail_expected,
+                fail_expected: attrs.fail_expected,
+            }))
+        } else if is_test_named {
+            // Free-floating test (name starts with test_ but no targets)
+            // (params)
+            self.expect(TokenKind::LParen)?;
+            let params = self.parse_params()?;
+            self.expect(TokenKind::RParen)?;
+
+            // -> Type (optional)
+            let return_ty = if self.check(TokenKind::Arrow) {
+                self.advance();
+                self.parse_type()
+            } else {
+                None
+            };
+
+            // = body
+            self.expect(TokenKind::Eq)?;
+            let body = self.parse_expr()?;
+
+            let end_span = self.arena.get_expr(body).span;
+            let span = start_span.merge(end_span);
+
+            Ok(FunctionOrTest::Test(TestDef {
+                name,
+                targets: Vec::new(), // No targets for free-floating tests
+                params,
+                return_ty,
+                body,
+                span,
+                skip_reason: attrs.skip_reason,
+                compile_fail_expected: attrs.compile_fail_expected,
+                fail_expected: attrs.fail_expected,
             }))
         } else {
             // Regular function
@@ -160,8 +331,9 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a function definition: @name (params) -> Type = body
+    #[allow(dead_code)]
     fn parse_function(&mut self) -> Result<Function, ParseError> {
-        match self.parse_function_or_test()? {
+        match self.parse_function_or_test_with_attrs(ParsedAttrs::default())? {
             FunctionOrTest::Function(f) => Ok(f),
             FunctionOrTest::Test(_) => Err(ParseError {
                 code: crate::diagnostic::ErrorCode::E1006,
@@ -266,8 +438,24 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse an expression.
+    /// Handles assignment at the top level: `identifier = expression`
     fn parse_expr(&mut self) -> Result<ExprId, ParseError> {
-        self.parse_binary_or()
+        let left = self.parse_binary_or()?;
+
+        // Check for assignment (= but not == or =>)
+        if self.check(TokenKind::Eq) {
+            let left_span = self.arena.get_expr(left).span;
+            self.advance();
+            let right = self.parse_expr()?;
+            let right_span = self.arena.get_expr(right).span;
+            let span = left_span.merge(right_span);
+            return Ok(self.arena.alloc_expr(Expr::new(
+                ExprKind::Assign { target: left, value: right },
+                span,
+            )));
+        }
+
+        Ok(left)
     }
 
     /// Parse || (lowest precedence binary).
@@ -603,8 +791,8 @@ impl<'a> Parser<'a> {
         Ok(self.arena.alloc_expr_list(args))
     }
 
-    /// Parse function_seq: run or try with sequential bindings.
-    /// Grammar: run(let x = a, let y = b, result) or try(let x = a?, Ok(x))
+    /// Parse function_seq: run or try with sequential bindings and statements.
+    /// Grammar: run(let x = a, x = x + 1, result) or try(let x = fallible()?, Ok(x))
     fn parse_function_seq(&mut self, is_try: bool) -> Result<ExprId, ParseError> {
         let start_span = self.previous_span(); // span of 'run' or 'try'
         self.expect(TokenKind::LParen)?;
@@ -647,7 +835,7 @@ impl<'a> Parser<'a> {
                 let value = self.parse_expr()?;
                 let end_span = self.arena.get_expr(value).span;
 
-                bindings.push(SeqBinding {
+                bindings.push(SeqBinding::Let {
                     pattern,
                     ty,
                     value,
@@ -655,8 +843,33 @@ impl<'a> Parser<'a> {
                     span: binding_span.merge(end_span),
                 });
             } else {
-                // This is the result expression
-                result_expr = Some(self.parse_expr()?);
+                // Parse an expression
+                let expr_span = self.current_span();
+                let expr = self.parse_expr()?;
+                let end_span = self.arena.get_expr(expr).span;
+
+                self.skip_newlines();
+
+                // Check what comes after to determine if this is a statement or result
+                if self.check(TokenKind::Comma) {
+                    self.advance(); // consume comma
+                    self.skip_newlines();
+
+                    // If the next token is ), this was a trailing comma and expr is the result
+                    if self.check(TokenKind::RParen) {
+                        result_expr = Some(expr);
+                    } else {
+                        // There's more content, so this is a statement expression
+                        bindings.push(SeqBinding::Stmt {
+                            expr,
+                            span: expr_span.merge(end_span),
+                        });
+                    }
+                    continue;
+                } else {
+                    // No comma, this is the result expression
+                    result_expr = Some(expr);
+                }
             }
 
             self.skip_newlines();
@@ -809,6 +1022,52 @@ impl<'a> Parser<'a> {
                     // Simple binding
                     Ok(MatchPattern::Binding(name))
                 }
+            }
+            // Option variants
+            TokenKind::Some => {
+                let name = self.interner.intern("Some");
+                self.advance();
+                self.expect(TokenKind::LParen)?;
+                let inner = if self.check(TokenKind::RParen) {
+                    None
+                } else {
+                    let pat = self.parse_match_pattern()?;
+                    Some(Box::new(pat))
+                };
+                self.expect(TokenKind::RParen)?;
+                Ok(MatchPattern::Variant { name, inner })
+            }
+            TokenKind::None => {
+                let name = self.interner.intern("None");
+                self.advance();
+                Ok(MatchPattern::Variant { name, inner: None })
+            }
+            // Result variants
+            TokenKind::Ok => {
+                let name = self.interner.intern("Ok");
+                self.advance();
+                self.expect(TokenKind::LParen)?;
+                let inner = if self.check(TokenKind::RParen) {
+                    None
+                } else {
+                    let pat = self.parse_match_pattern()?;
+                    Some(Box::new(pat))
+                };
+                self.expect(TokenKind::RParen)?;
+                Ok(MatchPattern::Variant { name, inner })
+            }
+            TokenKind::Err => {
+                let name = self.interner.intern("Err");
+                self.advance();
+                self.expect(TokenKind::LParen)?;
+                let inner = if self.check(TokenKind::RParen) {
+                    None
+                } else {
+                    let pat = self.parse_match_pattern()?;
+                    Some(Box::new(pat))
+                };
+                self.expect(TokenKind::RParen)?;
+                Ok(MatchPattern::Variant { name, inner })
             }
             TokenKind::LParen => {
                 // Tuple pattern
@@ -990,6 +1249,14 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok(self.arena.alloc_expr(Expr::new(ExprKind::Char(c), span)))
             }
+            TokenKind::Duration(value, unit) => {
+                self.advance();
+                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Duration { value, unit }, span)))
+            }
+            TokenKind::Size(value, unit) => {
+                self.advance();
+                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Size { value, unit }, span)))
+            }
 
             // Identifier
             TokenKind::Ident(name) => {
@@ -1002,6 +1269,88 @@ impl<'a> Parser<'a> {
                 self.advance();
                 let name = self.interner.intern("self");
                 Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+            }
+
+            // Type keywords used as builtin conversion functions: int(x), float(x), str(x), etc.
+            // Per spec, these are prelude functions that can be called in expression context.
+            TokenKind::IntType => {
+                self.advance();
+                let name = self.interner.intern("int");
+                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+            }
+            TokenKind::FloatType => {
+                self.advance();
+                let name = self.interner.intern("float");
+                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+            }
+            TokenKind::StrType => {
+                self.advance();
+                let name = self.interner.intern("str");
+                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+            }
+            TokenKind::BoolType => {
+                self.advance();
+                let name = self.interner.intern("bool");
+                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+            }
+            TokenKind::CharType => {
+                self.advance();
+                let name = self.interner.intern("char");
+                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+            }
+            TokenKind::ByteType => {
+                self.advance();
+                let name = self.interner.intern("byte");
+                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+            }
+
+            // Variant constructors: Some(x), None, Ok(x), Err(x)
+            TokenKind::Some => {
+                self.advance();
+                self.expect(TokenKind::LParen)?;
+                let inner = self.parse_expr()?;
+                let end_span = self.current_span();
+                self.expect(TokenKind::RParen)?;
+                Ok(self.arena.alloc_expr(Expr::new(
+                    ExprKind::Some(inner),
+                    span.merge(end_span),
+                )))
+            }
+            TokenKind::None => {
+                self.advance();
+                Ok(self.arena.alloc_expr(Expr::new(ExprKind::None, span)))
+            }
+            TokenKind::Ok => {
+                self.advance();
+                let inner = if self.check(TokenKind::LParen) {
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    self.expect(TokenKind::RParen)?;
+                    Some(expr)
+                } else {
+                    None
+                };
+                let end_span = self.previous_span();
+                Ok(self.arena.alloc_expr(Expr::new(
+                    ExprKind::Ok(inner),
+                    span.merge(end_span),
+                )))
+            }
+            TokenKind::Err => {
+                self.advance();
+                let inner = if self.check(TokenKind::LParen) {
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    self.expect(TokenKind::RParen)?;
+                    Some(expr)
+                } else {
+                    None
+                };
+                let end_span = self.previous_span();
+                Ok(self.arena.alloc_expr(Expr::new(
+                    ExprKind::Err(inner),
+                    span.merge(end_span),
+                )))
             }
 
             // Parenthesized expression, tuple, or lambda
@@ -1406,6 +1755,27 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok(self.interner.intern("type"))
             }
+            // Pattern keywords that can be used as named argument names
+            TokenKind::Map => {
+                self.advance();
+                Ok(self.interner.intern("map"))
+            }
+            TokenKind::Filter => {
+                self.advance();
+                Ok(self.interner.intern("filter"))
+            }
+            TokenKind::Find => {
+                self.advance();
+                Ok(self.interner.intern("find"))
+            }
+            TokenKind::Parallel => {
+                self.advance();
+                Ok(self.interner.intern("parallel"))
+            }
+            TokenKind::Timeout => {
+                self.advance();
+                Ok(self.interner.intern("timeout"))
+            }
             _ => Err(ParseError::new(
                 crate::diagnostic::ErrorCode::E1004,
                 format!("expected identifier or keyword, found {:?}", self.current_kind()),
@@ -1494,6 +1864,7 @@ impl<'a> Parser<'a> {
             TokenKind::Collect => Some(FunctionExpKind::Collect),
             TokenKind::Recurse => Some(FunctionExpKind::Recurse),
             TokenKind::Parallel => Some(FunctionExpKind::Parallel),
+            TokenKind::Spawn => Some(FunctionExpKind::Spawn),
             TokenKind::Timeout => Some(FunctionExpKind::Timeout),
             TokenKind::Retry => Some(FunctionExpKind::Retry),
             TokenKind::Cache => Some(FunctionExpKind::Cache),

@@ -2,14 +2,12 @@
 //!
 //! Ported from V2 with adaptations for V3's Salsa-compatible AST.
 
-use std::rc::Rc;
-use std::cell::RefCell;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+use std::hash::{Hash, Hasher};
 use crate::ir::{
     Name, StringInterner, ExprId, ExprArena,
     ExprKind, BinaryOp, UnaryOp, StmtKind, BindingPattern,
-    ArmRange, MatchPattern, FunctionSeq,
+    ArmRange, MatchPattern, FunctionSeq, SeqBinding,
     CallArgRange,
 };
 use crate::patterns::{PatternRegistry, EvalContext, PatternExecutor};
@@ -452,7 +450,7 @@ impl<'a> Evaluator<'a> {
             ExprKind::Bool(b) => Ok(Value::Bool(*b)),
             ExprKind::String(s) => {
                 let string = self.interner.lookup(*s).to_string();
-                Ok(Value::Str(Rc::new(string)))
+                Ok(Value::string(string))
             }
             ExprKind::Char(c) => Ok(Value::Char(*c)),
             ExprKind::Unit => Ok(Value::Void),
@@ -500,7 +498,7 @@ impl<'a> Evaluator<'a> {
                 let values: Result<Vec<_>, _> = items.iter()
                     .map(|id| self.eval(*id))
                     .collect();
-                Ok(Value::List(Rc::new(values?)))
+                Ok(Value::list(values?))
             }
 
             ExprKind::Tuple(range) => {
@@ -508,7 +506,7 @@ impl<'a> Evaluator<'a> {
                 let values: Result<Vec<_>, _> = items.iter()
                     .map(|id| self.eval(*id))
                     .collect();
-                Ok(Value::Tuple(Rc::new(values?)))
+                Ok(Value::tuple(values?))
             }
 
             // Range
@@ -554,14 +552,14 @@ impl<'a> Evaluator<'a> {
                     .map(|p| p.name)
                     .collect();
 
-                // Capture the current environment
+                // Capture the current environment (frozen at creation)
                 let captures = self.env.capture();
 
-                Ok(Value::Function(FunctionValue {
-                    params: param_names,
-                    body: *body,
-                    captures: Rc::new(RefCell::new(captures.into_iter().collect())),
-                }))
+                Ok(Value::Function(FunctionValue::with_captures(
+                    param_names,
+                    *body,
+                    captures,
+                )))
             }
 
             // Block
@@ -582,7 +580,7 @@ impl<'a> Evaluator<'a> {
             // Variant constructors
             ExprKind::Some(inner) => {
                 let value = self.eval(*inner)?;
-                Ok(Value::Some(Box::new(value)))
+                Ok(Value::some(value))
             }
             ExprKind::None => Ok(Value::None),
             ExprKind::Ok(inner) => {
@@ -591,7 +589,7 @@ impl<'a> Evaluator<'a> {
                 } else {
                     Value::Void
                 };
-                Ok(Value::Ok(Box::new(value)))
+                Ok(Value::ok(value))
             }
             ExprKind::Err(inner) => {
                 let value = if let Some(e) = inner {
@@ -599,7 +597,7 @@ impl<'a> Evaluator<'a> {
                 } else {
                     Value::Void
                 };
-                Ok(Value::Err(Box::new(value)))
+                Ok(Value::err(value))
             }
 
             // Let binding (in expression context)
@@ -673,7 +671,7 @@ impl<'a> Evaluator<'a> {
                         return Err(EvalError::new("map keys must be strings"));
                     }
                 }
-                Ok(Value::Map(Rc::new(map)))
+                Ok(Value::map(map))
             }
 
             // Struct literal
@@ -730,12 +728,12 @@ impl<'a> Evaluator<'a> {
             ExprKind::Try(inner) => {
                 let result = self.eval(*inner)?;
                 match result {
-                    Value::Ok(v) => Ok(*v),
+                    Value::Ok(v) => Ok((*v).clone()),
                     Value::Err(e) => Err(EvalError::propagate(
                         Value::Err(e.clone()),
                         format!("propagated error: {}", self.value_to_string(&e))
                     )),
-                    Value::Some(v) => Ok(*v),
+                    Value::Some(v) => Ok((*v).clone()),
                     Value::None => Err(EvalError::propagate(Value::None, "propagated None")),
                     other => Ok(other),
                 }
@@ -983,7 +981,7 @@ impl<'a> Evaluator<'a> {
                     }
                     if let Some(rest_name) = rest {
                         let rest_values: Vec<_> = values[elements.len()..].to_vec();
-                        self.env.define(*rest_name, Value::List(Rc::new(rest_values)), mutable);
+                        self.env.define(*rest_name, Value::list(rest_values), mutable);
                     }
                     Ok(Value::Void)
                 } else {
@@ -1005,8 +1003,8 @@ impl<'a> Evaluator<'a> {
                 let mut call_env = self.env.child();
                 call_env.push_scope();  // Push a new scope for this call's locals
 
-                // Bind captured variables
-                for (name, value) in f.captures.borrow().iter() {
+                // Bind captured variables (immutable captures via iterator)
+                for (name, value) in f.captures() {
                     call_env.define(*name, value.clone(), false);
                 }
 
@@ -1036,30 +1034,61 @@ impl<'a> Evaluator<'a> {
     fn eval_function_seq(&mut self, func_seq: &FunctionSeq) -> EvalResult {
         match func_seq {
             FunctionSeq::Run { bindings, result, .. } => {
-                // Evaluate bindings in sequence
+                // Evaluate bindings and statements in sequence
                 let seq_bindings = self.arena.get_seq_bindings(*bindings);
                 for binding in seq_bindings {
-                    let value = self.eval(binding.value)?;
-                    self.bind_pattern(&binding.pattern, value, binding.mutable)?;
+                    match binding {
+                        SeqBinding::Let { pattern, value, mutable, .. } => {
+                            let val = self.eval(*value)?;
+                            self.bind_pattern(pattern, val, *mutable)?;
+                        }
+                        SeqBinding::Stmt { expr, .. } => {
+                            // Evaluate for side effects (e.g., assignment)
+                            self.eval(*expr)?;
+                        }
+                    }
                 }
                 // Evaluate and return result
                 self.eval(*result)
             }
 
             FunctionSeq::Try { bindings, result, .. } => {
-                // Evaluate bindings, short-circuiting on error
+                // Evaluate bindings, unwrapping Result/Option and short-circuiting on error
                 let seq_bindings = self.arena.get_seq_bindings(*bindings);
                 for binding in seq_bindings {
-                    match self.eval(binding.value) {
-                        Ok(value) => {
-                            self.bind_pattern(&binding.pattern, value, binding.mutable)?;
-                        }
-                        Err(e) => {
-                            // If this is a propagated error, return the value
-                            if let Some(propagated) = e.propagated_value {
-                                return Ok(propagated);
+                    match binding {
+                        SeqBinding::Let { pattern, value, mutable, .. } => {
+                            match self.eval(*value) {
+                                Ok(value) => {
+                                    // Unwrap Result/Option types per spec:
+                                    // "If any binding expression returns a Result<T, E>, the binding variable has type T"
+                                    let unwrapped = match value {
+                                        Value::Ok(inner) => (*inner).clone(),
+                                        Value::Err(e) => {
+                                            // Early return with the error
+                                            return Ok(Value::Err(e));
+                                        }
+                                        Value::Some(inner) => (*inner).clone(),
+                                        Value::None => {
+                                            // Early return with None
+                                            return Ok(Value::None);
+                                        }
+                                        other => other,
+                                    };
+                                    self.bind_pattern(pattern, unwrapped, *mutable)?;
+                                }
+                                Err(e) => {
+                                    // If this is a propagated error, return the value
+                                    if let Some(propagated) = e.propagated_value {
+                                        return Ok(propagated);
+                                    }
+                                    return Err(e);
+                                }
                             }
-                            return Err(e);
+                        }
+                        SeqBinding::Stmt { expr, .. } => {
+                            // Evaluate for side effects
+                            self.eval(*expr)?;
                         }
                     }
                 }
@@ -1163,7 +1192,7 @@ impl<'a> Evaluator<'a> {
                     ExprKind::Int(n) => Value::Int(*n),
                     ExprKind::Float(bits) => Value::Float(f64::from_bits(*bits)),
                     ExprKind::Bool(b) => Value::Bool(*b),
-                    ExprKind::String(s) => Value::Str(Rc::new(self.interner.lookup(*s).to_string())),
+                    ExprKind::String(s) => Value::string(self.interner.lookup(*s).to_string()),
                     ExprKind::Char(c) => Value::Char(*c),
                     _ => return Err(errors::invalid_literal_pattern()),
                 };
@@ -1229,7 +1258,7 @@ impl<'a> Evaluator<'a> {
                     }
                     if let Some(rest_name) = rest {
                         let rest_values: Vec<_> = values[elements.len()..].to_vec();
-                        all_bindings.push((*rest_name, Value::List(Rc::new(rest_values))));
+                        all_bindings.push((*rest_name, Value::list(rest_values)));
                     }
                     Ok(Some(all_bindings))
                 } else {
@@ -1339,7 +1368,7 @@ impl<'a> Evaluator<'a> {
                 results.push(result);
                 self.env.pop_scope();
             }
-            Ok(Value::List(Rc::new(results)))
+            Ok(Value::list(results))
         } else {
             for item in items {
                 self.env.push_scope();
@@ -1493,6 +1522,17 @@ impl<'a> Evaluator<'a> {
 
         // Panic
         self.register_builtin("panic", builtin_panic, "panic");
+
+        // Option predicates
+        self.register_builtin("is_some", builtin_is_some, "is_some");
+        self.register_builtin("is_none", builtin_is_none, "is_none");
+
+        // Result predicates
+        self.register_builtin("is_ok", builtin_is_ok, "is_ok");
+        self.register_builtin("is_err", builtin_is_err, "is_err");
+
+        // Thread/parallel introspection
+        self.register_builtin("thread_id", builtin_thread_id, "thread_id");
     }
 }
 
@@ -1546,7 +1586,7 @@ fn builtin_str(args: &[Value]) -> Result<Value, String> {
     if args.len() != 1 {
         return Err("str expects 1 argument".to_string());
     }
-    Ok(Value::Str(Rc::new(format!("{}", args[0]))))
+    Ok(Value::string(format!("{}", args[0])))
 }
 
 fn builtin_int(args: &[Value]) -> Result<Value, String> {
@@ -1610,6 +1650,66 @@ fn builtin_panic(args: &[Value]) -> Result<Value, String> {
     }
 }
 
+fn builtin_is_some(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("is_some expects 1 argument".to_string());
+    }
+    match &args[0] {
+        Value::Some(_) => Ok(Value::Bool(true)),
+        Value::None => Ok(Value::Bool(false)),
+        _ => Err(format!("is_some expects Option, got {}", args[0].type_name())),
+    }
+}
+
+fn builtin_is_none(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("is_none expects 1 argument".to_string());
+    }
+    match &args[0] {
+        Value::Some(_) => Ok(Value::Bool(false)),
+        Value::None => Ok(Value::Bool(true)),
+        _ => Err(format!("is_none expects Option, got {}", args[0].type_name())),
+    }
+}
+
+fn builtin_is_ok(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("is_ok expects 1 argument".to_string());
+    }
+    match &args[0] {
+        Value::Ok(_) => Ok(Value::Bool(true)),
+        Value::Err(_) => Ok(Value::Bool(false)),
+        _ => Err(format!("is_ok expects Result, got {}", args[0].type_name())),
+    }
+}
+
+fn builtin_is_err(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("is_err expects 1 argument".to_string());
+    }
+    match &args[0] {
+        Value::Ok(_) => Ok(Value::Bool(false)),
+        Value::Err(_) => Ok(Value::Bool(true)),
+        _ => Err(format!("is_err expects Result, got {}", args[0].type_name())),
+    }
+}
+
+/// Returns the current OS thread ID as an integer.
+/// Useful for verifying parallel execution.
+fn builtin_thread_id(_args: &[Value]) -> Result<Value, String> {
+    // Get the current thread ID and convert to a stable integer
+    let thread_id = std::thread::current().id();
+    // ThreadId doesn't have a direct to_u64, so we use Debug format and parse
+    // Format is "ThreadId(N)" where N is the ID number
+    let id_str = format!("{:?}", thread_id);
+    let id_num = id_str
+        .trim_start_matches("ThreadId(")
+        .trim_end_matches(')')
+        .parse::<i64>()
+        .unwrap_or(0);
+    Ok(Value::Int(id_num))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1643,10 +1743,10 @@ mod tests {
 
     #[test]
     fn test_builtin_len() {
-        let list = Value::List(Rc::new(vec![Value::Int(1), Value::Int(2)]));
+        let list = Value::list(vec![Value::Int(1), Value::Int(2)]);
         assert_eq!(builtin_len(&[list]).unwrap(), Value::Int(2));
 
-        let s = Value::Str(Rc::new("hello".to_string()));
+        let s = Value::string("hello");
         assert_eq!(builtin_len(&[s]).unwrap(), Value::Int(5));
     }
 
@@ -1654,7 +1754,7 @@ mod tests {
     fn test_builtin_str() {
         assert_eq!(
             builtin_str(&[Value::Int(42)]).unwrap(),
-            Value::Str(Rc::new("42".to_string()))
+            Value::string("42")
         );
     }
 
@@ -1663,7 +1763,7 @@ mod tests {
         assert_eq!(builtin_int(&[Value::Float(3.7)]).unwrap(), Value::Int(3));
         assert_eq!(builtin_int(&[Value::Bool(true)]).unwrap(), Value::Int(1));
         assert_eq!(
-            builtin_int(&[Value::Str(Rc::new("42".to_string()))]).unwrap(),
+            builtin_int(&[Value::string("42")]).unwrap(),
             Value::Int(42)
         );
     }
@@ -1683,7 +1783,7 @@ mod tests {
     #[test]
     fn test_builtin_panic() {
         assert!(builtin_panic(&[]).is_err());
-        assert!(builtin_panic(&[Value::Str(Rc::new("oops".to_string()))]).is_err());
+        assert!(builtin_panic(&[Value::string("oops")]).is_err());
     }
 
     #[test]

@@ -1,0 +1,11 @@
+// Test that compile_fail correctly reports when compilation succeeds unexpectedly
+// Spec: 13-testing.md § compile_fail Attribute, fail Attribute
+// Design: 11-testing/03-compile-fail-tests.md
+//
+// This meta-test verifies the test runner behavior:
+// The inner compile_fail test has valid code, so it FAILS.
+// The outer #[fail] attribute expects that failure, so the overall test PASSES.
+
+#[fail("expected compilation to fail")]
+#[compile_fail("nonexistent error")]
+@test_compile_fail_with_valid_code () -> void = ()

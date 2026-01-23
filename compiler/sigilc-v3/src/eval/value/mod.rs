@@ -1,229 +1,202 @@
 //! Runtime values for the Sigil V3 interpreter.
 //!
-//! Ported from V2 with adaptations for V3's Salsa-based AST.
+//! # Arc Enforcement Architecture
 //!
-//! Note: Value types use Rc for sharing and are NOT Salsa-compatible.
-//! The evaluator operates on parsed ASTs and produces runtime values.
+//! This module enforces that all heap allocations go through factory methods
+//! on `Value`. The `Heap<T>` wrapper type has a private constructor, so
+//! external code cannot create heap values directly.
+//!
+//! ## Correct Usage
+//! ```ignore
+//! let s = Value::string("hello");        // OK
+//! let list = Value::list(vec![]);        // OK
+//! let opt = Value::some(Value::Int(42)); // OK
+//! ```
+//!
+//! ## Prevented (Won't Compile)
+//! ```ignore
+//! let s = Value::Str(Heap::new(...));    // ERROR: Heap::new is pub(super)
+//! let list = Value::List(Arc::new(...)); // ERROR: Expected Heap, got Arc
+//! ```
+//!
+//! # Thread Safety
+//!
+//! All heap types use `Arc` internally for thread-safe reference counting.
+//! The `FunctionValue` type uses immutable captures (no `RwLock`), eliminating
+//! potential race conditions.
 
-use std::fmt;
-use std::rc::Rc;
-use std::cell::RefCell;
+mod heap;
+mod composite;
+
 use std::collections::HashMap;
-use crate::ir::{Name, ExprId};
+use std::fmt;
 
-/// Built-in function signature.
+pub use heap::Heap;
+pub use composite::{StructValue, StructLayout, FunctionValue, RangeValue};
+
+/// Built-in function signature (for backward compatibility).
 pub type BuiltinFn = fn(&[Value]) -> Result<Value, String>;
 
 /// Runtime value in the Sigil interpreter.
 #[derive(Clone)]
 pub enum Value {
+    // =========================================================================
+    // Primitives (inline, no heap allocation)
+    // =========================================================================
+
     /// Integer value.
     Int(i64),
     /// Floating-point value.
     Float(f64),
     /// Boolean value.
     Bool(bool),
-    /// String value.
-    Str(Rc<String>),
     /// Character value.
     Char(char),
     /// Byte value.
     Byte(u8),
     /// Void (unit) value.
     Void,
+    /// Duration value (in milliseconds).
+    Duration(u64),
+    /// Size value (in bytes).
+    Size(u64),
+
+    // =========================================================================
+    // Heap Types (use Heap<T> for enforced Arc usage)
+    // =========================================================================
+
+    /// String value.
+    Str(Heap<String>),
     /// List of values.
-    List(Rc<Vec<Value>>),
+    List(Heap<Vec<Value>>),
     /// Map from string keys to values.
-    Map(Rc<HashMap<String, Value>>),
+    Map(Heap<HashMap<String, Value>>),
     /// Tuple of values.
-    Tuple(Rc<Vec<Value>>),
+    Tuple(Heap<Vec<Value>>),
+
+    // =========================================================================
+    // Algebraic Types (use Heap<T> for consistency)
+    // =========================================================================
+
     /// Option: Some(value).
-    Some(Box<Value>),
+    Some(Heap<Value>),
     /// Option: None.
     None,
     /// Result: Ok(value).
-    Ok(Box<Value>),
+    Ok(Heap<Value>),
     /// Result: Err(error).
-    Err(Box<Value>),
+    Err(Heap<Value>),
+
+    // =========================================================================
+    // Composite Types
+    // =========================================================================
+
     /// Struct instance.
     Struct(StructValue),
     /// Function value (closure).
     Function(FunctionValue),
     /// Built-in function.
     Builtin(BuiltinFn, &'static str),
-    /// Duration value (in milliseconds).
-    Duration(u64),
-    /// Size value (in bytes).
-    Size(u64),
     /// Range value.
     Range(RangeValue),
+
+    // =========================================================================
+    // Error Recovery
+    // =========================================================================
+
     /// Error value for error recovery.
     Error(String),
 }
 
-/// Struct instance with efficient field access.
-#[derive(Clone, Debug)]
-pub struct StructValue {
-    /// Type name of the struct.
-    pub type_name: Name,
-    /// Field values in layout order.
-    pub fields: Rc<Vec<Value>>,
-    /// Layout for O(1) field access.
-    pub layout: Rc<StructLayout>,
-}
+// =============================================================================
+// Factory Methods (ONLY way to construct heap values)
+// =============================================================================
 
-/// Layout information for O(1) struct field access.
-#[derive(Clone, Debug)]
-pub struct StructLayout {
-    /// Map from field name to index.
-    field_indices: HashMap<Name, usize>,
-}
-
-impl StructLayout {
-    /// Create a new struct layout from field names.
-    pub fn new(field_names: &[Name]) -> Self {
-        let field_indices = field_names
-            .iter()
-            .enumerate()
-            .map(|(i, name)| (*name, i))
-            .collect();
-        StructLayout { field_indices }
+impl Value {
+    /// Create a string value.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let s = Value::string("hello");
+    /// let s2 = Value::string(format!("value: {}", x));
+    /// ```
+    #[inline]
+    pub fn string(s: impl Into<String>) -> Self {
+        Value::Str(Heap::new(s.into()))
     }
 
-    /// Get the index of a field by name.
-    pub fn get_index(&self, field: Name) -> Option<usize> {
-        self.field_indices.get(&field).copied()
+    /// Create a list value.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let empty = Value::list(vec![]);
+    /// let nums = Value::list(vec![Value::Int(1), Value::Int(2)]);
+    /// ```
+    #[inline]
+    pub fn list(items: Vec<Value>) -> Self {
+        Value::List(Heap::new(items))
     }
 
-    /// Get the number of fields.
-    pub fn len(&self) -> usize {
-        self.field_indices.len()
+    /// Create a map value with String keys.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let empty = Value::map(HashMap::new());
+    /// ```
+    #[inline]
+    pub fn map(entries: HashMap<String, Value>) -> Self {
+        Value::Map(Heap::new(entries))
     }
 
-    /// Check if the layout has no fields.
-    pub fn is_empty(&self) -> bool {
-        self.field_indices.is_empty()
-    }
-}
-
-impl StructValue {
-    /// Create a new struct value from a name and field values.
-    pub fn new(name: Name, field_values: HashMap<Name, Value>) -> Self {
-        let field_names: Vec<Name> = field_values.keys().cloned().collect();
-        let layout = Rc::new(StructLayout::new(&field_names));
-        let mut fields = vec![Value::Void; field_names.len()];
-        for (name, value) in field_values {
-            if let Some(idx) = layout.get_index(name) {
-                fields[idx] = value;
-            }
-        }
-        StructValue {
-            type_name: name,
-            fields: Rc::new(fields),
-            layout,
-        }
+    /// Create a tuple value.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let pair = Value::tuple(vec![Value::Int(1), Value::Bool(true)]);
+    /// ```
+    #[inline]
+    pub fn tuple(items: Vec<Value>) -> Self {
+        Value::Tuple(Heap::new(items))
     }
 
-    /// Alias for type_name field access.
-    pub fn name(&self) -> Name {
-        self.type_name
+    /// Create a Some value.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let some = Value::some(Value::Int(42));
+    /// ```
+    #[inline]
+    pub fn some(v: Value) -> Self {
+        Value::Some(Heap::new(v))
     }
 
-    /// Get a field value by name with O(1) lookup.
-    pub fn get_field(&self, field: Name) -> Option<&Value> {
-        let index = self.layout.get_index(field)?;
-        self.fields.get(index)
-    }
-}
-
-/// Function value (closure).
-#[derive(Clone)]
-pub struct FunctionValue {
-    /// Parameter names.
-    pub params: Vec<Name>,
-    /// Body expression.
-    pub body: ExprId,
-    /// Captured environment (for closures).
-    pub captures: Rc<RefCell<HashMap<Name, Value>>>,
-}
-
-impl FunctionValue {
-    /// Create a new function value.
-    pub fn new(params: Vec<Name>, body: ExprId) -> Self {
-        FunctionValue {
-            params,
-            body,
-            captures: Rc::new(RefCell::new(HashMap::new())),
-        }
+    /// Create an Ok value.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let ok = Value::ok(Value::Int(42));
+    /// let ok_void = Value::ok(Value::Void);
+    /// ```
+    #[inline]
+    pub fn ok(v: Value) -> Self {
+        Value::Ok(Heap::new(v))
     }
 
-    /// Create a function value with captured environment.
-    pub fn with_captures(params: Vec<Name>, body: ExprId, captures: HashMap<Name, Value>) -> Self {
-        FunctionValue {
-            params,
-            body,
-            captures: Rc::new(RefCell::new(captures)),
-        }
+    /// Create an Err value.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let err = Value::err(Value::string("something went wrong"));
+    /// ```
+    #[inline]
+    pub fn err(v: Value) -> Self {
+        Value::Err(Heap::new(v))
     }
 }
 
-impl fmt::Debug for FunctionValue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FunctionValue")
-            .field("params", &self.params)
-            .field("body", &self.body)
-            .finish()
-    }
-}
-
-/// Range value.
-#[derive(Clone, Debug)]
-pub struct RangeValue {
-    /// Start of range (inclusive).
-    pub start: i64,
-    /// End of range.
-    pub end: i64,
-    /// Whether end is inclusive.
-    pub inclusive: bool,
-}
-
-impl RangeValue {
-    /// Create an exclusive range.
-    pub fn exclusive(start: i64, end: i64) -> Self {
-        RangeValue { start, end, inclusive: false }
-    }
-
-    /// Create an inclusive range.
-    pub fn inclusive(start: i64, end: i64) -> Self {
-        RangeValue { start, end, inclusive: true }
-    }
-
-    /// Iterate over the range values.
-    pub fn iter(&self) -> impl Iterator<Item = i64> {
-        let end = if self.inclusive { self.end + 1 } else { self.end };
-        self.start..end
-    }
-
-    /// Get the length of the range.
-    pub fn len(&self) -> usize {
-        let end = if self.inclusive { self.end + 1 } else { self.end };
-        (end - self.start).max(0) as usize
-    }
-
-    /// Check if the range is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Check if a value is contained in the range.
-    pub fn contains(&self, value: i64) -> bool {
-        if self.inclusive {
-            value >= self.start && value <= self.end
-        } else {
-            value >= self.start && value < self.end
-        }
-    }
-}
+// =============================================================================
+// Value Methods
+// =============================================================================
 
 impl Value {
     /// Check if this value is truthy.
@@ -373,23 +346,27 @@ impl Value {
     }
 }
 
+// =============================================================================
+// Trait Implementations
+// =============================================================================
+
 impl fmt::Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Value::Int(n) => write!(f, "Int({})", n),
             Value::Float(n) => write!(f, "Float({})", n),
             Value::Bool(b) => write!(f, "Bool({})", b),
-            Value::Str(s) => write!(f, "Str({:?})", s),
+            Value::Str(s) => write!(f, "Str({:?})", &**s),
             Value::Char(c) => write!(f, "Char({:?})", c),
             Value::Byte(b) => write!(f, "Byte({:?})", b),
             Value::Void => write!(f, "Void"),
-            Value::List(items) => write!(f, "List({:?})", items),
-            Value::Map(map) => write!(f, "Map({:?})", map),
-            Value::Tuple(items) => write!(f, "Tuple({:?})", items),
-            Value::Some(v) => write!(f, "Some({:?})", v),
+            Value::List(items) => write!(f, "List({:?})", &**items),
+            Value::Map(map) => write!(f, "Map({:?})", &**map),
+            Value::Tuple(items) => write!(f, "Tuple({:?})", &**items),
+            Value::Some(v) => write!(f, "Some({:?})", &**v),
             Value::None => write!(f, "None"),
-            Value::Ok(v) => write!(f, "Ok({:?})", v),
-            Value::Err(v) => write!(f, "Err({:?})", v),
+            Value::Ok(v) => write!(f, "Ok({:?})", &**v),
+            Value::Err(v) => write!(f, "Err({:?})", &**v),
             Value::Struct(s) => write!(f, "Struct({:?})", s),
             Value::Function(func) => write!(f, "Function({:?})", func),
             Value::Builtin(_, name) => write!(f, "Builtin({})", name),
@@ -407,7 +384,7 @@ impl fmt::Display for Value {
             Value::Int(n) => write!(f, "{}", n),
             Value::Float(n) => write!(f, "{}", n),
             Value::Bool(b) => write!(f, "{}", b),
-            Value::Str(s) => write!(f, "\"{}\"", s),
+            Value::Str(s) => write!(f, "\"{}\"", &**s),
             Value::Char(c) => write!(f, "'{}'", c),
             Value::Byte(b) => write!(f, "0x{:02x}", b),
             Value::Void => write!(f, "void"),
@@ -435,10 +412,10 @@ impl fmt::Display for Value {
                 }
                 write!(f, ")")
             }
-            Value::Some(v) => write!(f, "Some({})", v),
+            Value::Some(v) => write!(f, "Some({})", &**v),
             Value::None => write!(f, "None"),
-            Value::Ok(v) => write!(f, "Ok({})", v),
-            Value::Err(e) => write!(f, "Err({})", e),
+            Value::Ok(v) => write!(f, "Ok({})", &**v),
+            Value::Err(e) => write!(f, "Err({})", &**e),
             Value::Struct(s) => write!(f, "<struct {:?}>", s.type_name),
             Value::Function(_) => write!(f, "<function>"),
             Value::Builtin(_, name) => write!(f, "<builtin {}>", name),
@@ -511,7 +488,46 @@ mod tests {
     fn test_value_display() {
         assert_eq!(format!("{}", Value::Int(42)), "42");
         assert_eq!(format!("{}", Value::Bool(true)), "true");
-        assert_eq!(format!("{}", Value::Str(Rc::new("hello".to_string()))), "\"hello\"");
+        assert_eq!(format!("{}", Value::string("hello")), "\"hello\"");
+    }
+
+    #[test]
+    fn test_factory_methods() {
+        // Test that factory methods work
+        let s = Value::string("hello");
+        assert_eq!(s.as_str(), Some("hello"));
+
+        let list = Value::list(vec![Value::Int(1), Value::Int(2)]);
+        assert_eq!(list.as_list().map(|l| l.len()), Some(2));
+
+        let opt = Value::some(Value::Int(42));
+        match opt {
+            Value::Some(v) => assert_eq!(*v, Value::Int(42)),
+            _ => panic!("expected Some"),
+        }
+
+        let ok = Value::ok(Value::Int(42));
+        match ok {
+            Value::Ok(v) => assert_eq!(*v, Value::Int(42)),
+            _ => panic!("expected Ok"),
+        }
+
+        let err = Value::err(Value::string("error"));
+        match err {
+            Value::Err(v) => assert_eq!(v.as_str(), Some("error")),
+            _ => panic!("expected Err"),
+        }
+    }
+
+    #[test]
+    fn test_value_equality() {
+        assert!(Value::Int(42).equals(&Value::Int(42)));
+        assert!(!Value::Int(42).equals(&Value::Int(43)));
+        assert!(Value::None.equals(&Value::None));
+
+        let s1 = Value::string("hello");
+        let s2 = Value::string("hello");
+        assert!(s1.equals(&s2));
     }
 
     #[test]
@@ -537,16 +553,10 @@ mod tests {
     }
 
     #[test]
-    fn test_value_equality() {
-        assert!(Value::Int(42).equals(&Value::Int(42)));
-        assert!(!Value::Int(42).equals(&Value::Int(43)));
-        assert!(Value::None.equals(&Value::None));
-    }
-
-    #[test]
     fn test_function_value() {
+        use crate::ir::ExprId;
         let func = FunctionValue::new(vec![], ExprId::new(0));
         assert!(func.params.is_empty());
-        assert!(func.captures.borrow().is_empty());
+        assert!(!func.has_captures());
     }
 }

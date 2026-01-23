@@ -1,6 +1,13 @@
-// Compile-fail test: argument type mismatch
-// Expected error: Argument 'a' has type Named("str") but expected Named("int")
+// Test that argument type mismatches are detected
+// Spec: 06-types.md § Type Compatibility
+// Design: 03-type-system/01-overview.md § Type Checking
+//
+// Function arguments must have types compatible with the parameter types.
 
 @add (a: int, b: int) -> int = a + b
 
-@bad_call () -> int = add("hello", 5)
+#[compile_fail("type mismatch")]
+@test_type_mismatch_arg () -> void = run(
+    let result = add(.a: "hello", .b: 5),
+    ()
+)

@@ -12,6 +12,7 @@ use crate::input::SourceFile;
 use crate::query::parsed;
 use crate::eval::{Evaluator, Value};
 use crate::ir::TestDef;
+use crate::typeck::type_check;
 
 use super::discovery::{discover_tests_in, TestFile};
 use super::result::{TestResult, TestSummary, FileSummary, CoverageReport};
@@ -152,6 +153,9 @@ impl TestRunner {
             evaluator.env_mut().define(func.name, Value::Function(func_value), false);
         }
 
+        // Type check for compile_fail tests
+        let typed_module = type_check(&parse_result, interner);
+
         // Run each test
         for test in &parse_result.module.tests {
             // Apply filter if set
@@ -162,11 +166,146 @@ impl TestRunner {
                 }
             }
 
-            let result = self.run_single_test(&mut evaluator, test, interner);
+            // Run the inner test (compile_fail or regular)
+            let inner_result = if let Some(expected_error) = test.compile_fail_expected {
+                // compile_fail: test expects compilation to fail
+                self.run_compile_fail_test(test, &typed_module, expected_error, interner)
+            } else {
+                self.run_single_test(&mut evaluator, test, interner)
+            };
+
+            // If #[fail] is present, wrap the result
+            let result = if let Some(expected_failure) = test.fail_expected {
+                self.apply_fail_wrapper(inner_result, expected_failure, interner)
+            } else {
+                inner_result
+            };
+
             summary.add_result(result);
         }
 
         summary
+    }
+
+    /// Run a compile_fail test.
+    ///
+    /// The test passes if type checking produces at least one error
+    /// whose message contains the expected substring.
+    fn run_compile_fail_test(
+        &self,
+        test: &TestDef,
+        typed_module: &crate::typeck::TypedModule,
+        expected_error: crate::ir::Name,
+        interner: &crate::ir::StringInterner,
+    ) -> TestResult {
+        let test_name = interner.lookup(test.name).to_string();
+        let targets: Vec<String> = test.targets
+            .iter()
+            .map(|t| interner.lookup(*t).to_string())
+            .collect();
+
+        // Check if test is skipped
+        if let Some(reason) = test.skip_reason {
+            let reason_str = interner.lookup(reason).to_string();
+            return TestResult::skipped(test_name, targets, reason_str);
+        }
+
+        let start = Instant::now();
+        let expected_substr = interner.lookup(expected_error);
+
+        // Check if any error message contains the expected substring
+        let matching_error = typed_module.errors.iter().find(|e| {
+            e.message.contains(expected_substr)
+        });
+
+        if let Some(_) = matching_error {
+            // Test passes - compilation failed with expected error
+            TestResult::passed(test_name, targets, start.elapsed())
+        } else if typed_module.errors.is_empty() {
+            // Test fails - compilation succeeded when it should have failed
+            TestResult::failed(
+                test_name,
+                targets,
+                format!(
+                    "expected compilation to fail with error containing '{}', but compilation succeeded",
+                    expected_substr
+                ),
+                start.elapsed(),
+            )
+        } else {
+            // Test fails - compilation failed but with different errors
+            let actual_errors: Vec<&str> = typed_module.errors.iter()
+                .map(|e| e.message.as_str())
+                .collect();
+            TestResult::failed(
+                test_name,
+                targets,
+                format!(
+                    "expected error containing '{}', but got: {:?}",
+                    expected_substr, actual_errors
+                ),
+                start.elapsed(),
+            )
+        }
+    }
+
+    /// Apply the #[fail] wrapper to a test result.
+    ///
+    /// The #[fail] attribute expects the inner test to fail.
+    /// - If inner test failed with expected message: wrapper passes
+    /// - If inner test failed with different message: wrapper fails
+    /// - If inner test passed: wrapper fails (expected failure didn't happen)
+    /// - If inner test was skipped: remains skipped
+    fn apply_fail_wrapper(
+        &self,
+        inner_result: TestResult,
+        expected_failure: crate::ir::Name,
+        interner: &crate::ir::StringInterner,
+    ) -> TestResult {
+        use super::result::TestOutcome;
+
+        let expected_substr = interner.lookup(expected_failure);
+
+        match inner_result.outcome {
+            TestOutcome::Skipped(_) => {
+                // Skipped tests remain skipped
+                inner_result
+            }
+            TestOutcome::Passed => {
+                // Inner test passed, but we expected it to fail
+                TestResult::failed(
+                    inner_result.name,
+                    inner_result.targets,
+                    format!(
+                        "expected test to fail with '{}', but test passed",
+                        expected_substr
+                    ),
+                    inner_result.duration,
+                )
+            }
+            TestOutcome::Failed(ref error) => {
+                // Inner test failed - check if it's the expected failure
+                if error.contains(expected_substr) {
+                    // Expected failure occurred - this is a pass
+                    TestResult::passed(
+                        inner_result.name,
+                        inner_result.targets,
+                        inner_result.duration,
+                    )
+                } else {
+                    // Wrong failure message
+                    TestResult::failed(
+                        inner_result.name,
+                        inner_result.targets,
+                        format!(
+                            "expected failure containing '{}', but got: {}",
+                            expected_substr, error
+                        ),
+                        inner_result.duration,
+                    )
+                }
+            }
+        }
     }
 
     /// Run a single test.

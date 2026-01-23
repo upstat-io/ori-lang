@@ -524,15 +524,22 @@ pub struct TestDef {
     pub return_ty: Option<TypeId>,
     pub body: ExprId,
     pub span: Span,
+    /// If set, this test is skipped with the given reason.
     pub skip_reason: Option<Name>,
+    /// If set, this test expects compilation to fail with an error
+    /// containing this substring.
+    pub compile_fail_expected: Option<Name>,
+    /// If set, this test expects runtime failure with an error
+    /// containing this substring.
+    pub fail_expected: Option<Name>,
 }
 
 impl fmt::Debug for TestDef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "TestDef {{ name: {:?}, targets: {:?}, skip: {:?} }}",
-            self.name, self.targets, self.skip_reason
+            "TestDef {{ name: {:?}, targets: {:?}, skip: {:?}, compile_fail: {:?}, fail: {:?} }}",
+            self.name, self.targets, self.skip_reason, self.compile_fail_expected, self.fail_expected
         )
     }
 }
@@ -765,21 +772,32 @@ impl fmt::Debug for FieldInitRange {
 // function_seq Types
 // =============================================================================
 
-/// Binding within a function_seq (run/try).
+/// Element within a function_seq (run/try).
 ///
-/// Represents: `let [mut] pattern [: Type] = expr`
+/// Can be either a let binding or a statement expression.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub struct SeqBinding {
-    pub pattern: BindingPattern,
-    pub ty: Option<TypeId>,
-    pub value: ExprId,
-    pub mutable: bool,
-    pub span: Span,
+pub enum SeqBinding {
+    /// let [mut] pattern [: Type] = expr
+    Let {
+        pattern: BindingPattern,
+        ty: Option<TypeId>,
+        value: ExprId,
+        mutable: bool,
+        span: Span,
+    },
+    /// Statement expression (evaluated for side effects, e.g., assignment)
+    Stmt {
+        expr: ExprId,
+        span: Span,
+    },
 }
 
 impl Spanned for SeqBinding {
     fn span(&self) -> Span {
-        self.span
+        match self {
+            SeqBinding::Let { span, .. } => *span,
+            SeqBinding::Stmt { span, .. } => *span,
+        }
     }
 }
 
@@ -931,6 +949,7 @@ pub enum FunctionExpKind {
     Collect,
     Recurse,
     Parallel,
+    Spawn,
     Timeout,
     Retry,
     Cache,
@@ -948,6 +967,7 @@ impl FunctionExpKind {
             FunctionExpKind::Collect => "collect",
             FunctionExpKind::Recurse => "recurse",
             FunctionExpKind::Parallel => "parallel",
+            FunctionExpKind::Spawn => "spawn",
             FunctionExpKind::Timeout => "timeout",
             FunctionExpKind::Retry => "retry",
             FunctionExpKind::Cache => "cache",

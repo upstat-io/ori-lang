@@ -131,6 +131,8 @@ enum RawToken {
     Map,
     #[token("parallel")]
     Parallel,
+    #[token("spawn")]
+    Spawn,
     #[token("recurse")]
     Recurse,
     #[token("retry")]
@@ -456,6 +458,7 @@ fn convert_token(raw: RawToken, slice: &str, interner: &StringInterner) -> Token
         RawToken::Fold => TokenKind::Fold,
         RawToken::Map => TokenKind::Map,
         RawToken::Parallel => TokenKind::Parallel,
+        RawToken::Spawn => TokenKind::Spawn,
         RawToken::Recurse => TokenKind::Recurse,
         RawToken::Retry => TokenKind::Retry,
         RawToken::Run => TokenKind::Run,

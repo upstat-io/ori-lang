@@ -566,18 +566,16 @@ try(
 
 ## Concurrency Patterns
 
-### `parallel` — Concurrent Execution
+### `parallel` — Concurrent Execution (All-Settled)
 
-Execute multiple tasks concurrently, wait for all.
+Execute tasks concurrently and wait for all to settle. The pattern always returns—errors are captured as values, never causing `parallel` itself to fail.
 
 **Syntax:**
 ```sigil
 parallel(
-    .name1: expr1,
-    .name2: expr2,
-    ...
-    .timeout: duration,    // optional
-    .on_error: strategy    // optional
+    .tasks: task_list,
+    .max_concurrent: int,     // optional
+    .timeout: duration,       // optional, per-task
 )
 ```
 
@@ -585,48 +583,137 @@ parallel(
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `.name` | `T` | Named task expressions |
-| `.timeout` | `Duration` | Cancel after timeout (optional) |
-| `.on_error` | `fail_fast \| collect_all` | Error strategy (default: fail_fast) |
+| `.tasks` | `[() -> T]` | List of task expressions |
+| `.max_concurrent` | `int` | Maximum concurrent tasks (optional) |
+| `.timeout` | `Duration` | Per-task timeout (optional) |
+
+**Return Type:** `[Result<T, E>]`
+
+Each slot in the result list contains:
+- `Ok(value)` — task succeeded
+- `Err(e)` — task failed with error `e`
+- `Err(TimeoutError)` — task exceeded timeout
+
+**Why All-Settled?**
+
+The all-settled approach was chosen because:
+1. **No hidden control flow** — You always know what happened to every task
+2. **Explicit error handling** — Forces conscious decisions about each result
+3. **Predictable behavior** — `parallel` always completes, always returns same-length list
+4. **Composable** — Filter successes, collect errors, or handle each individually
 
 **Examples:**
-```sigil
-@fetch_dashboard (id: str) -> Dashboard = run(
-    let data = parallel(
-        .user: get_user(id),
-        .posts: get_posts(id),
-        .notifications: get_notifs(id),
-    ),
-    Dashboard {
-        user: data.user,
-        posts: data.posts,
-        notifications: data.notifications,
-    },
-)
-
-@fetch_with_timeout () -> Result<Data, Error> = parallel(
-    .a: fetch_slow(),
-    .b: fetch_fast(),
-    .timeout: 5s,
-    .on_error: fail_fast,
-)
-```
-
-**List-based form with `.tasks`:**
-
-For dynamic task lists, use `.tasks` with `.max_concurrent`:
 
 ```sigil
-@fetch_all (ids: [int]) -> [User] = parallel(
-    .tasks: map(ids, id -> fetch_user(id)),
+// Fetch multiple users concurrently
+@fetch_users (ids: [int]) -> [Result<User, Error>] = parallel(
+    .tasks: map(.over: ids, .transform: id -> () -> get_user(id)),
     .max_concurrent: 10,
 )
+
+// Handle results explicitly
+@fetch_users_safe (ids: [int]) -> [User] = run(
+    let results = parallel(
+        .tasks: map(.over: ids, .transform: id -> () -> get_user(id)),
+    ),
+    // Extract successful results only
+    filter(.over: results, .predicate: r -> is_ok(r))
+        |> map(.over: _, .transform: r -> r.unwrap()),
+)
 ```
+
+```sigil
+// Fixed tasks with timeout
+@fetch_dashboard (id: str) -> Dashboard uses Http = run(
+    let results = parallel(
+        .tasks: [
+            () -> get_user(id),
+            () -> get_posts(id),
+            () -> get_notifications(id),
+        ],
+        .timeout: 5s,
+    ),
+    // Index access with explicit error handling
+    let user = results[0]?,           // propagate error
+    let posts = results[1] ?? [],     // default on error
+    let notifs = results[2] ?? [],    // default on error
+    Dashboard { user, posts, notifications: notifs },
+)
+```
+
+**Error Handling Patterns:**
+
+```sigil
+// Check if all succeeded
+@all_succeeded (results: [Result<T, E>]) -> bool =
+    fold(.over: results, .init: true, .op: (acc, r) -> acc && is_ok(r))
+
+// Collect all errors
+@collect_errors (results: [Result<T, E>]) -> [E] =
+    filter(.over: results, .predicate: r -> is_err(r))
+        |> map(.over: _, .transform: r -> r.err().unwrap())
+
+// First error or all successes
+@all_or_first_error (results: [Result<T, E>]) -> Result<[T], E> = run(
+    let first_err = find(.over: results, .where: r -> is_err(r)),
+    match(first_err,
+        Some(Err(e)) -> Err(e),
+        None -> Ok(map(.over: results, .transform: r -> r.unwrap())),
+    ),
+)
+```
+
+---
+
+### `spawn` — Fire and Forget
+
+Execute tasks concurrently without waiting for results. Use when you don't need results and errors can be silently discarded.
+
+**Syntax:**
+```sigil
+spawn(
+    .tasks: task_list,
+    .max_concurrent: int,     // optional
+)
+```
+
+**Properties:**
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `.tasks` | `[async T]` | List of async tasks |
-| `.max_concurrent` | `int` | Max parallel tasks (optional) |
+| `.tasks` | `[() -> T]` | List of task expressions |
+| `.max_concurrent` | `int` | Maximum concurrent tasks (optional) |
+
+**Return Type:** `void`
+
+**Semantics:**
+- Tasks are started but not awaited
+- Errors are silently discarded
+- Execution continues immediately
+
+**When to Use:**
+- Fire-and-forget side effects (logging, analytics, notifications)
+- Background tasks where failures are acceptable
+- When you explicitly don't need results
+
+**Examples:**
+
+```sigil
+// Send notifications without waiting
+@notify_all (users: [User], message: str) -> void = spawn(
+    .tasks: map(.over: users, .transform: u -> () -> send_notification(u, message)),
+)
+
+// Log analytics events in background
+@log_event (event: Event) -> void = spawn(
+    .tasks: [
+        () -> log_to_console(event),
+        () -> send_to_analytics(event),
+    ],
+)
+```
+
+**Warning:** Since errors are discarded, use `spawn` only when you genuinely don't care about failures. For most cases, prefer `parallel` and explicitly handle results.
 
 ---
 

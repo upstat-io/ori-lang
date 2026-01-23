@@ -6,10 +6,14 @@ This document covers Sigil's test syntax: the `tests` keyword, assertion functio
 
 ## The `tests` Keyword
 
-Tests are functions that declare which function they test:
+Tests are functions that optionally declare which functions they test:
 
 ```sigil
+// Targeted test
 @test_name tests @target_function () -> void = expression
+
+// Free-floating test (no target)
+@test_name () -> void = expression
 ```
 
 ### Syntax Breakdown
@@ -17,8 +21,7 @@ Tests are functions that declare which function they test:
 | Component | Description |
 |-----------|-------------|
 | `@test_name` | Name of the test function (must start with `@`) |
-| `tests` | Keyword linking test to target |
-| `@target_function` | The function being tested |
+| `tests @target` | Optional - links test to target function(s) |
 | `() -> void` | Test signature (always takes no arguments, returns void) |
 | `= expression` | Test body (typically a `run` pattern) |
 
@@ -149,6 +152,34 @@ A single test can declare multiple targets:
 
 Both `@parse` and `@format` are marked as having test coverage.
 
+### Free-Floating Tests
+
+Not all tests need to target a specific function. Free-floating tests are useful for:
+
+- **Integration tests** - Testing multiple components working together
+- **End-to-end tests** - Testing complete workflows
+- **Regression tests** - Testing specific scenarios that don't map to one function
+- **Property-based tests** - Testing invariants across the system
+
+```sigil
+// Free-floating test - no targets
+@test_full_pipeline () -> void = run(
+    let input = "2 + 3 * 4",
+    let tokens = lex(.input: input),
+    let ast = parse(.tokens: tokens),
+    let result = eval(.ast: ast),
+    assert_eq(.actual: result, .expected: 14),
+)
+```
+
+Free-floating tests:
+
+1. Omit the `tests @target` clause entirely
+2. Are still executed as part of the test suite
+3. Do **not** count toward any function's test coverage
+
+This means functions still need their own targeted tests to satisfy the coverage requirement, but you can add free-floating tests for broader testing scenarios.
+
 ---
 
 ## Skipping Tests
@@ -204,6 +235,74 @@ Running tests...
 - **Permanently broken**: Delete the test or fix the code
 - **Slow tests**: Use a different mechanism for slow test filtering
 - **Conditional logic**: Use `if` in the test body instead
+
+---
+
+## Expected Failure Tests
+
+Sometimes a test is expected to fail at runtime. This is useful for:
+
+1. **Documenting known bugs** - Marking tests that expose bugs being fixed
+2. **Testing error paths** - Verifying operations fail with correct messages
+3. **Panic verification** - Ensuring panics occur with expected messages
+
+Use the `#[fail]` attribute:
+
+```sigil
+#[fail("division by zero")]
+@test_div_by_zero tests @divide () -> void = run(
+    let result = divide(.a: 10, .b: 0),
+    ()
+)
+```
+
+### Syntax
+
+```sigil
+#[fail("expected failure message")]
+@test_name tests @target () -> void = ...
+```
+
+The message string specifies a substring that must appear in the failure message.
+
+### Behavior
+
+A test with the `#[fail]` attribute:
+
+1. **Is parsed and type-checked** - syntax and type errors are caught normally
+2. **Is executed** - the test body runs
+3. **Expected to fail** - test passes if execution fails with expected message
+4. **Fails if it passes** - test fails if execution succeeds
+
+### Output
+
+```
+Running tests...
+  ✓ @test_normal (2 assertions)
+  ✓ @test_expected_failure (expected failure: "division by zero")
+  ✗ @test_should_fail_but_passed - expected failure, but test passed
+
+2 passed, 1 failed
+```
+
+### When to Use fail
+
+- **Documenting bugs** - Mark tests that expose known issues being fixed
+- **Testing error paths** - Verify operations fail with correct error messages
+- **Verifying panics** - Ensure panics occur with expected messages
+
+### When NOT to Use fail
+
+- **Testing compile errors** - Use `#[compile_fail]` instead
+- **Skipping tests** - Use `#[skip]` instead
+- **Expected panics** - Use `assert_panics` in the test body instead
+
+### Difference from compile_fail
+
+| Attribute | When Used | Test Passes If |
+|-----------|-----------|----------------|
+| `#[compile_fail("msg")]` | Code should fail to compile | Type checker produces error containing "msg" |
+| `#[fail("msg")]` | Code should fail at runtime | Execution produces error containing "msg" |
 
 ---
 
@@ -1003,9 +1102,11 @@ For AI consumption:
 
 | Feature | Syntax |
 |---------|--------|
-| Test declaration | `@test_name tests @target () -> void = ...` |
+| Targeted test | `@test_name tests @target () -> void = ...` |
+| Free-floating test | `@test_name () -> void = ...` |
 | Multiple targets | `tests @a tests @b` |
-| Skip test | `#[skip("reason")] @test_name tests @target ...` |
+| Skip test | `#[skip("reason")] @test_name ...` |
+| Expected failure | `#[fail("message")] @test_name ...` |
 | Boolean assert | `assert(.cond: condition)` |
 | Equality assert | `assert_eq(.actual: a, .expected: b)` |
 | Inequality assert | `assert_ne(.actual: a, .unexpected: b)` |

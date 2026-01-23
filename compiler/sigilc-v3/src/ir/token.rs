@@ -121,6 +121,7 @@ pub enum TokenKind {
     Fold,
     Map,
     Parallel,
+    Spawn,
     Recurse,
     Retry,
     Run,
@@ -198,7 +199,7 @@ impl TokenKind {
             TokenKind::Tilde | TokenKind::Ok | TokenKind::Err | TokenKind::Some | TokenKind::None |
             TokenKind::Run | TokenKind::Try | TokenKind::Map | TokenKind::Filter |
             TokenKind::Fold | TokenKind::Find | TokenKind::Collect | TokenKind::Recurse |
-            TokenKind::Parallel | TokenKind::Timeout | TokenKind::Retry |
+            TokenKind::Parallel | TokenKind::Spawn | TokenKind::Timeout | TokenKind::Retry |
             TokenKind::Cache | TokenKind::Validate
         )
     }
@@ -209,7 +210,7 @@ impl TokenKind {
             self,
             TokenKind::Cache | TokenKind::Collect | TokenKind::Filter |
             TokenKind::Find | TokenKind::Fold | TokenKind::Map |
-            TokenKind::Parallel | TokenKind::Recurse | TokenKind::Retry |
+            TokenKind::Parallel | TokenKind::Spawn | TokenKind::Recurse | TokenKind::Retry |
             TokenKind::Run | TokenKind::Timeout | TokenKind::Try |
             TokenKind::Validate
         )
@@ -275,6 +276,7 @@ impl TokenKind {
             TokenKind::Fold => "fold",
             TokenKind::Map => "map",
             TokenKind::Parallel => "parallel",
+            TokenKind::Spawn => "spawn",
             TokenKind::Recurse => "recurse",
             TokenKind::Retry => "retry",
             TokenKind::Run => "run",

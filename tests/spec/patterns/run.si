@@ -1,0 +1,129 @@
+// Spec: 10-patterns.md § run
+// Design: 02-syntax/04-patterns-reference.md § run
+
+// =============================================================================
+// run Pattern (Sequential Execution)
+// =============================================================================
+
+@test_run_simple tests @run_simple () -> void = run(
+    let x = 1,
+    let y = 2,
+    assert_eq(
+        .actual: x + y,
+        .expected: 3,
+    ),
+)
+
+@run_simple () -> int = run(
+    let x = 1,
+    let y = 2,
+    x + y,
+)
+
+@test_run_with_expressions tests @run_with_expressions () -> void = run(
+    let a = 10,
+    let b = a * 2,
+    let c = b + 5,
+    assert_eq(
+        .actual: c,
+        .expected: 25,
+    ),
+)
+
+@run_with_expressions () -> int = run(
+    let a = 10,
+    let b = a * 2,
+    let c = b + 5,
+    c,
+)
+
+@test_run_nested tests @run_nested () -> void = run(
+    let outer = run(
+        let inner = 5,
+        inner * 2,
+    ),
+    assert_eq(
+        .actual: outer,
+        .expected: 10,
+    ),
+)
+
+@run_nested () -> int = run(
+    let outer = run(
+        let inner = 5,
+        inner * 2,
+    ),
+    outer,
+)
+
+@test_run_with_function_call tests @run_with_function_call () -> void = run(
+    let doubled = double(5),
+    assert_eq(
+        .actual: doubled,
+        .expected: 10,
+    ),
+)
+
+@double (x: int) -> int = x * 2
+
+@run_with_function_call () -> int = run(
+    let doubled = double(5),
+    doubled,
+)
+
+@test_run_shadowing tests @run_shadowing () -> void = run(
+    let x = 1,
+    let x = x + 1,
+    let x = x * 2,
+    assert_eq(
+        .actual: x,
+        .expected: 4,
+    ),
+)
+
+@run_shadowing () -> int = run(
+    let x = 1,
+    let x = x + 1,
+    let x = x * 2,
+    x,
+)
+
+// =============================================================================
+// Mutable Bindings
+// =============================================================================
+
+@test_run_mutable tests @run_mutable () -> void = run(
+    let mut x = 1,
+    x = x + 1,
+    x = x * 2,
+    assert_eq(
+        .actual: x,
+        .expected: 4,
+    ),
+)
+
+@run_mutable () -> int = run(
+    let mut x = 1,
+    x = x + 1,
+    x = x * 2,
+    x,
+)
+
+@test_run_mutable_multiple tests @run_mutable_multiple () -> void = run(
+    let mut a = 10,
+    let mut b = 20,
+    a = a + 5,
+    b = b - 5,
+    assert_eq(
+        .actual: a + b,
+        .expected: 30,
+    ),
+)
+
+@run_mutable_multiple () -> int = run(
+    let mut a = 10,
+    let mut b = 20,
+    a = a + 5,
+    b = b - 5,
+    a + b,
+)

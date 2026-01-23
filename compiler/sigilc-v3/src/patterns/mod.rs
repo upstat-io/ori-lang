@@ -18,6 +18,7 @@ mod find;
 mod collect;
 mod recurse;
 mod parallel;
+mod spawn;
 mod timeout;
 mod retry;
 mod cache;
@@ -30,9 +31,8 @@ pub use fusion::{FusedPattern, FusionAnalyzer, FusionHints, PatternChain, ChainL
 
 use crate::ir::{Name, NamedExpr, ExprId, StringInterner, ExprArena};
 use crate::types::{Type, InferenceContext};
-use crate::eval::{Value, RangeValue, EvalResult, EvalError};
+use crate::eval::{Value, RangeValue, EvalResult, EvalError, Heap};
 use std::collections::HashMap;
-use std::rc::Rc;
 
 /// Context for type checking a pattern.
 ///
@@ -180,7 +180,7 @@ impl<'a> EvalContext<'a> {
 #[derive(Clone)]
 pub enum Iterable {
     /// A list of values.
-    List(Rc<Vec<Value>>),
+    List(Heap<Vec<Value>>),
     /// A range of integers.
     Range(RangeValue),
 }
@@ -209,7 +209,7 @@ impl Iterable {
                     let result = exec.call(func.clone(), vec![item.clone()])?;
                     results.push(result);
                 }
-                Ok(Value::List(Rc::new(results)))
+                Ok(Value::list(results))
             }
             Iterable::Range(range) => {
                 let mut results = Vec::new();
@@ -217,7 +217,7 @@ impl Iterable {
                     let result = exec.call(func.clone(), vec![Value::Int(i)])?;
                     results.push(result);
                 }
-                Ok(Value::List(Rc::new(results)))
+                Ok(Value::list(results))
             }
         }
     }
@@ -233,7 +233,7 @@ impl Iterable {
                         results.push(item.clone());
                     }
                 }
-                Ok(Value::List(Rc::new(results)))
+                Ok(Value::list(results))
             }
             Iterable::Range(range) => {
                 let mut results = Vec::new();
@@ -244,7 +244,7 @@ impl Iterable {
                         results.push(val);
                     }
                 }
-                Ok(Value::List(Rc::new(results)))
+                Ok(Value::list(results))
             }
         }
     }

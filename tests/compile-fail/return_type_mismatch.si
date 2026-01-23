@@ -1,4 +1,11 @@
-// Compile-fail test: return type mismatch
-// Expected error: Function 'greet' returns Named("int") but body has type Named("str")
+// Test that return type mismatches are detected
+// Spec: 06-types.md § Type Compatibility
+// Design: 03-type-system/01-overview.md § Type Checking
+//
+// A function's body must have a type compatible with the declared return type.
 
-@greet (name: str) -> int = "Hello, " + name
+#[compile_fail("type mismatch")]
+@test_return_type_mismatch () -> void = run(
+    let greet = (name: str) -> int = "Hello, " + name,
+    ()
+)

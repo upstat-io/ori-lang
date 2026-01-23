@@ -20,8 +20,8 @@ The following are exempt from the test requirement:
 
 ### Syntax
 
-```
-test          = "@" identifier "tests" target { "tests" target } params "->" "void" "=" expression .
+```ebnf
+test          = "@" identifier [ "tests" target { "tests" target } ] params "->" "void" "=" expression .
 target        = "@" identifier .
 params        = "(" ")" .
 ```
@@ -31,9 +31,40 @@ params        = "(" ")" .
 A test declaration:
 
 1. Introduces a test function with the given name
-2. Associates the test with one or more target functions via the `tests` keyword
+2. Optionally associates the test with one or more target functions via the `tests` keyword
 3. Must have no parameters
 4. Must return `void`
+
+### Targeted Tests
+
+A targeted test declares which functions it tests:
+
+```sigil
+@test_add tests @add () -> void = run(
+    assert_eq(.left: add(.a: 2, .b: 3), .right: 5)
+)
+```
+
+The target function `@add` is considered tested by this test.
+
+### Free-Floating Tests
+
+A free-floating test has no targets. It is used for integration tests, end-to-end tests, or tests that don't map to a specific function:
+
+```sigil
+@test_full_pipeline () -> void = run(
+    let input = "2 + 3",
+    let ast = parse(input),
+    let result = eval(ast),
+    assert_eq(.left: result, .right: 5)
+)
+```
+
+Free-floating tests:
+
+1. Do not satisfy test coverage for any function
+2. Are still executed as part of the test suite
+3. Must still return `void`
 
 ```sigil
 @test_add tests @add () -> void = run(
@@ -56,7 +87,7 @@ A test declaration:
 
 ### Multiple Targets
 
-A single test may cover multiple functions:
+A single targeted test may cover multiple functions:
 
 ```sigil
 @test_roundtrip tests @parse tests @format () -> void = run(
@@ -79,8 +110,8 @@ Attributes modify test behavior. An attribute precedes the test declaration.
 
 ```ebnf
 attributed_test = { attribute } test .
-attribute       = "#[" attribute_name "(" string_literal ")" "]" .
-attribute_name  = "skip" .
+attribute       = "#" attribute_name "(" string_literal ")" .
+attribute_name  = "skip" | "compile_fail" | "fail" .
 ```
 
 ### skip Attribute
@@ -88,7 +119,7 @@ attribute_name  = "skip" .
 The `skip` attribute prevents a test from executing while keeping it in the test suite.
 
 ```sigil
-#[skip("tuple destructuring not yet supported")]
+#skip("tuple destructuring not yet supported")
 @test_destructure tests @parse () -> void = run(
     let (a, b) = parse("1, 2"),
     assert_eq(
@@ -98,13 +129,13 @@ The `skip` attribute prevents a test from executing while keeping it in the test
 )
 ```
 
-### Constraints
+#### Constraints
 
 - The `skip` attribute requires exactly one argument: a string literal.
 - It is an error to omit the reason string.
 - It is an error to apply `skip` to a non-test declaration.
 
-### Semantics
+#### Semantics
 
 A test with the `skip` attribute:
 
@@ -113,6 +144,70 @@ A test with the `skip` attribute:
 3. Is reported separately in test output with the reason string
 4. Does not count as a pass or failure
 5. Satisfies the test requirement for its target functions
+
+### compile_fail Attribute
+
+The `compile_fail` attribute indicates a test that must fail to compile. The argument specifies a substring that must appear in the error message.
+
+```sigil
+#compile_fail("closure cannot capture itself")
+@test_self_capture tests @main () -> void = run(
+    let f = () -> f,
+    ()
+)
+```
+
+#### Constraints
+
+- The `compile_fail` attribute requires exactly one argument: a string literal.
+- The string literal specifies expected error message substring.
+- It is an error to apply `compile_fail` to a non-test declaration.
+
+#### Semantics
+
+A test with the `compile_fail` attribute:
+
+1. Is parsed and type-checked
+2. Must produce at least one compile-time error
+3. At least one error message must contain the specified substring
+4. Passes if compilation fails with the expected error
+5. Fails if compilation succeeds or if no error contains the expected substring
+6. Satisfies the test requirement for its target functions
+
+### fail Attribute
+
+The `fail` attribute indicates a test that is expected to fail at runtime. This is used for:
+
+1. Tests that verify error conditions are properly reported
+2. Documenting known bugs with failing tests
+3. Testing panic behavior
+
+```sigil
+#fail("division by zero")
+@test_div_by_zero tests @divide () -> void = run(
+    let result = divide(.a: 10, .b: 0),
+    ()
+)
+```
+
+#### Constraints
+
+- The `fail` attribute requires exactly one argument: a string literal.
+- The string literal specifies expected failure message substring.
+- It is an error to apply `fail` to a non-test declaration.
+- The `fail` attribute cannot be combined with `compile_fail`.
+
+#### Semantics
+
+A test with the `fail` attribute:
+
+1. Is parsed and type-checked normally
+2. Is executed
+3. Must fail at runtime (assertion failure, panic, or runtime error)
+4. The failure message must contain the specified substring
+5. Passes if execution fails with the expected message
+6. Fails if execution succeeds or if failure message does not contain the expected substring
+7. Satisfies the test requirement for its target functions
 
 ### Test Output
 
@@ -388,15 +483,17 @@ See [Capabilities](14-capabilities.md) for details.
 
 ## Compile-Fail Tests
 
-Tests may verify that certain code fails to compile:
+Tests may verify that certain code fails to compile using the `compile_fail` attribute. See [Test Attributes § compile_fail Attribute](#compile_fail-attribute) for the full specification.
 
 ```sigil
-// #compile-fail
-// #error: type mismatch
-let x: int = "hello"
+#compile_fail("type mismatch")
+@test_type_error tests @main () -> void = run(
+    let x: int = "hello",
+    ()
+)
 ```
 
-The `#compile-fail` directive indicates the code should not compile. The `#error:` directive specifies the expected error.
+The test passes if compilation fails with an error containing the specified substring.
 
 ## Test Output
 
@@ -406,6 +503,7 @@ The `#compile-fail` directive indicates the code should not compile. The `#error
 Running tests...
   ✓ @test_add (3 assertions)
   ✓ @test_multiply (2 assertions)
+  ✓ @test_type_error (compile-fail)
 All tests passed.
 ```
 
@@ -422,6 +520,22 @@ Running tests...
   ✓ @test_multiply (2 assertions)
 
 1 test failed.
+```
+
+### Compile-Fail Test Failure
+
+```
+Running tests...
+  ✗ @test_type_error (compile-fail)
+    expected compilation to fail with: "type mismatch"
+    but compilation succeeded
+
+  ✗ @test_other_error (compile-fail)
+    expected error containing: "unknown identifier"
+    actual errors:
+      - "type mismatch: expected int, found str"
+
+2 tests failed.
 ```
 
 ### JSON Output

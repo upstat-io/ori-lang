@@ -1,0 +1,182 @@
+// Spec: 06-types.md § Type Inference
+// Design: 03-type-system/05-type-inference.md § Unification
+
+// =============================================================================
+// Basic Unification
+// =============================================================================
+
+@test_unify_same_types tests @unify_same_types () -> void = run(
+    // Same types should unify
+    let x: int = 42,
+    let y: int = x,
+    assert_eq(
+        .actual: y,
+        .expected: 42,
+    ),
+)
+
+@unify_same_types () -> int = run(
+    let x: int = 42,
+    let y: int = x,
+    y,
+)
+
+@test_unify_inferred tests @unify_inferred () -> void = run(
+    // Inferred types should unify with concrete types
+    let x = 42,
+    let y: int = x,
+    assert_eq(
+        .actual: y,
+        .expected: 42,
+    ),
+)
+
+@unify_inferred () -> int = run(
+    let x = 42,
+    let y: int = x,
+    y,
+)
+
+// =============================================================================
+// List Type Unification
+// =============================================================================
+
+@test_unify_list_types tests @unify_list_types () -> void = run(
+    let xs = [1, 2, 3],
+    let first = xs[0],
+    assert_eq(
+        .actual: first,
+        .expected: 1,
+    ),
+)
+
+@unify_list_types () -> int = run(
+    let xs = [1, 2, 3],
+    xs[0],
+)
+
+@test_unify_nested_list tests @unify_nested_list () -> void = run(
+    let nested = [[1, 2], [3, 4]],
+    let inner = nested[0],
+    let elem = inner[0],
+    assert_eq(
+        .actual: elem,
+        .expected: 1,
+    ),
+)
+
+@unify_nested_list () -> int = run(
+    let nested = [[1, 2], [3, 4]],
+    nested[0][0],
+)
+
+// =============================================================================
+// Function Type Unification
+// =============================================================================
+
+@test_unify_function_types tests @unify_function_types () -> void = run(
+    let f = (x: int) -> x + 1,
+    let result = f(5),
+    assert_eq(
+        .actual: result,
+        .expected: 6,
+    ),
+)
+
+@unify_function_types () -> int = run(
+    let f = (x: int) -> x + 1,
+    f(5),
+)
+
+@test_unify_higher_order tests @unify_higher_order () -> void = run(
+    let apply = (f: (int) -> int, x: int) -> f(x),
+    let inc = (n: int) -> n + 1,
+    let result = apply(
+        .f: inc,
+        .x: 10,
+    ),
+    assert_eq(
+        .actual: result,
+        .expected: 11,
+    ),
+)
+
+@unify_higher_order () -> int = run(
+    let apply = (f: (int) -> int, x: int) -> f(x),
+    let inc = (n: int) -> n + 1,
+    apply(
+        .f: inc,
+        .x: 10,
+    ),
+)
+
+// =============================================================================
+// Tuple Type Unification
+// =============================================================================
+
+@test_unify_tuple_types tests @unify_tuple_types () -> void = run(
+    let pair = (1, "hello"),
+    let (a, b) = pair,
+    assert_eq(
+        .actual: a,
+        .expected: 1,
+    ),
+    assert_eq(
+        .actual: b,
+        .expected: "hello",
+    ),
+)
+
+@unify_tuple_types () -> int = run(
+    let pair = (1, "hello"),
+    let (a, b) = pair,
+    a,
+)
+
+// =============================================================================
+// Option Type Unification
+// =============================================================================
+
+@test_unify_option_some tests @unify_option_some () -> void = run(
+    let opt = Some(42),
+    assert(is_some(opt)),
+)
+
+@unify_option_some () -> bool = run(
+    let opt = Some(42),
+    is_some(opt),
+)
+
+@test_unify_option_none tests @unify_option_none () -> void = run(
+    let opt = None,
+    assert(is_none(opt)),
+)
+
+@unify_option_none () -> bool = run(
+    let opt = None,
+    is_none(opt),
+)
+
+// =============================================================================
+// Result Type Unification
+// =============================================================================
+
+@test_unify_result_ok tests @unify_result_ok () -> void = run(
+    let res = Ok(42),
+    assert(is_ok(res)),
+)
+
+@unify_result_ok () -> bool = run(
+    let res = Ok(42),
+    is_ok(res),
+)
+
+@test_unify_result_err tests @unify_result_err () -> void = run(
+    let res = Err("error"),
+    assert(is_err(res)),
+)
+
+@unify_result_err () -> bool = run(
+    let res = Err("error"),
+    is_err(res),
+)
