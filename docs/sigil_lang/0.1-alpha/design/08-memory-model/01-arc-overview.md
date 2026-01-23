@@ -1,6 +1,6 @@
 # Automatic Reference Counting (ARC)
 
-This document covers Sigil's memory management strategy: Automatic Reference Counting with backup cycle collection.
+This document covers Sigil's memory management strategy: pure Automatic Reference Counting with compile-time cycle prevention.
 
 ---
 
@@ -280,7 +280,7 @@ This ensures values don't reference already-destroyed values.
 
 ---
 
-## Cycle Handling
+## Cycle Prevention
 
 ### The Cycle Problem
 
@@ -301,119 +301,149 @@ Without cycle handling:
 - B references A (A's refcount >= 1)
 - Neither can be freed, even when unreachable from program
 
-### Sigil's Solution: Backup Cycle Collector
+### Sigil's Solution: Compile-Time Cycle Prevention
 
-Sigil uses a backup cycle collector that runs periodically:
+Rather than a runtime cycle collector, Sigil prevents cycles at compile time. This gives us:
 
-**How it works:**
-1. Normal ARC handles most allocations efficiently
-2. Cycle detector runs when triggered (memory pressure, explicit call)
-3. Identifies unreachable cycles using mark-sweep algorithm
-4. Frees cyclic garbage
+- **Fully deterministic destruction** — no GC pauses, ever
+- **Simpler runtime** — no cycle detection infrastructure
+- **Zero overhead** — no runtime tracking of potential cycles
+- **Easier reasoning** — if code compiles, it cannot leak cycles
 
-**When cycle collection runs:**
-- Memory allocation exceeds threshold
-- Explicit call to `std.memory.collect_cycles()`
-- Program idle time
-- Before program termination
+### Why Not a Backup Collector?
 
+We considered a backup cycle collector (like Python or PHP) but rejected it because:
+
+1. **Violates determinism** — "mostly deterministic" isn't deterministic
+2. **Complexity** — two memory systems to maintain and debug
+3. **Rare but dangerous** — cycles would leak silently until collector runs
+4. **Unnecessary** — Sigil's functional design makes cycles naturally rare
+
+### Cycle Prevention Rules
+
+The compiler enforces these rules:
+
+**1. Self-referential types are forbidden:**
 ```sigil
-use std.memory { collect_cycles }
-
-// Force cycle collection (rarely needed)
-collect_cycles()
+// ERROR: type Node contains itself
+type Node = {
+    value: int,
+    next: Option<Node>
+}
 ```
 
-### Why Cycles Are Rare in Sigil
-
-Sigil's design minimizes cycles:
-
-**Immutable data structures:**
+**2. Mutual recursion through references is forbidden:**
 ```sigil
-// Immutable data naturally forms trees, not graphs
+// ERROR: A and B form a reference cycle
+type A = { ref_b: B }
+type B = { ref_a: A }
+```
+
+**3. Closures cannot capture their containing value:**
+```sigil
+// ERROR: closure captures 'self' which contains closure
+type Widget = {
+    callback: () -> void
+}
+
+// This would create: widget -> callback -> widget
+let widget = Widget { callback: () -> use(widget) }  // ERROR
+```
+
+### Why This Works for Sigil
+
+Sigil's design makes cycles naturally impossible in most code:
+
+**Immutable data forms trees, not graphs:**
+```sigil
+// Immutable data can only reference values that existed before it
 type Tree<T> = Leaf(T) | Branch(left: Tree<T>, right: Tree<T>)
 
-// Children don't reference parents - no cycles possible
+// Each node references children created earlier — no cycles possible
+let leaf1 = Leaf(1)
+let leaf2 = Leaf(2)
+let branch = Branch(left: leaf1, right: leaf2)  // references existing values
 ```
 
-**Functional patterns:**
+**Functional patterns create new values:**
 ```sigil
-// Fold, map, filter create new values, don't mutate
+// Fold, map, filter produce new values, don't mutate existing ones
 @transform (items: [int]) -> [int] =
     map(filter(items, n -> n > 0), n -> n * 2)
-// No cycles created
+// New list created, no cycles possible
 ```
 
-**Value semantics:**
+**Value semantics mean no shared mutable state:**
 ```sigil
 // Creating new values instead of mutating
 @process (data: Data) -> Data =
     Data { id: data.id, value: data.value, processed: true }
-    // New value, original unchanged
+    // New value, original unchanged — no way to form cycle
 ```
 
-### When Cycles Can Occur
+### Patterns for Data That Would Need Cycles
 
-Cycles are possible with certain patterns:
+For data structures that traditionally use cycles, use indices instead:
 
-**Graph structures:**
+**Graphs:**
 ```sigil
-type GraphNode = {
-    id: int,
-    edges: [GraphNode]  // Can form cycles
-}
-```
-
-**Parent-child relationships:**
-```sigil
-type TreeNode = {
-    value: int,
-    parent: Option<TreeNode>,  // Parent reference
-    children: [TreeNode]
-}
-```
-
-**Callback patterns:**
-```sigil
-type EventHandler = {
-    owner: Widget,
-    callback: (Event) -> void  // May capture owner
-}
-```
-
-### Designing Around Cycles
-
-When possible, design to avoid cycles:
-
-**Use IDs instead of references:**
-```sigil
-type GraphNode = {
-    id: int,
-    edge_ids: [int]  // IDs, not references
-}
-
+// Nodes identified by ID, edges are ID pairs
 type Graph = {
-    nodes: Map<int, GraphNode>
+    nodes: {int: NodeData},  // Map from ID to data
+    edges: [(int, int)],     // List of (from, to) pairs
 }
+
+@add_edge (g: Graph, from: int, to: int) -> Graph =
+    Graph { nodes: g.nodes, edges: g.edges + [(from, to)] }
+
+@neighbors (g: Graph, node_id: int) -> [int] =
+    map(filter(g.edges, (from, _) -> from == node_id), (_, to) -> to)
 ```
 
-**Use weak references for back-pointers:**
+**Trees with parent pointers:**
 ```sigil
+// Store parent as optional ID, not reference
 type TreeNode = {
+    id: int,
     value: int,
-    parent_id: Option<int>,  // ID, not reference
-    children: [TreeNode]
+    parent_id: Option<int>,
+    child_ids: [int],
 }
-```
 
-**Break cycles explicitly:**
-```sigil
-@cleanup_graph (graph: Graph) -> void = run(
-    // Clear references before dropping
-    map(graph.nodes, node -> GraphNode { id: node.id, edges: [] }),
-    void,
+type Tree = {
+    nodes: {int: TreeNode},
+    root_id: int,
+}
+
+@parent (tree: Tree, node_id: int) -> Option<TreeNode> = run(
+    let node = tree.nodes[node_id]?,
+    let parent_id = node.parent_id?,
+    tree.nodes[parent_id],
 )
 ```
+
+**Doubly-linked lists:**
+```sigil
+// Use a vector with index-based access instead
+type DoublyLinked<T> = {
+    items: [T],
+    // prev[i] and next[i] are indices, not references
+    prev: [Option<int>],
+    next: [Option<int>],
+    head: Option<int>,
+    tail: Option<int>,
+}
+```
+
+### Benefits of Index-Based Design
+
+Using indices instead of references has advantages beyond cycle prevention:
+
+1. **Serialization** — Data structures serialize trivially to JSON/binary
+2. **Debugging** — Can print entire structure without infinite loops
+3. **Persistence** — Easy to save/load from disk or database
+4. **Sharing** — Can share node data across multiple structures
+5. **Cache-friendly** — Contiguous storage in vectors
 
 ---
 
@@ -489,11 +519,11 @@ Swift uses ARC similarly to Sigil:
 | Feature | Swift | Sigil |
 |---------|-------|-------|
 | Core strategy | ARC | ARC |
-| Cycle handling | Weak/unowned references | Backup cycle collector |
+| Cycle handling | Weak/unowned references | Compile-time prevention |
 | Value types | Explicit `struct` | Automatic for small types |
 | Destruction | Immediate | Immediate |
 
-**Key difference:** Swift requires manual `weak` and `unowned` annotations for cycles. Sigil handles this automatically.
+**Key difference:** Swift requires manual `weak` and `unowned` annotations to break cycles. Sigil prevents cycles at compile time — no manual annotations, no runtime cycle collector.
 
 ### Python (CPython)
 
@@ -502,11 +532,11 @@ CPython uses reference counting plus cycle GC:
 | Feature | CPython | Sigil |
 |---------|---------|-------|
 | Core strategy | Reference counting | ARC |
-| Cycle handling | Generational GC | Backup cycle collector |
+| Cycle handling | Generational GC | Compile-time prevention |
 | Performance | Interpreted, slower | Compiled, faster |
 | Memory safety | Runtime checks | Compile-time types |
 
-**Key difference:** Sigil is compiled with static typing, enabling better optimizations.
+**Key difference:** Sigil prevents cycles at compile time (no GC), is compiled with static typing, and enables better optimizations.
 
 ### Objective-C
 
@@ -515,11 +545,11 @@ Objective-C (with ARC enabled) pioneered compiler-managed reference counting:
 | Feature | Objective-C | Sigil |
 |---------|-------------|-------|
 | Core strategy | ARC | ARC |
-| Cycle handling | Manual weak | Automatic |
+| Cycle handling | Manual weak | Compile-time prevention |
 | Type system | Dynamic | Static |
 | Nil handling | Nil messaging | Option types |
 
-**Key difference:** Sigil uses static typing and `Option<T>` instead of nullable types.
+**Key difference:** Sigil prevents cycles at compile time (no weak references needed), uses static typing, and uses `Option<T>` instead of nullable types.
 
 ---
 

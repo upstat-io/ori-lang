@@ -35,7 +35,7 @@ Sigil uses Automatic Reference Counting (ARC) for memory management:
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Core strategy | ARC | Simple, deterministic |
-| Cycle handling | Backup collector | Handles rare cycles |
+| Cycle handling | Compile-time prevention | No runtime overhead, fully deterministic |
 | Value vs reference | Implicit, size-based | Compiler optimizes |
 | Strings | Ref-counted + SSO | Efficient for all sizes |
 | Lists | Structural sharing | Makes immutability cheap |
