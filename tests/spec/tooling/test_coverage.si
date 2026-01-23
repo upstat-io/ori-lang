@@ -1,0 +1,43 @@
+// Spec: spec/13-testing.md § Coverage Enforcement
+// Design: design/11-testing/index.md § Overview
+//
+// Tests for the --coverage option.
+// Run with: sigil test tests/spec/tooling/test_coverage.si --coverage
+//
+// The coverage report shows:
+// - Which functions have tests (Covered)
+// - Which functions lack tests (Uncovered)
+// - Coverage percentage
+//
+// This file has 100% coverage, so --coverage should show OK.
+
+// =============================================================================
+// Helper functions (all must have tests)
+// =============================================================================
+
+@square (x: int) -> int = x * x
+
+@cube (x: int) -> int = x * x * x
+
+@abs (x: int) -> int = if x < 0 then -x else x
+
+// =============================================================================
+// Tests providing 100% coverage
+// =============================================================================
+@test_square tests @square () -> void = run(
+    assert_eq(square(0), 0),
+    assert_eq(square(3), 9),
+    assert_eq(square(-4), 16),
+)
+
+@test_cube tests @cube () -> void = run(
+    assert_eq(cube(0), 0),
+    assert_eq(cube(2), 8),
+    assert_eq(cube(-2), -8),
+)
+
+@test_abs tests @abs () -> void = run(
+    assert_eq(abs(0), 0),
+    assert_eq(abs(5), 5),
+    assert_eq(abs(-5), 5),
+)

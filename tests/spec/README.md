@@ -11,6 +11,9 @@ defined in `docs/sigil_lang/0.1-alpha/spec/`.
 - If a test fails, the **code is wrong**, not the test
 - Never modify tests to match broken behavior
 - Each test references the spec section it validates
+- Each test must have a comment linking it to it's spec file and section reference (not line number)
+- Each test must have a comment linking it to it's design file and section reference (not line number)
+
 
 ## Organization
 

@@ -32,6 +32,7 @@ Grammar in this specification uses Extended Backus-Naur Form (EBNF). See [Notati
 12. [Modules](12-modules.md) — Module system, imports, visibility
 13. [Testing](13-testing.md) — Mandatory testing requirements
 14. [Capabilities](14-capabilities.md) — Effect system and capability traits
+15. [Memory Model](15-memory-model.md) — ARC, deterministic destruction, value semantics
 
 ## Conformance
 

@@ -1,0 +1,646 @@
+//! Token types for the Sigil lexer.
+//!
+//! Ported from V2 with all Salsa-required traits (Clone, Eq, Hash, Debug).
+
+use super::{Name, Span};
+use std::fmt;
+use std::hash::{Hash, Hasher};
+
+/// A token with its span in the source.
+///
+/// # Salsa Compatibility
+/// Has all required traits: Clone, Eq, PartialEq, Hash, Debug
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub struct Token {
+    pub kind: TokenKind,
+    pub span: Span,
+}
+
+impl Token {
+    #[inline]
+    pub fn new(kind: TokenKind, span: Span) -> Self {
+        Token { kind, span }
+    }
+
+    /// Create a dummy token for testing/generated code.
+    pub fn dummy(kind: TokenKind) -> Self {
+        Token { kind, span: Span::DUMMY }
+    }
+}
+
+impl fmt::Debug for Token {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?} @ {}", self.kind, self.span)
+    }
+}
+
+/// Token kinds for Sigil.
+///
+/// # Salsa Compatibility
+/// Has all required traits: Clone, Eq, PartialEq, Hash, Debug
+///
+/// Float literals store bits as u64 for Hash compatibility.
+/// String/Ident use interned Name for Hash compatibility.
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub enum TokenKind {
+    // === Literals ===
+    /// Integer literal: 42, 1_000
+    Int(i64),
+    /// Float literal: 3.14, 2.5e-8 (stored as bits for Eq/Hash)
+    Float(u64),
+    /// String literal (interned): "hello"
+    String(Name),
+    /// Char literal: 'a', '\n'
+    Char(char),
+    /// Duration literal: 100ms, 5s, 2h
+    Duration(u64, DurationUnit),
+    /// Size literal: 4kb, 10mb
+    Size(u64, SizeUnit),
+
+    // === Identifiers ===
+    /// Identifier (interned)
+    Ident(Name),
+
+    // === Keywords (Reserved) ===
+    Async,
+    Break,
+    Continue,
+    Do,
+    Else,
+    False,
+    For,
+    If,
+    Impl,
+    In,
+    Let,
+    Loop,
+    Match,
+    Mut,
+    Pub,
+    SelfLower,  // self
+    SelfUpper,  // Self
+    Then,
+    Trait,
+    True,
+    Type,
+    Use,
+    Uses,
+    Void,
+    Where,
+    With,
+    Yield,
+
+    // Additional keywords
+    Tests,
+    Assert,
+    Dyn,
+    Extend,
+    Extension,
+    Skip,
+
+    // === Type Keywords ===
+    IntType,     // int
+    FloatType,   // float
+    BoolType,    // bool
+    StrType,     // str
+    CharType,    // char
+    ByteType,    // byte
+    NeverType,   // Never
+
+    // === Constructors/Prelude ===
+    Ok,
+    Err,
+    Some,
+    None,
+
+    // === Pattern Keywords (Context-Sensitive) ===
+    Cache,
+    Collect,
+    Filter,
+    Find,
+    Fold,
+    Map,
+    Parallel,
+    Recurse,
+    Retry,
+    Run,
+    Timeout,
+    Try,
+    Validate,
+
+    // === Symbols ===
+    HashBracket,  // #[
+    At,           // @
+    Dollar,       // $
+    Hash,         // #
+    LParen,       // (
+    RParen,       // )
+    LBrace,       // {
+    RBrace,       // }
+    LBracket,     // [
+    RBracket,     // ]
+    Colon,        // :
+    DoubleColon,  // ::
+    Comma,        // ,
+    Dot,          // .
+    DotDot,       // ..
+    DotDotEq,     // ..=
+    Arrow,        // ->
+    FatArrow,     // =>
+    Pipe,         // |
+    Question,     // ?
+    DoubleQuestion, // ??
+    Underscore,   // _
+    Semicolon,    // ;
+
+    // === Operators ===
+    Eq,           // =
+    EqEq,         // ==
+    NotEq,        // !=
+    Lt,           // <
+    LtEq,         // <=
+    Shl,          // <<
+    Gt,           // >
+    GtEq,         // >=
+    Shr,          // >>
+    Plus,         // +
+    Minus,        // -
+    Star,         // *
+    Slash,        // /
+    Percent,      // %
+    Bang,         // !
+    Tilde,        // ~
+    Amp,          // &
+    AmpAmp,       // &&
+    PipePipe,     // ||
+    Caret,        // ^
+    Div,          // div (floor division keyword)
+
+    // === Whitespace/Trivia ===
+    Newline,
+    Eof,
+
+    // === Error ===
+    Error,
+}
+
+impl TokenKind {
+    /// Check if this token can start an expression.
+    pub fn can_start_expr(&self) -> bool {
+        matches!(
+            self,
+            TokenKind::Int(_) | TokenKind::Float(_) | TokenKind::String(_) |
+            TokenKind::Char(_) | TokenKind::Duration(_, _) | TokenKind::Size(_, _) |
+            TokenKind::Ident(_) | TokenKind::True | TokenKind::False |
+            TokenKind::If | TokenKind::For | TokenKind::Match | TokenKind::Loop |
+            TokenKind::Let | TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace |
+            TokenKind::At | TokenKind::Dollar | TokenKind::Minus | TokenKind::Bang |
+            TokenKind::Tilde | TokenKind::Ok | TokenKind::Err | TokenKind::Some | TokenKind::None |
+            TokenKind::Run | TokenKind::Try | TokenKind::Map | TokenKind::Filter |
+            TokenKind::Fold | TokenKind::Find | TokenKind::Collect | TokenKind::Recurse |
+            TokenKind::Parallel | TokenKind::Timeout | TokenKind::Retry |
+            TokenKind::Cache | TokenKind::Validate
+        )
+    }
+
+    /// Check if this is a pattern keyword.
+    pub fn is_pattern_keyword(&self) -> bool {
+        matches!(
+            self,
+            TokenKind::Cache | TokenKind::Collect | TokenKind::Filter |
+            TokenKind::Find | TokenKind::Fold | TokenKind::Map |
+            TokenKind::Parallel | TokenKind::Recurse | TokenKind::Retry |
+            TokenKind::Run | TokenKind::Timeout | TokenKind::Try |
+            TokenKind::Validate
+        )
+    }
+
+    /// Get a display name for the token.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            TokenKind::Int(_) => "integer",
+            TokenKind::Float(_) => "float",
+            TokenKind::String(_) => "string",
+            TokenKind::Char(_) => "char",
+            TokenKind::Duration(_, _) => "duration",
+            TokenKind::Size(_, _) => "size",
+            TokenKind::Ident(_) => "identifier",
+            TokenKind::Async => "async",
+            TokenKind::Break => "break",
+            TokenKind::Continue => "continue",
+            TokenKind::Do => "do",
+            TokenKind::Else => "else",
+            TokenKind::False => "false",
+            TokenKind::For => "for",
+            TokenKind::If => "if",
+            TokenKind::Impl => "impl",
+            TokenKind::In => "in",
+            TokenKind::Let => "let",
+            TokenKind::Loop => "loop",
+            TokenKind::Match => "match",
+            TokenKind::Mut => "mut",
+            TokenKind::Pub => "pub",
+            TokenKind::SelfLower => "self",
+            TokenKind::SelfUpper => "Self",
+            TokenKind::Then => "then",
+            TokenKind::Trait => "trait",
+            TokenKind::True => "true",
+            TokenKind::Type => "type",
+            TokenKind::Use => "use",
+            TokenKind::Uses => "uses",
+            TokenKind::Void => "void",
+            TokenKind::Where => "where",
+            TokenKind::With => "with",
+            TokenKind::Yield => "yield",
+            TokenKind::Tests => "tests",
+            TokenKind::Assert => "assert",
+            TokenKind::Dyn => "dyn",
+            TokenKind::Extend => "extend",
+            TokenKind::Extension => "extension",
+            TokenKind::Skip => "skip",
+            TokenKind::IntType => "int",
+            TokenKind::FloatType => "float",
+            TokenKind::BoolType => "bool",
+            TokenKind::StrType => "str",
+            TokenKind::CharType => "char",
+            TokenKind::ByteType => "byte",
+            TokenKind::NeverType => "Never",
+            TokenKind::Ok => "Ok",
+            TokenKind::Err => "Err",
+            TokenKind::Some => "Some",
+            TokenKind::None => "None",
+            TokenKind::Cache => "cache",
+            TokenKind::Collect => "collect",
+            TokenKind::Filter => "filter",
+            TokenKind::Find => "find",
+            TokenKind::Fold => "fold",
+            TokenKind::Map => "map",
+            TokenKind::Parallel => "parallel",
+            TokenKind::Recurse => "recurse",
+            TokenKind::Retry => "retry",
+            TokenKind::Run => "run",
+            TokenKind::Timeout => "timeout",
+            TokenKind::Try => "try",
+            TokenKind::Validate => "validate",
+            TokenKind::HashBracket => "#[",
+            TokenKind::At => "@",
+            TokenKind::Dollar => "$",
+            TokenKind::Hash => "#",
+            TokenKind::LParen => "(",
+            TokenKind::RParen => ")",
+            TokenKind::LBrace => "{",
+            TokenKind::RBrace => "}",
+            TokenKind::LBracket => "[",
+            TokenKind::RBracket => "]",
+            TokenKind::Colon => ":",
+            TokenKind::DoubleColon => "::",
+            TokenKind::Comma => ",",
+            TokenKind::Dot => ".",
+            TokenKind::DotDot => "..",
+            TokenKind::DotDotEq => "..=",
+            TokenKind::Arrow => "->",
+            TokenKind::FatArrow => "=>",
+            TokenKind::Pipe => "|",
+            TokenKind::Question => "?",
+            TokenKind::DoubleQuestion => "??",
+            TokenKind::Underscore => "_",
+            TokenKind::Semicolon => ";",
+            TokenKind::Eq => "=",
+            TokenKind::EqEq => "==",
+            TokenKind::NotEq => "!=",
+            TokenKind::Lt => "<",
+            TokenKind::LtEq => "<=",
+            TokenKind::Shl => "<<",
+            TokenKind::Gt => ">",
+            TokenKind::GtEq => ">=",
+            TokenKind::Shr => ">>",
+            TokenKind::Plus => "+",
+            TokenKind::Minus => "-",
+            TokenKind::Star => "*",
+            TokenKind::Slash => "/",
+            TokenKind::Percent => "%",
+            TokenKind::Bang => "!",
+            TokenKind::Tilde => "~",
+            TokenKind::Amp => "&",
+            TokenKind::AmpAmp => "&&",
+            TokenKind::PipePipe => "||",
+            TokenKind::Caret => "^",
+            TokenKind::Div => "div",
+            TokenKind::Newline => "newline",
+            TokenKind::Eof => "end of file",
+            TokenKind::Error => "error",
+        }
+    }
+}
+
+impl fmt::Debug for TokenKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TokenKind::Int(n) => write!(f, "Int({})", n),
+            TokenKind::Float(bits) => write!(f, "Float({})", f64::from_bits(*bits)),
+            TokenKind::String(name) => write!(f, "String({:?})", name),
+            TokenKind::Char(c) => write!(f, "Char({:?})", c),
+            TokenKind::Duration(n, unit) => write!(f, "Duration({}{:?})", n, unit),
+            TokenKind::Size(n, unit) => write!(f, "Size({}{:?})", n, unit),
+            TokenKind::Ident(name) => write!(f, "Ident({:?})", name),
+            _ => write!(f, "{}", self.display_name()),
+        }
+    }
+}
+
+/// Duration unit for duration literals.
+///
+/// # Salsa Compatibility
+/// Has all required traits: Copy, Clone, Eq, PartialEq, Hash, Debug
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+pub enum DurationUnit {
+    Milliseconds,
+    Seconds,
+    Minutes,
+    Hours,
+}
+
+impl DurationUnit {
+    /// Convert value to milliseconds.
+    #[inline]
+    pub fn to_millis(self, value: u64) -> u64 {
+        match self {
+            DurationUnit::Milliseconds => value,
+            DurationUnit::Seconds => value * 1000,
+            DurationUnit::Minutes => value * 60 * 1000,
+            DurationUnit::Hours => value * 60 * 60 * 1000,
+        }
+    }
+
+    /// Get the suffix string.
+    #[inline]
+    pub fn suffix(self) -> &'static str {
+        match self {
+            DurationUnit::Milliseconds => "ms",
+            DurationUnit::Seconds => "s",
+            DurationUnit::Minutes => "m",
+            DurationUnit::Hours => "h",
+        }
+    }
+}
+
+impl fmt::Debug for DurationUnit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.suffix())
+    }
+}
+
+/// Size unit for size literals.
+///
+/// # Salsa Compatibility
+/// Has all required traits: Copy, Clone, Eq, PartialEq, Hash, Debug
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+pub enum SizeUnit {
+    Bytes,
+    Kilobytes,
+    Megabytes,
+    Gigabytes,
+}
+
+impl SizeUnit {
+    /// Convert value to bytes.
+    #[inline]
+    pub fn to_bytes(self, value: u64) -> u64 {
+        match self {
+            SizeUnit::Bytes => value,
+            SizeUnit::Kilobytes => value * 1024,
+            SizeUnit::Megabytes => value * 1024 * 1024,
+            SizeUnit::Gigabytes => value * 1024 * 1024 * 1024,
+        }
+    }
+
+    /// Get the suffix string.
+    #[inline]
+    pub fn suffix(self) -> &'static str {
+        match self {
+            SizeUnit::Bytes => "b",
+            SizeUnit::Kilobytes => "kb",
+            SizeUnit::Megabytes => "mb",
+            SizeUnit::Gigabytes => "gb",
+        }
+    }
+}
+
+impl fmt::Debug for SizeUnit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.suffix())
+    }
+}
+
+/// A list of tokens with Salsa-compatible traits.
+///
+/// Wraps Vec<Token> with Clone, Eq, Hash support.
+/// Uses the tokens' own Hash impl for content hashing.
+///
+/// # Salsa Compatibility
+/// Has all required traits: Clone, Eq, PartialEq, Hash, Debug, Default
+#[derive(Clone, Eq, PartialEq, Default)]
+pub struct TokenList {
+    tokens: Vec<Token>,
+}
+
+impl TokenList {
+    /// Create a new empty token list.
+    #[inline]
+    pub fn new() -> Self {
+        TokenList { tokens: Vec::new() }
+    }
+
+    /// Create from a Vec of tokens.
+    #[inline]
+    pub fn from_vec(tokens: Vec<Token>) -> Self {
+        TokenList { tokens }
+    }
+
+    /// Push a token.
+    #[inline]
+    pub fn push(&mut self, token: Token) {
+        self.tokens.push(token);
+    }
+
+    /// Get the number of tokens.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.tokens.len()
+    }
+
+    /// Check if empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.tokens.is_empty()
+    }
+
+    /// Get token at index.
+    #[inline]
+    pub fn get(&self, index: usize) -> Option<&Token> {
+        self.tokens.get(index)
+    }
+
+    /// Get a slice of all tokens.
+    #[inline]
+    pub fn as_slice(&self) -> &[Token] {
+        &self.tokens
+    }
+
+    /// Iterate over tokens.
+    #[inline]
+    pub fn iter(&self) -> impl Iterator<Item = &Token> {
+        self.tokens.iter()
+    }
+
+    /// Consume into Vec.
+    #[inline]
+    pub fn into_vec(self) -> Vec<Token> {
+        self.tokens
+    }
+}
+
+impl Hash for TokenList {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Hash length first for better distribution
+        self.tokens.len().hash(state);
+        for token in &self.tokens {
+            token.hash(state);
+        }
+    }
+}
+
+impl fmt::Debug for TokenList {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "TokenList({} tokens)", self.tokens.len())
+    }
+}
+
+impl std::ops::Index<usize> for TokenList {
+    type Output = Token;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.tokens[index]
+    }
+}
+
+impl IntoIterator for TokenList {
+    type Item = Token;
+    type IntoIter = std::vec::IntoIter<Token>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.tokens.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a TokenList {
+    type Item = &'a Token;
+    type IntoIter = std::slice::Iter<'a, Token>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.tokens.iter()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_token_hash() {
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+
+        let t1 = Token::new(TokenKind::Int(42), Span::new(0, 2));
+        let t2 = Token::new(TokenKind::Int(42), Span::new(0, 2)); // same
+        let t3 = Token::new(TokenKind::Int(43), Span::new(0, 2)); // different
+
+        set.insert(t1);
+        set.insert(t2);
+        set.insert(t3);
+
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_token_kind_hash() {
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+
+        set.insert(TokenKind::Int(1));
+        set.insert(TokenKind::Int(1)); // duplicate
+        set.insert(TokenKind::Int(2));
+        set.insert(TokenKind::Plus);
+        set.insert(TokenKind::Plus); // duplicate
+
+        assert_eq!(set.len(), 3);
+    }
+
+    #[test]
+    fn test_token_list_hash() {
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+
+        let list1 = TokenList::from_vec(vec![
+            Token::new(TokenKind::Int(1), Span::new(0, 1)),
+            Token::new(TokenKind::Plus, Span::new(2, 3)),
+        ]);
+        let list2 = TokenList::from_vec(vec![
+            Token::new(TokenKind::Int(1), Span::new(0, 1)),
+            Token::new(TokenKind::Plus, Span::new(2, 3)),
+        ]);
+        let list3 = TokenList::from_vec(vec![
+            Token::new(TokenKind::Int(2), Span::new(0, 1)),
+        ]);
+
+        set.insert(list1);
+        set.insert(list2); // same as list1
+        set.insert(list3);
+
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_float_bits_hash() {
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+
+        let bits1 = 3.14f64.to_bits();
+        let bits2 = 3.14f64.to_bits();
+        let bits3 = 2.71f64.to_bits();
+
+        set.insert(TokenKind::Float(bits1));
+        set.insert(TokenKind::Float(bits2)); // same
+        set.insert(TokenKind::Float(bits3));
+
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_duration_unit() {
+        assert_eq!(DurationUnit::Seconds.to_millis(5), 5000);
+        assert_eq!(DurationUnit::Minutes.to_millis(1), 60000);
+        assert_eq!(DurationUnit::Hours.suffix(), "h");
+    }
+
+    #[test]
+    fn test_size_unit() {
+        assert_eq!(SizeUnit::Kilobytes.to_bytes(4), 4096);
+        assert_eq!(SizeUnit::Megabytes.to_bytes(1), 1024 * 1024);
+        assert_eq!(SizeUnit::Bytes.suffix(), "b");
+    }
+
+    #[test]
+    fn test_token_list_operations() {
+        let mut list = TokenList::new();
+        assert!(list.is_empty());
+
+        list.push(Token::new(TokenKind::Int(1), Span::new(0, 1)));
+        list.push(Token::new(TokenKind::Plus, Span::new(2, 3)));
+
+        assert_eq!(list.len(), 2);
+        assert!(!list.is_empty());
+        assert_eq!(list[0].kind, TokenKind::Int(1));
+        assert_eq!(list.get(1).unwrap().kind, TokenKind::Plus);
+    }
+}

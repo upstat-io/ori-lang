@@ -61,6 +61,31 @@ let description = match(status,
 | `\|\|` | Logical or | `a \|\| b` |
 | `!` | Logical not | `!a` |
 
+### Bitwise
+
+| Operator | Meaning | Example |
+|----------|---------|---------|
+| `&` | Bitwise and | `a & b` |
+| `\|` | Bitwise or | `a \| b` |
+| `^` | Bitwise xor | `a ^ b` |
+| `~` | Bitwise not | `~a` |
+| `<<` | Left shift | `a << 2` |
+| `>>` | Right shift (arithmetic) | `a >> 2` |
+
+Bitwise operators work on `int` and `byte` types:
+
+```sigil
+let flags = 0b1010 & 0b1100  // 0b1000 (8)
+let mask = 1 << 4            // 16
+let high = value >> 8        // shift right by 8 bits
+let inverted = ~flags        // bitwise complement
+```
+
+**Shift behavior:**
+- Shift amount is taken modulo the bit width of the type
+- Right shift is arithmetic (preserves sign for negative numbers)
+- Negative shift amounts are undefined behavior
+
 ### Other
 
 | Operator | Meaning | Example |
@@ -75,15 +100,20 @@ let description = match(status,
 
 From highest to lowest:
 
-1. Unary: `!`, `-` (negation)
-2. Multiplicative: `*`, `/`, `%`, `div`
-3. Additive: `+`, `-`
-4. Range: `..`, `..=`
-5. Comparison: `<`, `>`, `<=`, `>=`
-6. Equality: `==`, `!=`
-7. Logical and: `&&`
-8. Logical or: `||`
-9. Coalesce: `??`
+1. Postfix: `.`, `[]`, `()`, `?` (access, index, call, propagate)
+2. Unary: `!`, `-`, `~` (not, negate, bitwise not)
+3. Multiplicative: `*`, `/`, `%`, `div`
+4. Additive: `+`, `-`
+5. Shift: `<<`, `>>` (left shift, right shift)
+6. Range: `..`, `..=`
+7. Comparison: `<`, `>`, `<=`, `>=`
+8. Equality: `==`, `!=`
+9. Bitwise and: `&`
+10. Bitwise xor: `^`
+11. Bitwise or: `|`
+12. Logical and: `&&`
+13. Logical or: `||`
+14. Coalesce: `??`
 
 Use parentheses to override:
 

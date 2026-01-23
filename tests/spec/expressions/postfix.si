@@ -1,31 +1,36 @@
-// Spec Tests: 09-expressions.md - Postfix Expressions
-// Tests are the source of truth - the compiler must conform to these tests
+// Spec: spec/09-expressions.md § Postfix Expressions
+// Design: design/02-syntax/02-expressions.md § Postfix
+//
+// Tests postfix expressions (indexing, field access, method calls)
+
+// Helper function for tests
+@identity (x: int) -> int = x
 
 // =============================================================================
-// Index Access (Spec: postfix = expression "[" expression "]")
+// Index Access
+// Spec: spec/09-expressions.md § postfix = expression "[" expression "]"
 // =============================================================================
 
-@test_index_list () -> void = run(
+@test_index_list tests @identity () -> void = run(
     let arr = [10, 20, 30, 40],
     assert(arr[0] == 10),
     assert(arr[1] == 20),
     assert(arr[3] == 40),
 )
 
-@test_index_from_end () -> void = run(
+@test_index_from_end tests @identity () -> void = run(
     let arr = [1, 2, 3, 4, 5],
-    // Spec: # inside brackets refers to length
     assert(arr[# - 1] == 5),
     assert(arr[# - 2] == 4),
 )
 
-@test_index_map () -> void = run(
+@test_index_map tests @identity () -> void = run(
     let m = {"a": 1, "b": 2, "c": 3},
     assert(m["a"] == 1),
     assert(m["b"] == 2),
 )
 
-@test_index_nested () -> void = run(
+@test_index_nested tests @identity () -> void = run(
     let matrix = [[1, 2], [3, 4], [5, 6]],
     assert(matrix[0][0] == 1),
     assert(matrix[1][1] == 4),
@@ -33,23 +38,24 @@
 )
 
 // =============================================================================
-// Field Access (Spec: postfix = expression "." identifier)
+// Field Access
+// Spec: spec/09-expressions.md § postfix = expression "." identifier
 // =============================================================================
 
 #[skip("type definitions not yet supported")]
-@test_field_access tests @test_index_list () -> void = run(
+@test_field_access tests @identity () -> void = run(
     let p = Point { x: 3, y: 4 },
     assert(p.x == 3),
     assert(p.y == 4),
 )
 
 // =============================================================================
-// Method Call (Spec: postfix = expression "." identifier "(" args ")")
+// Method Call
+// Spec: spec/09-expressions.md § postfix = expression "." identifier "(" args ")"
 // =============================================================================
 
-@test_method_call () -> void = run(
+@test_method_call tests @identity () -> void = run(
     let s = "hello",
-    // String methods
     assert(len(s) == 5),
 )
 
@@ -58,7 +64,7 @@
 // =============================================================================
 
 #[skip("type definitions not yet supported")]
-@test_chained_field tests @test_field_access () -> void = run(
+@test_chained_field tests @identity () -> void = run(
     let r = Rect {
         origin: Point { x: 0, y: 0 },
         size: Point { x: 10, y: 20 },
@@ -68,13 +74,14 @@
 )
 
 // =============================================================================
-// Error Propagation (Spec: postfix = expression "?")
+// Error Propagation
+// Spec: spec/09-expressions.md § postfix = expression "?"
 // =============================================================================
 
-@test_propagation tests @test_index_list () -> void = run(
+@test_propagation tests @identity () -> void = run(
     assert(true),
 )
 
-@test_result_propagation tests @test_propagation () -> void = run(
+@test_result_propagation tests @identity () -> void = run(
     assert(true),
 )

@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "compiler/sigilc-v2",
+    "compiler/sigilc-v3",
 ]
 # V1 compiler kept for reference only, excluded from workspace
 # LSP excluded until updated to use v2 compiler

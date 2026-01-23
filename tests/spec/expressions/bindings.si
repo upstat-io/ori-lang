@@ -1,16 +1,22 @@
-// Spec Tests: 09-expressions.md - Let Bindings
-// Tests are the source of truth - the compiler must conform to these tests
+// Spec: spec/09-expressions.md § Let Bindings
+// Design: design/02-syntax/02-expressions.md § Bindings
+//
+// Tests let bindings
+
+// Helper function for tests
+@identity (x: int) -> int = x
 
 // =============================================================================
-// Basic Let Binding (Spec: let_binding = "let" identifier "=" expression)
+// Basic Let Binding
+// Spec: spec/09-expressions.md § let_binding = "let" identifier "=" expression
 // =============================================================================
 
-@test_let_basic () -> void = run(
+@test_let_basic tests @identity () -> void = run(
     let x = 42,
     assert(x == 42),
 )
 
-@test_let_multiple () -> void = run(
+@test_let_multiple tests @identity () -> void = run(
     let a = 1,
     let b = 2,
     let c = 3,
@@ -18,10 +24,11 @@
 )
 
 // =============================================================================
-// Let with Type Annotation (Spec: let_binding = "let" identifier ":" type "=" expression)
+// Let with Type Annotation
+// Spec: spec/09-expressions.md § let_binding = "let" identifier ":" type "=" expression
 // =============================================================================
 
-@test_let_annotated () -> void = run(
+@test_let_annotated tests @identity () -> void = run(
     let x: int = 42,
     let s: str = "hello",
     let b: bool = true,
@@ -31,17 +38,18 @@
 )
 
 // =============================================================================
-// Mutable Bindings (Spec: let_binding = "let" "mut" identifier "=" expression)
+// Mutable Bindings
+// Spec: spec/09-expressions.md § let_binding = "let" "mut" identifier "=" expression
 // =============================================================================
 
-@test_let_mut () -> void = run(
+@test_let_mut tests @identity () -> void = run(
     let mut x = 0,
     x = 1,
     x = 2,
     assert(x == 2),
 )
 
-@test_let_mut_annotated () -> void = run(
+@test_let_mut_annotated tests @identity () -> void = run(
     let mut count: int = 0,
     count = count + 1,
     count = count + 1,
@@ -49,33 +57,35 @@
 )
 
 // =============================================================================
-// Shadowing (Spec: Later bindings can shadow earlier ones)
+// Shadowing
+// Spec: spec/09-expressions.md § Later bindings can shadow earlier ones
 // =============================================================================
 
-@test_let_shadow () -> void = run(
+@test_let_shadow tests @identity () -> void = run(
     let x = 1,
     let x = x + 10,
     let x = x + 100,
     assert(x == 111),
 )
 
-@test_let_shadow_type_change () -> void = run(
+@test_let_shadow_type_change tests @identity () -> void = run(
     let x = 42,
     let x = "now a string",
     assert(x == "now a string"),
 )
 
 // =============================================================================
-// Tuple Destructuring (Spec: let "(" pattern ")" "=" expression)
+// Tuple Destructuring
+// Spec: spec/09-expressions.md § let "(" pattern ")" "=" expression
 // =============================================================================
 
-@test_let_tuple_destructure tests @test_let_basic () -> void = run(
+@test_let_tuple_destructure tests @identity () -> void = run(
     let (a, b) = (1, 2),
     assert(a == 1),
     assert(b == 2),
 )
 
-@test_let_tuple_nested tests @test_let_basic () -> void = run(
+@test_let_tuple_nested tests @identity () -> void = run(
     let (x, (y, z)) = (1, (2, 3)),
     assert(x == 1),
     assert(y == 2),
@@ -83,16 +93,17 @@
 )
 
 // =============================================================================
-// List Destructuring (Spec: let "[" pattern "]" "=" expression)
+// List Destructuring
+// Spec: spec/09-expressions.md § let "[" pattern "]" "=" expression
 // =============================================================================
 
-@test_let_list_destructure tests @test_let_basic () -> void = run(
+@test_let_list_destructure tests @identity () -> void = run(
     let [first, second] = [1, 2],
     assert(first == 1),
     assert(second == 2),
 )
 
-@test_let_list_rest tests @test_let_basic () -> void = run(
+@test_let_list_rest tests @identity () -> void = run(
     let [head, ..tail] = [1, 2, 3, 4],
     assert(head == 1),
     assert(len(tail) == 3),

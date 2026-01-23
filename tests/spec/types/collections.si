@@ -1,8 +1,14 @@
-// Spec Tests: 06-types.md § Collection Types
-// Tests are the source of truth - the compiler must conform to these tests
+// Spec: spec/06-types.md § Collection Types
+// Design: design/03-type-system/02-compound-types.md
+//
+// Tests collection types
+
+// Helper function for tests
+@identity (x: int) -> int = x
 
 // =============================================================================
-// List Type (Spec: list_type = "[" type "]")
+// List Type
+// Spec: spec/06-types.md § list_type = "[" type "]"
 // =============================================================================
 
 @list_of_ints () -> [int] = [1, 2, 3]
@@ -19,7 +25,8 @@
 )
 
 // =============================================================================
-// Map Type (Spec: map_type = "{" type ":" type "}")
+// Map Type
+// Spec: spec/06-types.md § map_type = "{" type ":" type "}"
 // =============================================================================
 
 @map_str_int () -> {str: int} = {"a": 1, "b": 2}
@@ -33,7 +40,8 @@
 )
 
 // =============================================================================
-// Tuple Type (Spec: tuple_type = "(" type "," type { "," type } ")")
+// Tuple Type
+// Spec: spec/06-types.md § tuple_type = "(" type "," type { "," type } ")"
 // =============================================================================
 
 @tuple_pair () -> (int, str) = (42, "hello")
@@ -46,7 +54,8 @@
 )
 
 // =============================================================================
-// Option Type (Spec: Option<T> = Some(T) | None)
+// Option Type
+// Spec: spec/06-types.md § Option<T> = Some(T) | None
 // =============================================================================
 
 @option_some () -> Option<int> = Some(42)
@@ -59,7 +68,8 @@
 )
 
 // =============================================================================
-// Result Type (Spec: Result<T, E> = Ok(T) | Err(E))
+// Result Type
+// Spec: spec/06-types.md § Result<T, E> = Ok(T) | Err(E)
 // =============================================================================
 
 @result_ok () -> Result<int, str> = Ok(42)

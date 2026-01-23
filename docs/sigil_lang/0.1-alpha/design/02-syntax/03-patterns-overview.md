@@ -36,7 +36,30 @@ The AI declares WHAT (fibonacci with memoization), and the language handles HOW.
 
 ## Pattern Categories
 
-### Data Transformation
+Patterns are distinct from function calls. They fall into two categories based on their internal structure:
+
+### function_seq — Sequential Expressions
+
+A **function_seq** contains a sequence of expressions evaluated in order. These are control flow constructs where order is the meaning.
+
+| Pattern | Purpose |
+|---------|---------|
+| `run` | Sequential execution with bindings |
+| `try` | Sequential execution with error propagation |
+| `match` | Pattern matching with ordered arms |
+
+```sigil
+// function_seq: expressions flow in sequence
+run(
+    let x = step1(),
+    let y = step2(x),
+    x + y,
+)
+```
+
+### function_exp — Named Expressions
+
+A **function_exp** contains named expressions (`.name: expr`). These are configuration-based constructs where names provide meaning.
 
 | Pattern | Purpose |
 |---------|---------|
@@ -44,52 +67,95 @@ The AI declares WHAT (fibonacci with memoization), and the language handles HOW.
 | `filter` | Select elements matching predicate |
 | `fold` | Reduce/aggregate to single value |
 | `collect` | Build list from range |
-
-### Control Flow
-
-| Pattern | Purpose |
-|---------|---------|
+| `find` | Find first matching element |
 | `recurse` | Recursive functions with memoization |
-| `match` | Pattern matching/dispatch |
-| `run` | Sequential execution |
-| `try` | Error propagation |
-
-### Concurrency
-
-| Pattern | Purpose |
-|---------|---------|
 | `parallel` | Concurrent execution |
 | `timeout` | Time-bounded operations |
-
-### Resilience
-
-| Pattern | Purpose |
-|---------|---------|
 | `retry` | Retry with backoff |
 | `cache` | Memoization with TTL |
 | `validate` | Input validation |
 | `with` | Resource management |
 
+```sigil
+// function_exp: named expressions, each on its own line
+fold(
+    .over: items,
+    .init: 0,
+    .op: +,
+)
+```
+
+### Why Two Categories?
+
+The distinction reflects fundamentally different semantics:
+
+| Category | Contents | Order | Argument Style |
+|----------|----------|-------|----------------|
+| **function_seq** | Sequence of expressions | Matters (serial evaluation) | Positional |
+| **function_exp** | Named expressions | Doesn't matter | Named (`.name:`) |
+
+This is not about "positional vs named arguments." These are different constructs:
+- function_seq doesn't have "parameters" — it has a sequence
+- function_exp doesn't have "parameters" — it has named expressions
+
 ---
 
 ## Pattern Syntax
 
-Patterns use **named properties exclusively**. This ensures:
-- Self-documenting code
-- Clear distinction from function calls
-- Consistent structure across all patterns
-- No positional argument ambiguity
+Patterns use **named properties exclusively**, with each argument on its own line. This is a deliberate design choice with significant benefits for both AI and human readers.
 
 ### Syntax
 
 ```sigil
 pattern_name(
     .property: value,
-    .property: value
+    .property: value,
 )
 ```
 
 The leading dot (`.property:`) distinguishes pattern arguments from regular function calls and struct fields.
+
+### Why Named-Only, One Per Line?
+
+#### For AI-Assisted Development
+
+1. **Line-oriented edits** — AI can add or remove a single line without modifying a range. No risk of breaking syntax by miscounting commas or parentheses in a dense inline expression.
+
+2. **Self-documenting** — AI doesn't need to trace callers to discover parameter order or meaning. The property name (`.over:`, `.transform:`, `.predicate:`) immediately conveys intent.
+
+3. **Reduced context usage** — While more verbose in tokens, the structured format reduces the context needed to understand code. AI can scan property names without parsing complex nested expressions.
+
+#### For Humans
+
+1. **Whitespace aids comprehension** — Research shows whitespace significantly improves human understanding. Each argument gets visual separation.
+
+2. **Narrow column, fast scanning** — Vertical layout creates a narrow column that humans scan substantially faster than wide horizontal code.
+
+3. **Zero ambiguity** — No question about argument order or meaning. `.predicate:` is obviously the filter condition; `.init:` is obviously the initial value.
+
+4. **Self-documenting** — Code explains itself without requiring jumps to function signatures or documentation.
+
+#### The Tradeoff
+
+Yes, this is more verbose:
+
+```sigil
+// Compact but ambiguous
+fold(items, 0, +)
+
+// Verbose but clear
+fold(
+    .over: items,
+    .init: 0,
+    .op: +,
+)
+```
+
+The verbosity cost is offset by:
+- Faster reading and understanding
+- Fewer bugs from argument order mistakes
+- Easier code review and maintenance
+- Better AI-assisted editing
 
 ### Example
 
@@ -191,9 +257,19 @@ The leading dot (`.property:`) distinguishes pattern arguments from regular func
 
 ```sigil
 @process (items: [int]) -> int = run(
-    let doubled = map(items, x -> x * 2),
-    let filtered = filter(doubled, x -> x > 10),
-    fold(filtered, 0, +),
+    let doubled = map(
+        .over: items,
+        .transform: x -> x * 2,
+    ),
+    let filtered = filter(
+        .over: doubled,
+        .predicate: x -> x > 10,
+    ),
+    fold(
+        .over: filtered,
+        .init: 0,
+        .op: +,
+    ),
 )
 ```
 

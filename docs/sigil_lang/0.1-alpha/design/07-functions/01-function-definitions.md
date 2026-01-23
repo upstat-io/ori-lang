@@ -146,7 +146,10 @@ Functions can return any type:
 
 ```sigil
 // Lists
-@double_all (items: [int]) -> [int] = map(items, x -> x * 2)
+@double_all (items: [int]) -> [int] = map(
+    .over: items,
+    .transform: x -> x * 2,
+)
 
 // Structs
 @create_point (x: int, y: int) -> Point = Point { x: x, y: y }
@@ -190,9 +193,19 @@ Use patterns for complex logic:
 
 // Sequential operations with run
 @process (items: [int]) -> int = run(
-    let doubled = map(items, x -> x * 2),
-    let filtered = filter(doubled, x -> x > 10),
-    fold(filtered, 0, +),
+    let doubled = map(
+        .over: items,
+        .transform: x -> x * 2,
+    ),
+    let filtered = filter(
+        .over: doubled,
+        .predicate: x -> x > 10,
+    ),
+    fold(
+        .over: filtered,
+        .init: 0,
+        .op: +,
+    ),
 )
 ```
 
@@ -245,8 +258,11 @@ Use `pub` keyword for public visibility:
 ```sigil
 pub @add (a: int, b: int) -> int = a + b
 
-pub @calculate_total (items: [Item]) -> int =
-    fold(items, 0, (sum, item) -> sum + item.price)
+pub @calculate_total (items: [Item]) -> int = fold(
+    .over: items,
+    .init: 0,
+    .op: (sum, item) -> sum + item.price,
+)
 ```
 
 ### Visibility Rules
@@ -562,14 +578,33 @@ pub @validate_user (user: UserInput) -> bool =
 ```sigil
 // Good: use patterns
 @process (items: [int]) -> int = run(
-    let doubled = map(items, x -> x * 2),
-    let filtered = filter(doubled, x -> x > 10),
-    fold(filtered, 0, +),
+    let doubled = map(
+        .over: items,
+        .transform: x -> x * 2,
+    ),
+    let filtered = filter(
+        .over: doubled,
+        .predicate: x -> x > 10,
+    ),
+    fold(
+        .over: filtered,
+        .init: 0,
+        .op: +,
+    ),
 )
 
-// Avoid: complex nested expressions
-@process (items: [int]) -> int =
-    fold(filter(map(items, x -> x * 2), x -> x > 10), 0, +)
+// Avoid: complex nested expressions (hard to read even with named args)
+@process (items: [int]) -> int = fold(
+    .over: filter(
+        .over: map(
+            .over: items,
+            .transform: x -> x * 2,
+        ),
+        .predicate: x -> x > 10,
+    ),
+    .init: 0,
+    .op: +,
+)
 ```
 
 ### Explicit Over Implicit

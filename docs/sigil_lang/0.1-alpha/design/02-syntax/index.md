@@ -34,14 +34,18 @@ $max_retries = 3
 ### Patterns
 
 ```sigil
-// All patterns support positional and named syntax
-@sum (arr: [int]) -> int = fold(arr, 0, +)
+// Patterns use named arguments exclusively (.property: value)
+@sum (arr: [int]) -> int = fold(
+    .over: arr,
+    .init: 0,
+    .op: +,
+)
 
 @fibonacci (n: int) -> int = recurse(
     .cond: n <= 1,
     .base: n,
     .step: self(n - 1) + self(n - 2),
-    .memo: true
+    .memo: true,
 )
 ```
 

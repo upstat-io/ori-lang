@@ -168,7 +168,11 @@ Context-sensitive keywords reduce the reserved word count:
 
 ```sigil
 // map, filter, fold are keywords in pattern context
-@sum (arr: [int]) -> int = fold(arr, 0, +)
+@sum (arr: [int]) -> int = fold(
+    .over: arr,
+    .init: 0,
+    .op: +,
+)
 
 // But can be used as identifiers elsewhere
 map = { "key": "value" }  // This is a map variable

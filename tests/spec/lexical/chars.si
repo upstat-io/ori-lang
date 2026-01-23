@@ -1,12 +1,17 @@
-// Spec Tests: 03-lexical-elements.md § Character Literals
-// Tests are the source of truth - the compiler must conform to these tests
+// Spec: spec/03-lexical-elements.md § Character Literals
+// Design: design/02-syntax/01-basic-syntax.md § Characters
+//
+// Tests character literal parsing
+
+// Helper function for tests
+@identity (x: int) -> int = x
 
 // =============================================================================
-// Basic Character Literals (Spec: char_literal = "'" char_content "'")
+// Basic Character Literals
+// Spec: spec/03-lexical-elements.md § char_literal = "'" char_content "'"
 // =============================================================================
 
-@test_char_basic () -> void = run(
-    // Spec: Simple ASCII characters
+@test_char_basic tests @identity () -> void = run(
     assert('a' == 'a'),
     assert('Z' == 'Z'),
     assert('0' == '0'),
@@ -14,30 +19,25 @@
 )
 
 // =============================================================================
-// Escape Sequences (Spec: escape = '\' ( '\' | "'" | 'n' | 't' | 'r' | '0' ))
+// Escape Sequences
+// Spec: spec/03-lexical-elements.md § escape = '\' ( '\' | "'" | 'n' | 't' | 'r' | '0' )
 // =============================================================================
 
-@test_char_escapes () -> void = run(
-    // Spec: Backslash escape
+@test_char_escapes tests @identity () -> void = run(
     assert('\\' == '\\'),
-    // Spec: Single quote escape
     assert('\'' == '\''),
-    // Spec: Newline escape
     assert('\n' == '\n'),
-    // Spec: Tab escape
     assert('\t' == '\t'),
-    // Spec: Carriage return escape
     assert('\r' == '\r'),
-    // Spec: Null escape
     assert('\0' == '\0'),
 )
 
 // =============================================================================
-// Unicode Characters (Spec: char supports full Unicode)
+// Unicode Characters
+// Spec: spec/03-lexical-elements.md § char supports full Unicode
 // =============================================================================
 
-@test_char_unicode () -> void = run(
-    // Spec: Unicode characters are valid
+@test_char_unicode tests @identity () -> void = run(
     assert('λ' == 'λ'),
     assert('中' == '中'),
     assert('🎉' == '🎉'),

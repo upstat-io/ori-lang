@@ -44,9 +44,19 @@ sigil fmt --check src/  # Check without modifying (for CI)
 
 ```sigil
 @process (items: [int]) -> int = run(
-    let doubled = map(items, x -> x * 2),
-    let filtered = filter(doubled, x -> x > 10),
-    fold(filtered, 0, +),
+    let doubled = map(
+        .over: items,
+        .transform: x -> x * 2,
+    ),
+    let filtered = filter(
+        .over: doubled,
+        .predicate: x -> x > 10,
+    ),
+    fold(
+        .over: filtered,
+        .init: 0,
+        .op: +,
+    ),
 )
 ```
 
@@ -194,20 +204,70 @@ When a line exceeds 100 characters, the formatter breaks it according to determi
 
 ### Lists and Arrays
 
-**Short - single line:**
+List literals prefer inline formatting, with smart wrapping when they exceed column width.
+
+**Short - inline:**
 ```sigil
 items = [1, 2, 3, 4, 5]
+names = ["alice", "bob", "charlie"]
 ```
 
-**Long - each element on its own line:**
+**Exceeds column width - bump brackets, wrap values:**
 ```sigil
-items = [
-    first_long_item,
-    second_long_item,
-    third_long_item,
-    fourth_long_item,
+numbers = [
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+]
+
+names = [
+    "alpha", "beta", "gamma", "delta", "epsilon",
+    "zeta", "eta", "theta", "iota", "kappa",
+]
+
+tasks = [
+    get_user(1), get_user(2), get_user(3),
+    get_user(4), get_user(5), get_user(6),
 ]
 ```
+
+**Inside function_exp - same rules apply:**
+```sigil
+// Short list stays inline
+sum(
+    .values: [1, 2, 3, 4, 5],
+)
+
+// Long list bumps brackets, wraps values
+process(
+    .items: [
+        "first", "second", "third", "fourth", "fifth",
+        "sixth", "seventh", "eighth", "ninth", "tenth",
+    ],
+)
+
+filter(
+    .over: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    .predicate: x -> x > 5,
+)
+```
+
+**Rules:**
+1. List fits in column width → inline: `[1, 2, 3]`
+2. List exceeds column width → bump brackets to own lines, indent contents
+3. Values wrap at column width, multiple values per line
+4. Trailing comma on last line when wrapped
+5. Named params (`.name:`) always stack; list literals inside them wrap independently
+
+**Contrast with named params:**
+
+| Construct | Format |
+|-----------|--------|
+| Named params (`.name:`) | Always stack, one per line |
+| List literals (`[...]`) | Inline, wrap at column width |
+
+This distinction exists because:
+- Named params are configuration — one per line aids scanning
+- List literals are data — inline is natural, wrap when needed
 
 ### Struct Literals
 

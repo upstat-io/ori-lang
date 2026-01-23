@@ -245,6 +245,84 @@ Benefits:
 
 ---
 
+## Line-Oriented Named Arguments
+
+Patterns require named arguments, each on its own line:
+
+```sigil
+@process (items: [int]) -> [int] = filter(
+    .over: items,
+    .predicate: x -> x > 0,
+)
+```
+
+This is deliberately more verbose than positional alternatives. The verbosity is a feature, not a bug.
+
+### AI Benefits
+
+1. **Line-oriented edits** — AI can add, remove, or modify a single line without touching surrounding code. No risk of breaking syntax by miscounting commas or mismatching parentheses in dense inline expressions.
+
+   ```sigil
+   // Adding a parameter: just insert one line
+   fold(
+       .over: items,
+       .init: 0,
+       .op: +,
+   +   .parallel: true,  // single line addition
+   )
+   ```
+
+2. **No signature lookup required** — AI doesn't need to trace callers or read documentation to understand parameter order. `.predicate:` is obviously the filter condition; `.init:` is obviously the initial accumulator value.
+
+3. **Reduced context for understanding** — While more tokens, the structured format reduces cognitive load. AI can scan property names without parsing complex nested expressions. Reading `fold(.over: items, .init: 0, .op: +)` requires parsing; scanning a vertical list of `.property:` names is immediate.
+
+### Human Benefits
+
+1. **Whitespace aids comprehension** — Research shows whitespace significantly improves human understanding. Each argument gets visual separation and breathing room.
+
+2. **Narrow column, fast scanning** — Vertical layout creates a narrow column. Humans scan narrow columns substantially faster than wide horizontal code (this is why newspapers use columns).
+
+3. **Zero ambiguity** — No question about argument order or meaning. Compare:
+   ```sigil
+   // Which is the predicate? Which is the collection?
+   filter(items, x -> x > 0)
+
+   // Unambiguous
+   filter(
+       .over: items,
+       .predicate: x -> x > 0,
+   )
+   ```
+
+4. **Self-documenting** — Code explains itself without requiring jumps to function signatures. The property names ARE the documentation.
+
+### The Tradeoff
+
+More verbose in raw character count:
+
+```sigil
+// 22 characters
+fold(items, 0, +)
+
+// 56 characters
+fold(
+    .over: items,
+    .init: 0,
+    .op: +,
+)
+```
+
+But consider total cost:
+- Reading time: **named is faster** (scan property names vs parse positions)
+- Understanding: **named is instant** (no signature lookup)
+- Editing: **named is safer** (line ops vs range ops)
+- Code review: **named is clearer** (intent visible)
+- Bug prevention: **named eliminates** argument order mistakes
+
+The token cost of verbosity is paid once at write time. The clarity benefit is paid every time the code is read, edited, or reviewed.
+
+---
+
 ## Immutability by Default
 
 Mutation is the #1 source of bugs AI generates:
@@ -310,6 +388,7 @@ AI-first design means:
 | Consistent | One way to do things |
 | Verifiable | Mandatory testing |
 | Addressable | Semantic edit operations |
+| Line-oriented | Named args, one per line |
 | Immutable | No mutation bugs |
 | Static | Types catch errors early |
 | Structured | JSON I/O for tooling |

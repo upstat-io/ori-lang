@@ -1250,6 +1250,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "sigilc-v3"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "criterion",
+ "logos",
+ "parking_lot",
+ "pretty_assertions",
+ "rayon",
+ "rustc-hash",
+ "salsa",
+ "tempfile",
+]
+
+[[package]]
 name = "similar"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
