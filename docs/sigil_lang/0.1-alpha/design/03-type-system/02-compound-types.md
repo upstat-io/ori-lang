@@ -43,9 +43,21 @@ numbers.sort()        // sorted copy
 ### With Patterns
 
 ```sigil
-@sum (arr: [int]) -> int = fold(arr, 0, +)
-@doubled (arr: [int]) -> [int] = map(arr, x -> x * 2)
-@evens (arr: [int]) -> [int] = filter(arr, x -> x % 2 == 0)
+@sum (arr: [int]) -> int = fold(
+    .over: arr,
+    .init: 0,
+    .op: +,
+)
+
+@doubled (arr: [int]) -> [int] = map(
+    .over: arr,
+    .transform: x -> x * 2,
+)
+
+@evens (arr: [int]) -> [int] = filter(
+    .over: arr,
+    .predicate: x -> x % 2 == 0,
+)
 ```
 
 ### Immutability

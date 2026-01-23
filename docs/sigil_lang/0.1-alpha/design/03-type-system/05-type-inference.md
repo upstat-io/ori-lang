@@ -31,9 +31,15 @@ Sigil uses bidirectional type inference:
 
 ```sigil
 // Parameter types inferred from context
-let doubled = map([1, 2, 3], x -> x * 2)  // x: int inferred
+let doubled = map(
+    .over: [1, 2, 3],
+    .transform: x -> x * 2,  // x: int inferred
+)
 
-let filtered = filter(users, u -> u.age >= 18)  // u: User inferred
+let filtered = filter(
+    .over: users,
+    .predicate: u -> u.age >= 18,  // u: User inferred
+)
 ```
 
 ### Generic Type Arguments

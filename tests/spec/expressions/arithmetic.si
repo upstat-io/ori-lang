@@ -1,39 +1,72 @@
-// Spec: expressions/arithmetic - test arithmetic operations
-// Reference: docs/sigil_lang/0.1-alpha/spec/09-expressions.md
+// Spec: spec/09-expressions.md § Arithmetic Operators
+// Design: design/02-syntax/02-expressions.md § Arithmetic
+//
+// Tests arithmetic operations
 
-@test_addition () -> void = run(
+// Helper function for tests
+@identity (x: int) -> int = x
+
+// =============================================================================
+// Test: Addition
+// Spec: spec/09-expressions.md § Binary Operators - Addition
+// =============================================================================
+@test_addition tests @identity () -> void = run(
     assert_eq(1 + 2, 3),
-    assert_eq(-1 + 1, 0)
+    assert_eq(-1 + 1, 0),
 )
 
-@test_subtraction () -> void = run(
+// =============================================================================
+// Test: Subtraction
+// Spec: spec/09-expressions.md § Binary Operators - Subtraction
+// =============================================================================
+@test_subtraction tests @identity () -> void = run(
     assert_eq(5 - 3, 2),
-    assert_eq(3 - 5, -2)
+    assert_eq(3 - 5, -2),
 )
 
-@test_multiplication () -> void = run(
+// =============================================================================
+// Test: Multiplication
+// Spec: spec/09-expressions.md § Binary Operators - Multiplication
+// =============================================================================
+@test_multiplication tests @identity () -> void = run(
     assert_eq(3 * 4, 12),
-    assert_eq(-2 * 3, -6)
+    assert_eq(-2 * 3, -6),
 )
 
-@test_division () -> void = run(
+// =============================================================================
+// Test: Division
+// Spec: spec/09-expressions.md § Binary Operators - Division
+// =============================================================================
+@test_division tests @identity () -> void = run(
     assert_eq(10 / 2, 5),
-    assert_eq(7 / 2, 3)
+    assert_eq(7 / 2, 3),
 )
 
-@test_modulo () -> void = run(
+// =============================================================================
+// Test: Modulo
+// Spec: spec/09-expressions.md § Binary Operators - Modulo
+// =============================================================================
+@test_modulo tests @identity () -> void = run(
     assert_eq(7 % 3, 1),
-    assert_eq(10 % 5, 0)
+    assert_eq(10 % 5, 0),
 )
 
-@test_precedence () -> void = run(
+// =============================================================================
+// Test: Operator Precedence
+// Spec: spec/09-expressions.md § Operator Precedence
+// =============================================================================
+@test_precedence tests @identity () -> void = run(
     assert_eq(1 + 2 * 3, 7),
     assert_eq((1 + 2) * 3, 9),
-    assert_eq(10 - 4 / 2, 8)
+    assert_eq(10 - 4 / 2, 8),
 )
 
-@test_unary_minus () -> void = run(
+// =============================================================================
+// Test: Unary Minus
+// Spec: spec/09-expressions.md § Unary Operators - Negation
+// =============================================================================
+@test_unary_minus tests @identity () -> void = run(
     assert_eq(-5, -5),
     assert_eq(--5, 5),
-    assert_eq(-(-3), 3)
+    assert_eq(-(-3), 3),
 )

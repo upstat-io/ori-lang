@@ -19,7 +19,10 @@ Functions in Sigil are first-class values. This means functions can be:
 @main () -> void = run(
     let f = double,                    // assign to variable
     let result = f(5),                 // call via variable: 10
-    let mapped = map([1, 2, 3], double), // pass to higher-order function
+    let mapped = map(
+        .over: [1, 2, 3],
+        .transform: double,            // pass to higher-order pattern
+    ),
 )
 ```
 
@@ -34,11 +37,21 @@ First-class functions are essential for Sigil's design:
 The pattern system depends on passing functions as arguments:
 
 ```sigil
-@double_all (items: [int]) -> [int] = map(items, double)
+@double_all (items: [int]) -> [int] = map(
+    .over: items,
+    .transform: double,
+)
 
-@keep_positive (items: [int]) -> [int] = filter(items, x -> x > 0)
+@keep_positive (items: [int]) -> [int] = filter(
+    .over: items,
+    .predicate: x -> x > 0,
+)
 
-@sum (items: [int]) -> int = fold(items, 0, add)
+@sum (items: [int]) -> int = fold(
+    .over: items,
+    .init: 0,
+    .op: add,
+)
 ```
 
 ### Enables Composition
@@ -159,8 +172,10 @@ This is right-associative, so it parses as:
 ### Example: Filter
 
 ```sigil
-@filter_with (items: [int], pred: (int) -> bool) -> [int] =
-    filter(items, pred)
+@filter_with (items: [int], pred: (int) -> bool) -> [int] = filter(
+    .over: items,
+    .predicate: pred,
+)
 
 @main () -> void = run(
     let evens = filter_with([1, 2, 3, 4], x -> x % 2 == 0),  // [2, 4]
@@ -176,7 +191,11 @@ This is right-associative, so it parses as:
 
 // Example usage
 @make_reducer (op: (int, int) -> int) -> ([int]) -> int =
-    items -> fold(items, 0, op)
+    items -> fold(
+        .over: items,
+        .init: 0,
+        .op: op,
+    )
 
 @main () -> void = run(
     let sum_reducer = make_reducer((a, b) -> a + b),
@@ -211,9 +230,9 @@ double        // reference (bare name)
 double(5)     // call (with parentheses)
 ```
 
-### Passing to Higher-Order Functions
+### Passing to Higher-Order Patterns
 
-When passing to patterns like `map`, use the bare name:
+When passing to patterns like `map`, use the bare name as the argument:
 
 ```sigil
 @double (n: int) -> int = n * 2
@@ -221,9 +240,19 @@ When passing to patterns like `map`, use the bare name:
 @add (a: int, b: int) -> int = a + b
 
 @main () -> void = run(
-    let doubled = map([1, 2, 3], double),           // [2, 4, 6]
-    let positive = filter([-1, 0, 1], is_positive), // [1]
-    let sum = fold([1, 2, 3], 0, add),              // 6
+    let doubled = map(
+        .over: [1, 2, 3],
+        .transform: double,           // [2, 4, 6]
+    ),
+    let positive = filter(
+        .over: [-1, 0, 1],
+        .predicate: is_positive,      // [1]
+    ),
+    let sum = fold(
+        .over: [1, 2, 3],
+        .init: 0,
+        .op: add,                     // 6
+    ),
 )
 ```
 

@@ -1,31 +1,51 @@
-// Spec: patterns/match - test match pattern
-// Reference: docs/sigil_lang/0.1-alpha/spec/10-patterns.md
+// Spec: spec/10-patterns.md § match - Pattern Matching
+// Design: design/02-syntax/04-patterns-reference.md § match
+//
+// Tests the match pattern for pattern matching
 
-@test_match_literal () -> void = run(
+// Helper function for tests
+@identity (x: int) -> int = x
+
+// =============================================================================
+// Test: Match on literal values
+// Spec: spec/10-patterns.md § match - Literal Patterns
+// Design: design/02-syntax/04-patterns-reference.md § match - Literals
+// =============================================================================
+@test_match_literal tests @identity () -> void = run(
     let x = 2,
     let result = match(x,
         1 -> "one",
         2 -> "two",
         3 -> "three",
-        _ -> "other"
+        _ -> "other",
     ),
-    assert_eq(result, "two")
+    assert_eq(result, "two"),
 )
 
-@test_match_wildcard () -> void = run(
+// =============================================================================
+// Test: Wildcard pattern matches anything
+// Spec: spec/10-patterns.md § match - Wildcard Pattern
+// Design: design/02-syntax/04-patterns-reference.md § match - Wildcard
+// =============================================================================
+@test_match_wildcard tests @identity () -> void = run(
     let x = 99,
     let result = match(x,
         1 -> "one",
-        _ -> "other"
+        _ -> "other",
     ),
-    assert_eq(result, "other")
+    assert_eq(result, "other"),
 )
 
-@test_match_with_expressions () -> void = run(
+// =============================================================================
+// Test: Match on expression results
+// Spec: spec/10-patterns.md § match - Semantics
+// Design: design/02-syntax/04-patterns-reference.md § match - Expressions
+// =============================================================================
+@test_match_with_expressions tests @identity () -> void = run(
     let x = 5,
     let result = match(x > 3,
         true -> "big",
-        false -> "small"
+        false -> "small",
     ),
-    assert_eq(result, "big")
+    assert_eq(result, "big"),
 )

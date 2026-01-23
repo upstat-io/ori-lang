@@ -1,32 +1,52 @@
-// Spec: lexical/literals - test literal parsing
-// Reference: docs/sigil_lang/0.1-alpha/spec/03-lexical-elements.md
+// Spec: spec/03-lexical-elements.md § Literals
+// Design: design/02-syntax/01-basic-syntax.md § Literals
+//
+// Tests literal parsing
 
+// Helper function for tests
+@identity (x: int) -> int = x
+
+// =============================================================================
 // Integer literals
-@test_integers () -> void = run(
+// Spec: spec/03-lexical-elements.md § Integer Literals
+// =============================================================================
+@test_integers tests @identity () -> void = run(
     assert_eq(42, 42),
-    assert_eq(1_000_000, 1000000)
+    assert_eq(1_000_000, 1000000),
 )
 
+// =============================================================================
 // Float literals
-@test_floats () -> void = run(
-    assert_eq(3.14, 3.14)
+// Spec: spec/03-lexical-elements.md § Float Literals
+// =============================================================================
+@test_floats tests @identity () -> void = run(
+    assert_eq(3.14, 3.14),
 )
 
+// =============================================================================
 // Boolean literals
-@test_booleans () -> void = run(
+// Spec: spec/03-lexical-elements.md § Boolean Literals
+// =============================================================================
+@test_booleans tests @identity () -> void = run(
     assert_eq(true, true),
     assert_eq(false, false),
     assert(true),
-    assert(!false)
+    assert(!false),
 )
 
+// =============================================================================
 // String literals
-@test_strings () -> void = run(
-    assert_eq("hello", "hello")
+// Spec: spec/03-lexical-elements.md § String Literals
+// =============================================================================
+@test_strings tests @identity () -> void = run(
+    assert_eq("hello", "hello"),
 )
 
+// =============================================================================
 // Duration literals
-@test_durations () -> void = run(
+// Spec: spec/03-lexical-elements.md § Duration Literals
+// =============================================================================
+@test_durations tests @identity () -> void = run(
     let ms = 100ms,
     let s = 30s,
     let m = 5m,
@@ -34,11 +54,14 @@
     assert_eq(ms, 100ms),
     assert_eq(s, 30s),
     assert_eq(m, 5m),
-    assert_eq(h, 2h)
+    assert_eq(h, 2h),
 )
 
+// =============================================================================
 // Size literals
-@test_sizes () -> void = run(
+// Spec: spec/03-lexical-elements.md § Size Literals
+// =============================================================================
+@test_sizes tests @identity () -> void = run(
     let b = 1024b,
     let kb = 4kb,
     let mb = 10mb,
@@ -46,13 +69,16 @@
     assert_eq(b, 1024b),
     assert_eq(kb, 4kb),
     assert_eq(mb, 10mb),
-    assert_eq(gb, 2gb)
+    assert_eq(gb, 2gb),
 )
 
+// =============================================================================
 // List literals
-@test_lists () -> void = run(
+// Spec: spec/03-lexical-elements.md § List Literals
+// =============================================================================
+@test_lists tests @identity () -> void = run(
     let empty: [int] = [],
     let nums = [1, 2, 3],
     assert_eq(len(empty), 0),
-    assert_eq(len(nums), 3)
+    assert_eq(len(nums), 3),
 )

@@ -143,18 +143,37 @@ retry(
 )
 ```
 
-### Non-Pattern Calls
+### Function Calls
 
-Regular function calls (not using named pattern syntax) remain unchanged:
+Per [function-seq-exp-distinction.md](function-seq-exp-distinction.md), function calls now require named arguments for multi-parameter functions:
 
 ```sigil
-// These are not pattern calls, no stacking required
-add(1, 2)
-str(42)
+// Single-param: positional OK, inline
+print("hello")
 len(items)
+str(42)
+
+// Multi-param: named required, stacked
+add(
+    .a: 1,
+    .b: 2,
+)
+
+assert_eq(
+    .actual: result,
+    .expected: 42,
+)
+
+compare(
+    .left: a,
+    .right: b,
+)
 ```
 
-Only calls using `.name:` syntax are affected.
+The stacking rule applies uniformly:
+- **function_exp** (patterns): Always stacked
+- **Function calls** (multi-param): Always stacked
+- **Function calls** (single-param): Inline allowed
 
 ---
 
@@ -210,10 +229,17 @@ The slight increase in verbosity is justified by the significant gains in readab
 
 ## Summary
 
-Always stacking named parameters:
+Always stacking named arguments:
 - Makes code easier for humans to scan (visual alignment)
 - Makes code easier for AI to modify (atomic line edits)
 - Simplifies the formatter rule (one rule, not two)
 - Reinforces the value of the `.name:` sigil (creates visual structure)
+
+This applies to:
+- **function_exp** patterns (`map`, `filter`, `fold`, etc.) — always stacked
+- **Function calls** with 2+ parameters — always stacked
+- **Function calls** with 1 parameter — inline (no ambiguity)
+
+See also: [function-seq-exp-distinction.md](function-seq-exp-distinction.md)
 
 Approved for implementation.

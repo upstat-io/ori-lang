@@ -1,0 +1,59 @@
+// Spec: spec/13-testing.md § Test Execution
+// Design: design/11-testing/index.md § Overview
+//
+// Tests for the test runner itself.
+// These tests validate basic test execution functionality.
+
+// =============================================================================
+// Helper functions for testing
+// =============================================================================
+
+@identity (x: int) -> int = x
+
+@add (a: int, b: int) -> int = a + b
+
+@is_positive (n: int) -> bool = n > 0
+
+// =============================================================================
+// Test: Basic test execution
+// Spec: spec/13-testing.md § Test Syntax
+// Validates: `sigil test` runs tests and reports results
+// =============================================================================
+@test_basic_pass tests @identity () -> void = run(
+    assert_eq(identity(42), 42),
+    assert_eq(identity(0), 0),
+    assert_eq(identity(-1), -1),
+)
+
+// =============================================================================
+// Test: Multiple assertions in single test
+// Spec: spec/13-testing.md § Test Syntax
+// Validates: Tests can contain multiple assertions
+// =============================================================================
+@test_multiple_assertions tests @add () -> void = run(
+    assert_eq(add(1, 2), 3),
+    assert_eq(add(0, 0), 0),
+    assert_eq(add(-1, 1), 0),
+    assert_eq(add(100, 200), 300),
+)
+
+// =============================================================================
+// Test: Boolean function testing
+// Spec: spec/13-testing.md § Test Syntax
+// Validates: Tests work with boolean-returning functions
+// =============================================================================
+@test_boolean_function tests @is_positive () -> void = run(
+    assert_eq(is_positive(1), true),
+    assert_eq(is_positive(100), true),
+    assert_eq(is_positive(0), false),
+    assert_eq(is_positive(-5), false),
+)
+
+// =============================================================================
+// Test: Test targeting multiple functions
+// Spec: spec/13-testing.md § Test Syntax - Multiple Targets
+// Validates: A single test can target multiple functions
+// =============================================================================
+@test_multi_target tests @add tests @identity () -> void = run(
+    assert_eq(add(identity(1), identity(2)), 3),
+)

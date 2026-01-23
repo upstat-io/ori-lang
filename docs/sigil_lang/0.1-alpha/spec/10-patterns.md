@@ -1,16 +1,59 @@
 # Patterns
 
-This section defines built-in patterns and pattern matching.
+This section defines built-in patterns. Patterns are language constructs distinct from function calls. There are two categories:
 
-## Pattern Expression Syntax
+- **function_seq** — Contains a sequence of expressions evaluated in order
+- **function_exp** — Contains named expressions (`.name: expr`)
+
+## Pattern Categories
+
+### function_seq
+
+A function_seq contains a sequence of expressions. Order is significant; expressions are evaluated serially. These are control flow constructs.
 
 ```
-pattern_expr       = run_expr | try_expr | match_expr | data_pattern .
-data_pattern       = pattern_name "(" named_args ")" .
-pattern_name       = "map" | "filter" | "fold" | "recurse" | "collect" | "find"
+function_seq       = run_expr | try_expr | match_expr .
+```
+
+| Pattern | Purpose |
+|---------|---------|
+| `run` | Sequential execution with bindings |
+| `try` | Sequential execution with error propagation |
+| `match` | Pattern matching with ordered arms |
+
+### function_exp
+
+A function_exp contains named expressions. Each argument is a `.name: expr` pair. These are data transformation and configuration constructs.
+
+```
+function_exp       = exp_name "(" named_exp { "," named_exp } [ "," ] ")" .
+exp_name           = "map" | "filter" | "fold" | "recurse" | "collect" | "find"
                    | "parallel" | "retry" | "cache" | "validate" | "timeout" | "with" .
-named_args         = named_arg { "," named_arg } [ "," ] .
-named_arg          = "." identifier ":" expression .
+named_exp          = "." identifier ":" expression .
+```
+
+| Pattern | Purpose |
+|---------|---------|
+| `map` | Transform each element |
+| `filter` | Select matching elements |
+| `fold` | Reduce to single value |
+| `collect` | Build list from range |
+| `find` | Find first matching element |
+| `recurse` | Recursive computation |
+| `parallel` | Concurrent execution |
+| `timeout` | Time-bounded operation |
+| `retry` | Retry with backoff |
+| `cache` | Memoization with TTL |
+| `validate` | Input validation |
+| `with` | Resource management |
+
+## Combined Grammar
+
+```
+pattern_expr       = function_seq | function_exp .
+function_seq       = run_expr | try_expr | match_expr .
+function_exp       = exp_name "(" named_exp { "," named_exp } [ "," ] ")" .
+named_exp          = "." identifier ":" expression .
 ```
 
 ## Sequential Execution

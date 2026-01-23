@@ -326,8 +326,11 @@ Extensions may include constraints via `where` clauses:
 
 ```sigil
 extend Iterator where Self.Item: Add {
-    @sum (self) -> Self.Item =
-        fold(self, Self.Item.default(), (acc, x) -> acc + x)
+    @sum (self) -> Self.Item = fold(
+        .over: self,
+        .init: Self.Item.default(),
+        .op: (acc, x) -> acc + x,
+    )
 }
 
 extend Iterator where Self.Item = int {

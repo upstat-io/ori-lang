@@ -309,9 +309,19 @@ Both `try` and `run` execute sequences of expressions. The difference is error h
 
 ```sigil
 @process (items: [int]) -> int = run(
-    let doubled = map(items, x -> x * 2),
-    let filtered = filter(doubled, x -> x > 10),
-    fold(filtered, 0, +),
+    let doubled = map(
+        .over: items,
+        .transform: x -> x * 2,
+    ),
+    let filtered = filter(
+        .over: doubled,
+        .predicate: x -> x > 10,
+    ),
+    fold(
+        .over: filtered,
+        .init: 0,
+        .op: +,
+    ),
 )
 ```
 

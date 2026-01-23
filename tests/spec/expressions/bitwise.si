@@ -1,64 +1,66 @@
-// Spec Tests: 09-expressions.md - Bitwise Operators
-// Tests are the source of truth - the compiler must conform to these tests
+// Spec: spec/09-expressions.md § Bitwise Operators
+// Design: design/02-syntax/02-expressions.md § Bitwise
+//
+// Tests bitwise operations
 
-// =============================================================================
 // Helper function for testing
-// =============================================================================
-
 @bitwise_helper () -> int = 42
 
 // =============================================================================
-// Bitwise AND (Spec: "&" operator)
+// Bitwise AND
+// Spec: spec/09-expressions.md § "&" operator
 // =============================================================================
 
 @test_bitwise_and tests @bitwise_helper () -> void = run(
-    assert((0b1100 & 0b1010) == 0b1000),
-    assert((0xFF & 0x0F) == 0x0F),
-    assert((7 & 3) == 3),
-    assert((12 & 0) == 0),
+    assert_eq(0b1100 & 0b1010, 0b1000),
+    assert_eq(0xFF & 0x0F, 0x0F),
+    assert_eq(7 & 3, 3),
+    assert_eq(12 & 0, 0),
 )
 
 // =============================================================================
-// Bitwise OR (Spec: "|" operator)
+// Bitwise OR
+// Spec: spec/09-expressions.md § "|" operator
 // =============================================================================
 
 @test_bitwise_or tests @bitwise_helper () -> void = run(
-    assert((0b1100 | 0b1010) == 0b1110),
-    assert((0xF0 | 0x0F) == 0xFF),
-    assert((4 | 2) == 6),
-    assert((0 | 5) == 5),
+    assert_eq(0b1100 | 0b1010, 0b1110),
+    assert_eq(0xF0 | 0x0F, 0xFF),
+    assert_eq(4 | 2, 6),
+    assert_eq(0 | 5, 5),
 )
 
 // =============================================================================
-// Bitwise XOR (Spec: "^" operator)
+// Bitwise XOR
+// Spec: spec/09-expressions.md § "^" operator
 // =============================================================================
 
 @test_bitwise_xor tests @bitwise_helper () -> void = run(
-    assert((0b1100 ^ 0b1010) == 0b0110),
-    assert((0xFF ^ 0xFF) == 0),
-    assert((5 ^ 3) == 6),
-    assert((7 ^ 0) == 7),
+    assert_eq(0b1100 ^ 0b1010, 0b0110),
+    assert_eq(0xFF ^ 0xFF, 0),
+    assert_eq(5 ^ 3, 6),
+    assert_eq(7 ^ 0, 7),
 )
 
 // =============================================================================
-// Bitwise NOT (Spec: "~" unary operator)
+// Bitwise NOT
+// Spec: spec/09-expressions.md § "~" unary operator
 // =============================================================================
 
 @test_bitwise_not tests @bitwise_helper () -> void = run(
-    assert((~0) == -1),
-    assert((~1) == -2),
-    assert((~~5) == 5),
+    assert_eq(~0, -1),
+    assert_eq(~1, -2),
+    assert_eq(~~5, 5),
 )
 
 // =============================================================================
-// Operator Precedence (Spec: & > ^ > |)
+// Operator Precedence
+// Spec: spec/09-expressions.md § Precedence: & > ^ > |
 // =============================================================================
 
 @test_bitwise_precedence tests @bitwise_helper () -> void = run(
-    // & binds tighter than |
-    assert((1 | 2 & 3) == (1 | (2 & 3))),
-    // ^ is between & and |
-    assert((1 | 2 ^ 3 & 1) == (1 | (2 ^ (3 & 1)))),
+    assert_eq(1 | 2 & 3, 1 | (2 & 3)),
+    assert_eq(1 | 2 ^ 3 & 1, 1 | (2 ^ (3 & 1))),
 )
 
 // =============================================================================
@@ -66,9 +68,8 @@
 // =============================================================================
 
 @test_bitwise_with_arithmetic tests @bitwise_helper () -> void = run(
-    // Arithmetic binds tighter than bitwise
-    assert((2 + 3 & 7) == ((2 + 3) & 7)),
-    assert((8 | 4 - 2) == (8 | (4 - 2))),
+    assert_eq(2 + 3 & 7, (2 + 3) & 7),
+    assert_eq(8 | 4 - 2, 8 | (4 - 2)),
 )
 
 // =============================================================================
@@ -82,6 +83,6 @@
 @clear_bit (n: int, pos: int) -> int = n & ~(1 << pos)
 
 @test_practical tests @is_even tests @set_bit tests @clear_bit () -> void = run(
-    assert(is_even(4) == true),
-    assert(is_even(7) == false),
+    assert_eq(is_even(4), true),
+    assert_eq(is_even(7), false),
 )

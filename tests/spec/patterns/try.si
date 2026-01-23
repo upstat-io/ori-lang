@@ -1,25 +1,45 @@
-// Spec Tests: 10-patterns.md § try
-// Tests are the source of truth - the compiler must conform to these tests
+// Spec: spec/10-patterns.md § Sequential Execution - try
+// Design: design/02-syntax/04-patterns-reference.md § try
+//
+// Tests the try pattern for error propagation
 
 // =============================================================================
-// Basic Try (Spec: try_expr = "try" "(" { binding "," } expression ")")
+// Helper Functions
 // =============================================================================
 
 @safe_divide (a: int, b: int) -> Result<int, str> =
     if b == 0 then Err("division by zero")
     else Ok(a / b)
 
+@parse_int (s: str) -> Result<int, str> =
+    if s == "42" then Ok(42)
+    else if s == "10" then Ok(10)
+    else Err("parse error")
+
+@get_first (arr: [int]) -> Option<int> =
+    if len(arr) == 0 then None
+    else Some(arr[0])
+
+// =============================================================================
+// Test: Evaluate each binding in order
+// Spec: spec/10-patterns.md § try - Semantics
+// Design: design/02-syntax/04-patterns-reference.md § try - Evaluation Order
+// =============================================================================
+
 @try_basic () -> Result<int, str> = try(
     let x = safe_divide(10, 2)?,
     Ok(x),
 )
 
-@test_try_basic tests @safe_divide tests @try_basic () -> void = run(
-    assert(try_basic() == Ok(5)),
+@test_try_evaluates_in_order tests @safe_divide tests @try_basic () -> void = run(
+    assert_eq(try_basic(), Ok(5)),
 )
 
 // =============================================================================
-// Try with Error Propagation (Spec: "?" propagates Err/None)
+// Test: Binding variable has unwrapped type T
+// Spec: spec/10-patterns.md § try - Type of Bindings
+// Design: design/02-syntax/04-patterns-reference.md § try - Unwrapping
+// The ? operator unwraps Result<T, E> to T
 // =============================================================================
 
 @try_chain () -> Result<int, str> = try(
@@ -28,26 +48,63 @@
     Ok(b),
 )
 
-@test_try_chain tests @try_chain () -> void = run(
-    assert(try_chain() == Ok(5)),
+@test_try_unwraps_result tests @try_chain () -> void = run(
+    assert_eq(try_chain(), Ok(5)),
 )
+
+// =============================================================================
+// Test: Err(e) returns immediately
+// Spec: spec/10-patterns.md § try - Early Return
+// Design: design/02-syntax/04-patterns-reference.md § try - Error Propagation
+// =============================================================================
 
 @try_fail () -> Result<int, str> = try(
     let a = safe_divide(100, 0)?,
     Ok(a),
 )
 
-@test_try_fail tests @try_fail () -> void = run(
-    assert(try_fail() == Err("division by zero")),
+@test_try_propagates_error tests @try_fail () -> void = run(
+    assert_eq(try_fail(), Err("division by zero")),
 )
 
 // =============================================================================
-// Try with Option (Spec: "?" on Option returns None on None)
+// Test: Early return on first error
+// Spec: spec/10-patterns.md § try - Early Return
+// Design: design/02-syntax/04-patterns-reference.md § try - Short-circuit
 // =============================================================================
 
-@get_first (arr: [int]) -> Option<int> =
-    if len(arr) == 0 then None
-    else Some(arr[0])
+@try_early_return () -> Result<int, str> = try(
+    let x = safe_divide(10, 0)?,
+    let y = safe_divide(20, 2)?,
+    Ok(x + y),
+)
+
+@test_try_early_return tests @try_early_return () -> void = run(
+    assert_eq(try_early_return(), Err("division by zero")),
+)
+
+// =============================================================================
+// Test: Final expression is the result
+// Spec: spec/10-patterns.md § try - Semantics
+// Design: design/02-syntax/04-patterns-reference.md § try - Return Value
+// =============================================================================
+
+@try_multi () -> Result<int, str> = try(
+    let a = parse_int("42")?,
+    let b = parse_int("10")?,
+    let c = safe_divide(a, b)?,
+    Ok(c),
+)
+
+@test_try_returns_final tests @parse_int tests @try_multi () -> void = run(
+    assert_eq(try_multi(), Ok(4)),
+)
+
+// =============================================================================
+// Test: Try with Option (? on Option returns None on None)
+// Spec: spec/10-patterns.md § try - Option Support
+// Design: design/02-syntax/04-patterns-reference.md § try - Option Propagation
+// =============================================================================
 
 @try_option () -> Option<int> = try(
     let x = get_first([1, 2, 3])?,
@@ -60,41 +117,6 @@
 )
 
 @test_try_option tests @get_first tests @try_option tests @try_option_none () -> void = run(
-    assert(try_option() == Some(2)),
-    assert(try_option_none() == None),
-)
-
-// =============================================================================
-// Try with Multiple Operations
-// =============================================================================
-
-@parse_int (s: str) -> Result<int, str> =
-    if s == "42" then Ok(42)
-    else if s == "10" then Ok(10)
-    else Err("parse error")
-
-@try_multi () -> Result<int, str> = try(
-    let a = parse_int("42")?,
-    let b = parse_int("10")?,
-    let c = safe_divide(a, b)?,
-    Ok(c),
-)
-
-@test_try_multi tests @parse_int tests @try_multi () -> void = run(
-    assert(try_multi() == Ok(4)),
-)
-
-// =============================================================================
-// Early Return on Error
-// =============================================================================
-
-@try_early_return () -> Result<int, str> = try(
-    let x = safe_divide(10, 0)?,
-    let y = safe_divide(20, 2)?,  // Never reached
-    Ok(x + y),
-)
-
-@test_early_return tests @try_early_return () -> void = run(
-    // First error causes immediate return
-    assert(try_early_return() == Err("division by zero")),
+    assert_eq(try_option(), Some(2)),
+    assert_eq(try_option_none(), None),
 )

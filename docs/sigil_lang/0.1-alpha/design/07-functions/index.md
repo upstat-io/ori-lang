@@ -29,8 +29,11 @@ f = double
 // Call via variable
 result = f(5)  // 10
 
-// Pass to higher-order function
-doubled = map([1, 2, 3], double)  // [2, 4, 6]
+// Pass to higher-order pattern
+doubled = map(
+    .over: [1, 2, 3],
+    .transform: double,
+)  // [2, 4, 6]
 ```
 
 ### Function Syntax
@@ -59,7 +62,10 @@ type Curried = (int) -> (int) -> int
 
 ```sigil
 // Lambda syntax
-squared = map([1, 2, 3], x -> x * x)
+squared = map(
+    .over: [1, 2, 3],
+    .transform: x -> x * x,
+)
 
 // Closure captures values
 @make_adder (n: int) -> (int) -> int =

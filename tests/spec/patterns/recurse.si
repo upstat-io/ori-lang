@@ -1,0 +1,92 @@
+// Spec: spec/10-patterns.md § Recursive Patterns - recurse
+// Design: design/02-syntax/04-patterns-reference.md § recurse
+//
+// Tests the recurse pattern for recursive functions
+
+// =============================================================================
+// Test: Basic recursion - factorial
+// Spec: spec/10-patterns.md § recurse - Semantics
+// Design: design/02-syntax/04-patterns-reference.md § recurse - Basic Usage
+// =============================================================================
+
+@factorial (n: int) -> int = recurse(
+    .cond: n <= 1,
+    .base: 1,
+    .step: n * self(n - 1),
+)
+
+@test_recurse_factorial tests @factorial () -> void = run(
+    assert_eq(factorial(0), 1),
+    assert_eq(factorial(1), 1),
+    assert_eq(factorial(5), 120),
+)
+
+// =============================================================================
+// Test: .cond determines base case
+// Spec: spec/10-patterns.md § recurse - Properties
+// Design: design/02-syntax/04-patterns-reference.md § recurse - .cond Property
+// =============================================================================
+
+@countdown (n: int) -> int = recurse(
+    .cond: n <= 0,
+    .base: 0,
+    .step: self(n - 1),
+)
+
+@test_recurse_cond tests @countdown () -> void = run(
+    assert_eq(countdown(5), 0),
+    assert_eq(countdown(0), 0),
+)
+
+// =============================================================================
+// Test: .base is returned when .cond is true
+// Spec: spec/10-patterns.md § recurse - Properties
+// Design: design/02-syntax/04-patterns-reference.md § recurse - .base Property
+// =============================================================================
+
+@return_base (n: int) -> int = recurse(
+    .cond: true,
+    .base: 42,
+    .step: self(n - 1),
+)
+
+@test_recurse_base tests @return_base () -> void = run(
+    assert_eq(return_base(100), 42),
+)
+
+// =============================================================================
+// Test: .step with self() refers to recursive function
+// Spec: spec/10-patterns.md § recurse - self() Reference
+// Design: design/02-syntax/04-patterns-reference.md § recurse - .step Property
+// =============================================================================
+
+@sum_to (n: int) -> int = recurse(
+    .cond: n <= 0,
+    .base: 0,
+    .step: n + self(n - 1),
+)
+
+@test_recurse_step_self tests @sum_to () -> void = run(
+    assert_eq(sum_to(5), 15),
+    assert_eq(sum_to(10), 55),
+)
+
+// =============================================================================
+// Test: Fibonacci with memoization
+// Spec: spec/10-patterns.md § recurse - Properties
+// Design: design/02-syntax/04-patterns-reference.md § recurse - .memo Property
+// =============================================================================
+
+@fibonacci (n: int) -> int = recurse(
+    .cond: n <= 1,
+    .base: n,
+    .step: self(n - 1) + self(n - 2),
+    .memo: true,
+)
+
+@test_recurse_fibonacci tests @fibonacci () -> void = run(
+    assert_eq(fibonacci(0), 0),
+    assert_eq(fibonacci(1), 1),
+    assert_eq(fibonacci(2), 1),
+    assert_eq(fibonacci(10), 55),
+)

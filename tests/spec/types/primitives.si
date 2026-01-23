@@ -1,19 +1,23 @@
-// Spec Tests: 06-types.md § Primitive Types
-// Tests are the source of truth - the compiler must conform to these tests
+// Spec: spec/06-types.md § Primitive Types
+// Design: design/03-type-system/01-primitive-types.md
+//
+// Tests primitive types
 
 // =============================================================================
-// Integer Type (Spec: 64-bit signed integer)
+// Integer Type
+// Spec: spec/06-types.md § 64-bit signed integer
 // =============================================================================
 
 @int_default () -> int = 0
 
 @test_int_default tests @int_default () -> void = run(
-    // Spec: Default value: 0
     assert(int_default() == 0),
 )
 
-@test_int_operations () -> void = run(
-    // Spec: int supports arithmetic operations
+// Helper for tests
+@identity (x: int) -> int = x
+
+@test_int_operations tests @identity () -> void = run(
     assert(2 + 3 == 5),
     assert(10 - 4 == 6),
     assert(3 * 4 == 12),
@@ -21,8 +25,7 @@
     assert(17 % 5 == 2),
 )
 
-@test_int_comparison () -> void = run(
-    // Spec: int supports comparison
+@test_int_comparison tests @identity () -> void = run(
     assert(1 < 2),
     assert(2 > 1),
     assert(3 <= 3),
@@ -32,18 +35,17 @@
 )
 
 // =============================================================================
-// Floating-Point Type (Spec: 64-bit IEEE 754)
+// Floating-Point Type
+// Spec: spec/06-types.md § 64-bit IEEE 754
 // =============================================================================
 
 @float_default () -> float = 0.0
 
 @test_float_default tests @float_default () -> void = run(
-    // Spec: Default value: 0.0
     assert(float_default() == 0.0),
 )
 
-@test_float_operations () -> void = run(
-    // Spec: float supports arithmetic operations
+@test_float_operations tests @identity () -> void = run(
     assert(2.0 + 3.0 == 5.0),
     assert(10.0 - 4.0 == 6.0),
     assert(3.0 * 4.0 == 12.0),
@@ -51,18 +53,17 @@
 )
 
 // =============================================================================
-// Boolean Type (Spec: Values: true, false)
+// Boolean Type
+// Spec: spec/06-types.md § Values: true, false
 // =============================================================================
 
 @bool_default () -> bool = false
 
 @test_bool_default tests @bool_default () -> void = run(
-    // Spec: Default value: false
     assert(bool_default() == false),
 )
 
-@test_bool_operations () -> void = run(
-    // Spec: bool supports logical operations
+@test_bool_operations tests @identity () -> void = run(
     assert((true && true) == true),
     assert((true && false) == false),
     assert((true || false) == true),
@@ -72,34 +73,32 @@
 )
 
 // =============================================================================
-// String Type (Spec: UTF-8 encoded string)
+// String Type
+// Spec: spec/06-types.md § UTF-8 encoded string
 // =============================================================================
 
 @str_default () -> str = ""
 
 @test_str_default tests @str_default () -> void = run(
-    // Spec: Default value: ""
     assert(str_default() == ""),
 )
 
-@test_str_concatenation () -> void = run(
-    // Spec: + operator concatenates strings
+@test_str_concatenation tests @identity () -> void = run(
     assert("hello" + " " + "world" == "hello world"),
     assert("" + "x" == "x"),
 )
 
-@test_str_comparison () -> void = run(
-    // Spec: str supports equality comparison
+@test_str_comparison tests @identity () -> void = run(
     assert("abc" == "abc"),
     assert("abc" != "def"),
 )
 
 // =============================================================================
-// Void Type (Spec: unit type, single value ())
+// Void Type
+// Spec: spec/06-types.md § unit type, single value ()
 // =============================================================================
 
 @void_func () -> void = run(
-    // Spec: void represents absence of meaningful value
     let x = 42,
 )
 
