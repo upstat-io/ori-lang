@@ -34,9 +34,18 @@ Sigil enforces test coverage at compile time:
 
 // Test is REQUIRED - compilation fails without it
 @test_factorial tests @factorial () -> void = run(
-    assert_eq(factorial(0), 1),
-    assert_eq(factorial(1), 1),
-    assert_eq(factorial(5), 120)
+    assert_eq(
+        .actual: factorial(0),
+        .expected: 1,
+    ),
+    assert_eq(
+        .actual: factorial(1),
+        .expected: 1,
+    ),
+    assert_eq(
+        .actual: factorial(5),
+        .expected: 120,
+    ),
 )
 ```
 

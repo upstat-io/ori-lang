@@ -37,8 +37,20 @@ A test declaration:
 
 ```sigil
 @test_add tests @add () -> void = run(
-    assert_eq(add(2, 3), 5),
-    assert_eq(add(-1, 1), 0),
+    assert_eq(
+        .actual: add(
+            .a: 2,
+            .b: 3,
+        ),
+        .expected: 5,
+    ),
+    assert_eq(
+        .actual: add(
+            .a: -1,
+            .b: 1,
+        ),
+        .expected: 0,
+    ),
 )
 ```
 
@@ -50,7 +62,10 @@ A single test may cover multiple functions:
 @test_roundtrip tests @parse tests @format () -> void = run(
     let ast = parse("x + 1"),
     let output = format(ast),
-    assert_eq(output, "x + 1"),
+    assert_eq(
+        .actual: output,
+        .expected: "x + 1",
+    ),
 )
 ```
 
@@ -76,7 +91,10 @@ The `skip` attribute prevents a test from executing while keeping it in the test
 #[skip("tuple destructuring not yet supported")]
 @test_destructure tests @parse () -> void = run(
     let (a, b) = parse("1, 2"),
-    assert_eq(a, 1),
+    assert_eq(
+        .actual: a,
+        .expected: 1,
+    ),
 )
 ```
 
@@ -134,9 +152,18 @@ A test body typically uses `run` to sequence assertions:
 
 ```sigil
 @test_factorial tests @factorial () -> void = run(
-    assert_eq(factorial(0), 1),
-    assert_eq(factorial(1), 1),
-    assert_eq(factorial(5), 120),
+    assert_eq(
+        .actual: factorial(0),
+        .expected: 1,
+    ),
+    assert_eq(
+        .actual: factorial(1),
+        .expected: 1,
+    ),
+    assert_eq(
+        .actual: factorial(5),
+        .expected: 120,
+    ),
 )
 ```
 
@@ -158,8 +185,17 @@ If the condition is false, the test fails.
 Assert that two values are equal:
 
 ```sigil
-assert_eq(actual, expected)
-assert_eq(add(2, 3), 5)
+assert_eq(
+    .actual: result,
+    .expected: expected,
+)
+assert_eq(
+    .actual: add(
+        .a: 2,
+        .b: 3,
+    ),
+    .expected: 5,
+)
 ```
 
 If the values are not equal, the test fails with a diagnostic showing both values.
@@ -169,7 +205,10 @@ If the values are not equal, the test fails with a diagnostic showing both value
 Assert that two values are not equal:
 
 ```sigil
-assert_ne(actual, unexpected)
+assert_ne(
+    .actual: result,
+    .unexpected: other,
+)
 ```
 
 ### assert_some / assert_none
@@ -196,7 +235,10 @@ Assert that evaluating an expression panics:
 
 ```sigil
 assert_panics(expr)
-assert_panics_with(expr, "message")
+assert_panics_with(
+    .expr: expr,
+    .message: "expected error message",
+)
 ```
 
 ## Test Organization
@@ -211,7 +253,13 @@ Tests may be in the same file as the code they test:
 @add (a: int, b: int) -> int = a + b
 
 @test_add tests @add () -> void = run(
-    assert_eq(add(2, 3), 5),
+    assert_eq(
+        .actual: add(
+            .a: 2,
+            .b: 3,
+        ),
+        .expected: 5,
+    ),
 )
 ```
 
@@ -232,7 +280,13 @@ src/
 use '../math' { add }
 
 @test_add tests @add () -> void = run(
-    assert_eq(add(2, 3), 5),
+    assert_eq(
+        .actual: add(
+            .a: 2,
+            .b: 3,
+        ),
+        .expected: 5,
+    ),
 )
 ```
 
@@ -248,7 +302,10 @@ Private items can be imported using the `::` prefix:
 use '../math' { add, ::helper }  // helper is private, :: makes access explicit
 
 @test_helper tests @helper () -> void = run(
-    assert_eq(helper(5), 10),
+    assert_eq(
+        .actual: helper(5),
+        .expected: 10,
+    ),
 )
 ```
 
@@ -318,7 +375,10 @@ Functions with capabilities are tested by providing mock implementations:
     with Http = MockHttp { responses: {"/users/1": "{\"name\": \"Alice\"}"} } in
     run(
         let result = get_user("1"),
-        assert_eq(result, Ok(User { name: "Alice" })),
+        assert_eq(
+            .actual: result,
+            .expected: Ok(User { name: "Alice" }),
+        ),
     )
 ```
 

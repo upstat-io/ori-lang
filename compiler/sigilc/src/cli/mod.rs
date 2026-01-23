@@ -16,6 +16,7 @@ pub fn print_usage() {
     eprintln!("  sigil run <file.si>              Interpret and run");
     eprintln!("  sigil build <file.si> [-o out]   Compile to native binary");
     eprintln!("  sigil emit <file.si> [-o out.c]  Emit C code");
+    eprintln!("                       [--verbose-arc]  Enable verbose ARC tracking");
     eprintln!("  sigil test                       Run all tests (parallel)");
     eprintln!("  sigil test <file.si>             Run tests for specific file");
     eprintln!("  sigil check <file.si>            Check test coverage");

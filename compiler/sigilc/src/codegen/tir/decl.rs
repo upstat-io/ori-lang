@@ -98,6 +98,14 @@ impl TirCodeGen {
                 }
             }
 
+            // Print verbose ARC summary if enabled
+            if self.arc_config.verbose_tracking {
+                self.emit_line("");
+                self.emit_line("#ifdef SIGIL_VERBOSE_ARC");
+                self.emit_line("sigil_arc_verbose_summary();");
+                self.emit_line("#endif");
+            }
+
             self.emit_line("return 0;");
             self.dedent();
             self.emit_line("}");

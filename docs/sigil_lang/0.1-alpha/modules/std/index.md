@@ -49,13 +49,16 @@ assert(x > 0, "x must be positive")
 ### @assert_eq
 
 ```sigil
-@assert_eq<T: Eq + Printable> (left: T, right: T) -> void
+@assert_eq<T: Eq + Printable> (actual: T, expected: T) -> void
 ```
 
 Panics if values are not equal, showing both values.
 
 ```sigil
-assert_eq(result, expected)
+assert_eq(
+    .actual: result,
+    .expected: expected,
+)
 // Panic: assertion failed: 41 != 42
 ```
 

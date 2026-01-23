@@ -283,7 +283,13 @@ A test declaration associates a test function with one or more target functions:
 
 ```sigil
 @test_add tests @add () -> void = run(
-    assert_eq(add(2, 3), 5),
+    assert_eq(
+        .actual: add(
+            .a: 2,
+            .b: 3,
+        ),
+        .expected: 5,
+    ),
 )
 ```
 

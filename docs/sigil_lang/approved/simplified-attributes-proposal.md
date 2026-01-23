@@ -16,16 +16,14 @@ Simplify attribute syntax from `#[name(...)]` to `#name(...)` by removing the br
 pub type Point = { x: int, y: int }
 
 #[skip("waiting on parser fix")]
-#[test(@point)]
-@test_point () -> void = ...
+@test_point tests @point () -> void = ...
 
 // After (simplified)
 #derive(Eq, Clone)
 pub type Point = { x: int, y: int }
 
 #skip("waiting on parser fix")
-#test(@point)
-@test_point () -> void = ...
+@test_point tests @point () -> void = ...
 ```
 
 ---
@@ -150,14 +148,13 @@ The parser knows which context it's in. `#derive(...)` at statement position is 
 
 ### Planned Attributes
 
-| Attribute | Target | Purpose | Proposal |
-|-----------|--------|---------|----------|
-| `#deprecated("msg")` | Any | Mark as deprecated with warning | — |
-| `#inline` | Functions | Suggest inlining | — |
-| `#cold` | Functions | Mark as unlikely to be called | — |
-| `#cfg(condition)` | Any | Conditional compilation | — |
-| `#test(@targets...)` | Functions | Declare test with coverage targets | [test-attribute-proposal.md](test-attribute-proposal.md) |
-| `#doc("...")` | Any | Documentation metadata | — |
+| Attribute | Target | Purpose |
+|-----------|--------|---------|
+| `#deprecated("msg")` | Any | Mark as deprecated with warning |
+| `#inline` | Functions | Suggest inlining |
+| `#cold` | Functions | Mark as unlikely to be called |
+| `#cfg(condition)` | Any | Conditional compilation |
+| `#doc("...")` | Any | Documentation metadata |
 
 ### Attribute Arguments
 
@@ -174,8 +171,7 @@ type Point = { x: int, y: int }
 
 // String argument
 #skip("waiting on upstream fix")
-#test(@feature)
-@test_pending () -> void = ...
+@test_pending tests @feature () -> void = ...
 
 #deprecated("use @new_api instead")
 @old_api () -> void = ...
@@ -203,24 +199,20 @@ pub type User = {
 type Status = Active | Inactive | Pending(reason: str)
 ```
 
-### Test Attributes
+### Skipped Tests
 
 ```sigil
 #skip("flaky on CI, investigating")
-#test(@fetch_data)
-@test_network () -> void = run(
+@test_network tests @fetch_data () -> void = run(
     let result = fetch_data("https://example.com"),
     assert(is_ok(result))
 )
 
 #skip("not yet implemented")
-#test(@coming_soon)
-@test_future_feature () -> void = run(
+@test_future_feature tests @coming_soon () -> void = run(
     assert(false)
 )
 ```
-
-See [Test Attribute Proposal](test-attribute-proposal.md) for full details on replacing the `tests` keyword with `#test`.
 
 ### Deprecation
 
@@ -272,8 +264,7 @@ pub type Point = { x: int, y: int }
 pub type OldType = { value: int }
 
 #[skip("wip")]
-#[test(@old_function)]
-@test_old () -> void = ...
+@test_old tests @old_function () -> void = ...
 
 // After: simplified
 #derive(Eq, Clone)
@@ -281,8 +272,7 @@ pub type OldType = { value: int }
 pub type OldType = { value: int }
 
 #skip("wip")
-#test(@old_function)
-@test_old () -> void = ...
+@test_old tests @old_function () -> void = ...
 ```
 
 ### Character Count

@@ -40,6 +40,14 @@ pub fn generate_header(config: &ArcConfig) -> String {
         output.push_str(templates::DEBUG_TRACKING);
     }
 
+    // Verbose ARC tracking (only declare the summary function in header)
+    if config.verbose_tracking {
+        output.push_str("\n/* Verbose ARC tracking */\n");
+        output.push_str("#ifdef SIGIL_VERBOSE_ARC\n");
+        output.push_str("void sigil_arc_verbose_summary(void);\n");
+        output.push_str("#endif\n");
+    }
+
     // SSO threshold configuration
     output.push_str(&format!(
         "\n/* Configuration */\n#define SIGIL_VALUE_TYPE_THRESHOLD {}\n",
@@ -120,5 +128,16 @@ mod tests {
         assert!(header.contains("sigil_refcount_t"));
         assert!(header.contains("SigilArcHeader"));
         assert!(!header.contains("#ifndef")); // No include guards
+    }
+
+    #[test]
+    fn test_generate_header_verbose() {
+        let config = ArcConfig::verbose();
+        let header = generate_header(&config);
+
+        // Verbose mode should include both debug and verbose tracking
+        assert!(header.contains("SIGIL_DEBUG_ARC"));
+        assert!(header.contains("SIGIL_VERBOSE_ARC"));
+        assert!(header.contains("sigil_arc_verbose_summary"));
     }
 }

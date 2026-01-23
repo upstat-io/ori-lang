@@ -1,13 +1,29 @@
 // Build command for Sigil
 // Handles compiling Sigil to C and native binaries
 
-use sigilc::{codegen, lexer, parser, types};
 use sigilc::errors::DiagnosticResult;
 use std::fs;
 use std::process::Command;
 
+/// Options for code emission
+#[derive(Default)]
+pub struct EmitOptions {
+    /// Enable verbose ARC tracking (prints all retain/release operations at runtime)
+    pub verbose_arc: bool,
+}
+
 /// Emit C code from a Sigil source file
 pub fn emit_file(path: &str, output: &str) {
+    emit_file_with_options(path, output, EmitOptions::default())
+}
+
+/// Emit C code with verbose ARC tracking enabled
+pub fn emit_file_verbose_arc(path: &str, output: &str) {
+    emit_file_with_options(path, output, EmitOptions { verbose_arc: true })
+}
+
+/// Emit C code from a Sigil source file with options
+pub fn emit_file_with_options(path: &str, output: &str, options: EmitOptions) {
     let source = match fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -16,7 +32,13 @@ pub fn emit_file(path: &str, output: &str) {
         }
     };
 
-    match compile_to_c(&source, path) {
+    let result = if options.verbose_arc {
+        sigilc::emit_c_tir_verbose(&source, path)
+    } else {
+        sigilc::emit_c_tir(&source, path)
+    };
+
+    match result {
         Ok(c_code) => {
             let out_path = if output.ends_with(".c") {
                 output.to_string()
@@ -90,25 +112,12 @@ pub fn build_file(path: &str, output: &str) {
     }
 }
 
-/// Compile source code to C
+/// Compile source code to C using the TIR pipeline with ARC
 pub fn compile_to_c(source: &str, filename: &str) -> DiagnosticResult<String> {
-    use sigilc::errors::{Diagnostic, codes::ErrorCode};
+    sigilc::emit_c_tir(source, filename)
+}
 
-    // Helper to convert string errors to diagnostics
-    let to_diag = |msg: String| {
-        Diagnostic::error(ErrorCode::E0000, msg)
-            .with_label(sigilc::errors::Span::new(filename, 0..0), "error occurred here")
-    };
-
-    // Step 1: Tokenize
-    let tokens = lexer::tokenize(source, filename).map_err(to_diag)?;
-
-    // Step 2: Parse
-    let ast = parser::parse(tokens, filename).map_err(to_diag)?;
-
-    // Step 3: Type check
-    let typed_ast = types::check(ast)?;
-
-    // Step 4: Generate C
-    codegen::generate(&typed_ast).map_err(to_diag)
+/// Compile source code to C with verbose ARC tracking
+pub fn compile_to_c_verbose(source: &str, filename: &str) -> DiagnosticResult<String> {
+    sigilc::emit_c_tir_verbose(source, filename)
 }

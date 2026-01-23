@@ -228,7 +228,8 @@ This document lists Go language features to discuss interactively for potential 
 ### 28. Comparable/Ordered Constraints
 **Go**: `func Max[T constraints.Ordered](a, b T) T`
 **What it does**: Built-in constraints for types supporting comparison operators
-**Discussion status**: Pending
+**Discussion status**: Already have
+**Decision**: Sigil has `Eq` and `Comparable` traits in the prelude.
 
 ---
 
@@ -277,7 +278,7 @@ These Go features have equivalents already in Sigil:
 | 25 | Variadic Functions | Yes | Rejected |
 | 26 | Build Tags | Yes | Accepted |
 | 27 | Type Parameters | Yes | Already have |
-| 28 | Comparable/Ordered | No | - |
+| 28 | Comparable/Ordered | Yes | Already have |
 
 ---
 

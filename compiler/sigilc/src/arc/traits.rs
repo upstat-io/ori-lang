@@ -375,6 +375,9 @@ pub struct ArcConfig {
     /// Enable debug tracking (leak detection)
     pub debug_tracking: bool,
 
+    /// Enable verbose ARC logging (prints retain/release operations)
+    pub verbose_tracking: bool,
+
     /// Threshold for SSO (Small String Optimization) in bytes
     pub sso_threshold: usize,
 
@@ -387,6 +390,7 @@ impl Default for ArcConfig {
         ArcConfig {
             thread_safe: false,
             debug_tracking: false,
+            verbose_tracking: false,
             sso_threshold: 22,
             value_type_threshold: 32,
         }
@@ -402,10 +406,19 @@ impl ArcConfig {
         }
     }
 
-    /// Create config with debug tracking enabled
+    /// Create config with debug tracking enabled (leak detection only)
     pub fn debug() -> Self {
         ArcConfig {
             debug_tracking: true,
+            ..Default::default()
+        }
+    }
+
+    /// Create config with verbose ARC logging (prints retain/release operations)
+    pub fn verbose() -> Self {
+        ArcConfig {
+            debug_tracking: true,
+            verbose_tracking: true,
             ..Default::default()
         }
     }

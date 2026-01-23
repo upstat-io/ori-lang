@@ -30,11 +30,16 @@ fn main() {
         }
         "emit" | "--emit" => {
             if args.len() < 3 {
-                eprintln!("Usage: sigil emit <file.si> [-o output.c]");
+                eprintln!("Usage: sigil emit <file.si> [-o output.c] [--verbose-arc]");
                 std::process::exit(1);
             }
             let output = cli::get_output_name(&args, 3);
-            cli::build::emit_file(&args[2], &output);
+            let verbose_arc = args.iter().any(|a| a == "--verbose-arc");
+            if verbose_arc {
+                cli::build::emit_file_verbose_arc(&args[2], &output);
+            } else {
+                cli::build::emit_file(&args[2], &output);
+            }
         }
         "test" | "--test" => {
             if args.len() < 3 {

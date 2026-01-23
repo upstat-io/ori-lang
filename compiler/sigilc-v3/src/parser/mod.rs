@@ -230,10 +230,16 @@ impl<'a> Parser<'a> {
             // TODO: Return proper list type
             None
         } else if self.check(TokenKind::LParen) {
-            // (T, U) tuple or () unit - skip for now
+            // (T, U) tuple or () unit or () -> T function type
             self.advance(); // (
             if self.check(TokenKind::RParen) {
                 self.advance(); // )
+                // Check for -> (function type: () -> T)
+                if self.check(TokenKind::Arrow) {
+                    self.advance();
+                    self.parse_type();
+                    return None; // TODO: Return proper function type
+                }
                 return Some(TypeId::VOID); // () is unit/void
             }
             // Skip tuple contents
@@ -282,13 +288,13 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    /// Parse &&
+    /// Parse && (logical and)
     fn parse_binary_and(&mut self) -> Result<ExprId, ParseError> {
-        let mut left = self.parse_comparison()?;
+        let mut left = self.parse_bitwise_or()?;
 
         while self.check(TokenKind::AmpAmp) {
             self.advance();
-            let right = self.parse_comparison()?;
+            let right = self.parse_bitwise_or()?;
 
             let span = self.arena.get_expr(left).span.merge(self.arena.get_expr(right).span);
             left = self.arena.alloc_expr(Expr::new(
@@ -300,13 +306,85 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    /// Parse comparison operators.
+    /// Parse | (bitwise or)
+    fn parse_bitwise_or(&mut self) -> Result<ExprId, ParseError> {
+        let mut left = self.parse_bitwise_xor()?;
+
+        while self.check(TokenKind::Pipe) {
+            self.advance();
+            let right = self.parse_bitwise_xor()?;
+
+            let span = self.arena.get_expr(left).span.merge(self.arena.get_expr(right).span);
+            left = self.arena.alloc_expr(Expr::new(
+                ExprKind::Binary { op: BinaryOp::BitOr, left, right },
+                span,
+            ));
+        }
+
+        Ok(left)
+    }
+
+    /// Parse ^ (bitwise xor)
+    fn parse_bitwise_xor(&mut self) -> Result<ExprId, ParseError> {
+        let mut left = self.parse_bitwise_and()?;
+
+        while self.check(TokenKind::Caret) {
+            self.advance();
+            let right = self.parse_bitwise_and()?;
+
+            let span = self.arena.get_expr(left).span.merge(self.arena.get_expr(right).span);
+            left = self.arena.alloc_expr(Expr::new(
+                ExprKind::Binary { op: BinaryOp::BitXor, left, right },
+                span,
+            ));
+        }
+
+        Ok(left)
+    }
+
+    /// Parse & (bitwise and)
+    fn parse_bitwise_and(&mut self) -> Result<ExprId, ParseError> {
+        let mut left = self.parse_equality()?;
+
+        while self.check(TokenKind::Amp) {
+            self.advance();
+            let right = self.parse_equality()?;
+
+            let span = self.arena.get_expr(left).span.merge(self.arena.get_expr(right).span);
+            left = self.arena.alloc_expr(Expr::new(
+                ExprKind::Binary { op: BinaryOp::BitAnd, left, right },
+                span,
+            ));
+        }
+
+        Ok(left)
+    }
+
+    /// Parse == and != (equality)
+    fn parse_equality(&mut self) -> Result<ExprId, ParseError> {
+        let mut left = self.parse_comparison()?;
+
+        while let Some(op) = self.match_equality_op() {
+            self.advance();
+            let right = self.parse_comparison()?;
+
+            let span = self.arena.get_expr(left).span.merge(self.arena.get_expr(right).span);
+            left = self.arena.alloc_expr(Expr::new(
+                ExprKind::Binary { op, left, right },
+                span,
+            ));
+        }
+
+        Ok(left)
+    }
+
+    /// Parse comparison operators (<, >, <=, >=).
     fn parse_comparison(&mut self) -> Result<ExprId, ParseError> {
         let mut left = self.parse_range()?;
 
         while let Some(op) = self.match_comparison_op() {
             self.advance();
-            let right = self.parse_additive()?;
+            let right = self.parse_range()?;
 
             let span = self.arena.get_expr(left).span.merge(self.arena.get_expr(right).span);
             left = self.arena.alloc_expr(Expr::new(
@@ -320,7 +398,7 @@ impl<'a> Parser<'a> {
 
     /// Parse range operators (.. and ..=).
     fn parse_range(&mut self) -> Result<ExprId, ParseError> {
-        let mut left = self.parse_additive()?;
+        let mut left = self.parse_shift()?;
 
         // Check for range operator
         if self.check(TokenKind::DotDot) || self.check(TokenKind::DotDotEq) {
@@ -332,7 +410,7 @@ impl<'a> Parser<'a> {
                         self.check(TokenKind::RBracket) || self.is_at_end() {
                 None
             } else {
-                Some(self.parse_additive()?)
+                Some(self.parse_shift()?)
             };
 
             let span = if let Some(end_expr) = end {
@@ -343,6 +421,24 @@ impl<'a> Parser<'a> {
 
             left = self.arena.alloc_expr(Expr::new(
                 ExprKind::Range { start: Some(left), end, inclusive },
+                span,
+            ));
+        }
+
+        Ok(left)
+    }
+
+    /// Parse << and >> (shift operators).
+    fn parse_shift(&mut self) -> Result<ExprId, ParseError> {
+        let mut left = self.parse_additive()?;
+
+        while let Some(op) = self.match_shift_op() {
+            self.advance();
+            let right = self.parse_additive()?;
+
+            let span = self.arena.get_expr(left).span.merge(self.arena.get_expr(right).span);
+            left = self.arena.alloc_expr(Expr::new(
+                ExprKind::Binary { op, left, right },
                 span,
             ));
         }
@@ -1051,6 +1147,9 @@ impl<'a> Parser<'a> {
                 self.expect(TokenKind::Then)?;
                 let then_branch = self.parse_expr()?;
 
+                // Skip newlines before checking for else (allows multiline if-else)
+                self.skip_newlines();
+
                 let else_branch = if self.check(TokenKind::Else) {
                     self.advance();
                     Some(self.parse_expr()?)
@@ -1324,14 +1423,28 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn match_comparison_op(&self) -> Option<BinaryOp> {
+    fn match_equality_op(&self) -> Option<BinaryOp> {
         match self.current_kind() {
             TokenKind::EqEq => Some(BinaryOp::Eq),
             TokenKind::NotEq => Some(BinaryOp::NotEq),
+            _ => None,
+        }
+    }
+
+    fn match_comparison_op(&self) -> Option<BinaryOp> {
+        match self.current_kind() {
             TokenKind::Lt => Some(BinaryOp::Lt),
             TokenKind::LtEq => Some(BinaryOp::LtEq),
             TokenKind::Gt => Some(BinaryOp::Gt),
             TokenKind::GtEq => Some(BinaryOp::GtEq),
+            _ => None,
+        }
+    }
+
+    fn match_shift_op(&self) -> Option<BinaryOp> {
+        match self.current_kind() {
+            TokenKind::Shl => Some(BinaryOp::Shl),
+            TokenKind::Shr => Some(BinaryOp::Shr),
             _ => None,
         }
     }

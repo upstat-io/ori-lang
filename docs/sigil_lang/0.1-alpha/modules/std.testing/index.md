@@ -55,7 +55,10 @@ Asserts values are equal with detailed diff.
 ```sigil
 use std.testing { assert_eq }
 
-assert_eq(calculate(5), 25)
+assert_eq(
+    .actual: calculate(5),
+    .expected: 25,
+)
 // Failure:
 // expected: 25
 // actual:   24
@@ -66,7 +69,7 @@ assert_eq(calculate(5), 25)
 ### @assert_ne
 
 ```sigil
-@assert_ne<T: Eq + Printable> (left: T, right: T) -> void
+@assert_ne<T: Eq + Printable> (actual: T, unexpected: T) -> void
 ```
 
 Asserts values are not equal.
@@ -74,7 +77,10 @@ Asserts values are not equal.
 ```sigil
 use std.testing { assert_ne }
 
-assert_ne(user.id, 0, "user ID should be assigned")
+assert_ne(
+    .actual: user.id,
+    .unexpected: 0,
+)
 ```
 
 ---
@@ -90,7 +96,11 @@ Asserts floats are approximately equal.
 ```sigil
 use std.testing { assert_approx }
 
-assert_approx(calculate_pi(), 3.14159, 0.00001)
+assert_approx(
+    .actual: calculate_pi(),
+    .expected: 3.14159,
+    .epsilon: 0.00001,
+)
 ```
 
 ---
@@ -107,8 +117,14 @@ Asserts collection contains element.
 ```sigil
 use std.testing { assert_contains }
 
-assert_contains(result, expected_item)
-assert_contains(output, "success")
+assert_contains(
+    .collection: result,
+    .element: expected_item,
+)
+assert_contains(
+    .haystack: output,
+    .needle: "success",
+)
 ```
 
 ---
@@ -124,7 +140,10 @@ Asserts string matches regex pattern.
 ```sigil
 use std.testing { assert_matches }
 
-assert_matches(email, r"^[\w.]+@[\w.]+\.\w+$")
+assert_matches(
+    .value: email,
+    .pattern: r"^[\w.]+@[\w.]+\.\w+$",
+)
 ```
 
 ---
@@ -143,8 +162,14 @@ Asserts that function panics.
 ```sigil
 use std.testing { expect_panic }
 
-expect_panic(|| panic("error"))
-expect_panic(|| divide(1, 0), "division by zero")
+expect_panic(() -> panic("error"))
+expect_panic(
+    .f: () -> divide(
+        .a: 1,
+        .b: 0,
+    ),
+    .message: "division by zero",
+)
 ```
 
 ---
@@ -161,7 +186,10 @@ Asserts result is Err and returns the error.
 use std.testing { expect_err }
 
 let err = expect_err(parse_int("abc"))
-assert_eq(err.message, "invalid integer")
+assert_eq(
+    .actual: err.message,
+    .expected: "invalid integer",
+)
 ```
 
 ---
@@ -178,7 +206,10 @@ Asserts result is Ok and returns the value.
 use std.testing { expect_ok }
 
 let value = expect_ok(parse_int("42"))
-assert_eq(value, 42)
+assert_eq(
+    .actual: value,
+    .expected: 42,
+)
 ```
 
 ---
@@ -197,12 +228,18 @@ Setup and teardown for tests.
 ```sigil
 use std.testing { before_each, after_each }
 
-let db = before_each(|| create_test_db())
+let db = before_each(() -> create_test_db())
 after_each(db -> db.drop())
 
 @test_user_creation tests @create_user () -> void = run(
-    let user = create_user(db, "Alice")?,
-    assert_eq(user.name, "Alice"),
+    let user = create_user(
+        .db: db,
+        .name: "Alice",
+    )?,
+    assert_eq(
+        .actual: user.name,
+        .expected: "Alice",
+    ),
 )
 ```
 
@@ -229,7 +266,10 @@ let service = Service.new(http_mock)
 let result = service.fetch_data()
 
 assert(http_mock.was_called())
-assert_eq(http_mock.call_count(), 1)
+assert_eq(
+    .actual: http_mock.call_count(),
+    .expected: 1,
+)
 ```
 
 **Methods:**
@@ -279,17 +319,26 @@ use std.testing { assert_eq, assert_ne, expect_err, expect_ok }
     // Valid user
     let valid = User { name: "Alice", age: 30 },
     let result = expect_ok(validate_user(valid)),
-    assert_eq(result.name, "Alice"),
+    assert_eq(
+        .actual: result.name,
+        .expected: "Alice",
+    ),
 
     // Invalid: empty name
     let invalid = User { name: "", age: 30 },
     let err = expect_err(validate_user(invalid)),
-    assert_eq(err, ValidationError.EmptyName),
+    assert_eq(
+        .actual: err,
+        .expected: ValidationError.EmptyName,
+    ),
 
     // Invalid: negative age
     let invalid2 = User { name: "Bob", age: -1 },
     let err2 = expect_err(validate_user(invalid2)),
-    assert_eq(err2, ValidationError.InvalidAge(-1)),
+    assert_eq(
+        .actual: err2,
+        .expected: ValidationError.InvalidAge(-1),
+    ),
 )
 ```
 
@@ -307,7 +356,10 @@ use std.testing { Mock, assert_eq }
 
     assert(mailer.was_called()),
     let call = mailer.calls()[0],
-    assert_eq(call.args.to, "alice@example.com"),
+    assert_eq(
+        .actual: call.args.to,
+        .expected: "alice@example.com",
+    ),
 )
 ```
 

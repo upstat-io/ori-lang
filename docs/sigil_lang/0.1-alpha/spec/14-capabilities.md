@@ -303,7 +303,10 @@ impl Http for MockHttp {
     run(
         let result = get_user("1"),
         assert(is_ok(result)),
-        assert_eq(result.unwrap().name, "Alice"),
+        assert_eq(
+            .actual: result.unwrap().name,
+            .expected: "Alice",
+        ),
     )
 ```
 

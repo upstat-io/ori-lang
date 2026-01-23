@@ -148,7 +148,10 @@ impl Cache for MockCache {
     with Http = MockHttp { responses: {} } in  // HTTP not called on cache hit
     run(
         let user = get_user_cached("123")?,
-        assert_eq(user.name, "Alice"),
+        assert_eq(
+            .actual: user.name,
+            .expected: "Alice",
+        ),
     )
 
 @test_cache_miss tests @get_user_cached () -> void =
@@ -156,7 +159,10 @@ impl Cache for MockCache {
     with Http = MockHttp { responses: {"/users/123": "{\"name\": \"Bob\"}"} } in
     run(
         let user = get_user_cached("123")?,
-        assert_eq(user.name, "Bob"),
+        assert_eq(
+            .actual: user.name,
+            .expected: "Bob",
+        ),
         // Verify it was cached
         assert(Cache.exists("user:123")),
     )
