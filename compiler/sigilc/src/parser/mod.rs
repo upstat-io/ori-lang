@@ -162,6 +162,8 @@ impl Parser {
             Some(Token::Use) => self.parse_use().map(Item::Use),
             Some(Token::Trait) => self.parse_trait(false).map(Item::Trait),
             Some(Token::Impl) => self.parse_impl().map(Item::Impl),
+            Some(Token::Extend) => self.parse_extend().map(Item::Extend),
+            Some(Token::Extension) => self.parse_extension().map(Item::Extension),
             Some(t) => Err(format!("Unexpected token at top level: {:?}", t)),
             None => Err("Unexpected end of input".to_string()),
         }

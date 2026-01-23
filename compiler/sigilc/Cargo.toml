@@ -31,6 +31,6 @@ proptest = "1.5"             # Property-based testing
 test-case = "3.3"            # Parameterized tests
 tempfile = "3.10"            # Temporary directories for tests
 
-# Inherit workspace lints
-[lints]
-workspace = true
+# Standalone lints (sigilc v1 is excluded from workspace)
+[lints.rust]
+warnings = "warn"

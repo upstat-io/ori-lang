@@ -251,12 +251,11 @@ fn test_duration(input: &str) -> Token {
 }
 
 #[test]
-fn test_duration_ms_parses_as_two_tokens() {
-    // Note: "ms" is not a supported duration unit, so "100ms" parses as "100m" + "s"
+fn test_duration_ms_parses_as_single_token() {
+    // Note: "ms" is now a supported duration unit (milliseconds)
     let toks = tokens("100ms");
-    assert_eq!(toks.len(), 2);
-    assert_eq!(toks[0], Token::Duration("100m".to_string()));
-    assert_eq!(toks[1], Token::Ident("s".to_string()));
+    assert_eq!(toks.len(), 1);
+    assert_eq!(toks[0], Token::Duration("100ms".to_string()));
 }
 
 // ============================================================================

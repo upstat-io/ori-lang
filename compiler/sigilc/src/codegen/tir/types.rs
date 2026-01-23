@@ -1,7 +1,11 @@
 // Type mapping for TIR-based C code generation
 // Converts resolved Type to C types - no inference needed
+//
+// Also provides ARC (Automatic Reference Counting) support for
+// determining which types need retain/release operations.
 
 use super::TirCodeGen;
+use crate::arc::is_value_type;
 use crate::ir::Type;
 
 impl TirCodeGen {
@@ -98,6 +102,65 @@ impl TirCodeGen {
             Type::Result(_, _) => "NULL".to_string(),
             _ => "NULL".to_string(),
         }
+    }
+
+    // =========================================================================
+    // ARC Memory Management Helpers
+    // =========================================================================
+
+    /// Check if a type requires ARC management
+    ///
+    /// Returns true for reference types (strings, lists, maps, etc.)
+    /// that need retain/release operations.
+    pub(super) fn needs_arc(&self, ty: &Type) -> bool {
+        if !self.use_arc {
+            return false;
+        }
+        !is_value_type(ty)
+    }
+
+    /// Emit a retain call for a variable if the type requires it
+    ///
+    /// Returns the C code for retaining the reference, or an empty string
+    /// if the type is a value type.
+    pub(super) fn emit_retain(&self, var: &str, ty: &Type) -> String {
+        if !self.needs_arc(ty) {
+            return String::new();
+        }
+
+        match ty {
+            Type::Str => format!("sigil_string_retain(&{})", var),
+            Type::List(_) => format!("sigil_arc_retain({}.header)", var),
+            Type::Map(_, _) => format!("sigil_arc_retain({}.header)", var),
+            _ => format!("sigil_arc_retain((void*){})", var),
+        }
+    }
+
+    /// Emit a release call for a variable if the type requires it
+    ///
+    /// Returns the C code for releasing the reference, or an empty string
+    /// if the type is a value type.
+    pub(super) fn emit_release(&self, var: &str, ty: &Type) -> String {
+        if !self.needs_arc(ty) {
+            return String::new();
+        }
+
+        match ty {
+            Type::Str => format!("sigil_string_release(&{})", var),
+            Type::List(_) => format!("sigil_arc_release({}.header)", var),
+            Type::Map(_, _) => format!("sigil_arc_release({}.header)", var),
+            _ => format!("sigil_arc_release((void*){})", var),
+        }
+    }
+
+    /// Check if a type is a string (for special string handling)
+    pub(super) fn is_arc_string(&self, ty: &Type) -> bool {
+        matches!(ty, Type::Str)
+    }
+
+    /// Check if a type is a collection (list or map)
+    pub(super) fn is_arc_collection(&self, ty: &Type) -> bool {
+        matches!(ty, Type::List(_) | Type::Map(_, _))
     }
 }
 

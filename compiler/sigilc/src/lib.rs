@@ -8,6 +8,7 @@
 // - AST path (interpreter): Source → Lexer → Parser → AST → TypeChecker → Interpreter
 // - TIR path (codegen): Source → Lexer → Parser → AST → TypeChecker+Lower → TIR → Passes → Codegen
 
+pub mod arc;
 pub mod ast;
 pub mod builtins;
 pub mod codegen;
@@ -34,6 +35,9 @@ pub use eval::run as interpret;
 pub use ir::TModule;
 pub use types::check as type_check;
 pub use types::check_and_lower;
+
+// Re-export ARC validation types for mandatory ARC enforcement
+pub use arc::{ArcError, ArcResult, ArcSummary, ArcValidatedModule, ModuleArcInfo};
 
 use errors::codes::ErrorCode;
 
@@ -71,8 +75,11 @@ pub fn emit_c(source: &str, filename: &str) -> DiagnosticResult<String> {
     codegen::generate(&typed_ast).map_err(|e| string_to_diag(e, filename))
 }
 
-/// Compile to C code using TIR pipeline
-/// This is the recommended path for code generation
+/// Compile to C code using TIR pipeline with mandatory ARC validation
+///
+/// This is the recommended path for code generation. It enforces exhaustive
+/// ARC analysis through the type-state pattern (ArcValidatedModule), ensuring
+/// that all IR variants are properly handled for memory management.
 pub fn emit_c_tir(source: &str, filename: &str) -> DiagnosticResult<String> {
     let mut tir = compile_tir(source, filename)?;
 
@@ -82,8 +89,42 @@ pub fn emit_c_tir(source: &str, filename: &str) -> DiagnosticResult<String> {
     pm.run(&mut tir, &mut ctx)
         .map_err(|e| string_to_diag(format!("Pass error: {}", e), filename))?;
 
-    // Generate C code from TIR
-    codegen::generate_from_tir(&tir).map_err(|e| string_to_diag(e, filename))
+    // Validate for ARC (MANDATORY) - returns ArcValidatedModule
+    let validated = arc::ArcValidatedModule::validate(tir)
+        .map_err(|e| string_to_diag(format!("ARC validation error: {}", e), filename))?;
+
+    // Generate C code from validated module
+    codegen::generate_from_validated(&validated).map_err(|e| string_to_diag(e, filename))
+}
+
+/// Compile to C code using TIR pipeline, returning both code and ARC info
+///
+/// This function is useful when you need access to the ARC analysis results,
+/// for example for debugging or optimization decisions.
+pub fn emit_c_tir_with_info(
+    source: &str,
+    filename: &str,
+) -> DiagnosticResult<(String, arc::ArcSummary)> {
+    let mut tir = compile_tir(source, filename)?;
+
+    // Run passes
+    let pm = passes::PassManager::default_pipeline();
+    let mut ctx = passes::PassContext::new();
+    pm.run(&mut tir, &mut ctx)
+        .map_err(|e| string_to_diag(format!("Pass error: {}", e), filename))?;
+
+    // Validate for ARC (MANDATORY)
+    let validated = arc::ArcValidatedModule::validate(tir)
+        .map_err(|e| string_to_diag(format!("ARC validation error: {}", e), filename))?;
+
+    // Compute summary
+    let summary = arc::ArcSummary::from_arc_info(validated.arc_info());
+
+    // Generate C code from validated module
+    let code =
+        codegen::generate_from_validated(&validated).map_err(|e| string_to_diag(e, filename))?;
+
+    Ok((code, summary))
 }
 
 #[cfg(test)]

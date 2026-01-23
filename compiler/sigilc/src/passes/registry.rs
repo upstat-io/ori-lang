@@ -157,6 +157,14 @@ static REGISTRY: LazyLock<RwLock<PassRegistry>> = LazyLock::new(|| {
         || Box::new(super::PatternLoweringPass),
     );
 
+    registry.register_with_meta(
+        "arc_insertion",
+        "Analyze and prepare ARC memory management operations",
+        true,
+        vec!["pattern_lowering"],
+        || Box::new(super::ArcInsertionPass::new()),
+    );
+
     RwLock::new(registry)
 });
 
