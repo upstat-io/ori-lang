@@ -67,23 +67,40 @@ When multiple values are destroyed at the end of a scope, destruction occurs in 
 
 Destruction guarantees enable deterministic resource cleanup. When a value with associated resources (file handles, network connections, etc.) is destroyed, those resources are released.
 
-## Cycle Collection
+## Cycle Prevention
 
 ### The Cycle Problem
 
 Reference counting alone cannot reclaim cyclic data structures—values that reference each other—because their reference counts never reach zero.
 
-### Backup Cycle Collector
+### Compile-Time Cycle Prevention
 
-A backup cycle collector eventually reclaims cyclic data structures that are unreachable.
+Sigil prevents reference cycles at compile time. It is a compile-time error to create a structure that could form a reference cycle.
 
-The cycle collector:
+Cycles are prevented through these rules:
 
-1. Runs periodically or when triggered by memory pressure
-2. Identifies unreachable cycles using a mark-sweep algorithm
-3. Frees cyclic garbage
+1. **Immutable data cannot form cycles** — A value can only reference values that existed before it was created.
+2. **Mutable references are restricted** — Mutable fields cannot hold references that could complete a cycle back to the containing structure.
+3. **Self-referential types are forbidden** — A type `T` cannot contain a field of type `T`, `[T]`, `Option<T>`, or any type that transitively contains `T`.
 
-> **Note:** In practice, cycles are rare in Sigil programs due to immutable data structures and functional patterns. The cycle collector exists as a safety net to prevent memory leaks.
+> **Note:** These restrictions align with Sigil's functional programming model. Data structures requiring cycles (graphs, doubly-linked lists) should use indices into a collection rather than direct references.
+
+### Acyclic Data Patterns
+
+```sigil
+// Valid: reference to separately-created value
+let a = create_node()
+let b = Node { parent: a }  // b references a, no cycle possible
+
+// Valid: graph via indices
+type Graph = {
+    nodes: [NodeData],
+    edges: [(int, int)],  // indices into nodes
+}
+
+// Invalid: self-referential type (compile error)
+// type LinkedNode = { next: Option<LinkedNode> }
+```
 
 ## Value and Reference Semantics
 
@@ -140,19 +157,31 @@ type Transform = {
 
 ## Constraints
 
-1. It is an error to create reference cycles through mutable references.
-2. Programs must not rely on specific cycle collection timing.
+1. It is a compile-time error to define a self-referential type.
+2. It is a compile-time error to create a structure that could form a reference cycle.
 3. Destruction order within a scope is guaranteed to be reverse creation order.
+4. All heap-allocated values must be destroyed when their reference count reaches zero.
 
 ## Implementation Notes
 
 > **Note:** The following are informative implementation guidelines.
+
+### Cycle Detection
+
+Implementations must detect potential cycles at compile time by:
+
+1. **Type graph analysis** — Build a graph of type references and reject types with cycles.
+2. **Field type validation** — Ensure no field's type transitively contains the parent type.
+
+### Optimization
 
 Implementations may optimize reference counting through:
 
 1. **Elision of increments** — When the compiler can prove a value's lifetime, reference count operations may be omitted.
 2. **Inline small values** — Value types should be stored inline without heap allocation.
 3. **Copy-on-write** — When a reference count is 1, mutation may occur in place rather than copying.
+
+### Debug Support
 
 Implementations should provide:
 
