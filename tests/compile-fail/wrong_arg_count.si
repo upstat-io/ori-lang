@@ -1,6 +1,13 @@
-// Compile-fail test: wrong number of arguments
-// Expected error: Function 'add' expects 2 arguments, got 1
+// Test that wrong argument count is detected
+// Spec: 09-expressions.md § Function Calls
+// Design: 02-syntax/02-functions.md § Call Syntax
+//
+// Function calls must provide the correct number of arguments.
 
 @add (a: int, b: int) -> int = a + b
 
-@test () -> int = add(1)
+#[compile_fail("expected 2 arguments")]
+@test_wrong_arg_count () -> void = run(
+    let result = add(.a: 1),
+    ()
+)

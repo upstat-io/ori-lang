@@ -4,7 +4,6 @@
 //! following the Open/Closed Principle. New methods can be added
 //! by implementing the `MethodDispatcher` trait.
 
-use std::rc::Rc;
 use std::collections::HashMap;
 use super::value::Value;
 use super::evaluator::{EvalResult, EvalError};
@@ -58,12 +57,12 @@ impl MethodDispatcher for ListMethods {
             "first" => Ok(items
                 .first()
                 .cloned()
-                .map(|v| Value::Some(Box::new(v)))
+                .map(Value::some)
                 .unwrap_or(Value::None)),
             "last" => Ok(items
                 .last()
                 .cloned()
-                .map(|v| Value::Some(Box::new(v)))
+                .map(Value::some)
                 .unwrap_or(Value::None)),
             "contains" => {
                 if args.len() != 1 {
@@ -111,9 +110,9 @@ impl MethodDispatcher for StringMethods {
         match method {
             "len" => Ok(Value::Int(s.len() as i64)),
             "is_empty" => Ok(Value::Bool(s.is_empty())),
-            "to_uppercase" => Ok(Value::Str(Rc::new(s.to_uppercase()))),
-            "to_lowercase" => Ok(Value::Str(Rc::new(s.to_lowercase()))),
-            "trim" => Ok(Value::Str(Rc::new(s.trim().to_string()))),
+            "to_uppercase" => Ok(Value::string(s.to_uppercase())),
+            "to_lowercase" => Ok(Value::string(s.to_lowercase())),
+            "trim" => Ok(Value::string(s.trim().to_string())),
             "contains" => {
                 if args.len() != 1 {
                     return Err(errors::wrong_arg_count("contains", 1, args.len()));
@@ -318,7 +317,7 @@ mod tests {
     #[test]
     fn test_list_len() {
         let registry = MethodRegistry::new();
-        let list = Value::List(Rc::new(vec![Value::Int(1), Value::Int(2), Value::Int(3)]));
+        let list = Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
 
         assert_eq!(
             registry.dispatch(list, "len", vec![]).unwrap(),
@@ -330,13 +329,13 @@ mod tests {
     fn test_list_is_empty() {
         let registry = MethodRegistry::new();
 
-        let empty = Value::List(Rc::new(vec![]));
+        let empty = Value::list(vec![]);
         assert_eq!(
             registry.dispatch(empty, "is_empty", vec![]).unwrap(),
             Value::Bool(true)
         );
 
-        let non_empty = Value::List(Rc::new(vec![Value::Int(1)]));
+        let non_empty = Value::list(vec![Value::Int(1)]);
         assert_eq!(
             registry.dispatch(non_empty, "is_empty", vec![]).unwrap(),
             Value::Bool(false)
@@ -346,11 +345,11 @@ mod tests {
     #[test]
     fn test_string_to_uppercase() {
         let registry = MethodRegistry::new();
-        let s = Value::Str(Rc::new("hello".to_string()));
+        let s = Value::string("hello");
 
         assert_eq!(
             registry.dispatch(s, "to_uppercase", vec![]).unwrap(),
-            Value::Str(Rc::new("HELLO".to_string()))
+            Value::string("HELLO")
         );
     }
 
@@ -358,7 +357,7 @@ mod tests {
     fn test_option_unwrap() {
         let registry = MethodRegistry::new();
 
-        let some = Value::Some(Box::new(Value::Int(42)));
+        let some = Value::some(Value::Int(42));
         assert_eq!(
             registry.dispatch(some, "unwrap", vec![]).unwrap(),
             Value::Int(42)
@@ -371,7 +370,7 @@ mod tests {
     #[test]
     fn test_no_such_method() {
         let registry = MethodRegistry::new();
-        let list = Value::List(Rc::new(vec![]));
+        let list = Value::list(vec![]);
 
         assert!(registry.dispatch(list, "nonexistent", vec![]).is_err());
     }

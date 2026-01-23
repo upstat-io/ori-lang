@@ -1,0 +1,130 @@
+// Spec: 09-expressions.md § Let Bindings
+// Design: 02-syntax/02-expressions.md § Let Bindings
+
+// =============================================================================
+// Basic Let Bindings (Inferred Types)
+// =============================================================================
+
+@test_let_inferred tests @let_inferred () -> void = run(
+    let x = 42,
+    assert_eq(
+        .actual: x,
+        .expected: 42,
+    ),
+)
+
+@let_inferred () -> int = run(
+    let x = 42,
+    x,
+)
+
+@test_let_string tests @let_string () -> void = run(
+    let s = "hello",
+    assert_eq(
+        .actual: s,
+        .expected: "hello",
+    ),
+)
+
+@let_string () -> str = run(
+    let s = "hello",
+    s,
+)
+
+// =============================================================================
+// Type Annotated Let Bindings
+// =============================================================================
+
+@test_let_annotated_int tests @let_annotated_int () -> void = run(
+    let x: int = 42,
+    assert_eq(
+        .actual: x,
+        .expected: 42,
+    ),
+)
+
+@let_annotated_int () -> int = run(
+    let x: int = 42,
+    x,
+)
+
+@test_let_annotated_str tests @let_annotated_str () -> void = run(
+    let s: str = "world",
+    assert_eq(
+        .actual: s,
+        .expected: "world",
+    ),
+)
+
+@let_annotated_str () -> str = run(
+    let s: str = "world",
+    s,
+)
+
+@test_let_annotated_bool tests @let_annotated_bool () -> void = run(
+    let b: bool = true,
+    assert(b),
+)
+
+@let_annotated_bool () -> bool = run(
+    let b: bool = true,
+    b,
+)
+
+@test_let_annotated_float tests @let_annotated_float () -> void = run(
+    let f: float = 3.14,
+    assert(f > 3.0),
+    assert(f < 4.0),
+)
+
+@let_annotated_float () -> float = run(
+    let f: float = 3.14,
+    f,
+)
+
+@test_let_annotated_char tests @let_annotated_char () -> void = run(
+    let c: char = 'x',
+    assert_eq(
+        .actual: c,
+        .expected: 'x',
+    ),
+)
+
+@let_annotated_char () -> char = run(
+    let c: char = 'x',
+    c,
+)
+
+// =============================================================================
+// Shadowing (immutable rebinding)
+// =============================================================================
+
+@test_let_shadow tests @let_shadow () -> void = run(
+    let x = 1,
+    let x = x + 1,
+    assert_eq(
+        .actual: x,
+        .expected: 2,
+    ),
+)
+
+@let_shadow () -> int = run(
+    let x = 1,
+    let x = x + 1,
+    x,
+)
+
+@test_let_shadow_different_type tests @let_shadow_different_type () -> void = run(
+    let x = 42,
+    let x = str(x),
+    assert_eq(
+        .actual: x,
+        .expected: "42",
+    ),
+)
+
+@let_shadow_different_type () -> str = run(
+    let x = 42,
+    let x = str(x),
+    x,
+)

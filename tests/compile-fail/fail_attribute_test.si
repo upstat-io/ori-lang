@@ -1,0 +1,14 @@
+// Test that the #[fail] attribute works correctly
+// Spec: 13-testing.md § fail Attribute
+// Design: 11-testing/02-test-syntax.md § Expected Failure Tests
+//
+// The #[fail] attribute marks tests expected to fail at runtime.
+// This file tests that the test runner correctly handles #[fail].
+
+// This test should PASS because it expects a runtime failure
+// and the assertion will fail (1 != 2)
+#[fail("assertion failed")]
+@test_expected_assertion_failure () -> void = run(
+    assert_eq(.left: 1, .right: 2),
+    ()
+)

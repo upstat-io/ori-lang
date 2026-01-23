@@ -1,0 +1,134 @@
+// Spec: 09-expressions.md § Lambda Expressions
+// Design: 02-syntax/02-expressions.md § Lambda Expressions
+
+// =============================================================================
+// Untyped Lambda Parameters
+// =============================================================================
+
+@test_untyped_lambda tests @untyped_lambda () -> void = run(
+    let f = x -> x + 1,
+    assert_eq(
+        .actual: f(5),
+        .expected: 6,
+    ),
+)
+
+@untyped_lambda () -> int = run(
+    let f = x -> x + 1,
+    f(5),
+)
+
+@test_multi_param_lambda tests @multi_param_lambda () -> void = run(
+    let f = (a, b) -> a + b,
+    assert_eq(
+        .actual: f(
+            .a: 3,
+            .b: 4,
+        ),
+        .expected: 7,
+    ),
+)
+
+@multi_param_lambda () -> int = run(
+    let f = (a, b) -> a + b,
+    f(
+        .a: 3,
+        .b: 4,
+    ),
+)
+
+// =============================================================================
+// Typed Lambda Parameters
+// =============================================================================
+
+@test_typed_lambda tests @typed_lambda () -> void = run(
+    let f = (x: int) -> x * 2,
+    assert_eq(
+        .actual: f(5),
+        .expected: 10,
+    ),
+)
+
+@typed_lambda () -> int = run(
+    let f = (x: int) -> x * 2,
+    f(5),
+)
+
+@test_multi_typed_lambda tests @multi_typed_lambda () -> void = run(
+    let f = (a: int, b: int) -> a - b,
+    assert_eq(
+        .actual: f(
+            .a: 10,
+            .b: 3,
+        ),
+        .expected: 7,
+    ),
+)
+
+@multi_typed_lambda () -> int = run(
+    let f = (a: int, b: int) -> a - b,
+    f(
+        .a: 10,
+        .b: 3,
+    ),
+)
+
+// =============================================================================
+// Lambda with Explicit Return Type
+// =============================================================================
+
+@test_lambda_return_type tests @lambda_return_type () -> void = run(
+    let f = (x: int) -> int = x + 1,
+    assert_eq(
+        .actual: f(5),
+        .expected: 6,
+    ),
+)
+
+@lambda_return_type () -> int = run(
+    let f = (x: int) -> int = x + 1,
+    f(5),
+)
+
+@test_lambda_return_str tests @lambda_return_str () -> void = run(
+    let f = (n: int) -> str = str(n),
+    assert_eq(
+        .actual: f(42),
+        .expected: "42",
+    ),
+)
+
+@lambda_return_str () -> str = run(
+    let f = (n: int) -> str = str(n),
+    f(42),
+)
+
+// =============================================================================
+// No-parameter Lambdas
+// =============================================================================
+
+@test_no_param_lambda tests @no_param_lambda () -> void = run(
+    let f = () -> 42,
+    assert_eq(
+        .actual: f(),
+        .expected: 42,
+    ),
+)
+
+@no_param_lambda () -> int = run(
+    let f = () -> 42,
+    f(),
+)
+
+@test_no_param_lambda_typed tests @no_param_lambda_typed () -> void = run(
+    let f = () -> int = 100,
+    assert_eq(
+        .actual: f(),
+        .expected: 100,
+    ),
+)
+
+@no_param_lambda_typed () -> int = run(
+    let f = () -> int = 100,
+    f(),
+)

@@ -13,6 +13,7 @@ use super::find::FindPattern;
 use super::collect::CollectPattern;
 use super::recurse::RecursePattern;
 use super::parallel::ParallelPattern;
+use super::spawn::SpawnPattern;
 use super::timeout::TimeoutPattern;
 use super::retry::RetryPattern;
 use super::cache::CachePattern;
@@ -39,7 +40,7 @@ impl PatternRegistry {
     pub fn new() -> Self {
         let mut patterns: HashMap<FunctionExpKind, Arc<dyn PatternDefinition>> = HashMap::new();
 
-        // Register all 12 function_exp patterns
+        // Register all 13 function_exp patterns
         patterns.insert(FunctionExpKind::Map, Arc::new(MapPattern));
         patterns.insert(FunctionExpKind::Filter, Arc::new(FilterPattern));
         patterns.insert(FunctionExpKind::Fold, Arc::new(FoldPattern));
@@ -47,6 +48,7 @@ impl PatternRegistry {
         patterns.insert(FunctionExpKind::Collect, Arc::new(CollectPattern));
         patterns.insert(FunctionExpKind::Recurse, Arc::new(RecursePattern));
         patterns.insert(FunctionExpKind::Parallel, Arc::new(ParallelPattern));
+        patterns.insert(FunctionExpKind::Spawn, Arc::new(SpawnPattern));
         patterns.insert(FunctionExpKind::Timeout, Arc::new(TimeoutPattern));
         patterns.insert(FunctionExpKind::Retry, Arc::new(RetryPattern));
         patterns.insert(FunctionExpKind::Cache, Arc::new(CachePattern));
@@ -98,8 +100,8 @@ mod tests {
     fn test_registry_has_all_patterns() {
         let registry = PatternRegistry::new();
 
-        // Should have all 12 function_exp patterns
-        assert_eq!(registry.len(), 12);
+        // Should have all 13 function_exp patterns
+        assert_eq!(registry.len(), 13);
 
         // Verify each pattern is registered
         assert!(registry.get(FunctionExpKind::Map).is_some());
@@ -109,6 +111,7 @@ mod tests {
         assert!(registry.get(FunctionExpKind::Collect).is_some());
         assert!(registry.get(FunctionExpKind::Recurse).is_some());
         assert!(registry.get(FunctionExpKind::Parallel).is_some());
+        assert!(registry.get(FunctionExpKind::Spawn).is_some());
         assert!(registry.get(FunctionExpKind::Timeout).is_some());
         assert!(registry.get(FunctionExpKind::Retry).is_some());
         assert!(registry.get(FunctionExpKind::Cache).is_some());

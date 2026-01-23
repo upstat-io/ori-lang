@@ -4,7 +4,6 @@
 //! following the Open/Closed Principle. New operators can be added
 //! by implementing the `BinaryOperator` trait.
 
-use std::rc::Rc;
 use crate::ir::BinaryOp;
 use super::value::{Value, RangeValue};
 use super::evaluator::EvalResult;
@@ -181,11 +180,16 @@ impl BinaryOperator for StringOperator {
 
         match op {
             BinaryOp::Add => {
-                let result = format!("{}{}", a, b);
-                Ok(Value::Str(Rc::new(result)))
+                let result = format!("{}{}", &*a, &*b);
+                Ok(Value::string(result))
             }
             BinaryOp::Eq => Ok(Value::Bool(*a == *b)),
             BinaryOp::NotEq => Ok(Value::Bool(*a != *b)),
+            // Lexicographic comparison
+            BinaryOp::Lt => Ok(Value::Bool(*a < *b)),
+            BinaryOp::LtEq => Ok(Value::Bool(*a <= *b)),
+            BinaryOp::Gt => Ok(Value::Bool(*a > *b)),
+            BinaryOp::GtEq => Ok(Value::Bool(*a >= *b)),
             _ => Err(errors::invalid_binary_op("strings")),
         }
     }
@@ -213,7 +217,7 @@ impl BinaryOperator for ListOperator {
             BinaryOp::Add => {
                 let mut result = (*a).clone();
                 result.extend((*b).iter().cloned());
-                Ok(Value::List(Rc::new(result)))
+                Ok(Value::list(result))
             }
             BinaryOp::Eq => Ok(Value::Bool(*a == *b)),
             BinaryOp::NotEq => Ok(Value::Bool(*a != *b)),
@@ -456,12 +460,12 @@ mod tests {
         let registry = OperatorRegistry::new();
 
         let result = registry.evaluate(
-            Value::Str(Rc::new("hello".to_string())),
-            Value::Str(Rc::new(" world".to_string())),
+            Value::string("hello"),
+            Value::string(" world"),
             BinaryOp::Add,
         ).unwrap();
 
-        assert_eq!(result, Value::Str(Rc::new("hello world".to_string())));
+        assert_eq!(result, Value::string("hello world"));
     }
 
     #[test]

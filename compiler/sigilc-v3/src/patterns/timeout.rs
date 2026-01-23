@@ -2,7 +2,6 @@
 //!
 //! `timeout(.op: expr, .after: duration)` - Execute with timeout.
 
-use std::rc::Rc;
 use crate::types::Type;
 use crate::eval::{Value, EvalResult};
 use super::{PatternDefinition, TypeCheckContext, EvalContext, PatternExecutor};
@@ -42,8 +41,8 @@ impl PatternDefinition for TimeoutPattern {
 
         // In interpreter, just run the operation without actual timeout
         match ctx.eval_prop("op", exec) {
-            Ok(value) => Ok(Value::Ok(Box::new(value))),
-            Err(e) => Ok(Value::Err(Box::new(Value::Str(Rc::new(e.message))))),
+            Ok(value) => Ok(Value::ok(value)),
+            Err(e) => Ok(Value::err(Value::string(e.message))),
         }
     }
 

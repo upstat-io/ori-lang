@@ -1,0 +1,90 @@
+// Spec: 10-patterns.md § try
+// Design: 02-syntax/04-patterns-reference.md § try
+
+// =============================================================================
+// try Pattern (Error Propagation)
+// =============================================================================
+
+// NOTE: Generic type syntax Result<T, E> requires Phase 6.
+// Using type inference for now (return types are inferred from Ok/Err usage).
+
+// Helper functions that return Result (type inferred)
+@succeed (x: int) = Ok(x)
+
+@fail_if_zero (x: int) = run(
+    if x == 0 then Err("zero not allowed") else Ok(x),
+)
+
+@double_if_positive (x: int) = run(
+    if x > 0 then Ok(x * 2) else Err("must be positive"),
+)
+
+// =============================================================================
+// Basic try tests
+// =============================================================================
+
+@test_try_success tests @try_success () -> void = run(
+    let result = try_success(),
+    assert(
+        .cond: is_ok(result),
+    ),
+)
+
+@try_success () = try(
+    let x = succeed(5),
+    let y = succeed(10),
+    Ok(x + y),
+)
+
+@test_try_early_return tests @try_early_return () -> void = run(
+    let result = try_early_return(),
+    assert(
+        .cond: is_err(result),
+    ),
+)
+
+@try_early_return () = try(
+    let x = fail_if_zero(0),
+    // This should not execute
+    let y = succeed(10),
+    Ok(x + y),
+)
+
+@test_try_chain tests @try_chain () -> void = run(
+    let result = try_chain(5),
+    assert(
+        .cond: is_ok(result),
+    ),
+)
+
+@try_chain (n: int) = try(
+    let a = fail_if_zero(n),
+    let b = double_if_positive(a),
+    Ok(b),
+)
+
+@test_try_chain_fail tests @try_chain_fail () -> void = run(
+    let result = try_chain(0),
+    assert(
+        .cond: is_err(result),
+    ),
+)
+
+// =============================================================================
+// try with transformations
+// =============================================================================
+
+@test_try_with_transform tests @try_with_transform () -> void = run(
+    let result = try_with_transform(3),
+    assert(
+        .cond: is_ok(result),
+    ),
+)
+
+@try_with_transform (x: int) = try(
+    let a = succeed(x),
+    let doubled = double_if_positive(a),
+    let tripled = succeed(doubled + a),
+    Ok(tripled),
+)
+

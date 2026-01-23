@@ -73,6 +73,10 @@ pub enum ErrorCode {
     E2005,
     /// Duplicate definition
     E2006,
+    /// Closure self-reference (closure cannot capture itself)
+    E2007,
+    /// Cyclic type definition
+    E2008,
 
     // ===== Pattern Errors (E3xxx) =====
     /// Unknown pattern
@@ -118,6 +122,8 @@ impl ErrorCode {
             ErrorCode::E2004 => "E2004",
             ErrorCode::E2005 => "E2005",
             ErrorCode::E2006 => "E2006",
+            ErrorCode::E2007 => "E2007",
+            ErrorCode::E2008 => "E2008",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",

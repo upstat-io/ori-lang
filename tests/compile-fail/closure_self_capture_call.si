@@ -1,0 +1,11 @@
+// Test that closure self-capture through call is detected
+// Spec: 15-memory-model.md § Compile-Time Cycle Prevention
+// Design: 04-memory-management/02-arc.md § Cycle Detection
+//
+// A closure calling itself would require capturing itself.
+
+#[compile_fail("closure cannot capture itself")]
+@test_self_capture_call () -> void = run(
+    let factorial = (n: int) -> if n <= 1 then 1 else n * factorial(n - 1),
+    ()
+)

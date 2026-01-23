@@ -5,9 +5,14 @@
 //!
 //! ## Architecture
 //!
-//! - `Value`: Runtime values (not Salsa-compatible - uses Rc for sharing)
+//! - `Value`: Runtime values with enforced Arc usage through factory methods
 //! - `Environment`: Variable scoping with stack-based lookup
 //! - `Evaluator`: Tree-walking interpreter
+//!
+//! ## Arc Enforcement
+//!
+//! The value module enforces that all heap allocations go through factory
+//! methods on `Value`. See `value/mod.rs` for details.
 
 mod value;
 mod environment;
@@ -17,7 +22,7 @@ pub mod operators;
 pub mod methods;
 pub mod unary_operators;
 
-pub use value::{Value, FunctionValue, RangeValue};
+pub use value::{Value, FunctionValue, RangeValue, StructValue, StructLayout, Heap, BuiltinFn};
 pub use environment::Environment;
 pub use evaluator::{Evaluator, EvalResult, EvalError, EvalOutput, ModuleEvalResult};
 pub use operators::OperatorRegistry;

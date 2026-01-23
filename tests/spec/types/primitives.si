@@ -114,3 +114,355 @@
 )
 
 @int_comparison () -> bool = 1 < 2
+
+// =============================================================================
+// float — 64-bit Floating Point
+// =============================================================================
+// Spec: 06-types.md § Floating-Point Type
+// Design: 03-type-system/01-primitive-types.md § float
+
+@test_float_literal tests @float_literal () -> void = run(
+    let x = 3.14,
+    assert(x > 3.0),
+    assert(x < 4.0),
+)
+
+@float_literal () -> float = 3.14
+
+@test_float_negative tests @float_negative () -> void = run(
+    let x = -0.5,
+    assert(x < 0.0),
+)
+
+@float_negative () -> float = -0.5
+
+@test_float_scientific tests @float_scientific () -> void = run(
+    let x = 1.5e10,
+    assert(x > 1.0e10),
+)
+
+@float_scientific () -> float = 1.5e10
+
+@test_float_annotated tests @float_annotated () -> void = run(
+    let x: float = 2.5,
+    assert(x > 2.0),
+)
+
+@float_annotated () -> float = run(
+    let x: float = 2.5,
+    x,
+)
+
+@test_float_arithmetic tests @float_arithmetic () -> void = run(
+    assert(3.0 + 2.0 == 5.0),
+    assert(3.0 - 2.0 == 1.0),
+    assert(3.0 * 2.0 == 6.0),
+    assert(6.0 / 2.0 == 3.0),
+)
+
+@float_arithmetic () -> float = 3.0 + 2.0
+
+@test_float_comparison tests @float_comparison () -> void = run(
+    assert(1.0 < 2.0),
+    assert(2.0 > 1.0),
+    assert(2.0 <= 2.0),
+    assert(2.0 >= 2.0),
+    assert(2.0 == 2.0),
+    assert(1.0 != 2.0),
+)
+
+@float_comparison () -> bool = 1.0 < 2.0
+
+// =============================================================================
+// bool — Boolean
+// =============================================================================
+// Spec: 06-types.md § Boolean Type
+// Design: 03-type-system/01-primitive-types.md § bool
+
+@test_bool_true tests @bool_true () -> void = run(
+    let x = true,
+    assert(x),
+)
+
+@bool_true () -> bool = true
+
+@test_bool_false tests @bool_false () -> void = run(
+    let x = false,
+    assert(!x),
+)
+
+@bool_false () -> bool = false
+
+@test_bool_annotated tests @bool_annotated () -> void = run(
+    let x: bool = true,
+    assert(x),
+)
+
+@bool_annotated () -> bool = run(
+    let x: bool = true,
+    x,
+)
+
+@test_bool_logical tests @bool_logical () -> void = run(
+    // Logical AND
+    assert(true && true),
+    assert(!(true && false)),
+    assert(!(false && true)),
+    assert(!(false && false)),
+    // Logical OR
+    assert(true || true),
+    assert(true || false),
+    assert(false || true),
+    assert(!(false || false)),
+    // Logical NOT
+    assert(!false),
+    assert(!!true),
+)
+
+@bool_logical () -> bool = true && true
+
+@test_bool_equality tests @bool_equality () -> void = run(
+    assert(true == true),
+    assert(false == false),
+    assert(true != false),
+    assert(false != true),
+)
+
+@bool_equality () -> bool = true == true
+
+// =============================================================================
+// str — UTF-8 String
+// =============================================================================
+// Spec: 06-types.md § String Type
+// Design: 03-type-system/01-primitive-types.md § str
+
+@test_str_literal tests @str_literal () -> void = run(
+    let x = "hello",
+    assert_eq(
+        .actual: x,
+        .expected: "hello",
+    ),
+)
+
+@str_literal () -> str = "hello"
+
+@test_str_empty tests @str_empty () -> void = run(
+    let x = "",
+    assert_eq(
+        .actual: x,
+        .expected: "",
+    ),
+)
+
+@str_empty () -> str = ""
+
+@test_str_escape tests @str_escape () -> void = run(
+    let x = "line1\nline2",
+    assert(len(x) > 6),
+)
+
+@str_escape () -> str = "line1\nline2"
+
+@test_str_annotated tests @str_annotated () -> void = run(
+    let x: str = "world",
+    assert_eq(
+        .actual: x,
+        .expected: "world",
+    ),
+)
+
+@str_annotated () -> str = run(
+    let x: str = "world",
+    x,
+)
+
+@test_str_concat tests @str_concat () -> void = run(
+    let x = "hello" + " " + "world",
+    assert_eq(
+        .actual: x,
+        .expected: "hello world",
+    ),
+)
+
+@str_concat () -> str = "hello" + " " + "world"
+
+@test_str_comparison tests @str_comparison () -> void = run(
+    assert("a" < "b"),
+    assert("b" > "a"),
+    assert("abc" == "abc"),
+    assert("abc" != "def"),
+)
+
+@str_comparison () -> bool = "a" < "b"
+
+@test_str_len tests @str_len () -> void = run(
+    assert_eq(
+        .actual: len("hello"),
+        .expected: 5,
+    ),
+    assert_eq(
+        .actual: len(""),
+        .expected: 0,
+    ),
+)
+
+@str_len () -> int = len("hello")
+
+// =============================================================================
+// char — Unicode Character
+// =============================================================================
+// Spec: 06-types.md § Character Type
+// Design: 03-type-system/01-primitive-types.md § char
+
+@test_char_ascii tests @char_ascii () -> void = run(
+    let x = 'a',
+    assert_eq(
+        .actual: x,
+        .expected: 'a',
+    ),
+)
+
+@char_ascii () -> char = 'a'
+
+@test_char_unicode tests @char_unicode () -> void = run(
+    let x = 'λ',
+    assert_eq(
+        .actual: x,
+        .expected: 'λ',
+    ),
+)
+
+@char_unicode () -> char = 'λ'
+
+@test_char_escape tests @char_escape () -> void = run(
+    let newline = '\n',
+    let tab = '\t',
+    let backslash = '\\',
+    assert(newline != tab),
+    assert(tab != backslash),
+)
+
+@char_escape () -> char = '\n'
+
+@test_char_annotated tests @char_annotated () -> void = run(
+    let x: char = 'z',
+    assert_eq(
+        .actual: x,
+        .expected: 'z',
+    ),
+)
+
+@char_annotated () -> char = run(
+    let x: char = 'z',
+    x,
+)
+
+@test_char_comparison tests @char_comparison () -> void = run(
+    assert('a' < 'b'),
+    assert('b' > 'a'),
+    assert('x' == 'x'),
+    assert('x' != 'y'),
+)
+
+@char_comparison () -> bool = 'a' < 'b'
+
+// =============================================================================
+// byte — 8-bit Unsigned Integer
+// =============================================================================
+// Spec: 06-types.md § Byte Type
+// Design: 03-type-system/01-primitive-types.md § byte
+
+@test_byte_literal tests @byte_literal () -> void = run(
+    let x: byte = 65,
+    assert_eq(
+        .actual: int(x),
+        .expected: 65,
+    ),
+)
+
+@byte_literal () -> byte = 65
+
+@test_byte_hex tests @byte_hex () -> void = run(
+    let x: byte = 0x41,
+    assert_eq(
+        .actual: int(x),
+        .expected: 65,
+    ),
+)
+
+@byte_hex () -> byte = 0x41
+
+@test_byte_max tests @byte_max () -> void = run(
+    let x: byte = 255,
+    assert_eq(
+        .actual: int(x),
+        .expected: 255,
+    ),
+)
+
+@byte_max () -> byte = 255
+
+@test_byte_zero tests @byte_zero () -> void = run(
+    let x: byte = 0,
+    assert_eq(
+        .actual: int(x),
+        .expected: 0,
+    ),
+)
+
+@byte_zero () -> byte = 0
+
+// =============================================================================
+// void — No Meaningful Value
+// =============================================================================
+// Spec: 06-types.md § Void Type
+// Design: 03-type-system/01-primitive-types.md § void
+
+@test_void_return tests @void_return () -> void = run(
+    let result = side_effect(),
+    // void functions return ()
+    assert(true),
+)
+
+@void_return () -> void = ()
+
+@side_effect () -> void = run(
+    let x = 1,
+    (),
+)
+
+@test_void_unit tests @void_unit () -> void = run(
+    // void is an alias for ()
+    let x: void = (),
+    assert(true),
+)
+
+@void_unit () -> void = ()
+
+// =============================================================================
+// Never — Bottom Type
+// =============================================================================
+// Spec: 06-types.md § Never Type
+// Design: 03-type-system/01-primitive-types.md § Never
+
+@test_never_panic tests @never_panic () -> void = run(
+    // Test that panic returns Never and coerces to any type
+    let result: int = if false then panic("unreachable") else 42,
+    assert_eq(
+        .actual: result,
+        .expected: 42,
+    ),
+)
+
+@never_panic () -> int = if false then panic("unreachable") else 42
+
+@test_never_coercion tests @never_coercion () -> void = run(
+    // Never coerces to any type in conditionals
+    let x: str = if true then "hello" else panic("never reached"),
+    assert_eq(
+        .actual: x,
+        .expected: "hello",
+    ),
+)
+
+@never_coercion () -> str = if true then "hello" else panic("never reached")

@@ -4,7 +4,6 @@
 //! for testing the compiler.
 
 use crate::eval::Value;
-use std::rc::Rc;
 
 // =============================================================================
 // Test Value Constructors
@@ -22,7 +21,7 @@ pub fn test_float(f: f64) -> Value {
 
 /// Create a simple test string value.
 pub fn test_str(s: &str) -> Value {
-    Value::Str(Rc::new(s.to_string()))
+    Value::string(s)
 }
 
 /// Create a simple test boolean value.
@@ -37,7 +36,7 @@ pub fn test_char(c: char) -> Value {
 
 /// Create a test Some value.
 pub fn test_some(v: Value) -> Value {
-    Value::Some(Box::new(v))
+    Value::some(v)
 }
 
 /// Create a test None value.
@@ -47,22 +46,22 @@ pub fn test_none() -> Value {
 
 /// Create a test Ok value.
 pub fn test_ok(v: Value) -> Value {
-    Value::Ok(Box::new(v))
+    Value::ok(v)
 }
 
 /// Create a test Err value.
 pub fn test_err(v: Value) -> Value {
-    Value::Err(Box::new(v))
+    Value::err(v)
 }
 
 /// Create a test list value.
 pub fn test_list(items: Vec<Value>) -> Value {
-    Value::List(Rc::new(items))
+    Value::list(items)
 }
 
 /// Create a test tuple value.
 pub fn test_tuple(items: Vec<Value>) -> Value {
-    Value::Tuple(Rc::new(items))
+    Value::tuple(items)
 }
 
 /// Create a void value.
@@ -143,13 +142,13 @@ mod tests {
 
     #[test]
     fn test_option_constructors() {
-        assert_eq!(test_some(test_int(1)), Value::Some(Box::new(Value::Int(1))));
+        assert_eq!(test_some(test_int(1)), Value::some(Value::Int(1)));
         assert_eq!(test_none(), Value::None);
     }
 
     #[test]
     fn test_result_constructors() {
-        assert_eq!(test_ok(test_int(1)), Value::Ok(Box::new(Value::Int(1))));
+        assert_eq!(test_ok(test_int(1)), Value::ok(Value::Int(1)));
         let err_val = test_err(test_str("error"));
         assert!(matches!(err_val, Value::Err(_)));
     }
@@ -170,6 +169,6 @@ mod tests {
     #[test]
     fn test_is_none() {
         assert!(is_none(&Value::None));
-        assert!(!is_none(&Value::Some(Box::new(Value::Int(1)))));
+        assert!(!is_none(&Value::some(Value::Int(1))));
     }
 }

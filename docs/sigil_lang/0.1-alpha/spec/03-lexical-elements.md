@@ -19,11 +19,18 @@ comment       = line_comment .
 line_comment  = "//" { unicode_char - newline } newline .
 ```
 
-A line comment starts with `//` and extends to the end of the line.
+A line comment starts with `//` and extends to the end of the line. Comments must appear on their own line; inline comments (comments following code on the same line) are not permitted.
 
 ```sigil
-// This is a comment
-@add (a: int, b: int) -> int = a + b  // inline comment
+// This is a valid comment
+@add (a: int, b: int) -> int = a + b
+```
+
+It is a syntax error to place a comment after code on the same line:
+
+```sigil
+// INVALID - inline comments are not allowed
+@add (a: int, b: int) -> int = a + b  // syntax error
 ```
 
 ### Documentation Comments

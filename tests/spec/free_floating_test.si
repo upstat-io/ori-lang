@@ -1,0 +1,17 @@
+// Test that free-floating tests work
+// Spec: 13-testing.md § Free-Floating Tests
+// Design: 11-testing/02-test-syntax.md § Free-Floating Tests
+
+// Free-floating test - no targets
+@test_arithmetic () -> void = run(
+    let a = 2 + 3,
+    let b = 10 - 5,
+    assert_eq(.left: a, .right: b)
+)
+
+// Another free-floating test
+@test_boolean_logic () -> void = run(
+    assert_eq(.left: true && true, .right: true),
+    assert_eq(.left: true && false, .right: false),
+    assert_eq(.left: false || true, .right: true)
+)

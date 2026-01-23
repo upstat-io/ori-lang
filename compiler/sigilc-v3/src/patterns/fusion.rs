@@ -15,7 +15,6 @@
 //! | map       | find      | -         | MapFind         |
 //! | filter    | find      | -         | FilterFind      |
 
-use std::rc::Rc;
 use crate::ir::{ExprId, Name, Span, ExprArena, FunctionExpKind};
 use crate::eval::{Value, EvalResult, EvalError};
 use super::PatternExecutor;
@@ -107,7 +106,7 @@ impl FusedPattern {
                                 results.push(mapped);
                             }
                         }
-                        Ok(Value::List(Rc::new(results)))
+                        Ok(Value::list(results))
                     }
                     _ => Err(EvalError::new("fused map-filter requires a list")),
                 }
@@ -129,7 +128,7 @@ impl FusedPattern {
                                 results.push(mapped);
                             }
                         }
-                        Ok(Value::List(Rc::new(results)))
+                        Ok(Value::list(results))
                     }
                     _ => Err(EvalError::new("fused filter-map requires a list")),
                 }
@@ -206,7 +205,7 @@ impl FusedPattern {
                         for item in list.iter() {
                             let mapped = exec.call(map_f.clone(), vec![item.clone()])?;
                             if exec.call(find_f.clone(), vec![mapped.clone()])?.is_truthy() {
-                                return Ok(Value::Some(Box::new(mapped)));
+                                return Ok(Value::some(mapped));
                             }
                         }
                         Ok(Value::None)
@@ -226,7 +225,7 @@ impl FusedPattern {
                             // Both predicates must pass
                             if exec.call(filter_f.clone(), vec![item.clone()])?.is_truthy() &&
                                exec.call(find_f.clone(), vec![item.clone()])?.is_truthy() {
-                                return Ok(Value::Some(Box::new(item.clone())));
+                                return Ok(Value::some(item.clone()));
                             }
                         }
                         Ok(Value::None)

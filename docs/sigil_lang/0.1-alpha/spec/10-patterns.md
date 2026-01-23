@@ -23,14 +23,28 @@ function_seq       = run_expr | try_expr | match_expr .
 
 ### function_exp
 
-A function_exp contains named expressions. Each argument is a `.name: expr` pair. These are data transformation and configuration constructs.
+A function_exp contains named expressions. Each argument is a `.name: expr` pair. These are data transformation constructs and built-in functions.
 
 ```
-function_exp       = exp_name "(" named_exp { "," named_exp } [ "," ] ")" .
-exp_name           = "map" | "filter" | "fold" | "recurse" | "collect" | "find"
+function_exp       = ( pattern_name | builtin_name ) "(" named_exp { "," named_exp } [ "," ] ")" .
+pattern_name       = "map" | "filter" | "fold" | "recurse" | "collect" | "find"
                    | "parallel" | "retry" | "cache" | "validate" | "timeout" | "with" .
+builtin_name       = "len" | "is_empty"
+                   | "is_some" | "is_none" | "is_ok" | "is_err"
+                   | "assert" | "assert_eq" | "assert_ne"
+                   | "assert_some" | "assert_none" | "assert_ok" | "assert_err"
+                   | "assert_panics" | "assert_panics_with"
+                   | "print" | "compare" | "min" | "max" | "panic" .
 named_exp          = "." identifier ":" expression .
 ```
+
+**Exception:** Type conversion functions (`int`, `float`, `str`, `byte`) allow positional argument syntax:
+
+```
+conversion_call    = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
+```
+
+**Patterns:**
 
 | Pattern | Purpose |
 |---------|---------|
@@ -47,12 +61,38 @@ named_exp          = "." identifier ":" expression .
 | `validate` | Input validation |
 | `with` | Resource management |
 
+**Built-in Functions:**
+
+| Builtin | Purpose |
+|---------|---------|
+| `int`, `float`, `str`, `byte` | Type conversion (positional allowed) |
+| `len`, `is_empty` | Collection inspection |
+| `is_some`, `is_none` | Option inspection |
+| `is_ok`, `is_err` | Result inspection |
+| `assert`, `assert_eq`, `assert_ne` | Assertion |
+| `assert_some`, `assert_none`, `assert_ok`, `assert_err` | Type-specific assertion |
+| `assert_panics`, `assert_panics_with` | Panic assertion |
+| `print` | Output |
+| `compare`, `min`, `max` | Comparison |
+| `panic` | Termination |
+
+See [Built-in Functions](11-built-in-functions.md) for complete signatures and semantics.
+
 ## Combined Grammar
 
 ```
-pattern_expr       = function_seq | function_exp .
+pattern_expr       = function_seq | function_exp | conversion_call .
 function_seq       = run_expr | try_expr | match_expr .
-function_exp       = exp_name "(" named_exp { "," named_exp } [ "," ] ")" .
+function_exp       = ( pattern_name | builtin_name ) "(" named_exp { "," named_exp } [ "," ] ")" .
+conversion_call    = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
+pattern_name       = "map" | "filter" | "fold" | "recurse" | "collect" | "find"
+                   | "parallel" | "retry" | "cache" | "validate" | "timeout" | "with" .
+builtin_name       = "len" | "is_empty"
+                   | "is_some" | "is_none" | "is_ok" | "is_err"
+                   | "assert" | "assert_eq" | "assert_ne"
+                   | "assert_some" | "assert_none" | "assert_ok" | "assert_err"
+                   | "assert_panics" | "assert_panics_with"
+                   | "print" | "compare" | "min" | "max" | "panic" .
 named_exp          = "." identifier ":" expression .
 ```
 
@@ -329,25 +369,92 @@ Memoization (`.memo: true`) caches results for the duration of the top-level cal
 
 ### parallel
 
-Execute tasks concurrently.
+Execute tasks concurrently and wait for all to settle.
 
 ```sigil
 parallel(
-    .name1: expr1,
-    .name2: expr2,
+    .tasks: task_list,
+    [ .max_concurrent: int, ]
     [ .timeout: duration, ]
-    [ .on_error: strategy, ]
 )
 ```
 
-**Named form:** Each `.name: expr` is a named task. Returns a struct with fields matching the names.
+**Semantics:** All tasks run to completion (success or failure). The pattern always returns a list of results—it never fails itself. Errors are captured as `Err` values in the result list.
 
-**List form:**
+**Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `.tasks` | `[() -> T]` | List of task expressions |
+| `.max_concurrent` | `int` | Maximum concurrent tasks (optional) |
+| `.timeout` | `Duration` | Per-task timeout (optional) |
+
+**Result type:** `[Result<T, E>]`
+
+Each slot contains:
+- `Ok(value)` if the task succeeded
+- `Err(e)` if the task failed
+- `Err(TimeoutError)` if the task timed out
+
+**Examples:**
 
 ```sigil
-parallel(
-    .tasks: list_of_tasks,
+// Fetch multiple users concurrently
+let results = parallel(
+    .tasks: map(.over: ids, .transform: id -> get_user(id)),
+    .max_concurrent: 10,
+)
+// results: [Result<User, Error>]
+
+// Handle results explicitly
+let users = filter(.over: results, .predicate: r -> is_ok(r))
+    |> map(.over: _, .transform: r -> r.unwrap())
+```
+
+```sigil
+// Fixed tasks with timeout
+let results = parallel(
+    .tasks: [get_user(id), get_posts(id), get_notifs(id)],
+    .timeout: 5s,
+)
+let user = results[0]?           // propagate error
+let posts = results[1] ?? []     // default on error
+let notifs = results[2] ?? []    // default on error
+```
+
+### spawn
+
+Execute tasks concurrently without waiting (fire and forget).
+
+```sigil
+spawn(
+    .tasks: task_list,
     [ .max_concurrent: int, ]
+)
+```
+
+**Semantics:** Tasks are started but not awaited. Errors are silently discarded. Use for side effects where results are not needed.
+
+**Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `.tasks` | `[() -> T]` | List of task expressions |
+| `.max_concurrent` | `int` | Maximum concurrent tasks (optional) |
+
+**Result type:** `void`
+
+**Examples:**
+
+```sigil
+// Fire and forget - send notifications, don't wait
+spawn(
+    .tasks: map(.over: users, .transform: u -> send_notification(u)),
+)
+
+// Log analytics events
+spawn(
+    .tasks: [log_event(event), send_to_analytics(event)],
 )
 ```
 

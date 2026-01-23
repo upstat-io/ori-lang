@@ -109,11 +109,11 @@ pub $default_timeout = 30s
 
 ## Comments
 
-Single-line comments use `//`:
+Single-line comments use `//`. Comments must appear on their own line; inline comments (comments following code on the same line) are not allowed.
 
 ```sigil
 // This is a comment
-@add (a: int, b: int) -> int = a + b  // inline comment
+@add (a: int, b: int) -> int = a + b
 ```
 
 ### Documentation Comments

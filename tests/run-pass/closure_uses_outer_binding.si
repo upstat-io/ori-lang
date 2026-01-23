@@ -1,0 +1,12 @@
+// Test that closures can use outer bindings (not self-capture)
+// Spec: 15-memory-model.md § Compile-Time Cycle Prevention
+// Design: 04-memory-management/02-arc.md § Cycle Detection
+//
+// A closure using a variable from outer scope is NOT self-capture.
+// This should compile and run without error.
+
+@main () -> int = run(
+    let x = 42,
+    let get_x = () -> x,
+    get_x()
+)

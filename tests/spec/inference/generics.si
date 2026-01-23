@@ -1,0 +1,131 @@
+// Spec: 06-types.md § Generic Types
+// Design: 03-type-system/05-type-inference.md § Generic Type Argument Inference
+
+// =============================================================================
+// Generic Type Argument Inference
+// =============================================================================
+
+@test_infer_option_type tests @infer_option_type () -> void = run(
+    // Option type inferred from argument
+    let opt = Some(42),
+    assert(is_some(opt)),
+)
+
+@infer_option_type () -> bool = run(
+    let opt = Some(42),
+    is_some(opt),
+)
+
+@test_infer_result_type tests @infer_result_type () -> void = run(
+    // Result type inferred from argument
+    let res = Ok(42),
+    assert(is_ok(res)),
+)
+
+@infer_result_type () -> bool = run(
+    let res = Ok(42),
+    is_ok(res),
+)
+
+@test_infer_list_type tests @infer_list_type () -> void = run(
+    // List element type inferred from elements
+    let nums = [1, 2, 3],
+    let first = nums[0],
+    assert_eq(
+        .actual: first,
+        .expected: 1,
+    ),
+)
+
+@infer_list_type () -> int = run(
+    let nums = [1, 2, 3],
+    nums[0],
+)
+
+@test_infer_nested_generic tests @infer_nested_generic () -> void = run(
+    // Nested generics inferred
+    let nested = Some([1, 2, 3]),
+    assert(is_some(nested)),
+)
+
+@infer_nested_generic () -> bool = run(
+    let nested = Some([1, 2, 3]),
+    is_some(nested),
+)
+
+// =============================================================================
+// Inference from Context
+// =============================================================================
+
+@test_infer_from_return_type tests @infer_from_return_type () -> void = run(
+    // Return type annotation guides inference
+    let result = infer_from_return_type(),
+    assert_eq(
+        .actual: result,
+        .expected: 42,
+    ),
+)
+
+@infer_from_return_type () -> int = 42
+
+@test_infer_from_param_type tests @infer_from_param_type () -> void = run(
+    // Parameter type guides inference
+    let result = process_int(42),
+    assert_eq(
+        .actual: result,
+        .expected: 84,
+    ),
+)
+
+@process_int (x: int) -> int = x * 2
+
+// =============================================================================
+// Inference with Lambda Context
+// =============================================================================
+
+@test_lambda_param_from_use tests @lambda_param_from_use () -> void = run(
+    // Lambda parameter type inferred from how it's used
+    let f = x -> x + 1,
+    let result = f(5),
+    assert_eq(
+        .actual: result,
+        .expected: 6,
+    ),
+)
+
+@lambda_param_from_use () -> int = run(
+    let f = x -> x + 1,
+    f(5),
+)
+
+@test_lambda_return_inference tests @lambda_return_inference () -> void = run(
+    // Lambda return type inferred from body
+    let f = (x: int) -> x + 1,
+    let result = f(5),
+    assert_eq(
+        .actual: result,
+        .expected: 6,
+    ),
+)
+
+@lambda_return_inference () -> int = run(
+    let f = (x: int) -> x + 1,
+    f(5),
+)
+
+@test_lambda_chain tests @lambda_chain () -> void = run(
+    // Inference through lambda chains
+    let inc = x -> x + 1,
+    let double = x -> x * 2,
+    let result = double(inc(5)),
+    assert_eq(
+        .actual: result,
+        .expected: 12,
+    ),
+)
+
+@lambda_chain () -> int = run(
+    let inc = x -> x + 1,
+    let double = x -> x * 2,
+    double(inc(5)),
+)
