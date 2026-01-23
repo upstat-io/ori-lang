@@ -1,0 +1,13 @@
+# Hofstadter Q sequence
+
+**Problem:** The Hofstadter Q sequence is defined as: Q(1)&=Q(2)=1, \\ Q(n)&=Q(n-Q(n-1))+Q(n-Q(n-2)), n>2. It is defined like the Fibonacci sequence, but whereas the next term in the Fibonacci sequence is the sum of the previous two terms, in the Q sequence the previous two terms tell you how far to go back in the Q sequence to find the two numbers to sum to make the next term of the sequence.
+
+**Requirements:**
+- Confirm and display that the first ten terms of the sequence are: 1, 1, 2, 3, 3, 4, 5, 5, 6, and 6
+- Confirm and display that the 1000th term is: 502
+- Count and display how many times a member of the sequence is less than its preceding term for terms up to and including the 100,000th term.
+- Ensure that the extra credit solution safely handles being initially asked for an nth term where n is large.
+
+**Success Criteria:**
+- Program produces correct output for test cases
+- Implementation matches Rosetta Code specification

@@ -8,6 +8,10 @@ This directory contains all documentation for the Sigil programming language, or
 sigil_lang/
 ├── README.md       # This file
 ├── CLAUDE.md       # AI guidance for documentation maintenance
+├── proposals/      # Language change proposals
+│   ├── drafts/     # Proposals under consideration
+│   ├── approved/   # Accepted proposals
+│   └── rejected/   # Declined proposals
 └── {version}/      # Versioned documentation
     ├── spec/       # Language specification (normative)
     ├── design/     # Design rationale (informative)
@@ -29,6 +33,17 @@ sigil_lang/
 | **design/** | Rationale and philosophy | Language designers, contributors |
 | **guide/** | Tutorials and how-tos | Users learning Sigil |
 | **modules/** | Standard library reference | All developers |
+| **proposals/** | Language change proposals | Language designers, contributors |
+
+## Proposals
+
+Language changes go through a proposal process:
+
+| Folder | Description |
+|--------|-------------|
+| `proposals/drafts/` | Proposals under active discussion |
+| `proposals/approved/` | Accepted proposals (pending or implemented) |
+| `proposals/rejected/` | Declined proposals with rationale |
 
 ## Versioning Policy
 

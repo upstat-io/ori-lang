@@ -92,6 +92,42 @@ These items are available in every module without any `use` statement.
 | `assert` | `(bool) -> void` | Runtime assertion |
 | `assert_eq` | `(T, T) -> void` | Equality assertion |
 
+### Built-in Function Name Resolution
+
+Built-in function names (`min`, `max`, `len`, `str`, etc.) are reserved **only in call position**. You can use these names freely as variables:
+
+```sigil
+let min = 5                       // OK: variable binding
+let x = min + 1                   // OK: uses variable
+let y = min(.left: a, .right: b)  // OK: calls built-in function
+```
+
+The parser distinguishes by context:
+- `name(` → built-in function call
+- `name` alone → variable reference
+
+#### Why This Design?
+
+| Consideration | Resolution |
+|---------------|------------|
+| Common variable names | `min`, `max`, `str` are natural names for local values |
+| Built-in accessibility | Built-ins remain callable regardless of local variables |
+| No shadowing ambiguity | `min(` always means the built-in, never a variable |
+| Function reservation | User can't define `@min`, preventing confusion |
+
+This approach balances flexibility (use `min` as a variable) with predictability (built-in functions are always accessible via call syntax).
+
+#### What's Not Allowed
+
+Defining a function with a built-in name is an error:
+
+```sigil
+// Error: 'min' is a reserved built-in function name
+@min (a: int, b: int) -> int = if a < b then a else b
+```
+
+This prevents ambiguity about what `min(` means—it's always the built-in.
+
 ---
 
 ## Option Type

@@ -1,36 +1,48 @@
-// Typed Intermediate Representation (TIR) for Sigil
-//
-// The TIR provides a fully typed representation where every expression
-// carries its resolved type. This enables:
-// - Direct type access during codegen (no re-inference)
-// - Pass-based optimizations and transformations
-// - Pattern lowering to loops
-//
-// Pipeline: AST -> TypeChecker+Lower -> TIR -> Passes -> Codegen
-//
-// Module structure:
-// - types.rs: Resolved type enum (Type)
-// - expr.rs: Typed expressions (TExpr, TExprKind, LocalId)
-// - patterns.rs: Typed patterns (TPattern)
-// - module.rs: Module structure (TModule, TFunction, LocalTable)
-// - display.rs: Pretty printing for debug
+//! Salsa-Compatible IR Types
+//!
+//! Every type in this module has the required traits for Salsa:
+//! - Clone: Required for Salsa storage
+//! - Eq + PartialEq: Required for early cutoff
+//! - Hash: Required for memoization keys
+//! - Debug: Required for error messages
+//!
+//! # Design Philosophy (per 02-design-principles.md)
+//!
+//! - **Intern Everything**: Strings → Name(u32), Types → TypeId(u32)
+//! - **Flatten Everything**: No Box<Expr>, use ExprId(u32) indices
+//! - **Interface Segregation**: Focused traits (Spanned, Named)
+//!
+//! Types that contain floats store them as u64 bits for Hash compatibility.
+//! Types that contain strings use interned Name for O(1) equality.
 
-mod display;
-mod expr;
-pub mod fold;
-mod module;
-mod patterns;
-mod types;
-pub mod visit;
+mod span;
+mod name;
+mod token;
+mod interner;
+mod type_id;
+mod expr_id;
+mod traits;
+pub mod ast;
+mod arena;
 
-// Re-export all public types
-pub use display::{dump_tir, DisplayConfig, TIRPrinter};
-pub use expr::{FuncRef, LocalId, TExpr, TExprKind, TMatch, TMatchArm, TMatchPattern, TStmt};
-pub use fold::Folder;
-pub use module::{
-    LocalInfo, LocalTable, TConfig, TField, TFunction, TImport, TImportItem, TModule, TParam,
-    TTest, TTypeDef, TTypeDefKind, TVariant,
+pub use span::Span;
+pub use name::Name;
+pub use token::{Token, TokenKind, TokenList, DurationUnit, SizeUnit};
+pub use interner::{StringInterner, SharedInterner};
+pub use type_id::TypeId;
+pub use expr_id::{ExprId, ExprRange, StmtId, StmtRange};
+pub use traits::{Spanned, Named, Typed};
+pub use ast::{
+    Expr, ExprKind, Stmt, StmtKind, Param, ParamRange,
+    BinaryOp, UnaryOp, Function, Module, TestDef,
+    BindingPattern, MatchPattern, MatchArm,
+    MapEntry, FieldInit,
+    ArmRange, MapEntryRange, FieldInitRange,
+    // function_seq types
+    SeqBinding, SeqBindingRange, FunctionSeq,
+    // function_exp types
+    NamedExpr, NamedExprRange, FunctionExpKind, FunctionExp,
+    // CallNamed types
+    CallArg, CallArgRange,
 };
-pub use patterns::{IterDirection, OnError, RetryBackoff, TPattern};
-pub use types::Type;
-pub use visit::Visitor;
+pub use arena::ExprArena;

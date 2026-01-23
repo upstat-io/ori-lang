@@ -147,6 +147,18 @@ add(.a: 1, .b: 2)
 fetch_user(.id: id)
 ```
 
+#### Built-in Function Resolution
+
+When an identifier in call position (`name(`) matches a built-in function name, it resolves to the built-in function. This resolution takes precedence regardless of any variable with the same name in scope.
+
+```sigil
+let min = 5                       // variable 'min'
+let x = min                       // evaluates to 5
+let y = min(.left: 3, .right: 7)  // calls built-in min, evaluates to 3
+```
+
+See [Built-in Functions](11-built-in-functions.md) for the list of built-in function names and their signatures.
+
 ### Error Propagation
 
 The `?` suffix propagates errors from `Result` types:

@@ -585,6 +585,32 @@ All function calls use named property syntax:
 )
 ```
 
+### Built-in Function Resolution
+
+Built-in function names are recognized **in call position only** (`name(`). This allows the same names to be used as variables without shadowing:
+
+```sigil
+let min = 5                       // variable 'min'
+let result = min(.left: min, .right: 10)  // built-in min, using variable
+```
+
+**Why this design?**
+
+1. **Natural variable names**: `min`, `max`, `str` are intuitive names for local values
+2. **No shadowing confusion**: `min(` always calls the built-in—predictable
+3. **AI-friendly**: Built-in calls are syntactically identifiable (`name(`)
+4. **Function reservation**: Defining `@min` is an error, so there's no user-defined function ambiguity
+
+**What the parser does:**
+
+| Syntax | Interpretation |
+|--------|----------------|
+| `min(...)` | Built-in function call |
+| `min` | Variable reference |
+| `@min (...)` | Compile error (reserved name) |
+
+This is a context-sensitive approach: the `(` determines whether we're in call position.
+
 ---
 
 ## See Also

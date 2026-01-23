@@ -105,12 +105,12 @@
 @int_arithmetic () -> int = 3 + 2
 
 @test_int_comparison tests @int_comparison () -> void = run(
-    assert(1 < 2),
-    assert(2 > 1),
-    assert(2 <= 2),
-    assert(2 >= 2),
-    assert(2 == 2),
-    assert(1 != 2),
+    assert(.cond: 1 < 2),
+    assert(.cond: 2 > 1),
+    assert(.cond: 2 <= 2),
+    assert(.cond: 2 >= 2),
+    assert(.cond: 2 == 2),
+    assert(.cond: 1 != 2),
 )
 
 @int_comparison () -> bool = 1 < 2
@@ -123,29 +123,29 @@
 
 @test_float_literal tests @float_literal () -> void = run(
     let x = 3.14,
-    assert(x > 3.0),
-    assert(x < 4.0),
+    assert(.cond: x > 3.0),
+    assert(.cond: x < 4.0),
 )
 
 @float_literal () -> float = 3.14
 
 @test_float_negative tests @float_negative () -> void = run(
     let x = -0.5,
-    assert(x < 0.0),
+    assert(.cond: x < 0.0),
 )
 
 @float_negative () -> float = -0.5
 
 @test_float_scientific tests @float_scientific () -> void = run(
     let x = 1.5e10,
-    assert(x > 1.0e10),
+    assert(.cond: x > 1.0e10),
 )
 
 @float_scientific () -> float = 1.5e10
 
 @test_float_annotated tests @float_annotated () -> void = run(
     let x: float = 2.5,
-    assert(x > 2.0),
+    assert(.cond: x > 2.0),
 )
 
 @float_annotated () -> float = run(
@@ -154,21 +154,21 @@
 )
 
 @test_float_arithmetic tests @float_arithmetic () -> void = run(
-    assert(3.0 + 2.0 == 5.0),
-    assert(3.0 - 2.0 == 1.0),
-    assert(3.0 * 2.0 == 6.0),
-    assert(6.0 / 2.0 == 3.0),
+    assert(.cond: 3.0 + 2.0 == 5.0),
+    assert(.cond: 3.0 - 2.0 == 1.0),
+    assert(.cond: 3.0 * 2.0 == 6.0),
+    assert(.cond: 6.0 / 2.0 == 3.0),
 )
 
 @float_arithmetic () -> float = 3.0 + 2.0
 
 @test_float_comparison tests @float_comparison () -> void = run(
-    assert(1.0 < 2.0),
-    assert(2.0 > 1.0),
-    assert(2.0 <= 2.0),
-    assert(2.0 >= 2.0),
-    assert(2.0 == 2.0),
-    assert(1.0 != 2.0),
+    assert(.cond: 1.0 < 2.0),
+    assert(.cond: 2.0 > 1.0),
+    assert(.cond: 2.0 <= 2.0),
+    assert(.cond: 2.0 >= 2.0),
+    assert(.cond: 2.0 == 2.0),
+    assert(.cond: 1.0 != 2.0),
 )
 
 @float_comparison () -> bool = 1.0 < 2.0
@@ -181,21 +181,21 @@
 
 @test_bool_true tests @bool_true () -> void = run(
     let x = true,
-    assert(x),
+    assert(.cond: x),
 )
 
 @bool_true () -> bool = true
 
 @test_bool_false tests @bool_false () -> void = run(
     let x = false,
-    assert(!x),
+    assert(.cond: !x),
 )
 
 @bool_false () -> bool = false
 
 @test_bool_annotated tests @bool_annotated () -> void = run(
     let x: bool = true,
-    assert(x),
+    assert(.cond: x),
 )
 
 @bool_annotated () -> bool = run(
@@ -205,27 +205,27 @@
 
 @test_bool_logical tests @bool_logical () -> void = run(
     // Logical AND
-    assert(true && true),
-    assert(!(true && false)),
-    assert(!(false && true)),
-    assert(!(false && false)),
+    assert(.cond: true && true),
+    assert(.cond: !(true && false)),
+    assert(.cond: !(false && true)),
+    assert(.cond: !(false && false)),
     // Logical OR
-    assert(true || true),
-    assert(true || false),
-    assert(false || true),
-    assert(!(false || false)),
+    assert(.cond: true || true),
+    assert(.cond: true || false),
+    assert(.cond: false || true),
+    assert(.cond: !(false || false)),
     // Logical NOT
-    assert(!false),
-    assert(!!true),
+    assert(.cond: !false),
+    assert(.cond: !!true),
 )
 
 @bool_logical () -> bool = true && true
 
 @test_bool_equality tests @bool_equality () -> void = run(
-    assert(true == true),
-    assert(false == false),
-    assert(true != false),
-    assert(false != true),
+    assert(.cond: true == true),
+    assert(.cond: false == false),
+    assert(.cond: true != false),
+    assert(.cond: false != true),
 )
 
 @bool_equality () -> bool = true == true
@@ -258,7 +258,7 @@
 
 @test_str_escape tests @str_escape () -> void = run(
     let x = "line1\nline2",
-    assert(len(x) > 6),
+    assert(.cond: len(.collection: x) > 6),
 )
 
 @str_escape () -> str = "line1\nline2"
@@ -287,26 +287,26 @@
 @str_concat () -> str = "hello" + " " + "world"
 
 @test_str_comparison tests @str_comparison () -> void = run(
-    assert("a" < "b"),
-    assert("b" > "a"),
-    assert("abc" == "abc"),
-    assert("abc" != "def"),
+    assert(.cond: "a" < "b"),
+    assert(.cond: "b" > "a"),
+    assert(.cond: "abc" == "abc"),
+    assert(.cond: "abc" != "def"),
 )
 
 @str_comparison () -> bool = "a" < "b"
 
 @test_str_len tests @str_len () -> void = run(
     assert_eq(
-        .actual: len("hello"),
+        .actual: len(.collection: "hello"),
         .expected: 5,
     ),
     assert_eq(
-        .actual: len(""),
+        .actual: len(.collection: ""),
         .expected: 0,
     ),
 )
 
-@str_len () -> int = len("hello")
+@str_len () -> int = len(.collection: "hello")
 
 // =============================================================================
 // char — Unicode Character
@@ -338,8 +338,8 @@
     let newline = '\n',
     let tab = '\t',
     let backslash = '\\',
-    assert(newline != tab),
-    assert(tab != backslash),
+    assert(.cond: newline != tab),
+    assert(.cond: tab != backslash),
 )
 
 @char_escape () -> char = '\n'
@@ -358,10 +358,10 @@
 )
 
 @test_char_comparison tests @char_comparison () -> void = run(
-    assert('a' < 'b'),
-    assert('b' > 'a'),
-    assert('x' == 'x'),
-    assert('x' != 'y'),
+    assert(.cond: 'a' < 'b'),
+    assert(.cond: 'b' > 'a'),
+    assert(.cond: 'x' == 'x'),
+    assert(.cond: 'x' != 'y'),
 )
 
 @char_comparison () -> bool = 'a' < 'b'
@@ -421,7 +421,7 @@
 @test_void_return tests @void_return () -> void = run(
     let result = side_effect(),
     // void functions return ()
-    assert(true),
+    assert(.cond: true),
 )
 
 @void_return () -> void = ()
@@ -434,7 +434,7 @@
 @test_void_unit tests @void_unit () -> void = run(
     // void is an alias for ()
     let x: void = (),
-    assert(true),
+    assert(.cond: true),
 )
 
 @void_unit () -> void = ()
@@ -447,22 +447,22 @@
 
 @test_never_panic tests @never_panic () -> void = run(
     // Test that panic returns Never and coerces to any type
-    let result: int = if false then panic("unreachable") else 42,
+    let result: int = if false then panic(.msg: "unreachable") else 42,
     assert_eq(
         .actual: result,
         .expected: 42,
     ),
 )
 
-@never_panic () -> int = if false then panic("unreachable") else 42
+@never_panic () -> int = if false then panic(.msg: "unreachable") else 42
 
 @test_never_coercion tests @never_coercion () -> void = run(
     // Never coerces to any type in conditionals
-    let x: str = if true then "hello" else panic("never reached"),
+    let x: str = if true then "hello" else panic(.msg: "never reached"),
     assert_eq(
         .actual: x,
         .expected: "hello",
     ),
 )
 
-@never_coercion () -> str = if true then "hello" else panic("never reached")
+@never_coercion () -> str = if true then "hello" else panic(.msg: "never reached")

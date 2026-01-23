@@ -8,23 +8,23 @@
 @test_infer_option_type tests @infer_option_type () -> void = run(
     // Option type inferred from argument
     let opt = Some(42),
-    assert(is_some(opt)),
+    assert(.cond: is_some(.opt: opt)),
 )
 
 @infer_option_type () -> bool = run(
     let opt = Some(42),
-    is_some(opt),
+    is_some(.opt: opt),
 )
 
 @test_infer_result_type tests @infer_result_type () -> void = run(
     // Result type inferred from argument
     let res = Ok(42),
-    assert(is_ok(res)),
+    assert(.cond: is_ok(.result: res)),
 )
 
 @infer_result_type () -> bool = run(
     let res = Ok(42),
-    is_ok(res),
+    is_ok(.result: res),
 )
 
 @test_infer_list_type tests @infer_list_type () -> void = run(
@@ -45,12 +45,12 @@
 @test_infer_nested_generic tests @infer_nested_generic () -> void = run(
     // Nested generics inferred
     let nested = Some([1, 2, 3]),
-    assert(is_some(nested)),
+    assert(.cond: is_some(.opt: nested)),
 )
 
 @infer_nested_generic () -> bool = run(
     let nested = Some([1, 2, 3]),
-    is_some(nested),
+    is_some(.opt: nested),
 )
 
 // =============================================================================

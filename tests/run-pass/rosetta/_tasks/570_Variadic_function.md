@@ -1,0 +1,10 @@
+# Variadic function
+
+**Problem:** Create a function which takes in a variable number of arguments and prints each one on its own line. Also show, if possible in your language, how to call the function on a list of arguments constructed at runtime. Functions of this type are also known as Variadic Functions.
+
+**Requirements:**
+- Call a function
+
+**Success Criteria:**
+- Program produces correct output for test cases
+- Implementation matches Rosetta Code specification

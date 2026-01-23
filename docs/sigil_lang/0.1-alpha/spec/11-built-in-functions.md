@@ -1,10 +1,85 @@
 # Built-in Functions
 
-This section defines the core functions provided by the language. Built-in functions are function_exp constructs and use named argument syntax, with the exception of type conversion functions which allow positional syntax.
+This section defines the core functions provided by the language. There are three categories:
 
-## Type Conversion Functions
+- **function_val** — Type conversion functions (`int`, `float`, `str`, `byte`) that allow positional syntax
+- **function_exp** — Core functions that use named argument syntax (`.name: expr`)
 
-Type conversion functions are the only built-in functions that allow positional argument syntax.
+## Reserved Names
+
+Built-in function names are reserved and cannot be used for user-defined functions. It is a compile-time error to define a function with a name that conflicts with a built-in function.
+
+The following names are reserved:
+
+**Type conversions:** `int`, `float`, `str`, `byte`
+
+**Collection functions:** `len`, `is_empty`
+
+**Option functions:** `is_some`, `is_none`
+
+**Result functions:** `is_ok`, `is_err`
+
+**Assertion functions:** `assert`, `assert_eq`, `assert_ne`, `assert_some`, `assert_none`, `assert_ok`, `assert_err`, `assert_panics`, `assert_panics_with`
+
+**Comparison functions:** `compare`, `min`, `max`
+
+**I/O functions:** `print`
+
+**Control functions:** `panic`
+
+```sigil
+// Error: 'is_empty' is a reserved built-in function name
+@is_empty (list: [int]) -> bool = len(.collection: list) == 0
+```
+
+To avoid conflicts, use descriptive names that include context:
+
+```sigil
+// OK: descriptive name avoids conflict
+@queue_is_empty (queue: [int]) -> bool = len(.collection: queue) == 0
+```
+
+### Context-Sensitive Resolution
+
+Built-in function names are reserved only in **call position** (when followed by `(`). The same names may be used freely as variable names because the parser distinguishes between the two contexts:
+
+- `name(` — built-in function call (reserved)
+- `name` — variable reference (allowed)
+
+```sigil
+// OK: 'min' as a variable
+let min = 5
+let x = min + 1
+
+// OK: 'min' as a built-in function call
+let y = min(
+    .left: a,
+    .right: b,
+)
+
+// Error: cannot define a function named 'min'
+@min (a: int, b: int) -> int = if a < b then a else b
+```
+
+This design permits natural variable names while ensuring built-in functions remain accessible:
+
+```sigil
+@compute (values: [int]) -> int = run(
+    let min = values[0],        // variable named 'min'
+    let max = values[# - 1],    // variable named 'max'
+    let result = min(           // built-in min function
+        .left: min,             // refers to the variable
+        .right: max,            // refers to the variable
+    ),
+    result,
+)
+```
+
+The reservation applies only to function definitions with `@`. User-defined functions cannot shadow built-in function names.
+
+## Type Conversion Functions (function_val)
+
+Type conversion functions form the `function_val` category. They allow positional argument syntax for brevity.
 
 ### int
 

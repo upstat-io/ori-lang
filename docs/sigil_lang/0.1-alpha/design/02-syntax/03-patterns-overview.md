@@ -36,7 +36,7 @@ The AI declares WHAT (fibonacci with memoization), and the language handles HOW.
 
 ## Pattern Categories
 
-Patterns are distinct from function calls. They fall into two categories based on their internal structure:
+Patterns are distinct from function calls. They fall into three categories based on their internal structure:
 
 ### function_seq — Sequential Expressions
 
@@ -78,11 +78,10 @@ A **function_exp** contains named expressions (`.name: expr`). These are configu
 | `validate` | Input validation |
 | `with` | Resource management |
 
-**Built-in Functions:**
+**Core Functions (function_exp):**
 
-| Builtin | Purpose |
-|---------|---------|
-| `int`, `float`, `str`, `byte` | Type conversion (positional allowed) |
+| Function | Purpose |
+|----------|---------|
 | `len`, `is_empty` | Collection inspection |
 | `is_some`, `is_none` | Option inspection |
 | `is_ok`, `is_err` | Result inspection |
@@ -93,7 +92,13 @@ A **function_exp** contains named expressions (`.name: expr`). These are configu
 | `compare`, `min`, `max` | Comparison |
 | `panic` | Termination |
 
-**Exception:** Type conversion functions (`int`, `float`, `str`, `byte`) allow positional argument syntax for brevity.
+### function_val — Type Conversion Functions
+
+A **function_val** is a type conversion function that allows positional argument syntax for brevity. This is the only category where positional syntax is permitted.
+
+| Function | Purpose |
+|----------|---------|
+| `int`, `float`, `str`, `byte` | Type conversion |
 
 ```sigil
 // function_exp pattern: named expressions, each on its own line
@@ -103,18 +108,18 @@ fold(
     .op: +,
 )
 
-// function_exp builtin: same named expression syntax
+// function_exp core function: same named expression syntax
 assert_eq(
     .actual: result,
     .expected: 42,
 )
 
-// Type conversions allow positional syntax
+// function_val: positional syntax allowed
 int(3.14)
 str(42)
 ```
 
-### Why Two Categories?
+### Why Three Categories?
 
 The distinction reflects fundamentally different semantics:
 
@@ -122,10 +127,12 @@ The distinction reflects fundamentally different semantics:
 |----------|----------|-------|----------------|
 | **function_seq** | Sequence of expressions | Matters (serial evaluation) | Positional |
 | **function_exp** | Named expressions | Doesn't matter | Named (`.name:`) |
+| **function_val** | Type conversion | N/A (single argument) | Positional |
 
 This is not about "positional vs named arguments." These are different constructs:
 - function_seq doesn't have "parameters" — it has a sequence
 - function_exp doesn't have "parameters" — it has named expressions
+- function_val is a special case for brevity in type conversions
 
 ---
 

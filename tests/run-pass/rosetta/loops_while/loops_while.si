@@ -10,12 +10,12 @@
 )
 
 // Find first power of 2 greater than n
-@next_power_of_2 (n: int) -> int = find_power(n, 1)
+@next_power_of_2 (n: int) -> int = find_power(.target: n, .current: 1)
 
 @find_power (target: int, current: int) -> int = recurse(
     .cond: current > target,
     .base: current,
-    .step: self(target, current * 2)
+    .step: self(.target: target, .current: current * 2)
 )
 
 // Collatz sequence (while n != 1)
@@ -36,13 +36,13 @@
 @gcd (a: int, b: int) -> int = recurse(
     .cond: b == 0,
     .base: a,
-    .step: self(b, a % b)
+    .step: self(.a: b, .b: a % b)
 )
 
 @main () -> void = run(
-    print("Countdown from 5: " + str(countdown(5))),
-    print("Next power of 2 after 10: " + str(next_power_of_2(10))),
-    print("Collatz sequence for 6: " + str(collatz(6))),
-    print("Sum digits of 12345: " + str(sum_digits(12345))),
-    print("GCD(48, 18): " + str(gcd(48, 18)))
+    print(.msg: "Countdown from 5: " + str(countdown(5))),
+    print(.msg: "Next power of 2 after 10: " + str(next_power_of_2(10))),
+    print(.msg: "Collatz sequence for 6: " + str(collatz(6))),
+    print(.msg: "Sum digits of 12345: " + str(sum_digits(12345))),
+    print(.msg: "GCD(48, 18): " + str(gcd(.a: 48, .b: 18)))
 )

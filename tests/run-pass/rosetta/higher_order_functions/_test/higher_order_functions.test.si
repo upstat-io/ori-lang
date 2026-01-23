@@ -10,37 +10,37 @@ use '../higher_order_functions' {
 }
 
 @test_double_all tests @double_all () -> void = run(
-    assert(double_all([]) == []),
-    assert(double_all([1]) == [2]),
-    assert(double_all([1, 2, 3]) == [2, 4, 6])
+    assert(.cond: double_all([]) == []),
+    assert(.cond: double_all([1]) == [2]),
+    assert(.cond: double_all([1, 2, 3]) == [2, 4, 6])
 )
 
 @test_square_all tests @square_all () -> void = run(
-    assert(square_all([]) == []),
-    assert(square_all([1, 2, 3]) == [1, 4, 9]),
-    assert(square_all([4, 5]) == [16, 25])
+    assert(.cond: square_all([]) == []),
+    assert(.cond: square_all([1, 2, 3]) == [1, 4, 9]),
+    assert(.cond: square_all([4, 5]) == [16, 25])
 )
 
 @test_filter_positive tests @filter_positive () -> void = run(
-    assert(filter_positive([]) == []),
-    assert(filter_positive([1, 2, 3]) == [1, 2, 3]),
-    assert(filter_positive([-1, 0, 1, 2]) == [1, 2])
+    assert(.cond: filter_positive([]) == []),
+    assert(.cond: filter_positive([1, 2, 3]) == [1, 2, 3]),
+    assert(.cond: filter_positive([-1, 0, 1, 2]) == [1, 2])
 )
 
 @test_filter_even tests @filter_even () -> void = run(
-    assert(filter_even([]) == []),
-    assert(filter_even([1, 2, 3, 4]) == [2, 4]),
-    assert(filter_even([1, 3, 5]) == [])
+    assert(.cond: filter_even([]) == []),
+    assert(.cond: filter_even([1, 2, 3, 4]) == [2, 4]),
+    assert(.cond: filter_even([1, 3, 5]) == [])
 )
 
 @test_sum tests @sum () -> void = run(
-    assert(sum([]) == 0),
-    assert(sum([1]) == 1),
-    assert(sum([1, 2, 3, 4, 5]) == 15)
+    assert(.cond: sum([]) == 0),
+    assert(.cond: sum([1]) == 1),
+    assert(.cond: sum([1, 2, 3, 4, 5]) == 15)
 )
 
 @test_product tests @product () -> void = run(
-    assert(product([]) == 1),
-    assert(product([5]) == 5),
-    assert(product([1, 2, 3, 4]) == 24)
+    assert(.cond: product([]) == 1),
+    assert(.cond: product([5]) == 5),
+    assert(.cond: product([1, 2, 3, 4]) == 24)
 )

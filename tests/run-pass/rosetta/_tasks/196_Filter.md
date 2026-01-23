@@ -1,0 +1,10 @@
+# Filter
+
+**Problem:** Select certain elements from an Array into a new Array in a generic way. To demonstrate, select all even numbers from an Array. As an option, give a second solution which filters destructively, by modifying the original Array rather than creating a new Array.
+
+**Requirements:**
+- To demonstrate, select all even numbers from an Array.
+
+**Success Criteria:**
+- Program produces correct output for test cases
+- Implementation matches Rosetta Code specification

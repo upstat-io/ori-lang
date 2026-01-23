@@ -2,10 +2,10 @@
 name = "sigilc"
 version = "0.1.0-alpha.1"
 edition = "2021"
-description = "Compiler for Sigil, a general-purpose language built on declarative patterns and mandatory testing"
+description = "The Sigil compiler - Salsa-first incremental compilation"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/upstat-io/sigil-lang"
-keywords = ["compiler", "programming-language", "sigil"]
+repository = "https://github.com/sigil-lang/sigil"
+keywords = ["compiler", "programming-language", "sigil", "incremental", "salsa"]
 categories = ["compilers", "development-tools"]
 
 [lib]
@@ -17,20 +17,35 @@ name = "sigil"
 path = "src/main.rs"
 
 [dependencies]
-logos = "0.14"           # Fast lexer generator
-ariadne = "0.4"          # Beautiful error reporting
-thiserror = "1.0"        # Error derive macros
-rayon = "1.10"           # Parallel iterators
-serde = { version = "1.0", features = ["derive"] }  # Serialization
-serde_json = "1.0"       # JSON serialization
+# Incremental compilation - THE FOUNDATION
+salsa.workspace = true
+
+# Lexing
+logos.workspace = true
+
+# Concurrency and hashing
+parking_lot.workspace = true
+rustc-hash.workspace = true
+
+# Parallel test execution
+rayon.workspace = true
 
 [dev-dependencies]
 pretty_assertions = "1.4"
-insta = "1.40"               # Snapshot testing
-proptest = "1.5"             # Property-based testing
-test-case = "3.3"            # Parameterized tests
-tempfile = "3.10"            # Temporary directories for tests
+criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3.10"
 
-# Standalone lints (sigilc v1 is excluded from workspace)
-[lints.rust]
-warnings = "warn"
+[[bench]]
+name = "type_check"
+harness = false
+
+[[bench]]
+name = "lexer"
+harness = false
+
+[[bench]]
+name = "parser"
+harness = false
+
+[lints]
+workspace = true

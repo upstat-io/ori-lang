@@ -3,46 +3,46 @@
 use '../fizzbuzz' { fizzbuzz, is_fizz, is_buzz, is_fizzbuzz }
 
 @test_fizzbuzz_numbers tests @fizzbuzz () -> void = run(
-    assert(fizzbuzz(1) == "1"),
-    assert(fizzbuzz(2) == "2"),
-    assert(fizzbuzz(7) == "7")
+    assert(.cond: fizzbuzz(1) == "1"),
+    assert(.cond: fizzbuzz(2) == "2"),
+    assert(.cond: fizzbuzz(7) == "7")
 )
 
 @test_fizzbuzz_fizz tests @fizzbuzz () -> void = run(
-    assert(fizzbuzz(3) == "Fizz"),
-    assert(fizzbuzz(6) == "Fizz"),
-    assert(fizzbuzz(9) == "Fizz")
+    assert(.cond: fizzbuzz(3) == "Fizz"),
+    assert(.cond: fizzbuzz(6) == "Fizz"),
+    assert(.cond: fizzbuzz(9) == "Fizz")
 )
 
 @test_fizzbuzz_buzz tests @fizzbuzz () -> void = run(
-    assert(fizzbuzz(5) == "Buzz"),
-    assert(fizzbuzz(10) == "Buzz"),
-    assert(fizzbuzz(20) == "Buzz")
+    assert(.cond: fizzbuzz(5) == "Buzz"),
+    assert(.cond: fizzbuzz(10) == "Buzz"),
+    assert(.cond: fizzbuzz(20) == "Buzz")
 )
 
 @test_fizzbuzz_both tests @fizzbuzz () -> void = run(
-    assert(fizzbuzz(15) == "FizzBuzz"),
-    assert(fizzbuzz(30) == "FizzBuzz"),
-    assert(fizzbuzz(45) == "FizzBuzz")
+    assert(.cond: fizzbuzz(15) == "FizzBuzz"),
+    assert(.cond: fizzbuzz(30) == "FizzBuzz"),
+    assert(.cond: fizzbuzz(45) == "FizzBuzz")
 )
 
 @test_is_fizz tests @is_fizz () -> void = run(
-    assert(is_fizz(3) == true),
-    assert(is_fizz(6) == true),
-    assert(is_fizz(5) == false),
-    assert(is_fizz(1) == false)
+    assert(.cond: is_fizz(3) == true),
+    assert(.cond: is_fizz(6) == true),
+    assert(.cond: is_fizz(5) == false),
+    assert(.cond: is_fizz(1) == false)
 )
 
 @test_is_buzz tests @is_buzz () -> void = run(
-    assert(is_buzz(5) == true),
-    assert(is_buzz(10) == true),
-    assert(is_buzz(3) == false),
-    assert(is_buzz(1) == false)
+    assert(.cond: is_buzz(5) == true),
+    assert(.cond: is_buzz(10) == true),
+    assert(.cond: is_buzz(3) == false),
+    assert(.cond: is_buzz(1) == false)
 )
 
 @test_is_fizzbuzz tests @is_fizzbuzz () -> void = run(
-    assert(is_fizzbuzz(15) == true),
-    assert(is_fizzbuzz(30) == true),
-    assert(is_fizzbuzz(3) == false),
-    assert(is_fizzbuzz(5) == false)
+    assert(.cond: is_fizzbuzz(15) == true),
+    assert(.cond: is_fizzbuzz(30) == true),
+    assert(.cond: is_fizzbuzz(3) == false),
+    assert(.cond: is_fizzbuzz(5) == false)
 )

@@ -1,0 +1,11 @@
+# Literals/Floating point
+
+**Problem:** Programming languages have different ways of expressing floating-point literals. Show how floating-point literals can be expressed in your language: decimal or other bases, exponential notation, and any other special features. You may want to include a regular expression or BNF/ABNF/EBNF defining allowable formats for your language. Related tasks:
+
+**Requirements:**
+- Literals/Integer
+- Extreme floating point values
+
+**Success Criteria:**
+- Program produces correct output for test cases
+- Implementation matches Rosetta Code specification

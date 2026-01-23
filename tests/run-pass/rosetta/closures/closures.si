@@ -43,17 +43,17 @@
 
 @main () -> void = run(
     let add5 = make_adder(5),
-    print("add5(10) = " + str(add5(10))),
+    print(.msg: "add5(10) = " + str(add5(10))),
 
     let times3 = make_multiplier(3),
-    print("times3(7) = " + str(times3(7))),
+    print(.msg: "times3(7) = " + str(times3(7))),
 
-    print("scale_list([1,2,3], 10) = " + str(scale_list([1, 2, 3], 10))),
-    print("create_square_closures(5) = " + str(create_square_closures(5))),
+    print(.msg: "scale_list([1,2,3], 10) = " + str(scale_list(.arr: [1, 2, 3], .factor: 10))),
+    print(.msg: "create_square_closures(5) = " + str(create_square_closures(5))),
 
-    let line = make_linear(2, 3),
-    print("line(5) = 2*5+3 = " + str(line(5))),
+    let line = make_linear(.m: 2, .b: 3),
+    print(.msg: "line(5) = 2*5+3 = " + str(line(5))),
 
-    print("filter_above([1,5,3,8,2], 3) = " + str(filter_above([1, 5, 3, 8, 2], 3))),
-    print("sum_with_offset([1,2,3], 100) = " + str(sum_with_offset([1, 2, 3], 100))),
+    print(.msg: "filter_above([1,5,3,8,2], 3) = " + str(filter_above(.arr: [1, 5, 3, 8, 2], .threshold: 3))),
+    print(.msg: "sum_with_offset([1,2,3], 100) = " + str(sum_with_offset(.arr: [1, 2, 3], .offset: 100))),
 )

@@ -1,0 +1,10 @@
+# Menu
+
+**Problem:** Given a prompt and a list containing a number of strings of which one is to be selected, create a function that: The function should reject input that is not an integer or is out of range by redisplaying the whole menu before asking again for a number. The function should return an empty string if called with an empty list. For test purposes use the following four phrases in a list: huff and puff mirror mirror This task is fashioned after the action of the Bash select statement.
+
+**Requirements:**
+- prints a textual menu formatted as an index value followed by its corresponding string for each item in the list;
+- prompts the user to enter a number;
+
+**Success Criteria:**
+- returns the string corresponding to the selected index number.

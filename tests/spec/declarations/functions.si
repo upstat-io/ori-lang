@@ -33,8 +33,8 @@
         .x: 5,
         .y: 2.5,
     ),
-    assert(result > 7.0),
-    assert(result < 8.0),
+    assert(.cond: result > 7.0),
+    assert(.cond: result < 8.0),
 )
 
 @mixed_types (x: int, y: float) -> float = float(x) + y
@@ -65,14 +65,14 @@
 
 @test_explicit_return_bool tests @explicit_return_bool () -> void = run(
     let result = explicit_return_bool(),
-    assert(result),
+    assert(.cond: result),
 )
 
 @explicit_return_bool () -> bool = true
 
 @test_explicit_return_void tests @explicit_return_void () -> void = run(
     explicit_return_void(),
-    assert(true),
+    assert(.cond: true),
 )
 
 @explicit_return_void () -> void = ()

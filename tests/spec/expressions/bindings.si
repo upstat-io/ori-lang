@@ -63,7 +63,7 @@
 
 @test_let_annotated_bool tests @let_annotated_bool () -> void = run(
     let b: bool = true,
-    assert(b),
+    assert(.cond: b),
 )
 
 @let_annotated_bool () -> bool = run(
@@ -73,8 +73,8 @@
 
 @test_let_annotated_float tests @let_annotated_float () -> void = run(
     let f: float = 3.14,
-    assert(f > 3.0),
-    assert(f < 4.0),
+    assert(.cond: f > 3.0),
+    assert(.cond: f < 4.0),
 )
 
 @let_annotated_float () -> float = run(

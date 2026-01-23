@@ -113,6 +113,31 @@ map         parallel    recurse     retry       run
 timeout     try         validate
 ```
 
+### Built-in Function Names
+
+The following identifiers are context-sensitive: in call position (`name(`), they resolve to built-in functions; as bare identifiers, they may be used as variable or function names:
+
+```
+int         float       str         byte        len
+is_empty    is_some     is_none     is_ok       is_err
+assert      assert_eq   assert_ne   assert_some assert_none
+assert_ok   assert_err  assert_panics           assert_panics_with
+compare     min         max         print       panic
+```
+
+The parser distinguishes these contexts by the presence of `(` immediately following the identifier.
+
+```sigil
+let min = 5                       // OK: variable binding
+let x = min                       // OK: variable reference
+let y = min(.left: a, .right: b)  // OK: built-in function call
+@min (a: int, b: int) -> int = a  // OK: user function (shadowed by built-in in call position)
+```
+
+> **Note:** When both a user-defined function and a built-in function share the same name, the built-in takes precedence in call position. User-defined functions with built-in names are effectively unreachable via normal call syntax.
+
+See [Built-in Functions](11-built-in-functions.md) for the complete list and semantics.
+
 ## Operators and Delimiters
 
 ### Operators
