@@ -254,7 +254,13 @@ postfix_op  = "." IDENT [call_args]
             | call_args
             | "?"
 
-call_args   = "(" [expr {"," expr}] ")"
+// Function calls use named arguments (stacked vertically)
+// Exception: function_val (int, str, float, byte) use positional
+call_args   = "(" [named_args] ")"
+            | "(" expr ")"              // function_val only
+
+// function_val - type conversion functions with positional syntax
+function_val = ("int" | "float" | "str" | "byte") "(" expr ")"
 ```
 
 ---
@@ -388,6 +394,19 @@ Context-sensitive keywords (can be identifiers outside pattern context):
 cache       collect     filter      find        fold
 map         parallel    recurse     retry       run
 timeout     try         validate
+```
+
+Reserved built-in function names (cannot be used for user-defined functions):
+
+```
+int         float       str         byte
+len         is_empty
+is_some     is_none     is_ok       is_err
+assert      assert_eq   assert_ne   assert_some
+assert_none assert_ok   assert_err  assert_panics
+assert_panics_with
+compare     min         max
+print       panic
 ```
 
 ---

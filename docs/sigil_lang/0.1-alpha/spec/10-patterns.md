@@ -1,9 +1,10 @@
 # Patterns
 
-This section defines built-in patterns. Patterns are language constructs distinct from function calls. There are two categories:
+This section defines built-in patterns and function categories. These are language constructs distinct from regular function calls. There are three categories:
 
 - **function_seq** — Contains a sequence of expressions evaluated in order
 - **function_exp** — Contains named expressions (`.name: expr`)
+- **function_val** — Type conversion functions allowing positional syntax
 
 ## Pattern Categories
 
@@ -38,10 +39,12 @@ builtin_name       = "len" | "is_empty"
 named_exp          = "." identifier ":" expression .
 ```
 
-**Exception:** Type conversion functions (`int`, `float`, `str`, `byte`) allow positional argument syntax:
+### function_val
+
+A function_val is a type conversion function. These allow positional argument syntax for brevity.
 
 ```
-conversion_call    = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
+function_val       = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
 ```
 
 **Patterns:**
@@ -61,11 +64,16 @@ conversion_call    = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
 | `validate` | Input validation |
 | `with` | Resource management |
 
-**Built-in Functions:**
+**function_val (Type Conversions):**
 
-| Builtin | Purpose |
-|---------|---------|
+| Function | Purpose |
+|----------|---------|
 | `int`, `float`, `str`, `byte` | Type conversion (positional allowed) |
+
+**Core function_exp:**
+
+| Function | Purpose |
+|----------|---------|
 | `len`, `is_empty` | Collection inspection |
 | `is_some`, `is_none` | Option inspection |
 | `is_ok`, `is_err` | Result inspection |
@@ -81,13 +89,13 @@ See [Built-in Functions](11-built-in-functions.md) for complete signatures and s
 ## Combined Grammar
 
 ```
-pattern_expr       = function_seq | function_exp | conversion_call .
+pattern_expr       = function_seq | function_exp | function_val .
 function_seq       = run_expr | try_expr | match_expr .
-function_exp       = ( pattern_name | builtin_name ) "(" named_exp { "," named_exp } [ "," ] ")" .
-conversion_call    = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
+function_exp       = ( pattern_name | core_func_name ) "(" named_exp { "," named_exp } [ "," ] ")" .
+function_val       = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
 pattern_name       = "map" | "filter" | "fold" | "recurse" | "collect" | "find"
                    | "parallel" | "retry" | "cache" | "validate" | "timeout" | "with" .
-builtin_name       = "len" | "is_empty"
+core_func_name     = "len" | "is_empty"
                    | "is_some" | "is_none" | "is_ok" | "is_err"
                    | "assert" | "assert_eq" | "assert_ne"
                    | "assert_some" | "assert_none" | "assert_ok" | "assert_err"

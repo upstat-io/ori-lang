@@ -3,27 +3,27 @@
 use '../arrays' { create_array, get_first, get_last, get_at, array_length }
 
 @test_create_array tests @create_array () -> void = run(
-    assert(len(create_array()) == 5)
+    assert(.cond: len(.collection: create_array()) == 5)
 )
 
 @test_get_first tests @get_first () -> void = run(
-    assert(get_first([10, 20, 30]) == 10),
-    assert(get_first([99]) == 99)
+    assert(.cond: get_first([10, 20, 30]) == 10),
+    assert(.cond: get_first([99]) == 99)
 )
 
 @test_get_last tests @get_last () -> void = run(
-    assert(get_last([10, 20, 30]) == 30),
-    assert(get_last([99]) == 99)
+    assert(.cond: get_last([10, 20, 30]) == 30),
+    assert(.cond: get_last([99]) == 99)
 )
 
 @test_get_at tests @get_at () -> void = run(
-    assert(get_at([10, 20, 30], 0) == 10),
-    assert(get_at([10, 20, 30], 1) == 20),
-    assert(get_at([10, 20, 30], 2) == 30)
+    assert(.cond: get_at(.arr: [10, 20, 30], .index: 0) == 10),
+    assert(.cond: get_at(.arr: [10, 20, 30], .index: 1) == 20),
+    assert(.cond: get_at(.arr: [10, 20, 30], .index: 2) == 30)
 )
 
 @test_array_length tests @array_length () -> void = run(
-    assert(array_length([]) == 0),
-    assert(array_length([1]) == 1),
-    assert(array_length([1, 2, 3]) == 3)
+    assert(.cond: array_length([]) == 0),
+    assert(.cond: array_length([1]) == 1),
+    assert(.cond: array_length([1, 2, 3]) == 3)
 )

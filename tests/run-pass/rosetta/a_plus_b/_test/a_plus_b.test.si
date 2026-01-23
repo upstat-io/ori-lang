@@ -3,19 +3,19 @@
 use '../a_plus_b' { add }
 
 @test_add_positive tests @add () -> void = run(
-    assert(add(2, 3) == 5),
-    assert(add(100, 200) == 300),
-    assert(add(1, 1) == 2)
+    assert(.cond: add(.a: 2, .b: 3) == 5),
+    assert(.cond: add(.a: 100, .b: 200) == 300),
+    assert(.cond: add(.a: 1, .b: 1) == 2)
 )
 
 @test_add_negative tests @add () -> void = run(
-    assert(add(-1, -1) == -2),
-    assert(add(-5, 10) == 5),
-    assert(add(5, -10) == -5)
+    assert(.cond: add(.a: -1, .b: -1) == -2),
+    assert(.cond: add(.a: -5, .b: 10) == 5),
+    assert(.cond: add(.a: 5, .b: -10) == -5)
 )
 
 @test_add_zero tests @add () -> void = run(
-    assert(add(0, 0) == 0),
-    assert(add(0, 5) == 5),
-    assert(add(5, 0) == 5)
+    assert(.cond: add(.a: 0, .b: 0) == 0),
+    assert(.cond: add(.a: 0, .b: 5) == 5),
+    assert(.cond: add(.a: 5, .b: 0) == 5)
 )

@@ -7,7 +7,7 @@
 )
 
 @test_shadow_int tests @shadow_int () -> void = run(
-    assert_eq(shadow_int(), 15)
+    assert_eq(.actual: shadow_int(), .expected: 15)
 )
 
 // Test type change through shadowing
@@ -18,7 +18,7 @@
 )
 
 @test_shadow_type tests @shadow_type_change () -> void = run(
-    assert_eq(shadow_type_change(), "42")
+    assert_eq(.actual: shadow_type_change(), .expected: "42")
 )
 
 // Test nested shadowing in blocks
@@ -32,5 +32,5 @@
 )
 
 @test_nested_shadow tests @nested_shadow () -> void = run(
-    assert_eq(nested_shadow(), 101)
+    assert_eq(.actual: nested_shadow(), .expected: 101)
 )

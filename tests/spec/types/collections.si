@@ -12,7 +12,7 @@
         .expected: 1,
     ),
     assert_eq(
-        .actual: len(nums),
+        .actual: len(.collection: nums),
         .expected: 3,
     ),
 )
@@ -26,7 +26,7 @@
         .expected: "a",
     ),
     assert_eq(
-        .actual: len(strs),
+        .actual: len(.collection: strs),
         .expected: 3,
     ),
 )
@@ -35,8 +35,8 @@
 
 @test_list_bool tests @list_bool () -> void = run(
     let bools = [true, false, true],
-    assert(bools[0]),
-    assert(!bools[1]),
+    assert(.cond: bools[0]),
+    assert(.cond: !bools[1]),
 )
 
 @list_bool () -> bool = [true, false, true][0]
@@ -58,14 +58,14 @@
 @test_list_empty_annotated tests @list_empty_annotated () -> void = run(
     let empty: [int] = [],
     assert_eq(
-        .actual: len(empty),
+        .actual: len(.collection: empty),
         .expected: 0,
     ),
 )
 
 @list_empty_annotated () -> int = run(
     let empty: [int] = [],
-    len(empty),
+    len(.collection: empty),
 )
 
 // =============================================================================
@@ -102,7 +102,7 @@
         .actual: b,
         .expected: "two",
     ),
-    assert(c),
+    assert(.cond: c),
 )
 
 @tuple_triple () -> int = run(
@@ -153,21 +153,21 @@
 
 @test_option_of_list tests @option_of_list () -> void = run(
     let opt = Some([1, 2, 3]),
-    assert(is_some(opt)),
+    assert(.cond: is_some(.opt: opt)),
 )
 
 @option_of_list () -> bool = run(
     let opt = Some([1, 2, 3]),
-    is_some(opt),
+    is_some(.opt: opt),
 )
 
 @test_list_of_options tests @list_of_options () -> void = run(
     let opts = [Some(1), None, Some(3)],
     let first = opts[0],
-    assert(is_some(first)),
+    assert(.cond: is_some(.opt: first)),
 )
 
 @list_of_options () -> bool = run(
     let opts = [Some(1), None, Some(3)],
-    is_some(opts[0]),
+    is_some(.opt: opts[0]),
 )

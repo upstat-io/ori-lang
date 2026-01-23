@@ -28,7 +28,7 @@
 @test_with_transform tests @with_transform () -> void = run(
     let result = with(
         .acquire: "hello",
-        .action: s -> len(s),
+        .action: s -> len(.collection: s),
     ),
     assert_eq(
         .actual: result,
@@ -39,7 +39,7 @@
 @with_transform () -> int = run(
     with(
         .acquire: "hello",
-        .action: s -> len(s),
+        .action: s -> len(.collection: s),
     ),
 )
 
@@ -87,4 +87,3 @@
         ),
     ),
 )
-

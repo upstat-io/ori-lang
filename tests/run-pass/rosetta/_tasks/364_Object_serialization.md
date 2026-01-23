@@ -1,0 +1,12 @@
+# Object serialization
+
+**Problem:** Create a set of data types based upon inheritance. Each data type or class should have a print command that displays the contents of an instance of that class to standard output. Create instances of each class in your inheritance hierarchy and display them to standard output. Write each of the objects to a file named objects.dat in binary form using serialization or marshalling. Read the file objects.dat and print the contents of each serialized object.
+
+**Requirements:**
+- Each data type or class should have a print command that displays the contents of an instance of that class to standard output.
+- Create instances of each class in your inheritance hierarchy and display them to standard output.
+- Write each of the objects to a file named objects.dat in binary form using serialization or marshalling.
+
+**Success Criteria:**
+- Program produces correct output for test cases
+- Implementation matches Rosetta Code specification

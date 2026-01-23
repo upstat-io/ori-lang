@@ -336,6 +336,25 @@ x = 5 <> 3  // EP010: invalid operator '<>'
 
 ---
 
+### EP011: Reserved Built-in Name
+
+**Description:** Function name conflicts with a reserved built-in function.
+
+```sigil
+@is_empty (list: [int]) -> bool = len(.collection: list) == 0
+// EP011: 'is_empty' is a reserved built-in function name
+```
+
+**Fix:** Use a different, more descriptive name.
+
+```sigil
+@queue_is_empty (queue: [int]) -> bool = len(.collection: queue) == 0
+```
+
+Reserved built-in names include: `int`, `float`, `str`, `byte`, `len`, `is_empty`, `is_some`, `is_none`, `is_ok`, `is_err`, `assert`, `assert_eq`, `assert_ne`, `assert_some`, `assert_none`, `assert_ok`, `assert_err`, `assert_panics`, `assert_panics_with`, `compare`, `min`, `max`, `print`, `panic`.
+
+---
+
 ## Name Errors (EN)
 
 ### EN001: Undefined Variable

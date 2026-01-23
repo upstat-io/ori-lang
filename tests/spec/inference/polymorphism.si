@@ -80,8 +80,8 @@
 
 @test_poly_list_length tests @poly_list_length () -> void = run(
     // Length works on any list type
-    let int_len = len([1, 2, 3]),
-    let str_len = len(["a", "b"]),
+    let int_len = len(.collection: [1, 2, 3]),
+    let str_len = len(.collection: ["a", "b"]),
     assert_eq(
         .actual: int_len,
         .expected: 3,
@@ -92,7 +92,7 @@
     ),
 )
 
-@poly_list_length () -> int = len([1, 2, 3])
+@poly_list_length () -> int = len(.collection: [1, 2, 3])
 
 // =============================================================================
 // Polymorphism with Option/Result
@@ -101,13 +101,13 @@
 @test_poly_option tests @poly_option () -> void = run(
     let int_opt = Some(42),
     let str_opt = Some("hello"),
-    assert(is_some(int_opt)),
-    assert(is_some(str_opt)),
+    assert(.cond: is_some(.opt: int_opt)),
+    assert(.cond: is_some(.opt: str_opt)),
 )
 
 @poly_option () -> bool = run(
     let opt = Some(42),
-    is_some(opt),
+    is_some(.opt: opt),
 )
 
 // =============================================================================
@@ -120,14 +120,14 @@
     let opt1 = wrap(1),
     let opt2 = wrap("str"),
     let opt3 = wrap(true),
-    assert(is_some(opt1)),
-    assert(is_some(opt2)),
-    assert(is_some(opt3)),
+    assert(.cond: is_some(.opt: opt1)),
+    assert(.cond: is_some(.opt: opt2)),
+    assert(.cond: is_some(.opt: opt3)),
 )
 
 @instantiate_multiple_calls () -> bool = run(
     let wrap = x -> Some(x),
-    is_some(wrap(42)),
+    is_some(.opt: wrap(42)),
 )
 
 // =============================================================================

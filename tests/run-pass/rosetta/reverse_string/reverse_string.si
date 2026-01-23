@@ -3,7 +3,7 @@
 
 // Reverse a string recursively
 @reverse (s: str) -> str =
-    if len(s) <= 1 then s
+    if len(.collection: s) <= 1 then s
     else reverse(s.slice(1, #)) + s[0]
 
 // Check if a string is a palindrome

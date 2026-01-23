@@ -7,7 +7,7 @@
 @square (n: int) -> int = n * n
 
 @main () -> void = run(
-    print("2 + 3 = " + str(add(2, 3))),
-    print("4 * 5 = " + str(multiply(4, 5))),
-    print("6^2 = " + str(square(6)))
+    print(.msg: "2 + 3 = " + str(add(.a: 2, .b: 3))),
+    print(.msg: "4 * 5 = " + str(multiply(.a: 4, .b: 5))),
+    print(.msg: "6^2 = " + str(square(6)))
 )

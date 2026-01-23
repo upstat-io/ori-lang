@@ -1,0 +1,12 @@
+# Sleep
+
+**Problem:** Write a program that does the following in this order:
+
+**Requirements:**
+- Print "Sleeping..."
+- Sleep the main thread for the given amount of time.
+- Print "Awake!"
+- Nautical bell
+
+**Success Criteria:**
+- Input an amount of time to sleep in whatever units are most natural for your language (milliseconds, seconds, ticks, etc.). This unit should be noted in comments or in a description.

@@ -1,13 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "compiler/sigilc-v2",
-    "compiler/sigilc-v3",
-]
-# V1 compiler kept for reference only, excluded from workspace
-# LSP excluded until updated to use v2 compiler
-exclude = [
     "compiler/sigilc",
+]
+# LSP excluded until updated to use new compiler
+exclude = [
     "tools/sigil-lsp",
 ]
 
@@ -31,35 +28,31 @@ rustc-hash = "2.1"
 
 # Workspace-wide lint configuration
 [workspace.lints.rust]
-# Deny unsafe code by default
 unsafe_code = "deny"
-# Warn on missing docs for public items (can enable later)
-# missing_docs = "warn"
+dead_code = "deny"
+unused = "deny"
 
 [workspace.lints.clippy]
-# Correctness lints - these are errors
-correctness = { level = "deny", priority = -1 }
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+correctness = { level = "deny", priority = 0 }
+suspicious = { level = "deny", priority = 0 }
 
-# Suspicious code that is likely wrong
-suspicious = { level = "warn", priority = -1 }
+# Deny footguns
+unwrap_used = "deny"
+expect_used = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
 
-# Style lints
-style = { level = "warn", priority = -1 }
-
-# Complexity lints
-complexity = { level = "warn", priority = -1 }
-
-# Performance lints
-perf = { level = "warn", priority = -1 }
-
-# Specific lints we care about
-unwrap_used = "warn"
-expect_used = "warn"
-todo = "warn"
-unimplemented = "warn"
-dbg_macro = "warn"
-
-# Allow these (CLI needs to print, panics are sometimes appropriate)
+# Allow for CLI/practical reasons
 needless_return = "allow"
 print_stdout = "allow"
 print_stderr = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+too_many_lines = "allow"
+cognitive_complexity = "allow"
+similar_names = "allow"

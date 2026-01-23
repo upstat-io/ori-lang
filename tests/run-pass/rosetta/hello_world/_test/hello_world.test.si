@@ -3,5 +3,5 @@
 use '../hello_world' { hello }
 
 @test_hello tests @hello () -> void = run(
-    assert(hello() == "Hello world!")
+    assert(.cond: hello() == "Hello world!")
 )

@@ -64,7 +64,7 @@
         .predicate: x -> x > 0,
     ),
     assert_eq(
-        .actual: len(positive),
+        .actual: len(.collection: positive),
         .expected: 3,
     ),
     assert_eq(
@@ -87,7 +87,7 @@
         .over: nums,
         .predicate: x -> x > 0,
     ),
-    len(positive),
+    len(.collection: positive),
 )
 
 @test_filter_even tests @filter_even () -> void = run(
@@ -97,7 +97,7 @@
         .predicate: x -> x % 2 == 0,
     ),
     assert_eq(
-        .actual: len(evens),
+        .actual: len(.collection: evens),
         .expected: 3,
     ),
 )
@@ -108,7 +108,7 @@
         .over: nums,
         .predicate: x -> x % 2 == 0,
     ),
-    len(evens),
+    len(.collection: evens),
 )
 
 // =============================================================================
@@ -176,7 +176,7 @@
         .predicate: x -> x > 5,
     ),
     assert_eq(
-        .actual: len(big),
+        .actual: len(.collection: big),
         .expected: 3,
     ),
 )
@@ -191,7 +191,7 @@
         .over: doubled,
         .predicate: x -> x > 5,
     ),
-    len(big),
+    len(.collection: big),
 )
 
 @test_filter_map_fold tests @filter_map_fold () -> void = run(
@@ -247,7 +247,7 @@
         .where: x -> x > 2,
     ),
     assert(
-        .cond: is_some(found),
+        .cond: is_some(.opt: found),
     ),
 )
 
@@ -266,7 +266,7 @@
         .where: x -> x > 10,
     ),
     assert(
-        .cond: is_none(found),
+        .cond: is_none(.opt: found),
     ),
 )
 
@@ -317,7 +317,7 @@
     ),
     // Should find 3, transform to 30
     assert(
-        .cond: is_some(found),
+        .cond: is_some(.opt: found),
     ),
 )
 
@@ -337,7 +337,7 @@
     ),
     // All negative, no Some found
     assert(
-        .cond: is_none(found),
+        .cond: is_none(.opt: found),
     ),
 )
 
@@ -359,7 +359,7 @@
         .transform: x -> x * 2,
     ),
     assert_eq(
-        .actual: len(result),
+        .actual: len(.collection: result),
         .expected: 5,
     ),
     assert_eq(
@@ -385,7 +385,7 @@
         .transform: x -> x,
     ),
     assert_eq(
-        .actual: len(result),
+        .actual: len(.collection: result),
         .expected: 3,
     ),
     assert_eq(

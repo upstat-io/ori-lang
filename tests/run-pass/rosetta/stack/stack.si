@@ -5,16 +5,17 @@
 @empty_stack () -> [int] = []
 
 // Check if stack is empty
-@is_empty (stack: [int]) -> bool = len(stack) == 0
+@stack_is_empty (stack: [int]) -> bool = len(.collection: stack) == 0
 
 // Push an element onto the stack (returns new stack)
 @push (stack: [int], value: int) -> [int] = stack.push(value)
 
 // Get the top element without removing it
-@peek (stack: [int]) -> int = stack[# - 1]
+// TODO: Use stack[# - 1] when # syntax is implemented
+@peek (stack: [int]) -> int = stack[len(.collection: stack) - 1]
 
 // Pop the top element (returns new stack without top)
 @pop (stack: [int]) -> [int] = stack.pop()
 
 // Get stack size
-@size (stack: [int]) -> int = len(stack)
+@size (stack: [int]) -> int = len(.collection: stack)

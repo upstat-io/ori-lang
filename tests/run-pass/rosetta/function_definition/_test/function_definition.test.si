@@ -14,57 +14,57 @@ use '../function_definition' {
 }
 
 @test_greeting tests @greeting () -> void = run(
-    assert_eq(greeting(), "Hello, World!")
+    assert_eq(.actual: greeting(), .expected: "Hello, World!")
 )
 
 @test_square tests @square () -> void = run(
-    assert_eq(square(0), 0),
-    assert_eq(square(5), 25),
-    assert_eq(square(-3), 9)
+    assert_eq(.actual: square(0), .expected: 0),
+    assert_eq(.actual: square(5), .expected: 25),
+    assert_eq(.actual: square(-3), .expected: 9)
 )
 
 @test_add tests @add () -> void = run(
-    assert_eq(add(2, 3), 5),
-    assert_eq(add(-1, 1), 0),
-    assert_eq(add(0, 0), 0)
+    assert_eq(.actual: add(.a: 2, .b: 3), .expected: 5),
+    assert_eq(.actual: add(.a: -1, .b: 1), .expected: 0),
+    assert_eq(.actual: add(.a: 0, .b: 0), .expected: 0)
 )
 
 @test_repeat tests @repeat_string () -> void = run(
-    assert_eq(repeat_string("ab", 3), "ababab"),
-    assert_eq(repeat_string("x", 1), "x"),
-    assert_eq(repeat_string("x", 0), "")
+    assert_eq(.actual: repeat_string(.s: "ab", .n: 3), .expected: "ababab"),
+    assert_eq(.actual: repeat_string(.s: "x", .n: 1), .expected: "x"),
+    assert_eq(.actual: repeat_string(.s: "x", .n: 0), .expected: "")
 )
 
 @test_range tests @range_list () -> void = run(
-    assert_eq(range_list(1, 5), [1, 2, 3, 4]),
-    assert_eq(range_list(0, 3), [0, 1, 2])
+    assert_eq(.actual: range_list(.start: 1, .end: 5), .expected: [1, 2, 3, 4]),
+    assert_eq(.actual: range_list(.start: 0, .end: 3), .expected: [0, 1, 2])
 )
 
 @test_is_even tests @is_even () -> void = run(
-    assert_eq(is_even(4), true),
-    assert_eq(is_even(3), false),
-    assert_eq(is_even(0), true)
+    assert_eq(.actual: is_even(4), .expected: true),
+    assert_eq(.actual: is_even(3), .expected: false),
+    assert_eq(.actual: is_even(0), .expected: true)
 )
 
 @test_sum_squares tests @sum_of_squares () -> void = run(
-    assert_eq(sum_of_squares(3, 4), 25),
-    assert_eq(sum_of_squares(0, 5), 25)
+    assert_eq(.actual: sum_of_squares(.a: 3, .b: 4), .expected: 25),
+    assert_eq(.actual: sum_of_squares(.a: 0, .b: 5), .expected: 25)
 )
 
 @test_factorial tests @factorial () -> void = run(
-    assert_eq(factorial(0), 1),
-    assert_eq(factorial(1), 1),
-    assert_eq(factorial(5), 120)
+    assert_eq(.actual: factorial(0), .expected: 1),
+    assert_eq(.actual: factorial(1), .expected: 1),
+    assert_eq(.actual: factorial(5), .expected: 120)
 )
 
 @test_fizzbuzz tests @fizzbuzz () -> void = run(
-    assert_eq(fizzbuzz(3), "Fizz"),
-    assert_eq(fizzbuzz(5), "Buzz"),
-    assert_eq(fizzbuzz(15), "FizzBuzz"),
-    assert_eq(fizzbuzz(7), "7")
+    assert_eq(.actual: fizzbuzz(3), .expected: "Fizz"),
+    assert_eq(.actual: fizzbuzz(5), .expected: "Buzz"),
+    assert_eq(.actual: fizzbuzz(15), .expected: "FizzBuzz"),
+    assert_eq(.actual: fizzbuzz(7), .expected: "7")
 )
 
 @test_apply tests @apply_twice () -> void = run(
-    assert_eq(apply_twice(x -> x * 2, 3), 12),
-    assert_eq(apply_twice(x -> x + 1, 0), 2)
+    assert_eq(.actual: apply_twice(.f: x -> x * 2, .x: 3), .expected: 12),
+    assert_eq(.actual: apply_twice(.f: x -> x + 1, .x: 0), .expected: 2)
 )
