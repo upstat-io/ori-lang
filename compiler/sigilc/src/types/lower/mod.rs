@@ -18,6 +18,7 @@ mod types;
 // Re-export public API
 pub use types::{is_builtin, is_type_param, type_expr_to_type};
 
+use crate::arc::{check_type_cycles, CycleCheckResult};
 use crate::ast::{self, Module};
 use crate::ir::{
     LocalId, LocalTable, TConfig, TField, TFunction, TImport, TImportItem, TModule, TParam, TTest,
@@ -53,6 +54,29 @@ impl Lowerer {
         for item in &module.items {
             if let ast::Item::TypeDef(td) = item {
                 tmodule.types.push(Self::lower_typedef(td, ctx)?);
+            }
+        }
+
+        // Check for cyclic type definitions (ARC compile-time cycle prevention)
+        for type_def in &tmodule.types {
+            match check_type_cycles(type_def, &tmodule) {
+                CycleCheckResult::Acyclic => {}
+                CycleCheckResult::DirectCycle { field_path } => {
+                    return Err(format!(
+                        "Type '{}' contains a direct reference cycle through field path: {}. \
+                        Sigil's ARC memory model does not support cyclic references.",
+                        type_def.name,
+                        field_path.join(" -> ")
+                    ));
+                }
+                CycleCheckResult::IndirectCycle { type_path } => {
+                    return Err(format!(
+                        "Type '{}' is part of a reference cycle: {}. \
+                        Sigil's ARC memory model does not support cyclic references.",
+                        type_def.name,
+                        type_path.join(" -> ")
+                    ));
+                }
             }
         }
 

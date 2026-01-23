@@ -25,6 +25,7 @@ pub use backend::{
     Backend, BackendRegistry, CBackend, CodegenOptions, GeneratedCode, OutputFormat,
 };
 
+use crate::arc::ArcValidatedModule;
 use crate::ast::*;
 use crate::ir::TModule;
 
@@ -95,7 +96,22 @@ pub fn generate(module: &Module) -> Result<String, String> {
     CodeGen::new().generate(module)
 }
 
-/// Generate C code from TIR (new)
+/// Generate C code from TIR (legacy - use generate_from_validated for new code)
+///
+/// This function bypasses mandatory ARC validation. It is kept for backward
+/// compatibility but new code should use `generate_from_validated` instead.
 pub fn generate_from_tir(module: &TModule) -> Result<String, String> {
     tir::generate(module)
+}
+
+/// Generate C code from an ARC-validated module (RECOMMENDED)
+///
+/// This is the recommended entry point for code generation. It accepts
+/// only ArcValidatedModule, ensuring that ARC analysis has been performed
+/// and all IR variants are properly handled for memory management.
+///
+/// The pre-computed ARC information is used during code generation for
+/// optimal retain/release placement and elision opportunities.
+pub fn generate_from_validated(validated: &ArcValidatedModule) -> Result<String, String> {
+    tir::generate_from_validated(validated)
 }

@@ -1,8 +1,13 @@
 // Declaration emission for TIR-based C code generation
 // Handles forward declarations, config variables, and function definitions
+//
+// ARC memory management:
+// - Tracks which locals need release on function exit
+// - Emits scope cleanup before returns
+// - Handles assignment with release-before-assign
 
 use super::TirCodeGen;
-use crate::ir::{TConfig, TExpr, TExprKind, TFunction, TStmt, Type};
+use crate::ir::{LocalId, TConfig, TExpr, TExprKind, TFunction, TStmt, Type};
 
 impl TirCodeGen {
     /// Emit forward declaration for a function
@@ -57,11 +62,42 @@ impl TirCodeGen {
             params.join(", ")
         };
 
+        // Collect locals that need ARC cleanup
+        let arc_locals: Vec<(LocalId, String, Type)> = f
+            .locals
+            .iter()
+            .filter(|(_, info)| !info.is_param && self.needs_arc(&info.ty))
+            .map(|(id, info)| (id, info.name.clone(), info.ty.clone()))
+            .collect();
+
         // main is special
         if f.name == "main" {
             self.emit_line("int main(void) {");
             self.indent();
+
+            // Emit local variable declarations for main
+            for (_id, info) in f.locals.iter() {
+                if !info.is_param {
+                    let ty = self.type_to_c(&info.ty);
+                    let default = self.default_value(&info.ty);
+                    self.emit_line(&format!("{} {} = {};", ty, info.name, default));
+                }
+            }
+
             self.emit_block(&f.body)?;
+
+            // ARC cleanup before return (in reverse order)
+            if self.use_arc && !arc_locals.is_empty() {
+                self.emit_line("");
+                self.emit_line("// ARC cleanup");
+                for (_, name, ty) in arc_locals.iter().rev() {
+                    let release = self.emit_release(name, ty);
+                    if !release.is_empty() {
+                        self.emit_line(&format!("{};", release));
+                    }
+                }
+            }
+
             self.emit_line("return 0;");
             self.dedent();
             self.emit_line("}");
@@ -79,10 +115,39 @@ impl TirCodeGen {
             }
 
             if ret_type != "void" {
+                // For functions returning a value, emit ARC cleanup before return
+                // The return value is computed, then locals are cleaned up
                 let body = self.expr_to_c(&f.body)?;
-                self.emit_line(&format!("return {};", body));
+
+                if self.use_arc && !arc_locals.is_empty() {
+                    // Store result in a temp, clean up, then return
+                    self.emit_line(&format!("{} __result = {};", ret_type, body));
+                    self.emit_line("");
+                    self.emit_line("// ARC cleanup before return");
+                    for (_, name, ty) in arc_locals.iter().rev() {
+                        let release = self.emit_release(name, ty);
+                        if !release.is_empty() {
+                            self.emit_line(&format!("{};", release));
+                        }
+                    }
+                    self.emit_line("return __result;");
+                } else {
+                    self.emit_line(&format!("return {};", body));
+                }
             } else {
                 self.emit_block(&f.body)?;
+
+                // ARC cleanup for void functions
+                if self.use_arc && !arc_locals.is_empty() {
+                    self.emit_line("");
+                    self.emit_line("// ARC cleanup");
+                    for (_, name, ty) in arc_locals.iter().rev() {
+                        let release = self.emit_release(name, ty);
+                        if !release.is_empty() {
+                            self.emit_line(&format!("{};", release));
+                        }
+                    }
+                }
             }
 
             self.dedent();
@@ -117,9 +182,17 @@ impl TirCodeGen {
             TStmt::Let { local, value } => {
                 // Local variable is already declared, just assign
                 let val = self.expr_to_c(value)?;
-                // Get the local name from the function's local table
-                // For now, we'll use a generic name format
-                self.emit_line(&format!("__local_{} = {};", local.0, val));
+                let var_name = format!("__local_{}", local.0);
+
+                // For ARC types, release the old value before assigning
+                // (initial value was default, so first assignment is safe)
+                if self.use_arc && self.needs_arc(&value.ty) {
+                    // Note: On first assignment, the default value doesn't need release
+                    // A more sophisticated implementation would track initialization state
+                    self.emit_line(&format!("{} = {};", var_name, val));
+                } else {
+                    self.emit_line(&format!("{} = {};", var_name, val));
+                }
                 Ok(())
             }
         }
@@ -187,7 +260,16 @@ impl TirCodeGen {
 
             TExprKind::Assign { target, value } => {
                 let val = self.expr_to_c(value)?;
-                self.emit_line(&format!("__local_{} = {};", target.0, val));
+                let var_name = format!("__local_{}", target.0);
+
+                // For ARC types, release the old value before reassigning
+                if self.use_arc && self.needs_arc(&value.ty) {
+                    let release = self.emit_release(&var_name, &value.ty);
+                    if !release.is_empty() {
+                        self.emit_line(&format!("{};  // Release old value", release));
+                    }
+                }
+                self.emit_line(&format!("{} = {};", var_name, val));
             }
 
             _ => {

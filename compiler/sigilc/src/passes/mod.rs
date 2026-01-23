@@ -14,6 +14,7 @@
 // - dead_code.rs: Dead code elimination
 // - pattern_lower.rs: Pattern -> loop lowering
 
+mod arc_insertion;
 mod const_fold;
 mod context;
 mod dead_code;
@@ -22,6 +23,7 @@ mod pattern_lower;
 pub mod pipeline;
 pub mod registry;
 
+pub use arc_insertion::ArcInsertionPass;
 pub use const_fold::ConstantFoldingPass;
 pub use context::{CallGraph, DebugConfig, PassContext};
 pub use dead_code::DeadCodePass;

@@ -109,6 +109,16 @@ pub enum ErrorCode {
     E5002 = 5002,
     /// Codegen internal error
     E5003 = 5003,
+
+    // =====================================================================
+    // ARC memory management errors (E6xxx)
+    // =====================================================================
+    /// Self-referential type (direct cycle)
+    E6001 = 6001,
+    /// Mutually referential types (indirect cycle)
+    E6002 = 6002,
+    /// Closure captures containing type
+    E6003 = 6003,
 }
 
 impl ErrorCode {
@@ -173,6 +183,11 @@ impl ErrorCode {
             ErrorCode::E5001 => "unsupported feature in code generation",
             ErrorCode::E5002 => "invalid C type conversion",
             ErrorCode::E5003 => "code generation internal error",
+
+            // ARC
+            ErrorCode::E6001 => "self-referential type (cyclic type definition)",
+            ErrorCode::E6002 => "mutually referential types (indirect cycle)",
+            ErrorCode::E6003 => "closure captures containing type",
         }
     }
 }
