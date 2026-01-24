@@ -41,7 +41,7 @@ curl -sSf https://raw.githubusercontent.com/sigil-lang/sigil/master/install.sh |
 Write your first program (`hello.si`):
 
 ```sigil
-@main () -> void = print("Hello, Sigil!")
+@main () -> void = print(.msg: "Hello, Sigil!")
 ```
 
 Run it:
@@ -55,18 +55,21 @@ sigil run hello.si
 ### Declarative Recursion with Memoization
 
 ```sigil
-@fibonacci (n: int) -> int = recurse(
-    .cond: n <= 1,
-    .base: n,
-    .step: self(n - 1) + self(n - 2),
-    .memo: true
+@fibonacci (term: int) -> int = recurse(
+    .cond: term <= 1,
+    .base: term,
+    .step: self(term - 1) + self(term - 2),
+    .memo: true,
 )
 
 @test_fibonacci tests @fibonacci () -> void = run(
-    assert_eq(fibonacci(0), 0),
-    assert_eq(fibonacci(1), 1),
-    assert_eq(fibonacci(10), 55),
-    assert_eq(fibonacci(50), 12586269025)  // instant with memoization
+    // instant with memoization
+    assert_eq(
+        .actual: fibonacci(
+            .term: 50,
+        ),
+        .expected: 12586269025,
+    ),
 )
 ```
 
@@ -74,37 +77,70 @@ sigil run hello.si
 
 ```sigil
 @process_users (users: [User]) -> [str] = run(
-    active = users.filter(u -> u.is_active),
-    sorted = active.sort_by(u -> u.name),
-    sorted.map(u -> u.email)
+    let active = filter(
+        .over: users,
+        .predicate: u -> u.is_active,
+    ),
+    let sorted = sort_by(
+        .over: active,
+        .key: u -> u.name,
+    ),
+    map(
+        .over: sorted,
+        .transform: u -> u.email,
+    ),
 )
 
 @test_process_users tests @process_users () -> void = run(
-    users = [
+    let users = [
         User { name: "Bob", email: "bob@x.com", is_active: true },
         User { name: "Alice", email: "alice@x.com", is_active: true },
-        User { name: "Charlie", email: "charlie@x.com", is_active: false }
+        User { name: "Charlie", email: "charlie@x.com", is_active: false },
     ],
-    assert_eq(process_users(users), ["alice@x.com", "bob@x.com"])
+    assert_eq(
+        .actual: process_users(
+            .users: users,
+        ),
+        .expected: ["alice@x.com", "bob@x.com"],
+    ),
 )
 ```
 
 ### Explicit Error Handling
 
 ```sigil
-@divide (a: int, b: int) -> Result<int, str> =
-    if b == 0 then Err("division by zero")
-    else Ok(a / b)
+@divide (numerator: int, denominator: int) -> Result<int, str> =
+    if denominator == 0 then Err("division by zero")
+    else Ok(numerator / denominator)
 
+// ? propagates Err automatically
 @safe_compute (x: int, y: int) -> Result<int, str> = try(
-    quotient = divide(100, x),   // propagates Err automatically
-    remainder = divide(quotient, y),
-    Ok(remainder)
+    let quotient = divide(
+        .numerator: 100,
+        .denominator: x,
+    )?,
+    let remainder = divide(
+        .numerator: quotient,
+        .denominator: y,
+    )?,
+    Ok(remainder),
 )
 
 @test_divide tests @divide () -> void = run(
-    assert_eq(divide(10, 2), Ok(5)),
-    assert_eq(divide(10, 0), Err("division by zero"))
+    assert_eq(
+        .actual: divide(
+            .numerator: 10,
+            .denominator: 2,
+        ),
+        .expected: Ok(5),
+    ),
+    assert_eq(
+        .actual: divide(
+            .numerator: 10,
+            .denominator: 0,
+        ),
+        .expected: Err("division by zero"),
+    ),
 )
 ```
 
@@ -116,28 +152,50 @@ type Shape =
     | Rectangle(width: float, height: float)
     | Triangle(base: float, height: float)
 
-@area (shape: Shape) -> float = match(shape,
-    .Circle: { radius } -> 3.14159 * radius * radius,
-    .Rectangle: { width, height } -> width * height,
-    .Triangle: { base, height } -> 0.5 * base * height
+@area (shape: Shape) -> float = match(
+    shape,
+    Circle { radius } -> 3.14159 * radius * radius,
+    Rectangle { width, height } -> width * height,
+    Triangle { base, height } -> 0.5 * base * height,
 )
 
 @test_area tests @area () -> void = run(
-    assert_eq(area(Circle(radius: 1.0)), 3.14159),
-    assert_eq(area(Rectangle(width: 4.0, height: 5.0)), 20.0)
+    assert_eq(
+        .actual: area(
+            .shape: Circle(
+                .radius: 1.0,
+            ),
+        ),
+        .expected: 3.14159,
+    ),
+    assert_eq(
+        .actual: area(
+            .shape: Rectangle(
+                .width: 4.0,
+                .height: 5.0,
+            ),
+        ),
+        .expected: 20.0,
+    ),
 )
 ```
 
 ### Parallel Execution
 
 ```sigil
-@fetch_dashboard (user_id: str) -> Dashboard = parallel(
-    .profile: fetch_profile(user_id),
-    .posts: fetch_recent_posts(user_id),
-    .notifications: fetch_notifications(user_id)
-)
-// Returns struct with profile, posts, notifications fields
 // All three requests execute concurrently
+// Returns struct with profile, posts, notifications fields
+@fetch_dashboard (user_id: str) -> Dashboard = parallel(
+    .profile: fetch_profile(
+        .user_id: user_id,
+    ),
+    .posts: fetch_recent_posts(
+        .user_id: user_id,
+    ),
+    .notifications: fetch_notifications(
+        .user_id: user_id,
+    ),
+)
 ```
 
 ## Installation
