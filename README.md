@@ -6,8 +6,6 @@
 
 [Getting Started](#quick-start) | [Documentation](docs/sigil_lang/design/) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
 
-`programming-language` `compiler` `static-typing` `type-inference` `functional-programming` `pattern-matching` `rust` `testing` `effect-system`
-
 </div>
 
 > **Experimental:** Sigil is under active development and not ready for production use. The language, APIs, and tooling may change without notice.
