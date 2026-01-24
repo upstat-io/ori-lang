@@ -2,9 +2,11 @@
 
 # Sigil
 
-**A general-purpose language built on declarative patterns and mandatory testing, designed for AI-assisted development.**
+**A statically-typed, expression-based language with declarative patterns, mandatory testing, and explicit effects.**
 
 [Getting Started](#quick-start) | [Documentation](docs/sigil_lang/design/) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
+
+`programming-language` `compiler` `static-typing` `type-inference` `functional-programming` `pattern-matching` `rust` `testing` `effect-system`
 
 </div>
 
@@ -12,7 +14,7 @@
 
 ## Why Sigil?
 
-Sigil is designed from the ground up with AI-authored code as the primary optimization target. Every design decision prioritizes correctness, explicitness, and predictability—the qualities that make AI-generated code reliable.
+Sigil prioritizes correctness, explicitness, and predictability. Every design decision serves these goals—making code easier to reason about, test, and maintain.
 
 ### Key Features
 
@@ -20,11 +22,15 @@ Sigil is designed from the ground up with AI-authored code as the primary optimi
 
 - **Mandatory Testing** — Every function requires tests to compile. No exceptions. Testing is part of the language, not an afterthought.
 
-- **Explicit Error Handling** — No exceptions. `Result<T, E>` and `Option<T>` make errors visible in function signatures and impossible to ignore.
+- **Explicit Effects** — Side effects are tracked through capabilities (`uses Http`, `uses FileSystem`). Pure functions have no `uses` clause. Effects are injectable and testable.
 
-- **Immutable by Default** — All values are immutable. Shadowing is allowed, mutation is not. This eliminates entire classes of bugs.
+- **No Null or Exceptions** — `Result<T, E>` and `Option<T>` make errors visible in function signatures and impossible to ignore.
+
+- **Immutable by Default** — All values are immutable. Shadowing is allowed, mutation requires `mut`. This eliminates entire classes of bugs.
 
 - **Clear Visual Markers** — `@` for functions, `$` for config, `.name:` for named parameters. Code is easy to scan and understand at a glance.
+
+- **Type Inference** — Strong static typing with inference. Types are checked at compile time but rarely need to be written explicitly.
 
 ## Quick Start
 
@@ -185,17 +191,17 @@ sigil emit program.si     # Emit generated C code
 
 ## Design Philosophy
 
-Sigil optimizes for **AI code generation quality**:
+Sigil optimizes for **correctness and maintainability**:
 
-| Traditional Priority | Sigil Priority |
+| Traditional Approach | Sigil Approach |
 |---------------------|----------------|
 | Concise syntax | Explicit, predictable syntax |
 | Flexible APIs | Constrained, correct-by-construction APIs |
 | Runtime flexibility | Compile-time guarantees |
 | Optional testing | Mandatory testing |
-| Implicit behavior | Everything explicit |
+| Implicit effects | Explicit capabilities |
 
-The result: AI-generated Sigil code is more likely to be correct on the first try, and errors are caught at compile time rather than in production.
+The result: errors are caught at compile time, code is self-documenting, and behavior is predictable.
 
 ## Getting Help
 
@@ -205,26 +211,6 @@ The result: AI-generated Sigil code is more likely to be correct on the first tr
 ## Contributing
 
 Sigil is open source and we welcome contributions. Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-### Project Structure
-
-```
-sigil/
-├── compiler/sigilc/    # Compiler implementation (Rust)
-│   └── src/
-│       ├── lexer/      # Tokenizer
-│       ├── parser/     # Recursive descent parser
-│       ├── types/      # Type checker
-│       ├── eval/       # Tree-walking interpreter
-│       └── codegen/    # C code generator
-├── library/std/        # Standard library (Sigil)
-├── docs/               # Documentation
-│   └── sigil_lang/design/  # Language design specification
-├── examples/           # Example programs
-└── tests/              # Test suites
-    ├── run-pass/       # Tests that should compile and run
-    └── compile-fail/   # Tests that should fail to compile
-```
 
 ### Running Tests
 
