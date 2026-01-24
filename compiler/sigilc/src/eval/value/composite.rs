@@ -3,10 +3,13 @@
 //! These types are more complex than primitive values and have
 //! their own internal structure.
 
+// Arc is used for immutable sharing of captures between function values
+#![expect(clippy::disallowed_types, reason = "Arc for immutable HashMap sharing in FunctionValue")]
+
 use std::fmt;
 use std::collections::HashMap;
 use std::sync::Arc;
-use crate::ir::{Name, ExprId, ExprArena};
+use crate::ir::{Name, ExprId, ExprArena, SharedArena};
 use super::Value;
 
 // =============================================================================
@@ -122,7 +125,7 @@ pub struct FunctionValue {
     ///
     /// Functions from imported modules need their own arena reference since
     /// the body ExprId refers to expressions in the imported file's arena.
-    arena: Option<Arc<ExprArena>>,
+    arena: Option<SharedArena>,
 }
 
 impl FunctionValue {
@@ -156,7 +159,7 @@ impl FunctionValue {
         params: Vec<Name>,
         body: ExprId,
         captures: HashMap<Name, Value>,
-        arena: Arc<ExprArena>,
+        arena: SharedArena,
     ) -> Self {
         FunctionValue {
             params,
@@ -183,7 +186,7 @@ impl FunctionValue {
 
     /// Get the arena for this function (for cross-module functions).
     pub fn arena(&self) -> Option<&ExprArena> {
-        self.arena.as_ref().map(|a| a.as_ref())
+        self.arena.as_deref()
     }
 }
 

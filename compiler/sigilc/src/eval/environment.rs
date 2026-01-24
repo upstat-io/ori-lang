@@ -3,11 +3,95 @@
 //! Uses a scope stack (not cloning) for efficient scope management.
 //! Ported from V2 with adaptations for V3.
 
-use std::rc::Rc;
+// Rc is the intentional implementation detail of LocalScope<T>
+#![expect(clippy::disallowed_types, reason = "Rc is the implementation of LocalScope<T>")]
+
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt;
+use std::ops::Deref;
+use std::rc::Rc;
 use crate::ir::Name;
 use super::value::Value;
+
+// =============================================================================
+// LocalScope<T> - Newtype wrapper for single-threaded scopes
+// =============================================================================
+
+/// A single-threaded scope wrapper for reference-counted interior mutability.
+///
+/// This type wraps `Rc<RefCell<T>>` and enforces that all scope allocations
+/// go through the `LocalScope::new()` factory method.
+///
+/// # Why This Exists
+/// - Prevents accidental `Rc::new()` / `RefCell::new()` calls in user code
+/// - Enforces that all scope allocations go through factory methods
+/// - Makes it clear that these scopes are single-threaded (not `Arc`)
+///
+/// # Thread Safety
+/// `LocalScope<T>` is NOT thread-safe. It uses `Rc` internally, which is
+/// faster than `Arc` but cannot be shared across threads. This is intentional
+/// for the interpreter's scope management, which runs single-threaded.
+///
+/// # Zero-Cost Abstraction
+/// The `#[repr(transparent)]` attribute ensures this has the same memory layout
+/// as `Rc<RefCell<T>>`, so there's no overhead from the wrapper.
+#[repr(transparent)]
+pub struct LocalScope<T>(Rc<RefCell<T>>);
+
+impl<T> LocalScope<T> {
+    /// Create a new LocalScope wrapping the given value.
+    ///
+    /// This is the public factory method for creating scopes.
+    #[inline]
+    pub fn new(value: T) -> Self {
+        LocalScope(Rc::new(RefCell::new(value)))
+    }
+
+    /// Borrow the inner value immutably.
+    #[inline]
+    pub fn borrow(&self) -> std::cell::Ref<'_, T> {
+        self.0.borrow()
+    }
+
+    /// Borrow the inner value mutably.
+    #[inline]
+    pub fn borrow_mut(&self) -> std::cell::RefMut<'_, T> {
+        self.0.borrow_mut()
+    }
+}
+
+impl<T> Clone for LocalScope<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        LocalScope(Rc::clone(&self.0))
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for LocalScope<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("LocalScope").field(&self.0).finish()
+    }
+}
+
+impl<T: Default> Default for LocalScope<T> {
+    fn default() -> Self {
+        LocalScope::new(T::default())
+    }
+}
+
+impl<T> Deref for LocalScope<T> {
+    type Target = RefCell<T>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+// =============================================================================
+// Scope
+// =============================================================================
 
 /// A single scope containing variable bindings.
 #[derive(Clone, Debug)]
@@ -15,7 +99,7 @@ pub struct Scope {
     /// Variable bindings in this scope.
     bindings: HashMap<Name, Binding>,
     /// Parent scope (for lexical scoping).
-    parent: Option<Rc<RefCell<Scope>>>,
+    parent: Option<LocalScope<Scope>>,
 }
 
 /// A variable binding.
@@ -37,7 +121,7 @@ impl Scope {
     }
 
     /// Create a new scope with a parent.
-    pub fn with_parent(parent: Rc<RefCell<Scope>>) -> Self {
+    pub fn with_parent(parent: LocalScope<Scope>) -> Self {
         Scope {
             bindings: HashMap::new(),
             parent: Some(parent),
@@ -88,17 +172,17 @@ impl Default for Scope {
 /// that can be pushed and popped efficiently.
 pub struct Environment {
     /// Stack of scopes, with current scope at the top.
-    scopes: Vec<Rc<RefCell<Scope>>>,
+    scopes: Vec<LocalScope<Scope>>,
     /// Global scope (always at the bottom).
-    global: Rc<RefCell<Scope>>,
+    global: LocalScope<Scope>,
 }
 
 impl Environment {
     /// Create a new environment with a global scope.
     pub fn new() -> Self {
-        let global = Rc::new(RefCell::new(Scope::new()));
+        let global = LocalScope::new(Scope::new());
         Environment {
-            scopes: vec![Rc::clone(&global)],
+            scopes: vec![global.clone()],
             global,
         }
     }
@@ -106,7 +190,7 @@ impl Environment {
     /// Push a new scope onto the stack.
     pub fn push_scope(&mut self) {
         let parent = self.current_scope();
-        let new_scope = Rc::new(RefCell::new(Scope::with_parent(parent)));
+        let new_scope = LocalScope::new(Scope::with_parent(parent));
         self.scopes.push(new_scope);
     }
 
@@ -118,8 +202,8 @@ impl Environment {
     }
 
     /// Get the current scope.
-    fn current_scope(&self) -> Rc<RefCell<Scope>> {
-        Rc::clone(self.scopes.last().unwrap())
+    fn current_scope(&self) -> LocalScope<Scope> {
+        self.scopes.last().unwrap().clone()
     }
 
     /// Define a variable in the current scope.
@@ -153,8 +237,8 @@ impl Environment {
     /// but has its own local scope stack.
     pub fn child(&self) -> Self {
         Environment {
-            scopes: vec![Rc::clone(&self.global)],
-            global: Rc::clone(&self.global),
+            scopes: vec![self.global.clone()],
+            global: self.global.clone(),
         }
     }
 
@@ -188,11 +272,11 @@ impl Default for Environment {
 impl Clone for Environment {
     fn clone(&self) -> Self {
         // Clone creates a new independent environment with copied values
-        let global = Rc::new(RefCell::new(Scope::new()));
+        let global = LocalScope::new(Scope::new());
         // Copy global bindings
         // (in practice, we rarely clone environments)
         Environment {
-            scopes: vec![Rc::clone(&global)],
+            scopes: vec![global.clone()],
             global,
         }
     }
@@ -218,7 +302,7 @@ mod tests {
         let interner = SharedInterner::default();
         let x = interner.intern("x");
 
-        let parent = Rc::new(RefCell::new(Scope::new()));
+        let parent = LocalScope::new(Scope::new());
         parent.borrow_mut().define(x, Value::Int(1), false);
 
         let mut child = Scope::with_parent(parent);
@@ -279,5 +363,46 @@ mod tests {
         let captures = env.capture();
         assert_eq!(captures.get(&x), Some(&Value::Int(1)));
         assert_eq!(captures.get(&y), Some(&Value::Int(2)));
+    }
+
+    // =========================================================================
+    // LocalScope Tests
+    // =========================================================================
+
+    #[test]
+    fn test_local_scope_new() {
+        let scope = LocalScope::new(42);
+        assert_eq!(*scope.borrow(), 42);
+    }
+
+    #[test]
+    fn test_local_scope_borrow_mut() {
+        let scope = LocalScope::new(vec![1, 2, 3]);
+        scope.borrow_mut().push(4);
+        assert_eq!(*scope.borrow(), vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_local_scope_clone() {
+        let scope1 = LocalScope::new(42);
+        let scope2 = scope1.clone();
+
+        // Both point to the same allocation
+        scope1.borrow_mut().clone_from(&100);
+        assert_eq!(*scope2.borrow(), 100);
+    }
+
+    #[test]
+    fn test_local_scope_default() {
+        let scope: LocalScope<i32> = LocalScope::default();
+        assert_eq!(*scope.borrow(), 0);
+    }
+
+    #[test]
+    fn test_local_scope_deref() {
+        let scope = LocalScope::new(42);
+        // Deref returns &RefCell<T>
+        let borrowed = scope.deref().borrow();
+        assert_eq!(*borrowed, 42);
     }
 }

@@ -4,6 +4,9 @@
 //! Sigil's pattern system.
 
 pub mod operators;
+pub mod type_registry;
+
+pub use type_registry::{TypeRegistry, TypeEntry, TypeKind, VariantDef};
 
 use crate::diagnostic::Diagnostic;
 use crate::ir::{
@@ -15,10 +18,9 @@ use crate::ir::{
 use crate::parser::ParseResult;
 use crate::patterns::{PatternRegistry, TypeCheckContext};
 use crate::types::{Type, TypeEnv, InferenceContext, TypeError};
-use crate::context::CompilerContext;
+use crate::context::{CompilerContext, SharedRegistry};
 use operators::{TypeOperatorRegistry, TypeOpResult};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 /// Type-checked module.
 ///
@@ -73,9 +75,11 @@ pub struct TypeChecker<'a> {
     expr_types: HashMap<u32, Type>,
     errors: Vec<TypeCheckError>,
     /// Pattern registry for function_exp type checking.
-    registry: Arc<PatternRegistry>,
+    registry: SharedRegistry<PatternRegistry>,
     /// Type operator registry for binary operation type checking.
     type_operator_registry: TypeOperatorRegistry,
+    /// Registry for user-defined types (structs, enums, aliases).
+    type_registry: TypeRegistry,
 }
 
 impl<'a> TypeChecker<'a> {
@@ -88,8 +92,9 @@ impl<'a> TypeChecker<'a> {
             env: TypeEnv::new(),
             expr_types: HashMap::new(),
             errors: Vec::new(),
-            registry: Arc::new(PatternRegistry::new()),
+            registry: SharedRegistry::new(PatternRegistry::new()),
             type_operator_registry: TypeOperatorRegistry::new(),
+            type_registry: TypeRegistry::new(),
         }
     }
 
@@ -110,6 +115,7 @@ impl<'a> TypeChecker<'a> {
             errors: Vec::new(),
             registry: context.pattern_registry.clone(),
             type_operator_registry: TypeOperatorRegistry::new(),
+            type_registry: TypeRegistry::new(),
         }
     }
 
@@ -180,10 +186,13 @@ impl<'a> TypeChecker<'a> {
             TypeId::NEVER => Type::Never,
             TypeId::INFER => self.ctx.fresh_var(),
             _ => {
-                // For compound types (TypeId >= FIRST_COMPOUND), we'd need
-                // to look them up in a type registry. For now, use a fresh var.
-                // TODO: Implement compound type lookup
-                self.ctx.fresh_var()
+                // Look up compound types in the type registry
+                if let Some(ty) = self.type_registry.to_type(type_id) {
+                    ty
+                } else {
+                    // Unknown compound type - use a fresh var for error recovery
+                    self.ctx.fresh_var()
+                }
             }
         }
     }
@@ -534,15 +543,44 @@ impl<'a> TypeChecker<'a> {
                 let receiver_ty = self.infer_expr(*receiver);
                 let index_ty = self.infer_expr(*index);
 
-                // Index must be int for lists
-                if let Type::List(elem_ty) = &receiver_ty {
-                    if let Err(e) = self.ctx.unify(&index_ty, &Type::Int) {
-                        self.report_type_error(e, self.arena.get_expr(*index).span);
+                match self.ctx.resolve(&receiver_ty) {
+                    // List indexing: list[int] -> T (panics on out-of-bounds)
+                    Type::List(elem_ty) => {
+                        if let Err(e) = self.ctx.unify(&index_ty, &Type::Int) {
+                            self.report_type_error(e, self.arena.get_expr(*index).span);
+                        }
+                        (*elem_ty).clone()
                     }
-                    (**elem_ty).clone()
-                } else {
-                    // TODO: handle map indexing
-                    self.ctx.fresh_var()
+                    // Map indexing: map[K] -> Option<V> (None if key missing)
+                    Type::Map { key, value } => {
+                        if let Err(e) = self.ctx.unify(&index_ty, &key) {
+                            self.report_type_error(e, self.arena.get_expr(*index).span);
+                        }
+                        Type::Option(value)
+                    }
+                    // String indexing: str[int] -> str (single codepoint)
+                    Type::Str => {
+                        if let Err(e) = self.ctx.unify(&index_ty, &Type::Int) {
+                            self.report_type_error(e, self.arena.get_expr(*index).span);
+                        }
+                        Type::Str
+                    }
+                    // Type variable - defer checking
+                    Type::Var(_) => self.ctx.fresh_var(),
+                    // Error recovery
+                    Type::Error => Type::Error,
+                    // Other types - not indexable
+                    other => {
+                        self.errors.push(TypeCheckError {
+                            message: format!(
+                                "type `{}` is not indexable",
+                                other.display(self.interner)
+                            ),
+                            span,
+                            code: crate::diagnostic::ErrorCode::E2001,
+                        });
+                        Type::Error
+                    }
                 }
             }
 
@@ -623,11 +661,26 @@ impl<'a> TypeChecker<'a> {
             // For loop
             ExprKind::For { binding, iter, guard, body, is_yield } => {
                 let iter_ty = self.infer_expr(*iter);
-                let elem_ty = if let Type::List(elem) = iter_ty {
-                    *elem
-                } else {
-                    // TODO: support other iterable types
-                    self.ctx.fresh_var()
+                let resolved = self.ctx.resolve(&iter_ty);
+                let elem_ty = match resolved {
+                    Type::List(elem) => *elem,
+                    Type::Set(elem) => *elem,
+                    Type::Range(elem) => *elem,
+                    Type::Str => Type::Str, // Iterating over str yields str (codepoints)
+                    Type::Map { key, value: _ } => *key, // Map iteration yields keys
+                    Type::Var(_) => self.ctx.fresh_var(), // Defer for type variables
+                    Type::Error => Type::Error, // Error recovery
+                    other => {
+                        self.errors.push(TypeCheckError {
+                            message: format!(
+                                "`{}` is not iterable",
+                                other.display(self.interner)
+                            ),
+                            span: self.arena.get_expr(*iter).span,
+                            code: crate::diagnostic::ErrorCode::E2001,
+                        });
+                        Type::Error
+                    }
                 };
 
                 // Create scope for loop body
@@ -785,13 +838,24 @@ impl<'a> TypeChecker<'a> {
 
             ExprKind::Try(inner) => {
                 let inner_ty = self.infer_expr(*inner);
+                let resolved = self.ctx.resolve(&inner_ty);
                 // Try operator unwraps Result/Option
-                match inner_ty {
+                match resolved {
                     Type::Result { ok, err: _ } => *ok,
                     Type::Option(inner) => *inner,
-                    _ => {
-                        // TODO: report error - can only use ? on Result/Option
-                        self.ctx.fresh_var()
+                    Type::Var(_) => self.ctx.fresh_var(), // Defer for type variables
+                    Type::Error => Type::Error, // Error recovery
+                    other => {
+                        self.errors.push(TypeCheckError {
+                            message: format!(
+                                "the `?` operator can only be applied to `Result` or `Option`, \
+                                 found `{}`",
+                                other.display(self.interner)
+                            ),
+                            span: self.arena.get_expr(*inner).span,
+                            code: crate::diagnostic::ErrorCode::E2001,
+                        });
+                        Type::Error
                     }
                 }
             }
@@ -1146,15 +1210,44 @@ impl<'a> TypeChecker<'a> {
             }
             BindingPattern::Tuple(patterns) => {
                 // For tuple destructuring, we need to unify with a tuple type
-                if let Type::Tuple(elem_types) = ty {
-                    if patterns.len() == elem_types.len() {
-                        for (pat, elem_ty) in patterns.iter().zip(elem_types) {
-                            self.bind_pattern(pat, elem_ty);
+                let resolved = self.ctx.resolve(&ty);
+                match resolved {
+                    Type::Tuple(elem_types) => {
+                        if patterns.len() == elem_types.len() {
+                            for (pat, elem_ty) in patterns.iter().zip(elem_types) {
+                                self.bind_pattern(pat, elem_ty);
+                            }
+                        } else {
+                            self.errors.push(TypeCheckError {
+                                message: format!(
+                                    "tuple pattern has {} elements, but type has {}",
+                                    patterns.len(),
+                                    elem_types.len()
+                                ),
+                                span: Span::default(),
+                                code: crate::diagnostic::ErrorCode::E2001,
+                            });
                         }
                     }
-                    // TODO: report error if lengths don't match
+                    Type::Var(_) => {
+                        // Type variable - bind patterns to fresh vars
+                        for pat in patterns {
+                            let fresh_ty = self.ctx.fresh_var();
+                            self.bind_pattern(pat, fresh_ty);
+                        }
+                    }
+                    Type::Error => {} // Error recovery - don't cascade errors
+                    other => {
+                        self.errors.push(TypeCheckError {
+                            message: format!(
+                                "cannot destructure `{}` as a tuple",
+                                other.display(self.interner)
+                            ),
+                            span: Span::default(),
+                            code: crate::diagnostic::ErrorCode::E2001,
+                        });
+                    }
                 }
-                // TODO: report error if not a tuple type
             }
             BindingPattern::Struct { fields } => {
                 // For struct destructuring, bind each field
@@ -1172,15 +1265,38 @@ impl<'a> TypeChecker<'a> {
             }
             BindingPattern::List { elements, rest } => {
                 // For list destructuring, bind each element
-                if let Type::List(elem_ty) = &ty {
-                    for elem_pat in elements {
-                        self.bind_pattern(elem_pat, (**elem_ty).clone());
+                let resolved = self.ctx.resolve(&ty);
+                match resolved {
+                    Type::List(elem_ty) => {
+                        for elem_pat in elements {
+                            self.bind_pattern(elem_pat, (*elem_ty).clone());
+                        }
+                        if let Some(rest_name) = rest {
+                            self.env.bind(*rest_name, ty.clone());
+                        }
                     }
-                    if let Some(rest_name) = rest {
-                        self.env.bind(*rest_name, ty.clone());
+                    Type::Var(_) => {
+                        // Type variable - bind patterns to fresh vars
+                        let elem_ty = self.ctx.fresh_var();
+                        for elem_pat in elements {
+                            self.bind_pattern(elem_pat, elem_ty.clone());
+                        }
+                        if let Some(rest_name) = rest {
+                            self.env.bind(*rest_name, Type::List(Box::new(elem_ty)));
+                        }
+                    }
+                    Type::Error => {} // Error recovery - don't cascade errors
+                    other => {
+                        self.errors.push(TypeCheckError {
+                            message: format!(
+                                "cannot destructure `{}` as a list",
+                                other.display(self.interner)
+                            ),
+                            span: Span::default(),
+                            code: crate::diagnostic::ErrorCode::E2001,
+                        });
                     }
                 }
-                // TODO: report error if not a list type
             }
         }
     }
@@ -1883,5 +1999,82 @@ mod tests {
         assert!(!typed.errors.iter().any(|e|
             e.code == crate::diagnostic::ErrorCode::E2007
         ));
+    }
+
+    // =========================================================================
+    // TypeRegistry Integration Tests
+    // =========================================================================
+
+    #[test]
+    fn test_type_registry_in_checker() {
+        // Test that TypeRegistry is properly initialized in TypeChecker
+        let interner = SharedInterner::default();
+        let tokens = lexer::lex("@main () -> int = 42", &interner);
+        let parsed = parser::parse(&tokens, &interner);
+
+        let mut checker = TypeChecker::new(&parsed.arena, &interner);
+
+        // Register a user type
+        let point_name = interner.intern("Point");
+        let x_name = interner.intern("x");
+        let y_name = interner.intern("y");
+
+        let type_id = checker.type_registry.register_struct(
+            point_name,
+            vec![(x_name, Type::Int), (y_name, Type::Int)],
+            crate::ir::Span::new(0, 0),
+            vec![],
+        );
+
+        // Verify lookup works
+        assert!(checker.type_registry.contains(point_name));
+        let entry = checker.type_registry.get_by_id(type_id).unwrap();
+        assert_eq!(entry.name, point_name);
+    }
+
+    #[test]
+    fn test_type_id_to_type_with_registry() {
+        // Test that type_id_to_type uses the registry for compound types
+        let interner = SharedInterner::default();
+        let tokens = lexer::lex("@main () -> int = 42", &interner);
+        let parsed = parser::parse(&tokens, &interner);
+
+        let mut checker = TypeChecker::new(&parsed.arena, &interner);
+
+        // Register an alias type
+        let id_name = interner.intern("UserId");
+        let type_id = checker.type_registry.register_alias(
+            id_name,
+            Type::Int,
+            crate::ir::Span::new(0, 0),
+            vec![],
+        );
+
+        // Convert TypeId to Type - should resolve to the aliased type
+        let resolved = checker.type_id_to_type(type_id);
+        assert_eq!(resolved, Type::Int);
+    }
+
+    #[test]
+    fn test_type_id_to_type_with_struct() {
+        // Test struct type resolution
+        let interner = SharedInterner::default();
+        let tokens = lexer::lex("@main () -> int = 42", &interner);
+        let parsed = parser::parse(&tokens, &interner);
+
+        let mut checker = TypeChecker::new(&parsed.arena, &interner);
+
+        // Register a struct type
+        let point_name = interner.intern("Point");
+        let type_id = checker.type_registry.register_struct(
+            point_name,
+            vec![],
+            crate::ir::Span::new(0, 0),
+            vec![],
+        );
+
+        // Convert TypeId to Type - should resolve to Named(point_name)
+        let resolved = checker.type_id_to_type(type_id);
+        assert_eq!(resolved, Type::Named(point_name));
     }
 }

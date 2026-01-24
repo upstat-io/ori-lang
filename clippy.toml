@@ -1,0 +1,16 @@
+# Clippy configuration for sigilc
+#
+# Enforce usage of wrapper types instead of raw smart pointers:
+# - LocalScope<T> for single-threaded scopes (instead of Rc<RefCell<T>>)
+# - Heap<T> for shared heap values (instead of Arc<T>)
+#
+# Note: These are guidelines, not hard requirements. Use #[expect(clippy::disallowed_types)]
+# with a reason comment for intentional uses (e.g., SharedInterner, PatternRegistry).
+
+[[disallowed-types]]
+path = "std::rc::Rc"
+reason = "Use LocalScope<T> for scopes - see eval/environment.rs. Use #[expect(clippy::disallowed_types)] if Rc is truly needed."
+
+[[disallowed-types]]
+path = "std::sync::Arc"
+reason = "Use Heap<T> for shared values - see eval/value/heap.rs. Use #[expect(clippy::disallowed_types)] if Arc is truly needed."

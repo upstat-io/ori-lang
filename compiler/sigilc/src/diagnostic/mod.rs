@@ -7,6 +7,9 @@
 //! - Context labels (why it's wrong)
 //! - Suggestions (how to fix)
 
+pub mod emitter;
+pub mod fixes;
+
 use crate::ir::Span;
 use std::fmt;
 

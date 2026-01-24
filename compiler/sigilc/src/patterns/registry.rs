@@ -1,9 +1,48 @@
 //! Pattern registry for looking up pattern definitions by kind.
 
+// Arc is needed for SharedPattern - storing pattern definitions as trait objects
+#![expect(clippy::disallowed_types, reason = "Arc is the implementation of SharedPattern")]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use crate::ir::FunctionExpKind;
 use super::PatternDefinition;
+
+/// Shared pattern definition wrapper for storing patterns in registries.
+///
+/// This newtype enforces that all pattern definition sharing goes through
+/// this type, preventing accidental direct `Arc<dyn PatternDefinition>` usage.
+///
+/// # Purpose
+/// Patterns like `map`, `filter`, `fold` are stored in the PatternRegistry
+/// as trait objects. SharedPattern wraps these trait objects in a clonable,
+/// thread-safe wrapper that can be shared across type checking and evaluation.
+///
+/// # Thread Safety
+/// Uses `Arc` internally for thread-safe reference counting.
+///
+/// # Usage
+/// ```ignore
+/// let pattern = SharedPattern::new(MapPattern);
+/// registry.register(FunctionExpKind::Map, pattern);
+/// ```
+#[derive(Clone)]
+pub struct SharedPattern(Arc<dyn PatternDefinition>);
+
+impl SharedPattern {
+    /// Create a new shared pattern from a pattern definition.
+    pub fn new<P: PatternDefinition + 'static>(pattern: P) -> Self {
+        SharedPattern(Arc::new(pattern))
+    }
+}
+
+impl std::ops::Deref for SharedPattern {
+    type Target = dyn PatternDefinition;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
 
 // Import all pattern types
 use super::map::MapPattern;
@@ -31,7 +70,7 @@ use super::builtins::{
 /// This is the central point for pattern extensibility. Adding a new pattern
 /// requires implementing `PatternDefinition` and registering it here.
 pub struct PatternRegistry {
-    patterns: HashMap<FunctionExpKind, Arc<dyn PatternDefinition>>,
+    patterns: HashMap<FunctionExpKind, SharedPattern>,
 }
 
 impl PatternRegistry {
@@ -44,38 +83,38 @@ impl PatternRegistry {
 
     /// Create a new registry with all built-in patterns registered.
     pub fn new() -> Self {
-        let mut patterns: HashMap<FunctionExpKind, Arc<dyn PatternDefinition>> = HashMap::new();
+        let mut patterns: HashMap<FunctionExpKind, SharedPattern> = HashMap::new();
 
         // Register all 13 function_exp patterns
-        patterns.insert(FunctionExpKind::Map, Arc::new(MapPattern));
-        patterns.insert(FunctionExpKind::Filter, Arc::new(FilterPattern));
-        patterns.insert(FunctionExpKind::Fold, Arc::new(FoldPattern));
-        patterns.insert(FunctionExpKind::Find, Arc::new(FindPattern));
-        patterns.insert(FunctionExpKind::Collect, Arc::new(CollectPattern));
-        patterns.insert(FunctionExpKind::Recurse, Arc::new(RecursePattern));
-        patterns.insert(FunctionExpKind::Parallel, Arc::new(ParallelPattern));
-        patterns.insert(FunctionExpKind::Spawn, Arc::new(SpawnPattern));
-        patterns.insert(FunctionExpKind::Timeout, Arc::new(TimeoutPattern));
-        patterns.insert(FunctionExpKind::Retry, Arc::new(RetryPattern));
-        patterns.insert(FunctionExpKind::Cache, Arc::new(CachePattern));
-        patterns.insert(FunctionExpKind::Validate, Arc::new(ValidatePattern));
-        patterns.insert(FunctionExpKind::With, Arc::new(WithPattern));
+        patterns.insert(FunctionExpKind::Map, SharedPattern::new(MapPattern));
+        patterns.insert(FunctionExpKind::Filter, SharedPattern::new(FilterPattern));
+        patterns.insert(FunctionExpKind::Fold, SharedPattern::new(FoldPattern));
+        patterns.insert(FunctionExpKind::Find, SharedPattern::new(FindPattern));
+        patterns.insert(FunctionExpKind::Collect, SharedPattern::new(CollectPattern));
+        patterns.insert(FunctionExpKind::Recurse, SharedPattern::new(RecursePattern));
+        patterns.insert(FunctionExpKind::Parallel, SharedPattern::new(ParallelPattern));
+        patterns.insert(FunctionExpKind::Spawn, SharedPattern::new(SpawnPattern));
+        patterns.insert(FunctionExpKind::Timeout, SharedPattern::new(TimeoutPattern));
+        patterns.insert(FunctionExpKind::Retry, SharedPattern::new(RetryPattern));
+        patterns.insert(FunctionExpKind::Cache, SharedPattern::new(CachePattern));
+        patterns.insert(FunctionExpKind::Validate, SharedPattern::new(ValidatePattern));
+        patterns.insert(FunctionExpKind::With, SharedPattern::new(WithPattern));
 
         // Register core patterns (function_exp with named args)
-        patterns.insert(FunctionExpKind::Assert, Arc::new(AssertPattern));
-        patterns.insert(FunctionExpKind::AssertEq, Arc::new(AssertEqPattern));
-        patterns.insert(FunctionExpKind::AssertNe, Arc::new(AssertNePattern));
-        patterns.insert(FunctionExpKind::Len, Arc::new(LenPattern));
-        patterns.insert(FunctionExpKind::IsEmpty, Arc::new(IsEmptyPattern));
-        patterns.insert(FunctionExpKind::IsSome, Arc::new(IsSomePattern));
-        patterns.insert(FunctionExpKind::IsNone, Arc::new(IsNonePattern));
-        patterns.insert(FunctionExpKind::IsOk, Arc::new(IsOkPattern));
-        patterns.insert(FunctionExpKind::IsErr, Arc::new(IsErrPattern));
-        patterns.insert(FunctionExpKind::Print, Arc::new(PrintPattern));
-        patterns.insert(FunctionExpKind::Panic, Arc::new(PanicPattern));
-        patterns.insert(FunctionExpKind::Compare, Arc::new(ComparePattern));
-        patterns.insert(FunctionExpKind::Min, Arc::new(MinPattern));
-        patterns.insert(FunctionExpKind::Max, Arc::new(MaxPattern));
+        patterns.insert(FunctionExpKind::Assert, SharedPattern::new(AssertPattern));
+        patterns.insert(FunctionExpKind::AssertEq, SharedPattern::new(AssertEqPattern));
+        patterns.insert(FunctionExpKind::AssertNe, SharedPattern::new(AssertNePattern));
+        patterns.insert(FunctionExpKind::Len, SharedPattern::new(LenPattern));
+        patterns.insert(FunctionExpKind::IsEmpty, SharedPattern::new(IsEmptyPattern));
+        patterns.insert(FunctionExpKind::IsSome, SharedPattern::new(IsSomePattern));
+        patterns.insert(FunctionExpKind::IsNone, SharedPattern::new(IsNonePattern));
+        patterns.insert(FunctionExpKind::IsOk, SharedPattern::new(IsOkPattern));
+        patterns.insert(FunctionExpKind::IsErr, SharedPattern::new(IsErrPattern));
+        patterns.insert(FunctionExpKind::Print, SharedPattern::new(PrintPattern));
+        patterns.insert(FunctionExpKind::Panic, SharedPattern::new(PanicPattern));
+        patterns.insert(FunctionExpKind::Compare, SharedPattern::new(ComparePattern));
+        patterns.insert(FunctionExpKind::Min, SharedPattern::new(MinPattern));
+        patterns.insert(FunctionExpKind::Max, SharedPattern::new(MaxPattern));
 
         PatternRegistry { patterns }
     }
@@ -83,12 +122,12 @@ impl PatternRegistry {
     /// Register a custom pattern.
     ///
     /// This allows injecting mock patterns for testing or adding custom patterns.
-    pub fn register(&mut self, kind: FunctionExpKind, pattern: Arc<dyn PatternDefinition>) {
+    pub fn register(&mut self, kind: FunctionExpKind, pattern: SharedPattern) {
         self.patterns.insert(kind, pattern);
     }
 
     /// Get the pattern definition for a given kind.
-    pub fn get(&self, kind: FunctionExpKind) -> Option<Arc<dyn PatternDefinition>> {
+    pub fn get(&self, kind: FunctionExpKind) -> Option<SharedPattern> {
         self.patterns.get(&kind).cloned()
     }
 
