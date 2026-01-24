@@ -17,14 +17,19 @@
 mod value;
 mod environment;
 mod evaluator;
+mod output;
+mod function_val;
 pub mod errors;
 pub mod operators;
 pub mod methods;
 pub mod unary_operators;
+pub mod exec;
+pub mod module;
 
 pub use value::{Value, FunctionValue, RangeValue, StructValue, StructLayout, Heap, FunctionValFn};
 pub use environment::Environment;
-pub use evaluator::{Evaluator, EvalResult, EvalError, EvalOutput, ModuleEvalResult};
+pub use evaluator::{Evaluator, EvalResult, EvalError};
+pub use output::{EvalOutput, ModuleEvalResult};
 pub use operators::OperatorRegistry;
 pub use methods::MethodRegistry;
 pub use unary_operators::UnaryOperatorRegistry;
