@@ -26,7 +26,7 @@ mod validate;
 mod with_pattern;
 mod builtins;
 
-pub use registry::PatternRegistry;
+pub use registry::{PatternRegistry, SharedPattern};
 pub use signature::{PatternSignature, FunctionSignature, DefaultValue, OptionalArg};
 pub use fusion::{FusedPattern, FusionAnalyzer, FusionHints, PatternChain, ChainLink};
 

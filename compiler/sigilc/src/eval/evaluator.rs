@@ -2,19 +2,18 @@
 //!
 //! Ported from V2 with adaptations for V3's Salsa-compatible AST.
 
-use std::sync::Arc;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::collections::HashMap;
 use crate::ir::{
-    Name, StringInterner, ExprId, ExprArena,
+    Name, StringInterner, ExprId, ExprArena, SharedArena,
     ExprKind, BinaryOp, UnaryOp, StmtKind, BindingPattern,
     ArmRange, MatchPattern, FunctionSeq, SeqBinding,
     CallArgRange, ImportPath,
 };
 use crate::parser::ParseResult;
 use crate::patterns::{PatternRegistry, EvalContext, PatternExecutor};
-use crate::context::CompilerContext;
+use crate::context::{CompilerContext, SharedRegistry};
 use super::value::{Value, FunctionValue, RangeValue, StructValue};
 use super::environment::Environment;
 use super::errors;
@@ -319,18 +318,18 @@ pub struct Evaluator<'a> {
     /// Current environment.
     env: Environment,
     /// Pattern registry for function_exp evaluation.
-    registry: Arc<PatternRegistry>,
+    registry: SharedRegistry<PatternRegistry>,
     /// Operator registry for binary operations.
-    operator_registry: Arc<OperatorRegistry>,
+    operator_registry: SharedRegistry<OperatorRegistry>,
     /// Method registry for method dispatch.
-    method_registry: Arc<MethodRegistry>,
+    method_registry: SharedRegistry<MethodRegistry>,
     /// Unary operator registry for unary operations.
-    unary_operator_registry: Arc<UnaryOperatorRegistry>,
+    unary_operator_registry: SharedRegistry<UnaryOperatorRegistry>,
     /// Arena reference for imported functions.
     ///
     /// When evaluating an imported function, this holds the imported arena.
     /// Lambdas created during evaluation will inherit this arena reference.
-    imported_arena: Option<Arc<ExprArena>>,
+    imported_arena: Option<SharedArena>,
 }
 
 /// Implement PatternExecutor for Evaluator to enable pattern evaluation.
@@ -354,10 +353,10 @@ impl<'a> Evaluator<'a> {
             interner,
             arena,
             env: Environment::new(),
-            registry: Arc::new(PatternRegistry::new()),
-            operator_registry: Arc::new(OperatorRegistry::new()),
-            method_registry: Arc::new(MethodRegistry::new()),
-            unary_operator_registry: Arc::new(UnaryOperatorRegistry::new()),
+            registry: SharedRegistry::new(PatternRegistry::new()),
+            operator_registry: SharedRegistry::new(OperatorRegistry::new()),
+            method_registry: SharedRegistry::new(MethodRegistry::new()),
+            unary_operator_registry: SharedRegistry::new(UnaryOperatorRegistry::new()),
             imported_arena: None,
         }
     }
@@ -394,10 +393,10 @@ impl<'a> Evaluator<'a> {
             interner,
             arena,
             env: Environment::new(),
-            registry: Arc::new(registry),
-            operator_registry: Arc::new(OperatorRegistry::new()),
-            method_registry: Arc::new(MethodRegistry::new()),
-            unary_operator_registry: Arc::new(UnaryOperatorRegistry::new()),
+            registry: SharedRegistry::new(registry),
+            operator_registry: SharedRegistry::new(OperatorRegistry::new()),
+            method_registry: SharedRegistry::new(MethodRegistry::new()),
+            unary_operator_registry: SharedRegistry::new(UnaryOperatorRegistry::new()),
             imported_arena: None,
         }
     }
@@ -408,10 +407,10 @@ impl<'a> Evaluator<'a> {
             interner,
             arena,
             env,
-            registry: Arc::new(PatternRegistry::new()),
-            operator_registry: Arc::new(OperatorRegistry::new()),
-            method_registry: Arc::new(MethodRegistry::new()),
-            unary_operator_registry: Arc::new(UnaryOperatorRegistry::new()),
+            registry: SharedRegistry::new(PatternRegistry::new()),
+            operator_registry: SharedRegistry::new(OperatorRegistry::new()),
+            method_registry: SharedRegistry::new(MethodRegistry::new()),
+            unary_operator_registry: SharedRegistry::new(UnaryOperatorRegistry::new()),
             imported_arena: None,
         }
     }
@@ -427,10 +426,10 @@ impl<'a> Evaluator<'a> {
             interner,
             arena,
             env,
-            registry: Arc::new(registry),
-            operator_registry: Arc::new(OperatorRegistry::new()),
-            method_registry: Arc::new(MethodRegistry::new()),
-            unary_operator_registry: Arc::new(UnaryOperatorRegistry::new()),
+            registry: SharedRegistry::new(registry),
+            operator_registry: SharedRegistry::new(OperatorRegistry::new()),
+            method_registry: SharedRegistry::new(MethodRegistry::new()),
+            unary_operator_registry: SharedRegistry::new(UnaryOperatorRegistry::new()),
             imported_arena: None,
         }
     }
@@ -462,16 +461,16 @@ impl<'a> Evaluator<'a> {
         interner: &'a StringInterner,
         arena: &'a ExprArena,
         env: Environment,
-        imported_arena: Arc<ExprArena>,
+        imported_arena: SharedArena,
     ) -> Self {
         Evaluator {
             interner,
             arena,
             env,
-            registry: Arc::new(PatternRegistry::new()),
-            operator_registry: Arc::new(OperatorRegistry::new()),
-            method_registry: Arc::new(MethodRegistry::new()),
-            unary_operator_registry: Arc::new(UnaryOperatorRegistry::new()),
+            registry: SharedRegistry::new(PatternRegistry::new()),
+            operator_registry: SharedRegistry::new(OperatorRegistry::new()),
+            method_registry: SharedRegistry::new(MethodRegistry::new()),
+            unary_operator_registry: SharedRegistry::new(UnaryOperatorRegistry::new()),
             imported_arena: Some(imported_arena),
         }
     }
@@ -560,7 +559,7 @@ impl<'a> Evaluator<'a> {
         }
 
         // Build the imported arena
-        let imported_arena = Arc::new(imported_result.arena.clone());
+        let imported_arena = SharedArena::new(imported_result.arena.clone());
 
         // First, build a map of ALL functions in the imported module.
         // This allows imported functions to call other functions from their module.
@@ -1208,7 +1207,7 @@ impl<'a> Evaluator<'a> {
                 // Otherwise use the current evaluator's arena.
                 if let Some(func_arena) = f.arena() {
                     // Function from an imported module - use its arena and pass it along
-                    let imported_arena = Arc::new(func_arena.clone());
+                    let imported_arena = SharedArena::new(func_arena.clone());
                     let mut call_evaluator = Evaluator::with_imported_arena(
                         self.interner, func_arena, call_env, imported_arena
                     );

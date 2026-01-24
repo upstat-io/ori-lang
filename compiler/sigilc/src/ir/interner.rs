@@ -2,6 +2,10 @@
 //!
 //! Ported from V2 with all Salsa-required traits.
 
+// Arc is needed here for SharedInterner - the interner must be shared across
+// threads for concurrent compilation and query execution.
+#![expect(clippy::disallowed_types, reason = "Arc required for SharedInterner thread-safety")]
+
 use super::Name;
 use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
@@ -150,8 +154,50 @@ impl Default for StringInterner {
     }
 }
 
-/// Shared interner wrapped in Arc for use with CompilerDb.
-pub type SharedInterner = Arc<StringInterner>;
+/// Shared interner for thread-safe string interning across compiler phases.
+///
+/// This newtype enforces that all thread-safe interner sharing goes through
+/// this type, preventing accidental direct `Arc<StringInterner>` usage.
+///
+/// # Purpose
+/// The string interner must be shared across lexer, parser, type checker,
+/// and evaluator. SharedInterner provides a clonable handle that can be
+/// passed to each compiler phase while ensuring all phases share the same
+/// interned string storage.
+///
+/// # Thread Safety
+/// Uses `Arc` internally for thread-safe reference counting. The underlying
+/// `StringInterner` uses per-shard RwLocks for concurrent access.
+///
+/// # Usage
+/// ```ignore
+/// let interner = SharedInterner::new();
+/// let name = interner.intern("my_function");
+/// let lookup = interner.resolve(name);
+/// ```
+#[derive(Clone)]
+pub struct SharedInterner(Arc<StringInterner>);
+
+impl SharedInterner {
+    /// Create a new shared interner.
+    pub fn new() -> Self {
+        SharedInterner(Arc::new(StringInterner::new()))
+    }
+}
+
+impl Default for SharedInterner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::ops::Deref for SharedInterner {
+    type Target = StringInterner;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -193,8 +239,8 @@ mod tests {
 
     #[test]
     fn test_shared_interner() {
-        let interner: SharedInterner = Arc::new(StringInterner::new());
-        let interner2 = Arc::clone(&interner);
+        let interner = SharedInterner::new();
+        let interner2 = interner.clone();
 
         let name1 = interner.intern("shared");
         let name2 = interner2.intern("shared");

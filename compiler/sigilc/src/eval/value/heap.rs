@@ -8,6 +8,9 @@
 //! This ensures that all heap allocations go through Value's factory methods,
 //! providing a single point of control for memory allocation.
 
+// Arc is the intentional implementation detail of Heap<T>
+#![expect(clippy::disallowed_types, reason = "Arc is the whole point of Heap<T>")]
+
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};

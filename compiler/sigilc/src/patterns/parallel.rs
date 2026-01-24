@@ -4,6 +4,9 @@
 //!
 //! Returns `[Result<T, E>]` - all tasks run to completion, errors captured as values.
 
+// Arc and Mutex are required for thread synchronization in parallel execution
+#![expect(clippy::disallowed_types, reason = "Arc/Mutex required for thread synchronization")]
+
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;

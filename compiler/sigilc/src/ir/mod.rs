@@ -24,6 +24,7 @@ mod expr_id;
 mod traits;
 pub mod ast;
 mod arena;
+pub mod visitor;
 
 pub use span::Span;
 pub use name::Name;
@@ -47,4 +48,4 @@ pub use ast::{
     // Import types
     UseDef, UseItem, ImportPath,
 };
-pub use arena::ExprArena;
+pub use arena::{ExprArena, SharedArena};

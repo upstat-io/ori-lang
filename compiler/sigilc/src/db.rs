@@ -3,6 +3,9 @@
 //! This file is written FIRST, not last.
 //! Everything else is built on top of this.
 
+// Arc and Mutex are required for Salsa database and thread-safe logging
+#![expect(clippy::disallowed_types, reason = "Arc/Mutex required for Salsa database")]
+
 use std::sync::{Arc, Mutex};
 use crate::ir::{StringInterner, SharedInterner};
 
@@ -41,7 +44,7 @@ impl Default for CompilerDb {
     fn default() -> Self {
         Self {
             storage: Default::default(),
-            interner: Arc::new(StringInterner::new()),
+            interner: SharedInterner::new(),
             logs: Default::default(),
         }
     }

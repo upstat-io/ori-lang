@@ -5,6 +5,9 @@
 //! - Cache-friendly iteration
 //! - Bulk deallocation
 
+// Arc is needed for SharedArena - the implementation of shared arena references
+#![expect(clippy::disallowed_types, reason = "Arc is the implementation of SharedArena")]
+
 use super::{ExprId, ExprRange, StmtId, StmtRange};
 use super::ast::{
     Expr, Stmt, Param, ParamRange,
@@ -351,6 +354,54 @@ impl fmt::Debug for ExprArena {
             self.stmts.len(),
             self.params.len()
         )
+    }
+}
+
+// =============================================================================
+// SharedArena
+// =============================================================================
+
+use std::sync::Arc;
+
+/// Shared expression arena wrapper for cross-module function references.
+///
+/// This newtype enforces that all arena sharing goes through this type,
+/// preventing accidental direct `Arc<ExprArena>` usage.
+///
+/// # Purpose
+/// When importing functions from other modules, the function's body expression
+/// references expressions in the imported module's arena. SharedArena allows
+/// the imported function to carry its arena reference for correct evaluation.
+///
+/// # Thread Safety
+/// Uses `Arc` internally for thread-safe reference counting.
+///
+/// # Usage
+/// ```ignore
+/// let imported_arena = SharedArena::new(parse_result.arena);
+/// let func = FunctionValue::from_import(params, body, captures, imported_arena);
+/// ```
+#[derive(Clone)]
+pub struct SharedArena(Arc<ExprArena>);
+
+impl SharedArena {
+    /// Create a new shared arena from an ExprArena.
+    pub fn new(arena: ExprArena) -> Self {
+        SharedArena(Arc::new(arena))
+    }
+}
+
+impl std::ops::Deref for SharedArena {
+    type Target = ExprArena;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl fmt::Debug for SharedArena {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SharedArena({:?})", &*self.0)
     }
 }
 
