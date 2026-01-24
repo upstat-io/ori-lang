@@ -38,6 +38,7 @@ pub mod test;
 pub mod patterns;
 pub mod context;
 pub mod testing;
+pub mod debug;
 
 // Re-exports for convenience
 pub use db::{Db, CompilerDb};

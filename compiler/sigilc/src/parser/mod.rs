@@ -21,21 +21,8 @@ enum FunctionOrTest {
     Test(TestDef),
 }
 
-/// Parsed attributes for a function or test.
-#[derive(Default)]
-struct ParsedAttrs {
-    skip_reason: Option<Name>,
-    compile_fail_expected: Option<Name>,
-    fail_expected: Option<Name>,
-}
-
-impl ParsedAttrs {
-    fn is_empty(&self) -> bool {
-        self.skip_reason.is_none()
-            && self.compile_fail_expected.is_none()
-            && self.fail_expected.is_none()
-    }
-}
+// Re-export ParsedAttrs from grammar module.
+pub(crate) use grammar::ParsedAttrs;
 
 /// Parser state.
 pub struct Parser<'a> {
@@ -225,152 +212,9 @@ impl<'a> Parser<'a> {
         recovery::synchronize(&mut self.cursor, RecoverySet::STMT_BOUNDARY);
     }
 
-    /// Parse zero or more attributes: #[attr("value")]
-    fn parse_attributes(&mut self, errors: &mut Vec<ParseError>) -> ParsedAttrs {
-        let mut attrs = ParsedAttrs::default();
-
-        while self.check(TokenKind::HashBracket) {
-            self.advance(); // consume #[
-
-            // Parse attribute name (can be identifier or specific keywords like `skip`)
-            // We use an enum to track which attribute we're parsing
-            #[derive(Clone, Copy)]
-            enum AttrKind { Skip, CompileFail, Fail, Unknown }
-
-            let attr_kind = match self.current_kind() {
-                TokenKind::Ident(name) => {
-                    let s = self.interner().lookup(name).to_owned();
-                    self.advance();
-                    match s.as_str() {
-                        "skip" => AttrKind::Skip,
-                        "compile_fail" => AttrKind::CompileFail,
-                        "fail" => AttrKind::Fail,
-                        _ => {
-                            errors.push(ParseError::new(
-                                crate::diagnostic::ErrorCode::E1006,
-                                format!("unknown attribute '{}'", s),
-                                self.previous_span(),
-                            ));
-                            AttrKind::Unknown
-                        }
-                    }
-                }
-                TokenKind::Skip => {
-                    self.advance();
-                    AttrKind::Skip
-                }
-                _ => {
-                    errors.push(ParseError::new(
-                        crate::diagnostic::ErrorCode::E1004,
-                        format!("expected attribute name, found {:?}", self.current_kind()),
-                        self.current_span(),
-                    ));
-                    // Try to recover by skipping to ]
-                    while !self.check(TokenKind::RBracket) && !self.is_at_end() {
-                        self.advance();
-                    }
-                    if self.check(TokenKind::RBracket) {
-                        self.advance();
-                    }
-                    continue;
-                }
-            };
-
-            // For unknown attributes, skip to ] and continue
-            if matches!(attr_kind, AttrKind::Unknown) {
-                while !self.check(TokenKind::RBracket) && !self.is_at_end() {
-                    self.advance();
-                }
-                if self.check(TokenKind::RBracket) {
-                    self.advance();
-                }
-                continue;
-            }
-
-            let attr_name_str = match attr_kind {
-                AttrKind::Skip => "skip",
-                AttrKind::CompileFail => "compile_fail",
-                AttrKind::Fail => "fail",
-                AttrKind::Unknown => unreachable!(),
-            };
-
-            // Expect (
-            if !self.check(TokenKind::LParen) {
-                errors.push(ParseError {
-                    code: crate::diagnostic::ErrorCode::E1006,
-                    message: format!("expected '(' after attribute name '{}'", attr_name_str),
-                    span: self.current_span(),
-                    context: None,
-                });
-                // Try to recover
-                while !self.check(TokenKind::RBracket) && !self.is_at_end() {
-                    self.advance();
-                }
-                if self.check(TokenKind::RBracket) {
-                    self.advance();
-                }
-                continue;
-            }
-            self.advance(); // consume (
-
-            // Parse string value
-            let value = if let TokenKind::String(string_name) = self.current_kind() {
-                self.advance();
-                Some(string_name)
-            } else {
-                errors.push(ParseError {
-                    code: crate::diagnostic::ErrorCode::E1006,
-                    message: format!("attribute '{}' requires a string argument", attr_name_str),
-                    span: self.current_span(),
-                    context: None,
-                });
-                None
-            };
-
-            // Expect )
-            if !self.check(TokenKind::RParen) {
-                errors.push(ParseError {
-                    code: crate::diagnostic::ErrorCode::E1006,
-                    message: "expected ')' after attribute value".to_string(),
-                    span: self.current_span(),
-                    context: None,
-                });
-            } else {
-                self.advance();
-            }
-
-            // Expect ]
-            if !self.check(TokenKind::RBracket) {
-                errors.push(ParseError {
-                    code: crate::diagnostic::ErrorCode::E1006,
-                    message: "expected ']' to close attribute".to_string(),
-                    span: self.current_span(),
-                    context: None,
-                });
-            } else {
-                self.advance();
-            }
-
-            // Store the attribute
-            if let Some(value) = value {
-                match attr_kind {
-                    AttrKind::Skip => attrs.skip_reason = Some(value),
-                    AttrKind::CompileFail => attrs.compile_fail_expected = Some(value),
-                    AttrKind::Fail => attrs.fail_expected = Some(value),
-                    AttrKind::Unknown => unreachable!(), // Already handled above
-                }
-            }
-
-            self.skip_newlines();
-        }
-
-        attrs
-    }
-
     fn recover_to_function(&mut self) {
         recovery::synchronize(&mut self.cursor, RecoverySet::FUNCTION_BOUNDARY);
     }
-
 }
 
 /// Parse result containing module, arena, and any errors.
