@@ -1,6 +1,6 @@
 // Tests for A+B
 
-use '../a_plus_b' { add }
+use "../a_plus_b" { add }
 
 @test_add_positive tests @add () -> void = run(
     assert(.cond: add(.a: 2, .b: 3) == 5),

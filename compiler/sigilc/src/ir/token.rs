@@ -92,6 +92,7 @@ pub enum TokenKind {
 
     // Additional keywords
     Tests,
+    As,
     // NOTE: Assert removed - 'assert' is a built-in function, not a keyword
     Dyn,
     Extend,
@@ -278,6 +279,7 @@ impl TokenKind {
             TokenKind::With => "with",
             TokenKind::Yield => "yield",
             TokenKind::Tests => "tests",
+            TokenKind::As => "as",
             TokenKind::Dyn => "dyn",
             TokenKind::Extend => "extend",
             TokenKind::Extension => "extension",

@@ -44,5 +44,7 @@ pub use ast::{
     NamedExpr, NamedExprRange, FunctionExpKind, FunctionExp,
     // CallNamed types
     CallArg, CallArgRange,
+    // Import types
+    UseDef, UseItem, ImportPath,
 };
 pub use arena::ExprArena;

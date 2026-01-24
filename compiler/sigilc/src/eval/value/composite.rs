@@ -6,7 +6,7 @@
 use std::fmt;
 use std::collections::HashMap;
 use std::sync::Arc;
-use crate::ir::{Name, ExprId};
+use crate::ir::{Name, ExprId, ExprArena};
 use super::Value;
 
 // =============================================================================
@@ -103,6 +103,11 @@ impl StructValue {
 /// that used `RwLock`, this design uses a plain `Arc<HashMap>` for captures.
 /// This eliminates potential race conditions and simplifies reasoning about
 /// closure behavior.
+///
+/// # Cross-Module Functions
+/// Functions from imported modules carry their own arena reference so their
+/// body expressions can be evaluated correctly. Local functions leave this
+/// as None and use the evaluator's arena.
 #[derive(Clone)]
 pub struct FunctionValue {
     /// Parameter names.
@@ -113,6 +118,11 @@ pub struct FunctionValue {
     ///
     /// No RwLock needed since captures are immutable after creation.
     captures: Arc<HashMap<Name, Value>>,
+    /// Optional arena for cross-module functions.
+    ///
+    /// Functions from imported modules need their own arena reference since
+    /// the body ExprId refers to expressions in the imported file's arena.
+    arena: Option<Arc<ExprArena>>,
 }
 
 impl FunctionValue {
@@ -122,6 +132,7 @@ impl FunctionValue {
             params,
             body,
             captures: Arc::new(HashMap::new()),
+            arena: None,
         }
     }
 
@@ -133,6 +144,25 @@ impl FunctionValue {
             params,
             body,
             captures: Arc::new(captures),
+            arena: None,
+        }
+    }
+
+    /// Create a function value from an imported module.
+    ///
+    /// Imported functions carry their own arena reference since the body
+    /// ExprId refers to expressions in the imported file's arena.
+    pub fn from_import(
+        params: Vec<Name>,
+        body: ExprId,
+        captures: HashMap<Name, Value>,
+        arena: Arc<ExprArena>,
+    ) -> Self {
+        FunctionValue {
+            params,
+            body,
+            captures: Arc::new(captures),
+            arena: Some(arena),
         }
     }
 
@@ -149,6 +179,11 @@ impl FunctionValue {
     /// Check if this function has any captures.
     pub fn has_captures(&self) -> bool {
         !self.captures.is_empty()
+    }
+
+    /// Get the arena for this function (for cross-module functions).
+    pub fn arena(&self) -> Option<&ExprArena> {
+        self.arena.as_ref().map(|a| a.as_ref())
     }
 }
 
