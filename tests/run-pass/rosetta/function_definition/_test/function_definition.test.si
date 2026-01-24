@@ -1,6 +1,6 @@
 // Tests for Function definition
 
-use '../function_definition' {
+use "../function_definition" {
     greeting,
     square,
     add,

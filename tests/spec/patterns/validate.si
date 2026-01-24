@@ -15,7 +15,7 @@
         .rules: [(x -> x > 0), (x -> x < 100)],
     ),
     assert(
-        .cond: is_ok(result),
+        .cond: is_ok(.result: result),
     ),
 )
 
@@ -32,7 +32,7 @@
         .rules: [(x -> x > 0)],
     ),
     assert(
-        .cond: is_err(result),
+        .cond: is_err(.result: result),
     ),
 )
 
@@ -49,7 +49,7 @@
         .rules: [(x -> x > 0), (x -> x < 100), (x -> x % 2 == 0)],
     ),
     assert(
-        .cond: is_ok(result),
+        .cond: is_ok(.result: result),
     ),
 )
 
@@ -67,7 +67,7 @@
     ),
     // Should fail on third rule (not even)
     assert(
-        .cond: is_err(result),
+        .cond: is_err(.result: result),
     ),
 )
 

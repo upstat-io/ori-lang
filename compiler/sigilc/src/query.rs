@@ -3,15 +3,13 @@
 //! Queries are functions that compute values from inputs or other queries.
 //! Salsa automatically caches results and invalidates when dependencies change.
 
-use std::path::Path;
-use std::sync::Arc;
-use crate::db::{Db, CompilerDb};
+use crate::db::Db;
 use crate::input::SourceFile;
-use crate::ir::{TokenList, ImportPath, UseDef};
+use crate::ir::TokenList;
 use crate::lexer;
 use crate::parser::{self, ParseResult};
 use crate::typeck::{self, TypedModule};
-use crate::eval::{Evaluator, ModuleEvalResult, EvalOutput, Value};
+use crate::eval::{Evaluator, ModuleEvalResult, EvalOutput};
 
 /// Tokenize a source file.
 ///
@@ -99,36 +97,13 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
 
     let interner = db.interner();
 
-    // Create evaluator
+    // Create evaluator and load the module (handles imports and function registration)
     let mut evaluator = Evaluator::new(interner, &parse_result.arena);
     evaluator.register_prelude();
 
-    // Resolve imports
     let file_path = file.path(db);
-    for import in &parse_result.module.imports {
-        if let Err(e) = resolve_import(file_path, import, db, &mut evaluator) {
-            return ModuleEvalResult::failure(format!("import error: {}", e));
-        }
-    }
-
-    // Register all functions in the module
-    for func in &parse_result.module.functions {
-        let func_name = func.name;
-        let params: Vec<_> = parse_result.arena.get_params(func.params)
-            .iter()
-            .map(|p| p.name)
-            .collect();
-
-        // Capture the current environment for closures
-        let captures = evaluator.env().capture();
-
-        let func_value = crate::eval::FunctionValue::with_captures(
-            params,
-            func.body,
-            captures,
-        );
-
-        evaluator.env_mut().define(func_name, crate::eval::Value::Function(func_value), false);
+    if let Err(e) = evaluator.load_module(&parse_result, file_path) {
+        return ModuleEvalResult::failure(format!("module error: {}", e));
     }
 
     // Look for a main function
@@ -193,103 +168,6 @@ pub fn non_empty_line_count(db: &dyn Db, file: SourceFile) -> usize {
 pub fn first_line(db: &dyn Db, file: SourceFile) -> String {
     let text = file.text(db);
     text.lines().next().unwrap_or("").to_string()
-}
-
-/// Resolve an import and register the imported functions.
-fn resolve_import(
-    current_file: &Path,
-    import: &UseDef,
-    db: &dyn Db,
-    evaluator: &mut Evaluator,
-) -> Result<(), String> {
-    let interner = db.interner();
-
-    // Resolve the import path to a file path
-    let import_path = match &import.path {
-        ImportPath::Relative(name) => {
-            let path_str = interner.lookup(*name);
-            let current_dir = current_file.parent().unwrap_or(Path::new("."));
-
-            // Handle relative paths like '../a_plus_b' or './math'
-            let resolved = current_dir.join(path_str);
-
-            // Add .si extension if not present
-            if resolved.extension().is_none() {
-                resolved.with_extension("si")
-            } else {
-                resolved
-            }
-        }
-        ImportPath::Module(segments) => {
-            // Module paths like std.math - not implemented yet
-            let path_str: String = segments
-                .iter()
-                .map(|s| interner.lookup(*s))
-                .collect::<Vec<_>>()
-                .join(".");
-            return Err(format!("Module imports not yet implemented: {}", path_str));
-        }
-    };
-
-    // Read and parse the imported file
-    let content = std::fs::read_to_string(&import_path)
-        .map_err(|e| format!("Failed to read '{}': {}", import_path.display(), e))?;
-
-    // Create a temporary database for the imported file
-    // Note: We use a fresh CompilerDb here because the trait object dyn Db
-    // doesn't give us access to create new SourceFiles
-    let import_db = CompilerDb::new();
-    let imported_file = SourceFile::new(&import_db, import_path.clone(), content);
-    let imported_result = parsed(&import_db, imported_file);
-
-    if imported_result.has_errors() {
-        let errors: Vec<String> = imported_result.errors
-            .iter()
-            .map(|e| format!("{}: {}", e.span, e.message))
-            .collect();
-        return Err(format!("Errors in '{}': {}", import_path.display(), errors.join(", ")));
-    }
-
-    // Register imported functions with their arena reference
-    let imported_arena = Arc::new(imported_result.arena.clone());
-
-    for item in &import.items {
-        let item_name_str = interner.lookup(item.name);
-
-        // Find the function in the imported module
-        let func = imported_result.module.functions
-            .iter()
-            .find(|f| import_db.interner().lookup(f.name) == item_name_str);
-
-        if let Some(func) = func {
-            let params: Vec<_> = imported_arena.get_params(func.params)
-                .iter()
-                .map(|p| p.name)
-                .collect();
-            let captures = evaluator.env().capture();
-
-            // Use from_import to include the arena reference so the function's
-            // body can be evaluated correctly against its original arena
-            let func_value = crate::eval::FunctionValue::from_import(
-                params,
-                func.body,
-                captures,
-                imported_arena.clone(),
-            );
-
-            // Use alias if provided, otherwise use original name
-            let bind_name = item.alias.unwrap_or(item.name);
-            evaluator.env_mut().define(bind_name, Value::Function(func_value), false);
-        } else {
-            return Err(format!(
-                "'{}' not found in '{}'",
-                item_name_str,
-                import_path.display()
-            ));
-        }
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]

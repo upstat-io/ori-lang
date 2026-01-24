@@ -1,6 +1,6 @@
 // Tests for Factorial
 
-use '../factorial' { factorial }
+use "../factorial" { factorial }
 
 @test_factorial_base tests @factorial () -> void = run(
     assert(.cond: factorial(0) == 1),

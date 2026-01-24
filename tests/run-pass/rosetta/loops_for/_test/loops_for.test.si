@@ -1,6 +1,6 @@
 // Tests for Loops/For
 
-use '../loops_for' { count_to_five, sum_to_n, squares, repeat_n, double_all }
+use "../loops_for" { count_to_five, sum_to_n, squares, repeat_n, double_all }
 
 @test_count tests @count_to_five () -> void = run(
     assert_eq(.actual: count_to_five(), .expected: [1, 2, 3, 4, 5])

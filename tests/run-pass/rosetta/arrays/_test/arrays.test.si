@@ -1,6 +1,6 @@
 // Tests for Arrays
 
-use '../arrays' { create_array, get_first, get_last, get_at, array_length }
+use "../arrays" { create_array, get_first, get_last, get_at, array_length }
 
 @test_create_array tests @create_array () -> void = run(
     assert(.cond: len(.collection: create_array()) == 5)

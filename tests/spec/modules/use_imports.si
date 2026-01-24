@@ -1,0 +1,55 @@
+// Spec: 12-modules.md § Imports
+// Design: (modules not yet in design docs)
+//
+// Tests for the use statement and module imports.
+
+// =============================================================================
+// Helper module for testing imports
+// =============================================================================
+// This file serves as a module that can be imported by test files.
+
+// A simple public function
+pub @add (a: int, b: int) -> int = a + b
+
+// A public function that returns a closure
+pub @make_multiplier (n: int) -> (int) -> int = x -> x * n
+
+// A private function (no pub)
+@internal_helper (x: int) -> int = x * 2
+
+// A public config variable
+pub $default_timeout = 30
+
+// A private config variable
+$internal_limit = 100
+
+// A public function that uses the private helper
+pub @double (x: int) -> int = internal_helper(x)
+
+// A function with multiple parameters
+pub @calculate (a: int, b: int, c: int) -> int = a + b * c
+
+// =============================================================================
+// Tests for this module (self-tests)
+// =============================================================================
+
+@test_add tests @add () -> void = run(
+    assert_eq(.actual: add(.a: 2, .b: 3), .expected: 5)
+)
+
+@test_make_multiplier tests @make_multiplier () -> void = run(
+    let times3 = make_multiplier(3),
+    assert_eq(.actual: times3(5), .expected: 15)
+)
+
+@test_internal_helper tests @internal_helper () -> void = run(
+    assert_eq(.actual: internal_helper(5), .expected: 10)
+)
+
+@test_double tests @double () -> void = run(
+    assert_eq(.actual: double(5), .expected: 10)
+)
+
+@test_calculate tests @calculate () -> void = run(
+    assert_eq(.actual: calculate(.a: 1, .b: 2, .c: 3), .expected: 7)
+)

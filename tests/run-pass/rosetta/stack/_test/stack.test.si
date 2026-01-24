@@ -1,6 +1,6 @@
 // Tests for Stack
 
-use '../stack' { empty_stack, stack_is_empty, push, peek, pop, size }
+use "../stack" { empty_stack, stack_is_empty, push, peek, pop, size }
 
 #[skip("stack methods not yet implemented")]
 @test_empty_stack tests @empty_stack () -> void = run(

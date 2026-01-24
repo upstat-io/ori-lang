@@ -1,6 +1,6 @@
 // Tests for Queue
 
-use '../queue' { empty_queue, queue_is_empty, enqueue, front, dequeue, size }
+use "../queue" { empty_queue, queue_is_empty, enqueue, front, dequeue, size }
 
 #[skip("queue methods not yet implemented")]
 @test_empty_queue tests @empty_queue () -> void = run(

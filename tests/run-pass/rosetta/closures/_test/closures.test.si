@@ -1,6 +1,6 @@
 // Tests for Closures/Value capture
 
-use '../closures' {
+use "../closures" {
     make_adder,
     make_multiplier,
     scale_list,
