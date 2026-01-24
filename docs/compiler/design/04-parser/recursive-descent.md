@@ -229,7 +229,7 @@ fn parse_add_expr(&mut self) -> ExprId {
 ### Named Arguments
 
 ```rust
-// .name: expr
+// name: expr
 fn parse_named_arg(&mut self) -> NamedArg {
     self.expect(TokenKind::Dot);
     let name = self.parse_ident();
@@ -243,7 +243,7 @@ fn parse_named_arg(&mut self) -> NamedArg {
 ### Pattern Expressions
 
 ```rust
-// map(.over: items, .transform: fn)
+// map(over: items, transform: fn)
 fn parse_pattern_call(&mut self, name: Name) -> ExprId {
     self.expect(TokenKind::LParen);
 

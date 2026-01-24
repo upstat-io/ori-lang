@@ -199,9 +199,9 @@ use std.math { wrapping_add, wrapping_mul }
 
 @hash (bytes: [byte]) -> int = run(
     fold(
-        .over: bytes,
-        .init: 0,
-        .op: (acc, b) -> wrapping_add(
+        over: bytes,
+        init: 0,
+        op: (acc, b) -> wrapping_add(
             wrapping_mul(acc, 31),
             int(b)
         )

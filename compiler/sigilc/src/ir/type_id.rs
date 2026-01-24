@@ -1,6 +1,6 @@
 //! Interned type identifier.
 //!
-//! Per design spec A-data-structures.md:
+//! Per design spec A-data-structuresmd:
 //! - TypeId(u32) for O(1) equality comparison
 //! - Pre-interned primitive types
 //! - All Salsa-required traits

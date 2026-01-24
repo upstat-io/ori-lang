@@ -143,7 +143,7 @@ buffer.clear()           // Length 0, capacity still 5
 
 // Iteration (same as regular lists)
 for x in buffer do print(x)
-map(.over: buffer, .transform: x -> x * 2)
+map(over: buffer, transform: x -> x * 2)
 ```
 
 ### Type Compatibility
@@ -151,7 +151,7 @@ map(.over: buffer, .transform: x -> x * 2)
 Fixed-capacity lists are a subtype of regular lists:
 
 ```sigil
-@process (items: [int]) -> int = fold(.over: items, .init: 0, .op: +)
+@process (items: [int]) -> int = fold(over: items, init: 0, op: +)
 
 let fixed: [int, max 10] = [1, 2, 3]
 process(fixed)  // OK: [int, max 10] is assignable to [int]
@@ -277,8 +277,8 @@ type SensorArray = {
 
 @read_all (arr: SensorArray) -> [Reading, max $max_sensors] = run(
     collect(
-        .range: 0..arr.active_count,
-        .transform: i -> arr.sensors[i].read()
+        range: 0..arr.active_count,
+        transform: i -> arr.sensors[i].read()
     )
 )
 ```

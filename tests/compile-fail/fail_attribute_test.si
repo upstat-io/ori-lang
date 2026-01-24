@@ -10,6 +10,6 @@
 // TODO: Fix assert_eq to use .actual/.expected not .left/.right
 // #[fail("assertion failed")]
 // @test_expected_assertion_failure () -> void = run(
-//     assert_eq(.left: 1, .right: 2),
+//     assert_eq(left: 1, right: 2),
 //     ()
 // )

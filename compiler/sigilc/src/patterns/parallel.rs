@@ -1,6 +1,6 @@
 //! Parallel pattern implementation.
 //!
-//! `parallel(.tasks: [...], .max_concurrent: n, .timeout: duration)` - Execute tasks concurrently.
+//! `parallel(tasks: [...], max_concurrent: n, timeout: duration)` - Execute tasks concurrently.
 //!
 //! Returns `[Result<T, E>]` - all tasks run to completion, errors captured as values.
 
@@ -16,9 +16,9 @@ use super::{PatternDefinition, TypeCheckContext, EvalContext, PatternExecutor};
 
 /// The `parallel` pattern executes multiple tasks concurrently with all-settled semantics.
 ///
-/// Syntax: `parallel(.tasks: [...], .max_concurrent: n, .timeout: duration)`
+/// Syntax: `parallel(tasks: [...], max_concurrent: n, timeout: duration)`
 ///
-/// Type: `parallel(.tasks: [() -> T]) -> [Result<T, E>]`
+/// Type: `parallel(tasks: [() -> T]) -> [Result<T, E>]`
 ///
 /// All tasks run to completion. Errors are captured as `Err` values in the result list.
 /// The pattern itself never fails - it always returns a list of results.
@@ -38,7 +38,7 @@ impl PatternDefinition for ParallelPattern {
     }
 
     fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
-        // parallel(.tasks: [() -> T]) -> [Result<T, E>]
+        // parallel(tasks: [() -> T]) -> [Result<T, E>]
         // Get the element type from tasks and wrap in Result, then List
         let tasks_type = ctx.require_prop_type("tasks");
         if let Type::List(elem_type) = tasks_type {

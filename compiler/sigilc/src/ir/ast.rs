@@ -1,6 +1,6 @@
 //! Flat AST types using arena allocation.
 //!
-//! Per design spec A-data-structures.md:
+//! Per design spec A-data-structuresmd:
 //! - No Box<Expr>, use ExprId(u32) indices
 //! - Contiguous arrays for cache locality
 //! - All types have Salsa-required traits (Clone, Eq, Hash, Debug)
@@ -125,7 +125,7 @@ pub enum ExprKind {
         args: ExprRange,
     },
 
-    /// Function call with named args: func(.a: 1, .b: 2)
+    /// Function call with named args: func(a: 1, b: 2)
     /// Required for multi-param functions.
     CallNamed {
         func: ExprId,
@@ -274,7 +274,7 @@ pub enum ExprKind {
 
     /// Named expression construct: map, filter, fold, etc.
     ///
-    /// Contains named expressions (`.name: value`).
+    /// Contains named expressions (`name: value`).
     /// Requires named property syntax - positional not allowed.
     FunctionExp(FunctionExp),
 
@@ -932,7 +932,7 @@ impl Spanned for FunctionSeq {
 
 /// Named expression for function_exp.
 ///
-/// Represents: `.name: expr`
+/// Represents: `name: expr`
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct NamedExpr {
     pub name: Name,
@@ -1048,7 +1048,7 @@ impl FunctionExpKind {
 
 /// Named expression construct (function_exp).
 ///
-/// Contains named expressions (`.name: value`).
+/// Contains named expressions (`name: value`).
 /// Requires named property syntax - positional not allowed.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct FunctionExp {

@@ -2,9 +2,11 @@
 
 # Sigil
 
-**A statically-typed, expression-based language with declarative patterns, mandatory testing, and explicit effects.**
+**Code That Proves Itself**
 
-[Getting Started](#quick-start) | [Documentation](docs/sigil_lang/design/) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
+A statically-typed, expression-based language with mandatory testing, causality tracking, and explicit effects.
+
+[Getting Started](#quick-start) | [Specification](docs/sigil_lang/0.1-alpha/spec/) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -12,23 +14,163 @@
 
 ## Why Sigil?
 
-Sigil prioritizes correctness, explicitness, and predictability. Every design decision serves these goals—making code easier to reason about, test, and maintain.
+Sigil enforces code integrity. If it compiles, it has tests. If it has tests, they pass. If you change it, you'll know what broke.
 
-### Key Features
+### The Problem
 
-- **Declarative Patterns** — Express *what* you want, not *how*. First-class `recurse`, `map`, `filter`, `fold`, and `parallel` patterns replace error-prone manual loops.
+Code without tests is just a hypothesis. Developers forget to write tests, skip them under deadline pressure, and ignore failures. AI assistants are even worse — they write code, forget tests, and "fix" failures by weakening assertions.
 
-- **Mandatory Testing** — Every function requires tests to compile. No exceptions. Testing is part of the language, not an afterthought.
+### The Solution
 
-- **Explicit Effects** — Side effects are tracked through capabilities (`uses Http`, `uses FileSystem`). Pure functions have no `uses` clause. Effects are injectable and testable.
+Sigil doesn't trust you. It verifies you.
 
-- **No Null or Exceptions** — `Result<T, E>` and `Option<T>` make errors visible in function signatures and impossible to ignore.
+- **No tests = no compile** — Every function requires tests or compilation fails
+- **Tests bound to code** — `@test tests @target` creates a compiler-enforced bond
+- **Change propagates** — Modify a function, and tests for its callers run automatically
+- **Mocking is trivial** — Capabilities make dependency injection built-in
 
-- **Immutable by Default** — All values are immutable. Shadowing is allowed, mutation requires `mut`. This eliminates entire classes of bugs.
+## Core Features
 
-- **Clear Visual Markers** — `@` for functions, `$` for config, `.name:` for named parameters. Code is easy to scan and understand at a glance.
+### Mandatory Testing
 
-- **Type Inference** — Strong static typing with inference. Types are checked at compile time but rarely need to be written explicitly.
+Every function requires tests. No exceptions. No skipping. No "I'll add tests later."
+
+```sigil
+@fibonacci (n: int) -> int = recurse(
+    condition: n <= 1,
+    base: n,
+    step: fibonacci(n: n - 1) + fibonacci(n: n - 2),
+    memo: true,
+)
+
+@test_fibonacci tests @fibonacci () -> void = run(
+    assert_eq(fibonacci(n: 0), 0),
+    assert_eq(fibonacci(n: 1), 1),
+    assert_eq(fibonacci(n: 10), 55),
+)
+```
+
+### Dependency-Aware Test Execution
+
+Tests are in the dependency graph. Change `@parse`, and tests for `@compile` (which calls `@parse`) run too.
+
+```sigil
+@parse (input: str) -> Result<Ast, Error> = ...
+@test_parse tests @parse () -> void = ...
+
+@compile (input: str) -> Result<Binary, Error> = run(
+    let ast = parse(input: input)?,
+    generate_code(ast: ast),
+)
+@test_compile tests @compile () -> void = ...
+```
+
+Change `@parse` → compiler runs `@test_parse` AND `@test_compile`.
+
+### Causality Tracking
+
+Sigil tracks the impact of every change through your codebase.
+
+**Before you change — know the blast radius:**
+
+```bash
+$ sigil impact @parse
+If @parse changes:
+  @compile        → uses @parse directly
+  @run_program    → uses @compile
+  @format_output  → uses @compile
+
+  12 functions affected
+```
+
+**After something breaks — trace it to the source:**
+
+```bash
+$ sigil why @compile
+@compile broke because:
+  → @parse changed (src/parser.si:42)
+    - line 42: changed return type from Ast to Result<Ast, Error>
+```
+
+Know what breaks before you break it. Know why it broke after.
+
+### Explicit Effects & Trivial Mocking
+
+Side effects are tracked through capabilities. Mocking is just providing a different implementation.
+
+```sigil
+@fetch_user (id: UserId) -> Result<User, Error> uses Http =
+    Http.get("/users/" + str(id))
+
+@test_fetch_user tests @fetch_user () -> void =
+    with Http = MockHttp(responses: {"/users/1": mock_user}) in
+    run(
+        let result = fetch_user(id: 1),
+        assert_ok(result),
+        assert_eq(result.unwrap().name, "Alice"),
+    )
+```
+
+No test framework. No mocking library. Just the language.
+
+### Contracts
+
+Functions declare and enforce their invariants.
+
+```sigil
+@sqrt (x: float) -> float = run(
+    pre_check: x >= 0.0,
+    newton_raphson(x),
+    post_check: r -> r >= 0.0,
+)
+
+@test_sqrt tests @sqrt () -> void = run(
+    assert_eq(sqrt(x: 4.0), 2.0),
+    assert_panics(sqrt(x: -1.0)),
+)
+```
+
+### Declarative Patterns
+
+Express *what* you want, not *how*. First-class patterns replace error-prone loops.
+
+```sigil
+@process_users (users: [User]) -> [str] = run(
+    let active = filter(over: users, predicate: u -> u.is_active),
+    let sorted = sort_by(over: active, key: u -> u.name),
+    map(over: sorted, transform: u -> u.email),
+)
+
+@test_process_users tests @process_users () -> void = run(
+    let users = [
+        User { name: "Bob", email: "bob@x.com", is_active: true },
+        User { name: "Alice", email: "alice@x.com", is_active: true },
+        User { name: "Charlie", email: "charlie@x.com", is_active: false },
+    ],
+    assert_eq(process_users(users: users), ["alice@x.com", "bob@x.com"]),
+)
+```
+
+### No Null or Exceptions
+
+`Result<T, E>` and `Option<T>` make errors visible and impossible to ignore.
+
+```sigil
+@divide (a: int, b: int) -> Result<int, str> =
+    if b == 0 then Err("division by zero")
+    else Ok(a / b)
+
+@safe_compute (x: int, y: int) -> Result<int, str> = try(
+    let quotient = divide(a: 100, b: x)?,
+    let result = divide(a: quotient, b: y)?,
+    Ok(result),
+)
+
+@test_divide tests @divide () -> void = run(
+    assert_eq(divide(a: 10, b: 2), Ok(5)),
+    assert_eq(divide(a: 10, b: 0), Err("division by zero")),
+)
+```
 
 ## Quick Start
 
@@ -41,7 +183,7 @@ curl -sSf https://raw.githubusercontent.com/sigil-lang/sigil/master/install.sh |
 Write your first program (`hello.si`):
 
 ```sigil
-@main () -> void = print(.msg: "Hello, Sigil!")
+@main () -> void = print("Hello, Sigil!")
 ```
 
 Run it:
@@ -50,152 +192,15 @@ Run it:
 sigil run hello.si
 ```
 
-## Examples
+## Usage
 
-### Declarative Recursion with Memoization
-
-```sigil
-@fibonacci (term: int) -> int = recurse(
-    .cond: term <= 1,
-    .base: term,
-    .step: self(term - 1) + self(term - 2),
-    .memo: true,
-)
-
-@test_fibonacci tests @fibonacci () -> void = run(
-    // instant with memoization
-    assert_eq(
-        .actual: fibonacci(
-            .term: 50,
-        ),
-        .expected: 12586269025,
-    ),
-)
-```
-
-### Data Transformation Pipelines
-
-```sigil
-@process_users (users: [User]) -> [str] = run(
-    let active = filter(
-        .over: users,
-        .predicate: u -> u.is_active,
-    ),
-    let sorted = sort_by(
-        .over: active,
-        .key: u -> u.name,
-    ),
-    map(
-        .over: sorted,
-        .transform: u -> u.email,
-    ),
-)
-
-@test_process_users tests @process_users () -> void = run(
-    let users = [
-        User { name: "Bob", email: "bob@x.com", is_active: true },
-        User { name: "Alice", email: "alice@x.com", is_active: true },
-        User { name: "Charlie", email: "charlie@x.com", is_active: false },
-    ],
-    assert_eq(
-        .actual: process_users(
-            .users: users,
-        ),
-        .expected: ["alice@x.com", "bob@x.com"],
-    ),
-)
-```
-
-### Explicit Error Handling
-
-```sigil
-@divide (numerator: int, denominator: int) -> Result<int, str> =
-    if denominator == 0 then Err("division by zero")
-    else Ok(numerator / denominator)
-
-// ? propagates Err automatically
-@safe_compute (x: int, y: int) -> Result<int, str> = try(
-    let quotient = divide(
-        .numerator: 100,
-        .denominator: x,
-    )?,
-    let remainder = divide(
-        .numerator: quotient,
-        .denominator: y,
-    )?,
-    Ok(remainder),
-)
-
-@test_divide tests @divide () -> void = run(
-    assert_eq(
-        .actual: divide(
-            .numerator: 10,
-            .denominator: 2,
-        ),
-        .expected: Ok(5),
-    ),
-    assert_eq(
-        .actual: divide(
-            .numerator: 10,
-            .denominator: 0,
-        ),
-        .expected: Err("division by zero"),
-    ),
-)
-```
-
-### Pattern Matching
-
-```sigil
-type Shape =
-    | Circle(radius: float)
-    | Rectangle(width: float, height: float)
-    | Triangle(base: float, height: float)
-
-@area (shape: Shape) -> float = match(
-    shape,
-    Circle { radius } -> 3.14159 * radius * radius,
-    Rectangle { width, height } -> width * height,
-    Triangle { base, height } -> 0.5 * base * height,
-)
-
-@test_area tests @area () -> void = run(
-    assert_eq(
-        .actual: area(
-            .shape: Circle(
-                .radius: 1.0,
-            ),
-        ),
-        .expected: 3.14159,
-    ),
-    assert_eq(
-        .actual: area(
-            .shape: Rectangle(
-                .width: 4.0,
-                .height: 5.0,
-            ),
-        ),
-        .expected: 20.0,
-    ),
-)
-```
-
-### Parallel Execution
-
-```sigil
-// All three requests execute concurrently
-// Returns struct with profile, posts, notifications fields
-@fetch_dashboard (user_id: str) -> Dashboard = parallel(
-    .profile: fetch_profile(
-        .user_id: user_id,
-    ),
-    .posts: fetch_recent_posts(
-        .user_id: user_id,
-    ),
-    .notifications: fetch_notifications(
-        .user_id: user_id,
-    ),
-)
+```bash
+sigil run program.si      # Run a program
+sigil test                # Run all tests (parallel)
+sigil test file.test.si   # Run specific test file
+sigil build program.si    # Compile to native binary
+sigil check program.si    # Check test coverage
+sigil emit program.si     # Emit generated C code
 ```
 
 ## Installation
@@ -217,47 +222,34 @@ cp target/release/sigil ~/.local/bin/
 
 Requires Rust 1.70+ and a C compiler (for native compilation).
 
-## Usage
-
-```bash
-sigil run program.si      # Run a program
-sigil test                # Run all tests (parallel)
-sigil test file.test.si   # Run specific test file
-sigil build program.si    # Compile to native binary
-sigil check program.si    # Check test coverage
-sigil emit program.si     # Emit generated C code
-```
-
 ## Documentation
 
-### Language Design
-
-- [Design Overview](docs/sigil_lang/design/00-index.md) — Complete language specification
-- [Philosophy](docs/sigil_lang/design/01-philosophy/) — AI-first design principles
-- [Syntax](docs/sigil_lang/design/02-syntax/) — Functions, expressions, patterns
-- [Type System](docs/sigil_lang/design/03-type-system/) — Types, generics, inference
-- [Error Handling](docs/sigil_lang/design/05-error-handling/) — Result, Option, try pattern
-- [Pattern Matching](docs/sigil_lang/design/06-pattern-matching/) — match, destructuring, guards
-
-### Quick References
-
-- [Pattern Reference](docs/sigil_lang/design/02-syntax/04-patterns-reference.md) — All patterns with examples
-- [Built-in Traits](docs/sigil_lang/design/appendices/C-builtin-traits.md) — Eq, Clone, Serialize, etc.
-- [Glossary](docs/sigil_lang/design/glossary.md) — Terminology
+- [Language Specification](docs/sigil_lang/0.1-alpha/spec/) — Formal language definition
+- [Proposals](docs/sigil_lang/proposals/) — Design decisions and rationale
 
 ## Design Philosophy
 
-Sigil optimizes for **correctness and maintainability**:
+**Sigil doesn't trust you. It verifies you.**
 
 | Traditional Approach | Sigil Approach |
 |---------------------|----------------|
-| Concise syntax | Explicit, predictable syntax |
-| Flexible APIs | Constrained, correct-by-construction APIs |
-| Runtime flexibility | Compile-time guarantees |
-| Optional testing | Mandatory testing |
-| Implicit effects | Explicit capabilities |
+| Tests are optional | Tests are mandatory |
+| Tests are external | Tests are in the dependency graph |
+| Change and hope | Change and know what broke |
+| Mock with frameworks | Mock with capabilities |
+| Runtime errors | Compile-time guarantees |
+| Hidden effects | Explicit capabilities |
 
-The result: errors are caught at compile time, code is self-documenting, and behavior is predictable.
+### The Virtuous Cycle
+
+```
+Capabilities make mocking easy
+    → Tests are fast
+        → Dependency-aware testing is practical
+            → Mandatory testing isn't painful
+                → Code integrity is enforced
+                    → Code that works, stays working
+```
 
 ## Getting Help
 

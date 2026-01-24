@@ -1,6 +1,6 @@
 //! Type system for Sigil.
 //!
-//! Per design spec 02-design-principles.md:
+//! Per design spec 02-design-principlesmd:
 //! - All types have Clone, Eq, Hash for Salsa compatibility
 //! - Interned type representations for efficiency
 //! - Flat structures for cache locality

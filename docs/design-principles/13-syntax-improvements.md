@@ -24,7 +24,7 @@ Based on research into what developers hate about language syntax and what makes
 |---------|---------------|
 | `@` for functions | Visually distinctive, unambiguous |
 | `$` for config | Clear namespace separation |
-| `.name:` for pattern args | Self-documenting, no positional confusion |
+| `name:` for pattern args | Self-documenting, no positional confusion |
 | `try` pattern | Explicit error flow, no hidden exceptions |
 | Expression-based | No ternary needed, clean conditionals |
 | Named patterns | `fold`, `map`, `filter` read like intent |
@@ -43,9 +43,9 @@ Patterns with 2+ properties must be stacked (one property per line):
 
 ```sigil
 @sum (arr: [int]) -> int = fold(
-    .over: arr,
-    .init: 0,
-    .op: +,
+    over: arr,
+    init: 0,
+    op: +,
 )
 ```
 
@@ -134,17 +134,17 @@ let result = if very_long_condition_here
 ```sigil
 @process (items: [int]) -> int = run(
     let doubled = map(
-        .over: items,
-        .transform: x -> x * 2,
+        over: items,
+        transform: x -> x * 2,
     ),
     let filtered = filter(
-        .over: doubled,
-        .predicate: x -> x > 10,
+        over: doubled,
+        predicate: x -> x > 10,
     ),
     fold(
-        .over: filtered,
-        .init: 0,
-        .op: +,
+        over: filtered,
+        init: 0,
+        op: +,
     ),
 )
 ```
@@ -232,9 +232,9 @@ let content = read_file(path).map_err(e -> AppError.Io(e))?
     timeout: Duration,
     retries: int,
 ) -> Result<Data, Error> = retry(
-    .op: http_get(.url: url),
-    .attempts: retries,
-    .timeout: timeout,
+    op: http_get(url: url),
+    attempts: retries,
+    timeout: timeout,
 )
 ```
 
@@ -285,7 +285,7 @@ All bindings require explicit `let`:
 ```sigil
 run(
     let x = compute(),
-    let y = transform(.value: x),
+    let y = transform(value: x),
     y,
 )
 ```
@@ -309,7 +309,7 @@ let y = x + 1
 
 ```
 warning: mutable binding `x` is never reassigned
-  --> src/main.si:2:5
+  --> src/mainsi:2:5
    |
  2 |     let mut x = 5
    |         ^^^ help: consider using `let` instead
@@ -329,7 +329,7 @@ warning: mutable binding `x` is never reassigned
 - Unambiguous (LL(1) parseable)
 - Consistent (always means function)
 
-### Keep `.name:` for Pattern Arguments
+### Keep `name:` for Pattern Arguments
 - Standout feature
 - Self-documenting
 - No positional alternatives
@@ -370,14 +370,14 @@ After these changes, Sigil code looks like:
 
 ```sigil
 @fetch_user_dashboard (user_id: str) -> Result<Dashboard, Error> = try(
-    let user = fetch_user(.id: user_id),
-    let posts = fetch_posts(.user_id: user_id),
-    let notifications = fetch_notifications(.user_id: user_id),
+    let user = fetch_user(id: user_id),
+    let posts = fetch_posts(user_id: user_id),
+    let notifications = fetch_notifications(user_id: user_id),
 
     let stats = parallel(
-        .followers: count_followers(.user_id: user_id),
-        .following: count_following(.user_id: user_id),
-        .posts: count_posts(.user_id: user_id),
+        followers: count_followers(user_id: user_id),
+        following: count_following(user_id: user_id),
+        posts: count_posts(user_id: user_id),
     ),
 
     Ok(Dashboard {

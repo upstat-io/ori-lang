@@ -15,14 +15,14 @@
 // When float is passed where int is expected, suggest int(x)
 #compile_fail("int(x)")
 @test_float_to_int_hint tests @takes_int () -> void = run(
-    let result = takes_int(.x: 3.14),
+    let result = takes_int(x: 3.14),
     ()
 )
 
 // When int is passed where float is expected, suggest float(x)
 #compile_fail("float(x)")
 @test_int_to_float_hint tests @takes_float () -> void = run(
-    let result = takes_float(.x: 42),
+    let result = takes_float(x: 42),
     ()
 )
 
@@ -36,14 +36,14 @@
 // When int is passed where str is expected, suggest str(x)
 #compile_fail("str(x)")
 @test_int_to_str_hint tests @takes_str () -> void = run(
-    let result = takes_str(.s: 42),
+    let result = takes_str(s: 42),
     ()
 )
 
 // When str is passed where byte is expected (only makes sense for single chars)
 #compile_fail("byte(x)")
 @test_str_to_byte_hint tests @takes_byte () -> void = run(
-    let result = takes_byte(.b: "a"),
+    let result = takes_byte(b: "a"),
     ()
 )
 
@@ -56,7 +56,7 @@
 // When a plain value is passed where list is expected, suggest [x]
 #compile_fail("[x]")
 @test_wrap_in_list_hint tests @takes_list () -> void = run(
-    let result = takes_list(.items: 42),
+    let result = takes_list(items: 42),
     ()
 )
 

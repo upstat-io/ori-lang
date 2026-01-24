@@ -22,7 +22,7 @@ use crate::patterns::{PatternDefinition, PatternArg, ArgType, TypedArg, EvalArg}
 use crate::types::Type;
 use crate::eval::Value;
 
-/// take(.over: items, .count: n) - Take first n items
+/// take(over: items, count: n) - Take first n items
 pub struct TakePattern;
 
 impl PatternDefinition for TakePattern {
@@ -127,25 +127,25 @@ mod tests {
 
     #[test]
     fn test_take_basic() {
-        let result = eval("take(.over: [1, 2, 3, 4, 5], .count: 3)");
+        let result = eval("take(over: [1, 2, 3, 4, 5], count: 3)");
         assert_eq!(result, Value::List(vec![1, 2, 3].into()));
     }
 
     #[test]
     fn test_take_empty() {
-        let result = eval("take(.over: [], .count: 3)");
+        let result = eval("take(over: [], count: 3)");
         assert_eq!(result, Value::List(vec![].into()));
     }
 
     #[test]
     fn test_take_more_than_available() {
-        let result = eval("take(.over: [1, 2], .count: 5)");
+        let result = eval("take(over: [1, 2], count: 5)");
         assert_eq!(result, Value::List(vec![1, 2].into()));
     }
 
     #[test]
     fn test_take_type_error() {
-        let err = eval_err("take(.over: [1, 2], .count: \"not a number\")");
+        let err = eval_err("take(over: [1, 2], count: \"not a number\")");
         assert!(matches!(err, TypeError::Mismatch { .. }));
     }
 }
@@ -162,7 +162,7 @@ Takes the first n elements from a collection.
 
 **Signature:**
 ```
-take(.over: [T], .count: int) -> [T]
+take(over: [T], count: int) -> [T]
 ```
 
 **Arguments:**
@@ -171,7 +171,7 @@ take(.over: [T], .count: int) -> [T]
 
 **Example:**
 ```sigil
-take(.over: [1, 2, 3, 4, 5], .count: 3)  // [1, 2, 3]
+take(over: [1, 2, 3, 4, 5], count: 3)  // [1, 2, 3]
 ```
 ```
 

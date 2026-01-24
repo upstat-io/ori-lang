@@ -147,7 +147,7 @@ impl Render for ParseProblem {
                     func_name, arg_count
                 ))
                 .with_label(*span, "use named arguments")
-                .with_suggestion("use .arg: value syntax for each argument"),
+                .with_suggestion("use arg: value syntax for each argument"),
 
             ParseProblem::InvalidFunctionSeq {
                 span,
@@ -160,12 +160,12 @@ impl Render for ParseProblem {
             ParseProblem::RequiresNamedProps { span, exp_name } => {
                 Diagnostic::error(ErrorCode::E1013)
                     .with_message(format!(
-                        "`{}` requires named properties (`.name: value`)",
+                        "`{}` requires named properties (`name: value`)",
                         exp_name
                     ))
                     .with_label(*span, "use named properties")
                     .with_suggestion(format!(
-                        "example: {}(.over: items, .transform: fn)",
+                        "example: {}(over: items, transform: fn)",
                         exp_name
                     ))
             }

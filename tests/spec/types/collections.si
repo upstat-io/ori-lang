@@ -8,12 +8,12 @@
 @test_list_int tests @list_int () -> void = run(
     let nums = [1, 2, 3],
     assert_eq(
-        .actual: nums[0],
-        .expected: 1,
+        actual: nums[0],
+        expected: 1,
     ),
     assert_eq(
-        .actual: len(.collection: nums),
-        .expected: 3,
+        actual: len(collection: nums),
+        expected: 3,
     ),
 )
 
@@ -22,12 +22,12 @@
 @test_list_str tests @list_str () -> void = run(
     let strs = ["a", "b", "c"],
     assert_eq(
-        .actual: strs[0],
-        .expected: "a",
+        actual: strs[0],
+        expected: "a",
     ),
     assert_eq(
-        .actual: len(.collection: strs),
-        .expected: 3,
+        actual: len(collection: strs),
+        expected: 3,
     ),
 )
 
@@ -35,8 +35,8 @@
 
 @test_list_bool tests @list_bool () -> void = run(
     let bools = [true, false, true],
-    assert(.cond: bools[0]),
-    assert(.cond: !bools[1]),
+    assert(cond: bools[0]),
+    assert(cond: !bools[1]),
 )
 
 @list_bool () -> bool = [true, false, true][0]
@@ -44,12 +44,12 @@
 @test_list_nested tests @list_nested () -> void = run(
     let nested = [[1, 2], [3, 4], [5, 6]],
     assert_eq(
-        .actual: nested[0][0],
-        .expected: 1,
+        actual: nested[0][0],
+        expected: 1,
     ),
     assert_eq(
-        .actual: nested[1][1],
-        .expected: 4,
+        actual: nested[1][1],
+        expected: 4,
     ),
 )
 
@@ -58,14 +58,14 @@
 @test_list_empty_annotated tests @list_empty_annotated () -> void = run(
     let empty: [int] = [],
     assert_eq(
-        .actual: len(.collection: empty),
-        .expected: 0,
+        actual: len(collection: empty),
+        expected: 0,
     ),
 )
 
 @list_empty_annotated () -> int = run(
     let empty: [int] = [],
-    len(.collection: empty),
+    len(collection: empty),
 )
 
 // =============================================================================
@@ -76,12 +76,12 @@
     let pair = (1, "hello"),
     let (a, b) = pair,
     assert_eq(
-        .actual: a,
-        .expected: 1,
+        actual: a,
+        expected: 1,
     ),
     assert_eq(
-        .actual: b,
-        .expected: "hello",
+        actual: b,
+        expected: "hello",
     ),
 )
 
@@ -95,14 +95,14 @@
     let triple = (1, "two", true),
     let (a, b, c) = triple,
     assert_eq(
-        .actual: a,
-        .expected: 1,
+        actual: a,
+        expected: 1,
     ),
     assert_eq(
-        .actual: b,
-        .expected: "two",
+        actual: b,
+        expected: "two",
     ),
-    assert(.cond: c),
+    assert(cond: c),
 )
 
 @tuple_triple () -> int = run(
@@ -116,8 +116,8 @@
     let (left, right) = nested,
     let (a, b) = left,
     assert_eq(
-        .actual: a,
-        .expected: 1,
+        actual: a,
+        expected: 1,
     ),
 )
 
@@ -136,12 +136,12 @@
     let pairs = [(1, "a"), (2, "b"), (3, "c")],
     let (num, letter) = pairs[0],
     assert_eq(
-        .actual: num,
-        .expected: 1,
+        actual: num,
+        expected: 1,
     ),
     assert_eq(
-        .actual: letter,
-        .expected: "a",
+        actual: letter,
+        expected: "a",
     ),
 )
 
@@ -153,21 +153,21 @@
 
 @test_option_of_list tests @option_of_list () -> void = run(
     let opt = Some([1, 2, 3]),
-    assert(.cond: is_some(.opt: opt)),
+    assert(cond: is_some(opt: opt)),
 )
 
 @option_of_list () -> bool = run(
     let opt = Some([1, 2, 3]),
-    is_some(.opt: opt),
+    is_some(opt: opt),
 )
 
 @test_list_of_options tests @list_of_options () -> void = run(
     let opts = [Some(1), None, Some(3)],
     let first = opts[0],
-    assert(.cond: is_some(.opt: first)),
+    assert(cond: is_some(opt: first)),
 )
 
 @list_of_options () -> bool = run(
     let opts = [Some(1), None, Some(3)],
-    is_some(.opt: opts[0]),
+    is_some(opt: opts[0]),
 )

@@ -77,7 +77,7 @@ pub enum Severity {
 Terminal output:
 ```
 error[E2001]: type mismatch
- --> src/main.si:10:15
+ --> src/mainsi:10:15
    |
 10 |     let x: int = "hello"
    |            ---   ^^^^^^^ expected int, found str

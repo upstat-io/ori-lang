@@ -219,9 +219,9 @@ The runtime detects re-panic and terminates immediately with both panic messages
 
     // Best-effort send - might fail, that's OK
     let _ = Http.post(
-        .url: "https://sentry.example.com/api/crashes",
-        .body: report.to_json(),
-        .timeout: 5s,
+        url: "https://sentry.example.com/api/crashes",
+        body: report.to_json(),
+        timeout: 5s,
     ),
 )
 ```

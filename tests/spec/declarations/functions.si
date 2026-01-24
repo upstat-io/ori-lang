@@ -8,8 +8,8 @@
 @test_typed_param tests @typed_param () -> void = run(
     let result = typed_param(5),
     assert_eq(
-        .actual: result,
-        .expected: 10,
+        actual: result,
+        expected: 10,
     ),
 )
 
@@ -17,12 +17,12 @@
 
 @test_multiple_typed_params tests @multiple_typed_params () -> void = run(
     let result = multiple_typed_params(
-        .a: 3,
-        .b: 4,
+        a: 3,
+        b: 4,
     ),
     assert_eq(
-        .actual: result,
-        .expected: 7,
+        actual: result,
+        expected: 7,
     ),
 )
 
@@ -30,11 +30,11 @@
 
 @test_mixed_types tests @mixed_types () -> void = run(
     let result = mixed_types(
-        .x: 5,
-        .y: 2.5,
+        x: 5,
+        y: 2.5,
     ),
-    assert(.cond: result > 7.0),
-    assert(.cond: result < 8.0),
+    assert(cond: result > 7.0),
+    assert(cond: result < 8.0),
 )
 
 @mixed_types (x: int, y: float) -> float = float(x) + y
@@ -46,8 +46,8 @@
 @test_explicit_return_int tests @explicit_return_int () -> void = run(
     let result = explicit_return_int(),
     assert_eq(
-        .actual: result,
-        .expected: 42,
+        actual: result,
+        expected: 42,
     ),
 )
 
@@ -56,8 +56,8 @@
 @test_explicit_return_str tests @explicit_return_str () -> void = run(
     let result = explicit_return_str(),
     assert_eq(
-        .actual: result,
-        .expected: "hello",
+        actual: result,
+        expected: "hello",
     ),
 )
 
@@ -65,14 +65,14 @@
 
 @test_explicit_return_bool tests @explicit_return_bool () -> void = run(
     let result = explicit_return_bool(),
-    assert(.cond: result),
+    assert(cond: result),
 )
 
 @explicit_return_bool () -> bool = true
 
 @test_explicit_return_void tests @explicit_return_void () -> void = run(
     explicit_return_void(),
-    assert(.cond: true),
+    assert(cond: true),
 )
 
 @explicit_return_void () -> void = ()
@@ -83,12 +83,12 @@
 
 @test_full_signature tests @full_signature () -> void = run(
     let result = full_signature(
-        .n: 10,
-        .prefix: "hello",
+        n: 10,
+        prefix: "hello",
     ),
     assert_eq(
-        .actual: result,
-        .expected: "hello: 10",
+        actual: result,
+        expected: "hello: 10",
     ),
 )
 

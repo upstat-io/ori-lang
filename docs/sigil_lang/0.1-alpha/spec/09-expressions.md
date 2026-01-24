@@ -1,202 +1,74 @@
 # Expressions
 
-This section defines the expression syntax and semantics.
+Expressions compute values.
 
-## Expression Categories
-
-```
-expression    = with_expr
-              | let_expr
-              | pattern_expr
-              | if_expr
-              | for_expr
-              | loop_expr
-              | lambda
-              | binary_expr .
-
-with_expr     = "with" identifier "=" expression "in" expression .
-let_expr      = "let" [ "mut" ] identifier [ ":" type ] "=" expression .
-```
-
-## Primary Expressions
-
-### Syntax
+## Syntax
 
 ```
-primary       = literal
-              | identifier
-              | "self"
-              | "Self"
-              | "(" expression ")"
-              | list_literal
-              | map_literal
-              | struct_literal .
-
-list_literal  = "[" [ expression { "," expression } [ "," ] ] "]" .
-map_literal   = "{" [ map_entry { "," map_entry } [ "," ] ] "}" .
+expression    = with_expr | let_expr | if_expr | for_expr | loop_expr | lambda | binary_expr .
+primary       = literal | identifier | "self" | "Self"
+              | "(" expression ")" | list_literal | map_literal | struct_literal .
+list_literal  = "[" [ expression { "," expression } ] "]" .
+map_literal   = "{" [ map_entry { "," map_entry } ] "}" .
 map_entry     = expression ":" expression .
-struct_literal = type_path "{" [ field_init { "," field_init } [ "," ] ] "}" .
+struct_literal = type_path "{" [ field_init { "," field_init } ] "}" .
 field_init    = identifier [ ":" expression ] .
-```
-
-### Identifiers
-
-An identifier expression evaluates to the value bound to that identifier:
-
-```sigil
-x         // variable reference
-add       // function reference
-Point     // type reference (in type position)
-```
-
-### self and Self
-
-- `self` — the receiver instance in methods
-- `Self` — the implementing type in trait/impl contexts
-
-### Literals
-
-See [Lexical Elements § Literals](03-lexical-elements.md#literals).
-
-### List Literals
-
-```sigil
-[]              // empty list
-[1, 2, 3]       // list of integers
-[a, b, c]       // list from variables
-```
-
-### Map Literals
-
-```sigil
-{}                          // empty map
-{"a": 1, "b": 2}           // map literal
-{key1: value1, key2: value2}
-```
-
-### Struct Literals
-
-```sigil
-Point { x: 0, y: 0 }
-User { id: 1, name: "Alice", email: "a@b.com" }
-Point { x, y }              // field shorthand when variable matches field name
 ```
 
 ## Postfix Expressions
 
-### Syntax
-
-```ebnf
+```
 postfix_expr  = primary { postfix_op } .
 postfix_op    = "." identifier [ call_args ]
               | "[" expression "]"
               | call_args
               | "?" .
-
-call_args     = "(" [ call_arg { "," call_arg } [ "," ] ] ")" .
+call_args     = "(" [ call_arg { "," call_arg } ] ")" .
 call_arg      = expression | named_arg .
-named_arg     = "." identifier ":" expression .
+named_arg     = identifier ":" expression .
 ```
 
-> **Note:** Sigil does not have a `.await` postfix operator. Async behavior is declared at the function level via `uses Async`. See [Capabilities](14-capabilities.md).
-
-### Field Access
+### Field and Method Access
 
 ```sigil
 point.x
-user.name
-config.timeout
-```
-
-### Method Call
-
-```sigil
 list.len()
-string.upper()
-value.to_string()
 ```
 
 ### Index Access
 
 ```sigil
 list[0]
-list[# - 1]     // # refers to length within brackets
-map["key"]
+list[# - 1]    // # is length within brackets
+map["key"]     // returns Option<V>
 ```
 
-The `#` symbol within index brackets refers to the length of the collection.
-
-Indexing rules:
-
-- Lists require an `int` index and panic on out-of-bounds access.
-- Strings require an `int` index, return a single-code-point `str`, and panic on out-of-bounds access.
-- Map indexing returns `Option<V>` and yields `None` if the key is missing.
+Lists/strings panic on out-of-bounds; maps return `Option`.
 
 ### Function Call
 
 ```sigil
-add(1, 2)
-process(data)
-fetch_user(id)
+add(a: 1, b: 2)
+fetch_user(id: 1)
 ```
 
-Named arguments may be used in place of positional arguments. When named arguments are used, every argument must be named, each parameter may appear at most once, argument order is irrelevant, and names must match the function's parameter names.
-
-```sigil
-add(.a: 1, .b: 2)
-fetch_user(.id: id)
-```
-
-#### Built-in Function Resolution
-
-When an identifier in call position (`name(`) matches a built-in function name, it resolves to the built-in function. This resolution takes precedence regardless of any variable with the same name in scope.
-
-```sigil
-let min = 5                       // variable 'min'
-let x = min                       // evaluates to 5
-let y = min(.left: 3, .right: 7)  // calls built-in min, evaluates to 3
-```
-
-See [Built-in Functions](11-built-in-functions.md) for the list of built-in function names and their signatures.
+Named arguments: all-or-nothing, order irrelevant, names must match parameters.
 
 ### Error Propagation
 
-The `?` suffix propagates errors from `Result` types:
-
 ```sigil
-value?          // returns Err if value is Err
-parse(input)?   // propagates parse error
+value?         // returns Err early if Err
 ```
-
-Within a `try` block, `?` unwraps `Ok` values and returns early on `Err`.
 
 ## Unary Expressions
 
-### Syntax
-
 ```
-unary_expr    = [ "!" | "-" | "~" ] postfix_expr .
+unary_expr = [ "!" | "-" | "~" ] postfix_expr .
 ```
 
-### Logical Not
-
-```sigil
-!true       // false
-!false      // true
-!condition
-```
-
-### Negation
-
-```sigil
--42
--x
--3.14
-```
+`!` logical not, `-` negation, `~` bitwise not.
 
 ## Binary Expressions
-
-### Syntax
 
 ```
 binary_expr   = or_expr .
@@ -212,281 +84,178 @@ add_expr      = mul_expr { ( "+" | "-" ) mul_expr } .
 mul_expr      = unary_expr { ( "*" | "/" | "%" | "div" ) unary_expr } .
 ```
 
-### Arithmetic Operators
-
-| Operator | Operation | Operand Types | Result Type |
-|----------|-----------|---------------|-------------|
-| `+` | Addition | `int`, `int` | `int` |
-| `+` | Addition | `float`, `float` | `float` |
-| `+` | Concatenation | `str`, `str` | `str` |
-| `+` | Concatenation | `[T]`, `[T]` | `[T]` |
-| `-` | Subtraction | numeric | same |
-| `*` | Multiplication | numeric | same |
-| `/` | Division | numeric | same |
-| `%` | Modulo | `int`, `int` | `int` |
-| `div` | Floor division | `int`, `int` | `int` |
-
-Division `/` truncates toward zero for integers. Floor division `div` truncates toward negative infinity.
-
-### Comparison Operators
-
-| Operator | Meaning |
-|----------|---------|
-| `==` | Equal |
-| `!=` | Not equal |
-| `<` | Less than |
-| `>` | Greater than |
-| `<=` | Less or equal |
-| `>=` | Greater or equal |
-
-Comparison operators return `bool`.
-
-### Logical Operators
-
-| Operator | Meaning | Short-circuit |
-|----------|---------|---------------|
-| `&&` | Logical AND | Yes |
-| `\|\|` | Logical OR | Yes |
-
-Logical operators use short-circuit evaluation: the right operand is evaluated only if necessary.
-
-### Range Operators
-
-| Operator | Meaning |
-|----------|---------|
-| `..` | Exclusive range |
-| `..=` | Inclusive range |
-
-```sigil
-0..10       // 0, 1, 2, ..., 9
-0..=10      // 0, 1, 2, ..., 10
-```
-
-### Coalesce Operator
-
-```sigil
-expression ?? default
-```
-
-If the left expression is `None` or `Err`, evaluates to `default`. Otherwise evaluates to the unwrapped value.
-
-### Bitwise Operators
-
-| Operator | Operation | Operand Types | Result Type |
-|----------|-----------|---------------|-------------|
-| `&` | Bitwise AND | `int`, `int` | `int` |
-| `\|` | Bitwise OR | `int`, `int` | `int` |
-| `^` | Bitwise XOR | `int`, `int` | `int` |
-| `~` | Bitwise NOT | `int` | `int` |
-| `<<` | Left shift | `int`, `int` | `int` |
-| `>>` | Right shift (arithmetic) | `int`, `int` | `int` |
-
-Bitwise operations also work on `byte` operands, returning `byte`.
-
-The shift amount is taken modulo the bit width of the type. Negative shift amounts are undefined behavior.
+| Operator | Operation |
+|----------|-----------|
+| `+` `-` `*` `/` | Arithmetic |
+| `%` | Modulo |
+| `div` | Floor division |
+| `==` `!=` `<` `>` `<=` `>=` | Comparison |
+| `&&` `\|\|` | Logical (short-circuit) |
+| `&` `\|` `^` `~` | Bitwise |
+| `<<` `>>` | Shift |
+| `..` `..=` | Range |
+| `??` | Coalesce (None/Err → default) |
 
 ## With Expression
 
-A `with` expression provides a capability implementation for the `in` expression.
-
-```sigil
-with Http = RealHttp { base_url: "https://api.example.com" } in
-    fetch_user("123")
+```
+with_expr = "with" identifier "=" expression "in" expression .
 ```
 
-See [Capabilities](14-capabilities.md) for capability scoping rules.
+```sigil
+with Http = MockHttp { ... } in fetch("/data")
+```
 
 ## Let Binding
 
-### Syntax
-
 ```
-let_expr      = "let" [ "mut" ] identifier [ ":" type ] "=" expression .
+let_expr = "let" [ "mut" ] pattern [ ":" type ] "=" expression .
 ```
-
-### Semantics
-
-A `let` expression introduces a new binding in the current scope. Bindings are immutable by default.
 
 ```sigil
 let x = 5
-let name = "Alice"
-let point = Point { x: 0, y: 0 }
-```
-
-The optional type annotation constrains the binding:
-
-```sigil
-let x: int = 5
-let items: [str] = []
-```
-
-### Mutable Bindings
-
-The `mut` modifier creates a mutable binding that can be reassigned:
-
-```sigil
 let mut counter = 0
-counter = counter + 1
+let { x, y } = point
 ```
 
-Reassignment to an immutable binding is a compile-time error.
-
-### Shadowing
-
-A binding may shadow an outer binding with the same name:
-
-```sigil
-let x = 5
-let x = x + 1    // shadows outer x
-```
-
-Each `let` creates a new binding. Shadowing is distinct from mutation.
-
-### Destructuring
-
-Bindings support pattern destructuring:
-
-```sigil
-let { x, y } = point           // struct destructuring
-let (first, second) = pair     // tuple destructuring
-let [head, ..tail] = items     // list destructuring
-```
-
-See [Patterns § Match Patterns](10-patterns.md#match-patterns) for pattern syntax.
-
-## Conditional Expression
-
-### Syntax
+## Conditional
 
 ```
-if_expr       = "if" expression "then" expression
-                { "else" "if" expression "then" expression }
-                "else" expression .
+if_expr = "if" expression "then" expression
+          { "else" "if" expression "then" expression }
+          "else" expression .
 ```
-
-### Semantics
-
-The condition must have type `bool`. Both branches must have compatible types.
 
 ```sigil
 if x > 0 then "positive" else "non-positive"
-
-if n % 15 == 0 then "FizzBuzz"
-else if n % 3 == 0 then "Fizz"
-else if n % 5 == 0 then "Buzz"
-else str(n)
 ```
+
+Condition must be `bool`. Branches must have compatible types.
 
 ## For Expression
 
-### Imperative Form
-
 ```
-for_imperative = "for" for_binding { "," for_binding } [ for_guard ] ( do_clause | yield_clause ) .
-for_binding    = identifier "in" expression .
-for_guard      = "if" expression .
-do_clause      = "do" expression .
-yield_clause   = "yield" expression .
+for_expr   = "for" identifier "in" expression [ "if" expression ] ( "do" | "yield" ) expression .
 ```
-
-The `do` form executes for side effects (returns `void`):
 
 ```sigil
 for item in items do print(item)
-```
-
-The `yield` form builds a new collection:
-
-```sigil
-for n in numbers yield n * 2
 for n in numbers if n > 0 yield n * n
 ```
 
-### Pattern Form
-
-```
-for_pattern    = "for" "(" named_args ")" .
-```
-
-See [Patterns § for](10-patterns.md#for).
+`do` returns `void`; `yield` collects results.
 
 ## Loop Expression
 
-### Syntax
-
 ```
-loop_expr     = "loop" "(" expression ")" .
-break_expr    = "break" .
-continue_expr = "continue" .
+loop_expr = "loop" "(" expression ")" .
 ```
-
-### Semantics
-
-A `loop` expression repeats indefinitely until `break` is encountered:
 
 ```sigil
-@process_channel (ch: Channel<int>) -> void uses Async = loop(
+loop(
     match(ch.receive(),
-        Some(value) -> process(value),
+        Some(v) -> process(v),
         None -> break,
     ),
 )
 ```
 
-`continue` skips to the next iteration.
+`break` exits; `continue` skips to next iteration.
 
-## Lambda Expression
-
-### Syntax
+## Lambda
 
 ```
 lambda        = simple_lambda | typed_lambda .
 simple_lambda = lambda_params "->" expression .
 typed_lambda  = "(" [ typed_param { "," typed_param } ] ")" "->" type "=" expression .
-lambda_params = identifier
-              | "(" [ identifier { "," identifier } ] ")" .
-typed_param   = identifier ":" type .
+lambda_params = identifier | "(" [ identifier { "," identifier } ] ")" .
 ```
-
-### Semantics
-
-A lambda creates an anonymous function:
 
 ```sigil
 x -> x * 2
 (x, y) -> x + y
-() -> 42
+(x: int) -> int = x * 2
 ```
 
-Lambda parameter types are inferred from context.
+## Evaluation
 
-### Typed Lambdas
+Expressions are evaluated left-to-right. This order is guaranteed and observable.
 
-When explicit type annotations are needed, use the typed lambda form with `=`:
+### Operand Evaluation
+
+Binary operators evaluate the left operand before the right:
 
 ```sigil
-(x: int) -> int = x * 2
-(a: int, b: int) -> int = a + b
-() -> str = "hello"
+left() + right()  // left() called first, then right()
 ```
 
-The `=` separates the signature from the body, consistent with function definitions.
+### Argument Evaluation
 
-## Match Expression
+Function arguments are evaluated left-to-right as written, before the call:
 
-See [Patterns § match](10-patterns.md#match).
+```sigil
+foo(a: first(), b: second(), c: third())
+// Order: first(), second(), third(), then foo()
+```
 
-## Pattern Expressions
+Named arguments evaluate in written order, not parameter order:
 
-Pattern expressions are covered in [Patterns](10-patterns.md).
+```sigil
+foo(c: third(), a: first(), b: second())
+// Order: third(), first(), second(), then foo()
+```
 
-## Expression Evaluation
+### Compound Expressions
 
-### Order of Evaluation
+Postfix operations evaluate left-to-right:
 
-Expressions are evaluated left-to-right. Function arguments are evaluated left-to-right before the call.
+```sigil
+list[index()].method(arg())
+// Order: list, index(), method lookup, arg(), method call
+```
 
-### Side Effects
+### List and Map Literals
 
-Side effects occur in evaluation order. Short-circuit operators may prevent evaluation of the right operand.
+Elements evaluate left-to-right:
+
+```sigil
+[first(), second(), third()]
+{"a": first(), "b": second()}
+```
+
+### Assignment
+
+The right side evaluates before assignment:
+
+```sigil
+x = compute()  // compute() evaluated, then assigned to x
+```
+
+### Short-Circuit Evaluation
+
+Logical and coalesce operators may skip the right operand:
+
+| Operator | Skips right when |
+|----------|------------------|
+| `&&` | Left is `false` |
+| `\|\|` | Left is `true` |
+| `??` | Left is `Some`/`Ok` |
+
+```sigil
+false && expensive()  // expensive() not called
+true \|\| expensive()  // expensive() not called
+Some(x) ?? expensive()  // expensive() not called
+```
+
+### Conditional Branches
+
+Only the taken branch is evaluated:
+
+```sigil
+if condition then
+    only_if_true()
+else
+    only_if_false()
+```
+
+See [Control Flow](19-control-flow.md) for details on conditionals and loops.

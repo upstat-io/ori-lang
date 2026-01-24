@@ -31,7 +31,7 @@ assert_eq(result, expected)
 
 // After (named required for multi-param)
 add(.a: 1, .b: 2)
-assert_eq(.actual: result, .expected: expected)
+assert_eq(actual: result, expected: expected)
 
 // Single-param functions remain simple
 print("hello")
@@ -58,9 +58,9 @@ run(
 
 // function_exp: named expressions, names are meaning
 fold(
-    .over: items,
-    .init: 0,
-    .op: +,
+    over: items,
+    init: 0,
+    op: +,
 )
 ```
 
@@ -86,18 +86,18 @@ With explicit categorization, the compiler can give precise errors:
 
 ```
 // function_exp error
-error: `map` missing required property `.over:`
+error: `map` missing required property `over:`
   --> src/main.si:10:5
    |
 10 |     map(
-11 |         .transform: x -> x * 2,
+11 |         transform: x -> x * 2,
 12 |     )
-   |     ^ missing `.over:`
+   |     ^ missing `over:`
    |
    = help: add the required property:
      map(
-         .over: <collection>,
-         .transform: x -> x * 2,
+         over: <collection>,
+         transform: x -> x * 2,
      )
 
 // function_seq error
@@ -142,7 +142,7 @@ error: function `add` requires named arguments
 
 #### For Humans
 
-1. **Zero ambiguity** — `assert_eq(.actual: x, .expected: y)` is unambiguous. `assert_eq(x, y)` requires knowing the signature.
+1. **Zero ambiguity** — `assert_eq(actual: x, expected: y)` is unambiguous. `assert_eq(x, y)` requires knowing the signature.
 
 2. **Self-documenting** — Code explains itself at the call site.
 
@@ -477,17 +477,17 @@ fn get_function_exp_schema(&self, kind: FunctionExpKind) -> FunctionExpSchema {
         FunctionExpKind::Map => FunctionExpSchema {
             required: vec!["over", "transform"],
             optional: vec![],
-            // .over: [T], .transform: T -> U  =>  [U]
+            // over: [T], transform: T -> U  =>  [U]
         },
         FunctionExpKind::Filter => FunctionExpSchema {
             required: vec!["over", "predicate"],
             optional: vec![],
-            // .over: [T], .predicate: T -> bool  =>  [T]
+            // over: [T], predicate: T -> bool  =>  [T]
         },
         FunctionExpKind::Fold => FunctionExpSchema {
             required: vec!["over", "init", "op"],
             optional: vec![],
-            // .over: [T], .init: U, .op: (U, T) -> U  =>  U
+            // over: [T], init: U, op: (U, T) -> U  =>  U
         },
         // ... etc for each pattern
     }
@@ -779,8 +779,8 @@ compare(a, b)
 
 // After
 add(.a: 1, .b: 2)
-assert_eq(.actual: result, .expected: 42)
-compare(.left: a, .right: b)
+assert_eq(actual: result, expected: 42)
+compare(left: a, right: b)
 ```
 
 Single-parameter functions remain unchanged:

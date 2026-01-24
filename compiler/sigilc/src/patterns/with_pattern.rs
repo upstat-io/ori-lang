@@ -1,6 +1,6 @@
 //! With pattern implementation.
 //!
-//! `with(.acquire: expr, .action: fn, .release: fn)` - Resource management.
+//! `with(acquire: expr, action: fn, release: fn)` - Resource management.
 //! NOTE: Uses `.action` instead of `.use` because `use` is a reserved keyword.
 
 use crate::types::Type;
@@ -9,10 +9,10 @@ use super::{PatternDefinition, TypeCheckContext, EvalContext, PatternExecutor};
 
 /// The `with` pattern provides structured resource management.
 ///
-/// Syntax: `with(.acquire: resource, .action: r -> expr, .release: r -> void)`
+/// Syntax: `with(acquire: resource, action: r -> expr, release: r -> void)`
 /// NOTE: Uses `.action` instead of `.use` because `use` is a reserved keyword.
 ///
-/// Type: `with(.acquire: R, .action: R -> T, .release: R -> void) -> T`
+/// Type: `with(acquire: R, action: R -> T, release: R -> void) -> T`
 ///
 /// The release function is always called, even if use throws.
 pub struct WithPattern;
@@ -31,7 +31,7 @@ impl PatternDefinition for WithPattern {
     }
 
     fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
-        // with(.acquire: R, .action: R -> T, .release: R -> void) -> T
+        // with(acquire: R, action: R -> T, release: R -> void) -> T
         ctx.get_function_return_type("action")
     }
 

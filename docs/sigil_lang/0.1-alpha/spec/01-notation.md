@@ -1,113 +1,56 @@
 # Notation
 
-This section defines the notation used throughout the specification.
+The syntax is specified using Extended Backus-Naur Form (EBNF).
 
-## Grammar Notation
-
-The grammar is expressed in Extended Backus-Naur Form (EBNF).
-
-### Productions
-
-A production has the form:
+## Productions
 
 ```
 production_name = expression .
 ```
 
-The period (`.`) terminates each production.
+Productions are expressions terminated by `.`.
 
-### Expressions
+## Operators
 
 | Notation | Meaning |
 |----------|---------|
-| `a b` | Sequence: `a` followed by `b` |
-| `a \| b` | Alternation: `a` or `b` |
-| `[ a ]` | Option: zero or one `a` |
-| `{ a }` | Repetition: zero or more `a` |
+| `a b` | Sequence |
+| `a \| b` | Alternation |
+| `[ a ]` | Optional (0 or 1) |
+| `{ a }` | Repetition (0 or more) |
 | `( a )` | Grouping |
-| `"keyword"` | Terminal: literal keyword |
-| `'c'` | Terminal: literal character |
-| `TERMINAL` | Terminal: named terminal symbol |
+| `"x"` | Literal keyword |
+| `'c'` | Literal character |
+| `'a' … 'z'` | Character range (inclusive) |
 
-### Character Ranges
+## Naming
 
-Character ranges are expressed using the notation:
-
-```
-'a' ... 'z'
-```
-
-This denotes all characters from `'a'` to `'z'` inclusive in Unicode code point order.
-
-### Exclusion
-
-The notation `a - b` denotes the set of elements in `a` that are not in `b`.
-
-## Conventions
-
-### Case Sensitivity
-
-All terminal symbols are case-sensitive. The keyword `if` is distinct from `If` or `IF`.
-
-### Whitespace
-
-Unless explicitly noted, whitespace between tokens is insignificant. The grammar does not specify whitespace handling; see [Lexical Elements](03-lexical-elements.md) for details.
-
-### Naming Conventions
-
-In this specification:
-
-| Name Style | Usage |
-|------------|-------|
-| `lower_case` | Grammar production names |
-| `UPPER_CASE` | Terminal symbol names |
-| `PascalCase` | Type names in examples |
-| `snake_case` | Function and variable names in examples |
+| Style | Usage |
+|-------|-------|
+| `lower_case` | Production names |
+| `PascalCase` | Type names |
+| `snake_case` | Functions, variables |
 
 ## Terminology
 
-The following terms have specific meanings in this specification:
+| Term | Meaning |
+|------|---------|
+| must | Absolute requirement |
+| must not | Absolute prohibition |
+| may | Optional |
+| error | Compile-time failure |
+| panic | Run-time failure |
 
-| Term | Definition |
-|------|------------|
-| **must** | Absolute requirement. Violation is an error. |
-| **must not** | Absolute prohibition. Violation is an error. |
-| **shall** | Equivalent to must. |
-| **shall not** | Equivalent to must not. |
-| **should** | Recommendation. Implementations are encouraged but not required. |
-| **should not** | Discouraged. Implementations are advised against. |
-| **may** | Optional behavior. |
-| **error** | A compile-time diagnostic that prevents successful compilation. |
-| **panic** | A run-time failure that halts execution. |
-| **undefined** | Behavior not specified. Implementations may vary. |
-| **implementation-defined** | Behavior that must be documented by implementations. |
+## Examples
 
-## Normative vs Informative
-
-Sections and text marked as **informative** provide context, rationale, or examples but do not define requirements. All other text is **normative**.
-
-Examples are informative unless explicitly stated otherwise.
-
-> **Note:** Text in this format is informative.
-
-## Example Notation
-
-Examples appear in code blocks with the language marker `sigil`:
+Valid:
 
 ```sigil
 @add (a: int, b: int) -> int = a + b
 ```
 
-Invalid examples are marked with comments:
+Invalid:
 
 ```sigil
-// ERROR: missing return type
-@add (a: int, b: int) = a + b
+@add (a: int, b: int) = a + b  // error: missing return type
 ```
-
-## Cross-References
-
-References to other sections use the section name in brackets:
-
-- See [Lexical Elements](03-lexical-elements.md)
-- See [Types § Primitive Types](06-types.md#primitive-types)

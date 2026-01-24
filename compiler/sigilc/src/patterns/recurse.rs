@@ -1,6 +1,6 @@
 //! Recurse pattern implementation.
 //!
-//! `recurse(.cond: bool, .base: value, .step: expr)` - Conditional recursion.
+//! `recurse(condition: bool, base: value, step: expr)` - Conditional recursion.
 
 use crate::types::Type;
 use crate::eval::EvalResult;
@@ -8,13 +8,13 @@ use super::{PatternDefinition, TypeCheckContext, EvalContext, PatternExecutor, O
 
 /// The `recurse` pattern enables conditional recursion with optional memoization.
 ///
-/// Syntax: `recurse(.cond: base_case, .base: value, .step: self(...))`
+/// Syntax: `recurse(condition: base_case, base: value, step: self(...))`
 ///
 /// Optional:
-/// - `.memo: true` for memoization
-/// - `.parallel: threshold` for parallel execution above threshold
+/// - `memo: true` for memoization
+/// - `parallel: threshold` for parallel execution above threshold
 ///
-/// Type: `recurse(.cond: bool, .base: T, .step: T) -> T`
+/// Type: `recurse(condition: bool, base: T, step: T) -> T`
 pub struct RecursePattern;
 
 impl PatternDefinition for RecursePattern {
@@ -23,7 +23,7 @@ impl PatternDefinition for RecursePattern {
     }
 
     fn required_props(&self) -> &'static [&'static str] {
-        &["cond", "base", "step"]
+        &["condition", "base", "step"]
     }
 
     fn optional_props(&self) -> &'static [&'static str] {
@@ -31,7 +31,7 @@ impl PatternDefinition for RecursePattern {
     }
 
     fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
-        // recurse(.cond: bool, .base: T, .step: T) -> T
+        // recurse(cond: bool, base: T, step: T) -> T
         let base_ty = ctx.get_prop_type("base").unwrap_or_else(|| ctx.fresh_var());
         base_ty
     }
@@ -52,12 +52,12 @@ impl PatternDefinition for RecursePattern {
         let base_expr = ctx.get_prop("base")?;
         let step_expr = ctx.get_prop("step")?;
 
-        // Note: .parallel: threshold is accepted but currently executes sequentially.
+        // Note: parallel: threshold is accepted but currently executes sequentially.
         // True parallel execution will be implemented when the async runtime is available.
         // The threshold indicates: parallelize recursive calls when parameter > threshold.
         let _parallel_threshold = ctx.eval_prop_opt("parallel", exec)?;
 
-        let cond_val = ctx.eval_prop("cond", exec)?;
+        let cond_val = ctx.eval_prop("condition", exec)?;
 
         if cond_val.is_truthy() {
             exec.eval(base_expr)

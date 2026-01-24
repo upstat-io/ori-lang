@@ -441,7 +441,7 @@ mod tests {
 @add (a: int, b: int) -> int = a + b
 
 @test_add tests @add () -> void = run(
-    assert_eq(.actual: add(.a: 1, .b: 2), .expected: 3)
+    assert_eq(actual: add(a: 1, b: 2), expected: 3)
 )
 "#).unwrap();
 
@@ -459,7 +459,7 @@ mod tests {
 @add (a: int, b: int) -> int = a + b
 
 @test_add tests @add () -> void = run(
-    assert_eq(.actual: add(.a: 1, .b: 2), .expected: 4)
+    assert_eq(actual: add(a: 1, b: 2), expected: 4)
 )
 "#).unwrap();
 
@@ -477,8 +477,8 @@ mod tests {
 @foo () -> int = 1
 @bar () -> int = 2
 
-@test_foo tests @foo () -> void = assert_eq(.left: foo(), .right: 1)
-@test_bar tests @bar () -> void = assert_eq(.left: bar(), .right: 2)
+@test_foo tests @foo () -> void = assert_eq(left: foo(), right: 1)
+@test_bar tests @bar () -> void = assert_eq(left: bar(), right: 2)
 "#).unwrap();
 
         let config = TestRunnerConfig {

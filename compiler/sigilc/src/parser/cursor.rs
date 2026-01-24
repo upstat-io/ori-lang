@@ -98,6 +98,25 @@ impl<'a> Cursor<'a> {
         self.pos + 1 < self.tokens.len() && matches!(self.tokens[self.pos + 1].kind, TokenKind::Colon)
     }
 
+    /// Check if looking at named argument pattern: identifier followed by colon.
+    /// Used to distinguish `name: value` (named arg) from `value` (positional).
+    pub fn is_named_arg_start(&self) -> bool {
+        let is_ident = matches!(self.current_kind(), TokenKind::Ident(_))
+            || self.soft_keyword_to_name().is_some()
+            || self.is_keyword_usable_as_name();
+        is_ident && self.next_is_colon()
+    }
+
+    /// Check if current token is a keyword that can be used as a named argument name.
+    fn is_keyword_usable_as_name(&self) -> bool {
+        matches!(
+            self.current_kind(),
+            TokenKind::Where | TokenKind::Match | TokenKind::For | TokenKind::In |
+            TokenKind::If | TokenKind::Type | TokenKind::Map | TokenKind::Filter |
+            TokenKind::Find | TokenKind::Parallel | TokenKind::Timeout
+        )
+    }
+
     /// Check if current token is a context-sensitive built-in keyword that can be used as an identifier.
     /// These are built-ins that are only treated as keywords when followed by `(`.
     /// Returns the interned name if it's a soft keyword, None otherwise.
@@ -176,7 +195,7 @@ impl<'a> Cursor<'a> {
     }
 
     /// Accept an identifier or a keyword that can be used as a named argument name.
-    /// This handles cases like `.where:` in the find pattern where `where` is a keyword.
+    /// This handles cases like `where:` in the find pattern where `where` is a keyword.
     pub fn expect_ident_or_keyword(&mut self) -> Result<Name, ParseError> {
         match self.current_kind() {
             TokenKind::Ident(name) => {

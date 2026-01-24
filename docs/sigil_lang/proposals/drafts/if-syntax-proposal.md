@@ -16,8 +16,8 @@ if x > 0 then "positive" else "negative"
 
 // Proposed syntax
 if(
-    .condition: x > 0,
-    .then: "positive",
+    condition: x > 0,
+    then: "positive",
     .else: "negative",
 )
 ```
@@ -38,13 +38,13 @@ This is inconsistent with Sigil's pattern-based approach where constructs like `
 
 ```sigil
 map(
-    .over: items,
-    .transform: x -> x * 2,
+    over: items,
+    transform: x -> x * 2,
 )
 
 filter(
-    .over: items,
-    .predicate: x -> x > 0,
+    over: items,
+    predicate: x -> x > 0,
 )
 ```
 
@@ -56,7 +56,7 @@ The inconsistency means:
 
 ### Sigil's Core Principles
 
-1. **Explicit over implicit** — Named arguments (`.condition:`, `.then:`, `.else:`) are self-documenting
+1. **Explicit over implicit** — Named arguments (`condition:`, `then:`, `.else:`) are self-documenting
 2. **AI-first / tooling-friendly** — One element per line enables surgical edits
 3. **Consistency** — All constructs should follow the same patterns
 4. **Predictable formatting** — Named arguments stack vertically per Sigil rules
@@ -75,8 +75,8 @@ If `map`, `filter`, `fold`, and `match` use named arguments, `if` should too. Th
 
 ```sigil
 if(
-    .condition: bool,
-    .then: T,
+    condition: bool,
+    then: T,
     .else: T,
 ) -> T
 ```
@@ -86,8 +86,8 @@ if(
 **Simple condition:**
 ```sigil
 if(
-    .condition: x > 0,
-    .then: "positive",
+    condition: x > 0,
+    then: "positive",
     .else: "negative",
 )
 ```
@@ -95,8 +95,8 @@ if(
 **With expressions:**
 ```sigil
 if(
-    .condition: user.is_authenticated,
-    .then: show_dashboard(user),
+    condition: user.is_authenticated,
+    then: show_dashboard(user),
     .else: redirect_to_login(),
 )
 ```
@@ -104,8 +104,8 @@ if(
 **Nested in other expressions:**
 ```sigil
 let message = if(
-    .condition: count == 0,
-    .then: "no items",
+    condition: count == 0,
+    then: "no items",
     .else: str(count) + " items",
 )
 ```
@@ -116,11 +116,11 @@ Nested `if` expressions in the `.else:` branch:
 
 ```sigil
 if(
-    .condition: x > 0,
-    .then: "positive",
+    condition: x > 0,
+    then: "positive",
     .else: if(
-        .condition: x < 0,
-        .then: "negative",
+        condition: x < 0,
+        then: "negative",
         .else: "zero",
     ),
 )
@@ -129,14 +129,14 @@ if(
 **Longer chain:**
 ```sigil
 if(
-    .condition: status == "pending",
-    .then: handle_pending(),
+    condition: status == "pending",
+    then: handle_pending(),
     .else: if(
-        .condition: status == "active",
-        .then: handle_active(),
+        condition: status == "active",
+        then: handle_active(),
         .else: if(
-            .condition: status == "completed",
-            .then: handle_completed(),
+            condition: status == "completed",
+            then: handle_completed(),
             .else: handle_unknown(),
         ),
     ),
@@ -162,11 +162,11 @@ if(
     let mid = (low + high) div 2,
     let mid_value = list[mid],
     if(
-        .condition: mid_value == target,
-        .then: mid,
+        condition: mid_value == target,
+        then: mid,
         .else: if(
-            .condition: mid_value > target,
-            .then: @binary_search(list, target, low, mid - 1),
+            condition: mid_value > target,
+            then: @binary_search(list, target, low, mid - 1),
             .else: @binary_search(list, target, mid + 1, high),
         ),
     ),
@@ -187,15 +187,15 @@ Named arguments in `if` follow standard Sigil formatting:
 **Correct:**
 ```sigil
 if(
-    .condition: x > 0,
-    .then: "positive",
+    condition: x > 0,
+    then: "positive",
     .else: "negative",
 )
 ```
 
 **Incorrect (inline not allowed for named args):**
 ```sigil
-if(.condition: x > 0, .then: "positive", .else: "negative")
+if(condition: x > 0, then: "positive", .else: "negative")
 ```
 
 ---
@@ -234,8 +234,8 @@ All control flow and data transformation use the same syntax:
 ```sigil
 // Control flow
 if(
-    .condition: expr,
-    .then: expr,
+    condition: expr,
+    then: expr,
     .else: expr,
 )
 
@@ -246,13 +246,13 @@ match(value,
 
 // Data transformation
 map(
-    .over: items,
-    .transform: fn,
+    over: items,
+    transform: fn,
 )
 
 filter(
-    .over: items,
-    .predicate: fn,
+    over: items,
+    predicate: fn,
 )
 ```
 
@@ -262,19 +262,19 @@ Each component is on its own line with a clear label:
 
 ```sigil
 if(
-    .condition: x > 0,    // Line 1: condition
-    .then: "positive",    // Line 2: then branch
+    condition: x > 0,    // Line 1: condition
+    then: "positive",    // Line 2: then branch
     .else: "negative",    // Line 3: else branch
 )
 ```
 
-AI can modify `.then:` without touching other lines. Diffs are clean and readable.
+AI can modify `then:` without touching other lines. Diffs are clean and readable.
 
 ### 3. Self-Documenting
 
 Named arguments make intent explicit:
-- `.condition:` — This is the condition being tested
-- `.then:` — This executes when true
+- `condition:` — This is the condition being tested
+- `then:` — This executes when true
 - `.else:` — This executes when false
 
 No ambiguity about which part is which.
@@ -301,8 +301,8 @@ if x > 0 then x else -x
 **Proposed (verbose):**
 ```sigil
 if(
-    .condition: x > 0,
-    .then: x,
+    condition: x > 0,
+    then: x,
     .else: -x,
 )
 ```
@@ -319,14 +319,14 @@ Long else-if chains create deep nesting:
 
 ```sigil
 if(
-    .condition: a,
-    .then: x,
+    condition: a,
+    then: x,
     .else: if(
-        .condition: b,
-        .then: y,
+        condition: b,
+        then: y,
         .else: if(
-            .condition: c,
-            .then: z,
+            condition: c,
+            then: z,
             .else: default,
         ),
     ),
@@ -363,12 +363,12 @@ Named arguments but allow inline for simple cases:
 
 ```sigil
 // Simple (inline allowed)
-if(.condition: x > 0, .then: x, .else: -x)
+if(condition: x > 0, then: x, .else: -x)
 
 // Complex (stacked)
 if(
-    .condition: complex_expr,
-    .then: complex_result,
+    condition: complex_expr,
+    then: complex_result,
     .else: other_result,
 )
 ```
@@ -391,8 +391,8 @@ if x > 0 then x else -x
 **After:**
 ```sigil
 if(
-    .condition: x > 0,
-    .then: x,
+    condition: x > 0,
+    then: x,
     .else: -x,
 )
 ```
@@ -413,7 +413,7 @@ if(
 
 2. **`spec/10-patterns.md`**
    - Add `if` to `function_exp` patterns list
-   - Document `.condition:`, `.then:`, `.else:` arguments
+   - Document `condition:`, `then:`, `.else:` arguments
 
 3. **`spec/09-expressions.md`**
    - Update conditional expression grammar
@@ -437,7 +437,7 @@ This proposal changes `if` from keyword-based syntax to a `function_exp` pattern
 
 | Aspect | Current | Proposed |
 |--------|---------|----------|
-| Syntax | `if cond then expr else expr` | `if(.condition:, .then:, .else:)` |
+| Syntax | `if cond then expr else expr` | `if(condition:, then:, .else:)` |
 | Keywords | `if`, `then`, `else` reserved | `if` context-sensitive |
 | Formatting | Inline or wrapped | Always stacked (named args) |
 | Consistency | Special case | Matches all patterns |

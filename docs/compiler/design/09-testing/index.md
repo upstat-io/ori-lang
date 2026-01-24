@@ -28,7 +28,7 @@ Test a specific function:
 @add (a: int, b: int) -> int = a + b
 
 @test_add tests @add () -> void = run(
-    assert_eq(.actual: add(2, 3), .expected: 5),
+    assert_eq(actual: add(2, 3), expected: 5),
 )
 ```
 
@@ -39,7 +39,7 @@ Test multiple things or integration:
 ```sigil
 @test_integration () -> void = run(
     let result = process_data(input),
-    assert(.cond: result.is_valid),
+    assert(cond: result.is_valid),
 )
 ```
 
@@ -49,8 +49,8 @@ Test multiple functions:
 
 ```sigil
 @test_math tests @add tests @subtract () -> void = run(
-    assert_eq(.actual: add(1, 2), .expected: 3),
-    assert_eq(.actual: subtract(5, 3), .expected: 2),
+    assert_eq(actual: add(1, 2), expected: 3),
+    assert_eq(actual: subtract(5, 3), expected: 2),
 )
 ```
 
@@ -83,7 +83,7 @@ Expect test to fail at runtime:
 ```sigil
 #[fail("assertion failed")]
 @test_expected_failure () -> void = run(
-    assert(.cond: false),
+    assert(cond: false),
 )
 ```
 
@@ -97,7 +97,7 @@ test @test_subtract ... ok (1ms)
 test @test_multiply ... FAILED (5ms)
 
   assertion failed: expected 6, got 5
-    at src/math.si:15:5
+    at src/mathsi:15:5
 
 test @test_divide ... ok (1ms)
 test @test_skip ... skipped (not implemented yet)

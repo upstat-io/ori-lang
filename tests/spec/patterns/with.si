@@ -9,81 +9,81 @@
 
 @test_with_simple tests @with_simple () -> void = run(
     let result = with(
-        .acquire: 10,
-        .action: r -> r * 2,
+        acquire: 10,
+        action: r -> r * 2,
     ),
     assert_eq(
-        .actual: result,
-        .expected: 20,
+        actual: result,
+        expected: 20,
     ),
 )
 
 @with_simple () -> int = run(
     with(
-        .acquire: 10,
-        .action: r -> r * 2,
+        acquire: 10,
+        action: r -> r * 2,
     ),
 )
 
 @test_with_transform tests @with_transform () -> void = run(
     let result = with(
-        .acquire: "hello",
-        .action: s -> len(.collection: s),
+        acquire: "hello",
+        action: s -> len(collection: s),
     ),
     assert_eq(
-        .actual: result,
-        .expected: 5,
+        actual: result,
+        expected: 5,
     ),
 )
 
 @with_transform () -> int = run(
     with(
-        .acquire: "hello",
-        .action: s -> len(.collection: s),
+        acquire: "hello",
+        action: s -> len(collection: s),
     ),
 )
 
 @test_with_release tests @with_release () -> void = run(
     // Test that release is called (can't easily verify in tests)
     let result = with(
-        .acquire: 100,
-        .action: r -> r + 1,
-        .release: r -> r,
+        acquire: 100,
+        action: r -> r + 1,
+        release: r -> r,
     ),
     assert_eq(
-        .actual: result,
-        .expected: 101,
+        actual: result,
+        expected: 101,
     ),
 )
 
 @with_release () -> int = run(
     with(
-        .acquire: 100,
-        .action: r -> r + 1,
-        .release: r -> r,
+        acquire: 100,
+        action: r -> r + 1,
+        release: r -> r,
     ),
 )
 
 @test_with_nested tests @with_nested () -> void = run(
     let result = with(
-        .acquire: 5,
-        .action: outer -> with(
-            .acquire: 3,
-            .action: inner -> outer + inner,
+        acquire: 5,
+        action: outer -> with(
+            acquire: 3,
+            action: inner -> outer + inner,
         ),
     ),
     assert_eq(
-        .actual: result,
-        .expected: 8,
+        actual: result,
+        expected: 8,
     ),
 )
 
 @with_nested () -> int = run(
     with(
-        .acquire: 5,
-        .action: outer -> with(
-            .acquire: 3,
-            .action: inner -> outer + inner,
+        acquire: 5,
+        action: outer -> with(
+            acquire: 3,
+            action: inner -> outer + inner,
         ),
     ),
 )

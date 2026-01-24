@@ -17,7 +17,7 @@ Human-readable output with colors:
 
 ```
 error[E2001]: type mismatch
- --> src/main.si:10:15
+ --> src/mainsi:10:15
    |
 10 |     let x: int = "hello"
    |            ---   ^^^^^^^ expected `int`, found `str`
@@ -134,15 +134,15 @@ impl Emitter for JsonEmitter {
                 "span": { "start": l.span.start, "end": l.span.end },
                 "message": l.message,
                 "style": l.style.to_string(),
-            })).collect::<Vec<_>>(),
+            }))collect::<Vec<_>>(),
             "fixes": diag.fixes.iter().map(|f| json!({
                 "message": f.message,
                 "edits": f.edits.iter().map(|e| json!({
                     "span": { "start": e.span.start, "end": e.span.end },
                     "newText": e.new_text,
-                })).collect::<Vec<_>>(),
+                }))collect::<Vec<_>>(),
                 "applicability": f.applicability.to_string(),
-            })).collect::<Vec<_>>(),
+            }))collect::<Vec<_>>(),
             "help": diag.help,
         }));
     }

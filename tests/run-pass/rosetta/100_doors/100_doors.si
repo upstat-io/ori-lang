@@ -3,23 +3,15 @@
 //
 // After 100 passes, only doors at perfect square positions remain open.
 
-@open_doors () -> [int] = collect(
-    .range: 1..11,
-    .transform: n -> n * n,
-)
+@open_doors () -> [int] = collect(range: 1..11, transform: n -> n * n)
 
 @test_perfect_squares tests @open_doors () -> void = run(
     assert_eq(
-        .actual: open_doors(),
-        .expected: [1, 4, 9, 16, 25, 36, 49, 64, 81, 100],
-    )
+        actual: open_doors(),
+        expected: [1, 4, 9, 16, 25, 36, 49, 64, 81, 100],
+    ),
 )
 
 @test_count tests @open_doors () -> void = run(
-    assert_eq(
-        .actual: len(
-            .collection: open_doors(),
-        ),
-        .expected: 10,
-    )
+    assert_eq(actual: len(open_doors()), expected: 10),
 )

@@ -3,20 +3,20 @@
 use "../string_concatenation" { concat, join, concat_all }
 
 @test_concat tests @concat () -> void = run(
-    assert(.cond: concat(.a: "Hello", .b: "World") == "HelloWorld"),
-    assert(.cond: concat(.a: "", .b: "test") == "test"),
-    assert(.cond: concat(.a: "test", .b: "") == "test"),
-    assert(.cond: concat(.a: "", .b: "") == "")
+    assert(cond: concat(a: "Hello", b: "World") == "HelloWorld"),
+    assert(cond: concat(a: "", b: "test") == "test"),
+    assert(cond: concat(a: "test", b: "") == "test"),
+    assert(cond: concat(a: "", b: "") == "")
 )
 
 @test_join tests @join () -> void = run(
-    assert(.cond: join(.a: "Hello", .b: "World", .sep: " ") == "Hello World"),
-    assert(.cond: join(.a: "foo", .b: "bar", .sep: "-") == "foo-bar"),
-    assert(.cond: join(.a: "a", .b: "b", .sep: "") == "ab")
+    assert(cond: join(a: "Hello", b: "World", sep: " ") == "Hello World"),
+    assert(cond: join(a: "foo", b: "bar", sep: "-") == "foo-bar"),
+    assert(cond: join(a: "a", b: "b", sep: "") == "ab")
 )
 
 @test_concat_all tests @concat_all () -> void = run(
-    assert(.cond: concat_all(["a", "b", "c"]) == "abc"),
-    assert(.cond: concat_all(["Hello", " ", "World"]) == "Hello World"),
-    assert(.cond: concat_all([]) == "")
+    assert(cond: concat_all(["a", "b", "c"]) == "abc"),
+    assert(cond: concat_all(["Hello", " ", "World"]) == "Hello World"),
+    assert(cond: concat_all([]) == "")
 )

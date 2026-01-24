@@ -5,7 +5,7 @@
 @empty_queue () -> [int] = []
 
 // Check if queue is empty
-@queue_is_empty (queue: [int]) -> bool = len(.collection: queue) == 0
+@queue_is_empty (queue: [int]) -> bool = len(collection: queue) == 0
 
 // Add element to back of queue (enqueue)
 @enqueue (queue: [int], value: int) -> [int] = queue.push(value)
@@ -14,8 +14,8 @@
 @front (queue: [int]) -> int = queue[0]
 
 // Remove front element (dequeue) - returns queue without front
-// TODO: Use queue.slice(.start: 1, .end: #) when # syntax is implemented
-@dequeue (queue: [int]) -> [int] = queue.slice(.start: 1, .end: len(.collection: queue))
+// TODO: Use queue.slice(start: 1, end: #) when # syntax is implemented
+@dequeue (queue: [int]) -> [int] = queue.slice(start: 1, end: len(collection: queue))
 
 // Get queue size
-@size (queue: [int]) -> int = len(.collection: queue)
+@size (queue: [int]) -> int = len(collection: queue)

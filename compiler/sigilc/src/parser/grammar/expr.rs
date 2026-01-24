@@ -279,7 +279,7 @@ impl<'a> Parser<'a> {
                 if call_args.len() > 1 && has_positional {
                     return Err(ParseError::new(
                         crate::diagnostic::ErrorCode::E1011,
-                        "function calls with multiple arguments require named arguments (.name: value)".to_string(),
+                        "function calls with multiple arguments require named arguments (name: value)".to_string(),
                         call_span,
                     ));
                 }
@@ -651,7 +651,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse function_exp: map, filter, fold, etc. with named properties.
-    /// Grammar: kind(.prop1: expr1, .prop2: expr2, ...)
+    /// Grammar: kind(prop1: expr1, prop2: expr2, ...)
     fn parse_function_exp(&mut self, kind: FunctionExpKind) -> Result<ExprId, ParseError> {
         let start_span = self.previous_span(); // span of the keyword
         self.expect(TokenKind::LParen)?;
@@ -662,16 +662,15 @@ impl<'a> Parser<'a> {
         while !self.check(TokenKind::RParen) && !self.is_at_end() {
             self.skip_newlines();
 
-            // Require named property: .name: expr
-            if !self.check(TokenKind::Dot) {
+            // Require named property: name: expr (identifier followed by colon)
+            if !self.is_named_arg_start() {
                 return Err(ParseError::new(
                     crate::diagnostic::ErrorCode::E1013,
-                    format!("`{}` requires named properties (.name: value)", kind.name()),
+                    format!("`{}` requires named properties (name: value)", kind.name()),
                     self.current_span(),
                 ));
             }
 
-            self.advance(); // consume '.'
             let name = self.expect_ident_or_keyword()?;
             let prop_span = self.previous_span();
             self.expect(TokenKind::Colon)?;
@@ -721,9 +720,8 @@ impl<'a> Parser<'a> {
 
             let arg_span = self.current_span();
 
-            // Check for named argument: .name: expr
-            if self.check(TokenKind::Dot) {
-                self.advance(); // consume '.'
+            // Check for named argument: name: expr (identifier followed by colon)
+            if self.is_named_arg_start() {
                 let name = self.expect_ident_or_keyword()?;
                 self.expect(TokenKind::Colon)?;
                 let value = self.parse_expr()?;
@@ -1223,7 +1221,7 @@ impl<'a> Parser<'a> {
         }
 
         // Built-in functions are context-sensitive: only keywords when followed by `(`
-        // This allows `let len = 5` while still supporting `len(.collection: x)`
+        // This allows `let len = 5` while still supporting `len(collection: x)`
         if !self.next_is_lparen() {
             return None;
         }

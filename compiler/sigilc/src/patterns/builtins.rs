@@ -13,8 +13,8 @@ use super::{PatternDefinition, TypeCheckContext, EvalContext, PatternExecutor};
 
 /// The `assert` pattern asserts a condition is true.
 ///
-/// Syntax: `assert(.cond: expr)`
-/// Type: `assert(.cond: bool) -> void`
+/// Syntax: `assert(condition: expr)`
+/// Type: `assert(condition: bool) -> void`
 pub struct AssertPattern;
 
 impl PatternDefinition for AssertPattern {
@@ -23,7 +23,7 @@ impl PatternDefinition for AssertPattern {
     }
 
     fn required_props(&self) -> &'static [&'static str] {
-        &["cond"]
+        &["condition"]
     }
 
     fn type_check(&self, _ctx: &mut TypeCheckContext) -> Type {
@@ -31,7 +31,7 @@ impl PatternDefinition for AssertPattern {
     }
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
-        let cond = ctx.eval_prop("cond", exec)?;
+        let cond = ctx.eval_prop("condition", exec)?;
         if cond.is_truthy() {
             Ok(Value::Void)
         } else {
@@ -46,8 +46,8 @@ impl PatternDefinition for AssertPattern {
 
 /// The `assert_eq` pattern asserts two values are equal.
 ///
-/// Syntax: `assert_eq(.actual: expr, .expected: expr)`
-/// Type: `assert_eq(.actual: T, .expected: T) -> void`
+/// Syntax: `assert_eq(actual: expr, expected: expr)`
+/// Type: `assert_eq(actual: T, expected: T) -> void`
 pub struct AssertEqPattern;
 
 impl PatternDefinition for AssertEqPattern {
@@ -84,8 +84,8 @@ impl PatternDefinition for AssertEqPattern {
 
 /// The `assert_ne` pattern asserts two values are not equal.
 ///
-/// Syntax: `assert_ne(.actual: expr, .unexpected: expr)`
-/// Type: `assert_ne(.actual: T, .unexpected: T) -> void`
+/// Syntax: `assert_ne(actual: expr, unexpected: expr)`
+/// Type: `assert_ne(actual: T, unexpected: T) -> void`
 pub struct AssertNePattern;
 
 impl PatternDefinition for AssertNePattern {
@@ -121,8 +121,8 @@ impl PatternDefinition for AssertNePattern {
 
 /// The `len` pattern returns the length of a collection.
 ///
-/// Syntax: `len(.collection: expr)`
-/// Type: `len(.collection: [T] | str | {K: V}) -> int`
+/// Syntax: `len(collection: expr)`
+/// Type: `len(collection: [T] | str | {K: V}) -> int`
 pub struct LenPattern;
 
 impl PatternDefinition for LenPattern {
@@ -159,8 +159,8 @@ impl PatternDefinition for LenPattern {
 
 /// The `is_empty` pattern checks if a collection is empty.
 ///
-/// Syntax: `is_empty(.collection: expr)`
-/// Type: `is_empty(.collection: [T] | str | {K: V}) -> bool`
+/// Syntax: `is_empty(collection: expr)`
+/// Type: `is_empty(collection: [T] | str | {K: V}) -> bool`
 pub struct IsEmptyPattern;
 
 impl PatternDefinition for IsEmptyPattern {
@@ -198,8 +198,8 @@ impl PatternDefinition for IsEmptyPattern {
 
 /// The `is_some` pattern checks if an Option is Some.
 ///
-/// Syntax: `is_some(.opt: expr)`
-/// Type: `is_some(.opt: Option<T>) -> bool`
+/// Syntax: `is_some(opt: expr)`
+/// Type: `is_some(opt: Option<T>) -> bool`
 pub struct IsSomePattern;
 
 impl PatternDefinition for IsSomePattern {
@@ -227,8 +227,8 @@ impl PatternDefinition for IsSomePattern {
 
 /// The `is_none` pattern checks if an Option is None.
 ///
-/// Syntax: `is_none(.opt: expr)`
-/// Type: `is_none(.opt: Option<T>) -> bool`
+/// Syntax: `is_none(opt: expr)`
+/// Type: `is_none(opt: Option<T>) -> bool`
 pub struct IsNonePattern;
 
 impl PatternDefinition for IsNonePattern {
@@ -256,8 +256,8 @@ impl PatternDefinition for IsNonePattern {
 
 /// The `is_ok` pattern checks if a Result is Ok.
 ///
-/// Syntax: `is_ok(.result: expr)`
-/// Type: `is_ok(.result: Result<T, E>) -> bool`
+/// Syntax: `is_ok(result: expr)`
+/// Type: `is_ok(result: Result<T, E>) -> bool`
 pub struct IsOkPattern;
 
 impl PatternDefinition for IsOkPattern {
@@ -285,8 +285,8 @@ impl PatternDefinition for IsOkPattern {
 
 /// The `is_err` pattern checks if a Result is Err.
 ///
-/// Syntax: `is_err(.result: expr)`
-/// Type: `is_err(.result: Result<T, E>) -> bool`
+/// Syntax: `is_err(result: expr)`
+/// Type: `is_err(result: Result<T, E>) -> bool`
 pub struct IsErrPattern;
 
 impl PatternDefinition for IsErrPattern {
@@ -314,8 +314,8 @@ impl PatternDefinition for IsErrPattern {
 
 /// The `print` pattern prints a message to stdout.
 ///
-/// Syntax: `print(.msg: expr)`
-/// Type: `print(.msg: str) -> void`
+/// Syntax: `print(msg: expr)`
+/// Type: `print(msg: str) -> void`
 pub struct PrintPattern;
 
 impl PatternDefinition for PrintPattern {
@@ -344,8 +344,8 @@ impl PatternDefinition for PrintPattern {
 
 /// The `panic` pattern halts execution with an error message.
 ///
-/// Syntax: `panic(.msg: expr)`
-/// Type: `panic(.msg: str) -> Never`
+/// Syntax: `panic(msg: expr)`
+/// Type: `panic(msg: str) -> Never`
 pub struct PanicPattern;
 
 impl PatternDefinition for PanicPattern {
@@ -373,8 +373,8 @@ impl PatternDefinition for PanicPattern {
 
 /// The `compare` pattern compares two values and returns an Ordering.
 ///
-/// Syntax: `compare(.left: expr, .right: expr)`
-/// Type: `compare(.left: T, .right: T) -> Ordering`
+/// Syntax: `compare(left: expr, right: expr)`
+/// Type: `compare(left: T, right: T) -> Ordering`
 pub struct ComparePattern;
 
 impl PatternDefinition for ComparePattern {
@@ -421,8 +421,8 @@ impl PatternDefinition for ComparePattern {
 
 /// The `min` pattern returns the smaller of two values.
 ///
-/// Syntax: `min(.left: expr, .right: expr)`
-/// Type: `min(.left: T, .right: T) -> T`
+/// Syntax: `min(left: expr, right: expr)`
+/// Type: `min(left: T, right: T) -> T`
 pub struct MinPattern;
 
 impl PatternDefinition for MinPattern {
@@ -463,8 +463,8 @@ impl PatternDefinition for MinPattern {
 
 /// The `max` pattern returns the larger of two values.
 ///
-/// Syntax: `max(.left: expr, .right: expr)`
-/// Type: `max(.left: T, .right: T) -> T`
+/// Syntax: `max(left: expr, right: expr)`
+/// Type: `max(left: T, right: T) -> T`
 pub struct MaxPattern;
 
 impl PatternDefinition for MaxPattern {
@@ -523,7 +523,7 @@ mod tests {
 
     #[test]
     fn test_required_props() {
-        assert_eq!(AssertPattern.required_props(), &["cond"]);
+        assert_eq!(AssertPattern.required_props(), &["condition"]);
         assert_eq!(AssertEqPattern.required_props(), &["actual", "expected"]);
         assert_eq!(LenPattern.required_props(), &["collection"]);
         assert_eq!(MinPattern.required_props(), &["left", "right"]);

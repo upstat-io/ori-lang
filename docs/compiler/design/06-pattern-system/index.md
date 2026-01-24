@@ -36,11 +36,11 @@ compiler/sigilc/src/patterns/
 ### Data Transformation (function_exp)
 
 ```sigil
-map(.over: items, .transform: fn)      // Transform each element
-filter(.over: items, .predicate: fn)   // Keep matching elements
-fold(.over: items, .init: val, .op: fn) // Reduce to single value
-find(.over: items, .where: fn)         // Find first match
-collect(.range: 0..10, .transform: fn) // Generate from range
+map(over: items, transform: fn)      // Transform each element
+filter(over: items, predicate: fn)   // Keep matching elements
+fold(over: items, init: val, op: fn) // Reduce to single value
+find(over: items, where: fn)         // Find first match
+collect(range: 0..10, transform: fn) // Generate from range
 ```
 
 ### Control Flow (function_seq)
@@ -55,26 +55,26 @@ match(value, pat -> expr, ...)         // Pattern matching
 
 ```sigil
 recurse(
-    .cond: base_case,
-    .base: value,
-    .step: self(n - 1) * n,
+    cond: base_case,
+    base: value,
+    step: self(n - 1) * n,
 )
 ```
 
 ### Concurrency
 
 ```sigil
-parallel(.tasks: [...], .max_concurrent: 4)  // Concurrent execution
-spawn(.tasks: [...])                          // Fire and forget
-timeout(.op: expr, .after: 5s)               // Time limit
-retry(.op: expr, .attempts: 3)               // Retry on failure
+parallel(tasks: [...], max_concurrent: 4)  // Concurrent execution
+spawn(tasks: [...])                          // Fire and forget
+timeout(op: expr, after: 5s)               // Time limit
+retry(op: expr, attempts: 3)               // Retry on failure
 ```
 
 ### Caching and Validation
 
 ```sigil
-cache(.key: k, .op: expensive(), .ttl: 5m)
-validate(.rules: [...], .then: value)
+cache(key: k, op: expensive(), ttl: 5m)
+validate(rules: [...], then: value)
 ```
 
 ## Pattern Interface
@@ -115,11 +115,11 @@ pub trait PatternDefinition: Send + Sync {
 ```sigil
 // Transform and filter a list
 let result = filter(
-    .over: map(
-        .over: items,
-        .transform: x -> x * 2,
+    over: map(
+        over: items,
+        transform: x -> x * 2,
     ),
-    .predicate: x -> x > 10,
+    predicate: x -> x > 10,
 )
 ```
 

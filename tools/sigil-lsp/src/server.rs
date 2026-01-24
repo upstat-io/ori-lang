@@ -269,15 +269,15 @@ impl SigilLanguageServer {
 
         // Add pattern keywords
         let patterns = [
-            ("fold", "fold(.over: coll, .init: val, .with: op)"),
-            ("map", "map(.over: coll, .transform: fn)"),
-            ("filter", "filter(.over: coll, .where: pred)"),
-            ("collect", "collect(.range: r, .into: fn)"),
-            ("recurse", "recurse(.cond: c, .base: b, .step: s)"),
-            ("parallel", "parallel(.name: expr, ...)"),
-            ("try", "try(.body: expr)"),
-            ("find", "find(.in: coll, .where: pred)"),
-            ("validate", "validate(.rules: [...], .then: val)"),
+            ("fold", "fold(over: coll, init: val, with: op)"),
+            ("map", "map(over: coll, transform: fn)"),
+            ("filter", "filter(over: coll, where: pred)"),
+            ("collect", "collect(range: r, into: fn)"),
+            ("recurse", "recurse(cond: c, base: b, step: s)"),
+            ("parallel", "parallel(name: expr, ...)"),
+            ("try", "try(body: expr)"),
+            ("find", "find(in: coll, where: pred)"),
+            ("validate", "validate(rules: [...], then: val)"),
         ];
 
         for (name, doc) in patterns {

@@ -20,7 +20,7 @@ Complete reference of Sigil compiler error codes.
 
 ```
 error[E0001]: invalid character '@#' in source
- --> src/main.si:5:10
+ --> src/mainsi:5:10
   |
 5 |     let x@# = 1
   |          ^^ invalid character
@@ -30,7 +30,7 @@ error[E0001]: invalid character '@#' in source
 
 ```
 error[E0002]: unterminated string literal
- --> src/main.si:3:10
+ --> src/mainsi:3:10
   |
 3 |     let s = "hello
   |             ^ string literal never closed
@@ -40,7 +40,7 @@ error[E0002]: unterminated string literal
 
 ```
 error[E0003]: invalid escape sequence '\q'
- --> src/main.si:2:15
+ --> src/mainsi:2:15
   |
 2 |     let s = "\q"
   |               ^^ unknown escape
@@ -52,7 +52,7 @@ error[E0003]: invalid escape sequence '\q'
 
 ```
 error[E0004]: invalid number literal '12.34.56'
- --> src/main.si:1:9
+ --> src/mainsi:1:9
   |
 1 |     let x = 12.34.56
   |             ^^^^^^^^ invalid number
@@ -64,7 +64,7 @@ error[E0004]: invalid number literal '12.34.56'
 
 ```
 error[E1001]: unexpected token
- --> src/main.si:5:10
+ --> src/mainsi:5:10
   |
 5 |     let x + = 1
   |           ^ expected '=' or ':', found '+'
@@ -74,7 +74,7 @@ error[E1001]: unexpected token
 
 ```
 error[E1002]: expected expression
- --> src/main.si:3:15
+ --> src/mainsi:3:15
   |
 3 |     let x = if then 1
   |                ^^^^ expected expression after 'if'
@@ -84,7 +84,7 @@ error[E1002]: expected expression
 
 ```
 error[E1003]: missing closing delimiter
- --> src/main.si:2:10
+ --> src/mainsi:2:10
   |
 2 |     let list = [1, 2, 3
   |                ^ opening '[' here
@@ -97,7 +97,7 @@ error[E1003]: missing closing delimiter
 
 ```
 error[E1004]: invalid pattern in match arm
- --> src/main.si:4:5
+ --> src/mainsi:4:5
   |
 4 |     1 + 2 -> "sum"
   |     ^^^^^ expected pattern, found expression
@@ -109,7 +109,7 @@ error[E1004]: invalid pattern in match arm
 
 ```
 error[E2001]: type mismatch
- --> src/main.si:3:15
+ --> src/mainsi:3:15
   |
 3 |     let x: int = "hello"
   |            ---   ^^^^^^^ expected `int`, found `str`
@@ -121,7 +121,7 @@ error[E2001]: type mismatch
 
 ```
 error[E2002]: cannot find value `foo` in this scope
- --> src/main.si:5:10
+ --> src/mainsi:5:10
   |
 5 |     let x = foo + 1
   |             ^^^ not found in this scope
@@ -133,7 +133,7 @@ error[E2002]: cannot find value `foo` in this scope
 
 ```
 error[E2003]: missing capability `Http`
- --> src/main.si:8:5
+ --> src/mainsi:8:5
   |
 8 |     http_get(url)
   |     ^^^^^^^^^^^^^ requires `uses Http`
@@ -145,7 +145,7 @@ error[E2003]: missing capability `Http`
 
 ```
 error[E2004]: infinite type detected
- --> src/main.si:3:5
+ --> src/mainsi:3:5
   |
 3 |     let xs = [xs]
   |         ^^ type `T` would be `[T]`
@@ -155,7 +155,7 @@ error[E2004]: infinite type detected
 
 ```
 error[E2005]: cannot call value of type `int`
- --> src/main.si:4:5
+ --> src/mainsi:4:5
   |
 4 |     x(1, 2)
   |     ^ not a function
@@ -165,7 +165,7 @@ error[E2005]: cannot call value of type `int`
 
 ```
 error[E2006]: function takes 2 arguments but 3 were supplied
- --> src/main.si:5:5
+ --> src/mainsi:5:5
   |
 2 | @add (a: int, b: int) -> int = a + b
   |       ---------------- defined here
@@ -180,9 +180,9 @@ error[E2006]: function takes 2 arguments but 3 were supplied
 
 ```
 error[E3001]: unknown pattern `mapp`
- --> src/main.si:3:5
+ --> src/mainsi:3:5
   |
-3 |     mapp(.over: items, .transform: fn)
+3 |     mapp(over: items, transform: fn)
   |     ^^^^ not a known pattern
   |
   = help: did you mean `map`?
@@ -192,9 +192,9 @@ error[E3001]: unknown pattern `mapp`
 
 ```
 error[E3002]: missing required argument `.transform` for pattern `map`
- --> src/main.si:4:5
+ --> src/mainsi:4:5
   |
-4 |     map(.over: items)
+4 |     map(over: items)
   |     ^^^^^^^^^^^^^^^^^ missing `.transform`
 ```
 
@@ -202,9 +202,9 @@ error[E3002]: missing required argument `.transform` for pattern `map`
 
 ```
 error[E3003]: unexpected argument `.foo` for pattern `map`
- --> src/main.si:5:20
+ --> src/mainsi:5:20
   |
-5 |     map(.over: items, .foo: 1)
+5 |     map(over: items, foo: 1)
   |                       ^^^^ not a valid argument
   |
   = help: valid arguments are: .over, .transform
@@ -216,7 +216,7 @@ error[E3003]: unexpected argument `.foo` for pattern `map`
 
 ```
 error[E4001]: division by zero
- --> src/main.si:3:10
+ --> src/mainsi:3:10
   |
 3 |     let x = 10 / 0
   |             ^^^^^^ attempted to divide by zero
@@ -226,7 +226,7 @@ error[E4001]: division by zero
 
 ```
 error[E4002]: index out of bounds
- --> src/main.si:4:10
+ --> src/mainsi:4:10
   |
 4 |     list[10]
   |          ^^ index 10 is out of range for list of length 3
@@ -236,9 +236,9 @@ error[E4002]: index out of bounds
 
 ```
 error[E4003]: assertion failed
- --> src/main.si:5:5
+ --> src/mainsi:5:5
   |
-5 |     assert(.cond: x > 10)
+5 |     assert(cond: x > 10)
   |     ^^^^^^^^^^^^^^^^^^^^^ condition was false
 ```
 
@@ -248,7 +248,7 @@ error[E4003]: assertion failed
 
 ```
 error[E5001]: cannot find module './utils'
- --> src/main.si:1:5
+ --> src/mainsi:1:5
   |
 1 | use './utils' { helper }
   |     ^^^^^^^^^^ file not found
@@ -260,7 +260,7 @@ error[E5001]: cannot find module './utils'
 
 ```
 error[E5002]: `helper` is not exported from module './utils'
- --> src/main.si:1:15
+ --> src/mainsi:1:15
   |
 1 | use './utils' { helper }
   |                 ^^^^^^ not public
@@ -272,7 +272,7 @@ error[E5002]: `helper` is not exported from module './utils'
 
 ```
 error[E5003]: circular import detected
- --> src/a.si:1:1
+ --> src/asi:1:1
   |
 1 | use './b' { foo }
   | ^^^^^^^^^^^^^^^^^

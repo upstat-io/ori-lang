@@ -8,6 +8,6 @@
 
 #[compile_fail("type mismatch")]
 @test_type_mismatch_arg () -> void = run(
-    let result = add(.a: "hello", .b: 5),
+    let result = add(a: "hello", b: 5),
     ()
 )

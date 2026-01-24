@@ -1,6 +1,6 @@
 //! Spawn pattern implementation.
 //!
-//! `spawn(.tasks: [...], .max_concurrent: n)` - Fire and forget concurrent execution.
+//! `spawn(tasks: [...], max_concurrent: n)` - Fire and forget concurrent execution.
 //!
 //! Returns `void` - tasks are started but not awaited, errors are discarded.
 
@@ -11,9 +11,9 @@ use super::{PatternDefinition, TypeCheckContext, EvalContext, PatternExecutor};
 
 /// The `spawn` pattern executes tasks concurrently without waiting for results.
 ///
-/// Syntax: `spawn(.tasks: [...], .max_concurrent: n)`
+/// Syntax: `spawn(tasks: [...], max_concurrent: n)`
 ///
-/// Type: `spawn(.tasks: [() -> T]) -> void`
+/// Type: `spawn(tasks: [() -> T]) -> void`
 ///
 /// Tasks are started but not awaited. Errors are silently discarded.
 /// Use for fire-and-forget side effects where results don't matter.

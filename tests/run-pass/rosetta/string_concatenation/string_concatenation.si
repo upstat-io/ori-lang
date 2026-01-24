@@ -9,7 +9,7 @@
 
 // Concatenate multiple strings (using fold pattern)
 @concat_all (strings: [str]) -> str = fold(
-    .over: strings,
-    .init: "",
-    .op: (acc, s) -> acc + s,
+    over: strings,
+    init: "",
+    op: (acc, s) -> acc + s,
 )

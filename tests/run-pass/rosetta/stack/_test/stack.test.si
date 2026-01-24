@@ -4,41 +4,41 @@ use "../stack" { empty_stack, stack_is_empty, push, peek, pop, size }
 
 #[skip("stack methods not yet implemented")]
 @test_empty_stack tests @empty_stack () -> void = run(
-    assert(.cond: stack_is_empty(empty_stack()) == true),
-    assert(.cond: size(empty_stack()) == 0)
+    assert(cond: stack_is_empty(empty_stack()) == true),
+    assert(cond: size(empty_stack()) == 0)
 )
 
 #[skip("stack methods not yet implemented")]
 @test_stack_is_empty tests @stack_is_empty () -> void = run(
-    assert(.cond: stack_is_empty([]) == true),
-    assert(.cond: stack_is_empty([1]) == false),
-    assert(.cond: stack_is_empty([1, 2, 3]) == false)
+    assert(cond: stack_is_empty([]) == true),
+    assert(cond: stack_is_empty([1]) == false),
+    assert(cond: stack_is_empty([1, 2, 3]) == false)
 )
 
 #[skip("stack methods not yet implemented")]
 @test_push tests @push () -> void = run(
-    assert(.cond: size(push(.stack: [], .value: 1)) == 1),
-    assert(.cond: size(push(.stack: [1], .value: 2)) == 2),
-    assert(.cond: peek(push(.stack: [1, 2], .value: 3)) == 3)
+    assert(cond: size(push(stack: [], value: 1)) == 1),
+    assert(cond: size(push(stack: [1], value: 2)) == 2),
+    assert(cond: peek(push(stack: [1, 2], value: 3)) == 3)
 )
 
 #[skip("stack methods not yet implemented")]
 @test_peek tests @peek () -> void = run(
-    assert(.cond: peek([1]) == 1),
-    assert(.cond: peek([1, 2, 3]) == 3),
-    assert(.cond: peek(push(.stack: [1, 2], .value: 99)) == 99)
+    assert(cond: peek([1]) == 1),
+    assert(cond: peek([1, 2, 3]) == 3),
+    assert(cond: peek(push(stack: [1, 2], value: 99)) == 99)
 )
 
 #[skip("stack methods not yet implemented")]
 @test_pop tests @pop () -> void = run(
-    assert(.cond: size(pop([1])) == 0),
-    assert(.cond: size(pop([1, 2, 3])) == 2),
-    assert(.cond: peek(pop([1, 2, 3])) == 2)
+    assert(cond: size(pop([1])) == 0),
+    assert(cond: size(pop([1, 2, 3])) == 2),
+    assert(cond: peek(pop([1, 2, 3])) == 2)
 )
 
 #[skip("stack methods not yet implemented")]
 @test_size tests @size () -> void = run(
-    assert(.cond: size([]) == 0),
-    assert(.cond: size([1]) == 1),
-    assert(.cond: size([1, 2, 3, 4, 5]) == 5)
+    assert(cond: size([]) == 0),
+    assert(cond: size([1]) == 1),
+    assert(cond: size([1, 2, 3, 4, 5]) == 5)
 )

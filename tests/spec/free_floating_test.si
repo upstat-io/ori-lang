@@ -7,13 +7,13 @@
 // @test_arithmetic () -> void = run(
 //     let a = 2 + 3,
 //     let b = 10 - 5,
-//     assert_eq(.left: a, .right: b)
+//     assert_eq(left: a, right: b)
 // )
 
 // Another free-floating test
 // TODO: Fix assert_eq to use .actual/.expected not .left/.right
 // @test_boolean_logic () -> void = run(
-//     assert_eq(.left: true && true, .right: true),
-//     assert_eq(.left: true && false, .right: false),
-//     assert_eq(.left: false || true, .right: true)
+//     assert_eq(left: true && true, right: true),
+//     assert_eq(left: true && false, right: false),
+//     assert_eq(left: false || true, right: true)
 // )

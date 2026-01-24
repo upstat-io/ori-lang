@@ -407,8 +407,8 @@ type IpcChannelPair<T> = {
 @process_batch (items: [Item]) -> [Result<Output, Error>] uses Async =
     task_group(
         .spawn: group -> for item in items do group.spawn(process(item)),
-        .on_error: cancel_remaining,  // or: collect_all
-        .timeout: 30s,
+        on_error: cancel_remaining,  // or: collect_all
+        timeout: 30s,
     )
 ```
 
@@ -417,7 +417,7 @@ type IpcChannelPair<T> = {
 ```sigil
 @complex_workflow () -> Result<Data, Error> uses Async =
     nursery(
-        .tasks: n -> run(
+        tasks: n -> run(
             // Spawn tasks dynamically
             n.spawn(fetch_config()),
 
@@ -427,7 +427,7 @@ type IpcChannelPair<T> = {
             for endpoint in config.endpoints do
                 n.spawn(fetch_data(endpoint)),
         ),
-        .on_error: cancel_all,
+        on_error: cancel_all,
     )
 ```
 
@@ -458,13 +458,13 @@ trait ProcessIsolation {}
 // Function signatures become more precise
 @cpu_bound_work (data: [int]) -> int uses Parallel =
     parallel(
-        .tasks: map(chunk(data, 1000), sum),
+        tasks: map(chunk(data, 1000), sum),
     ).fold(0, +)
 
 @io_bound_work (urls: [str]) -> [Data] uses Http, AsyncIO =
     parallel(
-        .tasks: map(urls, Http.get),
-        .max_concurrent: 10,
+        tasks: map(urls, Http.get),
+        max_concurrent: 10,
     )
 ```
 
@@ -517,7 +517,7 @@ trait Sendable {
             ],
             // Or fair scheduling (round-robin)
             // .fair: [...],
-            .timeout: 1s -> check_health(),
+            timeout: 1s -> check_health(),
             .closed: break,
         ),
     )
@@ -716,7 +716,7 @@ Role-based channels change the Channel API. Migration strategy:
     parallel(
         .parse: pipe(input, stage1_out, parse),
         .validate: pipe(stage1_in, stage2_out, validate),
-        .transform: pipe(stage2_in, final_out, transform),
+        transform: pipe(stage2_in, final_out, transform),
     ),
 
     final_out,

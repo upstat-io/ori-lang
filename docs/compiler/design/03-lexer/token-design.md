@@ -180,7 +180,7 @@ $timeout = 30s
 $max_retries = 3
 ```
 
-### .name: (Named Arguments)
+### name: (Named Arguments)
 
 ```rust
 Dot,        // .
@@ -188,7 +188,7 @@ Identifier, // name
 Colon,      // :
 
 // Parsed as: Dot Identifier Colon
-map(.over: items, .transform: fn)
+map(over: items, transform: fn)
 ```
 
 ### # (Attributes)

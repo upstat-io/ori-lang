@@ -25,7 +25,7 @@ use super::PatternExecutor;
 /// in a single pass over the input collection.
 #[derive(Clone, Debug)]
 pub enum FusedPattern {
-    /// map followed by filter: `filter(.over: map(.over: xs, .transform: f), .predicate: p)`
+    /// map followed by filter: `filter(over: map(over: xs, transform: f), predicate: p)`
     /// Evaluates as: for x in xs, let y = f(x), if p(y) then yield y
     MapFilter {
         input: ExprId,
@@ -33,7 +33,7 @@ pub enum FusedPattern {
         filter_fn: ExprId,
     },
 
-    /// filter followed by map: `map(.over: filter(.over: xs, .predicate: p), .transform: f)`
+    /// filter followed by map: `map(over: filter(over: xs, predicate: p), transform: f)`
     /// Evaluates as: for x in xs, if p(x) then yield f(x)
     FilterMap {
         input: ExprId,
@@ -41,7 +41,7 @@ pub enum FusedPattern {
         map_fn: ExprId,
     },
 
-    /// map followed by fold: `fold(.over: map(.over: xs, .transform: f), .init: i, .op: g)`
+    /// map followed by fold: `fold(over: map(over: xs, transform: f), init: i, op: g)`
     /// Evaluates as: acc = i; for x in xs, acc = g(acc, f(x)); return acc
     MapFold {
         input: ExprId,
@@ -50,7 +50,7 @@ pub enum FusedPattern {
         fold_fn: ExprId,
     },
 
-    /// filter followed by fold: `fold(.over: filter(.over: xs, .predicate: p), .init: i, .op: g)`
+    /// filter followed by fold: `fold(over: filter(over: xs, predicate: p), init: i, op: g)`
     /// Evaluates as: acc = i; for x in xs, if p(x) then acc = g(acc, x); return acc
     FilterFold {
         input: ExprId,
@@ -69,7 +69,7 @@ pub enum FusedPattern {
         fold_fn: ExprId,
     },
 
-    /// map followed by find: `find(.over: map(.over: xs, .transform: f), .where: p)`
+    /// map followed by find: `find(over: map(over: xs, transform: f), where: p)`
     /// Evaluates as: for x in xs, let y = f(x), if p(y) then return Some(y); return None
     MapFind {
         input: ExprId,
@@ -77,7 +77,7 @@ pub enum FusedPattern {
         find_fn: ExprId,
     },
 
-    /// filter followed by find: `find(.over: filter(.over: xs, .predicate: p1), .where: p2)`
+    /// filter followed by find: `find(over: filter(over: xs, predicate: p1), where: p2)`
     /// Evaluates as: for x in xs, if p1(x) && p2(x) then return Some(x); return None
     FilterFind {
         input: ExprId,

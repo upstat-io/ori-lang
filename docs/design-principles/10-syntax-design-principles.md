@@ -107,22 +107,22 @@ Syntactic patterns should be visually consistent.
 ```sigil
 // Good: All patterns use same named-property syntax
 fold(
-    .over: arr,
-    .init: 0,
-    .op: +,
+    over: arr,
+    init: 0,
+    op: +,
 )
 map(
-    .over: arr,
-    .transform: x -> x * 2,
+    over: arr,
+    transform: x -> x * 2,
 )
 filter(
-    .over: arr,
-    .predicate: x -> x > 0,
+    over: arr,
+    predicate: x -> x > 0,
 )
 recurse(
-    .cond: n <= 1,
-    .base: n,
-    .step: ...,
+    cond: n <= 1,
+    base: n,
+    step: ...,
 )
 
 // Bad: Inconsistent argument styles
@@ -160,7 +160,7 @@ Make behavior visible in syntax.
 
 ```sigil
 // Good: Explicit conversion
-result = str(.value: number) + suffix
+result = str(value: number) + suffix
 
 // Bad: Implicit conversion
 result = number + suffix  // Does this work? What type is result?
@@ -220,7 +220,7 @@ Sigils visually separate different kinds of names.
 |-------|---------|---------|
 | `@` | Function definition | Instantly recognizable |
 | `$` | Configuration | Distinguishes from variables |
-| `.name:` | Named argument | Can't confuse with variables |
+| `name:` | Named argument | Can't confuse with variables |
 | `_` | Unused binding | Explicit discard |
 
 **Why sigils work:**
@@ -237,7 +237,7 @@ A sigil should mean the same thing everywhere.
 ```sigil
 // Good: @ always means function definition
 @add (a: int, b: int) -> int = a + b
-@main () -> void = print(.msg: "hello")
+@main () -> void = print(msg: "hello")
 
 // Good: $ always means config
 $timeout = 30s
@@ -296,9 +296,9 @@ Code should be readable in error messages, diffs, and grep output.
 ```sigil
 // Good: Keywords provide context
 @sum (arr: [int]) -> int = fold(
-    .over: arr,
-    .init: 0,
-    .op: +,
+    over: arr,
+    init: 0,
+    op: +,
 )
 
 // Bad: Relies on color to distinguish
@@ -323,9 +323,9 @@ AI models work with tokens, not characters.
 ```sigil
 // Reasonable: Clear keywords, minimal punctuation
 @sum (arr: [int]) -> int = fold(
-    .over: arr,
-    .init: 0,
-    .op: +,
+    over: arr,
+    init: 0,
+    op: +,
 )
 
 // Could be more token-efficient but less clear
@@ -346,7 +346,7 @@ When AI generates broken syntax, errors should point to exact location.
 
 ```
 error[E001]: unexpected token
-  --> src/main.si:15:10
+  --> src/mainsi:15:10
    |
 15 |     @foo (x int) -> int = x
    |           ^^^ expected ':' before type
@@ -361,11 +361,11 @@ Syntax should support fine-grained references.
 ```sigil
 // Structure enables addressing
 @fetch_data (url: str) -> Result<Data, Error> = retry(
-    .op: http_get(.url: url),        // Address: @fetch_data.retry.op
-    .attempts: 3,                    // Address: @fetch_data.retry.attempts
-    .backoff: exponential(           // Address: @fetch_data.retry.backoff
-        .base: 100ms,                // Address: @fetch_data.retry.backoff.base
-        .max: 5s,                    // Address: @fetch_data.retry.backoff.max
+    op: http_get(url: url),        // Address: @fetch_data.retry.op
+    attempts: 3,                    // Address: @fetch_data.retry.attempts
+    backoff: exponential(           // Address: @fetch_data.retry.backoff
+        base: 100ms,                // Address: @fetch_data.retry.backoff.base
+        max: 5s,                    // Address: @fetch_data.retry.backoff.max
     ),
 )
 ```
@@ -384,8 +384,8 @@ cout << value;       // Stream output
 flags << 2;          // Bit shift
 
 // Good: Different operations have different syntax
-print(.msg: value)       // Output
-flags.shift_left(.n: 2)  // Bit operations
+print(msg: value)       // Output
+flags.shift_left(n: 2)  // Bit operations
 ```
 
 ### 7.2 Avoid Positional Sensitivity
@@ -399,7 +399,7 @@ x = (1,)   // tuple
 
 // Good: Consistent syntax
 x = 1                  // int
-x = tuple(.value: 1)   // tuple (explicit)
+x = tuple(value: 1)   // tuple (explicit)
 ```
 
 ### 7.3 Don't Fight Evolution
@@ -423,7 +423,7 @@ Design syntax that can grow without breaking.
 
 ```
 error[E002]: missing return type
-  --> src/main.si:5:1
+  --> src/mainsi:5:1
    |
 5  | @add (a: int, b: int) = a + b
    |                       ^ expected '->' and return type

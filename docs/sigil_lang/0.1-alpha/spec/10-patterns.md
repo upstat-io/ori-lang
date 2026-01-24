@@ -1,125 +1,32 @@
 # Patterns
 
-This section defines built-in patterns and function categories. These are language constructs distinct from regular function calls. There are three categories:
+Built-in control flow and data transformation constructs.
 
-- **function_seq** — Contains a sequence of expressions evaluated in order
-- **function_exp** — Contains named expressions (`.name: expr`)
-- **function_val** — Type conversion functions allowing positional syntax
+## Categories
 
-## Pattern Categories
+| Category | Syntax | Purpose |
+|----------|--------|---------|
+| `function_seq` | `run`, `try`, `match` | Sequential expressions |
+| `function_exp` | Named args (`name: expr`) | Data transformation |
+| `function_val` | `int`, `float`, `str`, `byte` | Type conversion |
 
-### function_seq
-
-A function_seq contains a sequence of expressions. Order is significant; expressions are evaluated serially. These are control flow constructs.
-
-```
-function_seq       = run_expr | try_expr | match_expr .
-```
-
-| Pattern | Purpose |
-|---------|---------|
-| `run` | Sequential execution with bindings |
-| `try` | Sequential execution with error propagation |
-| `match` | Pattern matching with ordered arms |
-
-### function_exp
-
-A function_exp contains named expressions. Each argument is a `.name: expr` pair. These are data transformation constructs and built-in functions.
+## Grammar
 
 ```
-function_exp       = ( pattern_name | builtin_name ) "(" named_exp { "," named_exp } [ "," ] ")" .
-pattern_name       = "map" | "filter" | "fold" | "recurse" | "collect" | "find"
-                   | "parallel" | "retry" | "cache" | "validate" | "timeout" | "with" .
-builtin_name       = "len" | "is_empty"
-                   | "is_some" | "is_none" | "is_ok" | "is_err"
-                   | "assert" | "assert_eq" | "assert_ne"
-                   | "assert_some" | "assert_none" | "assert_ok" | "assert_err"
-                   | "assert_panics" | "assert_panics_with"
-                   | "print" | "compare" | "min" | "max" | "panic" .
-named_exp          = "." identifier ":" expression .
+pattern_expr   = function_seq | function_exp | function_val .
+function_seq   = run_expr | try_expr | match_expr .
+function_exp   = pattern_name "(" named_arg { "," named_arg } ")" .
+function_val   = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
+named_arg      = identifier ":" expression .
 ```
 
-### function_val
-
-A function_val is a type conversion function. These allow positional argument syntax for brevity.
-
-```
-function_val       = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
-```
-
-**Patterns:**
-
-| Pattern | Purpose |
-|---------|---------|
-| `map` | Transform each element |
-| `filter` | Select matching elements |
-| `fold` | Reduce to single value |
-| `collect` | Build list from range |
-| `find` | Find first matching element |
-| `recurse` | Recursive computation |
-| `parallel` | Concurrent execution |
-| `timeout` | Time-bounded operation |
-| `retry` | Retry with backoff |
-| `cache` | Memoization with TTL |
-| `validate` | Input validation |
-| `with` | Resource management |
-
-**function_val (Type Conversions):**
-
-| Function | Purpose |
-|----------|---------|
-| `int`, `float`, `str`, `byte` | Type conversion (positional allowed) |
-
-**Core function_exp:**
-
-| Function | Purpose |
-|----------|---------|
-| `len`, `is_empty` | Collection inspection |
-| `is_some`, `is_none` | Option inspection |
-| `is_ok`, `is_err` | Result inspection |
-| `assert`, `assert_eq`, `assert_ne` | Assertion |
-| `assert_some`, `assert_none`, `assert_ok`, `assert_err` | Type-specific assertion |
-| `assert_panics`, `assert_panics_with` | Panic assertion |
-| `print` | Output |
-| `compare`, `min`, `max` | Comparison |
-| `panic` | Termination |
-
-See [Built-in Functions](11-built-in-functions.md) for complete signatures and semantics.
-
-## Combined Grammar
-
-```
-pattern_expr       = function_seq | function_exp | function_val .
-function_seq       = run_expr | try_expr | match_expr .
-function_exp       = ( pattern_name | core_func_name ) "(" named_exp { "," named_exp } [ "," ] ")" .
-function_val       = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
-pattern_name       = "map" | "filter" | "fold" | "recurse" | "collect" | "find"
-                   | "parallel" | "retry" | "cache" | "validate" | "timeout" | "with" .
-core_func_name     = "len" | "is_empty"
-                   | "is_some" | "is_none" | "is_ok" | "is_err"
-                   | "assert" | "assert_eq" | "assert_ne"
-                   | "assert_some" | "assert_none" | "assert_ok" | "assert_err"
-                   | "assert_panics" | "assert_panics_with"
-                   | "print" | "compare" | "min" | "max" | "panic" .
-named_exp          = "." identifier ":" expression .
-```
-
-## Sequential Execution
+## Sequential (function_seq)
 
 ### run
 
-The `run` pattern executes expressions sequentially with bindings.
-
 ```
-run_expr           = "run" "(" { binding "," } expression ")" .
-binding            = "let" [ "mut" ] identifier [ ":" type ] "=" expression .
+run_expr = "run" "(" { binding "," } expression ")" .
 ```
-
-**Semantics:**
-
-1. Evaluate each binding in order
-2. Each binding introduces a variable into scope for subsequent expressions
-3. The final expression is the result
 
 ```sigil
 run(
@@ -131,18 +38,7 @@ run(
 
 ### try
 
-The `try` pattern executes expressions, propagating errors.
-
-```
-try_expr           = "try" "(" { binding "," } expression ")" .
-```
-
-**Semantics:**
-
-1. Evaluate each binding in order
-2. If any binding expression returns a `Result<T, E>`, the binding variable has type `T`
-3. If any binding expression evaluates to `Err(e)`, return `Err(e)` immediately
-4. The final expression is the result (typically wrapped in `Ok`)
+Error-propagating sequence. Returns early on `Err`.
 
 ```sigil
 try(
@@ -152,410 +48,177 @@ try(
 )
 ```
 
-## Pattern Matching
-
 ### match
 
-The `match` pattern dispatches based on value patterns.
-
 ```
-match_expr         = "match" "(" expression "," match_arms ")" .
-match_arms         = match_arm { "," match_arm } [ "," ] .
-match_arm          = pattern [ guard ] "->" expression .
-guard              = "." "match" "(" expression ")" .
+match_expr = "match" "(" expression "," match_arm { "," match_arm } ")" .
+match_arm  = pattern [ guard ] "->" expression .
+guard      = ".match" "(" expression ")" .
 ```
-
-**Semantics:**
-
-1. Evaluate the scrutinee expression
-2. Test each arm's pattern in order
-3. If pattern matches (and guard passes), evaluate that arm's expression
-4. Return the result
 
 ```sigil
 match(status,
     Pending -> "waiting",
-    Running(p) -> "at " + str(p) + "%",
-    Done -> "complete",
-    Failed(e) -> "error: " + e,
+    Running(p) -> str(p) + "%",
+    x.match(x > 0) -> "positive",
+    _ -> "other",
 )
 ```
 
-### Match Patterns
+Match patterns:
 
 ```
-pattern            = literal_pattern
-                   | binding_pattern
-                   | wildcard_pattern
-                   | variant_pattern
-                   | struct_pattern
-                   | list_pattern
-                   | range_pattern
-                   | or_pattern
-                   | at_pattern .
-
-literal_pattern    = literal .
-binding_pattern    = identifier .
-wildcard_pattern   = "_" .
-variant_pattern    = type_path [ "(" [ pattern { "," pattern } ] ")" ] .
-struct_pattern     = "{" [ field_pattern { "," field_pattern } ] [ ".." ] "}" .
-field_pattern      = identifier [ ":" pattern ] .
-list_pattern       = "[" [ list_elem { "," list_elem } ] "]" .
-list_elem          = pattern | ".." [ identifier ] .
-range_pattern      = [ literal ] ".." [ literal ] | [ literal ] "..=" literal .
-or_pattern         = pattern "|" pattern .
-at_pattern         = identifier "@" pattern .
+pattern = literal | identifier | "_"
+        | type_path [ "(" pattern { "," pattern } ")" ]
+        | "{" [ field_pattern { "," field_pattern } ] [ ".." ] "}"
+        | "[" [ pattern { "," pattern } [ ".." identifier ] ] "]"
+        | pattern "|" pattern
+        | identifier "@" pattern
+        | literal ".." [ "=" ] literal .
 ```
 
-### Pattern Guards
+Match must be exhaustive.
 
-```sigil
-match(n,
-    x.match(x > 0 && x < 100) -> "in range",
-    _ -> "out of range",
-)
-```
-
-The guard expression must evaluate to `bool`. Variables bound by the pattern are in scope.
-
-### Exhaustiveness
-
-Match expressions must be exhaustive. It is an error if any possible value of the scrutinee type is not covered by some arm.
-
-## Data Transformation Patterns
+## Data Transformation (function_exp)
 
 ### map
 
-Transform each element in a collection.
-
 ```sigil
-map(
-    .over: collection,
-    .transform: function,
-)
+map(over: items, transform: x -> x * 2)
 ```
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `.over` | `[T]` | Collection to transform |
-| `.transform` | `T -> U` | Transformation function |
-
-**Result type:** `[U]`
+`[T]` × `(T -> U)` → `[U]`
 
 ### filter
 
-Select elements matching a predicate.
-
 ```sigil
-filter(
-    .over: collection,
-    .predicate: function,
-)
+filter(over: items, predicate: x -> x > 0)
 ```
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `.over` | `[T]` | Collection to filter |
-| `.predicate` | `T -> bool` | Selection predicate |
-
-**Result type:** `[T]`
+`[T]` × `(T -> bool)` → `[T]`
 
 ### fold
 
-Reduce a collection to a single value.
-
 ```sigil
-fold(
-    .over: collection,
-    .init: initial,
-    .op: operation,
-)
+fold(over: items, initial: 0, operation: (acc, x) -> acc + x)
 ```
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `.over` | `[T]` | Collection to fold |
-| `.init` | `U` | Initial accumulator |
-| `.op` | `(U, T) -> U` | Combining operation |
-
-**Result type:** `U`
+`[T]` × `U` × `((U, T) -> U)` → `U`
 
 ### collect
 
-Build a list from a range.
-
 ```sigil
-collect(
-    .range: range,
-    .transform: function,
-)
+collect(range: 1..=10, transform: n -> n * n)
 ```
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `.range` | Range | Range to iterate |
-| `.transform` | `int -> T` | Transformation |
-
-**Result type:** `[T]`
+`Range` × `(int -> T)` → `[T]`
 
 ### find
 
-Find the first element matching a predicate.
-
 ```sigil
-find(
-    .over: collection,
-    .where: predicate,
-    [ .default: fallback, ]
-)
+find(over: items, where: x -> x > 0)
+find(over: items, where: predicate, default: fallback)
+find(over: items, map: x -> parse(x))  // find_map variant
 ```
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `.over` | `[T]` | Collection to search |
-| `.where` | `T -> bool` | Predicate |
-| `.default` | `T` | Fallback (optional) |
-
-**Result type:** `Option<T>` without default, `T` with default.
-
-**Variant: find with transformation (find_map)**
-
-```sigil
-find(
-    .over: collection,
-    .map: transform,
-)
-```
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `.over` | `[T]` | Collection to search |
-| `.map` | `T -> Option<U>` | Transformation returning optional |
-
-Returns the first `Some(value)` produced by the transformation, or `None` if all return `None`.
-
-## Recursive Patterns
+Returns `Option<T>` without default, `T` with default.
 
 ### recurse
 
-Define a recursive function.
-
 ```sigil
 recurse(
-    .cond: condition,
-    .base: base_value,
-    .step: recursive_expression,
-    [ .memo: bool, ]
-    [ .parallel: threshold, ]
+    condition: n <= 1,
+    base: n,
+    step: self(n - 1) + self(n - 2),
+    memo: true,
 )
 ```
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `.cond` | `bool` | Base case condition |
-| `.base` | `T` | Value when condition true |
-| `.step` | `T` | Recursive expression (uses `self()`) |
-| `.memo` | `bool` | Enable memoization (default: false) |
-| `.parallel` | `int` | Parallelize above threshold (optional) |
+`self(...)` calls recursively. `memo: true` caches results for call duration.
 
-**Semantics:**
-
-Within `.step`, `self(...)` refers to the recursive function.
-
-Memoization (`.memo: true`) caches results for the duration of the top-level call. The cache is discarded when the call returns.
-
-```sigil
-@fibonacci (n: int) -> int = recurse(
-    .cond: n <= 1,
-    .base: n,
-    .step: self(n - 1) + self(n - 2),
-    .memo: true,
-)
-```
-
-## Concurrency Patterns
+## Concurrency
 
 ### parallel
 
-Execute tasks concurrently and wait for all to settle.
+Execute tasks, wait for all to settle.
 
 ```sigil
 parallel(
-    .tasks: task_list,
-    [ .max_concurrent: int, ]
-    [ .timeout: duration, ]
+    tasks: [get_user(id), get_posts(id)],
+    max_concurrent: 10,
+    timeout: 5s,
 )
 ```
 
-**Semantics:** All tasks run to completion (success or failure). The pattern always returns a list of results—it never fails itself. Errors are captured as `Err` values in the result list.
-
-**Properties:**
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `.tasks` | `[() -> T]` | List of task expressions |
-| `.max_concurrent` | `int` | Maximum concurrent tasks (optional) |
-| `.timeout` | `Duration` | Per-task timeout (optional) |
-
-**Result type:** `[Result<T, E>]`
-
-Each slot contains:
-- `Ok(value)` if the task succeeded
-- `Err(e)` if the task failed
-- `Err(TimeoutError)` if the task timed out
-
-**Examples:**
-
-```sigil
-// Fetch multiple users concurrently
-let results = parallel(
-    .tasks: map(.over: ids, .transform: id -> get_user(id)),
-    .max_concurrent: 10,
-)
-// results: [Result<User, Error>]
-
-// Handle results explicitly
-let users = filter(.over: results, .predicate: r -> is_ok(r))
-    |> map(.over: _, .transform: r -> r.unwrap())
-```
-
-```sigil
-// Fixed tasks with timeout
-let results = parallel(
-    .tasks: [get_user(id), get_posts(id), get_notifs(id)],
-    .timeout: 5s,
-)
-let user = results[0]?           // propagate error
-let posts = results[1] ?? []     // default on error
-let notifs = results[2] ?? []    // default on error
-```
+Returns `[Result<T, E>]`. Never fails; errors captured in results.
 
 ### spawn
 
-Execute tasks concurrently without waiting (fire and forget).
+Fire and forget.
 
 ```sigil
-spawn(
-    .tasks: task_list,
-    [ .max_concurrent: int, ]
-)
+spawn(tasks: [send_email(u) for u in users])
 ```
 
-**Semantics:** Tasks are started but not awaited. Errors are silently discarded. Use for side effects where results are not needed.
-
-**Properties:**
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `.tasks` | `[() -> T]` | List of task expressions |
-| `.max_concurrent` | `int` | Maximum concurrent tasks (optional) |
-
-**Result type:** `void`
-
-**Examples:**
-
-```sigil
-// Fire and forget - send notifications, don't wait
-spawn(
-    .tasks: map(.over: users, .transform: u -> send_notification(u)),
-)
-
-// Log analytics events
-spawn(
-    .tasks: [log_event(event), send_to_analytics(event)],
-)
-```
+Returns `void`. Errors discarded.
 
 ### timeout
 
-Limit operation execution time.
-
 ```sigil
-timeout(
-    .op: expression,
-    .after: duration,
-)
+timeout(op: fetch(url), after: 5s)
 ```
 
-**Result type:** `Result<T, TimeoutError>`
+Returns `Result<T, TimeoutError>`.
 
-## Resilience Patterns
+## Resilience
 
 ### retry
 
-Retry operations with backoff.
-
 ```sigil
-retry(
-    .op: expression,
-    .attempts: count,
-    [ .backoff: strategy, ]
-    [ .on: error_types, ]
-)
+retry(op: fetch(url), attempts: 3, backoff: exponential(base: 100ms))
 ```
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `.op` | `Result<T, E>` | Operation to retry |
-| `.attempts` | `int` | Maximum attempts |
-| `.backoff` | Backoff | Backoff strategy |
-| `.on` | `[ErrorType]` | Errors triggering retry |
 
 ### cache
 
-Cache results with optional TTL. Requires `Cache` capability.
-
 ```sigil
-cache(
-    .key: key_expression,
-    .op: expression,
-    [ .ttl: duration, ]
-)
+cache(key: url, op: fetch(url), ttl: 5m)
 ```
+
+Requires `Cache` capability.
 
 ### validate
 
-Validate input with error accumulation.
-
 ```sigil
 validate(
-    .rules: [ condition | "error", ... ],
-    .then: success_value,
+    rules: [
+        age >= 0 | "age must be non-negative",
+        name != "" | "name required",
+    ],
+    then: User { name, age },
 )
 ```
 
-**Result type:** `Result<T, [str]>`
+Returns `Result<T, [str]>`.
 
 ### with
 
-Resource management with cleanup.
+Resource management.
 
 ```sigil
 with(
-    .acquire: expression,
-    .use: resource -> expression,
-    .release: resource -> expression,
+    acquire: open_file(path),
+    use: f -> read_all(f),
+    release: f -> close(f),
 )
 ```
 
-The `.release` expression is always executed, even on error.
+`release` always runs.
 
 ## for Pattern
 
-The `for` pattern enables iteration with early exit.
-
 ```sigil
-for(
-    .over: collection,
-    [ .map: transform, ]
-    .match: pattern,
-    .default: fallback,
-)
+for(over: items, match: Some(x) -> x, default: 0)
+for(over: items, map: parse, match: Ok(v) -> v, default: fallback)
 ```
 
-**Semantics:**
-
-1. Iterate over `.over`
-2. Apply `.map` transformation (if provided)
-3. Test `.match` pattern
-4. Return first match, or `.default` if none
+Returns first match or default.

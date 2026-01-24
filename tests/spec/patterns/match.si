@@ -8,13 +8,13 @@
 @test_match_literal tests @match_literal () -> void = run(
     let result = match_literal(1),
     assert_eq(
-        .actual: result,
-        .expected: "one",
+        actual: result,
+        expected: "one",
     ),
     let result2 = match_literal(2),
     assert_eq(
-        .actual: result2,
-        .expected: "two",
+        actual: result2,
+        expected: "two",
     ),
 )
 
@@ -27,8 +27,8 @@
 @test_match_wildcard tests @match_wildcard () -> void = run(
     let result = match_wildcard(99),
     assert_eq(
-        .actual: result,
-        .expected: "other",
+        actual: result,
+        expected: "other",
     ),
 )
 
@@ -40,8 +40,8 @@
 @test_match_binding tests @match_binding () -> void = run(
     let result = match_binding(5),
     assert_eq(
-        .actual: result,
-        .expected: 10,
+        actual: result,
+        expected: 10,
     ),
 )
 
@@ -51,20 +51,20 @@
 
 @test_match_multiple_arms tests @match_multiple_arms () -> void = run(
     assert_eq(
-        .actual: match_multiple_arms(0),
-        .expected: "zero",
+        actual: match_multiple_arms(0),
+        expected: "zero",
     ),
     assert_eq(
-        .actual: match_multiple_arms(1),
-        .expected: "one",
+        actual: match_multiple_arms(1),
+        expected: "one",
     ),
     assert_eq(
-        .actual: match_multiple_arms(2),
-        .expected: "two",
+        actual: match_multiple_arms(2),
+        expected: "two",
     ),
     assert_eq(
-        .actual: match_multiple_arms(100),
-        .expected: "many",
+        actual: match_multiple_arms(100),
+        expected: "many",
     ),
 )
 
@@ -83,8 +83,8 @@
     let opt = Some(42),
     let result = match_option(opt),
     assert_eq(
-        .actual: result,
-        .expected: 42,
+        actual: result,
+        expected: 42,
     ),
 )
 
@@ -92,8 +92,8 @@
     let opt = None,
     let result = match_option(opt),
     assert_eq(
-        .actual: result,
-        .expected: 0,
+        actual: result,
+        expected: 0,
     ),
 )
 
@@ -109,16 +109,16 @@
 @test_match_result_ok tests @match_result_ok () -> void = run(
     let result = match_result(Ok(10)),
     assert_eq(
-        .actual: result,
-        .expected: 10,
+        actual: result,
+        expected: 10,
     ),
 )
 
 @test_match_result_err tests @match_result_err () -> void = run(
     let result = match_result(Err("error")),
     assert_eq(
-        .actual: result,
-        .expected: -1,
+        actual: result,
+        expected: -1,
     ),
 )
 

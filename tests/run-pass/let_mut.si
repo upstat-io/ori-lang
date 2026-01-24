@@ -7,9 +7,9 @@
 )
 
 @test_increment tests @increment () -> void = run(
-    assert_eq(.actual: increment(5), .expected: 6),
-    assert_eq(.actual: increment(0), .expected: 1),
-    assert_eq(.actual: increment(-1), .expected: 0)
+    assert_eq(actual: increment(5), expected: 6),
+    assert_eq(actual: increment(0), expected: 1),
+    assert_eq(actual: increment(-1), expected: 0)
 )
 
 @counter () -> int = run(
@@ -21,7 +21,7 @@
 )
 
 @test_counter tests @counter () -> void = run(
-    assert_eq(.actual: counter(), .expected: 3)
+    assert_eq(actual: counter(), expected: 3)
 )
 
 // Test immutable let (no reassignment)
@@ -31,6 +31,6 @@
 )
 
 @test_double tests @double () -> void = run(
-    assert_eq(.actual: double(5), .expected: 10),
-    assert_eq(.actual: double(0), .expected: 0)
+    assert_eq(actual: double(5), expected: 10),
+    assert_eq(actual: double(0), expected: 0)
 )
