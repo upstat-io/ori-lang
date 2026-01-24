@@ -89,7 +89,7 @@ Before, "shadowing as mutation" was clever but confusing:
 ```sigil
 // Old style: Is this mutation or shadowing?
 config = load_config()
-config = validate(.config: config)   // New binding? Same binding? Who knows!
+config = validate(config: config)   // New binding? Same binding? Who knows!
 ```
 
 ### 5. AI Code Generation
@@ -136,9 +136,9 @@ Shadowing is allowed with `let`. Each `let` creates a new binding:
 
 ```sigil
 @process (data: Data) -> Data = run(
-    let data = step1(.data: data),
-    let data = step2(.data: data),
-    let data = step3(.data: data),
+    let data = step1(data: data),
+    let data = step2(data: data),
+    let data = step3(data: data),
     data,
 )
 ```
@@ -186,8 +186,8 @@ let mut x = 0
 let mut y = 0
 let mut z = 0
 x = compute_x()
-y = compute_y(.x: x)
-z = compute_z(.x: x, .y: y)
+y = compute_y(x: x)
+z = compute_z(x: x, y: y)
 ```
 
 **Mitigation:**
@@ -221,9 +221,9 @@ let x = compute()
 let mut counter = 0   // Consider: is mutation necessary?
 
 // Multi-step with shadowing - stack
-let data = fetch(.url: url)
-let data = parse(.data: data)
-let data = validate(.data: data)
+let data = fetch(url: url)
+let data = parse(data: data)
+let data = validate(data: data)
 
 // Mutation loop - acceptable
 let mut total = 0
@@ -271,15 +271,15 @@ The language is now **more beautiful** because:
 
 ```sigil
 @process_items (items: [Item]) -> Summary = run(
-    let validated = validate_all(.items: items),
+    let validated = validate_all(items: items),
     let grouped = group_by(
-        .items: validated,
-        .key: .category,
+        items: validated,
+        key: .category,
     ),
 
     let mut total = 0,
     for group in grouped.values() do
-        total = total + sum_prices(.items: group),
+        total = total + sum_prices(items: group),
 
     Summary {
         items: validated,

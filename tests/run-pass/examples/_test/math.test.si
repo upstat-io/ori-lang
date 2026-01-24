@@ -3,25 +3,25 @@
 use "../math" { add, multiply, square }
 
 @test_add_positive tests @add () -> void = run(
-    assert(.cond: add(.a: 2, .b: 3) == 5),
-    assert(.cond: add(.a: 0, .b: 0) == 0),
-    assert(.cond: add(.a: 100, .b: 200) == 300)
+    assert(cond: add(a: 2, b: 3) == 5),
+    assert(cond: add(a: 0, b: 0) == 0),
+    assert(cond: add(a: 100, b: 200) == 300)
 )
 
 @test_add_negative tests @add () -> void = run(
-    assert(.cond: add(.a: -1, .b: 1) == 0),
-    assert(.cond: add(.a: -5, .b: -3) == -8)
+    assert(cond: add(a: -1, b: 1) == 0),
+    assert(cond: add(a: -5, b: -3) == -8)
 )
 
 @test_multiply tests @multiply () -> void = run(
-    assert(.cond: multiply(.a: 2, .b: 3) == 6),
-    assert(.cond: multiply(.a: 0, .b: 100) == 0),
-    assert(.cond: multiply(.a: -2, .b: 3) == -6)
+    assert(cond: multiply(a: 2, b: 3) == 6),
+    assert(cond: multiply(a: 0, b: 100) == 0),
+    assert(cond: multiply(a: -2, b: 3) == -6)
 )
 
 @test_square tests @square () -> void = run(
-    assert(.cond: square(0) == 0),
-    assert(.cond: square(1) == 1),
-    assert(.cond: square(5) == 25),
-    assert(.cond: square(-3) == 9)
+    assert(cond: square(0) == 0),
+    assert(cond: square(1) == 1),
+    assert(cond: square(5) == 25),
+    assert(cond: square(-3) == 9)
 )

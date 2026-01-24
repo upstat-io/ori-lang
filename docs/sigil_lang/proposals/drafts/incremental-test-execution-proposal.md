@@ -17,13 +17,13 @@ Two related changes to Sigil's testing system:
 ```sigil
 // Targeted test - runs during compilation when @add changes
 @test_add tests @add () -> void = run(
-    assert_eq(.actual: add(.a: 1, .b: 2), .expected: 3)
+    assert_eq(actual: add(a: 1, b: 2), expected: 3)
 )
 
 // Free-floating test - only runs via `sigil test`
 @integration_suite tests _ () -> void = run(
     let result = full_pipeline("input"),
-    assert_ok(.result: result)
+    assert_ok(result: result)
 )
 ```
 
@@ -211,15 +211,15 @@ Targeted tests run during compilation, so they should be fast.
 ```sigil
 // Good: targeted test is fast and focused
 @test_parse_int tests @parse_int () -> void = run(
-    assert_eq(.actual: parse_int("42"), .expected: Some(42)),
-    assert_eq(.actual: parse_int("abc"), .expected: None),
+    assert_eq(actual: parse_int("42"), expected: Some(42)),
+    assert_eq(actual: parse_int("abc"), expected: None),
 )
 
 // Good: slow test is free-floating
 @test_full_compile_cycle tests _ () -> void = run(
     let source = read_file("large_program.si"),
     let result = compile_and_run(source),
-    assert_ok(.result: result),
+    assert_ok(result: result),
 )
 ```
 
@@ -250,18 +250,18 @@ warning: targeted test @test_parse took 250ms
 
 // Targeted: runs when @add changes
 @test_add tests @add () -> void = run(
-    assert_eq(.actual: add(.a: 2, .b: 3), .expected: 5),
+    assert_eq(actual: add(a: 2, b: 3), expected: 5),
 )
 
 // Targeted: runs when @multiply changes
 @test_multiply tests @multiply () -> void = run(
-    assert_eq(.actual: multiply(.a: 2, .b: 3), .expected: 6),
+    assert_eq(actual: multiply(a: 2, b: 3), expected: 6),
 )
 
 // Free-floating: only runs via `sigil test`
 @test_math_integration tests _ () -> void = run(
-    let result = add(.a: multiply(.a: 2, .b: 3), .b: 1),
-    assert_eq(.actual: result, .expected: 7),
+    let result = add(a: multiply(a: 2, b: 3), b: 1),
+    assert_eq(actual: result, expected: 7),
 )
 ```
 
@@ -274,7 +274,7 @@ warning: targeted test @test_parse took 250ms
 
 // Runs when @helper OR @process changes
 @test_process tests @process () -> void = run(
-    assert_eq(.actual: process(5), .expected: 11),
+    assert_eq(actual: process(5), expected: 11),
 )
 ```
 
@@ -288,7 +288,7 @@ warning: targeted test @test_parse took 250ms
 @test_roundtrip tests @parse tests @format () -> void = run(
     let ast = parse("x + 1"),
     let output = format(ast),
-    assert_eq(.actual: output, .expected: "x + 1"),
+    assert_eq(actual: output, expected: "x + 1"),
 )
 ```
 
@@ -302,8 +302,8 @@ warning: targeted test @test_parse took 250ms
 // Fast unit test - runs during compilation
 @test_tokenize_basic tests @tokenize () -> void = run(
     assert_eq(
-        .actual: tokenize("1 + 2"),
-        .expected: [Int(1), Plus, Int(2)],
+        actual: tokenize("1 + 2"),
+        expected: [Int(1), Plus, Int(2)],
     ),
 )
 
@@ -311,7 +311,7 @@ warning: targeted test @test_parse took 250ms
 @test_tokenize_large_file tests _ () -> void = run(
     let input = read_file("fixtures/large.si"),
     let tokens = tokenize(input),
-    assert(.cond: len(.collection: tokens) > 10000),
+    assert(.cond: len(collection: tokens) > 10000),
 )
 ```
 

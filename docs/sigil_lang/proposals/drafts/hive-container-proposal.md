@@ -240,8 +240,8 @@ type Graph = {
     // Remove references to this node from all neighbors
     for node in g.nodes do run(
         node.neighbors = filter(
-            .over: node.neighbors,
-            .predicate: h -> h != handle
+            over: node.neighbors,
+            predicate: h -> h != handle
         )
     ),
     g.nodes.erase(handle)
@@ -556,7 +556,7 @@ type EntityHandle = Handle<Entity>    // Distinct from Handle<Component>
 ### Parallel Iteration
 
 ```sigil
-parallel(.over: hive, .op: entity -> update(entity))
+parallel(over: hive, op: entity -> update(entity))
 ```
 
 ### Serialization

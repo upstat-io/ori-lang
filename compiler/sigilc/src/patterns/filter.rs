@@ -1,6 +1,6 @@
 //! Filter pattern implementation.
 //!
-//! `filter(.over: collection, .predicate: fn)` - Keep elements matching predicate.
+//! `filter(over: collection, predicate: fn)` - Keep elements matching predicate.
 
 use crate::types::Type;
 use crate::eval::EvalResult;
@@ -11,9 +11,9 @@ use super::{
 
 /// The `filter` pattern keeps elements that match a predicate.
 ///
-/// Syntax: `filter(.over: items, .predicate: fn)`
+/// Syntax: `filter(over: items, predicate: fn)`
 ///
-/// Type: `filter(.over: [T], .predicate: T -> bool) -> [T]`
+/// Type: `filter(over: [T], predicate: T -> bool) -> [T]`
 pub struct FilterPattern;
 
 impl PatternDefinition for FilterPattern {
@@ -26,7 +26,7 @@ impl PatternDefinition for FilterPattern {
     }
 
     fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
-        // filter(.over: [T], .predicate: T -> bool) -> [T]
+        // filter(over: [T], predicate: T -> bool) -> [T]
         let over_ty = ctx.require_prop_type("over");
         // Return type is same as input type (same list element type)
         over_ty

@@ -15,7 +15,7 @@ use "../use_imports" {
 
 @test_import_alias_simple tests @plus () -> void = run(
     // 'add' imported as 'plus'
-    assert_eq(.actual: plus(.a: 3, .b: 4), .expected: 7)
+    assert_eq(actual: plus(a: 3, b: 4), expected: 7)
 )
 
 // Dummy function to satisfy test target requirement
@@ -24,7 +24,7 @@ use "../use_imports" {
 @test_import_alias_closure tests @create_multiplier () -> void = run(
     // 'make_multiplier' imported as 'create_multiplier'
     let times5 = create_multiplier(5),
-    assert_eq(.actual: times5(3), .expected: 15)
+    assert_eq(actual: times5(3), expected: 15)
 )
 
 // Dummy function to satisfy test target requirement
@@ -32,7 +32,7 @@ use "../use_imports" {
 
 @test_import_alias_all tests @twice () -> void = run(
     // 'double' imported as 'twice'
-    assert_eq(.actual: twice(8), .expected: 16)
+    assert_eq(actual: twice(8), expected: 16)
 )
 
 // Dummy function to satisfy test target requirement

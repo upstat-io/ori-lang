@@ -11,18 +11,18 @@
 // Demonstrate closure capturing in map
 // Each lambda captures the 'factor' value
 @scale_list (arr: [int], factor: int) -> [int] = map(
-    .over: arr,
-    .transform: x -> x * factor,
+    over: arr,
+    transform: x -> x * factor,
 )
 
 // Create a list of closures, each capturing a different value
 // Returns a list where each element is i squared
 @create_square_closures (n: int) -> [int] = map(
-    .over: collect(
-        .range: 0..n,
-        .transform: i -> i,
+    over: collect(
+        range: 0..n,
+        transform: i -> i,
     ),
-    .transform: i -> i * i,
+    transform: i -> i * i,
 )
 
 // Closure capturing multiple values
@@ -30,30 +30,30 @@
 
 // Using closures with filter - capture threshold
 @filter_above (arr: [int], threshold: int) -> [int] = filter(
-    .over: arr,
-    .predicate: x -> x > threshold,
+    over: arr,
+    predicate: x -> x > threshold,
 )
 
 // Closure in fold - capture an offset
 @sum_with_offset (arr: [int], offset: int) -> int = fold(
-    .over: arr,
-    .init: offset,
-    .op: (acc, x) -> acc + x,
+    over: arr,
+    init: offset,
+    op: (acc, x) -> acc + x,
 )
 
 @main () -> void = run(
     let add5 = make_adder(5),
-    print(.msg: "add5(10) = " + str(add5(10))),
+    print(msg: "add5(10) = " + str(add5(10))),
 
     let times3 = make_multiplier(3),
-    print(.msg: "times3(7) = " + str(times3(7))),
+    print(msg: "times3(7) = " + str(times3(7))),
 
-    print(.msg: "scale_list([1,2,3], 10) = " + str(scale_list(.arr: [1, 2, 3], .factor: 10))),
-    print(.msg: "create_square_closures(5) = " + str(create_square_closures(5))),
+    print(msg: "scale_list([1,2,3], 10) = " + str(scale_list(arr: [1, 2, 3], factor: 10))),
+    print(msg: "create_square_closures(5) = " + str(create_square_closures(5))),
 
-    let line = make_linear(.m: 2, .b: 3),
-    print(.msg: "line(5) = 2*5+3 = " + str(line(5))),
+    let line = make_linear(m: 2, b: 3),
+    print(msg: "line(5) = 2*5+3 = " + str(line(5))),
 
-    print(.msg: "filter_above([1,5,3,8,2], 3) = " + str(filter_above(.arr: [1, 5, 3, 8, 2], .threshold: 3))),
-    print(.msg: "sum_with_offset([1,2,3], 100) = " + str(sum_with_offset(.arr: [1, 2, 3], .offset: 100))),
+    print(msg: "filter_above([1,5,3,8,2], 3) = " + str(filter_above(arr: [1, 5, 3, 8, 2], threshold: 3))),
+    print(msg: "sum_with_offset([1,2,3], 100) = " + str(sum_with_offset(arr: [1, 2, 3], offset: 100))),
 )

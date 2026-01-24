@@ -31,7 +31,7 @@ const LIST_LITERAL: &str = r#"
 fn generate_n_functions(n: usize) -> String {
     (0..n)
         .map(|i| format!("@func{} (x: int) -> int = x + {}", i, i))
-        .collect::<Vec<_>>()
+        collect::<Vec<_>>()
         .join("\n")
 }
 
@@ -47,16 +47,16 @@ fn generate_nested_conditionals(depth: usize) -> String {
 /// Pattern expressions
 const PATTERN_MAP: &str = r#"
 @transform (items: [int]) -> [int] = map(
-    .over: items,
-    .transform: x -> x * 2,
+    over: items,
+    transform: x -> x * 2,
 )
 "#;
 
 const PATTERN_FOLD: &str = r#"
 @sum (items: [int]) -> int = fold(
-    .over: items,
-    .init: 0,
-    .op: (acc, x) -> acc + x,
+    over: items,
+    init: 0,
+    op: (acc, x) -> acc + x,
 )
 "#;
 

@@ -20,7 +20,7 @@ Sigil is designed as an "AI-first" language. The strict formatting rules (vertic
 
 Current state:
 ```
-  12..45: expected `.target:`, found `.target_value:`
+  12..45: expected `target:`, found `.target_value:`
 ```
 
 Proposed state (human):
@@ -31,10 +31,10 @@ error[E1010]: unknown pattern argument
 12 |     .target_value: 5,
    |     ^^^^^^^^^^^^^ unknown argument
    |
-   = note: valid arguments are: `.over:`, `.where:`, `.map:`
-   = help: did you mean `.target:`?
+   = note: valid arguments are: `over:`, `where:`, `.map:`
+   = help: did you mean `target:`?
 
-   fix available: replace `.target_value:` with `.target:`
+   fix available: replace `.target_value:` with `target:`
 ```
 
 Proposed state (JSON for AI/tooling):
@@ -49,10 +49,10 @@ Proposed state (JSON for AI/tooling):
     "labels": [
       { "span": { "line": 12, "column": 5, "len": 13 }, "message": "unknown argument", "primary": true }
     ],
-    "notes": ["valid arguments are: `.over:`, `.where:`, `.map:`"],
+    "notes": ["valid arguments are: `over:`, `where:`, `.map:`"],
     "fixes": [{
-      "message": "replace `.target_value:` with `.target:`",
-      "edits": [{ "span": { "start": 12, "end": 25 }, "replacement": ".target:" }],
+      "message": "replace `.target_value:` with `target:`",
+      "edits": [{ "span": { "start": 12, "end": 25 }, "replacement": "target:" }],
       "applicability": "maybe_incorrect"
     }]
   }],
@@ -218,10 +218,10 @@ error[E2001]: type mismatch
 15 |     x + 1
    |     ^^^^^ expected `int`, found `Option<int>`
    |
-   = help: use `.unwrap_or(.default: 0)` to provide a default
+   = help: use `.unwrap_or(default: 0)` to provide a default
    = help: or use `match` to handle the `None` case
 
-   fix: add `.unwrap_or(.default: 0)` [maybe-incorrect]
+   fix: add `.unwrap_or(default: 0)` [maybe-incorrect]
 ```
 
 ## Fix Categories by Applicability
@@ -236,7 +236,7 @@ These fixes are 100% correct and preserve semantics. Applied automatically.
 | Wrong indentation | Fix to 4 spaces | Sigil enforces indentation |
 | Inline comment | Move to own line | Sigil forbids inline comments |
 | Extra blank lines | Remove | Sigil forbids consecutive blanks |
-| Typo in pattern arg | `.targt:` → `.target:` | Only one valid spelling |
+| Typo in pattern arg | `.targt:` → `target:` | Only one valid spelling |
 | Named arg not stacked | Reformat vertically | Sigil requires vertical stacking |
 
 ### MaybeIncorrect (suggest but don't auto-apply by default)
@@ -338,8 +338,8 @@ These explain the problem but don't suggest specific fixes.
 )
 
 @test_add tests @add_numbers () -> void = run(
-    assert_eq(.actual: add_numbers(.a: 1, .b: 2), .expected: 3),
-    assert_eq(.actual: add_numbers(.a: -1 .b: 1), .expected: 0),  // missing comma
+    assert_eq(actual: add_numbers(a: 1, b: 2), expected: 3),
+    assert_eq(actual: add_numbers(a: -1 b: 1), expected: 0),  // missing comma
 )
 ```
 
@@ -369,7 +369,7 @@ Diagnostic {
 error[E1001]: expected `,` or `)` after argument
   --> src/math.si:8:35
    |
- 8 |     assert_eq(.actual: add_numbers(.a: -1 .b: 1), .expected: 0),
+ 8 |     assert_eq(actual: add_numbers(a: -1 b: 1), expected: 0),
    |                                    ------- ^ expected `,` here
    |                                    |
    |                                    after this argument

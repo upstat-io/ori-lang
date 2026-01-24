@@ -10,68 +10,68 @@
 
 @test_parallel_list_success tests @parallel_list_success () -> void = run(
     let results = parallel(
-        .tasks: [1 + 1, 2 + 2, 3 + 3],
+        tasks: [1 + 1, 2 + 2, 3 + 3],
     ),
     // Each result is wrapped in Ok
     assert_eq(
-        .actual: len(.collection: results),
-        .expected: 3,
+        actual: len(collection: results),
+        expected: 3,
     ),
 )
 
 @parallel_list_success () = run(
     parallel(
-        .tasks: [1 + 1, 2 + 2, 3 + 3],
+        tasks: [1 + 1, 2 + 2, 3 + 3],
     ),
 )
 
 @test_parallel_empty_tasks tests @parallel_empty_tasks () -> void = run(
     let results = parallel(
-        .tasks: [],
+        tasks: [],
     ),
     assert_eq(
-        .actual: len(.collection: results),
-        .expected: 0,
+        actual: len(collection: results),
+        expected: 0,
     ),
 )
 
 @parallel_empty_tasks () = run(
     parallel(
-        .tasks: [],
+        tasks: [],
     ),
 )
 
 @test_parallel_single_task tests @parallel_single_task () -> void = run(
     let results = parallel(
-        .tasks: [42],
+        tasks: [42],
     ),
     assert_eq(
-        .actual: len(.collection: results),
-        .expected: 1,
+        actual: len(collection: results),
+        expected: 1,
     ),
 )
 
 @parallel_single_task () = run(
     parallel(
-        .tasks: [42],
+        tasks: [42],
     ),
 )
 
 // parallel with mixed Ok/Err values - all settle, none fail pattern itself
 @test_parallel_mixed_results tests @parallel_mixed_results () -> void = run(
     let results = parallel(
-        .tasks: [Ok(1), Err("failed"), Ok(3)],
+        tasks: [Ok(1), Err("failed"), Ok(3)],
     ),
     // All three results are preserved
     assert_eq(
-        .actual: len(.collection: results),
-        .expected: 3,
+        actual: len(collection: results),
+        expected: 3,
     ),
 )
 
 @parallel_mixed_results () = run(
     parallel(
-        .tasks: [Ok(1), Err("failed"), Ok(3)],
+        tasks: [Ok(1), Err("failed"), Ok(3)],
     ),
 )
 
@@ -81,19 +81,19 @@
 
 @test_parallel_with_timeout tests @parallel_with_timeout () -> void = run(
     let results = parallel(
-        .tasks: [1, 2, 3],
-        .timeout: 5s,
+        tasks: [1, 2, 3],
+        timeout: 5s,
     ),
     assert_eq(
-        .actual: len(.collection: results),
-        .expected: 3,
+        actual: len(collection: results),
+        expected: 3,
     ),
 )
 
 @parallel_with_timeout () = run(
     parallel(
-        .tasks: [1, 2, 3],
-        .timeout: 5s,
+        tasks: [1, 2, 3],
+        timeout: 5s,
     ),
 )
 
@@ -103,19 +103,19 @@
 
 @test_parallel_max_concurrent tests @parallel_max_concurrent () -> void = run(
     let results = parallel(
-        .tasks: [1, 2, 3, 4, 5],
-        .max_concurrent: 2,
+        tasks: [1, 2, 3, 4, 5],
+        max_concurrent: 2,
     ),
     assert_eq(
-        .actual: len(.collection: results),
-        .expected: 5,
+        actual: len(collection: results),
+        expected: 5,
     ),
 )
 
 @parallel_max_concurrent () = run(
     parallel(
-        .tasks: [1, 2, 3, 4, 5],
-        .max_concurrent: 2,
+        tasks: [1, 2, 3, 4, 5],
+        max_concurrent: 2,
     ),
 )
 
@@ -128,40 +128,40 @@
 
 @test_spawn_basic tests @spawn_basic () -> void = run(
     spawn(
-        .tasks: [1, 2, 3],
+        tasks: [1, 2, 3],
     ),
     // spawn returns void, so this just verifies it doesn't error
 )
 
 @spawn_basic () -> void = run(
     spawn(
-        .tasks: [1, 2, 3],
+        tasks: [1, 2, 3],
     ),
 )
 
 @test_spawn_empty tests @spawn_empty () -> void = run(
     spawn(
-        .tasks: [],
+        tasks: [],
     ),
 )
 
 @spawn_empty () -> void = run(
     spawn(
-        .tasks: [],
+        tasks: [],
     ),
 )
 
 @test_spawn_max_concurrent tests @spawn_max_concurrent () -> void = run(
     spawn(
-        .tasks: [1, 2, 3, 4],
-        .max_concurrent: 2,
+        tasks: [1, 2, 3, 4],
+        max_concurrent: 2,
     ),
 )
 
 @spawn_max_concurrent () -> void = run(
     spawn(
-        .tasks: [1, 2, 3, 4],
-        .max_concurrent: 2,
+        tasks: [1, 2, 3, 4],
+        max_concurrent: 2,
     ),
 )
 
@@ -174,71 +174,71 @@
 
 @test_timeout_success tests @timeout_success () -> void = run(
     let result = timeout(
-        .op: 42,
-        .after: 5s,
+        op: 42,
+        after: 5s,
     ),
     // Result should be Ok(42)
     assert(
-        .cond: is_ok(.result: result),
+        cond: is_ok(result: result),
     ),
 )
 
 @timeout_success () = run(
     timeout(
-        .op: 42,
-        .after: 5s,
+        op: 42,
+        after: 5s,
     ),
 )
 
 @test_timeout_with_expression tests @timeout_with_expression () -> void = run(
     let result = timeout(
-        .op: 10 + 20 + 30,
-        .after: 1000ms,
+        op: 10 + 20 + 30,
+        after: 1000ms,
     ),
     // Result should be Ok(60)
     assert(
-        .cond: is_ok(.result: result),
+        cond: is_ok(result: result),
     ),
 )
 
 @timeout_with_expression () = run(
     timeout(
-        .op: 10 + 20 + 30,
-        .after: 1000ms,
+        op: 10 + 20 + 30,
+        after: 1000ms,
     ),
 )
 
 @test_timeout_with_minutes tests @timeout_with_minutes () -> void = run(
     let result = timeout(
-        .op: "hello",
-        .after: 2m,
+        op: "hello",
+        after: 2m,
     ),
     assert(
-        .cond: is_ok(.result: result),
+        cond: is_ok(result: result),
     ),
 )
 
 @timeout_with_minutes () = run(
     timeout(
-        .op: "hello",
-        .after: 2m,
+        op: "hello",
+        after: 2m,
     ),
 )
 
 @test_timeout_with_hours tests @timeout_with_hours () -> void = run(
     let result = timeout(
-        .op: true,
-        .after: 1h,
+        op: true,
+        after: 1h,
     ),
     assert(
-        .cond: is_ok(.result: result),
+        cond: is_ok(result: result),
     ),
 )
 
 @timeout_with_hours () = run(
     timeout(
-        .op: true,
-        .after: 1h,
+        op: true,
+        after: 1h,
     ),
 )
 
@@ -250,18 +250,18 @@
 
 @test_retry_immediate_success tests @retry_immediate_success () -> void = run(
     let result = retry(
-        .op: Ok(100),
-        .attempts: 3,
+        op: Ok(100),
+        attempts: 3,
     ),
     assert(
-        .cond: is_ok(.result: result),
+        cond: is_ok(result: result),
     ),
 )
 
 @retry_immediate_success () = run(
     retry(
-        .op: Ok(100),
-        .attempts: 3,
+        op: Ok(100),
+        attempts: 3,
     ),
 )
 
@@ -273,35 +273,35 @@
 
 @test_cache_compute tests @cache_compute () -> void = run(
     let result = cache(
-        .compute: 42,
+        compute: 42,
     ),
     assert_eq(
-        .actual: result,
-        .expected: 42,
+        actual: result,
+        expected: 42,
     ),
 )
 
 @cache_compute () -> int = run(
     cache(
-        .compute: 42,
+        compute: 42,
     ),
 )
 
 @test_cache_with_key tests @cache_with_key () -> void = run(
     let result = cache(
-        .key: "test_key",
-        .compute: 100,
+        key: "test_key",
+        compute: 100,
     ),
     assert_eq(
-        .actual: result,
-        .expected: 100,
+        actual: result,
+        expected: 100,
     ),
 )
 
 @cache_with_key () -> int = run(
     cache(
-        .key: "test_key",
-        .compute: 100,
+        key: "test_key",
+        compute: 100,
     ),
 )
 

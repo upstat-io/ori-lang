@@ -1,7 +1,7 @@
 //! Find pattern implementation.
 //!
-//! `find(.over: collection, .where: fn)` - Find first matching element.
-//! `find(.over: collection, .map: fn)` - Find first Some from transformation (find_map).
+//! `find(over: collection, where: fn)` - Find first matching element.
+//! `find(over: collection, map: fn)` - Find first Some from transformation (find_map).
 
 use crate::types::Type;
 use crate::eval::{Value, EvalResult};
@@ -9,10 +9,10 @@ use super::{PatternDefinition, TypeCheckContext, EvalContext, PatternExecutor, I
 
 /// The `find` pattern finds the first element matching a predicate.
 ///
-/// Syntax: `find(.over: items, .where: fn)` or `find(.over: items, .map: fn)`
+/// Syntax: `find(over: items, where: fn)` or `find(over: items, map: fn)`
 ///
-/// Regular find: `find(.over: [T], .where: T -> bool) -> Option<T>`
-/// Find map: `find(.over: [T], .map: T -> Option<U>) -> Option<U>`
+/// Regular find: `find(over: [T], where: T -> bool) -> Option<T>`
+/// Find map: `find(over: [T], map: T -> Option<U>) -> Option<U>`
 pub struct FindPattern;
 
 impl PatternDefinition for FindPattern {
@@ -34,12 +34,12 @@ impl PatternDefinition for FindPattern {
         let has_map = ctx.get_prop_type("map").is_some();
 
         if has_map {
-            // find_map: .map: T -> Option<U>, returns Option<U>
+            // find_map: map: T -> Option<U>, returns Option<U>
             // The return type is Option<U> where U is the inner type of the map's return
             let fresh = ctx.fresh_var();
             ctx.option_of(fresh)
         } else {
-            // Regular find: .where: T -> bool, returns Option<T>
+            // Regular find: where: T -> bool, returns Option<T>
             match over_ty {
                 Type::List(elem_ty) => ctx.option_of(*elem_ty),
                 Type::Range(elem_ty) => ctx.option_of(*elem_ty),

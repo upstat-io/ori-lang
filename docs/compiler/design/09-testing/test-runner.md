@@ -237,16 +237,16 @@ fn format_json(results: &TestResults) -> String {
         "passed": results.passed.iter().map(|(n, d)| json!({
             "name": n.to_string(),
             "duration_ms": d.as_millis(),
-        })).collect::<Vec<_>>(),
+        }))collect::<Vec<_>>(),
         "failed": results.failed.iter().map(|(n, e, d)| json!({
             "name": n.to_string(),
             "error": e.message,
             "duration_ms": d.as_millis(),
-        })).collect::<Vec<_>>(),
+        }))collect::<Vec<_>>(),
         "skipped": results.skipped.iter().map(|(n, r)| json!({
             "name": n.to_string(),
             "reason": r,
-        })).collect::<Vec<_>>(),
+        }))collect::<Vec<_>>(),
         "summary": {
             "passed": results.passed.len(),
             "failed": results.failed.len(),

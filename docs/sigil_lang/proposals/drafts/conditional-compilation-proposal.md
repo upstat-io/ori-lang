@@ -258,7 +258,7 @@ Usage:
 #[target(not_arch: "x86_64")]
 @fast_checksum (data: [byte]) -> int =
     // Scalar fallback
-    fold(.over: data, .init: 0, .op: (acc, b) -> acc ^ int(b))
+    fold(over: data, init: 0, op: (acc, b) -> acc ^ int(b))
 ```
 
 ### Debug-Only Logging

@@ -8,23 +8,23 @@
 @test_infer_option_type tests @infer_option_type () -> void = run(
     // Option type inferred from argument
     let opt = Some(42),
-    assert(.cond: is_some(.opt: opt)),
+    assert(cond: is_some(opt: opt)),
 )
 
 @infer_option_type () -> bool = run(
     let opt = Some(42),
-    is_some(.opt: opt),
+    is_some(opt: opt),
 )
 
 @test_infer_result_type tests @infer_result_type () -> void = run(
     // Result type inferred from argument
     let res = Ok(42),
-    assert(.cond: is_ok(.result: res)),
+    assert(cond: is_ok(result: res)),
 )
 
 @infer_result_type () -> bool = run(
     let res = Ok(42),
-    is_ok(.result: res),
+    is_ok(result: res),
 )
 
 @test_infer_list_type tests @infer_list_type () -> void = run(
@@ -32,8 +32,8 @@
     let nums = [1, 2, 3],
     let first = nums[0],
     assert_eq(
-        .actual: first,
-        .expected: 1,
+        actual: first,
+        expected: 1,
     ),
 )
 
@@ -45,12 +45,12 @@
 @test_infer_nested_generic tests @infer_nested_generic () -> void = run(
     // Nested generics inferred
     let nested = Some([1, 2, 3]),
-    assert(.cond: is_some(.opt: nested)),
+    assert(cond: is_some(opt: nested)),
 )
 
 @infer_nested_generic () -> bool = run(
     let nested = Some([1, 2, 3]),
-    is_some(.opt: nested),
+    is_some(opt: nested),
 )
 
 // =============================================================================
@@ -61,8 +61,8 @@
     // Return type annotation guides inference
     let result = infer_from_return_type(),
     assert_eq(
-        .actual: result,
-        .expected: 42,
+        actual: result,
+        expected: 42,
     ),
 )
 
@@ -72,8 +72,8 @@
     // Parameter type guides inference
     let result = process_int(42),
     assert_eq(
-        .actual: result,
-        .expected: 84,
+        actual: result,
+        expected: 84,
     ),
 )
 
@@ -88,8 +88,8 @@
     let f = x -> x + 1,
     let result = f(5),
     assert_eq(
-        .actual: result,
-        .expected: 6,
+        actual: result,
+        expected: 6,
     ),
 )
 
@@ -103,8 +103,8 @@
     let f = (x: int) -> x + 1,
     let result = f(5),
     assert_eq(
-        .actual: result,
-        .expected: 6,
+        actual: result,
+        expected: 6,
     ),
 )
 
@@ -119,8 +119,8 @@
     let double = x -> x * 2,
     let result = double(inc(5)),
     assert_eq(
-        .actual: result,
-        .expected: 12,
+        actual: result,
+        expected: 12,
     ),
 )
 

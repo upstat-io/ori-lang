@@ -215,7 +215,7 @@ mod tests {
 
         let fold = registry.get(FunctionExpKind::Fold).unwrap();
         assert!(fold.required_props().contains(&"over"));
-        assert!(fold.required_props().contains(&"init"));
-        assert!(fold.required_props().contains(&"op"));
+        assert!(fold.required_props().contains(&"initial"));
+        assert!(fold.required_props().contains(&"operation"));
     }
 }

@@ -8,8 +8,8 @@
 @test_let_inferred tests @let_inferred () -> void = run(
     let x = 42,
     assert_eq(
-        .actual: x,
-        .expected: 42,
+        actual: x,
+        expected: 42,
     ),
 )
 
@@ -21,8 +21,8 @@
 @test_let_string tests @let_string () -> void = run(
     let s = "hello",
     assert_eq(
-        .actual: s,
-        .expected: "hello",
+        actual: s,
+        expected: "hello",
     ),
 )
 
@@ -38,8 +38,8 @@
 @test_let_annotated_int tests @let_annotated_int () -> void = run(
     let x: int = 42,
     assert_eq(
-        .actual: x,
-        .expected: 42,
+        actual: x,
+        expected: 42,
     ),
 )
 
@@ -51,8 +51,8 @@
 @test_let_annotated_str tests @let_annotated_str () -> void = run(
     let s: str = "world",
     assert_eq(
-        .actual: s,
-        .expected: "world",
+        actual: s,
+        expected: "world",
     ),
 )
 
@@ -63,7 +63,7 @@
 
 @test_let_annotated_bool tests @let_annotated_bool () -> void = run(
     let b: bool = true,
-    assert(.cond: b),
+    assert(cond: b),
 )
 
 @let_annotated_bool () -> bool = run(
@@ -73,8 +73,8 @@
 
 @test_let_annotated_float tests @let_annotated_float () -> void = run(
     let f: float = 3.14,
-    assert(.cond: f > 3.0),
-    assert(.cond: f < 4.0),
+    assert(cond: f > 3.0),
+    assert(cond: f < 4.0),
 )
 
 @let_annotated_float () -> float = run(
@@ -85,8 +85,8 @@
 @test_let_annotated_char tests @let_annotated_char () -> void = run(
     let c: char = 'x',
     assert_eq(
-        .actual: c,
-        .expected: 'x',
+        actual: c,
+        expected: 'x',
     ),
 )
 
@@ -103,8 +103,8 @@
     let x = 1,
     let x = x + 1,
     assert_eq(
-        .actual: x,
-        .expected: 2,
+        actual: x,
+        expected: 2,
     ),
 )
 
@@ -118,8 +118,8 @@
     let x = 42,
     let x = str(x),
     assert_eq(
-        .actual: x,
-        .expected: "42",
+        actual: x,
+        expected: "42",
     ),
 )
 

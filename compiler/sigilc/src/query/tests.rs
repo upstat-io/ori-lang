@@ -257,15 +257,15 @@ fn test_tokens_with_patterns() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.si"),
-        "map(.over: items, .transform: fn)".to_string(),
+        "map(over: items, transform: fn)".to_string(),
     );
 
     let toks = tokens(&db, file);
 
-    // map ( .over : items , .transform : fn )
+    // map ( over : items , transform : fn )
     assert!(matches!(toks[0].kind, TokenKind::Map));
     assert!(matches!(toks[1].kind, TokenKind::LParen));
-    assert!(matches!(toks[2].kind, TokenKind::Dot));
+    assert!(matches!(toks[2].kind, TokenKind::Ident(_)));
 }
 
 // ===== PARSED QUERY TESTS =====
@@ -708,8 +708,8 @@ fn test_evaluated_map_pattern() {
         &db,
         PathBuf::from("/test.si"),
         r#"@main () = map(
-            .over: [1, 2, 3],
-            .transform: (x: int) -> x * 2
+            over: [1, 2, 3],
+            transform: (x: int) -> x * 2
         )"#.to_string(),
     );
 
@@ -739,8 +739,8 @@ fn test_evaluated_filter_pattern() {
         &db,
         PathBuf::from("/test.si"),
         r#"@main () = filter(
-            .over: [1, 2, 3, 4, 5],
-            .predicate: (x: int) -> x > 2
+            over: [1, 2, 3, 4, 5],
+            predicate: (x: int) -> x > 2
         )"#.to_string(),
     );
 
@@ -767,9 +767,9 @@ fn test_evaluated_fold_pattern() {
         &db,
         PathBuf::from("/test.si"),
         r#"@main () -> int = fold(
-            .over: [1, 2, 3, 4],
-            .init: 0,
-            .op: (acc: int, x: int) -> acc + x
+            over: [1, 2, 3, 4],
+            initial: 0,
+            operation: (acc: int, x: int) -> acc + x
         )"#.to_string(),
     );
 
@@ -789,8 +789,8 @@ fn test_evaluated_find_pattern() {
         &db,
         PathBuf::from("/test.si"),
         r#"@main () = find(
-            .over: [1, 2, 3, 4, 5],
-            .where: (x: int) -> x > 3
+            over: [1, 2, 3, 4, 5],
+            where: (x: int) -> x > 3
         )"#.to_string(),
     );
 
@@ -813,8 +813,8 @@ fn test_evaluated_find_pattern_not_found() {
         &db,
         PathBuf::from("/test.si"),
         r#"@main () = find(
-            .over: [1, 2, 3],
-            .where: (x: int) -> x > 10
+            over: [1, 2, 3],
+            where: (x: int) -> x > 10
         )"#.to_string(),
     );
 
@@ -834,8 +834,8 @@ fn test_evaluated_collect_pattern() {
         &db,
         PathBuf::from("/test.si"),
         r#"@main () = collect(
-            .range: 1..4,
-            .transform: (x: int) -> x * x
+            range: 1..4,
+            transform: (x: int) -> x * x
         )"#.to_string(),
     );
 
@@ -866,9 +866,9 @@ fn test_evaluated_recurse_pattern() {
         &db,
         PathBuf::from("/test.si"),
         r#"@main () -> int = recurse(
-            .cond: true,
-            .base: 42,
-            .step: self()
+            condition: true,
+            base: 42,
+            step: self()
         )"#.to_string(),
     );
 

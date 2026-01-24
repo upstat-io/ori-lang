@@ -8,6 +8,6 @@
 
 #[compile_fail("expected 2 arguments")]
 @test_wrong_arg_count () -> void = run(
-    let result = add(.a: 1),
+    let result = add(a: 1),
     ()
 )

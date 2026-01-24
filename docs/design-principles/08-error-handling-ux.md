@@ -9,7 +9,7 @@ Quick-reference guide to compiler error message design and developer experience.
 ### Core Components
 ```
 error[E0308]: mismatched types
-  --> src/main.rs:4:18
+  --> src/mainrs:4:18
    |
 3  |     let x: i32 = "hello";
    |            ---   ^^^^^^^ expected `i32`, found `&str`

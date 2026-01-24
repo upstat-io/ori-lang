@@ -167,8 +167,8 @@ SIGIL_DEBUG=patterns sigil run file.si
 Output:
 ```
 [PATTERNS] Evaluating: map
-  .over: [1, 2, 3]
-  .transform: <function>
+  over: [1, 2, 3]
+  transform: <function>
 
 [PATTERNS] map iteration:
   [0] transform(1) -> 2
@@ -192,7 +192,7 @@ if debug::is_enabled(DebugFlags::TOKENS) {
 
 ## IDE Integration
 
-For VS Code debugging, launch.json:
+For VS Code debugging, launchjson:
 
 ```json
 {

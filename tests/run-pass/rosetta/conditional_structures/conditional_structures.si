@@ -47,12 +47,12 @@
     else "hot"
 
 @main () -> void = run(
-    print(.msg: "abs(-5) = " + str(abs(-5))),
-    print(.msg: "sign(-3) = " + sign(-3)),
-    print(.msg: "grade(85) = " + grade(85)),
-    print(.msg: "classify(4) = " + classify_number(4)),
-    print(.msg: "classify(-3) = " + classify_number(-3)),
-    print(.msg: "max3(3, 7, 5) = " + str(max3(.a: 3, .b: 7, .c: 5))),
-    print(.msg: "can_vote(21, true) = " + str(can_vote(.age: 21, .is_citizen: true))),
-    print(.msg: "temperature_feel(15) = " + temperature_feel(15)),
+    print(msg: "abs(-5) = " + str(abs(-5))),
+    print(msg: "sign(-3) = " + sign(-3)),
+    print(msg: "grade(85) = " + grade(85)),
+    print(msg: "classify(4) = " + classify_number(4)),
+    print(msg: "classify(-3) = " + classify_number(-3)),
+    print(msg: "max3(3, 7, 5) = " + str(max3(a: 3, b: 7, c: 5))),
+    print(msg: "can_vote(21, true) = " + str(can_vote(age: 21, is_citizen: true))),
+    print(msg: "temperature_feel(15) = " + temperature_feel(15)),
 )

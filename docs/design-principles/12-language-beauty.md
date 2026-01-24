@@ -41,7 +41,7 @@ public static void main(String[] args) {
 print("Hello")
 
 // Sigil
-@main () -> void = print(.msg: "Hello")
+@main () -> void = print(msg: "Hello")
 ```
 
 **But simplicity ≠ brevity.** As one researcher notes: "In pursuing elegance, it is more important to be concise than merely brief." The C expression `while(i++ < 10)` is brief but not elegant.
@@ -61,10 +61,10 @@ Clarity means:
 ```sigil
 // Clear intent
 @fibonacci (n: int) -> int = recurse(
-    .cond: n <= 1,
-    .base: n,
-    .step: self(n - 1) + self(n - 2),
-    .memo: true,
+    cond: n <= 1,
+    base: n,
+    step: self(n - 1) + self(n - 2),
+    memo: true,
 )
 
 // vs. clever but opaque
@@ -84,17 +84,17 @@ Consistency means:
 ```sigil
 // Consistent pattern syntax
 fold(
-    .over: arr,
-    .init: 0,
-    .op: +,
+    over: arr,
+    init: 0,
+    op: +,
 )
 map(
-    .over: arr,
-    .transform: x -> x * 2,
+    over: arr,
+    transform: x -> x * 2,
 )
 filter(
-    .over: arr,
-    .predicate: x -> x > 0,
+    over: arr,
+    predicate: x -> x > 0,
 )
 ```
 
@@ -139,9 +139,9 @@ Similar things appear grouped even when apart.
 
 ```sigil
 // Good: Consistent structure
-.over: items,
-.init: 0,
-.op: +,
+over: items,
+init: 0,
+op: +,
 
 // Bad: Inconsistent
 over=items, init: 0, .op -> +
@@ -169,12 +169,12 @@ The mind completes incomplete shapes.
 // Good: Clear boundaries
 @process () -> int = run(
     let x = fetch(),
-    let y = transform(.value: x),
+    let y = transform(value: x),
     x + y,
 )
 
 // Bad: Boundaries unclear (no trailing comma, cramped)
-@process () -> int = run(let x = fetch(), let y = transform(.value: x), x + y)
+@process () -> int = run(let x = fetch(), let y = transform(value: x), x + y)
 ```
 
 ---
@@ -186,7 +186,7 @@ The mind completes incomplete shapes.
 | Noisy | Clean | Why |
 |-------|-------|-----|
 | `function add(a, b) { return a + b; }` | `@add (a: int, b: int) -> int = a + b` | Less ceremony |
-| `arr.map(function(x) { return x * 2; })` | `map(.over: arr, .transform: x -> x * 2)` | Named args are self-documenting |
+| `arr.map(function(x) { return x * 2; })` | `map(over: arr, transform: x -> x * 2)` | Named args are self-documenting |
 | `if (condition) { x } else { y }` | `if condition then x else y` | Braces add noise for expressions |
 
 **Research finding:** Code with excessive brackets, operators, and special characters forces readers to "mentally parse complex syntax before understanding what the code does."
@@ -210,23 +210,23 @@ Whitespace communicates:
 // Good: Whitespace shows structure
 @process (items: [int]) -> int = run(
     let doubled = map(
-        .over: items,
-        .transform: x -> x * 2,
+        over: items,
+        transform: x -> x * 2,
     ),
     let filtered = filter(
-        .over: doubled,
-        .predicate: x -> x > 10,
+        over: doubled,
+        predicate: x -> x > 10,
     ),
 
     fold(
-        .over: filtered,
-        .init: 0,
-        .op: +,
+        over: filtered,
+        init: 0,
+        op: +,
     ),
 )
 
 // Bad: No visual hierarchy
-@process(items:[int])->int=run(doubled=map(.over:items,.transform:x->x*2),filtered=filter(.over:doubled,.predicate:x->x>10),fold(.over:filtered,.init:0,.op:+))
+@process(items:[int])->int=run(doubled=map(over:items,transform:x->x*2),filtered=filter(over:doubled,predicate:x->x>10),fold(over:filtered,init:0,op:+))
 ```
 
 ---
@@ -243,9 +243,9 @@ Code uses monospace fonts because:
 
 ```
 // Monospace alignment works
-.over:      items,
-.init:      0,
-.transform: x -> x * 2,
+over:      items,
+init:      0,
+transform: x -> x * 2,
 
 // vs. proportional would break this
 ```
@@ -264,7 +264,7 @@ Code uses monospace fonts because:
 **Sigils add information without altering words:**
 - `@fetch` — clearly a function
 - `$timeout` — clearly a config
-- `.over:` — clearly a named argument
+- `over:` — clearly a named argument
 
 ---
 
@@ -308,25 +308,25 @@ Stacked patterns create predictable vertical flow:
 
 ```sigil
 @fetch_data (url: str) -> Result<Data, Error> = retry(
-    .op: http_get(.url: url),
-    .attempts: 3,
-    .backoff: exponential(
-        .base: 100ms,
-        .max: 5s,
+    op: http_get(url: url),
+    attempts: 3,
+    backoff: exponential(
+        base: 100ms,
+        max: 5s,
     ),
 )
 ```
 
 ### 2. Low Noise
-The `@`, `$`, `.name:` sigils add signal, not noise — they communicate meaning instantly.
+The `@`, `$`, `name:` sigils add signal, not noise — they communicate meaning instantly.
 
 ### 3. Consistent Structure
 Every pattern follows the same form:
 
 ```sigil
 pattern(
-    .property: value,
-    .property: value,
+    property: value,
+    property: value,
 )
 ```
 
@@ -339,9 +339,9 @@ Patterns capture common operations so completely that alternatives feel unnatura
 ```sigil
 // This feels right
 @sum (arr: [int]) -> int = fold(
-    .over: arr,
-    .init: 0,
-    .op: +,
+    over: arr,
+    init: 0,
+    op: +,
 )
 
 // This feels like unnecessary work

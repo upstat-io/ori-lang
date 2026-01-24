@@ -16,9 +16,9 @@ use "../use_imports" {
 
 @test_import_simple_function tests @add () -> void = run(
     // Imported function should work like a local function
-    assert_eq(.actual: add(.a: 10, .b: 20), .expected: 30),
-    assert_eq(.actual: add(.a: -5, .b: 5), .expected: 0),
-    assert_eq(.actual: add(.a: 0, .b: 0), .expected: 0)
+    assert_eq(actual: add(a: 10, b: 20), expected: 30),
+    assert_eq(actual: add(a: -5, b: 5), expected: 0),
+    assert_eq(actual: add(a: 0, b: 0), expected: 0)
 )
 
 @test_import_function_returning_closure tests @make_multiplier () -> void = run(
@@ -27,21 +27,21 @@ use "../use_imports" {
     let times10 = make_multiplier(10),
 
     // The returned closures should capture the value correctly
-    assert_eq(.actual: times2(5), .expected: 10),
-    assert_eq(.actual: times10(5), .expected: 50),
+    assert_eq(actual: times2(5), expected: 10),
+    assert_eq(actual: times10(5), expected: 50),
 
     // Multiple calls should work
-    assert_eq(.actual: times2(100), .expected: 200)
+    assert_eq(actual: times2(100), expected: 200)
 )
 
 @test_import_function_using_private tests @double () -> void = run(
     // Public function that internally uses a private helper
-    assert_eq(.actual: double(7), .expected: 14),
-    assert_eq(.actual: double(0), .expected: 0)
+    assert_eq(actual: double(7), expected: 14),
+    assert_eq(actual: double(0), expected: 0)
 )
 
 @test_import_multi_param_function tests @calculate () -> void = run(
     // Function with multiple named parameters
-    assert_eq(.actual: calculate(.a: 1, .b: 2, .c: 3), .expected: 7),
-    assert_eq(.actual: calculate(.a: 0, .b: 5, .c: 10), .expected: 50)
+    assert_eq(actual: calculate(a: 1, b: 2, c: 3), expected: 7),
+    assert_eq(actual: calculate(a: 0, b: 5, c: 10), expected: 50)
 )

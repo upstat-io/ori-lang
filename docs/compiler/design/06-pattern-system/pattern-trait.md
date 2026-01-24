@@ -149,7 +149,7 @@ impl PatternDefinition for MapPattern {
         let result: Vec<Value> = over
             .iter()
             .map(|item| evaluator.call_function(&transform, vec![item.clone()]))
-            .collect::<Result<_, _>>()?;
+            collect::<Result<_, _>>()?;
 
         Ok(Value::List(Arc::new(result)))
     }

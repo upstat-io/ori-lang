@@ -11,70 +11,70 @@
 
 @test_validate_success tests @validate_success () -> void = run(
     let result = validate(
-        .value: 10,
-        .rules: [(x -> x > 0), (x -> x < 100)],
+        value: 10,
+        rules: [(x -> x > 0), (x -> x < 100)],
     ),
     assert(
-        .cond: is_ok(.result: result),
+        cond: is_ok(result: result),
     ),
 )
 
 @validate_success () = run(
     validate(
-        .value: 10,
-        .rules: [(x -> x > 0), (x -> x < 100)],
+        value: 10,
+        rules: [(x -> x > 0), (x -> x < 100)],
     ),
 )
 
 @test_validate_failure tests @validate_failure () -> void = run(
     let result = validate(
-        .value: -5,
-        .rules: [(x -> x > 0)],
+        value: -5,
+        rules: [(x -> x > 0)],
     ),
     assert(
-        .cond: is_err(.result: result),
+        cond: is_err(result: result),
     ),
 )
 
 @validate_failure () = run(
     validate(
-        .value: -5,
-        .rules: [(x -> x > 0)],
+        value: -5,
+        rules: [(x -> x > 0)],
     ),
 )
 
 @test_validate_multiple_rules tests @validate_multiple_rules () -> void = run(
     let result = validate(
-        .value: 50,
-        .rules: [(x -> x > 0), (x -> x < 100), (x -> x % 2 == 0)],
+        value: 50,
+        rules: [(x -> x > 0), (x -> x < 100), (x -> x % 2 == 0)],
     ),
     assert(
-        .cond: is_ok(.result: result),
+        cond: is_ok(result: result),
     ),
 )
 
 @validate_multiple_rules () = run(
     validate(
-        .value: 50,
-        .rules: [(x -> x > 0), (x -> x < 100), (x -> x % 2 == 0)],
+        value: 50,
+        rules: [(x -> x > 0), (x -> x < 100), (x -> x % 2 == 0)],
     ),
 )
 
 @test_validate_fails_third_rule tests @validate_fails_third_rule () -> void = run(
     let result = validate(
-        .value: 51,
-        .rules: [(x -> x > 0), (x -> x < 100), (x -> x % 2 == 0)],
+        value: 51,
+        rules: [(x -> x > 0), (x -> x < 100), (x -> x % 2 == 0)],
     ),
     // Should fail on third rule (not even)
     assert(
-        .cond: is_err(.result: result),
+        cond: is_err(result: result),
     ),
 )
 
 @validate_fails_third_rule () = run(
     validate(
-        .value: 51,
-        .rules: [(x -> x > 0), (x -> x < 100), (x -> x % 2 == 0)],
+        value: 51,
+        rules: [(x -> x > 0), (x -> x < 100), (x -> x % 2 == 0)],
     ),
 )
 

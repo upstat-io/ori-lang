@@ -174,7 +174,7 @@ identity("hello")
 
 ```sigil
 let xs = [1, 2, 3]
-let ys = map(.over: xs, .transform: x -> x * 2)
+let ys = map(over: xs, transform: x -> x * 2)
 ```
 
 ```
@@ -182,8 +182,8 @@ let ys = map(.over: xs, .transform: x -> x * 2)
    - 1 : Int, unify(T0, Int)
    - Result: [Int]
 2. map:
-   - .over: [Int]
-   - .transform: T1 -> T2
+   - over: [Int]
+   - transform: T1 -> T2
    - Unify(T1, Int) from element type
    - x * 2 : Int, so T2 = Int
    - Result: [Int]
@@ -268,7 +268,7 @@ Err(TypeError::Mismatch {
 Output:
 ```
 error[E2001]: type mismatch
- --> src/main.si:5:10
+ --> src/mainsi:5:10
   |
 5 |     42 + "hello"
   |          ^^^^^^^ expected int, found str

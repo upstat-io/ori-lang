@@ -34,22 +34,22 @@ pub @calculate (a: int, b: int, c: int) -> int = a + b * c
 // =============================================================================
 
 @test_add tests @add () -> void = run(
-    assert_eq(.actual: add(.a: 2, .b: 3), .expected: 5)
+    assert_eq(actual: add(a: 2, b: 3), expected: 5)
 )
 
 @test_make_multiplier tests @make_multiplier () -> void = run(
     let times3 = make_multiplier(3),
-    assert_eq(.actual: times3(5), .expected: 15)
+    assert_eq(actual: times3(5), expected: 15)
 )
 
 @test_internal_helper tests @internal_helper () -> void = run(
-    assert_eq(.actual: internal_helper(5), .expected: 10)
+    assert_eq(actual: internal_helper(5), expected: 10)
 )
 
 @test_double tests @double () -> void = run(
-    assert_eq(.actual: double(5), .expected: 10)
+    assert_eq(actual: double(5), expected: 10)
 )
 
 @test_calculate tests @calculate () -> void = run(
-    assert_eq(.actual: calculate(.a: 1, .b: 2, .c: 3), .expected: 7)
+    assert_eq(actual: calculate(a: 1, b: 2, c: 3), expected: 7)
 )

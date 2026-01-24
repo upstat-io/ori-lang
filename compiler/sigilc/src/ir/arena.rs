@@ -1,6 +1,6 @@
 //! Arena allocation for flat AST.
 //!
-//! Per design spec A-data-structures.md:
+//! Per design spec A-data-structuresmd:
 //! - Contiguous storage for all expressions
 //! - Cache-friendly iteration
 //! - Bulk deallocation

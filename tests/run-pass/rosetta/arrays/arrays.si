@@ -9,4 +9,4 @@
 
 @get_at (arr: [int], index: int) -> int = arr[index]
 
-@array_length (arr: [int]) -> int = len(.collection: arr)
+@array_length (arr: [int]) -> int = len(collection: arr)

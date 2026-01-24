@@ -315,7 +315,7 @@ fn eval_call(&mut self, callee: &Expr, args: &[Expr], env: &Env)
     let arg_vals: Vec<Value> = args
         .iter()
         .map(|a| self.eval(a, env))
-        .collect::<Result<_, _>>()?;
+        collect::<Result<_, _>>()?;
 
     match callee_val {
         Value::Function(func) => self.call_function(&func, arg_vals),
@@ -644,7 +644,7 @@ fn eval_memoized_call(&mut self, func: &Function, args: Vec<Value>)
     // Create cache key from args
     let key = args.iter()
         .map(|v| format!("{:?}", v))
-        .collect::<Vec<_>>()
+        collect::<Vec<_>>()
         .join(",");
 
     // Check cache

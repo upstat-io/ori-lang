@@ -1,6 +1,6 @@
 //! Diagnostic system for rich error reporting.
 //!
-//! Per design spec 02-design-principles.md:
+//! Per design spec 02-design-principlesmd:
 //! - Error codes for searchability
 //! - Clear messages (what went wrong)
 //! - Primary span (where it went wrong)

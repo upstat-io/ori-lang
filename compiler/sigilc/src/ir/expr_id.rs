@@ -1,6 +1,6 @@
 //! Expression IDs and ranges for flat AST.
 //!
-//! Per design spec A-data-structures.md:
+//! Per design spec A-data-structuresmd:
 //! - ExprId(u32) instead of Box<Expr> for 50% memory savings
 //! - ExprRange for argument lists (6 bytes vs 24+ for Vec)
 //! - All Salsa-required traits

@@ -95,6 +95,11 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
+    fn is_named_arg_start(&self) -> bool {
+        self.cursor.is_named_arg_start()
+    }
+
+    #[inline]
     fn soft_keyword_to_name(&self) -> Option<&'static str> {
         self.cursor.soft_keyword_to_name()
     }
@@ -419,7 +424,7 @@ mod tests {
 
     #[test]
     fn test_parse_function_exp_map() {
-        let result = parse_source("@test () = map(.over: [1, 2], .transform: (x) -> x)");
+        let result = parse_source("@test () = map(over: [1, 2], transform: (x) -> x)");
 
         if result.has_errors() {
             eprintln!("Parse errors: {:?}", result.errors);
@@ -441,8 +446,8 @@ mod tests {
     #[test]
     fn test_parse_map_multiline() {
         let result = parse_source(r#"@test () = map(
-            .over: [1, 2],
-            .transform: (x) -> x
+            over: [1, 2],
+            transform: (x) -> x
         )"#);
 
         if result.has_errors() {
@@ -486,8 +491,8 @@ mod tests {
     #[test]
     fn test_parse_collect_pattern() {
         let result = parse_source(r#"@main () = collect(
-            .range: 1..4,
-            .transform: (x: int) -> x * x
+            range: 1..4,
+            transform: (x: int) -> x * x
         )"#);
 
         for err in &result.errors {
@@ -504,7 +509,7 @@ mod tests {
 @add (a: int, b: int) -> int = a + b
 
 @test_add tests @add () -> void = run(
-    assert_eq(.left: add(.a: 1, .b: 2), .right: 3)
+    assert_eq(left: add(a: 1, b: 2), right: 3)
 )
 "#);
 
@@ -524,7 +529,7 @@ mod tests {
 @add (a: int, b: int) -> int = a + b
 
 @test_add tests @add () -> void = run(
-    @add(.a: 1, .b: 2)
+    @add(a: 1, b: 2)
 )
 "#);
 

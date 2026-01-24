@@ -41,7 +41,7 @@ parse_match()         // match(value, ...)
 // Calls
 parse_call()          // func(args)
 parse_method_call()   // obj.method(args)
-parse_pattern_call()  // map(.over: items, ...)
+parse_pattern_call()  // map(over: items, ...)
 
 // Structures
 parse_list()          // [1, 2, 3]

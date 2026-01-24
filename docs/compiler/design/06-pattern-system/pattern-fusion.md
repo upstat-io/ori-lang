@@ -14,8 +14,8 @@ Without fusion:
 ```sigil
 // Creates intermediate list after map
 filter(
-    .over: map(.over: items, .transform: x -> x * 2),
-    .predicate: x -> x > 10,
+    over: map(over: items, transform: x -> x * 2),
+    predicate: x -> x > 10,
 )
 ```
 
@@ -182,9 +182,9 @@ impl FusionOptimizer {
 ### map → map
 
 ```sigil
-map(.over: map(.over: xs, .transform: f), .transform: g)
+map(over: map(over: xs, transform: f), transform: g)
 // Becomes:
-map(.over: xs, .transform: x -> g(f(x)))
+map(over: xs, transform: x -> g(f(x)))
 ```
 
 ```rust
@@ -201,25 +201,25 @@ impl MapPattern {
 ### map → filter
 
 ```sigil
-filter(.over: map(.over: xs, .transform: f), .predicate: p)
+filter(over: map(over: xs, transform: f), predicate: p)
 // Becomes:
-map_filter(.over: xs, .transform: f, .predicate: p)
+map_filter(over: xs, transform: f, predicate: p)
 ```
 
 ### filter → filter
 
 ```sigil
-filter(.over: filter(.over: xs, .predicate: p1), .predicate: p2)
+filter(over: filter(over: xs, predicate: p1), predicate: p2)
 // Becomes:
-filter(.over: xs, .predicate: x -> p1(x) && p2(x))
+filter(over: xs, predicate: x -> p1(x) && p2(x))
 ```
 
 ### filter → map
 
 ```sigil
-map(.over: filter(.over: xs, .predicate: p), .transform: f)
+map(over: filter(over: xs, predicate: p), transform: f)
 // Becomes:
-filter_map(.over: xs, .predicate: p, .transform: f)
+filter_map(over: xs, predicate: p, transform: f)
 ```
 
 ## When Fusion Applies

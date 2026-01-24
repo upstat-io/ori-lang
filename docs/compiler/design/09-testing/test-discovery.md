@@ -128,7 +128,7 @@ pub fn check_mandatory_tests(module: &Module, discovery: &TestDiscovery) -> Vec<
 Error message:
 ```
 error: function `@process` has no test
- --> src/lib.si:10:1
+ --> src/libsi:10:1
    |
 10 | @process (data: Data) -> Result<Output, Error> = ...
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

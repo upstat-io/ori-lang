@@ -37,7 +37,7 @@ From the grammar reference, Sigil is largely LL(1):
 - **Clear expression boundaries:** Patterns use `(...)`, blocks use `run(...)`
 - **Unambiguous generics:** `<T>` appears only after identifiers in specific positions
 
-**Potential concern:** The `for` expression has two forms (imperative `for x in xs yield/do` and pattern `for(.over: ...)`) - but these are syntactically distinct via the leading paren.
+**Potential concern:** The `for` expression has two forms (imperative `for x in xs yield/do` and pattern `for(over: ...)`) - but these are syntactically distinct via the leading paren.
 
 ### 1.3 Avoid Syntactic Ambiguity with Types
 
@@ -80,35 +80,35 @@ Pattern syntax is remarkably consistent:
 
 ```sigil
 fold(
-    .over: arr,
-    .init: 0,
-    .op: +,
+    over: arr,
+    init: 0,
+    op: +,
 )
 map(
-    .over: arr,
-    .transform: x -> x * 2,
+    over: arr,
+    transform: x -> x * 2,
 )
 filter(
-    .over: arr,
-    .predicate: x -> x > 0,
+    over: arr,
+    predicate: x -> x > 0,
 )
 recurse(
-    .cond: n <= 1,
-    .base: n,
-    .step: ...,
+    cond: n <= 1,
+    base: n,
+    step: ...,
 )
 retry(
-    .op: fetch(),
-    .attempts: 3,
-    .backoff: ...,
+    op: fetch(),
+    attempts: 3,
+    backoff: ...,
 )
 parallel(
-    .a: task_a(),
-    .b: task_b(),
+    a: task_a(),
+    b: task_b(),
 )
 ```
 
-All patterns use `.name:` property syntax exclusively - no mixing of positional/keyword arguments.
+All patterns use `name:` property syntax exclusively - no mixing of positional/keyword arguments.
 
 ### 2.3 Predictable Precedence
 
@@ -135,7 +135,7 @@ No surprises. The `??` coalesce operator is lowest, which is intuitive.
 
 Sigil strongly favors explicitness:
 
-- **No implicit conversions:** `str(.value: number)` required
+- **No implicit conversions:** `str(value: number)` required
 - **Explicit error propagation:** `try` pattern makes it visible
 - **Explicit imports:** No automatic imports except prelude
 - **Explicit mutability:** Default immutable with visible rebinding
@@ -191,11 +191,11 @@ Sigil uses sigils effectively:
 |-------|---------|-------------|
 | `@` | Function definition | Always |
 | `$` | Config variable | Always |
-| `.name:` | Named pattern argument | Always in patterns |
+| `name:` | Named pattern argument | Always in patterns |
 | `_` | Unused binding | Standard convention |
 | `#` | Length in index context | Context-specific |
 
-The `.name:` prefix for pattern properties is particularly clever - it's visually distinct and can't be confused with regular variables.
+The `name:` prefix for pattern properties is particularly clever - it's visually distinct and can't be confused with regular variables.
 
 ### 4.2 Consistent Sigil Meaning
 
@@ -203,7 +203,7 @@ The `.name:` prefix for pattern properties is particularly clever - it's visuall
 
 - `@` always means function definition (never used for decorators, instance variables, etc.)
 - `$` always means config (never used for variables, interpolation, etc.)
-- `.name:` always means named pattern argument
+- `name:` always means named pattern argument
 
 No symbol overloading across different contexts.
 
@@ -236,7 +236,7 @@ Sigil favors clarity over brevity:
 ) -> Result<T, Error>
 ```
 
-Named properties (`.over:`, `.init:`, `.transform:`) are more verbose than positional args but much clearer.
+Named properties (`over:`, `init:`, `transform:`) are more verbose than positional args but much clearer.
 
 ### 5.3 Context Without Syntax Highlighting
 
@@ -244,9 +244,9 @@ Named properties (`.over:`, `.init:`, `.transform:`) are more verbose than posit
 
 ```sigil
 @sum (arr: [int]) -> int = fold(
-    .over: arr,
-    .init: 0,
-    .op: +,
+    over: arr,
+    init: 0,
+    op: +,
 )
 ```
 
@@ -255,9 +255,9 @@ In plain text:
 - `(arr: [int])` - clearly parameters with types
 - `-> int` - clearly return type
 - `fold(...)` - clearly a pattern call
-- `.over:`, `.init:`, `.op:` - clearly named arguments
+- `over:`, `init:`, `op:` - clearly named arguments
 
-The `@` sigil and `.name:` syntax work without color.
+The `@` sigil and `name:` syntax work without color.
 
 ---
 
@@ -293,10 +293,10 @@ Pattern syntax naturally supports addressing:
 
 ```sigil
 @fetch_data (url: str) -> Result<Data, Error> = retry(
-    .op: http_get(.url: url),        // @fetch_data.retry.op
-    .attempts: 3,                    // @fetch_data.retry.attempts
-    .backoff: exponential(           // @fetch_data.retry.backoff
-        .base: 100ms,                // @fetch_data.retry.backoff.base
+    op: http_get(url: url),        // @fetch_data.retry.op
+    attempts: 3,                    // @fetch_data.retry.attempts
+    backoff: exponential(           // @fetch_data.retry.backoff
+        base: 100ms,                // @fetch_data.retry.backoff.base
     ),
 )
 ```
@@ -351,12 +351,12 @@ From the docs, errors follow this format:
 
 ```
 error[E0308]: mismatched types
-  --> src/main.si:15:10
+  --> src/mainsi:15:10
    |
 15 |     result = x + "hello"
    |              ^ expected int, found str
    |
-   = help: try: str(.value: x) + "hello"
+   = help: try: str(value: x) + "hello"
 ```
 
 ### 8.2 Synchronize on Keywords
@@ -375,12 +375,12 @@ Grammar designed for keyword-based recovery. All major constructs start with dis
 | **1.2** Unambiguous Grammar | Pass | LL(1) friendly |
 | **1.3** Parse Without Types | Pass | No C++ ambiguities |
 | **2.1** One Obvious Way | Pass | Single syntax for each operation |
-| **2.2** Similar Things Look Similar | Pass | Consistent `.name:` pattern syntax |
+| **2.2** Similar Things Look Similar | Pass | Consistent `name:` pattern syntax |
 | **2.3** Predictable Precedence | Pass | Standard math precedence |
 | **3.1** Explicit Over Implicit | Pass | No implicit conversions |
 | **3.2** Visible Mutability | Pass | `let` vs `let mut` makes mutation explicit |
 | **3.3** No Hidden Control Flow | Pass | `try` is explicit |
-| **4.1** Use Sigils | Pass | `@`, `$`, `.name:` |
+| **4.1** Use Sigils | Pass | `@`, `$`, `name:` |
 | **4.2** Consistent Sigil Meaning | Pass | No overloading |
 | **5.1** Names Before Types | Pass | `name: Type` syntax |
 | **5.2** Reading Over Writing | Pass | Verbose but clear |
@@ -410,7 +410,7 @@ Grammar designed for keyword-based recovery. All major constructs start with dis
 
 ### Strengths to Preserve
 
-1. **Pattern property syntax** (`.name:`) - This is excellent. Clear, unambiguous, self-documenting.
+1. **Pattern property syntax** (`name:`) - This is excellent. Clear, unambiguous, self-documenting.
 
 2. **`@` sigil for functions** - Instantly recognizable, enables LL(1) parsing.
 
@@ -426,4 +426,4 @@ Grammar designed for keyword-based recovery. All major constructs start with dis
 
 Sigil's syntax design is remarkably well-aligned with established syntax design principles. It demonstrates strong awareness of parser-friendliness, consistency, and AI-first considerations. All evaluation criteria now pass.
 
-The pattern system with `.name:` property syntax is a standout design decision that other languages could learn from. The recent additions of `let` / `let mut` for explicit mutability and natural line continuation further strengthen the design.
+The pattern system with `name:` property syntax is a standout design decision that other languages could learn from. The recent additions of `let` / `let mut` for explicit mutability and natural line continuation further strengthen the design.

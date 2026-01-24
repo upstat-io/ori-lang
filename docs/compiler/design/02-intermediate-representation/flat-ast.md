@@ -196,7 +196,7 @@ pub struct ExprId(pub u32);
 Example memory layout for `1 + 2 * 3`:
 
 ```
-ExprArena.exprs:
+ExprArenaexprs:
 ┌─────────────────────────────────────────────────────────────┐
 │ [0] Literal(1) │ [1] Literal(2) │ [2] Literal(3) │ ...    │
 │ [3] Binary(*,1,2) │ [4] Binary(+,0,3) │                    │

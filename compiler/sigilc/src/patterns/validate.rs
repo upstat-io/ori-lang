@@ -1,6 +1,6 @@
 //! Validate pattern implementation.
 //!
-//! `validate(.value: expr, .rules: [...])` - Validate value against rules.
+//! `validate(value: expr, rules: [...])` - Validate value against rules.
 
 use crate::types::Type;
 use crate::eval::{Value, EvalResult, EvalError};
@@ -8,11 +8,11 @@ use super::{PatternDefinition, TypeCheckContext, EvalContext, PatternExecutor};
 
 /// The `validate` pattern validates a value against a list of rules.
 ///
-/// Syntax: `validate(.value: x, .rules: [rule1, rule2, ...])`
+/// Syntax: `validate(value: x, rules: [rule1, rule2, ...])`
 ///
-/// Optional: `.on_error: fn` for custom error handling
+/// Optional: `on_error: fn` for custom error handling
 ///
-/// Type: `validate(.value: T, .rules: [T -> bool]) -> Result<T, ValidationError>`
+/// Type: `validate(value: T, rules: [T -> bool]) -> Result<T, ValidationError>`
 pub struct ValidatePattern;
 
 impl PatternDefinition for ValidatePattern {
@@ -29,7 +29,7 @@ impl PatternDefinition for ValidatePattern {
     }
 
     fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
-        // validate(.value: T, .rules: [T -> bool]) -> Result<T, Error>
+        // validate(value: T, rules: [T -> bool]) -> Result<T, Error>
         let value_ty = ctx.get_prop_type("value").unwrap_or_else(|| ctx.fresh_var());
         ctx.result_of(value_ty, Type::Error)
     }

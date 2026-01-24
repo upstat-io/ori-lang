@@ -1,6 +1,6 @@
 //! Map pattern implementation.
 //!
-//! `map(.over: collection, .transform: fn)` - Transform each element.
+//! `map(over: collection, transform: fn)` - Transform each element.
 
 use crate::ir::TypeId;
 use crate::types::Type;
@@ -12,9 +12,9 @@ use super::{
 
 /// The `map` pattern transforms each element of a collection.
 ///
-/// Syntax: `map(.over: items, .transform: fn)`
+/// Syntax: `map(over: items, transform: fn)`
 ///
-/// Type: `map(.over: [T], .transform: T -> U) -> [U]`
+/// Type: `map(over: [T], transform: T -> U) -> [U]`
 pub struct MapPattern;
 
 impl PatternDefinition for MapPattern {
@@ -82,8 +82,8 @@ impl PatternDefinition for MapPattern {
                 })
             }
             "fold" => {
-                let init = next_ctx.get_prop("init").ok()?;
-                let fold_fn = next_ctx.get_prop("op").ok()?;
+                let init = next_ctx.get_prop("initial").ok()?;
+                let fold_fn = next_ctx.get_prop("operation").ok()?;
                 Some(FusedPattern::MapFold {
                     input,
                     map_fn,

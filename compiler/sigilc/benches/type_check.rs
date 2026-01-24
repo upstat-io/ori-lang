@@ -20,7 +20,7 @@ const MIXED_FUNCTION: &str = "@process (x: int, y) -> int = x + y";
 fn generate_typed_functions(n: usize) -> String {
     (0..n)
         .map(|i| format!("@func{} (x: int) -> int = x + {}", i, i))
-        .collect::<Vec<_>>()
+        collect::<Vec<_>>()
         .join("\n")
 }
 
@@ -28,7 +28,7 @@ fn generate_typed_functions(n: usize) -> String {
 fn generate_inferred_functions(n: usize) -> String {
     (0..n)
         .map(|i| format!("@func{} (x) = x + {}", i, i))
-        .collect::<Vec<_>>()
+        collect::<Vec<_>>()
         .join("\n")
 }
 
@@ -53,7 +53,7 @@ fn generate_let_chain(n: usize) -> String {
         "@chain () -> int = run({})",
         lets.into_iter()
             .chain(std::iter::once(final_expr))
-            .collect::<Vec<_>>()
+            collect::<Vec<_>>()
             .join(", ")
     )
 }

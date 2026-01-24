@@ -8,13 +8,13 @@
 
 ## Summary
 
-Extend the `run` pattern with optional `.pre_check:` and `.post_check:` properties to support contract-style defensive programming without introducing new syntax or keywords.
+Extend the `run` pattern with optional `pre_check:` and `post_check:` properties to support contract-style defensive programming without introducing new syntax or keywords.
 
 ```sigil
 @divide (a: int, b: int) -> int = run(
-    .pre_check: b != 0,
+    pre_check: b != 0,
     a div b,
-    .post_check: r -> r * b <= a
+    post_check: r -> r * b <= a
 )
 ```
 
@@ -75,7 +75,7 @@ Instead of new syntax, extend what already exists. The `run` pattern is:
 - Already accepts named properties
 - Already sequences operations
 
-Adding `.pre_check:` and `.post_check:` as optional properties requires zero new concepts.
+Adding `pre_check:` and `post_check:` as optional properties requires zero new concepts.
 
 ---
 
@@ -85,37 +85,37 @@ Adding `.pre_check:` and `.post_check:` as optional properties requires zero new
 
 ```sigil
 run(
-    .pre_check: condition,                    // Optional: checked before body
-    .pre_check: condition | "message",        // Optional: with custom message
-    .pre_check: [cond1, cond2, ...],          // Optional: multiple conditions
+    pre_check: condition,                    // Optional: checked before body
+    pre_check: condition | "message",        // Optional: with custom message
+    pre_check: [cond1, cond2, ...],          // Optional: multiple conditions
 
     // ... body statements and expressions ...,
 
     final_expression,
 
-    .post_check: result -> condition,         // Optional: checked after body
-    .post_check: result -> condition | "msg", // Optional: with custom message
-    .post_check: result -> [cond1, cond2]     // Optional: multiple conditions
+    post_check: result -> condition,         // Optional: checked after body
+    post_check: result -> condition | "msg", // Optional: with custom message
+    post_check: result -> [cond1, cond2]     // Optional: multiple conditions
 )
 ```
 
 ### Positional Constraints (Parser-Enforced)
 
-**`.pre_check:` must appear first. `.post_check:` must appear last.**
+**`pre_check:` must appear first. `post_check:` must appear last.**
 
 This is enforced by the parser, not convention. The following is a syntax error:
 
 ```sigil
-// ERROR: .pre_check: must appear before body statements
+// ERROR: pre_check: must appear before body statements
 run(
     let x = compute(),
-    .pre_check: input > 0,  // Syntax error!
+    pre_check: input > 0,  // Syntax error!
     x + 1
 )
 
-// ERROR: .post_check: must appear after all body statements
+// ERROR: post_check: must appear after all body statements
 run(
-    .post_check: r -> r > 0,  // Syntax error!
+    post_check: r -> r > 0,  // Syntax error!
     let x = compute(),
     x + 1
 )
@@ -125,12 +125,12 @@ Valid ordering:
 
 ```sigil
 run(
-    .pre_check: a > 0,           // First: all pre_checks
-    .pre_check: b > 0,           // (can have multiple)
+    pre_check: a > 0,           // First: all pre_checks
+    pre_check: b > 0,           // (can have multiple)
     let x = a + b,               // Then: body
     let y = x * 2,
     y,                           // Last expression before post_check
-    .post_check: r -> r > 0      // Last: all post_checks
+    post_check: r -> r > 0      // Last: all post_checks
 )
 ```
 
@@ -144,7 +144,7 @@ Alternatives considered:
 |----------|---------|
 | Convention only | Easy to misplace, ambiguous semantics |
 | Compiler hoisting | Implicit behavior, violates "explicit over implicit" |
-| Separate `.body:` property | Adds nesting, changes `run` significantly |
+| Separate `body:` property | Adds nesting, changes `run` significantly |
 | **Parser enforcement** | Clear, explicit, matches execution order |
 ```
 
@@ -152,21 +152,21 @@ Alternatives considered:
 
 #### Evaluation Order
 
-1. Evaluate all `.pre_check:` conditions in order
-2. If any `.pre_check:` fails, panic with message
+1. Evaluate all `pre_check:` conditions in order
+2. If any `pre_check:` fails, panic with message
 3. Execute body statements and final expression
-4. Bind result to `.post_check:` parameter
-5. Evaluate all `.post_check:` conditions in order
-6. If any `.post_check:` fails, panic with message
+4. Bind result to `post_check:` parameter
+5. Evaluate all `post_check:` conditions in order
+6. If any `post_check:` fails, panic with message
 7. Return result
 
 #### Desugaring
 
 ```sigil
 run(
-    .pre_check: P,
+    pre_check: P,
     body,
-    .post_check: r -> Q
+    post_check: r -> Q
 )
 
 // Desugars to:
@@ -182,7 +182,7 @@ run(
 
 ```sigil
 run(
-    .pre_check: [A, B, C],
+    pre_check: [A, B, C],
     body
 )
 
@@ -199,7 +199,7 @@ run(
 
 ```sigil
 run(
-    .pre_check: x > 0 | "x must be positive",
+    pre_check: x > 0 | "x must be positive",
     body
 )
 
@@ -228,8 +228,8 @@ $check_mode = enforce  // Default
 
 ```sigil
 @hot_path (x: int) -> int = run(
-    .pre_check: x > 0,
-    .check_mode: ignore,  // Override for this function
+    pre_check: x > 0,
+    check_mode: ignore,  // Override for this function
     x * 2
 )
 ```
@@ -243,17 +243,17 @@ $check_mode = enforce  // Default
 ```sigil
 @abs (x: int) -> int = run(
     if x < 0 then -x else x,
-    .post_check: r -> r >= 0
+    post_check: r -> r >= 0
 )
 
 @sqrt (x: float) -> float = run(
-    .pre_check: x >= 0.0,
+    pre_check: x >= 0.0,
     newton_raphson(x),
-    .post_check: r -> r >= 0.0
+    post_check: r -> r >= 0.0
 )
 
 @get (items: [T], index: int) -> T = run(
-    .pre_check: index >= 0 && index < len(items),
+    pre_check: index >= 0 && index < len(items),
     items[index]
 )
 ```
@@ -262,12 +262,12 @@ $check_mode = enforce  // Default
 
 ```sigil
 @binary_search (items: [T], target: T) -> Option<int> = run(
-    .pre_check: [
+    pre_check: [
         len(items) > 0 | "items must not be empty",
         is_sorted(items) | "items must be sorted"
     ],
     binary_search_impl(items, target, 0, len(items)),
-    .post_check: r -> match(r,
+    post_check: r -> match(r,
         Some(i) -> items[i] == target,
         None -> !items.contains(target)
     )
@@ -278,7 +278,7 @@ $check_mode = enforce  // Default
 
 ```sigil
 @transfer (from: Account, to: Account, amount: int) -> (Account, Account) = run(
-    .pre_check: [
+    pre_check: [
         amount > 0 | "transfer amount must be positive",
         from.balance >= amount | "insufficient funds",
         from.id != to.id | "cannot transfer to same account"
@@ -286,7 +286,7 @@ $check_mode = enforce  // Default
     let new_from = Account { id: from.id, balance: from.balance - amount },
     let new_to = Account { id: to.id, balance: to.balance + amount },
     (new_from, new_to),
-    .post_check: (f, t) -> [
+    post_check: (f, t) -> [
         f.balance == from.balance - amount,
         t.balance == to.balance + amount,
         f.balance + t.balance == from.balance + to.balance  // Conservation
@@ -299,23 +299,23 @@ $check_mode = enforce  // Default
 ```sigil
 // check + try
 @safe_divide (a: int, b: int) -> Result<int, MathError> = run(
-    .pre_check: true,  // No precondition needed
+    pre_check: true,  // No precondition needed
     try(
         if b == 0 then Err(MathError.DivideByZero),
         Ok(a div b)
     ),
-    .post_check: r -> is_ok(r) || b == 0
+    post_check: r -> is_ok(r) || b == 0
 )
 
 // check + validate
 @create_user (input: UserInput) -> Result<User, [str]> = run(
-    .pre_check: input.source == "trusted",
+    pre_check: input.source == "trusted",
     validate(
-        .rules: [
+        rules: [
             len(input.name) > 0 | "name required",
             input.age >= 0 | "invalid age"
         ],
-        .then: User { name: input.name, age: input.age }
+        then: User { name: input.name, age: input.age },
     )
 )
 ```
@@ -370,9 +370,9 @@ $check_mode = enforce  // Default
 
 // After: declarative, clear
 @sqrt (x: float) -> float = run(
-    .pre_check: x >= 0.0,
+    pre_check: x >= 0.0,
     newton_raphson(x),
-    .post_check: r -> r >= 0.0
+    post_check: r -> r >= 0.0
 )
 ```
 
@@ -382,9 +382,9 @@ A dedicated `check` pattern was considered:
 
 ```sigil
 @sqrt (x: float) -> float = check(
-    .pre: x >= 0.0,
-    .body: newton_raphson(x),
-    .post: r -> r >= 0.0
+    pre: x >= 0.0,
+    body: newton_raphson(x),
+    post: r -> r >= 0.0,
 )
 ```
 
@@ -392,7 +392,7 @@ Rejected because:
 
 - Adds a new pattern to learn
 - `run` is already ubiquitous
-- `.pre_check`/`.post_check` on `run` is more incremental
+- `pre_check`/`post_check` on `run` is more incremental
 
 ---
 
@@ -400,12 +400,12 @@ Rejected because:
 
 ### Why Named Properties?
 
-Sigil patterns use named properties (`.over:`, `.transform:`, `.predicate:`). This is consistent:
+Sigil patterns use named properties (`over:`, `transform:`, `predicate:`). This is consistent:
 
 ```sigil
-map(.over: items, .transform: x -> x * 2)
-filter(.over: items, .predicate: x -> x > 0)
-run(.pre_check: x > 0, body, .post_check: r -> r > x)
+map(over: items, transform: x -> x * 2)
+filter(over: items, predicate: x -> x > 0)
+run(pre_check: x > 0, body, post_check: r -> r > x)
 ```
 
 ### Why `pre_check` and `post_check`?
@@ -414,10 +414,10 @@ Alternatives considered:
 
 | Name | Problem |
 |------|---------|
-| `.pre:` / `.post:` | Ambiguous - pre/post what? |
-| `.requires:` / `.ensures:` | Longer, less obvious |
-| `.precondition:` / `.postcondition:` | Too verbose |
-| `.pre_check:` / `.post_check:` | Clear, explicit, action-oriented |
+| `pre:` / `post:` | Ambiguous - pre/post what? |
+| `requires:` / `ensures:` | Longer, less obvious |
+| `precondition:` / `postcondition:` | Too verbose |
+| `pre_check:` / `post_check:` | Clear, explicit, action-oriented |
 
 ### Why Not in the Signature?
 
@@ -431,7 +431,7 @@ Sigil puts them in the body:
 
 ```sigil
 @sqrt (x: float) -> float = run(
-    .pre_check: x >= 0.0,
+    pre_check: x >= 0.0,
     ...
 )
 ```
@@ -458,12 +458,12 @@ Sigil's choice is consistent with its philosophy:
 
 ### Parser Changes
 
-Minimal. The `run` pattern parser accepts named properties. Add `.pre_check:` and `.post_check:` to recognized properties.
+Minimal. The `run` pattern parser accepts named properties. Add `pre_check:` and `post_check:` to recognized properties.
 
 ### Type Checking
 
-- `.pre_check:` expression must have type `bool` or `[bool]`
-- `.post_check:` must be a function from result type to `bool` or `[bool]`
+- `pre_check:` expression must have type `bool` or `[bool]`
+- `post_check:` must be a function from result type to `bool` or `[bool]`
 - Message expressions (after `|`) must have type `str`
 
 ### Code Generation
@@ -493,7 +493,7 @@ For types with invariants:
 
 ```sigil
 type BankAccount = { id: str, balance: int }
-    .invariant: self.balance >= 0
+    invariant: self.balance >= 0
 
 // All functions returning BankAccount automatically check invariant
 ```
@@ -504,9 +504,9 @@ When a function calls another:
 
 ```sigil
 @wrapper (x: int) -> int = run(
-    .pre_check: x > 0,
+    pre_check: x > 0,
     inner(x),  // inner's pre_checks also apply
-    .post_check: r -> r > 0
+    post_check: r -> r > 0
 )
 ```
 
@@ -517,7 +517,7 @@ Tooling could verify that callers satisfy callees' preconditions:
 ```sigil
 @caller () -> int = run(
     let x = -5,
-    sqrt(float(x))  // Warning: sqrt.pre_check (x >= 0.0) may fail
+    sqrt(float(x))  // Warning: sqrt pre_check (x >= 0.0) may fail
 )
 ```
 
@@ -525,7 +525,7 @@ Tooling could verify that callers satisfy callees' preconditions:
 
 ## Summary
 
-The `.pre_check:` and `.post_check:` properties for `run` provide contract-style defensive programming that:
+The `pre_check:` and `post_check:` properties for `run` provide contract-style defensive programming that:
 
 1. **Requires zero new syntax** - Just named properties on existing pattern
 2. **Has zero learning curve** - If you know `run`, you know this

@@ -10,7 +10,7 @@
     let id = thread_id(),
     // Thread ID should be a positive integer
     assert(
-        .cond: id > 0,
+        cond: id > 0,
     ),
 )
 
@@ -23,8 +23,8 @@
     let id1 = thread_id(),
     let id2 = thread_id(),
     assert_eq(
-        .actual: id1,
-        .expected: id2,
+        actual: id1,
+        expected: id2,
     ),
 )
 
@@ -42,18 +42,18 @@
 // TODO: Fix len() to use .collection not .value
 // @test_parallel_basic tests @parallel_basic () -> void = run(
 //     let results = parallel(
-//         .tasks: [1 + 1, 2 + 2],
+//         tasks: [1 + 1, 2 + 2],
 //     ),
 //     // Result is [Ok(2), Ok(4)]
 //     assert_eq(
-//         .actual: len(.value: results),
-//         .expected: 2,
+//         actual: len(value: results),
+//         expected: 2,
 //     ),
 // )
 //
 // @parallel_basic () = run(
 //     parallel(
-//         .tasks: [1 + 1, 2 + 2],
+//         tasks: [1 + 1, 2 + 2],
 //     ),
 // )
 
@@ -66,18 +66,18 @@
 // TODO: Fix len() to use .collection not .value
 // @test_parallel_threads tests @parallel_threads () -> void = run(
 //     let results = parallel(
-//         .tasks: [thread_id(), thread_id()],
+//         tasks: [thread_id(), thread_id()],
 //     ),
 //     // Both results should be Ok with positive thread IDs
 //     assert_eq(
-//         .actual: len(.value: results),
-//         .expected: 2,
+//         actual: len(value: results),
+//         expected: 2,
 //     ),
 // )
 //
 // @parallel_threads () = run(
 //     parallel(
-//         .tasks: [thread_id(), thread_id()],
+//         tasks: [thread_id(), thread_id()],
 //     ),
 // )
 
@@ -89,20 +89,20 @@
 // TODO: Fix len() to use .collection not .value
 // @test_parallel_with_timeout tests @parallel_with_timeout () -> void = run(
 //     let results = parallel(
-//         .tasks: [1 + 1, 2 + 2],
-//         .timeout: 5000ms,
+//         tasks: [1 + 1, 2 + 2],
+//         timeout: 5000ms,
 //     ),
 //     // Results list should have 2 entries
 //     assert_eq(
-//         .actual: len(.value: results),
-//         .expected: 2,
+//         actual: len(value: results),
+//         expected: 2,
 //     ),
 // )
 //
 // @parallel_with_timeout () = run(
 //     parallel(
-//         .tasks: [1 + 1, 2 + 2],
-//         .timeout: 5000ms,
+//         tasks: [1 + 1, 2 + 2],
+//         timeout: 5000ms,
 //     ),
 // )
 
@@ -110,20 +110,20 @@
 // TODO: Fix len() to use .collection not .value
 // @test_parallel_timeout_results tests @parallel_timeout_results () -> void = run(
 //     let results = parallel(
-//         .tasks: [10, 20],
-//         .timeout: 1000ms,
+//         tasks: [10, 20],
+//         timeout: 1000ms,
 //     ),
 //     // Result should be a list of 2 Results
 //     assert_eq(
-//         .actual: len(.value: results),
-//         .expected: 2,
+//         actual: len(value: results),
+//         expected: 2,
 //     ),
 // )
 //
 // @parallel_timeout_results () = run(
 //     parallel(
-//         .tasks: [10, 20],
-//         .timeout: 1000ms,
+//         tasks: [10, 20],
+//         timeout: 1000ms,
 //     ),
 // )
 

@@ -99,7 +99,7 @@ fn eval_call(
     let arg_vals: Vec<Value> = args
         .iter()
         .map(|&arg| self.eval_expr(arg))
-        .collect::<Result<_, _>>()?;
+        collect::<Result<_, _>>()?;
 
     match func_val {
         Value::Function(f) => self.call_function(&f, arg_vals),

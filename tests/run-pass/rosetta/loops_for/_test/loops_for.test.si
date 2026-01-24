@@ -3,26 +3,26 @@
 use "../loops_for" { count_to_five, sum_to_n, squares, repeat_n, double_all }
 
 @test_count tests @count_to_five () -> void = run(
-    assert_eq(.actual: count_to_five(), .expected: [1, 2, 3, 4, 5])
+    assert_eq(actual: count_to_five(), expected: [1, 2, 3, 4, 5])
 )
 
 @test_sum tests @sum_to_n () -> void = run(
-    assert_eq(.actual: sum_to_n(1), .expected: 1),
-    assert_eq(.actual: sum_to_n(5), .expected: 15),
-    assert_eq(.actual: sum_to_n(10), .expected: 55)
+    assert_eq(actual: sum_to_n(1), expected: 1),
+    assert_eq(actual: sum_to_n(5), expected: 15),
+    assert_eq(actual: sum_to_n(10), expected: 55)
 )
 
 @test_squares tests @squares () -> void = run(
-    assert_eq(.actual: squares(3), .expected: [1, 4, 9]),
-    assert_eq(.actual: squares(5), .expected: [1, 4, 9, 16, 25])
+    assert_eq(actual: squares(3), expected: [1, 4, 9]),
+    assert_eq(actual: squares(5), expected: [1, 4, 9, 16, 25])
 )
 
 @test_repeat tests @repeat_n () -> void = run(
-    assert_eq(.actual: repeat_n(.n: 3, .value: 7), .expected: [7, 7, 7]),
-    assert_eq(.actual: repeat_n(.n: 0, .value: 5), .expected: [])
+    assert_eq(actual: repeat_n(n: 3, value: 7), expected: [7, 7, 7]),
+    assert_eq(actual: repeat_n(n: 0, value: 5), expected: [])
 )
 
 @test_double tests @double_all () -> void = run(
-    assert_eq(.actual: double_all([1, 2, 3]), .expected: [2, 4, 6]),
-    assert_eq(.actual: double_all([]), .expected: [])
+    assert_eq(actual: double_all([1, 2, 3]), expected: [2, 4, 6]),
+    assert_eq(actual: double_all([]), expected: [])
 )

@@ -174,7 +174,7 @@ impl Evaluator {
                 name: arg.name,
                 value: self.eval_expr(arg.value)?,
             }))
-            .collect::<Result<_, _>>()?;
+            collect::<Result<_, _>>()?;
 
         // Delegate to pattern's evaluation
         pattern.evaluate(&eval_args, self)
@@ -257,7 +257,7 @@ Users can register custom patterns:
 registry.register(MyCustomPattern::new());
 
 // Pattern is now available
-my_pattern(.arg: value)
+my_pattern(arg: value)
 ```
 
 ### Plugin System (Future)

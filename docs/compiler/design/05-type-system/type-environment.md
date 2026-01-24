@@ -113,7 +113,7 @@ Variables in inner scopes shadow outer ones:
 let x = 1       // x : Int in outer scope
 let result = run(
     let x = "hello",  // x : String in inner scope
-    len(.collection: x),  // uses inner x
+    len(collection: x),  // uses inner x
 )
 // x : Int (outer still visible)
 ```
