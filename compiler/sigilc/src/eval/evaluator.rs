@@ -4,12 +4,15 @@
 
 use std::sync::Arc;
 use std::hash::{Hash, Hasher};
+use std::path::Path;
+use std::collections::HashMap;
 use crate::ir::{
     Name, StringInterner, ExprId, ExprArena,
     ExprKind, BinaryOp, UnaryOp, StmtKind, BindingPattern,
     ArmRange, MatchPattern, FunctionSeq, SeqBinding,
-    CallArgRange,
+    CallArgRange, ImportPath,
 };
+use crate::parser::ParseResult;
 use crate::patterns::{PatternRegistry, EvalContext, PatternExecutor};
 use crate::context::CompilerContext;
 use super::value::{Value, FunctionValue, RangeValue, StructValue};
@@ -323,6 +326,11 @@ pub struct Evaluator<'a> {
     method_registry: Arc<MethodRegistry>,
     /// Unary operator registry for unary operations.
     unary_operator_registry: Arc<UnaryOperatorRegistry>,
+    /// Arena reference for imported functions.
+    ///
+    /// When evaluating an imported function, this holds the imported arena.
+    /// Lambdas created during evaluation will inherit this arena reference.
+    imported_arena: Option<Arc<ExprArena>>,
 }
 
 /// Implement PatternExecutor for Evaluator to enable pattern evaluation.
@@ -350,6 +358,7 @@ impl<'a> Evaluator<'a> {
             operator_registry: Arc::new(OperatorRegistry::new()),
             method_registry: Arc::new(MethodRegistry::new()),
             unary_operator_registry: Arc::new(UnaryOperatorRegistry::new()),
+            imported_arena: None,
         }
     }
 
@@ -369,6 +378,7 @@ impl<'a> Evaluator<'a> {
             operator_registry: context.operator_registry.clone(),
             method_registry: context.method_registry.clone(),
             unary_operator_registry: context.unary_operator_registry.clone(),
+            imported_arena: None,
         }
     }
 
@@ -388,6 +398,7 @@ impl<'a> Evaluator<'a> {
             operator_registry: Arc::new(OperatorRegistry::new()),
             method_registry: Arc::new(MethodRegistry::new()),
             unary_operator_registry: Arc::new(UnaryOperatorRegistry::new()),
+            imported_arena: None,
         }
     }
 
@@ -401,6 +412,7 @@ impl<'a> Evaluator<'a> {
             operator_registry: Arc::new(OperatorRegistry::new()),
             method_registry: Arc::new(MethodRegistry::new()),
             unary_operator_registry: Arc::new(UnaryOperatorRegistry::new()),
+            imported_arena: None,
         }
     }
 
@@ -419,6 +431,7 @@ impl<'a> Evaluator<'a> {
             operator_registry: Arc::new(OperatorRegistry::new()),
             method_registry: Arc::new(MethodRegistry::new()),
             unary_operator_registry: Arc::new(UnaryOperatorRegistry::new()),
+            imported_arena: None,
         }
     }
 
@@ -437,7 +450,175 @@ impl<'a> Evaluator<'a> {
             operator_registry: context.operator_registry.clone(),
             method_registry: context.method_registry.clone(),
             unary_operator_registry: context.unary_operator_registry.clone(),
+            imported_arena: None,
         }
+    }
+
+    /// Create an evaluator with an imported arena context.
+    ///
+    /// Used when evaluating an imported function. Lambdas created during
+    /// evaluation will inherit this arena reference.
+    pub fn with_imported_arena(
+        interner: &'a StringInterner,
+        arena: &'a ExprArena,
+        env: Environment,
+        imported_arena: Arc<ExprArena>,
+    ) -> Self {
+        Evaluator {
+            interner,
+            arena,
+            env,
+            registry: Arc::new(PatternRegistry::new()),
+            operator_registry: Arc::new(OperatorRegistry::new()),
+            method_registry: Arc::new(MethodRegistry::new()),
+            unary_operator_registry: Arc::new(UnaryOperatorRegistry::new()),
+            imported_arena: Some(imported_arena),
+        }
+    }
+
+    /// Load a module: resolve imports and register all functions.
+    ///
+    /// This is the core module loading logic used by both the query system
+    /// and test runner. It handles:
+    /// 1. Resolving imports and registering imported functions
+    /// 2. Registering all local functions
+    ///
+    /// After calling this, all functions from the module (and its imports)
+    /// are available in the environment for evaluation.
+    pub fn load_module(
+        &mut self,
+        parse_result: &ParseResult,
+        file_path: &Path,
+    ) -> Result<(), String> {
+        // First, resolve imports
+        for import in &parse_result.module.imports {
+            self.resolve_import(file_path, import, &parse_result.arena)?;
+        }
+
+        // Then register all local functions
+        for func in &parse_result.module.functions {
+            let params: Vec<_> = parse_result.arena.get_params(func.params)
+                .iter()
+                .map(|p| p.name)
+                .collect();
+            let captures = self.env.capture();
+            let func_value = FunctionValue::with_captures(params, func.body, captures);
+            self.env.define(func.name, Value::Function(func_value), false);
+        }
+
+        Ok(())
+    }
+
+    /// Resolve a single import and register its functions.
+    fn resolve_import(
+        &mut self,
+        current_file: &Path,
+        import: &crate::ir::UseDef,
+        _current_arena: &ExprArena,
+    ) -> Result<(), String> {
+        // Resolve the import path to a file path
+        let import_path = match &import.path {
+            ImportPath::Relative(name) => {
+                let path_str = self.interner.lookup(*name);
+                let current_dir = current_file.parent().unwrap_or(Path::new("."));
+
+                // Handle relative paths like '../a_plus_b' or './math'
+                let resolved = current_dir.join(path_str);
+
+                // Add .si extension if not present
+                if resolved.extension().is_none() {
+                    resolved.with_extension("si")
+                } else {
+                    resolved
+                }
+            }
+            ImportPath::Module(segments) => {
+                // Module paths like std.math - not implemented yet
+                let path_str: String = segments
+                    .iter()
+                    .map(|s| self.interner.lookup(*s))
+                    .collect::<Vec<_>>()
+                    .join(".");
+                return Err(format!("Module imports not yet implemented: {}", path_str));
+            }
+        };
+
+        // Read and parse the imported file
+        let content = std::fs::read_to_string(&import_path)
+            .map_err(|e| format!("Failed to read '{}': {}", import_path.display(), e))?;
+
+        // Parse the imported file
+        let tokens = crate::lexer::lex(&content, self.interner);
+        let imported_result = crate::parser::parse(&tokens, self.interner);
+
+        if imported_result.has_errors() {
+            let errors: Vec<String> = imported_result.errors
+                .iter()
+                .map(|e| format!("{}: {}", e.span, e.message))
+                .collect();
+            return Err(format!("Errors in '{}': {}", import_path.display(), errors.join(", ")));
+        }
+
+        // Build the imported arena
+        let imported_arena = Arc::new(imported_result.arena.clone());
+
+        // First, build a map of ALL functions in the imported module.
+        // This allows imported functions to call other functions from their module.
+        let mut module_functions: HashMap<Name, Value> = HashMap::new();
+        for func in &imported_result.module.functions {
+            let params: Vec<_> = imported_arena.get_params(func.params)
+                .iter()
+                .map(|p| p.name)
+                .collect();
+
+            let func_value = FunctionValue::from_import(
+                params,
+                func.body,
+                HashMap::new(),
+                imported_arena.clone(),
+            );
+            module_functions.insert(func.name, Value::Function(func_value));
+        }
+
+        // Now register the requested imports with proper captures
+        for item in &import.items {
+            let item_name_str = self.interner.lookup(item.name);
+
+            // Find the function in the imported module
+            let func = imported_result.module.functions
+                .iter()
+                .find(|f| self.interner.lookup(f.name) == item_name_str);
+
+            if let Some(func) = func {
+                let params: Vec<_> = imported_arena.get_params(func.params)
+                    .iter()
+                    .map(|p| p.name)
+                    .collect();
+
+                // Captures include: current environment + all module functions
+                let mut captures = self.env.capture();
+                captures.extend(module_functions.clone());
+
+                let func_value = FunctionValue::from_import(
+                    params,
+                    func.body,
+                    captures,
+                    imported_arena.clone(),
+                );
+
+                // Use alias if provided, otherwise use original name
+                let bind_name = item.alias.unwrap_or(item.name);
+                self.env.define(bind_name, Value::Function(func_value), false);
+            } else {
+                return Err(format!(
+                    "'{}' not found in '{}'",
+                    item_name_str,
+                    import_path.display()
+                ));
+            }
+        }
+
+        Ok(())
     }
 
     /// Evaluate an expression.
@@ -555,11 +736,15 @@ impl<'a> Evaluator<'a> {
                 // Capture the current environment (frozen at creation)
                 let captures = self.env.capture();
 
-                Ok(Value::Function(FunctionValue::with_captures(
-                    param_names,
-                    *body,
-                    captures,
-                )))
+                // If we're evaluating in an imported context, the lambda needs
+                // to inherit the arena reference so it can be evaluated correctly
+                let func_value = if let Some(ref arena) = self.imported_arena {
+                    FunctionValue::from_import(param_names, *body, captures, arena.clone())
+                } else {
+                    FunctionValue::with_captures(param_names, *body, captures)
+                };
+
+                Ok(Value::Function(func_value))
             }
 
             // Block
@@ -1018,11 +1203,23 @@ impl<'a> Evaluator<'a> {
                 call_env.define(self_name, func, false);
 
                 // Evaluate body in new environment.
-                // If the function has its own arena (from an import), use that arena.
+                // If the function has its own arena (from an import), use that arena
+                // and pass it along so lambdas created during evaluation inherit it.
                 // Otherwise use the current evaluator's arena.
                 if let Some(func_arena) = f.arena() {
-                    // Function from an imported module - use its arena
-                    let mut call_evaluator = Evaluator::with_env(self.interner, func_arena, call_env);
+                    // Function from an imported module - use its arena and pass it along
+                    let imported_arena = Arc::new(func_arena.clone());
+                    let mut call_evaluator = Evaluator::with_imported_arena(
+                        self.interner, func_arena, call_env, imported_arena
+                    );
+                    let result = call_evaluator.eval(f.body);
+                    call_evaluator.env.pop_scope();
+                    result
+                } else if let Some(ref imported) = self.imported_arena {
+                    // We're already in an imported context - pass it along
+                    let mut call_evaluator = Evaluator::with_imported_arena(
+                        self.interner, self.arena, call_env, imported.clone()
+                    );
                     let result = call_evaluator.eval(f.body);
                     call_evaluator.env.pop_scope();
                     result

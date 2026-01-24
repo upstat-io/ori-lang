@@ -14,7 +14,7 @@
     ),
     // Each result is wrapped in Ok
     assert_eq(
-        .actual: len(.value: results),
+        .actual: len(.collection: results),
         .expected: 3,
     ),
 )
@@ -30,7 +30,7 @@
         .tasks: [],
     ),
     assert_eq(
-        .actual: len(.value: results),
+        .actual: len(.collection: results),
         .expected: 0,
     ),
 )
@@ -46,7 +46,7 @@
         .tasks: [42],
     ),
     assert_eq(
-        .actual: len(.value: results),
+        .actual: len(.collection: results),
         .expected: 1,
     ),
 )
@@ -64,7 +64,7 @@
     ),
     // All three results are preserved
     assert_eq(
-        .actual: len(.value: results),
+        .actual: len(.collection: results),
         .expected: 3,
     ),
 )
@@ -85,7 +85,7 @@
         .timeout: 5s,
     ),
     assert_eq(
-        .actual: len(.value: results),
+        .actual: len(.collection: results),
         .expected: 3,
     ),
 )
@@ -107,7 +107,7 @@
         .max_concurrent: 2,
     ),
     assert_eq(
-        .actual: len(.value: results),
+        .actual: len(.collection: results),
         .expected: 5,
     ),
 )
@@ -179,7 +179,7 @@
     ),
     // Result should be Ok(42)
     assert(
-        .cond: is_ok(result),
+        .cond: is_ok(.result: result),
     ),
 )
 
@@ -197,7 +197,7 @@
     ),
     // Result should be Ok(60)
     assert(
-        .cond: is_ok(result),
+        .cond: is_ok(.result: result),
     ),
 )
 
@@ -214,7 +214,7 @@
         .after: 2m,
     ),
     assert(
-        .cond: is_ok(result),
+        .cond: is_ok(.result: result),
     ),
 )
 
@@ -231,7 +231,7 @@
         .after: 1h,
     ),
     assert(
-        .cond: is_ok(result),
+        .cond: is_ok(.result: result),
     ),
 )
 
@@ -254,7 +254,7 @@
         .attempts: 3,
     ),
     assert(
-        .cond: is_ok(result),
+        .cond: is_ok(.result: result),
     ),
 )
 

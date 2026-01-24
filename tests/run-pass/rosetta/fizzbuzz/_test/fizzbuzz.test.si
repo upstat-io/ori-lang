@@ -1,6 +1,6 @@
 // Tests for FizzBuzz
 
-use '../fizzbuzz' { fizzbuzz, is_fizz, is_buzz, is_fizzbuzz }
+use "../fizzbuzz" { fizzbuzz, is_fizz, is_buzz, is_fizzbuzz }
 
 @test_fizzbuzz_numbers tests @fizzbuzz () -> void = run(
     assert(.cond: fizzbuzz(1) == "1"),

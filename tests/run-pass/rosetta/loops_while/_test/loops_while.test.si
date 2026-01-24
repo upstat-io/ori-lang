@@ -1,6 +1,6 @@
 // Tests for Loops/While
 
-use '../loops_while' { countdown, next_power_of_2, find_power, collatz, sum_digits, gcd }
+use "../loops_while" { countdown, next_power_of_2, find_power, collatz, sum_digits, gcd }
 
 @test_countdown tests @countdown () -> void = run(
     assert_eq(.actual: countdown(5), .expected: [5, 4, 3, 2, 1]),

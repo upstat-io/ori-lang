@@ -10,8 +10,8 @@ use rayon::prelude::*;
 use crate::db::{CompilerDb, Db};
 use crate::input::SourceFile;
 use crate::query::parsed;
-use crate::eval::{Evaluator, Value};
-use crate::ir::{TestDef, UseDef, ImportPath};
+use crate::eval::Evaluator;
+use crate::ir::TestDef;
 use crate::typeck::type_check;
 
 use super::discovery::{discover_tests_in, TestFile};
@@ -134,30 +134,13 @@ impl TestRunner {
 
         let interner = db.interner();
 
-        // Create evaluator and register functions
+        // Create evaluator and load the module (handles imports and function registration)
         let mut evaluator = Evaluator::new(interner, &parse_result.arena);
         evaluator.register_prelude();
 
-        // Resolve imports and register imported functions
-        for import in &parse_result.module.imports {
-            if let Err(e) = self.resolve_import(path, import, &db, &mut evaluator) {
-                summary.add_error(e);
-            }
-        }
-
-        // Register all functions
-        for func in &parse_result.module.functions {
-            let params: Vec<_> = parse_result.arena.get_params(func.params)
-                .iter()
-                .map(|p| p.name)
-                .collect();
-            let captures = evaluator.env().capture();
-            let func_value = crate::eval::FunctionValue::with_captures(
-                params,
-                func.body,
-                captures,
-            );
-            evaluator.env_mut().define(func.name, Value::Function(func_value), false);
+        if let Err(e) = evaluator.load_module(&parse_result, path) {
+            summary.add_error(e);
+            return summary;
         }
 
         // Type check for compile_fail tests
@@ -313,100 +296,6 @@ impl TestRunner {
                 }
             }
         }
-    }
-
-    /// Resolve an import and register the imported functions.
-    fn resolve_import(
-        &self,
-        current_file: &Path,
-        import: &UseDef,
-        db: &CompilerDb,
-        evaluator: &mut Evaluator,
-    ) -> Result<(), String> {
-        let interner = db.interner();
-
-        // Resolve the import path to a file path
-        let import_path = match &import.path {
-            ImportPath::Relative(name) => {
-                let path_str = interner.lookup(*name);
-                let current_dir = current_file.parent().unwrap_or(Path::new("."));
-
-                // Handle relative paths like '../a_plus_b' or './math'
-                let resolved = current_dir.join(path_str);
-
-                // Add .si extension if not present
-                if resolved.extension().is_none() {
-                    resolved.with_extension("si")
-                } else {
-                    resolved
-                }
-            }
-            ImportPath::Module(segments) => {
-                // Module paths like std.math - not implemented yet
-                let path_str: String = segments
-                    .iter()
-                    .map(|s| interner.lookup(*s))
-                    .collect::<Vec<_>>()
-                    .join(".");
-                return Err(format!("Module imports not yet implemented: {}", path_str));
-            }
-        };
-
-        // Read and parse the imported file
-        let content = std::fs::read_to_string(&import_path)
-            .map_err(|e| format!("Failed to read '{}': {}", import_path.display(), e))?;
-
-        let file = SourceFile::new(db, import_path.clone(), content);
-        let imported_result = parsed(db, file);
-
-        if imported_result.has_errors() {
-            let errors: Vec<String> = imported_result.errors
-                .iter()
-                .map(|e| format!("{}: {}", e.span, e.message))
-                .collect();
-            return Err(format!("Errors in '{}': {}", import_path.display(), errors.join(", ")));
-        }
-
-        // Register imported functions with their arena reference
-        let imported_arena = std::sync::Arc::new(imported_result.arena.clone());
-
-        for item in &import.items {
-            let item_name_str = interner.lookup(item.name);
-
-            // Find the function in the imported module
-            let func = imported_result.module.functions
-                .iter()
-                .find(|f| interner.lookup(f.name) == item_name_str);
-
-            if let Some(func) = func {
-                let params: Vec<_> = imported_arena.get_params(func.params)
-                    .iter()
-                    .map(|p| p.name)
-                    .collect();
-                let captures = evaluator.env().capture();
-
-                // Use from_import to include the arena reference so the function's
-                // body can be evaluated correctly against its original arena
-                let func_value = crate::eval::FunctionValue::from_import(
-                    params,
-                    func.body,
-                    captures,
-                    imported_arena.clone(),
-                );
-
-                // Use alias if provided, otherwise use original name
-                let bind_name = item.alias.unwrap_or(item.name);
-                evaluator.env_mut().define(bind_name, Value::Function(func_value), false);
-            } else {
-                return Err(format!(
-                    "'{}' not found in '{}'",
-                    item_name_str,
-                    import_path.display()
-                ));
-            }
-        }
-
-        Ok(())
     }
 
     /// Run a single test.

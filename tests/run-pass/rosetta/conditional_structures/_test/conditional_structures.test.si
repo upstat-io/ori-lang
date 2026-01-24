@@ -1,6 +1,6 @@
 // Tests for Conditional structures
 
-use '../conditional_structures' {
+use "../conditional_structures" {
     abs,
     sign,
     grade,

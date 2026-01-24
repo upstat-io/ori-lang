@@ -1,6 +1,6 @@
 // Tests for Fibonacci
 
-use '../fibonacci' { fib, fib_parallel }
+use "../fibonacci" { fib, fib_parallel }
 
 @test_fib_base tests @fib () -> void = run(
     assert(.cond: fib(0) == 0),

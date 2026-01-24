@@ -1,6 +1,6 @@
 // Tests for Hello world/Text
 
-use '../hello_world' { hello }
+use "../hello_world" { hello }
 
 @test_hello tests @hello () -> void = run(
     assert(.cond: hello() == "Hello world!")

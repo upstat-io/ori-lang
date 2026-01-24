@@ -1,6 +1,6 @@
 // Tests for Higher-order functions
 
-use '../higher_order_functions' {
+use "../higher_order_functions" {
     double_all,
     square_all,
     filter_positive,
