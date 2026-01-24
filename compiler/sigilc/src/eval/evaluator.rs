@@ -1017,11 +1017,22 @@ impl<'a> Evaluator<'a> {
                 let self_name = self.interner.intern("self");
                 call_env.define(self_name, func, false);
 
-                // Evaluate body in new environment
-                let mut call_evaluator = Evaluator::with_env(self.interner, self.arena, call_env);
-                let result = call_evaluator.eval(f.body);
-                call_evaluator.env.pop_scope();  // Pop the local scope
-                result
+                // Evaluate body in new environment.
+                // If the function has its own arena (from an import), use that arena.
+                // Otherwise use the current evaluator's arena.
+                if let Some(func_arena) = f.arena() {
+                    // Function from an imported module - use its arena
+                    let mut call_evaluator = Evaluator::with_env(self.interner, func_arena, call_env);
+                    let result = call_evaluator.eval(f.body);
+                    call_evaluator.env.pop_scope();
+                    result
+                } else {
+                    // Local function - use our arena
+                    let mut call_evaluator = Evaluator::with_env(self.interner, self.arena, call_env);
+                    let result = call_evaluator.eval(f.body);
+                    call_evaluator.env.pop_scope();
+                    result
+                }
             }
             Value::FunctionVal(func, _name) => {
                 func(&args).map_err(EvalError::new)

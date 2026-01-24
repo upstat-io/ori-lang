@@ -9,6 +9,7 @@ use crate::ir::{
     ExprId, ExprRange, StringInterner, TypeId, BindingPattern,
     FunctionSeq, FunctionExpKind, FunctionExp, SeqBinding, NamedExpr, CallArg,
     MatchArm, MatchPattern,
+    UseDef, UseItem, ImportPath,
 };
 
 /// Result of parsing a definition starting with @.
@@ -58,6 +59,28 @@ impl<'a> Parser<'a> {
         let mut module = Module::new();
         let mut errors = Vec::new();
 
+        // Parse imports first (must appear at beginning per spec)
+        while !self.is_at_end() {
+            self.skip_newlines();
+            if self.is_at_end() {
+                break;
+            }
+
+            if self.check(TokenKind::Use) {
+                match self.parse_use() {
+                    Ok(use_def) => module.imports.push(use_def),
+                    Err(e) => {
+                        self.recover_to_next_statement();
+                        errors.push(e);
+                    }
+                }
+            } else {
+                // No more imports
+                break;
+            }
+        }
+
+        // Parse functions and tests
         while !self.is_at_end() {
             self.skip_newlines();
 
@@ -78,6 +101,14 @@ impl<'a> Parser<'a> {
                         errors.push(e);
                     }
                 }
+            } else if self.check(TokenKind::Use) {
+                // Import after declarations - error
+                errors.push(ParseError::new(
+                    crate::diagnostic::ErrorCode::E1002,
+                    "import statements must appear at the beginning of the file".to_string(),
+                    self.current_span(),
+                ));
+                self.recover_to_next_statement();
             } else if !attrs.is_empty() {
                 // Attributes without a following function/test
                 errors.push(ParseError {
@@ -97,6 +128,90 @@ impl<'a> Parser<'a> {
             module,
             arena: self.arena,
             errors,
+        }
+    }
+
+    /// Parse a use/import statement.
+    /// Syntax: use './path' { item1, item2 as alias } or use std.math { sqrt }
+    fn parse_use(&mut self) -> Result<UseDef, ParseError> {
+        let start_span = self.current_span();
+        self.expect(TokenKind::Use)?;
+
+        // Parse import path
+        let path = if let TokenKind::String(s) = self.current_kind() {
+            // Relative path: './math', '../utils'
+            self.advance();
+            ImportPath::Relative(s)
+        } else {
+            // Module path: std.math, std.collections
+            let mut segments = Vec::new();
+            loop {
+                let name = self.expect_ident()?;
+                segments.push(name);
+
+                if self.check(TokenKind::Dot) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            ImportPath::Module(segments)
+        };
+
+        // Parse imported items: { item1, item2 as alias }
+        self.expect(TokenKind::LBrace)?;
+        self.skip_newlines();
+
+        let mut items = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            // Check for private import prefix ::
+            let is_private = if self.check(TokenKind::DoubleColon) {
+                self.advance();
+                true
+            } else {
+                false
+            };
+
+            // Item name
+            let name = self.expect_ident()?;
+
+            // Optional alias: `as alias`
+            let alias = if self.check(TokenKind::As) {
+                self.advance();
+                Some(self.expect_ident()?)
+            } else {
+                None
+            };
+
+            items.push(UseItem { name, alias, is_private });
+
+            // Comma separator (optional before closing brace)
+            if self.check(TokenKind::Comma) {
+                self.advance();
+                self.skip_newlines();
+            } else {
+                self.skip_newlines();
+                break;
+            }
+        }
+
+        let end_span = self.current_span();
+        self.expect(TokenKind::RBrace)?;
+
+        Ok(UseDef {
+            path,
+            items,
+            span: start_span.merge(end_span),
+        })
+    }
+
+    /// Recovery: skip to next statement (@ or use or EOF)
+    fn recover_to_next_statement(&mut self) {
+        while !self.is_at_end() {
+            if self.check(TokenKind::At) || self.check(TokenKind::Use) {
+                return;
+            }
+            self.advance();
         }
     }
 
