@@ -4,25 +4,32 @@ The diagnostics system provides error reporting, warnings, and code fix suggesti
 
 ## Location
 
+The diagnostics system spans multiple crates:
+
 ```
 compiler/
+├── sigil_diagnostic/       # Core diagnostic types (separate crate)
+│   └── src/
+│       ├── lib.rs              # Diagnostic, ErrorCode, Applicability, Severity
+│       ├── emitter/
+│       │   ├── mod.rs          # Emitter trait
+│       │   ├── terminal.rs     # Terminal output
+│       │   ├── json.rs         # JSON output
+│       │   └── sarif.rs        # SARIF format (~453 lines)
+│       └── fixes/
+│           └── mod.rs          # Code fix system (~258 lines)
 ├── sigil-macros/           # Proc-macro crate for diagnostic derives
 │   └── src/
 │       ├── lib.rs              # Derive macro exports
 │       ├── diagnostic.rs       # #[derive(Diagnostic)] implementation
 │       └── subdiagnostic.rs    # #[derive(Subdiagnostic)] implementation
-└── sigilc/src/diagnostic/
-    ├── mod.rs              # Core types, ErrorCode, Applicability (~600+ lines)
-    ├── problem.rs          # Problem enum
-    ├── report.rs           # Report formatting
-    ├── fixes/
-    │   └── mod.rs          # Code fix system (~258 lines)
-    └── emitter/
-        ├── mod.rs          # Emitter trait
-        ├── terminal.rs     # Terminal output
-        ├── json.rs         # JSON output
-        └── sarif.rs        # SARIF format (~453 lines)
+└── sigilc/src/
+    └── problem/            # Problem types (specific to compiler phases)
+        ├── mod.rs              # Problem enum
+        └── report.rs           # Report formatting
 ```
+
+The `sigil_diagnostic` crate contains the core `Diagnostic` type, `ErrorCode` enum, `Applicability` levels, and output emitters. It depends only on `sigil_ir` (for `Span`). The proc-macros in `sigil-macros` generate implementations of the `IntoDiagnostic` trait.
 
 ## Design Goals
 

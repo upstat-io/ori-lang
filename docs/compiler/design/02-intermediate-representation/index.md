@@ -9,9 +9,11 @@ The Sigil compiler uses a carefully designed intermediate representation (IR) op
 
 ## IR Components
 
+The IR lives in its own crate `sigil_ir`, which has no dependencies and is used by all other compiler crates.
+
 ```
-compiler/sigilc/src/ir/
-├── mod.rs          # Module exports
+compiler/sigil_ir/src/
+├── lib.rs          # Module exports, static_assert_size! macro
 ├── ast/            # Expression and statement types (~1,570 lines total)
 │   ├── mod.rs          # Module re-exports (~110 lines)
 │   ├── expr.rs         # ExprKind variants (~364 lines)
@@ -201,10 +203,10 @@ Benefits:
 
 ## Size Assertions
 
-To prevent accidental size regressions in frequently-allocated types, the compiler uses compile-time size assertions:
+To prevent accidental size regressions in frequently-allocated types, the compiler uses compile-time size assertions. The `static_assert_size!` macro is defined in `sigil_ir` and used across all crates:
 
 ```rust
-// In lib.rs
+// In sigil_ir/src/lib.rs
 #[macro_export]
 macro_rules! static_assert_size {
     ($ty:ty, $size:expr) => {
@@ -212,15 +214,20 @@ macro_rules! static_assert_size {
     };
 }
 
-// In type files
+// In sigil_ir type files
 #[cfg(target_pointer_width = "64")]
 mod size_asserts {
-    crate::static_assert_size!(Span, 8);
-    crate::static_assert_size!(Token, 24);
-    crate::static_assert_size!(TokenKind, 16);
-    crate::static_assert_size!(Expr, 88);
-    crate::static_assert_size!(ExprKind, 80);
-    crate::static_assert_size!(Type, 32);
+    sigil_ir::static_assert_size!(Span, 8);
+    sigil_ir::static_assert_size!(Token, 24);
+    sigil_ir::static_assert_size!(TokenKind, 16);
+    sigil_ir::static_assert_size!(Expr, 88);
+    sigil_ir::static_assert_size!(ExprKind, 80);
+}
+
+// In sigil_types
+#[cfg(target_pointer_width = "64")]
+mod size_asserts {
+    sigil_ir::static_assert_size!(Type, 32);
 }
 ```
 

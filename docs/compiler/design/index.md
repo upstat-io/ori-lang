@@ -1,10 +1,19 @@
 # Sigil Compiler Design Documentation
 
-This documentation describes the architecture and design decisions of the Sigil compiler (`sigilc`).
+This documentation describes the architecture and design decisions of the Sigil compiler.
 
 ## Overview
 
-The Sigil compiler is a Rust-based incremental compiler built on the Salsa framework. It features:
+The Sigil compiler is a Rust-based incremental compiler built on the Salsa framework. It is organized as a **multi-crate workspace** with clear separation of concerns:
+
+- **`sigil_ir`** - Core IR types with no dependencies
+- **`sigil_diagnostic`** - Error reporting system
+- **`sigil_lexer`** - Tokenization
+- **`sigil_types`** - Type system definitions
+- **`sigil_parse`** - Recursive descent parser
+- **`sigilc`** - CLI orchestrator, Salsa queries, type checker, evaluator, patterns
+
+The compiler features:
 
 - **Incremental compilation** via Salsa's automatic caching and dependency tracking
 - **Flat AST representation** using arena allocation for memory efficiency
@@ -125,16 +134,26 @@ Each step is a Salsa query with automatic caching. If the input doesn't change, 
 
 ## Source Paths
 
+The compiler is organized as a multi-crate workspace:
+
+| Crate | Path | Purpose |
+|-------|------|---------|
+| `sigil_ir` | `compiler/sigil_ir/src/` | Core IR types (tokens, spans, AST, arena, interning) |
+| `sigil_diagnostic` | `compiler/sigil_diagnostic/src/` | Error reporting, suggestions, emitters |
+| `sigil_lexer` | `compiler/sigil_lexer/src/` | Tokenization via logos |
+| `sigil_types` | `compiler/sigil_types/src/` | Type system definitions |
+| `sigil_parse` | `compiler/sigil_parse/src/` | Recursive descent parser |
+| `sigil-macros` | `compiler/sigil-macros/src/` | Diagnostic derive macros |
+| `sigilc` | `compiler/sigilc/src/` | CLI, Salsa queries, typeck, eval, patterns |
+
+### sigilc Internal Paths
+
 | Component | Path |
 |-----------|------|
 | Library root | `compiler/sigilc/src/lib.rs` |
 | Salsa database | `compiler/sigilc/src/db.rs` |
 | Query system | `compiler/sigilc/src/query/` |
-| Lexer | `compiler/sigilc/src/lexer.rs` |
-| Parser | `compiler/sigilc/src/parser/` |
-| IR / AST | `compiler/sigilc/src/ir/` |
 | Type checker | `compiler/sigilc/src/typeck/` |
 | Evaluator | `compiler/sigilc/src/eval/` |
 | Patterns | `compiler/sigilc/src/patterns/` |
-| Diagnostics | `compiler/sigilc/src/diagnostic/` |
 | Tests | `compiler/sigilc/src/test/` |
