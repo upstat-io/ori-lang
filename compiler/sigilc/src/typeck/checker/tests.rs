@@ -1129,3 +1129,147 @@ fn test_pure_function_no_capabilities() {
     assert!(func_type.capabilities.is_empty(),
         "pure function should have no capabilities");
 }
+
+// ============================================================================
+// Async Capability Tests
+// ============================================================================
+
+#[test]
+fn test_async_marker_trait_valid_capability() {
+    // Async is a marker trait with no methods - should be valid as capability
+    let source = r#"
+        trait Async {}
+
+        @async_op () -> int uses Async = 42
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let cap_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2012)
+        .collect();
+    assert!(cap_errors.is_empty(),
+        "Async marker trait should be valid capability, got: {:?}", cap_errors);
+}
+
+#[test]
+fn test_async_capability_stored_in_signature() {
+    // Verify that Async capability is stored in function type
+    let source = r#"
+        trait Async {}
+
+        @may_suspend () -> str uses Async = "done"
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+    assert!(typed.errors.is_empty(), "type errors: {:?}", typed.errors);
+
+    let func_type = typed.function_types.iter()
+        .find(|ft| interner.lookup(ft.name) == "may_suspend")
+        .expect("should find may_suspend function");
+
+    assert_eq!(func_type.capabilities.len(), 1, "should have 1 capability");
+    assert_eq!(interner.lookup(func_type.capabilities[0]), "Async",
+        "capability should be Async");
+}
+
+#[test]
+fn test_async_with_other_capabilities() {
+    // Async can be combined with other capabilities
+    let source = r#"
+        trait Async {}
+        trait Http {
+            @get (url: str) -> str
+        }
+
+        @async_fetch (url: str) -> str uses Http, Async = url
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let cap_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2012)
+        .collect();
+    assert!(cap_errors.is_empty(),
+        "Http and Async should both be valid capabilities, got: {:?}", cap_errors);
+
+    let func_type = typed.function_types.iter()
+        .find(|ft| interner.lookup(ft.name) == "async_fetch")
+        .expect("should find async_fetch function");
+
+    assert_eq!(func_type.capabilities.len(), 2, "should have 2 capabilities");
+    let cap_names: Vec<_> = func_type.capabilities.iter()
+        .map(|n| interner.lookup(*n))
+        .collect();
+    assert!(cap_names.contains(&"Http"), "should include Http");
+    assert!(cap_names.contains(&"Async"), "should include Async");
+}
+
+#[test]
+fn test_sync_function_no_async_capability() {
+    // Function without uses Async is synchronous
+    let source = r#"
+        trait Http {
+            @get (url: str) -> str
+        }
+
+        @sync_fetch (url: str) -> str uses Http = url
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+    assert!(typed.errors.is_empty(), "type errors: {:?}", typed.errors);
+
+    let func_type = typed.function_types.iter()
+        .find(|ft| interner.lookup(ft.name) == "sync_fetch")
+        .expect("should find sync_fetch function");
+
+    let cap_names: Vec<_> = func_type.capabilities.iter()
+        .map(|n| interner.lookup(*n))
+        .collect();
+    assert!(!cap_names.contains(&"Async"),
+        "sync function should not have Async capability");
+}
+
+// ============================================================================
+// Await Expression Rejection Tests
+// ============================================================================
+
+#[test]
+fn test_await_syntax_not_supported() {
+    // Sigil does not support .await syntax - it's parsed as field access
+    // and rejected because primitives don't have an "await" field.
+    // This verifies the design decision: no .await in Sigil.
+    let source = r#"
+        @main () -> int = run(
+            let x = 42,
+            x.await,
+        )
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+    // Should have an error - either "await not supported" or "no such field/method"
+    assert!(!typed.errors.is_empty(),
+        ".await syntax should produce a type error");
+    // The error will be about field access or method not found, which is correct
+    // behavior - Sigil doesn't have await syntax
+}

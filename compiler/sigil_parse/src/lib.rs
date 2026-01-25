@@ -702,4 +702,51 @@ mod tests {
 
         assert!(!result.has_errors(), "Expected no parse errors: {:?}", result.errors);
     }
+
+    // ========================================================================
+    // Async Capability Tests
+    // ========================================================================
+
+    #[test]
+    fn test_no_async_type_modifier() {
+        // Sigil does not support `async` as a type modifier.
+        // Instead, use `uses Async` capability.
+        // The `async` keyword is reserved but should cause a parse error when used as type.
+        let result = parse_source(r#"
+@example () -> async int = 42
+"#);
+
+        // Should have parse error - async is not a valid type modifier
+        assert!(result.has_errors(), "async type modifier should not be supported");
+    }
+
+    #[test]
+    fn test_async_keyword_reserved() {
+        // The async keyword is reserved and cannot be used as an identifier
+        let result = parse_source(r#"
+@test () -> int = run(
+    let async = 42,
+    async,
+)
+"#);
+
+        // Should have parse error - async is a reserved keyword
+        assert!(result.has_errors(), "async should be a reserved keyword");
+    }
+
+    #[test]
+    fn test_uses_async_capability_parses() {
+        // The correct way to declare async behavior: uses Async capability
+        let result = parse_source(r#"
+trait Async {}
+
+@async_op () -> int uses Async = 42
+"#);
+
+        assert!(!result.has_errors(), "uses Async should parse correctly: {:?}", result.errors);
+
+        // Verify the function has the Async capability
+        let func = &result.module.functions[0];
+        assert_eq!(func.capabilities.len(), 1);
+    }
 }
