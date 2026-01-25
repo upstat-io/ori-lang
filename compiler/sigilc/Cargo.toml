@@ -20,6 +20,13 @@ path = "src/main.rs"
 # Incremental compilation - THE FOUNDATION
 salsa.workspace = true
 
+# Sigil crates
+sigil_ir.workspace = true
+sigil_diagnostic.workspace = true
+sigil_lexer.workspace = true
+sigil_types.workspace = true
+sigil_parse.workspace = true
+
 # Lexing
 logos.workspace = true
 
