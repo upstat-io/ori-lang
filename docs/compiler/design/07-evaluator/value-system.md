@@ -5,54 +5,100 @@ The Value enum represents runtime values in the Sigil evaluator.
 ## Location
 
 ```
-compiler/sigilc/src/eval/value/mod.rs (~566 lines)
+compiler/sigil_patterns/src/value/
+├── mod.rs          # Value enum and factory methods (~569 lines)
+├── heap.rs         # Heap<T> wrapper for Arc enforcement (~147 lines)
+└── composite.rs    # FunctionValue, StructValue, RangeValue
 ```
+
+## Heap<T> Wrapper
+
+The `Heap<T>` type enforces controlled heap allocations. External code cannot construct heap values directly because the constructor is `pub(super)`.
+
+```rust
+/// A heap-allocated value wrapper using Arc internally.
+#[repr(transparent)]
+pub struct Heap<T: ?Sized>(Arc<T>);
+
+impl<T> Heap<T> {
+    /// Private constructor - only visible within the value module.
+    pub(super) fn new(value: T) -> Self {
+        Heap(Arc::new(value))
+    }
+}
+```
+
+This design ensures:
+- All heap allocations go through `Value` factory methods
+- Consistent memory management across the codebase
+- Zero-cost abstraction (`#[repr(transparent)]`)
 
 ## Value Enum
 
 ```rust
-#[derive(Clone, Debug)]
 pub enum Value {
-    // Primitives
+    // Primitives (inline, no heap allocation)
     Int(i64),
     Float(f64),
     Bool(bool),
     Char(char),
+    Byte(u8),
     Void,
+    Duration(u64),  // milliseconds
+    Size(u64),      // bytes
 
-    // Heap-allocated (shared via Arc)
-    String(Arc<String>),
-    List(Arc<Vec<Value>>),
-    Map(Arc<HashMap<Value, Value>>),
-    Set(Arc<HashSet<Value>>),
+    // Heap Types (use Heap<T> for enforced Arc usage)
+    Str(Heap<String>),
+    List(Heap<Vec<Value>>),
+    Map(Heap<HashMap<String, Value>>),
+    Tuple(Heap<Vec<Value>>),
 
-    // Structs
-    Struct {
-        name: Name,
-        fields: Arc<HashMap<Name, Value>>,
-    },
+    // Algebraic Types
+    Some(Heap<Value>),
+    None,
+    Ok(Heap<Value>),
+    Err(Heap<Value>),
 
-    // Enums / variants
-    Variant {
-        enum_name: Name,
-        variant: Name,
-        data: Option<Arc<Value>>,
-    },
-
-    // Option and Result
-    Option(Option<Arc<Value>>),
-    Result(Result<Arc<Value>, Arc<Value>>),
-
-    // Functions
+    // Composite Types
+    Struct(StructValue),
     Function(FunctionValue),
-    Builtin(BuiltinFn),
-
-    // Special
-    Duration(Duration),
-    Size(Size),
+    FunctionVal(FunctionValFn, &'static str),  // Type conversions: int(), str()
     Range(RangeValue),
+
+    // Error Recovery
+    Error(String),
 }
 ```
+
+## Factory Methods (Required for Heap Values)
+
+External code must use factory methods to create heap-allocated values:
+
+```rust
+// Correct - use factory methods
+let s = Value::string("hello");
+let list = Value::list(vec![Value::Int(1), Value::Int(2)]);
+let opt = Value::some(Value::Int(42));
+let ok = Value::ok(Value::Int(42));
+let err = Value::err(Value::string("failed"));
+let map = Value::map(HashMap::new());
+let tuple = Value::tuple(vec![Value::Int(1), Value::Bool(true)]);
+
+// Prevented at compile time
+let s = Value::Str(Heap::new(...));  // ERROR: Heap::new is pub(super)
+```
+
+Available factory methods:
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `Value::string(s)` | `Value::Str` | Create string from `impl Into<String>` |
+| `Value::list(vec)` | `Value::List` | Create list from `Vec<Value>` |
+| `Value::map(map)` | `Value::Map` | Create map from `HashMap<String, Value>` |
+| `Value::tuple(vec)` | `Value::Tuple` | Create tuple from `Vec<Value>` |
+| `Value::some(v)` | `Value::Some` | Wrap value in Some |
+| `Value::ok(v)` | `Value::Ok` | Wrap value in Ok |
+| `Value::err(v)` | `Value::Err` | Wrap value in Err |
 
 ## Primitives
 
@@ -63,39 +109,15 @@ Value::Int(42)
 Value::Float(3.14)
 Value::Bool(true)
 Value::Char('λ')
+Value::Byte(0xFF)
 Value::Void
+Value::Duration(5000)  // 5 seconds
+Value::Size(1024)      // 1kb
 ```
-
-## Heap Values
-
-Large or shared values use `Arc`:
-
-```rust
-// String
-Value::String(Arc::new("hello".to_string()))
-
-// List
-Value::List(Arc::new(vec![
-    Value::Int(1),
-    Value::Int(2),
-    Value::Int(3),
-]))
-
-// Map
-Value::Map(Arc::new(HashMap::from([
-    (Value::String(Arc::new("key".into())), Value::Int(42)),
-])))
-```
-
-Benefits of Arc:
-- Cheap cloning (just increment refcount)
-- Safe sharing in closures
-- Automatic cleanup when unused
 
 ## Function Values
 
 ```rust
-#[derive(Clone, Debug)]
 pub struct FunctionValue {
     /// Parameter names
     pub params: Vec<Name>,
@@ -104,209 +126,105 @@ pub struct FunctionValue {
     pub body: ExprId,
 
     /// Captured environment (for closures)
-    pub captured_env: Scope,
+    pub captured: Option<Heap<HashMap<Name, Value>>>,
 
     /// Optional function name (for recursion)
     pub name: Option<Name>,
 }
 ```
 
-Creating a function value:
-
-```rust
-// Lambda: x -> x + 1
-Value::Function(FunctionValue {
-    params: vec![x_name],
-    body: add_expr_id,
-    captured_env: current_scope.clone(),
-    name: None,
-})
-
-// Named function: @double (x: int) -> int = x * 2
-Value::Function(FunctionValue {
-    params: vec![x_name],
-    body: mul_expr_id,
-    captured_env: Scope::empty(),
-    name: Some(double_name),
-})
-```
-
 ## Struct Values
 
 ```rust
-// Point { x: 10, y: 20 }
-Value::Struct {
-    name: point_name,
-    fields: Arc::new(HashMap::from([
-        (x_name, Value::Int(10)),
-        (y_name, Value::Int(20)),
-    ])),
+pub struct StructValue {
+    /// Type name
+    pub type_name: Name,
+
+    /// Field values by name
+    pub fields: Heap<HashMap<Name, Value>>,
+
+    /// Field layout for ordering
+    pub layout: StructLayout,
 }
 ```
 
-Field access:
+## Range Values
 
 ```rust
-impl Value {
-    pub fn get_field(&self, field: Name) -> Result<&Value, EvalError> {
-        match self {
-            Value::Struct { fields, .. } => {
-                fields.get(&field).ok_or(EvalError::NoSuchField(field))
-            }
-            _ => Err(EvalError::NotAStruct),
-        }
-    }
-}
-```
-
-## Enum Values
-
-```rust
-// Some(42)
-Value::Variant {
-    enum_name: option_name,
-    variant: some_name,
-    data: Some(Arc::new(Value::Int(42))),
+pub struct RangeValue {
+    pub start: i64,
+    pub end: i64,
+    pub inclusive: bool,
 }
 
-// None
-Value::Variant {
-    enum_name: option_name,
-    variant: none_name,
-    data: None,
+impl RangeValue {
+    pub fn exclusive(start: i64, end: i64) -> Self;
+    pub fn inclusive(start: i64, end: i64) -> Self;
+    pub fn contains(&self, value: i64) -> bool;
+    pub fn iter(&self) -> impl Iterator<Item = i64>;
 }
-
-// Ok("success")
-Value::Result(Ok(Arc::new(Value::String(Arc::new("success".into())))))
-
-// Err("failed")
-Value::Result(Err(Arc::new(Value::String(Arc::new("failed".into())))))
 ```
 
 ## Type Conversions
 
 ```rust
 impl Value {
-    pub fn as_int(&self) -> Result<i64, EvalError> {
-        match self {
-            Value::Int(n) => Ok(*n),
-            _ => Err(EvalError::TypeMismatch {
-                expected: "int",
-                found: self.type_name(),
-            }),
-        }
-    }
-
-    pub fn as_bool(&self) -> Result<bool, EvalError> {
-        match self {
-            Value::Bool(b) => Ok(*b),
-            _ => Err(EvalError::TypeMismatch {
-                expected: "bool",
-                found: self.type_name(),
-            }),
-        }
-    }
-
-    pub fn as_list(&self) -> Result<&[Value], EvalError> {
-        match self {
-            Value::List(items) => Ok(items.as_slice()),
-            _ => Err(EvalError::TypeMismatch {
-                expected: "list",
-                found: self.type_name(),
-            }),
-        }
-    }
-
-    pub fn as_function(&self) -> Result<&FunctionValue, EvalError> {
-        match self {
-            Value::Function(f) => Ok(f),
-            _ => Err(EvalError::NotCallable),
-        }
-    }
+    pub fn as_int(&self) -> Option<i64>;
+    pub fn as_float(&self) -> Option<f64>;
+    pub fn as_bool(&self) -> Option<bool>;
+    pub fn as_str(&self) -> Option<&str>;
+    pub fn as_list(&self) -> Option<&[Value]>;
+    pub fn type_name(&self) -> &'static str;
+    pub fn is_truthy(&self) -> bool;
 }
 ```
+
+Truthiness rules:
+- `Bool(false)`, `Int(0)`, empty string, empty list, `None`, `Err`, `Void` → falsy
+- Everything else → truthy
 
 ## Equality
 
 ```rust
+impl Value {
+    /// Structural equality comparison.
+    pub fn equals(&self, other: &Value) -> bool;
+}
+
 impl PartialEq for Value {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Value::Int(a), Value::Int(b)) => a == b,
-            (Value::Float(a), Value::Float(b)) => a == b,
-            (Value::Bool(a), Value::Bool(b)) => a == b,
-            (Value::String(a), Value::String(b)) => a == b,
-            (Value::List(a), Value::List(b)) => a == b,
-            (Value::Void, Value::Void) => true,
-            _ => false,
-        }
-    }
-}
-
-impl Eq for Value {}
-```
-
-Note: Float comparison uses bitwise equality (not IEEE semantics).
-
-## Hashing
-
-For use in maps/sets:
-
-```rust
-impl Hash for Value {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
-        match self {
-            Value::Int(n) => n.hash(state),
-            Value::Bool(b) => b.hash(state),
-            Value::String(s) => s.hash(state),
-            Value::List(items) => items.hash(state),
-            // Float uses bits for deterministic hashing
-            Value::Float(f) => f.to_bits().hash(state),
-            _ => {}
-        }
-    }
+    fn eq(&self, other: &Self) -> bool;
 }
 ```
+
+Note: Float comparison uses direct `==` (may differ from IEEE semantics for NaN).
 
 ## Display
 
 ```rust
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            Value::Int(n) => write!(f, "{}", n),
-            Value::Float(n) => write!(f, "{}", n),
-            Value::Bool(b) => write!(f, "{}", b),
-            Value::String(s) => write!(f, "\"{}\"", s),
-            Value::List(items) => {
-                write!(f, "[")?;
-                for (i, item) in items.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
-                    write!(f, "{}", item)?;
-                }
-                write!(f, "]")
-            }
-            Value::Void => write!(f, "void"),
-            Value::Function(_) => write!(f, "<function>"),
-            // ...
-        }
+        // Int: "42"
+        // Float: "3.14"
+        // Str: "\"hello\""
+        // List: "[1, 2, 3]"
+        // Map: "{\"key\": 42}"
+        // Tuple: "(1, true)"
+        // Some: "Some(42)"
+        // None: "None"
+        // Ok: "Ok(42)"
+        // Err: "Err(\"message\")"
+        // Duration: "5s" or "100ms"
+        // Size: "1kb" or "1mb" or "1024b"
+        // Function: "<function>"
     }
 }
 ```
 
-## Memory Safety
+## Thread Safety
 
-The `Heap<T>` wrapper ensures safe allocation:
+All heap types use `Arc` internally (wrapped by `Heap<T>`), providing:
+- Safe sharing across threads
+- Cheap cloning (reference count increment)
+- Automatic cleanup when unused
 
-```rust
-pub struct Heap<T>(Arc<T>);
-
-impl<T> Heap<T> {
-    pub fn new(value: T) -> Self {
-        Self(Arc::new(value))
-    }
-}
-```
-
-This prevents accidentally creating bare `Arc`s and ensures consistent memory management.
+The `FunctionValue` type uses immutable captures (no `RwLock`), eliminating potential race conditions.

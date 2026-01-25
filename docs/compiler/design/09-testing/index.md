@@ -9,7 +9,13 @@ compiler/sigilc/src/test/
 ├── mod.rs              # Module exports
 ├── runner.rs           # Test execution
 ├── discovery.rs        # Test finding
+├── result.rs           # Test result types
 └── error_matching.rs   # ExpectedError matching for compile_fail tests
+
+compiler/sigilc/src/testing/
+├── mod.rs              # Testing utilities
+├── harness.rs          # Test harness
+└── mocks.rs            # Mock implementations
 ```
 
 ## Design Goals

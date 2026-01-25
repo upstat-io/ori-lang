@@ -5,26 +5,26 @@ Sigil's pattern system provides first-class constructs for common programming pa
 ## Location
 
 ```
-compiler/sigilc/src/patterns/
-├── mod.rs          # Core interfaces (~505 lines)
-├── registry.rs     # Pattern registration (~289 lines)
-├── builtins/       # Built-in patterns (~89 lines total)
-│   ├── mod.rs          # Re-exports (~28 lines)
-│   ├── print.rs        # PrintPattern implementation (~31 lines)
-│   └── panic.rs        # PanicPattern implementation (~30 lines)
-├── fusion.rs       # Optimization (~420 lines)
-├── map.rs          # map pattern
-├── filter.rs       # filter pattern
-├── fold.rs         # fold pattern
-├── find.rs         # find pattern
-├── collect.rs      # collect pattern
+compiler/sigil_patterns/src/
+├── lib.rs          # Core interfaces and re-exports
+├── registry.rs     # Pattern registration
+├── signature.rs    # Pattern signatures
+├── errors.rs       # Pattern errors
+├── builtins/       # Built-in patterns
+│   ├── mod.rs          # Re-exports
+│   ├── print.rs        # PrintPattern implementation
+│   └── panic.rs        # PanicPattern implementation
+├── fusion.rs       # Pattern fusion optimization
 ├── recurse.rs      # recurse pattern
 ├── parallel.rs     # parallel pattern
 ├── spawn.rs        # spawn pattern
 ├── timeout.rs      # timeout pattern
-├── retry.rs        # retry pattern
 ├── cache.rs        # cache pattern
-└── validate.rs     # validate pattern
+├── with_pattern.rs # with pattern (RAII resource management)
+└── value/          # Runtime value system
+    ├── mod.rs          # Value enum and factory methods
+    ├── heap.rs         # Heap<T> wrapper for Arc enforcement
+    └── composite.rs    # FunctionValue, StructValue, RangeValue
 ```
 
 **Note:** Following the "Lean Core, Rich Libraries" principle, most built-in
@@ -76,6 +76,14 @@ spawn(tasks: [...])                          // Fire and forget
 timeout(op: expr, after: 5s)               // Time limit
 retry(op: expr, attempts: 3)               // Retry on failure
 ```
+
+### Resource Management
+
+```sigil
+with(acquire: resource, action: r -> use(r), release: r -> cleanup(r))
+```
+
+The `with` pattern provides RAII-style resource management. The `release` function is always called, even if `action` throws.
 
 ### Caching and Validation
 
