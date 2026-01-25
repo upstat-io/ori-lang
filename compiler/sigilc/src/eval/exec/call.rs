@@ -4,8 +4,8 @@
 //! It's designed to be called from the main Evaluator.
 
 use crate::ir::{Name, StringInterner, ExprArena, CallArgRange};
-use crate::eval::{Value, EvalResult, EvalError, FunctionValue, Environment};
-use crate::eval::errors;
+use crate::eval::errors::wrong_function_args;
+use crate::eval::{Value, FunctionValue, Environment, EvalResult, EvalError};
 use crate::eval::methods::MethodRegistry;
 use crate::context::SharedRegistry;
 
@@ -18,7 +18,7 @@ pub struct CallContext<'a> {
 
 /// Evaluate a method call.
 ///
-/// Delegates to the MethodRegistry for dispatch.
+/// Delegates to the `MethodRegistry` for dispatch.
 pub fn eval_method_call(
     receiver: Value,
     method: Name,
@@ -32,7 +32,7 @@ pub fn eval_method_call(
 /// Check if a function has the correct argument count.
 pub fn check_arg_count(func: &FunctionValue, args: &[Value]) -> Result<(), EvalError> {
     if args.len() != func.params.len() {
-        return Err(errors::wrong_function_args(func.params.len(), args.len()));
+        return Err(wrong_function_args(func.params.len(), args.len()));
     }
     Ok(())
 }
@@ -57,7 +57,7 @@ pub fn bind_self(env: &mut Environment, func: Value, interner: &StringInterner) 
     env.define(self_name, func, false);
 }
 
-/// Evaluate a call to a FunctionVal (built-in function).
+/// Evaluate a call to a `FunctionVal` (built-in function).
 pub fn eval_function_val_call(
     func: fn(&[Value]) -> Result<Value, String>,
     args: &[Value],

@@ -74,7 +74,7 @@ impl<W: Write> DiagnosticEmitter for JsonEmitter<W> {
                 escape_json(&label.message)
             );
             let _ = writeln!(self.writer, "        \"primary\": {}", label.is_primary);
-            let _ = writeln!(self.writer, "      }}{}", comma);
+            let _ = writeln!(self.writer, "      }}{comma}");
         }
         let _ = writeln!(self.writer, "    ],");
 

@@ -1,7 +1,7 @@
 //! Compiler context for dependency injection.
 //!
-//! CompilerContext holds shared registries and configuration that can be
-//! passed to various compiler components (TypeChecker, Evaluator, etc.).
+//! `CompilerContext` holds shared registries and configuration that can be
+//! passed to various compiler components (`TypeChecker`, Evaluator, etc.).
 //!
 //! This enables:
 //! - Dependency injection for testing with mock registries
@@ -70,7 +70,7 @@ impl<T: fmt::Debug> fmt::Debug for SharedRegistry<T> {
 /// Shared compiler context containing registries and configuration.
 ///
 /// This struct is designed for dependency injection, allowing components
-/// like TypeChecker and Evaluator to receive pre-configured registries
+/// like `TypeChecker` and Evaluator to receive pre-configured registries
 /// rather than creating their own.
 ///
 /// # Thread Safety
@@ -88,7 +88,7 @@ impl<T: fmt::Debug> fmt::Debug for SharedRegistry<T> {
 /// ```
 #[derive(Clone)]
 pub struct CompilerContext {
-    /// Pattern registry for function_exp patterns (map, filter, fold, etc.).
+    /// Pattern registry for `function_exp` patterns (map, filter, fold, etc.).
     pub pattern_registry: SharedRegistry<PatternRegistry>,
     /// Binary operator registry for arithmetic, comparison, etc.
     pub operator_registry: SharedRegistry<OperatorRegistry>,
@@ -112,6 +112,7 @@ impl CompilerContext {
     /// Create a context with a custom pattern registry.
     ///
     /// Useful for testing with mock patterns.
+    #[must_use]
     pub fn with_pattern_registry(mut self, registry: PatternRegistry) -> Self {
         self.pattern_registry = SharedRegistry::new(registry);
         self
@@ -120,6 +121,7 @@ impl CompilerContext {
     /// Create a context with a custom operator registry.
     ///
     /// Useful for testing with mock operators.
+    #[must_use]
     pub fn with_operator_registry(mut self, registry: OperatorRegistry) -> Self {
         self.operator_registry = SharedRegistry::new(registry);
         self
@@ -128,6 +130,7 @@ impl CompilerContext {
     /// Create a context with a custom method registry.
     ///
     /// Useful for testing with mock methods.
+    #[must_use]
     pub fn with_method_registry(mut self, registry: MethodRegistry) -> Self {
         self.method_registry = SharedRegistry::new(registry);
         self
@@ -136,6 +139,7 @@ impl CompilerContext {
     /// Create a context with a custom unary operator registry.
     ///
     /// Useful for testing with mock unary operators.
+    #[must_use]
     pub fn with_unary_operator_registry(mut self, registry: UnaryOperatorRegistry) -> Self {
         self.unary_operator_registry = SharedRegistry::new(registry);
         self

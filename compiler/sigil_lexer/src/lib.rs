@@ -1,12 +1,12 @@
 //! Lexer for Sigil using logos with string interning.
 //!
-//! Produces TokenList for Salsa queries.
+//! Produces `TokenList` for Salsa queries.
 
 use logos::Logos;
 use sigil_ir::{Span, Token, TokenKind, TokenList, DurationUnit, SizeUnit, StringInterner};
 
 /// Raw token from logos (before interning).
-#[derive(Logos, Debug, Clone, PartialEq)]
+#[derive(Logos, Debug, Clone, Copy, PartialEq)]
 #[logos(skip r"[ \t\r]+")] // Skip horizontal whitespace
 enum RawToken {
     // === Comments (skip) ===
@@ -325,7 +325,7 @@ enum RawToken {
     Ident,
 }
 
-/// Lex source code into a TokenList.
+/// Lex source code into a `TokenList`.
 ///
 /// This is the core lexing function used by the `tokens` query.
 pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
@@ -340,7 +340,7 @@ pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
             Ok(raw) => {
                 // Skip trivia (comments, newlines, continuations)
                 match raw {
-                    RawToken::LineComment | RawToken::LineContinuation => continue,
+                    RawToken::LineComment | RawToken::LineContinuation => {}
                     RawToken::Newline => {
                         result.push(Token::new(TokenKind::Newline, span));
                     }
@@ -350,26 +350,27 @@ pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
                     }
                 }
             }
-            Err(_) => {
+            Err(()) => {
                 result.push(Token::new(TokenKind::Error, span));
             }
         }
     }
 
     // Add EOF token
-    let eof_span = Span::point(source.len() as u32);
+    let eof_pos = u32::try_from(source.len()).unwrap_or_else(|_| {
+        panic!("source file exceeds {} bytes", u32::MAX)
+    });
+    let eof_span = Span::point(eof_pos);
     result.push(Token::new(TokenKind::Eof, eof_span));
 
     result
 }
 
-/// Convert a raw token to a TokenKind, interning strings.
+/// Convert a raw token to a `TokenKind`, interning strings.
 fn convert_token(raw: RawToken, slice: &str, interner: &StringInterner) -> TokenKind {
     match raw {
         // Literals
-        RawToken::Int(n) => TokenKind::Int(n),
-        RawToken::HexInt(n) => TokenKind::Int(n),
-        RawToken::BinInt(n) => TokenKind::Int(n),
+        RawToken::Int(n) | RawToken::HexInt(n) | RawToken::BinInt(n) => TokenKind::Int(n),
         RawToken::Float(f) => TokenKind::Float(f.to_bits()),
         RawToken::String => {
             let content = &slice[1..slice.len()-1];
@@ -527,14 +528,13 @@ fn unescape_string(s: &str) -> String {
                 Some('n') => result.push('\n'),
                 Some('r') => result.push('\r'),
                 Some('t') => result.push('\t'),
-                Some('\\') => result.push('\\'),
+                Some('\\') | None => result.push('\\'),
                 Some('"') => result.push('"'),
                 Some('0') => result.push('\0'),
                 Some(c) => {
                     result.push('\\');
                     result.push(c);
                 }
-                None => result.push('\\'),
             }
         } else {
             result.push(c);
@@ -552,11 +552,10 @@ fn unescape_char(s: &str) -> char {
             Some('n') => '\n',
             Some('r') => '\r',
             Some('t') => '\t',
-            Some('\\') => '\\',
+            Some('\\') | None => '\\',
             Some('\'') => '\'',
             Some('0') => '\0',
             Some(c) => c,
-            None => '\\',
         },
         Some(c) => c,
         None => '\0',
@@ -618,8 +617,6 @@ mod tests {
     #[test]
     fn test_lex_pattern_keywords() {
         let interner = test_interner();
-        // map, filter, fold are now library functions (identifiers), not keywords
-        // Only run and try remain as compiler patterns
         let tokens = lex("run try catch parallel", &interner);
 
         assert!(matches!(tokens[0].kind, TokenKind::Run));

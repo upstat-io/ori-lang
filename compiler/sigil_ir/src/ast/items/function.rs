@@ -3,7 +3,7 @@
 //! Function definitions, test definitions, parameters, and module structure.
 //!
 //! # Salsa Compatibility
-//! All types have Clone, Eq, PartialEq, Hash, Debug for Salsa requirements.
+//! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
 use std::fmt;
 
@@ -114,7 +114,7 @@ pub struct TestDef {
     /// If set, this test is skipped with the given reason.
     pub skip_reason: Option<Name>,
     /// Expected compilation errors (multiple allowed).
-    /// If non-empty, this is a compile_fail test.
+    /// If non-empty, this is a `compile_fail` test.
     pub expected_errors: Vec<ExpectedError>,
     /// If set, this test expects runtime failure with an error
     /// containing this substring.
@@ -122,7 +122,7 @@ pub struct TestDef {
 }
 
 impl TestDef {
-    /// Check if this is a compile_fail test.
+    /// Check if this is a `compile_fail` test.
     pub fn is_compile_fail(&self) -> bool {
         !self.expected_errors.is_empty()
     }
@@ -145,11 +145,33 @@ impl Spanned for TestDef {
     }
 }
 
+/// Config variable definition.
+///
+/// Syntax: `[pub] $name = literal`
+///
+/// Config variables are compile-time constants. The type is inferred from the literal.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct ConfigDef {
+    pub name: Name,
+    /// The initializer expression (must be a literal).
+    pub value: ExprId,
+    pub span: Span,
+    pub is_public: bool,
+}
+
+impl Spanned for ConfigDef {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 /// A parsed module (collection of items).
 #[derive(Clone, Eq, PartialEq, Hash, Default)]
 pub struct Module {
     /// Import statements
     pub imports: Vec<UseDef>,
+    /// Config variable definitions
+    pub configs: Vec<ConfigDef>,
     /// Function definitions
     pub functions: Vec<Function>,
     /// Test definitions
@@ -168,6 +190,7 @@ impl Module {
     pub fn new() -> Self {
         Module {
             imports: Vec::new(),
+            configs: Vec::new(),
             functions: Vec::new(),
             tests: Vec::new(),
             types: Vec::new(),
@@ -182,7 +205,8 @@ impl fmt::Debug for Module {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Module {{ {} functions, {} tests, {} types, {} traits, {} impls, {} extends }}",
+            "Module {{ {} configs, {} functions, {} tests, {} types, {} traits, {} impls, {} extends }}",
+            self.configs.len(),
             self.functions.len(),
             self.tests.len(),
             self.types.len(),

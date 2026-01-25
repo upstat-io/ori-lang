@@ -5,7 +5,6 @@
 
 use crate::eval::{Evaluator, Value, EvalResult, EvalError};
 use crate::ir::SharedInterner;
-use crate::lexer;
 use crate::parser::{self, ParseResult};
 use crate::typeck::{TypedModule, type_check};
 
@@ -27,7 +26,7 @@ use crate::typeck::{TypedModule, type_check};
 /// ```
 pub fn eval_expr(source: &str) -> EvalResult {
     let interner = SharedInterner::default();
-    let tokens = lexer::lex(source, &interner);
+    let tokens = sigil_lexer::lex(source, &interner);
     let parsed = parser::parse(&tokens, &interner);
 
     if parsed.has_errors() {
@@ -49,14 +48,14 @@ pub fn eval_expr(source: &str) -> EvalResult {
 
     // If no main function, try to evaluate as a single expression
     // This requires wrapping in a main function
-    let wrapped_source = format!("@main () -> _ = {}", source);
+    let wrapped_source = format!("@main () -> _ = {source}");
     eval_expr(&wrapped_source)
 }
 
 /// Evaluate a full source file with a main function.
 pub fn eval_source(source: &str) -> EvalResult {
     let interner = SharedInterner::default();
-    let tokens = lexer::lex(source, &interner);
+    let tokens = sigil_lexer::lex(source, &interner);
     let parsed = parser::parse(&tokens, &interner);
 
     if parsed.has_errors() {
@@ -86,7 +85,7 @@ pub fn eval_source(source: &str) -> EvalResult {
 /// Parse source code and return the parse result.
 pub fn parse_source(source: &str) -> (ParseResult, SharedInterner) {
     let interner = SharedInterner::default();
-    let tokens = lexer::lex(source, &interner);
+    let tokens = sigil_lexer::lex(source, &interner);
     let parsed = parser::parse(&tokens, &interner);
     (parsed, interner)
 }
@@ -94,7 +93,7 @@ pub fn parse_source(source: &str) -> (ParseResult, SharedInterner) {
 /// Parse and type check source code.
 pub fn type_check_source(source: &str) -> (ParseResult, TypedModule, SharedInterner) {
     let interner = SharedInterner::default();
-    let tokens = lexer::lex(source, &interner);
+    let tokens = sigil_lexer::lex(source, &interner);
     let parsed = parser::parse(&tokens, &interner);
     let typed = type_check(&parsed, &interner);
     (parsed, typed, interner)
@@ -106,49 +105,46 @@ pub fn type_check_source(source: &str) -> (ParseResult, TypedModule, SharedInter
 
 /// Assert that evaluation produces the expected integer value.
 pub fn assert_eval_int(source: &str, expected: i64) {
-    let wrapped = format!("@main () -> int = {}", source);
+    let wrapped = format!("@main () -> int = {source}");
     match eval_source(&wrapped) {
-        Ok(Value::Int(n)) => assert_eq!(n, expected, "source: {}", source),
-        Ok(other) => panic!("expected Int({}), got {:?} for: {}", expected, other, source),
-        Err(e) => panic!("evaluation error for '{}': {:?}", source, e),
+        Ok(Value::Int(n)) => assert_eq!(n, expected, "source: {source}"),
+        Ok(other) => panic!("expected Int({expected}), got {other:?} for: {source}"),
+        Err(e) => panic!("evaluation error for '{source}': {e:?}"),
     }
 }
 
 /// Assert that evaluation produces the expected float value.
 pub fn assert_eval_float(source: &str, expected: f64) {
-    let wrapped = format!("@main () -> float = {}", source);
+    let wrapped = format!("@main () -> float = {source}");
     match eval_source(&wrapped) {
         Ok(Value::Float(f)) => {
             assert!(
                 (f - expected).abs() < 1e-10,
-                "expected Float({}), got Float({}) for: {}",
-                expected,
-                f,
-                source
-            )
+                "expected Float({expected}), got Float({f}) for: {source}"
+            );
         }
-        Ok(other) => panic!("expected Float({}), got {:?} for: {}", expected, other, source),
-        Err(e) => panic!("evaluation error for '{}': {:?}", source, e),
+        Ok(other) => panic!("expected Float({expected}), got {other:?} for: {source}"),
+        Err(e) => panic!("evaluation error for '{source}': {e:?}"),
     }
 }
 
 /// Assert that evaluation produces the expected boolean value.
 pub fn assert_eval_bool(source: &str, expected: bool) {
-    let wrapped = format!("@main () -> bool = {}", source);
+    let wrapped = format!("@main () -> bool = {source}");
     match eval_source(&wrapped) {
-        Ok(Value::Bool(b)) => assert_eq!(b, expected, "source: {}", source),
-        Ok(other) => panic!("expected Bool({}), got {:?} for: {}", expected, other, source),
-        Err(e) => panic!("evaluation error for '{}': {:?}", source, e),
+        Ok(Value::Bool(b)) => assert_eq!(b, expected, "source: {source}"),
+        Ok(other) => panic!("expected Bool({expected}), got {other:?} for: {source}"),
+        Err(e) => panic!("evaluation error for '{source}': {e:?}"),
     }
 }
 
 /// Assert that evaluation produces the expected string value.
 pub fn assert_eval_str(source: &str, expected: &str) {
-    let wrapped = format!("@main () -> str = {}", source);
+    let wrapped = format!("@main () -> str = {source}");
     match eval_source(&wrapped) {
-        Ok(Value::Str(s)) => assert_eq!(s.as_str(), expected, "source: {}", source),
-        Ok(other) => panic!("expected Str({}), got {:?} for: {}", expected, other, source),
-        Err(e) => panic!("evaluation error for '{}': {:?}", source, e),
+        Ok(Value::Str(s)) => assert_eq!(s.as_str(), expected, "source: {source}"),
+        Ok(other) => panic!("expected Str({expected}), got {other:?} for: {source}"),
+        Err(e) => panic!("evaluation error for '{source}': {e:?}"),
     }
 }
 
@@ -157,8 +153,7 @@ pub fn assert_parse_error(source: &str) {
     let (parsed, _interner) = parse_source(source);
     assert!(
         parsed.has_errors(),
-        "expected parse error but parsing succeeded for: {}",
-        source
+        "expected parse error but parsing succeeded for: {source}"
     );
 }
 
@@ -167,17 +162,15 @@ pub fn assert_type_error(source: &str) {
     let (_, typed, _interner) = type_check_source(source);
     assert!(
         typed.has_errors(),
-        "expected type error but type checking succeeded for: {}",
-        source
+        "expected type error but type checking succeeded for: {source}"
     );
 }
 
 /// Assert that evaluation produces an error.
 pub fn assert_eval_error(source: &str) {
-    let wrapped = format!("@main () -> _ = {}", source);
-    match eval_source(&wrapped) {
-        Ok(v) => panic!("expected error but got {:?} for: {}", v, source),
-        Err(_) => {} // Expected
+    let wrapped = format!("@main () -> _ = {source}");
+    if let Ok(v) = eval_source(&wrapped) {
+        panic!("expected error but got {v:?} for: {source}");
     }
 }
 

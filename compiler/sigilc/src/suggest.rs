@@ -50,7 +50,7 @@ pub fn edit_distance(a: &str, b: &str) -> usize {
         curr_row[0] = i + 1;
 
         for (j, b_char) in b.chars().enumerate() {
-            let cost = if a_char == b_char { 0 } else { 1 };
+            let cost = usize::from(a_char != b_char);
 
             curr_row[j + 1] = (prev_row[j + 1] + 1) // deletion
                 .min(curr_row[j] + 1) // insertion
@@ -132,7 +132,7 @@ pub fn suggest_similar_with_threshold<'a>(
 
     for candidate in candidates {
         // Skip if too different in length
-        let len_diff = (name.len() as isize - candidate.len() as isize).unsigned_abs();
+        let len_diff = name.len().abs_diff(candidate.len());
         if len_diff > threshold {
             continue;
         }
@@ -169,7 +169,7 @@ pub fn find_similar<'a>(
 
     let mut matches: Vec<(&str, usize)> = candidates
         .filter_map(|candidate| {
-            let len_diff = (name.len() as isize - candidate.len() as isize).unsigned_abs();
+            let len_diff = name.len().abs_diff(candidate.len());
             if len_diff > threshold {
                 return None;
             }
@@ -195,7 +195,7 @@ pub fn find_similar<'a>(
 
 /// Check if two names are likely typos of each other.
 ///
-/// More strict than suggest_similar - only matches if the edit distance
+/// More strict than `suggest_similar` - only matches if the edit distance
 /// is 1 or if the strings differ only in case.
 pub fn is_likely_typo(a: &str, b: &str) -> bool {
     if a.eq_ignore_ascii_case(b) {

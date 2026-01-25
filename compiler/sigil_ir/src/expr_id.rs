@@ -2,7 +2,7 @@
 //!
 //! Per design spec A-data-structuresmd:
 //! - ExprId(u32) instead of Box<Expr> for 50% memory savings
-//! - ExprRange for argument lists (6 bytes vs 24+ for Vec)
+//! - `ExprRange` for argument lists (6 bytes vs 24+ for Vec)
 //! - All Salsa-required traits
 
 use std::fmt;
@@ -11,7 +11,7 @@ use std::hash::{Hash, Hasher};
 /// Index into expression arena.
 ///
 /// # Salsa Compatibility
-/// Has all required traits: Copy, Clone, Eq, PartialEq, Hash, Debug
+/// Has all required traits: Copy, Clone, Eq, `PartialEq`, Hash, Debug
 ///
 /// # Design
 /// Per design: "No Box<Expr>, use ExprId(u32) indices"
@@ -26,7 +26,7 @@ impl ExprId {
     /// Invalid expression ID (sentinel value).
     pub const INVALID: ExprId = ExprId(u32::MAX);
 
-    /// Create a new ExprId.
+    /// Create a new `ExprId`.
     #[inline]
     pub const fn new(index: u32) -> Self {
         ExprId(index)
@@ -77,12 +77,12 @@ impl Default for ExprId {
 /// Range of expressions in flattened list.
 ///
 /// # Salsa Compatibility
-/// Has all required traits: Copy, Clone, Eq, PartialEq, Hash, Debug
+/// Has all required traits: Copy, Clone, Eq, `PartialEq`, Hash, Debug
 ///
 /// # Design
 /// Per design spec: uses (start: u32, len: u16) = 6 bytes logical.
 /// Rust aligns to 8 bytes, still 3x better than Vec<ExprId> at 24+ bytes.
-/// - start: u32 (4 bytes) - start index in expr_lists
+/// - start: u32 (4 bytes) - start index in `expr_lists`
 /// - len: u16 (2 bytes) - number of expressions
 /// - padding: 2 bytes (Rust alignment)
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
@@ -117,13 +117,13 @@ impl ExprRange {
     /// Iterator over indices in this range.
     #[inline]
     pub fn indices(&self) -> impl Iterator<Item = u32> {
-        self.start..(self.start + self.len as u32)
+        self.start..(self.start + u32::from(self.len))
     }
 }
 
 impl fmt::Debug for ExprRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ExprRange({}..{})", self.start, self.start + self.len as u32)
+        write!(f, "ExprRange({}..{})", self.start, self.start + u32::from(self.len))
     }
 }
 
@@ -135,7 +135,7 @@ impl Default for ExprRange {
 
 /// Index into statement list.
 ///
-/// Similar to ExprId but for statements.
+/// Similar to `ExprId` but for statements.
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 #[repr(transparent)]
 pub struct StmtId(u32);
@@ -204,7 +204,7 @@ impl StmtRange {
 
 impl fmt::Debug for StmtRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "StmtRange({}..{})", self.start, self.start + self.len as u32)
+        write!(f, "StmtRange({}..{})", self.start, self.start + u32::from(self.len))
     }
 }
 

@@ -5,20 +5,20 @@
 //! trait definitions, and implementation blocks.
 
 use sigil_ir::{
-    Function, ImportPath, Name, Param, ParamRange, TestDef, TokenKind, ParsedType, UseDef, UseItem,
-    GenericParam, GenericParamRange, TraitBound, WhereClause,
+    ConfigDef, Function, ImportPath, Name, Param, ParamRange, TestDef, TokenKind, ParsedType,
+    UseDef, UseItem, GenericParam, GenericParamRange, TraitBound, WhereClause,
     TraitDef, TraitItem, TraitMethodSig, TraitDefaultMethod, TraitAssocType,
     ImplDef, ImplMethod,
     TypeDecl, TypeDeclKind, StructField, Variant, VariantField,
 };
 use crate::{FunctionOrTest, ParsedAttrs, ParseError, Parser};
 
-impl<'a> Parser<'a> {
+impl Parser<'_> {
     /// Parse a use/import statement.
     /// Syntax: use './path' { item1, item2 as alias } or use std.math { sqrt }
     pub(crate) fn parse_use(&mut self) -> Result<UseDef, ParseError> {
         let start_span = self.current_span();
-        self.expect(TokenKind::Use)?;
+        self.expect(&TokenKind::Use)?;
 
         // Parse import path
         let path = if let TokenKind::String(s) = self.current_kind() {
@@ -32,7 +32,7 @@ impl<'a> Parser<'a> {
                 let name = self.expect_ident()?;
                 segments.push(name);
 
-                if self.check(TokenKind::Dot) {
+                if self.check(&TokenKind::Dot) {
                     self.advance();
                 } else {
                     break;
@@ -42,13 +42,13 @@ impl<'a> Parser<'a> {
         };
 
         // Parse imported items: { item1, item2 as alias }
-        self.expect(TokenKind::LBrace)?;
+        self.expect(&TokenKind::LBrace)?;
         self.skip_newlines();
 
         let mut items = Vec::new();
-        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+        while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
             // Check for private import prefix ::
-            let is_private = if self.check(TokenKind::DoubleColon) {
+            let is_private = if self.check(&TokenKind::DoubleColon) {
                 self.advance();
                 true
             } else {
@@ -59,7 +59,7 @@ impl<'a> Parser<'a> {
             let name = self.expect_ident()?;
 
             // Optional alias: `as alias`
-            let alias = if self.check(TokenKind::As) {
+            let alias = if self.check(&TokenKind::As) {
                 self.advance();
                 Some(self.expect_ident()?)
             } else {
@@ -69,7 +69,7 @@ impl<'a> Parser<'a> {
             items.push(UseItem { name, alias, is_private });
 
             // Comma separator (optional before closing brace)
-            if self.check(TokenKind::Comma) {
+            if self.check(&TokenKind::Comma) {
                 self.advance();
                 self.skip_newlines();
             } else {
@@ -79,7 +79,7 @@ impl<'a> Parser<'a> {
         }
 
         let end_span = self.current_span();
-        self.expect(TokenKind::RBrace)?;
+        self.expect(&TokenKind::RBrace)?;
 
         Ok(UseDef {
             path,
@@ -88,17 +88,96 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Parse a config variable declaration.
+    ///
+    /// Syntax: `[pub] $name = literal`
+    pub(crate) fn parse_config(&mut self, is_public: bool) -> Result<ConfigDef, ParseError> {
+        let start_span = self.current_span();
+
+        // $
+        self.expect(&TokenKind::Dollar)?;
+
+        // name
+        let name = self.expect_ident()?;
+
+        // =
+        self.expect(&TokenKind::Eq)?;
+
+        // literal value
+        let value = self.parse_literal_expr()?;
+
+        let span = start_span.merge(self.previous_span());
+
+        Ok(ConfigDef {
+            name,
+            value,
+            span,
+            is_public,
+        })
+    }
+
+    /// Parse a literal expression for config values.
+    fn parse_literal_expr(&mut self) -> Result<sigil_ir::ExprId, ParseError> {
+        use sigil_ir::{Expr, ExprKind};
+
+        let span = self.current_span();
+        let kind = match self.current_kind() {
+            TokenKind::Int(n) => {
+                self.advance();
+                ExprKind::Int(n)
+            }
+            TokenKind::Float(bits) => {
+                self.advance();
+                ExprKind::Float(bits)
+            }
+            TokenKind::String(s) => {
+                self.advance();
+                ExprKind::String(s)
+            }
+            TokenKind::True => {
+                self.advance();
+                ExprKind::Bool(true)
+            }
+            TokenKind::False => {
+                self.advance();
+                ExprKind::Bool(false)
+            }
+            TokenKind::Char(c) => {
+                self.advance();
+                ExprKind::Char(c)
+            }
+            // Duration literals (e.g., 100ms, 30s)
+            TokenKind::Duration(value, unit) => {
+                self.advance();
+                ExprKind::Duration { value, unit }
+            }
+            // Size literals (e.g., 4kb, 10mb)
+            TokenKind::Size(value, unit) => {
+                self.advance();
+                ExprKind::Size { value, unit }
+            }
+            _ => {
+                return Err(ParseError::new(
+                    sigil_diagnostic::ErrorCode::E1002,
+                    "config variable must be initialized with a literal value".to_string(),
+                    span,
+                ));
+            }
+        };
+
+        Ok(self.arena.alloc_expr(Expr::new(kind, span)))
+    }
 
     /// Parse a function or test definition with attributes.
     ///
     /// Function: @name (params) -> Type = body
     /// Targeted test: @name tests @target1 tests @target2 (params) -> Type = body
-    /// Free-floating test: @test_name (params) -> void = body
+    /// Free-floating test: @`test_name` (params) -> void = body
     pub(crate) fn parse_function_or_test_with_attrs(&mut self, attrs: ParsedAttrs, is_public: bool) -> Result<FunctionOrTest, ParseError> {
         let start_span = self.current_span();
 
         // @
-        self.expect(TokenKind::At)?;
+        self.expect(&TokenKind::At)?;
 
         // name
         let name = self.expect_ident()?;
@@ -106,23 +185,23 @@ impl<'a> Parser<'a> {
         let is_test_named = name_str.starts_with("test_");
 
         // Check if this is a targeted test (has `tests` keyword)
-        if self.check(TokenKind::Tests) {
+        if self.check(&TokenKind::Tests) {
             // Parse test targets: tests @target1 tests @target2 ...
             let mut targets = Vec::new();
-            while self.check(TokenKind::Tests) {
+            while self.check(&TokenKind::Tests) {
                 self.advance(); // consume `tests`
-                self.expect(TokenKind::At)?;
+                self.expect(&TokenKind::At)?;
                 let target = self.expect_ident()?;
                 targets.push(target);
             }
 
             // (params)
-            self.expect(TokenKind::LParen)?;
+            self.expect(&TokenKind::LParen)?;
             let params = self.parse_params()?;
-            self.expect(TokenKind::RParen)?;
+            self.expect(&TokenKind::RParen)?;
 
             // -> Type (optional)
-            let return_ty = if self.check(TokenKind::Arrow) {
+            let return_ty = if self.check(&TokenKind::Arrow) {
                 self.advance();
                 self.parse_type()
             } else {
@@ -130,7 +209,7 @@ impl<'a> Parser<'a> {
             };
 
             // = body
-            self.expect(TokenKind::Eq)?;
+            self.expect(&TokenKind::Eq)?;
             let body = self.parse_expr()?;
 
             let end_span = self.arena.get_expr(body).span;
@@ -150,12 +229,12 @@ impl<'a> Parser<'a> {
         } else if is_test_named {
             // Free-floating test (name starts with test_ but no targets)
             // (params)
-            self.expect(TokenKind::LParen)?;
+            self.expect(&TokenKind::LParen)?;
             let params = self.parse_params()?;
-            self.expect(TokenKind::RParen)?;
+            self.expect(&TokenKind::RParen)?;
 
             // -> Type (optional)
-            let return_ty = if self.check(TokenKind::Arrow) {
+            let return_ty = if self.check(&TokenKind::Arrow) {
                 self.advance();
                 self.parse_type()
             } else {
@@ -163,7 +242,7 @@ impl<'a> Parser<'a> {
             };
 
             // = body
-            self.expect(TokenKind::Eq)?;
+            self.expect(&TokenKind::Eq)?;
             let body = self.parse_expr()?;
 
             let end_span = self.arena.get_expr(body).span;
@@ -183,19 +262,19 @@ impl<'a> Parser<'a> {
         } else {
             // Regular function
             // Optional generic parameters: <T, U: Bound>
-            let generics = if self.check(TokenKind::Lt) {
+            let generics = if self.check(&TokenKind::Lt) {
                 self.parse_generics()?
             } else {
                 GenericParamRange::EMPTY
             };
 
             // (params)
-            self.expect(TokenKind::LParen)?;
+            self.expect(&TokenKind::LParen)?;
             let params = self.parse_params()?;
-            self.expect(TokenKind::RParen)?;
+            self.expect(&TokenKind::RParen)?;
 
             // -> Type (optional)
-            let return_ty = if self.check(TokenKind::Arrow) {
+            let return_ty = if self.check(&TokenKind::Arrow) {
                 self.advance();
                 self.parse_type()
             } else {
@@ -203,14 +282,14 @@ impl<'a> Parser<'a> {
             };
 
             // Optional where clauses: where T: Clone, U: Default
-            let where_clauses = if self.check(TokenKind::Where) {
+            let where_clauses = if self.check(&TokenKind::Where) {
                 self.parse_where_clauses()?
             } else {
                 Vec::new()
             };
 
             // = body
-            self.expect(TokenKind::Eq)?;
+            self.expect(&TokenKind::Eq)?;
             let body = self.parse_expr()?;
 
             let end_span = self.arena.get_expr(body).span;
@@ -234,11 +313,11 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_params(&mut self) -> Result<ParamRange, ParseError> {
         let mut params = Vec::new();
 
-        while !self.check(TokenKind::RParen) && !self.is_at_end() {
+        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
             let param_span = self.current_span();
 
             // Accept `self` as a special parameter name for trait/impl methods
-            let name = if self.check(TokenKind::SelfLower) {
+            let name = if self.check(&TokenKind::SelfLower) {
                 self.advance();
                 self.interner().intern("self")
             } else {
@@ -246,7 +325,7 @@ impl<'a> Parser<'a> {
             };
 
             // : Type (optional, not required for `self`)
-            let ty = if self.check(TokenKind::Colon) {
+            let ty = if self.check(&TokenKind::Colon) {
                 self.advance();
                 self.parse_type()
             } else {
@@ -255,8 +334,8 @@ impl<'a> Parser<'a> {
 
             params.push(Param { name, ty, span: param_span });
 
-            if !self.check(TokenKind::RParen) {
-                self.expect(TokenKind::Comma)?;
+            if !self.check(&TokenKind::RParen) {
+                self.expect(&TokenKind::Comma)?;
             }
         }
 
@@ -269,23 +348,22 @@ impl<'a> Parser<'a> {
 
     /// Parse a trait definition.
     /// Syntax: [pub] trait Name [<T>] [: Super] { items }
-    #[allow(dead_code)]
     pub(crate) fn parse_trait(&mut self, is_public: bool) -> Result<TraitDef, ParseError> {
         let start_span = self.current_span();
-        self.expect(TokenKind::Trait)?;
+        self.expect(&TokenKind::Trait)?;
 
         // Trait name
         let name = self.expect_ident()?;
 
         // Optional generics: <T, U: Bound>
-        let generics = if self.check(TokenKind::Lt) {
+        let generics = if self.check(&TokenKind::Lt) {
             self.parse_generics()?
         } else {
             GenericParamRange::EMPTY
         };
 
         // Optional super-traits: : Parent + OtherTrait
-        let super_traits = if self.check(TokenKind::Colon) {
+        let super_traits = if self.check(&TokenKind::Colon) {
             self.advance();
             self.parse_bounds()?
         } else {
@@ -293,11 +371,11 @@ impl<'a> Parser<'a> {
         };
 
         // Trait body: { items }
-        self.expect(TokenKind::LBrace)?;
+        self.expect(&TokenKind::LBrace)?;
         self.skip_newlines();
 
         let mut items = Vec::new();
-        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+        while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
             match self.parse_trait_item() {
                 Ok(item) => items.push(item),
                 Err(e) => {
@@ -308,7 +386,7 @@ impl<'a> Parser<'a> {
         }
 
         let end_span = self.current_span();
-        self.expect(TokenKind::RBrace)?;
+        self.expect(&TokenKind::RBrace)?;
 
         Ok(TraitDef {
             name,
@@ -322,7 +400,7 @@ impl<'a> Parser<'a> {
 
     /// Parse a single trait item (method signature, default method, or associated type).
     fn parse_trait_item(&mut self) -> Result<TraitItem, ParseError> {
-        if self.check(TokenKind::Type) {
+        if self.check(&TokenKind::Type) {
             // Associated type: type Item
             let start_span = self.current_span();
             self.advance(); // consume `type`
@@ -331,23 +409,23 @@ impl<'a> Parser<'a> {
                 name,
                 span: start_span.merge(self.previous_span()),
             }))
-        } else if self.check(TokenKind::At) {
+        } else if self.check(&TokenKind::At) {
             // Method: @name (params) -> Type [= body]
             let start_span = self.current_span();
             self.advance(); // consume `@`
             let name = self.expect_ident()?;
 
             // (params)
-            self.expect(TokenKind::LParen)?;
+            self.expect(&TokenKind::LParen)?;
             let params = self.parse_params()?;
-            self.expect(TokenKind::RParen)?;
+            self.expect(&TokenKind::RParen)?;
 
             // -> Type
-            self.expect(TokenKind::Arrow)?;
+            self.expect(&TokenKind::Arrow)?;
             let return_ty = self.parse_type_required()?;
 
             // Check for default implementation: = body
-            if self.check(TokenKind::Eq) {
+            if self.check(&TokenKind::Eq) {
                 self.advance();
                 let body = self.parse_expr()?;
                 let end_span = self.arena.get_expr(body).span;
@@ -377,13 +455,12 @@ impl<'a> Parser<'a> {
 
     /// Parse an impl block.
     /// Syntax: impl [<T>] Type { methods } or impl [<T>] Trait for Type { methods }
-    #[allow(dead_code)]
     pub(crate) fn parse_impl(&mut self) -> Result<ImplDef, ParseError> {
         let start_span = self.current_span();
-        self.expect(TokenKind::Impl)?;
+        self.expect(&TokenKind::Impl)?;
 
         // Optional generics: <T, U: Bound>
-        let generics = if self.check(TokenKind::Lt) {
+        let generics = if self.check(&TokenKind::Lt) {
             self.parse_generics()?
         } else {
             GenericParamRange::EMPTY
@@ -394,7 +471,7 @@ impl<'a> Parser<'a> {
         let first_ty = self.make_type_from_path(&first_path)?;
 
         // Check for `for` keyword to determine if this is a trait impl
-        let (trait_path, self_path, self_ty) = if self.check(TokenKind::For) {
+        let (trait_path, self_path, self_ty) = if self.check(&TokenKind::For) {
             self.advance();
             // Parse the implementing type as a type path
             let impl_path = self.parse_type_path()?;
@@ -405,18 +482,18 @@ impl<'a> Parser<'a> {
         };
 
         // Optional where clause
-        let where_clauses = if self.check(TokenKind::Where) {
+        let where_clauses = if self.check(&TokenKind::Where) {
             self.parse_where_clauses()?
         } else {
             Vec::new()
         };
 
         // Impl body: { methods }
-        self.expect(TokenKind::LBrace)?;
+        self.expect(&TokenKind::LBrace)?;
         self.skip_newlines();
 
         let mut methods = Vec::new();
-        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+        while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
             match self.parse_impl_method() {
                 Ok(method) => methods.push(method),
                 Err(e) => {
@@ -427,7 +504,7 @@ impl<'a> Parser<'a> {
         }
 
         let end_span = self.current_span();
-        self.expect(TokenKind::RBrace)?;
+        self.expect(&TokenKind::RBrace)?;
 
         Ok(ImplDef {
             generics,
@@ -441,25 +518,24 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a method in an impl block.
-    #[allow(dead_code)]
     fn parse_impl_method(&mut self) -> Result<ImplMethod, ParseError> {
         let start_span = self.current_span();
 
         // @name
-        self.expect(TokenKind::At)?;
+        self.expect(&TokenKind::At)?;
         let name = self.expect_ident()?;
 
         // (params)
-        self.expect(TokenKind::LParen)?;
+        self.expect(&TokenKind::LParen)?;
         let params = self.parse_params()?;
-        self.expect(TokenKind::RParen)?;
+        self.expect(&TokenKind::RParen)?;
 
         // -> Type
-        self.expect(TokenKind::Arrow)?;
+        self.expect(&TokenKind::Arrow)?;
         let return_ty = self.parse_type_required()?;
 
         // = body
-        self.expect(TokenKind::Eq)?;
+        self.expect(&TokenKind::Eq)?;
         let body = self.parse_expr()?;
 
         let end_span = self.arena.get_expr(body).span;
@@ -487,21 +563,21 @@ impl<'a> Parser<'a> {
     /// - With derives: `#[derive(Eq, Clone)] type Name = ...`
     pub(crate) fn parse_type_decl(&mut self, attrs: ParsedAttrs, is_public: bool) -> Result<TypeDecl, ParseError> {
         let start_span = self.current_span();
-        self.expect(TokenKind::Type)?;
+        self.expect(&TokenKind::Type)?;
 
         let name = self.expect_ident()?;
 
         // Optional generics: <T, U: Bound>
-        let generics = if self.check(TokenKind::Lt) {
+        let generics = if self.check(&TokenKind::Lt) {
             self.parse_generics()?
         } else {
             GenericParamRange::EMPTY
         };
 
-        self.expect(TokenKind::Eq)?;
+        self.expect(&TokenKind::Eq)?;
 
         // Determine kind based on what follows
-        let kind = if self.check(TokenKind::LBrace) {
+        let kind = if self.check(&TokenKind::LBrace) {
             // Struct: { field: Type, ... }
             self.parse_struct_body()?
         } else if self.check_ident() {
@@ -514,7 +590,7 @@ impl<'a> Parser<'a> {
         };
 
         // Optional where clause (not common for type decls but supported)
-        let where_clauses = if self.check(TokenKind::Where) {
+        let where_clauses = if self.check(&TokenKind::Where) {
             self.parse_where_clauses()?
         } else {
             Vec::new()
@@ -535,14 +611,14 @@ impl<'a> Parser<'a> {
 
     /// Parse struct body: { field: Type, ... }
     fn parse_struct_body(&mut self) -> Result<TypeDeclKind, ParseError> {
-        self.expect(TokenKind::LBrace)?;
+        self.expect(&TokenKind::LBrace)?;
         self.skip_newlines();
 
         let mut fields = Vec::new();
-        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+        while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
             let field_span = self.current_span();
             let field_name = self.expect_ident()?;
-            self.expect(TokenKind::Colon)?;
+            self.expect(&TokenKind::Colon)?;
             let field_ty = self.parse_type_required()?;
 
             fields.push(StructField {
@@ -552,7 +628,7 @@ impl<'a> Parser<'a> {
             });
 
             // Comma separator (optional before closing brace)
-            if self.check(TokenKind::Comma) {
+            if self.check(&TokenKind::Comma) {
                 self.advance();
                 self.skip_newlines();
             } else {
@@ -561,7 +637,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        self.expect(TokenKind::RBrace)?;
+        self.expect(&TokenKind::RBrace)?;
         Ok(TypeDeclKind::Struct(fields))
     }
 
@@ -574,31 +650,31 @@ impl<'a> Parser<'a> {
         let first_span = self.previous_span();
 
         // Check for generic args on newtype: MyType<T>
-        if self.check(TokenKind::Lt) {
+        if self.check(&TokenKind::Lt) {
             // This is a newtype with generic args
             self.advance(); // <
             let mut type_args = Vec::new();
-            while !self.check(TokenKind::Gt) && !self.is_at_end() {
+            while !self.check(&TokenKind::Gt) && !self.is_at_end() {
                 type_args.push(self.parse_type_required()?);
-                if self.check(TokenKind::Comma) {
+                if self.check(&TokenKind::Comma) {
                     self.advance();
                 } else {
                     break;
                 }
             }
-            if self.check(TokenKind::Gt) {
+            if self.check(&TokenKind::Gt) {
                 self.advance(); // >
             }
             return Ok(TypeDeclKind::Newtype(ParsedType::Named { name: first_name, type_args }));
         }
 
         // Check if this is a sum type (has | following)
-        if self.check(TokenKind::Pipe) {
+        if self.check(&TokenKind::Pipe) {
             // Sum type - parse first variant and continue
             let first_variant = self.make_variant(first_name, first_span)?;
             let mut variants = vec![first_variant];
 
-            while self.check(TokenKind::Pipe) {
+            while self.check(&TokenKind::Pipe) {
                 self.advance(); // |
                 self.skip_newlines();
 
@@ -612,12 +688,12 @@ impl<'a> Parser<'a> {
         }
 
         // Check if first variant has fields (indicates sum type)
-        if self.check(TokenKind::LParen) {
+        if self.check(&TokenKind::LParen) {
             // Sum type with fields on first variant
             let first_variant = self.make_variant(first_name, first_span)?;
             let mut variants = vec![first_variant];
 
-            while self.check(TokenKind::Pipe) {
+            while self.check(&TokenKind::Pipe) {
                 self.advance(); // |
                 self.skip_newlines();
 
@@ -637,15 +713,15 @@ impl<'a> Parser<'a> {
     /// Create a Variant, parsing optional fields.
     fn make_variant(&mut self, name: Name, start_span: sigil_ir::Span) -> Result<Variant, ParseError> {
         // Check for variant fields: (field: Type, ...)
-        let fields = if self.check(TokenKind::LParen) {
+        let fields = if self.check(&TokenKind::LParen) {
             self.advance(); // (
             self.skip_newlines();
 
             let mut fields = Vec::new();
-            while !self.check(TokenKind::RParen) && !self.is_at_end() {
+            while !self.check(&TokenKind::RParen) && !self.is_at_end() {
                 let field_span = self.current_span();
                 let field_name = self.expect_ident()?;
-                self.expect(TokenKind::Colon)?;
+                self.expect(&TokenKind::Colon)?;
                 let field_ty = self.parse_type_required()?;
 
                 fields.push(VariantField {
@@ -655,14 +731,14 @@ impl<'a> Parser<'a> {
                 });
 
                 // Comma separator
-                if self.check(TokenKind::Comma) {
+                if self.check(&TokenKind::Comma) {
                     self.advance();
                     self.skip_newlines();
                 } else {
                     break;
                 }
             }
-            self.expect(TokenKind::RParen)?;
+            self.expect(&TokenKind::RParen)?;
             fields
         } else {
             Vec::new()
@@ -688,10 +764,10 @@ impl<'a> Parser<'a> {
     ///   extend str { @reverse... }       - extends str
     pub(crate) fn parse_extend(&mut self) -> Result<sigil_ir::ExtendDef, ParseError> {
         let start_span = self.current_span();
-        self.expect(TokenKind::Extend)?;
+        self.expect(&TokenKind::Extend)?;
 
         // Optional generics: <T, U: Bound>
-        let generics = if self.check(TokenKind::Lt) {
+        let generics = if self.check(&TokenKind::Lt) {
             self.parse_generics()?
         } else {
             GenericParamRange::EMPTY
@@ -699,15 +775,15 @@ impl<'a> Parser<'a> {
 
         // Parse the target type
         // Handle [T] for list types
-        let (target_ty, target_type_name) = if self.check(TokenKind::LBracket) {
+        let (target_ty, target_type_name) = if self.check(&TokenKind::LBracket) {
             self.advance(); // [
             // Parse element type (optional, default to infer)
-            let elem_ty = if !self.check(TokenKind::RBracket) {
-                self.parse_type_required()?
-            } else {
+            let elem_ty = if self.check(&TokenKind::RBracket) {
                 ParsedType::Infer
+            } else {
+                self.parse_type_required()?
             };
-            self.expect(TokenKind::RBracket)?;
+            self.expect(&TokenKind::RBracket)?;
             // List type - method dispatch uses "list"
             (ParsedType::List(Box::new(elem_ty)), self.interner().intern("list"))
         } else if self.check_type_keyword() {
@@ -727,18 +803,18 @@ impl<'a> Parser<'a> {
             // Named type like Option<T>, MyType, etc.
             let type_name = self.expect_ident()?;
             // Check for generic parameters like Option<T>
-            let type_args = if self.check(TokenKind::Lt) {
+            let type_args = if self.check(&TokenKind::Lt) {
                 self.advance(); // <
                 let mut args = Vec::new();
-                while !self.check(TokenKind::Gt) && !self.is_at_end() {
+                while !self.check(&TokenKind::Gt) && !self.is_at_end() {
                     args.push(self.parse_type_required()?);
-                    if self.check(TokenKind::Comma) {
+                    if self.check(&TokenKind::Comma) {
                         self.advance();
                     } else {
                         break;
                     }
                 }
-                if self.check(TokenKind::Gt) {
+                if self.check(&TokenKind::Gt) {
                     self.advance(); // >
                 }
                 args
@@ -749,18 +825,18 @@ impl<'a> Parser<'a> {
         };
 
         // Optional where clause
-        let where_clauses = if self.check(TokenKind::Where) {
+        let where_clauses = if self.check(&TokenKind::Where) {
             self.parse_where_clauses()?
         } else {
             Vec::new()
         };
 
         // Extend body: { methods }
-        self.expect(TokenKind::LBrace)?;
+        self.expect(&TokenKind::LBrace)?;
         self.skip_newlines();
 
         let mut methods = Vec::new();
-        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+        while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
             match self.parse_impl_method() {
                 Ok(method) => methods.push(method),
                 Err(e) => {
@@ -771,7 +847,7 @@ impl<'a> Parser<'a> {
         }
 
         let end_span = self.current_span();
-        self.expect(TokenKind::RBrace)?;
+        self.expect(&TokenKind::RBrace)?;
 
         Ok(sigil_ir::ExtendDef {
             generics,
@@ -788,7 +864,7 @@ impl<'a> Parser<'a> {
     // =========================================================================
 
     /// Parse a type, accepting all type forms (primitives, named, compounds).
-    /// Returns ParsedType representing the full type structure.
+    /// Returns `ParsedType` representing the full type structure.
     fn parse_type_required(&mut self) -> Result<ParsedType, ParseError> {
         if let Some(ty) = self.parse_type() {
             return Ok(ty);
@@ -803,15 +879,15 @@ impl<'a> Parser<'a> {
 
     /// Parse generic parameters: <T, U: Bound>
     pub(crate) fn parse_generics(&mut self) -> Result<GenericParamRange, ParseError> {
-        self.expect(TokenKind::Lt)?;
+        self.expect(&TokenKind::Lt)?;
 
         let mut params = Vec::new();
-        while !self.check(TokenKind::Gt) && !self.is_at_end() {
+        while !self.check(&TokenKind::Gt) && !self.is_at_end() {
             let param_span = self.current_span();
             let name = self.expect_ident()?;
 
             // Optional bounds: : Bound + OtherBound
-            let bounds = if self.check(TokenKind::Colon) {
+            let bounds = if self.check(&TokenKind::Colon) {
                 self.advance();
                 self.parse_bounds()?
             } else {
@@ -824,12 +900,12 @@ impl<'a> Parser<'a> {
                 span: param_span.merge(self.previous_span()),
             });
 
-            if !self.check(TokenKind::Gt) {
-                self.expect(TokenKind::Comma)?;
+            if !self.check(&TokenKind::Gt) {
+                self.expect(&TokenKind::Comma)?;
             }
         }
 
-        self.expect(TokenKind::Gt)?;
+        self.expect(&TokenKind::Gt)?;
         Ok(self.arena.alloc_generic_params(params))
     }
 
@@ -839,14 +915,15 @@ impl<'a> Parser<'a> {
 
         loop {
             let bound_span = self.current_span();
-            let path = self.parse_type_path()?;
+            let (first, rest) = self.parse_type_path_parts()?;
 
             bounds.push(TraitBound {
-                path,
+                first,
+                rest,
                 span: bound_span.merge(self.previous_span()),
             });
 
-            if self.check(TokenKind::Plus) {
+            if self.check(&TokenKind::Plus) {
                 self.advance();
             } else {
                 break;
@@ -858,47 +935,52 @@ impl<'a> Parser<'a> {
 
     /// Parse a type path: Name or std.collections.List
     fn parse_type_path(&mut self) -> Result<Vec<sigil_ir::Name>, ParseError> {
-        let mut segments = Vec::new();
-        let name = self.expect_ident()?;
-        segments.push(name);
-
-        while self.check(TokenKind::Dot) {
-            self.advance();
-            let segment = self.expect_ident()?;
-            segments.push(segment);
-        }
-
+        let (first, rest) = self.parse_type_path_parts()?;
+        let mut segments = vec![first];
+        segments.extend(rest);
         Ok(segments)
     }
 
-    /// Convert a type path to a ParsedType.
+    /// Parse a type path as (`first_segment`, `rest_segments`).
+    /// Guarantees at least one segment by returning the first separately.
+    fn parse_type_path_parts(&mut self) -> Result<(sigil_ir::Name, Vec<sigil_ir::Name>), ParseError> {
+        let first = self.expect_ident()?;
+        let mut rest = Vec::new();
+
+        while self.check(&TokenKind::Dot) {
+            self.advance();
+            let segment = self.expect_ident()?;
+            rest.push(segment);
+        }
+
+        Ok((first, rest))
+    }
+
+    /// Convert a type path to a `ParsedType`.
     /// Creates a Named type with the last segment as the name.
-    #[allow(dead_code)]
     fn make_type_from_path(&mut self, path: &[sigil_ir::Name]) -> Result<ParsedType, ParseError> {
-        if path.is_empty() {
-            return Err(ParseError::new(
+        // Use the last segment as the type name
+        // TODO: Support full path resolution in type checker
+        match path.last() {
+            Some(&name) => Ok(ParsedType::Named { name, type_args: Vec::new() }),
+            None => Err(ParseError::new(
                 sigil_diagnostic::ErrorCode::E1002,
                 "empty type path".to_string(),
                 self.current_span(),
-            ));
+            )),
         }
-
-        // Use the last segment as the type name
-        // TODO: Support full path resolution in type checker
-        let name = *path.last().unwrap();
-        Ok(ParsedType::Named { name, type_args: Vec::new() })
     }
 
     /// Parse where clauses: where T: Clone, U: Default
     fn parse_where_clauses(&mut self) -> Result<Vec<WhereClause>, ParseError> {
-        self.expect(TokenKind::Where)?;
+        self.expect(&TokenKind::Where)?;
 
         let mut clauses = Vec::new();
         loop {
             let clause_span = self.current_span();
             let param = self.expect_ident()?;
 
-            self.expect(TokenKind::Colon)?;
+            self.expect(&TokenKind::Colon)?;
             let bounds = self.parse_bounds()?;
 
             clauses.push(WhereClause {
@@ -907,7 +989,7 @@ impl<'a> Parser<'a> {
                 span: clause_span.merge(self.previous_span()),
             });
 
-            if self.check(TokenKind::Comma) {
+            if self.check(&TokenKind::Comma) {
                 self.advance();
             } else {
                 break;

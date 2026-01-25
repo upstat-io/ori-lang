@@ -55,11 +55,11 @@ impl UserMethod {
 
 /// Registry for user-defined methods from impl blocks.
 ///
-/// Methods are keyed by (type_name, method_name) pairs.
+/// Methods are keyed by (`type_name`, `method_name`) pairs.
 /// Type names are strings like "Point", "int", "[int]", etc.
 #[derive(Clone, Debug, Default)]
 pub struct UserMethodRegistry {
-    /// Map from (type_name, method_name) to method definition.
+    /// Map from (`type_name`, `method_name`) to method definition.
     methods: HashMap<(String, String), UserMethod>,
 }
 

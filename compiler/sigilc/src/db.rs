@@ -21,7 +21,7 @@ pub trait Db: salsa::Database {
 
 /// Concrete implementation of the compiler database.
 ///
-/// The #[salsa::db] macro generates much of the implementation.
+/// The #[`salsa::db`] macro generates much of the implementation.
 /// This struct holds Salsa's storage plus any shared state.
 ///
 /// MUST implement Clone for Salsa to work.
@@ -43,9 +43,9 @@ pub struct CompilerDb {
 impl Default for CompilerDb {
     fn default() -> Self {
         Self {
-            storage: Default::default(),
+            storage: salsa::Storage::default(),
             interner: SharedInterner::new(),
-            logs: Default::default(),
+            logs: Arc::default(),
         }
     }
 }
@@ -77,7 +77,7 @@ impl CompilerDb {
     }
 }
 
-/// Implement our Db trait for CompilerDb.
+/// Implement our Db trait for `CompilerDb`.
 #[salsa::db]
 impl Db for CompilerDb {
     fn interner(&self) -> &StringInterner {
@@ -85,19 +85,19 @@ impl Db for CompilerDb {
     }
 }
 
-/// Implement salsa::Database for CompilerDb.
+/// Implement `salsa::Database` for `CompilerDb`.
 ///
-/// The #[salsa::db] macro handles most of the implementation.
-/// We just need to provide salsa_event for logging/debugging.
+/// The #[`salsa::db`] macro handles most of the implementation.
+/// We just need to provide `salsa_event` for logging/debugging.
 #[salsa::db]
 impl salsa::Database for CompilerDb {
     fn salsa_event(&self, event: &dyn Fn() -> salsa::Event) {
         // Log events if logging is enabled
-        if let Some(logs) = &mut *self.logs.lock().unwrap() {
+        if let Some(logs) = &mut *self.logs.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
             let event = event();
             // Only log execution events (most interesting for debugging)
             if let salsa::EventKind::WillExecute { .. } = event.kind {
-                logs.push(format!("{:?}", event));
+                logs.push(format!("{event:?}"));
             }
         }
     }

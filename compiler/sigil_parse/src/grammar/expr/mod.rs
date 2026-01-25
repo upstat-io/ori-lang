@@ -6,11 +6,11 @@
 //!
 //! # Module Structure
 //!
-//! - `mod.rs`: Entry point (parse_expr) and binary operator precedence chain
+//! - `mod.rs`: Entry point (`parse_expr`) and binary operator precedence chain
 //! - `operators.rs`: Operator matching helpers
 //! - `primary.rs`: Literals, identifiers, variant constructors
 //! - `postfix.rs`: Call, method call, field, index
-//! - `patterns.rs`: run, try, match, for, function_exp
+//! - `patterns.rs`: run, try, match, for, `function_exp`
 
 mod operators;
 mod primary;
@@ -21,7 +21,7 @@ use sigil_ir::{BinaryOp, Expr, ExprId, ExprKind, TokenKind};
 use crate::{ParseError, Parser};
 use crate::stack::ensure_sufficient_stack;
 
-impl<'a> Parser<'a> {
+impl Parser<'_> {
     /// Parse an expression.
     /// Handles assignment at the top level: `identifier = expression`
     ///
@@ -36,7 +36,7 @@ impl<'a> Parser<'a> {
         let left = self.parse_binary_or()?;
 
         // Check for assignment (= but not == or =>)
-        if self.check(TokenKind::Eq) {
+        if self.check(&TokenKind::Eq) {
             let left_span = self.arena.get_expr(left).span;
             self.advance();
             let right = self.parse_expr()?;
@@ -55,7 +55,7 @@ impl<'a> Parser<'a> {
     fn parse_binary_or(&mut self) -> Result<ExprId, ParseError> {
         let mut left = self.parse_binary_and()?;
 
-        while self.check(TokenKind::PipePipe) {
+        while self.check(&TokenKind::PipePipe) {
             self.advance();
             let right = self.parse_binary_and()?;
 
@@ -73,7 +73,7 @@ impl<'a> Parser<'a> {
     fn parse_binary_and(&mut self) -> Result<ExprId, ParseError> {
         let mut left = self.parse_bitwise_or()?;
 
-        while self.check(TokenKind::AmpAmp) {
+        while self.check(&TokenKind::AmpAmp) {
             self.advance();
             let right = self.parse_bitwise_or()?;
 
@@ -91,7 +91,7 @@ impl<'a> Parser<'a> {
     fn parse_bitwise_or(&mut self) -> Result<ExprId, ParseError> {
         let mut left = self.parse_bitwise_xor()?;
 
-        while self.check(TokenKind::Pipe) {
+        while self.check(&TokenKind::Pipe) {
             self.advance();
             let right = self.parse_bitwise_xor()?;
 
@@ -109,7 +109,7 @@ impl<'a> Parser<'a> {
     fn parse_bitwise_xor(&mut self) -> Result<ExprId, ParseError> {
         let mut left = self.parse_bitwise_and()?;
 
-        while self.check(TokenKind::Caret) {
+        while self.check(&TokenKind::Caret) {
             self.advance();
             let right = self.parse_bitwise_and()?;
 
@@ -127,7 +127,7 @@ impl<'a> Parser<'a> {
     fn parse_bitwise_and(&mut self) -> Result<ExprId, ParseError> {
         let mut left = self.parse_equality()?;
 
-        while self.check(TokenKind::Amp) {
+        while self.check(&TokenKind::Amp) {
             self.advance();
             let right = self.parse_equality()?;
 
@@ -181,12 +181,12 @@ impl<'a> Parser<'a> {
     fn parse_range(&mut self) -> Result<ExprId, ParseError> {
         let mut left = self.parse_shift()?;
 
-        if self.check(TokenKind::DotDot) || self.check(TokenKind::DotDotEq) {
-            let inclusive = self.check(TokenKind::DotDotEq);
+        if self.check(&TokenKind::DotDot) || self.check(&TokenKind::DotDotEq) {
+            let inclusive = self.check(&TokenKind::DotDotEq);
             self.advance();
 
-            let end = if self.check(TokenKind::Comma) || self.check(TokenKind::RParen) ||
-                        self.check(TokenKind::RBracket) || self.is_at_end() {
+            let end = if self.check(&TokenKind::Comma) || self.check(&TokenKind::RParen) ||
+                        self.check(&TokenKind::RBracket) || self.is_at_end() {
                 None
             } else {
                 Some(self.parse_shift()?)

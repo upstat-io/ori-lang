@@ -5,7 +5,7 @@
 use sigil_ir::{BinaryOp, FunctionExpKind, TokenKind, UnaryOp};
 use crate::Parser;
 
-impl<'a> Parser<'a> {
+impl Parser<'_> {
     pub(crate) fn match_equality_op(&self) -> Option<BinaryOp> {
         match self.current_kind() {
             TokenKind::EqEq => Some(BinaryOp::Eq),
@@ -58,7 +58,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Match function_seq keywords. Returns Some(true) for try, Some(false) for run.
+    /// Match `function_seq` keywords. Returns Some(true) for try, Some(false) for run.
     pub(crate) fn match_function_seq_kind(&self) -> Option<bool> {
         match self.current_kind() {
             TokenKind::Run => Some(false),
@@ -67,7 +67,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Match function_exp keywords.
+    /// Match `function_exp` keywords.
     pub(crate) fn match_function_exp_kind(&self) -> Option<FunctionExpKind> {
         // Compiler pattern keywords (require special syntax or static analysis)
         match self.current_kind() {

@@ -3,7 +3,7 @@
 //! This crate contains the core data structures for the Sigil compiler:
 //! - Spans for source locations
 //! - Names for interned identifiers
-//! - Tokens and TokenList for lexer output
+//! - Tokens and `TokenList` for lexer output
 //! - AST nodes (Expr, Stmt, Function, etc.)
 //! - Arena allocation for expressions
 //!
@@ -11,7 +11,7 @@
 //!
 //! Every type has the required traits for Salsa:
 //! - Clone: Required for Salsa storage
-//! - Eq + PartialEq: Required for early cutoff
+//! - Eq + `PartialEq`: Required for early cutoff
 //! - Hash: Required for memoization keys
 //! - Debug: Required for error messages
 //!
@@ -56,7 +56,7 @@ pub use parsed_type::ParsedType;
 pub use traits::{Spanned, Named, Typed};
 pub use ast::{
     Expr, ExprKind, Stmt, StmtKind, Param, ParamRange,
-    BinaryOp, UnaryOp, Function, Module, TestDef, ExpectedError,
+    BinaryOp, UnaryOp, Function, Module, TestDef, ExpectedError, ConfigDef,
     BindingPattern, MatchPattern, MatchArm,
     MapEntry, FieldInit,
     ArmRange, MapEntryRange, FieldInitRange,

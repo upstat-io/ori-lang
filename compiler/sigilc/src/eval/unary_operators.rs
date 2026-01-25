@@ -36,7 +36,7 @@ impl UnaryOperator for NegationOperator {
     fn handles(&self, value: &Value, op: UnaryOp) -> bool {
         matches!(
             (value, op),
-            (Value::Int(_), UnaryOp::Neg) | (Value::Float(_), UnaryOp::Neg)
+            (Value::Int(_) | Value::Float(_), UnaryOp::Neg)
         )
     }
 
@@ -108,12 +108,11 @@ impl UnaryOperator for TryOperator {
 
     fn evaluate(&self, value: Value, _op: UnaryOp) -> EvalResult {
         match value {
-            Value::Ok(v) => Ok((*v).clone()),
+            Value::Ok(v) | Value::Some(v) => Ok((*v).clone()),
             Value::Err(e) => Err(EvalError::propagate(
                 Value::Err(e.clone()),
-                format!("propagated error: {:?}", e),
+                format!("propagated error: {e:?}"),
             )),
-            Value::Some(v) => Ok((*v).clone()),
             Value::None => {
                 Err(EvalError::propagate(Value::None, "propagated None"))
             }

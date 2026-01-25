@@ -8,7 +8,7 @@ use super::Evaluator;
 use super::super::user_methods::{UserMethodRegistry, UserMethod};
 use super::super::module::import;
 
-impl<'a> Evaluator<'a> {
+impl Evaluator<'_> {
     /// Find the prelude path by searching for library/std/prelude.si
     pub(super) fn find_prelude_path(current_file: &Path) -> Option<std::path::PathBuf> {
         // Walk up from current file to find project root (contains library/)
@@ -26,14 +26,14 @@ impl<'a> Evaluator<'a> {
     /// Check if a file is the prelude itself.
     pub(super) fn is_prelude_file(file_path: &Path) -> bool {
         file_path.ends_with("library/std/prelude.si")
-            || file_path.file_name().map_or(false, |n| n == "prelude.si")
-                && file_path.parent().map_or(false, |p| p.ends_with("std"))
+            || file_path.file_name().is_some_and(|n| n == "prelude.si")
+                && file_path.parent().is_some_and(|p| p.ends_with("std"))
     }
 
     /// Auto-load the prelude (library/std/prelude.si).
     ///
-    /// This is called automatically by load_module to make prelude functions
-    /// available without explicit import (like Rust's std::prelude).
+    /// This is called automatically by `load_module` to make prelude functions
+    /// available without explicit import (like Rust's `std::prelude`).
     pub(super) fn load_prelude(&mut self, current_file: &Path) -> Result<(), String> {
         // Don't load prelude if we're already loading it (avoid infinite recursion)
         if Self::is_prelude_file(current_file) {
@@ -42,14 +42,11 @@ impl<'a> Evaluator<'a> {
         }
 
         // Find the prelude path
-        let prelude_path = match Self::find_prelude_path(current_file) {
-            Some(p) => p,
-            None => {
-                // Prelude not found - this is okay, just skip it
-                // (e.g., running tests outside project directory)
-                self.prelude_loaded = true;
-                return Ok(());
-            }
+        let Some(prelude_path) = Self::find_prelude_path(current_file) else {
+            // Prelude not found - this is okay, just skip it
+            // (e.g., running tests outside project directory)
+            self.prelude_loaded = true;
+            return Ok(());
         };
 
         // Mark as loaded before actually loading to prevent recursion
@@ -104,13 +101,11 @@ impl<'a> Evaluator<'a> {
                 .map_err(|e| e.message)?;
 
             let imported_arena = SharedArena::new(imported_result.arena.clone());
-            let module_functions = import::build_module_functions(&imported_result, &imported_arena);
+            let imported_module = import::ImportedModule::new(&imported_result, &imported_arena);
 
             import::register_imports(
                 imp,
-                &imported_result,
-                &imported_arena,
-                &module_functions,
+                &imported_module,
                 &mut self.env,
                 self.interner,
                 &import_path,
@@ -136,11 +131,10 @@ impl<'a> Evaluator<'a> {
     pub(super) fn collect_impl_methods(&self, module: &crate::ir::Module, arena: &crate::ir::ExprArena, registry: &mut UserMethodRegistry) {
         for impl_def in &module.impls {
             // Get the type name from self_path (e.g., "Point" for `impl Point { ... }`)
-            let type_name = if !impl_def.self_path.is_empty() {
+            let type_name = match impl_def.self_path.last() {
                 // Use the last segment of the path as the type name
-                self.interner.lookup(*impl_def.self_path.last().unwrap()).to_string()
-            } else {
-                continue; // Skip if no type path
+                Some(&name) => self.interner.lookup(name).to_string(),
+                None => continue, // Skip if no type path
             };
 
             // Register each method

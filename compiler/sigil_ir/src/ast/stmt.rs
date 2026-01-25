@@ -3,7 +3,7 @@
 //! Statement node and variants for block expressions.
 //!
 //! # Salsa Compatibility
-//! All types have Clone, Eq, PartialEq, Hash, Debug for Salsa requirements.
+//! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
 use std::fmt;
 

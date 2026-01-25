@@ -9,7 +9,7 @@ use std::hash::{Hash, Hasher};
 /// A token with its span in the source.
 ///
 /// # Salsa Compatibility
-/// Has all required traits: Clone, Eq, PartialEq, Hash, Debug
+/// Has all required traits: Clone, Eq, `PartialEq`, Hash, Debug
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct Token {
     pub kind: TokenKind,
@@ -37,14 +37,14 @@ impl fmt::Debug for Token {
 /// Token kinds for Sigil.
 ///
 /// # Salsa Compatibility
-/// Has all required traits: Clone, Eq, PartialEq, Hash, Debug
+/// Has all required traits: Clone, Eq, `PartialEq`, Hash, Debug
 ///
 /// Float literals store bits as u64 for Hash compatibility.
 /// String/Ident use interned Name for Hash compatibility.
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub enum TokenKind {
     // === Literals ===
-    /// Integer literal: 42, 1_000
+    /// Integer literal: 42, `1_000`
     Int(i64),
     /// Float literal: 3.14, 2.5e-8 (stored as bits for Eq/Hash)
     Float(u64),
@@ -217,9 +217,9 @@ impl TokenKind {
     pub fn display_name(&self) -> &'static str {
         match self {
             TokenKind::Int(_) => "integer",
-            TokenKind::Float(_) => "float",
+            TokenKind::Float(_) | TokenKind::FloatType => "float",
             TokenKind::String(_) => "string",
-            TokenKind::Char(_) => "char",
+            TokenKind::Char(_) | TokenKind::CharType => "char",
             TokenKind::Duration(_, _) => "duration",
             TokenKind::Size(_, _) => "size",
             TokenKind::Ident(_) => "identifier",
@@ -257,10 +257,8 @@ impl TokenKind {
             TokenKind::Extension => "extension",
             TokenKind::Skip => "skip",
             TokenKind::IntType => "int",
-            TokenKind::FloatType => "float",
             TokenKind::BoolType => "bool",
             TokenKind::StrType => "str",
-            TokenKind::CharType => "char",
             TokenKind::ByteType => "byte",
             TokenKind::NeverType => "Never",
             TokenKind::Ok => "Ok",
@@ -331,13 +329,13 @@ impl TokenKind {
 impl fmt::Debug for TokenKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TokenKind::Int(n) => write!(f, "Int({})", n),
+            TokenKind::Int(n) => write!(f, "Int({n})"),
             TokenKind::Float(bits) => write!(f, "Float({})", f64::from_bits(*bits)),
-            TokenKind::String(name) => write!(f, "String({:?})", name),
-            TokenKind::Char(c) => write!(f, "Char({:?})", c),
-            TokenKind::Duration(n, unit) => write!(f, "Duration({}{:?})", n, unit),
-            TokenKind::Size(n, unit) => write!(f, "Size({}{:?})", n, unit),
-            TokenKind::Ident(name) => write!(f, "Ident({:?})", name),
+            TokenKind::String(name) => write!(f, "String({name:?})"),
+            TokenKind::Char(c) => write!(f, "Char({c:?})"),
+            TokenKind::Duration(n, unit) => write!(f, "Duration({n}{unit:?})"),
+            TokenKind::Size(n, unit) => write!(f, "Size({n}{unit:?})"),
+            TokenKind::Ident(name) => write!(f, "Ident({name:?})"),
             _ => write!(f, "{}", self.display_name()),
         }
     }
@@ -346,7 +344,7 @@ impl fmt::Debug for TokenKind {
 /// Duration unit for duration literals.
 ///
 /// # Salsa Compatibility
-/// Has all required traits: Copy, Clone, Eq, PartialEq, Hash, Debug
+/// Has all required traits: Copy, Clone, Eq, `PartialEq`, Hash, Debug
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum DurationUnit {
     Milliseconds,
@@ -388,7 +386,7 @@ impl fmt::Debug for DurationUnit {
 /// Size unit for size literals.
 ///
 /// # Salsa Compatibility
-/// Has all required traits: Copy, Clone, Eq, PartialEq, Hash, Debug
+/// Has all required traits: Copy, Clone, Eq, `PartialEq`, Hash, Debug
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum SizeUnit {
     Bytes,
@@ -433,7 +431,7 @@ impl fmt::Debug for SizeUnit {
 /// Uses the tokens' own Hash impl for content hashing.
 ///
 /// # Salsa Compatibility
-/// Has all required traits: Clone, Eq, PartialEq, Hash, Debug, Default
+/// Has all required traits: Clone, Eq, `PartialEq`, Hash, Debug, Default
 #[derive(Clone, Eq, PartialEq, Default)]
 pub struct TokenList {
     tokens: Vec<Token>,
@@ -541,7 +539,7 @@ impl<'a> IntoIterator for &'a TokenList {
 // These are compile-time checks that will fail the build if sizes change.
 #[cfg(target_pointer_width = "64")]
 mod size_asserts {
-    use super::*;
+    use super::{Token, TokenKind, DurationUnit, SizeUnit};
     // Token is frequently allocated in TokenList, keep it compact.
     // Contains: TokenKind (16 bytes) + Span (8 bytes) = 24 bytes
     crate::static_assert_size!(Token, 24);

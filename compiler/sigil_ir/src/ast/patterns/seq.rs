@@ -1,15 +1,15 @@
-//! Sequential Expression Constructs (function_seq)
+//! Sequential Expression Constructs (`function_seq`)
 //!
 //! Contains run, try, and match pattern constructs where order matters.
 //!
 //! # Salsa Compatibility
-//! All types have Clone, Eq, PartialEq, Hash, Debug for Salsa requirements.
+//! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
 use crate::{Span, ParsedType, ExprId, Spanned};
 use super::binding::{BindingPattern, MatchArm};
 use super::super::ranges::{SeqBindingRange, ArmRange};
 
-/// Element within a function_seq (run/try).
+/// Element within a `function_seq` (run/try).
 ///
 /// Can be either a let binding or a statement expression.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
@@ -33,13 +33,12 @@ pub enum SeqBinding {
 impl Spanned for SeqBinding {
     fn span(&self) -> Span {
         match self {
-            SeqBinding::Let { span, .. } => *span,
-            SeqBinding::Stmt { span, .. } => *span,
+            SeqBinding::Let { span, .. } | SeqBinding::Stmt { span, .. } => *span,
         }
     }
 }
 
-/// Sequential expression construct (function_seq).
+/// Sequential expression construct (`function_seq`).
 ///
 /// Contains a sequence of expressions where order matters.
 /// NOT a function call - fundamentally different structure.
@@ -52,7 +51,7 @@ pub enum FunctionSeq {
         span: Span,
     },
 
-    /// try(let x = fallible()?, let y = other()?, Ok(x + y))
+    /// try(let x = `fallible()`?, let y = `other()`?, Ok(x + y))
     Try {
         bindings: SeqBindingRange,
         result: ExprId,
@@ -79,10 +78,10 @@ pub enum FunctionSeq {
 impl FunctionSeq {
     pub fn span(&self) -> Span {
         match self {
-            FunctionSeq::Run { span, .. } => *span,
-            FunctionSeq::Try { span, .. } => *span,
-            FunctionSeq::Match { span, .. } => *span,
-            FunctionSeq::ForPattern { span, .. } => *span,
+            FunctionSeq::Run { span, .. }
+            | FunctionSeq::Try { span, .. }
+            | FunctionSeq::Match { span, .. }
+            | FunctionSeq::ForPattern { span, .. } => *span,
         }
     }
 

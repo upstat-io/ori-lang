@@ -1,11 +1,11 @@
-//! FunctionSeq evaluation methods for the Evaluator.
+//! `FunctionSeq` evaluation methods for the Evaluator.
 
 use crate::ir::{FunctionSeq, SeqBinding};
 use super::{Evaluator, EvalResult, EvalError};
 use super::super::value::Value;
 
-impl<'a> Evaluator<'a> {
-    /// Evaluate a function_seq expression (run, try, match).
+impl Evaluator<'_> {
+    /// Evaluate a `function_seq` expression (run, try, match).
     pub(super) fn eval_function_seq(&mut self, func_seq: &FunctionSeq) -> EvalResult {
         match func_seq {
             FunctionSeq::Run { bindings, result, .. } => {
@@ -38,16 +38,15 @@ impl<'a> Evaluator<'a> {
                                     // Unwrap Result/Option types per spec:
                                     // "If any binding expression returns a Result<T, E>, the binding variable has type T"
                                     let unwrapped = match value {
-                                        Value::Ok(inner) => (*inner).clone(),
                                         Value::Err(e) => {
                                             // Early return with the error
                                             return Ok(Value::Err(e));
                                         }
-                                        Value::Some(inner) => (*inner).clone(),
                                         Value::None => {
                                             // Early return with None
                                             return Ok(Value::None);
                                         }
+                                        Value::Ok(inner) | Value::Some(inner) => (*inner).clone(),
                                         other => other,
                                     };
                                     self.bind_pattern(pattern, unwrapped, *mutable)?;
@@ -73,19 +72,18 @@ impl<'a> Evaluator<'a> {
 
             FunctionSeq::Match { scrutinee, arms, .. } => {
                 let value = self.eval(*scrutinee)?;
-                self.eval_match(value, *arms)
+                self.eval_match(&value, *arms)
             }
 
             FunctionSeq::ForPattern { over, map, arm, default, .. } => {
                 // Evaluate the collection to iterate over
                 let items = self.eval(*over)?;
 
-                let items_list = match items {
-                    Value::List(list) => list,
-                    _ => return Err(EvalError::new(format!(
+                let Value::List(items_list) = items else {
+                    return Err(EvalError::new(format!(
                         "for pattern requires a list, got {}",
                         items.type_name()
-                    ))),
+                    )));
                 };
 
                 // Iterate and find first match
@@ -93,7 +91,7 @@ impl<'a> Evaluator<'a> {
                     // Optionally apply map function
                     let match_item = if let Some(map_expr) = map {
                         let map_fn = self.eval(*map_expr)?;
-                        self.eval_call_value(map_fn, vec![item.clone()])?
+                        self.eval_call_value(map_fn, std::slice::from_ref(item))?
                     } else {
                         item.clone()
                     };

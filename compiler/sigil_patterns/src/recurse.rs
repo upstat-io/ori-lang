@@ -35,8 +35,8 @@ impl PatternDefinition for RecursePattern {
 
     fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
         // recurse(cond: bool, base: T, step: T) -> T
-        let base_ty = ctx.get_prop_type("base").unwrap_or_else(|| ctx.fresh_var());
-        base_ty
+        
+        ctx.get_prop_type("base").unwrap_or_else(|| ctx.fresh_var())
     }
 
     fn optional_args(&self) -> &'static [OptionalArg] {

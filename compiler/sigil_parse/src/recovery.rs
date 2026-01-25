@@ -128,7 +128,7 @@ mod tests {
         // Synchronize to next function
         let found = synchronize(&mut cursor, RecoverySet::FUNCTION_BOUNDARY);
         assert!(found);
-        assert!(cursor.check(TokenKind::At));
+        assert!(cursor.check(&TokenKind::At));
     }
 
     #[test]
@@ -142,7 +142,7 @@ mod tests {
         // Synchronize to expression follow
         let found = synchronize(&mut cursor, RecoverySet::EXPR_FOLLOW);
         assert!(found);
-        assert!(cursor.check(TokenKind::Comma));
+        assert!(cursor.check(&TokenKind::Comma));
     }
 
     #[test]

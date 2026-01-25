@@ -21,7 +21,7 @@ pub fn infer_if(
 
     // Condition must be bool
     if let Err(e) = checker.ctx.unify(&cond_ty, &Type::Bool) {
-        checker.report_type_error(e, checker.arena.get_expr(cond).span);
+        checker.report_type_error(&e, checker.arena.get_expr(cond).span);
     }
 
     let then_ty = infer_expr(checker, then_branch);
@@ -31,7 +31,7 @@ pub fn infer_if(
 
         // Both branches must have same type
         if let Err(e) = checker.ctx.unify(&then_ty, &else_ty) {
-            checker.report_type_error(e, span);
+            checker.report_type_error(&e, span);
         }
 
         then_ty
@@ -75,7 +75,7 @@ pub fn infer_match(
             if let Some(guard_id) = arm.guard {
                 let guard_ty = infer_expr(checker, guard_id);
                 if let Err(e) = checker.ctx.unify(&guard_ty, &Type::Bool) {
-                    checker.report_type_error(e, checker.arena.get_expr(guard_id).span);
+                    checker.report_type_error(&e, checker.arena.get_expr(guard_id).span);
                 }
             }
 
@@ -89,7 +89,7 @@ pub fn infer_match(
             match &result_ty {
                 Some(expected) => {
                     if let Err(e) = checker.ctx.unify(expected, &arm_ty) {
-                        checker.report_type_error(e, arm.span);
+                        checker.report_type_error(&e, arm.span);
                     }
                 }
                 None => {
@@ -115,9 +115,7 @@ pub fn infer_for(
     let iter_ty = infer_expr(checker, iter);
     let resolved = checker.ctx.resolve(&iter_ty);
     let elem_ty = match resolved {
-        Type::List(elem) => *elem,
-        Type::Set(elem) => *elem,
-        Type::Range(elem) => *elem,
+        Type::List(elem) | Type::Set(elem) | Type::Range(elem) => *elem,
         Type::Str => Type::Str, // Iterating over str yields str (codepoints)
         Type::Map { key, value: _ } => *key, // Map iteration yields keys
         Type::Var(_) => checker.ctx.fresh_var(), // Defer for type variables
@@ -144,7 +142,7 @@ pub fn infer_for(
     if let Some(guard_id) = guard {
         let guard_ty = infer_expr(checker, guard_id);
         if let Err(e) = checker.ctx.unify(&guard_ty, &Type::Bool) {
-            checker.report_type_error(e, checker.arena.get_expr(guard_id).span);
+            checker.report_type_error(&e, checker.arena.get_expr(guard_id).span);
         }
     }
 
@@ -192,7 +190,7 @@ pub fn infer_block(
                 let final_ty = if let Some(type_id) = ty {
                     let declared_ty = checker.type_id_to_type(*type_id);
                     if let Err(e) = checker.ctx.unify(&declared_ty, &init_ty) {
-                        checker.report_type_error(e, checker.arena.get_expr(*init).span);
+                        checker.report_type_error(&e, checker.arena.get_expr(*init).span);
                     }
                     declared_ty
                 } else {
@@ -219,7 +217,7 @@ pub fn infer_block(
 pub fn infer_let(
     checker: &mut TypeChecker<'_>,
     pattern: &BindingPattern,
-    ty: Option<ParsedType>,
+    ty: Option<&ParsedType>,
     init: ExprId,
     span: Span,
 ) -> Type {
@@ -228,10 +226,10 @@ pub fn infer_let(
 
     let init_ty = infer_expr(checker, init);
     // If type annotation present, unify with inferred type
-    let final_ty = if let Some(ref parsed_ty) = ty {
+    let final_ty = if let Some(parsed_ty) = ty {
         let declared_ty = checker.parsed_type_to_type(parsed_ty);
         if let Err(e) = checker.ctx.unify(&declared_ty, &init_ty) {
-            checker.report_type_error(e, checker.arena.get_expr(init).span);
+            checker.report_type_error(&e, checker.arena.get_expr(init).span);
         }
         declared_ty
     } else {
@@ -259,11 +257,17 @@ pub fn infer_break(checker: &mut TypeChecker<'_>, value: Option<ExprId>) -> Type
 }
 
 /// Infer type for await expression.
-pub fn infer_await(checker: &mut TypeChecker<'_>, inner: ExprId) -> Type {
-    let inner_ty = infer_expr(checker, inner);
-    // TODO: handle async types properly
-    let _ = inner_ty;
-    checker.ctx.fresh_var()
+///
+/// Sigil does not support `.await` syntax. Use `uses Async` capability
+/// and `parallel(...)` pattern for concurrent operations.
+pub fn infer_await(checker: &mut TypeChecker<'_>, inner: ExprId, span: Span) -> Type {
+    let _ = infer_expr(checker, inner);
+    checker.errors.push(TypeCheckError {
+        message: "`.await` is not supported; use `uses Async` capability and `parallel(...)` pattern".to_string(),
+        span,
+        code: crate::diagnostic::ErrorCode::E2001,
+    });
+    Type::Error
 }
 
 /// Infer type for try expression.
@@ -301,7 +305,7 @@ pub fn infer_assign(
     let target_ty = infer_expr(checker, target);
     let value_ty = infer_expr(checker, value);
     if let Err(e) = checker.ctx.unify(&target_ty, &value_ty) {
-        checker.report_type_error(e, checker.arena.get_expr(value).span);
+        checker.report_type_error(&e, checker.arena.get_expr(value).span);
     }
     // Assignment returns the assigned value
     value_ty

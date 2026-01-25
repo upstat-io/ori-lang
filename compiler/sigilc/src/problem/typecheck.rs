@@ -8,7 +8,7 @@ use crate::ir::Span;
 /// Problems that occur during type checking.
 ///
 /// # Salsa Compatibility
-/// Has Clone, Eq, PartialEq, Hash, Debug for use in query results.
+/// Has Clone, Eq, `PartialEq`, Hash, Debug for use in query results.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum TypeProblem {
     /// Type mismatch between expected and found types.
@@ -181,31 +181,31 @@ impl TypeProblem {
     /// Get the primary span of this problem.
     pub fn span(&self) -> Span {
         match self {
-            TypeProblem::TypeMismatch { span, .. } => *span,
-            TypeProblem::ArgCountMismatch { span, .. } => *span,
-            TypeProblem::TupleLengthMismatch { span, .. } => *span,
-            TypeProblem::ListLengthMismatch { span, .. } => *span,
-            TypeProblem::InfiniteType { span } => *span,
-            TypeProblem::CannotInfer { span, .. } => *span,
-            TypeProblem::UnknownType { span, .. } => *span,
-            TypeProblem::NotCallable { span, .. } => *span,
-            TypeProblem::NotIndexable { span, .. } => *span,
-            TypeProblem::NoSuchField { span, .. } => *span,
-            TypeProblem::NoSuchMethod { span, .. } => *span,
-            TypeProblem::InvalidBinaryOp { span, .. } => *span,
-            TypeProblem::InvalidUnaryOp { span, .. } => *span,
-            TypeProblem::MissingNamedArg { span, .. } => *span,
-            TypeProblem::UnknownNamedArg { span, .. } => *span,
-            TypeProblem::DuplicateNamedArg { span, .. } => *span,
-            TypeProblem::ReturnTypeMismatch { span, .. } => *span,
-            TypeProblem::InvalidTryOperand { span, .. } => *span,
-            TypeProblem::InvalidAwait { span, .. } => *span,
-            TypeProblem::ConditionNotBool { span, .. } => *span,
-            TypeProblem::NotIterable { span, .. } => *span,
-            TypeProblem::MatchArmTypeMismatch { span, .. } => *span,
-            TypeProblem::PatternTypeMismatch { span, .. } => *span,
-            TypeProblem::CyclicType { span, .. } => *span,
-            TypeProblem::ClosureSelfReference { span } => *span,
+            TypeProblem::InfiniteType { span }
+            | TypeProblem::ClosureSelfReference { span }
+            | TypeProblem::TypeMismatch { span, .. }
+            | TypeProblem::ArgCountMismatch { span, .. }
+            | TypeProblem::TupleLengthMismatch { span, .. }
+            | TypeProblem::ListLengthMismatch { span, .. }
+            | TypeProblem::CannotInfer { span, .. }
+            | TypeProblem::UnknownType { span, .. }
+            | TypeProblem::NotCallable { span, .. }
+            | TypeProblem::NotIndexable { span, .. }
+            | TypeProblem::NoSuchField { span, .. }
+            | TypeProblem::NoSuchMethod { span, .. }
+            | TypeProblem::InvalidBinaryOp { span, .. }
+            | TypeProblem::InvalidUnaryOp { span, .. }
+            | TypeProblem::MissingNamedArg { span, .. }
+            | TypeProblem::UnknownNamedArg { span, .. }
+            | TypeProblem::DuplicateNamedArg { span, .. }
+            | TypeProblem::ReturnTypeMismatch { span, .. }
+            | TypeProblem::InvalidTryOperand { span, .. }
+            | TypeProblem::InvalidAwait { span, .. }
+            | TypeProblem::ConditionNotBool { span, .. }
+            | TypeProblem::NotIterable { span, .. }
+            | TypeProblem::MatchArmTypeMismatch { span, .. }
+            | TypeProblem::PatternTypeMismatch { span, .. }
+            | TypeProblem::CyclicType { span, .. } => *span,
         }
     }
 }

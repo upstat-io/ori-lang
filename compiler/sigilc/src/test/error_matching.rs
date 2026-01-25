@@ -1,4 +1,4 @@
-//! Error matching for compile_fail tests.
+//! Error matching for `compile_fail` tests.
 //!
 //! Provides utilities for matching actual compilation errors against
 //! expected error specifications.
@@ -63,7 +63,7 @@ pub fn match_errors(
     let unmatched_errors: Vec<usize> = error_matched
         .iter()
         .enumerate()
-        .filter_map(|(i, &m)| if !m { Some(i) } else { None })
+        .filter_map(|(i, &m)| if m { None } else { Some(i) })
         .collect();
 
     MatchResult {
@@ -115,7 +115,7 @@ pub fn matches_expected(
     true
 }
 
-/// Format an ExpectedError for display in error messages.
+/// Format an `ExpectedError` for display in error messages.
 pub fn format_expected(expected: &ExpectedError, interner: &StringInterner) -> String {
     let mut parts = Vec::new();
 
@@ -126,10 +126,10 @@ pub fn format_expected(expected: &ExpectedError, interner: &StringInterner) -> S
         parts.push(format!("code = {}", interner.lookup(code)));
     }
     if let Some(line) = expected.line {
-        parts.push(format!("line = {}", line));
+        parts.push(format!("line = {line}"));
     }
     if let Some(col) = expected.column {
-        parts.push(format!("column = {}", col));
+        parts.push(format!("column = {col}"));
     }
 
     if parts.is_empty() {

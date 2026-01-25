@@ -111,7 +111,7 @@ impl TestRunner {
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,
             Err(e) => {
-                summary.add_error(format!("Failed to read file: {}", e));
+                summary.add_error(format!("Failed to read file: {e}"));
                 return summary;
             }
         };
@@ -162,14 +162,14 @@ impl TestRunner {
             // Run the inner test (compile_fail or regular)
             let inner_result = if test.is_compile_fail() {
                 // compile_fail: test expects compilation to fail
-                self.run_compile_fail_test(test, &typed_module, &source, interner)
+                Self::run_compile_fail_test(test, &typed_module, &source, interner)
             } else {
-                self.run_single_test(&mut evaluator, test, interner)
+                Self::run_single_test(&mut evaluator, test, interner)
             };
 
             // If #[fail] is present, wrap the result
             let result = if let Some(expected_failure) = test.fail_expected {
-                self.apply_fail_wrapper(inner_result, expected_failure, interner)
+                Self::apply_fail_wrapper(inner_result, expected_failure, interner)
             } else {
                 inner_result
             };
@@ -180,12 +180,11 @@ impl TestRunner {
         summary
     }
 
-    /// Run a compile_fail test.
+    /// Run a `compile_fail` test.
     ///
     /// The test passes if all expected errors are matched by actual errors.
     /// Multiple expected errors can be specified, and each must be matched.
     fn run_compile_fail_test(
-        &self,
         test: &TestDef,
         typed_module: &crate::typeck::TypedModule,
         source: &str,
@@ -267,7 +266,6 @@ impl TestRunner {
     /// - If inner test passed: wrapper fails (expected failure didn't happen)
     /// - If inner test was skipped: remains skipped
     fn apply_fail_wrapper(
-        &self,
         inner_result: TestResult,
         expected_failure: crate::ir::Name,
         interner: &crate::ir::StringInterner,
@@ -287,8 +285,7 @@ impl TestRunner {
                     inner_result.name,
                     inner_result.targets,
                     format!(
-                        "expected test to fail with '{}', but test passed",
-                        expected_substr
+                        "expected test to fail with '{expected_substr}', but test passed"
                     ),
                     inner_result.duration,
                 )
@@ -308,8 +305,7 @@ impl TestRunner {
                         inner_result.name,
                         inner_result.targets,
                         format!(
-                            "expected failure containing '{}', but got: {}",
-                            expected_substr, error
+                            "expected failure containing '{expected_substr}', but got: {error}"
                         ),
                         inner_result.duration,
                     )
@@ -320,7 +316,6 @@ impl TestRunner {
 
     /// Run a single test.
     fn run_single_test(
-        &self,
         evaluator: &mut Evaluator,
         test: &TestDef,
         interner: &crate::ir::StringInterner,
@@ -365,17 +360,16 @@ impl TestRunner {
         let mut report = CoverageReport::new();
 
         for file in &test_files {
-            self.add_file_coverage(&file.path, &mut report);
+            Self::add_file_coverage(&file.path, &mut report);
         }
 
         report
     }
 
     /// Add coverage info for a single file.
-    fn add_file_coverage(&self, path: &Path, report: &mut CoverageReport) {
-        let content = match std::fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(_) => return,
+    fn add_file_coverage(path: &Path, report: &mut CoverageReport) {
+        let Ok(content) = std::fs::read_to_string(path) else {
+            return;
         };
 
         let db = CompilerDb::new();

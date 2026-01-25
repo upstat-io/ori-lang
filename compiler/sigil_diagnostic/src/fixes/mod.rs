@@ -109,12 +109,14 @@ impl CodeAction {
     }
 
     /// Mark this as the preferred fix.
+    #[must_use]
     pub fn preferred(mut self) -> Self {
         self.is_preferred = true;
         self
     }
 
     /// Add an edit to this action.
+    #[must_use]
     pub fn with_edit(mut self, edit: TextEdit) -> Self {
         self.edits.push(edit);
         self

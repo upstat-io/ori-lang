@@ -20,11 +20,17 @@ use crate::context::{CompilerContext, SharedRegistry};
 use crate::stack::ensure_sufficient_stack;
 use super::value::{Value, FunctionValue, StructValue};
 use super::environment::Environment;
-use super::errors;
 use super::operators::OperatorRegistry;
 use super::methods::MethodRegistry;
 use super::user_methods::UserMethodRegistry;
 use super::unary_operators::UnaryOperatorRegistry;
+
+// Import error constructors from local errors module (wrappers around sigil_patterns)
+use super::errors::{
+    undefined_variable, undefined_function, undefined_config,
+    parse_error, hash_outside_index, self_outside_method,
+    await_not_supported, non_exhaustive_match, for_requires_iterable,
+};
 
 /// Result of evaluation.
 pub type EvalResult = Result<Value, EvalError>;
@@ -40,12 +46,18 @@ pub struct EvalError {
 
 impl EvalError {
     pub fn new(message: impl Into<String>) -> Self {
-        EvalError { message: message.into(), propagated_value: None }
+        EvalError {
+            message: message.into(),
+            propagated_value: None,
+        }
     }
 
     /// Create an error for propagating an Err or None value.
     pub fn propagate(value: Value, message: impl Into<String>) -> Self {
-        EvalError { message: message.into(), propagated_value: Some(value) }
+        EvalError {
+            message: message.into(),
+            propagated_value: Some(value),
+        }
     }
 }
 
@@ -57,7 +69,7 @@ pub struct Evaluator<'a> {
     pub(super) arena: &'a ExprArena,
     /// Current environment.
     pub(super) env: Environment,
-    /// Pattern registry for function_exp evaluation.
+    /// Pattern registry for `function_exp` evaluation.
     pub(super) registry: SharedRegistry<PatternRegistry>,
     /// Operator registry for binary operations.
     pub(super) operator_registry: SharedRegistry<OperatorRegistry>,
@@ -76,17 +88,17 @@ pub struct Evaluator<'a> {
     pub(super) prelude_loaded: bool,
 }
 
-/// Implement PatternExecutor for Evaluator to enable pattern evaluation.
+/// Implement `PatternExecutor` for Evaluator to enable pattern evaluation.
 ///
 /// This allows patterns to request expression evaluation and function calls
 /// without needing direct access to the evaluator's internals.
-impl<'a> PatternExecutor for Evaluator<'a> {
+impl PatternExecutor for Evaluator<'_> {
     fn eval(&mut self, expr_id: ExprId) -> EvalResult {
         Evaluator::eval(self, expr_id)
     }
 
     fn call(&mut self, func: Value, args: Vec<Value>) -> EvalResult {
-        self.eval_call(func, args)
+        self.eval_call(func, &args)
     }
 }
 
@@ -150,7 +162,7 @@ impl<'a> Evaluator<'a> {
 
             // Identifiers and references
             ExprKind::Ident(name) => self.env.lookup(*name)
-                .ok_or_else(|| errors::undefined_variable(self.interner.lookup(*name))),
+                .ok_or_else(|| undefined_variable(self.interner.lookup(*name))),
 
             // Operators
             ExprKind::Binary { left, op, right } => self.eval_binary(*left, *op, *right),
@@ -176,13 +188,13 @@ impl<'a> Evaluator<'a> {
             // Access
             ExprKind::Index { receiver, index } => {
                 let value = self.eval(*receiver)?;
-                let length = self.get_collection_length(&value)?;
+                let length = super::exec::expr::get_collection_length(&value)?;
                 let idx = self.eval_with_hash_length(*index, length)?;
-                self.eval_index(value, idx)
+                super::exec::expr::eval_index(value, idx)
             }
             ExprKind::Field { receiver, field } => {
                 let value = self.eval(*receiver)?;
-                self.eval_field_access(value, *field)
+                super::exec::expr::eval_field_access(value, *field, self.interner)
             }
 
             // Lambda
@@ -201,7 +213,7 @@ impl<'a> Evaluator<'a> {
             ExprKind::Call { func, args } => {
                 let func_val = self.eval(*func)?;
                 let arg_vals: Result<Vec<_>, _> = self.arena.get_expr_list(*args).iter().map(|id| self.eval(*id)).collect();
-                self.eval_call(func_val, arg_vals?)
+                self.eval_call(func_val, &arg_vals?)
             }
 
             // Variant constructors
@@ -224,7 +236,7 @@ impl<'a> Evaluator<'a> {
                 self.eval_call_named(func_val, *args)
             }
             ExprKind::FunctionRef(name) => self.env.lookup(*name)
-                .ok_or_else(|| errors::undefined_function(self.interner.lookup(*name))),
+                .ok_or_else(|| undefined_function(self.interner.lookup(*name))),
             ExprKind::MethodCall { receiver, method, args } => {
                 let recv = self.eval(*receiver)?;
                 let arg_vals: Result<Vec<_>, _> = self.arena.get_expr_list(*args).iter()
@@ -233,7 +245,7 @@ impl<'a> Evaluator<'a> {
             }
             ExprKind::Match { scrutinee, arms } => {
                 let value = self.eval(*scrutinee)?;
-                self.eval_match(value, *arms)
+                self.eval_match(&value, *arms)
             }
             ExprKind::For { binding, iter, guard, body, is_yield } => {
                 let iter_val = self.eval(*iter)?;
@@ -268,7 +280,7 @@ impl<'a> Evaluator<'a> {
                         // Shorthand: { x } means { x: x }
                         self.env.lookup(field.name).ok_or_else(|| {
                             let name_str = self.interner.lookup(field.name);
-                            EvalError::new(format!("undefined variable: {}", name_str))
+                            EvalError::new(format!("undefined variable: {name_str}"))
                         })?
                     };
                     field_values.insert(field.name, value);
@@ -285,16 +297,16 @@ impl<'a> Evaluator<'a> {
             }
             ExprKind::Try(inner) => match self.eval(*inner)? {
                 Value::Ok(v) | Value::Some(v) => Ok((*v).clone()),
-                Value::Err(e) => Err(EvalError::propagate(Value::Err(e.clone()), format!("propagated error: {}", e))),
+                Value::Err(e) => Err(EvalError::propagate(Value::Err(e.clone()), format!("propagated error: {e}"))),
                 Value::None => Err(EvalError::propagate(Value::None, "propagated None")),
                 other => Ok(other),
             },
             ExprKind::Config(name) => self.env.lookup(*name)
-                .ok_or_else(|| errors::undefined_config(self.interner.lookup(*name))),
-            ExprKind::Error => Err(errors::parse_error()),
-            ExprKind::HashLength => Err(errors::hash_outside_index()),
-            ExprKind::SelfRef => self.env.lookup(self.interner.intern("self")).ok_or_else(errors::self_outside_method),
-            ExprKind::Await(_) => Err(errors::await_not_supported()),
+                .ok_or_else(|| undefined_config(self.interner.lookup(*name))),
+            ExprKind::Error => Err(parse_error()),
+            ExprKind::HashLength => Err(hash_outside_index()),
+            ExprKind::SelfRef => self.env.lookup(self.interner.intern("self")).ok_or_else(self_outside_method),
+            ExprKind::Await(_) => Err(await_not_supported()),
         }
     }
 
@@ -316,12 +328,7 @@ impl<'a> Evaluator<'a> {
         self.unary_operator_registry.evaluate(value, op)
     }
 
-    /// Get the length of a collection for HashLength resolution.
-    fn get_collection_length(&self, value: &Value) -> Result<i64, EvalError> {
-        super::exec::expr::get_collection_length(value)
-    }
-
-    /// Evaluate an expression with # (HashLength) resolved to a specific length.
+    /// Evaluate an expression with # (`HashLength`) resolved to a specific length.
     fn eval_with_hash_length(&mut self, expr_id: ExprId, length: i64) -> EvalResult {
         let expr = self.arena.get_expr(expr_id);
         match &expr.kind {
@@ -333,14 +340,6 @@ impl<'a> Evaluator<'a> {
             }
             _ => self.eval(expr_id),
         }
-    }
-
-    fn eval_index(&self, value: Value, index: Value) -> EvalResult {
-        super::exec::expr::eval_index(value, index)
-    }
-
-    fn eval_field_access(&self, value: Value, field: Name) -> EvalResult {
-        super::exec::expr::eval_field_access(value, field, self.interner)
     }
 
     /// Evaluate a block of statements.
@@ -360,12 +359,12 @@ impl<'a> Evaluator<'a> {
         Ok(result_val)
     }
 
-    /// Bind a pattern to a value using exec::control module.
+    /// Bind a pattern to a value using `exec::control` module.
     pub(super) fn bind_pattern(&mut self, pattern: &BindingPattern, value: Value, mutable: bool) -> EvalResult {
         super::exec::control::bind_pattern(pattern, value, mutable, &mut self.env)
     }
 
-    /// Evaluate a function_exp expression (map, filter, fold, etc.).
+    /// Evaluate a `function_exp` expression (map, filter, fold, etc.).
     ///
     /// Uses the pattern registry for Open/Closed principle compliance.
     /// Each pattern implementation is in a separate file under `patterns/`.
@@ -388,14 +387,14 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Evaluate a match expression.
-    pub(super) fn eval_match(&mut self, value: Value, arms: ArmRange) -> EvalResult {
+    pub(super) fn eval_match(&mut self, value: &Value, arms: ArmRange) -> EvalResult {
         use super::exec::control::try_match;
 
         let arm_list = self.arena.get_arms(arms);
 
         for arm in arm_list {
             // Try to match the pattern using the exec module
-            if let Some(bindings) = try_match(&arm.pattern, &value, self.arena, self.interner)? {
+            if let Some(bindings) = try_match(&arm.pattern, value, self.arena, self.interner)? {
                 // Push scope with bindings
                 self.env.push_scope();
                 for (name, val) in bindings {
@@ -418,17 +417,17 @@ impl<'a> Evaluator<'a> {
             }
         }
 
-        Err(errors::non_exhaustive_match())
+        Err(non_exhaustive_match())
     }
 
-    /// Evaluate a for loop using exec::control helpers.
+    /// Evaluate a for loop using `exec::control` helpers.
     fn eval_for(&mut self, binding: Name, iter: Value, guard: Option<ExprId>, body: ExprId, is_yield: bool) -> EvalResult {
         use super::exec::control::{LoopAction, parse_loop_control};
 
         let items = match iter {
             Value::List(list) => list.iter().cloned().collect::<Vec<_>>(),
             Value::Range(range) => range.iter().map(Value::Int).collect(),
-            _ => return Err(errors::for_requires_iterable()),
+            _ => return Err(for_requires_iterable()),
         };
 
         if is_yield {
@@ -464,7 +463,7 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    /// Evaluate a loop expression using exec::control helpers.
+    /// Evaluate a loop expression using `exec::control` helpers.
     fn eval_loop(&mut self, body: ExprId) -> EvalResult {
         use super::exec::control::{LoopAction, parse_loop_control};
         loop {
@@ -479,7 +478,7 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    /// Evaluate an assignment using exec::control module.
+    /// Evaluate an assignment using `exec::control` module.
     fn eval_assign(&mut self, target: ExprId, value: Value) -> EvalResult {
         super::exec::control::eval_assign(target, value, self.arena, self.interner, &mut self.env)
     }
@@ -494,18 +493,18 @@ impl<'a> Evaluator<'a> {
         &mut self.env
     }
 
-    /// Register a function_val (type conversion function).
+    /// Register a `function_val` (type conversion function).
     pub fn register_function_val(&mut self, name: &str, func: super::value::FunctionValFn, display_name: &'static str) {
         let name = self.interner.intern(name);
         self.env.define_global(name, Value::FunctionVal(func, display_name));
     }
 
-    /// Register all function_val (type conversion) functions.
+    /// Register all `function_val` (type conversion) functions.
     ///
-    /// function_val: Type conversion functions like int(x), str(x), float(x)
+    /// `function_val`: Type conversion functions like int(x), str(x), float(x)
     /// that allow positional arguments per the spec.
     pub fn register_prelude(&mut self) {
-        use super::function_val::*;
+        use super::function_val::{function_val_str, function_val_int, function_val_float, function_val_byte, function_val_thread_id};
 
         // Type conversion functions (positional args allowed per spec)
         self.register_function_val("str", function_val_str, "str");

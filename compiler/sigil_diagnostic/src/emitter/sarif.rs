@@ -8,7 +8,7 @@
 //! - Azure DevOps
 //! - Many CI/CD platforms
 //!
-//! See: https://sarifweb.azurewebsites.net/
+//! See: <https://sarifweb.azurewebsites.net>/
 
 use super::{escape_json, DiagnosticEmitter};
 use crate::{Diagnostic, Severity};
@@ -56,12 +56,14 @@ impl<W: Write> SarifEmitter<W> {
     }
 
     /// Set the artifact URI (file path) for locations.
+    #[must_use]
     pub fn with_artifact(mut self, uri: impl Into<String>) -> Self {
         self.artifact_uri = Some(uri.into());
         self
     }
 
     /// Set the source text for computing line/column from byte offsets.
+    #[must_use]
     pub fn with_source(mut self, source: impl Into<String>) -> Self {
         self.source = Some(source.into());
         self
@@ -98,8 +100,7 @@ impl<W: Write> SarifEmitter<W> {
         match severity {
             Severity::Error => "error",
             Severity::Warning => "warning",
-            Severity::Note => "note",
-            Severity::Help => "note",
+            Severity::Note | Severity::Help => "note",
         }
     }
 
@@ -129,15 +130,15 @@ impl<W: Write> SarifEmitter<W> {
 
         // Collect unique rules
         let mut rules: Vec<&str> = self.results.iter().map(|r| r.rule_id.as_str()).collect();
-        rules.sort();
+        rules.sort_unstable();
         rules.dedup();
 
         let _ = writeln!(self.writer, "        \"rules\": [");
         for (i, rule_id) in rules.iter().enumerate() {
             let comma = if i + 1 < rules.len() { "," } else { "" };
             let _ = writeln!(self.writer, "          {{");
-            let _ = writeln!(self.writer, "            \"id\": \"{}\"", rule_id);
-            let _ = writeln!(self.writer, "          }}{}", comma);
+            let _ = writeln!(self.writer, "            \"id\": \"{rule_id}\"");
+            let _ = writeln!(self.writer, "          }}{comma}");
         }
         let _ = writeln!(self.writer, "        ]");
 
@@ -152,7 +153,7 @@ impl<W: Write> SarifEmitter<W> {
         for (i, result) in results.iter().enumerate() {
             let comma = if i + 1 < results_len { "," } else { "" };
             self.write_result(result);
-            let _ = write!(self.writer, "{}", comma);
+            let _ = write!(self.writer, "{comma}");
             let _ = writeln!(self.writer);
         }
         let _ = writeln!(self.writer, "    ]");
@@ -181,7 +182,7 @@ impl<W: Write> SarifEmitter<W> {
         for (i, loc) in result.locations.iter().enumerate() {
             let comma = if i + 1 < result.locations.len() { "," } else { "" };
             self.write_location(loc, false);
-            let _ = writeln!(self.writer, "{}", comma);
+            let _ = writeln!(self.writer, "{comma}");
         }
         let _ = write!(self.writer, "        ]");
 
@@ -196,7 +197,7 @@ impl<W: Write> SarifEmitter<W> {
                     ""
                 };
                 self.write_location(loc, true);
-                let _ = writeln!(self.writer, "{}", comma);
+                let _ = writeln!(self.writer, "{comma}");
             }
             let _ = write!(self.writer, "        ]");
         }

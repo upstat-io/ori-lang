@@ -4,7 +4,7 @@
 //! like `#[skip("reason")]`, `#[compile_fail("error")]`, `#[fail("error")]`,
 //! and `#[derive(Trait1, Trait2)]`.
 //!
-//! # Extended compile_fail Syntax
+//! # Extended `compile_fail` Syntax
 //!
 //! The `#[compile_fail(...)]` attribute supports rich error specifications:
 //!
@@ -78,7 +78,7 @@ impl AttrKind {
     }
 }
 
-impl<'a> Parser<'a> {
+impl Parser<'_> {
     /// Parse zero or more attributes: `#[attr("value")]` or `#[derive(Trait)]`.
     pub(crate) fn parse_attributes(
         &mut self,
@@ -86,7 +86,7 @@ impl<'a> Parser<'a> {
     ) -> ParsedAttrs {
         let mut attrs = ParsedAttrs::default();
 
-        while self.check(TokenKind::HashBracket) {
+        while self.check(&TokenKind::HashBracket) {
             self.advance(); // consume #[
 
             let attr_kind = self.parse_attr_name(errors);
@@ -129,7 +129,7 @@ impl<'a> Parser<'a> {
                     _ => {
                         errors.push(ParseError::new(
                             ErrorCode::E1006,
-                            format!("unknown attribute '{}'", s),
+                            format!("unknown attribute '{s}'"),
                             self.previous_span(),
                         ));
                         AttrKind::Unknown
@@ -161,10 +161,10 @@ impl<'a> Parser<'a> {
         let attr_name_str = attr_kind.as_str();
 
         // Expect (
-        if !self.check(TokenKind::LParen) {
+        if !self.check(&TokenKind::LParen) {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
-                message: format!("expected '(' after attribute name '{}'", attr_name_str),
+                message: format!("expected '(' after attribute name '{attr_name_str}'"),
                 span: self.current_span(),
                 context: None,
             });
@@ -180,7 +180,7 @@ impl<'a> Parser<'a> {
         } else {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
-                message: format!("attribute '{}' requires a string argument", attr_name_str),
+                message: format!("attribute '{attr_name_str}' requires a string argument"),
                 span: self.current_span(),
                 context: None,
             });
@@ -188,27 +188,27 @@ impl<'a> Parser<'a> {
         };
 
         // Expect )
-        if !self.check(TokenKind::RParen) {
+        if self.check(&TokenKind::RParen) {
+            self.advance();
+        } else {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: "expected ')' after attribute value".to_string(),
                 span: self.current_span(),
                 context: None,
             });
-        } else {
-            self.advance();
         }
 
         // Expect ]
-        if !self.check(TokenKind::RBracket) {
+        if self.check(&TokenKind::RBracket) {
+            self.advance();
+        } else {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: "expected ']' to close attribute".to_string(),
                 span: self.current_span(),
                 context: None,
             });
-        } else {
-            self.advance();
         }
 
         // Store the attribute
@@ -221,7 +221,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse a compile_fail attribute with extended syntax.
+    /// Parse a `compile_fail` attribute with extended syntax.
     ///
     /// Supports:
     /// - `#[compile_fail("message")]` - legacy simple format
@@ -230,7 +230,7 @@ impl<'a> Parser<'a> {
     /// - `#[compile_fail(message: "msg", code: "E2001", line: 5)]` - combined
     fn parse_compile_fail_attr(&mut self, attrs: &mut ParsedAttrs, errors: &mut Vec<ParseError>) {
         // Expect (
-        if !self.check(TokenKind::LParen) {
+        if !self.check(&TokenKind::LParen) {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: "expected '(' after 'compile_fail'".to_string(),
@@ -249,45 +249,42 @@ impl<'a> Parser<'a> {
             attrs.expected_errors.push(ExpectedError::from_message(string_name));
 
             // Expect )
-            if !self.check(TokenKind::RParen) {
+            if self.check(&TokenKind::RParen) {
+                self.advance();
+            } else {
                 errors.push(ParseError {
                     code: ErrorCode::E1006,
                     message: "expected ')' after compile_fail value".to_string(),
                     span: self.current_span(),
                     context: None,
                 });
-            } else {
-                self.advance();
             }
         } else {
             // Extended format: #[compile_fail(name: value, ...)]
             let mut expected = ExpectedError::default();
 
-            while !self.check(TokenKind::RParen) && !self.is_at_end() {
+            while !self.check(&TokenKind::RParen) && !self.is_at_end() {
                 // Parse name: value
-                let param_name = match self.current_kind() {
-                    TokenKind::Ident(name) => {
-                        let s = self.interner().lookup(name).to_owned();
-                        self.advance();
-                        s
-                    }
-                    _ => {
-                        errors.push(ParseError {
-                            code: ErrorCode::E1006,
-                            message: "expected parameter name in compile_fail".to_string(),
-                            span: self.current_span(),
-                            context: None,
-                        });
-                        self.skip_to_rbracket();
-                        return;
-                    }
+                let param_name = if let TokenKind::Ident(name) = self.current_kind() {
+                    let s = self.interner().lookup(name).to_owned();
+                    self.advance();
+                    s
+                } else {
+                    errors.push(ParseError {
+                        code: ErrorCode::E1006,
+                        message: "expected parameter name in compile_fail".to_string(),
+                        span: self.current_span(),
+                        context: None,
+                    });
+                    self.skip_to_rbracket();
+                    return;
                 };
 
                 // Expect :
-                if !self.check(TokenKind::Colon) {
+                if !self.check(&TokenKind::Colon) {
                     errors.push(ParseError {
                         code: ErrorCode::E1006,
-                        message: format!("expected ':' after '{}'", param_name),
+                        message: format!("expected ':' after '{param_name}'"),
                         span: self.current_span(),
                         context: None,
                     });
@@ -326,7 +323,7 @@ impl<'a> Parser<'a> {
                     }
                     "line" => {
                         if let TokenKind::Int(n) = self.current_kind() {
-                            expected.line = Some(n as u32);
+                            expected.line = u32::try_from(n).ok();
                             self.advance();
                         } else {
                             errors.push(ParseError {
@@ -339,7 +336,7 @@ impl<'a> Parser<'a> {
                     }
                     "column" | "col" => {
                         if let TokenKind::Int(n) = self.current_kind() {
-                            expected.column = Some(n as u32);
+                            expected.column = u32::try_from(n).ok();
                             self.advance();
                         } else {
                             errors.push(ParseError {
@@ -353,7 +350,7 @@ impl<'a> Parser<'a> {
                     _ => {
                         errors.push(ParseError {
                             code: ErrorCode::E1006,
-                            message: format!("unknown compile_fail parameter '{}'", param_name),
+                            message: format!("unknown compile_fail parameter '{param_name}'"),
                             span: self.previous_span(),
                             context: None,
                         });
@@ -361,9 +358,9 @@ impl<'a> Parser<'a> {
                 }
 
                 // Comma separator (optional before closing paren)
-                if self.check(TokenKind::Comma) {
+                if self.check(&TokenKind::Comma) {
                     self.advance();
-                } else if !self.check(TokenKind::RParen) {
+                } else if !self.check(&TokenKind::RParen) {
                     break;
                 }
             }
@@ -374,35 +371,35 @@ impl<'a> Parser<'a> {
             }
 
             // Expect )
-            if !self.check(TokenKind::RParen) {
+            if self.check(&TokenKind::RParen) {
+                self.advance();
+            } else {
                 errors.push(ParseError {
                     code: ErrorCode::E1006,
                     message: "expected ')' after compile_fail parameters".to_string(),
                     span: self.current_span(),
                     context: None,
                 });
-            } else {
-                self.advance();
             }
         }
 
         // Expect ]
-        if !self.check(TokenKind::RBracket) {
+        if self.check(&TokenKind::RBracket) {
+            self.advance();
+        } else {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: "expected ']' to close attribute".to_string(),
                 span: self.current_span(),
                 context: None,
             });
-        } else {
-            self.advance();
         }
     }
 
     /// Parse a derive attribute like `#[derive(Eq, Clone)]`.
     fn parse_derive_attr(&mut self, attrs: &mut ParsedAttrs, errors: &mut Vec<ParseError>) {
         // Expect (
-        if !self.check(TokenKind::LParen) {
+        if !self.check(&TokenKind::LParen) {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: "expected '(' after 'derive'".to_string(),
@@ -415,7 +412,7 @@ impl<'a> Parser<'a> {
         self.advance(); // consume (
 
         // Parse trait list: Trait1, Trait2, ...
-        while !self.check(TokenKind::RParen) && !self.is_at_end() {
+        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
             match self.expect_ident() {
                 Ok(name) => {
                     attrs.derive_traits.push(name);
@@ -428,7 +425,7 @@ impl<'a> Parser<'a> {
             }
 
             // Comma separator (optional before closing paren)
-            if self.check(TokenKind::Comma) {
+            if self.check(&TokenKind::Comma) {
                 self.advance();
             } else {
                 break;
@@ -436,36 +433,36 @@ impl<'a> Parser<'a> {
         }
 
         // Expect )
-        if !self.check(TokenKind::RParen) {
+        if self.check(&TokenKind::RParen) {
+            self.advance();
+        } else {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: "expected ')' after derive trait list".to_string(),
                 span: self.current_span(),
                 context: None,
             });
-        } else {
-            self.advance();
         }
 
         // Expect ]
-        if !self.check(TokenKind::RBracket) {
+        if self.check(&TokenKind::RBracket) {
+            self.advance();
+        } else {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: "expected ']' to close attribute".to_string(),
                 span: self.current_span(),
                 context: None,
             });
-        } else {
-            self.advance();
         }
     }
 
     /// Skip tokens until we find a `]`.
     fn skip_to_rbracket(&mut self) {
-        while !self.check(TokenKind::RBracket) && !self.is_at_end() {
+        while !self.check(&TokenKind::RBracket) && !self.is_at_end() {
             self.advance();
         }
-        if self.check(TokenKind::RBracket) {
+        if self.check(&TokenKind::RBracket) {
             self.advance();
         }
     }

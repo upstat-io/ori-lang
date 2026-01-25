@@ -8,7 +8,7 @@ use crate::ir::Span;
 /// Problems that occur during parsing.
 ///
 /// # Salsa Compatibility
-/// Has Clone, Eq, PartialEq, Hash, Debug for use in query results.
+/// Has Clone, Eq, `PartialEq`, Hash, Debug for use in query results.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum ParseProblem {
     /// Unexpected token encountered.
@@ -84,14 +84,14 @@ pub enum ParseProblem {
         arg_count: usize,
     },
 
-    /// Invalid function_seq syntax.
+    /// Invalid `function_seq` syntax.
     InvalidFunctionSeq {
         span: Span,
         seq_name: String,
         reason: String,
     },
 
-    /// function_exp requires named properties.
+    /// `function_exp` requires named properties.
     RequiresNamedProps {
         span: Span,
         exp_name: String,
@@ -136,25 +136,25 @@ impl ParseProblem {
     /// Get the primary span of this problem.
     pub fn span(&self) -> Span {
         match self {
-            ParseProblem::UnexpectedToken { span, .. } => *span,
-            ParseProblem::ExpectedExpression { span, .. } => *span,
             ParseProblem::UnclosedDelimiter { found_span, .. } => *found_span,
-            ParseProblem::ExpectedIdentifier { span, .. } => *span,
-            ParseProblem::ExpectedType { span, .. } => *span,
-            ParseProblem::InvalidFunctionDef { span, .. } => *span,
-            ParseProblem::MissingFunctionBody { span, .. } => *span,
-            ParseProblem::InvalidPatternSyntax { span, .. } => *span,
-            ParseProblem::MissingPatternArg { span, .. } => *span,
-            ParseProblem::UnknownPatternArg { span, .. } => *span,
-            ParseProblem::RequiresNamedArgs { span, .. } => *span,
-            ParseProblem::InvalidFunctionSeq { span, .. } => *span,
-            ParseProblem::RequiresNamedProps { span, .. } => *span,
-            ParseProblem::ReservedBuiltinName { span, .. } => *span,
-            ParseProblem::UnterminatedString { span } => *span,
-            ParseProblem::InvalidCharacter { span, .. } => *span,
-            ParseProblem::InvalidNumber { span, .. } => *span,
-            ParseProblem::UnterminatedChar { span } => *span,
-            ParseProblem::InvalidEscape { span, .. } => *span,
+            ParseProblem::UnterminatedString { span }
+            | ParseProblem::UnterminatedChar { span }
+            | ParseProblem::UnexpectedToken { span, .. }
+            | ParseProblem::ExpectedExpression { span, .. }
+            | ParseProblem::ExpectedIdentifier { span, .. }
+            | ParseProblem::ExpectedType { span, .. }
+            | ParseProblem::InvalidFunctionDef { span, .. }
+            | ParseProblem::MissingFunctionBody { span, .. }
+            | ParseProblem::InvalidPatternSyntax { span, .. }
+            | ParseProblem::MissingPatternArg { span, .. }
+            | ParseProblem::UnknownPatternArg { span, .. }
+            | ParseProblem::RequiresNamedArgs { span, .. }
+            | ParseProblem::InvalidFunctionSeq { span, .. }
+            | ParseProblem::RequiresNamedProps { span, .. }
+            | ParseProblem::ReservedBuiltinName { span, .. }
+            | ParseProblem::InvalidCharacter { span, .. }
+            | ParseProblem::InvalidNumber { span, .. }
+            | ParseProblem::InvalidEscape { span, .. } => *span,
         }
     }
 }

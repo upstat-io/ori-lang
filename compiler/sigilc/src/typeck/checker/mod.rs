@@ -1,10 +1,10 @@
 //! Type checker core implementation.
 //!
-//! Contains the TypeChecker struct and main entry point for type checking.
+//! Contains the `TypeChecker` struct and main entry point for type checking.
 //!
 //! # Module Structure
 //!
-//! - `types`: Output types (TypedModule, FunctionType, etc.)
+//! - `types`: Output types (`TypedModule`, `FunctionType`, etc.)
 //! - `signatures`: Function signature inference
 //! - `pattern_binding`: Pattern to type binding
 //! - `cycle_detection`: Closure self-capture detection
@@ -20,6 +20,7 @@ mod trait_registration;
 mod bound_checking;
 
 pub use types::{TypedModule, GenericBound, FunctionType, TypeCheckError};
+pub(crate) use cycle_detection::add_pattern_bindings;
 
 use crate::ir::{
     Name, Span, ExprId, ExprArena, Module, Function, TestDef,
@@ -34,7 +35,6 @@ use super::operators::TypeOperatorRegistry;
 use super::type_registry::{TypeRegistry, TraitRegistry};
 use super::infer;
 use std::collections::HashMap;
-use std::rc::Rc;
 
 /// Type checker state.
 pub struct TypeChecker<'a> {
@@ -42,12 +42,12 @@ pub struct TypeChecker<'a> {
     pub(crate) interner: &'a StringInterner,
     pub(crate) ctx: InferenceContext,
     pub(crate) env: TypeEnv,
-    /// Shared base environment for O(1) child scope creation.
-    /// Set after first pass to avoid O(n²) cloning.
-    pub(crate) base_env: Option<Rc<TypeEnv>>,
-    pub(crate) expr_types: HashMap<u32, Type>,
+    /// Frozen base environment for child scope creation.
+    /// Set after first pass to avoid modifying the base during function checking.
+    pub(crate) base_env: Option<TypeEnv>,
+    pub(crate) expr_types: HashMap<usize, Type>,
     pub(crate) errors: Vec<TypeCheckError>,
-    /// Pattern registry for function_exp type checking.
+    /// Pattern registry for `function_exp` type checking.
     pub(crate) registry: SharedRegistry<PatternRegistry>,
     /// Type operator registry for binary operation type checking.
     pub(crate) type_operator_registry: TypeOperatorRegistry,
@@ -62,6 +62,10 @@ pub struct TypeChecker<'a> {
     diagnostic_queue: Option<DiagnosticQueue>,
     /// Source code for line/column computation.
     source: Option<String>,
+    /// The Self type when inside an impl block.
+    pub(crate) current_impl_self: Option<Type>,
+    /// Config variable types for $name references.
+    pub(crate) config_types: HashMap<Name, Type>,
 }
 
 impl<'a> TypeChecker<'a> {
@@ -82,6 +86,8 @@ impl<'a> TypeChecker<'a> {
             function_sigs: HashMap::new(),
             diagnostic_queue: None,
             source: None,
+            current_impl_self: None,
+            config_types: HashMap::new(),
         }
     }
 
@@ -104,6 +110,8 @@ impl<'a> TypeChecker<'a> {
             function_sigs: HashMap::new(),
             diagnostic_queue: Some(DiagnosticQueue::new()),
             source: Some(source),
+            current_impl_self: None,
+            config_types: HashMap::new(),
         }
     }
 
@@ -130,6 +138,8 @@ impl<'a> TypeChecker<'a> {
             function_sigs: HashMap::new(),
             diagnostic_queue: None,
             source: None,
+            current_impl_self: None,
+            config_types: HashMap::new(),
         }
     }
 
@@ -155,6 +165,8 @@ impl<'a> TypeChecker<'a> {
             function_sigs: HashMap::new(),
             diagnostic_queue: Some(DiagnosticQueue::with_config(config)),
             source: Some(source),
+            current_impl_self: None,
+            config_types: HashMap::new(),
         }
     }
 
@@ -169,6 +181,9 @@ impl<'a> TypeChecker<'a> {
         // Pass 0b: Register traits and implementations
         self.register_traits(module);
         self.register_impls(module);
+
+        // Pass 0c: Register config variables
+        self.register_configs(module);
 
         // First pass: collect function signatures
         for func in &module.functions {
@@ -186,9 +201,9 @@ impl<'a> TypeChecker<'a> {
             self.env.bind(func.name, fn_type);
         }
 
-        // Freeze the base environment into an Rc for O(1) child scope creation.
-        // This avoids O(n²) cloning when checking many functions.
-        self.base_env = Some(Rc::new(std::mem::take(&mut self.env)));
+        // Freeze the base environment for child scope creation.
+        // This avoids modifying the base during function checking.
+        self.base_env = Some(std::mem::take(&mut self.env));
 
         // Second pass: type check function bodies
         for (func, func_type) in module.functions.iter().zip(function_types.iter()) {
@@ -200,11 +215,16 @@ impl<'a> TypeChecker<'a> {
             self.check_test(test);
         }
 
+        // Fourth pass: type check impl method bodies
+        for impl_def in &module.impls {
+            self.check_impl_methods(impl_def);
+        }
+
         // Build expression types vector with resolved types
         let max_expr = self.expr_types.keys().max().copied().unwrap_or(0);
-        let mut expr_types = vec![Type::Error; (max_expr + 1) as usize];
+        let mut expr_types = vec![Type::Error; max_expr + 1];
         for (id, ty) in self.expr_types {
-            expr_types[id as usize] = self.ctx.resolve(&ty);
+            expr_types[id] = self.ctx.resolve(&ty);
         }
 
         // Resolve function types
@@ -225,9 +245,9 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    /// Convert a TypeId to a Type.
+    /// Convert a `TypeId` to a Type.
     ///
-    /// TypeId is the parsed type annotation representation for primitives.
+    /// `TypeId` is the parsed type annotation representation for primitives.
     /// Type is the type checker's internal representation.
     pub(crate) fn type_id_to_type(&mut self, type_id: TypeId) -> Type {
         match type_id {
@@ -252,9 +272,9 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    /// Convert a ParsedType to a Type.
+    /// Convert a `ParsedType` to a Type.
     ///
-    /// ParsedType captures the full structure of type annotations as parsed.
+    /// `ParsedType` captures the full structure of type annotations as parsed.
     /// This method resolves them into the type checker's internal representation.
     pub(crate) fn parsed_type_to_type(&mut self, parsed: &ParsedType) -> Type {
         match parsed {
@@ -351,7 +371,7 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    /// Resolve a ParsedType to a Type, substituting generic type variables.
+    /// Resolve a `ParsedType` to a Type, substituting generic type variables.
     ///
     /// This is used when inferring function signatures where type annotations
     /// may refer to generic parameters (e.g., `T` in `@foo<T>(x: T) -> T`).
@@ -427,7 +447,7 @@ impl<'a> TypeChecker<'a> {
         // Unify with declared return type
         if let Err(e) = self.ctx.unify(&body_type, &func_type.return_type) {
             let span = self.arena.get_expr(func.body).span;
-            self.report_type_error(e, span);
+            self.report_type_error(&e, span);
         }
 
         // Restore environment
@@ -475,15 +495,112 @@ impl<'a> TypeChecker<'a> {
         // Unify with declared return type
         if let Err(e) = self.ctx.unify(&body_type, &return_type) {
             let span = self.arena.get_expr(test.body).span;
-            self.report_type_error(e, span);
+            self.report_type_error(&e, span);
         }
 
         // Restore environment
         self.env = old_env;
     }
 
+    /// Type check all methods in an impl block.
+    fn check_impl_methods(&mut self, impl_def: &crate::ir::ImplDef) {
+        let self_ty = self.parsed_type_to_type(&impl_def.self_ty);
+        let prev_self = self.enter_impl(self_ty.clone());
+
+        for method in &impl_def.methods {
+            self.check_impl_method(method, &self_ty);
+        }
+
+        self.exit_impl(prev_self);
+    }
+
+    /// Type check a single impl method.
+    fn check_impl_method(&mut self, method: &crate::ir::ImplMethod, self_ty: &Type) {
+        // Create scope for method parameters
+        let mut method_env = if let Some(ref base) = self.base_env {
+            base.child()
+        } else {
+            self.env.child()
+        };
+
+        // Bind parameters (first param is typically `self`)
+        let params = self.arena.get_params(method.params);
+        for param in params {
+            let param_ty = if let Some(ref parsed_ty) = param.ty {
+                self.parsed_type_to_type(parsed_ty)
+            } else {
+                // If first param is named `self`, bind to Self type
+                let self_name = self.interner.intern("self");
+                if param.name == self_name {
+                    self_ty.clone()
+                } else {
+                    self.ctx.fresh_var()
+                }
+            };
+            method_env.bind(param.name, param_ty);
+        }
+
+        // Save current env and switch to method env
+        let old_env = std::mem::replace(&mut self.env, method_env);
+
+        // Infer body type
+        let body_type = infer::infer_expr(self, method.body);
+
+        // Unify with declared return type
+        let return_type = self.parsed_type_to_type(&method.return_ty);
+        if let Err(e) = self.ctx.unify(&body_type, &return_type) {
+            let span = self.arena.get_expr(method.body).span;
+            self.report_type_error(&e, span);
+        }
+
+        // Restore environment
+        self.env = old_env;
+    }
+
+    /// Resolve a type through any alias chain.
+    ///
+    /// If the type is a named type that refers to an alias, returns the
+    /// underlying type. Otherwise returns the type unchanged.
+    pub(crate) fn resolve_through_aliases(&self, ty: &Type) -> Type {
+        use crate::typeck::type_registry::TypeKind;
+
+        match ty {
+            Type::Named(name) => {
+                if let Some(entry) = self.type_registry.get_by_name(*name) {
+                    if let TypeKind::Alias { target } = &entry.kind {
+                        return self.resolve_through_aliases(target);
+                    }
+                }
+                ty.clone()
+            }
+            _ => ty.clone(),
+        }
+    }
+
+    /// Enter an impl block context, setting the Self type.
+    ///
+    /// Returns the previous Self type to restore later.
+    pub(crate) fn enter_impl(&mut self, self_ty: Type) -> Option<Type> {
+        self.current_impl_self.replace(self_ty)
+    }
+
+    /// Exit an impl block context, restoring the previous Self type.
+    pub(crate) fn exit_impl(&mut self, prev: Option<Type>) {
+        self.current_impl_self = prev;
+    }
+
+    /// Register config variable types.
+    ///
+    /// Infers the type of each config value and stores it for $name references.
+    fn register_configs(&mut self, module: &Module) {
+        for config in &module.configs {
+            let config_ty = infer::infer_expr(self, config.value);
+            self.config_types.insert(config.name, config_ty);
+        }
+    }
+
     /// Report a type error.
-    pub(crate) fn report_type_error(&mut self, err: TypeError, span: Span) {
+    pub(crate) fn report_type_error(&mut self, err: &TypeError, span: Span) {
         let diag = err.to_diagnostic(span, self.interner);
         let error = TypeCheckError {
             message: diag.message.clone(),
@@ -509,12 +626,12 @@ impl<'a> TypeChecker<'a> {
     /// When source is provided, the diagnostic queue tracks error limits.
     /// Returns false if no source/queue is configured.
     pub fn limit_reached(&self) -> bool {
-        self.diagnostic_queue.as_ref().map_or(false, |q| q.limit_reached())
+        self.diagnostic_queue.as_ref().is_some_and(sigil_diagnostic::queue::DiagnosticQueue::limit_reached)
     }
 
     /// Store the type for an expression.
     pub(crate) fn store_type(&mut self, expr_id: ExprId, ty: Type) {
-        self.expr_types.insert(expr_id.index() as u32, ty);
+        self.expr_types.insert(expr_id.index(), ty);
     }
 }
 

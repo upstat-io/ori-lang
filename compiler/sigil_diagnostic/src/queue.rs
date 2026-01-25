@@ -84,7 +84,7 @@ pub struct DiagnosticQueue {
     error_count: usize,
     /// Last line with a syntax error (for dedup).
     last_syntax_line: Option<u32>,
-    /// Last (line, message_prefix) for non-syntax error dedup.
+    /// Last (line, `message_prefix`) for non-syntax error dedup.
     last_error: Option<(u32, String)>,
     /// Whether we've seen a hard error.
     has_hard_error: bool,
@@ -140,7 +140,7 @@ impl DiagnosticQueue {
         }
 
         // Filter follow-on errors
-        if self.config.filter_follow_on && self.is_follow_on(&diag) {
+        if self.config.filter_follow_on && Self::is_follow_on(&diag) {
             return false;
         }
 
@@ -156,7 +156,7 @@ impl DiagnosticQueue {
 
         // Update dedup tracking
         if is_error {
-            if self.is_syntax_error(&diag) {
+            if Self::is_syntax_error(&diag) {
                 self.last_syntax_line = Some(line);
             } else {
                 // Take first ~30 chars of message for dedup
@@ -228,7 +228,7 @@ impl DiagnosticQueue {
     ///
     /// Follow-on errors contain phrases like "invalid operand" or "invalid type"
     /// which typically result from a previous error.
-    fn is_follow_on(&self, diag: &Diagnostic) -> bool {
+    fn is_follow_on(diag: &Diagnostic) -> bool {
         if !diag.is_error() {
             return false;
         }
@@ -246,7 +246,7 @@ impl DiagnosticQueue {
         }
 
         // Syntax errors: dedupe same line
-        if self.is_syntax_error(diag) {
+        if Self::is_syntax_error(diag) {
             if let Some(last_line) = self.last_syntax_line {
                 if last_line == line {
                     return true;
@@ -268,7 +268,7 @@ impl DiagnosticQueue {
     }
 
     /// Check if a diagnostic is a syntax (parser) error.
-    fn is_syntax_error(&self, diag: &Diagnostic) -> bool {
+    fn is_syntax_error(diag: &Diagnostic) -> bool {
         matches!(
             diag.code,
             ErrorCode::E1001
@@ -292,7 +292,7 @@ impl DiagnosticQueue {
 /// Create a "too many errors" diagnostic.
 pub fn too_many_errors(limit: usize, span: Span) -> Diagnostic {
     Diagnostic::error(ErrorCode::E9002)
-        .with_message(format!("aborting due to {} previous errors", limit))
+        .with_message(format!("aborting due to {limit} previous errors"))
         .with_label(span, "")
 }
 

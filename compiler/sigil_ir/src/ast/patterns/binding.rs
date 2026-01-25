@@ -3,7 +3,7 @@
 //! Patterns for destructuring in let expressions and match expressions.
 //!
 //! # Salsa Compatibility
-//! All types have Clone, Eq, PartialEq, Hash, Debug for Salsa requirements.
+//! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
 use crate::{Name, Span, ExprId, Spanned};
 

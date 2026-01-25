@@ -1,23 +1,26 @@
 # Patterns
 
-Built-in control flow and data transformation constructs.
+Compiler-level control flow and concurrency constructs.
 
 ## Categories
 
-| Category | Syntax | Purpose |
-|----------|--------|---------|
+| Category | Patterns | Purpose |
+|----------|----------|---------|
 | `function_seq` | `run`, `try`, `match` | Sequential expressions |
-| `function_exp` | Named args (`name: expr`) | Data transformation |
+| `function_exp` | `recurse`, `parallel`, `spawn`, `timeout`, `cache`, `with`, `for` | Concurrency, recursion, resources |
 | `function_val` | `int`, `float`, `str`, `byte` | Type conversion |
+
+> **Note:** Data transformation (`map`, `filter`, `fold`, `find`, `collect`) and resilience (`retry`, `validate`) are stdlib methods, not compiler patterns. See [Built-in Functions](11-built-in-functions.md).
 
 ## Grammar
 
 ```
 pattern_expr   = function_seq | function_exp | function_val .
-function_seq   = run_expr | try_expr | match_expr .
+function_seq   = run_expr | try_expr | match_expr | for_pattern .
 function_exp   = pattern_name "(" named_arg { "," named_arg } ")" .
 function_val   = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
 named_arg      = identifier ":" expression .
+pattern_name   = "recurse" | "parallel" | "spawn" | "timeout" | "cache" | "with" .
 ```
 
 ## Sequential (function_seq)
@@ -79,49 +82,7 @@ pattern = literal | identifier | "_"
 
 Match must be exhaustive.
 
-## Data Transformation (function_exp)
-
-### map
-
-```sigil
-map(over: items, transform: x -> x * 2)
-```
-
-`[T]` × `(T -> U)` → `[U]`
-
-### filter
-
-```sigil
-filter(over: items, predicate: x -> x > 0)
-```
-
-`[T]` × `(T -> bool)` → `[T]`
-
-### fold
-
-```sigil
-fold(over: items, initial: 0, operation: (acc, x) -> acc + x)
-```
-
-`[T]` × `U` × `((U, T) -> U)` → `U`
-
-### collect
-
-```sigil
-collect(range: 1..=10, transform: n -> n * n)
-```
-
-`Range` × `(int -> T)` → `[T]`
-
-### find
-
-```sigil
-find(over: items, where: x -> x > 0)
-find(over: items, where: predicate, default: fallback)
-find(over: items, map: x -> parse(x))  // find_map variant
-```
-
-Returns `Option<T>` without default, `T` with default.
+## Recursion (function_exp)
 
 ### recurse
 
@@ -170,13 +131,7 @@ timeout(op: fetch(url), after: 5s)
 
 Returns `Result<T, TimeoutError>`.
 
-## Resilience
-
-### retry
-
-```sigil
-retry(op: fetch(url), attempts: 3, backoff: exponential(base: 100ms))
-```
+## Resource Management (function_exp)
 
 ### cache
 
@@ -185,20 +140,6 @@ cache(key: url, op: fetch(url), ttl: 5m)
 ```
 
 Requires `Cache` capability.
-
-### validate
-
-```sigil
-validate(
-    rules: [
-        age >= 0 | "age must be non-negative",
-        name != "" | "name required",
-    ],
-    then: User { name, age },
-)
-```
-
-Returns `Result<T, [str]>`.
 
 ### with
 

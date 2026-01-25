@@ -3,7 +3,7 @@
 //! User-defined types: structs, sum types (enums), and newtypes.
 //!
 //! # Salsa Compatibility
-//! All types have Clone, Eq, PartialEq, Hash, Debug for Salsa requirements.
+//! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
 use crate::{Name, Span, ParsedType, Spanned};
 use super::super::ranges::GenericParamRange;

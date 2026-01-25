@@ -7,7 +7,7 @@ use crate::types::Type;
 use super::TypeChecker;
 use super::super::type_registry::VariantDef;
 
-impl<'a> TypeChecker<'a> {
+impl TypeChecker<'_> {
     /// Register all user-defined type declarations from a module.
     ///
     /// This must be called before trait registration, as traits and impls
@@ -90,14 +90,13 @@ impl<'a> TypeChecker<'a> {
 #[cfg(test)]
 mod tests {
     use crate::ir::StringInterner;
-    use crate::lexer;
     use crate::parser::parse;
     use crate::typeck::checker::TypeChecker;
     use crate::typeck::type_registry::TypeKind;
 
     fn check_types(source: &str) -> (TypeChecker<'static>, StringInterner) {
         let interner = StringInterner::new();
-        let tokens = lexer::lex(source, &interner);
+        let tokens = sigil_lexer::lex(source, &interner);
         let parse_result = parse(&tokens, &interner);
         assert!(
             !parse_result.has_errors(),

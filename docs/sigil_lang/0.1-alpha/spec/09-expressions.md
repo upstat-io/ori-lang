@@ -79,7 +79,8 @@ bit_xor_expr  = bit_and_expr { "^" bit_and_expr } .
 bit_and_expr  = eq_expr { "&" eq_expr } .
 eq_expr       = cmp_expr { ( "==" | "!=" ) cmp_expr } .
 cmp_expr      = range_expr { ( "<" | ">" | "<=" | ">=" ) range_expr } .
-range_expr    = add_expr [ ( ".." | "..=" ) add_expr ] .
+range_expr    = shift_expr [ ( ".." | "..=" ) shift_expr ] .
+shift_expr    = add_expr { ( "<<" | ">>" ) add_expr } .
 add_expr      = mul_expr { ( "+" | "-" ) mul_expr } .
 mul_expr      = unary_expr { ( "*" | "/" | "%" | "div" ) unary_expr } .
 ```
@@ -95,6 +96,82 @@ mul_expr      = unary_expr { ( "*" | "/" | "%" | "div" ) unary_expr } .
 | `<<` `>>` | Shift |
 | `..` `..=` | Range |
 | `??` | Coalesce (None/Err → default) |
+
+### Operator Type Constraints
+
+Binary operators require operands of matching types. No implicit conversions.
+
+**Arithmetic** (`+` `-` `*` `/`):
+
+| Left | Right | Result |
+|------|-------|--------|
+| `int` | `int` | `int` |
+| `float` | `float` | `float` |
+
+**String concatenation** (`+`):
+
+| Left | Right | Result |
+|------|-------|--------|
+| `str` | `str` | `str` |
+
+**Integer-only** (`%` `div` `<<` `>>` `&` `|` `^`):
+
+| Left | Right | Result |
+|------|-------|--------|
+| `int` | `int` | `int` |
+
+**Comparison** (`<` `>` `<=` `>=`):
+
+Operands must be the same type implementing `Comparable`. Returns `bool`.
+
+**Equality** (`==` `!=`):
+
+Operands must be the same type implementing `Eq`. Returns `bool`.
+
+Mixed-type operations are compile errors:
+
+```sigil
+1 + 2.0          // error: mismatched types int and float
+float(1) + 2.0   // OK: 3.0
+1 + int(2.0)     // OK: 3
+```
+
+### Numeric Behavior
+
+**Integer overflow**: Wraps using two's complement. No panic.
+
+```sigil
+let max: int = 9223372036854775807
+max + 1  // -9223372036854775808 (wraps)
+```
+
+**Integer division by zero**: Panics.
+
+```sigil
+5 / 0    // panic: division by zero
+5 % 0    // panic: modulo by zero
+```
+
+**Float division by zero**: Returns infinity or NaN per IEEE 754.
+
+```sigil
+1.0 / 0.0    // Inf
+-1.0 / 0.0   // -Inf
+0.0 / 0.0    // NaN
+```
+
+**Float NaN propagation**: Any operation involving NaN produces NaN.
+
+```sigil
+NaN + 1.0    // NaN
+NaN == NaN   // false (IEEE 754)
+NaN != NaN   // true
+```
+
+**Float comparison**: Exact bit comparison. No epsilon tolerance.
+
+```sigil
+0.1 + 0.2 == 0.3  // false (floating-point representation)
 
 ## With Expression
 

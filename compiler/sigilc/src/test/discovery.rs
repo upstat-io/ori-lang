@@ -34,9 +34,8 @@ pub fn discover_tests(root: &Path) -> Vec<TestFile> {
 }
 
 fn discover_recursive(dir: &Path, files: &mut Vec<TestFile>) {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(_) => return,
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
     };
 
     for entry in entries.flatten() {
@@ -57,7 +56,7 @@ fn discover_recursive(dir: &Path, files: &mut Vec<TestFile>) {
                 }
             }
             discover_recursive(&path, files);
-        } else if path.extension().map_or(false, |e| e == "si") {
+        } else if path.extension().is_some_and(|e| e == "si") {
             files.push(TestFile::new(path));
         }
     }
@@ -69,7 +68,7 @@ fn discover_recursive(dir: &Path, files: &mut Vec<TestFile>) {
 /// If `path` is a directory, discovers all .si files recursively.
 pub fn discover_tests_in(path: &Path) -> Vec<TestFile> {
     if path.is_file() {
-        if path.extension().map_or(false, |e| e == "si") {
+        if path.extension().is_some_and(|e| e == "si") {
             vec![TestFile::new(path.to_path_buf())]
         } else {
             vec![]

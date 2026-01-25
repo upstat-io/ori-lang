@@ -150,7 +150,7 @@ impl<'a> EvalContext<'a> {
         }
     }
 
-    /// Get a required property's ExprId by name.
+    /// Get a required property's `ExprId` by name.
     pub fn get_prop(&self, name: &str) -> Result<ExprId, EvalError> {
         let target = self.interner.intern(name);
         for prop in self.props {
@@ -159,12 +159,11 @@ impl<'a> EvalContext<'a> {
             }
         }
         Err(EvalError::new(format!(
-            "missing required property: .{}",
-            name
+            "missing required property: .{name}"
         )))
     }
 
-    /// Get an optional property's ExprId by name.
+    /// Get an optional property's `ExprId` by name.
     pub fn get_prop_opt(&self, name: &str) -> Option<ExprId> {
         let target = self.interner.intern(name);
         for prop in self.props {
@@ -519,7 +518,7 @@ pub trait PatternDefinition: Send + Sync {
 // Blanket Implementation
 // =============================================================================
 
-/// Blanket implementation: Any type implementing PatternDefinition also implements PatternCore.
+/// Blanket implementation: Any type implementing `PatternDefinition` also implements `PatternCore`.
 impl<T: PatternDefinition> PatternCore for T {
     fn name(&self) -> &'static str {
         PatternDefinition::name(self)

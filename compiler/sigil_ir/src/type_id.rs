@@ -11,7 +11,7 @@ use std::hash::{Hash, Hasher};
 /// Interned type identifier.
 ///
 /// # Salsa Compatibility
-/// Has all required traits: Copy, Clone, Eq, PartialEq, Hash, Debug
+/// Has all required traits: Copy, Clone, Eq, `PartialEq`, Hash, Debug
 ///
 /// # Pre-interned Types
 /// Primitive types are pre-interned with fixed IDs:
@@ -36,7 +36,7 @@ impl TypeId {
     /// First ID for compound types (after primitives).
     pub const FIRST_COMPOUND: u32 = 10;
 
-    /// Create a new TypeId.
+    /// Create a new `TypeId`.
     #[inline]
     pub const fn new(index: u32) -> Self {
         TypeId(index)

@@ -72,9 +72,8 @@ impl PatternDefinition for ParallelPattern {
             .ok_or_else(|| EvalError::new("parallel requires .tasks property"))?;
 
         let tasks_value = exec.eval(tasks_prop.value)?;
-        let task_list = match tasks_value {
-            Value::List(items) => items,
-            _ => return Err(EvalError::new("parallel .tasks must be a list")),
+        let Value::List(task_list) = tasks_value else {
+            return Err(EvalError::new("parallel .tasks must be a list"));
         };
 
         // Extract .timeout (optional, per-task)
@@ -86,7 +85,7 @@ impl PatternDefinition for ParallelPattern {
             .transpose()?
             .and_then(|v| match v {
                 Value::Duration(ms) => Some(ms),
-                Value::Int(n) if n > 0 => Some(n as u64),
+                Value::Int(n) => u64::try_from(n).ok(),
                 _ => None,
             });
 
@@ -98,7 +97,7 @@ impl PatternDefinition for ParallelPattern {
             .map(|p| exec.eval(p.value))
             .transpose()?
             .and_then(|v| match v {
-                Value::Int(n) if n > 0 => Some(n as usize),
+                Value::Int(n) => usize::try_from(n).ok(),
                 _ => None,
             });
         // Note: max_concurrent is parsed but not yet enforced in this simple impl
@@ -129,7 +128,7 @@ impl PatternDefinition for ParallelPattern {
                         let tx = tx.clone();
                         s.spawn(move || {
                             let result = execute_task(task);
-                            let mut guard = results.lock().unwrap();
+                            let mut guard = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                             guard[i] = Some(result);
                             drop(guard);
                             let _ = tx.send(i);
@@ -139,7 +138,7 @@ impl PatternDefinition for ParallelPattern {
 
                     // Wait for results with overall timeout
                     let start = std::time::Instant::now();
-                    let task_count = results_clone.lock().unwrap().len();
+                    let task_count = results_clone.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len();
                     let mut completed = 0;
 
                     while completed < task_count {
@@ -149,14 +148,13 @@ impl PatternDefinition for ParallelPattern {
                         }
                         match rx.recv_timeout(remaining) {
                             Ok(_) => completed += 1,
-                            Err(mpsc::RecvTimeoutError::Timeout) => break,
-                            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                            Err(_) => break,
                         }
                     }
                 });
 
                 // Build results - timed out tasks get Err(TimeoutError)
-                let guard = results.lock().unwrap();
+                let guard = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let final_results: Vec<Value> = guard
                     .iter()
                     .map(|opt| match opt {
@@ -173,13 +171,13 @@ impl PatternDefinition for ParallelPattern {
                         let results = Arc::clone(&results);
                         s.spawn(move || {
                             let result = execute_task(task);
-                            let mut guard = results.lock().unwrap();
+                            let mut guard = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                             guard[i] = Some(result);
                         });
                     }
                 });
 
-                let guard = results.lock().unwrap();
+                let guard = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let final_results: Vec<Value> = guard
                     .iter()
                     .map(|opt| {
@@ -202,7 +200,7 @@ fn execute_task(task: Value) -> Value {
     match task {
         Value::FunctionVal(func, _) => match func(&[]) {
             Ok(v) => wrap_in_result(v),
-            Err(e) => Value::err(Value::string(&e.to_string())),
+            Err(e) => Value::err(Value::string(e.clone())),
         },
         // If task is already a Result, keep it
         Value::Ok(_) | Value::Err(_) => task,

@@ -76,7 +76,7 @@ impl FixRegistry {
 
     /// Get the number of error code -> fix mappings.
     pub fn mapping_count(&self) -> usize {
-        self.by_code.values().map(|v| v.len()).sum()
+        self.by_code.values().map(std::vec::Vec::len).sum()
     }
 }
 
@@ -85,7 +85,7 @@ impl std::fmt::Debug for FixRegistry {
         f.debug_struct("FixRegistry")
             .field("fix_count", &self.fix_count())
             .field("codes", &self.by_code.keys().collect::<Vec<_>>())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

@@ -5,9 +5,9 @@
 //! by implementing the `MethodDispatcher` trait.
 
 use std::collections::HashMap;
+use super::errors::{no_such_method, wrong_arg_count, wrong_arg_type};
 use super::value::Value;
 use super::evaluator::{EvalResult, EvalError};
-use super::errors;
 
 // =============================================================================
 // Method Dispatcher Trait
@@ -46,31 +46,30 @@ impl MethodDispatcher for ListMethods {
     }
 
     fn dispatch(&self, receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
-        let items = match receiver {
-            Value::List(items) => items,
-            _ => return Err(EvalError::new("expected list")),
+        let Value::List(items) = receiver else {
+            return Err(EvalError::new("expected list"));
         };
 
         match method {
-            "len" => Ok(Value::Int(items.len() as i64)),
+            "len" => i64::try_from(items.len())
+                .map(Value::Int)
+                .map_err(|_| EvalError::new("collection too large")),
             "is_empty" => Ok(Value::Bool(items.is_empty())),
             "first" => Ok(items
                 .first()
                 .cloned()
-                .map(Value::some)
-                .unwrap_or(Value::None)),
+                .map_or(Value::None, Value::some)),
             "last" => Ok(items
                 .last()
                 .cloned()
-                .map(Value::some)
-                .unwrap_or(Value::None)),
+                .map_or(Value::None, Value::some)),
             "contains" => {
                 if args.len() != 1 {
-                    return Err(errors::wrong_arg_count("contains", 1, args.len()));
+                    return Err(wrong_arg_count("contains", 1, args.len()));
                 }
                 Ok(Value::Bool(items.contains(&args[0])))
             }
-            _ => Err(errors::no_such_method(method, "list")),
+            _ => Err(no_such_method(method, "list")),
         }
     }
 }
@@ -102,48 +101,49 @@ impl MethodDispatcher for StringMethods {
     }
 
     fn dispatch(&self, receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
-        let s = match receiver {
-            Value::Str(s) => s,
-            _ => return Err(EvalError::new("expected string")),
+        let Value::Str(s) = receiver else {
+            return Err(EvalError::new("expected string"));
         };
 
         match method {
-            "len" => Ok(Value::Int(s.len() as i64)),
+            "len" => i64::try_from(s.len())
+                .map(Value::Int)
+                .map_err(|_| EvalError::new("string too large")),
             "is_empty" => Ok(Value::Bool(s.is_empty())),
             "to_uppercase" => Ok(Value::string(s.to_uppercase())),
             "to_lowercase" => Ok(Value::string(s.to_lowercase())),
             "trim" => Ok(Value::string(s.trim().to_string())),
             "contains" => {
                 if args.len() != 1 {
-                    return Err(errors::wrong_arg_count("contains", 1, args.len()));
+                    return Err(wrong_arg_count("contains", 1, args.len()));
                 }
                 if let Value::Str(needle) = &args[0] {
                     Ok(Value::Bool(s.contains(needle.as_str())))
                 } else {
-                    Err(errors::wrong_arg_type("contains", "string"))
+                    Err(wrong_arg_type("contains", "string"))
                 }
             }
             "starts_with" => {
                 if args.len() != 1 {
-                    return Err(errors::wrong_arg_count("starts_with", 1, args.len()));
+                    return Err(wrong_arg_count("starts_with", 1, args.len()));
                 }
                 if let Value::Str(prefix) = &args[0] {
                     Ok(Value::Bool(s.starts_with(prefix.as_str())))
                 } else {
-                    Err(errors::wrong_arg_type("starts_with", "string"))
+                    Err(wrong_arg_type("starts_with", "string"))
                 }
             }
             "ends_with" => {
                 if args.len() != 1 {
-                    return Err(errors::wrong_arg_count("ends_with", 1, args.len()));
+                    return Err(wrong_arg_count("ends_with", 1, args.len()));
                 }
                 if let Value::Str(suffix) = &args[0] {
                     Ok(Value::Bool(s.ends_with(suffix.as_str())))
                 } else {
-                    Err(errors::wrong_arg_type("ends_with", "string"))
+                    Err(wrong_arg_type("ends_with", "string"))
                 }
             }
-            _ => Err(errors::no_such_method(method, "str")),
+            _ => Err(no_such_method(method, "str")),
         }
     }
 }
@@ -165,24 +165,25 @@ impl MethodDispatcher for RangeMethods {
     }
 
     fn dispatch(&self, receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
-        let r = match receiver {
-            Value::Range(r) => r,
-            _ => return Err(EvalError::new("expected range")),
+        let Value::Range(r) = receiver else {
+            return Err(EvalError::new("expected range"));
         };
 
         match method {
-            "len" => Ok(Value::Int(r.len() as i64)),
+            "len" => i64::try_from(r.len())
+                .map(Value::Int)
+                .map_err(|_| EvalError::new("range too large")),
             "contains" => {
                 if args.len() != 1 {
-                    return Err(errors::wrong_arg_count("contains", 1, args.len()));
+                    return Err(wrong_arg_count("contains", 1, args.len()));
                 }
                 if let Value::Int(n) = args[0] {
                     Ok(Value::Bool(r.contains(n)))
                 } else {
-                    Err(errors::wrong_arg_type("contains", "int"))
+                    Err(wrong_arg_type("contains", "int"))
                 }
             }
-            _ => Err(errors::no_such_method(method, "range")),
+            _ => Err(no_such_method(method, "range")),
         }
     }
 }
@@ -205,20 +206,17 @@ impl MethodDispatcher for OptionMethods {
 
     fn dispatch(&self, receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
         match (method, &receiver) {
-            ("unwrap", Value::Some(v)) => Ok((**v).clone()),
+            ("unwrap" | "unwrap_or", Value::Some(v)) => Ok((**v).clone()),
             ("unwrap", Value::None) => Err(EvalError::new("called unwrap on None")),
-            ("is_some", Value::Some(_)) => Ok(Value::Bool(true)),
-            ("is_some", Value::None) => Ok(Value::Bool(false)),
-            ("is_none", Value::Some(_)) => Ok(Value::Bool(false)),
-            ("is_none", Value::None) => Ok(Value::Bool(true)),
-            ("unwrap_or", Value::Some(v)) => Ok((**v).clone()),
+            ("is_some", Value::Some(_)) | ("is_none", Value::None) => Ok(Value::Bool(true)),
+            ("is_some", Value::None) | ("is_none", Value::Some(_)) => Ok(Value::Bool(false)),
             ("unwrap_or", Value::None) => {
                 if args.len() != 1 {
-                    return Err(errors::wrong_arg_count("unwrap_or", 1, args.len()));
+                    return Err(wrong_arg_count("unwrap_or", 1, args.len()));
                 }
                 Ok(args[0].clone())
             }
-            _ => Err(errors::no_such_method(method, "Option")),
+            _ => Err(no_such_method(method, "Option")),
         }
     }
 }
@@ -243,13 +241,11 @@ impl MethodDispatcher for ResultMethods {
         match (method, &receiver) {
             ("unwrap", Value::Ok(v)) => Ok((**v).clone()),
             ("unwrap", Value::Err(e)) => {
-                Err(EvalError::new(format!("called unwrap on Err: {:?}", e)))
+                Err(EvalError::new(format!("called unwrap on Err: {e:?}")))
             }
-            ("is_ok", Value::Ok(_)) => Ok(Value::Bool(true)),
-            ("is_ok", Value::Err(_)) => Ok(Value::Bool(false)),
-            ("is_err", Value::Ok(_)) => Ok(Value::Bool(false)),
-            ("is_err", Value::Err(_)) => Ok(Value::Bool(true)),
-            _ => Err(errors::no_such_method(method, "Result")),
+            ("is_ok", Value::Ok(_)) | ("is_err", Value::Err(_)) => Ok(Value::Bool(true)),
+            ("is_ok", Value::Err(_)) | ("is_err", Value::Ok(_)) => Ok(Value::Bool(false)),
+            _ => Err(no_such_method(method, "Result")),
         }
     }
 }
@@ -300,7 +296,7 @@ impl MethodRegistry {
             }
         }
 
-        Err(errors::no_such_method(method, receiver.type_name()))
+        Err(no_such_method(method, receiver.type_name()))
     }
 }
 

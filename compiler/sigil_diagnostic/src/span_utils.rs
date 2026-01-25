@@ -1,7 +1,7 @@
 //! Span utility functions for diagnostic processing.
 //!
 //! Provides helpers for computing line and column numbers from spans,
-//! used by DiagnosticQueue for sorting and deduplication.
+//! used by `DiagnosticQueue` for sorting and deduplication.
 
 use sigil_ir::Span;
 
@@ -54,7 +54,7 @@ pub fn offset_to_line_col(source: &str, offset: u32) -> (u32, u32) {
 
     // Column is 1-based, counting characters from line start to offset
     let col_bytes = &source[line_start..offset.min(source.len())];
-    let col = col_bytes.chars().count() as u32 + 1;
+    let col = u32::try_from(col_bytes.chars().count()).unwrap_or(u32::MAX - 1) + 1;
 
     (line, col)
 }

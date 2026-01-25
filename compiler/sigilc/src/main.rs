@@ -31,8 +31,8 @@ fn main() {
             let mut config = TestRunnerConfig::default();
 
             for arg in args.iter().skip(2) {
-                if arg.starts_with("--filter=") {
-                    config.filter = Some(arg[9..].to_string());
+                if let Some(filter) = arg.strip_prefix("--filter=") {
+                    config.filter = Some(filter.to_string());
                 } else if arg == "--verbose" || arg == "-v" {
                     config.verbose = true;
                 } else if arg == "--no-parallel" {
@@ -46,7 +46,7 @@ fn main() {
 
             // Use provided path or current directory
             let path = path.unwrap_or_else(|| ".".to_string());
-            run_tests(&path, config);
+            run_tests(&path, &config);
         }
         "check" => {
             if args.len() < 3 {
@@ -78,10 +78,13 @@ fn main() {
         }
         _ => {
             // If it looks like a file path, try to run it
-            if command.ends_with(".si") {
+            if std::path::Path::new(command)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("si"))
+            {
                 run_file(command);
             } else {
-                eprintln!("Unknown command: {}", command);
+                eprintln!("Unknown command: {command}");
                 eprintln!();
                 print_usage();
                 std::process::exit(1);
@@ -122,7 +125,7 @@ fn read_file(path: &str) -> String {
     match std::fs::read_to_string(path) {
         Ok(content) => content,
         Err(e) => {
-            eprintln!("Error reading '{}': {}", path, e);
+            eprintln!("Error reading '{path}': {e}");
             std::process::exit(1);
         }
     }
@@ -136,7 +139,7 @@ fn run_file(path: &str) {
     // First check for parse errors
     let parse_result = parsed(&db, file);
     if parse_result.has_errors() {
-        eprintln!("Parse errors in '{}':", path);
+        eprintln!("Parse errors in '{path}':");
         for error in &parse_result.errors {
             eprintln!("  {}: {}", error.span, error.message);
         }
@@ -146,9 +149,9 @@ fn run_file(path: &str) {
     // Then check for type errors
     let type_result = typed(&db, file);
     if type_result.has_errors() {
-        eprintln!("Type errors in '{}':", path);
+        eprintln!("Type errors in '{path}':");
         for error in &type_result.errors {
-            eprintln!("  {:?}", error);
+            eprintln!("  {error:?}");
         }
         std::process::exit(1);
     }
@@ -178,7 +181,7 @@ fn check_file(path: &str) {
     // Check for parse errors
     let parse_result = parsed(&db, file);
     if parse_result.has_errors() {
-        eprintln!("Parse errors in '{}':", path);
+        eprintln!("Parse errors in '{path}':");
         for error in &parse_result.errors {
             eprintln!("  {}: {}", error.span, error.message);
         }
@@ -188,9 +191,9 @@ fn check_file(path: &str) {
     // Check for type errors
     let type_result = typed(&db, file);
     if type_result.has_errors() {
-        eprintln!("Type errors in '{}':", path);
+        eprintln!("Type errors in '{path}':");
         for error in &type_result.errors {
-            eprintln!("  {:?}", error);
+            eprintln!("  {error:?}");
         }
         std::process::exit(1);
     }
@@ -216,10 +219,10 @@ fn check_file(path: &str) {
     }
 
     if !untested.is_empty() {
-        eprintln!("Coverage error in '{}':", path);
+        eprintln!("Coverage error in '{path}':");
         eprintln!("  The following functions have no tests:");
         for name in &untested {
-            eprintln!("    @{}", name);
+            eprintln!("    @{name}");
         }
         eprintln!();
         eprintln!("  Every function (except @main) requires at least one test.");
@@ -229,7 +232,7 @@ fn check_file(path: &str) {
 
     let func_count = parse_result.module.functions.len();
     let test_count = parse_result.module.tests.len();
-    println!("OK: {} ({} functions, {} tests, 100% coverage)", path, func_count, test_count);
+    println!("OK: {path} ({func_count} functions, {test_count} tests, 100% coverage)");
 }
 
 fn parse_file(path: &str) {
@@ -239,7 +242,7 @@ fn parse_file(path: &str) {
 
     let parse_result = parsed(&db, file);
 
-    println!("Parse result for '{}':", path);
+    println!("Parse result for '{path}':");
     println!("  Functions: {}", parse_result.module.functions.len());
     println!("  Expressions: {}", parse_result.arena.expr_count());
     println!("  Errors: {}", parse_result.errors.len());
@@ -279,7 +282,7 @@ fn lex_file(path: &str) {
     }
 }
 
-fn run_tests(path: &str, config: TestRunnerConfig) {
+fn run_tests(path: &str, config: &TestRunnerConfig) {
     let path = Path::new(path);
 
     if !path.exists() {
@@ -293,7 +296,7 @@ fn run_tests(path: &str, config: TestRunnerConfig) {
     if config.coverage {
         let report = runner.coverage_report(path);
         print_coverage_report(&report);
-        std::process::exit(if report.is_complete() { 0 } else { 1 });
+        std::process::exit(i32::from(!report.is_complete()));
     }
 
     let summary = runner.run(path);
@@ -358,7 +361,7 @@ fn print_test_summary(summary: &TestSummary, verbose: bool) {
         if !file.errors.is_empty() {
             println!("\n{}", file.path.display());
             for error in &file.errors {
-                println!("  ERROR: {}", error);
+                println!("  ERROR: {error}");
             }
             continue;
         }
@@ -387,7 +390,7 @@ fn print_test_summary(summary: &TestSummary, verbose: bool) {
                     }
                 }
             };
-            println!("{}", status);
+            println!("{status}");
         }
     }
 

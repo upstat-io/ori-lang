@@ -1,37 +1,20 @@
 //! Pattern system module.
 //!
-//! Implements the Open/Closed principle from `docs/compiler-design/v3/02-design-principles.md`:
-//! > New patterns via trait implementation, no changes to existing code required.
+//! Compiler patterns require special syntax or static analysis.
+//! Data transformation (map, filter, fold) belongs in stdlib as methods.
 //!
-//! Each pattern (map, filter, fold, etc.) implements the `PatternDefinition` trait.
+//! Each compiler pattern implements the `PatternDefinition` trait.
 //! The `PatternRegistry` allows looking up patterns by their `FunctionExpKind`.
 
 mod registry;
 mod signature;
 mod fusion;
 
-// Individual pattern implementations.
-// Note: map, filter, fold, find, collect, retry, validate are now methods on
-// collections per "Lean Core, Rich Libraries". Kept for reference/future use.
-#[allow(dead_code)]
-mod map;
-#[allow(dead_code)]
-mod filter;
-#[allow(dead_code)]
-mod fold;
-#[allow(dead_code)]
-mod find;
-#[allow(dead_code)]
-mod collect;
 mod recurse;
 mod parallel;
 mod spawn;
 mod timeout;
-#[allow(dead_code)]
-mod retry;
 mod cache;
-#[allow(dead_code)]
-mod validate;
 mod with_pattern;
 mod builtins;
 
@@ -137,7 +120,7 @@ impl<'a> EvalContext<'a> {
         }
     }
 
-    /// Get a required property's ExprId by name.
+    /// Get a required property's `ExprId` by name.
     pub fn get_prop(&self, name: &str) -> Result<ExprId, EvalError> {
         let target = self.interner.intern(name);
         for prop in self.props {
@@ -145,10 +128,10 @@ impl<'a> EvalContext<'a> {
                 return Ok(prop.value);
             }
         }
-        Err(EvalError::new(format!("missing required property: .{}", name)))
+        Err(EvalError::new(format!("missing required property: .{name}")))
     }
 
-    /// Get an optional property's ExprId by name.
+    /// Get an optional property's `ExprId` by name.
     pub fn get_prop_opt(&self, name: &str) -> Option<ExprId> {
         let target = self.interner.intern(name);
         for prop in self.props {
@@ -185,8 +168,7 @@ impl<'a> EvalContext<'a> {
 
 /// Represents something that can be iterated over in pattern evaluation.
 ///
-/// This abstraction unifies the handling of lists and ranges across patterns
-/// like `map`, `filter`, `fold`, `find`, and `collect`.
+/// This abstraction unifies the handling of lists and ranges.
 #[derive(Clone)]
 pub enum Iterable {
     /// A list of values.
@@ -494,7 +476,7 @@ pub trait PatternDefinition: Send + Sync {
 // Blanket Implementation
 // =============================================================================
 
-/// Blanket implementation: Any type implementing PatternDefinition also implements PatternCore.
+/// Blanket implementation: Any type implementing `PatternDefinition` also implements `PatternCore`.
 impl<T: PatternDefinition> PatternCore for T {
     fn name(&self) -> &'static str {
         PatternDefinition::name(self)

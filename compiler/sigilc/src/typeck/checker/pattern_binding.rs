@@ -7,7 +7,7 @@ use crate::types::Type;
 use super::TypeChecker;
 use super::types::TypeCheckError;
 
-impl<'a> TypeChecker<'a> {
+impl TypeChecker<'_> {
     /// Bind a pattern to a type with generalization (for let-polymorphism).
     ///
     /// This is the key to Hindley-Milner let-polymorphism: we generalize

@@ -18,6 +18,8 @@ pub use json::JsonEmitter;
 pub use sarif::SarifEmitter;
 pub use terminal::TerminalEmitter;
 
+use std::fmt::Write;
+
 use crate::Diagnostic;
 
 /// Trait for emitting diagnostics in various formats.
@@ -50,7 +52,7 @@ pub(crate) fn escape_json(s: &str) -> String {
             '\r' => result.push_str("\\r"),
             '\t' => result.push_str("\\t"),
             c if c.is_control() => {
-                result.push_str(&format!("\\u{:04x}", c as u32));
+                let _ = write!(result, "\\u{:04x}", c as u32);
             }
             c => result.push(c),
         }
@@ -69,10 +71,7 @@ pub(crate) fn atty_check() -> bool {
     }
 
     // Check TERM
-    match std::env::var("TERM") {
-        Ok(term) if term != "dumb" => true,
-        _ => false,
-    }
+    matches!(std::env::var("TERM"), Ok(term) if term != "dumb")
 }
 
 #[cfg(test)]

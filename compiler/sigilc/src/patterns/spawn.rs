@@ -52,9 +52,8 @@ impl PatternDefinition for SpawnPattern {
             .ok_or_else(|| crate::eval::EvalError::new("spawn requires .tasks property"))?;
 
         let tasks_value = exec.eval(tasks_prop.value)?;
-        let task_list = match tasks_value {
-            Value::List(items) => items,
-            _ => return Err(crate::eval::EvalError::new("spawn .tasks must be a list")),
+        let Value::List(task_list) = tasks_value else {
+            return Err(crate::eval::EvalError::new("spawn .tasks must be a list"));
         };
 
         // Extract .max_concurrent (optional)
@@ -63,7 +62,7 @@ impl PatternDefinition for SpawnPattern {
             .map(|p| exec.eval(p.value))
             .transpose()?
             .and_then(|v| match v {
-                Value::Int(n) if n > 0 => Some(n as usize),
+                Value::Int(n) if n > 0 => usize::try_from(n).ok(),
                 _ => None,
             });
         // Note: max_concurrent is parsed but not yet enforced in this simple impl
@@ -77,10 +76,9 @@ impl PatternDefinition for SpawnPattern {
         // For now, we use scoped threads which will wait, but discard results
         thread::scope(|s| {
             for task in task_list.iter() {
-                let task = task.clone();
                 s.spawn(move || {
                     // Execute task, discard result (fire and forget)
-                    let _ = execute_task_silently(task);
+                    execute_task_silently(task);
                 });
             }
         });
@@ -90,13 +88,8 @@ impl PatternDefinition for SpawnPattern {
 }
 
 /// Execute a task and discard the result.
-fn execute_task_silently(task: Value) {
-    match task {
-        Value::FunctionVal(func, _) => {
-            let _ = func(&[]);
-        }
-        _ => {
-            // Non-callable values are no-ops in spawn
-        }
+fn execute_task_silently(task: &Value) {
+    if let Value::FunctionVal(func, _) = task {
+        let _ = func(&[]);
     }
 }

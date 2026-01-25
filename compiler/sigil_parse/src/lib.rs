@@ -1,6 +1,6 @@
 //! Recursive descent parser for Sigil.
 //!
-//! Produces flat AST using ExprArena.
+//! Produces flat AST using `ExprArena`.
 
 mod cursor;
 mod grammar;
@@ -71,7 +71,7 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
-    fn check(&self, kind: TokenKind) -> bool {
+    fn check(&self, kind: &TokenKind) -> bool {
         self.cursor.check(kind)
     }
 
@@ -112,11 +112,11 @@ impl<'a> Parser<'a> {
 
     #[inline]
     fn skip_newlines(&mut self) {
-        self.cursor.skip_newlines()
+        self.cursor.skip_newlines();
     }
 
     #[inline]
-    fn expect(&mut self, kind: TokenKind) -> Result<&Token, ParseError> {
+    fn expect(&mut self, kind: &TokenKind) -> Result<&Token, ParseError> {
         self.cursor.expect(kind)
     }
 
@@ -148,7 +148,7 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            if self.check(TokenKind::Use) {
+            if self.check(&TokenKind::Use) {
                 match self.parse_use() {
                     Ok(use_def) => module.imports.push(use_def),
                     Err(e) => {
@@ -174,14 +174,14 @@ impl<'a> Parser<'a> {
             let attrs = self.parse_attributes(&mut errors);
 
             // Check for pub modifier
-            let is_public = if self.check(TokenKind::Pub) {
+            let is_public = if self.check(&TokenKind::Pub) {
                 self.advance();
                 true
             } else {
                 false
             };
 
-            if self.check(TokenKind::At) {
+            if self.check(&TokenKind::At) {
                 match self.parse_function_or_test_with_attrs(attrs, is_public) {
                     Ok(FunctionOrTest::Function(func)) => module.functions.push(func),
                     Ok(FunctionOrTest::Test(test)) => module.tests.push(test),
@@ -191,7 +191,7 @@ impl<'a> Parser<'a> {
                         errors.push(e);
                     }
                 }
-            } else if self.check(TokenKind::Trait) {
+            } else if self.check(&TokenKind::Trait) {
                 match self.parse_trait(is_public) {
                     Ok(trait_def) => module.traits.push(trait_def),
                     Err(e) => {
@@ -199,7 +199,7 @@ impl<'a> Parser<'a> {
                         errors.push(e);
                     }
                 }
-            } else if self.check(TokenKind::Impl) {
+            } else if self.check(&TokenKind::Impl) {
                 match self.parse_impl() {
                     Ok(impl_def) => module.impls.push(impl_def),
                     Err(e) => {
@@ -207,7 +207,7 @@ impl<'a> Parser<'a> {
                         errors.push(e);
                     }
                 }
-            } else if self.check(TokenKind::Extend) {
+            } else if self.check(&TokenKind::Extend) {
                 match self.parse_extend() {
                     Ok(extend_def) => module.extends.push(extend_def),
                     Err(e) => {
@@ -215,7 +215,7 @@ impl<'a> Parser<'a> {
                         errors.push(e);
                     }
                 }
-            } else if self.check(TokenKind::Type) {
+            } else if self.check(&TokenKind::Type) {
                 match self.parse_type_decl(attrs, is_public) {
                     Ok(type_decl) => module.types.push(type_decl),
                     Err(e) => {
@@ -223,7 +223,15 @@ impl<'a> Parser<'a> {
                         errors.push(e);
                     }
                 }
-            } else if self.check(TokenKind::Use) {
+            } else if self.check(&TokenKind::Dollar) {
+                match self.parse_config(is_public) {
+                    Ok(config) => module.configs.push(config),
+                    Err(e) => {
+                        self.recover_to_function();
+                        errors.push(e);
+                    }
+                }
+            } else if self.check(&TokenKind::Use) {
                 // Import after declarations - error
                 errors.push(ParseError::new(
                     sigil_diagnostic::ErrorCode::E1002,
@@ -302,6 +310,7 @@ impl ParseError {
     }
 
     /// Add context for better error messages.
+    #[must_use]
     pub fn with_context(mut self, context: impl Into<String>) -> Self {
         self.context = Some(context.into());
         self

@@ -1,6 +1,6 @@
-//! Pattern Parsing (function_seq and function_exp)
+//! Pattern Parsing (`function_seq` and `function_exp`)
 //!
-//! Parses run, try, match, for patterns, and function_exp constructs.
+//! Parses run, try, match, for patterns, and `function_exp` constructs.
 
 use sigil_ir::{
     Expr, ExprId, ExprKind, FunctionExp, FunctionExpKind, FunctionSeq,
@@ -8,24 +8,24 @@ use sigil_ir::{
 };
 use crate::{ParseError, Parser};
 
-impl<'a> Parser<'a> {
-    /// Parse function_seq: run or try with sequential bindings and statements.
+impl Parser<'_> {
+    /// Parse `function_seq`: run or try with sequential bindings and statements.
     pub(crate) fn parse_function_seq(&mut self, is_try: bool) -> Result<ExprId, ParseError> {
         let start_span = self.previous_span();
-        self.expect(TokenKind::LParen)?;
+        self.expect(&TokenKind::LParen)?;
         self.skip_newlines();
 
         let mut bindings = Vec::new();
         let mut result_expr = None;
 
-        while !self.check(TokenKind::RParen) && !self.is_at_end() {
+        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
             self.skip_newlines();
 
-            if self.check(TokenKind::Let) {
+            if self.check(&TokenKind::Let) {
                 let binding_span = self.current_span();
                 self.advance();
 
-                let mutable = if self.check(TokenKind::Mut) {
+                let mutable = if self.check(&TokenKind::Mut) {
                     self.advance();
                     true
                 } else {
@@ -34,14 +34,14 @@ impl<'a> Parser<'a> {
 
                 let pattern = self.parse_binding_pattern()?;
 
-                let ty = if self.check(TokenKind::Colon) {
+                let ty = if self.check(&TokenKind::Colon) {
                     self.advance();
                     self.parse_type()
                 } else {
                     None
                 };
 
-                self.expect(TokenKind::Eq)?;
+                self.expect(&TokenKind::Eq)?;
                 let value = self.parse_expr()?;
                 let end_span = self.arena.get_expr(value).span;
 
@@ -59,11 +59,11 @@ impl<'a> Parser<'a> {
 
                 self.skip_newlines();
 
-                if self.check(TokenKind::Comma) {
+                if self.check(&TokenKind::Comma) {
                     self.advance();
                     self.skip_newlines();
 
-                    if self.check(TokenKind::RParen) {
+                    if self.check(&TokenKind::RParen) {
                         result_expr = Some(expr);
                     } else {
                         bindings.push(SeqBinding::Stmt {
@@ -72,21 +72,20 @@ impl<'a> Parser<'a> {
                         });
                     }
                     continue;
-                } else {
-                    result_expr = Some(expr);
                 }
+                result_expr = Some(expr);
             }
 
             self.skip_newlines();
 
-            if !self.check(TokenKind::RParen) {
-                self.expect(TokenKind::Comma)?;
+            if !self.check(&TokenKind::RParen) {
+                self.expect(&TokenKind::Comma)?;
                 self.skip_newlines();
             }
         }
 
         self.skip_newlines();
-        self.expect(TokenKind::RParen)?;
+        self.expect(&TokenKind::RParen)?;
         let end_span = self.previous_span();
 
         let result = result_expr.ok_or_else(|| {
@@ -111,26 +110,26 @@ impl<'a> Parser<'a> {
         )))
     }
 
-    /// Parse match as function_seq: match(scrutinee, Pattern -> expr, ...)
+    /// Parse match as `function_seq`: match(scrutinee, Pattern -> expr, ...)
     pub(crate) fn parse_match_expr(&mut self) -> Result<ExprId, ParseError> {
         let start_span = self.previous_span();
-        self.expect(TokenKind::LParen)?;
+        self.expect(&TokenKind::LParen)?;
         self.skip_newlines();
 
         let scrutinee = self.parse_expr()?;
 
         self.skip_newlines();
-        self.expect(TokenKind::Comma)?;
+        self.expect(&TokenKind::Comma)?;
         self.skip_newlines();
 
         let mut arms = Vec::new();
-        while !self.check(TokenKind::RParen) && !self.is_at_end() {
+        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
             self.skip_newlines();
 
             let arm_span = self.current_span();
             let pattern = self.parse_match_pattern()?;
 
-            self.expect(TokenKind::Arrow)?;
+            self.expect(&TokenKind::Arrow)?;
             let body = self.parse_expr()?;
             let end_span = self.arena.get_expr(body).span;
 
@@ -143,14 +142,14 @@ impl<'a> Parser<'a> {
 
             self.skip_newlines();
 
-            if !self.check(TokenKind::RParen) {
-                self.expect(TokenKind::Comma)?;
+            if !self.check(&TokenKind::RParen) {
+                self.expect(&TokenKind::Comma)?;
                 self.skip_newlines();
             }
         }
 
         self.skip_newlines();
-        self.expect(TokenKind::RParen)?;
+        self.expect(&TokenKind::RParen)?;
         let end_span = self.previous_span();
 
         if arms.is_empty() {
@@ -174,7 +173,7 @@ impl<'a> Parser<'a> {
     /// Parse for pattern: for(over: items, [map: transform,] match: Pattern -> expr, default: value)
     pub(crate) fn parse_for_pattern(&mut self) -> Result<ExprId, ParseError> {
         let start_span = self.previous_span();
-        self.expect(TokenKind::LParen)?;
+        self.expect(&TokenKind::LParen)?;
         self.skip_newlines();
 
         let mut over: Option<ExprId> = None;
@@ -182,7 +181,7 @@ impl<'a> Parser<'a> {
         let mut match_arm: Option<MatchArm> = None;
         let mut default: Option<ExprId> = None;
 
-        while !self.check(TokenKind::RParen) && !self.is_at_end() {
+        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
             self.skip_newlines();
 
             if !self.is_named_arg_start() {
@@ -195,7 +194,7 @@ impl<'a> Parser<'a> {
 
             let name = self.expect_ident_or_keyword()?;
             let name_str = self.interner().lookup(name).to_string();
-            self.expect(TokenKind::Colon)?;
+            self.expect(&TokenKind::Colon)?;
 
             match name_str.as_str() {
                 "over" => {
@@ -207,7 +206,7 @@ impl<'a> Parser<'a> {
                 "match" => {
                     let arm_span = self.current_span();
                     let pattern = self.parse_match_pattern()?;
-                    self.expect(TokenKind::Arrow)?;
+                    self.expect(&TokenKind::Arrow)?;
                     let body = self.parse_expr()?;
                     let end_span = self.arena.get_expr(body).span;
                     match_arm = Some(MatchArm {
@@ -223,21 +222,21 @@ impl<'a> Parser<'a> {
                 _ => {
                     return Err(ParseError::new(
                         sigil_diagnostic::ErrorCode::E1013,
-                        format!("`for` pattern does not accept property `{}`", name_str),
+                        format!("`for` pattern does not accept property `{name_str}`"),
                         self.previous_span(),
                     ));
                 }
             }
 
             self.skip_newlines();
-            if !self.check(TokenKind::RParen) {
-                self.expect(TokenKind::Comma)?;
+            if !self.check(&TokenKind::RParen) {
+                self.expect(&TokenKind::Comma)?;
                 self.skip_newlines();
             }
         }
 
         self.skip_newlines();
-        self.expect(TokenKind::RParen)?;
+        self.expect(&TokenKind::RParen)?;
         let end_span = self.previous_span();
         let span = start_span.merge(end_span);
 
@@ -308,15 +307,15 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Ident(name) => {
                 self.advance();
-                if self.check(TokenKind::LParen) {
+                if self.check(&TokenKind::LParen) {
                     self.advance();
-                    let inner = if self.check(TokenKind::RParen) {
+                    let inner = if self.check(&TokenKind::RParen) {
                         None
                     } else {
                         let pat = self.parse_match_pattern()?;
                         Some(Box::new(pat))
                     };
-                    self.expect(TokenKind::RParen)?;
+                    self.expect(&TokenKind::RParen)?;
                     Ok(MatchPattern::Variant { name, inner })
                 } else {
                     Ok(MatchPattern::Binding(name))
@@ -325,14 +324,14 @@ impl<'a> Parser<'a> {
             TokenKind::Some => {
                 let name = self.interner().intern("Some");
                 self.advance();
-                self.expect(TokenKind::LParen)?;
-                let inner = if self.check(TokenKind::RParen) {
+                self.expect(&TokenKind::LParen)?;
+                let inner = if self.check(&TokenKind::RParen) {
                     None
                 } else {
                     let pat = self.parse_match_pattern()?;
                     Some(Box::new(pat))
                 };
-                self.expect(TokenKind::RParen)?;
+                self.expect(&TokenKind::RParen)?;
                 Ok(MatchPattern::Variant { name, inner })
             }
             TokenKind::None => {
@@ -343,39 +342,39 @@ impl<'a> Parser<'a> {
             TokenKind::Ok => {
                 let name = self.interner().intern("Ok");
                 self.advance();
-                self.expect(TokenKind::LParen)?;
-                let inner = if self.check(TokenKind::RParen) {
+                self.expect(&TokenKind::LParen)?;
+                let inner = if self.check(&TokenKind::RParen) {
                     None
                 } else {
                     let pat = self.parse_match_pattern()?;
                     Some(Box::new(pat))
                 };
-                self.expect(TokenKind::RParen)?;
+                self.expect(&TokenKind::RParen)?;
                 Ok(MatchPattern::Variant { name, inner })
             }
             TokenKind::Err => {
                 let name = self.interner().intern("Err");
                 self.advance();
-                self.expect(TokenKind::LParen)?;
-                let inner = if self.check(TokenKind::RParen) {
+                self.expect(&TokenKind::LParen)?;
+                let inner = if self.check(&TokenKind::RParen) {
                     None
                 } else {
                     let pat = self.parse_match_pattern()?;
                     Some(Box::new(pat))
                 };
-                self.expect(TokenKind::RParen)?;
+                self.expect(&TokenKind::RParen)?;
                 Ok(MatchPattern::Variant { name, inner })
             }
             TokenKind::LParen => {
                 self.advance();
                 let mut patterns = Vec::new();
-                while !self.check(TokenKind::RParen) && !self.is_at_end() {
+                while !self.check(&TokenKind::RParen) && !self.is_at_end() {
                     patterns.push(self.parse_match_pattern()?);
-                    if !self.check(TokenKind::RParen) {
-                        self.expect(TokenKind::Comma)?;
+                    if !self.check(&TokenKind::RParen) {
+                        self.expect(&TokenKind::Comma)?;
                     }
                 }
-                self.expect(TokenKind::RParen)?;
+                self.expect(&TokenKind::RParen)?;
                 Ok(MatchPattern::Tuple(patterns))
             }
             _ => Err(ParseError::new(
@@ -386,15 +385,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse function_exp: map, filter, fold, etc. with named properties.
+    /// Parse `function_exp`: map, filter, fold, etc. with named properties.
     pub(crate) fn parse_function_exp(&mut self, kind: FunctionExpKind) -> Result<ExprId, ParseError> {
         let start_span = self.previous_span();
-        self.expect(TokenKind::LParen)?;
+        self.expect(&TokenKind::LParen)?;
         self.skip_newlines();
 
         let mut props = Vec::new();
 
-        while !self.check(TokenKind::RParen) && !self.is_at_end() {
+        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
             self.skip_newlines();
 
             if !self.is_named_arg_start() {
@@ -407,7 +406,7 @@ impl<'a> Parser<'a> {
 
             let name = self.expect_ident_or_keyword()?;
             let prop_span = self.previous_span();
-            self.expect(TokenKind::Colon)?;
+            self.expect(&TokenKind::Colon)?;
             let value = self.parse_expr()?;
             let end_span = self.arena.get_expr(value).span;
 
@@ -419,14 +418,14 @@ impl<'a> Parser<'a> {
 
             self.skip_newlines();
 
-            if !self.check(TokenKind::RParen) {
-                self.expect(TokenKind::Comma)?;
+            if !self.check(&TokenKind::RParen) {
+                self.expect(&TokenKind::Comma)?;
                 self.skip_newlines();
             }
         }
 
         self.skip_newlines();
-        self.expect(TokenKind::RParen)?;
+        self.expect(&TokenKind::RParen)?;
         let end_span = self.previous_span();
 
         let props_range = self.arena.alloc_named_exprs(props);

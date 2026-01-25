@@ -7,7 +7,51 @@ use crate::types::Type;
 use crate::diagnostic::ErrorCode;
 use super::{TypeChecker, TypeCheckError};
 
-impl<'a> TypeChecker<'a> {
+/// Check if a primitive type has a built-in trait implementation.
+fn primitive_implements_trait(ty: &Type, trait_name: &str) -> bool {
+    match ty {
+        Type::Int => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Hashable" | "Default" | "Printable"),
+        Type::Float => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Default" | "Printable"),
+        Type::Bool => matches!(trait_name, "Eq" | "Clone" | "Hashable" | "Default" | "Printable"),
+        Type::Str => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Hashable" | "Default" | "Printable"),
+        Type::Char => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Hashable" | "Printable"),
+        Type::Byte => matches!(trait_name, "Eq" | "Clone" | "Hashable" | "Printable"),
+        Type::Unit => matches!(trait_name, "Eq" | "Clone" | "Default"),
+        Type::Duration => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Printable"),
+        Type::Size => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Printable"),
+
+        // Option<T> is Eq if T is Eq, Clone if T is Clone, etc.
+        Type::Option(inner) => {
+            if matches!(trait_name, "Clone" | "Eq" | "Default") {
+                // For now, assume inner type satisfies the bound
+                // Full checking would recursively verify inner type
+                let _ = inner;
+                true
+            } else {
+                false
+            }
+        }
+
+        // Result<T, E> is Eq if both T and E are Eq, etc.
+        Type::Result { ok, err } => {
+            if matches!(trait_name, "Clone" | "Eq") {
+                let _ = (ok, err);
+                true
+            } else {
+                false
+            }
+        }
+
+        // Lists, Maps, Tuples implement Clone if their elements do
+        Type::List(_) | Type::Map { .. } | Type::Tuple(_) | Type::Set(_) => {
+            matches!(trait_name, "Clone" | "Eq")
+        }
+
+        _ => false,
+    }
+}
+
+impl TypeChecker<'_> {
     /// Check if a type satisfies a trait bound.
     ///
     /// Returns true if the type implements the trait, false otherwise.
@@ -26,51 +70,7 @@ impl<'a> TypeChecker<'a> {
 
         // Then check built-in trait implementations for primitive types
         let trait_str = self.interner.lookup(trait_name);
-        self.primitive_implements_trait(ty, trait_str)
-    }
-
-    /// Check if a primitive type has a built-in trait implementation.
-    fn primitive_implements_trait(&self, ty: &Type, trait_name: &str) -> bool {
-        match ty {
-            Type::Int => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Hashable" | "Default" | "Printable"),
-            Type::Float => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Default" | "Printable"),
-            Type::Bool => matches!(trait_name, "Eq" | "Clone" | "Hashable" | "Default" | "Printable"),
-            Type::Str => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Hashable" | "Default" | "Printable"),
-            Type::Char => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Hashable" | "Printable"),
-            Type::Byte => matches!(trait_name, "Eq" | "Clone" | "Hashable" | "Printable"),
-            Type::Unit => matches!(trait_name, "Eq" | "Clone" | "Default"),
-            Type::Duration => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Printable"),
-            Type::Size => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Printable"),
-
-            // Option<T> is Eq if T is Eq, Clone if T is Clone, etc.
-            Type::Option(inner) => {
-                if matches!(trait_name, "Clone" | "Eq" | "Default") {
-                    // For now, assume inner type satisfies the bound
-                    // Full checking would recursively verify inner type
-                    let _ = inner;
-                    true
-                } else {
-                    false
-                }
-            }
-
-            // Result<T, E> is Eq if both T and E are Eq, etc.
-            Type::Result { ok, err } => {
-                if matches!(trait_name, "Clone" | "Eq") {
-                    let _ = (ok, err);
-                    true
-                } else {
-                    false
-                }
-            }
-
-            // Lists, Maps, Tuples implement Clone if their elements do
-            Type::List(_) | Type::Map { .. } | Type::Tuple(_) | Type::Set(_) => {
-                matches!(trait_name, "Clone" | "Eq")
-            }
-
-            _ => false,
-        }
+        primitive_implements_trait(ty, trait_str)
     }
 
     /// Check trait bounds for a function call.
@@ -111,8 +111,7 @@ impl<'a> TypeChecker<'a> {
 
                     self.errors.push(TypeCheckError {
                         message: format!(
-                            "type `{}` does not satisfy trait bound `{}` required by generic parameter `{}`",
-                            type_name, bound_name, generic_name
+                            "type `{type_name}` does not satisfy trait bound `{bound_name}` required by generic parameter `{generic_name}`"
                         ),
                         span,
                         code: ErrorCode::E2009,

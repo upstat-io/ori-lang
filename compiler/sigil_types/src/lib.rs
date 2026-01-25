@@ -13,7 +13,7 @@ use std::collections::HashMap;
 // Type is used throughout type checking and stored in query results.
 #[cfg(target_pointer_width = "64")]
 mod size_asserts {
-    use super::*;
+    use super::{Type, TypeVar};
     // Type enum: largest variant is Function with Vec<Type> (24) + Box<Type> (8) = 32 bytes
     // The enum discriminant fits within the alignment padding.
     sigil_ir::static_assert_size!(Type, 32);
@@ -233,6 +233,7 @@ impl TypeEnv {
     }
 
     /// Create a child scope.
+    #[must_use]
     pub fn child(&self) -> Self {
         TypeEnv {
             bindings: HashMap::new(),
@@ -375,8 +376,12 @@ impl InferenceContext {
                 Ok(())
             }
 
-            // List types
-            (Type::List(a), Type::List(b)) => self.unify(a, b),
+            // Single-parameter container types: unify inner types
+            (Type::List(a), Type::List(b))
+            | (Type::Option(a), Type::Option(b))
+            | (Type::Set(a), Type::Set(b))
+            | (Type::Range(a), Type::Range(b))
+            | (Type::Channel(a), Type::Channel(b)) => self.unify(a, b),
 
             // Map types
             (
@@ -387,9 +392,6 @@ impl InferenceContext {
                 self.unify(v1, v2)
             }
 
-            // Option types
-            (Type::Option(a), Type::Option(b)) => self.unify(a, b),
-
             // Result types
             (
                 Type::Result { ok: o1, err: e1 },
@@ -398,15 +400,6 @@ impl InferenceContext {
                 self.unify(o1, o2)?;
                 self.unify(e1, e2)
             }
-
-            // Set types
-            (Type::Set(a), Type::Set(b)) => self.unify(a, b),
-
-            // Range types
-            (Type::Range(a), Type::Range(b)) => self.unify(a, b),
-
-            // Channel types
-            (Type::Channel(a), Type::Channel(b)) => self.unify(a, b),
 
             // Incompatible types
             _ => Err(TypeError::TypeMismatch {
@@ -684,11 +677,11 @@ struct TypeContextEntry {
 /// within a single type-checking pass. This reduces allocations and
 /// can make equality checks faster.
 ///
-/// Note: Salsa handles cross-query memoization, but TypeContext deduplicates
+/// Note: Salsa handles cross-query memoization, but `TypeContext` deduplicates
 /// **within** a single type-checking pass.
 #[derive(Clone, Debug, Default)]
 pub struct TypeContext {
-    /// hash(origin_id + targs) -> list of entries with that hash
+    /// `hash(origin_id` + targs) -> list of entries with that hash
     type_map: HashMap<u64, Vec<TypeContextEntry>>,
     /// Origin type scheme -> stable ID for hashing
     origin_ids: HashMap<TypeScheme, u32>,
@@ -928,10 +921,9 @@ impl TypeError {
 
                 let mut diag = Diagnostic::error(ErrorCode::E2001)
                     .with_message(format!(
-                        "type mismatch: expected `{}`, found `{}`",
-                        exp_str, found_str,
+                        "type mismatch: expected `{exp_str}`, found `{found_str}`",
                     ))
-                    .with_label(span, format!("expected `{}`", exp_str));
+                    .with_label(span, format!("expected `{exp_str}`"));
 
                 // Add helpful suggestions for common mistakes
                 diag = match (expected, found) {
@@ -962,10 +954,9 @@ impl TypeError {
                 let plural = if *expected == 1 { "" } else { "s" };
                 Diagnostic::error(ErrorCode::E2004)
                     .with_message(format!(
-                        "wrong number of arguments: expected {}, found {}",
-                        expected, found,
+                        "wrong number of arguments: expected {expected}, found {found}",
                     ))
-                    .with_label(span, format!("expected {} argument{}", expected, plural))
+                    .with_label(span, format!("expected {expected} argument{plural}"))
                     .with_suggestion(if *found > *expected {
                         "remove extra arguments"
                     } else {
@@ -975,10 +966,9 @@ impl TypeError {
             TypeError::TupleLengthMismatch { expected, found } => {
                 Diagnostic::error(ErrorCode::E2001)
                     .with_message(format!(
-                        "tuple length mismatch: expected {}-tuple, found {}-tuple",
-                        expected, found,
+                        "tuple length mismatch: expected {expected}-tuple, found {found}-tuple",
                     ))
-                    .with_label(span, format!("expected {} elements", expected))
+                    .with_label(span, format!("expected {expected} elements"))
             }
             TypeError::InfiniteType => {
                 Diagnostic::error(ErrorCode::E2005)
@@ -989,10 +979,10 @@ impl TypeError {
             TypeError::UnknownIdent(name) => {
                 let name_str = interner.lookup(*name);
                 Diagnostic::error(ErrorCode::E2003)
-                    .with_message(format!("unknown identifier `{}`", name_str))
+                    .with_message(format!("unknown identifier `{name_str}`"))
                     .with_label(span, "not found in this scope")
                     .with_suggestion(format!(
-                        "check spelling, or add a definition for `{}`", name_str
+                        "check spelling, or add a definition for `{name_str}`"
                     ))
             }
             TypeError::CannotInfer => {

@@ -10,7 +10,7 @@ use super::super::type_registry::{
     TraitEntry, TraitMethodDef, TraitAssocTypeDef, ImplEntry, ImplMethodDef,
 };
 
-impl<'a> TypeChecker<'a> {
+impl TypeChecker<'_> {
     /// Register all trait definitions from a module.
     pub(crate) fn register_traits(&mut self, module: &Module) {
         for trait_def in &module.traits {
@@ -24,7 +24,7 @@ impl<'a> TypeChecker<'a> {
             // Convert super-traits to names
             let super_traits: Vec<Name> = trait_def.super_traits
                 .iter()
-                .map(|b| b.name())
+                .map(sigil_ir::TraitBound::name)
                 .collect();
 
             // Convert trait items
@@ -86,9 +86,7 @@ impl<'a> TypeChecker<'a> {
                 .collect();
 
             // Convert trait path to single name (for now, just use last segment)
-            let trait_name = impl_def.trait_path.as_ref().map(|path| {
-                *path.last().expect("trait path cannot be empty")
-            });
+            let trait_name = impl_def.trait_path.as_ref().and_then(|path| path.last().copied());
 
             // Convert self type
             let self_ty = self.parsed_type_to_type(&impl_def.self_ty);
