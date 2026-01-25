@@ -128,16 +128,22 @@ pub struct FunctionValue {
     /// Functions from imported modules need their own arena reference since
     /// the body `ExprId` refers to expressions in the imported file's arena.
     arena: Option<SharedArena>,
+    /// Required capabilities (from `uses` clause).
+    ///
+    /// When calling this function, capabilities with these names must be
+    /// available in the calling scope and will be passed to the function's scope.
+    capabilities: Vec<Name>,
 }
 
 impl FunctionValue {
-    /// Create a new function value with no captures.
+    /// Create a new function value with no captures or capabilities.
     pub fn new(params: Vec<Name>, body: ExprId) -> Self {
         FunctionValue {
             params,
             body,
             captures: Arc::new(HashMap::new()),
             arena: None,
+            capabilities: Vec::new(),
         }
     }
 
@@ -150,6 +156,26 @@ impl FunctionValue {
             body,
             captures: Arc::new(captures),
             arena: None,
+            capabilities: Vec::new(),
+        }
+    }
+
+    /// Create a function value with captured environment and capabilities.
+    ///
+    /// The captures are frozen and cannot be modified after creation.
+    /// The capabilities list specifies which capabilities this function requires.
+    pub fn with_capabilities(
+        params: Vec<Name>,
+        body: ExprId,
+        captures: HashMap<Name, Value>,
+        capabilities: Vec<Name>,
+    ) -> Self {
+        FunctionValue {
+            params,
+            body,
+            captures: Arc::new(captures),
+            arena: None,
+            capabilities,
         }
     }
 
@@ -168,6 +194,27 @@ impl FunctionValue {
             body,
             captures: Arc::new(captures),
             arena: Some(arena),
+            capabilities: Vec::new(),
+        }
+    }
+
+    /// Create a function value from an imported module with capabilities.
+    ///
+    /// Imported functions carry their own arena reference since the body
+    /// `ExprId` refers to expressions in the imported file's arena.
+    pub fn from_import_with_capabilities(
+        params: Vec<Name>,
+        body: ExprId,
+        captures: HashMap<Name, Value>,
+        arena: SharedArena,
+        capabilities: Vec<Name>,
+    ) -> Self {
+        FunctionValue {
+            params,
+            body,
+            captures: Arc::new(captures),
+            arena: Some(arena),
+            capabilities,
         }
     }
 
@@ -189,6 +236,16 @@ impl FunctionValue {
     /// Get the arena for this function (for cross-module functions).
     pub fn arena(&self) -> Option<&ExprArena> {
         self.arena.as_deref()
+    }
+
+    /// Get the required capabilities for this function.
+    pub fn capabilities(&self) -> &[Name] {
+        &self.capabilities
+    }
+
+    /// Check if this function requires any capabilities.
+    pub fn has_capabilities(&self) -> bool {
+        !self.capabilities.is_empty()
     }
 }
 
