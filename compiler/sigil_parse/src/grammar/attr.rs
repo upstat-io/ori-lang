@@ -3,9 +3,34 @@
 //! This module extends Parser with methods for parsing attributes
 //! like `#[skip("reason")]`, `#[compile_fail("error")]`, `#[fail("error")]`,
 //! and `#[derive(Trait1, Trait2)]`.
+//!
+//! # Extended compile_fail Syntax
+//!
+//! The `#[compile_fail(...)]` attribute supports rich error specifications:
+//!
+//! ```sigil
+//! // Basic (legacy): substring match
+//! #[compile_fail("type mismatch")]
+//!
+//! // Error code matching
+//! #[compile_fail(code: "E2001")]
+//!
+//! // Combined message and code
+//! #[compile_fail(code: "E2001", message: "type mismatch")]
+//!
+//! // Position-specific (line 1-based)
+//! #[compile_fail(message: "error", line: 5)]
+//!
+//! // Full specification
+//! #[compile_fail(message: "error", code: "E2001", line: 5, column: 10)]
+//!
+//! // Multiple expected errors (multiple attributes)
+//! #[compile_fail("type mismatch")]
+//! #[compile_fail("unknown identifier")]
+//! ```
 
 use sigil_diagnostic::ErrorCode;
-use sigil_ir::{Name, TokenKind};
+use sigil_ir::{Name, TokenKind, ExpectedError};
 use crate::{ParseError, Parser};
 
 /// Parsed attributes for a function or test.
@@ -13,8 +38,8 @@ use crate::{ParseError, Parser};
 pub struct ParsedAttrs {
     /// Skip reason for `#[skip("reason")]`.
     pub skip_reason: Option<Name>,
-    /// Expected error for `#[compile_fail("error")]`.
-    pub compile_fail_expected: Option<Name>,
+    /// Expected compilation errors (multiple allowed).
+    pub expected_errors: Vec<ExpectedError>,
     /// Expected error for `#[fail("error")]`.
     pub fail_expected: Option<Name>,
     /// Derived traits for `#[derive(Trait1, Trait2)]` (future use).
@@ -25,7 +50,7 @@ impl ParsedAttrs {
     /// Returns true if no attributes are set.
     pub fn is_empty(&self) -> bool {
         self.skip_reason.is_none()
-            && self.compile_fail_expected.is_none()
+            && self.expected_errors.is_empty()
             && self.fail_expected.is_none()
             && self.derive_traits.is_empty()
     }
@@ -75,6 +100,9 @@ impl<'a> Parser<'a> {
             match attr_kind {
                 AttrKind::Derive => {
                     self.parse_derive_attr(&mut attrs, errors);
+                }
+                AttrKind::CompileFail => {
+                    self.parse_compile_fail_attr(&mut attrs, errors);
                 }
                 _ => {
                     self.parse_string_attr(attr_kind, &mut attrs, errors);
@@ -187,10 +215,187 @@ impl<'a> Parser<'a> {
         if let Some(value) = value {
             match attr_kind {
                 AttrKind::Skip => attrs.skip_reason = Some(value),
-                AttrKind::CompileFail => attrs.compile_fail_expected = Some(value),
                 AttrKind::Fail => attrs.fail_expected = Some(value),
-                AttrKind::Derive | AttrKind::Unknown => {}
+                AttrKind::CompileFail | AttrKind::Derive | AttrKind::Unknown => {}
             }
+        }
+    }
+
+    /// Parse a compile_fail attribute with extended syntax.
+    ///
+    /// Supports:
+    /// - `#[compile_fail("message")]` - legacy simple format
+    /// - `#[compile_fail(message: "msg")]` - named message
+    /// - `#[compile_fail(code: "E2001")]` - error code
+    /// - `#[compile_fail(message: "msg", code: "E2001", line: 5)]` - combined
+    fn parse_compile_fail_attr(&mut self, attrs: &mut ParsedAttrs, errors: &mut Vec<ParseError>) {
+        // Expect (
+        if !self.check(TokenKind::LParen) {
+            errors.push(ParseError {
+                code: ErrorCode::E1006,
+                message: "expected '(' after 'compile_fail'".to_string(),
+                span: self.current_span(),
+                context: None,
+            });
+            self.skip_to_rbracket();
+            return;
+        }
+        self.advance(); // consume (
+
+        // Check if this is the simple format (just a string) or extended format (named args)
+        if let TokenKind::String(string_name) = self.current_kind() {
+            // Simple format: #[compile_fail("message")]
+            self.advance();
+            attrs.expected_errors.push(ExpectedError::from_message(string_name));
+
+            // Expect )
+            if !self.check(TokenKind::RParen) {
+                errors.push(ParseError {
+                    code: ErrorCode::E1006,
+                    message: "expected ')' after compile_fail value".to_string(),
+                    span: self.current_span(),
+                    context: None,
+                });
+            } else {
+                self.advance();
+            }
+        } else {
+            // Extended format: #[compile_fail(name: value, ...)]
+            let mut expected = ExpectedError::default();
+
+            while !self.check(TokenKind::RParen) && !self.is_at_end() {
+                // Parse name: value
+                let param_name = match self.current_kind() {
+                    TokenKind::Ident(name) => {
+                        let s = self.interner().lookup(name).to_owned();
+                        self.advance();
+                        s
+                    }
+                    _ => {
+                        errors.push(ParseError {
+                            code: ErrorCode::E1006,
+                            message: "expected parameter name in compile_fail".to_string(),
+                            span: self.current_span(),
+                            context: None,
+                        });
+                        self.skip_to_rbracket();
+                        return;
+                    }
+                };
+
+                // Expect :
+                if !self.check(TokenKind::Colon) {
+                    errors.push(ParseError {
+                        code: ErrorCode::E1006,
+                        message: format!("expected ':' after '{}'", param_name),
+                        span: self.current_span(),
+                        context: None,
+                    });
+                    self.skip_to_rbracket();
+                    return;
+                }
+                self.advance();
+
+                // Parse value based on parameter name
+                match param_name.as_str() {
+                    "message" | "msg" => {
+                        if let TokenKind::String(s) = self.current_kind() {
+                            expected.message = Some(s);
+                            self.advance();
+                        } else {
+                            errors.push(ParseError {
+                                code: ErrorCode::E1006,
+                                message: "expected string for 'message'".to_string(),
+                                span: self.current_span(),
+                                context: None,
+                            });
+                        }
+                    }
+                    "code" => {
+                        if let TokenKind::String(s) = self.current_kind() {
+                            expected.code = Some(s);
+                            self.advance();
+                        } else {
+                            errors.push(ParseError {
+                                code: ErrorCode::E1006,
+                                message: "expected string for 'code'".to_string(),
+                                span: self.current_span(),
+                                context: None,
+                            });
+                        }
+                    }
+                    "line" => {
+                        if let TokenKind::Int(n) = self.current_kind() {
+                            expected.line = Some(n as u32);
+                            self.advance();
+                        } else {
+                            errors.push(ParseError {
+                                code: ErrorCode::E1006,
+                                message: "expected integer for 'line'".to_string(),
+                                span: self.current_span(),
+                                context: None,
+                            });
+                        }
+                    }
+                    "column" | "col" => {
+                        if let TokenKind::Int(n) = self.current_kind() {
+                            expected.column = Some(n as u32);
+                            self.advance();
+                        } else {
+                            errors.push(ParseError {
+                                code: ErrorCode::E1006,
+                                message: "expected integer for 'column'".to_string(),
+                                span: self.current_span(),
+                                context: None,
+                            });
+                        }
+                    }
+                    _ => {
+                        errors.push(ParseError {
+                            code: ErrorCode::E1006,
+                            message: format!("unknown compile_fail parameter '{}'", param_name),
+                            span: self.previous_span(),
+                            context: None,
+                        });
+                    }
+                }
+
+                // Comma separator (optional before closing paren)
+                if self.check(TokenKind::Comma) {
+                    self.advance();
+                } else if !self.check(TokenKind::RParen) {
+                    break;
+                }
+            }
+
+            // Store the expected error
+            if !expected.is_empty() {
+                attrs.expected_errors.push(expected);
+            }
+
+            // Expect )
+            if !self.check(TokenKind::RParen) {
+                errors.push(ParseError {
+                    code: ErrorCode::E1006,
+                    message: "expected ')' after compile_fail parameters".to_string(),
+                    span: self.current_span(),
+                    context: None,
+                });
+            } else {
+                self.advance();
+            }
+        }
+
+        // Expect ]
+        if !self.check(TokenKind::RBracket) {
+            errors.push(ParseError {
+                code: ErrorCode::E1006,
+                message: "expected ']' to close attribute".to_string(),
+                span: self.current_span(),
+                context: None,
+            });
+        } else {
+            self.advance();
         }
     }
 
@@ -302,7 +507,8 @@ mod tests {
         assert!(!result.has_errors(), "errors: {:?}", result.errors);
         assert_eq!(result.module.tests.len(), 1);
         let test = &result.module.tests[0];
-        assert!(test.compile_fail_expected.is_some());
+        assert!(test.is_compile_fail());
+        assert_eq!(test.expected_errors.len(), 1);
     }
 
     #[test]

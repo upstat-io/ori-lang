@@ -7,9 +7,11 @@
 //! - Parallel execution: Running tests concurrently with rayon
 
 mod discovery;
+mod error_matching;
 mod result;
 mod runner;
 
 pub use discovery::{discover_tests, TestFile};
+pub use error_matching::{match_errors, matches_expected, format_expected, format_actual, MatchResult};
 pub use result::{TestResult, TestSummary, TestOutcome, CoverageReport, FunctionCoverage};
 pub use runner::{run_tests, run_test_file, TestRunner, TestRunnerConfig};

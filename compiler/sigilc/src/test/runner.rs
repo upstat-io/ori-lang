@@ -12,9 +12,10 @@ use crate::input::SourceFile;
 use crate::query::parsed;
 use crate::eval::Evaluator;
 use crate::ir::TestDef;
-use crate::typeck::type_check;
+use crate::typeck::type_check_with_source;
 
 use super::discovery::{discover_tests_in, TestFile};
+use super::error_matching::{match_errors, format_expected, format_actual};
 use super::result::{TestResult, TestSummary, FileSummary, CoverageReport};
 
 /// Configuration for the test runner.
@@ -115,6 +116,8 @@ impl TestRunner {
             }
         };
 
+        // Keep a copy of the source for error matching (content is moved into SourceFile)
+        let source = content.clone();
         let db = CompilerDb::new();
         let file = SourceFile::new(&db, path.to_path_buf(), content);
 
@@ -143,8 +146,8 @@ impl TestRunner {
             return summary;
         }
 
-        // Type check for compile_fail tests
-        let typed_module = type_check(&parse_result, interner);
+        // Type check for compile_fail tests (with source for error deduplication)
+        let typed_module = type_check_with_source(&parse_result, interner, source.clone());
 
         // Run each test
         for test in &parse_result.module.tests {
@@ -157,9 +160,9 @@ impl TestRunner {
             }
 
             // Run the inner test (compile_fail or regular)
-            let inner_result = if let Some(expected_error) = test.compile_fail_expected {
+            let inner_result = if test.is_compile_fail() {
                 // compile_fail: test expects compilation to fail
-                self.run_compile_fail_test(test, &typed_module, expected_error, interner)
+                self.run_compile_fail_test(test, &typed_module, &source, interner)
             } else {
                 self.run_single_test(&mut evaluator, test, interner)
             };
@@ -179,13 +182,13 @@ impl TestRunner {
 
     /// Run a compile_fail test.
     ///
-    /// The test passes if type checking produces at least one error
-    /// whose message contains the expected substring.
+    /// The test passes if all expected errors are matched by actual errors.
+    /// Multiple expected errors can be specified, and each must be matched.
     fn run_compile_fail_test(
         &self,
         test: &TestDef,
         typed_module: &crate::typeck::TypedModule,
-        expected_error: crate::ir::Name,
+        source: &str,
         interner: &crate::ir::StringInterner,
     ) -> TestResult {
         let test_name = interner.lookup(test.name).to_string();
@@ -201,38 +204,55 @@ impl TestRunner {
         }
 
         let start = Instant::now();
-        let expected_substr = interner.lookup(expected_error);
 
-        // Check if any error message contains the expected substring
-        let matching_error = typed_module.errors.iter().find(|e| {
-            e.message.contains(expected_substr)
-        });
-
-        if let Some(_) = matching_error {
-            // Test passes - compilation failed with expected error
-            TestResult::passed(test_name, targets, start.elapsed())
-        } else if typed_module.errors.is_empty() {
-            // Test fails - compilation succeeded when it should have failed
-            TestResult::failed(
+        // If no errors were produced but we expected some
+        if typed_module.errors.is_empty() {
+            let expected_strs: Vec<String> = test.expected_errors
+                .iter()
+                .map(|e| format_expected(e, interner))
+                .collect();
+            return TestResult::failed(
                 test_name,
                 targets,
                 format!(
-                    "expected compilation to fail with error containing '{}', but compilation succeeded",
-                    expected_substr
+                    "expected compilation to fail with {} error(s), but compilation succeeded. Expected: {}",
+                    test.expected_errors.len(),
+                    expected_strs.join("; ")
                 ),
                 start.elapsed(),
-            )
+            );
+        }
+
+        // Match actual errors against expectations
+        let match_result = match_errors(
+            &typed_module.errors,
+            &test.expected_errors,
+            source,
+            interner,
+        );
+
+        if match_result.all_matched() {
+            // All expectations matched - test passes
+            TestResult::passed(test_name, targets, start.elapsed())
         } else {
-            // Test fails - compilation failed but with different errors
-            let actual_errors: Vec<&str> = typed_module.errors.iter()
-                .map(|e| e.message.as_str())
+            // Some expectations were not matched
+            let unmatched: Vec<String> = match_result.unmatched_expectations
+                .iter()
+                .map(|&i| format_expected(&test.expected_errors[i], interner))
                 .collect();
+
+            let actual: Vec<String> = typed_module.errors
+                .iter()
+                .map(|e| format_actual(e, source))
+                .collect();
+
             TestResult::failed(
                 test_name,
                 targets,
                 format!(
-                    "expected error containing '{}', but got: {:?}",
-                    expected_substr, actual_errors
+                    "unmatched expectations: [{}]. Actual errors: [{}]",
+                    unmatched.join(", "),
+                    actual.join(", ")
                 ),
                 start.elapsed(),
             )

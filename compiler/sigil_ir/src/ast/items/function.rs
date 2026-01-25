@@ -61,6 +61,48 @@ impl Spanned for Function {
     }
 }
 
+/// Rich specification for expected compilation errors.
+///
+/// Supports matching on:
+/// - Error message substring
+/// - Error code (e.g., "E2001")
+/// - Source position (line/column)
+///
+/// # Example
+///
+/// ```sigil
+/// #[compile_fail(message: "type mismatch", code: "E2001", line: 5)]
+/// ```
+#[derive(Clone, Eq, PartialEq, Hash, Debug, Default)]
+pub struct ExpectedError {
+    /// Substring to match in error message.
+    pub message: Option<Name>,
+    /// Error code to match (e.g., "E2001").
+    pub code: Option<Name>,
+    /// Expected line number (1-based).
+    pub line: Option<u32>,
+    /// Expected column number (1-based).
+    pub column: Option<u32>,
+}
+
+impl ExpectedError {
+    /// Create from a simple message substring (legacy format).
+    pub fn from_message(message: Name) -> Self {
+        ExpectedError {
+            message: Some(message),
+            code: None,
+            line: None,
+            column: None,
+        }
+    }
+
+    /// Check if this specification is empty (no requirements).
+    pub fn is_empty(&self) -> bool {
+        self.message.is_none() && self.code.is_none()
+            && self.line.is_none() && self.column.is_none()
+    }
+}
+
 /// Test definition.
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct TestDef {
@@ -72,20 +114,28 @@ pub struct TestDef {
     pub span: Span,
     /// If set, this test is skipped with the given reason.
     pub skip_reason: Option<Name>,
-    /// If set, this test expects compilation to fail with an error
-    /// containing this substring.
-    pub compile_fail_expected: Option<Name>,
+    /// Expected compilation errors (multiple allowed).
+    /// If non-empty, this is a compile_fail test.
+    pub expected_errors: Vec<ExpectedError>,
     /// If set, this test expects runtime failure with an error
     /// containing this substring.
     pub fail_expected: Option<Name>,
+}
+
+impl TestDef {
+    /// Check if this is a compile_fail test.
+    pub fn is_compile_fail(&self) -> bool {
+        !self.expected_errors.is_empty()
+    }
 }
 
 impl fmt::Debug for TestDef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "TestDef {{ name: {:?}, targets: {:?}, skip: {:?}, compile_fail: {:?}, fail: {:?} }}",
-            self.name, self.targets, self.skip_reason, self.compile_fail_expected, self.fail_expected
+            "TestDef {{ name: {:?}, targets: {:?}, skip: {:?}, expected_errors: {}, fail: {:?} }}",
+            self.name, self.targets, self.skip_reason,
+            self.expected_errors.len(), self.fail_expected
         )
     }
 }
@@ -105,6 +155,8 @@ pub struct Module {
     pub functions: Vec<Function>,
     /// Test definitions
     pub tests: Vec<TestDef>,
+    /// Type declarations (structs, sum types, newtypes)
+    pub types: Vec<super::types::TypeDecl>,
     /// Trait definitions
     pub traits: Vec<super::traits::TraitDef>,
     /// Implementation blocks
@@ -119,6 +171,7 @@ impl Module {
             imports: Vec::new(),
             functions: Vec::new(),
             tests: Vec::new(),
+            types: Vec::new(),
             traits: Vec::new(),
             impls: Vec::new(),
             extends: Vec::new(),
@@ -130,9 +183,10 @@ impl fmt::Debug for Module {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Module {{ {} functions, {} tests, {} traits, {} impls, {} extends }}",
+            "Module {{ {} functions, {} tests, {} types, {} traits, {} impls, {} extends }}",
             self.functions.len(),
             self.tests.len(),
+            self.types.len(),
             self.traits.len(),
             self.impls.len(),
             self.extends.len()

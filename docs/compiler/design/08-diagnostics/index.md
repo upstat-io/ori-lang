@@ -10,14 +10,17 @@ The diagnostics system spans multiple crates:
 compiler/
 ├── sigil_diagnostic/       # Core diagnostic types (separate crate)
 │   └── src/
-│       ├── lib.rs              # Diagnostic, ErrorCode, Applicability, Severity
+│       ├── lib.rs              # Diagnostic, ErrorCode, Applicability, Severity (~660 lines)
+│       ├── queue.rs            # DiagnosticQueue for deduplication/limits (~494 lines)
+│       ├── span_utils.rs       # Line/column computation from spans (~120 lines)
 │       ├── emitter/
-│       │   ├── mod.rs          # Emitter trait
-│       │   ├── terminal.rs     # Terminal output
-│       │   ├── json.rs         # JSON output
+│       │   ├── mod.rs          # Emitter trait (~90 lines)
+│       │   ├── terminal.rs     # Terminal output (~285 lines)
+│       │   ├── json.rs         # JSON output (~176 lines)
 │       │   └── sarif.rs        # SARIF format (~453 lines)
 │       └── fixes/
-│           └── mod.rs          # Code fix system (~258 lines)
+│           ├── mod.rs          # Code fix system (~258 lines)
+│           └── registry.rs     # Fix registry (~245 lines)
 ├── sigil-macros/           # Proc-macro crate for diagnostic derives
 │   └── src/
 │       ├── lib.rs              # Derive macro exports
@@ -29,7 +32,7 @@ compiler/
         └── report.rs           # Report formatting
 ```
 
-The `sigil_diagnostic` crate contains the core `Diagnostic` type, `ErrorCode` enum, `Applicability` levels, and output emitters. It depends only on `sigil_ir` (for `Span`). The proc-macros in `sigil-macros` generate implementations of the `IntoDiagnostic` trait.
+The `sigil_diagnostic` crate contains the core `Diagnostic` type, `ErrorCode` enum, `Applicability` levels, diagnostic queue, and output emitters. It depends only on `sigil_ir` (for `Span`). The proc-macros in `sigil-macros` generate implementations of the `IntoDiagnostic` trait.
 
 ## Design Goals
 
@@ -46,7 +49,68 @@ The `sigil_diagnostic` crate contains the core `Diagnostic` type, `ErrorCode` en
 | E1xxx | Parser | E1001: Unexpected token |
 | E2xxx | Type checker | E2001: Type mismatch |
 | E3xxx | Patterns | E3001: Unknown pattern |
-| E9xxx | Internal | E9001: Compiler bug |
+| E9xxx | Internal | E9001: Compiler bug, E9002: Too many errors |
+
+## DiagnosticQueue
+
+The `DiagnosticQueue` provides Go-style error handling with deduplication, limits, and sorting:
+
+```rust
+pub struct DiagnosticQueue {
+    diagnostics: Vec<QueuedDiagnostic>,
+    error_count: usize,
+    config: DiagnosticConfig,
+    // Deduplication state
+    last_syntax_line: Option<u32>,
+    last_error: Option<(u32, String)>,
+    has_hard_error: bool,
+}
+
+pub struct DiagnosticConfig {
+    pub error_limit: usize,      // Default: 10 (0 = unlimited)
+    pub filter_follow_on: bool,  // Default: true
+    pub deduplicate: bool,       // Default: true
+}
+```
+
+### Features
+
+1. **Error Limits** - Stop after N errors (default 10) to avoid overwhelming output
+2. **Deduplication** - Same-line syntax errors and same-message errors are collapsed
+3. **Follow-on Filtering** - Errors caused by previous errors (e.g., "invalid operand") are suppressed
+4. **Soft Error Suppression** - After a hard error, soft errors (inference failures) are hidden
+5. **Position-based Sorting** - Errors are sorted by source location for consistent output
+
+### Usage
+
+```rust
+let config = DiagnosticConfig::default();
+let mut queue = DiagnosticQueue::with_config(config);
+
+// Add diagnostics with source for line computation
+queue.add_with_source(diagnostic, source, is_soft);
+
+// Check if error limit reached
+if queue.limit_reached() {
+    // Stop processing
+}
+
+// Flush sorted diagnostics
+let sorted = queue.flush();
+```
+
+### Integration with TypeChecker
+
+The type checker optionally uses DiagnosticQueue for production builds:
+
+```rust
+// With queue (production)
+let typed = type_check_with_source(&parse_result, interner, source.clone());
+
+// With custom config
+let config = DiagnosticConfig { error_limit: 5, ..Default::default() };
+let typed = type_check_with_config(&parse_result, interner, source, config);
+```
 
 ## Diagnostic Structure
 
@@ -168,8 +232,26 @@ pub enum ErrorCode {
 
     // Internal
     E9001,  // Internal compiler error
+    E9002,  // Too many errors
 }
 ```
+
+### Span Utilities
+
+The `span_utils` module provides line/column computation for error positioning:
+
+```rust
+/// Compute 1-based line number from span and source.
+pub fn line_number(source: &str, span: Span) -> u32;
+
+/// Compute line number from byte offset.
+pub fn line_from_offset(source: &str, offset: u32) -> u32;
+
+/// Convert byte offset to (line, column) tuple.
+pub fn offset_to_line_col(source: &str, offset: u32) -> (usize, usize);
+```
+
+These are used by `DiagnosticQueue` for position-based deduplication and sorting.
 
 ### Problem
 

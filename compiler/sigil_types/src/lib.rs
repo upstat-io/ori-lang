@@ -301,6 +301,8 @@ pub struct InferenceContext {
     next_var: u32,
     /// Type variable substitutions.
     substitutions: HashMap<TypeVar, Type>,
+    /// Type context for deduplicating generic instantiations.
+    type_context: TypeContext,
 }
 
 impl InferenceContext {
@@ -309,6 +311,7 @@ impl InferenceContext {
         InferenceContext {
             next_var: 0,
             substitutions: HashMap::new(),
+            type_context: TypeContext::new(),
         }
     }
 
@@ -597,11 +600,289 @@ impl InferenceContext {
             _ => ty.clone(),
         }
     }
+
+    // =========================================================================
+    // Type context convenience methods for deduplicating compound types
+    // =========================================================================
+
+    /// Get or create a List<elem> type, deduplicating identical instantiations.
+    pub fn make_list(&mut self, elem: Type) -> Type {
+        self.type_context.list_type(elem)
+    }
+
+    /// Get or create an Option<inner> type, deduplicating identical instantiations.
+    pub fn make_option(&mut self, inner: Type) -> Type {
+        self.type_context.option_type(inner)
+    }
+
+    /// Get or create a Result<ok, err> type, deduplicating identical instantiations.
+    pub fn make_result(&mut self, ok: Type, err: Type) -> Type {
+        self.type_context.result_type(ok, err)
+    }
+
+    /// Get or create a Map<key, value> type, deduplicating identical instantiations.
+    pub fn make_map(&mut self, key: Type, value: Type) -> Type {
+        self.type_context.map_type(key, value)
+    }
+
+    /// Get or create a Set<elem> type, deduplicating identical instantiations.
+    pub fn make_set(&mut self, elem: Type) -> Type {
+        self.type_context.set_type(elem)
+    }
+
+    /// Get or create a Range<elem> type, deduplicating identical instantiations.
+    pub fn make_range(&mut self, elem: Type) -> Type {
+        self.type_context.range_type(elem)
+    }
+
+    /// Get or create a Channel<elem> type, deduplicating identical instantiations.
+    pub fn make_channel(&mut self, elem: Type) -> Type {
+        self.type_context.channel_type(elem)
+    }
+
+    /// Get or create a Tuple type, deduplicating identical instantiations.
+    pub fn make_tuple(&mut self, types: Vec<Type>) -> Type {
+        self.type_context.tuple_type(types)
+    }
+
+    /// Get or create a Function type, deduplicating identical instantiations.
+    pub fn make_function(&mut self, params: Vec<Type>, ret: Type) -> Type {
+        self.type_context.function_type(params, ret)
+    }
+
+    /// Access the underlying type context directly.
+    pub fn type_context(&mut self) -> &mut TypeContext {
+        &mut self.type_context
+    }
 }
 
 impl Default for InferenceContext {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ===== Type Instantiation Deduplication =====
+
+use std::hash::Hasher;
+use std::collections::hash_map::DefaultHasher;
+
+/// Entry in the type context cache.
+#[derive(Clone, Debug)]
+struct TypeContextEntry {
+    /// The origin type scheme.
+    origin: TypeScheme,
+    /// The type arguments used.
+    targs: Vec<Type>,
+    /// The resulting instantiated type.
+    instance: Type,
+}
+
+/// Type instantiation context for deduplication.
+///
+/// Ensures identical generic instantiations share the same Type instance
+/// within a single type-checking pass. This reduces allocations and
+/// can make equality checks faster.
+///
+/// Note: Salsa handles cross-query memoization, but TypeContext deduplicates
+/// **within** a single type-checking pass.
+#[derive(Clone, Debug, Default)]
+pub struct TypeContext {
+    /// hash(origin_id + targs) -> list of entries with that hash
+    type_map: HashMap<u64, Vec<TypeContextEntry>>,
+    /// Origin type scheme -> stable ID for hashing
+    origin_ids: HashMap<TypeScheme, u32>,
+    /// Next origin ID to assign
+    next_origin_id: u32,
+}
+
+impl TypeContext {
+    /// Create a new empty type context.
+    pub fn new() -> Self {
+        TypeContext::default()
+    }
+
+    /// Get or assign a stable ID for an origin type scheme.
+    fn get_origin_id(&mut self, origin: &TypeScheme) -> u32 {
+        if let Some(&id) = self.origin_ids.get(origin) {
+            return id;
+        }
+        let id = self.next_origin_id;
+        self.next_origin_id += 1;
+        self.origin_ids.insert(origin.clone(), id);
+        id
+    }
+
+    /// Compute a hash for (origin, targs) for lookup.
+    fn instance_hash(&mut self, origin: &TypeScheme, targs: &[Type]) -> u64 {
+        let origin_id = self.get_origin_id(origin);
+        let mut hasher = DefaultHasher::new();
+        origin_id.hash(&mut hasher);
+        for t in targs {
+            t.hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
+    /// Look up an existing instantiation.
+    pub fn lookup(&mut self, origin: &TypeScheme, targs: &[Type]) -> Option<&Type> {
+        let hash = self.instance_hash(origin, targs);
+        if let Some(entries) = self.type_map.get(&hash) {
+            for entry in entries {
+                if &entry.origin == origin && entry.targs == targs {
+                    return Some(&entry.instance);
+                }
+            }
+        }
+        None
+    }
+
+    /// Insert a new instantiation, returning the canonical instance.
+    ///
+    /// If an identical instantiation already exists, returns the existing one.
+    pub fn insert(&mut self, origin: TypeScheme, targs: Vec<Type>, instance: Type) -> Type {
+        // Check if already exists
+        if let Some(existing) = self.lookup(&origin, &targs) {
+            return existing.clone();
+        }
+
+        let hash = self.instance_hash(&origin, &targs);
+        let entry = TypeContextEntry {
+            origin,
+            targs,
+            instance: instance.clone(),
+        };
+
+        self.type_map.entry(hash).or_default().push(entry);
+        instance
+    }
+
+    /// Get or create a List<elem> type.
+    pub fn list_type(&mut self, elem: Type) -> Type {
+        // Use a synthetic origin scheme for built-in List
+        let origin = TypeScheme::mono(Type::Named(Name::new(0, 0))); // placeholder
+        let targs = vec![elem.clone()];
+
+        if let Some(existing) = self.lookup(&origin, &targs) {
+            return existing.clone();
+        }
+
+        let instance = Type::List(Box::new(elem));
+        self.insert(origin, targs, instance)
+    }
+
+    /// Get or create an Option<inner> type.
+    pub fn option_type(&mut self, inner: Type) -> Type {
+        let origin = TypeScheme::mono(Type::Named(Name::new(0, 1))); // placeholder
+        let targs = vec![inner.clone()];
+
+        if let Some(existing) = self.lookup(&origin, &targs) {
+            return existing.clone();
+        }
+
+        let instance = Type::Option(Box::new(inner));
+        self.insert(origin, targs, instance)
+    }
+
+    /// Get or create a Result<ok, err> type.
+    pub fn result_type(&mut self, ok: Type, err: Type) -> Type {
+        let origin = TypeScheme::mono(Type::Named(Name::new(0, 2))); // placeholder
+        let targs = vec![ok.clone(), err.clone()];
+
+        if let Some(existing) = self.lookup(&origin, &targs) {
+            return existing.clone();
+        }
+
+        let instance = Type::Result {
+            ok: Box::new(ok),
+            err: Box::new(err),
+        };
+        self.insert(origin, targs, instance)
+    }
+
+    /// Get or create a Map<key, value> type.
+    pub fn map_type(&mut self, key: Type, value: Type) -> Type {
+        let origin = TypeScheme::mono(Type::Named(Name::new(0, 3))); // placeholder
+        let targs = vec![key.clone(), value.clone()];
+
+        if let Some(existing) = self.lookup(&origin, &targs) {
+            return existing.clone();
+        }
+
+        let instance = Type::Map {
+            key: Box::new(key),
+            value: Box::new(value),
+        };
+        self.insert(origin, targs, instance)
+    }
+
+    /// Get or create a Set<elem> type.
+    pub fn set_type(&mut self, elem: Type) -> Type {
+        let origin = TypeScheme::mono(Type::Named(Name::new(0, 4))); // placeholder
+        let targs = vec![elem.clone()];
+
+        if let Some(existing) = self.lookup(&origin, &targs) {
+            return existing.clone();
+        }
+
+        let instance = Type::Set(Box::new(elem));
+        self.insert(origin, targs, instance)
+    }
+
+    /// Get or create a Range<elem> type.
+    pub fn range_type(&mut self, elem: Type) -> Type {
+        let origin = TypeScheme::mono(Type::Named(Name::new(0, 5))); // placeholder
+        let targs = vec![elem.clone()];
+
+        if let Some(existing) = self.lookup(&origin, &targs) {
+            return existing.clone();
+        }
+
+        let instance = Type::Range(Box::new(elem));
+        self.insert(origin, targs, instance)
+    }
+
+    /// Get or create a Channel<elem> type.
+    pub fn channel_type(&mut self, elem: Type) -> Type {
+        let origin = TypeScheme::mono(Type::Named(Name::new(0, 6))); // placeholder
+        let targs = vec![elem.clone()];
+
+        if let Some(existing) = self.lookup(&origin, &targs) {
+            return existing.clone();
+        }
+
+        let instance = Type::Channel(Box::new(elem));
+        self.insert(origin, targs, instance)
+    }
+
+    /// Get or create a Tuple type.
+    pub fn tuple_type(&mut self, types: Vec<Type>) -> Type {
+        let origin = TypeScheme::mono(Type::Named(Name::new(0, 7))); // placeholder
+        let targs = types.clone();
+
+        if let Some(existing) = self.lookup(&origin, &targs) {
+            return existing.clone();
+        }
+
+        let instance = Type::Tuple(types);
+        self.insert(origin, targs, instance)
+    }
+
+    /// Get or create a Function type.
+    pub fn function_type(&mut self, params: Vec<Type>, ret: Type) -> Type {
+        let origin = TypeScheme::mono(Type::Named(Name::new(0, 8))); // placeholder
+        let mut targs = params.clone();
+        targs.push(ret.clone());
+
+        if let Some(existing) = self.lookup(&origin, &targs) {
+            return existing.clone();
+        }
+
+        let instance = Type::Function {
+            params,
+            ret: Box::new(ret),
+        };
+        self.insert(origin, targs, instance)
     }
 }
 
@@ -1023,5 +1304,86 @@ mod tests {
 
         let ty = ctx.instantiate(&scheme);
         assert_eq!(ty, Type::Int);
+    }
+
+    #[test]
+    fn test_type_context_list_dedup() {
+        let mut ctx = TypeContext::new();
+
+        let list1 = ctx.list_type(Type::Int);
+        let list2 = ctx.list_type(Type::Int);
+        let list3 = ctx.list_type(Type::Bool);
+
+        // Same type args should return equal types
+        assert_eq!(list1, list2);
+        // Different type args should return different types
+        assert_ne!(list1, list3);
+    }
+
+    #[test]
+    fn test_type_context_option_dedup() {
+        let mut ctx = TypeContext::new();
+
+        let opt1 = ctx.option_type(Type::Str);
+        let opt2 = ctx.option_type(Type::Str);
+        let opt3 = ctx.option_type(Type::Int);
+
+        assert_eq!(opt1, opt2);
+        assert_ne!(opt1, opt3);
+    }
+
+    #[test]
+    fn test_type_context_result_dedup() {
+        let mut ctx = TypeContext::new();
+
+        let res1 = ctx.result_type(Type::Int, Type::Str);
+        let res2 = ctx.result_type(Type::Int, Type::Str);
+        let res3 = ctx.result_type(Type::Bool, Type::Str);
+
+        assert_eq!(res1, res2);
+        assert_ne!(res1, res3);
+    }
+
+    #[test]
+    fn test_type_context_map_dedup() {
+        let mut ctx = TypeContext::new();
+
+        let map1 = ctx.map_type(Type::Str, Type::Int);
+        let map2 = ctx.map_type(Type::Str, Type::Int);
+        let map3 = ctx.map_type(Type::Int, Type::Int);
+
+        assert_eq!(map1, map2);
+        assert_ne!(map1, map3);
+    }
+
+    #[test]
+    fn test_type_context_lookup_insert() {
+        let mut ctx = TypeContext::new();
+
+        let var = TypeVar::new(100);
+        let origin = TypeScheme::poly(
+            vec![var],
+            Type::Function {
+                params: vec![Type::Var(var)],
+                ret: Box::new(Type::Var(var)),
+            },
+        );
+        let targs = vec![Type::Int];
+        let instance = Type::Function {
+            params: vec![Type::Int],
+            ret: Box::new(Type::Int),
+        };
+
+        // Insert and get back
+        let result = ctx.insert(origin.clone(), targs.clone(), instance.clone());
+        assert_eq!(result, instance);
+
+        // Lookup should find it
+        let found = ctx.lookup(&origin, &targs);
+        assert_eq!(found, Some(&instance));
+
+        // Different targs should not find it
+        let not_found = ctx.lookup(&origin, &[Type::Bool]);
+        assert!(not_found.is_none());
     }
 }

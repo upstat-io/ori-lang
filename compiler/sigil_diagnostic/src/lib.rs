@@ -9,6 +9,8 @@
 
 pub mod emitter;
 pub mod fixes;
+pub mod queue;
+pub mod span_utils;
 
 use sigil_ir::Span;
 use std::fmt;
@@ -98,6 +100,8 @@ pub enum ErrorCode {
     // ===== Internal Errors (E9xxx) =====
     /// Internal compiler error
     E9001,
+    /// Too many errors
+    E9002,
 }
 
 impl ErrorCode {
@@ -142,6 +146,7 @@ impl ErrorCode {
             ErrorCode::E3003 => "E3003",
             // Internal
             ErrorCode::E9001 => "E9001",
+            ErrorCode::E9002 => "E9002",
         }
     }
 }

@@ -32,8 +32,10 @@ pub mod type_registry;
 // Re-export main types
 pub use checker::{
     TypeChecker, TypedModule, FunctionType, GenericBound, TypeCheckError,
-    type_check, type_check_with_context,
+    type_check, type_check_with_context, type_check_with_source, type_check_with_config,
 };
+// Re-export diagnostic config for callers that want custom limits
+pub use crate::diagnostic::queue::DiagnosticConfig;
 pub use type_registry::{
     TypeRegistry, TypeEntry, TypeKind, VariantDef,
     TraitRegistry, TraitEntry, TraitMethodDef, TraitAssocTypeDef,

@@ -143,10 +143,7 @@ fn check_unary_op(
             // ?expr: Result<T, E> -> T (propagates E)
             let ok_ty = checker.ctx.fresh_var();
             let err_ty = checker.ctx.fresh_var();
-            let result_ty = Type::Result {
-                ok: Box::new(ok_ty.clone()),
-                err: Box::new(err_ty),
-            };
+            let result_ty = checker.ctx.make_result(ok_ty.clone(), err_ty);
             if let Err(e) = checker.ctx.unify(operand, &result_ty) {
                 checker.report_type_error(e, span);
             }
@@ -209,7 +206,8 @@ pub fn infer_list(checker: &mut TypeChecker<'_>, elements: ExprRange) -> Type {
 
     if element_ids.is_empty() {
         // Empty list: element type is unknown
-        Type::List(Box::new(checker.ctx.fresh_var()))
+        let elem = checker.ctx.fresh_var();
+        checker.ctx.make_list(elem)
     } else {
         // Infer element types and unify
         let first_ty = infer_expr(checker, element_ids[0]);
@@ -219,7 +217,7 @@ pub fn infer_list(checker: &mut TypeChecker<'_>, elements: ExprRange) -> Type {
                 checker.report_type_error(e, checker.arena.get_expr(*id).span);
             }
         }
-        Type::List(Box::new(first_ty))
+        checker.ctx.make_list(first_ty)
     }
 }
 
@@ -233,7 +231,7 @@ pub fn infer_tuple(checker: &mut TypeChecker<'_>, elements: ExprRange) -> Type {
         let types: Vec<Type> = element_ids.iter()
             .map(|id| infer_expr(checker, *id))
             .collect();
-        Type::Tuple(types)
+        checker.ctx.make_tuple(types)
     }
 }
 
@@ -246,10 +244,9 @@ pub fn infer_map(
     let map_entries = checker.arena.get_map_entries(entries);
     if map_entries.is_empty() {
         // Empty map: key and value types are unknown
-        Type::Map {
-            key: Box::new(checker.ctx.fresh_var()),
-            value: Box::new(checker.ctx.fresh_var()),
-        }
+        let key = checker.ctx.fresh_var();
+        let value = checker.ctx.fresh_var();
+        checker.ctx.make_map(key, value)
     } else {
         let first_key_ty = infer_expr(checker, map_entries[0].key);
         let first_val_ty = infer_expr(checker, map_entries[0].value);
@@ -263,10 +260,7 @@ pub fn infer_map(
                 checker.report_type_error(e, entry.span);
             }
         }
-        Type::Map {
-            key: Box::new(first_key_ty),
-            value: Box::new(first_val_ty),
-        }
+        checker.ctx.make_map(first_key_ty, first_val_ty)
     }
 }
 
@@ -444,8 +438,8 @@ pub fn infer_range(
             }
         }
     }
-    // TODO: Range<T> type
-    Type::List(Box::new(elem_ty))
+    // TODO: Range<T> type - currently using List for compatibility
+    checker.ctx.make_list(elem_ty)
 }
 
 /// Infer type for field access.
@@ -629,10 +623,8 @@ pub fn infer_ok(checker: &mut TypeChecker<'_>, inner: Option<ExprId>) -> Type {
     } else {
         Type::Unit
     };
-    Type::Result {
-        ok: Box::new(ok_ty),
-        err: Box::new(checker.ctx.fresh_var()),
-    }
+    let err_ty = checker.ctx.fresh_var();
+    checker.ctx.make_result(ok_ty, err_ty)
 }
 
 /// Infer type for Err variant constructor.
@@ -642,19 +634,18 @@ pub fn infer_err(checker: &mut TypeChecker<'_>, inner: Option<ExprId>) -> Type {
     } else {
         Type::Unit
     };
-    Type::Result {
-        ok: Box::new(checker.ctx.fresh_var()),
-        err: Box::new(err_ty),
-    }
+    let ok_ty = checker.ctx.fresh_var();
+    checker.ctx.make_result(ok_ty, err_ty)
 }
 
 /// Infer type for Some variant constructor.
 pub fn infer_some(checker: &mut TypeChecker<'_>, inner: ExprId) -> Type {
     let inner_ty = infer_expr(checker, inner);
-    Type::Option(Box::new(inner_ty))
+    checker.ctx.make_option(inner_ty)
 }
 
 /// Infer type for None variant constructor.
 pub fn infer_none(checker: &mut TypeChecker<'_>) -> Type {
-    Type::Option(Box::new(checker.ctx.fresh_var()))
+    let inner = checker.ctx.fresh_var();
+    checker.ctx.make_option(inner)
 }

@@ -29,6 +29,7 @@ use crate::parser::ParseResult;
 use crate::patterns::PatternRegistry;
 use crate::types::{Type, TypeEnv, InferenceContext, TypeError};
 use crate::context::{CompilerContext, SharedRegistry};
+use crate::diagnostic::queue::{DiagnosticQueue, DiagnosticConfig};
 use super::operators::TypeOperatorRegistry;
 use super::type_registry::{TypeRegistry, TraitRegistry};
 use super::infer;
@@ -56,6 +57,11 @@ pub struct TypeChecker<'a> {
     pub(crate) trait_registry: TraitRegistry,
     /// Function signatures for constraint checking during calls.
     pub(crate) function_sigs: HashMap<Name, FunctionType>,
+    /// Diagnostic queue for deduplication and error limits.
+    /// Only active when source is provided.
+    diagnostic_queue: Option<DiagnosticQueue>,
+    /// Source code for line/column computation.
+    source: Option<String>,
 }
 
 impl<'a> TypeChecker<'a> {
@@ -74,6 +80,30 @@ impl<'a> TypeChecker<'a> {
             type_registry: TypeRegistry::new(),
             trait_registry: TraitRegistry::new(),
             function_sigs: HashMap::new(),
+            diagnostic_queue: None,
+            source: None,
+        }
+    }
+
+    /// Create a type checker with source code for diagnostic queue features.
+    ///
+    /// When source is provided, error deduplication and limits are enabled.
+    pub fn with_source(arena: &'a ExprArena, interner: &'a StringInterner, source: String) -> Self {
+        TypeChecker {
+            arena,
+            interner,
+            ctx: InferenceContext::new(),
+            env: TypeEnv::new(),
+            base_env: None,
+            expr_types: HashMap::new(),
+            errors: Vec::new(),
+            registry: SharedRegistry::new(PatternRegistry::new()),
+            type_operator_registry: TypeOperatorRegistry::new(),
+            type_registry: TypeRegistry::new(),
+            trait_registry: TraitRegistry::new(),
+            function_sigs: HashMap::new(),
+            diagnostic_queue: Some(DiagnosticQueue::new()),
+            source: Some(source),
         }
     }
 
@@ -98,6 +128,33 @@ impl<'a> TypeChecker<'a> {
             type_registry: TypeRegistry::new(),
             trait_registry: TraitRegistry::new(),
             function_sigs: HashMap::new(),
+            diagnostic_queue: None,
+            source: None,
+        }
+    }
+
+    /// Create a type checker with source and custom diagnostic configuration.
+    pub fn with_source_and_config(
+        arena: &'a ExprArena,
+        interner: &'a StringInterner,
+        source: String,
+        config: DiagnosticConfig,
+    ) -> Self {
+        TypeChecker {
+            arena,
+            interner,
+            ctx: InferenceContext::new(),
+            env: TypeEnv::new(),
+            base_env: None,
+            expr_types: HashMap::new(),
+            errors: Vec::new(),
+            registry: SharedRegistry::new(PatternRegistry::new()),
+            type_operator_registry: TypeOperatorRegistry::new(),
+            type_registry: TypeRegistry::new(),
+            trait_registry: TraitRegistry::new(),
+            function_sigs: HashMap::new(),
+            diagnostic_queue: Some(DiagnosticQueue::with_config(config)),
+            source: Some(source),
         }
     }
 
@@ -277,11 +334,31 @@ impl<'a> TypeChecker<'a> {
     /// Report a type error.
     pub(crate) fn report_type_error(&mut self, err: TypeError, span: Span) {
         let diag = err.to_diagnostic(span, self.interner);
-        self.errors.push(TypeCheckError {
+        let error = TypeCheckError {
             message: diag.message.clone(),
             span,
             code: diag.code,
-        });
+        };
+
+        // If we have a diagnostic queue, use it for deduplication/limits
+        if let (Some(ref mut queue), Some(ref source)) = (&mut self.diagnostic_queue, &self.source) {
+            let is_soft = error.is_soft();
+            // Add to queue - it will handle deduplication and limits
+            if queue.add_with_source(diag, source, is_soft) {
+                self.errors.push(error);
+            }
+        } else {
+            // No queue - add directly
+            self.errors.push(error);
+        }
+    }
+
+    /// Check if the error limit has been reached.
+    ///
+    /// When source is provided, the diagnostic queue tracks error limits.
+    /// Returns false if no source/queue is configured.
+    pub fn limit_reached(&self) -> bool {
+        self.diagnostic_queue.as_ref().map_or(false, |q| q.limit_reached())
     }
 
     /// Store the type for an expression.
@@ -296,6 +373,29 @@ pub fn type_check(
     interner: &StringInterner,
 ) -> TypedModule {
     let checker = TypeChecker::new(&parse_result.arena, interner);
+    checker.check_module(&parse_result.module)
+}
+
+/// Type check a parsed module with source code for diagnostic queue features.
+///
+/// When source is provided, error deduplication and limits are enabled.
+pub fn type_check_with_source(
+    parse_result: &ParseResult,
+    interner: &StringInterner,
+    source: String,
+) -> TypedModule {
+    let checker = TypeChecker::with_source(&parse_result.arena, interner, source);
+    checker.check_module(&parse_result.module)
+}
+
+/// Type check a parsed module with source and custom diagnostic configuration.
+pub fn type_check_with_config(
+    parse_result: &ParseResult,
+    interner: &StringInterner,
+    source: String,
+    config: DiagnosticConfig,
+) -> TypedModule {
+    let checker = TypeChecker::with_source_and_config(&parse_result.arena, interner, source, config);
     checker.check_module(&parse_result.module)
 }
 

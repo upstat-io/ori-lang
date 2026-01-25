@@ -5,7 +5,7 @@
 //! # Salsa Compatibility
 //! All types have Clone, Eq, PartialEq, Hash, Debug for Salsa requirements.
 
-use crate::ir::{Name, Span, TypeId, Spanned};
+use crate::{Name, Span, TypeId, Spanned};
 use super::super::ranges::GenericParamRange;
 use super::traits::WhereClause;
 
