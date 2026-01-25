@@ -52,6 +52,7 @@ pub use items::{
     TraitDef, TraitItem, TraitMethodSig, TraitDefaultMethod, TraitAssocType,
     ImplDef, ImplMethod, ImplAssocType, ExtendDef,
     TypeDecl, TypeDeclKind, StructField, Variant, VariantField,
+    CapabilityRef,
 };
 
 #[cfg(test)]

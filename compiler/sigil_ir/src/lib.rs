@@ -78,5 +78,7 @@ pub use ast::{
     ExtendDef,
     // Type declaration types
     TypeDecl, TypeDeclKind, StructField, Variant, VariantField,
+    // Capability types
+    CapabilityRef,
 };
 pub use arena::{ExprArena, SharedArena};

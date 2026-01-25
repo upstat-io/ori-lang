@@ -101,6 +101,11 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
+    fn is_with_capability_syntax(&self) -> bool {
+        self.cursor.is_with_capability_syntax()
+    }
+
+    #[inline]
     fn soft_keyword_to_name(&self) -> Option<&'static str> {
         self.cursor.soft_keyword_to_name()
     }
@@ -594,5 +599,107 @@ mod tests {
 "#);
 
         assert!(result.has_errors(), "Expected parse error for @add in expression");
+    }
+
+    #[test]
+    fn test_uses_clause_single_capability() {
+        let result = parse_source(r#"
+@fetch (url: str) -> str uses Http = Http.get(url: url)
+"#);
+
+        assert!(!result.has_errors(), "Expected no parse errors");
+        assert_eq!(result.module.functions.len(), 1);
+
+        let func = &result.module.functions[0];
+        assert_eq!(func.capabilities.len(), 1);
+    }
+
+    #[test]
+    fn test_uses_clause_multiple_capabilities() {
+        let result = parse_source(r#"
+@save (data: str) -> void uses FileSystem, Async = FileSystem.write(path: "/data", content: data)
+"#);
+
+        assert!(!result.has_errors(), "Expected no parse errors");
+        assert_eq!(result.module.functions.len(), 1);
+
+        let func = &result.module.functions[0];
+        assert_eq!(func.capabilities.len(), 2);
+    }
+
+    #[test]
+    fn test_uses_clause_with_where() {
+        // uses clause must come before where clause
+        let result = parse_source(r#"
+@process<T> (data: T) -> T uses Logger where T: Clone = data
+"#);
+
+        assert!(!result.has_errors(), "Expected no parse errors");
+        assert_eq!(result.module.functions.len(), 1);
+
+        let func = &result.module.functions[0];
+        assert_eq!(func.capabilities.len(), 1);
+        assert_eq!(func.where_clauses.len(), 1);
+    }
+
+    #[test]
+    fn test_no_uses_clause() {
+        // Pure function - no uses clause
+        let result = parse_source(r#"
+@add (a: int, b: int) -> int = a + b
+"#);
+
+        assert!(!result.has_errors(), "Expected no parse errors");
+        assert_eq!(result.module.functions.len(), 1);
+
+        let func = &result.module.functions[0];
+        assert!(func.capabilities.is_empty());
+    }
+
+    #[test]
+    fn test_with_capability_expression() {
+        // with Capability = Provider in body
+        let result = parse_source(r#"
+@example () -> int =
+    with Http = MockHttp in
+        42
+"#);
+
+        assert!(!result.has_errors(), "Expected no parse errors: {:?}", result.errors);
+        assert_eq!(result.module.functions.len(), 1);
+
+        // Find the WithCapability expression in the body
+        let func = &result.module.functions[0];
+        let body_expr = result.arena.get_expr(func.body);
+        assert!(
+            matches!(body_expr.kind, ExprKind::WithCapability { .. }),
+            "Expected WithCapability, got {:?}",
+            body_expr.kind
+        );
+    }
+
+    #[test]
+    fn test_with_capability_with_struct_provider() {
+        // with Capability = StructLiteral { field: value } in body
+        let result = parse_source(r#"
+@example () -> int =
+    with Http = RealHttp { base_url: "https://api.example.com" } in
+        fetch(url: "/data")
+"#);
+
+        assert!(!result.has_errors(), "Expected no parse errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_with_capability_nested() {
+        // Nested capability provisions
+        let result = parse_source(r#"
+@example () -> int =
+    with Http = MockHttp in
+        with Cache = MockCache in
+            42
+"#);
+
+        assert!(!result.has_errors(), "Expected no parse errors: {:?}", result.errors);
     }
 }

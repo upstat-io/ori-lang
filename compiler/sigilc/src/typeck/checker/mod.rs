@@ -17,7 +17,7 @@ mod pattern_binding;
 mod cycle_detection;
 mod type_registration;
 mod trait_registration;
-mod bound_checking;
+pub(crate) mod bound_checking;
 
 pub use types::{TypedModule, GenericBound, FunctionType, TypeCheckError};
 pub(crate) use cycle_detection::add_pattern_bindings;
@@ -195,6 +195,9 @@ impl<'a> TypeChecker<'a> {
             let func_type = self.infer_function_signature(func);
             function_types.push(func_type.clone());
 
+            // Validate capabilities in uses clause
+            self.validate_capabilities(func);
+
             // Store signature for constraint checking during calls
             self.function_sigs.insert(func.name, func_type.clone());
 
@@ -240,6 +243,7 @@ impl<'a> TypeChecker<'a> {
                 generics: ft.generics,
                 params: ft.params.iter().map(|t| self.ctx.resolve(t)).collect(),
                 return_type: self.ctx.resolve(&ft.return_type),
+                capabilities: ft.capabilities,
             })
             .collect();
 
@@ -586,6 +590,23 @@ impl<'a> TypeChecker<'a> {
 
         // Restore environment
         self.env = old_env;
+    }
+
+    /// Validate that capabilities in a function's `uses` clause refer to valid traits.
+    ///
+    /// For each capability in the `uses` clause, checks that a trait with that name exists
+    /// in the trait registry. If not, reports an error.
+    fn validate_capabilities(&mut self, func: &Function) {
+        for cap_ref in &func.capabilities {
+            if !self.trait_registry.has_trait(cap_ref.name) {
+                let cap_name = self.interner.lookup(cap_ref.name);
+                self.errors.push(TypeCheckError {
+                    message: format!("unknown capability `{cap_name}`: capabilities must be defined traits"),
+                    span: cap_ref.span,
+                    code: crate::diagnostic::ErrorCode::E2012,
+                });
+            }
+        }
     }
 
     /// Resolve a type through any alias chain.

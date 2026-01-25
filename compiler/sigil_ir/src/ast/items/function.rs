@@ -27,6 +27,13 @@ impl Spanned for Param {
     }
 }
 
+/// Capability requirement in a `uses` clause.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct CapabilityRef {
+    pub name: Name,
+    pub span: Span,
+}
+
 /// Function definition.
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct Function {
@@ -36,6 +43,8 @@ pub struct Function {
     pub params: ParamRange,
     /// The parsed return type. None if no return type annotation.
     pub return_ty: Option<ParsedType>,
+    /// Capabilities required by this function: `uses Http, FileSystem`
+    pub capabilities: Vec<CapabilityRef>,
     /// Where clauses: `where T: Clone, U: Default`
     pub where_clauses: Vec<WhereClause>,
     pub body: ExprId,
@@ -47,8 +56,8 @@ impl fmt::Debug for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Function {{ name: {:?}, generics: {:?}, params: {:?}, ret: {:?}, where: {:?}, public: {} }}",
-            self.name, self.generics, self.params, self.return_ty, self.where_clauses, self.is_public
+            "Function {{ name: {:?}, generics: {:?}, params: {:?}, ret: {:?}, uses: {:?}, where: {:?}, public: {} }}",
+            self.name, self.generics, self.params, self.return_ty, self.capabilities, self.where_clauses, self.is_public
         )
     }
 }

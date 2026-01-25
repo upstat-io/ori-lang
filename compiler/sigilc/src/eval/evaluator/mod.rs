@@ -274,6 +274,17 @@ impl<'a> Evaluator<'a> {
             },
             ExprKind::Config(name) => self.env.lookup(*name)
                 .ok_or_else(|| undefined_config(self.interner.lookup(*name))),
+            // Capability provision: with Capability = Provider in body
+            // For now, we evaluate the provider (which may have side effects),
+            // then bind it to the capability name in a new scope and evaluate the body.
+            ExprKind::WithCapability { capability, provider, body } => {
+                let provider_val = self.eval(*provider)?;
+                self.env.push_scope();
+                self.env.define(*capability, provider_val, false);
+                let result = self.eval(*body);
+                self.env.pop_scope();
+                result
+            }
             ExprKind::Error => Err(parse_error()),
             ExprKind::HashLength => Err(hash_outside_index()),
             ExprKind::SelfRef => self.env.lookup(self.interner.intern("self")).ok_or_else(self_outside_method),

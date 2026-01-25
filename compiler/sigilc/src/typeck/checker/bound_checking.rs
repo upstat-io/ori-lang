@@ -8,7 +8,9 @@ use crate::diagnostic::ErrorCode;
 use super::{TypeChecker, TypeCheckError};
 
 /// Check if a primitive type has a built-in trait implementation.
-fn primitive_implements_trait(ty: &Type, trait_name: &str) -> bool {
+///
+/// This is used to check both generic trait bounds and capability trait implementations.
+pub fn primitive_implements_trait(ty: &Type, trait_name: &str) -> bool {
     match ty {
         Type::Int => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Hashable" | "Default" | "Printable"),
         Type::Float => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Default" | "Printable"),

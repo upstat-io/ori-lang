@@ -65,6 +65,8 @@ pub struct FunctionType {
     pub generics: Vec<GenericBound>,
     pub params: Vec<Type>,
     pub return_type: Type,
+    /// Capabilities required by this function (from `uses` clause)
+    pub capabilities: Vec<Name>,
 }
 
 /// Type checking error with location.

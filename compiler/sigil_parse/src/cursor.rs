@@ -98,6 +98,21 @@ impl<'a> Cursor<'a> {
         self.pos + 1 < self.tokens.len() && matches!(self.tokens[self.pos + 1].kind, TokenKind::Colon)
     }
 
+    /// Check if this is capability provision syntax: `with Ident =`
+    /// Current position should be at `with`.
+    pub fn is_with_capability_syntax(&self) -> bool {
+        // Need at least 3 tokens ahead: with Ident =
+        if self.pos + 2 >= self.tokens.len() {
+            return false;
+        }
+        // Token at pos+1 should be an identifier
+        let next_is_ident = matches!(self.tokens[self.pos + 1].kind, TokenKind::Ident(_));
+        // Token at pos+2 should be =
+        let then_is_eq = matches!(self.tokens[self.pos + 2].kind, TokenKind::Eq);
+
+        next_is_ident && then_is_eq
+    }
+
     /// Check if looking at named argument pattern: identifier followed by colon.
     /// Used to distinguish `name: value` (named arg) from `value` (positional).
     pub fn is_named_arg_start(&self) -> bool {

@@ -81,11 +81,16 @@ impl TypeChecker<'_> {
             None => self.ctx.fresh_var(),
         };
 
+        let capabilities: Vec<Name> = func.capabilities.iter()
+            .map(|cap_ref| cap_ref.name)
+            .collect();
+
         FunctionType {
             name: func.name,
             generics,
             params,
             return_type,
+            capabilities,
         }
     }
 }
