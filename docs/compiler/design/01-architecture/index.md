@@ -175,12 +175,28 @@ impl PatternRegistry {
 | Crate | Purpose |
 |-------|---------|
 | `sigil_ir` | Core IR types: tokens, spans, AST, arena, interning |
-| `sigil_diagnostic` | Error reporting, suggestions, applicability levels |
+| `sigil_diagnostic` | Error reporting, DiagnosticQueue, suggestions, emitters |
 | `sigil_lexer` | Tokenization via logos |
-| `sigil_types` | Type system definitions |
+| `sigil_types` | Type system: Type enum, TypeError, TypeContext, InferenceContext |
 | `sigil_parse` | Recursive descent parser |
 | `sigil-macros` | Proc-macros (`#[derive(Diagnostic)]`, etc.) |
 | `sigilc` | CLI orchestrator, Salsa queries, typeck, eval, patterns |
+
+### DRY Re-exports
+
+To avoid code duplication, `sigilc` re-exports from source crates rather than maintaining duplicate definitions:
+
+| sigilc Module | Re-exports From |
+|---------------|-----------------|
+| `sigilc::ir` | `sigil_ir` |
+| `sigilc::parser` | `sigil_parse` |
+| `sigilc::diagnostic` | `sigil_diagnostic` |
+| `sigilc::types` | `sigil_types` |
+
+This pattern ensures:
+- Single source of truth for each type
+- Consistent behavior across the codebase
+- Easier maintenance and refactoring
 
 ## File Size Guidelines
 

@@ -46,11 +46,12 @@ pub use patterns::{
 
 // Re-export item types
 pub use items::{
-    Param, Function, TestDef, Module,
+    Param, Function, TestDef, Module, ExpectedError,
     UseDef, UseItem, ImportPath,
     GenericParam, TraitBound, WhereClause,
     TraitDef, TraitItem, TraitMethodSig, TraitDefaultMethod, TraitAssocType,
     ImplDef, ImplMethod, ExtendDef,
+    TypeDecl, TypeDeclKind, StructField, Variant, VariantField,
 };
 
 #[cfg(test)]

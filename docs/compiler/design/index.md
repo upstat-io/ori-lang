@@ -27,13 +27,13 @@ The compiler features:
 |-----------|--------------|---------|
 | IR | ~4,500 | AST types, arena, visitor, interning |
 | Evaluator | ~5,500 | Tree-walking interpreter |
-| Type System | ~4,300 | Type checking and inference |
+| Type System | ~4,300 | Type checking, inference, TypeContext |
 | Parser | ~3,200 | Recursive descent parsing |
 | Patterns | ~3,000 | Pattern system and builtins |
-| Diagnostics | ~2,000 | Error reporting and fixes |
+| Diagnostics | ~2,800 | Error reporting, DiagnosticQueue, fixes |
 | Lexer | ~700 | DFA-based tokenization |
-| Tests | ~900 | Test discovery and execution |
-| **Total** | **~29,000** | |
+| Tests | ~1,100 | Test discovery, execution, error matching |
+| **Total** | **~30,000** | |
 
 ## Compilation Pipeline
 
@@ -139,12 +139,14 @@ The compiler is organized as a multi-crate workspace:
 | Crate | Path | Purpose |
 |-------|------|---------|
 | `sigil_ir` | `compiler/sigil_ir/src/` | Core IR types (tokens, spans, AST, arena, interning) |
-| `sigil_diagnostic` | `compiler/sigil_diagnostic/src/` | Error reporting, suggestions, emitters |
+| `sigil_diagnostic` | `compiler/sigil_diagnostic/src/` | DiagnosticQueue, error reporting, suggestions, emitters |
 | `sigil_lexer` | `compiler/sigil_lexer/src/` | Tokenization via logos |
-| `sigil_types` | `compiler/sigil_types/src/` | Type system definitions |
+| `sigil_types` | `compiler/sigil_types/src/` | Type, TypeError, TypeContext, InferenceContext |
 | `sigil_parse` | `compiler/sigil_parse/src/` | Recursive descent parser |
 | `sigil-macros` | `compiler/sigil-macros/src/` | Diagnostic derive macros |
 | `sigilc` | `compiler/sigilc/src/` | CLI, Salsa queries, typeck, eval, patterns |
+
+**Note:** `sigilc` modules (`ir`, `parser`, `diagnostic`, `types`) re-export from source crates for DRY.
 
 ### sigilc Internal Paths
 

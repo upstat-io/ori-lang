@@ -81,4 +81,31 @@ impl TypeCheckError {
             .with_message(&self.message)
             .with_label(self.span, "type error here")
     }
+
+    /// Check if this is a soft error that can be suppressed after hard errors.
+    ///
+    /// Soft errors are typically inference failures that result from
+    /// earlier errors propagating through the type system.
+    pub fn is_soft(&self) -> bool {
+        // Cannot infer errors are often caused by earlier errors
+        if self.code == ErrorCode::E2005 {
+            return true;
+        }
+        // Errors involving the error type are soft
+        if self.message.contains("<error>") {
+            return true;
+        }
+        false
+    }
+
+    /// Check if this is a follow-on error resulting from previous errors.
+    ///
+    /// Follow-on errors contain types like `<error>` or phrases indicating
+    /// they're a consequence of earlier type errors.
+    pub fn is_follow_on(&self) -> bool {
+        let msg = self.message.to_lowercase();
+        msg.contains("<error>")
+            || msg.contains("invalid operand")
+            || msg.contains("invalid type")
+    }
 }

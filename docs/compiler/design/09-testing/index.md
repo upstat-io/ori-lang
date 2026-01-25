@@ -6,9 +6,10 @@ The Sigil test system provides test discovery, parallel execution, and coverage 
 
 ```
 compiler/sigilc/src/test/
-├── mod.rs          # Module exports
-├── runner.rs       # Test execution (~494 lines)
-└── discovery.rs    # Test finding (~310 lines)
+├── mod.rs              # Module exports
+├── runner.rs           # Test execution
+├── discovery.rs        # Test finding
+└── error_matching.rs   # ExpectedError matching for compile_fail tests
 ```
 
 ## Design Goals
@@ -74,6 +75,57 @@ Expect compilation to fail:
 @test_type_error () -> void = run(
     let x: int = "not an int",
 )
+```
+
+### Extended compile_fail Syntax
+
+The `compile_fail` attribute supports rich error specifications:
+
+```sigil
+// Simple message matching (legacy)
+#[compile_fail("type mismatch")]
+
+// Error code matching
+#[compile_fail(code: "E2001")]
+
+// Combined matching
+#[compile_fail(code: "E2001", message: "type mismatch")]
+
+// Position-specific matching
+#[compile_fail(message: "error", line: 5)]
+#[compile_fail(message: "error", line: 5, column: 10)]
+
+// Multiple expected errors (multiple attributes)
+#[compile_fail("type mismatch")]
+#[compile_fail("unknown identifier")]
+@test_multiple_errors () -> void = ...
+```
+
+### ExpectedError Structure
+
+```rust
+#[derive(Clone, Eq, PartialEq, Hash, Debug, Default)]
+pub struct ExpectedError {
+    pub message: Option<Name>,   // Substring match
+    pub code: Option<Name>,      // Error code (e.g., "E2001")
+    pub line: Option<u32>,       // Expected line (1-based)
+    pub column: Option<u32>,     // Expected column (1-based)
+}
+```
+
+The error matching module (`error_matching.rs`) provides:
+
+```rust
+/// Convert byte offset to (line, column).
+pub fn offset_to_line_col(source: &str, offset: u32) -> (usize, usize);
+
+/// Check if actual error matches expected specification.
+pub fn matches_expected(
+    actual: &TypeCheckError,
+    expected: &ExpectedError,
+    source: &str,
+    interner: &StringInterner,
+) -> bool;
 ```
 
 ### #[fail("message")]

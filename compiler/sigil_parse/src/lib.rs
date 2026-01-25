@@ -216,9 +216,13 @@ impl<'a> Parser<'a> {
                     }
                 }
             } else if self.check(TokenKind::Type) {
-                // Skip type definitions for now (not fully implemented)
-                // TODO: Implement type definition parsing
-                self.recover_to_function();
+                match self.parse_type_decl(attrs, is_public) {
+                    Ok(type_decl) => module.types.push(type_decl),
+                    Err(e) => {
+                        self.recover_to_function();
+                        errors.push(e);
+                    }
+                }
             } else if self.check(TokenKind::Use) {
                 // Import after declarations - error
                 errors.push(ParseError::new(

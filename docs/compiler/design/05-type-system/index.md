@@ -8,23 +8,23 @@ Type definitions are split across two crates:
 
 ```
 compiler/sigil_types/src/
-└── lib.rs              # Type enum, TypeError (~1,015 lines)
+└── lib.rs              # Type enum, TypeError, TypeContext, InferenceContext
 
 compiler/sigilc/src/typeck/
 ├── mod.rs              # Module exports
-├── checker/            # Main type checker (~1,574 lines total)
-│   ├── mod.rs              # TypeChecker struct, check_module entry (~310 lines)
-│   ├── signatures.rs       # infer_function_signature (~95 lines)
-│   ├── pattern_binding.rs  # bind_pattern logic (~166 lines)
-│   ├── cycle_detection.rs  # collect_free_vars, closure self-capture (~97 lines)
-│   ├── trait_registration.rs # register_traits, register_impls (~146 lines)
-│   ├── bound_checking.rs   # type_satisfies_bound (~55 lines)
-│   ├── types.rs            # Helper types (~84 lines)
-│   └── tests.rs            # Unit tests (~621 lines)
-├── operators.rs        # Operator type rules (~515 lines)
-├── type_registry/      # User-defined types (~999 lines total)
-│   ├── mod.rs              # TypeRegistry struct (~439 lines)
-│   └── trait_registry.rs   # TraitRegistry, TraitEntry, ImplEntry (~560 lines)
+├── checker/            # Main type checker
+│   ├── mod.rs              # TypeChecker struct, check_module entry
+│   ├── signatures.rs       # infer_function_signature
+│   ├── pattern_binding.rs  # bind_pattern logic
+│   ├── cycle_detection.rs  # collect_free_vars, closure self-capture
+│   ├── trait_registration.rs # register_traits, register_impls
+│   ├── bound_checking.rs   # type_satisfies_bound
+│   ├── types.rs            # Helper types
+│   └── tests.rs            # Unit tests
+├── operators.rs        # Operator type rules
+├── type_registry/      # User-defined types
+│   ├── mod.rs              # TypeRegistry struct
+│   └── trait_registry.rs   # TraitRegistry, TraitEntry, ImplEntry
 └── infer/
     ├── mod.rs          # Inference dispatcher
     ├── expr.rs         # Expression inference
@@ -33,7 +33,9 @@ compiler/sigilc/src/typeck/
     └── pattern.rs      # Pattern type checking
 ```
 
-The `sigil_types` crate contains the `Type` enum and `TypeError` type, with dependencies on `sigil_ir` and `sigil_diagnostic`. The type checker itself remains in `sigilc` due to complex dependencies on the evaluator and pattern system.
+The `sigil_types` crate contains the `Type` enum, `TypeError`, `TypeContext` (for type instantiation deduplication), and `InferenceContext`. The type checker itself remains in `sigilc` due to complex dependencies on the evaluator and pattern system.
+
+Note: `sigilc/src/types.rs` re-exports from `sigil_types` (DRY consolidation).
 
 ## Design Goals
 
@@ -119,6 +121,78 @@ pub struct Scope {
     /// Variable bindings
     bindings: HashMap<Name, Type>,
 }
+```
+
+### TypeContext
+
+TypeContext provides deduplication for generic type instantiations within a single type-checking pass:
+
+```rust
+pub struct TypeContext {
+    /// hash(origin + targs) -> [(origin, targs, instance)]
+    type_map: HashMap<u64, Vec<TypeContextEntry>>,
+    /// Origin type -> stable ID for hashing
+    origin_ids: HashMap<TypeScheme, u32>,
+    next_origin_id: u32,
+}
+```
+
+This ensures identical generic instantiations (e.g., `Option<int>`) share the same `Type` instance, reducing allocations and enabling fast equality checks.
+
+**Convenience methods:**
+
+```rust
+impl TypeContext {
+    pub fn list_type(&mut self, elem: Type) -> Type;
+    pub fn option_type(&mut self, inner: Type) -> Type;
+    pub fn result_type(&mut self, ok: Type, err: Type) -> Type;
+    pub fn map_type(&mut self, key: Type, value: Type) -> Type;
+    pub fn set_type(&mut self, elem: Type) -> Type;
+    pub fn range_type(&mut self, elem: Type) -> Type;
+    pub fn channel_type(&mut self, elem: Type) -> Type;
+    pub fn tuple_type(&mut self, types: Vec<Type>) -> Type;
+    pub fn function_type(&mut self, params: Vec<Type>, ret: Type) -> Type;
+}
+```
+
+### InferenceContext
+
+InferenceContext integrates type variable management with TypeContext:
+
+```rust
+pub struct InferenceContext {
+    next_var: u32,
+    substitutions: HashMap<TypeVar, Type>,
+    type_context: TypeContext,  // Integrated deduplication
+}
+
+impl InferenceContext {
+    // Type variable management
+    pub fn fresh_var(&mut self) -> Type;
+    pub fn unify(&mut self, t1: &Type, t2: &Type) -> Result<(), TypeError>;
+    pub fn apply(&self, ty: &Type) -> Type;
+
+    // Type construction (uses TypeContext for deduplication)
+    pub fn make_list(&mut self, elem: Type) -> Type;
+    pub fn make_option(&mut self, inner: Type) -> Type;
+    pub fn make_result(&mut self, ok: Type, err: Type) -> Type;
+    pub fn make_map(&mut self, key: Type, value: Type) -> Type;
+    pub fn make_set(&mut self, elem: Type) -> Type;
+    pub fn make_range(&mut self, elem: Type) -> Type;
+    pub fn make_channel(&mut self, elem: Type) -> Type;
+    pub fn make_tuple(&mut self, types: Vec<Type>) -> Type;
+    pub fn make_function(&mut self, params: Vec<Type>, ret: Type) -> Type;
+}
+```
+
+Usage in type inference:
+
+```rust
+// Instead of:
+Type::List(Box::new(elem_type))
+
+// Use:
+checker.ctx.make_list(elem_type)
 ```
 
 ## Inference Algorithm

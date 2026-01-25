@@ -54,7 +54,7 @@ pub use expr_id::{ExprId, ExprRange, StmtId, StmtRange};
 pub use traits::{Spanned, Named, Typed};
 pub use ast::{
     Expr, ExprKind, Stmt, StmtKind, Param, ParamRange,
-    BinaryOp, UnaryOp, Function, Module, TestDef,
+    BinaryOp, UnaryOp, Function, Module, TestDef, ExpectedError,
     BindingPattern, MatchPattern, MatchArm,
     MapEntry, FieldInit,
     ArmRange, MapEntryRange, FieldInitRange,
@@ -74,5 +74,7 @@ pub use ast::{
     ImplDef, ImplMethod,
     // Extension types
     ExtendDef,
+    // Type declaration types
+    TypeDecl, TypeDeclKind, StructField, Variant, VariantField,
 };
 pub use arena::{ExprArena, SharedArena};

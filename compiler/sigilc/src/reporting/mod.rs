@@ -17,7 +17,9 @@
 //! error messages for different situations.
 
 use crate::diagnostic::{Diagnostic, ErrorCode, Severity};
+use crate::diagnostic::queue::{DiagnosticConfig, DiagnosticQueue};
 use crate::problem::{ParseProblem, Problem, SemanticProblem, TypeProblem};
+use crate::typeck::TypeCheckError;
 
 /// Trait for rendering problems into diagnostics.
 pub trait Render {
@@ -615,6 +617,60 @@ impl Render for SemanticProblem {
 /// Render a collection of problems into diagnostics.
 pub fn render_all(problems: &[Problem]) -> Vec<Diagnostic> {
     problems.iter().map(|p| p.render()).collect()
+}
+
+/// Process type check errors through the diagnostic queue for filtering and sorting.
+///
+/// This applies Go-style error handling:
+/// - Error limits to prevent overwhelming output
+/// - Deduplication of same-line errors
+/// - Soft error suppression after hard errors
+/// - Follow-on error filtering
+/// - Sorting by source position
+///
+/// # Arguments
+///
+/// * `errors` - Type check errors to process
+/// * `source` - Source code for computing line numbers
+/// * `config` - Optional configuration (uses defaults if None)
+///
+/// # Returns
+///
+/// Filtered and sorted diagnostics, ready for display.
+pub fn process_type_errors(
+    errors: Vec<TypeCheckError>,
+    source: &str,
+    config: Option<DiagnosticConfig>,
+) -> Vec<Diagnostic> {
+    let config = config.unwrap_or_default();
+    let mut queue = DiagnosticQueue::with_config(config);
+
+    for error in errors {
+        let diag = error.to_diagnostic();
+        let soft = error.is_soft();
+        queue.add_with_source(diag, source, soft);
+    }
+
+    queue.flush()
+}
+
+/// Process raw diagnostics through the queue for filtering and sorting.
+///
+/// Similar to `process_type_errors` but works with pre-built Diagnostic objects.
+pub fn process_diagnostics(
+    diagnostics: Vec<Diagnostic>,
+    source: &str,
+    config: Option<DiagnosticConfig>,
+) -> Vec<Diagnostic> {
+    let config = config.unwrap_or_default();
+    let mut queue = DiagnosticQueue::with_config(config);
+
+    for diag in diagnostics {
+        // All non-TypeCheckError diagnostics are considered hard errors
+        queue.add_with_source(diag, source, false);
+    }
+
+    queue.flush()
 }
 
 /// A report containing multiple diagnostics.
