@@ -44,3 +44,6 @@ pub use operators::OperatorRegistry;
 pub use methods::MethodRegistry;
 pub use user_methods::{UserMethodRegistry, UserMethod};
 pub use unary_operators::UnaryOperatorRegistry;
+
+#[cfg(test)]
+mod tests;

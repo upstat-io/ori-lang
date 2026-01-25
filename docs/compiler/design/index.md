@@ -142,6 +142,7 @@ Each step is a Salsa query with automatic caching. If the input doesn't change, 
 - [Memory Management](appendices/B-memory-management.md) - Allocation strategies
 - [Error Codes](appendices/C-error-codes.md) - Complete error code reference
 - [Debugging](appendices/D-debugging.md) - Debug flags and tracing
+- [Coding Guidelines](appendices/E-coding-guidelines.md) - Code style, testing, best practices
 
 ## Source Paths
 
