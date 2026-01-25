@@ -27,7 +27,7 @@ pub mod unary_operators;
 pub mod exec;
 pub mod module;
 
-pub use value::{Value, FunctionValue, RangeValue, StructValue, StructLayout, Heap, FunctionValFn, BackoffStrategy};
+pub use value::{Value, FunctionValue, RangeValue, StructValue, StructLayout, Heap, FunctionValFn};
 pub use environment::Environment;
 pub use evaluator::{Evaluator, EvalResult, EvalError};
 pub use output::{EvalOutput, ModuleEvalResult};

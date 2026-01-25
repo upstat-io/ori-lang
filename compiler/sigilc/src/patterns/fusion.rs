@@ -310,37 +310,31 @@ pub struct FusionAnalyzer;
 
 impl FusionAnalyzer {
     /// Check if two pattern kinds can be fused.
-    pub fn can_fuse(first: FunctionExpKind, second: FunctionExpKind) -> bool {
-        matches!(
-            (first, second),
-            (FunctionExpKind::Map, FunctionExpKind::Filter) |
-            (FunctionExpKind::Map, FunctionExpKind::Fold) |
-            (FunctionExpKind::Map, FunctionExpKind::Find) |
-            (FunctionExpKind::Filter, FunctionExpKind::Map) |
-            (FunctionExpKind::Filter, FunctionExpKind::Fold) |
-            (FunctionExpKind::Filter, FunctionExpKind::Find)
-        )
+    ///
+    /// Note: Pattern fusion was designed for map/filter/fold patterns which have been
+    /// moved to methods on collections per "Lean Core, Rich Libraries". Method-based
+    /// fusion would need a different implementation. For now, no patterns can be fused.
+    pub fn can_fuse(_first: FunctionExpKind, _second: FunctionExpKind) -> bool {
+        // No function_exp patterns currently support fusion
+        false
     }
 
     /// Check if three pattern kinds can be fused.
+    ///
+    /// Note: See can_fuse for why this always returns false.
     pub fn can_fuse_three(
-        first: FunctionExpKind,
-        second: FunctionExpKind,
-        third: FunctionExpKind,
+        _first: FunctionExpKind,
+        _second: FunctionExpKind,
+        _third: FunctionExpKind,
     ) -> bool {
-        matches!(
-            (first, second, third),
-            (FunctionExpKind::Map, FunctionExpKind::Filter, FunctionExpKind::Fold)
-        )
+        // No function_exp patterns currently support fusion
+        false
     }
 
     /// Get fusion hints for a pattern combination.
-    pub fn get_hints(patterns: &[FunctionExpKind]) -> FusionHints {
-        match patterns.len() {
-            2 => FusionHints::two_pattern(),
-            3 => FusionHints::three_pattern(),
-            _ => FusionHints::default(),
-        }
+    pub fn get_hints(_patterns: &[FunctionExpKind]) -> FusionHints {
+        // No fusion hints since no patterns support fusion
+        FusionHints::default()
     }
 }
 
@@ -349,49 +343,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_can_fuse_map_filter() {
-        assert!(FusionAnalyzer::can_fuse(
-            FunctionExpKind::Map,
-            FunctionExpKind::Filter
-        ));
-    }
-
-    #[test]
-    fn test_can_fuse_map_fold() {
-        assert!(FusionAnalyzer::can_fuse(
-            FunctionExpKind::Map,
-            FunctionExpKind::Fold
-        ));
-    }
-
-    #[test]
-    fn test_can_fuse_filter_fold() {
-        assert!(FusionAnalyzer::can_fuse(
-            FunctionExpKind::Filter,
-            FunctionExpKind::Fold
-        ));
-    }
-
-    #[test]
-    fn test_cannot_fuse_fold_map() {
-        // fold is terminal, can't fuse with anything after it
+    fn test_no_patterns_can_fuse() {
+        // After moving map/filter/fold to methods, no function_exp patterns support fusion
         assert!(!FusionAnalyzer::can_fuse(
-            FunctionExpKind::Fold,
-            FunctionExpKind::Map
+            FunctionExpKind::Recurse,
+            FunctionExpKind::Parallel
+        ));
+        assert!(!FusionAnalyzer::can_fuse(
+            FunctionExpKind::Print,
+            FunctionExpKind::Panic
         ));
     }
 
     #[test]
-    fn test_can_fuse_three_map_filter_fold() {
-        assert!(FusionAnalyzer::can_fuse_three(
-            FunctionExpKind::Map,
-            FunctionExpKind::Filter,
-            FunctionExpKind::Fold
+    fn test_no_three_pattern_fusion() {
+        assert!(!FusionAnalyzer::can_fuse_three(
+            FunctionExpKind::Recurse,
+            FunctionExpKind::Parallel,
+            FunctionExpKind::Spawn
         ));
     }
 
     #[test]
-    fn test_fusion_hints() {
+    fn test_fusion_hints_default() {
+        let hints = FusionAnalyzer::get_hints(&[FunctionExpKind::Recurse]);
+        assert_eq!(hints.allocations_avoided, 0);
+    }
+
+    #[test]
+    fn test_fusion_hints_constructors() {
         let two = FusionHints::two_pattern();
         assert_eq!(two.allocations_avoided, 1);
         assert!(two.eliminates_intermediate_lists);
@@ -402,6 +382,7 @@ mod tests {
 
     #[test]
     fn test_fused_pattern_names() {
+        // FusedPattern types still exist for potential future method fusion
         let map_filter = FusedPattern::MapFilter {
             input: ExprId::new(0),
             map_fn: ExprId::new(1),

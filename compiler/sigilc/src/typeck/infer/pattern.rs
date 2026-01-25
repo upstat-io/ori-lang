@@ -101,6 +101,30 @@ pub fn infer_function_seq(
                 first_arm_ty
             }
         }
+
+        FunctionSeq::ForPattern { over, map, arm, default, .. } => {
+            // Type check the collection to iterate over
+            let over_ty = infer_expr(checker, *over);
+
+            // If there's a mapping function, type check it
+            if let Some(map_fn) = map {
+                let _ = infer_expr(checker, *map_fn);
+            }
+
+            // Type check the arm body
+            let arm_ty = infer_expr(checker, arm.body);
+
+            // Type check the default value
+            let default_ty = infer_expr(checker, *default);
+
+            // Unify arm result with default
+            if let Err(e) = checker.ctx.unify(&arm_ty, &default_ty) {
+                checker.report_type_error(e, arm.span);
+            }
+
+            let _ = over_ty; // TODO: proper iteration type checking
+            arm_ty
+        }
     }
 }
 

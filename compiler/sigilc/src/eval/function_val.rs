@@ -44,6 +44,31 @@ pub fn function_val_float(args: &[Value]) -> Result<Value, String> {
     }
 }
 
+/// Convert a value to byte.
+pub fn function_val_byte(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("byte expects 1 argument".to_string());
+    }
+    match &args[0] {
+        Value::Int(n) => {
+            if *n < 0 || *n > 255 {
+                Err(format!("byte value {} out of range (0-255)", n))
+            } else {
+                Ok(Value::Byte(*n as u8))
+            }
+        }
+        Value::Byte(b) => Ok(Value::Byte(*b)),
+        Value::Char(c) => {
+            if c.is_ascii() {
+                Ok(Value::Byte(*c as u8))
+            } else {
+                Err(format!("cannot convert non-ASCII char '{}' to byte", c))
+            }
+        }
+        _ => Err(format!("cannot convert {} to byte", args[0].type_name())),
+    }
+}
+
 /// Returns the current OS thread ID as an integer.
 /// Useful for verifying parallel execution.
 pub fn function_val_thread_id(_args: &[Value]) -> Result<Value, String> {
@@ -99,6 +124,22 @@ mod tests {
     #[test]
     fn test_function_val_float_error() {
         let result = function_val_float(&[Value::string("not a number")]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_function_val_byte() {
+        assert_eq!(function_val_byte(&[Value::Int(42)]).unwrap(), Value::Byte(42));
+        assert_eq!(function_val_byte(&[Value::Int(0)]).unwrap(), Value::Byte(0));
+        assert_eq!(function_val_byte(&[Value::Int(255)]).unwrap(), Value::Byte(255));
+        assert_eq!(function_val_byte(&[Value::Byte(100)]).unwrap(), Value::Byte(100));
+    }
+
+    #[test]
+    fn test_function_val_byte_error() {
+        let result = function_val_byte(&[Value::Int(-1)]);
+        assert!(result.is_err());
+        let result = function_val_byte(&[Value::Int(256)]);
         assert!(result.is_err());
     }
 }

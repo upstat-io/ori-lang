@@ -423,8 +423,9 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_function_exp_map() {
-        let result = parse_source("@test () = map(over: [1, 2], transform: (x) -> x)");
+    fn test_parse_function_exp_print() {
+        // Test parsing print function_exp (one of the remaining compiler patterns)
+        let result = parse_source("@test () = print(msg: \"hello\")");
 
         if result.has_errors() {
             eprintln!("Parse errors: {:?}", result.errors);
@@ -435,19 +436,20 @@ mod tests {
         let body = result.arena.get_expr(func.body);
 
         if let ExprKind::FunctionExp(func_exp) = &body.kind {
-            assert!(matches!(func_exp.kind, FunctionExpKind::Map));
+            assert!(matches!(func_exp.kind, FunctionExpKind::Print));
             let props = result.arena.get_named_exprs(func_exp.props);
-            assert_eq!(props.len(), 2);
+            assert_eq!(props.len(), 1);
         } else {
-            panic!("Expected map function_exp, got {:?}", body.kind);
+            panic!("Expected print function_exp, got {:?}", body.kind);
         }
     }
 
     #[test]
-    fn test_parse_map_multiline() {
-        let result = parse_source(r#"@test () = map(
-            over: [1, 2],
-            transform: (x) -> x
+    fn test_parse_timeout_multiline() {
+        // Test parsing timeout function_exp with multiline format
+        let result = parse_source(r#"@test () = timeout(
+            operation: print(msg: "hi"),
+            after: 5s
         )"#);
 
         if result.has_errors() {
@@ -489,10 +491,10 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_collect_pattern() {
-        let result = parse_source(r#"@main () = collect(
-            range: 1..4,
-            transform: (x: int) -> x * x
+    fn test_parse_timeout_pattern() {
+        let result = parse_source(r#"@main () = timeout(
+            operation: print(msg: "hello"),
+            after: 5s
         )"#);
 
         for err in &result.errors {
@@ -509,7 +511,8 @@ mod tests {
 @add (a: int, b: int) -> int = a + b
 
 @test_add tests @add () -> void = run(
-    assert_eq(left: add(a: 1, b: 2), right: 3)
+    let result = add(a: 1, b: 2),
+    print(msg: "done")
 )
 "#);
 

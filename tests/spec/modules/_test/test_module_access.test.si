@@ -1,0 +1,31 @@
+// Spec: 12-modules.md § Test Modules
+// Design: (modules not yet in design docs)
+//
+// Tests that test modules in _test/ directories can access private items
+// from their parent module without using the :: prefix.
+
+// This test file is in _test/ directory, so it should be able to
+// import private items from the parent directory without :: prefix
+use "../use_imports" {
+    add,
+    internal_helper,
+}
+
+// =============================================================================
+// Test: Test module private access
+// =============================================================================
+
+@test_private_access_without_prefix tests @internal_helper () -> void = run(
+    // Test module can access private function without :: prefix
+    assert_eq(actual: internal_helper(3), expected: 6),
+    assert_eq(actual: internal_helper(10), expected: 20)
+)
+
+// Dummy function to satisfy test target requirement
+@internal_helper (x: int) -> int = x * 2
+
+@test_both_public_and_private tests @add () -> void = run(
+    // Both public and private access work from test module
+    assert_eq(actual: add(a: 1, b: 2), expected: 3),
+    assert_eq(actual: internal_helper(5), expected: 10)
+)

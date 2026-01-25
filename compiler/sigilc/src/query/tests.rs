@@ -698,7 +698,11 @@ fn test_evaluated_run_pattern() {
     assert_eq!(result.result, Some(EvalOutput::Int(3)));
 }
 
+// Note: map, filter, fold, find, collect patterns have been moved to stdlib methods
+// per "Lean Core, Rich Libraries" principle. These tests are ignored until stdlib is available.
+
 #[test]
+#[ignore = "map pattern moved to stdlib method"]
 fn test_evaluated_map_pattern() {
     use crate::eval::EvalOutput;
 
@@ -730,6 +734,7 @@ fn test_evaluated_map_pattern() {
 }
 
 #[test]
+#[ignore = "filter pattern moved to stdlib method"]
 fn test_evaluated_filter_pattern() {
     use crate::eval::EvalOutput;
 
@@ -758,6 +763,7 @@ fn test_evaluated_filter_pattern() {
 }
 
 #[test]
+#[ignore = "fold pattern moved to stdlib method"]
 fn test_evaluated_fold_pattern() {
     use crate::eval::EvalOutput;
 
@@ -780,6 +786,7 @@ fn test_evaluated_fold_pattern() {
 }
 
 #[test]
+#[ignore = "find pattern moved to stdlib method"]
 fn test_evaluated_find_pattern() {
     use crate::eval::EvalOutput;
 
@@ -804,6 +811,7 @@ fn test_evaluated_find_pattern() {
 }
 
 #[test]
+#[ignore = "find pattern moved to stdlib method"]
 fn test_evaluated_find_pattern_not_found() {
     use crate::eval::EvalOutput;
 
@@ -825,6 +833,7 @@ fn test_evaluated_find_pattern_not_found() {
 }
 
 #[test]
+#[ignore = "collect pattern moved to stdlib method"]
 fn test_evaluated_collect_pattern() {
     use crate::eval::EvalOutput;
 
