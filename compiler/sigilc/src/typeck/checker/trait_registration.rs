@@ -85,7 +85,7 @@ impl TypeChecker<'_> {
                 .map(|gp| gp.name)
                 .collect();
 
-            // Convert trait path to single name (for now, just use last segment)
+            // Use the last segment of the trait path as the trait name.
             let trait_name = impl_def.trait_path.as_ref().and_then(|path| path.last().copied());
 
             // Convert self type

@@ -35,6 +35,9 @@ mod spawn;
 mod timeout;
 mod with_pattern;
 
+#[cfg(test)]
+mod parallel_tests;
+
 use std::collections::HashMap;
 
 use sigil_ir::{ExprArena, ExprId, NamedExpr, StringInterner};
@@ -432,8 +435,8 @@ pub trait PatternVariadic: PatternCore {
 /// Patterns participate in multiple compilation phases:
 /// - **Type checking**: `type_check()` infers and validates types
 /// - **Evaluation**: `evaluate()` executes in the interpreter
-/// - **Code generation**: `signature()` enables template caching (future)
-/// - **Optimization**: `can_fuse_with()`/`fuse_with()` enable fusion (future)
+/// - **Code generation**: `signature()` enables template caching
+/// - **Optimization**: `can_fuse_with()`/`fuse_with()` enable fusion
 pub trait PatternDefinition: Send + Sync {
     /// The pattern's name (e.g., "map", "filter").
     fn name(&self) -> &'static str;

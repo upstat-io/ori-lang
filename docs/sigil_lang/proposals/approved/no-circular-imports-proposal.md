@@ -1,8 +1,9 @@
 # Proposal: No Circular Imports
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-22
+**Approved:** 2026-01-25
 **Affects:** Compiler, module system
 
 ---

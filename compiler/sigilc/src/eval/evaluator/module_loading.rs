@@ -33,7 +33,7 @@ impl Evaluator<'_> {
     /// Auto-load the prelude (library/std/prelude.si).
     ///
     /// This is called automatically by `load_module` to make prelude functions
-    /// available without explicit import (like Rust's `std::prelude`).
+    /// available without explicit import.
     pub(super) fn load_prelude(&mut self, current_file: &Path) -> Result<(), String> {
         // Don't load prelude if we're already loading it (avoid infinite recursion)
         if Self::is_prelude_file(current_file) {

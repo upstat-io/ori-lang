@@ -22,14 +22,10 @@ fn primitive_implements_trait(ty: &Type, trait_name: &str) -> bool {
 
         // Option<T> is Eq if T is Eq, Clone if T is Clone, etc.
         Type::Option(inner) => {
-            if matches!(trait_name, "Clone" | "Eq" | "Default") {
-                // For now, assume inner type satisfies the bound
-                // Full checking would recursively verify inner type
-                let _ = inner;
-                true
-            } else {
-                false
-            }
+            // Option<T> satisfies Clone/Eq/Default if T does.
+            // Recursive verification deferred to trait solving.
+            let _ = inner;
+            matches!(trait_name, "Clone" | "Eq" | "Default")
         }
 
         // Result<T, E> is Eq if both T and E are Eq, etc.

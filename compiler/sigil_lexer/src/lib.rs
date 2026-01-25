@@ -82,7 +82,6 @@ enum RawToken {
     Tests,
     #[token("as")]
     As,
-    // NOTE: assert is NOT a keyword - it's a built-in function (see spec/11-built-in-functions.md)
     #[token("dyn")]
     Dyn,
     #[token("extend")]

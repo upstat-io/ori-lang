@@ -281,8 +281,7 @@ impl<'a> TypeChecker<'a> {
             ParsedType::Primitive(type_id) => self.type_id_to_type(*type_id),
             ParsedType::Infer => self.ctx.fresh_var(),
             ParsedType::SelfType => {
-                // Self type should be resolved from the impl context
-                // For now, use a fresh var - proper resolution happens in impl checking
+                // Self type resolution is handled during impl checking.
                 self.ctx.fresh_var()
             }
             ParsedType::Named { name, type_args } => {

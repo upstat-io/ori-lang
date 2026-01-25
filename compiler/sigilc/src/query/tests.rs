@@ -569,7 +569,6 @@ fn test_evaluated_list() {
 
     let db = CompilerDb::new();
 
-    // Note: Using simple return type since parser doesn't yet support [int]
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.si"),

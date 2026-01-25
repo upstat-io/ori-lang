@@ -5,7 +5,6 @@
 //!
 //! # Design
 //!
-//! Inspired by TypeScript's code fix system:
 //! - Each fix is registered for specific error codes
 //! - Fixes generate `CodeAction`s with text edits
 //! - Multiple fixes can apply to the same error

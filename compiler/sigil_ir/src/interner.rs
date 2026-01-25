@@ -1,6 +1,7 @@
 //! Sharded string interner for efficient identifier storage.
 //!
-//! Ported from V2 with all Salsa-required traits.
+//! Provides O(1) interning and lookup with thread-safe concurrent access
+//! via per-shard locking.
 
 // Arc is needed here for SharedInterner - the interner must be shared across
 // threads for concurrent compilation and query execution.

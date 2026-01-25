@@ -1,8 +1,9 @@
 # Proposal: Dependency-Aware Test Execution
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with Claude)
 **Created:** 2026-01-24
+**Approved:** 2026-01-25
 
 ---
 

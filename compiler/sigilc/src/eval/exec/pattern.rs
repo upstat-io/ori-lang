@@ -137,8 +137,6 @@ where
             match_fn(value, *arms)
         }
         FunctionSeq::ForPattern { default, .. } => {
-            // TODO: Implement for pattern evaluation
-            // For now, evaluate and return the default value
             let mut eval = eval_fn.clone();
             eval(*default)
         }

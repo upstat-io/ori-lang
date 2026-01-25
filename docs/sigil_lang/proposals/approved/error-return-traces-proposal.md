@@ -1,8 +1,9 @@
 # Proposal: Error Return Traces
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric
 **Created:** 2026-01-22
+**Approved:** 2026-01-25
 **Inspired by:** Zig's error return traces
 
 ---

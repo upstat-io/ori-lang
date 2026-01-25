@@ -1,6 +1,6 @@
 //! Interned string identifier.
 //!
-//! Ported from V2 with all Salsa-required traits.
+//! Provides compact 32-bit interned identifiers with all Salsa-required traits.
 
 use std::fmt;
 use std::hash::{Hash, Hasher};

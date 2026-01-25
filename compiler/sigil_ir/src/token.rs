@@ -1,6 +1,6 @@
 //! Token types for the Sigil lexer.
 //!
-//! Ported from V2 with all Salsa-required traits (Clone, Eq, Hash, Debug).
+//! Provides token representation with all Salsa-required traits (Clone, Eq, Hash, Debug).
 
 use super::{Name, Span};
 use std::fmt;
@@ -93,7 +93,6 @@ pub enum TokenKind {
     // Additional keywords
     Tests,
     As,
-    // NOTE: Assert removed - 'assert' is a built-in function, not a keyword
     Dyn,
     Extend,
     Extension,

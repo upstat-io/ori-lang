@@ -5,10 +5,8 @@
 //! - JSON: Machine-readable output for tooling
 //! - SARIF: Static Analysis Results Interchange Format for CI/CD integration
 //!
-//! # Design
-//!
-//! Inspired by Rust's diagnostic emission system. Each emitter implements
-//! the `DiagnosticEmitter` trait and can be configured for different use cases.
+//! Each emitter implements the `DiagnosticEmitter` trait and can be
+//! configured for different use cases.
 
 mod json;
 mod sarif;

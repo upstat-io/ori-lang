@@ -12,10 +12,6 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use crate::{Name, Span, ExprId, ExprRange, StmtRange, Spanned, ParsedType};
-
-// Note: Size assertions removed during ParsedType migration.
-// ParsedType is larger than TypeId, so Expr/ExprKind sizes have increased.
-// TODO: Consider optimizing ParsedType or using boxing if size becomes a concern.
 use crate::token::{DurationUnit, SizeUnit};
 use super::operators::{BinaryOp, UnaryOp};
 use super::ranges::{ArmRange, MapEntryRange, FieldInitRange, CallArgRange};

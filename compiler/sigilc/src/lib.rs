@@ -1,6 +1,6 @@
-//! Sigil V3 Compiler - Salsa-First Incremental Compilation
+//! Sigil Compiler - Salsa-First Incremental Compilation
 //!
-//! V3 is built with Salsa as the foundation, not an afterthought.
+//! Built with Salsa as the foundation for efficient incremental compilation.
 //! Every type that flows through queries has Clone, Eq, Hash, Debug.
 //!
 //! # Architecture
