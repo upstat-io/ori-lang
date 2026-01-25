@@ -1,0 +1,125 @@
+// Spec: 07-properties-of-types.md § IsEmpty Trait
+// Design: 03-type-system/04-traits.md § Core Library Traits
+// Tests for the IsEmpty trait and .is_empty() method
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// List IsEmpty
+// =============================================================================
+
+@test_empty_list_is_empty tests @empty_list_is_empty () -> void = run(
+    assert(cond: [].is_empty()),
+)
+
+@empty_list_is_empty () -> bool = [].is_empty()
+
+@test_non_empty_list_is_empty tests @non_empty_list_is_empty () -> void = run(
+    assert(cond: ![1, 2, 3].is_empty()),
+)
+
+@non_empty_list_is_empty () -> bool = [1].is_empty()
+
+@test_single_element_list tests @single_element_list () -> void = run(
+    assert(cond: ![42].is_empty()),
+)
+
+@single_element_list () -> bool = [42].is_empty()
+
+// =============================================================================
+// String IsEmpty
+// =============================================================================
+
+@test_empty_str_is_empty tests @empty_str_is_empty () -> void = run(
+    assert(cond: "".is_empty()),
+)
+
+@empty_str_is_empty () -> bool = "".is_empty()
+
+@test_non_empty_str_is_empty tests @non_empty_str_is_empty () -> void = run(
+    assert(cond: !"hello".is_empty()),
+)
+
+@non_empty_str_is_empty () -> bool = "hello".is_empty()
+
+@test_whitespace_str tests @whitespace_str () -> void = run(
+    // A string with only whitespace is NOT empty
+    assert(cond: !" ".is_empty()),
+    assert(cond: !"\n".is_empty()),
+    assert(cond: !"\t".is_empty()),
+)
+
+@whitespace_str () -> bool = " ".is_empty()
+
+// =============================================================================
+// Map IsEmpty
+// =============================================================================
+
+@test_empty_map_is_empty tests @empty_map_is_empty () -> void = run(
+    let m: {str: int} = {},
+    assert(cond: m.is_empty()),
+)
+
+@empty_map_is_empty () -> bool = run(
+    let m: {str: int} = {},
+    m.is_empty(),
+)
+
+@test_non_empty_map_is_empty tests @non_empty_map_is_empty () -> void = run(
+    let m = {"key": 1},
+    assert(cond: !m.is_empty()),
+)
+
+@non_empty_map_is_empty () -> bool = {"a": 1}.is_empty()
+
+// =============================================================================
+// IsEmpty Built-in Function
+// =============================================================================
+
+@test_is_empty_builtin_list tests @is_empty_builtin_list () -> void = run(
+    assert(cond: is_empty(collection: [])),
+    assert(cond: !is_empty(collection: [1])),
+)
+
+@is_empty_builtin_list () -> bool = is_empty(collection: [])
+
+@test_is_empty_builtin_str tests @is_empty_builtin_str () -> void = run(
+    assert(cond: is_empty(collection: "")),
+    assert(cond: !is_empty(collection: "hello")),
+)
+
+@is_empty_builtin_str () -> bool = is_empty(collection: "")
+
+// =============================================================================
+// IsEmpty Trait Bound
+// =============================================================================
+
+@check_empty<T: IsEmpty> (x: T) -> bool = x.is_empty()
+
+@test_is_empty_bound_list tests @check_empty () -> void = run(
+    assert(cond: check_empty(x: [])),
+    assert(cond: !check_empty(x: [1, 2])),
+)
+
+@test_is_empty_bound_str tests @check_empty () -> void = run(
+    assert(cond: check_empty(x: "")),
+    assert(cond: !check_empty(x: "hello")),
+)
+
+// =============================================================================
+// Combined Len and IsEmpty
+// =============================================================================
+
+@check_size<T: Len + IsEmpty> (x: T) -> str =
+    if x.is_empty() then "empty" else "has " + str(x.len()) + " items"
+
+@test_combined_bounds tests @check_size () -> void = run(
+    assert_eq(
+        actual: check_size(x: []),
+        expected: "empty",
+    ),
+    assert_eq(
+        actual: check_size(x: [1, 2, 3]),
+        expected: "has 3 items",
+    ),
+)

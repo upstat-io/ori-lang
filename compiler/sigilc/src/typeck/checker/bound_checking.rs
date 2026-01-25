@@ -13,7 +13,7 @@ fn primitive_implements_trait(ty: &Type, trait_name: &str) -> bool {
         Type::Int => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Hashable" | "Default" | "Printable"),
         Type::Float => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Default" | "Printable"),
         Type::Bool => matches!(trait_name, "Eq" | "Clone" | "Hashable" | "Default" | "Printable"),
-        Type::Str => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Hashable" | "Default" | "Printable"),
+        Type::Str => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Hashable" | "Default" | "Printable" | "Len" | "IsEmpty"),
         Type::Char => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Hashable" | "Printable"),
         Type::Byte => matches!(trait_name, "Eq" | "Clone" | "Hashable" | "Printable"),
         Type::Unit => matches!(trait_name, "Eq" | "Clone" | "Default"),
@@ -38,10 +38,20 @@ fn primitive_implements_trait(ty: &Type, trait_name: &str) -> bool {
             }
         }
 
-        // Lists, Maps, Tuples implement Clone if their elements do
-        Type::List(_) | Type::Map { .. } | Type::Tuple(_) | Type::Set(_) => {
-            matches!(trait_name, "Clone" | "Eq")
-        }
+        // Lists implement Len, IsEmpty, Clone, Eq
+        Type::List(_) => matches!(trait_name, "Clone" | "Eq" | "Len" | "IsEmpty"),
+
+        // Maps implement Len, IsEmpty, Clone, Eq
+        Type::Map { .. } => matches!(trait_name, "Clone" | "Eq" | "Len" | "IsEmpty"),
+
+        // Sets implement Len, IsEmpty, Clone, Eq
+        Type::Set(_) => matches!(trait_name, "Clone" | "Eq" | "Len" | "IsEmpty"),
+
+        // Tuples implement Clone, Eq
+        Type::Tuple(_) => matches!(trait_name, "Clone" | "Eq"),
+
+        // Ranges implement Len
+        Type::Range(_) => matches!(trait_name, "Len"),
 
         _ => false,
     }

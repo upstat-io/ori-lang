@@ -1,0 +1,198 @@
+// Spec: 06-types.md § Result Type
+// Design: 03-type-system/02-compound-types.md § Result
+// Tests for Result<T, E> methods: is_ok, is_err, unwrap
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// is_ok Method
+// =============================================================================
+
+@test_ok_is_ok tests @ok_is_ok () -> void = run(
+    let x: Result<int, str> = Ok(42),
+    assert(cond: x.is_ok()),
+)
+
+@ok_is_ok () -> bool = run(
+    let x: Result<int, str> = Ok(42),
+    x.is_ok(),
+)
+
+@test_err_is_ok tests @err_is_ok () -> void = run(
+    let x: Result<int, str> = Err("error"),
+    assert(cond: !x.is_ok()),
+)
+
+@err_is_ok () -> bool = run(
+    let x: Result<int, str> = Err("error"),
+    x.is_ok(),
+)
+
+// =============================================================================
+// is_err Method
+// =============================================================================
+
+@test_err_is_err tests @err_is_err () -> void = run(
+    let x: Result<int, str> = Err("failed"),
+    assert(cond: x.is_err()),
+)
+
+@err_is_err () -> bool = run(
+    let x: Result<int, str> = Err("failed"),
+    x.is_err(),
+)
+
+@test_ok_is_err tests @ok_is_err () -> void = run(
+    let x: Result<int, str> = Ok(100),
+    assert(cond: !x.is_err()),
+)
+
+@ok_is_err () -> bool = run(
+    let x: Result<int, str> = Ok(100),
+    x.is_err(),
+)
+
+// =============================================================================
+// is_ok and is_err Built-in Functions
+// =============================================================================
+
+@test_is_ok_builtin tests @is_ok_builtin () -> void = run(
+    let ok_val: Result<int, str> = Ok(1),
+    let err_val: Result<int, str> = Err("e"),
+    assert(cond: is_ok(result: ok_val)),
+    assert(cond: !is_ok(result: err_val)),
+)
+
+@is_ok_builtin () -> bool = run(
+    let x: Result<int, str> = Ok(1),
+    is_ok(result: x),
+)
+
+@test_is_err_builtin tests @is_err_builtin () -> void = run(
+    let ok_val: Result<int, str> = Ok(1),
+    let err_val: Result<int, str> = Err("e"),
+    assert(cond: is_err(result: err_val)),
+    assert(cond: !is_err(result: ok_val)),
+)
+
+@is_err_builtin () -> bool = run(
+    let x: Result<int, str> = Err("error"),
+    is_err(result: x),
+)
+
+// =============================================================================
+// unwrap Method
+// =============================================================================
+
+@test_unwrap_ok tests @unwrap_ok () -> void = run(
+    let x: Result<int, str> = Ok(42),
+    assert_eq(
+        actual: x.unwrap(),
+        expected: 42,
+    ),
+)
+
+@unwrap_ok () -> int = run(
+    let x: Result<int, str> = Ok(42),
+    x.unwrap(),
+)
+
+@test_unwrap_string tests @unwrap_result_string () -> void = run(
+    let x: Result<str, int> = Ok("success"),
+    assert_eq(
+        actual: x.unwrap(),
+        expected: "success",
+    ),
+)
+
+@unwrap_result_string () -> str = run(
+    let x: Result<str, int> = Ok("hello"),
+    x.unwrap(),
+)
+
+// =============================================================================
+// Result with Various Types
+// =============================================================================
+
+@test_result_list tests @result_list () -> void = run(
+    let x: Result<[int], str> = Ok([1, 2, 3]),
+    assert(cond: x.is_ok()),
+    assert_eq(
+        actual: x.unwrap().len(),
+        expected: 3,
+    ),
+)
+
+@result_list () -> int = run(
+    let x: Result<[int], str> = Ok([1, 2]),
+    x.unwrap().len(),
+)
+
+@test_result_bool tests @result_bool () -> void = run(
+    let t: Result<bool, str> = Ok(true),
+    let f: Result<bool, str> = Ok(false),
+    assert(cond: t.unwrap()),
+    assert(cond: !f.unwrap()),
+)
+
+@result_bool () -> bool = run(
+    let x: Result<bool, str> = Ok(true),
+    x.unwrap(),
+)
+
+// =============================================================================
+// Chained Result Operations
+// =============================================================================
+
+@test_result_chain tests @result_chain () -> void = run(
+    let x: Result<int, str> = Ok(21),
+    let result = if x.is_ok() then x.unwrap() * 2 else 0,
+    assert_eq(
+        actual: result,
+        expected: 42,
+    ),
+)
+
+@result_chain () -> int = run(
+    let x: Result<int, str> = Ok(10),
+    if x.is_ok() then x.unwrap() else 0,
+)
+
+@test_conditional_error tests @conditional_error () -> void = run(
+    let x: Result<int, str> = Err("not found"),
+    let result = if x.is_err() then -1 else x.unwrap(),
+    assert_eq(
+        actual: result,
+        expected: -1,
+    ),
+)
+
+@conditional_error () -> int = run(
+    let x: Result<int, str> = Err("error"),
+    if x.is_err() then 0 else x.unwrap(),
+)
+
+// =============================================================================
+// Error Value Types
+// =============================================================================
+
+@test_int_error tests @int_error () -> void = run(
+    let x: Result<str, int> = Err(404),
+    assert(cond: x.is_err()),
+)
+
+@int_error () -> bool = run(
+    let x: Result<str, int> = Err(500),
+    x.is_err(),
+)
+
+@test_complex_error tests @complex_error () -> void = run(
+    // Error can be any type
+    let x: Result<int, [str]> = Err(["error1", "error2"]),
+    assert(cond: x.is_err()),
+)
+
+@complex_error () -> bool = run(
+    let x: Result<int, [str]> = Err(["e"]),
+    x.is_err(),
+)

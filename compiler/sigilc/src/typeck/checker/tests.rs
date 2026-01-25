@@ -633,3 +633,306 @@ fn test_multiple_functions_with_same_type_param_name() {
     assert_eq!(typed.function_types[0].generics.len(), 1);
     assert_eq!(typed.function_types[1].generics.len(), 1);
 }
+
+// ============================================================================
+// Len and IsEmpty Trait Bound Tests
+// ============================================================================
+
+#[test]
+fn test_len_bound_satisfied_by_list() {
+    let source = r#"
+        @get_length<T: Len> (x: T) -> int = x.len()
+        @main () -> int = get_length(x: [1, 2, 3])
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    // Should have no E2009 errors for Len bound violation
+    let bound_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2009)
+        .collect();
+    assert!(bound_errors.is_empty(),
+        "list should satisfy Len bound, got errors: {:?}", bound_errors);
+}
+
+#[test]
+fn test_len_bound_satisfied_by_str() {
+    let source = r#"
+        @get_length<T: Len> (x: T) -> int = x.len()
+        @main () -> int = get_length(x: "hello")
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let bound_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2009)
+        .collect();
+    assert!(bound_errors.is_empty(),
+        "str should satisfy Len bound, got errors: {:?}", bound_errors);
+}
+
+#[test]
+fn test_len_bound_not_satisfied_by_int() {
+    let source = r#"
+        @get_length<T: Len> (x: T) -> int = 0
+        @main () -> int = get_length(x: 42)
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let bound_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2009)
+        .collect();
+    assert!(!bound_errors.is_empty(),
+        "int should NOT satisfy Len bound, expected E2009 error");
+}
+
+#[test]
+fn test_is_empty_bound_satisfied_by_list() {
+    let source = r#"
+        @check_empty<T: IsEmpty> (x: T) -> bool = x.is_empty()
+        @main () -> bool = check_empty(x: [])
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let bound_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2009)
+        .collect();
+    assert!(bound_errors.is_empty(),
+        "list should satisfy IsEmpty bound, got errors: {:?}", bound_errors);
+}
+
+#[test]
+fn test_is_empty_bound_satisfied_by_str() {
+    let source = r#"
+        @check_empty<T: IsEmpty> (x: T) -> bool = x.is_empty()
+        @main () -> bool = check_empty(x: "")
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let bound_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2009)
+        .collect();
+    assert!(bound_errors.is_empty(),
+        "str should satisfy IsEmpty bound, got errors: {:?}", bound_errors);
+}
+
+#[test]
+fn test_is_empty_bound_not_satisfied_by_int() {
+    let source = r#"
+        @check_empty<T: IsEmpty> (x: T) -> bool = false
+        @main () -> bool = check_empty(x: 42)
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let bound_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2009)
+        .collect();
+    assert!(!bound_errors.is_empty(),
+        "int should NOT satisfy IsEmpty bound, expected E2009 error");
+}
+
+#[test]
+fn test_combined_len_and_is_empty_bounds() {
+    let source = r#"
+        @check_size<T: Len + IsEmpty> (x: T) -> int = if x.is_empty() then 0 else x.len()
+        @main () -> int = check_size(x: [1, 2, 3])
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let bound_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2009)
+        .collect();
+    assert!(bound_errors.is_empty(),
+        "list should satisfy both Len and IsEmpty bounds, got errors: {:?}", bound_errors);
+}
+
+// ============================================================================
+// Comparable and Eq Trait Bound Tests
+// ============================================================================
+
+#[test]
+fn test_comparable_bound_satisfied_by_int() {
+    let source = r#"
+        @compare_vals<T: Comparable> (a: T, b: T) -> bool = true
+        @main () -> bool = compare_vals(a: 1, b: 2)
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let bound_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2009)
+        .collect();
+    assert!(bound_errors.is_empty(),
+        "int should satisfy Comparable bound, got errors: {:?}", bound_errors);
+}
+
+#[test]
+fn test_comparable_bound_satisfied_by_str() {
+    let source = r#"
+        @compare_vals<T: Comparable> (a: T, b: T) -> bool = true
+        @main () -> bool = compare_vals(a: "hello", b: "world")
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let bound_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2009)
+        .collect();
+    assert!(bound_errors.is_empty(),
+        "str should satisfy Comparable bound, got errors: {:?}", bound_errors);
+}
+
+#[test]
+fn test_eq_bound_satisfied_by_int() {
+    let source = r#"
+        @check_eq<T: Eq> (a: T, b: T) -> bool = true
+        @main () -> bool = check_eq(a: 1, b: 1)
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let bound_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2009)
+        .collect();
+    assert!(bound_errors.is_empty(),
+        "int should satisfy Eq bound, got errors: {:?}", bound_errors);
+}
+
+#[test]
+fn test_eq_bound_satisfied_by_bool() {
+    let source = r#"
+        @check_eq<T: Eq> (a: T, b: T) -> bool = true
+        @main () -> bool = check_eq(a: true, b: false)
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let bound_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2009)
+        .collect();
+    assert!(bound_errors.is_empty(),
+        "bool should satisfy Eq bound, got errors: {:?}", bound_errors);
+}
+
+#[test]
+fn test_clone_bound_satisfied_by_int() {
+    let source = r#"
+        @duplicate<T: Clone> (x: T) -> T = x
+        @main () -> int = duplicate(x: 42)
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let bound_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2009)
+        .collect();
+    assert!(bound_errors.is_empty(),
+        "int should satisfy Clone bound, got errors: {:?}", bound_errors);
+}
+
+#[test]
+fn test_hashable_bound_satisfied_by_str() {
+    let source = r#"
+        @hash_val<T: Hashable> (x: T) -> int = 0
+        @main () -> int = hash_val(x: "hello")
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let bound_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2009)
+        .collect();
+    assert!(bound_errors.is_empty(),
+        "str should satisfy Hashable bound, got errors: {:?}", bound_errors);
+}
+
+#[test]
+fn test_default_bound_satisfied_by_int() {
+    let source = r#"
+        @default_val<T: Default> () -> int = 0
+        @use_default () -> int = default_val()
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    // This test just verifies parsing works - the bound check
+    // would require calling with a specific type
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+}
+
+#[test]
+fn test_printable_bound_satisfied_by_int() {
+    let source = r#"
+        @to_str<T: Printable> (x: T) -> str = "printed"
+        @main () -> str = to_str(x: 42)
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let bound_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2009)
+        .collect();
+    assert!(bound_errors.is_empty(),
+        "int should satisfy Printable bound, got errors: {:?}", bound_errors);
+}
