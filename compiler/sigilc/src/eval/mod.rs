@@ -29,7 +29,7 @@ pub mod module;
 
 pub use value::{Value, FunctionValue, RangeValue, StructValue, StructLayout, Heap, FunctionValFn};
 pub use environment::Environment;
-pub use evaluator::{Evaluator, EvalResult, EvalError};
+pub use evaluator::{Evaluator, EvaluatorBuilder, EvalResult, EvalError};
 pub use output::{EvalOutput, ModuleEvalResult};
 pub use operators::OperatorRegistry;
 pub use methods::MethodRegistry;
