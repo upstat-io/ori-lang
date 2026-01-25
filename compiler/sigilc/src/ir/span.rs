@@ -99,6 +99,13 @@ impl fmt::Display for Span {
     }
 }
 
+// Size assertions to prevent accidental regressions
+#[cfg(target_pointer_width = "64")]
+mod size_asserts {
+    use super::*;
+    crate::static_assert_size!(Span, 8);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

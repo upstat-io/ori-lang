@@ -5,17 +5,23 @@ The diagnostics system provides error reporting, warnings, and code fix suggesti
 ## Location
 
 ```
-compiler/sigilc/src/diagnostic/
-├── mod.rs              # Core types, ErrorCode (~479 lines)
-├── problem.rs          # Problem enum
-├── report.rs           # Report formatting
-├── fixes/
-│   └── mod.rs          # Code fix system (~258 lines)
-└── emitter/
-    ├── mod.rs          # Emitter trait
-    ├── terminal.rs     # Terminal output
-    ├── json.rs         # JSON output
-    └── sarif.rs        # SARIF format (~453 lines)
+compiler/
+├── sigil-macros/           # Proc-macro crate for diagnostic derives
+│   └── src/
+│       ├── lib.rs              # Derive macro exports
+│       ├── diagnostic.rs       # #[derive(Diagnostic)] implementation
+│       └── subdiagnostic.rs    # #[derive(Subdiagnostic)] implementation
+└── sigilc/src/diagnostic/
+    ├── mod.rs              # Core types, ErrorCode, Applicability (~600+ lines)
+    ├── problem.rs          # Problem enum
+    ├── report.rs           # Report formatting
+    ├── fixes/
+    │   └── mod.rs          # Code fix system (~258 lines)
+    └── emitter/
+        ├── mod.rs          # Emitter trait
+        ├── terminal.rs     # Terminal output
+        ├── json.rs         # JSON output
+        └── sarif.rs        # SARIF format (~453 lines)
 ```
 
 ## Design Goals
@@ -48,28 +54,70 @@ pub struct Diagnostic {
     /// Main message
     pub message: String,
 
-    /// Primary source location
-    pub span: Span,
-
-    /// Additional labels
+    /// Labeled spans showing where the error occurred
     pub labels: Vec<Label>,
 
-    /// Suggested fixes
-    pub fixes: Vec<CodeFix>,
+    /// Additional notes providing context
+    pub notes: Vec<String>,
 
-    /// Help text
-    pub help: Option<String>,
+    /// Simple text suggestions (human-readable)
+    pub suggestions: Vec<String>,
 
-    /// Related information
-    pub related: Vec<RelatedInfo>,
+    /// Structured suggestions with spans and applicability (for `sigil fix`)
+    pub structured_suggestions: Vec<Suggestion>,
 }
 
 pub enum Severity {
     Error,
     Warning,
-    Info,
-    Hint,
+    Note,
+    Help,
 }
+```
+
+## Structured Suggestions
+
+Structured suggestions enable `sigil fix` to auto-apply fixes:
+
+```rust
+/// Applicability level for code suggestions
+pub enum Applicability {
+    /// Safe to auto-apply (typos, missing delimiters)
+    MachineApplicable,
+
+    /// Might be wrong (type conversions, imports)
+    MaybeIncorrect,
+
+    /// Contains placeholders needing user input
+    HasPlaceholders,
+
+    /// Unknown confidence level
+    Unspecified,
+}
+
+pub struct Suggestion {
+    pub message: String,
+    pub substitutions: Vec<Substitution>,
+    pub applicability: Applicability,
+}
+
+pub struct Substitution {
+    pub span: Span,
+    pub snippet: String,
+}
+```
+
+Usage:
+
+```rust
+// Machine-applicable fix (safe to auto-apply)
+Diagnostic::error(ErrorCode::E1001)
+    .with_message("missing semicolon")
+    .with_fix("add semicolon", span, ";")
+
+// Maybe-incorrect fix (needs human review)
+Diagnostic::error(ErrorCode::E2001)
+    .with_maybe_fix("convert to int", span, "int(x)")
 ```
 
 ## Example Output
@@ -135,29 +183,46 @@ pub enum Problem {
 }
 ```
 
-### CodeFix
+## Diagnostic Derive Macros
+
+The `sigil-macros` crate provides derive macros for declarative diagnostic definitions:
 
 ```rust
-pub struct CodeFix {
-    /// Description of the fix
-    pub message: String,
-
-    /// Edits to apply
-    pub edits: Vec<TextEdit>,
-
-    /// Applicability level
-    pub applicability: Applicability,
+#[derive(Diagnostic)]
+#[diag(E2001, "type mismatch: expected `{expected}`, found `{found}`")]
+pub struct TypeMismatch {
+    #[primary_span]
+    #[label("expected `{expected}`")]
+    pub span: Span,
+    pub expected: String,
+    pub found: String,
+    #[suggestion("convert with `int({name})`", code = "int({name})", applicability = "maybe-incorrect")]
+    pub conversion_span: Option<Span>,
 }
 
-pub enum Applicability {
-    /// Safe to apply automatically
-    MachineApplicable,
+// Usage:
+let err = TypeMismatch { span, expected: "int".into(), found: "str".into(), conversion_span: None };
+let diagnostic = err.into_diagnostic();
+```
 
-    /// May have side effects
-    MaybeIncorrect,
+Supported attributes:
 
-    /// Needs human review
-    HasPlaceholders,
+| Attribute | Level | Description |
+|-----------|-------|-------------|
+| `#[diag(CODE, "msg")]` | Struct | Error code and message template |
+| `#[primary_span]` | Field | Main error location |
+| `#[label("msg")]` | Field | Label for a span |
+| `#[note("msg")]` | Field | Additional note |
+| `#[suggestion(...)]` | Field | Structured fix suggestion |
+
+Subdiagnostics can be added via `#[derive(Subdiagnostic)]`:
+
+```rust
+#[derive(Subdiagnostic)]
+#[label("this type was expected")]
+pub struct ExpectedTypeLabel {
+    #[primary_span]
+    pub span: Span,
 }
 ```
 

@@ -12,6 +12,18 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use crate::ir::{Name, Span, TypeId, ExprId, ExprRange, StmtRange, Spanned};
+
+// Size assertions to prevent accidental regressions in frequently-allocated types.
+// Expr and ExprKind are allocated in the arena - keeping them compact improves cache locality.
+#[cfg(target_pointer_width = "64")]
+mod size_asserts {
+    use super::*;
+    // Expr: ExprKind (80 bytes) + Span (8 bytes) = 88 bytes
+    crate::static_assert_size!(Expr, 88);
+    // ExprKind: largest variants are FunctionSeq/FunctionExp which contain
+    // nested structs with multiple fields. Current size is 80 bytes.
+    crate::static_assert_size!(ExprKind, 80);
+}
 use crate::ir::token::{DurationUnit, SizeUnit};
 use super::operators::{BinaryOp, UnaryOp};
 use super::ranges::{ArmRange, MapEntryRange, FieldInitRange, CallArgRange};

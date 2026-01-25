@@ -172,6 +172,123 @@ impl fmt::Display for Severity {
     }
 }
 
+/// Applicability level for code suggestions.
+///
+/// Indicates how confident we are that a suggestion is correct,
+/// enabling `sigil fix` to safely auto-apply machine-applicable fixes.
+///
+/// Based on Rust's `rustc_lint_defs::Applicability`.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
+pub enum Applicability {
+    /// The suggestion is definitely correct and can be auto-applied.
+    /// Used for simple fixes like typos, missing semicolons, etc.
+    MachineApplicable,
+
+    /// The suggestion might be correct but requires human verification.
+    /// Used when we're fairly confident but there could be edge cases.
+    MaybeIncorrect,
+
+    /// The suggestion contains placeholders that need user input.
+    /// For example: "consider adding a type annotation: `: <type>`"
+    HasPlaceholders,
+
+    /// We don't know how confident the suggestion is.
+    /// Default for suggestions where applicability wasn't specified.
+    #[default]
+    Unspecified,
+}
+
+impl Applicability {
+    /// Check if this suggestion can be safely auto-applied.
+    pub fn is_machine_applicable(&self) -> bool {
+        matches!(self, Applicability::MachineApplicable)
+    }
+}
+
+/// A text substitution for a code fix.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct Substitution {
+    /// The span to replace.
+    pub span: Span,
+    /// The replacement text.
+    pub snippet: String,
+}
+
+impl Substitution {
+    /// Create a new substitution.
+    pub fn new(span: Span, snippet: impl Into<String>) -> Self {
+        Substitution {
+            span,
+            snippet: snippet.into(),
+        }
+    }
+}
+
+/// A structured suggestion with substitutions and applicability.
+///
+/// Unlike simple string suggestions, this provides:
+/// - Exact spans for what to replace
+/// - Replacement text
+/// - Confidence level for auto-application
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct Suggestion {
+    /// Human-readable message describing the fix.
+    pub message: String,
+    /// The text substitutions to make.
+    pub substitutions: Vec<Substitution>,
+    /// How confident we are in this suggestion.
+    pub applicability: Applicability,
+}
+
+impl Suggestion {
+    /// Create a new suggestion with a single substitution.
+    pub fn new(
+        message: impl Into<String>,
+        span: Span,
+        snippet: impl Into<String>,
+        applicability: Applicability,
+    ) -> Self {
+        Suggestion {
+            message: message.into(),
+            substitutions: vec![Substitution::new(span, snippet)],
+            applicability,
+        }
+    }
+
+    /// Create a machine-applicable suggestion (safe to auto-apply).
+    pub fn machine_applicable(
+        message: impl Into<String>,
+        span: Span,
+        snippet: impl Into<String>,
+    ) -> Self {
+        Self::new(message, span, snippet, Applicability::MachineApplicable)
+    }
+
+    /// Create a suggestion that might be incorrect.
+    pub fn maybe_incorrect(
+        message: impl Into<String>,
+        span: Span,
+        snippet: impl Into<String>,
+    ) -> Self {
+        Self::new(message, span, snippet, Applicability::MaybeIncorrect)
+    }
+
+    /// Create a suggestion with placeholders.
+    pub fn has_placeholders(
+        message: impl Into<String>,
+        span: Span,
+        snippet: impl Into<String>,
+    ) -> Self {
+        Self::new(message, span, snippet, Applicability::HasPlaceholders)
+    }
+
+    /// Add another substitution to this suggestion.
+    pub fn with_substitution(mut self, span: Span, snippet: impl Into<String>) -> Self {
+        self.substitutions.push(Substitution::new(span, snippet));
+        self
+    }
+}
+
 /// A labeled span with a message.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct Label {
@@ -216,8 +333,10 @@ pub struct Diagnostic {
     pub labels: Vec<Label>,
     /// Additional notes providing context.
     pub notes: Vec<String>,
-    /// Suggestions for fixing the error.
+    /// Simple text suggestions for fixing the error (human-readable).
     pub suggestions: Vec<String>,
+    /// Structured suggestions with spans and applicability (for `sigil fix`).
+    pub structured_suggestions: Vec<Suggestion>,
 }
 
 impl Diagnostic {
@@ -230,6 +349,7 @@ impl Diagnostic {
             labels: Vec::new(),
             notes: Vec::new(),
             suggestions: Vec::new(),
+            structured_suggestions: Vec::new(),
         }
     }
 
@@ -242,6 +362,7 @@ impl Diagnostic {
             labels: Vec::new(),
             notes: Vec::new(),
             suggestions: Vec::new(),
+            structured_suggestions: Vec::new(),
         }
     }
 
@@ -275,6 +396,45 @@ impl Diagnostic {
         self
     }
 
+    /// Add a structured suggestion with applicability information.
+    ///
+    /// Structured suggestions can be used by `sigil fix` to auto-apply fixes.
+    pub fn with_structured_suggestion(mut self, suggestion: Suggestion) -> Self {
+        self.structured_suggestions.push(suggestion);
+        self
+    }
+
+    /// Add a machine-applicable suggestion (safe to auto-apply).
+    ///
+    /// Use this for fixes that are definitely correct:
+    /// - Typo corrections
+    /// - Missing delimiters
+    /// - Simple syntax fixes
+    pub fn with_fix(
+        mut self,
+        message: impl Into<String>,
+        span: Span,
+        snippet: impl Into<String>,
+    ) -> Self {
+        self.structured_suggestions.push(Suggestion::machine_applicable(message, span, snippet));
+        self
+    }
+
+    /// Add a suggestion that might be incorrect.
+    ///
+    /// Use this when we're fairly confident but not certain:
+    /// - Type conversions
+    /// - Import suggestions
+    pub fn with_maybe_fix(
+        mut self,
+        message: impl Into<String>,
+        span: Span,
+        snippet: impl Into<String>,
+    ) -> Self {
+        self.structured_suggestions.push(Suggestion::maybe_incorrect(message, span, snippet));
+        self
+    }
+
     /// Get the primary span (first primary label's span).
     pub fn primary_span(&self) -> Option<Span> {
         self.labels.iter().find(|l| l.is_primary).map(|l| l.span)
@@ -283,6 +443,16 @@ impl Diagnostic {
     /// Check if this is an error (vs warning/note).
     pub fn is_error(&self) -> bool {
         matches!(self.severity, Severity::Error)
+    }
+
+    /// Check if this diagnostic has any machine-applicable fixes.
+    pub fn has_machine_applicable_fix(&self) -> bool {
+        self.structured_suggestions.iter().any(|s| s.applicability.is_machine_applicable())
+    }
+
+    /// Get all machine-applicable suggestions.
+    pub fn machine_applicable_fixes(&self) -> impl Iterator<Item = &Suggestion> {
+        self.structured_suggestions.iter().filter(|s| s.applicability.is_machine_applicable())
     }
 }
 

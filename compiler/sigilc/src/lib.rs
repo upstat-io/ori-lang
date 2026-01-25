@@ -20,6 +20,29 @@
 //!
 //! Each arrow is a Salsa query with automatic caching and invalidation.
 
+/// Compile-time assertion that a type has a specific size.
+///
+/// Used to prevent accidental size regressions in frequently-allocated types.
+/// If the size changes, compilation will fail with a clear error message.
+///
+/// # Example
+///
+/// ```ignore
+/// static_assert_size!(Span, 8);
+/// static_assert_size!(Token, 16);
+/// ```
+///
+/// # Note
+///
+/// Size assertions are platform-specific. Use `#[cfg(target_pointer_width = "64")]`
+/// to limit assertions to 64-bit platforms where sizes may differ from 32-bit.
+#[macro_export]
+macro_rules! static_assert_size {
+    ($ty:ty, $size:expr) => {
+        const _: [(); $size] = [(); ::std::mem::size_of::<$ty>()];
+    };
+}
+
 pub mod db;
 pub mod input;
 pub mod query;
@@ -39,6 +62,7 @@ pub mod patterns;
 pub mod context;
 pub mod testing;
 pub mod debug;
+pub mod stack;
 
 // Re-exports for convenience
 pub use db::{Db, CompilerDb};

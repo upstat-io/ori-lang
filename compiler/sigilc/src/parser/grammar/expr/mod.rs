@@ -19,11 +19,20 @@ mod patterns;
 
 use crate::ir::{BinaryOp, Expr, ExprId, ExprKind, TokenKind};
 use crate::parser::{ParseError, Parser};
+use crate::stack::ensure_sufficient_stack;
 
 impl<'a> Parser<'a> {
     /// Parse an expression.
     /// Handles assignment at the top level: `identifier = expression`
+    ///
+    /// Uses `ensure_sufficient_stack` to prevent stack overflow
+    /// on deeply nested expressions.
     pub(crate) fn parse_expr(&mut self) -> Result<ExprId, ParseError> {
+        ensure_sufficient_stack(|| self.parse_expr_inner())
+    }
+
+    /// Inner expression parsing logic (wrapped by `parse_expr` for stack safety).
+    fn parse_expr_inner(&mut self) -> Result<ExprId, ParseError> {
         let left = self.parse_binary_or()?;
 
         // Check for assignment (= but not == or =>)

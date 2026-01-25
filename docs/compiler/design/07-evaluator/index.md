@@ -7,7 +7,14 @@ The Sigil evaluator is a tree-walking interpreter that executes typed ASTs. It h
 ```
 compiler/sigilc/src/eval/
 ├── mod.rs              # Module exports
-├── evaluator.rs        # Main evaluator (~764 lines)
+├── evaluator/          # Main evaluator (~1,246 lines total)
+│   ├── mod.rs              # Evaluator struct, eval dispatch (~513 lines)
+│   ├── builder.rs          # EvaluatorBuilder (~58 lines)
+│   ├── module_loading.rs   # load_module, load_prelude (~195 lines)
+│   ├── function_call.rs    # eval_call, eval_call_named (~86 lines)
+│   ├── method_dispatch.rs  # eval_method_call, get_value_type_name (~98 lines)
+│   ├── function_seq.rs     # eval_function_seq (run, try, match) (~124 lines)
+│   └── tests.rs            # Unit tests (~172 lines)
 ├── environment.rs      # Variable scoping (~408 lines)
 ├── operators.rs        # Binary operations (~486 lines)
 ├── methods.rs          # Method dispatch (~377 lines)

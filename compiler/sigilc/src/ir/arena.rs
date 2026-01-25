@@ -103,13 +103,21 @@ impl ExprArena {
     }
 
     /// Get expression by ID.
+    ///
+    /// # Panics
+    /// Panics if `id` is out of bounds.
     #[inline]
+    #[track_caller]
     pub fn get_expr(&self, id: ExprId) -> &Expr {
         &self.exprs[id.index()]
     }
 
     /// Get mutable expression by ID.
+    ///
+    /// # Panics
+    /// Panics if `id` is out of bounds.
     #[inline]
+    #[track_caller]
     pub fn get_expr_mut(&mut self, id: ExprId) -> &mut Expr {
         &mut self.exprs[id.index()]
     }
@@ -149,7 +157,11 @@ impl ExprArena {
     }
 
     /// Get statement by ID.
+    ///
+    /// # Panics
+    /// Panics if `id` is out of bounds.
     #[inline]
+    #[track_caller]
     pub fn get_stmt(&self, id: StmtId) -> &Stmt {
         &self.stmts[id.index()]
     }

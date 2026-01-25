@@ -8,7 +8,10 @@ Sigil's pattern system provides first-class constructs for common programming pa
 compiler/sigilc/src/patterns/
 ├── mod.rs          # Core interfaces (~505 lines)
 ├── registry.rs     # Pattern registration (~289 lines)
-├── builtins.rs     # Built-in patterns (~531 lines)
+├── builtins/       # Built-in patterns (~89 lines total)
+│   ├── mod.rs          # Re-exports (~28 lines)
+│   ├── print.rs        # PrintPattern implementation (~31 lines)
+│   └── panic.rs        # PanicPattern implementation (~30 lines)
 ├── fusion.rs       # Optimization (~420 lines)
 ├── map.rs          # map pattern
 ├── filter.rs       # filter pattern
@@ -23,6 +26,10 @@ compiler/sigilc/src/patterns/
 ├── cache.rs        # cache pattern
 └── validate.rs     # validate pattern
 ```
+
+**Note:** Following the "Lean Core, Rich Libraries" principle, most built-in
+patterns like `assert`, `len`, `compare`, `min`, `max` have been moved to the
+standard library. Only `print` and `panic` remain as compiler builtins.
 
 ## Design Goals
 

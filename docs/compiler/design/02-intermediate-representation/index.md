@@ -12,7 +12,23 @@ The Sigil compiler uses a carefully designed intermediate representation (IR) op
 ```
 compiler/sigilc/src/ir/
 ├── mod.rs          # Module exports
-├── ast.rs          # Expression and statement types (~1,170 lines)
+├── ast/            # Expression and statement types (~1,570 lines total)
+│   ├── mod.rs          # Module re-exports (~110 lines)
+│   ├── expr.rs         # ExprKind variants (~364 lines)
+│   ├── stmt.rs         # Statement types (~51 lines)
+│   ├── operators.rs    # Operator enums (~51 lines)
+│   ├── ranges.rs       # Range types for arena allocation (~273 lines)
+│   ├── collections.rs  # Collection literals (~53 lines)
+│   ├── items/          # Top-level item definitions
+│   │   ├── mod.rs          # Re-exports (~15 lines)
+│   │   ├── function.rs     # Function, TestDef (~141 lines)
+│   │   ├── imports.rs      # UseDef, ImportPath (~39 lines)
+│   │   └── traits.rs       # TraitDef, ImplDef, ExtendDef (~205 lines)
+│   └── patterns/       # Pattern constructs
+│       ├── mod.rs          # Re-exports (~11 lines)
+│       ├── seq.rs          # FunctionSeq (run, try, match) (~102 lines)
+│       ├── exp.rs          # FunctionExp (map, filter, etc.) (~72 lines)
+│       └── binding.rs      # Match patterns and arms (~83 lines)
 ├── arena.rs        # Expression arena (~475 lines)
 ├── token.rs        # Token definitions (~690 lines)
 ├── visitor.rs      # AST visitor pattern (~1,230 lines)
@@ -182,6 +198,45 @@ Benefits:
 - O(1) comparison (compare IDs, not contents)
 - Memory sharing (same ID = same content)
 - Salsa-friendly (IDs are hashable)
+
+## Size Assertions
+
+To prevent accidental size regressions in frequently-allocated types, the compiler uses compile-time size assertions:
+
+```rust
+// In lib.rs
+#[macro_export]
+macro_rules! static_assert_size {
+    ($ty:ty, $size:expr) => {
+        const _: [(); $size] = [(); ::std::mem::size_of::<$ty>()];
+    };
+}
+
+// In type files
+#[cfg(target_pointer_width = "64")]
+mod size_asserts {
+    crate::static_assert_size!(Span, 8);
+    crate::static_assert_size!(Token, 24);
+    crate::static_assert_size!(TokenKind, 16);
+    crate::static_assert_size!(Expr, 88);
+    crate::static_assert_size!(ExprKind, 80);
+    crate::static_assert_size!(Type, 32);
+}
+```
+
+Current sizes (64-bit):
+
+| Type | Size | Notes |
+|------|------|-------|
+| `Span` | 8 bytes | Two u32 offsets |
+| `Token` | 24 bytes | TokenKind + Span |
+| `TokenKind` | 16 bytes | Largest variant payload + discriminant |
+| `Expr` | 88 bytes | ExprKind + Span |
+| `ExprKind` | 80 bytes | Largest variants are FunctionSeq/FunctionExp |
+| `Type` | 32 bytes | Vec<Type> + Box<Type> for Function variant |
+| `TypeVar` | 4 bytes | Just a u32 wrapper |
+
+If any of these sizes change, compilation fails with a clear error message, allowing intentional review of the change.
 
 ## Related Documents
 
