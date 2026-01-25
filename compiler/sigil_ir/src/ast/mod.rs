@@ -50,7 +50,7 @@ pub use items::{
     UseDef, UseItem, ImportPath,
     GenericParam, TraitBound, WhereClause,
     TraitDef, TraitItem, TraitMethodSig, TraitDefaultMethod, TraitAssocType,
-    ImplDef, ImplMethod, ExtendDef,
+    ImplDef, ImplMethod, ImplAssocType, ExtendDef,
     TypeDecl, TypeDeclKind, StructField, Variant, VariantField,
 };
 

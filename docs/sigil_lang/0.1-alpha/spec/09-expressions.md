@@ -24,8 +24,9 @@ postfix_op    = "." identifier [ call_args ]
               | call_args
               | "?" .
 call_args     = "(" [ call_arg { "," call_arg } ] ")" .
-call_arg      = expression | named_arg .
+call_arg      = named_arg | positional_arg .
 named_arg     = identifier ":" expression .
+positional_arg = expression .
 ```
 
 ### Field and Method Access
@@ -50,9 +51,34 @@ Lists/strings panic on out-of-bounds; maps return `Option`.
 ```sigil
 add(a: 1, b: 2)
 fetch_user(id: 1)
+print(msg: "hello")
+assert_eq(actual: result, expected: 10)
 ```
 
-Named arguments: all-or-nothing, order irrelevant, names must match parameters.
+Named arguments are required for direct function and method calls. Argument names must match parameter names. Argument order is irrelevant.
+
+Positional arguments are permitted in two cases:
+
+1. Type conversion functions (`int`, `float`, `str`, `byte`):
+
+```sigil
+int(3.14)      // OK: type conversion
+float(42)      // OK: type conversion
+str(value)     // OK: type conversion
+```
+
+2. Calls through function variables (parameter names are unknowable):
+
+```sigil
+let f = (x: int) -> x + 1
+f(5)           // OK: calling through variable
+
+let apply = (fn: (int) -> int, val: int) -> fn(val)
+apply(fn: inc, val: 10)  // outer call: named required
+                         // inner fn(val): positional OK
+```
+
+It is a compile-time error to use positional arguments in direct function or method calls.
 
 ### Error Propagation
 

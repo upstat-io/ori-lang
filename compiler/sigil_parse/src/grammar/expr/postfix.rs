@@ -14,19 +14,14 @@ impl Parser<'_> {
             if self.check(&TokenKind::LParen) {
                 // Function call
                 self.advance();
-                let (call_args, has_positional, has_named) = self.parse_call_args()?;
+                let (call_args, _has_positional, has_named) = self.parse_call_args()?;
                 self.expect(&TokenKind::RParen)?;
 
                 let call_span = self.arena.get_expr(expr).span.merge(self.previous_span());
 
-                // Validate: multi-arg calls with positional args are an error
-                if call_args.len() > 1 && has_positional {
-                    return Err(ParseError::new(
-                        sigil_diagnostic::ErrorCode::E1011,
-                        "function calls with multiple arguments require named arguments (name: value)".to_string(),
-                        call_span,
-                    ));
-                }
+                // Named args validation is done in type checking, where we can distinguish
+                // between direct function calls (require named) and function variable calls
+                // (allow positional since param names are unknowable)
 
                 // Choose representation based on whether we have named args
                 if has_named {
@@ -50,26 +45,29 @@ impl Parser<'_> {
 
                 if self.check(&TokenKind::LParen) {
                     self.advance();
-                    let mut args = Vec::new();
-                    if !self.check(&TokenKind::RParen) {
-                        args.push(self.parse_expr()?);
-                        while self.check(&TokenKind::Comma) {
-                            self.advance();
-                            self.skip_newlines();
-                            if self.check(&TokenKind::RParen) {
-                                break;
-                            }
-                            args.push(self.parse_expr()?);
-                        }
-                    }
-                    let args_range = self.arena.alloc_expr_list(args);
+                    let (call_args, _has_positional, has_named) = self.parse_call_args()?;
                     self.expect(&TokenKind::RParen)?;
 
                     let span = self.arena.get_expr(expr).span.merge(self.previous_span());
-                    expr = self.arena.alloc_expr(Expr::new(
-                        ExprKind::MethodCall { receiver: expr, method: field, args: args_range },
-                        span,
-                    ));
+
+                    // Named args validation is done in type checking
+
+                    if has_named {
+                        // Use MethodCallNamed for named arguments
+                        let args_range = self.arena.alloc_call_args(call_args);
+                        expr = self.arena.alloc_expr(Expr::new(
+                            ExprKind::MethodCallNamed { receiver: expr, method: field, args: args_range },
+                            span,
+                        ));
+                    } else {
+                        // Use MethodCall for positional arguments
+                        let args: Vec<ExprId> = call_args.into_iter().map(|a| a.value).collect();
+                        let args_range = self.arena.alloc_expr_list(args);
+                        expr = self.arena.alloc_expr(Expr::new(
+                            ExprKind::MethodCall { receiver: expr, method: field, args: args_range },
+                            span,
+                        ));
+                    }
                 } else {
                     let span = self.arena.get_expr(expr).span.merge(self.previous_span());
                     expr = self.arena.alloc_expr(Expr::new(

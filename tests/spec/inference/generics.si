@@ -72,7 +72,7 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @test_infer_from_param_type tests @infer_from_param_type () -> void = run(
     // Parameter type guides inference
-    let result = process_int(42),
+    let result = process_int(x: 42),
     assert_eq(
         actual: result,
         expected: 84,
@@ -88,7 +88,7 @@ use std.testing { assert, assert_eq, assert_ne }
 @test_lambda_param_from_use tests @lambda_param_from_use () -> void = run(
     // Lambda parameter type inferred from how it's used
     let f = x -> x + 1,
-    let result = f(5),
+    let result = f(x: 5),
     assert_eq(
         actual: result,
         expected: 6,
@@ -97,13 +97,13 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @lambda_param_from_use () -> int = run(
     let f = x -> x + 1,
-    f(5),
+    f(x: 5),
 )
 
 @test_lambda_return_inference tests @lambda_return_inference () -> void = run(
     // Lambda return type inferred from body
     let f = (x: int) -> x + 1,
-    let result = f(5),
+    let result = f(x: 5),
     assert_eq(
         actual: result,
         expected: 6,
@@ -112,14 +112,14 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @lambda_return_inference () -> int = run(
     let f = (x: int) -> x + 1,
-    f(5),
+    f(x: 5),
 )
 
 @test_lambda_chain tests @lambda_chain () -> void = run(
     // Inference through lambda chains
     let inc = x -> x + 1,
     let double = x -> x * 2,
-    let result = double(inc(5)),
+    let result = double(x: inc(x: 5)),
     assert_eq(
         actual: result,
         expected: 12,
@@ -129,5 +129,5 @@ use std.testing { assert, assert_eq, assert_ne }
 @lambda_chain () -> int = run(
     let inc = x -> x + 1,
     let double = x -> x * 2,
-    double(inc(5)),
+    double(x: inc(x: 5)),
 )

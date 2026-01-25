@@ -67,6 +67,15 @@ pub enum ParsedType {
 
     /// The `Self` type in trait/impl contexts.
     SelfType,
+
+    /// An associated type projection: `Self.Item` or `T.Item`
+    /// Represents a type accessed via `.` on another type.
+    AssociatedType {
+        /// The base type (e.g., `Self` or a type variable).
+        base: Box<ParsedType>,
+        /// The associated type name (e.g., `Item`).
+        assoc_name: Name,
+    },
 }
 
 impl ParsedType {
@@ -124,6 +133,15 @@ impl ParsedType {
         ParsedType::Map {
             key: Box::new(key),
             value: Box::new(value),
+        }
+    }
+
+    /// Create an associated type projection.
+    #[inline]
+    pub fn associated_type(base: ParsedType, assoc_name: Name) -> Self {
+        ParsedType::AssociatedType {
+            base: Box::new(base),
+            assoc_name,
         }
     }
 

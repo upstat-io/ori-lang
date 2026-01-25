@@ -4,6 +4,8 @@ use std::path::Path;
 use crate::ir::{Name, SharedArena};
 use crate::parser::ParseResult;
 use crate::context::SharedRegistry;
+use crate::typeck::derives::process_derives;
+use crate::typeck::type_registry::TypeRegistry;
 use sigil_eval::{UserMethod, UserMethodRegistry};
 use super::Evaluator;
 use super::super::module::import;
@@ -120,6 +122,12 @@ impl Evaluator<'_> {
         let mut user_methods = UserMethodRegistry::new();
         self.collect_impl_methods(&parse_result.module, &parse_result.arena, &mut user_methods);
         self.collect_extend_methods(&parse_result.module, &parse_result.arena, &mut user_methods);
+
+        // Process derived traits (Eq, Clone, Hashable, Printable, Default)
+        // Note: We use an empty TypeRegistry here since derive processing doesn't need it
+        // (field information comes from the AST, not the type registry)
+        let type_registry = TypeRegistry::new();
+        process_derives(&parse_result.module, &type_registry, &mut user_methods, self.interner);
 
         // Replace the shared registry with the built-up one
         self.user_method_registry = SharedRegistry::new(user_methods);

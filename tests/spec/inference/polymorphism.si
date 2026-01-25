@@ -10,8 +10,8 @@ use std.testing { assert, assert_eq, assert_ne }
 @test_let_poly_identity tests @let_poly_identity () -> void = run(
     // The identity function should work with different types
     let id = x -> x,
-    let int_result = id(42),
-    let str_result = id("hello"),
+    let int_result = id(x: 42),
+    let str_result = id(x: "hello"),
     assert_eq(
         actual: int_result,
         expected: 42,
@@ -24,7 +24,7 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @let_poly_identity () -> int = run(
     let id = x -> x,
-    id(42),
+    id(x: 42),
 )
 
 @test_let_poly_const tests @let_poly_const () -> void = run(
@@ -63,8 +63,8 @@ use std.testing { assert, assert_eq, assert_ne }
 @test_poly_list_head tests @poly_list_head () -> void = run(
     // A function that gets the first element
     let head = xs -> xs[0],
-    let int_head = head([1, 2, 3]),
-    let str_head = head(["a", "b", "c"]),
+    let int_head = head(xs: [1, 2, 3]),
+    let str_head = head(xs: ["a", "b", "c"]),
     assert_eq(
         actual: int_head,
         expected: 1,
@@ -77,7 +77,7 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @poly_list_head () -> int = run(
     let head = xs -> xs[0],
-    head([1, 2, 3]),
+    head(xs: [1, 2, 3]),
 )
 
 @test_poly_list_length tests @poly_list_length () -> void = run(
@@ -119,9 +119,9 @@ use std.testing { assert, assert_eq, assert_ne }
 @test_instantiate_multiple_calls tests @instantiate_multiple_calls () -> void = run(
     // Each use of a polymorphic function gets fresh type variables
     let wrap = x -> Some(x),
-    let opt1 = wrap(1),
-    let opt2 = wrap("str"),
-    let opt3 = wrap(true),
+    let opt1 = wrap(x: 1),
+    let opt2 = wrap(x: "str"),
+    let opt3 = wrap(x: true),
     assert(cond: is_some(opt: opt1)),
     assert(cond: is_some(opt: opt2)),
     assert(cond: is_some(opt: opt3)),
@@ -129,7 +129,7 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @instantiate_multiple_calls () -> bool = run(
     let wrap = x -> Some(x),
-    is_some(opt: wrap(42)),
+    is_some(opt: wrap(x: 42)),
 )
 
 // =============================================================================

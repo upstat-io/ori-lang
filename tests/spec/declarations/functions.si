@@ -8,7 +8,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 
 @test_typed_param tests @typed_param () -> void = run(
-    let result = typed_param(5),
+    let result = typed_param(x: 5),
     assert_eq(
         actual: result,
         expected: 10,

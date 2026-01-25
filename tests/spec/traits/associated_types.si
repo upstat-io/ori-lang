@@ -1,0 +1,50 @@
+// Spec: 08-declarations.md § Associated Types
+// Tests for associated type declarations and definitions
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Trait with Associated Type
+// =============================================================================
+
+// Iterator trait with associated Item type
+trait Container {
+    type Item
+    @first (self) -> Option<Self.Item>
+}
+
+// =============================================================================
+// Implementation with Associated Type Definition
+// =============================================================================
+
+type IntBox = { value: int }
+
+impl Container for IntBox {
+    type Item = int
+    @first (self) -> Option<Self.Item> = Some(self.value)
+}
+
+type StrBox = { text: str }
+
+impl Container for StrBox {
+    type Item = str
+    @first (self) -> Option<Self.Item> = Some(self.text)
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+@test_int_box_first tests @first () -> void = run(
+    let box = IntBox { value: 42 },
+    let result = box.first(),
+    assert(cond: result.is_some()),
+    assert_eq(actual: result.unwrap(), expected: 42),
+)
+
+@test_str_box_first tests @first () -> void = run(
+    let box = StrBox { text: "hello" },
+    let result = box.first(),
+    assert(cond: result.is_some()),
+    assert_eq(actual: result.unwrap(), expected: "hello"),
+)

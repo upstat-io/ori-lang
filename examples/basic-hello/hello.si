@@ -1,1 +1,1 @@
-@main () -> void = print("Hello, Sigil!")
+@main () -> void = print(msg: "Hello, Sigil!")

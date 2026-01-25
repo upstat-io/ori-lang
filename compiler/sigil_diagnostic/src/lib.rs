@@ -88,6 +88,8 @@ pub enum ErrorCode {
     E2009,
     /// Coherence violation (conflicting implementations)
     E2010,
+    /// Named arguments required
+    E2011,
 
     // ===== Pattern Errors (E3xxx) =====
     /// Unknown pattern
@@ -140,6 +142,7 @@ impl ErrorCode {
             ErrorCode::E2008 => "E2008",
             ErrorCode::E2009 => "E2009",
             ErrorCode::E2010 => "E2010",
+            ErrorCode::E2011 => "E2011",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",

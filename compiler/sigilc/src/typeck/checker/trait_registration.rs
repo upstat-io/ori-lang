@@ -7,7 +7,7 @@ use crate::types::Type;
 use super::TypeChecker;
 use super::types::TypeCheckError;
 use super::super::type_registry::{
-    TraitEntry, TraitMethodDef, TraitAssocTypeDef, ImplEntry, ImplMethodDef,
+    TraitEntry, TraitMethodDef, TraitAssocTypeDef, ImplEntry, ImplMethodDef, ImplAssocTypeDef,
 };
 
 impl TypeChecker<'_> {
@@ -105,12 +105,25 @@ impl TypeChecker<'_> {
                 })
                 .collect();
 
+            // Convert associated type definitions
+            let assoc_types: Vec<ImplAssocTypeDef> = impl_def.assoc_types
+                .iter()
+                .map(|at| {
+                    let ty = self.parsed_type_to_type(&at.ty);
+                    ImplAssocTypeDef {
+                        name: at.name,
+                        ty,
+                    }
+                })
+                .collect();
+
             let entry = ImplEntry {
                 trait_name,
                 self_ty,
                 span: impl_def.span,
                 type_params,
                 methods,
+                assoc_types,
             };
 
             // Register impl, checking for coherence violations

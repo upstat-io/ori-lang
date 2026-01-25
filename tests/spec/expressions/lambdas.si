@@ -10,14 +10,14 @@ use std.testing { assert, assert_eq, assert_ne }
 @test_untyped_lambda tests @untyped_lambda () -> void = run(
     let f = x -> x + 1,
     assert_eq(
-        actual: f(5),
+        actual: f(x: 5),
         expected: 6,
     ),
 )
 
 @untyped_lambda () -> int = run(
     let f = x -> x + 1,
-    f(5),
+    f(x: 5),
 )
 
 @test_multi_param_lambda tests @multi_param_lambda () -> void = run(
@@ -46,14 +46,14 @@ use std.testing { assert, assert_eq, assert_ne }
 @test_typed_lambda tests @typed_lambda () -> void = run(
     let f = (x: int) -> x * 2,
     assert_eq(
-        actual: f(5),
+        actual: f(x: 5),
         expected: 10,
     ),
 )
 
 @typed_lambda () -> int = run(
     let f = (x: int) -> x * 2,
-    f(5),
+    f(x: 5),
 )
 
 @test_multi_typed_lambda tests @multi_typed_lambda () -> void = run(
@@ -82,27 +82,27 @@ use std.testing { assert, assert_eq, assert_ne }
 @test_lambda_return_type tests @lambda_return_type () -> void = run(
     let f = (x: int) -> int = x + 1,
     assert_eq(
-        actual: f(5),
+        actual: f(x: 5),
         expected: 6,
     ),
 )
 
 @lambda_return_type () -> int = run(
     let f = (x: int) -> int = x + 1,
-    f(5),
+    f(x: 5),
 )
 
 @test_lambda_return_str tests @lambda_return_str () -> void = run(
     let f = (n: int) -> str = str(n),
     assert_eq(
-        actual: f(42),
+        actual: f(n: 42),
         expected: "42",
     ),
 )
 
 @lambda_return_str () -> str = run(
     let f = (n: int) -> str = str(n),
-    f(42),
+    f(n: 42),
 )
 
 // =============================================================================

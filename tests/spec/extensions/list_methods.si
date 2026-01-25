@@ -15,14 +15,14 @@ extend str {
 @make_loud (s: str) -> str = s.shout()
 
 @test_shout tests @make_loud () -> void = run(
-    let result = make_loud("hello"),
+    let result = make_loud(s: "hello"),
     assert_eq(actual: result, expected: "hello!"),
 )
 
 @chain_extensions (s: str) -> str = s.shout().whisper()
 
 @test_chain tests @chain_extensions () -> void = run(
-    let result = chain_extensions("hi"),
+    let result = chain_extensions(s: "hi"),
     assert_eq(actual: result, expected: "(hi!)"),
 )
 
@@ -38,14 +38,14 @@ extend [T] {
 @get_count (items: [int]) -> int = items.count()
 
 @test_count tests @get_count () -> void = run(
-    assert_eq(actual: get_count([]), expected: 0),
-    assert_eq(actual: get_count([1]), expected: 1),
-    assert_eq(actual: get_count([1, 2, 3]), expected: 3),
+    assert_eq(actual: get_count(items: []), expected: 0),
+    assert_eq(actual: get_count(items: [1]), expected: 1),
+    assert_eq(actual: get_count(items: [1, 2, 3]), expected: 3),
 )
 
 @is_empty (items: [int]) -> bool = items.empty()
 
 @test_empty tests @is_empty () -> void = run(
-    assert(is_empty([])),
-    assert(!is_empty([1])),
+    assert(cond: is_empty(items: [])),
+    assert(cond: !is_empty(items: [1])),
 )

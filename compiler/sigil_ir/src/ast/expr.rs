@@ -146,6 +146,13 @@ pub enum ExprKind {
         args: ExprRange,
     },
 
+    /// Method call with named args: receiver.method(a: 1, b: 2)
+    MethodCallNamed {
+        receiver: ExprId,
+        method: Name,
+        args: CallArgRange,
+    },
+
     /// Field access: receiver.field
     Field {
         receiver: ExprId,
@@ -317,6 +324,9 @@ impl fmt::Debug for ExprKind {
             ExprKind::CallNamed { func, args } => write!(f, "CallNamed({func:?}, {args:?})"),
             ExprKind::MethodCall { receiver, method, args } => {
                 write!(f, "MethodCall({receiver:?}, {method:?}, {args:?})")
+            }
+            ExprKind::MethodCallNamed { receiver, method, args } => {
+                write!(f, "MethodCallNamed({receiver:?}, {method:?}, {args:?})")
             }
             ExprKind::Field { receiver, field } => {
                 write!(f, "Field({receiver:?}, {field:?})")

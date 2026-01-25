@@ -97,6 +97,17 @@ pub enum Type {
 
     /// Error type (for error recovery)
     Error,
+
+    /// Associated type projection (e.g., `Self.Item`, `T.Item`).
+    /// Represents accessing an associated type on a base type.
+    Projection {
+        /// The base type (e.g., `Self`, or a type variable).
+        base: Box<Type>,
+        /// The trait that defines the associated type.
+        trait_name: Name,
+        /// The associated type name (e.g., `Item`).
+        assoc_name: Name,
+    },
 }
 
 impl Type {
@@ -167,6 +178,9 @@ impl Type {
             Type::Named(name) => interner.lookup(*name).to_string(),
             Type::Var(v) => format!("?{}", v.0),
             Type::Error => "<error>".to_string(),
+            Type::Projection { base, trait_name: _, assoc_name } => {
+                format!("{}.{}", base.display(interner), interner.lookup(*assoc_name))
+            }
         }
     }
 }
@@ -401,6 +415,14 @@ impl InferenceContext {
                 self.unify(e1, e2)
             }
 
+            // Projection types: unify if same trait/assoc_name and bases unify
+            (
+                Type::Projection { base: b1, trait_name: t1, assoc_name: a1 },
+                Type::Projection { base: b2, trait_name: t2, assoc_name: a2 },
+            ) if t1 == t2 && a1 == a2 => {
+                self.unify(b1, b2)
+            }
+
             // Incompatible types
             _ => Err(TypeError::TypeMismatch {
                 expected: t1,
@@ -439,6 +461,11 @@ impl InferenceContext {
             Type::Set(t) => Type::Set(Box::new(self.resolve(t))),
             Type::Range(t) => Type::Range(Box::new(self.resolve(t))),
             Type::Channel(t) => Type::Channel(Box::new(self.resolve(t))),
+            Type::Projection { base, trait_name, assoc_name } => Type::Projection {
+                base: Box::new(self.resolve(base)),
+                trait_name: *trait_name,
+                assoc_name: *assoc_name,
+            },
             _ => ty.clone(),
         }
     }
@@ -463,6 +490,7 @@ impl InferenceContext {
             Type::Range(t) | Type::Channel(t) => self.occurs(var, t),
             Type::Map { key, value } => self.occurs(var, key) || self.occurs(var, value),
             Type::Result { ok, err } => self.occurs(var, ok) || self.occurs(var, err),
+            Type::Projection { base, .. } => self.occurs(var, base),
             _ => false,
         }
     }
@@ -508,6 +536,9 @@ impl InferenceContext {
             Type::Result { ok, err } => {
                 self.collect_free_vars(ok, vars);
                 self.collect_free_vars(err, vars);
+            }
+            Type::Projection { base, .. } => {
+                self.collect_free_vars(base, vars);
             }
             _ => {}
         }
@@ -590,6 +621,11 @@ impl InferenceContext {
             Type::Set(t) => Type::Set(Box::new(self.substitute_vars(t, mapping))),
             Type::Range(t) => Type::Range(Box::new(self.substitute_vars(t, mapping))),
             Type::Channel(t) => Type::Channel(Box::new(self.substitute_vars(t, mapping))),
+            Type::Projection { base, trait_name, assoc_name } => Type::Projection {
+                base: Box::new(self.substitute_vars(base, mapping)),
+                trait_name: *trait_name,
+                assoc_name: *assoc_name,
+            },
             _ => ty.clone(),
         }
     }

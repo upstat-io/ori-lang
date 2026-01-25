@@ -12,6 +12,6 @@ pub use imports::{UseDef, UseItem, ImportPath};
 pub use traits::{
     GenericParam, TraitBound, WhereClause,
     TraitDef, TraitItem, TraitMethodSig, TraitDefaultMethod, TraitAssocType,
-    ImplDef, ImplMethod, ExtendDef,
+    ImplDef, ImplMethod, ImplAssocType, ExtendDef,
 };
 pub use types::{TypeDecl, TypeDeclKind, StructField, Variant, VariantField};

@@ -1,6 +1,6 @@
 # Built-in Functions
 
-Core functions provided by the language.
+Core functions provided by the language. All built-in functions require named arguments, except type conversions.
 
 ## Reserved Names
 
@@ -14,7 +14,7 @@ min(left: a, right: b) // OK: calls built-in
 
 ## Type Conversions (function_val)
 
-Positional syntax allowed.
+Type conversions are the sole exception to named argument requirements. Positional syntax is allowed.
 
 | Function | From | Behavior |
 |----------|------|----------|

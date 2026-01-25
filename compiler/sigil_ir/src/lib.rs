@@ -73,7 +73,7 @@ pub use ast::{
     // Trait types
     TraitDef, TraitItem, TraitMethodSig, TraitDefaultMethod, TraitAssocType,
     // Impl types
-    ImplDef, ImplMethod,
+    ImplDef, ImplMethod, ImplAssocType,
     // Extension types
     ExtendDef,
     // Type declaration types

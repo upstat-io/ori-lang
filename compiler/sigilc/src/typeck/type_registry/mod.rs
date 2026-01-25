@@ -18,7 +18,7 @@ use std::collections::HashMap;
 
 pub use trait_registry::{
     TraitRegistry, TraitEntry, TraitMethodDef, TraitAssocTypeDef,
-    ImplEntry, ImplMethodDef, MethodLookup, CoherenceError,
+    ImplEntry, ImplMethodDef, ImplAssocTypeDef, MethodLookup, CoherenceError,
 };
 
 /// Kind of user-defined type.
