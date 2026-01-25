@@ -22,14 +22,16 @@ mod function_val;
 pub mod errors;
 pub mod operators;
 pub mod methods;
+pub mod user_methods;
 pub mod unary_operators;
 pub mod exec;
 pub mod module;
 
-pub use value::{Value, FunctionValue, RangeValue, StructValue, StructLayout, Heap, FunctionValFn};
+pub use value::{Value, FunctionValue, RangeValue, StructValue, StructLayout, Heap, FunctionValFn, BackoffStrategy};
 pub use environment::Environment;
 pub use evaluator::{Evaluator, EvalResult, EvalError};
 pub use output::{EvalOutput, ModuleEvalResult};
 pub use operators::OperatorRegistry;
 pub use methods::MethodRegistry;
+pub use user_methods::{UserMethodRegistry, UserMethod};
 pub use unary_operators::UnaryOperatorRegistry;

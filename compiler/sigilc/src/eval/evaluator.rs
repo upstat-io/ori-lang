@@ -17,6 +17,7 @@ use super::environment::Environment;
 use super::errors;
 use super::operators::OperatorRegistry;
 use super::methods::MethodRegistry;
+use super::user_methods::{UserMethodRegistry, UserMethod};
 use super::unary_operators::UnaryOperatorRegistry;
 
 /// Result of evaluation.
@@ -54,8 +55,10 @@ pub struct Evaluator<'a> {
     registry: SharedRegistry<PatternRegistry>,
     /// Operator registry for binary operations.
     operator_registry: SharedRegistry<OperatorRegistry>,
-    /// Method registry for method dispatch.
+    /// Method registry for built-in method dispatch.
     method_registry: SharedRegistry<MethodRegistry>,
+    /// User-defined method registry for impl block methods.
+    user_method_registry: UserMethodRegistry,
     /// Unary operator registry for unary operations.
     unary_operator_registry: SharedRegistry<UnaryOperatorRegistry>,
     /// Arena reference for imported functions.
@@ -87,17 +90,23 @@ pub struct EvaluatorBuilder<'a> {
     registry: Option<SharedRegistry<PatternRegistry>>,
     context: Option<&'a CompilerContext>,
     imported_arena: Option<SharedArena>,
+    user_method_registry: Option<UserMethodRegistry>,
 }
 
 impl<'a> EvaluatorBuilder<'a> {
     pub fn new(interner: &'a StringInterner, arena: &'a ExprArena) -> Self {
-        Self { interner, arena, env: None, registry: None, context: None, imported_arena: None }
+        Self {
+            interner, arena, env: None, registry: None, context: None,
+            imported_arena: None, user_method_registry: None,
+        }
     }
 
     pub fn env(mut self, env: Environment) -> Self { self.env = Some(env); self }
     pub fn registry(mut self, r: PatternRegistry) -> Self { self.registry = Some(SharedRegistry::new(r)); self }
     pub fn context(mut self, c: &'a CompilerContext) -> Self { self.context = Some(c); self }
     pub fn imported_arena(mut self, a: SharedArena) -> Self { self.imported_arena = Some(a); self }
+    #[allow(dead_code)]
+    pub fn user_method_registry(mut self, r: UserMethodRegistry) -> Self { self.user_method_registry = Some(r); self }
 
     pub fn build(self) -> Evaluator<'a> {
         let (pat_reg, op_reg, meth_reg, unary_reg) = if let Some(ctx) = self.context {
@@ -113,7 +122,9 @@ impl<'a> EvaluatorBuilder<'a> {
             interner: self.interner, arena: self.arena,
             env: self.env.unwrap_or_else(Environment::new),
             registry: pat_reg, operator_registry: op_reg,
-            method_registry: meth_reg, unary_operator_registry: unary_reg,
+            method_registry: meth_reg,
+            user_method_registry: self.user_method_registry.unwrap_or_default(),
+            unary_operator_registry: unary_reg,
             imported_arena: self.imported_arena,
         }
     }
@@ -161,6 +172,7 @@ impl<'a> Evaluator<'a> {
     /// and test runner. It handles:
     /// 1. Resolving imports and registering imported functions
     /// 2. Registering all local functions
+    /// 3. Registering all impl block methods
     ///
     /// After calling this, all functions from the module (and its imports)
     /// are available in the environment for evaluation.
@@ -196,7 +208,43 @@ impl<'a> Evaluator<'a> {
         // Then register all local functions
         import::register_module_functions(parse_result, &mut self.env);
 
+        // Register impl block methods
+        self.register_impl_methods(&parse_result.module, &parse_result.arena);
+
         Ok(())
+    }
+
+    /// Register methods from impl blocks in the user method registry.
+    fn register_impl_methods(&mut self, module: &crate::ir::Module, arena: &ExprArena) {
+        for impl_def in &module.impls {
+            // Get the type name from self_path (e.g., "Point" for `impl Point { ... }`)
+            let type_name = if !impl_def.self_path.is_empty() {
+                // Use the last segment of the path as the type name
+                self.interner.lookup(*impl_def.self_path.last().unwrap()).to_string()
+            } else {
+                continue; // Skip if no type path
+            };
+
+            // Register each method
+            for method in &impl_def.methods {
+                let method_name = self.interner.lookup(method.name).to_string();
+
+                // Get parameter names
+                let params: Vec<Name> = arena.get_params(method.params)
+                    .iter()
+                    .map(|p| p.name)
+                    .collect();
+
+                // Create user method with captures from current environment
+                let user_method = UserMethod::with_captures(
+                    params,
+                    method.body,
+                    self.env.capture(),
+                );
+
+                self.user_method_registry.register(type_name.clone(), method_name, user_method);
+            }
+        }
     }
 
     /// Evaluate an expression.
@@ -562,6 +610,50 @@ impl<'a> Evaluator<'a> {
                 let value = self.eval(*scrutinee)?;
                 self.eval_match(value, *arms)
             }
+
+            FunctionSeq::ForPattern { over, map, arm, default, .. } => {
+                // Evaluate the collection to iterate over
+                let items = self.eval(*over)?;
+
+                let items_list = match items {
+                    Value::List(list) => list,
+                    _ => return Err(EvalError::new(format!(
+                        "for pattern requires a list, got {}",
+                        items.type_name()
+                    ))),
+                };
+
+                // Iterate and find first match
+                for item in items_list.iter() {
+                    // Optionally apply map function
+                    let match_item = if let Some(map_expr) = map {
+                        let map_fn = self.eval(*map_expr)?;
+                        self.eval_call_value(map_fn, vec![item.clone()])?
+                    } else {
+                        item.clone()
+                    };
+
+                    // Try to match against the arm pattern
+                    if let Some(bindings) = super::exec::control::try_match(
+                        &arm.pattern,
+                        &match_item,
+                        self.arena,
+                        self.interner,
+                    )? {
+                        // Pattern matched - bind variables and evaluate body
+                        self.env.push_scope();
+                        for (name, value) in bindings {
+                            self.env.define(name, value, false);
+                        }
+                        let result = self.eval(arm.body);
+                        self.env.pop_scope();
+                        return result;
+                    }
+                }
+
+                // No match found - return default
+                self.eval(*default)
+            }
         }
     }
 
@@ -601,10 +693,91 @@ impl<'a> Evaluator<'a> {
 
     /// Evaluate a method call.
     ///
-    /// Delegates to the MethodRegistry for dispatch.
+    /// First checks user-defined methods from impl blocks, then falls back
+    /// to built-in methods in the MethodRegistry.
     fn eval_method_call(&mut self, receiver: Value, method: Name, args: Vec<Value>) -> EvalResult {
         let method_name = self.interner.lookup(method);
+
+        // Get the concrete type name for lookup
+        let type_name = self.get_value_type_name(&receiver);
+
+        // First, check user-defined methods
+        if let Some(user_method) = self.user_method_registry.lookup(&type_name, method_name) {
+            return self.eval_user_method(receiver, user_method.clone(), args);
+        }
+
+        // Fall back to built-in methods
         self.method_registry.dispatch(receiver, method_name, args)
+    }
+
+    /// Get the concrete type name for a value (for method lookup).
+    ///
+    /// For struct values, returns the actual struct name.
+    /// For other values, returns the basic type name.
+    fn get_value_type_name(&self, value: &Value) -> String {
+        match value {
+            Value::Struct(s) => self.interner.lookup(s.type_name).to_string(),
+            Value::List(_) => "list".to_string(),
+            Value::Str(_) => "str".to_string(),
+            Value::Int(_) => "int".to_string(),
+            Value::Float(_) => "float".to_string(),
+            Value::Bool(_) => "bool".to_string(),
+            Value::Char(_) => "char".to_string(),
+            Value::Byte(_) => "byte".to_string(),
+            Value::Map(_) => "map".to_string(),
+            Value::Tuple(_) => "tuple".to_string(),
+            Value::Some(_) | Value::None => "Option".to_string(),
+            Value::Ok(_) | Value::Err(_) => "Result".to_string(),
+            Value::Range(_) => "range".to_string(),
+            _ => value.type_name().to_string(),
+        }
+    }
+
+    /// Evaluate a user-defined method from an impl block.
+    fn eval_user_method(&mut self, receiver: Value, method: UserMethod, args: Vec<Value>) -> EvalResult {
+        // Method params include 'self' as first parameter
+        if method.params.len() != args.len() + 1 {
+            return Err(errors::wrong_function_args(method.params.len() - 1, args.len()));
+        }
+
+        // Create new environment with captures
+        let mut call_env = self.env.child();
+        call_env.push_scope();
+
+        // Bind captured variables
+        for (name, value) in &method.captures {
+            call_env.define(*name, value.clone(), false);
+        }
+
+        // Bind 'self' to receiver (first parameter)
+        if let Some(&self_param) = method.params.first() {
+            call_env.define(self_param, receiver, false);
+        }
+
+        // Bind remaining parameters
+        for (param, arg) in method.params.iter().skip(1).zip(args.iter()) {
+            call_env.define(*param, arg.clone(), false);
+        }
+
+        // Evaluate method body
+        let result = if let Some(ref func_arena) = method.arena {
+            // Method from an imported module - use its arena
+            let imported_arena = SharedArena::new((**func_arena).clone());
+            let mut call_evaluator = Evaluator::with_imported_arena(
+                self.interner, func_arena, call_env, imported_arena
+            );
+            let result = call_evaluator.eval(method.body);
+            call_evaluator.env.pop_scope();
+            result
+        } else {
+            // Local method - use our arena
+            let mut call_evaluator = Evaluator::with_env(self.interner, self.arena, call_env);
+            let result = call_evaluator.eval(method.body);
+            call_evaluator.env.pop_scope();
+            result
+        };
+
+        result
     }
 
     /// Evaluate a match expression.
@@ -747,6 +920,9 @@ impl<'a> Evaluator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::{Span, SharedInterner};
+    use crate::ir::ast::{Expr, ExprKind};
+    use std::collections::HashMap;
 
     #[test]
     fn test_eval_error() {
@@ -760,5 +936,146 @@ mod tests {
         let err = EvalError::propagate(Value::None, "propagated");
         assert_eq!(err.message, "propagated");
         assert!(err.propagated_value.is_some());
+    }
+
+    #[test]
+    fn test_user_method_dispatch() {
+        let interner = SharedInterner::default();
+        let mut arena = crate::ir::ExprArena::new();
+
+        // Create a simple method body: self.x * 2
+        // Since we can't easily build AST, we'll use a simpler expression: just return 42
+        let body = arena.alloc_expr(Expr::new(ExprKind::Int(42), Span::new(0, 2)));
+
+        // Register a user method for type "Point"
+        let self_name = interner.intern("self");
+        let user_method = UserMethod::new(vec![self_name], body);
+
+        let mut evaluator = Evaluator::new(&interner, &arena);
+        evaluator.user_method_registry.register(
+            "Point".to_string(),
+            "get_value".to_string(),
+            user_method,
+        );
+
+        // Create a struct value
+        let point_name = interner.intern("Point");
+        let x_name = interner.intern("x");
+        let mut fields = HashMap::new();
+        fields.insert(x_name, Value::Int(5));
+        let point = Value::Struct(StructValue::new(point_name, fields));
+
+        // Call the method
+        let method_name = interner.intern("get_value");
+        let result = evaluator.eval_method_call(point, method_name, vec![]);
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Value::Int(42));
+    }
+
+    #[test]
+    fn test_user_method_with_self_access() {
+        let interner = SharedInterner::default();
+        let mut arena = crate::ir::ExprArena::new();
+
+        // Create method body that accesses self.x: ExprKind::Field { receiver: self, field: x }
+        let self_name = interner.intern("self");
+        let x_name = interner.intern("x");
+
+        // Build: self
+        let self_ref = arena.alloc_expr(Expr::new(ExprKind::Ident(self_name), Span::new(0, 4)));
+        // Build: self.x
+        let body = arena.alloc_expr(Expr::new(
+            ExprKind::Field { receiver: self_ref, field: x_name },
+            Span::new(0, 6),
+        ));
+
+        // Register a user method
+        let user_method = UserMethod::new(vec![self_name], body);
+
+        let mut evaluator = Evaluator::new(&interner, &arena);
+        evaluator.user_method_registry.register(
+            "Point".to_string(),
+            "get_x".to_string(),
+            user_method,
+        );
+
+        // Create a struct value with x = 7
+        let point_name = interner.intern("Point");
+        let mut fields = HashMap::new();
+        fields.insert(x_name, Value::Int(7));
+        let point = Value::Struct(StructValue::new(point_name, fields));
+
+        // Call point.get_x()
+        let method_name = interner.intern("get_x");
+        let result = evaluator.eval_method_call(point, method_name, vec![]);
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Value::Int(7));
+    }
+
+    #[test]
+    fn test_user_method_with_args() {
+        let interner = SharedInterner::default();
+        let mut arena = crate::ir::ExprArena::new();
+
+        // Create method body: self.x + n (where n is an argument)
+        let self_name = interner.intern("self");
+        let x_name = interner.intern("x");
+        let n_name = interner.intern("n");
+
+        // Build: self
+        let self_ref = arena.alloc_expr(Expr::new(ExprKind::Ident(self_name), Span::new(0, 4)));
+        // Build: self.x
+        let self_x = arena.alloc_expr(Expr::new(
+            ExprKind::Field { receiver: self_ref, field: x_name },
+            Span::new(0, 6),
+        ));
+        // Build: n
+        let n_ref = arena.alloc_expr(Expr::new(ExprKind::Ident(n_name), Span::new(7, 8)));
+        // Build: self.x + n
+        let body = arena.alloc_expr(Expr::new(
+            ExprKind::Binary { left: self_x, op: crate::ir::BinaryOp::Add, right: n_ref },
+            Span::new(0, 10),
+        ));
+
+        // Method params: [self, n]
+        let user_method = UserMethod::new(vec![self_name, n_name], body);
+
+        let mut evaluator = Evaluator::new(&interner, &arena);
+        evaluator.user_method_registry.register(
+            "Point".to_string(),
+            "add_to_x".to_string(),
+            user_method,
+        );
+
+        // Create a struct value with x = 10
+        let point_name = interner.intern("Point");
+        let mut fields = HashMap::new();
+        fields.insert(x_name, Value::Int(10));
+        let point = Value::Struct(StructValue::new(point_name, fields));
+
+        // Call point.add_to_x(n: 5) -> should return 15
+        let method_name = interner.intern("add_to_x");
+        let result = evaluator.eval_method_call(point, method_name, vec![Value::Int(5)]);
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Value::Int(15));
+    }
+
+    #[test]
+    fn test_builtin_method_fallback() {
+        let interner = SharedInterner::default();
+        let arena = crate::ir::ExprArena::new();
+
+        let mut evaluator = Evaluator::new(&interner, &arena);
+
+        // Call built-in list.len() method (no user method registered)
+        let list = Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+        let method_name = interner.intern("len");
+        let result = evaluator.eval_method_call(list, method_name, vec![]);
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Value::Int(3));
     }
 }

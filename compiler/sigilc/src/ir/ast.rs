@@ -446,6 +446,10 @@ pub enum StmtKind {
 pub struct Param {
     pub name: Name,
     pub ty: Option<TypeId>,
+    /// The original type annotation name (e.g., `T` in `: T`).
+    /// Used to connect type annotations to generic parameters for constraint checking.
+    /// None if no type annotation or if it's a primitive type.
+    pub type_name: Option<Name>,
     pub span: Span,
 }
 
@@ -492,8 +496,12 @@ impl fmt::Debug for ParamRange {
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct Function {
     pub name: Name,
+    /// Generic parameters: `<T, U: Bound>`
+    pub generics: GenericParamRange,
     pub params: ParamRange,
     pub return_ty: Option<TypeId>,
+    /// Where clauses: `where T: Clone, U: Default`
+    pub where_clauses: Vec<WhereClause>,
     pub body: ExprId,
     pub span: Span,
     pub is_public: bool,
@@ -503,8 +511,8 @@ impl fmt::Debug for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Function {{ name: {:?}, params: {:?}, ret: {:?}, public: {} }}",
-            self.name, self.params, self.return_ty, self.is_public
+            "Function {{ name: {:?}, generics: {:?}, params: {:?}, ret: {:?}, where: {:?}, public: {} }}",
+            self.name, self.generics, self.params, self.return_ty, self.where_clauses, self.is_public
         )
     }
 }
@@ -594,6 +602,10 @@ pub struct Module {
     pub functions: Vec<Function>,
     /// Test definitions
     pub tests: Vec<TestDef>,
+    /// Trait definitions
+    pub traits: Vec<TraitDef>,
+    /// Implementation blocks
+    pub impls: Vec<ImplDef>,
 }
 
 impl Module {
@@ -602,14 +614,229 @@ impl Module {
             imports: Vec::new(),
             functions: Vec::new(),
             tests: Vec::new(),
+            traits: Vec::new(),
+            impls: Vec::new(),
         }
     }
 }
 
 impl fmt::Debug for Module {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Module {{ {} functions, {} tests }}", self.functions.len(), self.tests.len())
+        write!(
+            f,
+            "Module {{ {} functions, {} tests, {} traits, {} impls }}",
+            self.functions.len(),
+            self.tests.len(),
+            self.traits.len(),
+            self.impls.len()
+        )
     }
+}
+
+// =============================================================================
+// Traits and Implementations
+// =============================================================================
+
+/// Generic parameter: `T` or `T: Bound` or `T: A + B`.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct GenericParam {
+    pub name: Name,
+    pub bounds: Vec<TraitBound>,
+    pub span: Span,
+}
+
+/// A trait bound: `Eq`, `Comparable`, or path like `std.collections.Iterator`.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct TraitBound {
+    pub path: Vec<Name>,
+    pub span: Span,
+}
+
+impl TraitBound {
+    /// Get the simple name (last segment) of the trait bound.
+    pub fn name(&self) -> Name {
+        *self.path.last().expect("trait bound path cannot be empty")
+    }
+}
+
+/// Range of generic parameters.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Default)]
+#[repr(C)]
+pub struct GenericParamRange {
+    pub start: u32,
+    pub len: u16,
+}
+
+impl GenericParamRange {
+    pub const EMPTY: GenericParamRange = GenericParamRange { start: 0, len: 0 };
+
+    #[inline]
+    pub const fn new(start: u32, len: u16) -> Self {
+        GenericParamRange { start, len }
+    }
+
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    #[inline]
+    pub const fn len(&self) -> usize {
+        self.len as usize
+    }
+}
+
+impl fmt::Debug for GenericParamRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "GenericParamRange({}..{})", self.start, self.start + self.len as u32)
+    }
+}
+
+/// Where clause constraint: `T: Clone`, `U: Default`.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct WhereClause {
+    pub param: Name,
+    pub bounds: Vec<TraitBound>,
+    pub span: Span,
+}
+
+/// Trait definition.
+///
+/// ```sigil
+/// trait Printable {
+///     @to_string (self) -> str
+/// }
+///
+/// trait Comparable: Eq {
+///     @compare (self, other: Self) -> Ordering
+/// }
+/// ```
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct TraitDef {
+    pub name: Name,
+    pub generics: GenericParamRange,
+    /// Super-traits (inheritance): `trait Child: Parent`
+    pub super_traits: Vec<TraitBound>,
+    pub items: Vec<TraitItem>,
+    pub span: Span,
+    pub is_public: bool,
+}
+
+impl Spanned for TraitDef {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+/// Item inside a trait definition.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub enum TraitItem {
+    /// Required method signature: `@method (self) -> Type`
+    MethodSig(TraitMethodSig),
+    /// Method with default implementation: `@method (self) -> Type = expr`
+    DefaultMethod(TraitDefaultMethod),
+    /// Associated type: `type Item`
+    AssocType(TraitAssocType),
+}
+
+/// Required method signature in a trait.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct TraitMethodSig {
+    pub name: Name,
+    pub params: ParamRange,
+    pub return_ty: TypeId,
+    pub span: Span,
+}
+
+impl Spanned for TraitMethodSig {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+/// Method with default implementation in a trait.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct TraitDefaultMethod {
+    pub name: Name,
+    pub params: ParamRange,
+    pub return_ty: TypeId,
+    pub body: ExprId,
+    pub span: Span,
+}
+
+impl Spanned for TraitDefaultMethod {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+/// Associated type in a trait.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct TraitAssocType {
+    pub name: Name,
+    pub span: Span,
+}
+
+impl Spanned for TraitAssocType {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+/// Implementation block.
+///
+/// ```sigil
+/// // Inherent impl
+/// impl Point {
+///     @new (x: int, y: int) -> Point = Point { x, y }
+/// }
+///
+/// // Trait impl
+/// impl Printable for Point {
+///     @to_string (self) -> str = "..."
+/// }
+/// ```
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct ImplDef {
+    pub generics: GenericParamRange,
+    /// The trait being implemented (None for inherent impl).
+    pub trait_path: Option<Vec<Name>>,
+    /// The type path being implemented (e.g., ["Point"] for `impl Point { ... }`).
+    /// Used for method dispatch lookup.
+    pub self_path: Vec<Name>,
+    /// The type implementing the trait (or receiving inherent methods).
+    pub self_ty: TypeId,
+    pub where_clauses: Vec<WhereClause>,
+    pub methods: Vec<ImplMethod>,
+    pub span: Span,
+}
+
+impl ImplDef {
+    /// Returns true if this is an inherent impl (no trait).
+    pub fn is_inherent(&self) -> bool {
+        self.trait_path.is_none()
+    }
+
+    /// Returns true if this is a trait impl.
+    pub fn is_trait_impl(&self) -> bool {
+        self.trait_path.is_some()
+    }
+}
+
+impl Spanned for ImplDef {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+/// Method in an impl block.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct ImplMethod {
+    pub name: Name,
+    pub params: ParamRange,
+    pub return_ty: TypeId,
+    pub body: ExprId,
+    pub span: Span,
 }
 
 // =============================================================================
@@ -900,6 +1127,15 @@ pub enum FunctionSeq {
         arms: ArmRange,
         span: Span,
     },
+
+    /// for(over: items, [map: transform,] match: Pattern -> expr, default: fallback)
+    ForPattern {
+        over: ExprId,
+        map: Option<ExprId>,
+        arm: MatchArm,
+        default: ExprId,
+        span: Span,
+    },
 }
 
 impl FunctionSeq {
@@ -908,6 +1144,7 @@ impl FunctionSeq {
             FunctionSeq::Run { span, .. } => *span,
             FunctionSeq::Try { span, .. } => *span,
             FunctionSeq::Match { span, .. } => *span,
+            FunctionSeq::ForPattern { span, .. } => *span,
         }
     }
 
@@ -916,6 +1153,7 @@ impl FunctionSeq {
             FunctionSeq::Run { .. } => "run",
             FunctionSeq::Try { .. } => "try",
             FunctionSeq::Match { .. } => "match",
+            FunctionSeq::ForPattern { .. } => "for",
         }
     }
 }
@@ -982,66 +1220,29 @@ impl fmt::Debug for NamedExprRange {
 /// Kind of function_exp.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum FunctionExpKind {
-    Map,
-    Filter,
-    Fold,
-    Find,
-    Collect,
+    // Compiler patterns (require special syntax or static analysis)
     Recurse,
     Parallel,
     Spawn,
     Timeout,
-    Retry,
     Cache,
-    Validate,
     With,
-    // Core patterns
-    Assert,
-    AssertEq,
-    AssertNe,
-    Len,
-    IsEmpty,
-    IsSome,
-    IsNone,
-    IsOk,
-    IsErr,
+    // Fundamental built-ins (I/O and control flow)
     Print,
     Panic,
-    Compare,
-    Min,
-    Max,
 }
 
 impl FunctionExpKind {
     pub fn name(self) -> &'static str {
         match self {
-            FunctionExpKind::Map => "map",
-            FunctionExpKind::Filter => "filter",
-            FunctionExpKind::Fold => "fold",
-            FunctionExpKind::Find => "find",
-            FunctionExpKind::Collect => "collect",
             FunctionExpKind::Recurse => "recurse",
             FunctionExpKind::Parallel => "parallel",
             FunctionExpKind::Spawn => "spawn",
             FunctionExpKind::Timeout => "timeout",
-            FunctionExpKind::Retry => "retry",
             FunctionExpKind::Cache => "cache",
-            FunctionExpKind::Validate => "validate",
             FunctionExpKind::With => "with",
-            FunctionExpKind::Assert => "assert",
-            FunctionExpKind::AssertEq => "assert_eq",
-            FunctionExpKind::AssertNe => "assert_ne",
-            FunctionExpKind::Len => "len",
-            FunctionExpKind::IsEmpty => "is_empty",
-            FunctionExpKind::IsSome => "is_some",
-            FunctionExpKind::IsNone => "is_none",
-            FunctionExpKind::IsOk => "is_ok",
-            FunctionExpKind::IsErr => "is_err",
             FunctionExpKind::Print => "print",
             FunctionExpKind::Panic => "panic",
-            FunctionExpKind::Compare => "compare",
-            FunctionExpKind::Min => "min",
-            FunctionExpKind::Max => "max",
         }
     }
 }
@@ -1164,8 +1365,9 @@ mod tests {
 
     #[test]
     fn test_function_exp_kind() {
-        assert_eq!(FunctionExpKind::Map, FunctionExpKind::Map);
-        assert_ne!(FunctionExpKind::Map, FunctionExpKind::Filter);
-        assert_eq!(FunctionExpKind::Map.name(), "map");
+        // Note: Map, Filter, Fold, etc. are now stdlib methods
+        assert_eq!(FunctionExpKind::Parallel, FunctionExpKind::Parallel);
+        assert_ne!(FunctionExpKind::Parallel, FunctionExpKind::Spawn);
+        assert_eq!(FunctionExpKind::Parallel.name(), "parallel");
     }
 }
