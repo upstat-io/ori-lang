@@ -28,7 +28,23 @@ impl Parser<'_> {
         } else if self.check(&TokenKind::SelfUpper) {
             // Self type - used in trait/impl contexts
             self.advance();
-            Some(ParsedType::SelfType)
+            // Check for associated type access: Self.Item
+            if self.check(&TokenKind::Dot) {
+                self.advance(); // consume .
+                if self.check_ident() {
+                    let assoc_name = if let TokenKind::Ident(n) = &self.current().kind {
+                        *n
+                    } else {
+                        return Some(ParsedType::SelfType);
+                    };
+                    self.advance();
+                    Some(ParsedType::associated_type(ParsedType::SelfType, assoc_name))
+                } else {
+                    Some(ParsedType::SelfType)
+                }
+            } else {
+                Some(ParsedType::SelfType)
+            }
         } else if self.check_ident() {
             // Named type (possibly generic like Option<T>)
             let name = if let TokenKind::Ident(n) = &self.current().kind {
@@ -39,7 +55,25 @@ impl Parser<'_> {
             self.advance();
             // Check for generic parameters
             let type_args = self.parse_optional_generic_args_full();
-            Some(ParsedType::Named { name, type_args })
+            let base_type = ParsedType::Named { name, type_args };
+
+            // Check for associated type access: T.Item
+            if self.check(&TokenKind::Dot) {
+                self.advance(); // consume .
+                if self.check_ident() {
+                    let assoc_name = if let TokenKind::Ident(n) = &self.current().kind {
+                        *n
+                    } else {
+                        return Some(base_type);
+                    };
+                    self.advance();
+                    Some(ParsedType::associated_type(base_type, assoc_name))
+                } else {
+                    Some(base_type)
+                }
+            } else {
+                Some(base_type)
+            }
         } else if self.check(&TokenKind::LBracket) {
             // [T] list type
             self.advance(); // [
@@ -363,6 +397,56 @@ mod tests {
                 _ => panic!("expected Named inside List"),
             },
             _ => panic!("expected List"),
+        }
+    }
+
+    #[test]
+    fn test_parse_self_associated_type() {
+        // Self.Item - associated type access on Self
+        let ty = parse_type_from_source("Self.Item");
+        match ty {
+            Some(ParsedType::AssociatedType { base, assoc_name }) => {
+                assert_eq!(*base, ParsedType::SelfType);
+                // Note: assoc_name is a Name, we just verify it was parsed
+                let _ = assoc_name;
+            }
+            _ => panic!("expected AssociatedType, got {:?}", ty),
+        }
+    }
+
+    #[test]
+    fn test_parse_generic_associated_type() {
+        // T.Item - associated type access on a type variable
+        let ty = parse_type_from_source("T.Item");
+        match ty {
+            Some(ParsedType::AssociatedType { base, assoc_name }) => {
+                match base.as_ref() {
+                    ParsedType::Named { type_args, .. } => {
+                        assert!(type_args.is_empty());
+                    }
+                    _ => panic!("expected Named as base"),
+                }
+                let _ = assoc_name;
+            }
+            _ => panic!("expected AssociatedType, got {:?}", ty),
+        }
+    }
+
+    #[test]
+    fn test_parse_option_of_associated_type() {
+        // Option<Self.Item> - associated type inside generic
+        let ty = parse_type_from_source("Option<Self.Item>");
+        match ty {
+            Some(ParsedType::Named { type_args, .. }) => {
+                assert_eq!(type_args.len(), 1);
+                match &type_args[0] {
+                    ParsedType::AssociatedType { base, .. } => {
+                        assert_eq!(**base, ParsedType::SelfType);
+                    }
+                    _ => panic!("expected AssociatedType as type arg"),
+                }
+            }
+            _ => panic!("expected Named"),
         }
     }
 }

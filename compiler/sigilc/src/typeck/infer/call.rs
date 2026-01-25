@@ -7,15 +7,50 @@ use crate::types::Type;
 use super::super::checker::{TypeChecker, TypeCheckError};
 use super::infer_expr;
 
-/// Infer type for a function call.
+/// Infer type for a function call (positional arguments).
+///
+/// Positional args are only allowed for:
+/// - Type conversions (int, float, str, byte)
+/// - Calls through function variables (param names unknowable)
+///
+/// Direct function calls require named arguments (use CallNamed).
 pub fn infer_call(
     checker: &mut TypeChecker<'_>,
     func: ExprId,
     args: ExprRange,
     span: Span,
 ) -> Type {
-    let func_ty = infer_expr(checker, func);
+    // Check if positional args are allowed for this call
+    let func_expr = checker.arena.get_expr(func);
+    let positional_allowed = match &func_expr.kind {
+        ExprKind::Ident(name) => {
+            let name_str = checker.interner.lookup(*name);
+            // Type conversions allow positional
+            if matches!(name_str, "int" | "float" | "str" | "byte") {
+                true
+            } else {
+                // Check if this is a function definition (requires named)
+                // or a variable of function type (allows positional)
+                !checker.function_sigs.contains_key(name)
+            }
+        }
+        // Non-identifier callees (e.g., array[0](...), obj.field(...))
+        // are always function variables, so allow positional
+        _ => true,
+    };
+
     let arg_ids = checker.arena.get_expr_list(args);
+
+    if !positional_allowed && !arg_ids.is_empty() {
+        checker.errors.push(TypeCheckError {
+            message: "named arguments required for function calls (name: value)".to_string(),
+            span,
+            code: crate::diagnostic::ErrorCode::E2011,
+        });
+        return Type::Error;
+    }
+
+    let func_ty = infer_expr(checker, func);
     let arg_types: Vec<Type> = arg_ids.iter()
         .map(|id| infer_expr(checker, *id))
         .collect();
@@ -127,7 +162,10 @@ fn check_generic_bounds(
     checker.check_function_bounds(func_name, span);
 }
 
-/// Infer type for a method call.
+/// Infer type for a method call (positional arguments).
+///
+/// Method calls require named arguments. Positional args are only allowed
+/// when there are no arguments (zero-arg method calls).
 pub fn infer_method_call(
     checker: &mut TypeChecker<'_>,
     receiver: ExprId,
@@ -135,11 +173,21 @@ pub fn infer_method_call(
     args: ExprRange,
     span: Span,
 ) -> Type {
+    // Method calls require named arguments
+    let arg_ids = checker.arena.get_expr_list(args);
+    if !arg_ids.is_empty() {
+        checker.errors.push(TypeCheckError {
+            message: "named arguments required for method calls (name: value)".to_string(),
+            span,
+            code: crate::diagnostic::ErrorCode::E2011,
+        });
+        return Type::Error;
+    }
+
     let receiver_ty = infer_expr(checker, receiver);
     let resolved_receiver = checker.ctx.resolve(&receiver_ty);
 
     // Type check arguments first
-    let arg_ids = checker.arena.get_expr_list(args);
     let arg_types: Vec<Type> = arg_ids.iter()
         .map(|id| infer_expr(checker, *id))
         .collect();
@@ -176,6 +224,69 @@ pub fn infer_method_call(
                 // Use the span of the specific argument if available
                 let arg_span = if i < arg_ids.len() {
                     checker.arena.get_expr(arg_ids[i]).span
+                } else {
+                    span
+                };
+                checker.report_type_error(&e, arg_span);
+            }
+        }
+
+        return method_lookup.return_ty.clone();
+    }
+
+    // Fall back to built-in method checking for common types
+    infer_builtin_method(checker, &resolved_receiver, method, &arg_types, span)
+}
+
+/// Infer type for a method call with named arguments.
+pub fn infer_method_call_named(
+    checker: &mut TypeChecker<'_>,
+    receiver: ExprId,
+    method: Name,
+    args: CallArgRange,
+    span: Span,
+) -> Type {
+    let receiver_ty = infer_expr(checker, receiver);
+    let resolved_receiver = checker.ctx.resolve(&receiver_ty);
+
+    // Type check arguments first
+    let call_args = checker.arena.get_call_args(args);
+    let arg_types: Vec<Type> = call_args.iter()
+        .map(|arg| infer_expr(checker, arg.value))
+        .collect();
+
+    // Try to look up the method in the trait registry
+    if let Some(method_lookup) = checker.trait_registry.lookup_method(&resolved_receiver, method) {
+        // Found method - check argument count
+        // The first param is 'self', so method_params includes self
+        let expected_arg_count = if method_lookup.params.is_empty() {
+            0
+        } else {
+            // Subtract 1 for self parameter
+            method_lookup.params.len().saturating_sub(1)
+        };
+
+        if arg_types.len() != expected_arg_count {
+            checker.errors.push(TypeCheckError {
+                message: format!(
+                    "method `{}` expects {} arguments, found {}",
+                    checker.interner.lookup(method),
+                    expected_arg_count,
+                    arg_types.len()
+                ),
+                span,
+                code: crate::diagnostic::ErrorCode::E2004,
+            });
+            return Type::Error;
+        }
+
+        // Unify argument types with parameter types (skip self param)
+        let param_types: Vec<_> = method_lookup.params.iter().skip(1).collect();
+        for (i, (param_ty, arg_ty)) in param_types.iter().zip(arg_types.iter()).enumerate() {
+            if let Err(e) = checker.ctx.unify(param_ty, arg_ty) {
+                // Use the span of the specific argument if available
+                let arg_span = if i < call_args.len() {
+                    call_args[i].span
                 } else {
                     span
                 };

@@ -83,6 +83,11 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
             infer_method_call(checker, *receiver, *method, *args, span)
         }
 
+        // Method call with named arguments
+        ExprKind::MethodCallNamed { receiver, method, args } => {
+            infer_method_call_named(checker, *receiver, *method, *args, span)
+        }
+
         // If expression
         ExprKind::If { cond, then_branch, else_branch } => {
             infer_if(checker, *cond, *then_branch, *else_branch, span)
@@ -288,6 +293,14 @@ pub fn collect_free_vars_inner(
             collect_free_vars_inner(checker, *receiver, bound, free);
             for arg_id in checker.arena.get_expr_list(*args) {
                 collect_free_vars_inner(checker, *arg_id, bound, free);
+            }
+        }
+
+        // Method call with named arguments
+        ExprKind::MethodCallNamed { receiver, args, .. } => {
+            collect_free_vars_inner(checker, *receiver, bound, free);
+            for arg in checker.arena.get_call_args(*args) {
+                collect_free_vars_inner(checker, arg.value, bound, free);
             }
         }
 

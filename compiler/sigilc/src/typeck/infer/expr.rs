@@ -17,6 +17,12 @@ pub fn infer_ident(checker: &mut TypeChecker<'_>, name: Name, span: Span) -> Typ
         // variable gets its own fresh type variables
         checker.ctx.instantiate(scheme)
     } else {
+        // Check for built-in type conversion functions (function_val)
+        let name_str = checker.interner.lookup(name);
+        if let Some(ty) = builtin_function_type(checker, name_str) {
+            return ty;
+        }
+
         checker.errors.push(TypeCheckError {
             message: format!(
                 "unknown identifier `{}`",
@@ -26,6 +32,46 @@ pub fn infer_ident(checker: &mut TypeChecker<'_>, name: Name, span: Span) -> Typ
             code: crate::diagnostic::ErrorCode::E2003,
         });
         Type::Error
+    }
+}
+
+/// Get the type for a built-in function (function_val).
+///
+/// Returns `Some(Type)` for recognized built-in functions, `None` otherwise.
+fn builtin_function_type(checker: &mut TypeChecker<'_>, name: &str) -> Option<Type> {
+    // Type conversion functions: polymorphic (T) -> Target
+    // The actual type checking is done at runtime; here we just
+    // provide a function type that accepts any argument.
+    match name {
+        "str" => {
+            let param = checker.ctx.fresh_var();
+            Some(Type::Function {
+                params: vec![param],
+                ret: Box::new(Type::Str),
+            })
+        }
+        "int" => {
+            let param = checker.ctx.fresh_var();
+            Some(Type::Function {
+                params: vec![param],
+                ret: Box::new(Type::Int),
+            })
+        }
+        "float" => {
+            let param = checker.ctx.fresh_var();
+            Some(Type::Function {
+                params: vec![param],
+                ret: Box::new(Type::Float),
+            })
+        }
+        "byte" => {
+            let param = checker.ctx.fresh_var();
+            Some(Type::Function {
+                params: vec![param],
+                ret: Box::new(Type::Byte),
+            })
+        }
+        _ => None,
     }
 }
 

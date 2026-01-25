@@ -208,6 +208,12 @@ impl<'a> Evaluator<'a> {
                     .map(|id| self.eval(*id)).collect();
                 self.eval_method_call(recv, *method, arg_vals?)
             }
+            ExprKind::MethodCallNamed { receiver, method, args } => {
+                let recv = self.eval(*receiver)?;
+                let arg_vals: Result<Vec<_>, _> = self.arena.get_call_args(*args).iter()
+                    .map(|arg| self.eval(arg.value)).collect();
+                self.eval_method_call(recv, *method, arg_vals?)
+            }
             ExprKind::Match { scrutinee, arms } => {
                 let value = self.eval(*scrutinee)?;
                 self.eval_match(&value, *arms)

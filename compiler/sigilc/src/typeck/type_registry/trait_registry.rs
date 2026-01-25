@@ -69,6 +69,15 @@ pub struct ImplMethodDef {
     pub return_ty: Type,
 }
 
+/// Associated type definition in an impl block (e.g., `type Item = T`).
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct ImplAssocTypeDef {
+    /// Associated type name (e.g., `Item`).
+    pub name: Name,
+    /// Concrete type assigned (e.g., `T` or `int`).
+    pub ty: Type,
+}
+
 /// Entry for an implementation block.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct ImplEntry {
@@ -82,6 +91,8 @@ pub struct ImplEntry {
     pub type_params: Vec<Name>,
     /// Methods in this impl block.
     pub methods: Vec<ImplMethodDef>,
+    /// Associated type definitions (e.g., `type Item = T`).
+    pub assoc_types: Vec<ImplAssocTypeDef>,
 }
 
 /// Error when coherence rules are violated.
@@ -252,6 +263,26 @@ impl TraitRegistry {
     pub fn impl_count(&self) -> usize {
         self.trait_impls.len() + self.inherent_impls.len()
     }
+
+    /// Look up an associated type definition for a type implementing a trait.
+    ///
+    /// Returns `Some(concrete_type)` if the type has an impl for the trait
+    /// with an associated type definition for `assoc_name`.
+    pub fn lookup_assoc_type(
+        &self,
+        self_ty: &Type,
+        trait_name: Name,
+        assoc_name: Name,
+    ) -> Option<Type> {
+        // Get the trait impl for this type
+        let impl_entry = self.get_trait_impl(trait_name, self_ty)?;
+
+        // Find the associated type definition
+        impl_entry.assoc_types
+            .iter()
+            .find(|at| at.name == assoc_name)
+            .map(|at| at.ty.clone())
+    }
 }
 
 /// Result of a method lookup.
@@ -334,6 +365,7 @@ mod tests {
                 params: vec![Type::Int, Type::Int],
                 return_ty: Type::Named(point),
             }],
+            assoc_types: vec![],
         };
 
         registry.register_impl(entry).unwrap();
@@ -381,6 +413,7 @@ mod tests {
                 params: vec![],
                 return_ty: Type::Str,
             }],
+            assoc_types: vec![],
         };
         registry.register_impl(impl_entry).unwrap();
 
@@ -412,6 +445,7 @@ mod tests {
                 params: vec![],
                 return_ty: Type::Str,
             }],
+            assoc_types: vec![],
         };
         registry.register_impl(inherent_entry).unwrap();
 
@@ -457,6 +491,7 @@ mod tests {
                 params: vec![],
                 return_ty: Type::Str,
             }],
+            assoc_types: vec![],
         };
         assert!(registry.register_impl(impl1).is_ok());
 
@@ -471,6 +506,7 @@ mod tests {
                 params: vec![],
                 return_ty: Type::Str,
             }],
+            assoc_types: vec![],
         };
         assert!(registry.register_impl(impl2).is_err());
     }
@@ -494,6 +530,7 @@ mod tests {
                 params: vec![],
                 return_ty: Type::Str,
             }],
+            assoc_types: vec![],
         };
         assert!(registry.register_impl(impl1).is_ok());
 
@@ -508,6 +545,7 @@ mod tests {
                 params: vec![],
                 return_ty: Type::Int,
             }],
+            assoc_types: vec![],
         };
         assert!(registry.register_impl(impl2).is_err());
     }
@@ -532,6 +570,7 @@ mod tests {
                 params: vec![],
                 return_ty: Type::Int,
             }],
+            assoc_types: vec![],
         };
         assert!(registry.register_impl(impl1).is_ok());
 
@@ -546,6 +585,7 @@ mod tests {
                 params: vec![],
                 return_ty: Type::Str,
             }],
+            assoc_types: vec![],
         };
         assert!(registry.register_impl(impl2).is_ok());
 

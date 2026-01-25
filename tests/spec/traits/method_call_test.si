@@ -1,0 +1,20 @@
+// Minimal test to isolate method call with named argument issue
+
+use std.testing { assert_eq }
+
+// Simple trait with a method that takes a parameter
+trait Adder {
+    @add_value (self, x: int) -> int
+}
+
+type MyAdder = { base: int }
+
+impl Adder for MyAdder {
+    @add_value (self, x: int) -> int = self.base + x
+}
+
+@test_method_with_param tests @add_value () -> void = run(
+    let a = MyAdder { base: 10 },
+    let result = a.add_value(x: 5),
+    assert_eq(actual: result, expected: 15),
+)

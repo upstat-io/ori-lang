@@ -1,0 +1,36 @@
+// Derive Eq tests
+
+#[derive(Eq)]
+type Point = { x: int, y: int }
+
+@test_eq_same_values tests @eq_two_points () -> void = run(
+    let p1 = Point { x: 10, y: 20 },
+    let p2 = Point { x: 10, y: 20 },
+    let result = p1.eq(other: p2),
+    if result then print(msg: "Pass: same values are equal")
+    else print(msg: "Fail: same values should be equal")
+)
+
+@eq_two_points () -> bool = run(
+    let p1 = Point { x: 10, y: 20 },
+    let p2 = Point { x: 10, y: 20 },
+    p1.eq(other: p2)
+)
+
+@test_eq_different_values tests @neq_two_points () -> void = run(
+    let p1 = Point { x: 10, y: 20 },
+    let p2 = Point { x: 10, y: 30 },
+    let result = !p1.eq(other: p2),
+    if result then print(msg: "Pass: different values are not equal")
+    else print(msg: "Fail: different values should not be equal")
+)
+
+@neq_two_points () -> bool = run(
+    let p1 = Point { x: 10, y: 20 },
+    let p2 = Point { x: 10, y: 30 },
+    !p1.eq(other: p2)
+)
+
+@main () -> void = run(
+    print(msg: "Derive Eq tests passed")
+)

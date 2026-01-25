@@ -8,7 +8,7 @@ use sigil_ir::{
     ConfigDef, Function, ImportPath, Name, Param, ParamRange, TestDef, TokenKind, ParsedType,
     UseDef, UseItem, GenericParam, GenericParamRange, TraitBound, WhereClause,
     TraitDef, TraitItem, TraitMethodSig, TraitDefaultMethod, TraitAssocType,
-    ImplDef, ImplMethod,
+    ImplDef, ImplMethod, ImplAssocType,
     TypeDecl, TypeDeclKind, StructField, Variant, VariantField,
 };
 use crate::{FunctionOrTest, ParsedAttrs, ParseError, Parser};
@@ -210,6 +210,7 @@ impl Parser<'_> {
 
             // = body
             self.expect(&TokenKind::Eq)?;
+            self.skip_newlines();
             let body = self.parse_expr()?;
 
             let end_span = self.arena.get_expr(body).span;
@@ -243,6 +244,7 @@ impl Parser<'_> {
 
             // = body
             self.expect(&TokenKind::Eq)?;
+            self.skip_newlines();
             let body = self.parse_expr()?;
 
             let end_span = self.arena.get_expr(body).span;
@@ -290,6 +292,7 @@ impl Parser<'_> {
 
             // = body
             self.expect(&TokenKind::Eq)?;
+            self.skip_newlines();
             let body = self.parse_expr()?;
 
             let end_span = self.arena.get_expr(body).span;
@@ -427,6 +430,7 @@ impl Parser<'_> {
             // Check for default implementation: = body
             if self.check(&TokenKind::Eq) {
                 self.advance();
+                self.skip_newlines();
                 let body = self.parse_expr()?;
                 let end_span = self.arena.get_expr(body).span;
                 Ok(TraitItem::DefaultMethod(TraitDefaultMethod {
@@ -488,17 +492,35 @@ impl Parser<'_> {
             Vec::new()
         };
 
-        // Impl body: { methods }
+        // Impl body: { methods and associated types }
         self.expect(&TokenKind::LBrace)?;
         self.skip_newlines();
 
         let mut methods = Vec::new();
+        let mut assoc_types = Vec::new();
+
         while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
-            match self.parse_impl_method() {
-                Ok(method) => methods.push(method),
-                Err(e) => {
-                    return Err(e);
+            if self.check(&TokenKind::Type) {
+                // Associated type definition: type Item = T
+                match self.parse_impl_assoc_type() {
+                    Ok(at) => assoc_types.push(at),
+                    Err(e) => return Err(e),
                 }
+            } else if self.check(&TokenKind::At) {
+                // Method: @name (...) -> Type = body
+                match self.parse_impl_method() {
+                    Ok(method) => methods.push(method),
+                    Err(e) => return Err(e),
+                }
+            } else {
+                return Err(ParseError::new(
+                    sigil_diagnostic::ErrorCode::E1001,
+                    format!(
+                        "expected method definition (@name) or associated type definition (type Name = ...), found {:?}",
+                        self.current().kind
+                    ),
+                    self.current_span(),
+                ));
             }
             self.skip_newlines();
         }
@@ -513,6 +535,7 @@ impl Parser<'_> {
             self_ty,
             where_clauses,
             methods,
+            assoc_types,
             span: start_span.merge(end_span),
         })
     }
@@ -536,6 +559,7 @@ impl Parser<'_> {
 
         // = body
         self.expect(&TokenKind::Eq)?;
+        self.skip_newlines();
         let body = self.parse_expr()?;
 
         let end_span = self.arena.get_expr(body).span;
@@ -545,6 +569,30 @@ impl Parser<'_> {
             params,
             return_ty,
             body,
+            span: start_span.merge(end_span),
+        })
+    }
+
+    /// Parse an associated type definition in an impl block.
+    /// Syntax: type Name = Type
+    fn parse_impl_assoc_type(&mut self) -> Result<ImplAssocType, ParseError> {
+        let start_span = self.current_span();
+
+        // type
+        self.expect(&TokenKind::Type)?;
+
+        // Name
+        let name = self.expect_ident()?;
+
+        // = Type
+        self.expect(&TokenKind::Eq)?;
+        let ty = self.parse_type_required()?;
+
+        let end_span = self.current_span();
+
+        Ok(ImplAssocType {
+            name,
+            ty,
             span: start_span.merge(end_span),
         })
     }

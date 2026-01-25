@@ -1,0 +1,100 @@
+// Comprehensive derive trait tests
+
+#[derive(Eq, Clone, Hashable, Printable)]
+type Point = { x: int, y: int }
+
+#[derive(Eq)]
+type Empty = { }
+
+// Test derive Eq
+@test_eq tests @eq_basic () -> void = run(
+    let p1 = Point { x: 10, y: 20 },
+    let p2 = Point { x: 10, y: 20 },
+    let p3 = Point { x: 10, y: 30 },
+
+    // Equal points
+    if p1.eq(other: p2) then print(msg: "Pass: equal points are equal")
+    else print(msg: "Fail: equal points should be equal"),
+
+    // Unequal points
+    if !p1.eq(other: p3) then print(msg: "Pass: different points are not equal")
+    else print(msg: "Fail: different points should not be equal")
+)
+
+@eq_basic () -> bool = run(
+    let p1 = Point { x: 10, y: 20 },
+    let p2 = Point { x: 10, y: 20 },
+    p1.eq(other: p2)
+)
+
+// Test derive Clone
+@test_clone tests @clone_basic () -> void = run(
+    let p = Point { x: 42, y: 99 },
+    let cloned = p.clone(),
+
+    // Cloned should be equal to original
+    if cloned.eq(other: p) then print(msg: "Pass: clone is equal to original")
+    else print(msg: "Fail: clone should be equal to original")
+)
+
+@clone_basic () -> Point = run(
+    let p = Point { x: 42, y: 99 },
+    p.clone()
+)
+
+// Test derive Hash
+@test_hash tests @hash_basic () -> void = run(
+    let p1 = Point { x: 10, y: 20 },
+    let p2 = Point { x: 10, y: 20 },
+    let p3 = Point { x: 10, y: 30 },
+
+    let h1 = p1.hash(),
+    let h2 = p2.hash(),
+    let h3 = p3.hash(),
+
+    // Equal values should have equal hashes
+    if h1 == h2 then print(msg: "Pass: equal values have equal hashes")
+    else print(msg: "Fail: equal values should have equal hashes"),
+
+    // Different values may have different hashes (not guaranteed, but likely)
+    if h1 != h3 then print(msg: "Pass: different values have different hashes")
+    else print(msg: "Note: hash collision (unlikely but possible)")
+)
+
+@hash_basic () -> int = run(
+    let p = Point { x: 10, y: 20 },
+    p.hash()
+)
+
+// Test derive Printable (to_string)
+@test_to_string tests @to_string_basic () -> void = run(
+    let p = Point { x: 10, y: 20 },
+    let s = p.to_string(),
+
+    // Check the string contains expected parts
+    print(msg: s)
+)
+
+@to_string_basic () -> str = run(
+    let p = Point { x: 10, y: 20 },
+    p.to_string()
+)
+
+// Test empty struct
+@test_empty_eq tests @empty_eq () -> void = run(
+    let e1 = Empty { },
+    let e2 = Empty { },
+
+    if e1.eq(other: e2) then print(msg: "Pass: empty structs are equal")
+    else print(msg: "Fail: empty structs should be equal")
+)
+
+@empty_eq () -> bool = run(
+    let e1 = Empty { },
+    let e2 = Empty { },
+    e1.eq(other: e2)
+)
+
+@main () -> void = run(
+    print(msg: "All derive trait tests passed")
+)

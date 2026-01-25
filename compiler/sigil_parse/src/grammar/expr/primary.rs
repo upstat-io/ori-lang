@@ -192,6 +192,9 @@ impl Parser<'_> {
             // List literal
             TokenKind::LBracket => self.parse_list_literal(),
 
+            // Map literal
+            TokenKind::LBrace => self.parse_map_literal(),
+
             // If expression
             TokenKind::If => self.parse_if_expr(),
 
@@ -336,18 +339,61 @@ impl Parser<'_> {
         )))
     }
 
+    /// Parse map literal: `{ key: value, ... }` or `{}`.
+    fn parse_map_literal(&mut self) -> Result<ExprId, ParseError> {
+        use sigil_ir::MapEntry;
+
+        let span = self.current_span();
+        self.advance(); // {
+        self.skip_newlines();
+
+        let mut entries = Vec::new();
+
+        while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
+            let entry_span = self.current_span();
+            let key = self.parse_expr()?;
+            self.expect(&TokenKind::Colon)?;
+            let value = self.parse_expr()?;
+            let end_span = self.arena.get_expr(value).span;
+
+            entries.push(MapEntry {
+                key,
+                value,
+                span: entry_span.merge(end_span),
+            });
+
+            self.skip_newlines();
+            if self.check(&TokenKind::Comma) {
+                self.advance();
+                self.skip_newlines();
+            } else {
+                break;
+            }
+        }
+
+        self.expect(&TokenKind::RBrace)?;
+        let end_span = self.previous_span();
+        let range = self.arena.alloc_map_entries(entries);
+        Ok(self.arena.alloc_expr(Expr::new(
+            ExprKind::Map(range),
+            span.merge(end_span),
+        )))
+    }
+
     /// Parse if expression.
     fn parse_if_expr(&mut self) -> Result<ExprId, ParseError> {
         let span = self.current_span();
         self.advance();
         let cond = self.parse_expr()?;
         self.expect(&TokenKind::Then)?;
+        self.skip_newlines();
         let then_branch = self.parse_expr()?;
 
         self.skip_newlines();
 
         let else_branch = if self.check(&TokenKind::Else) {
             self.advance();
+            self.skip_newlines();
             Some(self.parse_expr()?)
         } else {
             None

@@ -50,7 +50,9 @@ pub use environment::{Environment, LocalScope, Scope};
 pub use methods::{MethodDispatcher, MethodRegistry};
 pub use operators::{BinaryOperator, OperatorRegistry};
 pub use unary_operators::{UnaryOperator, UnaryOperatorRegistry};
-pub use user_methods::{UserMethod, UserMethodRegistry};
+pub use user_methods::{
+    DerivedMethodInfo, DerivedTrait, MethodEntry, UserMethod, UserMethodRegistry,
+};
 
 pub use function_val::{
     function_val_byte, function_val_float, function_val_int, function_val_str,

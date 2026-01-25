@@ -282,6 +282,12 @@ pub fn walk_expr<'ast, V: Visit<'ast> + ?Sized>(
                 visitor.visit_expr_id(arg_id, arena);
             }
         }
+        ExprKind::MethodCallNamed { receiver, args, .. } => {
+            visitor.visit_expr_id(*receiver, arena);
+            for arg in arena.get_call_args(*args) {
+                visitor.visit_call_arg(arg, arena);
+            }
+        }
 
         // Control flow
         ExprKind::If {
@@ -773,6 +779,12 @@ pub fn walk_expr_mut<'ast, V: VisitMut<'ast> + ?Sized>(
             visitor.visit_expr_id(*receiver, arena);
             for &arg_id in arena.get_expr_list(*args) {
                 visitor.visit_expr_id(arg_id, arena);
+            }
+        }
+        ExprKind::MethodCallNamed { receiver, args, .. } => {
+            visitor.visit_expr_id(*receiver, arena);
+            for arg in arena.get_call_args(*args) {
+                visitor.visit_call_arg(arg, arena);
             }
         }
 

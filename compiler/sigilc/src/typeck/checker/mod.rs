@@ -182,7 +182,12 @@ impl<'a> TypeChecker<'a> {
         self.register_traits(module);
         self.register_impls(module);
 
-        // Pass 0c: Register config variables
+        // Pass 0c: Register derived trait implementations
+        // Must be done after register_types so we know the type structure,
+        // but after register_impls so explicit impls take precedence.
+        super::derives::register_derived_impls(module, &mut self.trait_registry, self.interner);
+
+        // Pass 0d: Register config variables
         self.register_configs(module);
 
         // First pass: collect function signatures
@@ -367,6 +372,24 @@ impl<'a> TypeChecker<'a> {
                     value: Box::new(value_ty),
                 }
             }
+            ParsedType::AssociatedType { base, assoc_name } => {
+                // Associated type projection like Self.Item or T.Item
+                // The base type is converted, and we create a Projection type.
+                // The trait_name is not known at parse time in general; we use
+                // a placeholder that will be resolved during impl checking or
+                // when we have more context about which trait defines this associated type.
+                let base_ty = self.parsed_type_to_type(base);
+
+                // For now, use a placeholder trait name. In a more complete implementation,
+                // we would look up which trait defines this associated type based on
+                // the context (current trait definition or trait bounds on the base type).
+                // Using the assoc_name as the trait_name placeholder for now.
+                Type::Projection {
+                    base: Box::new(base_ty),
+                    trait_name: *assoc_name, // Placeholder - resolved during impl checking
+                    assoc_name: *assoc_name,
+                }
+            }
         }
     }
 
@@ -416,6 +439,15 @@ impl<'a> TypeChecker<'a> {
                 Type::Function {
                     params: param_types,
                     ret: Box::new(ret_ty),
+                }
+            }
+            ParsedType::AssociatedType { base, assoc_name } => {
+                // Resolve the base type with generic substitutions
+                let base_ty = self.resolve_parsed_type_with_generics(base, generic_type_vars);
+                Type::Projection {
+                    base: Box::new(base_ty),
+                    trait_name: *assoc_name, // Placeholder
+                    assoc_name: *assoc_name,
                 }
             }
             _ => self.parsed_type_to_type(parsed),

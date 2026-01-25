@@ -161,6 +161,8 @@ pub struct ImplDef {
     pub self_ty: ParsedType,
     pub where_clauses: Vec<WhereClause>,
     pub methods: Vec<ImplMethod>,
+    /// Associated type definitions (e.g., `type Item = T`).
+    pub assoc_types: Vec<ImplAssocType>,
     pub span: Span,
 }
 
@@ -191,6 +193,28 @@ pub struct ImplMethod {
     pub return_ty: ParsedType,
     pub body: ExprId,
     pub span: Span,
+}
+
+/// Associated type definition in an impl block.
+///
+/// ```sigil
+/// impl Iterator for List<T> {
+///     type Item = T
+/// }
+/// ```
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct ImplAssocType {
+    /// The associated type name (e.g., `Item`).
+    pub name: Name,
+    /// The concrete type being assigned (e.g., `T` in `type Item = T`).
+    pub ty: ParsedType,
+    pub span: Span,
+}
+
+impl Spanned for ImplAssocType {
+    fn span(&self) -> Span {
+        self.span
+    }
 }
 
 /// Extension method definition.

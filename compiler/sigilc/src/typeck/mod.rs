@@ -25,6 +25,7 @@
 //!   - `pattern.rs`: Pattern expressions (run, try, map, etc.)
 
 mod checker;
+pub mod derives;
 mod infer;
 pub mod operators;
 pub mod type_registry;
