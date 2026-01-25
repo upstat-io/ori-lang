@@ -1,4 +1,4 @@
-//! Runtime values for the Sigil V3 interpreter.
+//! Runtime values for the Sigil interpreter.
 //!
 //! # Arc Enforcement Architecture
 //!

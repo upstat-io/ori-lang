@@ -1,7 +1,8 @@
 //! With pattern implementation.
 //!
 //! `with(acquire: expr, action: fn, release: fn)` - Resource management.
-//! NOTE: Uses `.action` instead of `.use` because `use` is a reserved keyword.
+//!
+//! The property is named `action` rather than `use` because `use` is a reserved keyword.
 
 use sigil_types::Type;
 
@@ -10,11 +11,11 @@ use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, TypeChe
 /// The `with` pattern provides structured resource management.
 ///
 /// Syntax: `with(acquire: resource, action: r -> expr, release: r -> void)`
-/// NOTE: Uses `.action` instead of `.use` because `use` is a reserved keyword.
 ///
 /// Type: `with(acquire: R, action: R -> T, release: R -> void) -> T`
 ///
-/// The release function is always called, even if use throws.
+/// The property is named `action` rather than `use` because `use` is a reserved keyword.
+/// The release function is always called, even if action throws.
 pub struct WithPattern;
 
 impl PatternDefinition for WithPattern {

@@ -1,7 +1,7 @@
-//! Tree-walking interpreter for Sigil V3.
+//! Tree-walking interpreter for Sigil.
 //!
-//! This module provides runtime evaluation of Sigil expressions.
-//! Ported from V2 but adapted to work with V3's Salsa-compatible AST.
+//! This module provides runtime evaluation of Sigil expressions
+//! using a Salsa-compatible AST representation.
 //!
 //! ## Architecture
 //!

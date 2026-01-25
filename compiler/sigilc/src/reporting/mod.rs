@@ -598,7 +598,7 @@ pub fn render_all(problems: &[Problem]) -> Vec<Diagnostic> {
 
 /// Process type check errors through the diagnostic queue for filtering and sorting.
 ///
-/// This applies Go-style error handling:
+/// Applies the following error handling strategies:
 /// - Error limits to prevent overwhelming output
 /// - Deduplication of same-line errors
 /// - Soft error suppression after hard errors

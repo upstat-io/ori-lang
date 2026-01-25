@@ -425,7 +425,6 @@ mod tests {
 
     #[test]
     fn test_fused_pattern_names() {
-        // FusedPattern types still exist for potential future method fusion
         let map_filter = FusedPattern::MapFilter {
             input: ExprId::new(0),
             map_fn: ExprId::new(1),

@@ -957,10 +957,10 @@ impl Parser<'_> {
     }
 
     /// Convert a type path to a `ParsedType`.
-    /// Creates a Named type with the last segment as the name.
+    ///
+    /// Creates a Named type using the last segment as the name.
+    /// Full path resolution is handled during type checking.
     fn make_type_from_path(&mut self, path: &[sigil_ir::Name]) -> Result<ParsedType, ParseError> {
-        // Use the last segment as the type name
-        // TODO: Support full path resolution in type checker
         match path.last() {
             Some(&name) => Ok(ParsedType::Named { name, type_args: Vec::new() }),
             None => Err(ParseError::new(

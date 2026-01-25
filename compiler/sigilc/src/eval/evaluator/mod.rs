@@ -1,6 +1,6 @@
-//! Expression evaluator for the Sigil V3 interpreter.
+//! Expression evaluator for the Sigil interpreter.
 //!
-//! Ported from V2 with adaptations for V3's Salsa-compatible AST.
+//! Provides tree-walking evaluation using the Salsa-compatible AST.
 
 mod builder;
 mod module_loading;

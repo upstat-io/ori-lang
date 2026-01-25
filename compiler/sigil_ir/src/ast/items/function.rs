@@ -84,7 +84,7 @@ pub struct ExpectedError {
 }
 
 impl ExpectedError {
-    /// Create from a simple message substring (legacy format).
+    /// Create from a simple message substring.
     pub fn from_message(message: Name) -> Self {
         ExpectedError {
             message: Some(message),

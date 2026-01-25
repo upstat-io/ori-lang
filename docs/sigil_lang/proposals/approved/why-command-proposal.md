@@ -1,8 +1,9 @@
 # Proposal: Causality Tracking (`sigil impact` and `sigil why`)
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with Claude)
 **Created:** 2026-01-24
+**Approved:** 2026-01-25
 
 ---
 
@@ -231,7 +232,7 @@ fn find_dependency_path(db: &dyn Database, from: QueryId, to: QueryId) -> Vec<Qu
 
 ### Integration Points
 
-1. **CLI:** Add `why` subcommand
+1. **CLI:** Add `impact` and `why` subcommands
 2. **Salsa wrapper:** Expose dependency information
 3. **Formatter:** Pretty-print causality chains
 4. **Test runner:** Suggest `why` on failures
@@ -274,13 +275,13 @@ $ sigil why --recompile @compile
 ### Impact Analysis Before Committing
 
 ```bash
-$ sigil why --if-changed @parse
+$ sigil impact @parse
 If @parse changes:
   Functions invalidated: 12
   Tests that will run: 8
   Estimated test time: 0.3s
 
-$ sigil why --if-changed @Ast
+$ sigil impact @Ast
 If @Ast changes:
   Functions invalidated: 47
   Tests that will run: 31
@@ -367,7 +368,7 @@ Hover over a failing test in VS Code:
 
 ## Summary
 
-The `sigil why` command exposes Salsa's dependency tracking to users:
+The `sigil impact` and `sigil why` commands expose Salsa's dependency tracking to users:
 
 - **Why is this dirty?** — Trace from test to changed input
 - **What if I change this?** — Impact analysis before changes

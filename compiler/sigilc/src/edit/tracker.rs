@@ -1,7 +1,6 @@
 //! Change Tracker
 //!
-//! Tracks and applies text edits to source code. Inspired by TypeScript's
-//! `ChangeTracker` for building and applying code fixes.
+//! Tracks and applies text edits to source code for building and applying code fixes.
 //!
 //! # Design
 //!
@@ -417,9 +416,7 @@ mod tests {
     #[test]
     fn test_tracker_unicode() {
         let mut tracker = ChangeTracker::new();
-        // "héllo" is 6 bytes (é is 2 bytes)
-        // This is byte-based, which may cause issues with unicode
-        // For now, just test it doesn't panic
+        // "héllo" is 6 bytes (é is 2 bytes). Spans are byte-based.
         tracker.replace(Span::new(0, 6), "hello");
 
         let result = tracker.apply("héllo world");

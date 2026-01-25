@@ -1,6 +1,6 @@
 //! Diagnostic queue for collecting, deduplicating, and sorting diagnostics.
 //!
-//! Based on Go compiler's error handling patterns:
+//! Features:
 //! - Error limits to prevent overwhelming output
 //! - Deduplication of same-line errors
 //! - Soft error suppression after hard errors

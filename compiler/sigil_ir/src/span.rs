@@ -1,6 +1,6 @@
 //! Source location spans.
 //!
-//! Ported from V2 with all Salsa-required traits.
+//! Provides compact 8-byte span representation with all Salsa-required traits.
 
 use std::fmt;
 

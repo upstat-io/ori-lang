@@ -7,7 +7,7 @@
 // Arc and Mutex are required for thread synchronization in parallel execution
 #![expect(clippy::disallowed_types, reason = "Arc/Mutex required for thread synchronization")]
 
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex, Condvar};
 use std::thread;
 use std::time::Duration;
 
@@ -76,7 +76,7 @@ impl PatternDefinition for ParallelPattern {
             return Err(EvalError::new("parallel .tasks must be a list"));
         };
 
-        // Extract .timeout (optional, per-task)
+        // Extract .timeout (optional)
         let timeout_ms = ctx
             .props
             .iter()
@@ -89,18 +89,17 @@ impl PatternDefinition for ParallelPattern {
                 _ => None,
             });
 
-        // Extract .max_concurrent (optional)
-        let _max_concurrent = ctx
+        // Extract .max_concurrent (optional, defaults to unlimited)
+        let max_concurrent = ctx
             .props
             .iter()
             .find(|p| p.name == max_concurrent_name)
             .map(|p| exec.eval(p.value))
             .transpose()?
             .and_then(|v| match v {
-                Value::Int(n) => usize::try_from(n).ok(),
+                Value::Int(n) if n > 0 => usize::try_from(n).ok(),
                 _ => None,
             });
-        // Note: max_concurrent is parsed but not yet enforced in this simple impl
 
         if task_list.is_empty() {
             return Ok(Value::list(vec![]));
@@ -112,81 +111,7 @@ impl PatternDefinition for ParallelPattern {
             .any(|v| matches!(v, Value::FunctionVal(_, _)));
 
         if has_callable && task_list.len() >= 2 {
-            // Execute in parallel threads
-            let results = Arc::new(Mutex::new(vec![None; task_list.len()]));
-
-            if let Some(timeout_millis) = timeout_ms {
-                // Execute with per-task timeout
-                let timeout_duration = Duration::from_millis(timeout_millis);
-                let (tx, rx) = mpsc::channel();
-                let results_clone = Arc::clone(&results);
-
-                thread::scope(|s| {
-                    for (i, task) in task_list.iter().enumerate() {
-                        let task = task.clone();
-                        let results = Arc::clone(&results_clone);
-                        let tx = tx.clone();
-                        s.spawn(move || {
-                            let result = execute_task(task);
-                            let mut guard = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                            guard[i] = Some(result);
-                            drop(guard);
-                            let _ = tx.send(i);
-                        });
-                    }
-                    drop(tx);
-
-                    // Wait for results with overall timeout
-                    let start = std::time::Instant::now();
-                    let task_count = results_clone.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len();
-                    let mut completed = 0;
-
-                    while completed < task_count {
-                        let remaining = timeout_duration.saturating_sub(start.elapsed());
-                        if remaining.is_zero() {
-                            break;
-                        }
-                        match rx.recv_timeout(remaining) {
-                            Ok(_) => completed += 1,
-                            Err(_) => break,
-                        }
-                    }
-                });
-
-                // Build results - timed out tasks get Err(TimeoutError)
-                let guard = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                let final_results: Vec<Value> = guard
-                    .iter()
-                    .map(|opt| match opt {
-                        Some(v) => v.clone(),
-                        None => Value::err(Value::string("TimeoutError")),
-                    })
-                    .collect();
-                Ok(Value::list(final_results))
-            } else {
-                // No timeout - execute all tasks
-                thread::scope(|s| {
-                    for (i, task) in task_list.iter().enumerate() {
-                        let task = task.clone();
-                        let results = Arc::clone(&results);
-                        s.spawn(move || {
-                            let result = execute_task(task);
-                            let mut guard = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                            guard[i] = Some(result);
-                        });
-                    }
-                });
-
-                let guard = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                let final_results: Vec<Value> = guard
-                    .iter()
-                    .map(|opt| {
-                        opt.clone()
-                            .unwrap_or_else(|| Value::err(Value::string("execution failed")))
-                    })
-                    .collect();
-                Ok(Value::list(final_results))
-            }
+            execute_parallel(&task_list, max_concurrent, timeout_ms)
         } else {
             // Single task or non-callable - execute sequentially
             let results: Vec<Value> = task_list.iter().map(|t| execute_task(t.clone())).collect();
@@ -195,8 +120,151 @@ impl PatternDefinition for ParallelPattern {
     }
 }
 
+/// A simple semaphore for limiting concurrent execution.
+pub struct Semaphore {
+    count: Mutex<usize>,
+    condvar: Condvar,
+    max: usize,
+}
+
+impl Semaphore {
+    /// Create a new semaphore with the given maximum concurrent count.
+    pub fn new(max: usize) -> Self {
+        Semaphore {
+            count: Mutex::new(0),
+            condvar: Condvar::new(),
+            max,
+        }
+    }
+
+    /// Acquire a slot from the semaphore, blocking if at capacity.
+    pub fn acquire(&self) {
+        let mut count = self.count.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        while *count >= self.max {
+            count = self.condvar.wait(count).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        *count += 1;
+    }
+
+    /// Release a slot back to the semaphore.
+    pub fn release(&self) {
+        let mut count = self.count.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *count -= 1;
+        self.condvar.notify_one();
+    }
+}
+
+/// Execute tasks in parallel with optional concurrency limit and timeout.
+fn execute_parallel(
+    task_list: &[Value],
+    max_concurrent: Option<usize>,
+    timeout_ms: Option<u64>,
+) -> EvalResult {
+    let results = Arc::new(Mutex::new(vec![None; task_list.len()]));
+    let semaphore = max_concurrent.map(|n| Arc::new(Semaphore::new(n)));
+
+    if let Some(timeout_millis) = timeout_ms {
+        // Execute with timeout
+        let timeout_duration = Duration::from_millis(timeout_millis);
+        let (tx, rx) = mpsc::channel();
+        let results_clone = Arc::clone(&results);
+
+        thread::scope(|s| {
+            for (i, task) in task_list.iter().enumerate() {
+                let task = task.clone();
+                let results = Arc::clone(&results_clone);
+                let tx = tx.clone();
+                let sem = semaphore.clone();
+
+                s.spawn(move || {
+                    // Acquire semaphore slot if concurrency is limited
+                    if let Some(ref sem) = sem {
+                        sem.acquire();
+                    }
+
+                    let result = execute_task(task);
+
+                    // Release semaphore slot
+                    if let Some(ref sem) = sem {
+                        sem.release();
+                    }
+
+                    let mut guard = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    guard[i] = Some(result);
+                    drop(guard);
+                    let _ = tx.send(i);
+                });
+            }
+            drop(tx);
+
+            // Wait for results with overall timeout
+            let start = std::time::Instant::now();
+            let task_count = results_clone.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len();
+            let mut completed = 0;
+
+            while completed < task_count {
+                let remaining = timeout_duration.saturating_sub(start.elapsed());
+                if remaining.is_zero() {
+                    break;
+                }
+                match rx.recv_timeout(remaining) {
+                    Ok(_) => completed += 1,
+                    Err(_) => break,
+                }
+            }
+        });
+
+        // Build results - timed out tasks get Err(TimeoutError)
+        let guard = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let final_results: Vec<Value> = guard
+            .iter()
+            .map(|opt| match opt {
+                Some(v) => v.clone(),
+                None => Value::err(Value::string("TimeoutError")),
+            })
+            .collect();
+        Ok(Value::list(final_results))
+    } else {
+        // No timeout - execute all tasks
+        thread::scope(|s| {
+            for (i, task) in task_list.iter().enumerate() {
+                let task = task.clone();
+                let results = Arc::clone(&results);
+                let sem = semaphore.clone();
+
+                s.spawn(move || {
+                    // Acquire semaphore slot if concurrency is limited
+                    if let Some(ref sem) = sem {
+                        sem.acquire();
+                    }
+
+                    let result = execute_task(task);
+
+                    // Release semaphore slot
+                    if let Some(ref sem) = sem {
+                        sem.release();
+                    }
+
+                    let mut guard = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    guard[i] = Some(result);
+                });
+            }
+        });
+
+        let guard = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let final_results: Vec<Value> = guard
+            .iter()
+            .map(|opt| {
+                opt.clone()
+                    .unwrap_or_else(|| Value::err(Value::string("execution failed")))
+            })
+            .collect();
+        Ok(Value::list(final_results))
+    }
+}
+
 /// Execute a single task and wrap the result in Ok/Err.
-fn execute_task(task: Value) -> Value {
+pub fn execute_task(task: Value) -> Value {
     match task {
         Value::FunctionVal(func, _) => match func(&[]) {
             Ok(v) => wrap_in_result(v),
@@ -210,7 +278,7 @@ fn execute_task(task: Value) -> Value {
 }
 
 /// Wrap a value in Ok, unless it's already a Result.
-fn wrap_in_result(value: Value) -> Value {
+pub fn wrap_in_result(value: Value) -> Value {
     match value {
         Value::Ok(_) | Value::Err(_) => value,
         Value::Error(msg) => Value::err(Value::string(&msg)),

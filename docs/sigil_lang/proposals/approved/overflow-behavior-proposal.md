@@ -1,8 +1,9 @@
 # Proposal: Integer Overflow Behavior
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric
 **Created:** 2026-01-22
+**Approved:** 2026-01-25
 
 ---
 
@@ -49,7 +50,6 @@ Both types can overflow. The question is: what should happen when they do?
 | Python | Arbitrary precision (no overflow) | — |
 | Rust | Panic in debug, wrap in release | `saturating_add()`, `wrapping_add()`, `checked_add()` |
 | Swift | Trap (crash) | `&+`, `&-` operators for wrapping |
-| C++26 | — | `std::saturate_add()`, etc. |
 
 ### The Sigil Way
 
@@ -247,12 +247,6 @@ $big = int.max + 1  // ERROR: constant overflow
 - Silent wrapping hides bugs
 - When wrapping is needed, it should be explicit
 
-### Why Not Arbitrary Precision?
-
-- Performance cost (heap allocation, variable-size math)
-- Most code works fine with 64-bit integers
-- `BigInt` can be a stdlib type for when it's needed
-
 ### Why Functions Instead of Operators?
 
 Alternatives considered:
@@ -264,16 +258,6 @@ Alternatives considered:
 | **Functions** | `wrapping_add(a, b)` | Clear, explicit, no new syntax |
 
 Functions are consistent with Sigil's pattern-based approach.
-
-### Why Include Checked?
-
-Checked arithmetic returns `Option`, integrating with Sigil's error handling:
-
-```sigil
-let result = checked_add(a, b) ?? default_value
-```
-
-This is more composable than panics for cases where overflow is expected.
 
 ---
 

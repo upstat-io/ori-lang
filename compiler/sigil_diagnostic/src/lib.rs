@@ -181,8 +181,6 @@ impl fmt::Display for Severity {
 ///
 /// Indicates how confident we are that a suggestion is correct,
 /// enabling `sigil fix` to safely auto-apply machine-applicable fixes.
-///
-/// Based on Rust's `rustc_lint_defs::Applicability`.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
 pub enum Applicability {
     /// The suggestion is definitely correct and can be auto-applied.

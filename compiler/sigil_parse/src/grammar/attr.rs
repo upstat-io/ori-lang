@@ -9,7 +9,7 @@
 //! The `#[compile_fail(...)]` attribute supports rich error specifications:
 //!
 //! ```sigil
-//! // Basic (legacy): substring match
+//! // Basic format: substring match
 //! #[compile_fail("type mismatch")]
 //!
 //! // Error code matching
@@ -42,7 +42,7 @@ pub struct ParsedAttrs {
     pub expected_errors: Vec<ExpectedError>,
     /// Expected error for `#[fail("error")]`.
     pub fail_expected: Option<Name>,
-    /// Derived traits for `#[derive(Trait1, Trait2)]` (future use).
+    /// Derived traits for `#[derive(Trait1, Trait2)]`.
     pub derive_traits: Vec<Name>,
 }
 
@@ -224,7 +224,7 @@ impl Parser<'_> {
     /// Parse a `compile_fail` attribute with extended syntax.
     ///
     /// Supports:
-    /// - `#[compile_fail("message")]` - legacy simple format
+    /// - `#[compile_fail("message")]` - simple format (message substring)
     /// - `#[compile_fail(message: "msg")]` - named message
     /// - `#[compile_fail(code: "E2001")]` - error code
     /// - `#[compile_fail(message: "msg", code: "E2001", line: 5)]` - combined
@@ -523,15 +523,11 @@ mod tests {
 
     #[test]
     fn test_parse_derive_attribute() {
-        // Note: derive is parsed but type definitions aren't implemented yet
-        // This test verifies the parsing works for future use
         let (result, _interner) = parse_with_errors(r#"
 #[derive(Eq, Clone)]
 @test_with_derive () -> void = print(msg: "test")
 "#);
 
-        // The derive attribute is parsed but functions/tests don't use it
-        // For now we just verify no parse errors
         assert!(!result.has_errors(), "errors: {:?}", result.errors);
     }
 

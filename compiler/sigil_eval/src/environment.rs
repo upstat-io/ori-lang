@@ -1,7 +1,6 @@
-//! Environment for variable scoping in the V3 interpreter.
+//! Environment for variable scoping in the interpreter.
 //!
 //! Uses a scope stack (not cloning) for efficient scope management.
-//! Ported from V2 with adaptations for V3.
 
 // Rc is the intentional implementation detail of LocalScope<T>
 #![expect(clippy::disallowed_types, reason = "Rc is the implementation of LocalScope<T>")]

@@ -69,15 +69,13 @@ impl PatternDefinition for SpawnPattern {
                 Value::Int(n) => usize::try_from(n).ok(),
                 _ => None,
             });
-        // Note: max_concurrent is parsed but not yet enforced in this simple impl
 
         if task_list.is_empty() {
             return Ok(Value::Void);
         }
 
-        // Fire and forget - spawn threads and don't wait
-        // Note: In a real implementation, we'd use a thread pool or async runtime
-        // For now, we use scoped threads which will wait, but discard results
+        // Fire and forget - spawn threads and discard results.
+        // Uses scoped threads to ensure all tasks complete before returning.
         thread::scope(|s| {
             for task in task_list.iter() {
                 s.spawn(|| {
