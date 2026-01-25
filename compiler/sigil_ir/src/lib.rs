@@ -41,6 +41,7 @@ mod interner;
 mod type_id;
 mod expr_id;
 mod traits;
+mod parsed_type;
 pub mod ast;
 mod arena;
 pub mod visitor;
@@ -51,6 +52,7 @@ pub use token::{Token, TokenKind, TokenList, DurationUnit, SizeUnit};
 pub use interner::{StringInterner, SharedInterner};
 pub use type_id::TypeId;
 pub use expr_id::{ExprId, ExprRange, StmtId, StmtRange};
+pub use parsed_type::ParsedType;
 pub use traits::{Spanned, Named, Typed};
 pub use ast::{
     Expr, ExprKind, Stmt, StmtKind, Param, ParamRange,

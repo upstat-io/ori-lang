@@ -35,7 +35,7 @@ impl<'a> TypeChecker<'a> {
                 match item {
                     TraitItem::MethodSig(sig) => {
                         let params = self.params_to_types(sig.params);
-                        let return_ty = self.type_id_to_type(sig.return_ty);
+                        let return_ty = self.parsed_type_to_type(&sig.return_ty);
                         methods.push(TraitMethodDef {
                             name: sig.name,
                             params,
@@ -45,7 +45,7 @@ impl<'a> TypeChecker<'a> {
                     }
                     TraitItem::DefaultMethod(method) => {
                         let params = self.params_to_types(method.params);
-                        let return_ty = self.type_id_to_type(method.return_ty);
+                        let return_ty = self.parsed_type_to_type(&method.return_ty);
                         methods.push(TraitMethodDef {
                             name: method.name,
                             params,
@@ -91,14 +91,14 @@ impl<'a> TypeChecker<'a> {
             });
 
             // Convert self type
-            let self_ty = self.type_id_to_type(impl_def.self_ty);
+            let self_ty = self.parsed_type_to_type(&impl_def.self_ty);
 
             // Convert methods
             let methods: Vec<ImplMethodDef> = impl_def.methods
                 .iter()
                 .map(|m| {
                     let params = self.params_to_types(m.params);
-                    let return_ty = self.type_id_to_type(m.return_ty);
+                    let return_ty = self.parsed_type_to_type(&m.return_ty);
                     ImplMethodDef {
                         name: m.name,
                         params,
@@ -136,8 +136,8 @@ impl<'a> TypeChecker<'a> {
             .get_params(params)
             .iter()
             .map(|p| {
-                match p.ty {
-                    Some(type_id) => self.type_id_to_type(type_id),
+                match &p.ty {
+                    Some(parsed_ty) => self.parsed_type_to_type(parsed_ty),
                     None => self.ctx.fresh_var(),
                 }
             })

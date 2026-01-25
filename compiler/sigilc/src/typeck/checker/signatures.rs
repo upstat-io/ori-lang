@@ -65,23 +65,19 @@ impl<'a> TypeChecker<'a> {
         let params: Vec<Type> = self.arena.get_params(func.params)
             .iter()
             .map(|p| {
-                // Check if this param's type annotation refers to a generic parameter
-                if let Some(type_name) = p.type_name {
-                    if let Some(type_var) = generic_type_vars.get(&type_name) {
-                        return type_var.clone();
+                match &p.ty {
+                    Some(parsed_ty) => {
+                        // Check if this is a named type that refers to a generic parameter
+                        self.resolve_parsed_type_with_generics(parsed_ty, &generic_type_vars)
                     }
-                }
-                // Fall back to regular type conversion
-                match p.ty {
-                    Some(type_id) => self.type_id_to_type(type_id),
                     None => self.ctx.fresh_var(),
                 }
             })
             .collect();
 
-        // Step 5: Handle return type (TODO: also check for generic return types)
-        let return_type = match func.return_ty {
-            Some(type_id) => self.type_id_to_type(type_id),
+        // Step 5: Handle return type, also checking for generic return types
+        let return_type = match &func.return_ty {
+            Some(parsed_ty) => self.resolve_parsed_type_with_generics(parsed_ty, &generic_type_vars),
             None => self.ctx.fresh_var(),
         };
 

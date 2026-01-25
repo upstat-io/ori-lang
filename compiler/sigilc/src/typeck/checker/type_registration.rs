@@ -33,7 +33,7 @@ impl<'a> TypeChecker<'a> {
                 let field_types: Vec<(crate::ir::Name, Type)> = fields
                     .iter()
                     .map(|f| {
-                        let ty = self.type_id_to_type(f.ty);
+                        let ty = self.parsed_type_to_type(&f.ty);
                         (f.name, ty)
                     })
                     .collect();
@@ -54,7 +54,7 @@ impl<'a> TypeChecker<'a> {
                         let fields: Vec<(crate::ir::Name, Type)> = v.fields
                             .iter()
                             .map(|f| {
-                                let ty = self.type_id_to_type(f.ty);
+                                let ty = self.parsed_type_to_type(&f.ty);
                                 (f.name, ty)
                             })
                             .collect();
@@ -74,8 +74,8 @@ impl<'a> TypeChecker<'a> {
             }
 
             TypeDeclKind::Newtype(target_ty) => {
-                // For newtypes, convert the target TypeId to Type
-                let target = self.type_id_to_type(*target_ty);
+                // For newtypes, convert the target ParsedType to Type
+                let target = self.parsed_type_to_type(target_ty);
                 self.type_registry.register_alias(
                     type_decl.name,
                     target,

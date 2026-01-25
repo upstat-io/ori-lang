@@ -23,7 +23,7 @@ pub use types::{TypedModule, GenericBound, FunctionType, TypeCheckError};
 
 use crate::ir::{
     Name, Span, ExprId, ExprArena, Module, Function, TestDef,
-    StringInterner, TypeId,
+    StringInterner, TypeId, ParsedType,
 };
 use crate::parser::ParseResult;
 use crate::patterns::PatternRegistry;
@@ -227,7 +227,7 @@ impl<'a> TypeChecker<'a> {
 
     /// Convert a TypeId to a Type.
     ///
-    /// TypeId is the parsed type annotation representation.
+    /// TypeId is the parsed type annotation representation for primitives.
     /// Type is the type checker's internal representation.
     pub(crate) fn type_id_to_type(&mut self, type_id: TypeId) -> Type {
         match type_id {
@@ -249,6 +249,157 @@ impl<'a> TypeChecker<'a> {
                     self.ctx.fresh_var()
                 }
             }
+        }
+    }
+
+    /// Convert a ParsedType to a Type.
+    ///
+    /// ParsedType captures the full structure of type annotations as parsed.
+    /// This method resolves them into the type checker's internal representation.
+    pub(crate) fn parsed_type_to_type(&mut self, parsed: &ParsedType) -> Type {
+        match parsed {
+            ParsedType::Primitive(type_id) => self.type_id_to_type(*type_id),
+            ParsedType::Infer => self.ctx.fresh_var(),
+            ParsedType::SelfType => {
+                // Self type should be resolved from the impl context
+                // For now, use a fresh var - proper resolution happens in impl checking
+                self.ctx.fresh_var()
+            }
+            ParsedType::Named { name, type_args } => {
+                // Handle well-known generic types
+                let name_str = self.interner.lookup(*name);
+                match name_str {
+                    "Option" => {
+                        if type_args.len() == 1 {
+                            let inner = self.parsed_type_to_type(&type_args[0]);
+                            Type::Option(Box::new(inner))
+                        } else {
+                            Type::Option(Box::new(self.ctx.fresh_var()))
+                        }
+                    }
+                    "Result" => {
+                        if type_args.len() == 2 {
+                            let ok = self.parsed_type_to_type(&type_args[0]);
+                            let err = self.parsed_type_to_type(&type_args[1]);
+                            Type::Result { ok: Box::new(ok), err: Box::new(err) }
+                        } else {
+                            Type::Result {
+                                ok: Box::new(self.ctx.fresh_var()),
+                                err: Box::new(self.ctx.fresh_var()),
+                            }
+                        }
+                    }
+                    "Set" => {
+                        if type_args.len() == 1 {
+                            let inner = self.parsed_type_to_type(&type_args[0]);
+                            Type::Set(Box::new(inner))
+                        } else {
+                            Type::Set(Box::new(self.ctx.fresh_var()))
+                        }
+                    }
+                    "Range" => {
+                        if type_args.len() == 1 {
+                            let inner = self.parsed_type_to_type(&type_args[0]);
+                            Type::Range(Box::new(inner))
+                        } else {
+                            Type::Range(Box::new(self.ctx.fresh_var()))
+                        }
+                    }
+                    "Channel" => {
+                        if type_args.len() == 1 {
+                            let inner = self.parsed_type_to_type(&type_args[0]);
+                            Type::Channel(Box::new(inner))
+                        } else {
+                            Type::Channel(Box::new(self.ctx.fresh_var()))
+                        }
+                    }
+                    _ => {
+                        // User-defined type or type parameter
+                        // Treat as a named type reference - resolution happens during unification
+                        Type::Named(*name)
+                    }
+                }
+            }
+            ParsedType::List(inner) => {
+                let elem_ty = self.parsed_type_to_type(inner);
+                Type::List(Box::new(elem_ty))
+            }
+            ParsedType::Tuple(elems) => {
+                let types: Vec<Type> = elems.iter()
+                    .map(|e| self.parsed_type_to_type(e))
+                    .collect();
+                Type::Tuple(types)
+            }
+            ParsedType::Function { params, ret } => {
+                let param_types: Vec<Type> = params.iter()
+                    .map(|p| self.parsed_type_to_type(p))
+                    .collect();
+                let ret_ty = self.parsed_type_to_type(ret);
+                Type::Function {
+                    params: param_types,
+                    ret: Box::new(ret_ty),
+                }
+            }
+            ParsedType::Map { key, value } => {
+                let key_ty = self.parsed_type_to_type(key);
+                let value_ty = self.parsed_type_to_type(value);
+                Type::Map {
+                    key: Box::new(key_ty),
+                    value: Box::new(value_ty),
+                }
+            }
+        }
+    }
+
+    /// Resolve a ParsedType to a Type, substituting generic type variables.
+    ///
+    /// This is used when inferring function signatures where type annotations
+    /// may refer to generic parameters (e.g., `T` in `@foo<T>(x: T) -> T`).
+    pub(crate) fn resolve_parsed_type_with_generics(
+        &mut self,
+        parsed: &ParsedType,
+        generic_type_vars: &HashMap<Name, Type>,
+    ) -> Type {
+        match parsed {
+            ParsedType::Named { name, type_args } if type_args.is_empty() => {
+                // Check if this name refers to a generic parameter
+                if let Some(type_var) = generic_type_vars.get(name) {
+                    return type_var.clone();
+                }
+                // Fall through to regular resolution
+                self.parsed_type_to_type(parsed)
+            }
+            ParsedType::Named { name, type_args } => {
+                // Handle generic types like Option<T> where T might be a generic param
+                let name_str = self.interner.lookup(*name);
+                match name_str {
+                    "Option" if type_args.len() == 1 => {
+                        let inner = self.resolve_parsed_type_with_generics(&type_args[0], generic_type_vars);
+                        Type::Option(Box::new(inner))
+                    }
+                    "Result" if type_args.len() == 2 => {
+                        let ok = self.resolve_parsed_type_with_generics(&type_args[0], generic_type_vars);
+                        let err = self.resolve_parsed_type_with_generics(&type_args[1], generic_type_vars);
+                        Type::Result { ok: Box::new(ok), err: Box::new(err) }
+                    }
+                    _ => self.parsed_type_to_type(parsed)
+                }
+            }
+            ParsedType::List(inner) => {
+                let elem_ty = self.resolve_parsed_type_with_generics(inner, generic_type_vars);
+                Type::List(Box::new(elem_ty))
+            }
+            ParsedType::Function { params, ret } => {
+                let param_types: Vec<Type> = params.iter()
+                    .map(|p| self.resolve_parsed_type_with_generics(p, generic_type_vars))
+                    .collect();
+                let ret_ty = self.resolve_parsed_type_with_generics(ret, generic_type_vars);
+                Type::Function {
+                    params: param_types,
+                    ret: Box::new(ret_ty),
+                }
+            }
+            _ => self.parsed_type_to_type(parsed),
         }
     }
 
@@ -289,16 +440,16 @@ impl<'a> TypeChecker<'a> {
         let params: Vec<Type> = self.arena.get_params(test.params)
             .iter()
             .map(|p| {
-                match p.ty {
-                    Some(type_id) => self.type_id_to_type(type_id),
+                match &p.ty {
+                    Some(parsed_ty) => self.parsed_type_to_type(parsed_ty),
                     None => self.ctx.fresh_var(),
                 }
             })
             .collect();
 
         // Infer return type
-        let return_type = match test.return_ty {
-            Some(type_id) => self.type_id_to_type(type_id),
+        let return_type = match &test.return_ty {
+            Some(parsed_ty) => self.parsed_type_to_type(parsed_ty),
             None => self.ctx.fresh_var(),
         };
 

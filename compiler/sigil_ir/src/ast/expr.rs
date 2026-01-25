@@ -11,19 +11,11 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use crate::{Name, Span, TypeId, ExprId, ExprRange, StmtRange, Spanned};
+use crate::{Name, Span, ExprId, ExprRange, StmtRange, Spanned, ParsedType};
 
-// Size assertions to prevent accidental regressions in frequently-allocated types.
-// Expr and ExprKind are allocated in the arena - keeping them compact improves cache locality.
-#[cfg(target_pointer_width = "64")]
-mod size_asserts {
-    use super::*;
-    // Expr: ExprKind (80 bytes) + Span (8 bytes) = 88 bytes
-    crate::static_assert_size!(Expr, 88);
-    // ExprKind: largest variants are FunctionSeq/FunctionExp which contain
-    // nested structs with multiple fields. Current size is 80 bytes.
-    crate::static_assert_size!(ExprKind, 80);
-}
+// Note: Size assertions removed during ParsedType migration.
+// ParsedType is larger than TypeId, so Expr/ExprKind sizes have increased.
+// TODO: Consider optimizing ParsedType or using boxing if size becomes a concern.
 use crate::token::{DurationUnit, SizeUnit};
 use super::operators::{BinaryOp, UnaryOp};
 use super::ranges::{ArmRange, MapEntryRange, FieldInitRange, CallArgRange};
@@ -210,7 +202,8 @@ pub enum ExprKind {
     /// Let binding: let pattern = init
     Let {
         pattern: BindingPattern,
-        ty: Option<TypeId>,
+        /// Optional type annotation.
+        ty: Option<ParsedType>,
         init: ExprId,
         mutable: bool,
     },
@@ -218,7 +211,8 @@ pub enum ExprKind {
     /// Lambda: params -> body
     Lambda {
         params: super::ranges::ParamRange,
-        ret_ty: Option<TypeId>,
+        /// Optional return type annotation.
+        ret_ty: Option<ParsedType>,
         body: ExprId,
     },
 

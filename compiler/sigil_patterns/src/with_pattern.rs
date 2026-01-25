@@ -1,0 +1,55 @@
+//! With pattern implementation.
+//!
+//! `with(acquire: expr, action: fn, release: fn)` - Resource management.
+//! NOTE: Uses `.action` instead of `.use` because `use` is a reserved keyword.
+
+use sigil_types::Type;
+
+use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext};
+
+/// The `with` pattern provides structured resource management.
+///
+/// Syntax: `with(acquire: resource, action: r -> expr, release: r -> void)`
+/// NOTE: Uses `.action` instead of `.use` because `use` is a reserved keyword.
+///
+/// Type: `with(acquire: R, action: R -> T, release: R -> void) -> T`
+///
+/// The release function is always called, even if use throws.
+pub struct WithPattern;
+
+impl PatternDefinition for WithPattern {
+    fn name(&self) -> &'static str {
+        "with"
+    }
+
+    fn required_props(&self) -> &'static [&'static str] {
+        &["acquire", "action"]
+    }
+
+    fn optional_props(&self) -> &'static [&'static str] {
+        &["release"]
+    }
+
+    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
+        // with(acquire: R, action: R -> T, release: R -> void) -> T
+        ctx.get_function_return_type("action")
+    }
+
+    fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
+        let release_expr = ctx.get_prop_opt("release");
+
+        let resource = ctx.eval_prop("acquire", exec)?;
+        let action_fn = ctx.eval_prop("action", exec)?;
+
+        // Call action function with resource
+        let result = exec.call(action_fn, vec![resource.clone()]);
+
+        // Always call release if provided (RAII pattern)
+        if let Some(rel_expr) = release_expr {
+            let release_fn = exec.eval(rel_expr)?;
+            let _ = exec.call(release_fn, vec![resource]);
+        }
+
+        result
+    }
+}

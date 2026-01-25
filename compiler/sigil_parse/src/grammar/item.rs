@@ -5,7 +5,7 @@
 //! trait definitions, and implementation blocks.
 
 use sigil_ir::{
-    Function, ImportPath, Name, Param, ParamRange, TestDef, TokenKind, TypeId, UseDef, UseItem,
+    Function, ImportPath, Name, Param, ParamRange, TestDef, TokenKind, ParsedType, UseDef, UseItem,
     GenericParam, GenericParamRange, TraitBound, WhereClause,
     TraitDef, TraitItem, TraitMethodSig, TraitDefaultMethod, TraitAssocType,
     ImplDef, ImplMethod,
@@ -246,15 +246,14 @@ impl<'a> Parser<'a> {
             };
 
             // : Type (optional, not required for `self`)
-            // Capture type annotation name for generic parameter tracking
-            let (ty, type_name) = if self.check(TokenKind::Colon) {
+            let ty = if self.check(TokenKind::Colon) {
                 self.advance();
-                self.parse_type_with_name()
+                self.parse_type()
             } else {
-                (None, None)
+                None
             };
 
-            params.push(Param { name, ty, type_name, span: param_span });
+            params.push(Param { name, ty, span: param_span });
 
             if !self.check(TokenKind::RParen) {
                 self.expect(TokenKind::Comma)?;
@@ -262,51 +261,6 @@ impl<'a> Parser<'a> {
         }
 
         Ok(self.arena.alloc_params(params))
-    }
-
-    /// Parse a type annotation and capture the type name if it's an identifier.
-    ///
-    /// Returns (TypeId, type_name) where type_name is Some if the annotation
-    /// was a named type like `T` (used for generic parameter tracking).
-    fn parse_type_with_name(&mut self) -> (Option<TypeId>, Option<Name>) {
-        // Check for Self type
-        if self.check(TokenKind::SelfUpper) {
-            self.advance();
-            let self_name = self.interner().intern("Self");
-            return (Some(TypeId::INFER), Some(self_name));
-        }
-
-        // Check for identifier (named type like T, MyType, etc.)
-        if self.check_ident() {
-            let type_name = if let TokenKind::Ident(name) = &self.current().kind {
-                Some(*name)
-            } else {
-                None
-            };
-            self.advance();
-
-            // Check for generic parameters like Option<T>
-            if self.check(TokenKind::Lt) {
-                self.advance(); // <
-                while !self.check(TokenKind::Gt) && !self.is_at_end() {
-                    // Recursively parse type args (ignore names for now)
-                    let _ = self.parse_type_with_name();
-                    if self.check(TokenKind::Comma) {
-                        self.advance();
-                    } else {
-                        break;
-                    }
-                }
-                if self.check(TokenKind::Gt) {
-                    self.advance(); // >
-                }
-            }
-
-            return (Some(TypeId::INFER), type_name);
-        }
-
-        // Fall back to regular type parsing for primitives
-        (self.parse_type(), None)
     }
 
     // =========================================================================
@@ -623,8 +577,9 @@ impl<'a> Parser<'a> {
         if self.check(TokenKind::Lt) {
             // This is a newtype with generic args
             self.advance(); // <
+            let mut type_args = Vec::new();
             while !self.check(TokenKind::Gt) && !self.is_at_end() {
-                let _ = self.parse_type_required()?;
+                type_args.push(self.parse_type_required()?);
                 if self.check(TokenKind::Comma) {
                     self.advance();
                 } else {
@@ -634,8 +589,7 @@ impl<'a> Parser<'a> {
             if self.check(TokenKind::Gt) {
                 self.advance(); // >
             }
-            // Return as newtype (INFER since type resolution happens in type checker)
-            return Ok(TypeDeclKind::Newtype(TypeId::INFER));
+            return Ok(TypeDeclKind::Newtype(ParsedType::Named { name: first_name, type_args }));
         }
 
         // Check if this is a sum type (has | following)
@@ -676,11 +630,8 @@ impl<'a> Parser<'a> {
             return Ok(TypeDeclKind::Sum(variants));
         }
 
-        // Single identifier without | or ( - could be either:
-        // - A unit sum type with one variant (unlikely but valid)
-        // - A newtype referring to another type
-        // We treat it as a newtype since single-variant sum types are unusual
-        Ok(TypeDeclKind::Newtype(TypeId::INFER))
+        // Single identifier without | or ( - newtype referring to another type
+        Ok(TypeDeclKind::Newtype(ParsedType::Named { name: first_name, type_args: Vec::new() }))
     }
 
     /// Create a Variant, parsing optional fields.
@@ -750,34 +701,37 @@ impl<'a> Parser<'a> {
         // Handle [T] for list types
         let (target_ty, target_type_name) = if self.check(TokenKind::LBracket) {
             self.advance(); // [
-            // Parse element type (optional, default to T)
-            if !self.check(TokenKind::RBracket) {
-                let _ = self.parse_type_required()?;
-            }
+            // Parse element type (optional, default to infer)
+            let elem_ty = if !self.check(TokenKind::RBracket) {
+                self.parse_type_required()?
+            } else {
+                ParsedType::Infer
+            };
             self.expect(TokenKind::RBracket)?;
             // List type - method dispatch uses "list"
-            (sigil_ir::TypeId::INFER, self.interner().intern("list"))
+            (ParsedType::List(Box::new(elem_ty)), self.interner().intern("list"))
         } else if self.check_type_keyword() {
             // Primitive type keywords: str, int, float, bool, etc.
-            let type_name_str = match self.current_kind() {
-                TokenKind::StrType => "str",
-                TokenKind::IntType => "int",
-                TokenKind::FloatType => "float",
-                TokenKind::BoolType => "bool",
-                TokenKind::CharType => "char",
-                TokenKind::ByteType => "byte",
-                _ => "unknown",
+            let (ty, type_name_str) = match self.current_kind() {
+                TokenKind::StrType => (ParsedType::Primitive(sigil_ir::TypeId::STR), "str"),
+                TokenKind::IntType => (ParsedType::Primitive(sigil_ir::TypeId::INT), "int"),
+                TokenKind::FloatType => (ParsedType::Primitive(sigil_ir::TypeId::FLOAT), "float"),
+                TokenKind::BoolType => (ParsedType::Primitive(sigil_ir::TypeId::BOOL), "bool"),
+                TokenKind::CharType => (ParsedType::Primitive(sigil_ir::TypeId::CHAR), "char"),
+                TokenKind::ByteType => (ParsedType::Primitive(sigil_ir::TypeId::BYTE), "byte"),
+                _ => (ParsedType::Infer, "unknown"),
             };
             self.advance();
-            (sigil_ir::TypeId::INFER, self.interner().intern(type_name_str))
+            (ty, self.interner().intern(type_name_str))
         } else {
             // Named type like Option<T>, MyType, etc.
             let type_name = self.expect_ident()?;
             // Check for generic parameters like Option<T>
-            if self.check(TokenKind::Lt) {
+            let type_args = if self.check(TokenKind::Lt) {
                 self.advance(); // <
+                let mut args = Vec::new();
                 while !self.check(TokenKind::Gt) && !self.is_at_end() {
-                    let _ = self.parse_type_required()?;
+                    args.push(self.parse_type_required()?);
                     if self.check(TokenKind::Comma) {
                         self.advance();
                     } else {
@@ -787,8 +741,11 @@ impl<'a> Parser<'a> {
                 if self.check(TokenKind::Gt) {
                     self.advance(); // >
                 }
-            }
-            (sigil_ir::TypeId::INFER, type_name)
+                args
+            } else {
+                Vec::new()
+            };
+            (ParsedType::Named { name: type_name, type_args }, type_name)
         };
 
         // Optional where clause
@@ -830,44 +787,9 @@ impl<'a> Parser<'a> {
     // Generic and Bound Parsing Helpers
     // =========================================================================
 
-    /// Parse a type, accepting both primitives and named types.
-    /// Returns TypeId for primitives, TypeId::INFER for named types (resolved later).
-    ///
-    /// Note: We check for named types (identifiers, Self) BEFORE calling parse_type()
-    /// because parse_type() consumes identifiers and returns None for named types.
-    fn parse_type_required(&mut self) -> Result<sigil_ir::TypeId, ParseError> {
-        // Handle `Self` type (refers to implementing type in traits)
-        if self.check(TokenKind::SelfUpper) {
-            self.advance();
-            // Return INFER as placeholder - type checker will resolve Self
-            return Ok(sigil_ir::TypeId::INFER);
-        }
-
-        // Handle named types (identifiers) - must check before parse_type()
-        // since parse_type() consumes identifiers and returns None
-        if self.check_ident() {
-            // Consume the identifier and any generic args
-            self.advance();
-            // Check for generic parameters like Option<T>
-            if self.check(TokenKind::Lt) {
-                self.advance(); // <
-                while !self.check(TokenKind::Gt) && !self.is_at_end() {
-                    let _ = self.parse_type_required()?;
-                    if self.check(TokenKind::Comma) {
-                        self.advance();
-                    } else {
-                        break;
-                    }
-                }
-                if self.check(TokenKind::Gt) {
-                    self.advance(); // >
-                }
-            }
-            // Return INFER as placeholder - type checker will resolve
-            return Ok(sigil_ir::TypeId::INFER);
-        }
-
-        // Try primitive types and other built-in constructs
+    /// Parse a type, accepting all type forms (primitives, named, compounds).
+    /// Returns ParsedType representing the full type structure.
+    fn parse_type_required(&mut self) -> Result<ParsedType, ParseError> {
         if let Some(ty) = self.parse_type() {
             return Ok(ty);
         }
@@ -949,10 +871,10 @@ impl<'a> Parser<'a> {
         Ok(segments)
     }
 
-    /// Convert a type path to a TypeId.
-    /// For now, returns INFER as a placeholder - type resolution happens in the type checker.
+    /// Convert a type path to a ParsedType.
+    /// Creates a Named type with the last segment as the name.
     #[allow(dead_code)]
-    fn make_type_from_path(&mut self, path: &[sigil_ir::Name]) -> Result<sigil_ir::TypeId, ParseError> {
+    fn make_type_from_path(&mut self, path: &[sigil_ir::Name]) -> Result<ParsedType, ParseError> {
         if path.is_empty() {
             return Err(ParseError::new(
                 sigil_diagnostic::ErrorCode::E1002,
@@ -961,9 +883,10 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        // TODO: Proper type path resolution in type checker
-        // For now, use INFER as a placeholder - the type checker will resolve this
-        Ok(sigil_ir::TypeId::INFER)
+        // Use the last segment as the type name
+        // TODO: Support full path resolution in type checker
+        let name = *path.last().unwrap();
+        Ok(ParsedType::Named { name, type_args: Vec::new() })
     }
 
     /// Parse where clauses: where T: Clone, U: Default

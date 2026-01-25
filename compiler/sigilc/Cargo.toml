@@ -26,6 +26,8 @@ sigil_diagnostic.workspace = true
 sigil_lexer.workspace = true
 sigil_types.workspace = true
 sigil_parse.workspace = true
+sigil_patterns.workspace = true
+sigil_eval.workspace = true
 
 # Lexing
 logos.workspace = true

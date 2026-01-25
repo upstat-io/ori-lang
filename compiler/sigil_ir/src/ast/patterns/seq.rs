@@ -5,7 +5,7 @@
 //! # Salsa Compatibility
 //! All types have Clone, Eq, PartialEq, Hash, Debug for Salsa requirements.
 
-use crate::{Span, TypeId, ExprId, Spanned};
+use crate::{Span, ParsedType, ExprId, Spanned};
 use super::binding::{BindingPattern, MatchArm};
 use super::super::ranges::{SeqBindingRange, ArmRange};
 
@@ -17,7 +17,8 @@ pub enum SeqBinding {
     /// let [mut] pattern [: Type] = expr
     Let {
         pattern: BindingPattern,
-        ty: Option<TypeId>,
+        /// Optional type annotation.
+        ty: Option<ParsedType>,
         value: ExprId,
         mutable: bool,
         span: Span,

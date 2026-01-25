@@ -118,53 +118,13 @@ pub fn infer_call_named(
 ///
 /// After unification has resolved the generic type variables, this function
 /// verifies that the concrete types satisfy the required trait bounds.
+/// Delegates to TypeChecker::check_function_bounds for centralized bound checking.
 fn check_generic_bounds(
     checker: &mut TypeChecker<'_>,
     func_name: Name,
     span: Span,
 ) {
-    // Look up the function's signature to get its generic bounds
-    let func_sig = match checker.function_sigs.get(&func_name) {
-        Some(sig) => sig.clone(),
-        None => return, // Not a known function (might be a closure or imported)
-    };
-
-    // Check each generic parameter's bounds
-    for generic in &func_sig.generics {
-        if generic.bounds.is_empty() {
-            continue; // No bounds to check
-        }
-
-        // Resolve the type variable to get the actual type
-        let resolved_type = checker.ctx.resolve(&generic.type_var);
-
-        // Skip unresolved type variables - bounds can't be checked yet
-        if matches!(resolved_type, Type::Var(_)) {
-            continue;
-        }
-
-        // Check each bound for this generic parameter
-        for bound_path in &generic.bounds {
-            if !checker.type_satisfies_bound(&resolved_type, bound_path) {
-                let bound_name = bound_path.iter()
-                    .map(|n| checker.interner.lookup(*n).to_string())
-                    .collect::<Vec<_>>()
-                    .join(".");
-
-                let type_name = resolved_type.display(checker.interner);
-                let generic_name = checker.interner.lookup(generic.param);
-
-                checker.errors.push(TypeCheckError {
-                    message: format!(
-                        "type `{}` does not satisfy trait bound `{}` required by generic parameter `{}`",
-                        type_name, bound_name, generic_name
-                    ),
-                    span,
-                    code: crate::diagnostic::ErrorCode::E2009,
-                });
-            }
-        }
-    }
+    checker.check_function_bounds(func_name, span);
 }
 
 /// Infer type for a method call.

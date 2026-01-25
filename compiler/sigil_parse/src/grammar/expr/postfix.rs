@@ -100,7 +100,6 @@ impl<'a> Parser<'a> {
                     let params = self.arena.alloc_params(vec![Param {
                         name: param_name,
                         ty: None,
-                        type_name: None,
                         span: param_span,
                     }]);
                     expr = self.arena.alloc_expr(Expr::new(
