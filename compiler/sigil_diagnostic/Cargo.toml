@@ -1,0 +1,16 @@
+[package]
+name = "sigil_diagnostic"
+description = "Diagnostic and error reporting for the Sigil compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sigil_ir.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true
