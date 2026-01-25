@@ -1,0 +1,30 @@
+// std.testing - Testing assertions and utilities
+//
+// Provides assertion functions for testing.
+
+// Assert that a condition is true
+pub @assert (condition: bool) -> void = run(
+    if condition then () else panic(msg: "assertion failed")
+)
+
+// Assert that two values are equal
+pub @assert_eq (actual: int, expected: int) -> void = run(
+    if actual == expected then ()
+    else panic(msg: "assertion failed: " + str(actual) + " != " + str(expected))
+)
+
+// Assert that two values are not equal
+pub @assert_ne (actual: int, unexpected: int) -> void = run(
+    if actual != unexpected then ()
+    else panic(msg: "assertion failed: values are equal: " + str(actual))
+)
+
+// Get the length of a collection
+// Note: Per spec, should use .len() method, but providing function form for compatibility
+pub @len (collection: [int]) -> int = collection.len()
+
+// Check if Option is Some
+pub @is_some (opt: Option<int>) -> bool = match(opt, Some(_) -> true, None -> false)
+
+// Check if Option is None
+pub @is_none (opt: Option<int>) -> bool = match(opt, Some(_) -> false, None -> true)

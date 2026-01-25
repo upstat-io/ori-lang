@@ -1,5 +1,6 @@
 // Tests for Factorial
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../factorial" { factorial }
 
 @test_factorial_base tests @factorial () -> void = run(

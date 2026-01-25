@@ -1,6 +1,8 @@
 // Spec: 06-types.md § Generic Types
 // Design: 03-type-system/05-type-inference.md § Generic Type Argument Inference
 
+use std.testing { assert, assert_eq, assert_ne }
+
 // =============================================================================
 // Generic Type Argument Inference
 // =============================================================================

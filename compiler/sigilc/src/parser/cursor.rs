@@ -112,30 +112,17 @@ impl<'a> Cursor<'a> {
         matches!(
             self.current_kind(),
             TokenKind::Where | TokenKind::Match | TokenKind::For | TokenKind::In |
-            TokenKind::If | TokenKind::Type | TokenKind::Map | TokenKind::Filter |
-            TokenKind::Find | TokenKind::Parallel | TokenKind::Timeout
+            TokenKind::If | TokenKind::Type | TokenKind::Parallel | TokenKind::Timeout
         )
     }
 
-    /// Check if current token is a context-sensitive built-in keyword that can be used as an identifier.
-    /// These are built-ins that are only treated as keywords when followed by `(`.
+    /// Check if current token is a built-in I/O primitive that can be used as an identifier.
+    /// These are only treated as keywords when followed by `(`.
     /// Returns the interned name if it's a soft keyword, None otherwise.
     pub fn soft_keyword_to_name(&self) -> Option<&'static str> {
         match self.current_kind() {
-            TokenKind::Len => Some("len"),
-            TokenKind::Min => Some("min"),
-            TokenKind::Max => Some("max"),
-            TokenKind::Compare => Some("compare"),
-            TokenKind::IsEmpty => Some("is_empty"),
-            TokenKind::IsSome => Some("is_some"),
-            TokenKind::IsNone => Some("is_none"),
-            TokenKind::IsOk => Some("is_ok"),
-            TokenKind::IsErr => Some("is_err"),
             TokenKind::Print => Some("print"),
             TokenKind::Panic => Some("panic"),
-            TokenKind::Assert => Some("assert"),
-            TokenKind::AssertEq => Some("assert_eq"),
-            TokenKind::AssertNe => Some("assert_ne"),
             _ => None,
         }
     }
@@ -227,19 +214,7 @@ impl<'a> Cursor<'a> {
                 self.advance();
                 Ok(self.interner.intern("type"))
             }
-            // Pattern keywords that can be used as named argument names
-            TokenKind::Map => {
-                self.advance();
-                Ok(self.interner.intern("map"))
-            }
-            TokenKind::Filter => {
-                self.advance();
-                Ok(self.interner.intern("filter"))
-            }
-            TokenKind::Find => {
-                self.advance();
-                Ok(self.interner.intern("find"))
-            }
+            // Compiler-supported pattern keywords that can be used as named argument names
             TokenKind::Parallel => {
                 self.advance();
                 Ok(self.interner.intern("parallel"))

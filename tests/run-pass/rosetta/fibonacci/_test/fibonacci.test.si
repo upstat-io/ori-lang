@@ -1,5 +1,6 @@
 // Tests for Fibonacci
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../fibonacci" { fib, fib_parallel }
 
 @test_fib_base tests @fib () -> void = run(

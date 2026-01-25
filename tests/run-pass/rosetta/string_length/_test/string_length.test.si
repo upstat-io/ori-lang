@@ -1,5 +1,6 @@
 // Tests for String length
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../string_length" { string_length, is_empty_str, has_content }
 
 @test_string_length tests @string_length () -> void = run(

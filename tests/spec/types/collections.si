@@ -1,6 +1,8 @@
 // Spec: 06-types.md § Compound Types
 // Design: 03-type-system/05-type-inference.md § Collection Element Inference
 
+use std.testing { assert, assert_eq, assert_ne }
+
 // =============================================================================
 // List Type Inference
 // =============================================================================

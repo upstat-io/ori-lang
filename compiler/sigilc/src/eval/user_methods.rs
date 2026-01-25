@@ -5,6 +5,7 @@
 //! but user-defined methods can extend types with new functionality.
 
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 use crate::ir::{Name, ExprId, SharedArena};
 use super::value::Value;
 
@@ -96,6 +97,42 @@ impl UserMethodRegistry {
     /// Get all registered methods (for debugging).
     pub fn all_methods(&self) -> impl Iterator<Item = (&(String, String), &UserMethod)> {
         self.methods.iter()
+    }
+}
+
+/// A shared, thread-safe user method registry.
+///
+/// This allows the registry to be shared between parent and child evaluators
+/// during function calls, ensuring extension methods are available everywhere.
+#[derive(Clone, Debug, Default)]
+pub struct SharedUserMethodRegistry(Arc<RwLock<UserMethodRegistry>>);
+
+impl SharedUserMethodRegistry {
+    /// Create a new shared registry.
+    pub fn new() -> Self {
+        SharedUserMethodRegistry(Arc::new(RwLock::new(UserMethodRegistry::new())))
+    }
+
+    /// Register a user-defined method.
+    pub fn register(&self, type_name: String, method_name: String, method: UserMethod) {
+        self.0.write().unwrap().register(type_name, method_name, method);
+    }
+
+    /// Look up a user-defined method.
+    pub fn lookup(&self, type_name: &str, method_name: &str) -> Option<UserMethod> {
+        self.0.read().unwrap().lookup(type_name, method_name).cloned()
+    }
+
+    /// Check if a method exists for the given type.
+    pub fn has_method(&self, type_name: &str, method_name: &str) -> bool {
+        self.0.read().unwrap().has_method(type_name, method_name)
+    }
+
+    /// Get all registered methods (for debugging).
+    pub fn all_methods(&self) -> Vec<((String, String), UserMethod)> {
+        self.0.read().unwrap().methods.iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
     }
 }
 

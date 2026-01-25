@@ -93,7 +93,7 @@ impl<'a> Parser<'a> {
     /// Function: @name (params) -> Type = body
     /// Targeted test: @name tests @target1 tests @target2 (params) -> Type = body
     /// Free-floating test: @test_name (params) -> void = body
-    pub(in crate::parser) fn parse_function_or_test_with_attrs(&mut self, attrs: ParsedAttrs) -> Result<FunctionOrTest, ParseError> {
+    pub(in crate::parser) fn parse_function_or_test_with_attrs(&mut self, attrs: ParsedAttrs, is_public: bool) -> Result<FunctionOrTest, ParseError> {
         let start_span = self.current_span();
 
         // @
@@ -223,7 +223,7 @@ impl<'a> Parser<'a> {
                 where_clauses,
                 body,
                 span,
-                is_public: false,
+                is_public,
             }))
         }
     }
@@ -514,6 +514,108 @@ impl<'a> Parser<'a> {
             params,
             return_ty,
             body,
+            span: start_span.merge(end_span),
+        })
+    }
+
+    // =========================================================================
+    // Extension Methods
+    // =========================================================================
+
+    /// Parse an extend block.
+    /// Syntax: extend [<T>] Type { methods }
+    ///
+    /// Examples:
+    ///   extend [T] { @map... }           - extends all lists
+    ///   extend<T> Option<T> { @map... }  - extends Option
+    ///   extend str { @reverse... }       - extends str
+    pub(in crate::parser) fn parse_extend(&mut self) -> Result<crate::ir::ExtendDef, ParseError> {
+        let start_span = self.current_span();
+        self.expect(TokenKind::Extend)?;
+
+        // Optional generics: <T, U: Bound>
+        let generics = if self.check(TokenKind::Lt) {
+            self.parse_generics()?
+        } else {
+            GenericParamRange::EMPTY
+        };
+
+        // Parse the target type
+        // Handle [T] for list types
+        let (target_ty, target_type_name) = if self.check(TokenKind::LBracket) {
+            self.advance(); // [
+            // Parse element type (optional, default to T)
+            if !self.check(TokenKind::RBracket) {
+                let _ = self.parse_type_required()?;
+            }
+            self.expect(TokenKind::RBracket)?;
+            // List type - method dispatch uses "list"
+            (crate::ir::TypeId::INFER, self.interner().intern("list"))
+        } else if self.check_type_keyword() {
+            // Primitive type keywords: str, int, float, bool, etc.
+            let type_name_str = match self.current_kind() {
+                TokenKind::StrType => "str",
+                TokenKind::IntType => "int",
+                TokenKind::FloatType => "float",
+                TokenKind::BoolType => "bool",
+                TokenKind::CharType => "char",
+                TokenKind::ByteType => "byte",
+                _ => "unknown",
+            };
+            self.advance();
+            (crate::ir::TypeId::INFER, self.interner().intern(type_name_str))
+        } else {
+            // Named type like Option<T>, MyType, etc.
+            let type_name = self.expect_ident()?;
+            // Check for generic parameters like Option<T>
+            if self.check(TokenKind::Lt) {
+                self.advance(); // <
+                while !self.check(TokenKind::Gt) && !self.is_at_end() {
+                    let _ = self.parse_type_required()?;
+                    if self.check(TokenKind::Comma) {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+                if self.check(TokenKind::Gt) {
+                    self.advance(); // >
+                }
+            }
+            (crate::ir::TypeId::INFER, type_name)
+        };
+
+        // Optional where clause
+        let where_clauses = if self.check(TokenKind::Where) {
+            self.parse_where_clauses()?
+        } else {
+            Vec::new()
+        };
+
+        // Extend body: { methods }
+        self.expect(TokenKind::LBrace)?;
+        self.skip_newlines();
+
+        let mut methods = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            match self.parse_impl_method() {
+                Ok(method) => methods.push(method),
+                Err(e) => {
+                    return Err(e);
+                }
+            }
+            self.skip_newlines();
+        }
+
+        let end_span = self.current_span();
+        self.expect(TokenKind::RBrace)?;
+
+        Ok(crate::ir::ExtendDef {
+            generics,
+            target_ty,
+            target_type_name,
+            where_clauses,
+            methods,
             span: start_span.merge(end_span),
         })
     }

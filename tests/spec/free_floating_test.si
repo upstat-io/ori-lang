@@ -2,6 +2,8 @@
 // Spec: 13-testing.md § Free-Floating Tests
 // Design: 11-testing/02-test-syntax.md § Free-Floating Tests
 
+use std.testing { assert, assert_eq, assert_ne }
+
 // Free-floating test - no targets
 // TODO: Fix assert_eq to use .actual/.expected not .left/.right
 // @test_arithmetic () -> void = run(

@@ -1,5 +1,6 @@
 // Tests for math.al
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../math" { add, multiply, square }
 
 @test_add_positive tests @add () -> void = run(

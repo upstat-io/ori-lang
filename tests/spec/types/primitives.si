@@ -1,6 +1,8 @@
 // Spec: 06-types.md § Primitive Types
 // Design: 03-type-system/01-primitive-types.md
 
+use std.testing { assert, assert_eq, assert_ne }
+
 // =============================================================================
 // int — 64-bit Signed Integer
 // =============================================================================

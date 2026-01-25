@@ -1,5 +1,6 @@
 // Tests for Arrays
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../arrays" { create_array, get_first, get_last, get_at, array_length }
 
 @test_create_array tests @create_array () -> void = run(

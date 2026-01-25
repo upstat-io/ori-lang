@@ -3,6 +3,8 @@
 //
 // After 100 passes, only doors at perfect square positions remain open.
 
+use std.testing { assert, assert_eq, assert_ne }
+
 @open_doors () -> [int] = collect(range: 1..11, transform: n -> n * n)
 
 @test_perfect_squares tests @open_doors () -> void = run(

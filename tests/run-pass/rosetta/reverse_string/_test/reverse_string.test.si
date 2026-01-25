@@ -1,5 +1,6 @@
 // Tests for Reverse a string
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../reverse_string" { reverse, is_palindrome }
 
 @test_reverse tests @reverse () -> void = run(

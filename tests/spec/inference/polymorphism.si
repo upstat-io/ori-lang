@@ -1,6 +1,8 @@
 // Spec: 06-types.md § Type Inference
 // Design: 03-type-system/05-type-inference.md § Generalization, Instantiation
 
+use std.testing { assert, assert_eq, assert_ne }
+
 // =============================================================================
 // Let-Polymorphism (Generalization and Instantiation)
 // =============================================================================

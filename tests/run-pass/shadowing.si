@@ -1,5 +1,7 @@
 // Test variable shadowing with let
 
+use std.testing { assert, assert_eq, assert_ne }
+
 @shadow_int () -> int = run(
     let x = 5,
     let x = x + 10,  // OK: shadowing, not reassignment

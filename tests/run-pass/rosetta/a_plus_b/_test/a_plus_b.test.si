@@ -1,5 +1,6 @@
 // Tests for A+B
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../a_plus_b" { add }
 
 @test_add_positive tests @add () -> void = run(

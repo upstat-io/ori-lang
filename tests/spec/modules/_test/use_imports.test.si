@@ -3,6 +3,7 @@
 //
 // Tests for importing functions, variables, and closures via use statement.
 
+use std.testing { assert_eq }
 use "../use_imports" {
     add,
     make_multiplier,

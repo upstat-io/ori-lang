@@ -172,12 +172,28 @@ impl<'a> Parser<'a> {
             // Parse attributes before function/test definitions
             let attrs = self.parse_attributes(&mut errors);
 
+            // Check for pub modifier
+            let is_public = if self.check(TokenKind::Pub) {
+                self.advance();
+                true
+            } else {
+                false
+            };
+
             if self.check(TokenKind::At) {
-                match self.parse_function_or_test_with_attrs(attrs) {
+                match self.parse_function_or_test_with_attrs(attrs, is_public) {
                     Ok(FunctionOrTest::Function(func)) => module.functions.push(func),
                     Ok(FunctionOrTest::Test(test)) => module.tests.push(test),
                     Err(e) => {
                         // Recovery: skip to next @ or EOF
+                        self.recover_to_function();
+                        errors.push(e);
+                    }
+                }
+            } else if self.check(TokenKind::Extend) {
+                match self.parse_extend() {
+                    Ok(extend_def) => module.extends.push(extend_def),
+                    Err(e) => {
                         self.recover_to_function();
                         errors.push(e);
                     }
