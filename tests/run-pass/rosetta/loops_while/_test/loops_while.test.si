@@ -1,5 +1,6 @@
 // Tests for Loops/While
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../loops_while" { countdown, next_power_of_2, find_power, collatz, sum_digits, gcd }
 
 @test_countdown tests @countdown () -> void = run(

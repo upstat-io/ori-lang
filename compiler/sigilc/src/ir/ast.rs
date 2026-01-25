@@ -606,6 +606,8 @@ pub struct Module {
     pub traits: Vec<TraitDef>,
     /// Implementation blocks
     pub impls: Vec<ImplDef>,
+    /// Extension method blocks
+    pub extends: Vec<ExtendDef>,
 }
 
 impl Module {
@@ -616,6 +618,7 @@ impl Module {
             tests: Vec::new(),
             traits: Vec::new(),
             impls: Vec::new(),
+            extends: Vec::new(),
         }
     }
 }
@@ -624,11 +627,12 @@ impl fmt::Debug for Module {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Module {{ {} functions, {} tests, {} traits, {} impls }}",
+            "Module {{ {} functions, {} tests, {} traits, {} impls, {} extends }}",
             self.functions.len(),
             self.tests.len(),
             self.traits.len(),
-            self.impls.len()
+            self.impls.len(),
+            self.extends.len()
         )
     }
 }
@@ -837,6 +841,37 @@ pub struct ImplMethod {
     pub return_ty: TypeId,
     pub body: ExprId,
     pub span: Span,
+}
+
+// =============================================================================
+// Extension Methods
+// =============================================================================
+
+/// Extension method definition.
+/// Syntax: `extend Type { @method (self, ...) -> ReturnType = body }`
+///
+/// Extensions add methods to existing types without modifying their definition.
+/// Used to add methods like `map`, `filter` to built-in types like `[T]`.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct ExtendDef {
+    /// Generic parameters: `extend<T> [T] { ... }`
+    pub generics: GenericParamRange,
+    /// The type being extended (e.g., `[T]`, `Option<T>`, `str`)
+    pub target_ty: TypeId,
+    /// String representation of the target type for method dispatch
+    /// e.g., "list" for `[T]`, "Option" for `Option<T>`
+    pub target_type_name: Name,
+    /// Where clauses for constraints
+    pub where_clauses: Vec<WhereClause>,
+    /// Methods being added
+    pub methods: Vec<ImplMethod>,
+    pub span: Span,
+}
+
+impl Spanned for ExtendDef {
+    fn span(&self) -> Span {
+        self.span
+    }
 }
 
 // =============================================================================

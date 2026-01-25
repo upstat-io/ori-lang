@@ -118,65 +118,29 @@ enum RawToken {
     #[token("None")]
     None,
 
-    // === Pattern keywords ===
+    // === Pattern keywords (compiler-supported patterns only) ===
     #[token("cache")]
     Cache,
-    #[token("collect")]
-    Collect,
-    #[token("filter")]
-    Filter,
-    #[token("find")]
-    Find,
-    #[token("fold")]
-    Fold,
-    #[token("map")]
-    Map,
+    #[token("catch")]
+    Catch,
     #[token("parallel")]
     Parallel,
     #[token("spawn")]
     Spawn,
     #[token("recurse")]
     Recurse,
-    #[token("retry")]
-    Retry,
     #[token("run")]
     Run,
     #[token("timeout")]
     Timeout,
     #[token("try")]
     Try,
-    #[token("validate")]
-    Validate,
 
-    // === Core patterns (function_exp with named args) ===
-    #[token("assert")]
-    Assert,
-    #[token("assert_eq")]
-    AssertEq,
-    #[token("assert_ne")]
-    AssertNe,
-    #[token("len")]
-    Len,
-    #[token("is_empty")]
-    IsEmpty,
-    #[token("is_some")]
-    IsSome,
-    #[token("is_none")]
-    IsNone,
-    #[token("is_ok")]
-    IsOk,
-    #[token("is_err")]
-    IsErr,
+    // === Built-in I/O primitives (require runtime support) ===
     #[token("print")]
     Print,
     #[token("panic")]
     Panic,
-    #[token("compare")]
-    Compare,
-    #[token("min")]
-    Min,
-    #[token("max")]
-    Max,
 
     // === Symbols ===
     #[token("#[")]
@@ -483,37 +447,19 @@ fn convert_token(raw: RawToken, slice: &str, interner: &StringInterner) -> Token
         RawToken::Some => TokenKind::Some,
         RawToken::None => TokenKind::None,
 
-        // Pattern keywords
+        // Pattern keywords (compiler-supported only)
         RawToken::Cache => TokenKind::Cache,
-        RawToken::Collect => TokenKind::Collect,
-        RawToken::Filter => TokenKind::Filter,
-        RawToken::Find => TokenKind::Find,
-        RawToken::Fold => TokenKind::Fold,
-        RawToken::Map => TokenKind::Map,
+        RawToken::Catch => TokenKind::Catch,
         RawToken::Parallel => TokenKind::Parallel,
         RawToken::Spawn => TokenKind::Spawn,
         RawToken::Recurse => TokenKind::Recurse,
-        RawToken::Retry => TokenKind::Retry,
         RawToken::Run => TokenKind::Run,
         RawToken::Timeout => TokenKind::Timeout,
         RawToken::Try => TokenKind::Try,
-        RawToken::Validate => TokenKind::Validate,
 
-        // Core patterns
-        RawToken::Assert => TokenKind::Assert,
-        RawToken::AssertEq => TokenKind::AssertEq,
-        RawToken::AssertNe => TokenKind::AssertNe,
-        RawToken::Len => TokenKind::Len,
-        RawToken::IsEmpty => TokenKind::IsEmpty,
-        RawToken::IsSome => TokenKind::IsSome,
-        RawToken::IsNone => TokenKind::IsNone,
-        RawToken::IsOk => TokenKind::IsOk,
-        RawToken::IsErr => TokenKind::IsErr,
+        // Built-in I/O primitives
         RawToken::Print => TokenKind::Print,
         RawToken::Panic => TokenKind::Panic,
-        RawToken::Compare => TokenKind::Compare,
-        RawToken::Min => TokenKind::Min,
-        RawToken::Max => TokenKind::Max,
 
         // Symbols
         RawToken::HashBracket => TokenKind::HashBracket,

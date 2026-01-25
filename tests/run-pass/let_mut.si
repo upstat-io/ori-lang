@@ -1,5 +1,7 @@
 // Test let and let mut variable bindings
 
+use std.testing { assert, assert_eq, assert_ne }
+
 @increment (n: int) -> int = run(
     let mut result = n,
     result = result + 1,

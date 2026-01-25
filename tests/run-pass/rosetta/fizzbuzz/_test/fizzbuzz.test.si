@@ -1,5 +1,6 @@
 // Tests for FizzBuzz
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../fizzbuzz" { fizzbuzz, is_fizz, is_buzz, is_fizzbuzz }
 
 @test_fizzbuzz_numbers tests @fizzbuzz () -> void = run(

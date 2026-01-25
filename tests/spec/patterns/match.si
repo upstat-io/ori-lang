@@ -1,6 +1,8 @@
 // Spec: 10-patterns.md § match
 // Design: 06-pattern-matching/index.md
 
+use std.testing { assert, assert_eq, assert_ne }
+
 // =============================================================================
 // match Expression (Basic)
 // =============================================================================

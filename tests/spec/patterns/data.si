@@ -1,6 +1,8 @@
 // Spec: 10-patterns.md § Data Transformation Patterns
 // Design: 02-syntax/04-patterns-reference.md § map, filter, fold
 
+use std.testing { assert, assert_eq, assert_ne }
+
 // =============================================================================
 // map Pattern
 // =============================================================================

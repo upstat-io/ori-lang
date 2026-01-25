@@ -1,5 +1,6 @@
 // Tests for Closures/Value capture
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../closures" {
     make_adder,
     make_multiplier,

@@ -81,21 +81,52 @@ pub fn is_test_module(path: &Path) -> bool {
 /// to the imported module. A test module `src/_test/math.test.si` should
 /// have private access to `src/math.si` (accessed via `../math`).
 pub fn is_parent_module_import(current_file: &Path, import_path: &Path) -> bool {
-    // Normalize both paths for comparison
     let current_dir = current_file.parent().unwrap_or(Path::new("."));
+
+    // Check if current dir is named _test
+    let is_in_test_dir = current_dir.file_name()
+        .and_then(|n| n.to_str())
+        .map_or(false, |n| n == "_test");
+
+    if !is_in_test_dir {
+        return false;
+    }
+
+    // Get the parent directory of _test (e.g., src/_test -> src)
+    let test_parent = match current_dir.parent() {
+        Some(p) => p,
+        None => return false,
+    };
+
+    // Get the directory containing the imported file
     let import_parent = import_path.parent().unwrap_or(Path::new("."));
 
-    // Check if the import is from the parent directory of _test
-    // e.g., src/_test/ -> src/
-    if let Some(test_parent) = current_dir.parent() {
-        if let Some(current_dir_name) = current_dir.file_name().and_then(|n| n.to_str()) {
-            if current_dir_name == "_test" && test_parent == import_parent {
-                return true;
+    // Normalize both paths by removing .. components for comparison
+    // For a path like "tests/spec/modules/_test/../use_imports.si",
+    // the parent is "tests/spec/modules/_test/.." which should equal "tests/spec/modules"
+    let normalized_import_parent = normalize_path(import_parent);
+    let normalized_test_parent = normalize_path(test_parent);
+
+    normalized_import_parent == normalized_test_parent
+}
+
+/// Normalize a path by resolving . and .. components.
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut result = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                result.pop();
+            }
+            std::path::Component::CurDir => {
+                // Skip current dir
+            }
+            _ => {
+                result.push(component);
             }
         }
     }
-
-    false
+    result
 }
 
 // =============================================================================

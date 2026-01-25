@@ -1,6 +1,8 @@
 // Spec: 10-patterns.md § parallel, spawn, timeout, retry, cache
 // Design: 02-syntax/04-patterns-reference.md § Concurrency Patterns
 
+use std.testing { assert, assert_eq, assert_ne }
+
 // =============================================================================
 // parallel Pattern (All-Settled Concurrent Execution)
 // =============================================================================

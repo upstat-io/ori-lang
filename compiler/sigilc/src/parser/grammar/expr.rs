@@ -302,15 +302,42 @@ impl<'a> Parser<'a> {
                     ));
                 }
             } else if self.check(TokenKind::Dot) {
-                // Field access
+                // Field access or method call
                 self.advance();
                 let field = self.expect_ident()?;
 
-                let span = self.arena.get_expr(expr).span.merge(self.previous_span());
-                expr = self.arena.alloc_expr(Expr::new(
-                    ExprKind::Field { receiver: expr, field },
-                    span,
-                ));
+                // Check if this is a method call: .name(args)
+                if self.check(TokenKind::LParen) {
+                    self.advance(); // consume (
+                    // Parse positional arguments for method calls
+                    let mut args = Vec::new();
+                    if !self.check(TokenKind::RParen) {
+                        args.push(self.parse_expr()?);
+                        while self.check(TokenKind::Comma) {
+                            self.advance();
+                            self.skip_newlines();
+                            if self.check(TokenKind::RParen) {
+                                break; // trailing comma
+                            }
+                            args.push(self.parse_expr()?);
+                        }
+                    }
+                    let args_range = self.arena.alloc_expr_list(args);
+                    self.expect(TokenKind::RParen)?;
+
+                    let span = self.arena.get_expr(expr).span.merge(self.previous_span());
+                    expr = self.arena.alloc_expr(Expr::new(
+                        ExprKind::MethodCall { receiver: expr, method: field, args: args_range },
+                        span,
+                    ));
+                } else {
+                    // Field access
+                    let span = self.arena.get_expr(expr).span.merge(self.previous_span());
+                    expr = self.arena.alloc_expr(Expr::new(
+                        ExprKind::Field { receiver: expr, field },
+                        span,
+                    ));
+                }
             } else if self.check(TokenKind::LBracket) {
                 // Index access
                 self.advance();
@@ -934,15 +961,9 @@ impl<'a> Parser<'a> {
                 Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
             }
 
-            // Soft keywords used as identifiers (when not followed by `(`)
+            // Built-in I/O primitives as soft keywords (when not followed by `(`)
             // These are context-sensitive: `print(` is a built-in call, but `let print = 5` is a variable
-            // Note: Per "Lean Core, Rich Libraries", most built-ins (len, assert, etc.) are
-            // library functions that can also be used as variable names.
-            TokenKind::Print | TokenKind::Panic
-            | TokenKind::Assert | TokenKind::AssertEq | TokenKind::AssertNe
-            | TokenKind::Len | TokenKind::IsEmpty
-            | TokenKind::IsSome | TokenKind::IsNone | TokenKind::IsOk | TokenKind::IsErr
-            | TokenKind::Compare | TokenKind::Min | TokenKind::Max => {
+            TokenKind::Print | TokenKind::Panic => {
                 // This branch is only reached when NOT followed by `(`, since
                 // match_function_exp_kind handles the `keyword(` case first.
                 let name_str = self.soft_keyword_to_name().expect("soft keyword matched but not in helper");

@@ -1,5 +1,6 @@
 // Tests for Stack
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../stack" { empty_stack, stack_is_empty, push, peek, pop, size }
 
 #[skip("stack methods not yet implemented")]

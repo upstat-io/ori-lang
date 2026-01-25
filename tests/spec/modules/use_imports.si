@@ -3,6 +3,8 @@
 //
 // Tests for the use statement and module imports.
 
+use std.testing { assert_eq }
+
 // =============================================================================
 // Helper module for testing imports
 // =============================================================================

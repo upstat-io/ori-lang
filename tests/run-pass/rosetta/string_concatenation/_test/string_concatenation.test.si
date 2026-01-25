@@ -1,5 +1,6 @@
 // Tests for String concatenation
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../string_concatenation" { concat, join, concat_all }
 
 @test_concat tests @concat () -> void = run(

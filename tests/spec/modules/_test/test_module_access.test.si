@@ -4,6 +4,8 @@
 // Tests that test modules in _test/ directories can access private items
 // from their parent module without using the :: prefix.
 
+use std.testing { assert_eq }
+
 // This test file is in _test/ directory, so it should be able to
 // import private items from the parent directory without :: prefix
 use "../use_imports" {

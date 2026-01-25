@@ -3,6 +3,7 @@
 //
 // Tests for importing private items using :: prefix.
 
+use std.testing { assert_eq }
 use "../use_imports" {
     add,
     ::internal_helper,

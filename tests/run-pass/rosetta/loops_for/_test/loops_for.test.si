@@ -1,5 +1,6 @@
 // Tests for Loops/For
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../loops_for" { count_to_five, sum_to_n, squares, repeat_n, double_all }
 
 @test_count tests @count_to_five () -> void = run(

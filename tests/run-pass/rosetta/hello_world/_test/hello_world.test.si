@@ -1,5 +1,6 @@
 // Tests for Hello world/Text
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../hello_world" { hello }
 
 @test_hello tests @hello () -> void = run(

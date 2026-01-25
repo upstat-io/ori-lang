@@ -1,5 +1,6 @@
 // Tests for Higher-order functions
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../higher_order_functions" {
     double_all,
     square_all,

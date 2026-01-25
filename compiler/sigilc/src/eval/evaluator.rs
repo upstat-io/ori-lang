@@ -17,7 +17,7 @@ use super::environment::Environment;
 use super::errors;
 use super::operators::OperatorRegistry;
 use super::methods::MethodRegistry;
-use super::user_methods::{UserMethodRegistry, UserMethod};
+use super::user_methods::{SharedUserMethodRegistry, UserMethod};
 use super::unary_operators::UnaryOperatorRegistry;
 
 /// Result of evaluation.
@@ -58,7 +58,7 @@ pub struct Evaluator<'a> {
     /// Method registry for built-in method dispatch.
     method_registry: SharedRegistry<MethodRegistry>,
     /// User-defined method registry for impl block methods.
-    user_method_registry: UserMethodRegistry,
+    user_method_registry: SharedUserMethodRegistry,
     /// Unary operator registry for unary operations.
     unary_operator_registry: SharedRegistry<UnaryOperatorRegistry>,
     /// Arena reference for imported functions.
@@ -90,7 +90,7 @@ pub struct EvaluatorBuilder<'a> {
     registry: Option<SharedRegistry<PatternRegistry>>,
     context: Option<&'a CompilerContext>,
     imported_arena: Option<SharedArena>,
-    user_method_registry: Option<UserMethodRegistry>,
+    user_method_registry: Option<SharedUserMethodRegistry>,
 }
 
 impl<'a> EvaluatorBuilder<'a> {
@@ -106,7 +106,7 @@ impl<'a> EvaluatorBuilder<'a> {
     pub fn context(mut self, c: &'a CompilerContext) -> Self { self.context = Some(c); self }
     pub fn imported_arena(mut self, a: SharedArena) -> Self { self.imported_arena = Some(a); self }
     #[allow(dead_code)]
-    pub fn user_method_registry(mut self, r: UserMethodRegistry) -> Self { self.user_method_registry = Some(r); self }
+    pub fn user_method_registry(mut self, r: SharedUserMethodRegistry) -> Self { self.user_method_registry = Some(r); self }
 
     pub fn build(self) -> Evaluator<'a> {
         let (pat_reg, op_reg, meth_reg, unary_reg) = if let Some(ctx) = self.context {
@@ -147,8 +147,8 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Create an evaluator with an existing environment.
-    pub fn with_env(interner: &'a StringInterner, arena: &'a ExprArena, env: Environment) -> Self {
-        EvaluatorBuilder::new(interner, arena).env(env).build()
+    pub fn with_env(interner: &'a StringInterner, arena: &'a ExprArena, env: Environment, user_methods: SharedUserMethodRegistry) -> Self {
+        EvaluatorBuilder::new(interner, arena).env(env).user_method_registry(user_methods).build()
     }
 
     /// Create an evaluator with both a custom environment and pattern registry.
@@ -162,8 +162,8 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Create an evaluator with an imported arena context.
-    pub fn with_imported_arena(interner: &'a StringInterner, arena: &'a ExprArena, env: Environment, imported_arena: SharedArena) -> Self {
-        EvaluatorBuilder::new(interner, arena).env(env).imported_arena(imported_arena).build()
+    pub fn with_imported_arena(interner: &'a StringInterner, arena: &'a ExprArena, env: Environment, imported_arena: SharedArena, user_methods: SharedUserMethodRegistry) -> Self {
+        EvaluatorBuilder::new(interner, arena).env(env).imported_arena(imported_arena).user_method_registry(user_methods).build()
     }
 
     /// Load a module: resolve imports and register all functions.
@@ -212,6 +212,9 @@ impl<'a> Evaluator<'a> {
         // Register impl block methods
         self.register_impl_methods(&parse_result.module, &parse_result.arena);
 
+        // Register extension methods
+        self.register_extend_methods(&parse_result.module, &parse_result.arena);
+
         Ok(())
     }
 
@@ -228,6 +231,34 @@ impl<'a> Evaluator<'a> {
 
             // Register each method
             for method in &impl_def.methods {
+                let method_name = self.interner.lookup(method.name).to_string();
+
+                // Get parameter names
+                let params: Vec<Name> = arena.get_params(method.params)
+                    .iter()
+                    .map(|p| p.name)
+                    .collect();
+
+                // Create user method with captures from current environment
+                let user_method = UserMethod::with_captures(
+                    params,
+                    method.body,
+                    self.env.capture(),
+                );
+
+                self.user_method_registry.register(type_name.clone(), method_name, user_method);
+            }
+        }
+    }
+
+    /// Register methods from extend blocks in the user method registry.
+    fn register_extend_methods(&mut self, module: &crate::ir::Module, arena: &ExprArena) {
+        for extend_def in &module.extends {
+            // Get the target type name (e.g., "list" for `extend [T] { ... }`)
+            let type_name = self.interner.lookup(extend_def.target_type_name).to_string();
+
+            // Register each method
+            for method in &extend_def.methods {
                 let method_name = self.interner.lookup(method.name).to_string();
 
                 // Get parameter names
@@ -513,7 +544,7 @@ impl<'a> Evaluator<'a> {
                     // Function from an imported module - use its arena and pass it along
                     let imported_arena = SharedArena::new(func_arena.clone());
                     let mut call_evaluator = Evaluator::with_imported_arena(
-                        self.interner, func_arena, call_env, imported_arena
+                        self.interner, func_arena, call_env, imported_arena, self.user_method_registry.clone()
                     );
                     let result = call_evaluator.eval(f.body);
                     call_evaluator.env.pop_scope();
@@ -521,14 +552,14 @@ impl<'a> Evaluator<'a> {
                 } else if let Some(ref imported) = self.imported_arena {
                     // We're already in an imported context - pass it along
                     let mut call_evaluator = Evaluator::with_imported_arena(
-                        self.interner, self.arena, call_env, imported.clone()
+                        self.interner, self.arena, call_env, imported.clone(), self.user_method_registry.clone()
                     );
                     let result = call_evaluator.eval(f.body);
                     call_evaluator.env.pop_scope();
                     result
                 } else {
                     // Local function - use our arena
-                    let mut call_evaluator = Evaluator::with_env(self.interner, self.arena, call_env);
+                    let mut call_evaluator = Evaluator::with_env(self.interner, self.arena, call_env, self.user_method_registry.clone());
                     let result = call_evaluator.eval(f.body);
                     call_evaluator.env.pop_scope();
                     result
@@ -704,7 +735,7 @@ impl<'a> Evaluator<'a> {
 
         // First, check user-defined methods
         if let Some(user_method) = self.user_method_registry.lookup(&type_name, method_name) {
-            return self.eval_user_method(receiver, user_method.clone(), args);
+            return self.eval_user_method(receiver, user_method, args);
         }
 
         // Fall back to built-in methods
@@ -765,14 +796,14 @@ impl<'a> Evaluator<'a> {
             // Method from an imported module - use its arena
             let imported_arena = SharedArena::new((**func_arena).clone());
             let mut call_evaluator = Evaluator::with_imported_arena(
-                self.interner, func_arena, call_env, imported_arena
+                self.interner, func_arena, call_env, imported_arena, self.user_method_registry.clone()
             );
             let result = call_evaluator.eval(method.body);
             call_evaluator.env.pop_scope();
             result
         } else {
             // Local method - use our arena
-            let mut call_evaluator = Evaluator::with_env(self.interner, self.arena, call_env);
+            let mut call_evaluator = Evaluator::with_env(self.interner, self.arena, call_env, self.user_method_registry.clone());
             let result = call_evaluator.eval(method.body);
             call_evaluator.env.pop_scope();
             result

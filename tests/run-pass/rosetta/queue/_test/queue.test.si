@@ -1,5 +1,6 @@
 // Tests for Queue
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../queue" { empty_queue, queue_is_empty, enqueue, front, dequeue, size }
 
 #[skip("queue methods not yet implemented")]

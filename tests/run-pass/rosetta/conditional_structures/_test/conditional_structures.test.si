@@ -1,5 +1,6 @@
 // Tests for Conditional structures
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../conditional_structures" {
     abs,
     sign,

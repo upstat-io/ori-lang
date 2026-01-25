@@ -1,0 +1,16 @@
+// Test extension methods on strings
+
+use std.testing { assert, assert_eq }
+
+// Simple extension method for strings
+extend str {
+    @shout (self) -> str = self + "!"
+}
+
+// Test shout extension method
+@make_loud (s: str) -> str = s.shout()
+
+@test_shout tests @make_loud () -> void = run(
+    let result = make_loud("hello"),
+    assert_eq(actual: result, expected: "hello!"),
+)

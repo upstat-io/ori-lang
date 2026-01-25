@@ -1,5 +1,6 @@
 // Tests for Function definition
 
+use std.testing { assert, assert_eq, assert_ne }
 use "../function_definition" {
     greeting,
     square,

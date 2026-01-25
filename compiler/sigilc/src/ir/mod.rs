@@ -53,5 +53,7 @@ pub use ast::{
     TraitDef, TraitItem, TraitMethodSig, TraitDefaultMethod, TraitAssocType,
     // Impl types
     ImplDef, ImplMethod,
+    // Extension types
+    ExtendDef,
 };
 pub use arena::{ExprArena, SharedArena};

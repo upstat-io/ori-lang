@@ -1,6 +1,8 @@
 // Spec: 09-expressions.md § Let Bindings
 // Design: 02-syntax/02-expressions.md § Let Bindings
 
+use std.testing { assert, assert_eq, assert_ne }
+
 // =============================================================================
 // Basic Let Bindings (Inferred Types)
 // =============================================================================

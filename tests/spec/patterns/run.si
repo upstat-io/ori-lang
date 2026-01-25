@@ -1,6 +1,8 @@
 // Spec: 10-patterns.md § run
 // Design: 02-syntax/04-patterns-reference.md § run
 
+use std.testing { assert, assert_eq, assert_ne }
+
 // =============================================================================
 // run Pattern (Sequential Execution)
 // =============================================================================

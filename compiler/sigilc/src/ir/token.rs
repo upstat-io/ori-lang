@@ -114,37 +114,19 @@ pub enum TokenKind {
     Some,
     None,
 
-    // === Pattern Keywords (Context-Sensitive) ===
+    // === Pattern Keywords (Compiler-Supported Only) ===
     Cache,
-    Collect,
-    Filter,
-    Find,
-    Fold,
-    Map,
+    Catch,
     Parallel,
     Spawn,
     Recurse,
-    Retry,
     Run,
     Timeout,
     Try,
-    Validate,
 
-    // === Core Patterns (function_exp) ===
-    Assert,
-    AssertEq,
-    AssertNe,
-    Len,
-    IsEmpty,
-    IsSome,
-    IsNone,
-    IsOk,
-    IsErr,
+    // === Built-in I/O Primitives ===
     Print,
     Panic,
-    Compare,
-    Min,
-    Max,
 
     // === Symbols ===
     HashBracket,  // #[
@@ -214,14 +196,9 @@ impl TokenKind {
             TokenKind::Let | TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace |
             TokenKind::At | TokenKind::Dollar | TokenKind::Minus | TokenKind::Bang |
             TokenKind::Tilde | TokenKind::Ok | TokenKind::Err | TokenKind::Some | TokenKind::None |
-            TokenKind::Run | TokenKind::Try | TokenKind::Map | TokenKind::Filter |
-            TokenKind::Fold | TokenKind::Find | TokenKind::Collect | TokenKind::Recurse |
-            TokenKind::Parallel | TokenKind::Spawn | TokenKind::Timeout | TokenKind::Retry |
-            TokenKind::Cache | TokenKind::Validate |
-            TokenKind::Assert | TokenKind::AssertEq | TokenKind::AssertNe |
-            TokenKind::Len | TokenKind::IsEmpty | TokenKind::IsSome | TokenKind::IsNone |
-            TokenKind::IsOk | TokenKind::IsErr | TokenKind::Print | TokenKind::Panic |
-            TokenKind::Compare | TokenKind::Min | TokenKind::Max
+            TokenKind::Run | TokenKind::Try | TokenKind::Recurse |
+            TokenKind::Parallel | TokenKind::Spawn | TokenKind::Timeout |
+            TokenKind::Cache | TokenKind::Catch | TokenKind::Print | TokenKind::Panic
         )
     }
 
@@ -229,15 +206,10 @@ impl TokenKind {
     pub fn is_pattern_keyword(&self) -> bool {
         matches!(
             self,
-            TokenKind::Cache | TokenKind::Collect | TokenKind::Filter |
-            TokenKind::Find | TokenKind::Fold | TokenKind::Map |
-            TokenKind::Parallel | TokenKind::Spawn | TokenKind::Recurse | TokenKind::Retry |
+            TokenKind::Cache | TokenKind::Catch |
+            TokenKind::Parallel | TokenKind::Spawn | TokenKind::Recurse |
             TokenKind::Run | TokenKind::Timeout | TokenKind::Try |
-            TokenKind::Validate |
-            TokenKind::Assert | TokenKind::AssertEq | TokenKind::AssertNe |
-            TokenKind::Len | TokenKind::IsEmpty | TokenKind::IsSome | TokenKind::IsNone |
-            TokenKind::IsOk | TokenKind::IsErr | TokenKind::Print | TokenKind::Panic |
-            TokenKind::Compare | TokenKind::Min | TokenKind::Max
+            TokenKind::Print | TokenKind::Panic
         )
     }
 
@@ -296,33 +268,15 @@ impl TokenKind {
             TokenKind::Some => "Some",
             TokenKind::None => "None",
             TokenKind::Cache => "cache",
-            TokenKind::Collect => "collect",
-            TokenKind::Filter => "filter",
-            TokenKind::Find => "find",
-            TokenKind::Fold => "fold",
-            TokenKind::Map => "map",
+            TokenKind::Catch => "catch",
             TokenKind::Parallel => "parallel",
             TokenKind::Spawn => "spawn",
             TokenKind::Recurse => "recurse",
-            TokenKind::Retry => "retry",
             TokenKind::Run => "run",
             TokenKind::Timeout => "timeout",
             TokenKind::Try => "try",
-            TokenKind::Validate => "validate",
-            TokenKind::Assert => "assert",
-            TokenKind::AssertEq => "assert_eq",
-            TokenKind::AssertNe => "assert_ne",
-            TokenKind::Len => "len",
-            TokenKind::IsEmpty => "is_empty",
-            TokenKind::IsSome => "is_some",
-            TokenKind::IsNone => "is_none",
-            TokenKind::IsOk => "is_ok",
-            TokenKind::IsErr => "is_err",
             TokenKind::Print => "print",
             TokenKind::Panic => "panic",
-            TokenKind::Compare => "compare",
-            TokenKind::Min => "min",
-            TokenKind::Max => "max",
             TokenKind::HashBracket => "#[",
             TokenKind::At => "@",
             TokenKind::Dollar => "$",

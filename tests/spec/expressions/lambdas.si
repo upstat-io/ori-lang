@@ -1,6 +1,8 @@
 // Spec: 09-expressions.md § Lambda Expressions
 // Design: 02-syntax/02-expressions.md § Lambda Expressions
 
+use std.testing { assert, assert_eq, assert_ne }
+
 // =============================================================================
 // Untyped Lambda Parameters
 // =============================================================================

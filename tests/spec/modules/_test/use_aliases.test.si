@@ -3,6 +3,7 @@
 //
 // Tests for importing with aliases using 'as' keyword.
 
+use std.testing { assert_eq }
 use "../use_imports" {
     add as plus,
     make_multiplier as create_multiplier,

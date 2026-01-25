@@ -1,6 +1,8 @@
 // Spec: 08-declarations.md § Function Declarations
 // Design: 03-type-system/05-type-inference.md
 
+use std.testing { assert, assert_eq, assert_ne }
+
 // =============================================================================
 // Function Parameter Type Annotations
 // =============================================================================
