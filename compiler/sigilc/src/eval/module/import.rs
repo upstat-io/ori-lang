@@ -379,12 +379,14 @@ impl<'a> ImportedModule<'a> {
                 .iter()
                 .map(|p| p.name)
                 .collect();
+            let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
 
-            let func_value = FunctionValue::from_import(
+            let func_value = FunctionValue::from_import_with_capabilities(
                 params,
                 func.body,
                 HashMap::new(),
                 imported_arena.clone(),
+                capabilities,
             );
             module_functions.insert(func.name, Value::Function(func_value));
         }
@@ -447,16 +449,18 @@ pub fn register_imports(
                 .iter()
                 .map(|p| p.name)
                 .collect();
+            let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
 
             // Captures include: current environment + all module functions
             let mut captures = env.capture();
             captures.extend(imported.functions.clone());
 
-            let func_value = FunctionValue::from_import(
+            let func_value = FunctionValue::from_import_with_capabilities(
                 params,
                 func.body,
                 captures,
                 imported.arena.clone(),
+                capabilities,
             );
 
             // Use alias if provided, otherwise use original name
@@ -484,8 +488,9 @@ pub fn register_module_functions(
             .iter()
             .map(|p| p.name)
             .collect();
+        let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
         let captures = env.capture();
-        let func_value = FunctionValue::with_captures(params, func.body, captures);
+        let func_value = FunctionValue::with_capabilities(params, func.body, captures, capabilities);
         env.define(func.name, Value::Function(func_value), false);
     }
 }

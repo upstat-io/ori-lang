@@ -23,6 +23,18 @@ impl Evaluator<'_> {
                     call_env.define(*name, value.clone(), false);
                 }
 
+                // Pass capabilities from calling scope to called function
+                // This enables capability propagation: functions that `uses` a capability
+                // can access it when called from within a `with Capability = ... in` block
+                for cap_name in f.capabilities() {
+                    if let Some(cap_value) = self.env.lookup(*cap_name) {
+                        call_env.define(*cap_name, cap_value, false);
+                    }
+                    // Note: If capability is not in scope, we don't error here.
+                    // The type checker already validated that the capability is required.
+                    // Runtime errors will occur if the function tries to use the capability.
+                }
+
                 // Bind parameters
                 for (param, arg) in f.params.iter().zip(args.iter()) {
                     call_env.define(*param, arg.clone(), false);
