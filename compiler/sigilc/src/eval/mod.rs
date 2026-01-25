@@ -33,5 +33,5 @@ pub use evaluator::{Evaluator, EvalResult, EvalError};
 pub use output::{EvalOutput, ModuleEvalResult};
 pub use operators::OperatorRegistry;
 pub use methods::MethodRegistry;
-pub use user_methods::{UserMethodRegistry, UserMethod, SharedUserMethodRegistry};
+pub use user_methods::{UserMethodRegistry, UserMethod};
 pub use unary_operators::UnaryOperatorRegistry;

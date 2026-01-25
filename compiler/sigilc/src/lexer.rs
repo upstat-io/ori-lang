@@ -618,13 +618,14 @@ mod tests {
     #[test]
     fn test_lex_pattern_keywords() {
         let interner = test_interner();
-        let tokens = lex("map filter fold run try", &interner);
+        // map, filter, fold are now library functions (identifiers), not keywords
+        // Only run and try remain as compiler patterns
+        let tokens = lex("run try catch parallel", &interner);
 
-        assert!(matches!(tokens[0].kind, TokenKind::Map));
-        assert!(matches!(tokens[1].kind, TokenKind::Filter));
-        assert!(matches!(tokens[2].kind, TokenKind::Fold));
-        assert!(matches!(tokens[3].kind, TokenKind::Run));
-        assert!(matches!(tokens[4].kind, TokenKind::Try));
+        assert!(matches!(tokens[0].kind, TokenKind::Run));
+        assert!(matches!(tokens[1].kind, TokenKind::Try));
+        assert!(matches!(tokens[2].kind, TokenKind::Catch));
+        assert!(matches!(tokens[3].kind, TokenKind::Parallel));
     }
 
     #[test]
