@@ -4,7 +4,7 @@ use super::*;
 use crate::ir::{Span, SharedInterner};
 use crate::ir::ast::{Expr, ExprKind};
 use std::collections::HashMap;
-use super::super::user_methods::UserMethod;
+use sigil_eval::{UserMethod, UserMethodRegistry};
 
 #[test]
 fn test_eval_error() {
@@ -46,7 +46,7 @@ fn test_user_method_dispatch() {
 
     // Build registry before creating evaluator (immutable after construction)
     let user_method = UserMethod::new(vec![self_name], body);
-    let mut registry = super::super::user_methods::UserMethodRegistry::new();
+    let mut registry = UserMethodRegistry::new();
     registry.register("Point".to_string(), "double_x".to_string(), user_method);
 
     let mut evaluator = EvaluatorBuilder::new(&interner, &arena)
@@ -86,7 +86,7 @@ fn test_user_method_with_self_access() {
 
     // Build registry before creating evaluator (immutable after construction)
     let user_method = UserMethod::new(vec![self_name], body);
-    let mut registry = super::super::user_methods::UserMethodRegistry::new();
+    let mut registry = UserMethodRegistry::new();
     registry.register("Point".to_string(), "get_x".to_string(), user_method);
 
     let mut evaluator = EvaluatorBuilder::new(&interner, &arena)
@@ -134,7 +134,7 @@ fn test_user_method_with_args() {
 
     // Build registry before creating evaluator (immutable after construction)
     let user_method = UserMethod::new(vec![self_name, n_name], body);
-    let mut registry = super::super::user_methods::UserMethodRegistry::new();
+    let mut registry = UserMethodRegistry::new();
     registry.register("Point".to_string(), "add_to_x".to_string(), user_method);
 
     let mut evaluator = EvaluatorBuilder::new(&interner, &arena)

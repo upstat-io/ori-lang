@@ -15,51 +15,16 @@ use crate::ir::{
     ExprKind, BinaryOp, UnaryOp, StmtKind, BindingPattern,
     ArmRange,
 };
-use crate::patterns::{PatternRegistry, EvalContext, PatternExecutor};
+use sigil_patterns::{PatternRegistry, EvalContext, PatternExecutor, EvalError, EvalResult};
 use crate::context::{CompilerContext, SharedRegistry};
 use crate::stack::ensure_sufficient_stack;
 use super::value::{Value, FunctionValue, StructValue};
-use super::environment::Environment;
-use super::operators::OperatorRegistry;
-use super::methods::MethodRegistry;
-use super::user_methods::UserMethodRegistry;
-use super::unary_operators::UnaryOperatorRegistry;
-
-// Import error constructors from local errors module (wrappers around sigil_patterns)
-use super::errors::{
+use sigil_eval::{
+    Environment, MethodRegistry, OperatorRegistry, UnaryOperatorRegistry, UserMethodRegistry,
     undefined_variable, undefined_function, undefined_config,
     parse_error, hash_outside_index, self_outside_method,
     await_not_supported, non_exhaustive_match, for_requires_iterable,
 };
-
-/// Result of evaluation.
-pub type EvalResult = Result<Value, EvalError>;
-
-/// Evaluation error.
-#[derive(Clone, Debug)]
-pub struct EvalError {
-    /// Error message.
-    pub message: String,
-    /// If this error is from `?` propagation, holds the original Err/None value.
-    pub propagated_value: Option<Value>,
-}
-
-impl EvalError {
-    pub fn new(message: impl Into<String>) -> Self {
-        EvalError {
-            message: message.into(),
-            propagated_value: None,
-        }
-    }
-
-    /// Create an error for propagating an Err or None value.
-    pub fn propagate(value: Value, message: impl Into<String>) -> Self {
-        EvalError {
-            message: message.into(),
-            propagated_value: Some(value),
-        }
-    }
-}
 
 /// Tree-walking evaluator for Sigil expressions.
 pub struct Evaluator<'a> {
@@ -504,7 +469,7 @@ impl<'a> Evaluator<'a> {
     /// `function_val`: Type conversion functions like int(x), str(x), float(x)
     /// that allow positional arguments per the spec.
     pub fn register_prelude(&mut self) {
-        use super::function_val::{function_val_str, function_val_int, function_val_float, function_val_byte, function_val_thread_id};
+        use sigil_eval::{function_val_str, function_val_int, function_val_float, function_val_byte, function_val_thread_id};
 
         // Type conversion functions (positional args allowed per spec)
         self.register_function_val("str", function_val_str, "str");

@@ -2,9 +2,9 @@
 //!
 //! Tests negation, logical not, bitwise not, and try operator.
 
-use crate::eval::unary_operators::UnaryOperatorRegistry;
+use sigil_eval::UnaryOperatorRegistry;
 use crate::eval::Value;
-use crate::ir::UnaryOp;
+use sigil_ir::UnaryOp;
 
 // =============================================================================
 // Negation Tests

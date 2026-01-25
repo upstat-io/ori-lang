@@ -60,7 +60,6 @@ pub mod types;
 pub mod typeck;
 pub mod eval;
 pub mod test;
-pub mod patterns;
 pub mod context;
 pub mod testing;
 pub mod debug;
@@ -93,5 +92,5 @@ pub use typeck::{TypedModule, TypeChecker, TypeCheckError, type_check, type_chec
 pub use eval::{Value, FunctionValue, RangeValue, Environment, Evaluator, EvalResult, EvalError, EvalOutput, ModuleEvalResult};
 pub use query::evaluated;
 pub use test::{TestRunner, TestRunnerConfig, TestSummary, TestResult, TestOutcome, run_tests, run_test_file};
-pub use patterns::{PatternRegistry, PatternDefinition, TypeCheckContext, EvalContext};
+pub use sigil_patterns::{PatternRegistry, PatternDefinition, TypeCheckContext, EvalContext};
 pub use context::{CompilerContext, SharedContext, shared_context};

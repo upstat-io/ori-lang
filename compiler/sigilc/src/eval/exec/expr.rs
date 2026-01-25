@@ -5,15 +5,13 @@
 //! main Evaluator.
 
 use crate::ir::{ExprId, ExprKind, BinaryOp, UnaryOp, StringInterner, Name};
-use crate::eval::errors::{
+use crate::eval::{Value, RangeValue, EvalResult, EvalError};
+use sigil_eval::{
+    Environment, OperatorRegistry, UnaryOperatorRegistry,
     undefined_variable, cannot_get_length, index_out_of_bounds, key_not_found,
     cannot_index, no_field_on_struct, tuple_index_out_of_bounds, invalid_tuple_field,
     cannot_access_field,
 };
-use crate::eval::{Value, RangeValue, EvalResult, EvalError};
-use crate::eval::environment::Environment;
-use crate::eval::operators::OperatorRegistry;
-use crate::eval::unary_operators::UnaryOperatorRegistry;
 use crate::context::SharedRegistry;
 
 /// Evaluate a literal expression.

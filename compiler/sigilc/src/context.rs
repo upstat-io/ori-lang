@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 use std::fmt;
-use crate::patterns::PatternRegistry;
+use sigil_patterns::PatternRegistry;
 use crate::eval::{OperatorRegistry, MethodRegistry, UnaryOperatorRegistry};
 
 // =============================================================================

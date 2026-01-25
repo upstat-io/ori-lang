@@ -3,7 +3,7 @@
 //! Tests method calls on built-in types including list, string, range,
 //! Option, and Result.
 
-use crate::eval::methods::MethodRegistry;
+use sigil_eval::MethodRegistry;
 use crate::eval::Value;
 
 // =============================================================================

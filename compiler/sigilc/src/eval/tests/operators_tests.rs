@@ -3,9 +3,9 @@
 //! Tests operator evaluation including arithmetic, comparison, bitwise,
 //! and type checking.
 
-use crate::eval::operators::OperatorRegistry;
+use sigil_eval::OperatorRegistry;
 use crate::eval::Value;
-use crate::ir::BinaryOp;
+use sigil_ir::BinaryOp;
 
 // =============================================================================
 // Integer operations

@@ -11,13 +11,13 @@ use crate::ir::{
     Name, ExprId, ExprKind, ExprArena, StringInterner, StmtKind,
     BindingPattern, ArmRange, MatchPattern,
 };
-use crate::eval::errors::{
+use crate::eval::{Value, EvalResult, EvalError};
+use sigil_eval::{
+    Environment,
     tuple_pattern_mismatch, expected_tuple, missing_struct_field, expected_struct,
     list_pattern_too_long, expected_list, invalid_literal_pattern, non_exhaustive_match,
     for_requires_iterable, cannot_assign_immutable, invalid_assignment_target,
 };
-use crate::eval::{Value, EvalResult, EvalError};
-use crate::eval::environment::Environment;
 
 /// Evaluate an if/else expression.
 pub fn eval_if<F>(

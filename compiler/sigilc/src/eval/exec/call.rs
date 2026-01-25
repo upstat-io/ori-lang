@@ -4,9 +4,8 @@
 //! It's designed to be called from the main Evaluator.
 
 use crate::ir::{Name, StringInterner, ExprArena, CallArgRange};
-use crate::eval::errors::wrong_function_args;
 use crate::eval::{Value, FunctionValue, Environment, EvalResult, EvalError};
-use crate::eval::methods::MethodRegistry;
+use sigil_eval::{MethodRegistry, wrong_function_args};
 use crate::context::SharedRegistry;
 
 /// Configuration for function call evaluation.

@@ -1,7 +1,7 @@
 //! Function call evaluation methods for the Evaluator.
 
 use crate::ir::{SharedArena, CallArgRange};
-use super::super::errors::{wrong_function_args, not_callable};
+use sigil_eval::{wrong_function_args, not_callable};
 use super::{Evaluator, EvalResult, EvalError};
 use super::super::value::Value;
 

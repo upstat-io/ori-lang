@@ -17,7 +17,7 @@
 
 use crate::ir::{ExprId, BindingPattern, FunctionSeq, SeqBinding, SeqBindingRange, ExprArena};
 use crate::eval::{Value, EvalResult, EvalError};
-use crate::eval::environment::Environment;
+use sigil_eval::Environment;
 
 /// Evaluate a run pattern (sequential evaluation).
 ///

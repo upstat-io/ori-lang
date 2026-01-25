@@ -14,15 +14,8 @@
 //! The value module enforces that all heap allocations go through factory
 //! methods on `Value`. See `sigil_patterns::value` for details.
 
-mod environment;
 mod evaluator;
 mod output;
-mod function_val;
-pub mod errors;
-pub mod operators;
-pub mod methods;
-pub mod user_methods;
-pub mod unary_operators;
 pub mod exec;
 pub mod module;
 
@@ -37,13 +30,14 @@ pub mod value {
 }
 
 pub use value::{Value, FunctionValue, RangeValue, StructValue, StructLayout, Heap, FunctionValFn};
-pub use environment::Environment;
-pub use evaluator::{Evaluator, EvaluatorBuilder, EvalResult, EvalError};
+pub use sigil_eval::{
+    Environment, LocalScope, Scope, OperatorRegistry, BinaryOperator,
+    UnaryOperator, UnaryOperatorRegistry, MethodDispatcher, MethodRegistry,
+    UserMethod, UserMethodRegistry,
+};
+pub use evaluator::{Evaluator, EvaluatorBuilder};
+pub use sigil_patterns::{EvalResult, EvalError};
 pub use output::{EvalOutput, ModuleEvalResult};
-pub use operators::OperatorRegistry;
-pub use methods::MethodRegistry;
-pub use user_methods::{UserMethodRegistry, UserMethod};
-pub use unary_operators::UnaryOperatorRegistry;
 
 #[cfg(test)]
 mod tests;

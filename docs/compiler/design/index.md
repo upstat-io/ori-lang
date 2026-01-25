@@ -22,7 +22,9 @@ The Sigil compiler is a Rust-based incremental compiler built on the Salsa frame
 - **`sigil_lexer`** - Tokenization
 - **`sigil_types`** - Type system definitions
 - **`sigil_parse`** - Recursive descent parser
-- **`sigilc`** - CLI orchestrator, Salsa queries, type checker, evaluator, patterns
+- **`sigil_patterns`** - Pattern system, Value types, EvalError (single source of truth)
+- **`sigil_eval`** - Core evaluator components (Environment, operators)
+- **`sigilc`** - CLI orchestrator, Salsa queries, type checker, evaluator
 
 The compiler features:
 
@@ -155,8 +157,10 @@ The compiler is organized as a multi-crate workspace:
 | `sigil_lexer` | `compiler/sigil_lexer/src/` | Tokenization via logos |
 | `sigil_types` | `compiler/sigil_types/src/` | Type, TypeError, TypeContext, InferenceContext |
 | `sigil_parse` | `compiler/sigil_parse/src/` | Recursive descent parser |
+| `sigil_patterns` | `compiler/sigil_patterns/src/` | Pattern definitions, Value types, EvalError, EvalContext |
+| `sigil_eval` | `compiler/sigil_eval/src/` | Environment, OperatorRegistry (core eval components) |
 | `sigil-macros` | `compiler/sigil-macros/src/` | Diagnostic derive macros |
-| `sigilc` | `compiler/sigilc/src/` | CLI, Salsa queries, typeck, eval, patterns |
+| `sigilc` | `compiler/sigilc/src/` | CLI, Salsa queries, typeck, eval orchestration |
 
 **Note:** `sigilc` modules (`ir`, `parser`, `diagnostic`, `types`) re-export from source crates for DRY.
 
@@ -169,5 +173,10 @@ The compiler is organized as a multi-crate workspace:
 | Query system | `compiler/sigilc/src/query/` |
 | Type checker | `compiler/sigilc/src/typeck/` |
 | Evaluator | `compiler/sigilc/src/eval/` |
-| Patterns | `compiler/sigilc/src/patterns/` |
 | Tests | `compiler/sigilc/src/test/` |
+
+### Architecture Notes
+
+- **Patterns**: Pattern definitions and Value types are in `sigil_patterns`. sigilc re-exports from this crate.
+- **Environment**: The `Environment` type for variable scoping is in `sigil_eval`. sigilc uses this directly.
+- **Re-exports**: sigilc modules (`ir`, `types`, `diagnostic`) re-export from their source crates for DRY.
