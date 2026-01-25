@@ -5,9 +5,18 @@
 //!
 //! # Module Structure
 //!
-//! - `checker.rs`: TypeChecker struct and main entry point
+//! - `checker/`: TypeChecker struct and main entry point
+//!   - `mod.rs`: TypeChecker struct, check_module
+//!   - `types.rs`: TypedModule, FunctionType, GenericBound
+//!   - `signatures.rs`: Function signature inference
+//!   - `pattern_binding.rs`: Pattern to type binding
+//!   - `cycle_detection.rs`: Closure self-capture detection
+//!   - `trait_registration.rs`: Trait and impl registration
+//!   - `bound_checking.rs`: Trait bound verification
 //! - `operators.rs`: Binary operator type checking
-//! - `type_registry.rs`: User-defined type registration
+//! - `type_registry/`: User-defined type registration
+//!   - `mod.rs`: TypeRegistry
+//!   - `trait_registry.rs`: TraitRegistry
 //! - `infer/`: Expression type inference
 //!   - `mod.rs`: Main infer_expr dispatcher
 //!   - `expr.rs`: Literals, identifiers, operators
@@ -22,10 +31,14 @@ pub mod type_registry;
 
 // Re-export main types
 pub use checker::{
-    TypeChecker, TypedModule, FunctionType, TypeCheckError,
+    TypeChecker, TypedModule, FunctionType, GenericBound, TypeCheckError,
     type_check, type_check_with_context,
 };
-pub use type_registry::{TypeRegistry, TypeEntry, TypeKind, VariantDef};
+pub use type_registry::{
+    TypeRegistry, TypeEntry, TypeKind, VariantDef,
+    TraitRegistry, TraitEntry, TraitMethodDef, TraitAssocTypeDef,
+    ImplEntry, ImplMethodDef, MethodLookup, CoherenceError,
+};
 
 #[cfg(test)]
 mod tests {
@@ -90,7 +103,6 @@ mod tests {
 
     #[test]
     fn test_list_type() {
-        // No explicit return type - let inference determine it's [int]
         let (parsed, typed) = check_source("@test () = [1, 2, 3]");
 
         assert!(!typed.has_errors());
@@ -104,7 +116,6 @@ mod tests {
     fn test_type_mismatch_error() {
         let (_, typed) = check_source("@test () -> int = if 42 then 1 else 2");
 
-        // Should have error: condition must be bool
         assert!(typed.has_errors());
         assert!(typed.errors[0].message.contains("type mismatch") ||
                 typed.errors[0].message.contains("expected"));
@@ -116,23 +127,20 @@ mod tests {
 
         let (_, typed1) = check_source("@main () -> int = 42");
         let (_, typed2) = check_source("@main () -> int = 42");
-        let (_, typed3) = check_source("@main () -> bool = true"); // Different return type
+        let (_, typed3) = check_source("@main () -> bool = true");
 
-        // Eq
         assert_eq!(typed1, typed2);
         assert_ne!(typed1, typed3);
 
-        // Hash
         let mut set = HashSet::new();
         set.insert(typed1.clone());
-        set.insert(typed2); // duplicate
+        set.insert(typed2);
         set.insert(typed3);
         assert_eq!(set.len(), 2);
     }
 
     #[test]
     fn test_function_with_typed_params() {
-        // Function with typed params should infer correctly
         let (_, typed) = check_source("@add (a: int, b: int) -> int = a + b");
 
         assert!(!typed.has_errors());
@@ -147,7 +155,6 @@ mod tests {
 
     #[test]
     fn test_function_call_type_inference() {
-        // Calling a typed function
         let (_, typed) = check_source("@double (x: int) -> int = x * 2");
 
         assert!(!typed.has_errors());
@@ -159,7 +166,6 @@ mod tests {
 
     #[test]
     fn test_lambda_with_typed_param() {
-        // Lambda with typed param
         let (_, typed) = check_source("@test () = (x: int) -> x + 1");
 
         assert!(!typed.has_errors());
@@ -194,7 +200,6 @@ mod tests {
 
     #[test]
     fn test_run_pattern_type() {
-        // run pattern with let bindings
         let (_, typed) = check_source(r#"
             @test () -> int = run(
                 let x: int = 1,
@@ -212,7 +217,6 @@ mod tests {
 
     #[test]
     fn test_closure_self_capture_direct() {
-        // Direct self-capture: let f = () -> f()
         let (_, typed) = check_source(r#"
             @test () -> int = run(
                 let f = () -> f,
@@ -229,7 +233,6 @@ mod tests {
 
     #[test]
     fn test_closure_self_capture_call() {
-        // Self-capture with call: let f = () -> f()
         let (_, typed) = check_source(r#"
             @test () -> int = run(
                 let f = (x: int) -> f(x + 1),
@@ -245,8 +248,6 @@ mod tests {
 
     #[test]
     fn test_no_self_capture_uses_outer_binding() {
-        // Using an outer binding with the same name is NOT self-capture
-        // Here f is already bound before the lambda is created
         let (_, typed) = check_source(r#"
             @test () -> int = run(
                 let f = 42,
@@ -255,7 +256,6 @@ mod tests {
             )
         "#);
 
-        // This should NOT be an error - g uses outer f, not itself
         assert!(!typed.errors.iter().any(|e|
             e.code == crate::diagnostic::ErrorCode::E2007
         ));
@@ -263,7 +263,6 @@ mod tests {
 
     #[test]
     fn test_no_self_capture_non_lambda() {
-        // Non-lambda let bindings don't have self-capture issues
         let (_, typed) = check_source(r#"
             @test () -> int = run(
                 let x = 1 + 2,
@@ -276,7 +275,6 @@ mod tests {
 
     #[test]
     fn test_closure_self_capture_in_run() {
-        // Self-capture in run() context
         let (_, typed) = check_source(r#"
             @test () -> int = run(
                 let f = () -> f,
@@ -292,7 +290,6 @@ mod tests {
 
     #[test]
     fn test_closure_self_capture_nested_expression() {
-        // Self-capture through nested expression
         let (_, typed) = check_source(r#"
             @test () -> int = run(
                 let f = () -> if true then f else f,
@@ -308,8 +305,6 @@ mod tests {
 
     #[test]
     fn test_valid_mutual_recursion_via_outer_scope() {
-        // This tests that using a name from outer scope is valid
-        // (the fix for actual mutual recursion would require explicit rec annotations)
         let (_, typed) = check_source(r#"
             @f (x: int) -> int = x
             @test () -> int = run(
@@ -318,7 +313,6 @@ mod tests {
             )
         "#);
 
-        // Using @f is valid - it's a top-level function, not self-capture
         assert!(!typed.errors.iter().any(|e|
             e.code == crate::diagnostic::ErrorCode::E2007
         ));
@@ -330,14 +324,12 @@ mod tests {
 
     #[test]
     fn test_type_registry_in_checker() {
-        // Test that TypeRegistry is properly initialized in TypeChecker
         let interner = SharedInterner::default();
         let tokens = lexer::lex("@main () -> int = 42", &interner);
         let parsed = parser::parse(&tokens, &interner);
 
         let mut checker = TypeChecker::new(&parsed.arena, &interner);
 
-        // Register a user type
         let point_name = interner.intern("Point");
         let x_name = interner.intern("x");
         let y_name = interner.intern("y");
@@ -349,7 +341,6 @@ mod tests {
             vec![],
         );
 
-        // Verify lookup works
         assert!(checker.type_registry.contains(point_name));
         let entry = checker.type_registry.get_by_id(type_id).unwrap();
         assert_eq!(entry.name, point_name);
@@ -357,14 +348,12 @@ mod tests {
 
     #[test]
     fn test_type_id_to_type_with_registry() {
-        // Test that type_id_to_type uses the registry for compound types
         let interner = SharedInterner::default();
         let tokens = lexer::lex("@main () -> int = 42", &interner);
         let parsed = parser::parse(&tokens, &interner);
 
         let mut checker = TypeChecker::new(&parsed.arena, &interner);
 
-        // Register an alias type
         let id_name = interner.intern("UserId");
         let type_id = checker.type_registry.register_alias(
             id_name,
@@ -373,21 +362,18 @@ mod tests {
             vec![],
         );
 
-        // Convert TypeId to Type - should resolve to the aliased type
         let resolved = checker.type_id_to_type(type_id);
         assert_eq!(resolved, Type::Int);
     }
 
     #[test]
     fn test_type_id_to_type_with_struct() {
-        // Test struct type resolution
         let interner = SharedInterner::default();
         let tokens = lexer::lex("@main () -> int = 42", &interner);
         let parsed = parser::parse(&tokens, &interner);
 
         let mut checker = TypeChecker::new(&parsed.arena, &interner);
 
-        // Register a struct type
         let point_name = interner.intern("Point");
         let type_id = checker.type_registry.register_struct(
             point_name,
@@ -396,7 +382,6 @@ mod tests {
             vec![],
         );
 
-        // Convert TypeId to Type - should resolve to Named(point_name)
         let resolved = checker.type_id_to_type(type_id);
         assert_eq!(resolved, Type::Named(point_name));
     }
