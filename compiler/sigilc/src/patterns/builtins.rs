@@ -2,6 +2,12 @@
 //!
 //! These patterns provide core functionality like assertions, length checking,
 //! printing, etc. They use named argument syntax like all other function_exp patterns.
+//!
+//! Note: Per "Lean Core, Rich Libraries", most of these patterns have been moved to
+//! stdlib methods/functions. Only Print and Panic remain as compiler built-ins.
+//! The rest are kept for reference and potential future use.
+
+#![allow(dead_code)]
 
 use crate::types::Type;
 use crate::eval::{Value, EvalResult, EvalError};

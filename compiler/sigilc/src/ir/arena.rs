@@ -16,6 +16,7 @@ use super::ast::{
     SeqBinding, SeqBindingRange,
     NamedExpr, NamedExprRange,
     CallArg, CallArgRange,
+    GenericParam, GenericParamRange,
 };
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -61,6 +62,9 @@ pub struct ExprArena {
 
     /// Call arguments for CallNamed.
     call_args: Vec<CallArg>,
+
+    /// Generic parameters for functions and types.
+    generic_params: Vec<GenericParam>,
 }
 
 impl ExprArena {
@@ -84,6 +88,7 @@ impl ExprArena {
             seq_bindings: Vec::with_capacity(estimated_exprs / 16),
             named_exprs: Vec::with_capacity(estimated_exprs / 16),
             call_args: Vec::with_capacity(estimated_exprs / 16),
+            generic_params: Vec::with_capacity(estimated_exprs / 32),
         }
     }
 
@@ -287,6 +292,24 @@ impl ExprArena {
         &self.call_args[start..end]
     }
 
+    // ===== Generic parameter allocation =====
+
+    /// Allocate generic parameters, return range.
+    pub fn alloc_generic_params(&mut self, params: impl IntoIterator<Item = GenericParam>) -> GenericParamRange {
+        let start = self.generic_params.len() as u32;
+        self.generic_params.extend(params);
+        let len = (self.generic_params.len() as u32 - start) as u16;
+        GenericParamRange::new(start, len)
+    }
+
+    /// Get generic parameters by range.
+    #[inline]
+    pub fn get_generic_params(&self, range: GenericParamRange) -> &[GenericParam] {
+        let start = range.start as usize;
+        let end = start + range.len as usize;
+        &self.generic_params[start..end]
+    }
+
     // ===== Utility =====
 
     /// Reset arena for reuse (keeps capacity).
@@ -301,6 +324,7 @@ impl ExprArena {
         self.seq_bindings.clear();
         self.named_exprs.clear();
         self.call_args.clear();
+        self.generic_params.clear();
     }
 
     /// Check if arena is empty.
@@ -321,6 +345,7 @@ impl PartialEq for ExprArena {
             && self.seq_bindings == other.seq_bindings
             && self.named_exprs == other.named_exprs
             && self.call_args == other.call_args
+            && self.generic_params == other.generic_params
     }
 }
 
@@ -341,6 +366,7 @@ impl Hash for ExprArena {
         self.seq_bindings.hash(state);
         self.named_exprs.hash(state);
         self.call_args.hash(state);
+        self.generic_params.hash(state);
     }
 }
 

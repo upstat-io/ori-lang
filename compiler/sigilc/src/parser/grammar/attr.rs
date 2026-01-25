@@ -283,7 +283,7 @@ mod tests {
     fn test_parse_skip_attribute() {
         let (result, _interner) = parse_with_errors(r#"
 #[skip("not implemented")]
-@test_example () -> void = assert(cond: true)
+@test_example () -> void = print(msg: "test")
 "#);
 
         assert!(!result.has_errors(), "errors: {:?}", result.errors);
@@ -296,7 +296,7 @@ mod tests {
     fn test_parse_compile_fail_attribute() {
         let (result, _interner) = parse_with_errors(r#"
 #[compile_fail("type error")]
-@test_should_fail () -> void = assert(cond: true)
+@test_should_fail () -> void = print(msg: "test")
 "#);
 
         assert!(!result.has_errors(), "errors: {:?}", result.errors);
@@ -309,7 +309,7 @@ mod tests {
     fn test_parse_fail_attribute() {
         let (result, _interner) = parse_with_errors(r#"
 #[fail("assertion failed")]
-@test_expect_failure () -> void = assert(cond: false)
+@test_expect_failure () -> void = panic(msg: "expected failure")
 "#);
 
         assert!(!result.has_errors(), "errors: {:?}", result.errors);
@@ -324,7 +324,7 @@ mod tests {
         // This test verifies the parsing works for future use
         let (result, _interner) = parse_with_errors(r#"
 #[derive(Eq, Clone)]
-@test_with_derive () -> void = assert(cond: true)
+@test_with_derive () -> void = print(msg: "test")
 "#);
 
         // The derive attribute is parsed but functions/tests don't use it
@@ -336,7 +336,7 @@ mod tests {
     fn test_parse_unknown_attribute() {
         let (result, _interner) = parse_with_errors(r#"
 #[unknown("value")]
-@test_unknown () -> void = assert(cond: true)
+@test_unknown () -> void = print(msg: "test")
 "#);
 
         // Should have an error for unknown attribute
@@ -372,7 +372,7 @@ mod tests {
         let (result, _interner) = parse_with_errors(r#"
 #[skip("reason")]
 #[fail("expected")]
-@test_multi () -> void = assert(cond: true)
+@test_multi () -> void = print(msg: "test")
 "#);
 
         // Last attribute wins for each field

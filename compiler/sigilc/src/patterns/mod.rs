@@ -10,18 +10,27 @@ mod registry;
 mod signature;
 mod fusion;
 
-// Individual pattern implementations
+// Individual pattern implementations.
+// Note: map, filter, fold, find, collect, retry, validate are now methods on
+// collections per "Lean Core, Rich Libraries". Kept for reference/future use.
+#[allow(dead_code)]
 mod map;
+#[allow(dead_code)]
 mod filter;
+#[allow(dead_code)]
 mod fold;
+#[allow(dead_code)]
 mod find;
+#[allow(dead_code)]
 mod collect;
 mod recurse;
 mod parallel;
 mod spawn;
 mod timeout;
+#[allow(dead_code)]
 mod retry;
 mod cache;
+#[allow(dead_code)]
 mod validate;
 mod with_pattern;
 mod builtins;

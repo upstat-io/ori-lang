@@ -47,5 +47,11 @@ pub use ast::{
     CallArg, CallArgRange,
     // Import types
     UseDef, UseItem, ImportPath,
+    // Generic types
+    GenericParam, GenericParamRange, TraitBound, WhereClause,
+    // Trait types
+    TraitDef, TraitItem, TraitMethodSig, TraitDefaultMethod, TraitAssocType,
+    // Impl types
+    ImplDef, ImplMethod,
 };
 pub use arena::{ExprArena, SharedArena};

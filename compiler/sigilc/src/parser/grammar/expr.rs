@@ -936,9 +936,13 @@ impl<'a> Parser<'a> {
 
             // Soft keywords used as identifiers (when not followed by `(`)
             // These are context-sensitive: `print(` is a built-in call, but `let print = 5` is a variable
-            // Note: Most built-ins (len, assert, etc.) are now trait methods per
-            // "Lean Core, Rich Libraries" principle. Only print and panic remain.
-            TokenKind::Print | TokenKind::Panic => {
+            // Note: Per "Lean Core, Rich Libraries", most built-ins (len, assert, etc.) are
+            // library functions that can also be used as variable names.
+            TokenKind::Print | TokenKind::Panic
+            | TokenKind::Assert | TokenKind::AssertEq | TokenKind::AssertNe
+            | TokenKind::Len | TokenKind::IsEmpty
+            | TokenKind::IsSome | TokenKind::IsNone | TokenKind::IsOk | TokenKind::IsErr
+            | TokenKind::Compare | TokenKind::Min | TokenKind::Max => {
                 // This branch is only reached when NOT followed by `(`, since
                 // match_function_exp_kind handles the `keyword(` case first.
                 let name_str = self.soft_keyword_to_name().expect("soft keyword matched but not in helper");

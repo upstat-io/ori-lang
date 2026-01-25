@@ -202,6 +202,7 @@ impl<'a> Evaluator<'a> {
                 &mut self.env,
                 self.interner,
                 &import_path,
+                file_path,
             ).map_err(|e| e.message)?;
         }
 
@@ -911,6 +912,7 @@ impl<'a> Evaluator<'a> {
         self.register_function_val("str", function_val_str, "str");
         self.register_function_val("int", function_val_int, "int");
         self.register_function_val("float", function_val_float, "float");
+        self.register_function_val("byte", function_val_byte, "byte");
 
         // Thread/parallel introspection (internal use)
         self.register_function_val("thread_id", function_val_thread_id, "thread_id");

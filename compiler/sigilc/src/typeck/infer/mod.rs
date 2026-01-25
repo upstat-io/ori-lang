@@ -468,5 +468,14 @@ fn collect_free_vars_function_seq(
                 collect_free_vars_inner(checker, arm.body, bound, free);
             }
         }
+        FunctionSeq::ForPattern { over, map, arm, default, .. } => {
+            collect_free_vars_inner(checker, *over, bound, free);
+            if let Some(map_fn) = map {
+                collect_free_vars_inner(checker, *map_fn, bound, free);
+            }
+            // TODO: arm pattern can bind variables
+            collect_free_vars_inner(checker, arm.body, bound, free);
+            collect_free_vars_inner(checker, *default, bound, free);
+        }
     }
 }

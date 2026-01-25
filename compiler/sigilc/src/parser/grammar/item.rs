@@ -314,6 +314,7 @@ impl<'a> Parser<'a> {
 
     /// Parse a trait definition.
     /// Syntax: [pub] trait Name [<T>] [: Super] { items }
+    #[allow(dead_code)]
     pub(in crate::parser) fn parse_trait(&mut self, is_public: bool) -> Result<TraitDef, ParseError> {
         let start_span = self.current_span();
         self.expect(TokenKind::Trait)?;
@@ -421,6 +422,7 @@ impl<'a> Parser<'a> {
 
     /// Parse an impl block.
     /// Syntax: impl [<T>] Type { methods } or impl [<T>] Trait for Type { methods }
+    #[allow(dead_code)]
     pub(in crate::parser) fn parse_impl(&mut self) -> Result<ImplDef, ParseError> {
         let start_span = self.current_span();
         self.expect(TokenKind::Impl)?;
@@ -484,6 +486,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a method in an impl block.
+    #[allow(dead_code)]
     fn parse_impl_method(&mut self) -> Result<ImplMethod, ParseError> {
         let start_span = self.current_span();
 
@@ -640,6 +643,7 @@ impl<'a> Parser<'a> {
 
     /// Convert a type path to a TypeId.
     /// For now, returns INFER as a placeholder - type resolution happens in the type checker.
+    #[allow(dead_code)]
     fn make_type_from_path(&mut self, path: &[crate::ir::Name]) -> Result<crate::ir::TypeId, ParseError> {
         if path.is_empty() {
             return Err(ParseError::new(

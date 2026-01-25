@@ -44,26 +44,16 @@ impl std::ops::Deref for SharedPattern {
     }
 }
 
-// Import all pattern types
-use super::map::MapPattern;
-use super::filter::FilterPattern;
-use super::fold::FoldPattern;
-use super::find::FindPattern;
-use super::collect::CollectPattern;
+// Import pattern types that have valid FunctionExpKind variants.
+// Per "Lean Core, Rich Libraries": data transformation (map, filter, fold, etc.)
+// moved to methods on collections in stdlib. Only compiler patterns remain.
 use super::recurse::RecursePattern;
 use super::parallel::ParallelPattern;
 use super::spawn::SpawnPattern;
 use super::timeout::TimeoutPattern;
-use super::retry::RetryPattern;
 use super::cache::CachePattern;
-use super::validate::ValidatePattern;
 use super::with_pattern::WithPattern;
-use super::builtins::{
-    AssertPattern, AssertEqPattern, AssertNePattern,
-    LenPattern, IsEmptyPattern, IsSomePattern, IsNonePattern,
-    IsOkPattern, IsErrPattern, PrintPattern, PanicPattern,
-    ComparePattern, MinPattern, MaxPattern,
-};
+use super::builtins::{PrintPattern, PanicPattern};
 
 /// Registry mapping `FunctionExpKind` to pattern definitions.
 ///
@@ -82,39 +72,24 @@ impl PatternRegistry {
     }
 
     /// Create a new registry with all built-in patterns registered.
+    ///
+    /// Per "Lean Core, Rich Libraries": data transformation patterns (map, filter,
+    /// fold, find, collect) are now methods on collections via stdlib. The compiler
+    /// only provides patterns requiring special syntax or static analysis.
     pub fn new() -> Self {
         let mut patterns: HashMap<FunctionExpKind, SharedPattern> = HashMap::new();
 
-        // Register all 13 function_exp patterns
-        patterns.insert(FunctionExpKind::Map, SharedPattern::new(MapPattern));
-        patterns.insert(FunctionExpKind::Filter, SharedPattern::new(FilterPattern));
-        patterns.insert(FunctionExpKind::Fold, SharedPattern::new(FoldPattern));
-        patterns.insert(FunctionExpKind::Find, SharedPattern::new(FindPattern));
-        patterns.insert(FunctionExpKind::Collect, SharedPattern::new(CollectPattern));
+        // Compiler patterns (require special syntax or static analysis)
         patterns.insert(FunctionExpKind::Recurse, SharedPattern::new(RecursePattern));
         patterns.insert(FunctionExpKind::Parallel, SharedPattern::new(ParallelPattern));
         patterns.insert(FunctionExpKind::Spawn, SharedPattern::new(SpawnPattern));
         patterns.insert(FunctionExpKind::Timeout, SharedPattern::new(TimeoutPattern));
-        patterns.insert(FunctionExpKind::Retry, SharedPattern::new(RetryPattern));
         patterns.insert(FunctionExpKind::Cache, SharedPattern::new(CachePattern));
-        patterns.insert(FunctionExpKind::Validate, SharedPattern::new(ValidatePattern));
         patterns.insert(FunctionExpKind::With, SharedPattern::new(WithPattern));
 
-        // Register core patterns (function_exp with named args)
-        patterns.insert(FunctionExpKind::Assert, SharedPattern::new(AssertPattern));
-        patterns.insert(FunctionExpKind::AssertEq, SharedPattern::new(AssertEqPattern));
-        patterns.insert(FunctionExpKind::AssertNe, SharedPattern::new(AssertNePattern));
-        patterns.insert(FunctionExpKind::Len, SharedPattern::new(LenPattern));
-        patterns.insert(FunctionExpKind::IsEmpty, SharedPattern::new(IsEmptyPattern));
-        patterns.insert(FunctionExpKind::IsSome, SharedPattern::new(IsSomePattern));
-        patterns.insert(FunctionExpKind::IsNone, SharedPattern::new(IsNonePattern));
-        patterns.insert(FunctionExpKind::IsOk, SharedPattern::new(IsOkPattern));
-        patterns.insert(FunctionExpKind::IsErr, SharedPattern::new(IsErrPattern));
+        // Fundamental built-ins (I/O and control flow only)
         patterns.insert(FunctionExpKind::Print, SharedPattern::new(PrintPattern));
         patterns.insert(FunctionExpKind::Panic, SharedPattern::new(PanicPattern));
-        patterns.insert(FunctionExpKind::Compare, SharedPattern::new(ComparePattern));
-        patterns.insert(FunctionExpKind::Min, SharedPattern::new(MinPattern));
-        patterns.insert(FunctionExpKind::Max, SharedPattern::new(MaxPattern));
 
         PatternRegistry { patterns }
     }
@@ -161,61 +136,41 @@ mod tests {
     fn test_registry_has_all_patterns() {
         let registry = PatternRegistry::new();
 
-        // Should have all 27 patterns (13 function_exp + 14 core patterns)
-        assert_eq!(registry.len(), 27);
+        // Should have 8 patterns (per "Lean Core, Rich Libraries"):
+        // Recurse, Parallel, Spawn, Timeout, Cache, With, Print, Panic
+        assert_eq!(registry.len(), 8);
 
-        // Verify each function_exp pattern is registered
-        assert!(registry.get(FunctionExpKind::Map).is_some());
-        assert!(registry.get(FunctionExpKind::Filter).is_some());
-        assert!(registry.get(FunctionExpKind::Fold).is_some());
-        assert!(registry.get(FunctionExpKind::Find).is_some());
-        assert!(registry.get(FunctionExpKind::Collect).is_some());
+        // Verify each pattern is registered
         assert!(registry.get(FunctionExpKind::Recurse).is_some());
         assert!(registry.get(FunctionExpKind::Parallel).is_some());
         assert!(registry.get(FunctionExpKind::Spawn).is_some());
         assert!(registry.get(FunctionExpKind::Timeout).is_some());
-        assert!(registry.get(FunctionExpKind::Retry).is_some());
         assert!(registry.get(FunctionExpKind::Cache).is_some());
-        assert!(registry.get(FunctionExpKind::Validate).is_some());
         assert!(registry.get(FunctionExpKind::With).is_some());
-
-        // Verify each core pattern is registered
-        assert!(registry.get(FunctionExpKind::Assert).is_some());
-        assert!(registry.get(FunctionExpKind::AssertEq).is_some());
-        assert!(registry.get(FunctionExpKind::AssertNe).is_some());
-        assert!(registry.get(FunctionExpKind::Len).is_some());
-        assert!(registry.get(FunctionExpKind::IsEmpty).is_some());
-        assert!(registry.get(FunctionExpKind::IsSome).is_some());
-        assert!(registry.get(FunctionExpKind::IsNone).is_some());
-        assert!(registry.get(FunctionExpKind::IsOk).is_some());
-        assert!(registry.get(FunctionExpKind::IsErr).is_some());
         assert!(registry.get(FunctionExpKind::Print).is_some());
         assert!(registry.get(FunctionExpKind::Panic).is_some());
-        assert!(registry.get(FunctionExpKind::Compare).is_some());
-        assert!(registry.get(FunctionExpKind::Min).is_some());
-        assert!(registry.get(FunctionExpKind::Max).is_some());
     }
 
     #[test]
     fn test_pattern_names() {
         let registry = PatternRegistry::new();
 
-        assert_eq!(registry.get(FunctionExpKind::Map).unwrap().name(), "map");
-        assert_eq!(registry.get(FunctionExpKind::Filter).unwrap().name(), "filter");
-        assert_eq!(registry.get(FunctionExpKind::Fold).unwrap().name(), "fold");
+        assert_eq!(registry.get(FunctionExpKind::Recurse).unwrap().name(), "recurse");
+        assert_eq!(registry.get(FunctionExpKind::Parallel).unwrap().name(), "parallel");
+        assert_eq!(registry.get(FunctionExpKind::Timeout).unwrap().name(), "timeout");
+        assert_eq!(registry.get(FunctionExpKind::Print).unwrap().name(), "print");
+        assert_eq!(registry.get(FunctionExpKind::Panic).unwrap().name(), "panic");
     }
 
     #[test]
     fn test_required_props() {
         let registry = PatternRegistry::new();
 
-        let map = registry.get(FunctionExpKind::Map).unwrap();
-        assert!(map.required_props().contains(&"over"));
-        assert!(map.required_props().contains(&"transform"));
+        let timeout = registry.get(FunctionExpKind::Timeout).unwrap();
+        assert!(timeout.required_props().contains(&"operation"));
+        assert!(timeout.required_props().contains(&"after"));
 
-        let fold = registry.get(FunctionExpKind::Fold).unwrap();
-        assert!(fold.required_props().contains(&"over"));
-        assert!(fold.required_props().contains(&"initial"));
-        assert!(fold.required_props().contains(&"operation"));
+        let print = registry.get(FunctionExpKind::Print).unwrap();
+        assert!(print.required_props().contains(&"msg"));
     }
 }
