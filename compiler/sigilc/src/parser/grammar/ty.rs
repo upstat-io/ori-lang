@@ -23,6 +23,10 @@ impl<'a> Parser<'a> {
                 TokenKind::NeverType => Some(TypeId::NEVER),
                 _ => None,
             }
+        } else if self.check(TokenKind::SelfUpper) {
+            // Self type - used in trait/impl contexts
+            self.advance();
+            Some(TypeId::SELF_TYPE)
         } else if self.check_ident() {
             // Named type (possibly generic like Option<T>)
             self.advance();
@@ -193,5 +197,11 @@ mod tests {
     fn test_parse_nested_generic_type() {
         // Nested generics like Option<Result<int, str>>
         assert_eq!(parse_type_from_source("Option<Result<int, str>>"), None);
+    }
+
+    #[test]
+    fn test_parse_self_type() {
+        // Self type used in trait/impl contexts
+        assert_eq!(parse_type_from_source("Self"), Some(TypeId::SELF_TYPE));
     }
 }

@@ -262,8 +262,9 @@ fn test_tokens_with_patterns() {
 
     let toks = tokens(&db, file);
 
+    // map is now an identifier (library function), not a keyword
     // map ( over : items , transform : fn )
-    assert!(matches!(toks[0].kind, TokenKind::Map));
+    assert!(matches!(toks[0].kind, TokenKind::Ident(_)));
     assert!(matches!(toks[1].kind, TokenKind::LParen));
     assert!(matches!(toks[2].kind, TokenKind::Ident(_)));
 }

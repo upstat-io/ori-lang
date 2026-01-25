@@ -1,0 +1,496 @@
+// Sigil Standard Library - Prelude
+// These items are automatically available in all Sigil programs without import.
+//
+// Primitive types (int, float, bool, str, char, byte, void, Never, Duration, Size)
+// and collection syntax ([T], {K: V}) are built into the compiler.
+
+// -----------------------------------------------------------------------------
+// Error Handling Types
+// -----------------------------------------------------------------------------
+
+// #A value that may or may not exist
+pub type Option<T> = Some(T) | None
+
+// #An operation that may succeed or fail
+pub type Result<T, E> = Ok(T) | Err(E)
+
+// #Standard error type
+// @field message human-readable error description
+// @field cause optional underlying error that caused this one
+pub type Error = { message: str, cause: Option<Error> }
+
+// #Result of comparing two values
+pub type Ordering = Less | Equal | Greater
+
+// -----------------------------------------------------------------------------
+// Core Traits
+// -----------------------------------------------------------------------------
+
+// #Equality comparison
+pub trait Eq {
+    @eq (self, other: Self) -> bool
+    @ne (self, other: Self) -> bool = !self.eq(other)
+}
+
+// #Ordering comparison
+pub trait Comparable: Eq {
+    @cmp (self, other: Self) -> Ordering
+    @lt (self, other: Self) -> bool = self.cmp(other) == Less
+    @le (self, other: Self) -> bool = self.cmp(other) != Greater
+    @gt (self, other: Self) -> bool = self.cmp(other) == Greater
+    @ge (self, other: Self) -> bool = self.cmp(other) != Less
+}
+
+// #Can be used as a map key or set element
+pub trait Hashable: Eq {
+    @hash (self) -> int
+}
+
+// #Can be converted to a string representation
+pub trait Printable {
+    @to_string (self) -> str
+}
+
+// #Can be explicitly copied
+pub trait Clone {
+    @clone (self) -> Self
+}
+
+// #Has a default value
+pub trait Default {
+    @default () -> Self
+}
+
+// -----------------------------------------------------------------------------
+// Basic Functions
+// -----------------------------------------------------------------------------
+
+// #Output a string to stdout
+pub @print (s: str) -> void = __builtin_print(s)
+
+// #Get the length of a list
+// >len([1, 2, 3]) -> 3
+// >len([]) -> 0
+pub @len<T> (items: [T]) -> int = __builtin_len(items)
+
+// #Convert any printable value to a string
+// >str(42) -> "42"
+// >str(true) -> "true"
+// >str([1, 2]) -> "[1, 2]"
+pub @str<T: Printable> (value: T) -> str = value.to_string()
+
+// #Convert a float to an integer (truncates)
+// >int(3.7) -> 3
+// >int(-2.9) -> -2
+pub @int (value: float) -> int = __builtin_float_to_int(value)
+
+// #Parse a string as an integer
+// @param value must contain only digits, optionally prefixed with -
+// >int("42") -> 42
+// >int("-5") -> -5
+pub @int (value: str) -> int = __builtin_parse_int(value)
+
+// #Convert a bool to an integer
+// >int(true) -> 1
+// >int(false) -> 0
+pub @int (value: bool) -> int = if value then 1 else 0
+
+// #Convert an integer to a float
+// >float(42) -> 42.0
+pub @float (value: int) -> float = __builtin_int_to_float(value)
+
+// #Parse a string as a float
+// >float("3.14") -> 3.14
+pub @float (value: str) -> float = __builtin_parse_float(value)
+
+// #Compare two comparable values
+// >compare(1, 2) -> Less
+// >compare(2, 2) -> Equal
+// >compare(3, 2) -> Greater
+pub @compare<T: Comparable> (a: T, b: T) -> Ordering = a.cmp(b)
+
+// #Terminate the program with an error message
+pub @panic (message: str) -> Never = __builtin_panic(message)
+
+// #Assert that a condition is true
+// !Panics if condition is false
+pub @assert (condition: bool) -> void =
+    if !condition then panic("assertion failed")
+
+// #Assert that two values are equal
+// !Panics if values are not equal
+// >assert_eq(1 + 1, 2) -> void
+pub @assert_eq<T: Eq + Printable> (a: T, b: T) -> void =
+    if a != b then panic("assertion failed: " + str(a) + " != " + str(b))
+
+// -----------------------------------------------------------------------------
+// Builtin Trait Implementations
+// -----------------------------------------------------------------------------
+
+impl Eq for int {
+    @eq (self, other: int) -> bool = __builtin_int_eq(self, other)
+}
+
+impl Comparable for int {
+    @cmp (self, other: int) -> Ordering =
+        if self < other then Less
+        else if self > other then Greater
+        else Equal
+}
+
+impl Hashable for int {
+    @hash (self) -> int = self
+}
+
+impl Printable for int {
+    @to_string (self) -> str = __builtin_int_to_string(self)
+}
+
+impl Default for int {
+    @default () -> int = 0
+}
+
+impl Eq for float {
+    @eq (self, other: float) -> bool = __builtin_float_eq(self, other)
+}
+
+impl Comparable for float {
+    @cmp (self, other: float) -> Ordering =
+        if self < other then Less
+        else if self > other then Greater
+        else Equal
+}
+
+impl Printable for float {
+    @to_string (self) -> str = __builtin_float_to_string(self)
+}
+
+impl Default for float {
+    @default () -> float = 0.0
+}
+
+impl Eq for bool {
+    @eq (self, other: bool) -> bool = __builtin_bool_eq(self, other)
+}
+
+impl Printable for bool {
+    @to_string (self) -> str = if self then "true" else "false"
+}
+
+impl Default for bool {
+    @default () -> bool = false
+}
+
+impl Eq for str {
+    @eq (self, other: str) -> bool = __builtin_str_eq(self, other)
+}
+
+impl Comparable for str {
+    @cmp (self, other: str) -> Ordering = __builtin_str_cmp(self, other)
+}
+
+impl Hashable for str {
+    @hash (self) -> int = __builtin_str_hash(self)
+}
+
+impl Printable for str {
+    @to_string (self) -> str = self
+}
+
+impl Default for str {
+    @default () -> str = ""
+}
+
+impl Eq for char {
+    @eq (self, other: char) -> bool = __builtin_char_eq(self, other)
+}
+
+impl Comparable for char {
+    @cmp (self, other: char) -> Ordering = __builtin_char_cmp(self, other)
+}
+
+impl Hashable for char {
+    @hash (self) -> int = __builtin_char_to_int(self)
+}
+
+impl Printable for char {
+    @to_string (self) -> str = __builtin_char_to_string(self)
+}
+
+impl<T: Eq> Eq for Option<T> {
+    @eq (self, other: Option<T>) -> bool =
+        match (self, other,
+            (Some(a), Some(b)) -> a == b,
+            (None, None) -> true,
+            _ -> false,
+        )
+}
+
+impl<T: Printable> Printable for Option<T> {
+    @to_string (self) -> str =
+        match (self,
+            Some(v) -> "Some(" + str(v) + ")",
+            None -> "None",
+        )
+}
+
+impl<T> Default for Option<T> {
+    @default () -> Option<T> = None
+}
+
+impl<T: Eq, E: Eq> Eq for Result<T, E> {
+    @eq (self, other: Result<T, E>) -> bool =
+        match (self, other,
+            (Ok(a), Ok(b)) -> a == b,
+            (Err(a), Err(b)) -> a == b,
+            _ -> false,
+        )
+}
+
+impl<T: Printable, E: Printable> Printable for Result<T, E> {
+    @to_string (self) -> str =
+        match (self,
+            Ok(v) -> "Ok(" + str(v) + ")",
+            Err(e) -> "Err(" + str(e) + ")",
+        )
+}
+
+impl Eq for Ordering {
+    @eq (self, other: Ordering) -> bool =
+        match (self, other,
+            (Less, Less) -> true,
+            (Equal, Equal) -> true,
+            (Greater, Greater) -> true,
+            _ -> false,
+        )
+}
+
+impl Printable for Ordering {
+    @to_string (self) -> str =
+        match (self,
+            Less -> "Less",
+            Equal -> "Equal",
+            Greater -> "Greater",
+        )
+}
+
+impl Eq for Error {
+    @eq (self, other: Error) -> bool = self.message == other.message
+}
+
+impl Printable for Error {
+    @to_string (self) -> str = self.message
+}
+
+impl<T: Eq> Eq for [T] {
+    @eq (self, other: [T]) -> bool = __builtin_list_eq(self, other)
+}
+
+impl<T: Printable> Printable for [T] {
+    @to_string (self) -> str = __builtin_list_to_string(self)
+}
+
+impl<T> Default for [T] {
+    @default () -> [T] = []
+}
+
+// -----------------------------------------------------------------------------
+// Collection Extension Methods
+// -----------------------------------------------------------------------------
+
+extend [T] {
+    // #Transform each element in a list
+    // >items.map(x -> x * 2) -> [2, 4, 6]
+    @map<U> (self, transform: (T) -> U) -> [U] =
+        for x in self yield transform(x)
+
+    // #Keep only elements that satisfy a predicate
+    // >[1, 2, 3, 4].filter(x -> x % 2 == 0) -> [2, 4]
+    @filter (self, predicate: (T) -> bool) -> [T] =
+        for x in self if predicate(x) yield x
+
+    // #Reduce a list to a single value
+    // >[1, 2, 3].fold(0, (acc, x) -> acc + x) -> 6
+    @fold<U> (self, initial: U, reducer: (U, T) -> U) -> U =
+        recurse(
+            condition: self.is_empty(),
+            base: initial,
+            step: self.rest().fold(reducer(initial, self.first()), reducer),
+        )
+
+    // #Find the first element matching a predicate
+    // >[1, 2, 3].find(x -> x > 1) -> Some(2)
+    @find (self, predicate: (T) -> bool) -> Option<T> =
+        recurse(
+            condition: self.is_empty(),
+            base: None,
+            step: if predicate(self.first()) then Some(self.first()) else self.rest().find(predicate),
+        )
+
+    // #Check if the list is empty
+    // >[].is_empty() -> true
+    @is_empty (self) -> bool = len(self) == 0
+
+    // #Get the first element of the list
+    // !Panics if list is empty
+    // >[1, 2, 3].first() -> 1
+    @first (self) -> T = self[0]
+
+    // #Get all elements except the first
+    // !Panics if list is empty
+    // >[1, 2, 3].rest() -> [2, 3]
+    @rest (self) -> [T] = __builtin_list_rest(self)
+
+    // #Get the last element of the list
+    // !Panics if list is empty
+    // >[1, 2, 3].last() -> 3
+    @last (self) -> T = self[# - 1]
+
+    // #Get a sublist from start index (inclusive) to end index (exclusive)
+    // >[1, 2, 3, 4].slice(1, 3) -> [2, 3]
+    @slice (self, start: int, end: int) -> [T] = __builtin_list_slice(self, start, end)
+
+    // #Check if any element satisfies a predicate
+    // >[1, 2, 3].any(x -> x > 2) -> true
+    @any (self, predicate: (T) -> bool) -> bool =
+        self.find(predicate).is_some()
+
+    // #Check if all elements satisfy a predicate
+    // >[2, 4, 6].all(x -> x % 2 == 0) -> true
+    @all (self, predicate: (T) -> bool) -> bool =
+        self.find(x -> !predicate(x)).is_none()
+
+    // #Concatenate two lists
+    // >[1, 2].concat([3, 4]) -> [1, 2, 3, 4]
+    @concat (self, other: [T]) -> [T] = __builtin_list_concat(self, other)
+
+    // #Reverse the list
+    // >[1, 2, 3].reverse() -> [3, 2, 1]
+    @reverse (self) -> [T] = __builtin_list_reverse(self)
+
+    // #Get the length of the list
+    // >[1, 2, 3].len() -> 3
+    @len (self) -> int = len(self)
+}
+
+extend str {
+    // #Get the length of the string in characters
+    // >"hello".len() -> 5
+    @len (self) -> int = __builtin_str_len(self)
+
+    // #Check if the string is empty
+    // >"".is_empty() -> true
+    @is_empty (self) -> bool = self.len() == 0
+
+    // #Convert string to uppercase
+    // >"hello".upper() -> "HELLO"
+    @upper (self) -> str = __builtin_str_upper(self)
+
+    // #Convert string to lowercase
+    // >"HELLO".lower() -> "hello"
+    @lower (self) -> str = __builtin_str_lower(self)
+
+    // #Remove leading and trailing whitespace
+    // >"  hello  ".trim() -> "hello"
+    @trim (self) -> str = __builtin_str_trim(self)
+
+    // #Check if string starts with a prefix
+    // >"hello".starts_with("he") -> true
+    @starts_with (self, prefix: str) -> bool = __builtin_str_starts_with(self, prefix)
+
+    // #Check if string ends with a suffix
+    // >"hello".ends_with("lo") -> true
+    @ends_with (self, suffix: str) -> bool = __builtin_str_ends_with(self, suffix)
+
+    // #Check if string contains a substring
+    // >"hello".contains("ell") -> true
+    @contains (self, substring: str) -> bool = __builtin_str_contains(self, substring)
+
+    // #Split string by a separator
+    // >"a,b,c".split(",") -> ["a", "b", "c"]
+    @split (self, separator: str) -> [str] = __builtin_str_split(self, separator)
+
+    // #Replace occurrences of a pattern
+    // >"hello".replace("l", "L") -> "heLLo"
+    @replace (self, pattern: str, replacement: str) -> str = __builtin_str_replace(self, pattern, replacement)
+
+    // #Get a substring from start index (inclusive) to end index (exclusive)
+    // >"hello".slice(1, 4) -> "ell"
+    @slice (self, start: int, end: int) -> str = __builtin_str_slice(self, start, end)
+
+    // #Convert string to list of characters
+    // >"abc".chars() -> ['a', 'b', 'c']
+    @chars (self) -> [char] = __builtin_str_chars(self)
+}
+
+extend Option<T> {
+    // #Check if the Option contains a value
+    // >Some(1).is_some() -> true
+    @is_some (self) -> bool = match(self, Some(_) -> true, None -> false)
+
+    // #Check if the Option is empty
+    // >None.is_none() -> true
+    @is_none (self) -> bool = match(self, Some(_) -> false, None -> true)
+
+    // #Get the value or a default
+    // >Some(1).unwrap_or(0) -> 1
+    // >None.unwrap_or(0) -> 0
+    @unwrap_or (self, default: T) -> T = match(self, Some(v) -> v, None -> default)
+
+    // #Transform the inner value if present
+    // >Some(1).map(x -> x * 2) -> Some(2)
+    // >None.map(x -> x * 2) -> None
+    @map<U> (self, transform: (T) -> U) -> Option<U> =
+        match(self, Some(v) -> Some(transform(v)), None -> None)
+
+    // #Chain another Option-returning operation
+    // >Some(1).and_then(x -> Some(x * 2)) -> Some(2)
+    @and_then<U> (self, transform: (T) -> Option<U>) -> Option<U> =
+        match(self, Some(v) -> transform(v), None -> None)
+
+    // #Convert to Result
+    // >Some(1).ok_or("missing") -> Ok(1)
+    // >None.ok_or("missing") -> Err("missing")
+    @ok_or<E> (self, error: E) -> Result<T, E> =
+        match(self, Some(v) -> Ok(v), None -> Err(error))
+}
+
+extend Result<T, E> {
+    // #Check if the Result is Ok
+    // >Ok(1).is_ok() -> true
+    @is_ok (self) -> bool = match(self, Ok(_) -> true, Err(_) -> false)
+
+    // #Check if the Result is Err
+    // >Err("oops").is_err() -> true
+    @is_err (self) -> bool = match(self, Ok(_) -> false, Err(_) -> true)
+
+    // #Get the Ok value or a default
+    // >Ok(1).unwrap_or(0) -> 1
+    // >Err("oops").unwrap_or(0) -> 0
+    @unwrap_or (self, default: T) -> T = match(self, Ok(v) -> v, Err(_) -> default)
+
+    // #Transform the Ok value
+    // >Ok(1).map(x -> x * 2) -> Ok(2)
+    @map<U> (self, transform: (T) -> U) -> Result<U, E> =
+        match(self, Ok(v) -> Ok(transform(v)), Err(e) -> Err(e))
+
+    // #Transform the Err value
+    // >Err("oops").map_err(e -> "error: " + e) -> Err("error: oops")
+    @map_err<F> (self, transform: (E) -> F) -> Result<T, F> =
+        match(self, Ok(v) -> Ok(v), Err(e) -> Err(transform(e)))
+
+    // #Chain another Result-returning operation
+    // >Ok(1).and_then(x -> Ok(x * 2)) -> Ok(2)
+    @and_then<U> (self, transform: (T) -> Result<U, E>) -> Result<U, E> =
+        match(self, Ok(v) -> transform(v), Err(e) -> Err(e))
+
+    // #Convert to Option, discarding error
+    // >Ok(1).ok() -> Some(1)
+    // >Err("oops").ok() -> None
+    @ok (self) -> Option<T> = match(self, Ok(v) -> Some(v), Err(_) -> None)
+
+    // #Convert error to Option
+    // >Err("oops").err() -> Some("oops")
+    // >Ok(1).err() -> None
+    @err (self) -> Option<E> = match(self, Ok(_) -> None, Err(e) -> Some(e))
+}

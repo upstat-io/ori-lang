@@ -17,7 +17,7 @@ use super::environment::Environment;
 use super::errors;
 use super::operators::OperatorRegistry;
 use super::methods::MethodRegistry;
-use super::user_methods::{SharedUserMethodRegistry, UserMethod};
+use super::user_methods::{UserMethodRegistry, UserMethod};
 use super::unary_operators::UnaryOperatorRegistry;
 
 /// Result of evaluation.
@@ -58,7 +58,7 @@ pub struct Evaluator<'a> {
     /// Method registry for built-in method dispatch.
     method_registry: SharedRegistry<MethodRegistry>,
     /// User-defined method registry for impl block methods.
-    user_method_registry: SharedUserMethodRegistry,
+    user_method_registry: SharedRegistry<UserMethodRegistry>,
     /// Unary operator registry for unary operations.
     unary_operator_registry: SharedRegistry<UnaryOperatorRegistry>,
     /// Arena reference for imported functions.
@@ -66,6 +66,8 @@ pub struct Evaluator<'a> {
     /// When evaluating an imported function, this holds the imported arena.
     /// Lambdas created during evaluation will inherit this arena reference.
     imported_arena: Option<SharedArena>,
+    /// Whether the prelude has been auto-loaded.
+    prelude_loaded: bool,
 }
 
 /// Implement PatternExecutor for Evaluator to enable pattern evaluation.
@@ -90,7 +92,7 @@ pub struct EvaluatorBuilder<'a> {
     registry: Option<SharedRegistry<PatternRegistry>>,
     context: Option<&'a CompilerContext>,
     imported_arena: Option<SharedArena>,
-    user_method_registry: Option<SharedUserMethodRegistry>,
+    user_method_registry: Option<SharedRegistry<UserMethodRegistry>>,
 }
 
 impl<'a> EvaluatorBuilder<'a> {
@@ -105,8 +107,7 @@ impl<'a> EvaluatorBuilder<'a> {
     pub fn registry(mut self, r: PatternRegistry) -> Self { self.registry = Some(SharedRegistry::new(r)); self }
     pub fn context(mut self, c: &'a CompilerContext) -> Self { self.context = Some(c); self }
     pub fn imported_arena(mut self, a: SharedArena) -> Self { self.imported_arena = Some(a); self }
-    #[allow(dead_code)]
-    pub fn user_method_registry(mut self, r: SharedUserMethodRegistry) -> Self { self.user_method_registry = Some(r); self }
+    pub fn user_method_registry(mut self, r: SharedRegistry<UserMethodRegistry>) -> Self { self.user_method_registry = Some(r); self }
 
     pub fn build(self) -> Evaluator<'a> {
         let (pat_reg, op_reg, meth_reg, unary_reg) = if let Some(ctx) = self.context {
@@ -123,9 +124,10 @@ impl<'a> EvaluatorBuilder<'a> {
             env: self.env.unwrap_or_else(Environment::new),
             registry: pat_reg, operator_registry: op_reg,
             method_registry: meth_reg,
-            user_method_registry: self.user_method_registry.unwrap_or_default(),
+            user_method_registry: self.user_method_registry.unwrap_or_else(|| SharedRegistry::new(UserMethodRegistry::new())),
             unary_operator_registry: unary_reg,
             imported_arena: self.imported_arena,
+            prelude_loaded: false,
         }
     }
 }
@@ -147,7 +149,7 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Create an evaluator with an existing environment.
-    pub fn with_env(interner: &'a StringInterner, arena: &'a ExprArena, env: Environment, user_methods: SharedUserMethodRegistry) -> Self {
+    pub fn with_env(interner: &'a StringInterner, arena: &'a ExprArena, env: Environment, user_methods: SharedRegistry<UserMethodRegistry>) -> Self {
         EvaluatorBuilder::new(interner, arena).env(env).user_method_registry(user_methods).build()
     }
 
@@ -162,17 +164,85 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Create an evaluator with an imported arena context.
-    pub fn with_imported_arena(interner: &'a StringInterner, arena: &'a ExprArena, env: Environment, imported_arena: SharedArena, user_methods: SharedUserMethodRegistry) -> Self {
+    pub fn with_imported_arena(interner: &'a StringInterner, arena: &'a ExprArena, env: Environment, imported_arena: SharedArena, user_methods: SharedRegistry<UserMethodRegistry>) -> Self {
         EvaluatorBuilder::new(interner, arena).env(env).imported_arena(imported_arena).user_method_registry(user_methods).build()
+    }
+
+    /// Find the prelude path by searching for library/std/prelude.si
+    fn find_prelude_path(current_file: &Path) -> Option<std::path::PathBuf> {
+        // Walk up from current file to find project root (contains library/)
+        let mut dir = current_file.parent();
+        while let Some(d) = dir {
+            let prelude_path = d.join("library").join("std").join("prelude.si");
+            if prelude_path.exists() {
+                return Some(prelude_path);
+            }
+            dir = d.parent();
+        }
+        None
+    }
+
+    /// Check if a file is the prelude itself.
+    fn is_prelude_file(file_path: &Path) -> bool {
+        file_path.ends_with("library/std/prelude.si")
+            || file_path.file_name().map_or(false, |n| n == "prelude.si")
+                && file_path.parent().map_or(false, |p| p.ends_with("std"))
+    }
+
+    /// Auto-load the prelude (library/std/prelude.si).
+    ///
+    /// This is called automatically by load_module to make prelude functions
+    /// available without explicit import (like Rust's std::prelude).
+    fn load_prelude(&mut self, current_file: &Path) -> Result<(), String> {
+        use super::module::import;
+
+        // Don't load prelude if we're already loading it (avoid infinite recursion)
+        if Self::is_prelude_file(current_file) {
+            self.prelude_loaded = true;
+            return Ok(());
+        }
+
+        // Find the prelude path
+        let prelude_path = match Self::find_prelude_path(current_file) {
+            Some(p) => p,
+            None => {
+                // Prelude not found - this is okay, just skip it
+                // (e.g., running tests outside project directory)
+                self.prelude_loaded = true;
+                return Ok(());
+            }
+        };
+
+        // Mark as loaded before actually loading to prevent recursion
+        self.prelude_loaded = true;
+
+        // Load and parse the prelude
+        let prelude_result = import::load_imported_module(&prelude_path, self.interner)
+            .map_err(|e| e.message)?;
+
+        let prelude_arena = SharedArena::new(prelude_result.arena.clone());
+        let module_functions = import::build_module_functions(&prelude_result, &prelude_arena);
+
+        // Register all public functions from the prelude into the global environment
+        for func in &prelude_result.module.functions {
+            if func.is_public {
+                if let Some(value) = module_functions.get(&func.name) {
+                    self.env.define_global(func.name, value.clone());
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Load a module: resolve imports and register all functions.
     ///
     /// This is the core module loading logic used by both the query system
     /// and test runner. It handles:
-    /// 1. Resolving imports and registering imported functions
-    /// 2. Registering all local functions
-    /// 3. Registering all impl block methods
+    /// 1. Auto-loading the prelude (if not already loaded)
+    /// 2. Resolving imports and registering imported functions
+    /// 3. Registering all local functions
+    /// 4. Registering all impl block methods
     ///
     /// After calling this, all functions from the module (and its imports)
     /// are available in the environment for evaluation.
@@ -182,6 +252,11 @@ impl<'a> Evaluator<'a> {
         file_path: &Path,
     ) -> Result<(), String> {
         use super::module::import;
+
+        // Auto-load prelude if not already loaded and this isn't the prelude itself
+        if !self.prelude_loaded {
+            self.load_prelude(file_path)?;
+        }
 
         // First, resolve imports
         for imp in &parse_result.module.imports {
@@ -209,17 +284,19 @@ impl<'a> Evaluator<'a> {
         // Then register all local functions
         import::register_module_functions(parse_result, &mut self.env);
 
-        // Register impl block methods
-        self.register_impl_methods(&parse_result.module, &parse_result.arena);
+        // Build up user method registry from impl and extend blocks
+        let mut user_methods = UserMethodRegistry::new();
+        self.collect_impl_methods(&parse_result.module, &parse_result.arena, &mut user_methods);
+        self.collect_extend_methods(&parse_result.module, &parse_result.arena, &mut user_methods);
 
-        // Register extension methods
-        self.register_extend_methods(&parse_result.module, &parse_result.arena);
+        // Replace the shared registry with the built-up one
+        self.user_method_registry = SharedRegistry::new(user_methods);
 
         Ok(())
     }
 
-    /// Register methods from impl blocks in the user method registry.
-    fn register_impl_methods(&mut self, module: &crate::ir::Module, arena: &ExprArena) {
+    /// Collect methods from impl blocks into a registry.
+    fn collect_impl_methods(&self, module: &crate::ir::Module, arena: &ExprArena, registry: &mut UserMethodRegistry) {
         for impl_def in &module.impls {
             // Get the type name from self_path (e.g., "Point" for `impl Point { ... }`)
             let type_name = if !impl_def.self_path.is_empty() {
@@ -246,13 +323,13 @@ impl<'a> Evaluator<'a> {
                     self.env.capture(),
                 );
 
-                self.user_method_registry.register(type_name.clone(), method_name, user_method);
+                registry.register(type_name.clone(), method_name, user_method);
             }
         }
     }
 
-    /// Register methods from extend blocks in the user method registry.
-    fn register_extend_methods(&mut self, module: &crate::ir::Module, arena: &ExprArena) {
+    /// Collect methods from extend blocks into a registry.
+    fn collect_extend_methods(&self, module: &crate::ir::Module, arena: &ExprArena, registry: &mut UserMethodRegistry) {
         for extend_def in &module.extends {
             // Get the target type name (e.g., "list" for `extend [T] { ... }`)
             let type_name = self.interner.lookup(extend_def.target_type_name).to_string();
@@ -274,7 +351,7 @@ impl<'a> Evaluator<'a> {
                     self.env.capture(),
                 );
 
-                self.user_method_registry.register(type_name.clone(), method_name, user_method);
+                registry.register(type_name.clone(), method_name, user_method);
             }
         }
     }
@@ -735,7 +812,7 @@ impl<'a> Evaluator<'a> {
 
         // First, check user-defined methods
         if let Some(user_method) = self.user_method_registry.lookup(&type_name, method_name) {
-            return self.eval_user_method(receiver, user_method, args);
+            return self.eval_user_method(receiver, user_method.clone(), args);
         }
 
         // Fall back to built-in methods
@@ -976,34 +1053,46 @@ mod tests {
         let interner = SharedInterner::default();
         let mut arena = crate::ir::ExprArena::new();
 
-        // Create a simple method body: self.x * 2
-        // Since we can't easily build AST, we'll use a simpler expression: just return 42
-        let body = arena.alloc_expr(Expr::new(ExprKind::Int(42), Span::new(0, 2)));
-
-        // Register a user method for type "Point"
+        // Create method body: self.x * 2
         let self_name = interner.intern("self");
-        let user_method = UserMethod::new(vec![self_name], body);
-
-        let mut evaluator = Evaluator::new(&interner, &arena);
-        evaluator.user_method_registry.register(
-            "Point".to_string(),
-            "get_value".to_string(),
-            user_method,
-        );
-
-        // Create a struct value
-        let point_name = interner.intern("Point");
         let x_name = interner.intern("x");
+
+        // Build: self
+        let self_ref = arena.alloc_expr(Expr::new(ExprKind::Ident(self_name), Span::new(0, 4)));
+        // Build: self.x
+        let self_x = arena.alloc_expr(Expr::new(
+            ExprKind::Field { receiver: self_ref, field: x_name },
+            Span::new(0, 6),
+        ));
+        // Build: 2
+        let two = arena.alloc_expr(Expr::new(ExprKind::Int(2), Span::new(9, 10)));
+        // Build: self.x * 2
+        let body = arena.alloc_expr(Expr::new(
+            ExprKind::Binary { left: self_x, op: crate::ir::BinaryOp::Mul, right: two },
+            Span::new(0, 10),
+        ));
+
+        // Build registry before creating evaluator (immutable after construction)
+        let user_method = UserMethod::new(vec![self_name], body);
+        let mut registry = UserMethodRegistry::new();
+        registry.register("Point".to_string(), "double_x".to_string(), user_method);
+
+        let mut evaluator = EvaluatorBuilder::new(&interner, &arena)
+            .user_method_registry(SharedRegistry::new(registry))
+            .build();
+
+        // Create a struct value with x = 5
+        let point_name = interner.intern("Point");
         let mut fields = HashMap::new();
         fields.insert(x_name, Value::Int(5));
         let point = Value::Struct(StructValue::new(point_name, fields));
 
-        // Call the method
-        let method_name = interner.intern("get_value");
+        // Call point.double_x() -> should return 10
+        let method_name = interner.intern("double_x");
         let result = evaluator.eval_method_call(point, method_name, vec![]);
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Value::Int(42));
+        assert_eq!(result.unwrap(), Value::Int(10));
     }
 
     #[test]
@@ -1023,15 +1112,14 @@ mod tests {
             Span::new(0, 6),
         ));
 
-        // Register a user method
+        // Build registry before creating evaluator (immutable after construction)
         let user_method = UserMethod::new(vec![self_name], body);
+        let mut registry = UserMethodRegistry::new();
+        registry.register("Point".to_string(), "get_x".to_string(), user_method);
 
-        let mut evaluator = Evaluator::new(&interner, &arena);
-        evaluator.user_method_registry.register(
-            "Point".to_string(),
-            "get_x".to_string(),
-            user_method,
-        );
+        let mut evaluator = EvaluatorBuilder::new(&interner, &arena)
+            .user_method_registry(SharedRegistry::new(registry))
+            .build();
 
         // Create a struct value with x = 7
         let point_name = interner.intern("Point");
@@ -1072,15 +1160,14 @@ mod tests {
             Span::new(0, 10),
         ));
 
-        // Method params: [self, n]
+        // Build registry before creating evaluator (immutable after construction)
         let user_method = UserMethod::new(vec![self_name, n_name], body);
+        let mut registry = UserMethodRegistry::new();
+        registry.register("Point".to_string(), "add_to_x".to_string(), user_method);
 
-        let mut evaluator = Evaluator::new(&interner, &arena);
-        evaluator.user_method_registry.register(
-            "Point".to_string(),
-            "add_to_x".to_string(),
-            user_method,
-        );
+        let mut evaluator = EvaluatorBuilder::new(&interner, &arena)
+            .user_method_registry(SharedRegistry::new(registry))
+            .build();
 
         // Create a struct value with x = 10
         let point_name = interner.intern("Point");

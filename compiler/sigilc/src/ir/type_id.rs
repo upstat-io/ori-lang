@@ -31,9 +31,10 @@ impl TypeId {
     pub const VOID: TypeId = TypeId(6);
     pub const NEVER: TypeId = TypeId(7);
     pub const INFER: TypeId = TypeId(8); // Placeholder during inference
+    pub const SELF_TYPE: TypeId = TypeId(9); // Self type in trait/impl contexts
 
     /// First ID for compound types (after primitives).
-    pub const FIRST_COMPOUND: u32 = 9;
+    pub const FIRST_COMPOUND: u32 = 10;
 
     /// Create a new TypeId.
     #[inline]
@@ -58,6 +59,12 @@ impl TypeId {
     pub const fn is_infer(self) -> bool {
         self.0 == Self::INFER.0
     }
+
+    /// Check if this is the Self type (used in trait/impl contexts).
+    #[inline]
+    pub const fn is_self_type(self) -> bool {
+        self.0 == Self::SELF_TYPE.0
+    }
 }
 
 impl Hash for TypeId {
@@ -79,6 +86,7 @@ impl fmt::Debug for TypeId {
             Self::VOID => write!(f, "TypeId::VOID"),
             Self::NEVER => write!(f, "TypeId::NEVER"),
             Self::INFER => write!(f, "TypeId::INFER"),
+            Self::SELF_TYPE => write!(f, "TypeId::SELF_TYPE"),
             _ => write!(f, "TypeId({})", self.0),
         }
     }

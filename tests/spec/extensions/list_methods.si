@@ -1,16 +1,51 @@
-// Test extension methods on strings
+// Spec: extension methods for built-in types
+// Design: enable stdlib to define methods on primitives and collections
 
 use std.testing { assert, assert_eq }
 
-// Simple extension method for strings
+// -----------------------------------------------------------------------------
+// String Extension Methods
+// -----------------------------------------------------------------------------
+
 extend str {
     @shout (self) -> str = self + "!"
+    @whisper (self) -> str = "(" + self + ")"
 }
 
-// Test shout extension method
 @make_loud (s: str) -> str = s.shout()
 
 @test_shout tests @make_loud () -> void = run(
     let result = make_loud("hello"),
     assert_eq(actual: result, expected: "hello!"),
+)
+
+@chain_extensions (s: str) -> str = s.shout().whisper()
+
+@test_chain tests @chain_extensions () -> void = run(
+    let result = chain_extensions("hi"),
+    assert_eq(actual: result, expected: "(hi!)"),
+)
+
+// -----------------------------------------------------------------------------
+// List Extension Methods
+// -----------------------------------------------------------------------------
+
+extend [T] {
+    @count (self) -> int = self.len()
+    @empty (self) -> bool = self.len() == 0
+}
+
+@get_count (items: [int]) -> int = items.count()
+
+@test_count tests @get_count () -> void = run(
+    assert_eq(actual: get_count([]), expected: 0),
+    assert_eq(actual: get_count([1]), expected: 1),
+    assert_eq(actual: get_count([1, 2, 3]), expected: 3),
+)
+
+@is_empty (items: [int]) -> bool = items.empty()
+
+@test_empty tests @is_empty () -> void = run(
+    assert(is_empty([])),
+    assert(!is_empty([1])),
 )
