@@ -1,0 +1,231 @@
+// Spec: 07-properties-of-types.md § Comparable Trait
+// Design: 03-type-system/04-traits.md § Core Library Traits
+// Tests for the Comparable trait and comparison operations
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Integer Comparison
+// =============================================================================
+
+@test_int_less tests @int_less () -> void = run(
+    assert(cond: 1 < 2),
+    assert(cond: -5 < 0),
+    assert(cond: 0 < 1),
+)
+
+@int_less () -> bool = 1 < 2
+
+@test_int_greater tests @int_greater () -> void = run(
+    assert(cond: 2 > 1),
+    assert(cond: 0 > -5),
+    assert(cond: 100 > 99),
+)
+
+@int_greater () -> bool = 2 > 1
+
+@test_int_less_eq tests @int_less_eq () -> void = run(
+    assert(cond: 1 <= 2),
+    assert(cond: 2 <= 2),
+    assert(cond: -1 <= 0),
+)
+
+@int_less_eq () -> bool = 1 <= 1
+
+@test_int_greater_eq tests @int_greater_eq () -> void = run(
+    assert(cond: 2 >= 1),
+    assert(cond: 2 >= 2),
+    assert(cond: 0 >= -1),
+)
+
+@int_greater_eq () -> bool = 2 >= 2
+
+// =============================================================================
+// Float Comparison
+// =============================================================================
+
+@test_float_less tests @float_less () -> void = run(
+    assert(cond: 1.0 < 2.0),
+    assert(cond: -0.5 < 0.0),
+    assert(cond: 0.1 < 0.2),
+)
+
+@float_less () -> bool = 1.0 < 2.0
+
+@test_float_greater tests @float_greater () -> void = run(
+    assert(cond: 2.0 > 1.0),
+    assert(cond: 0.0 > -0.5),
+    assert(cond: 3.14 > 3.0),
+)
+
+@float_greater () -> bool = 2.0 > 1.0
+
+@test_float_less_eq tests @float_less_eq () -> void = run(
+    assert(cond: 1.0 <= 2.0),
+    assert(cond: 2.0 <= 2.0),
+)
+
+@float_less_eq () -> bool = 1.0 <= 1.0
+
+@test_float_greater_eq tests @float_greater_eq () -> void = run(
+    assert(cond: 2.0 >= 1.0),
+    assert(cond: 2.0 >= 2.0),
+)
+
+@float_greater_eq () -> bool = 2.0 >= 2.0
+
+// =============================================================================
+// String Comparison (Lexicographic)
+// =============================================================================
+
+@test_str_less tests @str_less () -> void = run(
+    assert(cond: "a" < "b"),
+    assert(cond: "abc" < "abd"),
+    assert(cond: "aa" < "ab"),
+)
+
+@str_less () -> bool = "a" < "b"
+
+@test_str_greater tests @str_greater () -> void = run(
+    assert(cond: "b" > "a"),
+    assert(cond: "z" > "y"),
+    assert(cond: "hello" > "hell"),
+)
+
+@str_greater () -> bool = "b" > "a"
+
+@test_str_less_eq tests @str_less_eq () -> void = run(
+    assert(cond: "a" <= "b"),
+    assert(cond: "abc" <= "abc"),
+)
+
+@str_less_eq () -> bool = "a" <= "a"
+
+@test_str_greater_eq tests @str_greater_eq () -> void = run(
+    assert(cond: "b" >= "a"),
+    assert(cond: "abc" >= "abc"),
+)
+
+@str_greater_eq () -> bool = "b" >= "b"
+
+// =============================================================================
+// Character Comparison
+// =============================================================================
+
+@test_char_less tests @char_less () -> void = run(
+    assert(cond: 'a' < 'b'),
+    assert(cond: 'A' < 'Z'),
+    assert(cond: '0' < '9'),
+)
+
+@char_less () -> bool = 'a' < 'b'
+
+@test_char_greater tests @char_greater () -> void = run(
+    assert(cond: 'b' > 'a'),
+    assert(cond: 'z' > 'a'),
+)
+
+@char_greater () -> bool = 'z' > 'a'
+
+// =============================================================================
+// Comparable Trait Bound
+// =============================================================================
+
+@find_min<T: Comparable> (a: T, b: T) -> T = if a < b then a else b
+
+@test_comparable_bound_int tests @find_min () -> void = run(
+    assert_eq(
+        actual: find_min(a: 5, b: 3),
+        expected: 3,
+    ),
+    assert_eq(
+        actual: find_min(a: -10, b: 10),
+        expected: -10,
+    ),
+)
+
+@test_comparable_bound_str tests @find_min () -> void = run(
+    assert_eq(
+        actual: find_min(a: "banana", b: "apple"),
+        expected: "apple",
+    ),
+)
+
+@find_max<T: Comparable> (a: T, b: T) -> T = if a > b then a else b
+
+@test_find_max_int tests @find_max () -> void = run(
+    assert_eq(
+        actual: find_max(a: 5, b: 3),
+        expected: 5,
+    ),
+)
+
+@test_find_max_str tests @find_max () -> void = run(
+    assert_eq(
+        actual: find_max(a: "apple", b: "zebra"),
+        expected: "zebra",
+    ),
+)
+
+// =============================================================================
+// min and max Built-in Functions
+// =============================================================================
+
+@test_min_builtin tests @min_builtin () -> void = run(
+    assert_eq(
+        actual: min(5, 3),
+        expected: 3,
+    ),
+    assert_eq(
+        actual: min(-10, 10),
+        expected: -10,
+    ),
+    assert_eq(
+        actual: min(7, 7),
+        expected: 7,
+    ),
+)
+
+@min_builtin () -> int = min(5, 3)
+
+@test_max_builtin tests @max_builtin () -> void = run(
+    assert_eq(
+        actual: max(5, 3),
+        expected: 5,
+    ),
+    assert_eq(
+        actual: max(-10, 10),
+        expected: 10,
+    ),
+    assert_eq(
+        actual: max(7, 7),
+        expected: 7,
+    ),
+)
+
+@max_builtin () -> int = max(5, 3)
+
+// =============================================================================
+// Comparison Chain
+// =============================================================================
+
+@test_comparison_chain tests @comparison_chain () -> void = run(
+    // a < b < c pattern
+    let a = 1,
+    let b = 2,
+    let c = 3,
+    assert(cond: a < b && b < c),
+)
+
+@comparison_chain () -> bool = 1 < 2 && 2 < 3
+
+@test_sorted_check tests @sorted_check () -> void = run(
+    let items = [1, 2, 3, 4, 5],
+    // Check each adjacent pair
+    assert(cond: items[0] <= items[1]),
+    assert(cond: items[1] <= items[2]),
+    assert(cond: items[2] <= items[3]),
+    assert(cond: items[3] <= items[4]),
+)
+
+@sorted_check () -> bool = [1, 2, 3][0] < [1, 2, 3][1]
