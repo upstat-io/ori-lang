@@ -1,0 +1,103 @@
+// Spec: 08-declarations.md § Traits
+// Tests for trait declaration syntax
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Basic Trait Declarations
+// =============================================================================
+
+// Simple trait with required method
+trait Greeter {
+    @greet (self) -> str
+}
+
+// Trait with multiple methods
+trait Counter {
+    @count (self) -> int
+    @increment (self) -> Self
+}
+
+// =============================================================================
+// Default Method Implementations
+// =============================================================================
+
+trait Describable {
+    @describe (self) -> str
+    @summarize (self) -> str = "Summary: " + self.describe()
+}
+
+// =============================================================================
+// Trait Inheritance
+// =============================================================================
+
+trait Formatted: Describable {
+    @format (self) -> str
+}
+
+// =============================================================================
+// Implementation Tests
+// =============================================================================
+
+// Test struct for impls
+type Widget = { name: str, value: int }
+
+// Inherent impl
+impl Widget {
+    @new (name: str, value: int) -> Widget = Widget { name, value }
+    @get_name (self) -> str = self.name
+    @get_value (self) -> int = self.value
+}
+
+// Trait impl
+impl Greeter for Widget {
+    @greet (self) -> str = "Hello from " + self.name
+}
+
+impl Describable for Widget {
+    @describe (self) -> str = "Widget(" + self.name + ", " + str(self.value) + ")"
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+@test_inherent_impl tests @get_name () -> void = run(
+    let widget = Widget { name: "test", value: 42 },
+    assert_eq(
+        actual: widget.get_name(),
+        expected: "test",
+    ),
+)
+
+@test_inherent_impl_value tests @get_value () -> void = run(
+    let widget = Widget { name: "test", value: 42 },
+    assert_eq(
+        actual: widget.get_value(),
+        expected: 42,
+    ),
+)
+
+@test_trait_impl tests @greet () -> void = run(
+    let widget = Widget { name: "Widget1", value: 10 },
+    assert_eq(
+        actual: widget.greet(),
+        expected: "Hello from Widget1",
+    ),
+)
+
+@test_describe tests @describe () -> void = run(
+    let widget = Widget { name: "Foo", value: 5 },
+    assert_eq(
+        actual: widget.describe(),
+        expected: "Widget(Foo, 5)",
+    ),
+)
+
+@test_default_method tests @summarize () -> void = run(
+    let widget = Widget { name: "Bar", value: 7 },
+    assert_eq(
+        actual: widget.summarize(),
+        expected: "Summary: Widget(Bar, 7)",
+    ),
+)

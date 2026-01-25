@@ -1,8 +1,8 @@
 //! Postfix Expression Parsing
 //!
-//! Parses call, method call, field access, and index expressions.
+//! Parses call, method call, field access, index expressions, and struct literals.
 
-use sigil_ir::{CallArg, Expr, ExprId, ExprKind, Param, TokenKind};
+use sigil_ir::{CallArg, Expr, ExprId, ExprKind, FieldInit, Param, TokenKind};
 use crate::{ParseError, Parser};
 
 impl Parser<'_> {
@@ -88,6 +88,63 @@ impl Parser<'_> {
                     ExprKind::Index { receiver: expr, index },
                     span,
                 ));
+            } else if self.check(&TokenKind::LBrace) {
+                // Struct literal: Name { field: value, ... }
+                // Only valid if expr is an identifier
+                let expr_data = self.arena.get_expr(expr);
+                if let ExprKind::Ident(name) = &expr_data.kind {
+                    let struct_name = *name;
+                    let start_span = expr_data.span;
+                    self.advance(); // {
+                    self.skip_newlines();
+
+                    let mut fields = Vec::new();
+                    while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
+                        let field_span = self.current_span();
+                        let field_name = self.expect_ident()?;
+
+                        // Check for shorthand { x } vs full { x: value }
+                        let value = if self.check(&TokenKind::Colon) {
+                            self.advance();
+                            Some(self.parse_expr()?)
+                        } else {
+                            // Shorthand: { x } means { x: x }
+                            None
+                        };
+
+                        let end_span = if let Some(v) = value {
+                            self.arena.get_expr(v).span
+                        } else {
+                            self.previous_span()
+                        };
+
+                        fields.push(FieldInit {
+                            name: field_name,
+                            value,
+                            span: field_span.merge(end_span),
+                        });
+
+                        self.skip_newlines();
+                        if self.check(&TokenKind::Comma) {
+                            self.advance();
+                            self.skip_newlines();
+                        } else {
+                            break;
+                        }
+                    }
+
+                    self.expect(&TokenKind::RBrace)?;
+                    let end_span = self.previous_span();
+                    let fields_range = self.arena.alloc_field_inits(fields);
+
+                    expr = self.arena.alloc_expr(Expr::new(
+                        ExprKind::Struct { name: struct_name, fields: fields_range },
+                        start_span.merge(end_span),
+                    ));
+                } else {
+                    // Not an identifier - break and let other parsing handle it
+                    break;
+                }
             } else if self.check(&TokenKind::Arrow) {
                 // Single-param lambda without parens: x -> body
                 let expr_data = self.arena.get_expr(expr);
