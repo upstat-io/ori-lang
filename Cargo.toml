@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "compiler/sigilc",
+    "compiler/sigil-macros",
 ]
 # LSP excluded until updated to use new compiler
 exclude = [

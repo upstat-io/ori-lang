@@ -537,6 +537,22 @@ impl<'a> IntoIterator for &'a TokenList {
     }
 }
 
+// Size assertions to prevent accidental regressions in frequently-allocated types.
+// These are compile-time checks that will fail the build if sizes change.
+#[cfg(target_pointer_width = "64")]
+mod size_asserts {
+    use super::*;
+    // Token is frequently allocated in TokenList, keep it compact.
+    // Contains: TokenKind (16 bytes) + Span (8 bytes) = 24 bytes
+    crate::static_assert_size!(Token, 24);
+    // TokenKind largest variant: Duration(u64, DurationUnit) or Int(i64)
+    // 8 bytes payload + 8 bytes discriminant/padding = 16 bytes
+    crate::static_assert_size!(TokenKind, 16);
+    // Compact unit types
+    crate::static_assert_size!(DurationUnit, 1);
+    crate::static_assert_size!(SizeUnit, 1);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

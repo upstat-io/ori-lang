@@ -10,21 +10,28 @@ The Sigil compiler (`sigilc`) is an incremental compiler built on Salsa, a frame
 ## High-Level Structure
 
 ```
-compiler/sigilc/src/
-├── lib.rs              # Module organization
-├── main.rs             # CLI entry point
-├── db.rs               # Salsa database definition
-├── query/              # Salsa query definitions
-├── lexer.rs            # Tokenization
-├── parser/             # Recursive descent parser
-├── ir/                 # AST and intermediate types
-├── types.rs            # Type definitions
-├── typeck/             # Type checking and inference
-├── eval/               # Tree-walking interpreter
-├── patterns/           # Pattern system
-├── diagnostic/         # Error reporting
-├── test/               # Test runner
-└── debug.rs            # Debug flags
+compiler/
+├── sigil-macros/       # Proc-macro crate
+│   └── src/
+│       ├── lib.rs          # Diagnostic/Subdiagnostic derives
+│       ├── diagnostic.rs   # #[derive(Diagnostic)] impl
+│       └── subdiagnostic.rs # #[derive(Subdiagnostic)] impl
+└── sigilc/src/
+    ├── lib.rs              # Module organization
+    ├── main.rs             # CLI entry point
+    ├── db.rs               # Salsa database definition
+    ├── query/              # Salsa query definitions
+    ├── lexer.rs            # Tokenization
+    ├── parser/             # Recursive descent parser
+    ├── ir/                 # AST and intermediate types
+    ├── types.rs            # Type definitions
+    ├── typeck/             # Type checking and inference
+    ├── eval/               # Tree-walking interpreter
+    ├── patterns/           # Pattern system
+    ├── diagnostic/         # Error reporting
+    ├── test/               # Test runner
+    ├── stack.rs            # Stack safety utilities
+    └── debug.rs            # Debug flags
 ```
 
 ## Design Principles
@@ -111,7 +118,15 @@ impl PatternRegistry {
 | `ExprArena` | `ir/arena.rs` | Expression storage |
 | `Type` | `types.rs` | Type representation |
 | `Value` | `eval/value/` | Runtime values |
-| `Problem` | `diagnostic/` | Error representation |
+| `Diagnostic` | `diagnostic/` | Rich error with suggestions |
+| `Applicability` | `diagnostic/` | Fix confidence level |
+
+## Crate Organization
+
+| Crate | Purpose |
+|-------|---------|
+| `sigilc` | Main compiler library and CLI |
+| `sigil-macros` | Proc-macros (`#[derive(Diagnostic)]`, etc.) |
 
 ## File Size Guidelines
 

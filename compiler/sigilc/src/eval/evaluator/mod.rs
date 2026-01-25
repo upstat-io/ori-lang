@@ -17,6 +17,7 @@ use crate::ir::{
 };
 use crate::patterns::{PatternRegistry, EvalContext, PatternExecutor};
 use crate::context::{CompilerContext, SharedRegistry};
+use crate::stack::ensure_sufficient_stack;
 use super::value::{Value, FunctionValue, StructValue};
 use super::environment::Environment;
 use super::errors;
@@ -126,7 +127,15 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Evaluate an expression.
+    ///
+    /// Uses `ensure_sufficient_stack` to prevent stack overflow
+    /// on deeply nested expressions.
     pub fn eval(&mut self, expr_id: ExprId) -> EvalResult {
+        ensure_sufficient_stack(|| self.eval_inner(expr_id))
+    }
+
+    /// Inner evaluation logic (wrapped by `eval` for stack safety).
+    fn eval_inner(&mut self, expr_id: ExprId) -> EvalResult {
         let expr = self.arena.get_expr(expr_id);
         match &expr.kind {
             // Literals

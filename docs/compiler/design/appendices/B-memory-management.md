@@ -2,6 +2,42 @@
 
 Memory management strategies used in the Sigil compiler.
 
+## Stack Safety
+
+Deeply nested expressions can cause stack overflow in recursive parsing, type-checking, and evaluation. The compiler uses the `stacker` crate to dynamically grow the stack when needed:
+
+```rust
+// src/stack.rs
+const RED_ZONE: usize = 100 * 1024;     // 100KB minimum remaining
+const STACK_PER_RECURSION: usize = 1024 * 1024;  // 1MB growth
+
+#[inline]
+pub fn ensure_sufficient_stack<R>(f: impl FnOnce() -> R) -> R {
+    stacker::maybe_grow(RED_ZONE, STACK_PER_RECURSION, f)
+}
+```
+
+Applied to recursive functions:
+
+```rust
+// Parser
+pub fn parse_expr(&mut self) -> Result<ExprId, ParseError> {
+    ensure_sufficient_stack(|| self.parse_expr_inner())
+}
+
+// Type checker
+pub fn infer_expr(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
+    ensure_sufficient_stack(|| infer_expr_inner(checker, expr_id))
+}
+
+// Evaluator
+pub fn eval(&mut self, expr_id: ExprId) -> EvalResult {
+    ensure_sufficient_stack(|| self.eval_inner(expr_id))
+}
+```
+
+This prevents stack overflow on deeply nested code like `((((((((((1))))))))))` while adding minimal overhead to normal execution.
+
 ## Arena Allocation
 
 Expressions use arena allocation:
@@ -171,6 +207,55 @@ Values: 2.1 MB
 Total: 3.6 MB
 ```
 
+## Performance Annotations
+
+The compiler uses Rust attributes to help the optimizer:
+
+### `#[inline]`
+
+Used on small, frequently-called functions:
+
+```rust
+impl Span {
+    #[inline]
+    pub const fn new(start: u32, end: u32) -> Self { ... }
+
+    #[inline]
+    pub const fn len(&self) -> u32 { ... }
+}
+```
+
+### `#[track_caller]`
+
+Used on panicking accessors for better error messages:
+
+```rust
+impl ExprArena {
+    #[inline]
+    #[track_caller]
+    pub fn get_expr(&self, id: ExprId) -> &Expr {
+        &self.exprs[id.index()]
+    }
+}
+```
+
+### `#[cold]`
+
+Used on error factory functions to hint they're unlikely paths:
+
+```rust
+// eval/errors.rs - all 33 error factories marked #[cold]
+#[cold]
+pub fn division_by_zero() -> EvalError {
+    EvalError::new("division by zero")
+}
+
+#[cold]
+pub fn undefined_variable(name: &str) -> EvalError {
+    EvalError::new(format!("undefined variable: {}", name))
+}
+```
+
 ## Guidelines
 
 ### Do
@@ -180,6 +265,9 @@ Total: 3.6 MB
 - Use Arc for shared heap values
 - Make small types Copy
 - Clean up scopes immediately
+- Mark error paths as `#[cold]`
+- Add `#[track_caller]` to panicking functions
+- Use `ensure_sufficient_stack` in recursive functions
 
 ### Don't
 
@@ -188,3 +276,4 @@ Total: 3.6 MB
 - Clone large structures unnecessarily
 - Keep references to temporary values
 - Leak memory in error paths
+- Deeply recurse without stack safety

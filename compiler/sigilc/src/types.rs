@@ -9,6 +9,18 @@ use crate::ir::{Name, Span, StringInterner};
 use std::hash::Hash;
 use std::collections::HashMap;
 
+// Size assertions to prevent accidental regressions.
+// Type is used throughout type checking and stored in query results.
+#[cfg(target_pointer_width = "64")]
+mod size_asserts {
+    use super::*;
+    // Type enum: largest variant is Function with Vec<Type> (24) + Box<Type> (8) = 32 bytes
+    // The enum discriminant fits within the alignment padding.
+    crate::static_assert_size!(Type, 32);
+    // TypeVar is just a u32 wrapper
+    crate::static_assert_size!(TypeVar, 4);
+}
+
 /// Concrete type representation.
 ///
 /// # Salsa Compatibility

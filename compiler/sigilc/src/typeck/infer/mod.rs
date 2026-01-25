@@ -13,6 +13,7 @@ mod pattern;
 
 use crate::ir::{ExprId, ExprKind, Name};
 use crate::types::Type;
+use crate::stack::ensure_sufficient_stack;
 use super::checker::TypeChecker;
 use std::collections::HashSet;
 
@@ -25,7 +26,15 @@ pub use pattern::*;
 ///
 /// This is the main entry point for expression type inference.
 /// It dispatches to specialized handlers based on expression kind.
+///
+/// Uses `ensure_sufficient_stack` to prevent stack overflow
+/// on deeply nested expressions.
 pub fn infer_expr(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
+    ensure_sufficient_stack(|| infer_expr_inner(checker, expr_id))
+}
+
+/// Inner type inference logic (wrapped by `infer_expr` for stack safety).
+fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
     let expr = checker.arena.get_expr(expr_id);
     let span = expr.span;
 
