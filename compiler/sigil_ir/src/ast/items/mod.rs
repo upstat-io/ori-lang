@@ -7,7 +7,7 @@ mod imports;
 mod traits;
 mod types;
 
-pub use function::{Function, TestDef, Param, Module, ExpectedError, ConfigDef};
+pub use function::{Function, TestDef, Param, Module, ExpectedError, ConfigDef, CapabilityRef};
 pub use imports::{UseDef, UseItem, ImportPath};
 pub use traits::{
     GenericParam, TraitBound, WhereClause,

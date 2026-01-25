@@ -31,6 +31,11 @@ impl Parser<'_> {
             return self.parse_for_pattern();
         }
 
+        // Capability provision: with Capability = Provider in body
+        if self.check(&TokenKind::With) && self.is_with_capability_syntax() {
+            return self.parse_with_capability();
+        }
+
         // function_exp keywords
         if let Some(kind) = self.match_function_exp_kind() {
             self.advance();
@@ -477,6 +482,37 @@ impl Parser<'_> {
                 self.current_span(),
             )),
         }
+    }
+
+    /// Parse capability provision: `with Capability = Provider in body`
+    fn parse_with_capability(&mut self) -> Result<ExprId, ParseError> {
+        let span = self.current_span();
+        self.expect(&TokenKind::With)?;
+
+        // Parse capability name
+        let capability = self.expect_ident()?;
+
+        self.expect(&TokenKind::Eq)?;
+
+        // Parse provider expression
+        let provider = self.parse_expr()?;
+
+        // Expect `in` keyword
+        self.expect(&TokenKind::In)?;
+        self.skip_newlines();
+
+        // Parse body expression
+        let body = self.parse_expr()?;
+
+        let end_span = self.arena.get_expr(body).span;
+        Ok(self.arena.alloc_expr(Expr::new(
+            ExprKind::WithCapability {
+                capability,
+                provider,
+                body,
+            },
+            span.merge(end_span),
+        )))
     }
 
     /// Check if typed lambda params.

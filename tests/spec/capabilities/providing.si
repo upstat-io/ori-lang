@@ -1,0 +1,87 @@
+// Spec: 14-capabilities.md § Providing Capabilities
+// Tests for with...in expression (capability provision)
+
+// =============================================================================
+// Basic Capability Provision
+// =============================================================================
+
+// Simple with...in expression
+@test_basic_provision () -> void = run(
+    let result = with Http = "mock_http" in Http,
+    assert_eq(
+        actual: result,
+        expected: "mock_http",
+    ),
+)
+
+// With struct provider
+type MockHttp = { base_url: str }
+
+@test_struct_provider () -> void = run(
+    let result = with Http = MockHttp { base_url: "https://api.example.com" } in Http.base_url,
+    assert_eq(
+        actual: result,
+        expected: "https://api.example.com",
+    ),
+)
+
+// =============================================================================
+// Capability Scoping
+// =============================================================================
+
+// Capability is only available in body
+@test_scoping () -> void = run(
+    let outer = "outer",
+    let inner = with Http = "http" in Http,
+    assert_eq(actual: outer, expected: "outer"),
+    assert_eq(actual: inner, expected: "http"),
+)
+
+// =============================================================================
+// Nested Capability Provision
+// =============================================================================
+
+// Multiple capabilities via nesting
+@test_nested_provision () -> void = run(
+    let result = with Http = "http" in
+        with Cache = "cache" in
+            Http + "-" + Cache,
+    assert_eq(
+        actual: result,
+        expected: "http-cache",
+    ),
+)
+
+// Inner shadows outer
+@test_shadowing () -> void = run(
+    let result = with Http = "outer" in
+        with Http = "inner" in Http,
+    assert_eq(
+        actual: result,
+        expected: "inner",
+    ),
+)
+
+// =============================================================================
+// With Expression Returns Body Value
+// =============================================================================
+
+@test_returns_body_value () -> void = run(
+    let result = with Http = "unused" in 42,
+    assert_eq(
+        actual: result,
+        expected: 42,
+    ),
+)
+
+@test_complex_body () -> void = run(
+    let result = with Logger = "log" in run(
+        let x = 10,
+        let y = 20,
+        x + y,
+    ),
+    assert_eq(
+        actual: result,
+        expected: 30,
+    ),
+)

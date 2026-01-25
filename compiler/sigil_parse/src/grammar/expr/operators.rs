@@ -76,7 +76,14 @@ impl Parser<'_> {
             TokenKind::Spawn => return Some(FunctionExpKind::Spawn),
             TokenKind::Timeout => return Some(FunctionExpKind::Timeout),
             TokenKind::Cache => return Some(FunctionExpKind::Cache),
-            TokenKind::With => return Some(FunctionExpKind::With),
+            TokenKind::With => {
+                // Check if this is capability provision syntax: with Ident =
+                // If so, don't treat it as a function_exp - it's a special expression
+                if self.is_with_capability_syntax() {
+                    return None;
+                }
+                return Some(FunctionExpKind::With);
+            }
             _ => {}
         }
 

@@ -936,3 +936,196 @@ fn test_printable_bound_satisfied_by_int() {
     assert!(bound_errors.is_empty(),
         "int should satisfy Printable bound, got errors: {:?}", bound_errors);
 }
+
+// ============================================================================
+// Capability Trait Validation Tests
+// ============================================================================
+
+#[test]
+fn test_capability_with_defined_trait_no_error() {
+    // When a capability is a defined trait, no E2012 error should be raised
+    let source = r#"
+        trait Http {
+            @get (url: str) -> str
+        }
+
+        @fetch (url: str) -> str uses Http = url
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let cap_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2012)
+        .collect();
+    assert!(cap_errors.is_empty(),
+        "defined trait should be valid capability, got: {:?}", cap_errors);
+}
+
+#[test]
+fn test_capability_with_undefined_trait_reports_error() {
+    // When a capability references a non-existent trait, E2012 should be raised
+    let source = r#"
+        @fetch (url: str) -> str uses UndefinedCapability = url
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let cap_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2012)
+        .collect();
+    assert!(!cap_errors.is_empty(),
+        "undefined capability should produce E2012 error, got: {:?}", typed.errors);
+    assert!(cap_errors[0].message.contains("UndefinedCapability"),
+        "error should mention the undefined capability name");
+}
+
+#[test]
+fn test_multiple_capabilities_all_defined() {
+    // Multiple capabilities that are all defined traits should produce no errors
+    let source = r#"
+        trait Http {
+            @get (url: str) -> str
+        }
+
+        trait Logger {
+            @log (msg: str) -> void
+        }
+
+        @fetch_and_log (url: str) -> str uses Http, Logger = url
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let cap_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2012)
+        .collect();
+    assert!(cap_errors.is_empty(),
+        "all defined capabilities should be valid, got: {:?}", cap_errors);
+}
+
+#[test]
+fn test_multiple_capabilities_one_undefined() {
+    // If one of multiple capabilities is undefined, E2012 should be raised for it
+    let source = r#"
+        trait Http {
+            @get (url: str) -> str
+        }
+
+        @fetch_and_log (url: str) -> str uses Http, UndefinedLogger = url
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let cap_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2012)
+        .collect();
+    assert_eq!(cap_errors.len(), 1,
+        "should have exactly one E2012 error for undefined capability");
+    assert!(cap_errors[0].message.contains("UndefinedLogger"),
+        "error should mention the undefined capability name");
+}
+
+#[test]
+fn test_with_expression_provider_implements_trait() {
+    // When provider implements the capability trait, no E2013 error
+    let source = r#"
+        trait Http {
+            @get (url: str) -> str
+        }
+
+        type RealHttp = { base_url: str }
+
+        impl Http for RealHttp {
+            @get (self, url: str) -> str = url
+        }
+
+        @fetch (url: str) -> str uses Http = url
+
+        @main () -> str =
+            with Http = RealHttp { base_url: "https://api.example.com" } in
+                fetch(url: "/data")
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let provider_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2013)
+        .collect();
+    assert!(provider_errors.is_empty(),
+        "provider implementing trait should not produce E2013, got: {:?}", provider_errors);
+}
+
+#[test]
+fn test_function_with_capability_stores_in_signature() {
+    // Verify that capabilities are stored in the function type
+    let source = r#"
+        trait Http {
+            @get (url: str) -> str
+        }
+
+        trait Logger {
+            @log (msg: str) -> void
+        }
+
+        @fetch_and_log (url: str) -> str uses Http, Logger = url
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    // Find the function type
+    let func_type = typed.function_types.iter()
+        .find(|ft| interner.lookup(ft.name) == "fetch_and_log")
+        .expect("should find fetch_and_log function");
+
+    assert_eq!(func_type.capabilities.len(), 2,
+        "function should have 2 capabilities");
+
+    let cap_names: Vec<_> = func_type.capabilities.iter()
+        .map(|n| interner.lookup(*n))
+        .collect();
+    assert!(cap_names.contains(&"Http"), "should include Http capability");
+    assert!(cap_names.contains(&"Logger"), "should include Logger capability");
+}
+
+#[test]
+fn test_pure_function_no_capabilities() {
+    // Pure function should have empty capabilities list
+    let source = r#"
+        @add (a: int, b: int) -> int = a + b
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+    assert!(typed.errors.is_empty(), "type errors: {:?}", typed.errors);
+
+    let func_type = &typed.function_types[0];
+    assert!(func_type.capabilities.is_empty(),
+        "pure function should have no capabilities");
+}

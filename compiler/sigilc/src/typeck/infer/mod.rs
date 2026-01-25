@@ -16,7 +16,7 @@ mod pattern;
 use crate::ir::{ExprId, ExprKind, Name};
 use crate::types::Type;
 use crate::stack::ensure_sufficient_stack;
-use super::checker::{TypeChecker, TypeCheckError, add_pattern_bindings};
+use super::checker::{TypeChecker, TypeCheckError, add_pattern_bindings, bound_checking};
 use std::collections::HashSet;
 
 pub use call::*;
@@ -215,6 +215,41 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
                 });
                 Type::Error
             }
+        }
+
+        // Capability provision: type is the body's type
+        ExprKind::WithCapability { capability, provider, body } => {
+            // Infer the provider type (capability implementation)
+            let provider_ty = infer_expr(checker, *provider);
+            let resolved_provider_ty = checker.ctx.resolve(&provider_ty);
+
+            // Validate: if capability is a known trait, provider must implement it
+            if checker.trait_registry.has_trait(*capability) {
+                // Check if provider type implements the capability trait
+                if !checker.trait_registry.implements(&resolved_provider_ty, *capability) {
+                    // Also check built-in trait implementations
+                    let cap_name = checker.interner.lookup(*capability);
+                    let implements_builtin = bound_checking::primitive_implements_trait(&resolved_provider_ty, cap_name);
+
+                    if !implements_builtin {
+                        let provider_ty_str = format!("{resolved_provider_ty:?}");
+                        checker.errors.push(TypeCheckError {
+                            message: format!(
+                                "provider type `{provider_ty_str}` does not implement capability `{cap_name}`"
+                            ),
+                            span,
+                            code: crate::diagnostic::ErrorCode::E2013,
+                        });
+                    }
+                }
+            }
+            // Note: If capability is not a registered trait, we already reported
+            // E2012 during function signature validation (if this is inside a function
+            // that declared it). For dynamic with...in expressions, we allow any name
+            // to support gradual typing and mocking.
+
+            // The expression type is the body type
+            infer_expr(checker, *body)
         }
 
         // Error placeholder
@@ -454,6 +489,12 @@ pub fn collect_free_vars_inner(
         ExprKind::Assign { target, value } => {
             collect_free_vars_inner(checker, *target, bound, free);
             collect_free_vars_inner(checker, *value, bound, free);
+        }
+
+        // WithCapability
+        ExprKind::WithCapability { provider, body, .. } => {
+            collect_free_vars_inner(checker, *provider, bound, free);
+            collect_free_vars_inner(checker, *body, bound, free);
         }
 
         // FunctionSeq

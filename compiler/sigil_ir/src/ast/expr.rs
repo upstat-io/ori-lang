@@ -280,6 +280,18 @@ pub enum ExprKind {
         value: ExprId,
     },
 
+    // ===== Capabilities =====
+
+    /// Capability provision: with Http = RealHttp { ... } in body
+    WithCapability {
+        /// The capability name (e.g., Http)
+        capability: Name,
+        /// The provider expression (e.g., RealHttp { base_url: "..." })
+        provider: ExprId,
+        /// The body expression where the capability is in scope
+        body: ExprId,
+    },
+
     // ===== function_seq / function_exp =====
 
     /// Sequential expression construct: run, try, match
@@ -368,6 +380,9 @@ impl fmt::Debug for ExprKind {
             ExprKind::Await(inner) => write!(f, "Await({inner:?})"),
             ExprKind::Try(inner) => write!(f, "Try({inner:?})"),
             ExprKind::Assign { target, value } => write!(f, "Assign({target:?}, {value:?})"),
+            ExprKind::WithCapability { capability, provider, body } => {
+                write!(f, "WithCapability({capability:?}, {provider:?}, {body:?})")
+            }
             ExprKind::FunctionSeq(seq) => write!(f, "FunctionSeq({seq:?})"),
             ExprKind::FunctionExp(exp) => write!(f, "FunctionExp({exp:?})"),
             ExprKind::Error => write!(f, "Error"),

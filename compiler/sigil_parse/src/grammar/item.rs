@@ -10,6 +10,7 @@ use sigil_ir::{
     TraitDef, TraitItem, TraitMethodSig, TraitDefaultMethod, TraitAssocType,
     ImplDef, ImplMethod, ImplAssocType,
     TypeDecl, TypeDeclKind, StructField, Variant, VariantField,
+    CapabilityRef,
 };
 use crate::{FunctionOrTest, ParsedAttrs, ParseError, Parser};
 
@@ -283,6 +284,13 @@ impl Parser<'_> {
                 None
             };
 
+            // Optional uses clause: uses Http, FileSystem
+            let capabilities = if self.check(&TokenKind::Uses) {
+                self.parse_uses_clause()?
+            } else {
+                Vec::new()
+            };
+
             // Optional where clauses: where T: Clone, U: Default
             let where_clauses = if self.check(&TokenKind::Where) {
                 self.parse_where_clauses()?
@@ -303,6 +311,7 @@ impl Parser<'_> {
                 generics,
                 params,
                 return_ty,
+                capabilities,
                 where_clauses,
                 body,
                 span,
@@ -1017,6 +1026,30 @@ impl Parser<'_> {
                 self.current_span(),
             )),
         }
+    }
+
+    /// Parse uses clause: uses Http, FileSystem, Async
+    fn parse_uses_clause(&mut self) -> Result<Vec<CapabilityRef>, ParseError> {
+        self.expect(&TokenKind::Uses)?;
+
+        let mut capabilities = Vec::new();
+        loop {
+            let cap_span = self.current_span();
+            let name = self.expect_ident()?;
+
+            capabilities.push(CapabilityRef {
+                name,
+                span: cap_span,
+            });
+
+            if self.check(&TokenKind::Comma) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        Ok(capabilities)
     }
 
     /// Parse where clauses: where T: Clone, U: Default

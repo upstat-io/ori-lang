@@ -366,6 +366,16 @@ pub fn walk_expr<'ast, V: Visit<'ast> + ?Sized>(
             }
         }
 
+        // Capability provision
+        ExprKind::WithCapability {
+            provider,
+            body,
+            ..
+        } => {
+            visitor.visit_expr_id(*provider, arena);
+            visitor.visit_expr_id(*body, arena);
+        }
+
         // function_seq / function_exp
         ExprKind::FunctionSeq(seq) => {
             visitor.visit_function_seq(seq, arena);
@@ -865,6 +875,16 @@ pub fn walk_expr_mut<'ast, V: VisitMut<'ast> + ?Sized>(
             }
         }
 
+        // Capability provision
+        ExprKind::WithCapability {
+            provider,
+            body,
+            ..
+        } => {
+            visitor.visit_expr_id(*provider, arena);
+            visitor.visit_expr_id(*body, arena);
+        }
+
         // function_seq / function_exp
         ExprKind::FunctionSeq(seq) => {
             visitor.visit_function_seq(seq, arena);
@@ -1177,6 +1197,7 @@ mod tests {
             generics: crate::ast::GenericParamRange::EMPTY,
             params,
             return_ty: None,
+            capabilities: Vec::new(),
             where_clauses: Vec::new(),
             body,
             span: Span::new(0, 22),
@@ -1204,6 +1225,7 @@ mod tests {
             generics: crate::ast::GenericParamRange::EMPTY,
             params: crate::ast::ParamRange::EMPTY,
             return_ty: None,
+            capabilities: Vec::new(),
             where_clauses: Vec::new(),
             body: body1,
             span: Span::new(0, 5),
@@ -1215,6 +1237,7 @@ mod tests {
             generics: crate::ast::GenericParamRange::EMPTY,
             params: crate::ast::ParamRange::EMPTY,
             return_ty: None,
+            capabilities: Vec::new(),
             where_clauses: Vec::new(),
             body: body2,
             span: Span::new(10, 15),

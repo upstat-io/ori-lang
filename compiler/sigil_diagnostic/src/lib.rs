@@ -90,6 +90,10 @@ pub enum ErrorCode {
     E2010,
     /// Named arguments required
     E2011,
+    /// Unknown capability (uses clause references non-existent trait)
+    E2012,
+    /// Provider does not implement capability trait
+    E2013,
 
     // ===== Pattern Errors (E3xxx) =====
     /// Unknown pattern
@@ -143,6 +147,8 @@ impl ErrorCode {
             ErrorCode::E2009 => "E2009",
             ErrorCode::E2010 => "E2010",
             ErrorCode::E2011 => "E2011",
+            ErrorCode::E2012 => "E2012",
+            ErrorCode::E2013 => "E2013",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",
