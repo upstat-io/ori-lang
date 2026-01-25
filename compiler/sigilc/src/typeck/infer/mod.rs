@@ -5,10 +5,12 @@
 //! - `call.rs`: Function calls, method calls
 //! - `control.rs`: Control flow (if/else, match, loops)
 //! - `pattern.rs`: Pattern expressions (run, try, match, map, etc.)
+//! - `match_binding.rs`: Match pattern binding extraction
 
 mod call;
 mod control;
 mod expr;
+mod match_binding;
 mod pattern;
 
 use crate::ir::{ExprId, ExprKind, Name};
@@ -20,6 +22,7 @@ use std::collections::HashSet;
 pub use call::*;
 pub use control::*;
 pub use expr::*;
+pub use match_binding::*;
 pub use pattern::*;
 
 /// Infer the type of an expression.
@@ -108,12 +111,12 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
 
         // Let binding (as expression)
         ExprKind::Let { pattern, ty, init, .. } => {
-            infer_let(checker, pattern, *ty, *init, span)
+            infer_let(checker, pattern, ty.clone(), *init, span)
         }
 
         // Lambda
         ExprKind::Lambda { params, ret_ty, body } => {
-            infer_lambda(checker, *params, *ret_ty, *body, span)
+            infer_lambda(checker, *params, ret_ty.clone(), *body, span)
         }
 
         // List
@@ -301,8 +304,16 @@ pub fn collect_free_vars_inner(
         ExprKind::Match { scrutinee, arms } => {
             collect_free_vars_inner(checker, *scrutinee, bound, free);
             for arm in checker.arena.get_arms(*arms) {
-                // TODO: arm patterns can bind variables
-                collect_free_vars_inner(checker, arm.body, bound, free);
+                // Collect pattern bindings
+                let pattern_names = collect_match_pattern_names(&arm.pattern);
+                let mut arm_bound = bound.clone();
+                arm_bound.extend(pattern_names);
+
+                // Check guard with pattern bindings in scope
+                if let Some(guard_id) = arm.guard {
+                    collect_free_vars_inner(checker, guard_id, &arm_bound, free);
+                }
+                collect_free_vars_inner(checker, arm.body, &arm_bound, free);
             }
         }
 
@@ -473,8 +484,16 @@ fn collect_free_vars_function_seq(
         FunctionSeq::Match { scrutinee, arms, .. } => {
             collect_free_vars_inner(checker, *scrutinee, bound, free);
             for arm in checker.arena.get_arms(*arms) {
-                // TODO: arm patterns can bind variables
-                collect_free_vars_inner(checker, arm.body, bound, free);
+                // Collect pattern bindings
+                let pattern_names = collect_match_pattern_names(&arm.pattern);
+                let mut arm_bound = bound.clone();
+                arm_bound.extend(pattern_names);
+
+                // Check guard with pattern bindings in scope
+                if let Some(guard_id) = arm.guard {
+                    collect_free_vars_inner(checker, guard_id, &arm_bound, free);
+                }
+                collect_free_vars_inner(checker, arm.body, &arm_bound, free);
             }
         }
         FunctionSeq::ForPattern { over, map, arm, default, .. } => {
@@ -482,8 +501,16 @@ fn collect_free_vars_function_seq(
             if let Some(map_fn) = map {
                 collect_free_vars_inner(checker, *map_fn, bound, free);
             }
-            // TODO: arm pattern can bind variables
-            collect_free_vars_inner(checker, arm.body, bound, free);
+            // Collect pattern bindings from the arm
+            let pattern_names = collect_match_pattern_names(&arm.pattern);
+            let mut arm_bound = bound.clone();
+            arm_bound.extend(pattern_names);
+
+            // Check guard with pattern bindings in scope
+            if let Some(guard_id) = arm.guard {
+                collect_free_vars_inner(checker, guard_id, &arm_bound, free);
+            }
+            collect_free_vars_inner(checker, arm.body, &arm_bound, free);
             collect_free_vars_inner(checker, *default, bound, free);
         }
     }

@@ -5,7 +5,7 @@
 //! # Salsa Compatibility
 //! All types have Clone, Eq, PartialEq, Hash, Debug for Salsa requirements.
 
-use crate::{Name, Span, TypeId, ExprId, Spanned};
+use crate::{Name, Span, ParsedType, ExprId, Spanned};
 use super::super::ranges::{ParamRange, GenericParamRange};
 
 /// Generic parameter: `T` or `T: Bound` or `T: A + B`.
@@ -82,7 +82,8 @@ pub enum TraitItem {
 pub struct TraitMethodSig {
     pub name: Name,
     pub params: ParamRange,
-    pub return_ty: TypeId,
+    /// The parsed return type.
+    pub return_ty: ParsedType,
     pub span: Span,
 }
 
@@ -97,7 +98,8 @@ impl Spanned for TraitMethodSig {
 pub struct TraitDefaultMethod {
     pub name: Name,
     pub params: ParamRange,
-    pub return_ty: TypeId,
+    /// The parsed return type.
+    pub return_ty: ParsedType,
     pub body: ExprId,
     pub span: Span,
 }
@@ -142,8 +144,8 @@ pub struct ImplDef {
     /// The type path being implemented (e.g., ["Point"] for `impl Point { ... }`).
     /// Used for method dispatch lookup.
     pub self_path: Vec<Name>,
-    /// The type implementing the trait (or receiving inherent methods).
-    pub self_ty: TypeId,
+    /// The parsed type implementing the trait (or receiving inherent methods).
+    pub self_ty: ParsedType,
     pub where_clauses: Vec<WhereClause>,
     pub methods: Vec<ImplMethod>,
     pub span: Span,
@@ -172,7 +174,8 @@ impl Spanned for ImplDef {
 pub struct ImplMethod {
     pub name: Name,
     pub params: ParamRange,
-    pub return_ty: TypeId,
+    /// The parsed return type.
+    pub return_ty: ParsedType,
     pub body: ExprId,
     pub span: Span,
 }
@@ -186,8 +189,8 @@ pub struct ImplMethod {
 pub struct ExtendDef {
     /// Generic parameters: `extend<T> [T] { ... }`
     pub generics: GenericParamRange,
-    /// The type being extended (e.g., `[T]`, `Option<T>`, `str`)
-    pub target_ty: TypeId,
+    /// The parsed type being extended (e.g., `[T]`, `Option<T>`, `str`)
+    pub target_ty: ParsedType,
     /// String representation of the target type for method dispatch
     /// e.g., "list" for `[T]`, "Option" for `Option<T>`
     pub target_type_name: Name,

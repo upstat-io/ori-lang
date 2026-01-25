@@ -2,7 +2,7 @@
 
 use crate::ir::{
     Name, Span, ExprId, BinaryOp, UnaryOp,
-    ExprRange, ParamRange, TypeId, MapEntryRange, FieldInitRange,
+    ExprRange, ParamRange, ParsedType, MapEntryRange, FieldInitRange,
 };
 use crate::types::Type;
 use super::super::checker::{TypeChecker, TypeCheckError};
@@ -156,7 +156,7 @@ fn check_unary_op(
 pub fn infer_lambda(
     checker: &mut TypeChecker<'_>,
     params: ParamRange,
-    ret_ty: Option<TypeId>,
+    ret_ty: Option<ParsedType>,
     body: ExprId,
     _span: Span,
 ) -> Type {
@@ -164,8 +164,8 @@ pub fn infer_lambda(
     let param_types: Vec<Type> = params_slice
         .iter()
         .map(|p| {
-            match p.ty {
-                Some(type_id) => checker.type_id_to_type(type_id),
+            match &p.ty {
+                Some(parsed_ty) => checker.parsed_type_to_type(parsed_ty),
                 None => checker.ctx.fresh_var(),
             }
         })
@@ -183,8 +183,8 @@ pub fn infer_lambda(
 
     // Use declared return type if present, otherwise inferred
     let final_ret_ty = match ret_ty {
-        Some(type_id) => {
-            let declared_ty = checker.type_id_to_type(type_id);
+        Some(ref parsed_ty) => {
+            let declared_ty = checker.parsed_type_to_type(parsed_ty);
             // Unify declared with inferred
             if let Err(e) = checker.ctx.unify(&declared_ty, &body_ty) {
                 checker.report_type_error(e, checker.arena.get_expr(body).span);

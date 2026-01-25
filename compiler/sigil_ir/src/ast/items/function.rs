@@ -7,7 +7,7 @@
 
 use std::fmt;
 
-use crate::{Name, Span, TypeId, ExprId, Spanned};
+use crate::{Name, Span, ExprId, Spanned, ParsedType};
 use super::super::ranges::{ParamRange, GenericParamRange};
 use super::traits::WhereClause;
 use super::imports::UseDef;
@@ -16,11 +16,8 @@ use super::imports::UseDef;
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct Param {
     pub name: Name,
-    pub ty: Option<TypeId>,
-    /// The original type annotation name (e.g., `T` in `: T`).
-    /// Used to connect type annotations to generic parameters for constraint checking.
-    /// None if no type annotation or if it's a primitive type.
-    pub type_name: Option<Name>,
+    /// The parsed type annotation. None if no type annotation.
+    pub ty: Option<ParsedType>,
     pub span: Span,
 }
 
@@ -37,7 +34,8 @@ pub struct Function {
     /// Generic parameters: `<T, U: Bound>`
     pub generics: GenericParamRange,
     pub params: ParamRange,
-    pub return_ty: Option<TypeId>,
+    /// The parsed return type. None if no return type annotation.
+    pub return_ty: Option<ParsedType>,
     /// Where clauses: `where T: Clone, U: Default`
     pub where_clauses: Vec<WhereClause>,
     pub body: ExprId,
@@ -109,7 +107,8 @@ pub struct TestDef {
     pub name: Name,
     pub targets: Vec<Name>,
     pub params: ParamRange,
-    pub return_ty: Option<TypeId>,
+    /// The parsed return type. None if no return type annotation.
+    pub return_ty: Option<ParsedType>,
     pub body: ExprId,
     pub span: Span,
     /// If set, this test is skipped with the given reason.

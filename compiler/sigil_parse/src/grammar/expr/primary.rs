@@ -441,7 +441,6 @@ impl<'a> Parser<'a> {
                     params.push(Param {
                         name: *name,
                         ty: None,
-                        type_name: None,
                         span: expr.span,
                     });
                 }

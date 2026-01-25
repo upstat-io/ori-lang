@@ -3,7 +3,7 @@
 //! Handles if/else, match, loops, blocks, and other control flow.
 
 use crate::ir::{
-    Name, Span, ExprId, StmtRange, ArmRange, TypeId, BindingPattern,
+    Name, Span, ExprId, StmtRange, ArmRange, ParsedType, BindingPattern,
 };
 use crate::types::Type;
 use super::super::checker::{TypeChecker, TypeCheckError};
@@ -55,16 +55,50 @@ pub fn infer_match(
         // Empty match, result type is unknown
         checker.ctx.fresh_var()
     } else {
-        // All arms must have the same type
-        let first_arm_ty = infer_expr(checker, match_arms[0].body);
-        for arm in &match_arms[1..] {
+        let mut result_ty: Option<Type> = None;
+
+        for arm in match_arms {
+            // 1. Unify pattern with scrutinee type
+            super::unify_pattern_with_scrutinee(checker, &arm.pattern, &scrutinee_ty, arm.span);
+
+            // 2. Extract bindings from the pattern
+            let bindings = super::extract_match_pattern_bindings(checker, &arm.pattern, &scrutinee_ty);
+
+            // 3. Create child scope with pattern bindings
+            let mut arm_env = checker.env.child();
+            for (name, ty) in bindings {
+                arm_env.bind(name, ty);
+            }
+            let old_env = std::mem::replace(&mut checker.env, arm_env);
+
+            // 4. Type check guard if present
+            if let Some(guard_id) = arm.guard {
+                let guard_ty = infer_expr(checker, guard_id);
+                if let Err(e) = checker.ctx.unify(&guard_ty, &Type::Bool) {
+                    checker.report_type_error(e, checker.arena.get_expr(guard_id).span);
+                }
+            }
+
+            // 5. Type check body
             let arm_ty = infer_expr(checker, arm.body);
-            if let Err(e) = checker.ctx.unify(&first_arm_ty, &arm_ty) {
-                checker.report_type_error(e, arm.span);
+
+            // 6. Restore scope
+            checker.env = old_env;
+
+            // 7. Unify arm types
+            match &result_ty {
+                Some(expected) => {
+                    if let Err(e) = checker.ctx.unify(expected, &arm_ty) {
+                        checker.report_type_error(e, arm.span);
+                    }
+                }
+                None => {
+                    result_ty = Some(arm_ty);
+                }
             }
         }
-        let _ = scrutinee_ty; // TODO: pattern matching type checking
-        first_arm_ty
+
+        result_ty.unwrap_or_else(|| checker.ctx.fresh_var())
     }
 }
 
@@ -185,7 +219,7 @@ pub fn infer_block(
 pub fn infer_let(
     checker: &mut TypeChecker<'_>,
     pattern: &BindingPattern,
-    ty: Option<TypeId>,
+    ty: Option<ParsedType>,
     init: ExprId,
     span: Span,
 ) -> Type {
@@ -194,8 +228,8 @@ pub fn infer_let(
 
     let init_ty = infer_expr(checker, init);
     // If type annotation present, unify with inferred type
-    let final_ty = if let Some(type_id) = ty {
-        let declared_ty = checker.type_id_to_type(type_id);
+    let final_ty = if let Some(ref parsed_ty) = ty {
+        let declared_ty = checker.parsed_type_to_type(parsed_ty);
         if let Err(e) = checker.ctx.unify(&declared_ty, &init_ty) {
             checker.report_type_error(e, checker.arena.get_expr(init).span);
         }

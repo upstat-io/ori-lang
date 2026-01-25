@@ -1149,7 +1149,6 @@ mod tests {
         let params = arena.alloc_params([Param {
             name: Name::new(0, 1),
             ty: None,
-            type_name: None,
             span: Span::new(6, 7),
         }]);
 

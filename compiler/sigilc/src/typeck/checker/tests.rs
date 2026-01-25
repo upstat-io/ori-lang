@@ -3,7 +3,7 @@
 use super::*;
 use crate::lexer::lex;
 use crate::parser::parse;
-use crate::ir::SharedInterner;
+use crate::ir::{SharedInterner, ParsedType};
 
 /// Helper to parse source code
 fn parse_source(source: &str, interner: &SharedInterner) -> crate::parser::ParseResult {
@@ -109,7 +109,7 @@ fn test_where_clause_merged_into_generics() {
 }
 
 #[test]
-fn test_type_name_captured_in_params() {
+fn test_type_annotation_captured_in_params() {
     let source = r#"
         @swap<T> (a: T, b: T) -> T = a
     "#;
@@ -123,8 +123,22 @@ fn test_type_name_captured_in_params() {
 
     assert_eq!(params.len(), 2);
     let t_name = interner.intern("T");
-    assert_eq!(params[0].type_name, Some(t_name), "first param should have type_name 'T'");
-    assert_eq!(params[1].type_name, Some(t_name), "second param should have type_name 'T'");
+
+    // Check that both params have ParsedType::Named with name "T"
+    match &params[0].ty {
+        Some(ParsedType::Named { name, type_args }) => {
+            assert_eq!(*name, t_name, "first param should have type 'T'");
+            assert!(type_args.is_empty(), "T should have no type args");
+        }
+        other => panic!("expected Named type for first param, got {:?}", other),
+    }
+    match &params[1].ty {
+        Some(ParsedType::Named { name, type_args }) => {
+            assert_eq!(*name, t_name, "second param should have type 'T'");
+            assert!(type_args.is_empty(), "T should have no type args");
+        }
+        other => panic!("expected Named type for second param, got {:?}", other),
+    }
 }
 
 #[test]

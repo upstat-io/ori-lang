@@ -89,16 +89,50 @@ pub fn infer_function_seq(
             if match_arms.is_empty() {
                 checker.ctx.fresh_var()
             } else {
-                // All arms must have the same type
-                let first_arm_ty = infer_expr(checker, match_arms[0].body);
-                for arm in &match_arms[1..] {
+                let mut result_ty: Option<Type> = None;
+
+                for arm in match_arms {
+                    // 1. Unify pattern with scrutinee type
+                    super::unify_pattern_with_scrutinee(checker, &arm.pattern, &scrutinee_ty, arm.span);
+
+                    // 2. Extract bindings from the pattern
+                    let bindings = super::extract_match_pattern_bindings(checker, &arm.pattern, &scrutinee_ty);
+
+                    // 3. Create child scope with pattern bindings
+                    let mut arm_env = checker.env.child();
+                    for (name, ty) in bindings {
+                        arm_env.bind(name, ty);
+                    }
+                    let old_env = std::mem::replace(&mut checker.env, arm_env);
+
+                    // 4. Type check guard if present
+                    if let Some(guard_id) = arm.guard {
+                        let guard_ty = infer_expr(checker, guard_id);
+                        if let Err(e) = checker.ctx.unify(&guard_ty, &Type::Bool) {
+                            checker.report_type_error(e, checker.arena.get_expr(guard_id).span);
+                        }
+                    }
+
+                    // 5. Type check body
                     let arm_ty = infer_expr(checker, arm.body);
-                    if let Err(e) = checker.ctx.unify(&first_arm_ty, &arm_ty) {
-                        checker.report_type_error(e, arm.span);
+
+                    // 6. Restore scope
+                    checker.env = old_env;
+
+                    // 7. Unify arm types
+                    match &result_ty {
+                        Some(expected) => {
+                            if let Err(e) = checker.ctx.unify(expected, &arm_ty) {
+                                checker.report_type_error(e, arm.span);
+                            }
+                        }
+                        None => {
+                            result_ty = Some(arm_ty);
+                        }
                     }
                 }
-                let _ = scrutinee_ty; // TODO: pattern matching type checking
-                first_arm_ty
+
+                result_ty.unwrap_or_else(|| checker.ctx.fresh_var())
             }
         }
 
@@ -106,13 +140,54 @@ pub fn infer_function_seq(
             // Type check the collection to iterate over
             let over_ty = infer_expr(checker, *over);
 
-            // If there's a mapping function, type check it
-            if let Some(map_fn) = map {
-                let _ = infer_expr(checker, *map_fn);
+            // Determine element type for the iteration
+            let resolved_over = checker.ctx.resolve(&over_ty);
+            let elem_ty = match &resolved_over {
+                Type::List(elem) => (**elem).clone(),
+                Type::Set(elem) => (**elem).clone(),
+                Type::Range(elem) => (**elem).clone(),
+                Type::Map { key, .. } => (**key).clone(),
+                _ => checker.ctx.fresh_var(),
+            };
+
+            // If there's a mapping function, apply it to get the scrutinee type
+            let scrutinee_ty = if let Some(map_fn) = map {
+                let map_fn_ty = infer_expr(checker, *map_fn);
+                // The map function takes the element type and returns the scrutinee type
+                match checker.ctx.resolve(&map_fn_ty) {
+                    Type::Function { ret, .. } => (*ret).clone(),
+                    _ => elem_ty.clone(),
+                }
+            } else {
+                elem_ty
+            };
+
+            // Unify pattern with the scrutinee type
+            super::unify_pattern_with_scrutinee(checker, &arm.pattern, &scrutinee_ty, arm.span);
+
+            // Extract bindings from the pattern
+            let bindings = super::extract_match_pattern_bindings(checker, &arm.pattern, &scrutinee_ty);
+
+            // Create child scope with pattern bindings
+            let mut arm_env = checker.env.child();
+            for (name, ty) in bindings {
+                arm_env.bind(name, ty);
+            }
+            let old_env = std::mem::replace(&mut checker.env, arm_env);
+
+            // Type check guard if present
+            if let Some(guard_id) = arm.guard {
+                let guard_ty = infer_expr(checker, guard_id);
+                if let Err(e) = checker.ctx.unify(&guard_ty, &Type::Bool) {
+                    checker.report_type_error(e, checker.arena.get_expr(guard_id).span);
+                }
             }
 
             // Type check the arm body
             let arm_ty = infer_expr(checker, arm.body);
+
+            // Restore scope
+            checker.env = old_env;
 
             // Type check the default value
             let default_ty = infer_expr(checker, *default);
@@ -122,7 +197,6 @@ pub fn infer_function_seq(
                 checker.report_type_error(e, arm.span);
             }
 
-            let _ = over_ty; // TODO: proper iteration type checking
             arm_ty
         }
     }

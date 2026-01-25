@@ -5,7 +5,7 @@
 //! # Salsa Compatibility
 //! All types have Clone, Eq, PartialEq, Hash, Debug for Salsa requirements.
 
-use crate::{Name, Span, TypeId, Spanned};
+use crate::{Name, Span, ParsedType, Spanned};
 use super::super::ranges::GenericParamRange;
 use super::traits::WhereClause;
 
@@ -47,7 +47,7 @@ pub enum TypeDeclKind {
     /// Sum type: `Variant1 | Variant2(field: Type) | ...`
     Sum(Vec<Variant>),
     /// Newtype (type alias with distinct identity): `ExistingType`
-    Newtype(TypeId),
+    Newtype(ParsedType),
 }
 
 /// A field in a struct type.
@@ -59,7 +59,8 @@ pub enum TypeDeclKind {
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct StructField {
     pub name: Name,
-    pub ty: TypeId,
+    /// The parsed field type.
+    pub ty: ParsedType,
     pub span: Span,
 }
 
@@ -98,7 +99,8 @@ impl Spanned for Variant {
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct VariantField {
     pub name: Name,
-    pub ty: TypeId,
+    /// The parsed field type.
+    pub ty: ParsedType,
     pub span: Span,
 }
 
