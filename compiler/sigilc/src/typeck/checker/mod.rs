@@ -27,7 +27,7 @@ use crate::ir::{
     StringInterner, TypeId, ParsedType,
 };
 use crate::parser::ParseResult;
-use crate::patterns::PatternRegistry;
+use sigil_patterns::PatternRegistry;
 use crate::types::{Type, TypeEnv, InferenceContext, TypeError};
 use crate::context::{CompilerContext, SharedRegistry};
 use crate::diagnostic::queue::{DiagnosticQueue, DiagnosticConfig};

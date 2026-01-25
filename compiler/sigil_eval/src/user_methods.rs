@@ -5,8 +5,8 @@
 //! but user-defined methods can extend types with new functionality.
 
 use std::collections::HashMap;
-use crate::ir::{Name, ExprId, SharedArena};
-use super::value::Value;
+use sigil_ir::{ExprId, Name, SharedArena};
+use sigil_patterns::Value;
 
 /// A user-defined method from an impl block.
 #[derive(Clone, Debug)]
@@ -85,12 +85,14 @@ impl UserMethodRegistry {
     ///
     /// Returns None if no method is registered for this type/method combination.
     pub fn lookup(&self, type_name: &str, method_name: &str) -> Option<&UserMethod> {
-        self.methods.get(&(type_name.to_string(), method_name.to_string()))
+        self.methods
+            .get(&(type_name.to_string(), method_name.to_string()))
     }
 
     /// Check if a method exists for the given type.
     pub fn has_method(&self, type_name: &str, method_name: &str) -> bool {
-        self.methods.contains_key(&(type_name.to_string(), method_name.to_string()))
+        self.methods
+            .contains_key(&(type_name.to_string(), method_name.to_string()))
     }
 
     /// Get all registered methods (for debugging).
@@ -107,7 +109,7 @@ impl UserMethodRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::{ExprId, SharedInterner};
+    use sigil_ir::{ExprId, SharedInterner};
 
     fn dummy_expr_id() -> ExprId {
         ExprId::new(0)

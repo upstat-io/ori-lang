@@ -2,7 +2,7 @@
 //!
 //! Tests variable scoping, binding, shadowing, mutability, and capture.
 
-use crate::eval::environment::{Environment, Scope, LocalScope};
+use sigil_eval::{Environment, Scope, LocalScope};
 use crate::eval::Value;
 use crate::ir::SharedInterner;
 

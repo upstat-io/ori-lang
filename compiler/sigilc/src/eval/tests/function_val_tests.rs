@@ -1,6 +1,6 @@
 //! Comprehensive tests for type conversion functions (`function_val`).
 
-use crate::eval::function_val::{
+use sigil_eval::{
     function_val_byte, function_val_float, function_val_int, function_val_str,
 };
 use crate::eval::Value;

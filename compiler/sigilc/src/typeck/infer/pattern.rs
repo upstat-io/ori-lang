@@ -3,7 +3,7 @@
 //! Handles `function_seq` (run, try, match) and `function_exp` (map, filter, fold, etc.).
 
 use crate::ir::{Name, Span, FunctionSeq, FunctionExp, SeqBinding};
-use crate::patterns::TypeCheckContext;
+use sigil_patterns::TypeCheckContext;
 use crate::types::Type;
 use super::super::checker::TypeChecker;
 use super::infer_expr;

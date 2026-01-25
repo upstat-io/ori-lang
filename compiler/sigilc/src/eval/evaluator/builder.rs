@@ -1,13 +1,10 @@
 //! `EvaluatorBuilder` for creating Evaluator instances with various configurations.
 
 use crate::ir::{StringInterner, ExprArena, SharedArena};
-use crate::patterns::PatternRegistry;
+use sigil_patterns::PatternRegistry;
+use sigil_eval::{MethodRegistry, OperatorRegistry, UnaryOperatorRegistry, UserMethodRegistry};
 use crate::context::{CompilerContext, SharedRegistry};
 use super::{Evaluator, Environment};
-use super::super::operators::OperatorRegistry;
-use super::super::methods::MethodRegistry;
-use super::super::user_methods::UserMethodRegistry;
-use super::super::unary_operators::UnaryOperatorRegistry;
 
 /// Builder for creating Evaluator instances with various configurations.
 pub struct EvaluatorBuilder<'a> {

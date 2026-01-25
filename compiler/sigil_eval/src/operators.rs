@@ -6,8 +6,8 @@
 
 use sigil_ir::BinaryOp;
 use sigil_patterns::{
-    binary_type_mismatch, division_by_zero, invalid_binary_op, modulo_by_zero, EvalResult,
-    RangeValue, Value,
+    binary_type_mismatch, division_by_zero, invalid_binary_op, modulo_by_zero, EvalError,
+    EvalResult, RangeValue, Value,
 };
 
 // =============================================================================
@@ -84,8 +84,22 @@ impl BinaryOperator for IntOperator {
             BinaryOp::BitAnd => Ok(Value::Int(a & b)),
             BinaryOp::BitOr => Ok(Value::Int(a | b)),
             BinaryOp::BitXor => Ok(Value::Int(a ^ b)),
-            BinaryOp::Shl => Ok(Value::Int(a << u32::try_from(b).unwrap_or(0))),
-            BinaryOp::Shr => Ok(Value::Int(a >> u32::try_from(b).unwrap_or(0))),
+            BinaryOp::Shl => {
+                if !(0..64).contains(&b) {
+                    return Err(EvalError::new(format!(
+                        "shift amount {b} out of range (0-63)"
+                    )));
+                }
+                Ok(Value::Int(a << b))
+            }
+            BinaryOp::Shr => {
+                if !(0..64).contains(&b) {
+                    return Err(EvalError::new(format!(
+                        "shift amount {b} out of range (0-63)"
+                    )));
+                }
+                Ok(Value::Int(a >> b))
+            }
             BinaryOp::Range => Ok(Value::Range(RangeValue::exclusive(a, b))),
             BinaryOp::RangeInclusive => Ok(Value::Range(RangeValue::inclusive(a, b))),
             _ => Err(invalid_binary_op("integers")),
@@ -117,12 +131,26 @@ impl BinaryOperator for FloatOperator {
             BinaryOp::Div => Ok(Value::Float(a / b)),
             // Use partial_cmp for IEEE 754 compliant comparisons
             // (NaN != NaN, -0.0 == 0.0)
-            BinaryOp::Eq => Ok(Value::Bool(a.partial_cmp(&b) == Some(std::cmp::Ordering::Equal))),
-            BinaryOp::NotEq => Ok(Value::Bool(a.partial_cmp(&b) != Some(std::cmp::Ordering::Equal))),
-            BinaryOp::Lt => Ok(Value::Bool(a.partial_cmp(&b) == Some(std::cmp::Ordering::Less))),
-            BinaryOp::LtEq => Ok(Value::Bool(matches!(a.partial_cmp(&b), Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)))),
-            BinaryOp::Gt => Ok(Value::Bool(a.partial_cmp(&b) == Some(std::cmp::Ordering::Greater))),
-            BinaryOp::GtEq => Ok(Value::Bool(matches!(a.partial_cmp(&b), Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)))),
+            BinaryOp::Eq => Ok(Value::Bool(
+                a.partial_cmp(&b) == Some(std::cmp::Ordering::Equal),
+            )),
+            BinaryOp::NotEq => Ok(Value::Bool(
+                a.partial_cmp(&b) != Some(std::cmp::Ordering::Equal),
+            )),
+            BinaryOp::Lt => Ok(Value::Bool(
+                a.partial_cmp(&b) == Some(std::cmp::Ordering::Less),
+            )),
+            BinaryOp::LtEq => Ok(Value::Bool(matches!(
+                a.partial_cmp(&b),
+                Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+            ))),
+            BinaryOp::Gt => Ok(Value::Bool(
+                a.partial_cmp(&b) == Some(std::cmp::Ordering::Greater),
+            )),
+            BinaryOp::GtEq => Ok(Value::Bool(matches!(
+                a.partial_cmp(&b),
+                Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
+            ))),
             _ => Err(invalid_binary_op("floats")),
         }
     }
@@ -414,57 +442,113 @@ mod tests {
                 .unwrap(),
             Value::Int(6)
         );
-    }
-
-    #[test]
-    fn test_float_operations() {
-        let registry = OperatorRegistry::new();
-
         assert_eq!(
             registry
-                .evaluate(Value::Float(2.0), Value::Float(3.0), BinaryOp::Add)
+                .evaluate(Value::Int(7), Value::Int(2), BinaryOp::Div)
                 .unwrap(),
-            Value::Float(5.0)
+            Value::Int(3)
         );
-    }
-
-    #[test]
-    fn test_mixed_int_float_is_type_error() {
-        // Per spec: "No implicit conversions" - int + float is a type error
-        let registry = OperatorRegistry::new();
-
-        let result = registry.evaluate(Value::Int(2), Value::Float(3.0), BinaryOp::Add);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_string_concat() {
-        let registry = OperatorRegistry::new();
-
-        let result = registry
-            .evaluate(
-                Value::string("hello"),
-                Value::string(" world"),
-                BinaryOp::Add,
-            )
-            .unwrap();
-
-        assert_eq!(result, Value::string("hello world"));
-    }
-
-    #[test]
-    fn test_type_mismatch() {
-        let registry = OperatorRegistry::new();
-
-        let result = registry.evaluate(Value::Int(1), Value::Bool(true), BinaryOp::Add);
-        assert!(result.is_err());
+        assert_eq!(
+            registry
+                .evaluate(Value::Int(7), Value::Int(2), BinaryOp::Mod)
+                .unwrap(),
+            Value::Int(1)
+        );
     }
 
     #[test]
     fn test_division_by_zero() {
         let registry = OperatorRegistry::new();
 
-        let result = registry.evaluate(Value::Int(5), Value::Int(0), BinaryOp::Div);
-        assert!(result.is_err());
+        assert!(registry
+            .evaluate(Value::Int(1), Value::Int(0), BinaryOp::Div)
+            .is_err());
+        assert!(registry
+            .evaluate(Value::Int(1), Value::Int(0), BinaryOp::Mod)
+            .is_err());
+    }
+
+    #[test]
+    fn test_comparisons() {
+        let registry = OperatorRegistry::new();
+
+        assert_eq!(
+            registry
+                .evaluate(Value::Int(2), Value::Int(3), BinaryOp::Lt)
+                .unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            registry
+                .evaluate(Value::Int(3), Value::Int(2), BinaryOp::Gt)
+                .unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            registry
+                .evaluate(Value::Int(2), Value::Int(2), BinaryOp::Eq)
+                .unwrap(),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn test_string_concatenation() {
+        let registry = OperatorRegistry::new();
+
+        let result = registry
+            .evaluate(
+                Value::string("hello".to_string()),
+                Value::string(" world".to_string()),
+                BinaryOp::Add,
+            )
+            .unwrap();
+        assert_eq!(result, Value::string("hello world".to_string()));
+    }
+
+    #[test]
+    fn test_list_concatenation() {
+        let registry = OperatorRegistry::new();
+
+        let result = registry
+            .evaluate(
+                Value::list(vec![Value::Int(1)]),
+                Value::list(vec![Value::Int(2)]),
+                BinaryOp::Add,
+            )
+            .unwrap();
+        assert_eq!(result, Value::list(vec![Value::Int(1), Value::Int(2)]));
+    }
+
+    #[test]
+    fn test_type_mismatch() {
+        let registry = OperatorRegistry::new();
+
+        assert!(registry
+            .evaluate(Value::Int(1), Value::Bool(true), BinaryOp::Add)
+            .is_err());
+    }
+
+    #[test]
+    fn test_shift_amount_validation() {
+        let registry = OperatorRegistry::new();
+
+        // Valid shift
+        assert_eq!(
+            registry
+                .evaluate(Value::Int(1), Value::Int(3), BinaryOp::Shl)
+                .unwrap(),
+            Value::Int(8)
+        );
+
+        // Invalid shift (negative)
+        assert!(registry
+            .evaluate(Value::Int(1), Value::Int(-1), BinaryOp::Shl)
+            .is_err());
+
+        // Invalid shift (too large)
+        assert!(registry
+            .evaluate(Value::Int(1), Value::Int(64), BinaryOp::Shl)
+            .is_err());
     }
 }

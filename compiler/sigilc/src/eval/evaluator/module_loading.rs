@@ -4,8 +4,8 @@ use std::path::Path;
 use crate::ir::{Name, SharedArena};
 use crate::parser::ParseResult;
 use crate::context::SharedRegistry;
+use sigil_eval::{UserMethod, UserMethodRegistry};
 use super::Evaluator;
-use super::super::user_methods::{UserMethodRegistry, UserMethod};
 use super::super::module::import;
 
 impl Evaluator<'_> {

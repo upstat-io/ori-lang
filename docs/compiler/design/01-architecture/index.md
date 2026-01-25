@@ -37,6 +37,18 @@ compiler/
 │       ├── error.rs        # Parse error types
 │       ├── stack.rs        # Stack safety (stacker integration)
 │       └── grammar/        # Grammar modules (expr, item, type, etc.)
+├── sigil_patterns/     # Pattern system, Value types
+│   └── src/
+│       ├── lib.rs          # PatternDefinition, TypeCheckContext, EvalContext
+│       ├── registry.rs     # PatternRegistry, SharedPattern
+│       ├── value/          # Value types, Heap, FunctionValue
+│       ├── errors.rs       # EvalError, EvalResult, error constructors
+│       └── *.rs            # Pattern implementations (recurse, parallel, etc.)
+├── sigil_eval/         # Core evaluator components
+│   └── src/
+│       ├── lib.rs          # Re-exports
+│       ├── environment.rs  # Environment, Scope, LocalScope
+│       └── operators.rs    # BinaryOperator, OperatorRegistry
 ├── sigil-macros/       # Proc-macro crate
 │   └── src/
 │       ├── lib.rs          # Diagnostic/Subdiagnostic derives
@@ -49,8 +61,7 @@ compiler/
         ├── db.rs           # Salsa database definition
         ├── query/          # Salsa query definitions
         ├── typeck/         # Type checking and inference
-        ├── eval/           # Tree-walking interpreter
-        ├── patterns/       # Pattern system
+        ├── eval/           # Tree-walking interpreter (uses sigil_eval)
         ├── test/           # Test runner
         └── debug.rs        # Debug flags
 ```
@@ -58,23 +69,23 @@ compiler/
 ### Crate Dependencies
 
 ```
-sigil_ir ──────────────────────────────────────────────┐
-    │                                                  │
-    ▼                                                  │
-sigil_diagnostic ◄─────────────────────────────────────┤
-    │                                                  │
-    ▼                                                  │
-sigil_lexer                                            │
-    │                                                  │
-    ▼                                                  │
-sigil_types                                            │
-    │                                                  │
-    ▼                                                  │
-sigil_parse                                            │
-    │                                                  │
-    ▼                                                  │
-sigilc (orchestrator + typeck + eval + patterns)◄──────┘
+sigil_ir (base)
+    ├── sigil_diagnostic
+    ├── sigil_lexer
+    ├── sigil_types
+    ├── sigil_parse
+    └── sigil_patterns ──→ sigil_types
+            │
+            └── sigil_eval ──→ sigil_patterns
+                    │
+                    └── sigilc ──→ ALL (orchestrator)
 ```
+
+**Layered architecture:**
+- `sigil_ir`: Core IR types (no dependencies)
+- `sigil_patterns`: Pattern definitions, Value types, EvalError (single source of truth)
+- `sigil_eval`: Core evaluator components (Environment, operators)
+- `sigilc`: CLI orchestrator with Salsa queries, type checker, evaluator
 
 Pure functions live in library crates; Salsa queries live in `sigilc`.
 

@@ -7,6 +7,9 @@
 //! The evaluator uses:
 //! - `Environment`: Variable scoping with a scope stack
 //! - `OperatorRegistry`: Binary operator dispatch
+//! - `UnaryOperatorRegistry`: Unary operator dispatch
+//! - `MethodRegistry`: Method dispatch for built-in types
+//! - `UserMethodRegistry`: User-defined method dispatch for impl blocks
 //! - `Value` types from `sigil_patterns`
 //!
 //! # Re-exports
@@ -16,7 +19,11 @@
 //! - `EvalError`, `EvalResult`
 
 mod environment;
+mod function_val;
+mod methods;
 mod operators;
+mod unary_operators;
+mod user_methods;
 
 // Re-export value types from sigil_patterns
 pub use sigil_patterns::{
@@ -39,4 +46,12 @@ pub use sigil_patterns::{
 };
 
 pub use environment::{Environment, LocalScope, Scope};
+pub use methods::{MethodDispatcher, MethodRegistry};
 pub use operators::{BinaryOperator, OperatorRegistry};
+pub use unary_operators::{UnaryOperator, UnaryOperatorRegistry};
+pub use user_methods::{UserMethod, UserMethodRegistry};
+
+pub use function_val::{
+    function_val_byte, function_val_float, function_val_int, function_val_str,
+    function_val_thread_id,
+};

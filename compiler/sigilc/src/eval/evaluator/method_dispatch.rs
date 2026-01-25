@@ -1,10 +1,9 @@
 //! Method dispatch methods for the Evaluator.
 
 use crate::ir::{Name, SharedArena};
-use super::super::errors::wrong_function_args;
+use sigil_eval::{UserMethod, wrong_function_args};
 use super::{Evaluator, EvalResult};
 use super::super::value::Value;
-use super::super::user_methods::UserMethod;
 
 impl Evaluator<'_> {
     /// Evaluate a method call.
