@@ -1,0 +1,133 @@
+// Spec: 14-capabilities.md § Async Capability
+// Tests for the Async marker capability
+
+// =============================================================================
+// Async Capability Definition
+// =============================================================================
+
+// Async is a marker capability with no methods.
+// It indicates that a function may suspend.
+trait Async {}
+
+// Provider type for Async capability
+type AsyncRuntime = {}
+
+impl Async for AsyncRuntime {}
+
+// =============================================================================
+// Functions Declaring Async Capability
+// =============================================================================
+
+// Function that declares it may suspend
+@async_operation () -> int uses Async = 42
+
+// Function with multiple capabilities including Async
+@async_with_http () -> str uses Http, Async = Http.get(url: "/data")
+
+// Async capability with other capabilities
+trait Http {
+    @get (url: str) -> str
+}
+
+type MockHttp = { base_url: str }
+
+impl Http for MockHttp {
+    @get (self, url: str) -> str = self.base_url + url
+}
+
+// =============================================================================
+// Sync vs Async Behavior
+// =============================================================================
+
+// Function WITHOUT uses Async is synchronous - blocks until complete
+@sync_fetch (url: str) -> str uses Http = Http.get(url: url)
+
+// Function WITH uses Async may suspend - non-blocking
+@async_fetch (url: str) -> str uses Http, Async = Http.get(url: url)
+
+// =============================================================================
+// Pure Functions
+// =============================================================================
+
+// Function with NO uses clause is pure - no side effects, cannot suspend
+@pure_add (a: int, b: int) -> int = a + b
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+// Test async function can be called when Async capability is provided
+@test_async_capability tests @async_operation () -> void = run(
+    let result = with Async = AsyncRuntime {} in async_operation(),
+    assert_eq(
+        actual: result,
+        expected: 42,
+    ),
+)
+
+// Test sync function works without Async capability
+@test_sync_fetch tests @sync_fetch () -> void = run(
+    let result = with Http = MockHttp { base_url: "https://api.com" } in
+        sync_fetch(url: "/users"),
+    assert_eq(
+        actual: result,
+        expected: "https://api.com/users",
+    ),
+)
+
+// Test async function requires Async capability
+@test_async_fetch tests @async_fetch () -> void = run(
+    let result = with Http = MockHttp { base_url: "https://api.com" } in
+        with Async = AsyncRuntime {} in
+            async_fetch(url: "/users"),
+    assert_eq(
+        actual: result,
+        expected: "https://api.com/users",
+    ),
+)
+
+// Test pure function needs no capabilities
+@test_pure_function tests @pure_add () -> void = run(
+    // Pure functions don't need with...in
+    assert_eq(
+        actual: pure_add(a: 10, b: 5),
+        expected: 15,
+    ),
+)
+
+// Test multiple capabilities including Async
+@test_async_with_http tests @async_with_http () -> void = run(
+    let result = with Http = MockHttp { base_url: "https://test.com" } in
+        with Async = AsyncRuntime {} in
+            async_with_http(),
+    assert_eq(
+        actual: result,
+        expected: "https://test.com/data",
+    ),
+)
+
+// =============================================================================
+// Design Notes
+// =============================================================================
+//
+// 1. No `async` type modifier:
+//    Sigil does not have `async fn` or an `async` keyword for function types.
+//    Instead, the `uses Async` capability explicitly declares suspension.
+//    This keeps the type system simpler - return types are always the final
+//    value type, not `Future<T>` or `Promise<T>`.
+//
+// 2. No `.await` expression:
+//    Sigil does not have `.await` syntax. Functions that `uses Async` may
+//    suspend, but suspension is implicit. The caller declares `uses Async`
+//    to indicate they also may suspend, propagating the capability.
+//
+// 3. Concurrency via `parallel` pattern:
+//    Instead of spawning tasks and awaiting them, use the `parallel` pattern:
+//    `parallel(tasks: [fetch(a), fetch(b)], max_concurrent: 10)`
+//    This provides structured concurrency with automatic resource cleanup.
+//
+// 4. Mock implementations are synchronous:
+//    Tests use sync mocks (like MockHttp above) and don't need the Async
+//    capability. This makes tests fast and predictable.
+//
+// See: spec/14-capabilities.md § Async Capability
