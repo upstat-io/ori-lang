@@ -5,9 +5,9 @@
 //! by implementing the `BinaryOperator` trait.
 
 use crate::ir::BinaryOp;
+use super::errors::{division_by_zero, modulo_by_zero, invalid_binary_op, binary_type_mismatch};
 use super::value::{Value, RangeValue};
-use super::evaluator::EvalResult;
-use super::errors;
+use super::{EvalError, EvalResult};
 
 // =============================================================================
 // Binary Operator Trait
@@ -39,9 +39,8 @@ impl BinaryOperator for IntOperator {
     }
 
     fn evaluate(&self, left: Value, right: Value, op: BinaryOp) -> EvalResult {
-        let (a, b) = match (left, right) {
-            (Value::Int(a), Value::Int(b)) => (a, b),
-            _ => unreachable!(),
+        let (Value::Int(a), Value::Int(b)) = (left, right) else {
+            unreachable!()
         };
 
         match op {
@@ -50,21 +49,21 @@ impl BinaryOperator for IntOperator {
             BinaryOp::Mul => Ok(Value::Int(a * b)),
             BinaryOp::Div => {
                 if b == 0 {
-                    Err(errors::division_by_zero())
+                    Err(division_by_zero())
                 } else {
                     Ok(Value::Int(a / b))
                 }
             }
             BinaryOp::Mod => {
                 if b == 0 {
-                    Err(errors::modulo_by_zero())
+                    Err(modulo_by_zero())
                 } else {
                     Ok(Value::Int(a % b))
                 }
             }
             BinaryOp::FloorDiv => {
                 if b == 0 {
-                    Err(errors::division_by_zero())
+                    Err(division_by_zero())
                 } else {
                     let result = a / b;
                     let remainder = a % b;
@@ -84,11 +83,21 @@ impl BinaryOperator for IntOperator {
             BinaryOp::BitAnd => Ok(Value::Int(a & b)),
             BinaryOp::BitOr => Ok(Value::Int(a | b)),
             BinaryOp::BitXor => Ok(Value::Int(a ^ b)),
-            BinaryOp::Shl => Ok(Value::Int(a << (b as u32))),
-            BinaryOp::Shr => Ok(Value::Int(a >> (b as u32))),
+            BinaryOp::Shl => {
+                if !(0..64).contains(&b) {
+                    return Err(EvalError::new(format!("shift amount {b} out of range (0-63)")));
+                }
+                Ok(Value::Int(a << b))
+            }
+            BinaryOp::Shr => {
+                if !(0..64).contains(&b) {
+                    return Err(EvalError::new(format!("shift amount {b} out of range (0-63)")));
+                }
+                Ok(Value::Int(a >> b))
+            }
             BinaryOp::Range => Ok(Value::Range(RangeValue::exclusive(a, b))),
             BinaryOp::RangeInclusive => Ok(Value::Range(RangeValue::inclusive(a, b))),
-            _ => Err(errors::invalid_binary_op("integers")),
+            _ => Err(invalid_binary_op("integers")),
         }
     }
 }
@@ -102,20 +111,12 @@ pub struct FloatOperator;
 
 impl BinaryOperator for FloatOperator {
     fn handles(&self, left: &Value, right: &Value, _op: BinaryOp) -> bool {
-        matches!(
-            (left, right),
-            (Value::Float(_), Value::Float(_))
-                | (Value::Int(_), Value::Float(_))
-                | (Value::Float(_), Value::Int(_))
-        )
+        matches!((left, right), (Value::Float(_), Value::Float(_)))
     }
 
     fn evaluate(&self, left: Value, right: Value, op: BinaryOp) -> EvalResult {
-        let (a, b) = match (left, right) {
-            (Value::Float(a), Value::Float(b)) => (a, b),
-            (Value::Int(a), Value::Float(b)) => (a as f64, b),
-            (Value::Float(a), Value::Int(b)) => (a, b as f64),
-            _ => unreachable!(),
+        let (Value::Float(a), Value::Float(b)) = (left, right) else {
+            unreachable!()
         };
 
         match op {
@@ -123,13 +124,15 @@ impl BinaryOperator for FloatOperator {
             BinaryOp::Sub => Ok(Value::Float(a - b)),
             BinaryOp::Mul => Ok(Value::Float(a * b)),
             BinaryOp::Div => Ok(Value::Float(a / b)),
-            BinaryOp::Eq => Ok(Value::Bool(a == b)),
-            BinaryOp::NotEq => Ok(Value::Bool(a != b)),
-            BinaryOp::Lt => Ok(Value::Bool(a < b)),
-            BinaryOp::LtEq => Ok(Value::Bool(a <= b)),
-            BinaryOp::Gt => Ok(Value::Bool(a > b)),
-            BinaryOp::GtEq => Ok(Value::Bool(a >= b)),
-            _ => Err(errors::invalid_binary_op("floats")),
+            // Use partial_cmp for IEEE 754 compliant comparisons
+            // (NaN != NaN, -0.0 == 0.0)
+            BinaryOp::Eq => Ok(Value::Bool(a.partial_cmp(&b) == Some(std::cmp::Ordering::Equal))),
+            BinaryOp::NotEq => Ok(Value::Bool(a.partial_cmp(&b) != Some(std::cmp::Ordering::Equal))),
+            BinaryOp::Lt => Ok(Value::Bool(a.partial_cmp(&b) == Some(std::cmp::Ordering::Less))),
+            BinaryOp::LtEq => Ok(Value::Bool(matches!(a.partial_cmp(&b), Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)))),
+            BinaryOp::Gt => Ok(Value::Bool(a.partial_cmp(&b) == Some(std::cmp::Ordering::Greater))),
+            BinaryOp::GtEq => Ok(Value::Bool(matches!(a.partial_cmp(&b), Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)))),
+            _ => Err(invalid_binary_op("floats")),
         }
     }
 }
@@ -147,15 +150,14 @@ impl BinaryOperator for BoolOperator {
     }
 
     fn evaluate(&self, left: Value, right: Value, op: BinaryOp) -> EvalResult {
-        let (a, b) = match (left, right) {
-            (Value::Bool(a), Value::Bool(b)) => (a, b),
-            _ => unreachable!(),
+        let (Value::Bool(a), Value::Bool(b)) = (left, right) else {
+            unreachable!()
         };
 
         match op {
             BinaryOp::Eq => Ok(Value::Bool(a == b)),
             BinaryOp::NotEq => Ok(Value::Bool(a != b)),
-            _ => Err(errors::invalid_binary_op("booleans")),
+            _ => Err(invalid_binary_op("booleans")),
         }
     }
 }
@@ -173,9 +175,8 @@ impl BinaryOperator for StringOperator {
     }
 
     fn evaluate(&self, left: Value, right: Value, op: BinaryOp) -> EvalResult {
-        let (a, b) = match (left, right) {
-            (Value::Str(a), Value::Str(b)) => (a, b),
-            _ => unreachable!(),
+        let (Value::Str(a), Value::Str(b)) = (left, right) else {
+            unreachable!()
         };
 
         match op {
@@ -190,7 +191,7 @@ impl BinaryOperator for StringOperator {
             BinaryOp::LtEq => Ok(Value::Bool(*a <= *b)),
             BinaryOp::Gt => Ok(Value::Bool(*a > *b)),
             BinaryOp::GtEq => Ok(Value::Bool(*a >= *b)),
-            _ => Err(errors::invalid_binary_op("strings")),
+            _ => Err(invalid_binary_op("strings")),
         }
     }
 }
@@ -208,9 +209,8 @@ impl BinaryOperator for ListOperator {
     }
 
     fn evaluate(&self, left: Value, right: Value, op: BinaryOp) -> EvalResult {
-        let (a, b) = match (left, right) {
-            (Value::List(a), Value::List(b)) => (a, b),
-            _ => unreachable!(),
+        let (Value::List(a), Value::List(b)) = (left, right) else {
+            unreachable!()
         };
 
         match op {
@@ -221,7 +221,7 @@ impl BinaryOperator for ListOperator {
             }
             BinaryOp::Eq => Ok(Value::Bool(*a == *b)),
             BinaryOp::NotEq => Ok(Value::Bool(*a != *b)),
-            _ => Err(errors::invalid_binary_op("lists")),
+            _ => Err(invalid_binary_op("lists")),
         }
     }
 }
@@ -239,9 +239,8 @@ impl BinaryOperator for CharOperator {
     }
 
     fn evaluate(&self, left: Value, right: Value, op: BinaryOp) -> EvalResult {
-        let (a, b) = match (left, right) {
-            (Value::Char(a), Value::Char(b)) => (a, b),
-            _ => unreachable!(),
+        let (Value::Char(a), Value::Char(b)) = (left, right) else {
+            unreachable!()
         };
 
         match op {
@@ -251,7 +250,7 @@ impl BinaryOperator for CharOperator {
             BinaryOp::LtEq => Ok(Value::Bool(a <= b)),
             BinaryOp::Gt => Ok(Value::Bool(a > b)),
             BinaryOp::GtEq => Ok(Value::Bool(a >= b)),
-            _ => Err(errors::invalid_binary_op("char")),
+            _ => Err(invalid_binary_op("char")),
         }
     }
 }
@@ -269,15 +268,14 @@ impl BinaryOperator for TupleOperator {
     }
 
     fn evaluate(&self, left: Value, right: Value, op: BinaryOp) -> EvalResult {
-        let (a, b) = match (left, right) {
-            (Value::Tuple(a), Value::Tuple(b)) => (a, b),
-            _ => unreachable!(),
+        let (Value::Tuple(a), Value::Tuple(b)) = (left, right) else {
+            unreachable!()
         };
 
         match op {
             BinaryOp::Eq => Ok(Value::Bool(*a == *b)),
             BinaryOp::NotEq => Ok(Value::Bool(*a != *b)),
-            _ => Err(errors::invalid_binary_op("tuples")),
+            _ => Err(invalid_binary_op("tuples")),
         }
     }
 }
@@ -293,10 +291,7 @@ impl BinaryOperator for OptionOperator {
     fn handles(&self, left: &Value, right: &Value, _op: BinaryOp) -> bool {
         matches!(
             (left, right),
-            (Value::Some(_), Value::Some(_))
-                | (Value::Some(_), Value::None)
-                | (Value::None, Value::Some(_))
-                | (Value::None, Value::None)
+            (Value::Some(_) | Value::None, Value::Some(_) | Value::None)
         )
     }
 
@@ -305,17 +300,17 @@ impl BinaryOperator for OptionOperator {
             (Value::Some(a), Value::Some(b)) => match op {
                 BinaryOp::Eq => Ok(Value::Bool(*a == *b)),
                 BinaryOp::NotEq => Ok(Value::Bool(*a != *b)),
-                _ => Err(errors::invalid_binary_op("Option")),
+                _ => Err(invalid_binary_op("Option")),
             },
             (Value::None, Value::None) => match op {
                 BinaryOp::Eq => Ok(Value::Bool(true)),
                 BinaryOp::NotEq => Ok(Value::Bool(false)),
-                _ => Err(errors::invalid_binary_op("Option")),
+                _ => Err(invalid_binary_op("Option")),
             },
             (Value::Some(_), Value::None) | (Value::None, Value::Some(_)) => match op {
                 BinaryOp::Eq => Ok(Value::Bool(false)),
                 BinaryOp::NotEq => Ok(Value::Bool(true)),
-                _ => Err(errors::invalid_binary_op("Option")),
+                _ => Err(invalid_binary_op("Option")),
             },
             _ => unreachable!(),
         }
@@ -333,29 +328,21 @@ impl BinaryOperator for ResultOperator {
     fn handles(&self, left: &Value, right: &Value, _op: BinaryOp) -> bool {
         matches!(
             (left, right),
-            (Value::Ok(_), Value::Ok(_))
-                | (Value::Ok(_), Value::Err(_))
-                | (Value::Err(_), Value::Ok(_))
-                | (Value::Err(_), Value::Err(_))
+            (Value::Ok(_) | Value::Err(_), Value::Ok(_) | Value::Err(_))
         )
     }
 
     fn evaluate(&self, left: Value, right: Value, op: BinaryOp) -> EvalResult {
         match (&left, &right) {
-            (Value::Ok(a), Value::Ok(b)) => match op {
+            (Value::Ok(a), Value::Ok(b)) | (Value::Err(a), Value::Err(b)) => match op {
                 BinaryOp::Eq => Ok(Value::Bool(*a == *b)),
                 BinaryOp::NotEq => Ok(Value::Bool(*a != *b)),
-                _ => Err(errors::invalid_binary_op("Result")),
-            },
-            (Value::Err(a), Value::Err(b)) => match op {
-                BinaryOp::Eq => Ok(Value::Bool(*a == *b)),
-                BinaryOp::NotEq => Ok(Value::Bool(*a != *b)),
-                _ => Err(errors::invalid_binary_op("Result")),
+                _ => Err(invalid_binary_op("Result")),
             },
             (Value::Ok(_), Value::Err(_)) | (Value::Err(_), Value::Ok(_)) => match op {
                 BinaryOp::Eq => Ok(Value::Bool(false)),
                 BinaryOp::NotEq => Ok(Value::Bool(true)),
-                _ => Err(errors::invalid_binary_op("Result")),
+                _ => Err(invalid_binary_op("Result")),
             },
             _ => unreachable!(),
         }
@@ -400,7 +387,7 @@ impl OperatorRegistry {
                 return handler.evaluate(left, right, op);
             }
         }
-        Err(errors::binary_type_mismatch(
+        Err(binary_type_mismatch(
             left.type_name(),
             right.type_name(),
         ))
@@ -446,13 +433,12 @@ mod tests {
     }
 
     #[test]
-    fn test_mixed_int_float() {
+    fn test_mixed_int_float_is_type_error() {
+        // Per spec: "No implicit conversions" - int + float is a type error
         let registry = OperatorRegistry::new();
 
-        assert_eq!(
-            registry.evaluate(Value::Int(2), Value::Float(3.0), BinaryOp::Add).unwrap(),
-            Value::Float(5.0)
-        );
+        let result = registry.evaluate(Value::Int(2), Value::Float(3.0), BinaryOp::Add);
+        assert!(result.is_err());
     }
 
     #[test]

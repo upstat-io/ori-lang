@@ -33,9 +33,9 @@
 //! ```
 
 use super::ast::{
-    BindingPattern, CallArg, Expr, ExprKind, FieldInit, Function, FunctionExp, FunctionSeq,
-    MapEntry, MatchArm, MatchPattern, Module, NamedExpr, Param, SeqBinding, Stmt, StmtKind,
-    TestDef, UseDef,
+    BindingPattern, CallArg, ConfigDef, Expr, ExprKind, FieldInit, Function, FunctionExp,
+    FunctionSeq, MapEntry, MatchArm, MatchPattern, Module, NamedExpr, Param, SeqBinding, Stmt,
+    StmtKind, TestDef, UseDef,
 };
 use super::{ExprArena, ExprId};
 
@@ -67,6 +67,12 @@ pub trait Visit<'ast> {
     fn visit_use(&mut self, use_def: &'ast UseDef, _arena: &'ast ExprArena) {
         // Use statements have no child expressions to walk
         let _ = use_def;
+    }
+
+    /// Visit a config variable definition.
+    fn visit_config(&mut self, config: &'ast ConfigDef, arena: &'ast ExprArena) {
+        // Walk the config value expression
+        self.visit_expr_id(config.value, arena);
     }
 
     /// Visit an expression.
@@ -118,12 +124,12 @@ pub trait Visit<'ast> {
         }
     }
 
-    /// Visit a sequence binding (function_seq).
+    /// Visit a sequence binding (`function_seq`).
     fn visit_seq_binding(&mut self, binding: &'ast SeqBinding, arena: &'ast ExprArena) {
         walk_seq_binding(self, binding, arena);
     }
 
-    /// Visit a named expression (function_exp).
+    /// Visit a named expression (`function_exp`).
     fn visit_named_expr(&mut self, named: &'ast NamedExpr, arena: &'ast ExprArena) {
         self.visit_expr_id(named.value, arena);
     }
@@ -133,12 +139,12 @@ pub trait Visit<'ast> {
         self.visit_expr_id(arg.value, arena);
     }
 
-    /// Visit a function_seq construct.
+    /// Visit a `function_seq` construct.
     fn visit_function_seq(&mut self, seq: &'ast FunctionSeq, arena: &'ast ExprArena) {
         walk_function_seq(self, seq, arena);
     }
 
-    /// Visit a function_exp construct.
+    /// Visit a `function_exp` construct.
     fn visit_function_exp(&mut self, exp: &'ast FunctionExp, arena: &'ast ExprArena) {
         walk_function_exp(self, exp, arena);
     }
@@ -156,6 +162,9 @@ pub fn walk_module<'ast, V: Visit<'ast> + ?Sized>(
 ) {
     for use_def in &module.imports {
         visitor.visit_use(use_def, arena);
+    }
+    for config in &module.configs {
+        visitor.visit_config(config, arena);
     }
     for function in &module.functions {
         visitor.visit_function(function, arena);
@@ -414,7 +423,7 @@ pub fn walk_match_pattern<'ast, V: Visit<'ast> + ?Sized>(
                 }
             }
         }
-        MatchPattern::Tuple(patterns) => {
+        MatchPattern::Tuple(patterns) | MatchPattern::Or(patterns) => {
             for p in patterns {
                 visitor.visit_match_pattern(p, arena);
             }
@@ -430,11 +439,6 @@ pub fn walk_match_pattern<'ast, V: Visit<'ast> + ?Sized>(
             }
             if let Some(end_id) = end {
                 visitor.visit_expr_id(*end_id, arena);
-            }
-        }
-        MatchPattern::Or(patterns) => {
-            for p in patterns {
-                visitor.visit_match_pattern(p, arena);
             }
         }
         MatchPattern::At { pattern, .. } => {
@@ -489,7 +493,7 @@ pub fn walk_seq_binding<'ast, V: Visit<'ast> + ?Sized>(
     }
 }
 
-/// Walk a function_seq's children.
+/// Walk a `function_seq`'s children.
 pub fn walk_function_seq<'ast, V: Visit<'ast> + ?Sized>(
     visitor: &mut V,
     seq: &'ast FunctionSeq,
@@ -519,7 +523,7 @@ pub fn walk_function_seq<'ast, V: Visit<'ast> + ?Sized>(
     }
 }
 
-/// Walk a function_exp's children.
+/// Walk a `function_exp`'s children.
 pub fn walk_function_exp<'ast, V: Visit<'ast> + ?Sized>(
     visitor: &mut V,
     exp: &'ast FunctionExp,
@@ -557,6 +561,12 @@ pub trait VisitMut<'ast> {
     /// Visit a use/import statement.
     fn visit_use(&mut self, use_def: &'ast UseDef, _arena: &'ast ExprArena) {
         let _ = use_def;
+    }
+
+    /// Visit a config variable definition.
+    fn visit_config(&mut self, config: &'ast ConfigDef, arena: &'ast ExprArena) {
+        // Walk the config value expression
+        self.visit_expr_id(config.value, arena);
     }
 
     /// Visit an expression.
@@ -622,12 +632,12 @@ pub trait VisitMut<'ast> {
         self.visit_expr_id(arg.value, arena);
     }
 
-    /// Visit a function_seq construct.
+    /// Visit a `function_seq` construct.
     fn visit_function_seq(&mut self, seq: &'ast FunctionSeq, arena: &'ast ExprArena) {
         walk_function_seq_mut(self, seq, arena);
     }
 
-    /// Visit a function_exp construct.
+    /// Visit a `function_exp` construct.
     fn visit_function_exp(&mut self, exp: &'ast FunctionExp, arena: &'ast ExprArena) {
         walk_function_exp_mut(self, exp, arena);
     }
@@ -645,6 +655,9 @@ pub fn walk_module_mut<'ast, V: VisitMut<'ast> + ?Sized>(
 ) {
     for use_def in &module.imports {
         visitor.visit_use(use_def, arena);
+    }
+    for config in &module.configs {
+        visitor.visit_config(config, arena);
     }
     for function in &module.functions {
         visitor.visit_function(function, arena);
@@ -903,7 +916,7 @@ pub fn walk_match_pattern_mut<'ast, V: VisitMut<'ast> + ?Sized>(
                 }
             }
         }
-        MatchPattern::Tuple(patterns) => {
+        MatchPattern::Tuple(patterns) | MatchPattern::Or(patterns) => {
             for p in patterns {
                 visitor.visit_match_pattern(p, arena);
             }
@@ -919,11 +932,6 @@ pub fn walk_match_pattern_mut<'ast, V: VisitMut<'ast> + ?Sized>(
             }
             if let Some(end_id) = end {
                 visitor.visit_expr_id(*end_id, arena);
-            }
-        }
-        MatchPattern::Or(patterns) => {
-            for p in patterns {
-                visitor.visit_match_pattern(p, arena);
             }
         }
         MatchPattern::At { pattern, .. } => {
@@ -978,7 +986,7 @@ pub fn walk_seq_binding_mut<'ast, V: VisitMut<'ast> + ?Sized>(
     }
 }
 
-/// Walk a function_seq's children (mutable visitor).
+/// Walk a `function_seq`'s children (mutable visitor).
 pub fn walk_function_seq_mut<'ast, V: VisitMut<'ast> + ?Sized>(
     visitor: &mut V,
     seq: &'ast FunctionSeq,
@@ -1008,7 +1016,7 @@ pub fn walk_function_seq_mut<'ast, V: VisitMut<'ast> + ?Sized>(
     }
 }
 
-/// Walk a function_exp's children (mutable visitor).
+/// Walk a `function_exp`'s children (mutable visitor).
 pub fn walk_function_exp_mut<'ast, V: VisitMut<'ast> + ?Sized>(
     visitor: &mut V,
     exp: &'ast FunctionExp,
@@ -1203,6 +1211,7 @@ mod tests {
 
         let module = Module {
             imports: vec![],
+            configs: vec![],
             functions: vec![func1, func2],
             tests: vec![],
             types: vec![],

@@ -46,14 +46,13 @@ impl Render for ParseProblem {
                 found,
             } => Diagnostic::error(ErrorCode::E1001)
                 .with_message(format!(
-                    "unexpected token: expected {}, found `{}`",
-                    expected, found
+                    "unexpected token: expected {expected}, found `{found}`"
                 ))
-                .with_label(*span, format!("expected {}", expected)),
+                .with_label(*span, format!("expected {expected}")),
 
             ParseProblem::ExpectedExpression { span, found } => {
                 Diagnostic::error(ErrorCode::E1002)
-                    .with_message(format!("expected expression, found `{}`", found))
+                    .with_message(format!("expected expression, found `{found}`"))
                     .with_label(*span, "expected expression here")
             }
 
@@ -69,30 +68,30 @@ impl Render for ParseProblem {
                     _ => '?',
                 };
                 Diagnostic::error(ErrorCode::E1003)
-                    .with_message(format!("unclosed delimiter `{}`", opener))
-                    .with_label(*found_span, format!("expected `{}`", expected_close))
+                    .with_message(format!("unclosed delimiter `{opener}`"))
+                    .with_label(*found_span, format!("expected `{expected_close}`"))
                     .with_secondary_label(*open_span, "unclosed delimiter opened here")
             }
 
             ParseProblem::ExpectedIdentifier { span, found } => {
                 Diagnostic::error(ErrorCode::E1004)
-                    .with_message(format!("expected identifier, found `{}`", found))
+                    .with_message(format!("expected identifier, found `{found}`"))
                     .with_label(*span, "expected identifier")
             }
 
             ParseProblem::ExpectedType { span, found } => Diagnostic::error(ErrorCode::E1005)
-                .with_message(format!("expected type, found `{}`", found))
+                .with_message(format!("expected type, found `{found}`"))
                 .with_label(*span, "expected type annotation"),
 
             ParseProblem::InvalidFunctionDef { span, reason } => {
                 Diagnostic::error(ErrorCode::E1006)
-                    .with_message(format!("invalid function definition: {}", reason))
+                    .with_message(format!("invalid function definition: {reason}"))
                     .with_label(*span, reason.clone())
             }
 
             ParseProblem::MissingFunctionBody { span, name } => {
                 Diagnostic::error(ErrorCode::E1007)
-                    .with_message(format!("function `@{}` is missing its body", name))
+                    .with_message(format!("function `@{name}` is missing its body"))
                     .with_label(*span, "expected `=` followed by function body")
                     .with_suggestion("add a body: @{name} (...) -> Type = expression")
             }
@@ -103,8 +102,7 @@ impl Render for ParseProblem {
                 reason,
             } => Diagnostic::error(ErrorCode::E1008)
                 .with_message(format!(
-                    "invalid syntax in `{}` pattern: {}",
-                    pattern_name, reason
+                    "invalid syntax in `{pattern_name}` pattern: {reason}"
                 ))
                 .with_label(*span, reason.clone()),
 
@@ -114,13 +112,11 @@ impl Render for ParseProblem {
                 arg_name,
             } => Diagnostic::error(ErrorCode::E1009)
                 .with_message(format!(
-                    "missing required argument `.{}:` in `{}` pattern",
-                    arg_name, pattern_name
+                    "missing required argument `.{arg_name}:` in `{pattern_name}` pattern"
                 ))
-                .with_label(*span, format!("missing `.{}:`", arg_name))
+                .with_label(*span, format!("missing `.{arg_name}:`"))
                 .with_suggestion(format!(
-                    "add `.{}: <value>` to the pattern arguments",
-                    arg_name
+                    "add `.{arg_name}: <value>` to the pattern arguments"
                 )),
 
             ParseProblem::UnknownPatternArg {
@@ -132,11 +128,10 @@ impl Render for ParseProblem {
                 let valid_list = valid_args.join("`, `.");
                 Diagnostic::error(ErrorCode::E1010)
                     .with_message(format!(
-                        "unknown argument `.{}:` in `{}` pattern",
-                        arg_name, pattern_name
+                        "unknown argument `.{arg_name}:` in `{pattern_name}` pattern"
                     ))
                     .with_label(*span, "unknown argument")
-                    .with_note(format!("valid arguments are: `.{}`", valid_list))
+                    .with_note(format!("valid arguments are: `.{valid_list}`"))
             }
 
             ParseProblem::RequiresNamedArgs {
@@ -145,8 +140,7 @@ impl Render for ParseProblem {
                 arg_count,
             } => Diagnostic::error(ErrorCode::E1011)
                 .with_message(format!(
-                    "function `{}` with {} arguments requires named arguments",
-                    func_name, arg_count
+                    "function `{func_name}` with {arg_count} arguments requires named arguments"
                 ))
                 .with_label(*span, "use named arguments")
                 .with_suggestion("use arg: value syntax for each argument"),
@@ -156,25 +150,23 @@ impl Render for ParseProblem {
                 seq_name,
                 reason,
             } => Diagnostic::error(ErrorCode::E1012)
-                .with_message(format!("invalid `{}` expression: {}", seq_name, reason))
+                .with_message(format!("invalid `{seq_name}` expression: {reason}"))
                 .with_label(*span, reason.clone()),
 
             ParseProblem::RequiresNamedProps { span, exp_name } => {
                 Diagnostic::error(ErrorCode::E1013)
                     .with_message(format!(
-                        "`{}` requires named properties (`name: value`)",
-                        exp_name
+                        "`{exp_name}` requires named properties (`name: value`)"
                     ))
                     .with_label(*span, "use named properties")
                     .with_suggestion(format!(
-                        "example: {}(over: items, transform: fn)",
-                        exp_name
+                        "example: {exp_name}(over: items, transform: fn)"
                     ))
             }
 
             ParseProblem::ReservedBuiltinName { span, name } => {
                 Diagnostic::error(ErrorCode::E1014)
-                    .with_message(format!("`{}` is a reserved built-in function name", name))
+                    .with_message(format!("`{name}` is a reserved built-in function name"))
                     .with_label(*span, "cannot use this name for user-defined functions")
                     .with_note("built-in names are reserved in call position")
             }
@@ -185,11 +177,11 @@ impl Render for ParseProblem {
                 .with_suggestion("add closing `\"`"),
 
             ParseProblem::InvalidCharacter { span, char } => Diagnostic::error(ErrorCode::E0002)
-                .with_message(format!("invalid character `{}`", char))
+                .with_message(format!("invalid character `{char}`"))
                 .with_label(*span, "unexpected character"),
 
             ParseProblem::InvalidNumber { span, reason } => Diagnostic::error(ErrorCode::E0003)
-                .with_message(format!("invalid number literal: {}", reason))
+                .with_message(format!("invalid number literal: {reason}"))
                 .with_label(*span, reason.clone()),
 
             ParseProblem::UnterminatedChar { span } => Diagnostic::error(ErrorCode::E0004)
@@ -198,7 +190,7 @@ impl Render for ParseProblem {
                 .with_suggestion("add closing `'`"),
 
             ParseProblem::InvalidEscape { span, escape } => Diagnostic::error(ErrorCode::E0005)
-                .with_message(format!("invalid escape sequence `{}`", escape))
+                .with_message(format!("invalid escape sequence `{escape}`"))
                 .with_label(*span, "unknown escape")
                 .with_note("valid escapes are: \\n, \\t, \\r, \\\", \\\\, \\'"),
         }
@@ -214,10 +206,9 @@ impl Render for TypeProblem {
                 found,
             } => Diagnostic::error(ErrorCode::E2001)
                 .with_message(format!(
-                    "type mismatch: expected `{}`, found `{}`",
-                    expected, found
+                    "type mismatch: expected `{expected}`, found `{found}`"
                 ))
-                .with_label(*span, format!("expected `{}`", expected)),
+                .with_label(*span, format!("expected `{expected}`")),
 
             TypeProblem::ArgCountMismatch {
                 span,
@@ -227,10 +218,9 @@ impl Render for TypeProblem {
                 let plural = if *expected == 1 { "" } else { "s" };
                 Diagnostic::error(ErrorCode::E2004)
                     .with_message(format!(
-                        "wrong number of arguments: expected {}, found {}",
-                        expected, found
+                        "wrong number of arguments: expected {expected}, found {found}"
                     ))
-                    .with_label(*span, format!("expected {} argument{}", expected, plural))
+                    .with_label(*span, format!("expected {expected} argument{plural}"))
                     .with_suggestion(if *found > *expected {
                         "remove extra arguments"
                     } else {
@@ -244,10 +234,9 @@ impl Render for TypeProblem {
                 found,
             } => Diagnostic::error(ErrorCode::E2001)
                 .with_message(format!(
-                    "tuple length mismatch: expected {}-tuple, found {}-tuple",
-                    expected, found
+                    "tuple length mismatch: expected {expected}-tuple, found {found}-tuple"
                 ))
-                .with_label(*span, format!("expected {} elements", expected)),
+                .with_label(*span, format!("expected {expected} elements")),
 
             TypeProblem::ListLengthMismatch {
                 span,
@@ -255,10 +244,9 @@ impl Render for TypeProblem {
                 found,
             } => Diagnostic::error(ErrorCode::E2001)
                 .with_message(format!(
-                    "list destructuring: expected at least {} elements, found {}",
-                    expected, found
+                    "list destructuring: expected at least {expected} elements, found {found}"
                 ))
-                .with_label(*span, format!("expected at least {} elements", expected)),
+                .with_label(*span, format!("expected at least {expected} elements")),
 
             TypeProblem::InfiniteType { span } => Diagnostic::error(ErrorCode::E2008)
                 .with_message("infinite type detected")
@@ -266,20 +254,20 @@ impl Render for TypeProblem {
                 .with_note("a type cannot contain itself"),
 
             TypeProblem::CannotInfer { span, context } => Diagnostic::error(ErrorCode::E2005)
-                .with_message(format!("cannot infer type for {}", context))
+                .with_message(format!("cannot infer type for {context}"))
                 .with_label(*span, "type annotation needed")
                 .with_suggestion("add explicit type annotation"),
 
             TypeProblem::UnknownType { span, name } => Diagnostic::error(ErrorCode::E2002)
-                .with_message(format!("unknown type `{}`", name))
+                .with_message(format!("unknown type `{name}`"))
                 .with_label(*span, "not found"),
 
             TypeProblem::NotCallable { span, found_type } => Diagnostic::error(ErrorCode::E2001)
-                .with_message(format!("`{}` is not callable", found_type))
+                .with_message(format!("`{found_type}` is not callable"))
                 .with_label(*span, "cannot call this as a function"),
 
             TypeProblem::NotIndexable { span, found_type } => Diagnostic::error(ErrorCode::E2001)
-                .with_message(format!("`{}` cannot be indexed", found_type))
+                .with_message(format!("`{found_type}` cannot be indexed"))
                 .with_label(*span, "indexing not supported"),
 
             TypeProblem::NoSuchField {
@@ -290,8 +278,7 @@ impl Render for TypeProblem {
             } => {
                 let mut diag = Diagnostic::error(ErrorCode::E2003)
                     .with_message(format!(
-                        "no field `{}` on type `{}`",
-                        field_name, type_name
+                        "no field `{field_name}` on type `{type_name}`"
                     ))
                     .with_label(*span, "unknown field");
                 if !available_fields.is_empty() {
@@ -309,8 +296,7 @@ impl Render for TypeProblem {
                 method_name,
             } => Diagnostic::error(ErrorCode::E2003)
                 .with_message(format!(
-                    "no method `{}` on type `{}`",
-                    method_name, type_name
+                    "no method `{method_name}` on type `{type_name}`"
                 ))
                 .with_label(*span, "method not found"),
 
@@ -321,8 +307,7 @@ impl Render for TypeProblem {
                 right_type,
             } => Diagnostic::error(ErrorCode::E2001)
                 .with_message(format!(
-                    "cannot apply `{}` to `{}` and `{}`",
-                    op, left_type, right_type
+                    "cannot apply `{op}` to `{left_type}` and `{right_type}`"
                 ))
                 .with_label(*span, "invalid operation"),
 
@@ -331,12 +316,12 @@ impl Render for TypeProblem {
                 op,
                 operand_type,
             } => Diagnostic::error(ErrorCode::E2001)
-                .with_message(format!("cannot apply `{}` to `{}`", op, operand_type))
+                .with_message(format!("cannot apply `{op}` to `{operand_type}`"))
                 .with_label(*span, "invalid operation"),
 
             TypeProblem::MissingNamedArg { span, arg_name } => Diagnostic::error(ErrorCode::E2004)
-                .with_message(format!("missing required argument `.{}:`", arg_name))
-                .with_label(*span, format!("missing `.{}:`", arg_name)),
+                .with_message(format!("missing required argument `.{arg_name}:`"))
+                .with_label(*span, format!("missing `.{arg_name}:`")),
 
             TypeProblem::UnknownNamedArg {
                 span,
@@ -344,7 +329,7 @@ impl Render for TypeProblem {
                 valid_args,
             } => {
                 let mut diag = Diagnostic::error(ErrorCode::E2004)
-                    .with_message(format!("unknown argument `.{}:`", arg_name))
+                    .with_message(format!("unknown argument `.{arg_name}:`"))
                     .with_label(*span, "unknown argument");
                 if !valid_args.is_empty() {
                     diag =
@@ -358,7 +343,7 @@ impl Render for TypeProblem {
                 arg_name,
                 first_span,
             } => Diagnostic::error(ErrorCode::E2006)
-                .with_message(format!("duplicate argument `.{}:`", arg_name))
+                .with_message(format!("duplicate argument `.{arg_name}:`"))
                 .with_label(*span, "duplicate")
                 .with_secondary_label(*first_span, "first occurrence here"),
 
@@ -369,35 +354,32 @@ impl Render for TypeProblem {
                 func_name,
             } => Diagnostic::error(ErrorCode::E2001)
                 .with_message(format!(
-                    "return type mismatch in `{}`: expected `{}`, found `{}`",
-                    func_name, expected, found
+                    "return type mismatch in `{func_name}`: expected `{expected}`, found `{found}`"
                 ))
-                .with_label(*span, format!("expected `{}`", expected)),
+                .with_label(*span, format!("expected `{expected}`")),
 
             TypeProblem::InvalidTryOperand { span, found_type } => {
                 Diagnostic::error(ErrorCode::E2001)
                     .with_message(format!(
-                        "`?` operator requires Result or Option, found `{}`",
-                        found_type
+                        "`?` operator requires Result or Option, found `{found_type}`"
                     ))
                     .with_label(*span, "not Result or Option")
             }
 
             TypeProblem::InvalidAwait { span, found_type } => Diagnostic::error(ErrorCode::E2001)
-                .with_message(format!("`await` requires async value, found `{}`", found_type))
+                .with_message(format!("`await` requires async value, found `{found_type}`"))
                 .with_label(*span, "not async"),
 
             TypeProblem::ConditionNotBool { span, found_type } => {
                 Diagnostic::error(ErrorCode::E2001)
                     .with_message(format!(
-                        "condition must be `bool`, found `{}`",
-                        found_type
+                        "condition must be `bool`, found `{found_type}`"
                     ))
                     .with_label(*span, "expected `bool`")
             }
 
             TypeProblem::NotIterable { span, found_type } => Diagnostic::error(ErrorCode::E2001)
-                .with_message(format!("`{}` is not iterable", found_type))
+                .with_message(format!("`{found_type}` is not iterable"))
                 .with_label(*span, "cannot iterate over this"),
 
             TypeProblem::MatchArmTypeMismatch {
@@ -407,10 +389,9 @@ impl Render for TypeProblem {
                 first_span,
             } => Diagnostic::error(ErrorCode::E2001)
                 .with_message(format!(
-                    "match arms have incompatible types: `{}` vs `{}`",
-                    first_type, this_type
+                    "match arms have incompatible types: `{first_type}` vs `{this_type}`"
                 ))
-                .with_label(*span, format!("expected `{}`", first_type))
+                .with_label(*span, format!("expected `{first_type}`"))
                 .with_secondary_label(*first_span, "first arm has this type"),
 
             TypeProblem::PatternTypeMismatch {
@@ -419,13 +400,12 @@ impl Render for TypeProblem {
                 found,
             } => Diagnostic::error(ErrorCode::E2001)
                 .with_message(format!(
-                    "pattern type mismatch: expected `{}`, found `{}`",
-                    expected, found
+                    "pattern type mismatch: expected `{expected}`, found `{found}`"
                 ))
-                .with_label(*span, format!("expected `{}`", expected)),
+                .with_label(*span, format!("expected `{expected}`")),
 
             TypeProblem::CyclicType { span, type_name } => Diagnostic::error(ErrorCode::E2008)
-                .with_message(format!("cyclic type definition for `{}`", type_name))
+                .with_message(format!("cyclic type definition for `{type_name}`"))
                 .with_label(*span, "cycle detected here"),
 
             TypeProblem::ClosureSelfReference { span } => Diagnostic::error(ErrorCode::E2007)
@@ -445,10 +425,10 @@ impl Render for SemanticProblem {
                 similar,
             } => {
                 let mut diag = Diagnostic::error(ErrorCode::E2003)
-                    .with_message(format!("unknown identifier `{}`", name))
+                    .with_message(format!("unknown identifier `{name}`"))
                     .with_label(*span, "not found in this scope");
                 if let Some(suggestion) = similar {
-                    diag = diag.with_suggestion(format!("did you mean `{}`?", suggestion));
+                    diag = diag.with_suggestion(format!("did you mean `{suggestion}`?"));
                 }
                 diag
             }
@@ -459,16 +439,16 @@ impl Render for SemanticProblem {
                 similar,
             } => {
                 let mut diag = Diagnostic::error(ErrorCode::E2003)
-                    .with_message(format!("unknown function `@{}`", name))
+                    .with_message(format!("unknown function `@{name}`"))
                     .with_label(*span, "function not found");
                 if let Some(suggestion) = similar {
-                    diag = diag.with_suggestion(format!("did you mean `@{}`?", suggestion));
+                    diag = diag.with_suggestion(format!("did you mean `@{suggestion}`?"));
                 }
                 diag
             }
 
             SemanticProblem::UnknownConfig { span, name } => Diagnostic::error(ErrorCode::E2003)
-                .with_message(format!("unknown config `${}`", name))
+                .with_message(format!("unknown config `${name}`"))
                 .with_label(*span, "config not found"),
 
             SemanticProblem::DuplicateDefinition {
@@ -477,16 +457,16 @@ impl Render for SemanticProblem {
                 kind,
                 first_span,
             } => Diagnostic::error(ErrorCode::E2006)
-                .with_message(format!("duplicate {} definition `{}`", kind, name))
+                .with_message(format!("duplicate {kind} definition `{name}`"))
                 .with_label(*span, "duplicate definition")
                 .with_secondary_label(*first_span, "first definition here"),
 
             SemanticProblem::PrivateAccess { span, name, kind } => Diagnostic::error(ErrorCode::E2003)
-                .with_message(format!("{} `{}` is private", kind, name))
+                .with_message(format!("{kind} `{name}` is private"))
                 .with_label(*span, "private, cannot access"),
 
             SemanticProblem::ImportNotFound { span, path } => Diagnostic::error(ErrorCode::E2003)
-                .with_message(format!("cannot find module `{}`", path))
+                .with_message(format!("cannot find module `{path}`"))
                 .with_label(*span, "module not found"),
 
             SemanticProblem::ImportedItemNotFound {
@@ -494,7 +474,7 @@ impl Render for SemanticProblem {
                 item,
                 module,
             } => Diagnostic::error(ErrorCode::E2003)
-                .with_message(format!("cannot find `{}` in module `{}`", item, module))
+                .with_message(format!("cannot find `{item}` in module `{module}`"))
                 .with_label(*span, "not found in module"),
 
             SemanticProblem::ImmutableMutation {
@@ -502,17 +482,17 @@ impl Render for SemanticProblem {
                 name,
                 binding_span,
             } => Diagnostic::error(ErrorCode::E2003)
-                .with_message(format!("cannot mutate immutable binding `{}`", name))
+                .with_message(format!("cannot mutate immutable binding `{name}`"))
                 .with_label(*span, "cannot mutate")
                 .with_secondary_label(*binding_span, "defined as immutable here")
                 .with_suggestion("use `let mut` for mutable bindings"),
 
             SemanticProblem::UseBeforeInit { span, name } => Diagnostic::error(ErrorCode::E2003)
-                .with_message(format!("use of possibly uninitialized `{}`", name))
+                .with_message(format!("use of possibly uninitialized `{name}`"))
                 .with_label(*span, "used before initialization"),
 
             SemanticProblem::MissingTest { span, func_name } => Diagnostic::error(ErrorCode::E3001)
-                .with_message(format!("function `@{}` has no tests", func_name))
+                .with_message(format!("function `@{func_name}` has no tests"))
                 .with_label(*span, "missing test")
                 .with_note("every function requires at least one test"),
 
@@ -522,8 +502,7 @@ impl Render for SemanticProblem {
                 target_name,
             } => Diagnostic::error(ErrorCode::E3001)
                 .with_message(format!(
-                    "test `@{}` targets unknown function `@{}`",
-                    test_name, target_name
+                    "test `@{test_name}` targets unknown function `@{target_name}`"
                 ))
                 .with_label(*span, "function not found"),
 
@@ -546,8 +525,7 @@ impl Render for SemanticProblem {
             SemanticProblem::InfiniteRecursion { span, func_name } => {
                 Diagnostic::warning(ErrorCode::E3003)
                     .with_message(format!(
-                        "function `@{}` may recurse infinitely",
-                        func_name
+                        "function `@{func_name}` may recurse infinitely"
                     ))
                     .with_label(*span, "unconditional recursion")
                     .with_suggestion("add a base case to stop recursion")
@@ -555,17 +533,17 @@ impl Render for SemanticProblem {
 
             SemanticProblem::UnusedVariable { span, name } => {
                 let mut diag = Diagnostic::warning(ErrorCode::E3003)
-                    .with_message(format!("unused variable `{}`", name))
+                    .with_message(format!("unused variable `{name}`"))
                     .with_label(*span, "never used");
                 if !name.starts_with('_') {
-                    diag = diag.with_suggestion(format!("prefix with underscore: `_{}`", name));
+                    diag = diag.with_suggestion(format!("prefix with underscore: `_{name}`"));
                 }
                 diag
             }
 
             SemanticProblem::UnusedFunction { span, name } => {
                 Diagnostic::warning(ErrorCode::E3003)
-                    .with_message(format!("unused function `@{}`", name))
+                    .with_message(format!("unused function `@{name}`"))
                     .with_label(*span, "never called")
             }
 
@@ -581,7 +559,7 @@ impl Render for SemanticProblem {
                 Diagnostic::error(ErrorCode::E3002)
                     .with_message("non-exhaustive match")
                     .with_label(*span, "patterns not covered")
-                    .with_note(format!("missing patterns: {}", missing))
+                    .with_note(format!("missing patterns: {missing}"))
             }
 
             SemanticProblem::RedundantPattern {
@@ -594,11 +572,10 @@ impl Render for SemanticProblem {
 
             SemanticProblem::MissingCapability { span, capability } => {
                 Diagnostic::error(ErrorCode::E3002)
-                    .with_message(format!("missing capability `{}`", capability))
+                    .with_message(format!("missing capability `{capability}`"))
                     .with_label(*span, "capability not provided")
                     .with_suggestion(format!(
-                        "add `uses {}` to function signature or provide with `with...in`",
-                        capability
+                        "add `uses {capability}` to function signature or provide with `with...in`"
                     ))
             }
 
@@ -607,7 +584,7 @@ impl Render for SemanticProblem {
                 capability,
                 first_span,
             } => Diagnostic::error(ErrorCode::E2006)
-                .with_message(format!("duplicate capability `{}`", capability))
+                .with_message(format!("duplicate capability `{capability}`"))
                 .with_label(*span, "duplicate")
                 .with_secondary_label(*first_span, "first provided here"),
         }
@@ -616,7 +593,7 @@ impl Render for SemanticProblem {
 
 /// Render a collection of problems into diagnostics.
 pub fn render_all(problems: &[Problem]) -> Vec<Diagnostic> {
-    problems.iter().map(|p| p.render()).collect()
+    problems.iter().map(Render::render).collect()
 }
 
 /// Process type check errors through the diagnostic queue for filtering and sorting.
@@ -709,7 +686,7 @@ impl Report {
     }
 
     pub fn has_errors(&self) -> bool {
-        self.diagnostics.iter().any(|d| d.is_error())
+        self.diagnostics.iter().any(sigil_diagnostic::Diagnostic::is_error)
     }
 
     pub fn error_count(&self) -> usize {

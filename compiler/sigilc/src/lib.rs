@@ -47,8 +47,10 @@ pub mod db;
 pub mod input;
 pub mod query;
 pub mod ir;
-pub mod lexer;
 pub mod parser;
+
+// Re-export lex function from the sigil_lexer crate (single source of truth)
+pub use sigil_lexer::lex;
 pub mod diagnostic;
 pub mod edit;
 pub mod problem;

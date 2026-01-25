@@ -14,7 +14,7 @@
 //!
 //! # Salsa Compatibility
 //!
-//! All types derive Clone, Eq, PartialEq, Hash, Debug for Salsa requirements.
+//! All types derive Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
 use crate::{Name, TypeId};
 

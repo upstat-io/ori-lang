@@ -41,15 +41,14 @@ impl EvalError {
 /// Invalid operator for a specific type.
 #[cold]
 pub fn invalid_binary_op(type_name: &str) -> EvalError {
-    EvalError::new(format!("invalid operator for {}", type_name))
+    EvalError::new(format!("invalid operator for {type_name}"))
 }
 
 /// Type mismatch in binary operation.
 #[cold]
 pub fn binary_type_mismatch(left: &str, right: &str) -> EvalError {
     EvalError::new(format!(
-        "type mismatch in binary operation: {} and {}",
-        left, right
+        "type mismatch in binary operation: {left} and {right}"
     ))
 }
 
@@ -72,22 +71,21 @@ pub fn modulo_by_zero() -> EvalError {
 /// No such method on a type.
 #[cold]
 pub fn no_such_method(method: &str, type_name: &str) -> EvalError {
-    EvalError::new(format!("no method '{}' on type {}", method, type_name))
+    EvalError::new(format!("no method '{method}' on type {type_name}"))
 }
 
 /// Wrong argument count for a method.
 #[cold]
 pub fn wrong_arg_count(method: &str, expected: usize, got: usize) -> EvalError {
     EvalError::new(format!(
-        "{} expects {} argument(s), got {}",
-        method, expected, got
+        "{method} expects {expected} argument(s), got {got}"
     ))
 }
 
 /// Wrong argument type for a method.
 #[cold]
 pub fn wrong_arg_type(method: &str, expected: &str) -> EvalError {
-    EvalError::new(format!("{} expects a {} argument", method, expected))
+    EvalError::new(format!("{method} expects a {expected} argument"))
 }
 
 // =============================================================================
@@ -97,31 +95,31 @@ pub fn wrong_arg_type(method: &str, expected: &str) -> EvalError {
 /// Undefined variable.
 #[cold]
 pub fn undefined_variable(name: &str) -> EvalError {
-    EvalError::new(format!("undefined variable: {}", name))
+    EvalError::new(format!("undefined variable: {name}"))
 }
 
 /// Undefined function.
 #[cold]
 pub fn undefined_function(name: &str) -> EvalError {
-    EvalError::new(format!("undefined function: @{}", name))
+    EvalError::new(format!("undefined function: @{name}"))
 }
 
 /// Undefined config.
 #[cold]
 pub fn undefined_config(name: &str) -> EvalError {
-    EvalError::new(format!("undefined config: ${}", name))
+    EvalError::new(format!("undefined config: ${name}"))
 }
 
 /// Value is not callable.
 #[cold]
 pub fn not_callable(type_name: &str) -> EvalError {
-    EvalError::new(format!("{} is not callable", type_name))
+    EvalError::new(format!("{type_name} is not callable"))
 }
 
 /// Wrong number of arguments in function call.
 #[cold]
 pub fn wrong_function_args(expected: usize, got: usize) -> EvalError {
-    EvalError::new(format!("expected {} arguments, got {}", expected, got))
+    EvalError::new(format!("expected {expected} arguments, got {got}"))
 }
 
 // =============================================================================
@@ -131,49 +129,49 @@ pub fn wrong_function_args(expected: usize, got: usize) -> EvalError {
 /// Index out of bounds.
 #[cold]
 pub fn index_out_of_bounds(index: i64) -> EvalError {
-    EvalError::new(format!("index {} out of bounds", index))
+    EvalError::new(format!("index {index} out of bounds"))
 }
 
 /// Key not found in map.
 #[cold]
 pub fn key_not_found(key: &str) -> EvalError {
-    EvalError::new(format!("key not found: {}", key))
+    EvalError::new(format!("key not found: {key}"))
 }
 
 /// Cannot index type with another type.
 #[cold]
 pub fn cannot_index(receiver: &str, index: &str) -> EvalError {
-    EvalError::new(format!("cannot index {} with {}", receiver, index))
+    EvalError::new(format!("cannot index {receiver} with {index}"))
 }
 
 /// Cannot get length of type.
 #[cold]
 pub fn cannot_get_length(type_name: &str) -> EvalError {
-    EvalError::new(format!("cannot get length of {}", type_name))
+    EvalError::new(format!("cannot get length of {type_name}"))
 }
 
 /// No field on struct.
 #[cold]
 pub fn no_field_on_struct(field: &str) -> EvalError {
-    EvalError::new(format!("no field {} on struct", field))
+    EvalError::new(format!("no field {field} on struct"))
 }
 
 /// Invalid tuple field.
 #[cold]
 pub fn invalid_tuple_field(field: &str) -> EvalError {
-    EvalError::new(format!("invalid tuple field: {}", field))
+    EvalError::new(format!("invalid tuple field: {field}"))
 }
 
 /// Tuple index out of bounds.
 #[cold]
 pub fn tuple_index_out_of_bounds(index: usize) -> EvalError {
-    EvalError::new(format!("tuple index {} out of bounds", index))
+    EvalError::new(format!("tuple index {index} out of bounds"))
 }
 
 /// Cannot access field on type.
 #[cold]
 pub fn cannot_access_field(type_name: &str) -> EvalError {
-    EvalError::new(format!("cannot access field on {}", type_name))
+    EvalError::new(format!("cannot access field on {type_name}"))
 }
 
 // =============================================================================
@@ -183,7 +181,7 @@ pub fn cannot_access_field(type_name: &str) -> EvalError {
 /// Range start/end must be integer.
 #[cold]
 pub fn range_bound_not_int(bound: &str) -> EvalError {
-    EvalError::new(format!("range {} must be an integer", bound))
+    EvalError::new(format!("range {bound} must be an integer"))
 }
 
 /// Unbounded range end.
@@ -211,7 +209,7 @@ pub fn non_exhaustive_match() -> EvalError {
 /// Cannot assign to immutable variable.
 #[cold]
 pub fn cannot_assign_immutable(name: &str) -> EvalError {
-    EvalError::new(format!("cannot assign to immutable variable: {}", name))
+    EvalError::new(format!("cannot assign to immutable variable: {name}"))
 }
 
 /// Invalid assignment target.

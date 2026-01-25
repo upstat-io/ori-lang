@@ -1,9 +1,9 @@
 //! Type Checker Output Types
 //!
-//! Contains TypedModule, GenericBound, FunctionType, and TypeCheckError.
+//! Contains `TypedModule`, `GenericBound`, `FunctionType`, and `TypeCheckError`.
 //!
 //! # Salsa Compatibility
-//! All types have Clone, Eq, PartialEq, Hash, Debug for Salsa requirements.
+//! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
 use crate::diagnostic::{Diagnostic, ErrorCode};
 use crate::ir::{Name, Span};
@@ -15,7 +15,7 @@ use crate::types::Type;
 /// Has Clone, Eq, Hash for use in query results.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct TypedModule {
-    /// Type of each expression (indexed by ExprId).
+    /// Type of each expression (indexed by `ExprId`).
     pub expr_types: Vec<Type>,
     /// Type of each function.
     pub function_types: Vec<FunctionType>,

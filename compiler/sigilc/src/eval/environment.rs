@@ -40,7 +40,7 @@ use super::value::Value;
 pub struct LocalScope<T>(Rc<RefCell<T>>);
 
 impl<T> LocalScope<T> {
-    /// Create a new LocalScope wrapping the given value.
+    /// Create a new `LocalScope` wrapping the given value.
     ///
     /// This is the public factory method for creating scopes.
     #[inline]
@@ -202,8 +202,9 @@ impl Environment {
     }
 
     /// Get the current scope.
+    /// Returns the last scope on the stack, or the global scope if empty (which shouldn't happen).
     fn current_scope(&self) -> LocalScope<Scope> {
-        self.scopes.last().unwrap().clone()
+        self.scopes.last().unwrap_or(&self.global).clone()
     }
 
     /// Define a variable in the current scope.
@@ -235,6 +236,7 @@ impl Environment {
     ///
     /// This creates a new environment that shares the global scope
     /// but has its own local scope stack.
+    #[must_use]
     pub fn child(&self) -> Self {
         Environment {
             scopes: vec![self.global.clone()],
@@ -247,9 +249,7 @@ impl Environment {
     /// Returns a map of all visible bindings that can be used
     /// when the closure is called later.
     pub fn capture(&self) -> HashMap<Name, Value> {
-        let mut captures = HashMap::new();
-        // Walk up the scope chain and collect bindings
-        // (most recent binding wins)
+        // Helper function to walk up the scope chain and collect bindings
         fn collect(scope: &Scope, captures: &mut HashMap<Name, Value>) {
             for (name, binding) in &scope.bindings {
                 captures.entry(*name).or_insert_with(|| binding.value.clone());
@@ -258,6 +258,9 @@ impl Environment {
                 collect(&parent.borrow(), captures);
             }
         }
+
+        let mut captures = HashMap::new();
+        // (most recent binding wins)
         collect(&self.current_scope().borrow(), &mut captures);
         captures
     }

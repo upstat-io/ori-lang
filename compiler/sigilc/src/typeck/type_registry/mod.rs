@@ -1,11 +1,11 @@
 //! Registry for user-defined types.
 //!
-//! The TypeRegistry maintains a centralized collection of all user-defined types
+//! The `TypeRegistry` maintains a centralized collection of all user-defined types
 //! (structs, enums, type aliases) encountered during compilation. It provides:
 //!
 //! - Registration of new user types
-//! - TypeId generation for compound types
-//! - Lookup of type definitions by name or TypeId
+//! - `TypeId` generation for compound types
+//! - Lookup of type definitions by name or `TypeId`
 //!
 //! # Salsa Compatibility
 //! All types implement Clone, Eq, Hash for use in query results.
@@ -55,7 +55,7 @@ pub struct VariantDef {
 pub struct TypeEntry {
     /// Type name.
     pub name: Name,
-    /// The assigned TypeId for this type.
+    /// The assigned `TypeId` for this type.
     pub type_id: TypeId,
     /// Kind of type (struct, enum, alias).
     pub kind: TypeKind,
@@ -68,20 +68,20 @@ pub struct TypeEntry {
 /// Registry for user-defined types.
 ///
 /// Maintains a mapping from type names to their definitions, and generates
-/// unique TypeIds for compound types.
+/// unique `TypeIds` for compound types.
 ///
 /// # Salsa Compatibility
-/// Has Clone, Eq, PartialEq, Debug for use in query results.
-/// Note: HashMap doesn't implement Hash, so TypeRegistry can't either.
-/// Salsa queries that return TypeRegistry should use interior mutability
-/// or return individual TypeEntry values instead.
+/// Has Clone, Eq, `PartialEq`, Debug for use in query results.
+/// Note: `HashMap` doesn't implement Hash, so `TypeRegistry` can't either.
+/// Salsa queries that return `TypeRegistry` should use interior mutability
+/// or return individual `TypeEntry` values instead.
 #[derive(Clone, Eq, PartialEq, Debug, Default)]
 pub struct TypeRegistry {
     /// Types indexed by name.
     types_by_name: HashMap<Name, TypeEntry>,
-    /// Types indexed by TypeId.
+    /// Types indexed by `TypeId`.
     types_by_id: HashMap<TypeId, TypeEntry>,
-    /// Next available TypeId for compound types.
+    /// Next available `TypeId` for compound types.
     next_type_id: u32,
 }
 
@@ -95,7 +95,7 @@ impl TypeRegistry {
         }
     }
 
-    /// Generate the next available TypeId for a compound type.
+    /// Generate the next available `TypeId` for a compound type.
     fn next_id(&mut self) -> TypeId {
         let id = TypeId::new(self.next_type_id);
         self.next_type_id += 1;
@@ -104,7 +104,7 @@ impl TypeRegistry {
 
     /// Register a struct type.
     ///
-    /// Returns the assigned TypeId.
+    /// Returns the assigned `TypeId`.
     pub fn register_struct(
         &mut self,
         name: Name,
@@ -127,7 +127,7 @@ impl TypeRegistry {
 
     /// Register an enum type.
     ///
-    /// Returns the assigned TypeId.
+    /// Returns the assigned `TypeId`.
     pub fn register_enum(
         &mut self,
         name: Name,
@@ -150,7 +150,7 @@ impl TypeRegistry {
 
     /// Register a type alias.
     ///
-    /// Returns the assigned TypeId.
+    /// Returns the assigned `TypeId`.
     pub fn register_alias(
         &mut self,
         name: Name,
@@ -176,7 +176,7 @@ impl TypeRegistry {
         self.types_by_name.get(&name)
     }
 
-    /// Look up a type entry by TypeId.
+    /// Look up a type entry by `TypeId`.
     pub fn get_by_id(&self, type_id: TypeId) -> Option<&TypeEntry> {
         self.types_by_id.get(&type_id)
     }
@@ -203,7 +203,7 @@ impl TypeRegistry {
 
     /// Convert a registered type to the type checker's Type representation.
     ///
-    /// For struct and enum types, returns Type::Named(name).
+    /// For struct and enum types, returns `Type::Named(name)`.
     /// For aliases, returns the target type directly.
     pub fn to_type(&self, type_id: TypeId) -> Option<Type> {
         self.get_by_id(type_id).map(|entry| {

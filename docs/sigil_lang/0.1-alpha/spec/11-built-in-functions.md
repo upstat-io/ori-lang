@@ -118,6 +118,50 @@ Available without import:
 - All assertions
 - `print`, `panic`, `compare`, `min`, `max`
 
+## Collection Methods
+
+Data transformation via method calls on collections.
+
+### List Methods
+
+```
+[T].map(transform: T -> U) -> [U]
+[T].filter(predicate: T -> bool) -> [T]
+[T].fold(initial: U, op: (U, T) -> U) -> U
+[T].find(where: T -> bool) -> Option<T>
+[T].any(predicate: T -> bool) -> bool
+[T].all(predicate: T -> bool) -> bool
+[T].first() -> Option<T>
+[T].last() -> Option<T>
+[T].take(n: int) -> [T]
+[T].skip(n: int) -> [T]
+[T].reverse() -> [T]
+[T].sort() -> [T] where T: Comparable
+[T].contains(value: T) -> bool where T: Eq
+```
+
+### Range Methods
+
+```
+Range<T>.map(transform: T -> U) -> [U]
+Range<T>.filter(predicate: T -> bool) -> [T]
+Range<T>.fold(initial: U, op: (U, T) -> U) -> U
+Range<T>.collect() -> [T]
+Range<T>.contains(value: T) -> bool
+```
+
+### String Methods
+
+```
+str.split(sep: str) -> [str]
+str.trim() -> str
+str.upper() -> str
+str.lower() -> str
+str.starts_with(prefix: str) -> bool
+str.ends_with(suffix: str) -> bool
+str.contains(substr: str) -> bool
+```
+
 ## Standard Library
 
 | Module | Contents |
@@ -127,3 +171,30 @@ Available without import:
 | `std.list` | `sort`, `reverse`, `unique` |
 | `std.io` | File I/O |
 | `std.net` | Network |
+| `std.resilience` | `retry`, `exponential`, `linear` |
+| `std.validate` | `validate` |
+
+### std.resilience
+
+```sigil
+use std.resilience { retry, exponential, linear }
+
+retry(op: fetch(url), attempts: 3, backoff: exponential(base: 100ms))
+retry(op: fetch(url), attempts: 5, backoff: linear(delay: 100ms))
+```
+
+### std.validate
+
+```sigil
+use std.validate { validate }
+
+validate(
+    rules: [
+        age >= 0 | "age must be non-negative",
+        name != "" | "name required",
+    ],
+    value: User { name, age },
+)
+```
+
+Returns `Result<T, [str]>`.

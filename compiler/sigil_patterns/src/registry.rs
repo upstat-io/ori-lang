@@ -23,8 +23,8 @@ use crate::PatternDefinition;
 /// this type, preventing accidental direct `Arc<dyn PatternDefinition>` usage.
 ///
 /// # Purpose
-/// Patterns like `map`, `filter`, `fold` are stored in the PatternRegistry
-/// as trait objects. SharedPattern wraps these trait objects in a clonable,
+/// Patterns like `map`, `filter`, `fold` are stored in the `PatternRegistry`
+/// as trait objects. `SharedPattern` wraps these trait objects in a clonable,
 /// thread-safe wrapper that can be shared across type checking and evaluation.
 ///
 /// # Thread Safety
@@ -69,11 +69,7 @@ impl PatternRegistry {
         }
     }
 
-    /// Create a new registry with all built-in patterns registered.
-    ///
-    /// Per "Lean Core, Rich Libraries": data transformation patterns (map, filter,
-    /// fold, find, collect) are now methods on collections via stdlib. The compiler
-    /// only provides patterns requiring special syntax or static analysis.
+    /// Create a new registry with all compiler patterns registered.
     pub fn new() -> Self {
         let mut patterns: HashMap<FunctionExpKind, SharedPattern> = HashMap::new();
 
@@ -136,9 +132,6 @@ mod tests {
     #[test]
     fn test_registry_has_all_patterns() {
         let registry = PatternRegistry::new();
-
-        // Should have 8 patterns (per "Lean Core, Rich Libraries"):
-        // Recurse, Parallel, Spawn, Timeout, Cache, With, Print, Panic
         assert_eq!(registry.len(), 8);
 
         // Verify each pattern is registered

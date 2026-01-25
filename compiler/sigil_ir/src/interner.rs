@@ -42,7 +42,7 @@ impl InternShard {
 /// Provides O(1) lookup and equality comparison for interned strings.
 ///
 /// # Thread Safety
-/// Uses RwLock per shard for concurrent read/write access.
+/// Uses `RwLock` per shard for concurrent read/write access.
 /// Can be wrapped in Arc for sharing across threads.
 pub struct StringInterner {
     shards: [RwLock<InternShard>; Name::NUM_SHARDS],
@@ -69,21 +69,28 @@ impl StringInterner {
     fn shard_for(s: &str) -> usize {
         let mut hash = 0u32;
         for byte in s.bytes().take(8) {
-            hash = hash.wrapping_mul(31).wrapping_add(byte as u32);
+            hash = hash.wrapping_mul(31).wrapping_add(u32::from(byte));
         }
         (hash as usize) % Name::NUM_SHARDS
     }
 
     /// Intern a string, returning its Name.
+    ///
+    /// # Panics
+    /// Panics if the interner exceeds capacity (over 4 billion strings per shard).
     pub fn intern(&self, s: &str) -> Name {
         let shard_idx = Self::shard_for(s);
+        // shard_idx is always < NUM_SHARDS (16) due to modulo, guaranteed to fit in u32
+        let shard_idx_u32 = u32::try_from(shard_idx).unwrap_or_else(|_| {
+            unreachable!("shard_idx {} from modulo {} cannot exceed u32", shard_idx, Name::NUM_SHARDS)
+        });
         let shard = &self.shards[shard_idx];
 
         // Fast path: check if already interned
         {
             let guard = shard.read();
             if let Some(&local) = guard.map.get(s) {
-                return Name::new(shard_idx as u32, local);
+                return Name::new(shard_idx_u32, local);
             }
         }
 
@@ -92,18 +99,20 @@ impl StringInterner {
 
         // Double-check after acquiring write lock
         if let Some(&local) = guard.map.get(s) {
-            return Name::new(shard_idx as u32, local);
+            return Name::new(shard_idx_u32, local);
         }
 
         // Leak the string to get 'static lifetime
         let owned: String = s.to_owned();
         let leaked: &'static str = Box::leak(owned.into_boxed_str());
 
-        let local = guard.strings.len() as u32;
+        let local = u32::try_from(guard.strings.len()).unwrap_or_else(|_| {
+            panic!("interner shard {shard_idx} exceeded u32::MAX strings")
+        });
         guard.strings.push(leaked);
         guard.map.insert(leaked, local);
 
-        Name::new(shard_idx as u32, local)
+        Name::new(shard_idx_u32, local)
     }
 
     /// Look up the string for a Name.
@@ -161,13 +170,13 @@ impl Default for StringInterner {
 ///
 /// # Purpose
 /// The string interner must be shared across lexer, parser, type checker,
-/// and evaluator. SharedInterner provides a clonable handle that can be
+/// and evaluator. `SharedInterner` provides a clonable handle that can be
 /// passed to each compiler phase while ensuring all phases share the same
 /// interned string storage.
 ///
 /// # Thread Safety
 /// Uses `Arc` internally for thread-safe reference counting. The underlying
-/// `StringInterner` uses per-shard RwLocks for concurrent access.
+/// `StringInterner` uses per-shard `RwLocks` for concurrent access.
 ///
 /// # Usage
 /// ```ignore

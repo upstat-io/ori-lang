@@ -4,11 +4,41 @@
 //! - Contiguous storage for all expressions
 //! - Cache-friendly iteration
 //! - Bulk deallocation
+//!
+//! # Capacity Limits
+//! - Max expressions: 4 billion (`u32::MAX`)
+//! - Max list/range length: 65,535 (`u16::MAX`)
+//!
+//! These limits are enforced at runtime with clear panic messages.
 
 // Arc is needed for SharedArena - the implementation of shared arena references
 #![expect(clippy::disallowed_types, reason = "Arc is the implementation of SharedArena")]
 
 use super::{ExprId, ExprRange, StmtId, StmtRange};
+
+// ===== Safe casting helpers =====
+
+/// Convert usize to u32, panicking with a clear message on overflow.
+#[inline]
+fn to_u32(value: usize, context: &str) -> u32 {
+    u32::try_from(value).unwrap_or_else(|_| {
+        panic!(
+            "arena capacity exceeded: {context} has {value} elements, max is {}",
+            u32::MAX
+        )
+    })
+}
+
+/// Convert usize to u16, panicking with a clear message on overflow.
+#[inline]
+fn to_u16(value: usize, context: &str) -> u16 {
+    u16::try_from(value).unwrap_or_else(|_| {
+        panic!(
+            "range length exceeded: {context} has {value} elements, max is {}",
+            u16::MAX
+        )
+    })
+}
 use super::ast::{
     Expr, Stmt, Param, ParamRange,
     MatchArm, MapEntry, FieldInit,
@@ -26,20 +56,20 @@ use std::hash::{Hash, Hasher};
 /// # Design
 /// Per spec: "Contiguous arrays for cache locality"
 /// - All expressions stored in flat Vec
-/// - Child references use ExprId indices
-/// - Expression lists use ExprRange into expr_lists
+/// - Child references use `ExprId` indices
+/// - Expression lists use `ExprRange` into `expr_lists`
 ///
 /// # Salsa Compatibility
 /// Has Clone, Eq, Hash for use in query results.
 #[derive(Clone, Default)]
 pub struct ExprArena {
-    /// All expressions (indexed by ExprId).
+    /// All expressions (indexed by `ExprId`).
     exprs: Vec<Expr>,
 
     /// Flattened expression lists (for Call args, List elements, etc.).
     expr_lists: Vec<ExprId>,
 
-    /// All statements (indexed by StmtId).
+    /// All statements (indexed by `StmtId`).
     stmts: Vec<Stmt>,
 
     /// All parameters.
@@ -54,13 +84,13 @@ pub struct ExprArena {
     /// All field initializers.
     field_inits: Vec<FieldInit>,
 
-    /// Sequence bindings for function_seq (run/try).
+    /// Sequence bindings for `function_seq` (run/try).
     seq_bindings: Vec<SeqBinding>,
 
-    /// Named expressions for function_exp.
+    /// Named expressions for `function_exp`.
     named_exprs: Vec<NamedExpr>,
 
-    /// Call arguments for CallNamed.
+    /// Call arguments for `CallNamed`.
     call_args: Vec<CallArg>,
 
     /// Generic parameters for functions and types.
@@ -97,7 +127,7 @@ impl ExprArena {
     /// Allocate expression, return ID.
     #[inline]
     pub fn alloc_expr(&mut self, expr: Expr) -> ExprId {
-        let id = ExprId::new(self.exprs.len() as u32);
+        let id = ExprId::new(to_u32(self.exprs.len(), "expressions"));
         self.exprs.push(expr);
         id
     }
@@ -132,9 +162,9 @@ impl ExprArena {
 
     /// Allocate expression list, return range.
     pub fn alloc_expr_list(&mut self, exprs: impl IntoIterator<Item = ExprId>) -> ExprRange {
-        let start = self.expr_lists.len() as u32;
+        let start = to_u32(self.expr_lists.len(), "expression lists");
         self.expr_lists.extend(exprs);
-        let len = (self.expr_lists.len() as u32 - start) as u16;
+        let len = to_u16(self.expr_lists.len() - start as usize, "expression list");
         ExprRange::new(start, len)
     }
 
@@ -151,7 +181,7 @@ impl ExprArena {
     /// Allocate statement, return ID.
     #[inline]
     pub fn alloc_stmt(&mut self, stmt: Stmt) -> StmtId {
-        let id = StmtId::new(self.stmts.len() as u32);
+        let id = StmtId::new(to_u32(self.stmts.len(), "statements"));
         self.stmts.push(stmt);
         id
     }
@@ -168,7 +198,7 @@ impl ExprArena {
 
     /// Allocate statement list, return range.
     pub fn alloc_stmt_range(&mut self, start_index: u32, count: usize) -> StmtRange {
-        StmtRange::new(start_index, count as u16)
+        StmtRange::new(start_index, to_u16(count, "statement range"))
     }
 
     /// Get statements by range.
@@ -182,9 +212,9 @@ impl ExprArena {
 
     /// Allocate parameter list, return range.
     pub fn alloc_params(&mut self, params: impl IntoIterator<Item = Param>) -> ParamRange {
-        let start = self.params.len() as u32;
+        let start = to_u32(self.params.len(), "parameters");
         self.params.extend(params);
-        let len = (self.params.len() as u32 - start) as u16;
+        let len = to_u16(self.params.len() - start as usize, "parameter list");
         ParamRange::new(start, len)
     }
 
@@ -200,9 +230,9 @@ impl ExprArena {
 
     /// Allocate match arms, return range.
     pub fn alloc_arms(&mut self, arms: impl IntoIterator<Item = MatchArm>) -> ArmRange {
-        let start = self.arms.len() as u32;
+        let start = to_u32(self.arms.len(), "match arms");
         self.arms.extend(arms);
-        let len = (self.arms.len() as u32 - start) as u16;
+        let len = to_u16(self.arms.len() - start as usize, "match arm list");
         ArmRange::new(start, len)
     }
 
@@ -218,9 +248,9 @@ impl ExprArena {
 
     /// Allocate map entries, return range.
     pub fn alloc_map_entries(&mut self, entries: impl IntoIterator<Item = MapEntry>) -> MapEntryRange {
-        let start = self.map_entries.len() as u32;
+        let start = to_u32(self.map_entries.len(), "map entries");
         self.map_entries.extend(entries);
-        let len = (self.map_entries.len() as u32 - start) as u16;
+        let len = to_u16(self.map_entries.len() - start as usize, "map entry list");
         MapEntryRange::new(start, len)
     }
 
@@ -236,9 +266,9 @@ impl ExprArena {
 
     /// Allocate field initializers, return range.
     pub fn alloc_field_inits(&mut self, inits: impl IntoIterator<Item = FieldInit>) -> FieldInitRange {
-        let start = self.field_inits.len() as u32;
+        let start = to_u32(self.field_inits.len(), "field initializers");
         self.field_inits.extend(inits);
-        let len = (self.field_inits.len() as u32 - start) as u16;
+        let len = to_u16(self.field_inits.len() - start as usize, "field initializer list");
         FieldInitRange::new(start, len)
     }
 
@@ -254,9 +284,9 @@ impl ExprArena {
 
     /// Allocate sequence bindings, return range.
     pub fn alloc_seq_bindings(&mut self, bindings: impl IntoIterator<Item = SeqBinding>) -> SeqBindingRange {
-        let start = self.seq_bindings.len() as u32;
+        let start = to_u32(self.seq_bindings.len(), "sequence bindings");
         self.seq_bindings.extend(bindings);
-        let len = (self.seq_bindings.len() as u32 - start) as u16;
+        let len = to_u16(self.seq_bindings.len() - start as usize, "sequence binding list");
         SeqBindingRange::new(start, len)
     }
 
@@ -272,9 +302,9 @@ impl ExprArena {
 
     /// Allocate named expressions, return range.
     pub fn alloc_named_exprs(&mut self, exprs: impl IntoIterator<Item = NamedExpr>) -> NamedExprRange {
-        let start = self.named_exprs.len() as u32;
+        let start = to_u32(self.named_exprs.len(), "named expressions");
         self.named_exprs.extend(exprs);
-        let len = (self.named_exprs.len() as u32 - start) as u16;
+        let len = to_u16(self.named_exprs.len() - start as usize, "named expression list");
         NamedExprRange::new(start, len)
     }
 
@@ -290,9 +320,9 @@ impl ExprArena {
 
     /// Allocate call arguments, return range.
     pub fn alloc_call_args(&mut self, args: impl IntoIterator<Item = CallArg>) -> CallArgRange {
-        let start = self.call_args.len() as u32;
+        let start = to_u32(self.call_args.len(), "call arguments");
         self.call_args.extend(args);
-        let len = (self.call_args.len() as u32 - start) as u16;
+        let len = to_u16(self.call_args.len() - start as usize, "call argument list");
         CallArgRange::new(start, len)
     }
 
@@ -308,9 +338,9 @@ impl ExprArena {
 
     /// Allocate generic parameters, return range.
     pub fn alloc_generic_params(&mut self, params: impl IntoIterator<Item = GenericParam>) -> GenericParamRange {
-        let start = self.generic_params.len() as u32;
+        let start = to_u32(self.generic_params.len(), "generic parameters");
         self.generic_params.extend(params);
-        let len = (self.generic_params.len() as u32 - start) as u16;
+        let len = to_u16(self.generic_params.len() - start as usize, "generic parameter list");
         GenericParamRange::new(start, len)
     }
 
@@ -408,7 +438,7 @@ use std::sync::Arc;
 ///
 /// # Purpose
 /// When importing functions from other modules, the function's body expression
-/// references expressions in the imported module's arena. SharedArena allows
+/// references expressions in the imported module's arena. `SharedArena` allows
 /// the imported function to carry its arena reference for correct evaluation.
 ///
 /// # Thread Safety
@@ -423,7 +453,7 @@ use std::sync::Arc;
 pub struct SharedArena(Arc<ExprArena>);
 
 impl SharedArena {
-    /// Create a new shared arena from an ExprArena.
+    /// Create a new shared arena from an `ExprArena`.
     pub fn new(arena: ExprArena) -> Self {
         SharedArena(Arc::new(arena))
     }

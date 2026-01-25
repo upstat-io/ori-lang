@@ -7,9 +7,9 @@ use sigil_ir::{ParsedType, TokenKind, TypeId};
 
 use crate::Parser;
 
-impl<'a> Parser<'a> {
+impl Parser<'_> {
     /// Parse a type expression.
-    /// Returns a ParsedType representing the full type structure.
+    /// Returns a `ParsedType` representing the full type structure.
     pub(crate) fn parse_type(&mut self) -> Option<ParsedType> {
         if self.check_type_keyword() {
             let kind = self.current().kind.clone();
@@ -25,7 +25,7 @@ impl<'a> Parser<'a> {
                 TokenKind::NeverType => Some(ParsedType::primitive(TypeId::NEVER)),
                 _ => None,
             }
-        } else if self.check(TokenKind::SelfUpper) {
+        } else if self.check(&TokenKind::SelfUpper) {
             // Self type - used in trait/impl contexts
             self.advance();
             Some(ParsedType::SelfType)
@@ -40,18 +40,18 @@ impl<'a> Parser<'a> {
             // Check for generic parameters
             let type_args = self.parse_optional_generic_args_full();
             Some(ParsedType::Named { name, type_args })
-        } else if self.check(TokenKind::LBracket) {
+        } else if self.check(&TokenKind::LBracket) {
             // [T] list type
             self.advance(); // [
             let inner = self.parse_type()?;
-            if self.check(TokenKind::RBracket) {
+            if self.check(&TokenKind::RBracket) {
                 self.advance(); // ]
             }
             Some(ParsedType::list(inner))
-        } else if self.check(TokenKind::LBrace) {
+        } else if self.check(&TokenKind::LBrace) {
             // {K: V} map type
             self.parse_map_type()
-        } else if self.check(TokenKind::LParen) {
+        } else if self.check(&TokenKind::LParen) {
             // (T, U) tuple or () unit or (T) -> U function type
             self.parse_paren_type()
         } else {
@@ -62,7 +62,7 @@ impl<'a> Parser<'a> {
     /// Parse optional generic arguments: `<T, U, ...>`
     /// Returns an empty Vec if no generic arguments are present.
     fn parse_optional_generic_args_full(&mut self) -> Vec<ParsedType> {
-        if !self.check(TokenKind::Lt) {
+        if !self.check(&TokenKind::Lt) {
             return Vec::new();
         }
         self.advance(); // <
@@ -70,18 +70,18 @@ impl<'a> Parser<'a> {
         let mut args = Vec::new();
 
         // Parse comma-separated type arguments
-        while !self.check(TokenKind::Gt) && !self.is_at_end() {
+        while !self.check(&TokenKind::Gt) && !self.is_at_end() {
             if let Some(ty) = self.parse_type() {
                 args.push(ty);
             }
-            if self.check(TokenKind::Comma) {
+            if self.check(&TokenKind::Comma) {
                 self.advance();
             } else {
                 break;
             }
         }
 
-        if self.check(TokenKind::Gt) {
+        if self.check(&TokenKind::Gt) {
             self.advance(); // >
         }
 
@@ -96,7 +96,7 @@ impl<'a> Parser<'a> {
         let key = self.parse_type()?;
 
         // Expect colon
-        if self.check(TokenKind::Colon) {
+        if self.check(&TokenKind::Colon) {
             self.advance();
         }
 
@@ -104,7 +104,7 @@ impl<'a> Parser<'a> {
         let value = self.parse_type()?;
 
         // Expect closing brace
-        if self.check(TokenKind::RBrace) {
+        if self.check(&TokenKind::RBrace) {
             self.advance();
         }
 
@@ -116,10 +116,10 @@ impl<'a> Parser<'a> {
         self.advance(); // (
 
         // Empty parens: () unit or () -> T function type
-        if self.check(TokenKind::RParen) {
+        if self.check(&TokenKind::RParen) {
             self.advance(); // )
             // Check for -> (function type: () -> T)
-            if self.check(TokenKind::Arrow) {
+            if self.check(&TokenKind::Arrow) {
                 self.advance();
                 let ret = self.parse_type()?;
                 return Some(ParsedType::function(Vec::new(), ret));
@@ -135,9 +135,9 @@ impl<'a> Parser<'a> {
         }
 
         // Collect remaining elements if tuple
-        while self.check(TokenKind::Comma) {
+        while self.check(&TokenKind::Comma) {
             self.advance();
-            if self.check(TokenKind::RParen) {
+            if self.check(&TokenKind::RParen) {
                 break; // trailing comma
             }
             if let Some(ty) = self.parse_type() {
@@ -145,12 +145,12 @@ impl<'a> Parser<'a> {
             }
         }
 
-        if self.check(TokenKind::RParen) {
+        if self.check(&TokenKind::RParen) {
             self.advance();
         }
 
         // Check for -> (function type)
-        if self.check(TokenKind::Arrow) {
+        if self.check(&TokenKind::Arrow) {
             self.advance();
             let ret = self.parse_type()?;
             return Some(ParsedType::function(elements, ret));

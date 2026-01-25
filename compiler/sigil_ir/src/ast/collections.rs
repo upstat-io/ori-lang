@@ -3,7 +3,7 @@
 //! Map entries, field initializers, and call arguments.
 //!
 //! # Salsa Compatibility
-//! All types have Clone, Eq, PartialEq, Hash, Debug for Salsa requirements.
+//! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
 use crate::{Name, Span, ExprId, Spanned};
 

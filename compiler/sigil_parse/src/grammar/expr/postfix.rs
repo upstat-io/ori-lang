@@ -5,17 +5,17 @@
 use sigil_ir::{CallArg, Expr, ExprId, ExprKind, Param, TokenKind};
 use crate::{ParseError, Parser};
 
-impl<'a> Parser<'a> {
+impl Parser<'_> {
     /// Parse function calls and field access.
     pub(crate) fn parse_call(&mut self) -> Result<ExprId, ParseError> {
         let mut expr = self.parse_primary()?;
 
         loop {
-            if self.check(TokenKind::LParen) {
+            if self.check(&TokenKind::LParen) {
                 // Function call
                 self.advance();
                 let (call_args, has_positional, has_named) = self.parse_call_args()?;
-                self.expect(TokenKind::RParen)?;
+                self.expect(&TokenKind::RParen)?;
 
                 let call_span = self.arena.get_expr(expr).span.merge(self.previous_span());
 
@@ -43,27 +43,27 @@ impl<'a> Parser<'a> {
                         call_span,
                     ));
                 }
-            } else if self.check(TokenKind::Dot) {
+            } else if self.check(&TokenKind::Dot) {
                 // Field access or method call
                 self.advance();
                 let field = self.expect_ident()?;
 
-                if self.check(TokenKind::LParen) {
+                if self.check(&TokenKind::LParen) {
                     self.advance();
                     let mut args = Vec::new();
-                    if !self.check(TokenKind::RParen) {
+                    if !self.check(&TokenKind::RParen) {
                         args.push(self.parse_expr()?);
-                        while self.check(TokenKind::Comma) {
+                        while self.check(&TokenKind::Comma) {
                             self.advance();
                             self.skip_newlines();
-                            if self.check(TokenKind::RParen) {
+                            if self.check(&TokenKind::RParen) {
                                 break;
                             }
                             args.push(self.parse_expr()?);
                         }
                     }
                     let args_range = self.arena.alloc_expr_list(args);
-                    self.expect(TokenKind::RParen)?;
+                    self.expect(&TokenKind::RParen)?;
 
                     let span = self.arena.get_expr(expr).span.merge(self.previous_span());
                     expr = self.arena.alloc_expr(Expr::new(
@@ -77,18 +77,18 @@ impl<'a> Parser<'a> {
                         span,
                     ));
                 }
-            } else if self.check(TokenKind::LBracket) {
+            } else if self.check(&TokenKind::LBracket) {
                 // Index access
                 self.advance();
                 let index = self.parse_expr()?;
-                self.expect(TokenKind::RBracket)?;
+                self.expect(&TokenKind::RBracket)?;
 
                 let span = self.arena.get_expr(expr).span.merge(self.previous_span());
                 expr = self.arena.alloc_expr(Expr::new(
                     ExprKind::Index { receiver: expr, index },
                     span,
                 ));
-            } else if self.check(TokenKind::Arrow) {
+            } else if self.check(&TokenKind::Arrow) {
                 // Single-param lambda without parens: x -> body
                 let expr_data = self.arena.get_expr(expr);
                 if let ExprKind::Ident(name) = &expr_data.kind {
@@ -122,14 +122,14 @@ impl<'a> Parser<'a> {
         let mut has_positional = false;
         let mut has_named = false;
 
-        while !self.check(TokenKind::RParen) && !self.is_at_end() {
+        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
             self.skip_newlines();
 
             let arg_span = self.current_span();
 
             if self.is_named_arg_start() {
                 let name = self.expect_ident_or_keyword()?;
-                self.expect(TokenKind::Colon)?;
+                self.expect(&TokenKind::Colon)?;
                 let value = self.parse_expr()?;
                 let end_span = self.arena.get_expr(value).span;
 
@@ -153,8 +153,8 @@ impl<'a> Parser<'a> {
 
             self.skip_newlines();
 
-            if !self.check(TokenKind::RParen) {
-                self.expect(TokenKind::Comma)?;
+            if !self.check(&TokenKind::RParen) {
+                self.expect(&TokenKind::Comma)?;
                 self.skip_newlines();
             }
         }

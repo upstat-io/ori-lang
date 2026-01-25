@@ -36,7 +36,7 @@ pub use heap::Heap;
 
 /// Type conversion function signature.
 ///
-/// function_val: type conversion functions like int(x), str(x), float(x)
+/// `function_val`: type conversion functions like int(x), str(x), float(x)
 /// that allow positional arguments per the spec.
 pub type FunctionValFn = fn(&[Value]) -> Result<Value, String>;
 
@@ -94,7 +94,7 @@ pub enum Value {
     Struct(StructValue),
     /// Function value (closure).
     Function(FunctionValue),
-    /// Type conversion function (function_val).
+    /// Type conversion function (`function_val`).
     /// Examples: int(x), str(x), float(x), byte(x)
     FunctionVal(FunctionValFn, &'static str),
     /// Range value.
@@ -205,9 +205,7 @@ impl Value {
             Value::Int(n) => *n != 0,
             Value::Str(s) => !s.is_empty(),
             Value::List(items) => !items.is_empty(),
-            Value::None => false,
-            Value::Err(_) => false,
-            Value::Void => false,
+            Value::None | Value::Err(_) | Value::Void => false,
             _ => true,
         }
     }
@@ -224,7 +222,15 @@ impl Value {
     pub fn as_float(&self) -> Option<f64> {
         match self {
             Value::Float(f) => Some(*f),
-            Value::Int(n) => Some(*n as f64),
+            Value::Int(n) => {
+                // Use i32 for lossless f64 conversion when possible
+                if let Ok(i32_val) = i32::try_from(*n) {
+                    Some(f64::from(i32_val))
+                } else {
+                    // For larger values, use string parsing to avoid cast warning
+                    Some(format!("{n}").parse().unwrap_or(f64::NAN))
+                }
+            }
             _ => None,
         }
     }
@@ -266,10 +272,8 @@ impl Value {
             Value::List(_) => "list",
             Value::Map(_) => "map",
             Value::Tuple(_) => "tuple",
-            Value::Some(_) => "Option",
-            Value::None => "Option",
-            Value::Ok(_) => "Result",
-            Value::Err(_) => "Result",
+            Value::Some(_) | Value::None => "Option",
+            Value::Ok(_) | Value::Err(_) => "Result",
             Value::Struct(_) => "struct",
             Value::Function(_) => "function",
             Value::FunctionVal(_, _) => "function_val",
@@ -288,10 +292,10 @@ impl Value {
             Value::Bool(b) => b.to_string(),
             Value::Str(s) => s.to_string(),
             Value::Char(c) => c.to_string(),
-            Value::Byte(b) => format!("0x{:02x}", b),
+            Value::Byte(b) => format!("0x{b:02x}"),
             Value::Void => "void".to_string(),
             Value::List(items) => {
-                let inner: Vec<_> = items.iter().map(|v| v.display_value()).collect();
+                let inner: Vec<_> = items.iter().map(Value::display_value).collect();
                 format!("[{}]", inner.join(", "))
             }
             Value::Map(map) => {
@@ -302,20 +306,20 @@ impl Value {
                 format!("{{{}}}", inner.join(", "))
             }
             Value::Tuple(items) => {
-                let inner: Vec<_> = items.iter().map(|v| v.display_value()).collect();
+                let inner: Vec<_> = items.iter().map(Value::display_value).collect();
                 format!("({})", inner.join(", "))
             }
             Value::Some(v) => format!("Some({})", v.display_value()),
             Value::None => "None".to_string(),
             Value::Ok(v) => format!("Ok({})", v.display_value()),
             Value::Err(v) => format!("Err({})", v.display_value()),
-            Value::Struct(s) => format!("{:?}", s),
+            Value::Struct(s) => format!("{s:?}"),
             Value::Function(_) => "<function>".to_string(),
-            Value::FunctionVal(_, name) => format!("<function_val {}>", name),
-            Value::Duration(ms) => format!("{}ms", ms),
-            Value::Size(bytes) => format!("{}b", bytes),
-            Value::Range(r) => format!("{:?}", r),
-            Value::Error(msg) => format!("Error({})", msg),
+            Value::FunctionVal(_, name) => format!("<function_val {name}>"),
+            Value::Duration(ms) => format!("{ms}ms"),
+            Value::Size(bytes) => format!("{bytes}b"),
+            Value::Range(r) => format!("{r:?}"),
+            Value::Error(msg) => format!("Error({msg})"),
         }
     }
 
@@ -328,19 +332,14 @@ impl Value {
             (Value::Str(a), Value::Str(b)) => a == b,
             (Value::Char(a), Value::Char(b)) => a == b,
             (Value::Byte(a), Value::Byte(b)) => a == b,
-            (Value::Void, Value::Void) => true,
-            (Value::None, Value::None) => true,
-            (Value::Some(a), Value::Some(b)) => a.equals(b),
-            (Value::Ok(a), Value::Ok(b)) => a.equals(b),
-            (Value::Err(a), Value::Err(b)) => a.equals(b),
-            (Value::List(a), Value::List(b)) => {
+            (Value::Void, Value::Void) | (Value::None, Value::None) => true,
+            (Value::Some(a), Value::Some(b))
+            | (Value::Ok(a), Value::Ok(b))
+            | (Value::Err(a), Value::Err(b)) => a.equals(b),
+            (Value::List(a), Value::List(b)) | (Value::Tuple(a), Value::Tuple(b)) => {
                 a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.equals(y))
             }
-            (Value::Tuple(a), Value::Tuple(b)) => {
-                a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.equals(y))
-            }
-            (Value::Duration(a), Value::Duration(b)) => a == b,
-            (Value::Size(a), Value::Size(b)) => a == b,
+            (Value::Duration(a), Value::Duration(b)) | (Value::Size(a), Value::Size(b)) => a == b,
             _ => false,
         }
     }
@@ -353,12 +352,12 @@ impl Value {
 impl fmt::Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Value::Int(n) => write!(f, "Int({})", n),
-            Value::Float(n) => write!(f, "Float({})", n),
-            Value::Bool(b) => write!(f, "Bool({})", b),
+            Value::Int(n) => write!(f, "Int({n})"),
+            Value::Float(n) => write!(f, "Float({n})"),
+            Value::Bool(b) => write!(f, "Bool({b})"),
             Value::Str(s) => write!(f, "Str({:?})", &**s),
-            Value::Char(c) => write!(f, "Char({:?})", c),
-            Value::Byte(b) => write!(f, "Byte({:?})", b),
+            Value::Char(c) => write!(f, "Char({c:?})"),
+            Value::Byte(b) => write!(f, "Byte({b:?})"),
             Value::Void => write!(f, "Void"),
             Value::List(items) => write!(f, "List({:?})", &**items),
             Value::Map(map) => write!(f, "Map({:?})", &**map),
@@ -367,13 +366,13 @@ impl fmt::Debug for Value {
             Value::None => write!(f, "None"),
             Value::Ok(v) => write!(f, "Ok({:?})", &**v),
             Value::Err(v) => write!(f, "Err({:?})", &**v),
-            Value::Struct(s) => write!(f, "Struct({:?})", s),
-            Value::Function(func) => write!(f, "Function({:?})", func),
-            Value::FunctionVal(_, name) => write!(f, "FunctionVal({})", name),
-            Value::Duration(ms) => write!(f, "Duration({}ms)", ms),
-            Value::Size(bytes) => write!(f, "Size({}b)", bytes),
-            Value::Range(r) => write!(f, "Range({:?})", r),
-            Value::Error(msg) => write!(f, "Error({})", msg),
+            Value::Struct(s) => write!(f, "Struct({s:?})"),
+            Value::Function(func) => write!(f, "Function({func:?})"),
+            Value::FunctionVal(_, name) => write!(f, "FunctionVal({name})"),
+            Value::Duration(ms) => write!(f, "Duration({ms}ms)"),
+            Value::Size(bytes) => write!(f, "Size({bytes}b)"),
+            Value::Range(r) => write!(f, "Range({r:?})"),
+            Value::Error(msg) => write!(f, "Error({msg})"),
         }
     }
 }
@@ -381,12 +380,12 @@ impl fmt::Debug for Value {
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Value::Int(n) => write!(f, "{}", n),
-            Value::Float(n) => write!(f, "{}", n),
-            Value::Bool(b) => write!(f, "{}", b),
+            Value::Int(n) => write!(f, "{n}"),
+            Value::Float(n) => write!(f, "{n}"),
+            Value::Bool(b) => write!(f, "{b}"),
             Value::Str(s) => write!(f, "\"{}\"", &**s),
-            Value::Char(c) => write!(f, "'{}'", c),
-            Value::Byte(b) => write!(f, "0x{:02x}", b),
+            Value::Char(c) => write!(f, "'{c}'"),
+            Value::Byte(b) => write!(f, "0x{b:02x}"),
             Value::Void => write!(f, "void"),
             Value::List(items) => {
                 write!(f, "[")?;
@@ -394,7 +393,7 @@ impl fmt::Display for Value {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", item)?;
+                    write!(f, "{item}")?;
                 }
                 write!(f, "]")
             }
@@ -404,7 +403,7 @@ impl fmt::Display for Value {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "\"{}\": {}", k, v)?;
+                    write!(f, "\"{k}\": {v}")?;
                 }
                 write!(f, "}}")
             }
@@ -414,7 +413,7 @@ impl fmt::Display for Value {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", item)?;
+                    write!(f, "{item}")?;
                 }
                 write!(f, ")")
             }
@@ -424,12 +423,12 @@ impl fmt::Display for Value {
             Value::Err(e) => write!(f, "Err({})", &**e),
             Value::Struct(s) => write!(f, "<struct {:?}>", s.type_name),
             Value::Function(_) => write!(f, "<function>"),
-            Value::FunctionVal(_, name) => write!(f, "<function_val {}>", name),
+            Value::FunctionVal(_, name) => write!(f, "<function_val {name}>"),
             Value::Duration(ms) => {
                 if *ms >= 1000 {
                     write!(f, "{}s", ms / 1000)
                 } else {
-                    write!(f, "{}ms", ms)
+                    write!(f, "{ms}ms")
                 }
             }
             Value::Size(bytes) => {
@@ -438,7 +437,7 @@ impl fmt::Display for Value {
                 } else if *bytes >= 1024 {
                     write!(f, "{}kb", bytes / 1024)
                 } else {
-                    write!(f, "{}b", bytes)
+                    write!(f, "{bytes}b")
                 }
             }
             Value::Range(r) => {
@@ -448,7 +447,7 @@ impl fmt::Display for Value {
                     write!(f, "{}..{}", r.start, r.end)
                 }
             }
-            Value::Error(msg) => write!(f, "<error: {}>", msg),
+            Value::Error(msg) => write!(f, "<error: {msg}>"),
         }
     }
 }
@@ -462,15 +461,12 @@ impl PartialEq for Value {
             (Value::Str(a), Value::Str(b)) => a == b,
             (Value::Char(a), Value::Char(b)) => a == b,
             (Value::Byte(a), Value::Byte(b)) => a == b,
-            (Value::Void, Value::Void) => true,
-            (Value::None, Value::None) => true,
-            (Value::Some(a), Value::Some(b)) => a == b,
-            (Value::Ok(a), Value::Ok(b)) => a == b,
-            (Value::Err(a), Value::Err(b)) => a == b,
-            (Value::List(a), Value::List(b)) => a == b,
-            (Value::Tuple(a), Value::Tuple(b)) => a == b,
-            (Value::Duration(a), Value::Duration(b)) => a == b,
-            (Value::Size(a), Value::Size(b)) => a == b,
+            (Value::Void, Value::Void) | (Value::None, Value::None) => true,
+            (Value::Some(a), Value::Some(b))
+            | (Value::Ok(a), Value::Ok(b))
+            | (Value::Err(a), Value::Err(b)) => a == b,
+            (Value::List(a), Value::List(b)) | (Value::Tuple(a), Value::Tuple(b)) => a == b,
+            (Value::Duration(a), Value::Duration(b)) | (Value::Size(a), Value::Size(b)) => a == b,
             (Value::FunctionVal(_, name_a), Value::FunctionVal(_, name_b)) => name_a == name_b,
             _ => false,
         }

@@ -1,17 +1,17 @@
 //! Function call evaluation methods for the Evaluator.
 
 use crate::ir::{SharedArena, CallArgRange};
+use super::super::errors::{wrong_function_args, not_callable};
 use super::{Evaluator, EvalResult, EvalError};
 use super::super::value::Value;
-use super::super::errors;
 
-impl<'a> Evaluator<'a> {
+impl Evaluator<'_> {
     /// Evaluate a function call.
-    pub(super) fn eval_call(&mut self, func: Value, args: Vec<Value>) -> EvalResult {
+    pub(super) fn eval_call(&mut self, func: Value, args: &[Value]) -> EvalResult {
         match func.clone() {
             Value::Function(f) => {
                 if args.len() != f.params.len() {
-                    return Err(errors::wrong_function_args(f.params.len(), args.len()));
+                    return Err(wrong_function_args(f.params.len(), args.len()));
                 }
 
                 // Create new environment with captures, then push a local scope
@@ -62,9 +62,9 @@ impl<'a> Evaluator<'a> {
                 }
             }
             Value::FunctionVal(func, _name) => {
-                func(&args).map_err(EvalError::new)
+                func(args).map_err(EvalError::new)
             }
-            _ => Err(errors::not_callable(func.type_name())),
+            _ => Err(not_callable(func.type_name())),
         }
     }
 
@@ -74,13 +74,13 @@ impl<'a> Evaluator<'a> {
         let arg_values: Result<Vec<_>, _> = call_args.iter()
             .map(|arg| self.eval(arg.value))
             .collect();
-        self.eval_call(func, arg_values?)
+        self.eval_call(func, &arg_values?)
     }
 
     /// Call a function value with the given arguments.
     ///
     /// This is a public wrapper around `eval_call` for use in queries.
-    pub fn eval_call_value(&mut self, func: Value, args: Vec<Value>) -> EvalResult {
+    pub fn eval_call_value(&mut self, func: Value, args: &[Value]) -> EvalResult {
         self.eval_call(func, args)
     }
 }

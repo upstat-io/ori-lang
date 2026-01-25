@@ -42,33 +42,33 @@ impl<W: Write> TerminalEmitter<W> {
                 Severity::Note => "\x1b[1;36m",    // Bold cyan
                 Severity::Help => "\x1b[1;32m",    // Bold green
             };
-            let _ = write!(self.writer, "{}{}\x1b[0m", color, severity);
+            let _ = write!(self.writer, "{color}{severity}\x1b[0m");
         } else {
-            let _ = write!(self.writer, "{}", severity);
+            let _ = write!(self.writer, "{severity}");
         }
     }
 
     fn write_code(&mut self, code: &str) {
         if self.colors {
-            let _ = write!(self.writer, "\x1b[1m[{}]\x1b[0m", code);
+            let _ = write!(self.writer, "\x1b[1m[{code}]\x1b[0m");
         } else {
-            let _ = write!(self.writer, "[{}]", code);
+            let _ = write!(self.writer, "[{code}]");
         }
     }
 
     fn write_primary(&mut self, text: &str) {
         if self.colors {
-            let _ = write!(self.writer, "\x1b[1;31m{}\x1b[0m", text);
+            let _ = write!(self.writer, "\x1b[1;31m{text}\x1b[0m");
         } else {
-            let _ = write!(self.writer, "{}", text);
+            let _ = write!(self.writer, "{text}");
         }
     }
 
     fn write_secondary(&mut self, text: &str) {
         if self.colors {
-            let _ = write!(self.writer, "\x1b[1;34m{}\x1b[0m", text);
+            let _ = write!(self.writer, "\x1b[1;34m{text}\x1b[0m");
         } else {
-            let _ = write!(self.writer, "{}", text);
+            let _ = write!(self.writer, "{text}");
         }
     }
 }
@@ -100,7 +100,7 @@ impl<W: Write> DiagnosticEmitter for TerminalEmitter<W> {
             } else {
                 let _ = write!(self.writer, "note");
             }
-            let _ = writeln!(self.writer, ": {}", note);
+            let _ = writeln!(self.writer, ": {note}");
         }
 
         // Suggestions
@@ -111,7 +111,7 @@ impl<W: Write> DiagnosticEmitter for TerminalEmitter<W> {
             } else {
                 let _ = write!(self.writer, "help");
             }
-            let _ = writeln!(self.writer, ": {}", suggestion);
+            let _ = writeln!(self.writer, ": {suggestion}");
         }
 
         let _ = writeln!(self.writer);
@@ -132,7 +132,7 @@ impl<W: Write> DiagnosticEmitter for TerminalEmitter<W> {
                     if error_count == 1 {
                         let _ = write!(self.writer, "previous error");
                     } else {
-                        let _ = write!(self.writer, "{} previous errors", error_count);
+                        let _ = write!(self.writer, "{error_count} previous errors");
                     }
                     if warning_count > 0 {
                         let _ = write!(
@@ -151,31 +151,29 @@ impl<W: Write> DiagnosticEmitter for TerminalEmitter<W> {
                         if warning_count == 1 { "" } else { "s" }
                     );
                 }
-            } else {
-                if error_count > 0 {
-                    let _ = write!(self.writer, "error: aborting due to ");
-                    if error_count == 1 {
-                        let _ = write!(self.writer, "previous error");
-                    } else {
-                        let _ = write!(self.writer, "{} previous errors", error_count);
-                    }
-                    if warning_count > 0 {
-                        let _ = write!(
-                            self.writer,
-                            "; {} warning{} emitted",
-                            warning_count,
-                            if warning_count == 1 { "" } else { "s" }
-                        );
-                    }
-                    let _ = writeln!(self.writer);
-                } else if warning_count > 0 {
-                    let _ = writeln!(
+            } else if error_count > 0 {
+                let _ = write!(self.writer, "error: aborting due to ");
+                if error_count == 1 {
+                    let _ = write!(self.writer, "previous error");
+                } else {
+                    let _ = write!(self.writer, "{error_count} previous errors");
+                }
+                if warning_count > 0 {
+                    let _ = write!(
                         self.writer,
-                        "warning: {} warning{} emitted",
+                        "; {} warning{} emitted",
                         warning_count,
                         if warning_count == 1 { "" } else { "s" }
                     );
                 }
+                let _ = writeln!(self.writer);
+            } else if warning_count > 0 {
+                let _ = writeln!(
+                    self.writer,
+                    "warning: {} warning{} emitted",
+                    warning_count,
+                    if warning_count == 1 { "" } else { "s" }
+                );
             }
         }
     }

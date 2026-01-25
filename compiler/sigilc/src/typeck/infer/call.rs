@@ -37,7 +37,7 @@ fn check_call(
     };
 
     if let Err(e) = checker.ctx.unify(func, &expected) {
-        checker.report_type_error(e, span);
+        checker.report_type_error(&e, span);
         return Type::Error;
     }
 
@@ -89,7 +89,7 @@ pub fn infer_call_named(
             for (i, (param_ty, arg_ty)) in params.iter().zip(arg_types.iter()).enumerate() {
                 if let Err(e) = checker.ctx.unify(param_ty, arg_ty) {
                     let arg_span = call_args[i].span;
-                    checker.report_type_error(e, arg_span);
+                    checker.report_type_error(&e, arg_span);
                 }
             }
 
@@ -118,7 +118,7 @@ pub fn infer_call_named(
 ///
 /// After unification has resolved the generic type variables, this function
 /// verifies that the concrete types satisfy the required trait bounds.
-/// Delegates to TypeChecker::check_function_bounds for centralized bound checking.
+/// Delegates to `TypeChecker::check_function_bounds` for centralized bound checking.
 fn check_generic_bounds(
     checker: &mut TypeChecker<'_>,
     func_name: Name,
@@ -179,7 +179,7 @@ pub fn infer_method_call(
                 } else {
                     span
                 };
-                checker.report_type_error(e, arg_span);
+                checker.report_type_error(&e, arg_span);
             }
         }
 
@@ -204,19 +204,14 @@ fn infer_builtin_method(
         // String methods
         Type::Str => match method_name {
             "len" => Type::Int,
-            "is_empty" => Type::Bool,
-            "to_uppercase" => Type::Str,
-            "to_lowercase" => Type::Str,
-            "trim" => Type::Str,
-            "contains" => Type::Bool,
-            "starts_with" => Type::Bool,
-            "ends_with" => Type::Bool,
+            "is_empty" | "contains" | "starts_with" | "ends_with" => Type::Bool,
+            "to_uppercase" | "to_lowercase" | "trim" => Type::Str,
             "split" => Type::List(Box::new(Type::Str)),
             "chars" => Type::List(Box::new(Type::Char)),
             "bytes" => Type::List(Box::new(Type::Byte)),
             _ => {
                 checker.errors.push(TypeCheckError {
-                    message: format!("unknown method `{}` for type `str`", method_name),
+                    message: format!("unknown method `{method_name}` for type `str`"),
                     span,
                     code: crate::diagnostic::ErrorCode::E2002,
                 });
@@ -227,19 +222,15 @@ fn infer_builtin_method(
         // List methods
         Type::List(elem_ty) => match method_name {
             "len" => Type::Int,
-            "is_empty" => Type::Bool,
-            "first" => Type::Option(elem_ty.clone()),
-            "last" => Type::Option(elem_ty.clone()),
+            "is_empty" | "contains" => Type::Bool,
+            "first" | "last" | "pop" | "find" => Type::Option(elem_ty.clone()),
             "push" => Type::Unit,
-            "pop" => Type::Option(elem_ty.clone()),
-            "contains" => Type::Bool,
             "map" => {
                 // map takes a function T -> U and returns [U]
                 let result_elem = checker.ctx.fresh_var();
                 Type::List(Box::new(result_elem))
             }
-            "filter" => Type::List(elem_ty.clone()),
-            "find" => Type::Option(elem_ty.clone()),
+            "filter" | "reverse" | "sort" => Type::List(elem_ty.clone()),
             "fold" => {
                 // fold returns the accumulator type (first arg)
                 if let Some(acc_ty) = arg_types.first() {
@@ -248,11 +239,9 @@ fn infer_builtin_method(
                     checker.ctx.fresh_var()
                 }
             }
-            "reverse" => Type::List(elem_ty.clone()),
-            "sort" => Type::List(elem_ty.clone()),
             _ => {
                 checker.errors.push(TypeCheckError {
-                    message: format!("unknown method `{}` for type `[T]`", method_name),
+                    message: format!("unknown method `{method_name}` for type `[T]`"),
                     span,
                     code: crate::diagnostic::ErrorCode::E2002,
                 });
@@ -263,16 +252,13 @@ fn infer_builtin_method(
         // Map methods
         Type::Map { key: key_ty, value: val_ty } => match method_name {
             "len" => Type::Int,
-            "is_empty" => Type::Bool,
-            "contains_key" => Type::Bool,
-            "get" => Type::Option(val_ty.clone()),
-            "insert" => Type::Option(val_ty.clone()),
-            "remove" => Type::Option(val_ty.clone()),
+            "is_empty" | "contains_key" => Type::Bool,
+            "get" | "insert" | "remove" => Type::Option(val_ty.clone()),
             "keys" => Type::List(key_ty.clone()),
             "values" => Type::List(val_ty.clone()),
             _ => {
                 checker.errors.push(TypeCheckError {
-                    message: format!("unknown method `{}` for type `{{K: V}}`", method_name),
+                    message: format!("unknown method `{method_name}` for type `{{K: V}}`"),
                     span,
                     code: crate::diagnostic::ErrorCode::E2002,
                 });
@@ -282,15 +268,9 @@ fn infer_builtin_method(
 
         // Option methods
         Type::Option(inner_ty) => match method_name {
-            "is_some" => Type::Bool,
-            "is_none" => Type::Bool,
-            "unwrap" => (**inner_ty).clone(),
-            "unwrap_or" => (**inner_ty).clone(),
-            "map" => {
-                let result_inner = checker.ctx.fresh_var();
-                Type::Option(Box::new(result_inner))
-            }
-            "and_then" => {
+            "is_some" | "is_none" => Type::Bool,
+            "unwrap" | "unwrap_or" => (**inner_ty).clone(),
+            "map" | "and_then" => {
                 let result_inner = checker.ctx.fresh_var();
                 Type::Option(Box::new(result_inner))
             }
@@ -301,7 +281,7 @@ fn infer_builtin_method(
             }
             _ => {
                 checker.errors.push(TypeCheckError {
-                    message: format!("unknown method `{}` for type `Option<T>`", method_name),
+                    message: format!("unknown method `{method_name}` for type `Option<T>`"),
                     span,
                     code: crate::diagnostic::ErrorCode::E2002,
                 });
@@ -311,14 +291,12 @@ fn infer_builtin_method(
 
         // Result methods
         Type::Result { ok: ok_ty, err: err_ty } => match method_name {
-            "is_ok" => Type::Bool,
-            "is_err" => Type::Bool,
-            "unwrap" => (**ok_ty).clone(),
-            "unwrap_or" => (**ok_ty).clone(),
+            "is_ok" | "is_err" => Type::Bool,
+            "unwrap" | "unwrap_or" => (**ok_ty).clone(),
             "unwrap_err" => (**err_ty).clone(),
             "ok" => Type::Option(ok_ty.clone()),
             "err" => Type::Option(err_ty.clone()),
-            "map" => {
+            "map" | "and_then" => {
                 let result_ok = checker.ctx.fresh_var();
                 Type::Result { ok: Box::new(result_ok), err: err_ty.clone() }
             }
@@ -326,13 +304,9 @@ fn infer_builtin_method(
                 let result_err = checker.ctx.fresh_var();
                 Type::Result { ok: ok_ty.clone(), err: Box::new(result_err) }
             }
-            "and_then" => {
-                let result_ok = checker.ctx.fresh_var();
-                Type::Result { ok: Box::new(result_ok), err: err_ty.clone() }
-            }
             _ => {
                 checker.errors.push(TypeCheckError {
-                    message: format!("unknown method `{}` for type `Result<T, E>`", method_name),
+                    message: format!("unknown method `{method_name}` for type `Result<T, E>`"),
                     span,
                     code: crate::diagnostic::ErrorCode::E2002,
                 });
@@ -342,14 +316,12 @@ fn infer_builtin_method(
 
         // Integer methods
         Type::Int => match method_name {
-            "abs" => Type::Int,
+            "abs" | "min" | "max" => Type::Int,
             "to_string" => Type::Str,
             "compare" => Type::Named(checker.interner.intern("Ordering")),
-            "min" => Type::Int,
-            "max" => Type::Int,
             _ => {
                 checker.errors.push(TypeCheckError {
-                    message: format!("unknown method `{}` for type `int`", method_name),
+                    message: format!("unknown method `{method_name}` for type `int`"),
                     span,
                     code: crate::diagnostic::ErrorCode::E2002,
                 });
@@ -359,18 +331,12 @@ fn infer_builtin_method(
 
         // Float methods
         Type::Float => match method_name {
-            "abs" => Type::Float,
-            "floor" => Type::Float,
-            "ceil" => Type::Float,
-            "round" => Type::Float,
-            "sqrt" => Type::Float,
+            "abs" | "floor" | "ceil" | "round" | "sqrt" | "min" | "max" => Type::Float,
             "to_string" => Type::Str,
             "compare" => Type::Named(checker.interner.intern("Ordering")),
-            "min" => Type::Float,
-            "max" => Type::Float,
             _ => {
                 checker.errors.push(TypeCheckError {
-                    message: format!("unknown method `{}` for type `float`", method_name),
+                    message: format!("unknown method `{method_name}` for type `float`"),
                     span,
                     code: crate::diagnostic::ErrorCode::E2002,
                 });
@@ -379,16 +345,13 @@ fn infer_builtin_method(
         },
 
         // Bool methods
-        Type::Bool => match method_name {
-            "to_string" => Type::Str,
-            _ => {
-                checker.errors.push(TypeCheckError {
-                    message: format!("unknown method `{}` for type `bool`", method_name),
-                    span,
-                    code: crate::diagnostic::ErrorCode::E2002,
-                });
-                Type::Error
-            }
+        Type::Bool => if method_name == "to_string" { Type::Str } else {
+            checker.errors.push(TypeCheckError {
+                message: format!("unknown method `{method_name}` for type `bool`"),
+                span,
+                code: crate::diagnostic::ErrorCode::E2002,
+            });
+            Type::Error
         },
 
         // Type variable - can't check methods yet, return fresh var

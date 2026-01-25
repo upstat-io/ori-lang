@@ -12,9 +12,8 @@
 //! ## Arc Enforcement
 //!
 //! The value module enforces that all heap allocations go through factory
-//! methods on `Value`. See `value/mod.rs` for details.
+//! methods on `Value`. See `sigil_patterns::value` for details.
 
-mod value;
 mod environment;
 mod evaluator;
 mod output;
@@ -26,6 +25,16 @@ pub mod user_methods;
 pub mod unary_operators;
 pub mod exec;
 pub mod module;
+
+/// Re-export Value types from `sigil_patterns` (single source of truth).
+///
+/// This module exists for import compatibility - files can continue using
+/// `super::value::Value` instead of changing all imports.
+pub mod value {
+    pub use sigil_patterns::{
+        Value, FunctionValue, RangeValue, StructValue, StructLayout, Heap, FunctionValFn,
+    };
+}
 
 pub use value::{Value, FunctionValue, RangeValue, StructValue, StructLayout, Heap, FunctionValFn};
 pub use environment::Environment;

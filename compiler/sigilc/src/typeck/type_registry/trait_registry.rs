@@ -105,8 +105,8 @@ pub struct CoherenceError {
 pub struct TraitRegistry {
     /// Trait definitions by name.
     traits: HashMap<Name, TraitEntry>,
-    /// Trait implementations: (trait_name, self_type) -> ImplEntry.
-    /// For inherent impls, trait_name is stored as the self type's name.
+    /// Trait implementations: (`trait_name`, `self_type`) -> `ImplEntry`.
+    /// For inherent impls, `trait_name` is stored as the self type's name.
     trait_impls: HashMap<(Name, String), ImplEntry>,
     /// Inherent implementations by type name.
     inherent_impls: HashMap<String, ImplEntry>,
@@ -144,9 +144,7 @@ impl TraitRegistry {
             let key = (trait_name, type_key);
             if let Some(existing) = self.trait_impls.get(&key) {
                 return Err(CoherenceError {
-                    message: format!(
-                        "conflicting implementation: trait already implemented for this type"
-                    ),
+                    message: "conflicting implementation: trait already implemented for this type".to_string(),
                     span: entry.span,
                     existing_span: existing.span,
                 });
@@ -159,9 +157,7 @@ impl TraitRegistry {
                 for new_method in &entry.methods {
                     if existing.methods.iter().any(|m| m.name == new_method.name) {
                         return Err(CoherenceError {
-                            message: format!(
-                                "conflicting implementation: method already defined for this type"
-                            ),
+                            message: "conflicting implementation: method already defined for this type".to_string(),
                             span: entry.span,
                             existing_span: existing.span,
                         });
@@ -181,13 +177,13 @@ impl TraitRegistry {
 
     /// Find implementation of a trait for a type.
     pub fn get_trait_impl(&self, trait_name: Name, self_ty: &Type) -> Option<&ImplEntry> {
-        let type_key = format!("{:?}", self_ty);
+        let type_key = format!("{self_ty:?}");
         self.trait_impls.get(&(trait_name, type_key))
     }
 
     /// Find inherent implementation for a type.
     pub fn get_inherent_impl(&self, self_ty: &Type) -> Option<&ImplEntry> {
-        let type_key = format!("{:?}", self_ty);
+        let type_key = format!("{self_ty:?}");
         self.inherent_impls.get(&type_key)
     }
 
@@ -211,7 +207,7 @@ impl TraitRegistry {
         }
 
         // Then check all trait impls for this type
-        let type_key = format!("{:?}", self_ty);
+        let type_key = format!("{self_ty:?}");
         for ((trait_name, impl_type_key), impl_entry) in &self.trait_impls {
             if impl_type_key == &type_key {
                 if let Some(method) = impl_entry.methods.iter().find(|m| m.name == method_name) {

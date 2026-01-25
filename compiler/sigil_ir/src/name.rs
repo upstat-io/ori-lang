@@ -12,7 +12,7 @@ use std::hash::{Hash, Hasher};
 /// - Bits 27-0: Local index within shard
 ///
 /// # Salsa Compatibility
-/// Has all required traits: Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug
+/// Has all required traits: Copy, Clone, Eq, `PartialEq`, Ord, `PartialOrd`, Hash, Debug
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(transparent)]
 pub struct Name(u32);

@@ -4,7 +4,7 @@
 //! that store start index and length, enabling efficient iteration over arena data.
 //!
 //! # Salsa Compatibility
-//! All types have Copy, Clone, Eq, PartialEq, Hash, Debug for Salsa requirements.
+//! All types have Copy, Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
 use std::fmt;
 
@@ -37,7 +37,7 @@ impl ParamRange {
 
 impl fmt::Debug for ParamRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ParamRange({}..{})", self.start, self.start + self.len as u32)
+        write!(f, "ParamRange({}..{})", self.start, self.start + u32::from(self.len))
     }
 }
 
@@ -70,7 +70,7 @@ impl GenericParamRange {
 
 impl fmt::Debug for GenericParamRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "GenericParamRange({}..{})", self.start, self.start + self.len as u32)
+        write!(f, "GenericParamRange({}..{})", self.start, self.start + u32::from(self.len))
     }
 }
 
@@ -103,7 +103,7 @@ impl ArmRange {
 
 impl fmt::Debug for ArmRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ArmRange({}..{})", self.start, self.start + self.len as u32)
+        write!(f, "ArmRange({}..{})", self.start, self.start + u32::from(self.len))
     }
 }
 
@@ -136,7 +136,7 @@ impl MapEntryRange {
 
 impl fmt::Debug for MapEntryRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "MapEntryRange({}..{})", self.start, self.start + self.len as u32)
+        write!(f, "MapEntryRange({}..{})", self.start, self.start + u32::from(self.len))
     }
 }
 
@@ -169,7 +169,7 @@ impl FieldInitRange {
 
 impl fmt::Debug for FieldInitRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "FieldInitRange({}..{})", self.start, self.start + self.len as u32)
+        write!(f, "FieldInitRange({}..{})", self.start, self.start + u32::from(self.len))
     }
 }
 
@@ -202,7 +202,7 @@ impl SeqBindingRange {
 
 impl fmt::Debug for SeqBindingRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SeqBindingRange({}..{})", self.start, self.start + self.len as u32)
+        write!(f, "SeqBindingRange({}..{})", self.start, self.start + u32::from(self.len))
     }
 }
 
@@ -235,7 +235,7 @@ impl NamedExprRange {
 
 impl fmt::Debug for NamedExprRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "NamedExprRange({}..{})", self.start, self.start + self.len as u32)
+        write!(f, "NamedExprRange({}..{})", self.start, self.start + u32::from(self.len))
     }
 }
 
@@ -268,6 +268,6 @@ impl CallArgRange {
 
 impl fmt::Debug for CallArgRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "CallArgRange({}..{})", self.start, self.start + self.len as u32)
+        write!(f, "CallArgRange({}..{})", self.start, self.start + u32::from(self.len))
     }
 }

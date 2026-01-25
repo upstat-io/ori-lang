@@ -3,7 +3,7 @@
 //! Use/import statements and related types.
 //!
 //! # Salsa Compatibility
-//! All types have Clone, Eq, PartialEq, Hash, Debug for Salsa requirements.
+//! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
 use crate::{Name, Span};
 
@@ -34,6 +34,6 @@ pub struct UseItem {
     pub name: Name,
     /// Optional alias: `name as alias`
     pub alias: Option<Name>,
-    /// Whether this is a private import (::name)
+    /// Whether this is a private import (`::name`)
     pub is_private: bool,
 }

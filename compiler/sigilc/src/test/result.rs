@@ -163,11 +163,7 @@ impl TestSummary {
     pub fn exit_code(&self) -> i32 {
         if self.total() == 0 {
             2
-        } else if self.has_failures() {
-            1
-        } else {
-            0
-        }
+        } else { i32::from(self.has_failures()) }
     }
 }
 
@@ -209,10 +205,14 @@ impl CoverageReport {
     /// Get coverage percentage (0-100).
     pub fn percentage(&self) -> f64 {
         if self.total == 0 {
-            100.0
-        } else {
-            (self.covered as f64 / self.total as f64) * 100.0
+            return 100.0;
         }
+        // Clamp to u32 range for lossless f64 conversion.
+        // u32::MAX (~4 billion) is well within f64's 52-bit mantissa.
+        // Any realistic test count fits in u32; clamping preserves the ratio.
+        let covered = u32::try_from(self.covered).unwrap_or(u32::MAX);
+        let total = u32::try_from(self.total).unwrap_or(u32::MAX);
+        (f64::from(covered) / f64::from(total)) * 100.0
     }
 
     /// Check if all functions have tests.

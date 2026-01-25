@@ -11,7 +11,7 @@ use std::fmt;
 /// - end: u32 - byte offset (exclusive)
 ///
 /// # Salsa Compatibility
-/// Has all required traits: Copy, Clone, Eq, PartialEq, Hash, Debug, Default
+/// Has all required traits: Copy, Clone, Eq, `PartialEq`, Hash, Debug, Default
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Default)]
 #[repr(C)]
 pub struct Span {
@@ -30,11 +30,18 @@ impl Span {
     }
 
     /// Create from a byte range.
+    ///
+    /// # Panics
+    /// Panics if the range exceeds `u32::MAX` bytes.
     #[inline]
     pub fn from_range(range: std::ops::Range<usize>) -> Self {
         Span {
-            start: range.start as u32,
-            end: range.end as u32,
+            start: u32::try_from(range.start).unwrap_or_else(|_| {
+                panic!("span start {} exceeds u32::MAX", range.start)
+            }),
+            end: u32::try_from(range.end).unwrap_or_else(|_| {
+                panic!("span end {} exceeds u32::MAX", range.end)
+            }),
         }
     }
 
@@ -58,6 +65,7 @@ impl Span {
 
     /// Merge two spans to create one covering both.
     #[inline]
+    #[must_use]
     pub fn merge(self, other: Span) -> Span {
         Span {
             start: self.start.min(other.start),
@@ -67,6 +75,7 @@ impl Span {
 
     /// Extend span to include another position.
     #[inline]
+    #[must_use]
     pub fn extend_to(self, end: u32) -> Span {
         Span {
             start: self.start,
@@ -80,7 +89,7 @@ impl Span {
         Span { start: offset, end: offset }
     }
 
-    /// Convert to a std::ops::Range.
+    /// Convert to a `std::ops::Range`.
     #[inline]
     pub fn to_range(&self) -> std::ops::Range<usize> {
         self.start as usize..self.end as usize
@@ -102,7 +111,7 @@ impl fmt::Display for Span {
 // Size assertions to prevent accidental regressions
 #[cfg(target_pointer_width = "64")]
 mod size_asserts {
-    use super::*;
+    use super::Span;
     crate::static_assert_size!(Span, 8);
 }
 

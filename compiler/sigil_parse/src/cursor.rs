@@ -69,8 +69,8 @@ impl<'a> Cursor<'a> {
     }
 
     /// Check if the current token matches the given kind.
-    pub fn check(&self, kind: TokenKind) -> bool {
-        std::mem::discriminant(&self.current_kind()) == std::mem::discriminant(&kind)
+    pub fn check(&self, kind: &TokenKind) -> bool {
+        std::mem::discriminant(&self.current_kind()) == std::mem::discriminant(kind)
     }
 
     /// Check if the current token is an identifier.
@@ -141,22 +141,22 @@ impl<'a> Cursor<'a> {
 
     /// Skip all newline tokens.
     pub fn skip_newlines(&mut self) {
-        while self.check(TokenKind::Newline) {
+        while self.check(&TokenKind::Newline) {
             self.advance();
         }
     }
 
     /// Expect the current token to be of the given kind, advance and return it.
     /// Returns an error if the token kind doesn't match.
-    pub fn expect(&mut self, kind: TokenKind) -> Result<&Token, ParseError> {
-        if self.check(kind.clone()) {
+    pub fn expect(&mut self, kind: &TokenKind) -> Result<&Token, ParseError> {
+        if self.check(kind) {
             Ok(self.advance())
         } else {
             Err(ParseError::new(
                 ErrorCode::E1001,
-                format!("expected {:?}, found {:?}", kind, self.current_kind()),
+                format!("expected {kind:?}, found {:?}", self.current_kind()),
                 self.current_span(),
-            ).with_context(format!("expected {:?}", kind)))
+            ).with_context(format!("expected {kind:?}")))
         }
     }
 
@@ -245,14 +245,14 @@ mod tests {
         let interner = Box::leak(Box::new(interner));
         let mut cursor = Cursor::new(tokens, interner);
 
-        assert!(cursor.check(TokenKind::Let));
+        assert!(cursor.check(&TokenKind::Let));
         assert!(!cursor.is_at_end());
 
         cursor.advance();
         assert!(cursor.check_ident());
 
         cursor.advance();
-        assert!(cursor.check(TokenKind::Eq));
+        assert!(cursor.check(&TokenKind::Eq));
 
         cursor.advance();
         assert!(matches!(cursor.current_kind(), TokenKind::Int(_)));
@@ -269,7 +269,7 @@ mod tests {
         let interner = Box::leak(Box::new(interner));
         let mut cursor = Cursor::new(tokens, interner);
 
-        let result = cursor.expect(TokenKind::Let);
+        let result = cursor.expect(&TokenKind::Let);
         assert!(result.is_ok());
     }
 
@@ -281,7 +281,7 @@ mod tests {
         let interner = Box::leak(Box::new(interner));
         let mut cursor = Cursor::new(tokens, interner);
 
-        let result = cursor.expect(TokenKind::If);
+        let result = cursor.expect(&TokenKind::If);
         assert!(result.is_err());
     }
 

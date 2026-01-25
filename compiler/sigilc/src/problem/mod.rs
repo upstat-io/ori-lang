@@ -39,7 +39,7 @@ use crate::ir::Span;
 /// Unified problem enum for all compilation phases.
 ///
 /// # Salsa Compatibility
-/// Has Clone, Eq, PartialEq, Hash, Debug for use in query results.
+/// Has Clone, Eq, `PartialEq`, Hash, Debug for use in query results.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum Problem {
     /// Parse-time problems (syntax errors).

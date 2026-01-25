@@ -1,18 +1,18 @@
-//! Pattern evaluation (function_seq and function_exp).
+//! Pattern evaluation (`function_seq` and `function_exp`).
 //!
 //! This module handles Sigil's pattern constructs:
 //!
-//! **function_seq** (sequential expressions):
+//! **`function_seq`** (sequential expressions):
 //! - `run(...)` - sequential evaluation
 //! - `try(...)` - error handling with early return
 //! - `match(...)` - pattern matching (delegated to control.rs)
 //!
-//! **function_exp** (named expressions):
+//! **`function_exp`** (named expressions):
 //! - `map`, `filter`, `fold`, `find`, `collect`
 //! - `parallel`, `spawn`, `timeout`, `retry`
 //! - `recurse`, `cache`, `validate`, `with`
 //!
-//! These are evaluated via the PatternRegistry which implements
+//! These are evaluated via the `PatternRegistry` which implements
 //! the Open/Closed principle for extensibility.
 
 use crate::ir::{ExprId, BindingPattern, FunctionSeq, SeqBinding, SeqBindingRange, ExprArena};
@@ -76,12 +76,11 @@ where
                         // Unwrap Result/Option types per spec:
                         // "If any binding expression returns a Result<T, E>, the binding variable has type T"
                         let unwrapped = match value {
-                            Value::Ok(inner) => (*inner).clone(),
+                            Value::Ok(inner) | Value::Some(inner) => (*inner).clone(),
                             Value::Err(e) => {
                                 // Early return with the error
                                 return Ok(Value::Err(e));
                             }
-                            Value::Some(inner) => (*inner).clone(),
                             Value::None => {
                                 // Early return with None
                                 return Ok(Value::None);
@@ -109,7 +108,7 @@ where
     eval_fn(result)
 }
 
-/// Evaluate a function_seq expression.
+/// Evaluate a `function_seq` expression.
 ///
 /// Dispatches to the appropriate pattern evaluator based on the variant.
 pub fn eval_function_seq<F, G, M>(
@@ -151,12 +150,11 @@ where
 /// Unwraps Ok/Some values, propagates Err/None.
 pub fn eval_try_expr(value: Value, value_to_string: impl Fn(&Value) -> String) -> EvalResult {
     match value {
-        Value::Ok(v) => Ok((*v).clone()),
+        Value::Ok(v) | Value::Some(v) => Ok((*v).clone()),
         Value::Err(e) => Err(EvalError::propagate(
             Value::Err(e.clone()),
             format!("propagated error: {}", value_to_string(&e))
         )),
-        Value::Some(v) => Ok((*v).clone()),
         Value::None => Err(EvalError::propagate(Value::None, "propagated None")),
         other => Ok(other),
     }

@@ -40,24 +40,28 @@ impl PatternSignature {
     }
 
     /// Add an input type.
+    #[must_use]
     pub fn with_input(mut self, ty: TypeId) -> Self {
         self.input_types.push(ty);
         self
     }
 
     /// Add multiple input types.
+    #[must_use]
     pub fn with_inputs(mut self, types: impl IntoIterator<Item = TypeId>) -> Self {
         self.input_types.extend(types);
         self
     }
 
     /// Set the transform function signature.
+    #[must_use]
     pub fn with_transform(mut self, sig: FunctionSignature) -> Self {
         self.transform_sig = Some(sig);
         self
     }
 
     /// Add a type parameter.
+    #[must_use]
     pub fn with_type_param(mut self, ty: TypeId) -> Self {
         self.type_params.push(ty);
         self

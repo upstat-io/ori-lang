@@ -22,13 +22,12 @@ pub fn extract_match_pattern_bindings(
     let resolved_ty = checker.ctx.resolve(scrutinee_ty);
 
     match pattern {
-        MatchPattern::Wildcard => vec![],
+        // Patterns that introduce no bindings
+        MatchPattern::Wildcard | MatchPattern::Literal(_) | MatchPattern::Range { .. } => vec![],
 
         MatchPattern::Binding(name) => {
             vec![(*name, resolved_ty.clone())]
         }
-
-        MatchPattern::Literal(_) => vec![],
 
         MatchPattern::Variant { name, inner } => {
             // Look up the variant type to get the inner type
@@ -49,9 +48,7 @@ pub fn extract_match_pattern_bindings(
             for (field_name, opt_pattern) in fields {
                 let field_ty = field_types
                     .iter()
-                    .find(|(n, _)| n == field_name)
-                    .map(|(_, ty)| ty.clone())
-                    .unwrap_or_else(|| checker.ctx.fresh_var());
+                    .find(|(n, _)| n == field_name).map_or_else(|| checker.ctx.fresh_var(), |(_, ty)| ty.clone());
 
                 match opt_pattern {
                     Some(nested) => {
@@ -99,8 +96,6 @@ pub fn extract_match_pattern_bindings(
 
             bindings
         }
-
-        MatchPattern::Range { .. } => vec![],
 
         MatchPattern::Or(patterns) => {
             // For or-patterns, all branches must bind the same names with compatible types.
@@ -215,7 +210,7 @@ pub fn unify_pattern_with_scrutinee(
             // Unify the literal's type with scrutinee type
             let literal_ty = infer_expr(checker, *expr_id);
             if let Err(e) = checker.ctx.unify(&literal_ty, &resolved_ty) {
-                checker.report_type_error(e, span);
+                checker.report_type_error(&e, span);
             }
         }
 
@@ -318,7 +313,7 @@ pub fn unify_pattern_with_scrutinee(
                         .collect();
                     let tuple_ty = Type::Tuple(elem_types.clone());
                     if let Err(e) = checker.ctx.unify(&resolved_ty, &tuple_ty) {
-                        checker.report_type_error(e, span);
+                        checker.report_type_error(&e, span);
                     }
 
                     for (pattern, ty) in patterns.iter().zip(elem_types.iter()) {
@@ -350,7 +345,7 @@ pub fn unify_pattern_with_scrutinee(
                     let elem_ty = checker.ctx.fresh_var();
                     let list_ty = Type::List(Box::new(elem_ty.clone()));
                     if let Err(e) = checker.ctx.unify(&resolved_ty, &list_ty) {
-                        checker.report_type_error(e, span);
+                        checker.report_type_error(&e, span);
                     }
 
                     for pattern in elements {
@@ -376,13 +371,13 @@ pub fn unify_pattern_with_scrutinee(
             if let Some(start_id) = start {
                 let start_ty = infer_expr(checker, *start_id);
                 if let Err(e) = checker.ctx.unify(&start_ty, &resolved_ty) {
-                    checker.report_type_error(e, span);
+                    checker.report_type_error(&e, span);
                 }
             }
             if let Some(end_id) = end {
                 let end_ty = infer_expr(checker, *end_id);
                 if let Err(e) = checker.ctx.unify(&end_ty, &resolved_ty) {
-                    checker.report_type_error(e, span);
+                    checker.report_type_error(&e, span);
                 }
             }
         }
@@ -410,13 +405,12 @@ pub fn collect_match_pattern_names(pattern: &MatchPattern) -> HashSet<Name> {
 
 fn collect_match_pattern_names_inner(pattern: &MatchPattern, names: &mut HashSet<Name>) {
     match pattern {
-        MatchPattern::Wildcard => {}
+        // Patterns that introduce no bindings
+        MatchPattern::Wildcard | MatchPattern::Literal(_) | MatchPattern::Range { .. } => {}
 
         MatchPattern::Binding(name) => {
             names.insert(*name);
         }
-
-        MatchPattern::Literal(_) => {}
 
         MatchPattern::Variant { inner, .. } => {
             if let Some(inner_pattern) = inner {
@@ -452,8 +446,6 @@ fn collect_match_pattern_names_inner(pattern: &MatchPattern, names: &mut HashSet
                 names.insert(*rest_name);
             }
         }
-
-        MatchPattern::Range { .. } => {}
 
         MatchPattern::Or(patterns) => {
             // All branches should bind the same names, so just take first

@@ -2,6 +2,17 @@
 
 This documentation describes the architecture and design decisions of the Sigil compiler.
 
+## Design Principle: Lean Core, Rich Libraries
+
+The compiler implements only constructs that require **special syntax** or **static analysis**. Everything else belongs in the standard library.
+
+| Location | What | Why |
+|----------|------|-----|
+| **Compiler** | `run`, `try`, `match`, `recurse`, `parallel`, `spawn`, `timeout`, `cache`, `with` | Require special syntax, bindings, `self()`, concurrency primitives, or capability checking |
+| **Stdlib** | `map`, `filter`, `fold`, `find`, `retry`, `validate` | Standard method calls on collections; no special compiler support needed |
+
+This keeps the compiler small (~30K lines), focused, and maintainable. The stdlib can evolve without compiler changes. When considering new features, ask: *"Does this need special syntax or static analysis?"* If no, it's a library function.
+
 ## Overview
 
 The Sigil compiler is a Rust-based incremental compiler built on the Salsa framework. It is organized as a **multi-crate workspace** with clear separation of concerns:

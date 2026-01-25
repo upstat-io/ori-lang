@@ -1,14 +1,14 @@
-//! Named Expression Constructs (function_exp)
+//! Named Expression Constructs (`function_exp`)
 //!
 //! Contains patterns like recurse, parallel, spawn, timeout, cache, with.
 //!
 //! # Salsa Compatibility
-//! All types have Clone, Eq, PartialEq, Hash, Debug for Salsa requirements.
+//! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
 use crate::{Name, Span, ExprId, Spanned};
 use super::super::ranges::NamedExprRange;
 
-/// Named expression for function_exp.
+/// Named expression for `function_exp`.
 ///
 /// Represents: `name: expr`
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
@@ -24,7 +24,7 @@ impl Spanned for NamedExpr {
     }
 }
 
-/// Kind of function_exp.
+/// Kind of `function_exp`.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum FunctionExpKind {
     // Compiler patterns (require special syntax or static analysis)
@@ -54,7 +54,7 @@ impl FunctionExpKind {
     }
 }
 
-/// Named expression construct (function_exp).
+/// Named expression construct (`function_exp`).
 ///
 /// Contains named expressions (`name: value`).
 /// Requires named property syntax - positional not allowed.

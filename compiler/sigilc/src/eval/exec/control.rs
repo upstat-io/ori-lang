@@ -11,8 +11,12 @@ use crate::ir::{
     Name, ExprId, ExprKind, ExprArena, StringInterner, StmtKind,
     BindingPattern, ArmRange, MatchPattern,
 };
+use crate::eval::errors::{
+    tuple_pattern_mismatch, expected_tuple, missing_struct_field, expected_struct,
+    list_pattern_too_long, expected_list, invalid_literal_pattern, non_exhaustive_match,
+    for_requires_iterable, cannot_assign_immutable, invalid_assignment_target,
+};
 use crate::eval::{Value, EvalResult, EvalError};
-use crate::eval::errors;
 use crate::eval::environment::Environment;
 
 /// Evaluate an if/else expression.
@@ -51,14 +55,14 @@ pub fn bind_pattern(
         BindingPattern::Tuple(patterns) => {
             if let Value::Tuple(values) = value {
                 if patterns.len() != values.len() {
-                    return Err(errors::tuple_pattern_mismatch());
+                    return Err(tuple_pattern_mismatch());
                 }
                 for (pat, val) in patterns.iter().zip(values.iter()) {
                     bind_pattern(pat, val.clone(), mutable, env)?;
                 }
                 Ok(Value::Void)
             } else {
-                Err(errors::expected_tuple())
+                Err(expected_tuple())
             }
         }
         BindingPattern::Struct { fields } => {
@@ -72,18 +76,18 @@ pub fn bind_pattern(
                             env.define(*field_name, val.clone(), mutable);
                         }
                     } else {
-                        return Err(errors::missing_struct_field());
+                        return Err(missing_struct_field());
                     }
                 }
                 Ok(Value::Void)
             } else {
-                Err(errors::expected_struct())
+                Err(expected_struct())
             }
         }
         BindingPattern::List { elements, rest } => {
             if let Value::List(values) = value {
                 if values.len() < elements.len() {
-                    return Err(errors::list_pattern_too_long());
+                    return Err(list_pattern_too_long());
                 }
                 for (pat, val) in elements.iter().zip(values.iter()) {
                     bind_pattern(pat, val.clone(), mutable, env)?;
@@ -94,7 +98,7 @@ pub fn bind_pattern(
                 }
                 Ok(Value::Void)
             } else {
-                Err(errors::expected_list())
+                Err(expected_list())
             }
         }
     }
@@ -122,7 +126,7 @@ pub fn try_match(
                 ExprKind::Bool(b) => Value::Bool(*b),
                 ExprKind::String(s) => Value::string(interner.lookup(*s).to_string()),
                 ExprKind::Char(c) => Value::Char(*c),
-                _ => return Err(errors::invalid_literal_pattern()),
+                _ => return Err(invalid_literal_pattern()),
             };
             if &lit == value {
                 Ok(Some(vec![]))
@@ -134,19 +138,15 @@ pub fn try_match(
         MatchPattern::Variant { name, inner } => {
             let variant_name = interner.lookup(*name);
             match (variant_name, value, inner) {
-                ("Some", Value::Some(v), Some(inner_pat)) => {
+                ("Some", Value::Some(v), Some(inner_pat))
+                | ("Ok", Value::Ok(v), Some(inner_pat))
+                | ("Err", Value::Err(v), Some(inner_pat)) => {
                     try_match(inner_pat, v.as_ref(), arena, interner)
                 }
-                ("Some", Value::Some(_), None) => Ok(Some(vec![])),
-                ("None", Value::None, _) => Ok(Some(vec![])),
-                ("Ok", Value::Ok(v), Some(inner_pat)) => {
-                    try_match(inner_pat, v.as_ref(), arena, interner)
-                }
-                ("Ok", Value::Ok(_), None) => Ok(Some(vec![])),
-                ("Err", Value::Err(v), Some(inner_pat)) => {
-                    try_match(inner_pat, v.as_ref(), arena, interner)
-                }
-                ("Err", Value::Err(_), None) => Ok(Some(vec![])),
+                ("Some", Value::Some(_), None)
+                | ("Ok", Value::Ok(_), None)
+                | ("Err", Value::Err(_), None)
+                | ("None", Value::None, _) => Ok(Some(vec![])),
                 _ => Ok(None),
             }
         }
@@ -271,7 +271,7 @@ pub fn try_match(
 
 /// Evaluate a match expression.
 pub fn eval_match<EvalFn, GuardFn>(
-    value: Value,
+    value: &Value,
     arms: ArmRange,
     arena: &ExprArena,
     interner: &StringInterner,
@@ -287,7 +287,7 @@ where
 
     for arm in arm_list {
         // Try to match the pattern first
-        if let Some(bindings) = try_match(&arm.pattern, &value, arena, interner)? {
+        if let Some(bindings) = try_match(&arm.pattern, value, arena, interner)? {
             // Push scope with bindings
             env.push_scope();
             for (name, val) in bindings {
@@ -310,7 +310,7 @@ where
         }
     }
 
-    Err(errors::non_exhaustive_match())
+    Err(non_exhaustive_match())
 }
 
 /// Result of a for loop iteration.
@@ -336,7 +336,7 @@ where
     let items = match iter {
         Value::List(list) => list.iter().cloned().collect::<Vec<_>>(),
         Value::Range(range) => range.iter().map(Value::Int).collect(),
-        _ => return Err(errors::for_requires_iterable()),
+        _ => return Err(for_requires_iterable()),
     };
 
     if is_yield {
@@ -405,8 +405,7 @@ where
 pub fn parse_loop_control(message: &str) -> LoopAction {
     if message == "continue" {
         LoopAction::Continue
-    } else if message.starts_with("break:") {
-        let val_str = &message[6..];
+    } else if let Some(val_str) = message.strip_prefix("break:") {
         if val_str == "void" {
             LoopAction::Break(Value::Void)
         } else {
@@ -431,7 +430,7 @@ pub fn eval_assign(
         ExprKind::Ident(name) => {
             env.assign(*name, value.clone()).map_err(|_| {
                 let name_str = interner.lookup(*name);
-                errors::cannot_assign_immutable(name_str)
+                cannot_assign_immutable(name_str)
             })?;
             Ok(value)
         }
@@ -443,7 +442,7 @@ pub fn eval_assign(
             // Assignment to field would require mutable structs
             Err(EvalError::new("field assignment not yet implemented"))
         }
-        _ => Err(errors::invalid_assignment_target()),
+        _ => Err(invalid_assignment_target()),
     }
 }
 

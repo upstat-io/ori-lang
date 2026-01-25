@@ -1,7 +1,7 @@
 //! Salsa-compatible evaluation output types.
 //!
 //! These types are designed for use in Salsa queries, requiring
-//! Clone + Eq + PartialEq + Hash + Debug traits.
+//! Clone + Eq + `PartialEq` + Hash + Debug traits.
 
 use std::hash::{Hash, Hasher};
 use crate::ir::StringInterner;
@@ -13,7 +13,7 @@ use super::value::Value;
 /// Complex values (functions, structs) are represented as strings.
 ///
 /// # Salsa Compatibility
-/// Has all required traits: Clone, Eq, PartialEq, Hash, Debug
+/// Has all required traits: Clone, Eq, `PartialEq`, Hash, Debug
 #[derive(Clone, Debug)]
 pub enum EvalOutput {
     /// Integer value.
@@ -59,7 +59,7 @@ pub enum EvalOutput {
 }
 
 impl EvalOutput {
-    /// Convert a runtime Value to a Salsa-compatible EvalOutput.
+    /// Convert a runtime Value to a Salsa-compatible `EvalOutput`.
     pub fn from_value(value: &Value, interner: &StringInterner) -> Self {
         match value {
             Value::Int(n) => EvalOutput::Int(*n),
@@ -89,7 +89,7 @@ impl EvalOutput {
             Value::Function(f) => {
                 EvalOutput::Function(format!("<function with {} params>", f.params.len()))
             }
-            Value::FunctionVal(_, name) => EvalOutput::Function(format!("<{}>", name)),
+            Value::FunctionVal(_, name) => EvalOutput::Function(format!("<{name}>")),
             Value::Struct(s) => {
                 EvalOutput::Struct(format!("<struct {}>", interner.lookup(s.name())))
             }
@@ -110,33 +110,32 @@ impl EvalOutput {
             EvalOutput::Int(n) => n.to_string(),
             EvalOutput::Float(bits) => f64::from_bits(*bits).to_string(),
             EvalOutput::Bool(b) => b.to_string(),
-            EvalOutput::Str(s) => format!("\"{}\"", s),
-            EvalOutput::Char(c) => format!("'{}'", c),
-            EvalOutput::Byte(b) => format!("0x{:02x}", b),
+            EvalOutput::Str(s) => format!("\"{s}\""),
+            EvalOutput::Char(c) => format!("'{c}'"),
+            EvalOutput::Byte(b) => format!("0x{b:02x}"),
             EvalOutput::Void => "void".to_string(),
             EvalOutput::List(items) => {
-                let inner: Vec<_> = items.iter().map(|v| v.display()).collect();
+                let inner: Vec<_> = items.iter().map(EvalOutput::display).collect();
                 format!("[{}]", inner.join(", "))
             }
             EvalOutput::Tuple(items) => {
-                let inner: Vec<_> = items.iter().map(|v| v.display()).collect();
+                let inner: Vec<_> = items.iter().map(EvalOutput::display).collect();
                 format!("({})", inner.join(", "))
             }
             EvalOutput::Some(v) => format!("Some({})", v.display()),
             EvalOutput::None => "None".to_string(),
             EvalOutput::Ok(v) => format!("Ok({})", v.display()),
             EvalOutput::Err(v) => format!("Err({})", v.display()),
-            EvalOutput::Duration(ms) => format!("{}ms", ms),
-            EvalOutput::Size(bytes) => format!("{}b", bytes),
+            EvalOutput::Duration(ms) => format!("{ms}ms"),
+            EvalOutput::Size(bytes) => format!("{bytes}b"),
             EvalOutput::Range { start, end, inclusive } => {
                 if *inclusive {
-                    format!("{}..={}", start, end)
+                    format!("{start}..={end}")
                 } else {
-                    format!("{}..{}", start, end)
+                    format!("{start}..{end}")
                 }
             }
-            EvalOutput::Function(desc) => desc.clone(),
-            EvalOutput::Struct(desc) => desc.clone(),
+            EvalOutput::Function(desc) | EvalOutput::Struct(desc) => desc.clone(),
             EvalOutput::Map(entries) => {
                 let inner: Vec<_> = entries
                     .iter()
@@ -144,7 +143,7 @@ impl EvalOutput {
                     .collect();
                 format!("{{{}}}", inner.join(", "))
             }
-            EvalOutput::Error(msg) => format!("<error: {}>", msg),
+            EvalOutput::Error(msg) => format!("<error: {msg}>"),
         }
     }
 }
@@ -153,28 +152,34 @@ impl PartialEq for EvalOutput {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (EvalOutput::Int(a), EvalOutput::Int(b)) => a == b,
-            (EvalOutput::Float(a), EvalOutput::Float(b)) => a == b,
             (EvalOutput::Bool(a), EvalOutput::Bool(b)) => a == b,
-            (EvalOutput::Str(a), EvalOutput::Str(b)) => a == b,
-            (EvalOutput::Char(a), EvalOutput::Char(b)) => a == b,
             (EvalOutput::Byte(a), EvalOutput::Byte(b)) => a == b,
-            (EvalOutput::Void, EvalOutput::Void) => true,
-            (EvalOutput::List(a), EvalOutput::List(b)) => a == b,
-            (EvalOutput::Tuple(a), EvalOutput::Tuple(b)) => a == b,
-            (EvalOutput::Some(a), EvalOutput::Some(b)) => a == b,
-            (EvalOutput::None, EvalOutput::None) => true,
-            (EvalOutput::Ok(a), EvalOutput::Ok(b)) => a == b,
-            (EvalOutput::Err(a), EvalOutput::Err(b)) => a == b,
-            (EvalOutput::Duration(a), EvalOutput::Duration(b)) => a == b,
-            (EvalOutput::Size(a), EvalOutput::Size(b)) => a == b,
+            (EvalOutput::Char(a), EvalOutput::Char(b)) => a == b,
+            // u64 types can be merged (Float stored as bits, Duration in ms, Size in bytes)
+            (EvalOutput::Float(a), EvalOutput::Float(b))
+            | (EvalOutput::Duration(a), EvalOutput::Duration(b))
+            | (EvalOutput::Size(a), EvalOutput::Size(b)) => a == b,
+            // String types can be merged
+            (EvalOutput::Str(a), EvalOutput::Str(b))
+            | (EvalOutput::Function(a), EvalOutput::Function(b))
+            | (EvalOutput::Struct(a), EvalOutput::Struct(b))
+            | (EvalOutput::Error(a), EvalOutput::Error(b)) => a == b,
+            // Vec<EvalOutput> types can be merged
+            (EvalOutput::List(a), EvalOutput::List(b))
+            | (EvalOutput::Tuple(a), EvalOutput::Tuple(b)) => a == b,
+            // Box<EvalOutput> types can be merged
+            (EvalOutput::Some(a), EvalOutput::Some(b))
+            | (EvalOutput::Ok(a), EvalOutput::Ok(b))
+            | (EvalOutput::Err(a), EvalOutput::Err(b)) => a == b,
+            (EvalOutput::Map(a), EvalOutput::Map(b)) => a == b,
+            // Unit types
+            (EvalOutput::Void, EvalOutput::Void)
+            | (EvalOutput::None, EvalOutput::None) => true,
+            // Range with multiple fields
             (EvalOutput::Range { start: s1, end: e1, inclusive: i1 },
              EvalOutput::Range { start: s2, end: e2, inclusive: i2 }) => {
                 s1 == s2 && e1 == e2 && i1 == i2
             }
-            (EvalOutput::Function(a), EvalOutput::Function(b)) => a == b,
-            (EvalOutput::Struct(a), EvalOutput::Struct(b)) => a == b,
-            (EvalOutput::Map(a), EvalOutput::Map(b)) => a == b,
-            (EvalOutput::Error(a), EvalOutput::Error(b)) => a == b,
             _ => false,
         }
     }
@@ -187,29 +192,33 @@ impl Hash for EvalOutput {
         std::mem::discriminant(self).hash(state);
         match self {
             EvalOutput::Int(n) => n.hash(state),
-            EvalOutput::Float(bits) => bits.hash(state),
             EvalOutput::Bool(b) => b.hash(state),
-            EvalOutput::Str(s) => s.hash(state),
             EvalOutput::Char(c) => c.hash(state),
             EvalOutput::Byte(b) => b.hash(state),
-            EvalOutput::Void => {}
-            EvalOutput::List(items) => items.hash(state),
-            EvalOutput::Tuple(items) => items.hash(state),
-            EvalOutput::Some(v) => v.hash(state),
-            EvalOutput::None => {}
-            EvalOutput::Ok(v) => v.hash(state),
-            EvalOutput::Err(v) => v.hash(state),
-            EvalOutput::Duration(ms) => ms.hash(state),
-            EvalOutput::Size(bytes) => bytes.hash(state),
+            // u64 types
+            EvalOutput::Float(bits)
+            | EvalOutput::Duration(bits)
+            | EvalOutput::Size(bits) => bits.hash(state),
+            // String types
+            EvalOutput::Str(s)
+            | EvalOutput::Function(s)
+            | EvalOutput::Struct(s)
+            | EvalOutput::Error(s) => s.hash(state),
+            // Vec<EvalOutput> types
+            EvalOutput::List(items)
+            | EvalOutput::Tuple(items) => items.hash(state),
+            // Box<EvalOutput> types
+            EvalOutput::Some(v)
+            | EvalOutput::Ok(v)
+            | EvalOutput::Err(v) => v.hash(state),
+            EvalOutput::Map(entries) => entries.hash(state),
+            // Unit types
+            EvalOutput::Void | EvalOutput::None => {}
             EvalOutput::Range { start, end, inclusive } => {
                 start.hash(state);
                 end.hash(state);
                 inclusive.hash(state);
             }
-            EvalOutput::Function(desc) => desc.hash(state),
-            EvalOutput::Struct(desc) => desc.hash(state),
-            EvalOutput::Map(entries) => entries.hash(state),
-            EvalOutput::Error(msg) => msg.hash(state),
         }
     }
 }
@@ -217,7 +226,7 @@ impl Hash for EvalOutput {
 /// Result of evaluating a module.
 ///
 /// # Salsa Compatibility
-/// Has all required traits: Clone, Eq, PartialEq, Hash, Debug
+/// Has all required traits: Clone, Eq, `PartialEq`, Hash, Debug
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ModuleEvalResult {
     /// The result value (if evaluation succeeded).

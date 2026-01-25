@@ -8,7 +8,40 @@ use super::TypeChecker;
 use super::types::TypeCheckError;
 use super::super::infer;
 
-impl<'a> TypeChecker<'a> {
+/// Add bindings from a pattern to the bound set.
+pub(crate) fn add_pattern_bindings(pattern: &BindingPattern, bound: &mut HashSet<Name>) {
+    match pattern {
+        BindingPattern::Name(name) => {
+            bound.insert(*name);
+        }
+        BindingPattern::Wildcard => {}
+        BindingPattern::Tuple(patterns) => {
+            for p in patterns {
+                add_pattern_bindings(p, bound);
+            }
+        }
+        BindingPattern::Struct { fields } => {
+            for (field_name, nested) in fields {
+                if let Some(nested_pattern) = nested {
+                    add_pattern_bindings(nested_pattern, bound);
+                } else {
+                    // Shorthand: { x } binds x
+                    bound.insert(*field_name);
+                }
+            }
+        }
+        BindingPattern::List { elements, rest } => {
+            for p in elements {
+                add_pattern_bindings(p, bound);
+            }
+            if let Some(rest_name) = rest {
+                bound.insert(*rest_name);
+            }
+        }
+    }
+}
+
+impl TypeChecker<'_> {
     /// Collect free variable references from an expression.
     ///
     /// This is used for closure self-capture detection. A variable is "free"
@@ -17,39 +50,6 @@ impl<'a> TypeChecker<'a> {
         let mut free = HashSet::new();
         infer::collect_free_vars_inner(self, expr_id, bound, &mut free);
         free
-    }
-
-    /// Add bindings from a pattern to the bound set.
-    pub(crate) fn add_pattern_bindings(&self, pattern: &BindingPattern, bound: &mut HashSet<Name>) {
-        match pattern {
-            BindingPattern::Name(name) => {
-                bound.insert(*name);
-            }
-            BindingPattern::Wildcard => {}
-            BindingPattern::Tuple(patterns) => {
-                for p in patterns {
-                    self.add_pattern_bindings(p, bound);
-                }
-            }
-            BindingPattern::Struct { fields } => {
-                for (field_name, nested) in fields {
-                    if let Some(nested_pattern) = nested {
-                        self.add_pattern_bindings(nested_pattern, bound);
-                    } else {
-                        // Shorthand: { x } binds x
-                        bound.insert(*field_name);
-                    }
-                }
-            }
-            BindingPattern::List { elements, rest } => {
-                for p in elements {
-                    self.add_pattern_bindings(p, bound);
-                }
-                if let Some(rest_name) = rest {
-                    bound.insert(*rest_name);
-                }
-            }
-        }
     }
 
     /// Check for closure self-capture in a let binding.
@@ -64,7 +64,7 @@ impl<'a> TypeChecker<'a> {
     ) {
         // Get the names being bound
         let mut bound_names = HashSet::new();
-        self.add_pattern_bindings(pattern, &mut bound_names);
+        add_pattern_bindings(pattern, &mut bound_names);
 
         // Check if init is a lambda that references any of the bound names
         let expr = self.arena.get_expr(init);
@@ -84,8 +84,7 @@ impl<'a> TypeChecker<'a> {
                     let name_str = self.interner.lookup(*name);
                     self.errors.push(TypeCheckError {
                         message: format!(
-                            "closure cannot capture itself: `{}` references itself in its body",
-                            name_str
+                            "closure cannot capture itself: `{name_str}` references itself in its body"
                         ),
                         span,
                         code: crate::diagnostic::ErrorCode::E2007,

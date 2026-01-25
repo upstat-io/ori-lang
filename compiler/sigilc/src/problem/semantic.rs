@@ -8,7 +8,7 @@ use crate::ir::Span;
 /// Problems that occur during semantic analysis.
 ///
 /// # Salsa Compatibility
-/// Has Clone, Eq, PartialEq, Hash, Debug for use in query results.
+/// Has Clone, Eq, `PartialEq`, Hash, Debug for use in query results.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum SemanticProblem {
     /// Unknown identifier (not in scope).
@@ -189,29 +189,29 @@ impl SemanticProblem {
     /// Get the primary span of this problem.
     pub fn span(&self) -> Span {
         match self {
-            SemanticProblem::UnknownIdentifier { span, .. } => *span,
-            SemanticProblem::UnknownFunction { span, .. } => *span,
-            SemanticProblem::UnknownConfig { span, .. } => *span,
-            SemanticProblem::DuplicateDefinition { span, .. } => *span,
-            SemanticProblem::PrivateAccess { span, .. } => *span,
-            SemanticProblem::ImportNotFound { span, .. } => *span,
-            SemanticProblem::ImportedItemNotFound { span, .. } => *span,
-            SemanticProblem::ImmutableMutation { span, .. } => *span,
-            SemanticProblem::UseBeforeInit { span, .. } => *span,
-            SemanticProblem::MissingTest { span, .. } => *span,
-            SemanticProblem::TestTargetNotFound { span, .. } => *span,
-            SemanticProblem::BreakOutsideLoop { span } => *span,
-            SemanticProblem::ContinueOutsideLoop { span } => *span,
-            SemanticProblem::ReturnOutsideFunction { span } => *span,
-            SemanticProblem::SelfOutsideMethod { span } => *span,
-            SemanticProblem::InfiniteRecursion { span, .. } => *span,
-            SemanticProblem::UnusedVariable { span, .. } => *span,
-            SemanticProblem::UnusedFunction { span, .. } => *span,
-            SemanticProblem::UnreachableCode { span } => *span,
-            SemanticProblem::NonExhaustiveMatch { span, .. } => *span,
-            SemanticProblem::RedundantPattern { span, .. } => *span,
-            SemanticProblem::MissingCapability { span, .. } => *span,
-            SemanticProblem::DuplicateCapability { span, .. } => *span,
+            SemanticProblem::BreakOutsideLoop { span }
+            | SemanticProblem::ContinueOutsideLoop { span }
+            | SemanticProblem::ReturnOutsideFunction { span }
+            | SemanticProblem::SelfOutsideMethod { span }
+            | SemanticProblem::UnreachableCode { span }
+            | SemanticProblem::UnknownIdentifier { span, .. }
+            | SemanticProblem::UnknownFunction { span, .. }
+            | SemanticProblem::UnknownConfig { span, .. }
+            | SemanticProblem::DuplicateDefinition { span, .. }
+            | SemanticProblem::PrivateAccess { span, .. }
+            | SemanticProblem::ImportNotFound { span, .. }
+            | SemanticProblem::ImportedItemNotFound { span, .. }
+            | SemanticProblem::ImmutableMutation { span, .. }
+            | SemanticProblem::UseBeforeInit { span, .. }
+            | SemanticProblem::MissingTest { span, .. }
+            | SemanticProblem::TestTargetNotFound { span, .. }
+            | SemanticProblem::InfiniteRecursion { span, .. }
+            | SemanticProblem::UnusedVariable { span, .. }
+            | SemanticProblem::UnusedFunction { span, .. }
+            | SemanticProblem::NonExhaustiveMatch { span, .. }
+            | SemanticProblem::RedundantPattern { span, .. }
+            | SemanticProblem::MissingCapability { span, .. }
+            | SemanticProblem::DuplicateCapability { span, .. } => *span,
         }
     }
 

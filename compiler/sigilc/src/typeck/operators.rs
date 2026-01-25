@@ -96,16 +96,15 @@ impl TypeOperator for ArithmeticTypeOp {
         // Unify left and right types
         if let Err(e) = ctx.unify(left, right) {
             return TypeOpResult::Err(TypeOpError::new(
-                format!("type mismatch in arithmetic operation: {:?}", e),
+                format!("type mismatch in arithmetic operation: {e:?}"),
                 ErrorCode::E2001,
             ));
         }
 
         let resolved = ctx.resolve(left);
         match resolved {
-            Type::Int | Type::Float => TypeOpResult::Ok(resolved),
             Type::Str if op == BinaryOp::Add => TypeOpResult::Ok(Type::Str), // String concat
-            Type::Var(_) => TypeOpResult::Ok(resolved), // Defer checking
+            Type::Int | Type::Float | Type::Var(_) => TypeOpResult::Ok(resolved), // Defer Var checking
             _ => {
                 let op_name = match op {
                     BinaryOp::Add => "+",
@@ -160,7 +159,7 @@ impl TypeOperator for ComparisonTypeOp {
     ) -> TypeOpResult {
         if let Err(e) = ctx.unify(left, right) {
             return TypeOpResult::Err(TypeOpError::new(
-                format!("type mismatch in comparison: {:?}", e),
+                format!("type mismatch in comparison: {e:?}"),
                 ErrorCode::E2001,
             ));
         }
@@ -191,13 +190,13 @@ impl TypeOperator for LogicalTypeOp {
     ) -> TypeOpResult {
         if let Err(e) = ctx.unify(left, &Type::Bool) {
             return TypeOpResult::Err(TypeOpError::new(
-                format!("left operand of logical operator must be bool: {:?}", e),
+                format!("left operand of logical operator must be bool: {e:?}"),
                 ErrorCode::E2001,
             ));
         }
         if let Err(e) = ctx.unify(right, &Type::Bool) {
             return TypeOpResult::Err(TypeOpError::new(
-                format!("right operand of logical operator must be bool: {:?}", e),
+                format!("right operand of logical operator must be bool: {e:?}"),
                 ErrorCode::E2001,
             ));
         }
@@ -235,13 +234,13 @@ impl TypeOperator for BitwiseTypeOp {
     ) -> TypeOpResult {
         if let Err(e) = ctx.unify(left, &Type::Int) {
             return TypeOpResult::Err(TypeOpError::new(
-                format!("left operand of bitwise operator must be int: {:?}", e),
+                format!("left operand of bitwise operator must be int: {e:?}"),
                 ErrorCode::E2001,
             ));
         }
         if let Err(e) = ctx.unify(right, &Type::Int) {
             return TypeOpResult::Err(TypeOpError::new(
-                format!("right operand of bitwise operator must be int: {:?}", e),
+                format!("right operand of bitwise operator must be int: {e:?}"),
                 ErrorCode::E2001,
             ));
         }
@@ -272,7 +271,7 @@ impl TypeOperator for RangeTypeOp {
     ) -> TypeOpResult {
         if let Err(e) = ctx.unify(left, right) {
             return TypeOpResult::Err(TypeOpError::new(
-                format!("range bounds must have the same type: {:?}", e),
+                format!("range bounds must have the same type: {e:?}"),
                 ErrorCode::E2001,
             ));
         }
@@ -306,13 +305,13 @@ impl TypeOperator for CoalesceTypeOp {
 
         if let Err(e) = ctx.unify(left, &option_ty) {
             return TypeOpResult::Err(TypeOpError::new(
-                format!("left operand of ?? must be Option: {:?}", e),
+                format!("left operand of ?? must be Option: {e:?}"),
                 ErrorCode::E2001,
             ));
         }
         if let Err(e) = ctx.unify(&inner, right) {
             return TypeOpResult::Err(TypeOpError::new(
-                format!("right operand of ?? must match Option inner type: {:?}", e),
+                format!("right operand of ?? must match Option inner type: {e:?}"),
                 ErrorCode::E2001,
             ));
         }
@@ -366,7 +365,7 @@ impl TypeOperatorRegistry {
         }
 
         TypeOpResult::Err(TypeOpError::new(
-            format!("unsupported binary operator: {:?}", op),
+            format!("unsupported binary operator: {op:?}"),
             ErrorCode::E2001,
         ))
     }

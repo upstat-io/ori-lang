@@ -24,7 +24,7 @@ use super::patterns::{BindingPattern, FunctionSeq, FunctionExp};
 /// Expression node.
 ///
 /// # Salsa Compatibility
-/// Has all required traits: Clone, Eq, PartialEq, Hash, Debug
+/// Has all required traits: Clone, Eq, `PartialEq`, Hash, Debug
 #[derive(Clone, Eq, PartialEq)]
 pub struct Expr {
     pub kind: ExprKind,
@@ -62,12 +62,12 @@ impl Spanned for Expr {
 /// "No Box<Expr>, use ExprId(u32) indices"
 ///
 /// # Salsa Compatibility
-/// Has all required traits: Clone, Eq, PartialEq, Hash, Debug
+/// Has all required traits: Clone, Eq, `PartialEq`, Hash, Debug
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub enum ExprKind {
     // ===== Literals (no children) =====
 
-    /// Integer literal: 42, 1_000
+    /// Integer literal: 42, `1_000`
     Int(i64),
 
     /// Float literal: 3.14, 2.5e-8 (stored as bits for Hash)
@@ -300,70 +300,70 @@ pub enum ExprKind {
 impl fmt::Debug for ExprKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ExprKind::Int(n) => write!(f, "Int({})", n),
+            ExprKind::Int(n) => write!(f, "Int({n})"),
             ExprKind::Float(bits) => write!(f, "Float({})", f64::from_bits(*bits)),
-            ExprKind::Bool(b) => write!(f, "Bool({})", b),
-            ExprKind::String(n) => write!(f, "String({:?})", n),
-            ExprKind::Char(c) => write!(f, "Char({:?})", c),
-            ExprKind::Duration { value, unit } => write!(f, "Duration({}{:?})", value, unit),
-            ExprKind::Size { value, unit } => write!(f, "Size({}{:?})", value, unit),
+            ExprKind::Bool(b) => write!(f, "Bool({b})"),
+            ExprKind::String(n) => write!(f, "String({n:?})"),
+            ExprKind::Char(c) => write!(f, "Char({c:?})"),
+            ExprKind::Duration { value, unit } => write!(f, "Duration({value}{unit:?})"),
+            ExprKind::Size { value, unit } => write!(f, "Size({value}{unit:?})"),
             ExprKind::Unit => write!(f, "Unit"),
-            ExprKind::Ident(n) => write!(f, "Ident({:?})", n),
-            ExprKind::Config(n) => write!(f, "Config({:?})", n),
+            ExprKind::Ident(n) => write!(f, "Ident({n:?})"),
+            ExprKind::Config(n) => write!(f, "Config({n:?})"),
             ExprKind::SelfRef => write!(f, "SelfRef"),
-            ExprKind::FunctionRef(n) => write!(f, "FunctionRef({:?})", n),
+            ExprKind::FunctionRef(n) => write!(f, "FunctionRef({n:?})"),
             ExprKind::HashLength => write!(f, "HashLength"),
             ExprKind::Binary { op, left, right } => {
-                write!(f, "Binary({:?}, {:?}, {:?})", op, left, right)
+                write!(f, "Binary({op:?}, {left:?}, {right:?})")
             }
-            ExprKind::Unary { op, operand } => write!(f, "Unary({:?}, {:?})", op, operand),
-            ExprKind::Call { func, args } => write!(f, "Call({:?}, {:?})", func, args),
-            ExprKind::CallNamed { func, args } => write!(f, "CallNamed({:?}, {:?})", func, args),
+            ExprKind::Unary { op, operand } => write!(f, "Unary({op:?}, {operand:?})"),
+            ExprKind::Call { func, args } => write!(f, "Call({func:?}, {args:?})"),
+            ExprKind::CallNamed { func, args } => write!(f, "CallNamed({func:?}, {args:?})"),
             ExprKind::MethodCall { receiver, method, args } => {
-                write!(f, "MethodCall({:?}, {:?}, {:?})", receiver, method, args)
+                write!(f, "MethodCall({receiver:?}, {method:?}, {args:?})")
             }
             ExprKind::Field { receiver, field } => {
-                write!(f, "Field({:?}, {:?})", receiver, field)
+                write!(f, "Field({receiver:?}, {field:?})")
             }
             ExprKind::Index { receiver, index } => {
-                write!(f, "Index({:?}, {:?})", receiver, index)
+                write!(f, "Index({receiver:?}, {index:?})")
             }
             ExprKind::If { cond, then_branch, else_branch } => {
-                write!(f, "If({:?}, {:?}, {:?})", cond, then_branch, else_branch)
+                write!(f, "If({cond:?}, {then_branch:?}, {else_branch:?})")
             }
             ExprKind::Match { scrutinee, arms } => {
-                write!(f, "Match({:?}, {:?})", scrutinee, arms)
+                write!(f, "Match({scrutinee:?}, {arms:?})")
             }
             ExprKind::For { binding, iter, guard, body, is_yield } => {
-                write!(f, "For({:?}, {:?}, {:?}, {:?}, yield={})", binding, iter, guard, body, is_yield)
+                write!(f, "For({binding:?}, {iter:?}, {guard:?}, {body:?}, yield={is_yield})")
             }
-            ExprKind::Loop { body } => write!(f, "Loop({:?})", body),
-            ExprKind::Block { stmts, result } => write!(f, "Block({:?}, {:?})", stmts, result),
+            ExprKind::Loop { body } => write!(f, "Loop({body:?})"),
+            ExprKind::Block { stmts, result } => write!(f, "Block({stmts:?}, {result:?})"),
             ExprKind::Let { pattern, ty, init, mutable } => {
-                write!(f, "Let({:?}, {:?}, {:?}, mutable={})", pattern, ty, init, mutable)
+                write!(f, "Let({pattern:?}, {ty:?}, {init:?}, mutable={mutable})")
             }
             ExprKind::Lambda { params, ret_ty, body } => {
-                write!(f, "Lambda({:?}, {:?}, {:?})", params, ret_ty, body)
+                write!(f, "Lambda({params:?}, {ret_ty:?}, {body:?})")
             }
-            ExprKind::List(exprs) => write!(f, "List({:?})", exprs),
-            ExprKind::Map(entries) => write!(f, "Map({:?})", entries),
-            ExprKind::Struct { name, fields } => write!(f, "Struct({:?}, {:?})", name, fields),
-            ExprKind::Tuple(exprs) => write!(f, "Tuple({:?})", exprs),
+            ExprKind::List(exprs) => write!(f, "List({exprs:?})"),
+            ExprKind::Map(entries) => write!(f, "Map({entries:?})"),
+            ExprKind::Struct { name, fields } => write!(f, "Struct({name:?}, {fields:?})"),
+            ExprKind::Tuple(exprs) => write!(f, "Tuple({exprs:?})"),
             ExprKind::Range { start, end, inclusive } => {
-                write!(f, "Range({:?}, {:?}, inclusive={})", start, end, inclusive)
+                write!(f, "Range({start:?}, {end:?}, inclusive={inclusive})")
             }
-            ExprKind::Ok(inner) => write!(f, "Ok({:?})", inner),
-            ExprKind::Err(inner) => write!(f, "Err({:?})", inner),
-            ExprKind::Some(inner) => write!(f, "Some({:?})", inner),
+            ExprKind::Ok(inner) => write!(f, "Ok({inner:?})"),
+            ExprKind::Err(inner) => write!(f, "Err({inner:?})"),
+            ExprKind::Some(inner) => write!(f, "Some({inner:?})"),
             ExprKind::None => write!(f, "None"),
-            ExprKind::Return(val) => write!(f, "Return({:?})", val),
-            ExprKind::Break(val) => write!(f, "Break({:?})", val),
+            ExprKind::Return(val) => write!(f, "Return({val:?})"),
+            ExprKind::Break(val) => write!(f, "Break({val:?})"),
             ExprKind::Continue => write!(f, "Continue"),
-            ExprKind::Await(inner) => write!(f, "Await({:?})", inner),
-            ExprKind::Try(inner) => write!(f, "Try({:?})", inner),
-            ExprKind::Assign { target, value } => write!(f, "Assign({:?}, {:?})", target, value),
-            ExprKind::FunctionSeq(seq) => write!(f, "FunctionSeq({:?})", seq),
-            ExprKind::FunctionExp(exp) => write!(f, "FunctionExp({:?})", exp),
+            ExprKind::Await(inner) => write!(f, "Await({inner:?})"),
+            ExprKind::Try(inner) => write!(f, "Try({inner:?})"),
+            ExprKind::Assign { target, value } => write!(f, "Assign({target:?}, {value:?})"),
+            ExprKind::FunctionSeq(seq) => write!(f, "FunctionSeq({seq:?})"),
+            ExprKind::FunctionExp(exp) => write!(f, "FunctionExp({exp:?})"),
             ExprKind::Error => write!(f, "Error"),
         }
     }

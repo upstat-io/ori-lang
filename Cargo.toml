@@ -56,8 +56,8 @@ unused = "deny"
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
-correctness = { level = "deny", priority = 0 }
-suspicious = { level = "deny", priority = 0 }
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
 
 # Deny footguns
 unwrap_used = "deny"

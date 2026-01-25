@@ -8,7 +8,7 @@ use crate::types::Type;
 use super::TypeChecker;
 use super::types::{FunctionType, GenericBound};
 
-impl<'a> TypeChecker<'a> {
+impl TypeChecker<'_> {
     /// Infer function signature from declaration.
     ///
     /// For generic functions, creates a fresh type variable for each generic parameter
@@ -28,7 +28,7 @@ impl<'a> TypeChecker<'a> {
         let mut generics = Vec::new();
         for gp in generic_params {
             let bounds: Vec<Vec<Name>> = gp.bounds.iter()
-                .map(|b| b.path.clone())
+                .map(sigil_ir::TraitBound::path)
                 .collect();
             let type_var = generic_type_vars.get(&gp.name).cloned()
                 .unwrap_or_else(|| self.ctx.fresh_var());
@@ -44,12 +44,12 @@ impl<'a> TypeChecker<'a> {
             if let Some(gb) = generics.iter_mut().find(|g| g.param == wc.param) {
                 // Add bounds from where clause to existing generic
                 for bound in &wc.bounds {
-                    gb.bounds.push(bound.path.clone());
+                    gb.bounds.push(bound.path());
                 }
             } else {
                 // Where clause for a param not in generic list - create new entry
                 let bounds: Vec<Vec<Name>> = wc.bounds.iter()
-                    .map(|b| b.path.clone())
+                    .map(sigil_ir::TraitBound::path)
                     .collect();
                 let type_var = generic_type_vars.get(&wc.param).cloned()
                     .unwrap_or_else(|| self.ctx.fresh_var());

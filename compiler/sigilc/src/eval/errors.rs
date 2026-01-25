@@ -1,275 +1,78 @@
-//! Centralized error message constructors for the evaluator.
+//! Error constructors for the evaluator.
 //!
-//! This module provides consistent error messages across the evaluator,
-//! eliminating duplicate string literals and ensuring uniform error formatting.
-//!
-//! All error constructors are marked `#[cold]` to hint to the compiler that
-//! these are unlikely code paths, improving hot path optimization.
+//! These are thin wrappers around `sigil_patterns` error constructors
+//! that convert the error type to use local `EvalError`.
 
 use super::evaluator::EvalError;
 
-// =============================================================================
+// Macro to generate wrapper functions that convert sigil_patterns::EvalError to local EvalError
+macro_rules! wrap_error_fn {
+    ($name:ident) => {
+        #[cold]
+        pub fn $name() -> EvalError {
+            let e = sigil_patterns::$name();
+            EvalError::new(e.message)
+        }
+    };
+    ($name:ident, $($arg:ident: $ty:ty),+) => {
+        #[cold]
+        pub fn $name($($arg: $ty),+) -> EvalError {
+            let e = sigil_patterns::$name($($arg),+);
+            EvalError::new(e.message)
+        }
+    };
+}
+
 // Binary Operation Errors
-// =============================================================================
+wrap_error_fn!(invalid_binary_op, type_name: &str);
+wrap_error_fn!(binary_type_mismatch, left: &str, right: &str);
+wrap_error_fn!(division_by_zero);
+wrap_error_fn!(modulo_by_zero);
 
-/// Invalid operator for a specific type.
-#[cold]
-pub fn invalid_binary_op(type_name: &str) -> EvalError {
-    EvalError::new(format!("invalid operator for {}", type_name))
-}
-
-/// Type mismatch in binary operation.
-#[cold]
-pub fn binary_type_mismatch(left: &str, right: &str) -> EvalError {
-    EvalError::new(format!(
-        "type mismatch in binary operation: {} and {}",
-        left, right
-    ))
-}
-
-/// Division by zero error.
-#[cold]
-pub fn division_by_zero() -> EvalError {
-    EvalError::new("division by zero")
-}
-
-/// Modulo by zero error.
-#[cold]
-pub fn modulo_by_zero() -> EvalError {
-    EvalError::new("modulo by zero")
-}
-
-// =============================================================================
 // Method Call Errors
-// =============================================================================
+wrap_error_fn!(no_such_method, method: &str, type_name: &str);
+wrap_error_fn!(wrong_arg_count, method: &str, expected: usize, got: usize);
+wrap_error_fn!(wrong_arg_type, method: &str, expected: &str);
 
-/// No such method on a type.
-#[cold]
-pub fn no_such_method(method: &str, type_name: &str) -> EvalError {
-    EvalError::new(format!("no method '{}' on type {}", method, type_name))
-}
-
-/// Wrong argument count for a method.
-#[cold]
-pub fn wrong_arg_count(method: &str, expected: usize, got: usize) -> EvalError {
-    EvalError::new(format!(
-        "{} expects {} argument(s), got {}",
-        method, expected, got
-    ))
-}
-
-/// Wrong argument type for a method.
-#[cold]
-pub fn wrong_arg_type(method: &str, expected: &str) -> EvalError {
-    EvalError::new(format!("{} expects a {} argument", method, expected))
-}
-
-// =============================================================================
 // Variable and Function Errors
-// =============================================================================
+wrap_error_fn!(undefined_variable, name: &str);
+wrap_error_fn!(undefined_function, name: &str);
+wrap_error_fn!(undefined_config, name: &str);
+wrap_error_fn!(not_callable, type_name: &str);
+wrap_error_fn!(wrong_function_args, expected: usize, got: usize);
 
-/// Undefined variable.
-#[cold]
-pub fn undefined_variable(name: &str) -> EvalError {
-    EvalError::new(format!("undefined variable: {}", name))
-}
-
-/// Undefined function.
-#[cold]
-pub fn undefined_function(name: &str) -> EvalError {
-    EvalError::new(format!("undefined function: @{}", name))
-}
-
-/// Undefined config.
-#[cold]
-pub fn undefined_config(name: &str) -> EvalError {
-    EvalError::new(format!("undefined config: ${}", name))
-}
-
-/// Value is not callable.
-#[cold]
-pub fn not_callable(type_name: &str) -> EvalError {
-    EvalError::new(format!("{} is not callable", type_name))
-}
-
-/// Wrong number of arguments in function call.
-#[cold]
-pub fn wrong_function_args(expected: usize, got: usize) -> EvalError {
-    EvalError::new(format!("expected {} arguments, got {}", expected, got))
-}
-
-// =============================================================================
 // Index and Field Access Errors
-// =============================================================================
+wrap_error_fn!(index_out_of_bounds, index: i64);
+wrap_error_fn!(key_not_found, key: &str);
+wrap_error_fn!(cannot_index, receiver: &str, index: &str);
+wrap_error_fn!(cannot_get_length, type_name: &str);
+wrap_error_fn!(no_field_on_struct, field: &str);
+wrap_error_fn!(invalid_tuple_field, field: &str);
+wrap_error_fn!(tuple_index_out_of_bounds, index: usize);
+wrap_error_fn!(cannot_access_field, type_name: &str);
 
-/// Index out of bounds.
-#[cold]
-pub fn index_out_of_bounds(index: i64) -> EvalError {
-    EvalError::new(format!("index {} out of bounds", index))
-}
-
-/// Key not found in map.
-#[cold]
-pub fn key_not_found(key: &str) -> EvalError {
-    EvalError::new(format!("key not found: {}", key))
-}
-
-/// Cannot index type with another type.
-#[cold]
-pub fn cannot_index(receiver: &str, index: &str) -> EvalError {
-    EvalError::new(format!("cannot index {} with {}", receiver, index))
-}
-
-/// Cannot get length of type.
-#[cold]
-pub fn cannot_get_length(type_name: &str) -> EvalError {
-    EvalError::new(format!("cannot get length of {}", type_name))
-}
-
-/// No field on struct.
-#[cold]
-pub fn no_field_on_struct(field: &str) -> EvalError {
-    EvalError::new(format!("no field {} on struct", field))
-}
-
-/// Invalid tuple field.
-#[cold]
-pub fn invalid_tuple_field(field: &str) -> EvalError {
-    EvalError::new(format!("invalid tuple field: {}", field))
-}
-
-/// Tuple index out of bounds.
-#[cold]
-pub fn tuple_index_out_of_bounds(index: usize) -> EvalError {
-    EvalError::new(format!("tuple index {} out of bounds", index))
-}
-
-/// Cannot access field on type.
-#[cold]
-pub fn cannot_access_field(type_name: &str) -> EvalError {
-    EvalError::new(format!("cannot access field on {}", type_name))
-}
-
-// =============================================================================
 // Type Conversion and Validation Errors
-// =============================================================================
+wrap_error_fn!(range_bound_not_int, bound: &str);
+wrap_error_fn!(unbounded_range_end);
+wrap_error_fn!(map_keys_must_be_strings);
 
-/// Range start/end must be integer.
-#[cold]
-pub fn range_bound_not_int(bound: &str) -> EvalError {
-    EvalError::new(format!("range {} must be an integer", bound))
-}
-
-/// Unbounded range end.
-#[cold]
-pub fn unbounded_range_end() -> EvalError {
-    EvalError::new("unbounded range end")
-}
-
-/// Map keys must be strings.
-#[cold]
-pub fn map_keys_must_be_strings() -> EvalError {
-    EvalError::new("map keys must be strings")
-}
-
-// =============================================================================
 // Control Flow Errors
-// =============================================================================
+wrap_error_fn!(non_exhaustive_match);
+wrap_error_fn!(cannot_assign_immutable, name: &str);
+wrap_error_fn!(invalid_assignment_target);
+wrap_error_fn!(for_requires_iterable);
 
-/// Non-exhaustive match.
-#[cold]
-pub fn non_exhaustive_match() -> EvalError {
-    EvalError::new("non-exhaustive match")
-}
-
-/// Cannot assign to immutable variable.
-#[cold]
-pub fn cannot_assign_immutable(name: &str) -> EvalError {
-    EvalError::new(format!("cannot assign to immutable variable: {}", name))
-}
-
-/// Invalid assignment target.
-#[cold]
-pub fn invalid_assignment_target() -> EvalError {
-    EvalError::new("invalid assignment target")
-}
-
-/// For loop requires iterable.
-#[cold]
-pub fn for_requires_iterable() -> EvalError {
-    EvalError::new("for requires an iterable")
-}
-
-// =============================================================================
 // Pattern Binding Errors
-// =============================================================================
+wrap_error_fn!(tuple_pattern_mismatch);
+wrap_error_fn!(expected_tuple);
+wrap_error_fn!(expected_struct);
+wrap_error_fn!(expected_list);
+wrap_error_fn!(list_pattern_too_long);
+wrap_error_fn!(missing_struct_field);
 
-/// Tuple pattern length mismatch.
-#[cold]
-pub fn tuple_pattern_mismatch() -> EvalError {
-    EvalError::new("tuple pattern length mismatch")
-}
-
-/// Expected tuple value.
-#[cold]
-pub fn expected_tuple() -> EvalError {
-    EvalError::new("expected tuple value")
-}
-
-/// Expected struct value.
-#[cold]
-pub fn expected_struct() -> EvalError {
-    EvalError::new("expected struct value")
-}
-
-/// Expected list value.
-#[cold]
-pub fn expected_list() -> EvalError {
-    EvalError::new("expected list value")
-}
-
-/// List pattern too long for value.
-#[cold]
-pub fn list_pattern_too_long() -> EvalError {
-    EvalError::new("list pattern too long for value")
-}
-
-/// Missing struct field.
-#[cold]
-pub fn missing_struct_field() -> EvalError {
-    EvalError::new("missing struct field")
-}
-
-// =============================================================================
 // Miscellaneous Errors
-// =============================================================================
-
-/// Self used outside of method context.
-#[cold]
-pub fn self_outside_method() -> EvalError {
-    EvalError::new("'self' used outside of method context")
-}
-
-/// Parse error placeholder.
-#[cold]
-pub fn parse_error() -> EvalError {
-    EvalError::new("parse error")
-}
-
-/// Hash length used outside index brackets.
-#[cold]
-pub fn hash_outside_index() -> EvalError {
-    EvalError::new("# can only be used inside index brackets")
-}
-
-/// Await not supported.
-#[cold]
-pub fn await_not_supported() -> EvalError {
-    EvalError::new("await not supported in interpreter")
-}
-
-/// Invalid literal pattern.
-#[cold]
-pub fn invalid_literal_pattern() -> EvalError {
-    EvalError::new("invalid literal pattern")
-}
+wrap_error_fn!(self_outside_method);
+wrap_error_fn!(parse_error);
+wrap_error_fn!(hash_outside_index);
+wrap_error_fn!(await_not_supported);
+wrap_error_fn!(invalid_literal_pattern);

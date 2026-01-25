@@ -5,8 +5,12 @@
 //! main Evaluator.
 
 use crate::ir::{ExprId, ExprKind, BinaryOp, UnaryOp, StringInterner, Name};
-use crate::eval::{Value, EvalResult, EvalError, RangeValue};
-use crate::eval::errors;
+use crate::eval::errors::{
+    undefined_variable, cannot_get_length, index_out_of_bounds, key_not_found,
+    cannot_index, no_field_on_struct, tuple_index_out_of_bounds, invalid_tuple_field,
+    cannot_access_field,
+};
+use crate::eval::{Value, RangeValue, EvalResult, EvalError};
 use crate::eval::environment::Environment;
 use crate::eval::operators::OperatorRegistry;
 use crate::eval::unary_operators::UnaryOperatorRegistry;
@@ -14,7 +18,7 @@ use crate::context::SharedRegistry;
 
 /// Evaluate a literal expression.
 ///
-/// Returns the Value for the given literal ExprKind, or None if not a literal.
+/// Returns the Value for the given literal `ExprKind`, or None if not a literal.
 pub fn eval_literal(kind: &ExprKind, interner: &StringInterner) -> Option<EvalResult> {
     match kind {
         ExprKind::Int(n) => Some(Ok(Value::Int(*n))),
@@ -40,7 +44,7 @@ pub fn eval_literal(kind: &ExprKind, interner: &StringInterner) -> Option<EvalRe
 pub fn eval_ident(name: Name, env: &Environment, interner: &StringInterner) -> EvalResult {
     env.lookup(name).ok_or_else(|| {
         let name_str = interner.lookup(name);
-        errors::undefined_variable(name_str)
+        undefined_variable(name_str)
     })
 }
 
@@ -119,15 +123,15 @@ pub fn eval_binary_values(left_val: Value, op: BinaryOp, right_val: Value) -> Ev
     }
 }
 
-/// Get the length of a collection for HashLength resolution.
+/// Get the length of a collection for `HashLength` resolution.
 pub fn get_collection_length(value: &Value) -> Result<i64, EvalError> {
-    match value {
-        Value::List(items) => Ok(items.len() as i64),
-        Value::Str(s) => Ok(s.chars().count() as i64),
-        Value::Map(map) => Ok(map.len() as i64),
-        Value::Tuple(items) => Ok(items.len() as i64),
-        _ => Err(errors::cannot_get_length(value.type_name())),
-    }
+    let len = match value {
+        Value::List(items) | Value::Tuple(items) => items.len(),
+        Value::Str(s) => s.chars().count(),
+        Value::Map(map) => map.len(),
+        _ => return Err(cannot_get_length(value.type_name())),
+    };
+    i64::try_from(len).map_err(|_| EvalError::new("collection too large"))
 }
 
 /// Evaluate a range expression.
@@ -160,32 +164,40 @@ where
     }
 }
 
+/// Convert a signed index to unsigned, handling negative indices from the end.
+fn resolve_index(i: i64, len: usize) -> Option<usize> {
+    if i >= 0 {
+        let idx = usize::try_from(i).ok()?;
+        if idx < len { Some(idx) } else { None }
+    } else {
+        // Negative index: count from end
+        // -i is positive since i < 0, safe to convert
+        let positive = usize::try_from(-i).ok()?;
+        if positive <= len { Some(len - positive) } else { None }
+    }
+}
+
 /// Evaluate index access.
 pub fn eval_index(value: Value, index: Value) -> EvalResult {
     match (value, index) {
         (Value::List(items), Value::Int(i)) => {
-            let idx = if i < 0 {
-                (items.len() as i64 + i) as usize
-            } else {
-                i as usize
-            };
-            items.get(idx).cloned().ok_or_else(|| errors::index_out_of_bounds(i))
+            let idx = resolve_index(i, items.len())
+                .ok_or_else(|| index_out_of_bounds(i))?;
+            items.get(idx).cloned().ok_or_else(|| index_out_of_bounds(i))
         }
         (Value::Str(s), Value::Int(i)) => {
-            let idx = if i < 0 {
-                (s.len() as i64 + i) as usize
-            } else {
-                i as usize
-            };
+            let char_count = s.chars().count();
+            let idx = resolve_index(i, char_count)
+                .ok_or_else(|| index_out_of_bounds(i))?;
             s.chars().nth(idx)
                 .map(Value::Char)
-                .ok_or_else(|| errors::index_out_of_bounds(i))
+                .ok_or_else(|| index_out_of_bounds(i))
         }
         (Value::Map(map), Value::Str(key)) => {
             map.get(key.as_str()).cloned()
-                .ok_or_else(|| errors::key_not_found(&key))
+                .ok_or_else(|| key_not_found(&key))
         }
-        (value, index) => Err(errors::cannot_index(value.type_name(), index.type_name())),
+        (value, index) => Err(cannot_index(value.type_name(), index.type_name())),
     }
 }
 
@@ -195,19 +207,19 @@ pub fn eval_field_access(value: Value, field: Name, interner: &StringInterner) -
         Value::Struct(s) => {
             s.get_field(field).cloned().ok_or_else(|| {
                 let field_name = interner.lookup(field);
-                errors::no_field_on_struct(field_name)
+                no_field_on_struct(field_name)
             })
         }
         Value::Tuple(items) => {
             // Tuple field access like t.0, t.1
             let field_name = interner.lookup(field);
             if let Ok(idx) = field_name.parse::<usize>() {
-                items.get(idx).cloned().ok_or_else(|| errors::tuple_index_out_of_bounds(idx))
+                items.get(idx).cloned().ok_or_else(|| tuple_index_out_of_bounds(idx))
             } else {
-                Err(errors::invalid_tuple_field(field_name))
+                Err(invalid_tuple_field(field_name))
             }
         }
-        value => Err(errors::cannot_access_field(value.type_name())),
+        value => Err(cannot_access_field(value.type_name())),
     }
 }
 

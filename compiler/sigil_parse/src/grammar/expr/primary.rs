@@ -8,7 +8,7 @@ use sigil_ir::{
 };
 use crate::{ParseError, Parser};
 
-impl<'a> Parser<'a> {
+impl Parser<'_> {
     /// Parse primary expressions.
     pub(crate) fn parse_primary(&mut self) -> Result<ExprId, ParseError> {
         let span = self.current_span();
@@ -20,13 +20,13 @@ impl<'a> Parser<'a> {
         }
 
         // match is also function_seq but parsed separately
-        if self.check(TokenKind::Match) {
+        if self.check(&TokenKind::Match) {
             self.advance();
             return self.parse_match_expr();
         }
 
         // for pattern: for(over: items, match: pattern -> expr, default: value)
-        if self.check(TokenKind::For) && self.next_is_lparen() {
+        if self.check(&TokenKind::For) && self.next_is_lparen() {
             self.advance();
             return self.parse_for_pattern();
         }
@@ -72,6 +72,14 @@ impl<'a> Parser<'a> {
                 Ok(self.arena.alloc_expr(Expr::new(ExprKind::Size { value, unit }, span)))
             }
 
+            // Config reference: $name
+            TokenKind::Dollar => {
+                self.advance();
+                let name = self.expect_ident()?;
+                let full_span = span.merge(self.previous_span());
+                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Config(name), full_span)))
+            }
+
             // Identifier
             TokenKind::Ident(name) => {
                 self.advance();
@@ -79,9 +87,13 @@ impl<'a> Parser<'a> {
             }
 
             // Built-in I/O primitives as soft keywords
-            TokenKind::Print | TokenKind::Panic => {
-                let name_str = self.soft_keyword_to_name().expect("soft keyword matched but not in helper");
-                let name = self.interner().intern(name_str);
+            TokenKind::Print => {
+                let name = self.interner().intern("print");
+                self.advance();
+                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+            }
+            TokenKind::Panic => {
+                let name = self.interner().intern("panic");
                 self.advance();
                 Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
             }
@@ -128,10 +140,10 @@ impl<'a> Parser<'a> {
             // Variant constructors
             TokenKind::Some => {
                 self.advance();
-                self.expect(TokenKind::LParen)?;
+                self.expect(&TokenKind::LParen)?;
                 let inner = self.parse_expr()?;
                 let end_span = self.current_span();
-                self.expect(TokenKind::RParen)?;
+                self.expect(&TokenKind::RParen)?;
                 Ok(self.arena.alloc_expr(Expr::new(
                     ExprKind::Some(inner),
                     span.merge(end_span),
@@ -143,10 +155,10 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Ok => {
                 self.advance();
-                let inner = if self.check(TokenKind::LParen) {
+                let inner = if self.check(&TokenKind::LParen) {
                     self.advance();
                     let expr = self.parse_expr()?;
-                    self.expect(TokenKind::RParen)?;
+                    self.expect(&TokenKind::RParen)?;
                     Some(expr)
                 } else {
                     None
@@ -159,10 +171,10 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Err => {
                 self.advance();
-                let inner = if self.check(TokenKind::LParen) {
+                let inner = if self.check(&TokenKind::LParen) {
                     self.advance();
                     let expr = self.parse_expr()?;
-                    self.expect(TokenKind::RParen)?;
+                    self.expect(&TokenKind::RParen)?;
                     Some(expr)
                 } else {
                     None
@@ -200,14 +212,14 @@ impl<'a> Parser<'a> {
         self.advance();
 
         // Case 1: () -> body (lambda with no params)
-        if self.check(TokenKind::RParen) {
+        if self.check(&TokenKind::RParen) {
             self.advance();
 
-            if self.check(TokenKind::Arrow) {
+            if self.check(&TokenKind::Arrow) {
                 self.advance();
                 let ret_ty = if self.check_type_keyword() {
                     let ty = self.parse_type();
-                    self.expect(TokenKind::Eq)?;
+                    self.expect(&TokenKind::Eq)?;
                     ty
                 } else {
                     None
@@ -234,12 +246,12 @@ impl<'a> Parser<'a> {
         // Case 2: Typed lambda params
         if self.is_typed_lambda_params() {
             let params = self.parse_params()?;
-            self.expect(TokenKind::RParen)?;
-            self.expect(TokenKind::Arrow)?;
+            self.expect(&TokenKind::RParen)?;
+            self.expect(&TokenKind::Arrow)?;
 
             let ret_ty = if self.check_type_keyword() {
                 let ty = self.parse_type();
-                self.expect(TokenKind::Eq)?;
+                self.expect(&TokenKind::Eq)?;
                 ty
             } else {
                 None
@@ -256,18 +268,18 @@ impl<'a> Parser<'a> {
         // Case 3: Untyped - parse as expression(s)
         let expr = self.parse_expr()?;
 
-        if self.check(TokenKind::Comma) {
+        if self.check(&TokenKind::Comma) {
             let mut exprs = vec![expr];
-            while self.check(TokenKind::Comma) {
+            while self.check(&TokenKind::Comma) {
                 self.advance();
-                if self.check(TokenKind::RParen) {
+                if self.check(&TokenKind::RParen) {
                     break;
                 }
                 exprs.push(self.parse_expr()?);
             }
-            self.expect(TokenKind::RParen)?;
+            self.expect(&TokenKind::RParen)?;
 
-            if self.check(TokenKind::Arrow) {
+            if self.check(&TokenKind::Arrow) {
                 self.advance();
                 let params = self.exprs_to_params(&exprs)?;
                 let body = self.parse_expr()?;
@@ -286,9 +298,9 @@ impl<'a> Parser<'a> {
             )));
         }
 
-        self.expect(TokenKind::RParen)?;
+        self.expect(&TokenKind::RParen)?;
 
-        if self.check(TokenKind::Arrow) {
+        if self.check(&TokenKind::Arrow) {
             self.advance();
             let params = self.exprs_to_params(&[expr])?;
             let body = self.parse_expr()?;
@@ -308,14 +320,14 @@ impl<'a> Parser<'a> {
         self.advance();
         let mut exprs = Vec::new();
 
-        while !self.check(TokenKind::RBracket) && !self.is_at_end() {
+        while !self.check(&TokenKind::RBracket) && !self.is_at_end() {
             exprs.push(self.parse_expr()?);
-            if !self.check(TokenKind::RBracket) {
-                self.expect(TokenKind::Comma)?;
+            if !self.check(&TokenKind::RBracket) {
+                self.expect(&TokenKind::Comma)?;
             }
         }
 
-        self.expect(TokenKind::RBracket)?;
+        self.expect(&TokenKind::RBracket)?;
         let end_span = self.previous_span();
         let range = self.arena.alloc_expr_list(exprs);
         Ok(self.arena.alloc_expr(Expr::new(
@@ -329,12 +341,12 @@ impl<'a> Parser<'a> {
         let span = self.current_span();
         self.advance();
         let cond = self.parse_expr()?;
-        self.expect(TokenKind::Then)?;
+        self.expect(&TokenKind::Then)?;
         let then_branch = self.parse_expr()?;
 
         self.skip_newlines();
 
-        let else_branch = if self.check(TokenKind::Else) {
+        let else_branch = if self.check(&TokenKind::Else) {
             self.advance();
             Some(self.parse_expr()?)
         } else {
@@ -358,7 +370,7 @@ impl<'a> Parser<'a> {
         let span = self.current_span();
         self.advance();
 
-        let mutable = if self.check(TokenKind::Mut) {
+        let mutable = if self.check(&TokenKind::Mut) {
             self.advance();
             true
         } else {
@@ -367,14 +379,14 @@ impl<'a> Parser<'a> {
 
         let pattern = self.parse_binding_pattern()?;
 
-        let ty = if self.check(TokenKind::Colon) {
+        let ty = if self.check(&TokenKind::Colon) {
             self.advance();
             self.parse_type()
         } else {
             None
         };
 
-        self.expect(TokenKind::Eq)?;
+        self.expect(&TokenKind::Eq)?;
         let init = self.parse_expr()?;
 
         let end_span = self.arena.get_expr(init).span;
@@ -404,13 +416,13 @@ impl<'a> Parser<'a> {
             TokenKind::LParen => {
                 self.advance();
                 let mut patterns = Vec::new();
-                while !self.check(TokenKind::RParen) && !self.is_at_end() {
+                while !self.check(&TokenKind::RParen) && !self.is_at_end() {
                     patterns.push(self.parse_binding_pattern()?);
-                    if !self.check(TokenKind::RParen) {
-                        self.expect(TokenKind::Comma)?;
+                    if !self.check(&TokenKind::RParen) {
+                        self.expect(&TokenKind::Comma)?;
                     }
                 }
-                self.expect(TokenKind::RParen)?;
+                self.expect(&TokenKind::RParen)?;
                 Ok(BindingPattern::Tuple(patterns))
             }
             _ => Err(ParseError::new(

@@ -70,7 +70,7 @@ pub struct StructValue {
 impl StructValue {
     /// Create a new struct value from a name and field values.
     pub fn new(name: Name, field_values: HashMap<Name, Value>) -> Self {
-        let field_names: Vec<Name> = field_values.keys().cloned().collect();
+        let field_names: Vec<Name> = field_values.keys().copied().collect();
         let layout = Arc::new(StructLayout::new(&field_names));
         let mut fields = vec![Value::Void; field_names.len()];
         for (name, value) in field_values {
@@ -85,7 +85,7 @@ impl StructValue {
         }
     }
 
-    /// Alias for type_name field access.
+    /// Alias for `type_name` field access.
     pub fn name(&self) -> Name {
         self.type_name
     }
@@ -121,12 +121,12 @@ pub struct FunctionValue {
     pub body: ExprId,
     /// Captured environment (frozen at creation).
     ///
-    /// No RwLock needed since captures are immutable after creation.
+    /// No `RwLock` needed since captures are immutable after creation.
     captures: Arc<HashMap<Name, Value>>,
     /// Optional arena for cross-module functions.
     ///
     /// Functions from imported modules need their own arena reference since
-    /// the body ExprId refers to expressions in the imported file's arena.
+    /// the body `ExprId` refers to expressions in the imported file's arena.
     arena: Option<SharedArena>,
 }
 
@@ -156,7 +156,7 @@ impl FunctionValue {
     /// Create a function value from an imported module.
     ///
     /// Imported functions carry their own arena reference since the body
-    /// ExprId refers to expressions in the imported file's arena.
+    /// `ExprId` refers to expressions in the imported file's arena.
     pub fn from_import(
         params: Vec<Name>,
         body: ExprId,
@@ -198,7 +198,7 @@ impl fmt::Debug for FunctionValue {
             .field("params", &self.params)
             .field("body", &self.body)
             .field("captures", &format!("{} bindings", self.captures.len()))
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -245,7 +245,8 @@ impl RangeValue {
     /// Get the length of the range.
     pub fn len(&self) -> usize {
         let end = if self.inclusive { self.end + 1 } else { self.end };
-        (end - self.start).max(0) as usize
+        let diff = (end - self.start).max(0);
+        usize::try_from(diff).unwrap_or(usize::MAX)
     }
 
     /// Check if the range is empty.

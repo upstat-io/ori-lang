@@ -60,9 +60,9 @@ pub enum ErrorCode {
     E1010,
     /// Multi-arg function call requires named arguments
     E1011,
-    /// Invalid function_seq syntax
+    /// Invalid `function_seq` syntax
     E1012,
-    /// function_exp requires named properties
+    /// `function_exp` requires named properties
     E1013,
     /// Reserved built-in function name
     E1014,
@@ -288,6 +288,7 @@ impl Suggestion {
     }
 
     /// Add another substitution to this suggestion.
+    #[must_use]
     pub fn with_substitution(mut self, span: Span, snippet: impl Into<String>) -> Self {
         self.substitutions.push(Substitution::new(span, snippet));
         self
@@ -327,6 +328,7 @@ impl Label {
 /// # Salsa Compatibility
 /// Has Clone, Eq, Hash for use in query results.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
+#[must_use = "diagnostics should be reported or returned, not silently dropped"]
 pub struct Diagnostic {
     /// Error code for searchability.
     pub code: ErrorCode,
@@ -471,7 +473,7 @@ pub fn type_mismatch(
     context: &str,
 ) -> Diagnostic {
     Diagnostic::error(ErrorCode::E2001)
-        .with_message(format!("type mismatch: expected `{}`, found `{}`", expected, found))
+        .with_message(format!("type mismatch: expected `{expected}`, found `{found}`"))
         .with_label(span, context)
 }
 
@@ -482,14 +484,14 @@ pub fn unexpected_token(
     found: &str,
 ) -> Diagnostic {
     Diagnostic::error(ErrorCode::E1001)
-        .with_message(format!("unexpected token: expected {}, found `{}`", expected, found))
-        .with_label(span, format!("expected {}", expected))
+        .with_message(format!("unexpected token: expected {expected}, found `{found}`"))
+        .with_label(span, format!("expected {expected}"))
 }
 
 /// Create an "expected expression" diagnostic.
 pub fn expected_expression(span: Span, found: &str) -> Diagnostic {
     Diagnostic::error(ErrorCode::E1002)
-        .with_message(format!("expected expression, found `{}`", found))
+        .with_message(format!("expected expression, found `{found}`"))
         .with_label(span, "expected expression here")
 }
 
@@ -506,33 +508,33 @@ pub fn unclosed_delimiter(
         _ => delimiter,
     };
     Diagnostic::error(ErrorCode::E1003)
-        .with_message(format!("unclosed delimiter `{}`", delimiter))
-        .with_label(close_span, format!("expected `{}`", expected))
+        .with_message(format!("unclosed delimiter `{delimiter}`"))
+        .with_label(close_span, format!("expected `{expected}`"))
         .with_secondary_label(open_span, "unclosed delimiter opened here")
 }
 
 /// Create an "unknown identifier" diagnostic.
 pub fn unknown_identifier(span: Span, name: &str) -> Diagnostic {
     Diagnostic::error(ErrorCode::E2003)
-        .with_message(format!("unknown identifier `{}`", name))
+        .with_message(format!("unknown identifier `{name}`"))
         .with_label(span, "not found in this scope")
 }
 
 /// Create a "missing pattern argument" diagnostic.
 pub fn missing_pattern_arg(span: Span, pattern: &str, arg: &str) -> Diagnostic {
     Diagnostic::error(ErrorCode::E1009)
-        .with_message(format!("missing required argument `.{}:` in `{}` pattern", arg, pattern))
-        .with_label(span, format!("missing `.{}:`", arg))
-        .with_suggestion(format!("add `.{}: <value>` to the pattern arguments", arg))
+        .with_message(format!("missing required argument `.{arg}:` in `{pattern}` pattern"))
+        .with_label(span, format!("missing `.{arg}:`"))
+        .with_suggestion(format!("add `.{arg}: <value>` to the pattern arguments"))
 }
 
 /// Create an "unknown pattern argument" diagnostic.
 pub fn unknown_pattern_arg(span: Span, pattern: &str, arg: &str, valid: &[&str]) -> Diagnostic {
     let valid_list = valid.join("`, `.");
     Diagnostic::error(ErrorCode::E1010)
-        .with_message(format!("unknown argument `.{}:` in `{}` pattern", arg, pattern))
+        .with_message(format!("unknown argument `.{arg}:` in `{pattern}` pattern"))
         .with_label(span, "unknown argument")
-        .with_note(format!("valid arguments are: `.{}`", valid_list))
+        .with_note(format!("valid arguments are: `.{valid_list}`"))
 }
 
 impl fmt::Display for Diagnostic {
@@ -545,11 +547,11 @@ impl fmt::Display for Diagnostic {
         }
 
         for note in &self.notes {
-            write!(f, "\n  = note: {}", note)?;
+            write!(f, "\n  = note: {note}")?;
         }
 
         for suggestion in &self.suggestions {
-            write!(f, "\n  = help: {}", suggestion)?;
+            write!(f, "\n  = help: {suggestion}")?;
         }
 
         Ok(())

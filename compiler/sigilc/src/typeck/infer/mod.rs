@@ -16,7 +16,7 @@ mod pattern;
 use crate::ir::{ExprId, ExprKind, Name};
 use crate::types::Type;
 use crate::stack::ensure_sufficient_stack;
-use super::checker::TypeChecker;
+use super::checker::{TypeChecker, TypeCheckError, add_pattern_bindings};
 use std::collections::HashSet;
 
 pub use call::*;
@@ -42,8 +42,8 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
     let span = expr.span;
 
     let ty = match &expr.kind {
-        // Literals - handled in expr.rs
-        ExprKind::Int(_) => Type::Int,
+        // Literals and special tokens
+        ExprKind::Int(_) | ExprKind::HashLength => Type::Int,
         ExprKind::Float(_) => Type::Float,
         ExprKind::Bool(_) => Type::Bool,
         ExprKind::String(_) => Type::Str,
@@ -51,7 +51,6 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
         ExprKind::Duration { .. } => Type::Duration,
         ExprKind::Size { .. } => Type::Size,
         ExprKind::Unit => Type::Unit,
-        ExprKind::HashLength => Type::Int,
 
         // Variable reference
         ExprKind::Ident(name) => infer_ident(checker, *name, span),
@@ -111,12 +110,12 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
 
         // Let binding (as expression)
         ExprKind::Let { pattern, ty, init, .. } => {
-            infer_let(checker, pattern, ty.clone(), *init, span)
+            infer_let(checker, pattern, ty.as_ref(), *init, span)
         }
 
         // Lambda
         ExprKind::Lambda { params, ret_ty, body } => {
-            infer_lambda(checker, *params, ret_ty.clone(), *body, span)
+            infer_lambda(checker, *params, ret_ty.as_ref(), *body, span)
         }
 
         // List
@@ -175,7 +174,7 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
         ExprKind::Break(value) => infer_break(checker, *value),
         ExprKind::Continue => Type::Never,
 
-        ExprKind::Await(inner) => infer_await(checker, *inner),
+        ExprKind::Await(inner) => infer_await(checker, *inner, span),
         ExprKind::Try(inner) => infer_try(checker, *inner, span),
 
         ExprKind::Assign { target, value } => {
@@ -183,15 +182,34 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
         }
 
         // Config reference
-        ExprKind::Config(_name) => {
-            // TODO: implement config type lookup
-            checker.ctx.fresh_var()
+        ExprKind::Config(name) => {
+            if let Some(ty) = checker.config_types.get(name) {
+                ty.clone()
+            } else {
+                checker.errors.push(TypeCheckError {
+                    message: format!(
+                        "undefined config variable `${}`",
+                        checker.interner.lookup(*name)
+                    ),
+                    span,
+                    code: crate::diagnostic::ErrorCode::E2004,
+                });
+                Type::Error
+            }
         }
 
         // Self reference
         ExprKind::SelfRef => {
-            // TODO: implement self type in impl blocks
-            checker.ctx.fresh_var()
+            if let Some(ref self_ty) = checker.current_impl_self {
+                self_ty.clone()
+            } else {
+                checker.errors.push(TypeCheckError {
+                    message: "`self` can only be used inside impl blocks".to_string(),
+                    span,
+                    code: crate::diagnostic::ErrorCode::E2003,
+                });
+                Type::Error
+            }
         }
 
         // Error placeholder
@@ -215,15 +233,8 @@ pub fn collect_free_vars_inner(
     let expr = checker.arena.get_expr(expr_id);
 
     match &expr.kind {
-        // Variable reference - free if not bound
-        ExprKind::Ident(name) => {
-            if !bound.contains(name) {
-                free.insert(*name);
-            }
-        }
-
-        // Function reference - check if it refers to a local binding
-        ExprKind::FunctionRef(name) => {
+        // Variable or function reference - free if not bound
+        ExprKind::Ident(name) | ExprKind::FunctionRef(name) => {
             if !bound.contains(name) {
                 free.insert(*name);
             }
@@ -345,7 +356,7 @@ pub fn collect_free_vars_inner(
                         // Init is evaluated before the binding is in scope
                         collect_free_vars_inner(checker, *init, &block_bound, free);
                         // Add pattern bindings for subsequent statements
-                        checker.add_pattern_bindings(pattern, &mut block_bound);
+                        add_pattern_bindings(pattern, &mut block_bound);
                     }
                 }
             }
@@ -369,8 +380,8 @@ pub fn collect_free_vars_inner(
             collect_free_vars_inner(checker, *body, &lambda_bound, free);
         }
 
-        // List
-        ExprKind::List(elements) => {
+        // List and Tuple
+        ExprKind::List(elements) | ExprKind::Tuple(elements) => {
             for elem_id in checker.arena.get_expr_list(*elements) {
                 collect_free_vars_inner(checker, *elem_id, bound, free);
             }
@@ -398,13 +409,6 @@ pub fn collect_free_vars_inner(
             }
         }
 
-        // Tuple
-        ExprKind::Tuple(elements) => {
-            for elem_id in checker.arena.get_expr_list(*elements) {
-                collect_free_vars_inner(checker, *elem_id, bound, free);
-            }
-        }
-
         // Range
         ExprKind::Range { start, end, .. } => {
             if let Some(start_id) = start {
@@ -421,19 +425,17 @@ pub fn collect_free_vars_inner(
                 collect_free_vars_inner(checker, *id, bound, free);
             }
         }
-        ExprKind::Some(inner) => {
+
+        // Expressions with single inner expression
+        ExprKind::Some(inner) | ExprKind::Await(inner) | ExprKind::Try(inner) => {
             collect_free_vars_inner(checker, *inner, bound, free);
         }
 
-        // Control flow
+        // Control flow with optional value
         ExprKind::Return(value) | ExprKind::Break(value) => {
             if let Some(id) = value {
                 collect_free_vars_inner(checker, *id, bound, free);
             }
-        }
-
-        ExprKind::Await(inner) | ExprKind::Try(inner) => {
-            collect_free_vars_inner(checker, *inner, bound, free);
         }
 
         ExprKind::Assign { target, value } => {
@@ -455,7 +457,7 @@ pub fn collect_free_vars_inner(
     }
 }
 
-/// Collect free variables from a FunctionSeq (run, try, match).
+/// Collect free variables from a `FunctionSeq` (run, try, match).
 fn collect_free_vars_function_seq(
     checker: &TypeChecker<'_>,
     func_seq: &crate::ir::FunctionSeq,
@@ -472,7 +474,7 @@ fn collect_free_vars_function_seq(
                 match binding {
                     SeqBinding::Let { pattern, value, .. } => {
                         collect_free_vars_inner(checker, *value, &seq_bound, free);
-                        checker.add_pattern_bindings(pattern, &mut seq_bound);
+                        add_pattern_bindings(pattern, &mut seq_bound);
                     }
                     SeqBinding::Stmt { expr, .. } => {
                         collect_free_vars_inner(checker, *expr, &seq_bound, free);

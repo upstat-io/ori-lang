@@ -111,7 +111,7 @@ fn parse_diag_attribute(input: &DeriveInput) -> syn::Result<(Ident, LitStr)> {
     ))
 }
 
-/// Find the field marked with #[primary_span].
+/// Find the field marked with #[`primary_span`].
 fn find_primary_span_field<'a>(
     fields: impl Iterator<Item = &'a Field>,
 ) -> syn::Result<TokenStream2> {
@@ -216,7 +216,7 @@ fn generate_suggestion_additions<'a>(
                     .ok_or_else(|| syn::Error::new_spanned(field, "expected named field"))?;
 
                 // Parse suggestion attributes
-                let parsed = parse_suggestion_attr(attr)?;
+                let parsed = parse_suggestion_attr(attr);
 
                 let msg = &parsed.message;
                 let code = &parsed.code;
@@ -268,7 +268,7 @@ struct SuggestionParsed {
     applicability: String,
 }
 
-fn parse_suggestion_attr(attr: &syn::Attribute) -> syn::Result<SuggestionParsed> {
+fn parse_suggestion_attr(attr: &syn::Attribute) -> SuggestionParsed {
     let mut message = None;
     let mut code = None;
     let mut applicability = "unspecified".to_string();
@@ -305,11 +305,11 @@ fn parse_suggestion_attr(attr: &syn::Attribute) -> syn::Result<SuggestionParsed>
         }
     }
 
-    Ok(SuggestionParsed {
+    SuggestionParsed {
         message: message.unwrap_or_else(|| LitStr::new("", proc_macro2::Span::call_site())),
         code: code.unwrap_or_else(|| LitStr::new("", proc_macro2::Span::call_site())),
         applicability,
-    })
+    }
 }
 
 /// Check if a type is Option<T>.

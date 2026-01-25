@@ -3,7 +3,7 @@
 //! Generic parameters, trait definitions, impl blocks, and extension methods.
 //!
 //! # Salsa Compatibility
-//! All types have Clone, Eq, PartialEq, Hash, Debug for Salsa requirements.
+//! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
 use crate::{Name, Span, ParsedType, ExprId, Spanned};
 use super::super::ranges::{ParamRange, GenericParamRange};
@@ -17,16 +17,29 @@ pub struct GenericParam {
 }
 
 /// A trait bound: `Eq`, `Comparable`, or path like `std.collections.Iterator`.
+///
+/// The path is guaranteed non-empty by construction: `first` is always present,
+/// and `rest` contains any additional segments.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct TraitBound {
-    pub path: Vec<Name>,
+    /// The first segment of the path (required).
+    pub first: Name,
+    /// Additional path segments (e.g., for `std.collections.Iterator`, this would be `["collections", "Iterator"]`).
+    pub rest: Vec<Name>,
     pub span: Span,
 }
 
 impl TraitBound {
     /// Get the simple name (last segment) of the trait bound.
     pub fn name(&self) -> Name {
-        *self.path.last().expect("trait bound path cannot be empty")
+        self.rest.last().copied().unwrap_or(self.first)
+    }
+
+    /// Get the full path as a vector.
+    pub fn path(&self) -> Vec<Name> {
+        let mut path = vec![self.first];
+        path.extend(&self.rest);
+        path
     }
 }
 
@@ -141,7 +154,7 @@ pub struct ImplDef {
     pub generics: GenericParamRange,
     /// The trait being implemented (None for inherent impl).
     pub trait_path: Option<Vec<Name>>,
-    /// The type path being implemented (e.g., ["Point"] for `impl Point { ... }`).
+    /// The type path being implemented (e.g., `["Point"]` for `impl Point { ... }`).
     /// Used for method dispatch lookup.
     pub self_path: Vec<Name>,
     /// The parsed type implementing the trait (or receiving inherent methods).

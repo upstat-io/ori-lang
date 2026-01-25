@@ -1,7 +1,4 @@
-//! Core function_exp pattern implementations.
-//!
-//! Per "Lean Core, Rich Libraries", most builtin patterns have been moved to
-//! stdlib methods/functions. Only Print and Panic remain as compiler built-ins.
+//! Core `function_exp` pattern implementations: print and panic.
 
 mod panic;
 mod print;

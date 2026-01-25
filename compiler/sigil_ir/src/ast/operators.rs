@@ -3,7 +3,7 @@
 //! All operator types used in expressions.
 //!
 //! # Salsa Compatibility
-//! All types have Copy, Clone, Eq, PartialEq, Hash, Debug for Salsa requirements.
+//! All types have Copy, Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
 /// Binary operators.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]

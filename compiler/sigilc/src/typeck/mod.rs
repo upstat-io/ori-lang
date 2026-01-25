@@ -5,9 +5,9 @@
 //!
 //! # Module Structure
 //!
-//! - `checker/`: TypeChecker struct and main entry point
-//!   - `mod.rs`: TypeChecker struct, check_module
-//!   - `types.rs`: TypedModule, FunctionType, GenericBound
+//! - `checker/`: `TypeChecker` struct and main entry point
+//!   - `mod.rs`: `TypeChecker` struct, `check_module`
+//!   - `types.rs`: `TypedModule`, `FunctionType`, `GenericBound`
 //!   - `signatures.rs`: Function signature inference
 //!   - `pattern_binding.rs`: Pattern to type binding
 //!   - `cycle_detection.rs`: Closure self-capture detection
@@ -15,10 +15,10 @@
 //!   - `bound_checking.rs`: Trait bound verification
 //! - `operators.rs`: Binary operator type checking
 //! - `type_registry/`: User-defined type registration
-//!   - `mod.rs`: TypeRegistry
-//!   - `trait_registry.rs`: TraitRegistry
+//!   - `mod.rs`: `TypeRegistry`
+//!   - `trait_registry.rs`: `TraitRegistry`
 //! - `infer/`: Expression type inference
-//!   - `mod.rs`: Main infer_expr dispatcher
+//!   - `mod.rs`: Main `infer_expr` dispatcher
 //!   - `expr.rs`: Literals, identifiers, operators
 //!   - `call.rs`: Function and method calls
 //!   - `control.rs`: Control flow (if, match, loops)
@@ -45,14 +45,13 @@ pub use type_registry::{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lexer;
     use crate::parser;
     use crate::ir::SharedInterner;
     use crate::types::Type;
 
     fn check_source(source: &str) -> (crate::parser::ParseResult, TypedModule) {
         let interner = SharedInterner::default();
-        let tokens = lexer::lex(source, &interner);
+        let tokens = sigil_lexer::lex(source, &interner);
         let parsed = parser::parse(&tokens, &interner);
         let typed = type_check(&parsed, &interner);
         (parsed, typed)
@@ -327,7 +326,7 @@ mod tests {
     #[test]
     fn test_type_registry_in_checker() {
         let interner = SharedInterner::default();
-        let tokens = lexer::lex("@main () -> int = 42", &interner);
+        let tokens = sigil_lexer::lex("@main () -> int = 42", &interner);
         let parsed = parser::parse(&tokens, &interner);
 
         let mut checker = TypeChecker::new(&parsed.arena, &interner);
@@ -351,7 +350,7 @@ mod tests {
     #[test]
     fn test_type_id_to_type_with_registry() {
         let interner = SharedInterner::default();
-        let tokens = lexer::lex("@main () -> int = 42", &interner);
+        let tokens = sigil_lexer::lex("@main () -> int = 42", &interner);
         let parsed = parser::parse(&tokens, &interner);
 
         let mut checker = TypeChecker::new(&parsed.arena, &interner);
@@ -371,7 +370,7 @@ mod tests {
     #[test]
     fn test_type_id_to_type_with_struct() {
         let interner = SharedInterner::default();
-        let tokens = lexer::lex("@main () -> int = 42", &interner);
+        let tokens = sigil_lexer::lex("@main () -> int = 42", &interner);
         let parsed = parser::parse(&tokens, &interner);
 
         let mut checker = TypeChecker::new(&parsed.arena, &interner);

@@ -60,7 +60,7 @@ pub fn is_test_module(path: &Path) -> bool {
     // Check if the file has .test.si extension
     let has_test_extension = path.file_name()
         .and_then(|n| n.to_str())
-        .map_or(false, |n| n.ends_with(".test.si"));
+        .is_some_and(|n| n.ends_with(".test.si"));
 
     if !has_test_extension {
         return false;
@@ -68,9 +68,9 @@ pub fn is_test_module(path: &Path) -> bool {
 
     // Check if any parent directory is named _test
     path.parent()
-        .map_or(false, |parent| {
+        .is_some_and(|parent| {
             parent.components().any(|c| {
-                c.as_os_str().to_str().map_or(false, |s| s == "_test")
+                c.as_os_str().to_str() == Some("_test")
             })
         })
 }
@@ -85,17 +85,15 @@ pub fn is_parent_module_import(current_file: &Path, import_path: &Path) -> bool 
 
     // Check if current dir is named _test
     let is_in_test_dir = current_dir.file_name()
-        .and_then(|n| n.to_str())
-        .map_or(false, |n| n == "_test");
+        .and_then(|n| n.to_str()) == Some("_test");
 
     if !is_in_test_dir {
         return false;
     }
 
     // Get the parent directory of _test (e.g., src/_test -> src)
-    let test_parent = match current_dir.parent() {
-        Some(p) => p,
-        None => return false,
+    let Some(test_parent) = current_dir.parent() else {
+        return false;
     };
 
     // Get the directory containing the imported file
@@ -184,12 +182,6 @@ impl LoadingContext {
         self.loading_stack.pop();
         self.loaded.insert(path);
     }
-
-    /// Get the current loading depth (for debugging).
-    #[allow(dead_code)]
-    pub fn depth(&self) -> usize {
-        self.loading_stack.len()
-    }
 }
 
 // =============================================================================
@@ -201,7 +193,7 @@ impl LoadingContext {
 /// Handles relative paths (starting with './' or '../') and module paths.
 ///
 /// Module paths are resolved by looking in:
-/// 1. SIGIL_STDLIB environment variable (if set)
+/// 1. `SIGIL_STDLIB` environment variable (if set)
 /// 2. ./library/ relative to project root
 /// 3. Standard locations (/usr/local/lib/sigil/stdlib, etc.)
 pub fn resolve_import_path(
@@ -235,7 +227,7 @@ pub fn resolve_import_path(
 /// Resolve a module path like `std.math` to a file path.
 ///
 /// Search order:
-/// 1. SIGIL_STDLIB environment variable
+/// 1. `SIGIL_STDLIB` environment variable
 /// 2. ./library/ relative to project root (for development)
 /// 3. Standard locations
 fn resolve_module_path(
@@ -316,8 +308,7 @@ fn resolve_module_path(
     }
 
     Err(ImportError::new(format!(
-        "module '{}' not found. Searched: SIGIL_STDLIB, ./library/, standard locations",
-        module_name
+        "module '{module_name}' not found. Searched: SIGIL_STDLIB, ./library/, standard locations"
     )))
 }
 
@@ -333,7 +324,7 @@ pub fn load_imported_module(
         .map_err(|e| ImportError::new(format!("Failed to read '{}': {}", import_path.display(), e)))?;
 
     // Parse the imported file
-    let tokens = crate::lexer::lex(&content, interner);
+    let tokens = sigil_lexer::lex(&content, interner);
     let imported_result = crate::parser::parse(&tokens, interner);
 
     if imported_result.has_errors() {
@@ -351,6 +342,57 @@ pub fn load_imported_module(
     Ok(imported_result)
 }
 
+// =============================================================================
+// Imported Module
+// =============================================================================
+
+/// Represents a parsed and loaded module ready for import registration.
+///
+/// Groups together the parse result, arena, and pre-built function map
+/// to reduce parameter count in `register_imports`.
+pub struct ImportedModule<'a> {
+    /// The parse result containing the module's AST.
+    pub result: &'a ParseResult,
+    /// The expression arena for the imported module.
+    pub arena: &'a SharedArena,
+    /// Pre-built map of all functions in the module.
+    pub functions: HashMap<Name, Value>,
+}
+
+impl<'a> ImportedModule<'a> {
+    /// Create a new imported module from parse result and arena.
+    ///
+    /// Builds the function map automatically.
+    pub fn new(result: &'a ParseResult, arena: &'a SharedArena) -> Self {
+        let functions = Self::build_functions(result, arena);
+        ImportedModule { result, arena, functions }
+    }
+
+    /// Build a map of all functions in a module.
+    ///
+    /// This allows imported functions to call other functions from their module.
+    fn build_functions(parse_result: &ParseResult, imported_arena: &SharedArena) -> HashMap<Name, Value> {
+        let mut module_functions: HashMap<Name, Value> = HashMap::new();
+
+        for func in &parse_result.module.functions {
+            let params: Vec<_> = imported_arena.get_params(func.params)
+                .iter()
+                .map(|p| p.name)
+                .collect();
+
+            let func_value = FunctionValue::from_import(
+                params,
+                func.body,
+                HashMap::new(),
+                imported_arena.clone(),
+            );
+            module_functions.insert(func.name, Value::Function(func_value));
+        }
+
+        module_functions
+    }
+}
+
 /// Build a map of all functions in a module.
 ///
 /// This allows imported functions to call other functions from their module.
@@ -358,24 +400,7 @@ pub fn build_module_functions(
     parse_result: &ParseResult,
     imported_arena: &SharedArena,
 ) -> HashMap<Name, Value> {
-    let mut module_functions: HashMap<Name, Value> = HashMap::new();
-
-    for func in &parse_result.module.functions {
-        let params: Vec<_> = imported_arena.get_params(func.params)
-            .iter()
-            .map(|p| p.name)
-            .collect();
-
-        let func_value = FunctionValue::from_import(
-            params,
-            func.body,
-            HashMap::new(),
-            imported_arena.clone(),
-        );
-        module_functions.insert(func.name, Value::Function(func_value));
-    }
-
-    module_functions
+    ImportedModule::build_functions(parse_result, imported_arena)
 }
 
 /// Register imported items into the environment.
@@ -389,9 +414,7 @@ pub fn build_module_functions(
 /// - Test modules in `_test/` can access private items from parent module
 pub fn register_imports(
     import: &crate::ir::UseDef,
-    imported_result: &ParseResult,
-    imported_arena: &SharedArena,
-    module_functions: &HashMap<Name, Value>,
+    imported: &ImportedModule<'_>,
     env: &mut Environment,
     interner: &StringInterner,
     import_path: &Path,
@@ -405,7 +428,7 @@ pub fn register_imports(
         let item_name_str = interner.lookup(item.name);
 
         // Find the function in the imported module
-        let func = imported_result.module.functions
+        let func = imported.result.module.functions
             .iter()
             .find(|f| interner.lookup(f.name) == item_name_str);
 
@@ -420,20 +443,20 @@ pub fn register_imports(
                 )));
             }
 
-            let params: Vec<_> = imported_arena.get_params(func.params)
+            let params: Vec<_> = imported.arena.get_params(func.params)
                 .iter()
                 .map(|p| p.name)
                 .collect();
 
             // Captures include: current environment + all module functions
             let mut captures = env.capture();
-            captures.extend(module_functions.clone());
+            captures.extend(imported.functions.clone());
 
             let func_value = FunctionValue::from_import(
                 params,
                 func.body,
                 captures,
-                imported_arena.clone(),
+                imported.arena.clone(),
             );
 
             // Use alias if provided, otherwise use original name

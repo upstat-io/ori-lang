@@ -62,7 +62,7 @@ pub fn infer_binary(
 
 /// Check a binary operation.
 ///
-/// Delegates to the TypeOperatorRegistry for type checking.
+/// Delegates to the `TypeOperatorRegistry` for type checking.
 fn check_binary_op(
     checker: &mut TypeChecker<'_>,
     op: BinaryOp,
@@ -112,8 +112,8 @@ fn check_unary_op(
         UnaryOp::Neg => {
             let resolved = checker.ctx.resolve(operand);
             match resolved {
-                Type::Int | Type::Float => resolved,
-                Type::Var(_) => resolved, // Defer checking for type variables
+                // Valid numeric types and deferred type variables
+                Type::Int | Type::Float | Type::Var(_) => resolved,
                 _ => {
                     checker.errors.push(TypeCheckError {
                         message: format!(
@@ -129,13 +129,13 @@ fn check_unary_op(
         }
         UnaryOp::Not => {
             if let Err(e) = checker.ctx.unify(operand, &Type::Bool) {
-                checker.report_type_error(e, span);
+                checker.report_type_error(&e, span);
             }
             Type::Bool
         }
         UnaryOp::BitNot => {
             if let Err(e) = checker.ctx.unify(operand, &Type::Int) {
-                checker.report_type_error(e, span);
+                checker.report_type_error(&e, span);
             }
             Type::Int
         }
@@ -145,7 +145,7 @@ fn check_unary_op(
             let err_ty = checker.ctx.fresh_var();
             let result_ty = checker.ctx.make_result(ok_ty.clone(), err_ty);
             if let Err(e) = checker.ctx.unify(operand, &result_ty) {
-                checker.report_type_error(e, span);
+                checker.report_type_error(&e, span);
             }
             checker.ctx.resolve(&ok_ty)
         }
@@ -156,7 +156,7 @@ fn check_unary_op(
 pub fn infer_lambda(
     checker: &mut TypeChecker<'_>,
     params: ParamRange,
-    ret_ty: Option<ParsedType>,
+    ret_ty: Option<&ParsedType>,
     body: ExprId,
     _span: Span,
 ) -> Type {
@@ -183,11 +183,11 @@ pub fn infer_lambda(
 
     // Use declared return type if present, otherwise inferred
     let final_ret_ty = match ret_ty {
-        Some(ref parsed_ty) => {
+        Some(parsed_ty) => {
             let declared_ty = checker.parsed_type_to_type(parsed_ty);
             // Unify declared with inferred
             if let Err(e) = checker.ctx.unify(&declared_ty, &body_ty) {
-                checker.report_type_error(e, checker.arena.get_expr(body).span);
+                checker.report_type_error(&e, checker.arena.get_expr(body).span);
             }
             declared_ty
         }
@@ -214,7 +214,7 @@ pub fn infer_list(checker: &mut TypeChecker<'_>, elements: ExprRange) -> Type {
         for id in &element_ids[1..] {
             let elem_ty = infer_expr(checker, *id);
             if let Err(e) = checker.ctx.unify(&first_ty, &elem_ty) {
-                checker.report_type_error(e, checker.arena.get_expr(*id).span);
+                checker.report_type_error(&e, checker.arena.get_expr(*id).span);
             }
         }
         checker.ctx.make_list(first_ty)
@@ -254,10 +254,10 @@ pub fn infer_map(
             let key_ty = infer_expr(checker, entry.key);
             let val_ty = infer_expr(checker, entry.value);
             if let Err(e) = checker.ctx.unify(&first_key_ty, &key_ty) {
-                checker.report_type_error(e, entry.span);
+                checker.report_type_error(&e, entry.span);
             }
             if let Err(e) = checker.ctx.unify(&first_val_ty, &val_ty) {
-                checker.report_type_error(e, entry.span);
+                checker.report_type_error(&e, entry.span);
             }
         }
         checker.ctx.make_map(first_key_ty, first_val_ty)
@@ -274,57 +274,51 @@ pub fn infer_struct(
     use crate::typeck::type_registry::TypeKind;
 
     // Look up the struct type in the registry
-    let type_entry = match checker.type_registry.get_by_name(name) {
-        Some(entry) => entry.clone(),
-        None => {
-            // Unknown struct type
-            let field_inits = checker.arena.get_field_inits(fields);
-            let span = if let Some(first) = field_inits.first() {
-                first.span
-            } else {
-                crate::ir::Span::new(0, 0)
-            };
+    let type_entry = if let Some(entry) = checker.type_registry.get_by_name(name) { entry.clone() } else {
+        // Unknown struct type
+        let field_inits = checker.arena.get_field_inits(fields);
+        let span = if let Some(first) = field_inits.first() {
+            first.span
+        } else {
+            crate::ir::Span::new(0, 0)
+        };
 
-            checker.errors.push(TypeCheckError {
-                message: format!(
-                    "unknown struct type `{}`",
-                    checker.interner.lookup(name)
-                ),
-                span,
-                code: crate::diagnostic::ErrorCode::E2003,
-            });
+        checker.errors.push(TypeCheckError {
+            message: format!(
+                "unknown struct type `{}`",
+                checker.interner.lookup(name)
+            ),
+            span,
+            code: crate::diagnostic::ErrorCode::E2003,
+        });
 
-            // Still infer field types for better error reporting
-            for init in field_inits {
-                if let Some(value_id) = init.value {
-                    infer_expr(checker, value_id);
-                }
+        // Still infer field types for better error reporting
+        for init in field_inits {
+            if let Some(value_id) = init.value {
+                infer_expr(checker, value_id);
             }
-            return Type::Error;
         }
+        return Type::Error;
     };
 
     // Verify it's actually a struct type
-    let expected_fields = match &type_entry.kind {
-        TypeKind::Struct { fields } => fields.clone(),
-        _ => {
-            let field_inits = checker.arena.get_field_inits(fields);
-            let span = if let Some(first) = field_inits.first() {
-                first.span
-            } else {
-                crate::ir::Span::new(0, 0)
-            };
+    let expected_fields = if let TypeKind::Struct { fields } = &type_entry.kind { fields.clone() } else {
+        let field_inits = checker.arena.get_field_inits(fields);
+        let span = if let Some(first) = field_inits.first() {
+            first.span
+        } else {
+            crate::ir::Span::new(0, 0)
+        };
 
-            checker.errors.push(TypeCheckError {
-                message: format!(
-                    "`{}` is not a struct type",
-                    checker.interner.lookup(name)
-                ),
-                span,
-                code: crate::diagnostic::ErrorCode::E2001,
-            });
-            return Type::Error;
-        }
+        checker.errors.push(TypeCheckError {
+            message: format!(
+                "`{}` is not a struct type",
+                checker.interner.lookup(name)
+            ),
+            span,
+            code: crate::diagnostic::ErrorCode::E2001,
+        });
+        return Type::Error;
     };
 
     // Build a map of expected field names to types
@@ -352,39 +346,36 @@ pub fn infer_struct(
         }
 
         // Check if field exists in struct
-        match expected_map.get(&init.name) {
-            Some(expected_ty) => {
-                // Infer the value type and unify with expected
-                if let Some(value_id) = init.value {
-                    let actual_ty = infer_expr(checker, value_id);
-                    if let Err(e) = checker.ctx.unify(&actual_ty, expected_ty) {
-                        checker.report_type_error(e, init.span);
-                    }
-                } else {
-                    // Shorthand syntax: { field } means { field: field }
-                    // Look up the variable with the same name as the field
-                    let var_ty = infer_ident(checker, init.name, init.span);
-                    if let Err(e) = checker.ctx.unify(&var_ty, expected_ty) {
-                        checker.report_type_error(e, init.span);
-                    }
+        if let Some(expected_ty) = expected_map.get(&init.name) {
+            // Infer the value type and unify with expected
+            if let Some(value_id) = init.value {
+                let actual_ty = infer_expr(checker, value_id);
+                if let Err(e) = checker.ctx.unify(&actual_ty, expected_ty) {
+                    checker.report_type_error(&e, init.span);
+                }
+            } else {
+                // Shorthand syntax: { field } means { field: field }
+                // Look up the variable with the same name as the field
+                let var_ty = infer_ident(checker, init.name, init.span);
+                if let Err(e) = checker.ctx.unify(&var_ty, expected_ty) {
+                    checker.report_type_error(&e, init.span);
                 }
             }
-            None => {
-                // Unknown field
-                checker.errors.push(TypeCheckError {
-                    message: format!(
-                        "struct `{}` has no field `{}`",
-                        checker.interner.lookup(name),
-                        checker.interner.lookup(init.name)
-                    ),
-                    span: init.span,
-                    code: crate::diagnostic::ErrorCode::E2001,
-                });
+        } else {
+            // Unknown field
+            checker.errors.push(TypeCheckError {
+                message: format!(
+                    "struct `{}` has no field `{}`",
+                    checker.interner.lookup(name),
+                    checker.interner.lookup(init.name)
+                ),
+                span: init.span,
+                code: crate::diagnostic::ErrorCode::E2001,
+            });
 
-                // Still infer the value for error recovery
-                if let Some(value_id) = init.value {
-                    infer_expr(checker, value_id);
-                }
+            // Still infer the value for error recovery
+            if let Some(value_id) = init.value {
+                infer_expr(checker, value_id);
             }
         }
     }
@@ -434,12 +425,11 @@ pub fn infer_range(
         if let Some(end_id) = end {
             let end_ty = infer_expr(checker, end_id);
             if let Err(e) = checker.ctx.unify(&elem_ty, &end_ty) {
-                checker.report_type_error(e, checker.arena.get_expr(end_id).span);
+                checker.report_type_error(&e, checker.arena.get_expr(end_id).span);
             }
         }
     }
-    // TODO: Range<T> type - currently using List for compatibility
-    checker.ctx.make_list(elem_ty)
+    checker.ctx.make_range(elem_ty)
 }
 
 /// Infer type for field access.
@@ -452,76 +442,64 @@ pub fn infer_field(
 
     let receiver_ty = infer_expr(checker, receiver);
     let resolved_ty = checker.ctx.resolve(&receiver_ty);
+    // Resolve through any type aliases
+    let resolved_ty = checker.resolve_through_aliases(&resolved_ty);
     let receiver_span = checker.arena.get_expr(receiver).span;
 
     match resolved_ty {
         // Struct field access: Point.x -> int
         Type::Named(type_name) => {
             // Look up the struct type in the registry
-            match checker.type_registry.get_by_name(type_name) {
-                Some(entry) => {
-                    let entry = entry.clone();
-                    match &entry.kind {
-                        TypeKind::Struct { fields } => {
-                            // Find the field
-                            for (field_name, field_ty) in fields {
-                                if *field_name == field {
-                                    return field_ty.clone();
-                                }
+            if let Some(entry) = checker.type_registry.get_by_name(type_name) {
+                let entry = entry.clone();
+                match &entry.kind {
+                    TypeKind::Struct { fields } => {
+                        // Find the field
+                        for (field_name, field_ty) in fields {
+                            if *field_name == field {
+                                return field_ty.clone();
                             }
+                        }
 
-                            // Field not found
-                            checker.errors.push(TypeCheckError {
-                                message: format!(
-                                    "struct `{}` has no field `{}`",
-                                    checker.interner.lookup(type_name),
-                                    checker.interner.lookup(field)
-                                ),
-                                span: receiver_span,
-                                code: crate::diagnostic::ErrorCode::E2001,
-                            });
-                            Type::Error
-                        }
-                        TypeKind::Enum { .. } => {
-                            checker.errors.push(TypeCheckError {
-                                message: format!(
-                                    "cannot access field `{}` on enum type `{}`",
-                                    checker.interner.lookup(field),
-                                    checker.interner.lookup(type_name)
-                                ),
-                                span: receiver_span,
-                                code: crate::diagnostic::ErrorCode::E2001,
-                            });
-                            Type::Error
-                        }
-                        TypeKind::Alias { target } => {
-                            // For aliases, try field access on the underlying type
-                            // This requires recursive checking - for now, error
-                            checker.errors.push(TypeCheckError {
-                                message: format!(
-                                    "cannot access field `{}` on type alias `{}`",
-                                    checker.interner.lookup(field),
-                                    checker.interner.lookup(type_name)
-                                ),
-                                span: receiver_span,
-                                code: crate::diagnostic::ErrorCode::E2001,
-                            });
-                            let _ = target; // suppress unused warning
-                            Type::Error
-                        }
+                        // Field not found
+                        checker.errors.push(TypeCheckError {
+                            message: format!(
+                                "struct `{}` has no field `{}`",
+                                checker.interner.lookup(type_name),
+                                checker.interner.lookup(field)
+                            ),
+                            span: receiver_span,
+                            code: crate::diagnostic::ErrorCode::E2001,
+                        });
+                        Type::Error
+                    }
+                    TypeKind::Enum { .. } => {
+                        checker.errors.push(TypeCheckError {
+                            message: format!(
+                                "cannot access field `{}` on enum type `{}`",
+                                checker.interner.lookup(field),
+                                checker.interner.lookup(type_name)
+                            ),
+                            span: receiver_span,
+                            code: crate::diagnostic::ErrorCode::E2001,
+                        });
+                        Type::Error
+                    }
+                    TypeKind::Alias { .. } => {
+                        // This shouldn't happen - aliases resolved above
+                        Type::Error
                     }
                 }
-                None => {
-                    checker.errors.push(TypeCheckError {
-                        message: format!(
-                            "unknown type `{}`",
-                            checker.interner.lookup(type_name)
-                        ),
-                        span: receiver_span,
-                        code: crate::diagnostic::ErrorCode::E2003,
-                    });
-                    Type::Error
-                }
+            } else {
+                checker.errors.push(TypeCheckError {
+                    message: format!(
+                        "unknown type `{}`",
+                        checker.interner.lookup(type_name)
+                    ),
+                    span: receiver_span,
+                    code: crate::diagnostic::ErrorCode::E2003,
+                });
+                Type::Error
             }
         }
 
@@ -535,8 +513,7 @@ pub fn infer_field(
             }
             checker.errors.push(TypeCheckError {
                 message: format!(
-                    "tuple has no field `{}`",
-                    field_name
+                    "tuple has no field `{field_name}`"
                 ),
                 span: receiver_span,
                 code: crate::diagnostic::ErrorCode::E2001,
@@ -554,8 +531,7 @@ pub fn infer_field(
         _ => {
             checker.errors.push(TypeCheckError {
                 message: format!(
-                    "type `{:?}` does not support field access",
-                    resolved_ty
+                    "type `{resolved_ty:?}` does not support field access"
                 ),
                 span: receiver_span,
                 code: crate::diagnostic::ErrorCode::E2001,
@@ -579,21 +555,21 @@ pub fn infer_index(
         // List indexing: list[int] -> T (panics on out-of-bounds)
         Type::List(elem_ty) => {
             if let Err(e) = checker.ctx.unify(&index_ty, &Type::Int) {
-                checker.report_type_error(e, checker.arena.get_expr(index).span);
+                checker.report_type_error(&e, checker.arena.get_expr(index).span);
             }
             (*elem_ty).clone()
         }
         // Map indexing: map[K] -> Option<V> (None if key missing)
         Type::Map { key, value } => {
             if let Err(e) = checker.ctx.unify(&index_ty, &key) {
-                checker.report_type_error(e, checker.arena.get_expr(index).span);
+                checker.report_type_error(&e, checker.arena.get_expr(index).span);
             }
             Type::Option(value)
         }
         // String indexing: str[int] -> str (single codepoint)
         Type::Str => {
             if let Err(e) = checker.ctx.unify(&index_ty, &Type::Int) {
-                checker.report_type_error(e, checker.arena.get_expr(index).span);
+                checker.report_type_error(&e, checker.arena.get_expr(index).span);
             }
             Type::Str
         }

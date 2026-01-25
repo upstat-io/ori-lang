@@ -7,13 +7,13 @@
 //!
 //! # Module Structure
 //!
-//! - `expr`: Core expression types (Expr, ExprKind)
+//! - `expr`: Core expression types (Expr, `ExprKind`)
 //! - `operators`: Binary and unary operators
 //! - `stmt`: Statement types
 //! - `ranges`: Arena range types for efficient iteration
 //! - `collections`: Map entries, field initializers, call arguments
-//! - `patterns/`: Binding patterns, match patterns, FunctionSeq, FunctionExp
-//! - `items/`: Module-level items (Function, TestDef, imports, traits)
+//! - `patterns/`: Binding patterns, match patterns, `FunctionSeq`, `FunctionExp`
+//! - `items/`: Module-level items (Function, `TestDef`, imports, traits)
 
 mod expr;
 mod operators;
@@ -46,7 +46,7 @@ pub use patterns::{
 
 // Re-export item types
 pub use items::{
-    Param, Function, TestDef, Module, ExpectedError,
+    Param, Function, TestDef, Module, ExpectedError, ConfigDef,
     UseDef, UseItem, ImportPath,
     GenericParam, TraitBound, WhereClause,
     TraitDef, TraitItem, TraitMethodSig, TraitDefaultMethod, TraitAssocType,
@@ -103,7 +103,6 @@ mod tests {
 
     #[test]
     fn test_function_exp_kind() {
-        // Note: Map, Filter, Fold, etc. are now stdlib methods
         assert_eq!(FunctionExpKind::Parallel, FunctionExpKind::Parallel);
         assert_ne!(FunctionExpKind::Parallel, FunctionExpKind::Spawn);
         assert_eq!(FunctionExpKind::Parallel.name(), "parallel");

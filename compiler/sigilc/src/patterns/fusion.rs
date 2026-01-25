@@ -310,18 +310,11 @@ pub struct FusionAnalyzer;
 
 impl FusionAnalyzer {
     /// Check if two pattern kinds can be fused.
-    ///
-    /// Note: Pattern fusion was designed for map/filter/fold patterns which have been
-    /// moved to methods on collections per "Lean Core, Rich Libraries". Method-based
-    /// fusion would need a different implementation. For now, no patterns can be fused.
     pub fn can_fuse(_first: FunctionExpKind, _second: FunctionExpKind) -> bool {
-        // No function_exp patterns currently support fusion
         false
     }
 
     /// Check if three pattern kinds can be fused.
-    ///
-    /// Note: See can_fuse for why this always returns false.
     pub fn can_fuse_three(
         _first: FunctionExpKind,
         _second: FunctionExpKind,
@@ -382,7 +375,6 @@ mod tests {
 
     #[test]
     fn test_fused_pattern_names() {
-        // FusedPattern types still exist for potential future method fusion
         let map_filter = FusedPattern::MapFilter {
             input: ExprId::new(0),
             map_fn: ExprId::new(1),

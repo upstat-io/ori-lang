@@ -1,6 +1,6 @@
 //! Pattern expression type inference.
 //!
-//! Handles function_seq (run, try, match) and function_exp (map, filter, fold, etc.).
+//! Handles `function_seq` (run, try, match) and `function_exp` (map, filter, fold, etc.).
 
 use crate::ir::{Name, Span, FunctionSeq, FunctionExp, SeqBinding};
 use crate::patterns::TypeCheckContext;
@@ -9,7 +9,7 @@ use super::super::checker::TypeChecker;
 use super::infer_expr;
 use std::collections::HashMap;
 
-/// Infer type for a function_seq expression (run, try, match).
+/// Infer type for a `function_seq` expression (run, try, match).
 pub fn infer_function_seq(
     checker: &mut TypeChecker<'_>,
     func_seq: &FunctionSeq,
@@ -109,7 +109,7 @@ pub fn infer_function_seq(
                     if let Some(guard_id) = arm.guard {
                         let guard_ty = infer_expr(checker, guard_id);
                         if let Err(e) = checker.ctx.unify(&guard_ty, &Type::Bool) {
-                            checker.report_type_error(e, checker.arena.get_expr(guard_id).span);
+                            checker.report_type_error(&e, checker.arena.get_expr(guard_id).span);
                         }
                     }
 
@@ -123,7 +123,7 @@ pub fn infer_function_seq(
                     match &result_ty {
                         Some(expected) => {
                             if let Err(e) = checker.ctx.unify(expected, &arm_ty) {
-                                checker.report_type_error(e, arm.span);
+                                checker.report_type_error(&e, arm.span);
                             }
                         }
                         None => {
@@ -143,9 +143,7 @@ pub fn infer_function_seq(
             // Determine element type for the iteration
             let resolved_over = checker.ctx.resolve(&over_ty);
             let elem_ty = match &resolved_over {
-                Type::List(elem) => (**elem).clone(),
-                Type::Set(elem) => (**elem).clone(),
-                Type::Range(elem) => (**elem).clone(),
+                Type::List(elem) | Type::Set(elem) | Type::Range(elem) => (**elem).clone(),
                 Type::Map { key, .. } => (**key).clone(),
                 _ => checker.ctx.fresh_var(),
             };
@@ -179,7 +177,7 @@ pub fn infer_function_seq(
             if let Some(guard_id) = arm.guard {
                 let guard_ty = infer_expr(checker, guard_id);
                 if let Err(e) = checker.ctx.unify(&guard_ty, &Type::Bool) {
-                    checker.report_type_error(e, checker.arena.get_expr(guard_id).span);
+                    checker.report_type_error(&e, checker.arena.get_expr(guard_id).span);
                 }
             }
 
@@ -194,7 +192,7 @@ pub fn infer_function_seq(
 
             // Unify arm result with default
             if let Err(e) = checker.ctx.unify(&arm_ty, &default_ty) {
-                checker.report_type_error(e, arm.span);
+                checker.report_type_error(&e, arm.span);
             }
 
             arm_ty
@@ -202,7 +200,7 @@ pub fn infer_function_seq(
     }
 }
 
-/// Infer type for a function_exp expression (map, filter, fold, etc.).
+/// Infer type for a `function_exp` expression (map, filter, fold, etc.).
 ///
 /// Uses the pattern registry for Open/Closed principle compliance.
 /// Each pattern implementation is in a separate file under `patterns/`.

@@ -1,4 +1,4 @@
-//! EvaluatorBuilder for creating Evaluator instances with various configurations.
+//! `EvaluatorBuilder` for creating Evaluator instances with various configurations.
 
 use crate::ir::{StringInterner, ExprArena, SharedArena};
 use crate::patterns::PatternRegistry;
@@ -28,10 +28,15 @@ impl<'a> EvaluatorBuilder<'a> {
         }
     }
 
+    #[must_use]
     pub fn env(mut self, env: Environment) -> Self { self.env = Some(env); self }
+    #[must_use]
     pub fn registry(mut self, r: PatternRegistry) -> Self { self.registry = Some(SharedRegistry::new(r)); self }
+    #[must_use]
     pub fn context(mut self, c: &'a CompilerContext) -> Self { self.context = Some(c); self }
+    #[must_use]
     pub fn imported_arena(mut self, a: SharedArena) -> Self { self.imported_arena = Some(a); self }
+    #[must_use]
     pub fn user_method_registry(mut self, r: SharedRegistry<UserMethodRegistry>) -> Self { self.user_method_registry = Some(r); self }
 
     pub fn build(self) -> Evaluator<'a> {
@@ -46,7 +51,7 @@ impl<'a> EvaluatorBuilder<'a> {
         };
         Evaluator {
             interner: self.interner, arena: self.arena,
-            env: self.env.unwrap_or_else(Environment::new),
+            env: self.env.unwrap_or_default(),
             registry: pat_reg, operator_registry: op_reg,
             method_registry: meth_reg,
             user_method_registry: self.user_method_registry.unwrap_or_else(|| SharedRegistry::new(UserMethodRegistry::new())),

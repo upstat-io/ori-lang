@@ -1,13 +1,12 @@
 //! Type Checker Tests
 
 use super::*;
-use crate::lexer::lex;
 use crate::parser::parse;
 use crate::ir::{SharedInterner, ParsedType};
 
 /// Helper to parse source code
 fn parse_source(source: &str, interner: &SharedInterner) -> crate::parser::ParseResult {
-    let tokens = lex(source, interner);
+    let tokens = sigil_lexer::lex(source, interner);
     parse(&tokens, interner)
 }
 
@@ -30,8 +29,8 @@ fn test_generic_bounds_parsing() {
     let gp = &generic_params[0];
     assert_eq!(interner.lookup(gp.name), "T");
     assert_eq!(gp.bounds.len(), 1, "expected 1 bound");
-    assert_eq!(gp.bounds[0].path.len(), 1);
-    assert_eq!(interner.lookup(gp.bounds[0].path[0]), "Comparable");
+    assert!(gp.bounds[0].rest.is_empty(), "expected single-segment path");
+    assert_eq!(interner.lookup(gp.bounds[0].first), "Comparable");
 }
 
 #[test]
@@ -50,8 +49,8 @@ fn test_multiple_bounds_parsing() {
 
     let gp = &generic_params[0];
     assert_eq!(gp.bounds.len(), 2, "expected 2 bounds");
-    assert_eq!(interner.lookup(gp.bounds[0].path[0]), "Eq");
-    assert_eq!(interner.lookup(gp.bounds[1].path[0]), "Clone");
+    assert_eq!(interner.lookup(gp.bounds[0].first), "Eq");
+    assert_eq!(interner.lookup(gp.bounds[1].first), "Clone");
 }
 
 #[test]
@@ -69,7 +68,7 @@ fn test_where_clause_parsing() {
     let wc = &func.where_clauses[0];
     assert_eq!(interner.lookup(wc.param), "T");
     assert_eq!(wc.bounds.len(), 1);
-    assert_eq!(interner.lookup(wc.bounds[0].path[0]), "Clone");
+    assert_eq!(interner.lookup(wc.bounds[0].first), "Clone");
 }
 
 #[test]
@@ -288,9 +287,9 @@ fn test_three_bounds_on_single_param() {
     let generic_params = parse_result.arena.get_generic_params(func.generics);
     assert_eq!(generic_params[0].bounds.len(), 3, "expected 3 bounds");
 
-    assert_eq!(interner.lookup(generic_params[0].bounds[0].path[0]), "Eq");
-    assert_eq!(interner.lookup(generic_params[0].bounds[1].path[0]), "Clone");
-    assert_eq!(interner.lookup(generic_params[0].bounds[2].path[0]), "Default");
+    assert_eq!(interner.lookup(generic_params[0].bounds[0].first), "Eq");
+    assert_eq!(interner.lookup(generic_params[0].bounds[1].first), "Clone");
+    assert_eq!(interner.lookup(generic_params[0].bounds[2].first), "Default");
 }
 
 #[test]
@@ -364,7 +363,8 @@ fn test_qualified_trait_path() {
     let generic_params = parse_result.arena.get_generic_params(func.generics);
     assert_eq!(generic_params[0].bounds.len(), 1);
 
-    let path = &generic_params[0].bounds[0].path;
+    let bound = &generic_params[0].bounds[0];
+    let path = bound.path();
     assert_eq!(path.len(), 3, "expected 3-segment path");
     assert_eq!(interner.lookup(path[0]), "std");
     assert_eq!(interner.lookup(path[1]), "traits");
@@ -581,9 +581,9 @@ fn test_bounds_preserve_trait_order() {
     let generic_params = parse_result.arena.get_generic_params(func.generics);
     let bounds = &generic_params[0].bounds;
 
-    assert_eq!(interner.lookup(bounds[0].path[0]), "Alpha");
-    assert_eq!(interner.lookup(bounds[1].path[0]), "Beta");
-    assert_eq!(interner.lookup(bounds[2].path[0]), "Gamma");
+    assert_eq!(interner.lookup(bounds[0].first), "Alpha");
+    assert_eq!(interner.lookup(bounds[1].first), "Beta");
+    assert_eq!(interner.lookup(bounds[2].first), "Gamma");
 }
 
 #[test]

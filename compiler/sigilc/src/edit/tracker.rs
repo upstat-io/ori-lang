@@ -74,8 +74,8 @@ impl TextEdit {
     ///
     /// Positive = text grows, negative = text shrinks.
     pub fn length_delta(&self) -> i64 {
-        let removed = (self.span.end - self.span.start) as i64;
-        let added = self.new_text.len() as i64;
+        let removed = i64::from(self.span.end - self.span.start);
+        let added = i64::try_from(self.new_text.len()).unwrap_or(i64::MAX);
         added - removed
     }
 }
@@ -224,7 +224,7 @@ impl ChangeTracker {
 
     /// Calculate the total length change from all edits.
     pub fn total_delta(&self) -> i64 {
-        self.edits.iter().map(|e| e.length_delta()).sum()
+        self.edits.iter().map(TextEdit::length_delta).sum()
     }
 }
 

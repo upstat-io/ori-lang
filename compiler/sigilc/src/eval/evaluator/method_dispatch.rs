@@ -1,16 +1,16 @@
 //! Method dispatch methods for the Evaluator.
 
 use crate::ir::{Name, SharedArena};
+use super::super::errors::wrong_function_args;
 use super::{Evaluator, EvalResult};
 use super::super::value::Value;
 use super::super::user_methods::UserMethod;
-use super::super::errors;
 
-impl<'a> Evaluator<'a> {
+impl Evaluator<'_> {
     /// Evaluate a method call.
     ///
     /// First checks user-defined methods from impl blocks, then falls back
-    /// to built-in methods in the MethodRegistry.
+    /// to built-in methods in the `MethodRegistry`.
     pub(super) fn eval_method_call(&mut self, receiver: Value, method: Name, args: Vec<Value>) -> EvalResult {
         let method_name = self.interner.lookup(method);
 
@@ -19,7 +19,9 @@ impl<'a> Evaluator<'a> {
 
         // First, check user-defined methods
         if let Some(user_method) = self.user_method_registry.lookup(&type_name, method_name) {
-            return self.eval_user_method(receiver, user_method.clone(), args);
+            // Clone the method to release the borrow on user_method_registry
+            let method = user_method.clone();
+            return self.eval_user_method(receiver, &method, &args);
         }
 
         // Fall back to built-in methods
@@ -50,10 +52,10 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Evaluate a user-defined method from an impl block.
-    pub(super) fn eval_user_method(&mut self, receiver: Value, method: UserMethod, args: Vec<Value>) -> EvalResult {
+    pub(super) fn eval_user_method(&mut self, receiver: Value, method: &UserMethod, args: &[Value]) -> EvalResult {
         // Method params include 'self' as first parameter
         if method.params.len() != args.len() + 1 {
-            return Err(errors::wrong_function_args(method.params.len() - 1, args.len()));
+            return Err(wrong_function_args(method.params.len() - 1, args.len()));
         }
 
         // Create new environment with captures
