@@ -378,4 +378,116 @@ mod tests {
         // Last attribute wins for each field
         assert!(!result.has_errors(), "errors: {:?}", result.errors);
     }
+
+    // =========================================================================
+    // Type Declaration Tests
+    // =========================================================================
+
+    #[test]
+    fn test_parse_struct_type() {
+        let (result, interner) = parse_with_errors(r#"
+type Point = { x: int, y: int }
+
+@main () -> void = print(msg: "test")
+"#);
+
+        assert!(!result.has_errors(), "errors: {:?}", result.errors);
+        assert_eq!(result.module.types.len(), 1);
+
+        let type_decl = &result.module.types[0];
+        assert_eq!(interner.lookup(type_decl.name), "Point");
+        assert!(!type_decl.is_public);
+
+        if let crate::ir::TypeDeclKind::Struct(fields) = &type_decl.kind {
+            assert_eq!(fields.len(), 2);
+            assert_eq!(interner.lookup(fields[0].name), "x");
+            assert_eq!(interner.lookup(fields[1].name), "y");
+        } else {
+            panic!("expected struct type, got {:?}", type_decl.kind);
+        }
+    }
+
+    #[test]
+    fn test_parse_sum_type() {
+        let (result, interner) = parse_with_errors(r#"
+type Status = Pending | Running | Done | Failed(reason: str)
+
+@main () -> void = print(msg: "test")
+"#);
+
+        assert!(!result.has_errors(), "errors: {:?}", result.errors);
+        assert_eq!(result.module.types.len(), 1);
+
+        let type_decl = &result.module.types[0];
+        assert_eq!(interner.lookup(type_decl.name), "Status");
+
+        if let crate::ir::TypeDeclKind::Sum(variants) = &type_decl.kind {
+            assert_eq!(variants.len(), 4);
+            assert_eq!(interner.lookup(variants[0].name), "Pending");
+            assert!(variants[0].fields.is_empty());
+            assert_eq!(interner.lookup(variants[3].name), "Failed");
+            assert_eq!(variants[3].fields.len(), 1);
+            assert_eq!(interner.lookup(variants[3].fields[0].name), "reason");
+        } else {
+            panic!("expected sum type, got {:?}", type_decl.kind);
+        }
+    }
+
+    #[test]
+    fn test_parse_newtype() {
+        let (result, interner) = parse_with_errors(r#"
+type UserId = int
+
+@main () -> void = print(msg: "test")
+"#);
+
+        assert!(!result.has_errors(), "errors: {:?}", result.errors);
+        assert_eq!(result.module.types.len(), 1);
+
+        let type_decl = &result.module.types[0];
+        assert_eq!(interner.lookup(type_decl.name), "UserId");
+
+        if let crate::ir::TypeDeclKind::Newtype(_ty) = &type_decl.kind {
+            // Type resolution happens later, so we just check it's a newtype
+        } else {
+            panic!("expected newtype, got {:?}", type_decl.kind);
+        }
+    }
+
+    #[test]
+    fn test_parse_public_type_with_derive() {
+        let (result, interner) = parse_with_errors(r#"
+#[derive(Eq, Clone)]
+pub type Config = { name: str }
+
+@main () -> void = print(msg: "test")
+"#);
+
+        assert!(!result.has_errors(), "errors: {:?}", result.errors);
+        assert_eq!(result.module.types.len(), 1);
+
+        let type_decl = &result.module.types[0];
+        assert_eq!(interner.lookup(type_decl.name), "Config");
+        assert!(type_decl.is_public);
+        assert_eq!(type_decl.derives.len(), 2);
+        assert_eq!(interner.lookup(type_decl.derives[0]), "Eq");
+        assert_eq!(interner.lookup(type_decl.derives[1]), "Clone");
+    }
+
+    #[test]
+    fn test_parse_generic_type_with_bounds() {
+        let (result, interner) = parse_with_errors(r#"
+type Node<T> where T: Eq = Leaf(value: T) | Branch(left: Node<T>, right: Node<T>)
+
+@main () -> void = print(msg: "test")
+"#);
+
+        assert!(!result.has_errors(), "errors: {:?}", result.errors);
+        assert_eq!(result.module.types.len(), 1);
+
+        let type_decl = &result.module.types[0];
+        assert_eq!(interner.lookup(type_decl.name), "Node");
+        assert!(!type_decl.generics.is_empty());
+        assert_eq!(type_decl.where_clauses.len(), 1);
+    }
 }

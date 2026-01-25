@@ -105,6 +105,8 @@ pub struct Module {
     pub functions: Vec<Function>,
     /// Test definitions
     pub tests: Vec<TestDef>,
+    /// Type declarations (structs, sum types, newtypes)
+    pub types: Vec<super::types::TypeDecl>,
     /// Trait definitions
     pub traits: Vec<super::traits::TraitDef>,
     /// Implementation blocks
@@ -119,6 +121,7 @@ impl Module {
             imports: Vec::new(),
             functions: Vec::new(),
             tests: Vec::new(),
+            types: Vec::new(),
             traits: Vec::new(),
             impls: Vec::new(),
             extends: Vec::new(),
@@ -130,9 +133,10 @@ impl fmt::Debug for Module {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Module {{ {} functions, {} tests, {} traits, {} impls, {} extends }}",
+            "Module {{ {} functions, {} tests, {} types, {} traits, {} impls, {} extends }}",
             self.functions.len(),
             self.tests.len(),
+            self.types.len(),
             self.traits.len(),
             self.impls.len(),
             self.extends.len()

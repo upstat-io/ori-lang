@@ -55,5 +55,7 @@ pub use ast::{
     ImplDef, ImplMethod,
     // Extension types
     ExtendDef,
+    // Type declaration types
+    TypeDecl, TypeDeclKind, StructField, Variant, VariantField,
 };
 pub use arena::{ExprArena, SharedArena};

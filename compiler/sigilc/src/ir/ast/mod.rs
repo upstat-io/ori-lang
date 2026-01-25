@@ -51,6 +51,7 @@ pub use items::{
     GenericParam, TraitBound, WhereClause,
     TraitDef, TraitItem, TraitMethodSig, TraitDefaultMethod, TraitAssocType,
     ImplDef, ImplMethod, ExtendDef,
+    TypeDecl, TypeDeclKind, StructField, Variant, VariantField,
 };
 
 #[cfg(test)]

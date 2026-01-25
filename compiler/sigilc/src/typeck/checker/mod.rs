@@ -15,6 +15,7 @@ mod types;
 mod signatures;
 mod pattern_binding;
 mod cycle_detection;
+mod type_registration;
 mod trait_registration;
 mod bound_checking;
 
@@ -104,7 +105,11 @@ impl<'a> TypeChecker<'a> {
     pub fn check_module(mut self, module: &Module) -> TypedModule {
         let mut function_types = Vec::new();
 
-        // Pass 0: Register traits and implementations
+        // Pass 0a: Register user-defined types (structs, enums, newtypes)
+        // Must be done before traits, as traits/impls may reference these types.
+        self.register_types(module);
+
+        // Pass 0b: Register traits and implementations
         self.register_traits(module);
         self.register_impls(module);
 

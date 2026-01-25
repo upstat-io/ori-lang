@@ -2,7 +2,7 @@
 //!
 //! Parses call, method call, field access, and index expressions.
 
-use crate::ir::{CallArg, Expr, ExprId, ExprKind, Param, TokenKind};
+use crate::ir::{CallArg, Expr, ExprId, ExprKind, FieldInit, Param, TokenKind};
 use crate::parser::{ParseError, Parser};
 
 impl<'a> Parser<'a> {
@@ -88,6 +88,31 @@ impl<'a> Parser<'a> {
                     ExprKind::Index { receiver: expr, index },
                     span,
                 ));
+            } else if self.check(TokenKind::LBrace) {
+                // Struct literal: Name { field: value, ... }
+                // Only valid when the expression is an identifier (the struct name)
+                let expr_data = self.arena.get_expr(expr);
+                if let ExprKind::Ident(name) = &expr_data.kind {
+                    let struct_name = *name;
+                    let start_span = expr_data.span;
+
+                    self.advance(); // consume {
+                    self.skip_newlines();
+
+                    let fields = self.parse_struct_field_inits()?;
+                    let fields_range = self.arena.alloc_field_inits(fields);
+
+                    let end_span = self.current_span();
+                    self.expect(TokenKind::RBrace)?;
+
+                    expr = self.arena.alloc_expr(Expr::new(
+                        ExprKind::Struct { name: struct_name, fields: fields_range },
+                        start_span.merge(end_span),
+                    ));
+                } else {
+                    // Not an identifier, can't be a struct literal
+                    break;
+                }
             } else if self.check(TokenKind::Arrow) {
                 // Single-param lambda without parens: x -> body
                 let expr_data = self.arena.get_expr(expr);
@@ -163,5 +188,48 @@ impl<'a> Parser<'a> {
         self.skip_newlines();
 
         Ok((args, has_positional, has_named))
+    }
+
+    /// Parse struct field initializers: { field1: value1, field2: value2, ... }
+    /// Also supports shorthand: { field1, field2 } where field name equals variable name.
+    pub(crate) fn parse_struct_field_inits(&mut self) -> Result<Vec<FieldInit>, ParseError> {
+        let mut fields = Vec::new();
+
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            let field_span = self.current_span();
+            let name = self.expect_ident()?;
+
+            // Check for shorthand syntax (just the name without `: value`)
+            let value = if self.check(TokenKind::Colon) {
+                self.advance();
+                Some(self.parse_expr()?)
+            } else {
+                // Shorthand: { field } means { field: field }
+                // Create an identifier expression for the field name
+                None
+            };
+
+            let end_span = value
+                .map(|v| self.arena.get_expr(v).span)
+                .unwrap_or(self.previous_span());
+
+            fields.push(FieldInit {
+                name,
+                value,
+                span: field_span.merge(end_span),
+            });
+
+            self.skip_newlines();
+
+            // Comma separator (optional before closing brace)
+            if self.check(TokenKind::Comma) {
+                self.advance();
+                self.skip_newlines();
+            } else {
+                break;
+            }
+        }
+
+        Ok(fields)
     }
 }
