@@ -238,7 +238,14 @@ impl<'a> Parser<'a> {
                     "import statements must appear at the beginning of the file".to_string(),
                     self.current_span(),
                 ));
-                self.recover_to_next_statement();
+                // Skip the entire use statement to avoid infinite loop
+                // (recover_to_next_statement would stop at this same Use token)
+                self.advance(); // skip 'use'
+                while !self.is_at_end() && !self.check(&TokenKind::At) && !self.check(&TokenKind::Trait)
+                    && !self.check(&TokenKind::Impl) && !self.check(&TokenKind::Type) && !self.check(&TokenKind::Use)
+                {
+                    self.advance();
+                }
             } else if !attrs.is_empty() {
                 // Attributes without a following function/test
                 errors.push(ParseError {

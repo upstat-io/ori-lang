@@ -129,6 +129,12 @@ impl Evaluator<'_> {
 
     /// Collect methods from impl blocks into a registry.
     pub(super) fn collect_impl_methods(&self, module: &crate::ir::Module, arena: &crate::ir::ExprArena, registry: &mut UserMethodRegistry) {
+        // First, build a map of trait names to their definitions for default method lookup
+        let mut trait_map: std::collections::HashMap<Name, &crate::ir::TraitDef> = std::collections::HashMap::new();
+        for trait_def in &module.traits {
+            trait_map.insert(trait_def.name, trait_def);
+        }
+
         for impl_def in &module.impls {
             // Get the type name from self_path (e.g., "Point" for `impl Point { ... }`)
             let type_name = match impl_def.self_path.last() {
@@ -137,9 +143,13 @@ impl Evaluator<'_> {
                 None => continue, // Skip if no type path
             };
 
-            // Register each method
+            // Collect names of methods explicitly defined in this impl
+            let mut overridden_methods: std::collections::HashSet<Name> = std::collections::HashSet::new();
+
+            // Register each explicitly defined method
             for method in &impl_def.methods {
                 let method_name = self.interner.lookup(method.name).to_string();
+                overridden_methods.insert(method.name);
 
                 // Get parameter names
                 let params: Vec<Name> = arena.get_params(method.params)
@@ -155,6 +165,34 @@ impl Evaluator<'_> {
                 );
 
                 registry.register(type_name.clone(), method_name, user_method);
+            }
+
+            // For trait impls, also register default trait methods that weren't overridden
+            if let Some(trait_path) = &impl_def.trait_path {
+                if let Some(&trait_name) = trait_path.last() {
+                    if let Some(trait_def) = trait_map.get(&trait_name) {
+                        for item in &trait_def.items {
+                            if let crate::ir::TraitItem::DefaultMethod(default_method) = item {
+                                // Only register if not overridden
+                                if !overridden_methods.contains(&default_method.name) {
+                                    let method_name = self.interner.lookup(default_method.name).to_string();
+                                    let params: Vec<Name> = arena.get_params(default_method.params)
+                                        .iter()
+                                        .map(|p| p.name)
+                                        .collect();
+
+                                    let user_method = UserMethod::with_captures(
+                                        params,
+                                        default_method.body,
+                                        self.env.capture(),
+                                    );
+
+                                    registry.register(type_name.clone(), method_name, user_method);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
