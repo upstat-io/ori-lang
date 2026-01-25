@@ -816,6 +816,91 @@ dependencies = [
 ]
 
 [[package]]
+name = "sigil_diagnostic"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "pretty_assertions",
+ "sigil_ir",
+]
+
+[[package]]
+name = "sigil_eval"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "pretty_assertions",
+ "rayon",
+ "rustc-hash",
+ "sigil_diagnostic",
+ "sigil_ir",
+ "sigil_parse",
+ "sigil_patterns",
+ "sigil_types",
+ "stacker",
+]
+
+[[package]]
+name = "sigil_ir"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "parking_lot",
+ "pretty_assertions",
+ "rustc-hash",
+]
+
+[[package]]
+name = "sigil_lexer"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "logos",
+ "pretty_assertions",
+ "sigil_ir",
+]
+
+[[package]]
+name = "sigil_parse"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "pretty_assertions",
+ "sigil_diagnostic",
+ "sigil_ir",
+ "sigil_lexer",
+ "stacker",
+]
+
+[[package]]
+name = "sigil_patterns"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "pretty_assertions",
+ "rustc-hash",
+ "sigil_ir",
+ "sigil_types",
+]
+
+[[package]]
+name = "sigil_typeck"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "pretty_assertions",
+ "rustc-hash",
+ "sigil_diagnostic",
+ "sigil_ir",
+ "sigil_parse",
+ "sigil_patterns",
+ "sigil_types",
+ "stacker",
+]
+
+[[package]]
+name = "sigil_types"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "pretty_assertions",
+ "sigil_diagnostic",
+ "sigil_ir",
+]
+
+[[package]]
 name = "sigilc"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -827,6 +912,11 @@ dependencies = [
  "rustc-hash",
  "salsa",
  "sigil-macros",
+ "sigil_diagnostic",
+ "sigil_ir",
+ "sigil_lexer",
+ "sigil_parse",
+ "sigil_types",
  "stacker",
  "tempfile",
 ]

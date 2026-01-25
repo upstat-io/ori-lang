@@ -1,8 +1,16 @@
 [workspace]
 resolver = "2"
 members = [
-    "compiler/sigilc",
+    "compiler/sigil_ir",
+    "compiler/sigil_diagnostic",
+    "compiler/sigil_lexer",
+    "compiler/sigil_types",
+    "compiler/sigil_parse",
+    "compiler/sigil_patterns",
+    "compiler/sigil_typeck",
+    "compiler/sigil_eval",
     "compiler/sigil-macros",
+    "compiler/sigilc",
 ]
 # LSP excluded until updated to use new compiler
 exclude = [
@@ -26,6 +34,18 @@ dashmap = "6.1"
 parking_lot = "0.12"
 crossbeam = "0.8"
 rustc-hash = "2.1"
+stacker = "0.1"
+
+# Internal crates
+sigil_ir = { path = "compiler/sigil_ir" }
+sigil_diagnostic = { path = "compiler/sigil_diagnostic" }
+sigil_lexer = { path = "compiler/sigil_lexer" }
+sigil_types = { path = "compiler/sigil_types" }
+sigil_parse = { path = "compiler/sigil_parse" }
+sigil_patterns = { path = "compiler/sigil_patterns" }
+sigil_typeck = { path = "compiler/sigil_typeck" }
+sigil_eval = { path = "compiler/sigil_eval" }
+sigil-macros = { path = "compiler/sigil-macros" }
 
 # Workspace-wide lint configuration
 [workspace.lints.rust]
