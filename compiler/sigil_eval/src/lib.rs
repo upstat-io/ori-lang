@@ -19,6 +19,7 @@
 //! - `EvalError`, `EvalResult`
 
 mod environment;
+pub mod errors;
 mod function_val;
 mod methods;
 mod operators;
@@ -32,8 +33,8 @@ pub use sigil_patterns::{
     TypeCheckContext, Value,
 };
 
-// Re-export error constructors from sigil_patterns
-pub use sigil_patterns::{
+// Re-export error constructors for convenience (canonical path is sigil_eval::errors::*)
+pub use errors::{
     await_not_supported, binary_type_mismatch, cannot_access_field, cannot_assign_immutable,
     cannot_get_length, cannot_index, division_by_zero, expected_list, expected_struct,
     expected_tuple, for_requires_iterable, hash_outside_index, index_out_of_bounds,
