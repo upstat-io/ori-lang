@@ -335,6 +335,7 @@ impl<'a> Parser<'a> {
                     let params = self.arena.alloc_params(vec![Param {
                         name: param_name,
                         ty: None,
+                        type_name: None,
                         span: param_span,
                     }]);
                     expr = self.arena.alloc_expr(Expr::new(
@@ -522,6 +523,110 @@ impl<'a> Parser<'a> {
         let arms_range = self.arena.alloc_arms(arms);
         let span = start_span.merge(end_span);
         let func_seq = FunctionSeq::Match { scrutinee, arms: arms_range, span };
+
+        Ok(self.arena.alloc_expr(Expr::new(
+            ExprKind::FunctionSeq(func_seq),
+            span,
+        )))
+    }
+
+    /// Parse for pattern: for(over: items, [map: transform,] match: Pattern -> expr, default: value)
+    fn parse_for_pattern(&mut self) -> Result<ExprId, ParseError> {
+        let start_span = self.previous_span(); // span of 'for'
+        self.expect(TokenKind::LParen)?;
+        self.skip_newlines();
+
+        // Parse named arguments
+        let mut over: Option<ExprId> = None;
+        let mut map: Option<ExprId> = None;
+        let mut match_arm: Option<MatchArm> = None;
+        let mut default: Option<ExprId> = None;
+
+        while !self.check(TokenKind::RParen) && !self.is_at_end() {
+            self.skip_newlines();
+
+            // Expect named argument
+            if !self.is_named_arg_start() {
+                return Err(ParseError::new(
+                    crate::diagnostic::ErrorCode::E1013,
+                    "`for` pattern requires named properties (over:, match:, default:)".to_string(),
+                    self.current_span(),
+                ));
+            }
+
+            let name = self.expect_ident_or_keyword()?;
+            let name_str = self.interner().lookup(name).to_string();
+            self.expect(TokenKind::Colon)?;
+
+            match name_str.as_str() {
+                "over" => {
+                    over = Some(self.parse_expr()?);
+                }
+                "map" => {
+                    map = Some(self.parse_expr()?);
+                }
+                "match" => {
+                    // Parse a match arm: Pattern -> expr
+                    let arm_span = self.current_span();
+                    let pattern = self.parse_match_pattern()?;
+                    self.expect(TokenKind::Arrow)?;
+                    let body = self.parse_expr()?;
+                    let end_span = self.arena.get_expr(body).span;
+                    match_arm = Some(MatchArm {
+                        pattern,
+                        guard: None,
+                        body,
+                        span: arm_span.merge(end_span),
+                    });
+                }
+                "default" => {
+                    default = Some(self.parse_expr()?);
+                }
+                _ => {
+                    return Err(ParseError::new(
+                        crate::diagnostic::ErrorCode::E1013,
+                        format!("`for` pattern does not accept property `{}`", name_str),
+                        self.previous_span(),
+                    ));
+                }
+            }
+
+            self.skip_newlines();
+            if !self.check(TokenKind::RParen) {
+                self.expect(TokenKind::Comma)?;
+                self.skip_newlines();
+            }
+        }
+
+        self.skip_newlines();
+        self.expect(TokenKind::RParen)?;
+        let end_span = self.previous_span();
+        let span = start_span.merge(end_span);
+
+        // Validate required fields
+        let over = over.ok_or_else(|| {
+            ParseError::new(
+                crate::diagnostic::ErrorCode::E1013,
+                "`for` pattern requires `over:` property".to_string(),
+                span,
+            )
+        })?;
+        let arm = match_arm.ok_or_else(|| {
+            ParseError::new(
+                crate::diagnostic::ErrorCode::E1013,
+                "`for` pattern requires `match:` property".to_string(),
+                span,
+            )
+        })?;
+        let default = default.ok_or_else(|| {
+            ParseError::new(
+                crate::diagnostic::ErrorCode::E1013,
+                "`for` pattern requires `default:` property".to_string(),
+                span,
+            )
+        })?;
+
+        let func_seq = FunctionSeq::ForPattern { over, map, arm, default, span };
 
         Ok(self.arena.alloc_expr(Expr::new(
             ExprKind::FunctionSeq(func_seq),
@@ -775,6 +880,13 @@ impl<'a> Parser<'a> {
             return self.parse_match_expr();
         }
 
+        // for pattern: for(over: items, match: pattern -> expr, default: value)
+        // Only when followed by `(` - otherwise it could be `for x in items do ...`
+        if self.check(TokenKind::For) && self.next_is_lparen() {
+            self.advance();
+            return self.parse_for_pattern();
+        }
+
         // function_exp keywords (map, filter, fold, etc.)
         if let Some(kind) = self.match_function_exp_kind() {
             self.advance();
@@ -823,11 +935,10 @@ impl<'a> Parser<'a> {
             }
 
             // Soft keywords used as identifiers (when not followed by `(`)
-            // These are context-sensitive: `len(` is a built-in call, but `let len = 5` is a variable
-            TokenKind::Len | TokenKind::Min | TokenKind::Max | TokenKind::Compare |
-            TokenKind::IsEmpty | TokenKind::IsSome | TokenKind::IsNone |
-            TokenKind::IsOk | TokenKind::IsErr | TokenKind::Print | TokenKind::Panic |
-            TokenKind::Assert | TokenKind::AssertEq | TokenKind::AssertNe => {
+            // These are context-sensitive: `print(` is a built-in call, but `let print = 5` is a variable
+            // Note: Most built-ins (len, assert, etc.) are now trait methods per
+            // "Lean Core, Rich Libraries" principle. Only print and panic remain.
+            TokenKind::Print | TokenKind::Panic => {
                 // This branch is only reached when NOT followed by `(`, since
                 // match_function_exp_kind handles the `keyword(` case first.
                 let name_str = self.soft_keyword_to_name().expect("soft keyword matched but not in helper");
@@ -1202,45 +1313,31 @@ impl<'a> Parser<'a> {
 
     /// Match function_exp keywords.
     fn match_function_exp_kind(&self) -> Option<FunctionExpKind> {
-        // Pattern keywords are always keywords (map, filter, fold, etc.)
+        // Compiler pattern keywords (require special syntax or static analysis)
+        // Note: map, filter, fold, find, collect, retry, exponential, linear
+        // are now stdlib methods/functions per "Lean Core, Rich Libraries"
         match self.current_kind() {
-            TokenKind::Map => return Some(FunctionExpKind::Map),
-            TokenKind::Filter => return Some(FunctionExpKind::Filter),
-            TokenKind::Fold => return Some(FunctionExpKind::Fold),
-            TokenKind::Find => return Some(FunctionExpKind::Find),
-            TokenKind::Collect => return Some(FunctionExpKind::Collect),
             TokenKind::Recurse => return Some(FunctionExpKind::Recurse),
             TokenKind::Parallel => return Some(FunctionExpKind::Parallel),
             TokenKind::Spawn => return Some(FunctionExpKind::Spawn),
             TokenKind::Timeout => return Some(FunctionExpKind::Timeout),
-            TokenKind::Retry => return Some(FunctionExpKind::Retry),
             TokenKind::Cache => return Some(FunctionExpKind::Cache),
-            TokenKind::Validate => return Some(FunctionExpKind::Validate),
             TokenKind::With => return Some(FunctionExpKind::With),
             _ => {}
         }
 
-        // Built-in functions are context-sensitive: only keywords when followed by `(`
-        // This allows `let len = 5` while still supporting `len(collection: x)`
+        // Fundamental built-in functions (I/O and control flow) are context-sensitive:
+        // only keywords when followed by `(`
+        // This allows `let print = 5` while still supporting `print("hello")`
+        // Note: Most built-ins (len, assert, etc.) are now trait methods per
+        // "Lean Core, Rich Libraries" principle. Only print and panic remain.
         if !self.next_is_lparen() {
             return None;
         }
 
         match self.current_kind() {
-            TokenKind::Assert => Some(FunctionExpKind::Assert),
-            TokenKind::AssertEq => Some(FunctionExpKind::AssertEq),
-            TokenKind::AssertNe => Some(FunctionExpKind::AssertNe),
-            TokenKind::Len => Some(FunctionExpKind::Len),
-            TokenKind::IsEmpty => Some(FunctionExpKind::IsEmpty),
-            TokenKind::IsSome => Some(FunctionExpKind::IsSome),
-            TokenKind::IsNone => Some(FunctionExpKind::IsNone),
-            TokenKind::IsOk => Some(FunctionExpKind::IsOk),
-            TokenKind::IsErr => Some(FunctionExpKind::IsErr),
             TokenKind::Print => Some(FunctionExpKind::Print),
             TokenKind::Panic => Some(FunctionExpKind::Panic),
-            TokenKind::Compare => Some(FunctionExpKind::Compare),
-            TokenKind::Min => Some(FunctionExpKind::Min),
-            TokenKind::Max => Some(FunctionExpKind::Max),
             _ => None,
         }
     }
@@ -1318,6 +1415,7 @@ impl<'a> Parser<'a> {
                     params.push(Param {
                         name: *name,
                         ty: None,
+                        type_name: None,
                         span: expr.span,
                     });
                 }

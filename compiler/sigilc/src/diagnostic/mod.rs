@@ -82,6 +82,10 @@ pub enum ErrorCode {
     E2007,
     /// Cyclic type definition
     E2008,
+    /// Missing trait bound
+    E2009,
+    /// Coherence violation (conflicting implementations)
+    E2010,
 
     // ===== Pattern Errors (E3xxx) =====
     /// Unknown pattern
@@ -130,6 +134,8 @@ impl ErrorCode {
             ErrorCode::E2006 => "E2006",
             ErrorCode::E2007 => "E2007",
             ErrorCode::E2008 => "E2008",
+            ErrorCode::E2009 => "E2009",
+            ErrorCode::E2010 => "E2010",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",

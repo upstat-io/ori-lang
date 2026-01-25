@@ -1,0 +1,103 @@
+// Spec: 10-patterns.md § for Pattern
+
+// =============================================================================
+// Basic for Pattern
+// =============================================================================
+
+@test_for_basic tests @find_first_some () -> void = run(
+    let result = find_first_some(),
+    assert_eq(actual: result, expected: 42),
+)
+
+@find_first_some () -> int = run(
+    let items = [None, None, Some(42), Some(99)],
+    for(over: items, match: Some(x) -> x, default: 0),
+)
+
+@test_for_no_match tests @find_first_some_empty () -> void = run(
+    let result = find_first_some_empty(),
+    assert_eq(actual: result, expected: -1),
+)
+
+@find_first_some_empty () -> int = run(
+    let items = [None, None, None],
+    for(over: items, match: Some(x) -> x, default: -1),
+)
+
+@test_for_first_element tests @find_first () -> void = run(
+    let result = find_first(),
+    assert_eq(actual: result, expected: 1),
+)
+
+@find_first () -> int = run(
+    let items = [Some(1), Some(2), Some(3)],
+    for(over: items, match: Some(x) -> x, default: 0),
+)
+
+// =============================================================================
+// for Pattern with Result
+// =============================================================================
+
+@test_for_result tests @find_first_ok () -> void = run(
+    let result = find_first_ok(),
+    assert_eq(actual: result, expected: "success"),
+)
+
+@find_first_ok () -> str = run(
+    let items = [Err("e1"), Err("e2"), Ok("success"), Ok("another")],
+    for(over: items, match: Ok(v) -> v, default: "none"),
+)
+
+@test_for_result_no_ok tests @find_first_ok_empty () -> void = run(
+    let result = find_first_ok_empty(),
+    assert_eq(actual: result, expected: "fallback"),
+)
+
+@find_first_ok_empty () -> str = run(
+    let items = [Err("e1"), Err("e2")],
+    for(over: items, match: Ok(v) -> v, default: "fallback"),
+)
+
+// =============================================================================
+// for Pattern with map
+// =============================================================================
+
+@test_for_with_map tests @find_parsed () -> void = run(
+    let result = find_parsed(),
+    assert_eq(actual: result, expected: 42),
+)
+
+@parse (s: str) -> Option<int> = match(s,
+    "42" -> Some(42),
+    "99" -> Some(99),
+    _ -> None,
+)
+
+@find_parsed () -> int = run(
+    let items = ["invalid", "also_invalid", "42", "99"],
+    for(over: items, map: s -> parse(s), match: Some(x) -> x, default: 0),
+)
+
+@test_for_with_map_no_match tests @find_parsed_none () -> void = run(
+    let result = find_parsed_none(),
+    assert_eq(actual: result, expected: -1),
+)
+
+@find_parsed_none () -> int = run(
+    let items = ["a", "b", "c"],
+    for(over: items, map: s -> parse(s), match: Some(x) -> x, default: -1),
+)
+
+// =============================================================================
+// for Pattern with empty list
+// =============================================================================
+
+@test_for_empty_list tests @find_in_empty () -> void = run(
+    let result = find_in_empty(),
+    assert_eq(actual: result, expected: 999),
+)
+
+@find_in_empty () -> int = run(
+    let items = [],
+    for(over: items, match: Some(x) -> x, default: 999),
+)

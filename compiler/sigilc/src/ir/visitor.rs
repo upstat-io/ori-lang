@@ -508,6 +508,14 @@ pub fn walk_function_seq<'ast, V: Visit<'ast> + ?Sized>(
                 visitor.visit_match_arm(arm, arena);
             }
         }
+        FunctionSeq::ForPattern { over, map, arm, default, .. } => {
+            visitor.visit_expr_id(*over, arena);
+            if let Some(map_expr) = map {
+                visitor.visit_expr_id(*map_expr, arena);
+            }
+            visitor.visit_match_arm(arm, arena);
+            visitor.visit_expr_id(*default, arena);
+        }
     }
 }
 
@@ -989,6 +997,14 @@ pub fn walk_function_seq_mut<'ast, V: VisitMut<'ast> + ?Sized>(
                 visitor.visit_match_arm(arm, arena);
             }
         }
+        FunctionSeq::ForPattern { over, map, arm, default, .. } => {
+            visitor.visit_expr_id(*over, arena);
+            if let Some(map_expr) = map {
+                visitor.visit_expr_id(*map_expr, arena);
+            }
+            visitor.visit_match_arm(arm, arena);
+            visitor.visit_expr_id(*default, arena);
+        }
     }
 }
 
@@ -1133,13 +1149,16 @@ mod tests {
         let params = arena.alloc_params([Param {
             name: Name::new(0, 1),
             ty: None,
+            type_name: None,
             span: Span::new(6, 7),
         }]);
 
         let function = Function {
             name: Name::new(0, 0),
+            generics: crate::ir::ast::GenericParamRange::EMPTY,
             params,
             return_ty: None,
+            where_clauses: Vec::new(),
             body,
             span: Span::new(0, 22),
             is_public: false,
@@ -1163,8 +1182,10 @@ mod tests {
 
         let func1 = Function {
             name: Name::new(0, 0),
+            generics: crate::ir::ast::GenericParamRange::EMPTY,
             params: crate::ir::ast::ParamRange::EMPTY,
             return_ty: None,
+            where_clauses: Vec::new(),
             body: body1,
             span: Span::new(0, 5),
             is_public: false,
@@ -1172,8 +1193,10 @@ mod tests {
 
         let func2 = Function {
             name: Name::new(0, 1),
+            generics: crate::ir::ast::GenericParamRange::EMPTY,
             params: crate::ir::ast::ParamRange::EMPTY,
             return_ty: None,
+            where_clauses: Vec::new(),
             body: body2,
             span: Span::new(10, 15),
             is_public: true,
@@ -1183,6 +1206,8 @@ mod tests {
             imports: vec![],
             functions: vec![func1, func2],
             tests: vec![],
+            traits: vec![],
+            impls: vec![],
         };
 
         let mut counter = ExprCounter { count: 0 };
