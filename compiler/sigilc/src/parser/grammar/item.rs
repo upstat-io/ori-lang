@@ -9,6 +9,7 @@ use crate::ir::{
     GenericParam, GenericParamRange, TraitBound, WhereClause,
     TraitDef, TraitItem, TraitMethodSig, TraitDefaultMethod, TraitAssocType,
     ImplDef, ImplMethod,
+    TypeDecl, TypeDeclKind, StructField, Variant, VariantField,
 };
 use crate::parser::{FunctionOrTest, ParsedAttrs, ParseError, Parser};
 
@@ -786,5 +787,238 @@ impl<'a> Parser<'a> {
         }
 
         Ok(clauses)
+    }
+
+    // =========================================================================
+    // Type Declaration Parsing
+    // =========================================================================
+
+    /// Parse a type declaration.
+    /// Syntax: [pub] [#[derive(...)]] type Name [<T>] [where ...] = body
+    ///
+    /// body can be:
+    /// - struct: { field: Type, ... }
+    /// - sum type: Variant1 | Variant2(field: Type)
+    /// - newtype: ExistingType
+    pub(in crate::parser) fn parse_type_decl(
+        &mut self,
+        derives: Vec<Name>,
+        is_public: bool,
+    ) -> Result<TypeDecl, ParseError> {
+        let start_span = self.current_span();
+        self.expect(TokenKind::Type)?;
+
+        // Type name
+        let name = self.expect_ident()?;
+
+        // Optional generics: <T, U: Bound>
+        let generics = if self.check(TokenKind::Lt) {
+            self.parse_generics()?
+        } else {
+            GenericParamRange::EMPTY
+        };
+
+        // Optional where clause
+        let where_clauses = if self.check(TokenKind::Where) {
+            self.parse_where_clauses()?
+        } else {
+            Vec::new()
+        };
+
+        // = body
+        self.expect(TokenKind::Eq)?;
+
+        // Parse the type body
+        let kind = self.parse_type_body()?;
+        let end_span = self.previous_span();
+
+        Ok(TypeDecl {
+            name,
+            generics,
+            where_clauses,
+            kind,
+            span: start_span.merge(end_span),
+            is_public,
+            derives,
+        })
+    }
+
+    /// Parse the body of a type declaration.
+    /// Returns the TypeDeclKind (struct, sum, or newtype).
+    fn parse_type_body(&mut self) -> Result<TypeDeclKind, ParseError> {
+        if self.check(TokenKind::LBrace) {
+            // Struct type: { field: Type, ... }
+            self.parse_struct_body()
+        } else if self.check_ident() {
+            // Could be a sum type (Variant | ...) or a newtype (ExistingType)
+            self.parse_sum_or_newtype()
+        } else {
+            // Could also be a primitive type as a newtype
+            self.parse_newtype_primitive()
+        }
+    }
+
+    /// Parse a struct body: { field: Type, ... }
+    fn parse_struct_body(&mut self) -> Result<TypeDeclKind, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        self.skip_newlines();
+
+        let mut fields = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            let field = self.parse_struct_field()?;
+            fields.push(field);
+
+            // Comma separator (optional before closing brace)
+            if self.check(TokenKind::Comma) {
+                self.advance();
+                self.skip_newlines();
+            } else {
+                self.skip_newlines();
+                break;
+            }
+        }
+
+        self.expect(TokenKind::RBrace)?;
+        Ok(TypeDeclKind::Struct(fields))
+    }
+
+    /// Parse a struct field: name: Type
+    fn parse_struct_field(&mut self) -> Result<StructField, ParseError> {
+        let start_span = self.current_span();
+        let name = self.expect_ident()?;
+        self.expect(TokenKind::Colon)?;
+        let ty = self.parse_type_required()?;
+
+        Ok(StructField {
+            name,
+            ty,
+            span: start_span.merge(self.previous_span()),
+        })
+    }
+
+    /// Parse a sum type or newtype starting with an identifier.
+    /// Sum type: Variant1 | Variant2(field: Type)
+    /// Newtype: ExistingType
+    fn parse_sum_or_newtype(&mut self) -> Result<TypeDeclKind, ParseError> {
+        let first_name = self.expect_ident()?;
+        let first_span = self.previous_span();
+
+        // Check for generic parameters (e.g., `Option<T>` as a newtype)
+        let has_generics = self.check(TokenKind::Lt);
+        if has_generics {
+            // This is a newtype with generics: `type MyOption = Option<T>`
+            self.advance(); // <
+            while !self.check(TokenKind::Gt) && !self.is_at_end() {
+                let _ = self.parse_type_required()?;
+                if self.check(TokenKind::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            if self.check(TokenKind::Gt) {
+                self.advance(); // >
+            }
+            // Return as newtype (TypeId::INFER placeholder)
+            return Ok(TypeDeclKind::Newtype(TypeId::INFER));
+        }
+
+        // Check for variant fields (parentheses) or pipe (sum type)
+        let first_fields = if self.check(TokenKind::LParen) {
+            self.parse_variant_fields()?
+        } else {
+            Vec::new()
+        };
+
+        // Check if this is a sum type (has | separator)
+        if self.check(TokenKind::Pipe) {
+            // Sum type with multiple variants
+            let mut variants = vec![Variant {
+                name: first_name,
+                fields: first_fields,
+                span: first_span.merge(self.previous_span()),
+            }];
+
+            while self.check(TokenKind::Pipe) {
+                self.advance();
+                self.skip_newlines();
+
+                let variant_span = self.current_span();
+                let variant_name = self.expect_ident()?;
+                let variant_fields = if self.check(TokenKind::LParen) {
+                    self.parse_variant_fields()?
+                } else {
+                    Vec::new()
+                };
+
+                variants.push(Variant {
+                    name: variant_name,
+                    fields: variant_fields,
+                    span: variant_span.merge(self.previous_span()),
+                });
+            }
+
+            Ok(TypeDeclKind::Sum(variants))
+        } else if first_fields.is_empty() {
+            // Single identifier without fields or pipe - this is a newtype
+            // e.g., `type UserId = int`
+            Ok(TypeDeclKind::Newtype(TypeId::INFER))
+        } else {
+            // Single variant with fields - still a sum type
+            // e.g., `type Wrapper = Value(inner: int)`
+            Ok(TypeDeclKind::Sum(vec![Variant {
+                name: first_name,
+                fields: first_fields,
+                span: first_span.merge(self.previous_span()),
+            }]))
+        }
+    }
+
+    /// Parse variant fields: (name: Type, ...)
+    fn parse_variant_fields(&mut self) -> Result<Vec<VariantField>, ParseError> {
+        self.expect(TokenKind::LParen)?;
+
+        let mut fields = Vec::new();
+        while !self.check(TokenKind::RParen) && !self.is_at_end() {
+            let field_span = self.current_span();
+            let name = self.expect_ident()?;
+            self.expect(TokenKind::Colon)?;
+            let ty = self.parse_type_required()?;
+
+            fields.push(VariantField {
+                name,
+                ty,
+                span: field_span.merge(self.previous_span()),
+            });
+
+            // Comma separator
+            if self.check(TokenKind::Comma) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        self.expect(TokenKind::RParen)?;
+        Ok(fields)
+    }
+
+    /// Parse a newtype based on a primitive type.
+    /// e.g., `type UserId = int`
+    fn parse_newtype_primitive(&mut self) -> Result<TypeDeclKind, ParseError> {
+        // Try to parse a primitive type
+        if let Some(ty) = self.parse_type() {
+            // Return as newtype with the actual type
+            Ok(TypeDeclKind::Newtype(ty))
+        } else {
+            Err(ParseError::new(
+                crate::diagnostic::ErrorCode::E1002,
+                format!(
+                    "expected type body (struct, sum type, or type), found {:?}",
+                    self.current_kind()
+                ),
+                self.current_span(),
+            ))
+        }
     }
 }

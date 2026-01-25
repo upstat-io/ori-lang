@@ -1206,6 +1206,7 @@ mod tests {
             imports: vec![],
             functions: vec![func1, func2],
             tests: vec![],
+            types: vec![],
             traits: vec![],
             impls: vec![],
             extends: vec![],
