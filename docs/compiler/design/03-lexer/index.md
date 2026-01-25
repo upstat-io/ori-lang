@@ -5,8 +5,12 @@ The Sigil lexer converts source text into a stream of tokens. It's implemented u
 ## Location
 
 ```
-compiler/sigilc/src/lexer.rs (~707 lines)
+compiler/sigil_lexer/src/lib.rs (~707 lines)
 ```
+
+The lexer is a separate crate with minimal dependencies:
+- `sigil_ir` - for `Token`, `TokenKind`, `Span`, `TokenList`, `StringInterner`
+- `logos` - for DFA-based tokenization
 
 ## Design Goals
 

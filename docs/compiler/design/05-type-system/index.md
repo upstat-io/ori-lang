@@ -4,31 +4,36 @@ The Sigil type system provides strict static typing with Hindley-Milner type inf
 
 ## Location
 
+Type definitions are split across two crates:
+
 ```
-compiler/sigilc/src/
-├── types.rs            # Type definitions (~1,015 lines)
-└── typeck/
-    ├── mod.rs          # Module exports
-    ├── checker/        # Main type checker (~1,574 lines total)
-    │   ├── mod.rs              # TypeChecker struct, check_module entry (~310 lines)
-    │   ├── signatures.rs       # infer_function_signature (~95 lines)
-    │   ├── pattern_binding.rs  # bind_pattern logic (~166 lines)
-    │   ├── cycle_detection.rs  # collect_free_vars, closure self-capture (~97 lines)
-    │   ├── trait_registration.rs # register_traits, register_impls (~146 lines)
-    │   ├── bound_checking.rs   # type_satisfies_bound (~55 lines)
-    │   ├── types.rs            # Helper types (~84 lines)
-    │   └── tests.rs            # Unit tests (~621 lines)
-    ├── operators.rs    # Operator type rules (~515 lines)
-    ├── type_registry/  # User-defined types (~999 lines total)
-    │   ├── mod.rs              # TypeRegistry struct (~439 lines)
-    │   └── trait_registry.rs   # TraitRegistry, TraitEntry, ImplEntry (~560 lines)
-    └── infer/
-        ├── mod.rs      # Inference dispatcher
-        ├── expr.rs     # Expression inference
-        ├── call.rs     # Call type checking
-        ├── control.rs  # Control flow inference
-        └── pattern.rs  # Pattern type checking
+compiler/sigil_types/src/
+└── lib.rs              # Type enum, TypeError (~1,015 lines)
+
+compiler/sigilc/src/typeck/
+├── mod.rs              # Module exports
+├── checker/            # Main type checker (~1,574 lines total)
+│   ├── mod.rs              # TypeChecker struct, check_module entry (~310 lines)
+│   ├── signatures.rs       # infer_function_signature (~95 lines)
+│   ├── pattern_binding.rs  # bind_pattern logic (~166 lines)
+│   ├── cycle_detection.rs  # collect_free_vars, closure self-capture (~97 lines)
+│   ├── trait_registration.rs # register_traits, register_impls (~146 lines)
+│   ├── bound_checking.rs   # type_satisfies_bound (~55 lines)
+│   ├── types.rs            # Helper types (~84 lines)
+│   └── tests.rs            # Unit tests (~621 lines)
+├── operators.rs        # Operator type rules (~515 lines)
+├── type_registry/      # User-defined types (~999 lines total)
+│   ├── mod.rs              # TypeRegistry struct (~439 lines)
+│   └── trait_registry.rs   # TraitRegistry, TraitEntry, ImplEntry (~560 lines)
+└── infer/
+    ├── mod.rs          # Inference dispatcher
+    ├── expr.rs         # Expression inference
+    ├── call.rs         # Call type checking
+    ├── control.rs      # Control flow inference
+    └── pattern.rs      # Pattern type checking
 ```
+
+The `sigil_types` crate contains the `Type` enum and `TypeError` type, with dependencies on `sigil_ir` and `sigil_diagnostic`. The type checker itself remains in `sigilc` due to complex dependencies on the evaluator and pattern system.
 
 ## Design Goals
 

@@ -5,9 +5,10 @@ The Sigil parser transforms a token stream into an AST. It uses recursive descen
 ## Location
 
 ```
-compiler/sigilc/src/parser/
-├── mod.rs              # Parser struct and entry point
+compiler/sigil_parse/src/
+├── lib.rs              # Parser struct and entry point
 ├── error.rs            # Parse error types
+├── stack.rs            # Stack safety (stacker integration)
 └── grammar/
     ├── mod.rs          # Grammar module organization
     ├── expr/           # Expression parsing (~1,436 lines total)
@@ -22,6 +23,11 @@ compiler/sigilc/src/parser/
     ├── stmt.rs         # Statement parsing
     └── attr.rs         # Attribute parsing
 ```
+
+The parser is a separate crate with dependencies:
+- `sigil_ir` - for `Token`, `TokenKind`, `Span`, `ExprArena`, etc.
+- `sigil_diagnostic` - for `Diagnostic`, `ErrorCode`
+- `stacker` - for stack overflow protection on deeply nested expressions
 
 ## Design Goals
 

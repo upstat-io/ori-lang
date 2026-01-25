@@ -9,30 +9,74 @@ The Sigil compiler (`sigilc`) is an incremental compiler built on Salsa, a frame
 
 ## High-Level Structure
 
+The compiler is organized as a Cargo workspace with multiple crates:
+
 ```
 compiler/
+├── sigil_ir/           # Core IR types (tokens, spans, AST, interning)
+│   └── src/
+│       ├── lib.rs          # Module organization, static_assert_size! macro
+│       ├── ast/            # Expression and statement types
+│       ├── token.rs        # Token definitions
+│       ├── span.rs         # Source location tracking
+│       ├── arena.rs        # Expression arena allocation
+│       ├── interner.rs     # String interning
+│       └── visitor.rs      # AST visitor pattern
+├── sigil_diagnostic/   # Error reporting
+│   └── src/
+│       ├── lib.rs          # Diagnostic, Applicability, ErrorCode
+│       ├── emitter/        # Output formatting (terminal, JSON)
+│       └── fixes/          # Code suggestions and fixes
+├── sigil_lexer/        # Tokenization (logos-based)
+│   └── src/lib.rs          # lex() function, token processing
+├── sigil_types/        # Type system definitions
+│   └── src/lib.rs          # Type enum, TypeError
+├── sigil_parse/        # Recursive descent parser
+│   └── src/
+│       ├── lib.rs          # Parser struct, parse() entry point
+│       ├── error.rs        # Parse error types
+│       ├── stack.rs        # Stack safety (stacker integration)
+│       └── grammar/        # Grammar modules (expr, item, type, etc.)
 ├── sigil-macros/       # Proc-macro crate
 │   └── src/
 │       ├── lib.rs          # Diagnostic/Subdiagnostic derives
 │       ├── diagnostic.rs   # #[derive(Diagnostic)] impl
 │       └── subdiagnostic.rs # #[derive(Subdiagnostic)] impl
-└── sigilc/src/
-    ├── lib.rs              # Module organization
-    ├── main.rs             # CLI entry point
-    ├── db.rs               # Salsa database definition
-    ├── query/              # Salsa query definitions
-    ├── lexer.rs            # Tokenization
-    ├── parser/             # Recursive descent parser
-    ├── ir/                 # AST and intermediate types
-    ├── types.rs            # Type definitions
-    ├── typeck/             # Type checking and inference
-    ├── eval/               # Tree-walking interpreter
-    ├── patterns/           # Pattern system
-    ├── diagnostic/         # Error reporting
-    ├── test/               # Test runner
-    ├── stack.rs            # Stack safety utilities
-    └── debug.rs            # Debug flags
+└── sigilc/             # CLI orchestrator + Salsa queries
+    └── src/
+        ├── lib.rs          # Module organization
+        ├── main.rs         # CLI entry point
+        ├── db.rs           # Salsa database definition
+        ├── query/          # Salsa query definitions
+        ├── typeck/         # Type checking and inference
+        ├── eval/           # Tree-walking interpreter
+        ├── patterns/       # Pattern system
+        ├── test/           # Test runner
+        └── debug.rs        # Debug flags
 ```
+
+### Crate Dependencies
+
+```
+sigil_ir ──────────────────────────────────────────────┐
+    │                                                  │
+    ▼                                                  │
+sigil_diagnostic ◄─────────────────────────────────────┤
+    │                                                  │
+    ▼                                                  │
+sigil_lexer                                            │
+    │                                                  │
+    ▼                                                  │
+sigil_types                                            │
+    │                                                  │
+    ▼                                                  │
+sigil_parse                                            │
+    │                                                  │
+    ▼                                                  │
+sigilc (orchestrator + typeck + eval + patterns)◄──────┘
+```
+
+Pure functions live in library crates; Salsa queries live in `sigilc`.
 
 ## Design Principles
 
@@ -110,23 +154,33 @@ impl PatternRegistry {
 
 ## Key Types
 
-| Type | Location | Purpose |
-|------|----------|---------|
-| `SourceFile` | `db.rs` | Salsa input - source text |
-| `TokenList` | `ir/token.rs` | Lexer output |
-| `Module` | `ir/ast.rs` | Parsed module structure |
-| `ExprArena` | `ir/arena.rs` | Expression storage |
-| `Type` | `types.rs` | Type representation |
-| `Value` | `eval/value/` | Runtime values |
-| `Diagnostic` | `diagnostic/` | Rich error with suggestions |
-| `Applicability` | `diagnostic/` | Fix confidence level |
+| Type | Crate | Purpose |
+|------|-------|---------|
+| `SourceFile` | `sigilc` | Salsa input - source text |
+| `TokenList` | `sigil_ir` | Lexer output |
+| `Token` | `sigil_ir` | Individual token with kind and span |
+| `Span` | `sigil_ir` | Source location (start/end offsets) |
+| `Module` | `sigil_ir` | Parsed module structure |
+| `ExprArena` | `sigil_ir` | Expression storage |
+| `ExprId` | `sigil_ir` | Index into ExprArena |
+| `Name` | `sigil_ir` | Interned string identifier |
+| `Type` | `sigil_types` | Type representation |
+| `Value` | `sigilc` | Runtime values |
+| `Diagnostic` | `sigil_diagnostic` | Rich error with suggestions |
+| `Applicability` | `sigil_diagnostic` | Fix confidence level |
+| `ParseResult` | `sigil_parse` | Parser output (module + arena + errors) |
 
 ## Crate Organization
 
 | Crate | Purpose |
 |-------|---------|
-| `sigilc` | Main compiler library and CLI |
+| `sigil_ir` | Core IR types: tokens, spans, AST, arena, interning |
+| `sigil_diagnostic` | Error reporting, suggestions, applicability levels |
+| `sigil_lexer` | Tokenization via logos |
+| `sigil_types` | Type system definitions |
+| `sigil_parse` | Recursive descent parser |
 | `sigil-macros` | Proc-macros (`#[derive(Diagnostic)]`, etc.) |
+| `sigilc` | CLI orchestrator, Salsa queries, typeck, eval, patterns |
 
 ## File Size Guidelines
 
