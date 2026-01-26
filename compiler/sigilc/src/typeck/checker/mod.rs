@@ -18,8 +18,12 @@ mod cycle_detection;
 mod type_registration;
 mod trait_registration;
 pub(crate) mod bound_checking;
+mod builder;
+mod components;
+mod scope_guards;
 
 pub use types::{TypedModule, GenericBound, FunctionType, TypeCheckError};
+pub use builder::TypeCheckerBuilder;
 pub(crate) use cycle_detection::add_pattern_bindings;
 
 use crate::ir::{
@@ -27,102 +31,46 @@ use crate::ir::{
     StringInterner, TypeId, ParsedType,
 };
 use crate::parser::ParseResult;
-use sigil_patterns::PatternRegistry;
-use crate::types::{Type, TypeEnv, TypeScheme, InferenceContext, TypeError};
-use crate::context::{CompilerContext, SharedRegistry};
-use crate::diagnostic::queue::{DiagnosticQueue, DiagnosticConfig};
-use super::operators::TypeOperatorRegistry;
-use super::type_registry::{TypeRegistry, TraitRegistry};
+use crate::types::{Type, TypeScheme, TypeError};
+use crate::context::CompilerContext;
+use crate::diagnostic::queue::DiagnosticConfig;
 use super::infer;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Type checker state.
+///
+/// Organized into logical components for better testability and maintainability:
+/// - `context`: Immutable references to arena and interner
+/// - `inference`: Mutable inference state (context, environments, expression types)
+/// - `registries`: Pattern, type operator, type, and trait registries
+/// - `diagnostics`: Error collection and diagnostic queue
+/// - `scope`: Function signatures, impl Self type, config types, capabilities
 pub struct TypeChecker<'a> {
-    pub(crate) arena: &'a ExprArena,
-    pub(crate) interner: &'a StringInterner,
-    pub(crate) ctx: InferenceContext,
-    pub(crate) env: TypeEnv,
-    /// Frozen base environment for child scope creation.
-    /// Set after first pass to avoid modifying the base during function checking.
-    pub(crate) base_env: Option<TypeEnv>,
-    pub(crate) expr_types: HashMap<usize, Type>,
-    pub(crate) errors: Vec<TypeCheckError>,
-    /// Pattern registry for `function_exp` type checking.
-    pub(crate) registry: SharedRegistry<PatternRegistry>,
-    /// Type operator registry for binary operation type checking.
-    pub(crate) type_operator_registry: TypeOperatorRegistry,
-    /// Registry for user-defined types (structs, enums, aliases).
-    pub(crate) type_registry: TypeRegistry,
-    /// Registry for traits and implementations.
-    pub(crate) trait_registry: TraitRegistry,
-    /// Function signatures for constraint checking during calls.
-    pub(crate) function_sigs: HashMap<Name, FunctionType>,
-    /// Diagnostic queue for deduplication and error limits.
-    /// Only active when source is provided.
-    diagnostic_queue: Option<DiagnosticQueue>,
-    /// Source code for line/column computation.
-    source: Option<String>,
-    /// The Self type when inside an impl block.
-    pub(crate) current_impl_self: Option<Type>,
-    /// Config variable types for $name references.
-    pub(crate) config_types: HashMap<Name, Type>,
-    /// Capabilities declared by the current function (from `uses` clause).
-    /// Used for static capability propagation checking.
-    pub(crate) current_function_caps: HashSet<Name>,
-    /// Capabilities currently provided by `with...in` expressions in scope.
-    /// Used for static capability propagation checking.
-    pub(crate) provided_caps: HashSet<Name>,
+    /// Immutable references for expression lookup.
+    pub(crate) context: components::CheckContext<'a>,
+    /// Mutable inference state.
+    pub(crate) inference: components::InferenceState,
+    /// Registry bundle for patterns, types, and traits.
+    pub(crate) registries: components::Registries,
+    /// Diagnostic collection state.
+    pub(crate) diagnostics: components::DiagnosticState,
+    /// Function and scope context state.
+    pub(crate) scope: components::ScopeContext,
 }
 
 impl<'a> TypeChecker<'a> {
     /// Create a new type checker with default registries.
     pub fn new(arena: &'a ExprArena, interner: &'a StringInterner) -> Self {
-        TypeChecker {
-            arena,
-            interner,
-            ctx: InferenceContext::new(),
-            env: TypeEnv::new(),
-            base_env: None,
-            expr_types: HashMap::new(),
-            errors: Vec::new(),
-            registry: SharedRegistry::new(PatternRegistry::new()),
-            type_operator_registry: TypeOperatorRegistry::new(),
-            type_registry: TypeRegistry::new(),
-            trait_registry: TraitRegistry::new(),
-            function_sigs: HashMap::new(),
-            diagnostic_queue: None,
-            source: None,
-            current_impl_self: None,
-            config_types: HashMap::new(),
-            current_function_caps: HashSet::new(),
-            provided_caps: HashSet::new(),
-        }
+        TypeCheckerBuilder::new(arena, interner).build()
     }
 
     /// Create a type checker with source code for diagnostic queue features.
     ///
     /// When source is provided, error deduplication and limits are enabled.
     pub fn with_source(arena: &'a ExprArena, interner: &'a StringInterner, source: String) -> Self {
-        TypeChecker {
-            arena,
-            interner,
-            ctx: InferenceContext::new(),
-            env: TypeEnv::new(),
-            base_env: None,
-            expr_types: HashMap::new(),
-            errors: Vec::new(),
-            registry: SharedRegistry::new(PatternRegistry::new()),
-            type_operator_registry: TypeOperatorRegistry::new(),
-            type_registry: TypeRegistry::new(),
-            trait_registry: TraitRegistry::new(),
-            function_sigs: HashMap::new(),
-            diagnostic_queue: Some(DiagnosticQueue::new()),
-            source: Some(source),
-            current_impl_self: None,
-            config_types: HashMap::new(),
-            current_function_caps: HashSet::new(),
-            provided_caps: HashSet::new(),
-        }
+        TypeCheckerBuilder::new(arena, interner)
+            .with_source(source)
+            .build()
     }
 
     /// Create a type checker with a custom compiler context.
@@ -133,26 +81,9 @@ impl<'a> TypeChecker<'a> {
         interner: &'a StringInterner,
         context: &CompilerContext,
     ) -> Self {
-        TypeChecker {
-            arena,
-            interner,
-            ctx: InferenceContext::new(),
-            env: TypeEnv::new(),
-            base_env: None,
-            expr_types: HashMap::new(),
-            errors: Vec::new(),
-            registry: context.pattern_registry.clone(),
-            type_operator_registry: TypeOperatorRegistry::new(),
-            type_registry: TypeRegistry::new(),
-            trait_registry: TraitRegistry::new(),
-            function_sigs: HashMap::new(),
-            diagnostic_queue: None,
-            source: None,
-            current_impl_self: None,
-            config_types: HashMap::new(),
-            current_function_caps: HashSet::new(),
-            provided_caps: HashSet::new(),
-        }
+        TypeCheckerBuilder::new(arena, interner)
+            .with_context(context)
+            .build()
     }
 
     /// Create a type checker with source and custom diagnostic configuration.
@@ -162,26 +93,10 @@ impl<'a> TypeChecker<'a> {
         source: String,
         config: DiagnosticConfig,
     ) -> Self {
-        TypeChecker {
-            arena,
-            interner,
-            ctx: InferenceContext::new(),
-            env: TypeEnv::new(),
-            base_env: None,
-            expr_types: HashMap::new(),
-            errors: Vec::new(),
-            registry: SharedRegistry::new(PatternRegistry::new()),
-            type_operator_registry: TypeOperatorRegistry::new(),
-            type_registry: TypeRegistry::new(),
-            trait_registry: TraitRegistry::new(),
-            function_sigs: HashMap::new(),
-            diagnostic_queue: Some(DiagnosticQueue::with_config(config)),
-            source: Some(source),
-            current_impl_self: None,
-            config_types: HashMap::new(),
-            current_function_caps: HashSet::new(),
-            provided_caps: HashSet::new(),
-        }
+        TypeCheckerBuilder::new(arena, interner)
+            .with_source(source)
+            .with_diagnostic_config(config)
+            .build()
     }
 
     /// Type check a module.
@@ -199,7 +114,7 @@ impl<'a> TypeChecker<'a> {
         // Pass 0c: Register derived trait implementations
         // Must be done after register_types so we know the type structure,
         // but after register_impls so explicit impls take precedence.
-        super::derives::register_derived_impls(module, &mut self.trait_registry, self.interner);
+        super::derives::register_derived_impls(module, &mut self.registries.traits, self.context.interner);
 
         // Pass 0d: Register config variables
         self.register_configs(module);
@@ -213,7 +128,7 @@ impl<'a> TypeChecker<'a> {
             self.validate_capabilities(func);
 
             // Store signature for constraint checking during calls
-            self.function_sigs.insert(func.name, func_type.clone());
+            self.scope.function_sigs.insert(func.name, func_type.clone());
 
             // Bind function name to its type
             // For generic functions, create a polymorphic type scheme
@@ -235,16 +150,16 @@ impl<'a> TypeChecker<'a> {
                 .collect();
 
             if type_vars.is_empty() {
-                self.env.bind(func.name, fn_type);
+                self.inference.env.bind(func.name, fn_type);
             } else {
                 let scheme = TypeScheme::poly(type_vars, fn_type);
-                self.env.bind_scheme(func.name, scheme);
+                self.inference.env.bind_scheme(func.name, scheme);
             }
         }
 
         // Freeze the base environment for child scope creation.
         // This avoids modifying the base during function checking.
-        self.base_env = Some(std::mem::take(&mut self.env));
+        self.inference.base_env = Some(std::mem::take(&mut self.inference.env));
 
         // Second pass: type check function bodies
         for (func, func_type) in module.functions.iter().zip(function_types.iter()) {
@@ -262,10 +177,10 @@ impl<'a> TypeChecker<'a> {
         }
 
         // Build expression types vector with resolved types
-        let max_expr = self.expr_types.keys().max().copied().unwrap_or(0);
+        let max_expr = self.inference.expr_types.keys().max().copied().unwrap_or(0);
         let mut expr_types = vec![Type::Error; max_expr + 1];
-        for (id, ty) in self.expr_types {
-            expr_types[id] = self.ctx.resolve(&ty);
+        for (id, ty) in self.inference.expr_types {
+            expr_types[id] = self.inference.ctx.resolve(&ty);
         }
 
         // Resolve function types
@@ -275,8 +190,8 @@ impl<'a> TypeChecker<'a> {
                 name: ft.name,
                 generics: ft.generics,
                 where_constraints: ft.where_constraints,
-                params: ft.params.iter().map(|t| self.ctx.resolve(t)).collect(),
-                return_type: self.ctx.resolve(&ft.return_type),
+                params: ft.params.iter().map(|t| self.inference.ctx.resolve(t)).collect(),
+                return_type: self.inference.ctx.resolve(&ft.return_type),
                 capabilities: ft.capabilities,
             })
             .collect();
@@ -284,7 +199,7 @@ impl<'a> TypeChecker<'a> {
         TypedModule {
             expr_types,
             function_types: resolved_function_types,
-            errors: self.errors,
+            errors: self.diagnostics.errors,
         }
     }
 
@@ -302,14 +217,14 @@ impl<'a> TypeChecker<'a> {
             TypeId::BYTE => Type::Byte,
             TypeId::VOID => Type::Unit,
             TypeId::NEVER => Type::Never,
-            TypeId::INFER => self.ctx.fresh_var(),
+            TypeId::INFER => self.inference.ctx.fresh_var(),
             _ => {
                 // Look up compound types in the type registry
-                if let Some(ty) = self.type_registry.to_type(type_id) {
+                if let Some(ty) = self.registries.types.to_type(type_id) {
                     ty
                 } else {
                     // Unknown compound type - use a fresh var for error recovery
-                    self.ctx.fresh_var()
+                    self.inference.ctx.fresh_var()
                 }
             }
         }
@@ -320,115 +235,7 @@ impl<'a> TypeChecker<'a> {
     /// `ParsedType` captures the full structure of type annotations as parsed.
     /// This method resolves them into the type checker's internal representation.
     pub(crate) fn parsed_type_to_type(&mut self, parsed: &ParsedType) -> Type {
-        match parsed {
-            ParsedType::Primitive(type_id) => self.type_id_to_type(*type_id),
-            ParsedType::Infer => self.ctx.fresh_var(),
-            ParsedType::SelfType => {
-                // Self type resolution is handled during impl checking.
-                self.ctx.fresh_var()
-            }
-            ParsedType::Named { name, type_args } => {
-                // Handle well-known generic types
-                let name_str = self.interner.lookup(*name);
-                match name_str {
-                    "Option" => {
-                        if type_args.len() == 1 {
-                            let inner = self.parsed_type_to_type(&type_args[0]);
-                            Type::Option(Box::new(inner))
-                        } else {
-                            Type::Option(Box::new(self.ctx.fresh_var()))
-                        }
-                    }
-                    "Result" => {
-                        if type_args.len() == 2 {
-                            let ok = self.parsed_type_to_type(&type_args[0]);
-                            let err = self.parsed_type_to_type(&type_args[1]);
-                            Type::Result { ok: Box::new(ok), err: Box::new(err) }
-                        } else {
-                            Type::Result {
-                                ok: Box::new(self.ctx.fresh_var()),
-                                err: Box::new(self.ctx.fresh_var()),
-                            }
-                        }
-                    }
-                    "Set" => {
-                        if type_args.len() == 1 {
-                            let inner = self.parsed_type_to_type(&type_args[0]);
-                            Type::Set(Box::new(inner))
-                        } else {
-                            Type::Set(Box::new(self.ctx.fresh_var()))
-                        }
-                    }
-                    "Range" => {
-                        if type_args.len() == 1 {
-                            let inner = self.parsed_type_to_type(&type_args[0]);
-                            Type::Range(Box::new(inner))
-                        } else {
-                            Type::Range(Box::new(self.ctx.fresh_var()))
-                        }
-                    }
-                    "Channel" => {
-                        if type_args.len() == 1 {
-                            let inner = self.parsed_type_to_type(&type_args[0]);
-                            Type::Channel(Box::new(inner))
-                        } else {
-                            Type::Channel(Box::new(self.ctx.fresh_var()))
-                        }
-                    }
-                    _ => {
-                        // User-defined type or type parameter
-                        // Treat as a named type reference - resolution happens during unification
-                        Type::Named(*name)
-                    }
-                }
-            }
-            ParsedType::List(inner) => {
-                let elem_ty = self.parsed_type_to_type(inner);
-                Type::List(Box::new(elem_ty))
-            }
-            ParsedType::Tuple(elems) => {
-                let types: Vec<Type> = elems.iter()
-                    .map(|e| self.parsed_type_to_type(e))
-                    .collect();
-                Type::Tuple(types)
-            }
-            ParsedType::Function { params, ret } => {
-                let param_types: Vec<Type> = params.iter()
-                    .map(|p| self.parsed_type_to_type(p))
-                    .collect();
-                let ret_ty = self.parsed_type_to_type(ret);
-                Type::Function {
-                    params: param_types,
-                    ret: Box::new(ret_ty),
-                }
-            }
-            ParsedType::Map { key, value } => {
-                let key_ty = self.parsed_type_to_type(key);
-                let value_ty = self.parsed_type_to_type(value);
-                Type::Map {
-                    key: Box::new(key_ty),
-                    value: Box::new(value_ty),
-                }
-            }
-            ParsedType::AssociatedType { base, assoc_name } => {
-                // Associated type projection like Self.Item or T.Item
-                // The base type is converted, and we create a Projection type.
-                // The trait_name is not known at parse time in general; we use
-                // a placeholder that will be resolved during impl checking or
-                // when we have more context about which trait defines this associated type.
-                let base_ty = self.parsed_type_to_type(base);
-
-                // For now, use a placeholder trait name. In a more complete implementation,
-                // we would look up which trait defines this associated type based on
-                // the context (current trait definition or trait bounds on the base type).
-                // Using the assoc_name as the trait_name placeholder for now.
-                Type::Projection {
-                    base: Box::new(base_ty),
-                    trait_name: *assoc_name, // Placeholder - resolved during impl checking
-                    assoc_name: *assoc_name,
-                }
-            }
-        }
+        self.resolve_parsed_type_internal(parsed, None)
     }
 
     /// Resolve a `ParsedType` to a Type, substituting generic type variables.
@@ -440,107 +247,210 @@ impl<'a> TypeChecker<'a> {
         parsed: &ParsedType,
         generic_type_vars: &HashMap<Name, Type>,
     ) -> Type {
+        self.resolve_parsed_type_internal(parsed, Some(generic_type_vars))
+    }
+
+    /// Internal type resolution with optional generic substitutions.
+    ///
+    /// Consolidates the logic from `parsed_type_to_type` and `resolve_parsed_type_with_generics`
+    /// to eliminate code duplication.
+    fn resolve_parsed_type_internal(
+        &mut self,
+        parsed: &ParsedType,
+        generic_type_vars: Option<&HashMap<Name, Type>>,
+    ) -> Type {
         match parsed {
-            ParsedType::Named { name, type_args } if type_args.is_empty() => {
-                // Check if this name refers to a generic parameter
-                if let Some(type_var) = generic_type_vars.get(name) {
-                    return type_var.clone();
-                }
-                // Fall through to regular resolution
-                self.parsed_type_to_type(parsed)
+            ParsedType::Primitive(type_id) => self.type_id_to_type(*type_id),
+            ParsedType::Infer => self.inference.ctx.fresh_var(),
+            ParsedType::SelfType => {
+                // Self type resolution is handled during impl checking.
+                self.inference.ctx.fresh_var()
             }
             ParsedType::Named { name, type_args } => {
-                // Handle generic types like Option<T> where T might be a generic param
-                let name_str = self.interner.lookup(*name);
-                match name_str {
-                    "Option" if type_args.len() == 1 => {
-                        let inner = self.resolve_parsed_type_with_generics(&type_args[0], generic_type_vars);
-                        Type::Option(Box::new(inner))
+                // Check if this name refers to a generic parameter (when resolving with generics)
+                if type_args.is_empty() {
+                    if let Some(vars) = generic_type_vars {
+                        if let Some(type_var) = vars.get(name) {
+                            return type_var.clone();
+                        }
                     }
-                    "Result" if type_args.len() == 2 => {
-                        let ok = self.resolve_parsed_type_with_generics(&type_args[0], generic_type_vars);
-                        let err = self.resolve_parsed_type_with_generics(&type_args[1], generic_type_vars);
-                        Type::Result { ok: Box::new(ok), err: Box::new(err) }
-                    }
-                    _ => self.parsed_type_to_type(parsed)
                 }
+                // Handle well-known generic types
+                self.resolve_well_known_generic(*name, type_args, generic_type_vars)
             }
             ParsedType::List(inner) => {
-                let elem_ty = self.resolve_parsed_type_with_generics(inner, generic_type_vars);
+                let elem_ty = self.resolve_parsed_type_internal(inner, generic_type_vars);
                 Type::List(Box::new(elem_ty))
             }
-            ParsedType::Function { params, ret } => {
-                let param_types: Vec<Type> = params.iter()
-                    .map(|p| self.resolve_parsed_type_with_generics(p, generic_type_vars))
+            ParsedType::Tuple(elems) => {
+                let types: Vec<Type> = elems
+                    .iter()
+                    .map(|e| self.resolve_parsed_type_internal(e, generic_type_vars))
                     .collect();
-                let ret_ty = self.resolve_parsed_type_with_generics(ret, generic_type_vars);
+                Type::Tuple(types)
+            }
+            ParsedType::Function { params, ret } => {
+                let param_types: Vec<Type> = params
+                    .iter()
+                    .map(|p| self.resolve_parsed_type_internal(p, generic_type_vars))
+                    .collect();
+                let ret_ty = self.resolve_parsed_type_internal(ret, generic_type_vars);
                 Type::Function {
                     params: param_types,
                     ret: Box::new(ret_ty),
                 }
             }
-            ParsedType::AssociatedType { base, assoc_name } => {
-                // Resolve the base type with generic substitutions
-                let base_ty = self.resolve_parsed_type_with_generics(base, generic_type_vars);
-                Type::Projection {
-                    base: Box::new(base_ty),
-                    trait_name: *assoc_name, // Placeholder
-                    assoc_name: *assoc_name,
+            ParsedType::Map { key, value } => {
+                let key_ty = self.resolve_parsed_type_internal(key, generic_type_vars);
+                let value_ty = self.resolve_parsed_type_internal(value, generic_type_vars);
+                Type::Map {
+                    key: Box::new(key_ty),
+                    value: Box::new(value_ty),
                 }
             }
-            _ => self.parsed_type_to_type(parsed),
+            ParsedType::AssociatedType { base, assoc_name } => {
+                self.make_projection_type(base, *assoc_name, generic_type_vars)
+            }
+        }
+    }
+
+    /// Resolve a well-known generic type (Option, Result, Set, Range, Channel).
+    ///
+    /// Returns the appropriate Type for known generic types, or a Named type for
+    /// user-defined types and type parameters.
+    fn resolve_well_known_generic(
+        &mut self,
+        name: Name,
+        type_args: &[ParsedType],
+        generic_type_vars: Option<&HashMap<Name, Type>>,
+    ) -> Type {
+        let name_str = self.context.interner.lookup(name);
+        match name_str {
+            "Option" => {
+                let inner = if type_args.len() == 1 {
+                    self.resolve_parsed_type_internal(&type_args[0], generic_type_vars)
+                } else {
+                    self.inference.ctx.fresh_var()
+                };
+                Type::Option(Box::new(inner))
+            }
+            "Result" => {
+                let (ok, err) = if type_args.len() == 2 {
+                    (
+                        self.resolve_parsed_type_internal(&type_args[0], generic_type_vars),
+                        self.resolve_parsed_type_internal(&type_args[1], generic_type_vars),
+                    )
+                } else {
+                    (self.inference.ctx.fresh_var(), self.inference.ctx.fresh_var())
+                };
+                Type::Result {
+                    ok: Box::new(ok),
+                    err: Box::new(err),
+                }
+            }
+            "Set" => {
+                let inner = if type_args.len() == 1 {
+                    self.resolve_parsed_type_internal(&type_args[0], generic_type_vars)
+                } else {
+                    self.inference.ctx.fresh_var()
+                };
+                Type::Set(Box::new(inner))
+            }
+            "Range" => {
+                let inner = if type_args.len() == 1 {
+                    self.resolve_parsed_type_internal(&type_args[0], generic_type_vars)
+                } else {
+                    self.inference.ctx.fresh_var()
+                };
+                Type::Range(Box::new(inner))
+            }
+            "Channel" => {
+                let inner = if type_args.len() == 1 {
+                    self.resolve_parsed_type_internal(&type_args[0], generic_type_vars)
+                } else {
+                    self.inference.ctx.fresh_var()
+                };
+                Type::Channel(Box::new(inner))
+            }
+            _ => {
+                // User-defined type or type parameter
+                // Treat as a named type reference - resolution happens during unification
+                Type::Named(name)
+            }
+        }
+    }
+
+    /// Create a projection type for an associated type (e.g., Self.Item or T.Item).
+    ///
+    /// Resolves the base type and creates a Projection type.
+    fn make_projection_type(
+        &mut self,
+        base: &ParsedType,
+        assoc_name: Name,
+        generic_type_vars: Option<&HashMap<Name, Type>>,
+    ) -> Type {
+        // Associated type projection like Self.Item or T.Item
+        // The base type is converted, and we create a Projection type.
+        // The trait_name is not known at parse time in general; we use
+        // a placeholder that will be resolved during impl checking or
+        // when we have more context about which trait defines this associated type.
+        let base_ty = self.resolve_parsed_type_internal(base, generic_type_vars);
+
+        // For now, use a placeholder trait name. In a more complete implementation,
+        // we would look up which trait defines this associated type based on
+        // the context (current trait definition or trait bounds on the base type).
+        // Using the assoc_name as the trait_name placeholder for now.
+        Type::Projection {
+            base: Box::new(base_ty),
+            trait_name: assoc_name, // Placeholder - resolved during impl checking
+            assoc_name,
         }
     }
 
     /// Type check a function body.
     fn check_function(&mut self, func: &Function, func_type: &FunctionType) {
         // Create scope for function parameters
-        let mut func_env = if let Some(ref base) = self.base_env {
+        let mut func_env = if let Some(ref base) = self.inference.base_env {
             base.child()
         } else {
-            self.env.child()
+            self.inference.env.child()
         };
 
         // Bind parameters
-        let params = self.arena.get_params(func.params);
+        let params = self.context.arena.get_params(func.params);
         for (param, param_type) in params.iter().zip(func_type.params.iter()) {
             func_env.bind(param.name, param_type.clone());
         }
 
         // Save current env and switch to function env
-        let old_env = std::mem::replace(&mut self.env, func_env);
+        let old_env = std::mem::replace(&mut self.inference.env, func_env);
 
         // Set current function's capabilities for propagation checking
-        let old_caps = std::mem::take(&mut self.current_function_caps);
-        self.current_function_caps = func.capabilities.iter().map(|c| c.name).collect();
-        let old_provided = std::mem::take(&mut self.provided_caps);
+        let new_caps = func.capabilities.iter().map(|c| c.name).collect();
+        self.with_capability_scope(new_caps, |checker| {
+            // Infer body type
+            let body_type = infer::infer_expr(checker, func.body);
 
-        // Infer body type
-        let body_type = infer::infer_expr(self, func.body);
-
-        // Unify with declared return type
-        if let Err(e) = self.ctx.unify(&body_type, &func_type.return_type) {
-            let span = self.arena.get_expr(func.body).span;
-            self.report_type_error(&e, span);
-        }
-
-        // Restore capability context
-        self.current_function_caps = old_caps;
-        self.provided_caps = old_provided;
+            // Unify with declared return type
+            if let Err(e) = checker.inference.ctx.unify(&body_type, &func_type.return_type) {
+                let span = checker.context.arena.get_expr(func.body).span;
+                checker.report_type_error(&e, span);
+            }
+        });
 
         // Restore environment
-        self.env = old_env;
+        self.inference.env = old_env;
     }
 
     /// Type check a test body.
     fn check_test(&mut self, test: &TestDef) {
         // Infer parameter types
-        let params: Vec<Type> = self.arena.get_params(test.params)
+        let params: Vec<Type> = self.context.arena.get_params(test.params)
             .iter()
             .map(|p| {
                 match &p.ty {
                     Some(parsed_ty) => self.parsed_type_to_type(parsed_ty),
-                    None => self.ctx.fresh_var(),
+                    None => self.inference.ctx.fresh_var(),
                 }
             })
             .collect();
@@ -548,100 +458,94 @@ impl<'a> TypeChecker<'a> {
         // Infer return type
         let return_type = match &test.return_ty {
             Some(parsed_ty) => self.parsed_type_to_type(parsed_ty),
-            None => self.ctx.fresh_var(),
+            None => self.inference.ctx.fresh_var(),
         };
 
         // Create scope for test parameters
-        let mut test_env = if let Some(ref base) = self.base_env {
+        let mut test_env = if let Some(ref base) = self.inference.base_env {
             base.child()
         } else {
-            self.env.child()
+            self.inference.env.child()
         };
 
         // Bind parameters
-        let param_defs = self.arena.get_params(test.params);
+        let param_defs = self.context.arena.get_params(test.params);
         for (param, param_type) in param_defs.iter().zip(params.iter()) {
             test_env.bind(param.name, param_type.clone());
         }
 
         // Save current env and switch to test env
-        let old_env = std::mem::replace(&mut self.env, test_env);
+        let old_env = std::mem::replace(&mut self.inference.env, test_env);
 
         // Tests don't declare capabilities, so we start with empty capability context
         // but must still track provided capabilities from with...in expressions
-        let old_caps = std::mem::take(&mut self.current_function_caps);
-        let old_provided = std::mem::take(&mut self.provided_caps);
+        self.with_empty_capability_scope(|checker| {
+            // Infer body type
+            let body_type = infer::infer_expr(checker, test.body);
 
-        // Infer body type
-        let body_type = infer::infer_expr(self, test.body);
-
-        // Unify with declared return type
-        if let Err(e) = self.ctx.unify(&body_type, &return_type) {
-            let span = self.arena.get_expr(test.body).span;
-            self.report_type_error(&e, span);
-        }
-
-        // Restore capability context
-        self.current_function_caps = old_caps;
-        self.provided_caps = old_provided;
+            // Unify with declared return type
+            if let Err(e) = checker.inference.ctx.unify(&body_type, &return_type) {
+                let span = checker.context.arena.get_expr(test.body).span;
+                checker.report_type_error(&e, span);
+            }
+        });
 
         // Restore environment
-        self.env = old_env;
+        self.inference.env = old_env;
     }
 
     /// Type check all methods in an impl block.
     fn check_impl_methods(&mut self, impl_def: &crate::ir::ImplDef) {
         let self_ty = self.parsed_type_to_type(&impl_def.self_ty);
-        let prev_self = self.enter_impl(self_ty.clone());
 
-        for method in &impl_def.methods {
-            self.check_impl_method(method, &self_ty);
-        }
-
-        self.exit_impl(prev_self);
+        self.with_impl_scope(self_ty.clone(), |checker| {
+            for method in &impl_def.methods {
+                checker.check_impl_method(method, &self_ty);
+            }
+        });
     }
 
     /// Type check a single impl method.
     fn check_impl_method(&mut self, method: &crate::ir::ImplMethod, self_ty: &Type) {
         // Create scope for method parameters
-        let mut method_env = if let Some(ref base) = self.base_env {
+        let mut method_env = if let Some(ref base) = self.inference.base_env {
             base.child()
         } else {
-            self.env.child()
+            self.inference.env.child()
         };
 
         // Bind parameters (first param is typically `self`)
-        let params = self.arena.get_params(method.params);
+        let params = self.context.arena.get_params(method.params);
         for param in params {
             let param_ty = if let Some(ref parsed_ty) = param.ty {
                 self.parsed_type_to_type(parsed_ty)
             } else {
                 // If first param is named `self`, bind to Self type
-                let self_name = self.interner.intern("self");
+                let self_name = self.context.interner.intern("self");
                 if param.name == self_name {
                     self_ty.clone()
                 } else {
-                    self.ctx.fresh_var()
+                    self.inference.ctx.fresh_var()
                 }
             };
             method_env.bind(param.name, param_ty);
         }
 
         // Save current env and switch to method env
-        let old_env = std::mem::replace(&mut self.env, method_env);
+        let old_env = std::mem::replace(&mut self.inference.env, method_env);
 
         // Infer body type
         let body_type = infer::infer_expr(self, method.body);
 
         // Unify with declared return type
         let return_type = self.parsed_type_to_type(&method.return_ty);
-        if let Err(e) = self.ctx.unify(&body_type, &return_type) {
-            let span = self.arena.get_expr(method.body).span;
+        if let Err(e) = self.inference.ctx.unify(&body_type, &return_type) {
+            let span = self.context.arena.get_expr(method.body).span;
             self.report_type_error(&e, span);
         }
 
         // Restore environment
-        self.env = old_env;
+        self.inference.env = old_env;
     }
 
     /// Validate that capabilities in a function's `uses` clause refer to valid traits.
@@ -650,9 +554,9 @@ impl<'a> TypeChecker<'a> {
     /// in the trait registry. If not, reports an error.
     fn validate_capabilities(&mut self, func: &Function) {
         for cap_ref in &func.capabilities {
-            if !self.trait_registry.has_trait(cap_ref.name) {
-                let cap_name = self.interner.lookup(cap_ref.name);
-                self.errors.push(TypeCheckError {
+            if !self.registries.traits.has_trait(cap_ref.name) {
+                let cap_name = self.context.interner.lookup(cap_ref.name);
+                self.diagnostics.errors.push(TypeCheckError {
                     message: format!("unknown capability `{cap_name}`: capabilities must be defined traits"),
                     span: cap_ref.span,
                     code: crate::diagnostic::ErrorCode::E2012,
@@ -670,7 +574,7 @@ impl<'a> TypeChecker<'a> {
 
         match ty {
             Type::Named(name) => {
-                if let Some(entry) = self.type_registry.get_by_name(*name) {
+                if let Some(entry) = self.registries.types.get_by_name(*name) {
                     if let TypeKind::Alias { target } = &entry.kind {
                         return self.resolve_through_aliases(target);
                     }
@@ -681,31 +585,19 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    /// Enter an impl block context, setting the Self type.
-    ///
-    /// Returns the previous Self type to restore later.
-    pub(crate) fn enter_impl(&mut self, self_ty: Type) -> Option<Type> {
-        self.current_impl_self.replace(self_ty)
-    }
-
-    /// Exit an impl block context, restoring the previous Self type.
-    pub(crate) fn exit_impl(&mut self, prev: Option<Type>) {
-        self.current_impl_self = prev;
-    }
-
     /// Register config variable types.
     ///
     /// Infers the type of each config value and stores it for $name references.
     fn register_configs(&mut self, module: &Module) {
         for config in &module.configs {
             let config_ty = infer::infer_expr(self, config.value);
-            self.config_types.insert(config.name, config_ty);
+            self.scope.config_types.insert(config.name, config_ty);
         }
     }
 
     /// Report a type error.
     pub(crate) fn report_type_error(&mut self, err: &TypeError, span: Span) {
-        let diag = err.to_diagnostic(span, self.interner);
+        let diag = err.to_diagnostic(span, self.context.interner);
         let error = TypeCheckError {
             message: diag.message.clone(),
             span,
@@ -713,15 +605,15 @@ impl<'a> TypeChecker<'a> {
         };
 
         // If we have a diagnostic queue, use it for deduplication/limits
-        if let (Some(ref mut queue), Some(ref source)) = (&mut self.diagnostic_queue, &self.source) {
+        if let (Some(ref mut queue), Some(ref source)) = (&mut self.diagnostics.queue, &self.diagnostics.source) {
             let is_soft = error.is_soft();
             // Add to queue - it will handle deduplication and limits
             if queue.add_with_source(diag, source, is_soft) {
-                self.errors.push(error);
+                self.diagnostics.errors.push(error);
             }
         } else {
             // No queue - add directly
-            self.errors.push(error);
+            self.diagnostics.errors.push(error);
         }
     }
 
@@ -730,12 +622,12 @@ impl<'a> TypeChecker<'a> {
     /// When source is provided, the diagnostic queue tracks error limits.
     /// Returns false if no source/queue is configured.
     pub fn limit_reached(&self) -> bool {
-        self.diagnostic_queue.as_ref().is_some_and(sigil_diagnostic::queue::DiagnosticQueue::limit_reached)
+        self.diagnostics.queue.as_ref().is_some_and(sigil_diagnostic::queue::DiagnosticQueue::limit_reached)
     }
 
     /// Store the type for an expression.
     pub(crate) fn store_type(&mut self, expr_id: ExprId, ty: Type) {
-        self.expr_types.insert(expr_id.index(), ty);
+        self.inference.expr_types.insert(expr_id.index(), ty);
     }
 }
 

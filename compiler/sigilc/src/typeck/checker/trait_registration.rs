@@ -15,7 +15,7 @@ impl TypeChecker<'_> {
     pub(crate) fn register_traits(&mut self, module: &Module) {
         for trait_def in &module.traits {
             // Convert generic params to names
-            let type_params: Vec<Name> = self.arena
+            let type_params: Vec<Name> = self.context.arena
                 .get_generic_params(trait_def.generics)
                 .iter()
                 .map(|gp| gp.name)
@@ -71,7 +71,7 @@ impl TypeChecker<'_> {
                 is_public: trait_def.is_public,
             };
 
-            self.trait_registry.register_trait(entry);
+            self.registries.traits.register_trait(entry);
         }
     }
 
@@ -79,7 +79,7 @@ impl TypeChecker<'_> {
     pub(crate) fn register_impls(&mut self, module: &Module) {
         for impl_def in &module.impls {
             // Convert generic params to names
-            let type_params: Vec<Name> = self.arena
+            let type_params: Vec<Name> = self.context.arena
                 .get_generic_params(impl_def.generics)
                 .iter()
                 .map(|gp| gp.name)
@@ -132,8 +132,8 @@ impl TypeChecker<'_> {
             }
 
             // Register impl, checking for coherence violations
-            if let Err(coherence_err) = self.trait_registry.register_impl(entry) {
-                self.errors.push(TypeCheckError {
+            if let Err(coherence_err) = self.registries.traits.register_impl(entry) {
+                self.diagnostics.errors.push(TypeCheckError {
                     message: format!(
                         "{} (previous impl at {:?})",
                         coherence_err.message,
@@ -155,7 +155,7 @@ impl TypeChecker<'_> {
         span: crate::ir::Span,
     ) {
         // Get the trait definition
-        let trait_entry = match self.trait_registry.get_trait(trait_name) {
+        let trait_entry = match self.registries.traits.get_trait(trait_name) {
             Some(entry) => entry.clone(),
             None => return, // Trait not found - error reported elsewhere
         };
@@ -164,10 +164,10 @@ impl TypeChecker<'_> {
         for required_at in &trait_entry.assoc_types {
             let defined = impl_assoc_types.iter().any(|at| at.name == required_at.name);
             if !defined {
-                let trait_name_str = self.interner.lookup(trait_name);
-                let assoc_name_str = self.interner.lookup(required_at.name);
-                let type_name = self_ty.display(self.interner);
-                self.errors.push(TypeCheckError {
+                let trait_name_str = self.context.interner.lookup(trait_name);
+                let assoc_name_str = self.context.interner.lookup(required_at.name);
+                let type_name = self_ty.display(self.context.interner);
+                self.diagnostics.errors.push(TypeCheckError {
                     message: format!(
                         "impl of `{trait_name_str}` for `{type_name}` missing associated type `{assoc_name_str}`"
                     ),
@@ -180,13 +180,13 @@ impl TypeChecker<'_> {
 
     /// Convert a parameter range to a vector of types.
     pub(crate) fn params_to_types(&mut self, params: ParamRange) -> Vec<Type> {
-        self.arena
+        self.context.arena
             .get_params(params)
             .iter()
             .map(|p| {
                 match &p.ty {
                     Some(parsed_ty) => self.parsed_type_to_type(parsed_ty),
-                    None => self.ctx.fresh_var(),
+                    None => self.inference.ctx.fresh_var(),
                 }
             })
             .collect()

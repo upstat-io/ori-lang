@@ -16,11 +16,11 @@ impl TypeChecker<'_> {
     /// that generic. This enables proper constraint checking at call sites.
     pub(crate) fn infer_function_signature(&mut self, func: &Function) -> FunctionType {
         // Step 1: Create fresh type variables for each generic parameter
-        let generic_params = self.arena.get_generic_params(func.generics);
+        let generic_params = self.context.arena.get_generic_params(func.generics);
         let mut generic_type_vars: HashMap<Name, Type> = HashMap::new();
 
         for gp in generic_params {
-            let type_var = self.ctx.fresh_var();
+            let type_var = self.inference.ctx.fresh_var();
             generic_type_vars.insert(gp.name, type_var);
         }
 
@@ -31,7 +31,7 @@ impl TypeChecker<'_> {
                 .map(sigil_ir::TraitBound::path)
                 .collect();
             let type_var = generic_type_vars.get(&gp.name).cloned()
-                .unwrap_or_else(|| self.ctx.fresh_var());
+                .unwrap_or_else(|| self.inference.ctx.fresh_var());
             generics.push(GenericBound {
                 param: gp.name,
                 bounds,
@@ -48,7 +48,7 @@ impl TypeChecker<'_> {
                 .map(sigil_ir::TraitBound::path)
                 .collect();
             let type_var = generic_type_vars.get(&wc.param).cloned()
-                .unwrap_or_else(|| self.ctx.fresh_var());
+                .unwrap_or_else(|| self.inference.ctx.fresh_var());
 
             if wc.projection.is_some() {
                 // Projection constraint: where T.Item: Eq
@@ -77,7 +77,7 @@ impl TypeChecker<'_> {
         }
 
         // Step 4: Convert parameter types, using generic type vars when applicable
-        let params: Vec<Type> = self.arena.get_params(func.params)
+        let params: Vec<Type> = self.context.arena.get_params(func.params)
             .iter()
             .map(|p| {
                 match &p.ty {
@@ -85,7 +85,7 @@ impl TypeChecker<'_> {
                         // Check if this is a named type that refers to a generic parameter
                         self.resolve_parsed_type_with_generics(parsed_ty, &generic_type_vars)
                     }
-                    None => self.ctx.fresh_var(),
+                    None => self.inference.ctx.fresh_var(),
                 }
             })
             .collect();
@@ -93,7 +93,7 @@ impl TypeChecker<'_> {
         // Step 5: Handle return type, also checking for generic return types
         let return_type = match &func.return_ty {
             Some(parsed_ty) => self.resolve_parsed_type_with_generics(parsed_ty, &generic_type_vars),
-            None => self.ctx.fresh_var(),
+            None => self.inference.ctx.fresh_var(),
         };
 
         let capabilities: Vec<Name> = func.capabilities.iter()

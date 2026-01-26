@@ -18,11 +18,11 @@ pub fn infer_function_seq(
     match func_seq {
         FunctionSeq::Run { bindings, result, .. } => {
             // Create child scope for bindings
-            let run_env = checker.env.child();
-            let old_env = std::mem::replace(&mut checker.env, run_env);
+            let run_env = checker.inference.env.child();
+            let old_env = std::mem::replace(&mut checker.inference.env, run_env);
 
             // Type check each binding/statement and add to scope
-            let seq_bindings = checker.arena.get_seq_bindings(*bindings);
+            let seq_bindings = checker.context.arena.get_seq_bindings(*bindings);
             for binding in seq_bindings {
                 match binding {
                     SeqBinding::Let { pattern, value, span: binding_span, .. } => {
@@ -43,16 +43,16 @@ pub fn infer_function_seq(
             let result_ty = infer_expr(checker, *result);
 
             // Restore parent scope
-            checker.env = old_env;
+            checker.inference.env = old_env;
             result_ty
         }
 
         FunctionSeq::Try { bindings, result, .. } => {
             // Similar to Run, but bindings unwrap Result/Option
-            let try_env = checker.env.child();
-            let old_env = std::mem::replace(&mut checker.env, try_env);
+            let try_env = checker.inference.env.child();
+            let old_env = std::mem::replace(&mut checker.inference.env, try_env);
 
-            let seq_bindings = checker.arena.get_seq_bindings(*bindings);
+            let seq_bindings = checker.context.arena.get_seq_bindings(*bindings);
             for binding in seq_bindings {
                 match binding {
                     SeqBinding::Let { pattern, value, span: binding_span, .. } => {
@@ -78,16 +78,16 @@ pub fn infer_function_seq(
             // Result expression should be Result or Option
             let result_ty = infer_expr(checker, *result);
 
-            checker.env = old_env;
+            checker.inference.env = old_env;
             result_ty
         }
 
         FunctionSeq::Match { scrutinee, arms, .. } => {
             let scrutinee_ty = infer_expr(checker, *scrutinee);
-            let match_arms = checker.arena.get_arms(*arms);
+            let match_arms = checker.context.arena.get_arms(*arms);
 
             if match_arms.is_empty() {
-                checker.ctx.fresh_var()
+                checker.inference.ctx.fresh_var()
             } else {
                 let mut result_ty: Option<Type> = None;
 
@@ -99,17 +99,17 @@ pub fn infer_function_seq(
                     let bindings = super::extract_match_pattern_bindings(checker, &arm.pattern, &scrutinee_ty);
 
                     // 3. Create child scope with pattern bindings
-                    let mut arm_env = checker.env.child();
+                    let mut arm_env = checker.inference.env.child();
                     for (name, ty) in bindings {
                         arm_env.bind(name, ty);
                     }
-                    let old_env = std::mem::replace(&mut checker.env, arm_env);
+                    let old_env = std::mem::replace(&mut checker.inference.env, arm_env);
 
                     // 4. Type check guard if present
                     if let Some(guard_id) = arm.guard {
                         let guard_ty = infer_expr(checker, guard_id);
-                        if let Err(e) = checker.ctx.unify(&guard_ty, &Type::Bool) {
-                            checker.report_type_error(&e, checker.arena.get_expr(guard_id).span);
+                        if let Err(e) = checker.inference.ctx.unify(&guard_ty, &Type::Bool) {
+                            checker.report_type_error(&e, checker.context.arena.get_expr(guard_id).span);
                         }
                     }
 
@@ -117,12 +117,12 @@ pub fn infer_function_seq(
                     let arm_ty = infer_expr(checker, arm.body);
 
                     // 6. Restore scope
-                    checker.env = old_env;
+                    checker.inference.env = old_env;
 
                     // 7. Unify arm types
                     match &result_ty {
                         Some(expected) => {
-                            if let Err(e) = checker.ctx.unify(expected, &arm_ty) {
+                            if let Err(e) = checker.inference.ctx.unify(expected, &arm_ty) {
                                 checker.report_type_error(&e, arm.span);
                             }
                         }
@@ -132,7 +132,7 @@ pub fn infer_function_seq(
                     }
                 }
 
-                result_ty.unwrap_or_else(|| checker.ctx.fresh_var())
+                result_ty.unwrap_or_else(|| checker.inference.ctx.fresh_var())
             }
         }
 
@@ -141,18 +141,18 @@ pub fn infer_function_seq(
             let over_ty = infer_expr(checker, *over);
 
             // Determine element type for the iteration
-            let resolved_over = checker.ctx.resolve(&over_ty);
+            let resolved_over = checker.inference.ctx.resolve(&over_ty);
             let elem_ty = match &resolved_over {
                 Type::List(elem) | Type::Set(elem) | Type::Range(elem) => (**elem).clone(),
                 Type::Map { key, .. } => (**key).clone(),
-                _ => checker.ctx.fresh_var(),
+                _ => checker.inference.ctx.fresh_var(),
             };
 
             // If there's a mapping function, apply it to get the scrutinee type
             let scrutinee_ty = if let Some(map_fn) = map {
                 let map_fn_ty = infer_expr(checker, *map_fn);
                 // The map function takes the element type and returns the scrutinee type
-                match checker.ctx.resolve(&map_fn_ty) {
+                match checker.inference.ctx.resolve(&map_fn_ty) {
                     Type::Function { ret, .. } => (*ret).clone(),
                     _ => elem_ty.clone(),
                 }
@@ -167,17 +167,17 @@ pub fn infer_function_seq(
             let bindings = super::extract_match_pattern_bindings(checker, &arm.pattern, &scrutinee_ty);
 
             // Create child scope with pattern bindings
-            let mut arm_env = checker.env.child();
+            let mut arm_env = checker.inference.env.child();
             for (name, ty) in bindings {
                 arm_env.bind(name, ty);
             }
-            let old_env = std::mem::replace(&mut checker.env, arm_env);
+            let old_env = std::mem::replace(&mut checker.inference.env, arm_env);
 
             // Type check guard if present
             if let Some(guard_id) = arm.guard {
                 let guard_ty = infer_expr(checker, guard_id);
-                if let Err(e) = checker.ctx.unify(&guard_ty, &Type::Bool) {
-                    checker.report_type_error(&e, checker.arena.get_expr(guard_id).span);
+                if let Err(e) = checker.inference.ctx.unify(&guard_ty, &Type::Bool) {
+                    checker.report_type_error(&e, checker.context.arena.get_expr(guard_id).span);
                 }
             }
 
@@ -185,13 +185,13 @@ pub fn infer_function_seq(
             let arm_ty = infer_expr(checker, arm.body);
 
             // Restore scope
-            checker.env = old_env;
+            checker.inference.env = old_env;
 
             // Type check the default value
             let default_ty = infer_expr(checker, *default);
 
             // Unify arm result with default
-            if let Err(e) = checker.ctx.unify(&arm_ty, &default_ty) {
+            if let Err(e) = checker.inference.ctx.unify(&arm_ty, &default_ty) {
                 checker.report_type_error(&e, arm.span);
             }
 
@@ -208,7 +208,7 @@ pub fn infer_function_exp(
     checker: &mut TypeChecker<'_>,
     func_exp: &FunctionExp,
 ) -> Type {
-    let props = checker.arena.get_named_exprs(func_exp.props);
+    let props = checker.context.arena.get_named_exprs(func_exp.props);
 
     // Type check all property values
     let prop_types: HashMap<Name, Type> = props.iter()
@@ -216,13 +216,13 @@ pub fn infer_function_exp(
         .collect();
 
     // Look up pattern definition from registry
-    let Some(pattern) = checker.registry.get(func_exp.kind) else {
+    let Some(pattern) = checker.registries.pattern.get(func_exp.kind) else {
         // Unknown pattern kind - should not happen if registry is complete
         return Type::Error;
     };
 
     // Create type check context with property types
-    let mut ctx = TypeCheckContext::new(checker.interner, &mut checker.ctx, prop_types);
+    let mut ctx = TypeCheckContext::new(checker.context.interner, &mut checker.inference.ctx, prop_types);
 
     // Delegate to pattern's type_check implementation
     pattern.type_check(&mut ctx)

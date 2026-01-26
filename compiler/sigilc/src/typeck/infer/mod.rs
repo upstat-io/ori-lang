@@ -38,7 +38,7 @@ pub fn infer_expr(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
 
 /// Inner type inference logic (wrapped by `infer_expr` for stack safety).
 fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
-    let expr = checker.arena.get_expr(expr_id);
+    let expr = checker.context.arena.get_expr(expr_id);
     let span = expr.span;
 
     let ty = match &expr.kind {
@@ -188,13 +188,13 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
 
         // Config reference
         ExprKind::Config(name) => {
-            if let Some(ty) = checker.config_types.get(name) {
+            if let Some(ty) = checker.scope.config_types.get(name) {
                 ty.clone()
             } else {
-                checker.errors.push(TypeCheckError {
+                checker.diagnostics.errors.push(TypeCheckError {
                     message: format!(
                         "undefined config variable `${}`",
-                        checker.interner.lookup(*name)
+                        checker.context.interner.lookup(*name)
                     ),
                     span,
                     code: crate::diagnostic::ErrorCode::E2004,
@@ -205,10 +205,10 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
 
         // Self reference
         ExprKind::SelfRef => {
-            if let Some(ref self_ty) = checker.current_impl_self {
+            if let Some(ref self_ty) = checker.scope.current_impl_self {
                 self_ty.clone()
             } else {
-                checker.errors.push(TypeCheckError {
+                checker.diagnostics.errors.push(TypeCheckError {
                     message: "`self` can only be used inside impl blocks".to_string(),
                     span,
                     code: crate::diagnostic::ErrorCode::E2003,
@@ -221,19 +221,19 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
         ExprKind::WithCapability { capability, provider, body } => {
             // Infer the provider type (capability implementation)
             let provider_ty = infer_expr(checker, *provider);
-            let resolved_provider_ty = checker.ctx.resolve(&provider_ty);
+            let resolved_provider_ty = checker.inference.ctx.resolve(&provider_ty);
 
             // Validate: if capability is a known trait, provider must implement it
-            if checker.trait_registry.has_trait(*capability) {
+            if checker.registries.traits.has_trait(*capability) {
                 // Check if provider type implements the capability trait
-                if !checker.trait_registry.implements(&resolved_provider_ty, *capability) {
+                if !checker.registries.traits.implements(&resolved_provider_ty, *capability) {
                     // Also check built-in trait implementations
-                    let cap_name = checker.interner.lookup(*capability);
+                    let cap_name = checker.context.interner.lookup(*capability);
                     let implements_builtin = bound_checking::primitive_implements_trait(&resolved_provider_ty, cap_name);
 
                     if !implements_builtin {
                         let provider_ty_str = format!("{resolved_provider_ty:?}");
-                        checker.errors.push(TypeCheckError {
+                        checker.diagnostics.errors.push(TypeCheckError {
                             message: format!(
                                 "provider type `{provider_ty_str}` does not implement capability `{cap_name}`"
                             ),
@@ -249,13 +249,13 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
             // to support gradual typing and mocking.
 
             // Track this capability as provided for propagation checking
-            checker.provided_caps.insert(*capability);
+            checker.scope.provided_caps.insert(*capability);
 
             // The expression type is the body type
             let body_ty = infer_expr(checker, *body);
 
             // Remove the provided capability after leaving scope
-            checker.provided_caps.remove(capability);
+            checker.scope.provided_caps.remove(capability);
 
             body_ty
         }
@@ -278,7 +278,7 @@ pub fn collect_free_vars_inner(
     bound: &HashSet<Name>,
     free: &mut HashSet<Name>,
 ) {
-    let expr = checker.arena.get_expr(expr_id);
+    let expr = checker.context.arena.get_expr(expr_id);
 
     match &expr.kind {
         // Variable or function reference - free if not bound
@@ -318,7 +318,7 @@ pub fn collect_free_vars_inner(
         // Call - check function and args
         ExprKind::Call { func, args } => {
             collect_free_vars_inner(checker, *func, bound, free);
-            for arg_id in checker.arena.get_expr_list(*args) {
+            for arg_id in checker.context.arena.get_expr_list(*args) {
                 collect_free_vars_inner(checker, *arg_id, bound, free);
             }
         }
@@ -326,7 +326,7 @@ pub fn collect_free_vars_inner(
         // Named call
         ExprKind::CallNamed { func, args } => {
             collect_free_vars_inner(checker, *func, bound, free);
-            for arg in checker.arena.get_call_args(*args) {
+            for arg in checker.context.arena.get_call_args(*args) {
                 collect_free_vars_inner(checker, arg.value, bound, free);
             }
         }
@@ -334,7 +334,7 @@ pub fn collect_free_vars_inner(
         // Method call
         ExprKind::MethodCall { receiver, args, .. } => {
             collect_free_vars_inner(checker, *receiver, bound, free);
-            for arg_id in checker.arena.get_expr_list(*args) {
+            for arg_id in checker.context.arena.get_expr_list(*args) {
                 collect_free_vars_inner(checker, *arg_id, bound, free);
             }
         }
@@ -342,7 +342,7 @@ pub fn collect_free_vars_inner(
         // Method call with named arguments
         ExprKind::MethodCallNamed { receiver, args, .. } => {
             collect_free_vars_inner(checker, *receiver, bound, free);
-            for arg in checker.arena.get_call_args(*args) {
+            for arg in checker.context.arena.get_call_args(*args) {
                 collect_free_vars_inner(checker, arg.value, bound, free);
             }
         }
@@ -370,7 +370,7 @@ pub fn collect_free_vars_inner(
         // Match expression
         ExprKind::Match { scrutinee, arms } => {
             collect_free_vars_inner(checker, *scrutinee, bound, free);
-            for arm in checker.arena.get_arms(*arms) {
+            for arm in checker.context.arena.get_arms(*arms) {
                 // Collect pattern bindings
                 let pattern_names = collect_match_pattern_names(&arm.pattern);
                 let mut arm_bound = bound.clone();
@@ -403,7 +403,7 @@ pub fn collect_free_vars_inner(
         // Block - statements can introduce bindings
         ExprKind::Block { stmts, result } => {
             let mut block_bound = bound.clone();
-            for stmt in checker.arena.get_stmt_range(*stmts) {
+            for stmt in checker.context.arena.get_stmt_range(*stmts) {
                 match &stmt.kind {
                     crate::ir::StmtKind::Expr(e) => {
                         collect_free_vars_inner(checker, *e, &block_bound, free);
@@ -430,7 +430,7 @@ pub fn collect_free_vars_inner(
         // Lambda - params are bound in body
         ExprKind::Lambda { params, body, .. } => {
             let mut lambda_bound = bound.clone();
-            for param in checker.arena.get_params(*params) {
+            for param in checker.context.arena.get_params(*params) {
                 lambda_bound.insert(param.name);
             }
             collect_free_vars_inner(checker, *body, &lambda_bound, free);
@@ -438,14 +438,14 @@ pub fn collect_free_vars_inner(
 
         // List and Tuple
         ExprKind::List(elements) | ExprKind::Tuple(elements) => {
-            for elem_id in checker.arena.get_expr_list(*elements) {
+            for elem_id in checker.context.arena.get_expr_list(*elements) {
                 collect_free_vars_inner(checker, *elem_id, bound, free);
             }
         }
 
         // Map
         ExprKind::Map(entries) => {
-            for entry in checker.arena.get_map_entries(*entries) {
+            for entry in checker.context.arena.get_map_entries(*entries) {
                 collect_free_vars_inner(checker, entry.key, bound, free);
                 collect_free_vars_inner(checker, entry.value, bound, free);
             }
@@ -453,7 +453,7 @@ pub fn collect_free_vars_inner(
 
         // Struct literal
         ExprKind::Struct { fields, .. } => {
-            for init in checker.arena.get_field_inits(*fields) {
+            for init in checker.context.arena.get_field_inits(*fields) {
                 if let Some(value_id) = init.value {
                     collect_free_vars_inner(checker, value_id, bound, free);
                 } else {
@@ -512,7 +512,7 @@ pub fn collect_free_vars_inner(
 
         // FunctionExp
         ExprKind::FunctionExp(func_exp) => {
-            for prop in checker.arena.get_named_exprs(func_exp.props) {
+            for prop in checker.context.arena.get_named_exprs(func_exp.props) {
                 collect_free_vars_inner(checker, prop.value, bound, free);
             }
         }
@@ -532,7 +532,7 @@ fn collect_free_vars_function_seq(
         FunctionSeq::Run { bindings, result, .. }
         | FunctionSeq::Try { bindings, result, .. } => {
             let mut seq_bound = bound.clone();
-            for binding in checker.arena.get_seq_bindings(*bindings) {
+            for binding in checker.context.arena.get_seq_bindings(*bindings) {
                 match binding {
                     SeqBinding::Let { pattern, value, .. } => {
                         collect_free_vars_inner(checker, *value, &seq_bound, free);
@@ -547,7 +547,7 @@ fn collect_free_vars_function_seq(
         }
         FunctionSeq::Match { scrutinee, arms, .. } => {
             collect_free_vars_inner(checker, *scrutinee, bound, free);
-            for arm in checker.arena.get_arms(*arms) {
+            for arm in checker.context.arena.get_arms(*arms) {
                 // Collect pattern bindings
                 let pattern_names = collect_match_pattern_names(&arm.pattern);
                 let mut arm_bound = bound.clone();

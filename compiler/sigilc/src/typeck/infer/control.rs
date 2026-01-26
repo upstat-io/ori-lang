@@ -20,8 +20,8 @@ pub fn infer_if(
     let cond_ty = infer_expr(checker, cond);
 
     // Condition must be bool
-    if let Err(e) = checker.ctx.unify(&cond_ty, &Type::Bool) {
-        checker.report_type_error(&e, checker.arena.get_expr(cond).span);
+    if let Err(e) = checker.inference.ctx.unify(&cond_ty, &Type::Bool) {
+        checker.report_type_error(&e, checker.context.arena.get_expr(cond).span);
     }
 
     let then_ty = infer_expr(checker, then_branch);
@@ -30,7 +30,7 @@ pub fn infer_if(
         let else_ty = infer_expr(checker, else_id);
 
         // Both branches must have same type
-        if let Err(e) = checker.ctx.unify(&then_ty, &else_ty) {
+        if let Err(e) = checker.inference.ctx.unify(&then_ty, &else_ty) {
             checker.report_type_error(&e, span);
         }
 
@@ -49,11 +49,11 @@ pub fn infer_match(
     _span: Span,
 ) -> Type {
     let scrutinee_ty = infer_expr(checker, scrutinee);
-    let match_arms = checker.arena.get_arms(arms);
+    let match_arms = checker.context.arena.get_arms(arms);
 
     if match_arms.is_empty() {
         // Empty match, result type is unknown
-        checker.ctx.fresh_var()
+        checker.inference.ctx.fresh_var()
     } else {
         let mut result_ty: Option<Type> = None;
 
@@ -65,17 +65,17 @@ pub fn infer_match(
             let bindings = super::extract_match_pattern_bindings(checker, &arm.pattern, &scrutinee_ty);
 
             // 3. Create child scope with pattern bindings
-            let mut arm_env = checker.env.child();
+            let mut arm_env = checker.inference.env.child();
             for (name, ty) in bindings {
                 arm_env.bind(name, ty);
             }
-            let old_env = std::mem::replace(&mut checker.env, arm_env);
+            let old_env = std::mem::replace(&mut checker.inference.env, arm_env);
 
             // 4. Type check guard if present
             if let Some(guard_id) = arm.guard {
                 let guard_ty = infer_expr(checker, guard_id);
-                if let Err(e) = checker.ctx.unify(&guard_ty, &Type::Bool) {
-                    checker.report_type_error(&e, checker.arena.get_expr(guard_id).span);
+                if let Err(e) = checker.inference.ctx.unify(&guard_ty, &Type::Bool) {
+                    checker.report_type_error(&e, checker.context.arena.get_expr(guard_id).span);
                 }
             }
 
@@ -83,12 +83,12 @@ pub fn infer_match(
             let arm_ty = infer_expr(checker, arm.body);
 
             // 6. Restore scope
-            checker.env = old_env;
+            checker.inference.env = old_env;
 
             // 7. Unify arm types
             match &result_ty {
                 Some(expected) => {
-                    if let Err(e) = checker.ctx.unify(expected, &arm_ty) {
+                    if let Err(e) = checker.inference.ctx.unify(expected, &arm_ty) {
                         checker.report_type_error(&e, arm.span);
                     }
                 }
@@ -98,7 +98,7 @@ pub fn infer_match(
             }
         }
 
-        result_ty.unwrap_or_else(|| checker.ctx.fresh_var())
+        result_ty.unwrap_or_else(|| checker.inference.ctx.fresh_var())
     }
 }
 
@@ -113,20 +113,20 @@ pub fn infer_for(
     _span: Span,
 ) -> Type {
     let iter_ty = infer_expr(checker, iter);
-    let resolved = checker.ctx.resolve(&iter_ty);
+    let resolved = checker.inference.ctx.resolve(&iter_ty);
     let elem_ty = match resolved {
         Type::List(elem) | Type::Set(elem) | Type::Range(elem) => *elem,
         Type::Str => Type::Str, // Iterating over str yields str (codepoints)
         Type::Map { key, value: _ } => *key, // Map iteration yields keys
-        Type::Var(_) => checker.ctx.fresh_var(), // Defer for type variables
+        Type::Var(_) => checker.inference.ctx.fresh_var(), // Defer for type variables
         Type::Error => Type::Error, // Error recovery
         other => {
-            checker.errors.push(TypeCheckError {
+            checker.diagnostics.errors.push(TypeCheckError {
                 message: format!(
                     "`{}` is not iterable",
-                    other.display(checker.interner)
+                    other.display(checker.context.interner)
                 ),
-                span: checker.arena.get_expr(iter).span,
+                span: checker.context.arena.get_expr(iter).span,
                 code: crate::diagnostic::ErrorCode::E2001,
             });
             Type::Error
@@ -134,20 +134,20 @@ pub fn infer_for(
     };
 
     // Create scope for loop body
-    let mut loop_env = checker.env.child();
+    let mut loop_env = checker.inference.env.child();
     loop_env.bind(binding, elem_ty);
-    let old_env = std::mem::replace(&mut checker.env, loop_env);
+    let old_env = std::mem::replace(&mut checker.inference.env, loop_env);
 
     // Type check guard if present
     if let Some(guard_id) = guard {
         let guard_ty = infer_expr(checker, guard_id);
-        if let Err(e) = checker.ctx.unify(&guard_ty, &Type::Bool) {
-            checker.report_type_error(&e, checker.arena.get_expr(guard_id).span);
+        if let Err(e) = checker.inference.ctx.unify(&guard_ty, &Type::Bool) {
+            checker.report_type_error(&e, checker.context.arena.get_expr(guard_id).span);
         }
     }
 
     let body_ty = infer_expr(checker, body);
-    checker.env = old_env;
+    checker.inference.env = old_env;
 
     if is_yield {
         // yield collects into a list
@@ -162,7 +162,7 @@ pub fn infer_for(
 pub fn infer_loop(checker: &mut TypeChecker<'_>, body: ExprId) -> Type {
     let _body_ty = infer_expr(checker, body);
     // Loop result depends on break expressions
-    checker.ctx.fresh_var()
+    checker.inference.ctx.fresh_var()
 }
 
 /// Infer type for a block expression.
@@ -172,11 +172,11 @@ pub fn infer_block(
     result: Option<ExprId>,
     _span: Span,
 ) -> Type {
-    let block_env = checker.env.child();
-    let old_env = std::mem::replace(&mut checker.env, block_env);
+    let block_env = checker.inference.env.child();
+    let old_env = std::mem::replace(&mut checker.inference.env, block_env);
 
     // Type check statements
-    for stmt in checker.arena.get_stmt_range(stmts) {
+    for stmt in checker.context.arena.get_stmt_range(stmts) {
         match &stmt.kind {
             crate::ir::StmtKind::Expr(e) => {
                 infer_expr(checker, *e);
@@ -189,8 +189,8 @@ pub fn infer_block(
                 // If type annotation present, unify with inferred type
                 let final_ty = if let Some(type_id) = ty {
                     let declared_ty = checker.type_id_to_type(*type_id);
-                    if let Err(e) = checker.ctx.unify(&declared_ty, &init_ty) {
-                        checker.report_type_error(&e, checker.arena.get_expr(*init).span);
+                    if let Err(e) = checker.inference.ctx.unify(&declared_ty, &init_ty) {
+                        checker.report_type_error(&e, checker.context.arena.get_expr(*init).span);
                     }
                     declared_ty
                 } else {
@@ -209,7 +209,7 @@ pub fn infer_block(
         Type::Unit
     };
 
-    checker.env = old_env;
+    checker.inference.env = old_env;
     result_ty
 }
 
@@ -228,8 +228,8 @@ pub fn infer_let(
     // If type annotation present, unify with inferred type
     let final_ty = if let Some(parsed_ty) = ty {
         let declared_ty = checker.parsed_type_to_type(parsed_ty);
-        if let Err(e) = checker.ctx.unify(&declared_ty, &init_ty) {
-            checker.report_type_error(&e, checker.arena.get_expr(init).span);
+        if let Err(e) = checker.inference.ctx.unify(&declared_ty, &init_ty) {
+            checker.report_type_error(&e, checker.context.arena.get_expr(init).span);
         }
         declared_ty
     } else {
@@ -262,7 +262,7 @@ pub fn infer_break(checker: &mut TypeChecker<'_>, value: Option<ExprId>) -> Type
 /// and `parallel(...)` pattern for concurrent operations.
 pub fn infer_await(checker: &mut TypeChecker<'_>, inner: ExprId, span: Span) -> Type {
     let _ = infer_expr(checker, inner);
-    checker.errors.push(TypeCheckError {
+    checker.diagnostics.errors.push(TypeCheckError {
         message: "`.await` is not supported; use `uses Async` capability and `parallel(...)` pattern".to_string(),
         span,
         code: crate::diagnostic::ErrorCode::E2001,
@@ -273,21 +273,21 @@ pub fn infer_await(checker: &mut TypeChecker<'_>, inner: ExprId, span: Span) -> 
 /// Infer type for try expression.
 pub fn infer_try(checker: &mut TypeChecker<'_>, inner: ExprId, _span: Span) -> Type {
     let inner_ty = infer_expr(checker, inner);
-    let resolved = checker.ctx.resolve(&inner_ty);
+    let resolved = checker.inference.ctx.resolve(&inner_ty);
     // Try operator unwraps Result/Option
     match resolved {
         Type::Result { ok, err: _ } => *ok,
         Type::Option(inner) => *inner,
-        Type::Var(_) => checker.ctx.fresh_var(), // Defer for type variables
+        Type::Var(_) => checker.inference.ctx.fresh_var(), // Defer for type variables
         Type::Error => Type::Error, // Error recovery
         other => {
-            checker.errors.push(TypeCheckError {
+            checker.diagnostics.errors.push(TypeCheckError {
                 message: format!(
                     "the `?` operator can only be applied to `Result` or `Option`, \
                      found `{}`",
-                    other.display(checker.interner)
+                    other.display(checker.context.interner)
                 ),
-                span: checker.arena.get_expr(inner).span,
+                span: checker.context.arena.get_expr(inner).span,
                 code: crate::diagnostic::ErrorCode::E2001,
             });
             Type::Error
@@ -304,8 +304,8 @@ pub fn infer_assign(
 ) -> Type {
     let target_ty = infer_expr(checker, target);
     let value_ty = infer_expr(checker, value);
-    if let Err(e) = checker.ctx.unify(&target_ty, &value_ty) {
-        checker.report_type_error(&e, checker.arena.get_expr(value).span);
+    if let Err(e) = checker.inference.ctx.unify(&target_ty, &value_ty) {
+        checker.report_type_error(&e, checker.context.arena.get_expr(value).span);
     }
     // Assignment returns the assigned value
     value_ty

@@ -21,6 +21,7 @@
 mod environment;
 pub mod errors;
 mod function_val;
+mod method_key;
 mod methods;
 mod operators;
 mod unary_operators;
@@ -50,6 +51,7 @@ pub use environment::{Environment, LocalScope, Scope};
 pub use methods::{MethodDispatcher, MethodRegistry};
 pub use operators::{BinaryOperator, OperatorRegistry};
 pub use unary_operators::{UnaryOperator, UnaryOperatorRegistry};
+pub use method_key::MethodKey;
 pub use user_methods::{
     DerivedMethodInfo, DerivedTrait, MethodEntry, UserMethod, UserMethodRegistry,
 };

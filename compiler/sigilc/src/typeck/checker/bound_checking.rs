@@ -73,12 +73,12 @@ impl TypeChecker<'_> {
         };
 
         // First check the trait registry for registered implementations
-        if self.trait_registry.implements(ty, trait_name) {
+        if self.registries.traits.implements(ty, trait_name) {
             return true;
         }
 
         // Then check built-in trait implementations for primitive types
-        let trait_str = self.interner.lookup(trait_name);
+        let trait_str = self.context.interner.lookup(trait_name);
         primitive_implements_trait(ty, trait_str)
     }
 
@@ -96,7 +96,7 @@ impl TypeChecker<'_> {
         span: Span,
     ) {
         // Look up the function's signature to get its generic bounds
-        let func_sig = match self.function_sigs.get(&func_name) {
+        let func_sig = match self.scope.function_sigs.get(&func_name) {
             Some(sig) => sig.clone(),
             None => return, // Not a known function (might be a closure or imported)
         };
@@ -132,14 +132,14 @@ impl TypeChecker<'_> {
             for bound_path in &generic.bounds {
                 if !self.type_satisfies_bound(&resolved_type, bound_path) {
                     let bound_name = bound_path.iter()
-                        .map(|n| self.interner.lookup(*n).to_string())
+                        .map(|n| self.context.interner.lookup(*n).to_string())
                         .collect::<Vec<_>>()
                         .join(".");
 
-                    let type_name = resolved_type.display(self.interner);
-                    let generic_name = self.interner.lookup(generic.param);
+                    let type_name = resolved_type.display(self.context.interner);
+                    let generic_name = self.context.interner.lookup(generic.param);
 
-                    self.errors.push(TypeCheckError {
+                    self.diagnostics.errors.push(TypeCheckError {
                         message: format!(
                             "type `{type_name}` does not satisfy trait bound `{bound_name}` required by generic parameter `{generic_name}`"
                         ),
@@ -181,20 +181,20 @@ impl TypeChecker<'_> {
             for bound_path in &constraint.bounds {
                 if !self.type_satisfies_bound(&type_to_check, bound_path) {
                     let bound_name = bound_path.iter()
-                        .map(|n| self.interner.lookup(*n).to_string())
+                        .map(|n| self.context.interner.lookup(*n).to_string())
                         .collect::<Vec<_>>()
                         .join(".");
 
-                    let type_name = type_to_check.display(self.interner);
+                    let type_name = type_to_check.display(self.context.interner);
                     let constraint_desc = if let Some(proj) = constraint.projection {
-                        let param_name = self.interner.lookup(constraint.param);
-                        let proj_name = self.interner.lookup(proj);
+                        let param_name = self.context.interner.lookup(constraint.param);
+                        let proj_name = self.context.interner.lookup(proj);
                         format!("{param_name}.{proj_name}")
                     } else {
-                        self.interner.lookup(constraint.param).to_string()
+                        self.context.interner.lookup(constraint.param).to_string()
                     };
 
-                    self.errors.push(TypeCheckError {
+                    self.diagnostics.errors.push(TypeCheckError {
                         message: format!(
                             "type `{type_name}` (from `{constraint_desc}`) does not satisfy trait bound `{bound_name}`"
                         ),
@@ -258,6 +258,6 @@ impl TypeChecker<'_> {
         };
 
         // Look up the associated type in the trait registry
-        self.trait_registry.lookup_assoc_type_by_name(type_name, assoc_name)
+        self.registries.traits.lookup_assoc_type_by_name(type_name, assoc_name)
     }
 }

@@ -4,241 +4,244 @@ use crate::ir::{ExprArena, Name, SharedArena};
 use sigil_eval::{DerivedMethodInfo, DerivedTrait, UserMethod, wrong_function_args, wrong_arg_count, EvalError};
 use super::{Evaluator, EvalResult};
 use super::super::value::Value;
+use super::resolvers::{
+    MethodResolution, CollectionMethod, MethodDispatcher,
+    UserMethodResolver, DerivedMethodResolver, CollectionMethodResolver, BuiltinMethodResolver,
+};
 
 impl Evaluator<'_> {
-    /// Evaluate a method call.
+    /// Evaluate a method call using the Chain of Responsibility pattern.
     ///
-    /// Priority order:
-    /// 1. User-defined methods from impl blocks
-    /// 2. Derived methods from `#[derive(...)]`
-    /// 3. Collection methods requiring evaluator (map, filter, fold, find, collect)
-    /// 4. Built-in methods in `MethodRegistry`
+    /// Methods are resolved in priority order:
+    /// 1. User-defined methods from impl blocks (priority 0)
+    /// 2. Derived methods from `#[derive(...)]` (priority 1)
+    /// 3. Collection methods requiring evaluator (priority 2)
+    /// 4. Built-in methods in `MethodRegistry` (priority 3)
     pub(super) fn eval_method_call(&mut self, receiver: Value, method: Name, args: Vec<Value>) -> EvalResult {
         let method_name = self.interner.lookup(method);
-
-        // Get the concrete type name for lookup
         let type_name = self.get_value_type_name(&receiver);
 
-        // First, check user-defined methods
-        if let Some(user_method) = self.user_method_registry.lookup(&type_name, method_name) {
-            // Clone the method to release the borrow on user_method_registry
-            let method = user_method.clone();
-            return self.eval_user_method(receiver, &method, &args);
-        }
+        // Resolve the method using the resolver chain
+        let resolution = self.resolve_method(&receiver, &type_name, method_name);
 
-        // Second, check derived methods
-        if let Some(derived_info) = self.user_method_registry.lookup_derived(&type_name, method_name) {
-            let info = derived_info.clone();
-            return self.eval_derived_method(receiver, &info, &args);
+        // Execute based on resolution type
+        match resolution {
+            MethodResolution::User(user_method) => {
+                self.eval_user_method(receiver, &user_method, &args)
+            }
+            MethodResolution::Derived(derived_info) => {
+                self.eval_derived_method(receiver, &derived_info, &args)
+            }
+            MethodResolution::Collection(collection_method) => {
+                self.eval_collection_method(receiver, collection_method, &args)
+            }
+            MethodResolution::Builtin => {
+                self.method_registry.dispatch(receiver, method_name, args)
+            }
+            MethodResolution::NotFound => {
+                // This shouldn't happen as BuiltinResolver always returns Builtin,
+                // but if it does, fall back to the method registry which will
+                // produce an appropriate error
+                self.method_registry.dispatch(receiver, method_name, args)
+            }
         }
-
-        // Third, check collection methods that require evaluator access
-        if let Some(result) = self.try_eval_collection_method(&receiver, method_name, &args)? {
-            return Ok(result);
-        }
-
-        // Fall back to built-in methods
-        self.method_registry.dispatch(receiver, method_name, args)
     }
 
-    /// Try to evaluate a collection method that requires evaluator access.
+    /// Resolve a method using the resolver chain.
     ///
-    /// These methods (map, filter, fold, find, collect) take function arguments
-    /// and need to call them, which requires evaluator access.
-    ///
-    /// Returns Ok(Some(value)) if handled, Ok(None) if not a collection method.
-    fn try_eval_collection_method(
+    /// Creates a dispatcher with all resolvers and tries them in priority order.
+    fn resolve_method(&self, receiver: &Value, type_name: &str, method_name: &str) -> MethodResolution {
+        // Build the dispatcher with all resolvers
+        let dispatcher = MethodDispatcher::new(vec![
+            Box::new(UserMethodResolver::new(self.user_method_registry.clone())),
+            Box::new(DerivedMethodResolver::new(self.user_method_registry.clone())),
+            Box::new(CollectionMethodResolver::new()),
+            Box::new(BuiltinMethodResolver::new()),
+        ]);
+
+        dispatcher.resolve(receiver, type_name, method_name)
+    }
+
+    /// Evaluate a collection method that requires evaluator access.
+    fn eval_collection_method(
         &mut self,
-        receiver: &Value,
-        method: &str,
+        receiver: Value,
+        method: CollectionMethod,
         args: &[Value],
-    ) -> Result<Option<Value>, EvalError> {
-        match receiver {
-            Value::List(items) => self.eval_list_method(items.as_ref(), method, args),
-            Value::Range(range) => self.eval_range_method(range, method, args),
-            Value::Map(map) => self.eval_map_method(map, method, args),
-            _ => Ok(None),
+    ) -> EvalResult {
+        match method {
+            CollectionMethod::Map => match receiver {
+                Value::List(items) => self.eval_list_map(items.as_ref(), args),
+                Value::Range(range) => self.eval_range_map(&range, args),
+                _ => Err(EvalError::new("map requires a collection")),
+            },
+            CollectionMethod::Filter => match receiver {
+                Value::List(items) => self.eval_list_filter(items.as_ref(), args),
+                Value::Range(range) => self.eval_range_filter(&range, args),
+                _ => Err(EvalError::new("filter requires a collection")),
+            },
+            CollectionMethod::Fold => match receiver {
+                Value::List(items) => self.eval_list_fold(items.as_ref(), args),
+                Value::Range(range) => self.eval_range_fold(&range, args),
+                _ => Err(EvalError::new("fold requires a collection")),
+            },
+            CollectionMethod::Find => match receiver {
+                Value::List(items) => self.eval_list_find(items.as_ref(), args),
+                _ => Err(EvalError::new("find requires a list")),
+            },
+            CollectionMethod::Collect => match receiver {
+                Value::Range(range) => self.eval_range_collect(&range, args),
+                _ => Err(EvalError::new("collect requires a range")),
+            },
+            CollectionMethod::Any => match receiver {
+                Value::List(items) => self.eval_list_any(items.as_ref(), args),
+                _ => Err(EvalError::new("any requires a list")),
+            },
+            CollectionMethod::All => match receiver {
+                Value::List(items) => self.eval_list_all(items.as_ref(), args),
+                _ => Err(EvalError::new("all requires a list")),
+            },
+            CollectionMethod::MapEntries => match receiver {
+                Value::Map(_) => Err(EvalError::new("map entries not yet implemented")),
+                _ => Err(EvalError::new("map entries requires a map")),
+            },
+            CollectionMethod::FilterEntries => match receiver {
+                Value::Map(_) => Err(EvalError::new("filter entries not yet implemented")),
+                _ => Err(EvalError::new("filter entries requires a map")),
+            },
         }
     }
 
-    /// Evaluate a method on a list that requires function calls.
-    fn eval_list_method(
-        &mut self,
-        items: &[Value],
-        method: &str,
-        args: &[Value],
-    ) -> Result<Option<Value>, EvalError> {
-        match method {
-            "map" => {
-                // [T].map(transform: T -> U) -> [U]
-                if args.len() != 1 {
-                    return Err(wrong_arg_count("map", 1, args.len()));
-                }
-                let transform = args[0].clone();
-                let mut result = Vec::with_capacity(items.len());
-                for item in items {
-                    let mapped = self.eval_call(transform.clone(), &[item.clone()])?;
-                    result.push(mapped);
-                }
-                Ok(Some(Value::list(result)))
-            }
-            "filter" => {
-                // [T].filter(predicate: T -> bool) -> [T]
-                if args.len() != 1 {
-                    return Err(wrong_arg_count("filter", 1, args.len()));
-                }
-                let predicate = args[0].clone();
-                let mut result = Vec::new();
-                for item in items {
-                    let keep = self.eval_call(predicate.clone(), &[item.clone()])?;
-                    if keep.is_truthy() {
-                        result.push(item.clone());
-                    }
-                }
-                Ok(Some(Value::list(result)))
-            }
-            "fold" => {
-                // [T].fold(initial: U, op: (U, T) -> U) -> U
-                if args.len() != 2 {
-                    return Err(wrong_arg_count("fold", 2, args.len()));
-                }
-                let mut acc = args[0].clone();
-                let op = args[1].clone();
-                for item in items {
-                    acc = self.eval_call(op.clone(), &[acc, item.clone()])?;
-                }
-                Ok(Some(acc))
-            }
-            "find" => {
-                // [T].find(where: T -> bool) -> Option<T>
-                if args.len() != 1 {
-                    return Err(wrong_arg_count("find", 1, args.len()));
-                }
-                let predicate = args[0].clone();
-                for item in items {
-                    let found = self.eval_call(predicate.clone(), &[item.clone()])?;
-                    if found.is_truthy() {
-                        return Ok(Some(Value::some(item.clone())));
-                    }
-                }
-                Ok(Some(Value::None))
-            }
-            "any" => {
-                // [T].any(predicate: T -> bool) -> bool
-                if args.len() != 1 {
-                    return Err(wrong_arg_count("any", 1, args.len()));
-                }
-                let predicate = args[0].clone();
-                for item in items {
-                    let result = self.eval_call(predicate.clone(), &[item.clone()])?;
-                    if result.is_truthy() {
-                        return Ok(Some(Value::Bool(true)));
-                    }
-                }
-                Ok(Some(Value::Bool(false)))
-            }
-            "all" => {
-                // [T].all(predicate: T -> bool) -> bool
-                if args.len() != 1 {
-                    return Err(wrong_arg_count("all", 1, args.len()));
-                }
-                let predicate = args[0].clone();
-                for item in items {
-                    let result = self.eval_call(predicate.clone(), &[item.clone()])?;
-                    if !result.is_truthy() {
-                        return Ok(Some(Value::Bool(false)));
-                    }
-                }
-                Ok(Some(Value::Bool(true)))
-            }
-            _ => Ok(None), // Not a collection method, fall through
+    // Individual collection method implementations
+
+    fn eval_list_map(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("map", 1, args.len()));
         }
+        let transform = args[0].clone();
+        let mut result = Vec::with_capacity(items.len());
+        for item in items {
+            let mapped = self.eval_call(transform.clone(), &[item.clone()])?;
+            result.push(mapped);
+        }
+        Ok(Value::list(result))
     }
 
-    /// Evaluate a method on a range that requires function calls.
-    fn eval_range_method(
-        &mut self,
-        range: &sigil_patterns::RangeValue,
-        method: &str,
-        args: &[Value],
-    ) -> Result<Option<Value>, EvalError> {
-        match method {
-            "collect" => {
-                // Range<T>.collect() -> [T]
-                if !args.is_empty() {
-                    return Err(wrong_arg_count("collect", 0, args.len()));
-                }
-                let result: Vec<Value> = range.iter().map(Value::Int).collect();
-                Ok(Some(Value::list(result)))
-            }
-            "map" => {
-                // Range<T>.map(transform: T -> U) -> [U]
-                if args.len() != 1 {
-                    return Err(wrong_arg_count("map", 1, args.len()));
-                }
-                let transform = args[0].clone();
-                let mut result = Vec::new();
-                for i in range.iter() {
-                    let mapped = self.eval_call(transform.clone(), &[Value::Int(i)])?;
-                    result.push(mapped);
-                }
-                Ok(Some(Value::list(result)))
-            }
-            "filter" => {
-                // Range<T>.filter(predicate: T -> bool) -> [T]
-                if args.len() != 1 {
-                    return Err(wrong_arg_count("filter", 1, args.len()));
-                }
-                let predicate = args[0].clone();
-                let mut result = Vec::new();
-                for i in range.iter() {
-                    let keep = self.eval_call(predicate.clone(), &[Value::Int(i)])?;
-                    if keep.is_truthy() {
-                        result.push(Value::Int(i));
-                    }
-                }
-                Ok(Some(Value::list(result)))
-            }
-            "fold" => {
-                // Range<T>.fold(initial: U, op: (U, T) -> U) -> U
-                if args.len() != 2 {
-                    return Err(wrong_arg_count("fold", 2, args.len()));
-                }
-                let mut acc = args[0].clone();
-                let op = args[1].clone();
-                for i in range.iter() {
-                    acc = self.eval_call(op.clone(), &[acc, Value::Int(i)])?;
-                }
-                Ok(Some(acc))
-            }
-            _ => Ok(None), // Not a collection method, fall through
+    fn eval_list_filter(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("filter", 1, args.len()));
         }
+        let predicate = args[0].clone();
+        let mut result = Vec::new();
+        for item in items {
+            let keep = self.eval_call(predicate.clone(), &[item.clone()])?;
+            if keep.is_truthy() {
+                result.push(item.clone());
+            }
+        }
+        Ok(Value::list(result))
     }
 
-    /// Evaluate a method on a map.
-    fn eval_map_method(
-        &mut self,
-        map: &sigil_patterns::Heap<std::collections::HashMap<String, Value>>,
-        method: &str,
-        args: &[Value],
-    ) -> Result<Option<Value>, EvalError> {
-        match method {
-            "len" => {
-                if !args.is_empty() {
-                    return Err(wrong_arg_count("len", 0, args.len()));
-                }
-                i64::try_from(map.len())
-                    .map(|n| Some(Value::Int(n)))
-                    .map_err(|_| EvalError::new("map too large"))
-            }
-            "is_empty" => {
-                if !args.is_empty() {
-                    return Err(wrong_arg_count("is_empty", 0, args.len()));
-                }
-                Ok(Some(Value::Bool(map.is_empty())))
-            }
-            _ => Ok(None), // Not a map method, fall through
+    fn eval_list_fold(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
+        if args.len() != 2 {
+            return Err(wrong_arg_count("fold", 2, args.len()));
         }
+        let mut acc = args[0].clone();
+        let op = args[1].clone();
+        for item in items {
+            acc = self.eval_call(op.clone(), &[acc, item.clone()])?;
+        }
+        Ok(acc)
+    }
+
+    fn eval_list_find(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("find", 1, args.len()));
+        }
+        let predicate = args[0].clone();
+        for item in items {
+            let found = self.eval_call(predicate.clone(), &[item.clone()])?;
+            if found.is_truthy() {
+                return Ok(Value::some(item.clone()));
+            }
+        }
+        Ok(Value::None)
+    }
+
+    fn eval_list_any(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("any", 1, args.len()));
+        }
+        let predicate = args[0].clone();
+        for item in items {
+            let result = self.eval_call(predicate.clone(), &[item.clone()])?;
+            if result.is_truthy() {
+                return Ok(Value::Bool(true));
+            }
+        }
+        Ok(Value::Bool(false))
+    }
+
+    fn eval_list_all(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("all", 1, args.len()));
+        }
+        let predicate = args[0].clone();
+        for item in items {
+            let result = self.eval_call(predicate.clone(), &[item.clone()])?;
+            if !result.is_truthy() {
+                return Ok(Value::Bool(false));
+            }
+        }
+        Ok(Value::Bool(true))
+    }
+
+    fn eval_range_collect(&mut self, range: &sigil_patterns::RangeValue, args: &[Value]) -> EvalResult {
+        if !args.is_empty() {
+            return Err(wrong_arg_count("collect", 0, args.len()));
+        }
+        let result: Vec<Value> = range.iter().map(Value::Int).collect();
+        Ok(Value::list(result))
+    }
+
+    fn eval_range_map(&mut self, range: &sigil_patterns::RangeValue, args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("map", 1, args.len()));
+        }
+        let transform = args[0].clone();
+        let mut result = Vec::new();
+        for i in range.iter() {
+            let mapped = self.eval_call(transform.clone(), &[Value::Int(i)])?;
+            result.push(mapped);
+        }
+        Ok(Value::list(result))
+    }
+
+    fn eval_range_filter(&mut self, range: &sigil_patterns::RangeValue, args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("filter", 1, args.len()));
+        }
+        let predicate = args[0].clone();
+        let mut result = Vec::new();
+        for i in range.iter() {
+            let keep = self.eval_call(predicate.clone(), &[Value::Int(i)])?;
+            if keep.is_truthy() {
+                result.push(Value::Int(i));
+            }
+        }
+        Ok(Value::list(result))
+    }
+
+    fn eval_range_fold(&mut self, range: &sigil_patterns::RangeValue, args: &[Value]) -> EvalResult {
+        if args.len() != 2 {
+            return Err(wrong_arg_count("fold", 2, args.len()));
+        }
+        let mut acc = args[0].clone();
+        let op = args[1].clone();
+        for i in range.iter() {
+            acc = self.eval_call(op.clone(), &[acc, Value::Int(i)])?;
+        }
+        Ok(acc)
     }
 
     /// Get the concrete type name for a value (for method lookup).
@@ -355,7 +358,7 @@ impl Evaluator<'_> {
 
             match (self_val, other_val) {
                 (Some(sv), Some(ov)) => {
-                    if !values_equal(sv, ov) {
+                    if sv != ov {
                         return Ok(Value::Bool(false));
                     }
                 }
@@ -406,7 +409,7 @@ impl Evaluator<'_> {
         // Hash each field value
         for field_name in &info.field_names {
             if let Some(val) = struct_val.get_field(*field_name) {
-                hash_value(val, &mut hasher);
+                val.hash(&mut hasher);
             }
         }
 
@@ -448,110 +451,5 @@ impl Evaluator<'_> {
         Err(sigil_eval::EvalError::new(
             "default() requires type context; use explicit construction instead",
         ))
-    }
-}
-
-/// Check if two values are equal (structural equality).
-fn values_equal(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Int(x), Value::Int(y)) => x == y,
-        (Value::Float(x), Value::Float(y)) => x == y,
-        (Value::Bool(x), Value::Bool(y)) => x == y,
-        (Value::Str(x), Value::Str(y)) => x == y,
-        (Value::Char(x), Value::Char(y)) => x == y,
-        (Value::Byte(x), Value::Byte(y)) => x == y,
-        (Value::Void, Value::Void) => true,
-        (Value::None, Value::None) => true,
-        (Value::Some(x), Value::Some(y)) => values_equal(x, y),
-        (Value::Ok(x), Value::Ok(y)) => values_equal(x, y),
-        (Value::Err(x), Value::Err(y)) => values_equal(x, y),
-        (Value::List(x), Value::List(y)) => {
-            x.len() == y.len() && x.iter().zip(y.iter()).all(|(a, b)| values_equal(a, b))
-        }
-        (Value::Tuple(x), Value::Tuple(y)) => {
-            x.len() == y.len() && x.iter().zip(y.iter()).all(|(a, b)| values_equal(a, b))
-        }
-        (Value::Struct(x), Value::Struct(y)) => {
-            if x.type_name != y.type_name {
-                return false;
-            }
-            // Compare field values by iterating the underlying Vec
-            // Note: Both structs should have the same layout if they have the same type_name
-            x.fields.iter().zip(y.fields.iter()).all(|(a, b)| values_equal(a, b))
-        }
-        (Value::Map(x), Value::Map(y)) => {
-            if x.len() != y.len() {
-                return false;
-            }
-            for (k, v) in x.iter() {
-                if let Some(other_v) = y.get(k) {
-                    if !values_equal(v, other_v) {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            }
-            true
-        }
-        _ => false, // Different types
-    }
-}
-
-/// Hash a value into a hasher.
-fn hash_value<H: std::hash::Hasher>(value: &Value, hasher: &mut H) {
-    use std::hash::Hash;
-
-    match value {
-        Value::Int(n) => n.hash(hasher),
-        Value::Float(f) => f.to_bits().hash(hasher),
-        Value::Bool(b) => b.hash(hasher),
-        Value::Str(s) => s.hash(hasher),
-        Value::Char(c) => c.hash(hasher),
-        Value::Byte(b) => b.hash(hasher),
-        Value::Void => 0u8.hash(hasher),
-        Value::None => 1u8.hash(hasher),
-        Value::Some(v) => {
-            2u8.hash(hasher);
-            hash_value(v, hasher);
-        }
-        Value::Ok(v) => {
-            3u8.hash(hasher);
-            hash_value(v, hasher);
-        }
-        Value::Err(v) => {
-            4u8.hash(hasher);
-            hash_value(v, hasher);
-        }
-        Value::List(items) => {
-            5u8.hash(hasher);
-            for item in items.iter() {
-                hash_value(item, hasher);
-            }
-        }
-        Value::Tuple(items) => {
-            6u8.hash(hasher);
-            for item in items.iter() {
-                hash_value(item, hasher);
-            }
-        }
-        Value::Struct(s) => {
-            7u8.hash(hasher);
-            // Hash all field values
-            for v in s.fields.iter() {
-                hash_value(v, hasher);
-            }
-        }
-        Value::Map(m) => {
-            8u8.hash(hasher);
-            for (k, v) in m.iter() {
-                k.hash(hasher);
-                hash_value(v, hasher);
-            }
-        }
-        _ => {
-            // For other types, just hash the type name
-            255u8.hash(hasher);
-        }
     }
 }

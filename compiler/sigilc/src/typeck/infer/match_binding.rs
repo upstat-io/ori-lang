@@ -19,7 +19,7 @@ pub fn extract_match_pattern_bindings(
     pattern: &MatchPattern,
     scrutinee_ty: &Type,
 ) -> Vec<(Name, Type)> {
-    let resolved_ty = checker.ctx.resolve(scrutinee_ty);
+    let resolved_ty = checker.inference.ctx.resolve(scrutinee_ty);
 
     match pattern {
         // Patterns that introduce no bindings
@@ -48,7 +48,7 @@ pub fn extract_match_pattern_bindings(
             for (field_name, opt_pattern) in fields {
                 let field_ty = field_types
                     .iter()
-                    .find(|(n, _)| n == field_name).map_or_else(|| checker.ctx.fresh_var(), |(_, ty)| ty.clone());
+                    .find(|(n, _)| n == field_name).map_or_else(|| checker.inference.ctx.fresh_var(), |(_, ty)| ty.clone());
 
                 match opt_pattern {
                     Some(nested) => {
@@ -67,7 +67,7 @@ pub fn extract_match_pattern_bindings(
             // Get element types from tuple type
             let elem_types = match &resolved_ty {
                 Type::Tuple(elems) => elems.clone(),
-                _ => vec![checker.ctx.fresh_var(); patterns.len()],
+                _ => vec![checker.inference.ctx.fresh_var(); patterns.len()],
             };
 
             let mut bindings = Vec::new();
@@ -81,7 +81,7 @@ pub fn extract_match_pattern_bindings(
             // Get element type from list type
             let elem_ty = match &resolved_ty {
                 Type::List(elem) => (**elem).clone(),
-                _ => checker.ctx.fresh_var(),
+                _ => checker.inference.ctx.fresh_var(),
             };
 
             let mut bindings = Vec::new();
@@ -123,32 +123,32 @@ fn get_variant_inner_type(
     scrutinee_ty: &Type,
     variant_name: Name,
 ) -> Type {
-    let variant_str = checker.interner.lookup(variant_name);
+    let variant_str = checker.context.interner.lookup(variant_name);
 
     match variant_str {
         "Some" => {
             match scrutinee_ty {
                 Type::Option(inner) => (**inner).clone(),
-                _ => checker.ctx.fresh_var(),
+                _ => checker.inference.ctx.fresh_var(),
             }
         }
         "None" => Type::Unit,
         "Ok" => {
             match scrutinee_ty {
                 Type::Result { ok, .. } => (**ok).clone(),
-                _ => checker.ctx.fresh_var(),
+                _ => checker.inference.ctx.fresh_var(),
             }
         }
         "Err" => {
             match scrutinee_ty {
                 Type::Result { err, .. } => (**err).clone(),
-                _ => checker.ctx.fresh_var(),
+                _ => checker.inference.ctx.fresh_var(),
             }
         }
         _ => {
             // User-defined enum variant
             if let Type::Named(type_name) = scrutinee_ty {
-                if let Some(entry) = checker.type_registry.get_by_name(*type_name) {
+                if let Some(entry) = checker.registries.types.get_by_name(*type_name) {
                     if let TypeKind::Enum { variants } = &entry.kind {
                         for variant in variants {
                             if variant.name == variant_name {
@@ -158,7 +158,7 @@ fn get_variant_inner_type(
                     }
                 }
             }
-            checker.ctx.fresh_var()
+            checker.inference.ctx.fresh_var()
         }
     }
 }
@@ -181,7 +181,7 @@ fn get_struct_field_types(
     scrutinee_ty: &Type,
 ) -> Vec<(Name, Type)> {
     if let Type::Named(type_name) = scrutinee_ty {
-        if let Some(entry) = checker.type_registry.get_by_name(*type_name) {
+        if let Some(entry) = checker.registries.types.get_by_name(*type_name) {
             if let TypeKind::Struct { fields } = &entry.kind {
                 return fields.clone();
             }
@@ -199,7 +199,7 @@ pub fn unify_pattern_with_scrutinee(
     scrutinee_ty: &Type,
     span: Span,
 ) {
-    let resolved_ty = checker.ctx.resolve(scrutinee_ty);
+    let resolved_ty = checker.inference.ctx.resolve(scrutinee_ty);
 
     match pattern {
         MatchPattern::Wildcard | MatchPattern::Binding(_) => {
@@ -209,14 +209,14 @@ pub fn unify_pattern_with_scrutinee(
         MatchPattern::Literal(expr_id) => {
             // Unify the literal's type with scrutinee type
             let literal_ty = infer_expr(checker, *expr_id);
-            if let Err(e) = checker.ctx.unify(&literal_ty, &resolved_ty) {
+            if let Err(e) = checker.inference.ctx.unify(&literal_ty, &resolved_ty) {
                 checker.report_type_error(&e, span);
             }
         }
 
         MatchPattern::Variant { name, inner } => {
             // Check that the scrutinee type can have this variant
-            let variant_str = checker.interner.lookup(*name);
+            let variant_str = checker.context.interner.lookup(*name);
 
             let valid_variant = match variant_str {
                 "Some" | "None" => matches!(resolved_ty, Type::Option(_) | Type::Var(_)),
@@ -224,7 +224,7 @@ pub fn unify_pattern_with_scrutinee(
                 _ => {
                     // User-defined enum
                     if let Type::Named(type_name) = &resolved_ty {
-                        if let Some(entry) = checker.type_registry.get_by_name(*type_name) {
+                        if let Some(entry) = checker.registries.types.get_by_name(*type_name) {
                             if let TypeKind::Enum { variants } = &entry.kind {
                                 variants.iter().any(|v| v.name == *name)
                             } else {
@@ -240,11 +240,11 @@ pub fn unify_pattern_with_scrutinee(
             };
 
             if !valid_variant && !matches!(resolved_ty, Type::Error) {
-                checker.errors.push(TypeCheckError {
+                checker.diagnostics.errors.push(TypeCheckError {
                     message: format!(
                         "pattern `{}` is not a valid variant for type `{}`",
                         variant_str,
-                        resolved_ty.display(checker.interner)
+                        resolved_ty.display(checker.context.interner)
                     ),
                     span,
                     code: crate::diagnostic::ErrorCode::E2001,
@@ -269,11 +269,11 @@ pub fn unify_pattern_with_scrutinee(
                     .map(|(_, ty)| ty.clone());
 
                 if field_ty.is_none() && !matches!(resolved_ty, Type::Var(_) | Type::Error) {
-                    let field_str = checker.interner.lookup(*field_name);
-                    checker.errors.push(TypeCheckError {
+                    let field_str = checker.context.interner.lookup(*field_name);
+                    checker.diagnostics.errors.push(TypeCheckError {
                         message: format!(
                             "type `{}` has no field `{}`",
-                            resolved_ty.display(checker.interner),
+                            resolved_ty.display(checker.context.interner),
                             field_str
                         ),
                         span,
@@ -291,7 +291,7 @@ pub fn unify_pattern_with_scrutinee(
             match &resolved_ty {
                 Type::Tuple(elems) => {
                     if patterns.len() != elems.len() {
-                        checker.errors.push(TypeCheckError {
+                        checker.diagnostics.errors.push(TypeCheckError {
                             message: format!(
                                 "tuple pattern has {} elements but scrutinee has {}",
                                 patterns.len(),
@@ -309,10 +309,10 @@ pub fn unify_pattern_with_scrutinee(
                 Type::Var(_) => {
                     // Create a tuple type with fresh variables
                     let elem_types: Vec<Type> = patterns.iter()
-                        .map(|_| checker.ctx.fresh_var())
+                        .map(|_| checker.inference.ctx.fresh_var())
                         .collect();
                     let tuple_ty = Type::Tuple(elem_types.clone());
-                    if let Err(e) = checker.ctx.unify(&resolved_ty, &tuple_ty) {
+                    if let Err(e) = checker.inference.ctx.unify(&resolved_ty, &tuple_ty) {
                         checker.report_type_error(&e, span);
                     }
 
@@ -322,10 +322,10 @@ pub fn unify_pattern_with_scrutinee(
                 }
                 Type::Error => {}
                 _ => {
-                    checker.errors.push(TypeCheckError {
+                    checker.diagnostics.errors.push(TypeCheckError {
                         message: format!(
                             "tuple pattern cannot match type `{}`",
-                            resolved_ty.display(checker.interner)
+                            resolved_ty.display(checker.context.interner)
                         ),
                         span,
                         code: crate::diagnostic::ErrorCode::E2001,
@@ -342,9 +342,9 @@ pub fn unify_pattern_with_scrutinee(
                     }
                 }
                 Type::Var(_) => {
-                    let elem_ty = checker.ctx.fresh_var();
+                    let elem_ty = checker.inference.ctx.fresh_var();
                     let list_ty = Type::List(Box::new(elem_ty.clone()));
-                    if let Err(e) = checker.ctx.unify(&resolved_ty, &list_ty) {
+                    if let Err(e) = checker.inference.ctx.unify(&resolved_ty, &list_ty) {
                         checker.report_type_error(&e, span);
                     }
 
@@ -354,10 +354,10 @@ pub fn unify_pattern_with_scrutinee(
                 }
                 Type::Error => {}
                 _ => {
-                    checker.errors.push(TypeCheckError {
+                    checker.diagnostics.errors.push(TypeCheckError {
                         message: format!(
                             "list pattern cannot match type `{}`",
-                            resolved_ty.display(checker.interner)
+                            resolved_ty.display(checker.context.interner)
                         ),
                         span,
                         code: crate::diagnostic::ErrorCode::E2001,
@@ -370,13 +370,13 @@ pub fn unify_pattern_with_scrutinee(
             // Range patterns match numeric types
             if let Some(start_id) = start {
                 let start_ty = infer_expr(checker, *start_id);
-                if let Err(e) = checker.ctx.unify(&start_ty, &resolved_ty) {
+                if let Err(e) = checker.inference.ctx.unify(&start_ty, &resolved_ty) {
                     checker.report_type_error(&e, span);
                 }
             }
             if let Some(end_id) = end {
                 let end_ty = infer_expr(checker, *end_id);
-                if let Err(e) = checker.ctx.unify(&end_ty, &resolved_ty) {
+                if let Err(e) = checker.inference.ctx.unify(&end_ty, &resolved_ty) {
                     checker.report_type_error(&e, span);
                 }
             }

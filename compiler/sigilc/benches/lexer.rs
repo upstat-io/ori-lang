@@ -3,7 +3,7 @@
 //! Measures tokenization performance across different input sizes and complexity.
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use sigilc::{CompilerDb, SourceFile, Db};
+use sigilc::{CompilerDb, SourceFile};
 use sigilc::query::tokens;
 use std::path::PathBuf;
 
@@ -20,7 +20,7 @@ const ARITHMETIC_FUNCTION: &str = r#"
 fn generate_n_functions(n: usize) -> String {
     (0..n)
         .map(|i| format!("@func{} (x: int) -> int = x + {}", i, i))
-        collect::<Vec<_>>()
+        .collect::<Vec<_>>()
         .join("\n")
 }
 

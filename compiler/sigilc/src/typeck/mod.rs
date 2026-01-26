@@ -336,15 +336,15 @@ mod tests {
         let x_name = interner.intern("x");
         let y_name = interner.intern("y");
 
-        let type_id = checker.type_registry.register_struct(
+        let type_id = checker.registries.types.register_struct(
             point_name,
             vec![(x_name, Type::Int), (y_name, Type::Int)],
             crate::ir::Span::new(0, 0),
             vec![],
         );
 
-        assert!(checker.type_registry.contains(point_name));
-        let entry = checker.type_registry.get_by_id(type_id).unwrap();
+        assert!(checker.registries.types.contains(point_name));
+        let entry = checker.registries.types.get_by_id(type_id).unwrap();
         assert_eq!(entry.name, point_name);
     }
 
@@ -357,7 +357,7 @@ mod tests {
         let mut checker = TypeChecker::new(&parsed.arena, &interner);
 
         let id_name = interner.intern("UserId");
-        let type_id = checker.type_registry.register_alias(
+        let type_id = checker.registries.types.register_alias(
             id_name,
             Type::Int,
             crate::ir::Span::new(0, 0),
@@ -377,7 +377,7 @@ mod tests {
         let mut checker = TypeChecker::new(&parsed.arena, &interner);
 
         let point_name = interner.intern("Point");
-        let type_id = checker.type_registry.register_struct(
+        let type_id = checker.registries.types.register_struct(
             point_name,
             vec![],
             crate::ir::Span::new(0, 0),

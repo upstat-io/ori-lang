@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use sigil_ir::{ExprId, Name, SharedArena};
 use sigil_patterns::Value;
 
+use crate::method_key::MethodKey;
+
 /// A derived trait that can be auto-implemented.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DerivedTrait {
@@ -132,10 +134,10 @@ pub enum MethodEntry {
 /// Also supports derived methods from `#[derive(...)]` attributes.
 #[derive(Clone, Debug, Default)]
 pub struct UserMethodRegistry {
-    /// Map from (`type_name`, `method_name`) to method definition.
-    methods: HashMap<(String, String), UserMethod>,
-    /// Map from (`type_name`, `method_name`) to derived method info.
-    derived_methods: HashMap<(String, String), DerivedMethodInfo>,
+    /// Map from method key to method definition.
+    methods: HashMap<MethodKey, UserMethod>,
+    /// Map from method key to derived method info.
+    derived_methods: HashMap<MethodKey, DerivedMethodInfo>,
 }
 
 impl UserMethodRegistry {
@@ -154,7 +156,8 @@ impl UserMethodRegistry {
     /// * `method_name` - The method name (e.g., "distance", "double")
     /// * `method` - The method definition
     pub fn register(&mut self, type_name: String, method_name: String, method: UserMethod) {
-        self.methods.insert((type_name, method_name), method);
+        self.methods
+            .insert(MethodKey::new(type_name, method_name), method);
     }
 
     /// Register a derived method.
@@ -169,7 +172,8 @@ impl UserMethodRegistry {
         method_name: String,
         info: DerivedMethodInfo,
     ) {
-        self.derived_methods.insert((type_name, method_name), info);
+        self.derived_methods
+            .insert(MethodKey::new(type_name, method_name), info);
     }
 
     /// Look up a user-defined method.
@@ -177,7 +181,7 @@ impl UserMethodRegistry {
     /// Returns None if no method is registered for this type/method combination.
     pub fn lookup(&self, type_name: &str, method_name: &str) -> Option<&UserMethod> {
         self.methods
-            .get(&(type_name.to_string(), method_name.to_string()))
+            .get(&MethodKey::from_strs(type_name, method_name))
     }
 
     /// Look up a derived method.
@@ -185,14 +189,14 @@ impl UserMethodRegistry {
     /// Returns None if no derived method is registered for this type/method combination.
     pub fn lookup_derived(&self, type_name: &str, method_name: &str) -> Option<&DerivedMethodInfo> {
         self.derived_methods
-            .get(&(type_name.to_string(), method_name.to_string()))
+            .get(&MethodKey::from_strs(type_name, method_name))
     }
 
     /// Look up any method (user-defined or derived).
     ///
     /// Returns the method entry if found.
     pub fn lookup_any(&self, type_name: &str, method_name: &str) -> Option<MethodEntry> {
-        let key = (type_name.to_string(), method_name.to_string());
+        let key = MethodKey::from_strs(type_name, method_name);
 
         if let Some(user_method) = self.methods.get(&key) {
             return Some(MethodEntry::User(user_method.clone()));
@@ -207,19 +211,19 @@ impl UserMethodRegistry {
 
     /// Check if a method exists for the given type (user or derived).
     pub fn has_method(&self, type_name: &str, method_name: &str) -> bool {
-        let key = (type_name.to_string(), method_name.to_string());
+        let key = MethodKey::from_strs(type_name, method_name);
         self.methods.contains_key(&key) || self.derived_methods.contains_key(&key)
     }
 
     /// Get all registered user methods (for debugging).
-    pub fn all_methods(&self) -> impl Iterator<Item = (&(String, String), &UserMethod)> {
+    pub fn all_methods(&self) -> impl Iterator<Item = (&MethodKey, &UserMethod)> {
         self.methods.iter()
     }
 
     /// Get all registered derived methods (for debugging).
     pub fn all_derived_methods(
         &self,
-    ) -> impl Iterator<Item = (&(String, String), &DerivedMethodInfo)> {
+    ) -> impl Iterator<Item = (&MethodKey, &DerivedMethodInfo)> {
         self.derived_methods.iter()
     }
 
