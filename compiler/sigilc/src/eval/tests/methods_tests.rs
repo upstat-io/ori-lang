@@ -3,6 +3,8 @@
 //! Tests method calls on built-in types including list, string, range,
 //! Option, and Result.
 
+#![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+
 use sigil_eval::MethodRegistry;
 use crate::eval::Value;
 

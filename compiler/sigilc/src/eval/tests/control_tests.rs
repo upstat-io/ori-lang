@@ -1,5 +1,7 @@
 //! Tests for control flow evaluation (if/else, loops, pattern binding, match).
 
+#![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+
 use crate::eval::exec::control::{
     eval_if, bind_pattern, parse_loop_control, LoopAction,
 };

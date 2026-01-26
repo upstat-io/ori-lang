@@ -81,6 +81,7 @@ pub fn discover_tests_in(path: &Path) -> Vec<TestFile> {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
     use super::*;
     use std::fs::File;

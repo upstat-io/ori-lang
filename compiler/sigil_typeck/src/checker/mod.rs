@@ -103,7 +103,12 @@ impl<'a> TypeChecker<'a> {
         self.register_traits(module);
         self.register_impls(module);
 
-        // Pass 0c: Register config variables
+        // Pass 0c: Register derived trait implementations
+        // Must be done after register_types so we know the type structure,
+        // but after register_impls so explicit impls take precedence.
+        crate::derives::register_derived_impls(module, &mut self.registries.traits, self.context.interner);
+
+        // Pass 0d: Register config variables
         self.register_configs(module);
 
         // First pass: collect function signatures
@@ -613,5 +618,383 @@ impl<'a> TypeChecker<'a> {
     /// Store the type for an expression.
     pub(crate) fn store_type(&mut self, expr_id: ExprId, ty: Type) {
         self.inference.expr_types.insert(expr_id.index(), ty);
+    }
+}
+
+/// Type check a parsed module.
+pub fn type_check(
+    parse_result: &sigil_parse::ParseResult,
+    interner: &StringInterner,
+) -> TypedModule {
+    let checker = TypeChecker::new(&parse_result.arena, interner);
+    checker.check_module(&parse_result.module)
+}
+
+/// Type check a parsed module with source code for diagnostic queue features.
+///
+/// When source is provided, error deduplication and limits are enabled.
+pub fn type_check_with_source(
+    parse_result: &sigil_parse::ParseResult,
+    interner: &StringInterner,
+    source: String,
+) -> TypedModule {
+    let checker = TypeChecker::with_source(&parse_result.arena, interner, source);
+    checker.check_module(&parse_result.module)
+}
+
+/// Type check a parsed module with source and custom diagnostic configuration.
+pub fn type_check_with_config(
+    parse_result: &sigil_parse::ParseResult,
+    interner: &StringInterner,
+    source: String,
+    config: DiagnosticConfig,
+) -> TypedModule {
+    let checker = TypeChecker::with_source_and_config(&parse_result.arena, interner, source, config);
+    checker.check_module(&parse_result.module)
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+mod tests {
+    use super::*;
+    use sigil_ir::SharedInterner;
+    use sigil_types::Type;
+
+    fn check_source(source: &str) -> (sigil_parse::ParseResult, TypedModule) {
+        let interner = SharedInterner::default();
+        let tokens = sigil_lexer::lex(source, &interner);
+        let parsed = sigil_parse::parse(&tokens, &interner);
+        let typed = type_check(&parsed, &interner);
+        (parsed, typed)
+    }
+
+    #[test]
+    fn test_literal_types() {
+        let (parsed, typed) = check_source("@main () -> int = 42");
+
+        assert!(!typed.has_errors());
+        assert_eq!(typed.function_types.len(), 1);
+
+        let func = &parsed.module.functions[0];
+        let body_type = &typed.expr_types[func.body.index()];
+        assert_eq!(*body_type, Type::Int);
+    }
+
+    #[test]
+    fn test_binary_arithmetic() {
+        let (parsed, typed) = check_source("@add () -> int = 1 + 2");
+
+        assert!(!typed.has_errors());
+
+        let func = &parsed.module.functions[0];
+        let body_type = &typed.expr_types[func.body.index()];
+        assert_eq!(*body_type, Type::Int);
+    }
+
+    #[test]
+    fn test_comparison() {
+        let (parsed, typed) = check_source("@cmp () -> bool = 1 < 2");
+
+        assert!(!typed.has_errors());
+
+        let func = &parsed.module.functions[0];
+        let body_type = &typed.expr_types[func.body.index()];
+        assert_eq!(*body_type, Type::Bool);
+    }
+
+    #[test]
+    fn test_if_expression() {
+        let (parsed, typed) = check_source("@test () -> int = if true then 1 else 2");
+
+        assert!(!typed.has_errors());
+
+        let func = &parsed.module.functions[0];
+        let body_type = &typed.expr_types[func.body.index()];
+        assert_eq!(*body_type, Type::Int);
+    }
+
+    #[test]
+    fn test_list_type() {
+        let (parsed, typed) = check_source("@test () = [1, 2, 3]");
+
+        assert!(!typed.has_errors());
+
+        let func = &parsed.module.functions[0];
+        let body_type = &typed.expr_types[func.body.index()];
+        assert_eq!(*body_type, Type::List(Box::new(Type::Int)));
+    }
+
+    #[test]
+    fn test_type_mismatch_error() {
+        let (_, typed) = check_source("@test () -> int = if 42 then 1 else 2");
+
+        assert!(typed.has_errors());
+        assert!(typed.errors[0].message.contains("type mismatch") ||
+                typed.errors[0].message.contains("expected"));
+    }
+
+    #[test]
+    fn test_typed_module_salsa_traits() {
+        use std::collections::HashSet;
+
+        let (_, typed1) = check_source("@main () -> int = 42");
+        let (_, typed2) = check_source("@main () -> int = 42");
+        let (_, typed3) = check_source("@main () -> bool = true");
+
+        assert_eq!(typed1, typed2);
+        assert_ne!(typed1, typed3);
+
+        let mut set = HashSet::new();
+        set.insert(typed1.clone());
+        set.insert(typed2);
+        set.insert(typed3);
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_function_with_typed_params() {
+        let (_, typed) = check_source("@add (a: int, b: int) -> int = a + b");
+
+        assert!(!typed.has_errors());
+        assert_eq!(typed.function_types.len(), 1);
+
+        let func_type = &typed.function_types[0];
+        assert_eq!(func_type.params.len(), 2);
+        assert_eq!(func_type.params[0], Type::Int);
+        assert_eq!(func_type.params[1], Type::Int);
+        assert_eq!(func_type.return_type, Type::Int);
+    }
+
+    #[test]
+    fn test_function_call_type_inference() {
+        let (_, typed) = check_source("@double (x: int) -> int = x * 2");
+
+        assert!(!typed.has_errors());
+        assert_eq!(typed.function_types.len(), 1);
+
+        let func_type = &typed.function_types[0];
+        assert_eq!(func_type.return_type, Type::Int);
+    }
+
+    #[test]
+    fn test_lambda_with_typed_param() {
+        let (_, typed) = check_source("@test () = (x: int) -> x + 1");
+
+        assert!(!typed.has_errors());
+    }
+
+    #[test]
+    fn test_tuple_type() {
+        let (parsed, typed) = check_source("@test () = (1, true, \"hello\")");
+
+        assert!(!typed.has_errors());
+
+        let func = &parsed.module.functions[0];
+        let body_type = &typed.expr_types[func.body.index()];
+        assert_eq!(
+            *body_type,
+            Type::Tuple(vec![Type::Int, Type::Bool, Type::Str])
+        );
+    }
+
+    #[test]
+    fn test_nested_if_type() {
+        let (_, typed) = check_source(r#"
+            @test (x: int) -> int =
+                if x > 0 then
+                    if x > 10 then 100 else 10
+                else
+                    0
+        "#);
+
+        assert!(!typed.has_errors());
+    }
+
+    #[test]
+    fn test_run_pattern_type() {
+        let (_, typed) = check_source(r#"
+            @test () -> int = run(
+                let x: int = 1,
+                let y: int = 2,
+                x + y
+            )
+        "#);
+
+        assert!(!typed.has_errors());
+    }
+
+    // =========================================================================
+    // Closure Self-Capture Detection Tests
+    // =========================================================================
+
+    #[test]
+    fn test_closure_self_capture_direct() {
+        let (_, typed) = check_source(r#"
+            @test () -> int = run(
+                let f = () -> f,
+                0
+            )
+        "#);
+
+        assert!(typed.has_errors());
+        assert!(typed.errors.iter().any(|e|
+            e.message.contains("closure cannot capture itself") &&
+            e.code == sigil_diagnostic::ErrorCode::E2007
+        ));
+    }
+
+    #[test]
+    fn test_closure_self_capture_call() {
+        let (_, typed) = check_source(r#"
+            @test () -> int = run(
+                let f = (x: int) -> f(x + 1),
+                0
+            )
+        "#);
+
+        assert!(typed.has_errors());
+        assert!(typed.errors.iter().any(|e|
+            e.message.contains("closure cannot capture itself")
+        ));
+    }
+
+    #[test]
+    fn test_no_self_capture_uses_outer_binding() {
+        let (_, typed) = check_source(r#"
+            @test () -> int = run(
+                let f = 42,
+                let g = () -> f,
+                g()
+            )
+        "#);
+
+        assert!(!typed.errors.iter().any(|e|
+            e.code == sigil_diagnostic::ErrorCode::E2007
+        ));
+    }
+
+    #[test]
+    fn test_no_self_capture_non_lambda() {
+        let (_, typed) = check_source(r#"
+            @test () -> int = run(
+                let x = 1 + 2,
+                x
+            )
+        "#);
+
+        assert!(!typed.has_errors());
+    }
+
+    #[test]
+    fn test_closure_self_capture_in_run() {
+        let (_, typed) = check_source(r#"
+            @test () -> int = run(
+                let f = () -> f,
+                0
+            )
+        "#);
+
+        assert!(typed.has_errors());
+        assert!(typed.errors.iter().any(|e|
+            e.message.contains("closure cannot capture itself")
+        ));
+    }
+
+    #[test]
+    fn test_closure_self_capture_nested_expression() {
+        let (_, typed) = check_source(r#"
+            @test () -> int = run(
+                let f = () -> if true then f else f,
+                0
+            )
+        "#);
+
+        assert!(typed.has_errors());
+        assert!(typed.errors.iter().any(|e|
+            e.message.contains("closure cannot capture itself")
+        ));
+    }
+
+    #[test]
+    fn test_valid_mutual_recursion_via_outer_scope() {
+        let (_, typed) = check_source(r#"
+            @f (x: int) -> int = x
+            @test () -> int = run(
+                let g = (x: int) -> @f(x),
+                g(1)
+            )
+        "#);
+
+        assert!(!typed.errors.iter().any(|e|
+            e.code == sigil_diagnostic::ErrorCode::E2007
+        ));
+    }
+
+    // =========================================================================
+    // TypeRegistry Integration Tests
+    // =========================================================================
+
+    #[test]
+    fn test_type_registry_in_checker() {
+        let interner = SharedInterner::default();
+        let tokens = sigil_lexer::lex("@main () -> int = 42", &interner);
+        let parsed = sigil_parse::parse(&tokens, &interner);
+
+        let mut checker = TypeChecker::new(&parsed.arena, &interner);
+
+        let point_name = interner.intern("Point");
+        let x_name = interner.intern("x");
+        let y_name = interner.intern("y");
+
+        let type_id = checker.registries.types.register_struct(
+            point_name,
+            vec![(x_name, Type::Int), (y_name, Type::Int)],
+            sigil_ir::Span::new(0, 0),
+            vec![],
+        );
+
+        assert!(checker.registries.types.contains(point_name));
+        let entry = checker.registries.types.get_by_id(type_id).unwrap();
+        assert_eq!(entry.name, point_name);
+    }
+
+    #[test]
+    fn test_type_id_to_type_with_registry() {
+        let interner = SharedInterner::default();
+        let tokens = sigil_lexer::lex("@main () -> int = 42", &interner);
+        let parsed = sigil_parse::parse(&tokens, &interner);
+
+        let mut checker = TypeChecker::new(&parsed.arena, &interner);
+
+        let id_name = interner.intern("UserId");
+        let type_id = checker.registries.types.register_alias(
+            id_name,
+            Type::Int,
+            sigil_ir::Span::new(0, 0),
+            vec![],
+        );
+
+        let resolved = checker.type_id_to_type(type_id);
+        assert_eq!(resolved, Type::Int);
+    }
+
+    #[test]
+    fn test_type_id_to_type_with_struct() {
+        let interner = SharedInterner::default();
+        let tokens = sigil_lexer::lex("@main () -> int = 42", &interner);
+        let parsed = sigil_parse::parse(&tokens, &interner);
+
+        let mut checker = TypeChecker::new(&parsed.arena, &interner);
+
+        let point_name = interner.intern("Point");
+        let type_id = checker.registries.types.register_struct(
+            point_name,
+            vec![],
+            sigil_ir::Span::new(0, 0),
+            vec![],
+        );
+
+        let resolved = checker.type_id_to_type(type_id);
+        assert_eq!(resolved, Type::Named(point_name));
     }
 }

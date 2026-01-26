@@ -159,6 +159,7 @@ pub fn eval_try_expr(value: Value, value_to_string: impl Fn(&Value) -> String) -
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
     use super::*;
 

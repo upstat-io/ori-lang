@@ -8,60 +8,16 @@
 //! - Sharing registries across compiler phases
 //! - Future extensibility without changing component signatures
 
-// Arc is the implementation of SharedRegistry - all usage goes through the newtype
-#![expect(clippy::disallowed_types, reason = "Arc is the implementation of SharedRegistry")]
+// Arc is the implementation of SharedMutableRegistry - all usage goes through the newtype
+#![expect(clippy::disallowed_types, reason = "Arc is the implementation of SharedMutableRegistry")]
 
 use std::sync::Arc;
 use std::fmt;
 use sigil_patterns::PatternRegistry;
 use crate::eval::{OperatorRegistry, MethodRegistry, UnaryOperatorRegistry};
 
-// =============================================================================
-// SharedRegistry Newtype
-// =============================================================================
-
-/// Thread-safe shared registry wrapper.
-///
-/// This newtype enforces that all registry sharing goes through this type,
-/// preventing accidental direct `Arc<Registry>` usage.
-///
-/// # Thread Safety
-/// Uses `Arc` internally for thread-safe reference counting.
-///
-/// # Usage
-/// ```ignore
-/// let registry = SharedRegistry::new(PatternRegistry::new());
-/// // Access via Deref
-/// let pattern = registry.get("map");
-/// ```
-pub struct SharedRegistry<T>(Arc<T>);
-
-impl<T> SharedRegistry<T> {
-    /// Create a new shared registry from an owned registry.
-    pub fn new(registry: T) -> Self {
-        SharedRegistry(Arc::new(registry))
-    }
-}
-
-impl<T> Clone for SharedRegistry<T> {
-    fn clone(&self) -> Self {
-        SharedRegistry(Arc::clone(&self.0))
-    }
-}
-
-impl<T> std::ops::Deref for SharedRegistry<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T: fmt::Debug> fmt::Debug for SharedRegistry<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SharedRegistry({:?})", &*self.0)
-    }
-}
+// Re-export SharedRegistry from sigil_typeck so we have a single source of truth
+pub use sigil_typeck::SharedRegistry;
 
 // =============================================================================
 // SharedMutableRegistry Newtype

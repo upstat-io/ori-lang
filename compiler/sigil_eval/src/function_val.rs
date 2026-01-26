@@ -113,6 +113,7 @@ pub fn function_val_thread_id(args: &[Value]) -> Result<Value, String> {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
     use super::*;
 

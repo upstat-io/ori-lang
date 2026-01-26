@@ -58,6 +58,7 @@ impl CompilerDb {
 
     /// Enable logging of Salsa events (for testing).
     #[cfg(test)]
+    #[expect(clippy::unwrap_used, reason = "Test-only method uses unwrap")]
     pub fn enable_logging(&self) {
         let mut logs = self.logs.lock().unwrap();
         if logs.is_none() {
@@ -67,6 +68,7 @@ impl CompilerDb {
 
     /// Take the accumulated logs (for testing).
     #[cfg(test)]
+    #[expect(clippy::unwrap_used, reason = "Test-only method uses unwrap")]
     pub fn take_logs(&self) -> Vec<String> {
         let mut logs = self.logs.lock().unwrap();
         if let Some(logs) = &mut *logs {

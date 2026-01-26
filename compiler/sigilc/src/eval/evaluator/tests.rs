@@ -1,5 +1,7 @@
 //! Tests for the Evaluator.
 
+#![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+
 use super::*;
 use crate::ir::{Span, SharedArena, SharedInterner};
 use crate::ir::ast::{Expr, ExprKind};

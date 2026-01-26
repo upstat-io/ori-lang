@@ -304,6 +304,7 @@ impl<W: Write> DiagnosticEmitter for SarifEmitter<W> {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
     use super::*;
     use crate::ErrorCode;

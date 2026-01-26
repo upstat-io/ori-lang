@@ -1,5 +1,7 @@
 //! Comprehensive tests for type conversion functions (`function_val`).
 
+#![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+
 use sigil_eval::{
     function_val_byte, function_val_float, function_val_int, function_val_str,
 };

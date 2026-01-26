@@ -2,6 +2,8 @@
 //!
 //! Tests negation, logical not, bitwise not, and try operator.
 
+#![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+
 use sigil_eval::UnaryOperatorRegistry;
 use crate::eval::Value;
 use sigil_ir::UnaryOp;

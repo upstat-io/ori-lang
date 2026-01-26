@@ -9,6 +9,8 @@
 //! - Order preservation
 //! - Thread safety
 
+#![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;

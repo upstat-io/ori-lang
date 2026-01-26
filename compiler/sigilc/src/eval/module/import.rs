@@ -510,6 +510,7 @@ pub fn register_module_functions(
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
     use super::*;
     use crate::ir::SharedInterner;
