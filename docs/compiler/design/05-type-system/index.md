@@ -8,7 +8,12 @@ Type definitions are split across two crates:
 
 ```
 compiler/sigil_types/src/
-└── lib.rs              # Type enum, TypeError, TypeContext, InferenceContext
+├── lib.rs              # Module exports, size assertions, tests
+├── core.rs             # Type enum, TypeVar, TypeScheme
+├── env.rs              # TypeEnv for name resolution/scoping
+├── traverse.rs         # TypeFolder, TypeVisitor traits
+├── context.rs          # InferenceContext, TypeContext
+└── error.rs            # TypeError enum with diagnostic conversion
 
 compiler/sigilc/src/typeck/
 ├── mod.rs              # Module exports
@@ -38,7 +43,14 @@ compiler/sigilc/src/typeck/
     └── pattern.rs      # Pattern type checking
 ```
 
-The `sigil_types` crate contains the `Type` enum, `TypeError`, `TypeContext` (for type instantiation deduplication), and `InferenceContext`. The type checker itself remains in `sigilc` due to complex dependencies on the evaluator and pattern system.
+The `sigil_types` crate contains:
+- `core.rs`: The `Type` enum, `TypeVar`, and `TypeScheme` definitions
+- `env.rs`: `TypeEnv` for variable-to-type bindings with scope support
+- `traverse.rs`: `TypeFolder` and `TypeVisitor` traits for type transformations
+- `context.rs`: `InferenceContext` (unification, generalization) and `TypeContext` (deduplication)
+- `error.rs`: `TypeError` enum with diagnostic conversion
+
+The type checker itself remains in `sigil_typeck` (with orchestration in `sigilc`) due to complex dependencies on the evaluator and pattern system.
 
 Note: `sigilc/src/types.rs` re-exports from `sigil_types` (DRY consolidation).
 
