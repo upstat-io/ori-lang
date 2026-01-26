@@ -14,7 +14,9 @@ A statically-typed, expression-based language with mandatory testing, causality 
 
 ## Why Sigil?
 
-Sigil enforces code integrity. If it compiles, it has tests. If it has tests, they pass. If you change it, you'll know what broke.
+**Code that proves itself.**
+
+If it compiles, it has tests. If it has tests, they pass. If you change it, you'll know what broke.
 
 ### The Problem
 
@@ -22,9 +24,9 @@ Code without tests is just a hypothesis. Developers forget to write tests, skip 
 
 ### The Solution
 
-Sigil doesn't trust you. It verifies you.
+Sigil makes verification automatic. The compiler enforces what discipline cannot.
 
-- **No tests = no compile** — Every function requires tests or compilation fails
+- **Every function tested** — No tests, no compile. The compiler ensures coverage.
 - **Tests bound to code** — `@test tests @target` creates a compiler-enforced bond
 - **Change propagates** — Modify a function, and tests for its callers run automatically
 - **Mocking is trivial** — Capabilities make dependency injection built-in
@@ -229,7 +231,9 @@ Requires Rust 1.70+ and a C compiler (for native compilation).
 
 ## Design Philosophy
 
-**Sigil doesn't trust you. It verifies you.**
+**Code that proves itself.** Every function tested. Every change traced. Every effect explicit.
+
+Sigil makes verification automatic — the compiler enforces what discipline alone cannot.
 
 | Traditional Approach | Sigil Approach |
 |---------------------|----------------|
