@@ -479,16 +479,15 @@ impl Parser<'_> {
             GenericParamRange::EMPTY
         };
 
-        // Parse the first type path (could be trait or self_ty)
-        let first_path = self.parse_type_path()?;
-        let first_ty = self.make_type_from_path(&first_path)?;
+        // Parse the first type (could be trait or self_ty)
+        // Supports both simple `Box` and generic `Box<T>`
+        let (first_path, first_ty) = self.parse_impl_type()?;
 
         // Check for `for` keyword to determine if this is a trait impl
         let (trait_path, self_path, self_ty) = if self.check(&TokenKind::For) {
             self.advance();
-            // Parse the implementing type as a type path
-            let impl_path = self.parse_type_path()?;
-            let impl_ty = self.make_type_from_path(&impl_path)?;
+            // Parse the implementing type
+            let (impl_path, impl_ty) = self.parse_impl_type()?;
             (Some(first_path), impl_path, impl_ty)
         } else {
             (None, first_path, first_ty)
@@ -1013,19 +1012,41 @@ impl Parser<'_> {
         Ok((first, rest))
     }
 
-    /// Convert a type path to a `ParsedType`.
+    /// Parse a type for impl blocks: `Name` or `Name<T, U>`.
     ///
-    /// Creates a Named type using the last segment as the name.
-    /// Full path resolution is handled during type checking.
-    fn make_type_from_path(&mut self, path: &[sigil_ir::Name]) -> Result<ParsedType, ParseError> {
-        match path.last() {
-            Some(&name) => Ok(ParsedType::Named { name, type_args: Vec::new() }),
-            None => Err(ParseError::new(
+    /// Returns (path, ParsedType) where path is the type name(s) for registration.
+    fn parse_impl_type(&mut self) -> Result<(Vec<sigil_ir::Name>, ParsedType), ParseError> {
+        let path = self.parse_type_path()?;
+        let name = *path.last().ok_or_else(|| {
+            ParseError::new(
                 sigil_diagnostic::ErrorCode::E1002,
                 "empty type path".to_string(),
                 self.current_span(),
-            )),
-        }
+            )
+        })?;
+
+        // Check for type arguments: <T, U>
+        let type_args = if self.check(&TokenKind::Lt) {
+            self.advance(); // <
+            let mut args = Vec::new();
+            while !self.check(&TokenKind::Gt) && !self.is_at_end() {
+                args.push(self.parse_type_required()?);
+                if self.check(&TokenKind::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            if self.check(&TokenKind::Gt) {
+                self.advance(); // >
+            }
+            args
+        } else {
+            Vec::new()
+        };
+
+        let ty = ParsedType::Named { name, type_args };
+        Ok((path, ty))
     }
 
     /// Parse uses clause: uses Http, FileSystem, Async
@@ -1052,7 +1073,7 @@ impl Parser<'_> {
         Ok(capabilities)
     }
 
-    /// Parse where clauses: where T: Clone, U: Default
+    /// Parse where clauses: where T: Clone, U: Default, T.Item: Eq
     fn parse_where_clauses(&mut self) -> Result<Vec<WhereClause>, ParseError> {
         self.expect(&TokenKind::Where)?;
 
@@ -1061,11 +1082,20 @@ impl Parser<'_> {
             let clause_span = self.current_span();
             let param = self.expect_ident()?;
 
+            // Check for associated type projection: T.Item
+            let projection = if self.check(&TokenKind::Dot) {
+                self.advance();
+                Some(self.expect_ident()?)
+            } else {
+                None
+            };
+
             self.expect(&TokenKind::Colon)?;
             let bounds = self.parse_bounds()?;
 
             clauses.push(WhereClause {
                 param,
+                projection,
                 bounds,
                 span: clause_span.merge(self.previous_span()),
             });

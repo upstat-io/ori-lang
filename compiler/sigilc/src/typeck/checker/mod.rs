@@ -28,7 +28,7 @@ use crate::ir::{
 };
 use crate::parser::ParseResult;
 use sigil_patterns::PatternRegistry;
-use crate::types::{Type, TypeEnv, InferenceContext, TypeError};
+use crate::types::{Type, TypeEnv, TypeScheme, InferenceContext, TypeError};
 use crate::context::{CompilerContext, SharedRegistry};
 use crate::diagnostic::queue::{DiagnosticQueue, DiagnosticConfig};
 use super::operators::TypeOperatorRegistry;
@@ -216,11 +216,30 @@ impl<'a> TypeChecker<'a> {
             self.function_sigs.insert(func.name, func_type.clone());
 
             // Bind function name to its type
+            // For generic functions, create a polymorphic type scheme
+            // so each call site gets fresh type variables
             let fn_type = Type::Function {
                 params: func_type.params.clone(),
                 ret: Box::new(func_type.return_type.clone()),
             };
-            self.env.bind(func.name, fn_type);
+
+            // Extract type vars from generic parameters
+            let type_vars: Vec<_> = func_type.generics.iter()
+                .filter_map(|g| {
+                    if let Type::Var(tv) = &g.type_var {
+                        Some(tv.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if type_vars.is_empty() {
+                self.env.bind(func.name, fn_type);
+            } else {
+                let scheme = TypeScheme::poly(type_vars, fn_type);
+                self.env.bind_scheme(func.name, scheme);
+            }
         }
 
         // Freeze the base environment for child scope creation.
@@ -255,6 +274,7 @@ impl<'a> TypeChecker<'a> {
             .map(|ft| FunctionType {
                 name: ft.name,
                 generics: ft.generics,
+                where_constraints: ft.where_constraints,
                 params: ft.params.iter().map(|t| self.ctx.resolve(t)).collect(),
                 return_type: self.ctx.resolve(&ft.return_type),
                 capabilities: ft.capabilities,

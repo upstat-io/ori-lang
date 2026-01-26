@@ -119,12 +119,17 @@ impl TypeChecker<'_> {
 
             let entry = ImplEntry {
                 trait_name,
-                self_ty,
+                self_ty: self_ty.clone(),
                 span: impl_def.span,
                 type_params,
                 methods,
-                assoc_types,
+                assoc_types: assoc_types.clone(),
             };
+
+            // For trait impls, validate that all required associated types are defined
+            if let Some(trait_name) = trait_name {
+                self.validate_associated_types(trait_name, &assoc_types, &self_ty, impl_def.span);
+            }
 
             // Register impl, checking for coherence violations
             if let Err(coherence_err) = self.trait_registry.register_impl(entry) {
@@ -136,6 +141,38 @@ impl TypeChecker<'_> {
                     ),
                     span: coherence_err.span,
                     code: crate::diagnostic::ErrorCode::E2010,
+                });
+            }
+        }
+    }
+
+    /// Validate that an impl block defines all required associated types from the trait.
+    fn validate_associated_types(
+        &mut self,
+        trait_name: Name,
+        impl_assoc_types: &[ImplAssocTypeDef],
+        self_ty: &Type,
+        span: crate::ir::Span,
+    ) {
+        // Get the trait definition
+        let trait_entry = match self.trait_registry.get_trait(trait_name) {
+            Some(entry) => entry.clone(),
+            None => return, // Trait not found - error reported elsewhere
+        };
+
+        // Check each required associated type
+        for required_at in &trait_entry.assoc_types {
+            let defined = impl_assoc_types.iter().any(|at| at.name == required_at.name);
+            if !defined {
+                let trait_name_str = self.interner.lookup(trait_name);
+                let assoc_name_str = self.interner.lookup(required_at.name);
+                let type_name = self_ty.display(self.interner);
+                self.errors.push(TypeCheckError {
+                    message: format!(
+                        "impl of `{trait_name_str}` for `{type_name}` missing associated type `{assoc_name_str}`"
+                    ),
+                    span,
+                    code: crate::diagnostic::ErrorCode::E2012,
                 });
             }
         }

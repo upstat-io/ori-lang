@@ -14,9 +14,9 @@ use std::collections::HashMap;
 #[cfg(target_pointer_width = "64")]
 mod size_asserts {
     use super::{Type, TypeVar};
-    // Type enum: largest variant is Function with Vec<Type> (24) + Box<Type> (8) = 32 bytes
-    // The enum discriminant fits within the alignment padding.
-    sigil_ir::static_assert_size!(Type, 32);
+    // Type enum: largest variant is Applied with Name (8) + Vec<Type> (24) = 32 bytes + discriminant = 40 bytes
+    // Applied variant has: name: Name (u64 = 8) + args: Vec<Type> (24) = 32 bytes
+    sigil_ir::static_assert_size!(Type, 40);
     // TypeVar is just a u32 wrapper
     sigil_ir::static_assert_size!(TypeVar, 4);
 }
@@ -89,8 +89,15 @@ pub enum Type {
     Channel(Box<Type>),
 
     // ===== Named types =====
-    /// User-defined type reference
+    /// User-defined type reference (non-generic or unapplied generic)
     Named(Name),
+
+    /// Applied generic type: the base type name with concrete type arguments.
+    /// For example, `Box<int>` is `Applied { name: "Box", args: [Int] }`.
+    Applied {
+        name: Name,
+        args: Vec<Type>,
+    },
 
     /// Generic type variable (for inference)
     Var(TypeVar),
@@ -176,6 +183,12 @@ impl Type {
             Type::Range(t) => format!("Range<{}>", t.display(interner)),
             Type::Channel(t) => format!("Channel<{}>", t.display(interner)),
             Type::Named(name) => interner.lookup(*name).to_string(),
+            Type::Applied { name, args } => {
+                let args_str: Vec<_> = args.iter()
+                    .map(|a| a.display(interner))
+                    .collect();
+                format!("{}<{}>", interner.lookup(*name), args_str.join(", "))
+            }
             Type::Var(v) => format!("?{}", v.0),
             Type::Error => "<error>".to_string(),
             Type::Projection { base, trait_name: _, assoc_name } => {
@@ -423,6 +436,17 @@ impl InferenceContext {
                 self.unify(b1, b2)
             }
 
+            // Applied generic types: unify if same base name and args unify
+            (
+                Type::Applied { name: n1, args: a1 },
+                Type::Applied { name: n2, args: a2 },
+            ) if n1 == n2 && a1.len() == a2.len() => {
+                for (arg1, arg2) in a1.iter().zip(a2.iter()) {
+                    self.unify(arg1, arg2)?;
+                }
+                Ok(())
+            }
+
             // Incompatible types
             _ => Err(TypeError::TypeMismatch {
                 expected: t1,
@@ -466,6 +490,10 @@ impl InferenceContext {
                 trait_name: *trait_name,
                 assoc_name: *assoc_name,
             },
+            Type::Applied { name, args } => Type::Applied {
+                name: *name,
+                args: args.iter().map(|a| self.resolve(a)).collect(),
+            },
             _ => ty.clone(),
         }
     }
@@ -491,6 +519,7 @@ impl InferenceContext {
             Type::Map { key, value } => self.occurs(var, key) || self.occurs(var, value),
             Type::Result { ok, err } => self.occurs(var, ok) || self.occurs(var, err),
             Type::Projection { base, .. } => self.occurs(var, base),
+            Type::Applied { args, .. } => args.iter().any(|a| self.occurs(var, a)),
             _ => false,
         }
     }
@@ -539,6 +568,11 @@ impl InferenceContext {
             }
             Type::Projection { base, .. } => {
                 self.collect_free_vars(base, vars);
+            }
+            Type::Applied { args, .. } => {
+                for a in args {
+                    self.collect_free_vars(a, vars);
+                }
             }
             _ => {}
         }
@@ -625,6 +659,10 @@ impl InferenceContext {
                 base: Box::new(self.substitute_vars(base, mapping)),
                 trait_name: *trait_name,
                 assoc_name: *assoc_name,
+            },
+            Type::Applied { name, args } => Type::Applied {
+                name: *name,
+                args: args.iter().map(|a| self.substitute_vars(a, mapping)).collect(),
             },
             _ => ty.clone(),
         }

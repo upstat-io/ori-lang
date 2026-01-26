@@ -48,3 +48,32 @@ impl Container for StrBox {
     assert(cond: result.is_some()),
     assert_eq(actual: result.unwrap(), expected: "hello"),
 )
+
+// =============================================================================
+// Associated Type Constraints (where T.Item: Trait)
+// =============================================================================
+
+// A function that requires the container's Item type to be Eq
+@needs_eq_item<C: Container> (c: C) -> bool where C.Item: Eq = true
+
+@test_needs_eq_item () -> void = run(
+    // IntBox.Item = int, and int: Eq, so this should work
+    let box = IntBox { value: 42 },
+    assert(cond: needs_eq_item(c: box)),
+)
+
+// Type with a non-Eq associated type (lambdas don't implement Eq)
+type FnBox = { func: () -> int }
+
+impl Container for FnBox {
+    type Item = () -> int
+    @first (self) -> Option<Self.Item> = Some(self.func)
+}
+
+// This should fail: FnBox.Item = () -> int, and functions don't implement Eq
+#[compile_fail("does not satisfy trait bound `Eq`")]
+@test_fnbox_fails_eq_constraint () -> void = run(
+    let box = FnBox { func: () -> 42 },
+    needs_eq_item(c: box),
+)
+

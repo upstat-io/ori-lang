@@ -283,6 +283,33 @@ impl TraitRegistry {
             .find(|at| at.name == assoc_name)
             .map(|at| at.ty.clone())
     }
+
+    /// Look up an associated type definition for a type by name only.
+    ///
+    /// Searches all trait implementations for the given type to find one
+    /// that defines an associated type with the given name.
+    ///
+    /// This is used when we don't know which trait defines the associated type,
+    /// such as when resolving `T.Item` from a where clause.
+    pub fn lookup_assoc_type_by_name(
+        &self,
+        type_name: Name,
+        assoc_name: Name,
+    ) -> Option<Type> {
+        let type_key = format!("{:?}", Type::Named(type_name));
+
+        // Search all trait impls for this type
+        for ((_, impl_type_key), impl_entry) in &self.trait_impls {
+            if impl_type_key == &type_key {
+                // Check if this impl has the associated type we're looking for
+                if let Some(assoc_def) = impl_entry.assoc_types.iter().find(|at| at.name == assoc_name) {
+                    return Some(assoc_def.ty.clone());
+                }
+            }
+        }
+
+        None
+    }
 }
 
 /// Result of a method lookup.

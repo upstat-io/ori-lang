@@ -1,0 +1,70 @@
+// Spec: 08-declarations.md § Implementations
+// Tests for generic impl blocks
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Setup: Generic Types and Traits
+// =============================================================================
+
+type Box<T> = { value: T }
+
+type Pair<A, B> = { first: A, second: B }
+
+trait Describable {
+    @describe (self) -> str
+}
+
+trait Container {
+    @get_size (self) -> int
+}
+
+// =============================================================================
+// Inherent Impl on Generic Type
+// =============================================================================
+
+impl<T> Box<T> {
+    @unwrap (self) -> T = self.value
+}
+
+impl<A, B> Pair<A, B> {
+    @swap (self) -> Pair<B, A> = Pair { first: self.second, second: self.first }
+}
+
+// =============================================================================
+// Trait Impl for Generic Type
+// =============================================================================
+
+impl<T> Container for Box<T> {
+    @get_size (self) -> int = 1
+}
+
+// =============================================================================
+// Tests for Inherent Methods
+// =============================================================================
+
+@test_box_unwrap () -> void = run(
+    let b = Box { value: 42 },
+    assert_eq(actual: b.unwrap(), expected: 42),
+)
+
+@test_box_unwrap_str () -> void = run(
+    let b = Box { value: "hello" },
+    assert_eq(actual: b.unwrap(), expected: "hello"),
+)
+
+@test_pair_swap () -> void = run(
+    let p = Pair { first: 1, second: "one" },
+    let swapped = p.swap(),
+    assert_eq(actual: swapped.first, expected: "one"),
+    assert_eq(actual: swapped.second, expected: 1),
+)
+
+// =============================================================================
+// Tests for Trait Methods
+// =============================================================================
+
+@test_box_container () -> void = run(
+    let b = Box { value: [1, 2, 3] },
+    assert_eq(actual: b.get_size(), expected: 1),
+)

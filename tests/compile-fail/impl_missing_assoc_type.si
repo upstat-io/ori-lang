@@ -1,0 +1,24 @@
+// Test that impl blocks must define all required associated types
+// Spec: 08-declarations.md § Associated Types
+//
+// When implementing a trait with associated types, all associated types
+// must be defined in the impl block.
+
+trait Container {
+    type Item
+    @first (self) -> Option<Self.Item>
+}
+
+type EmptyBox = { }
+
+// This impl is missing `type Item`
+impl Container for EmptyBox {
+    @first (self) -> Option<Self.Item> = None
+}
+
+// A test to trigger compilation
+#[compile_fail("missing associated type")]
+@test_placeholder () -> void = run(
+    let box = EmptyBox { },
+    ()
+)

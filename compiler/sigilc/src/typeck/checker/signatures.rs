@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use crate::ir::{Name, Function};
 use crate::types::Type;
 use super::TypeChecker;
-use super::types::{FunctionType, GenericBound};
+use super::types::{FunctionType, GenericBound, WhereConstraint};
 
 impl TypeChecker<'_> {
     /// Infer function signature from declaration.
@@ -39,25 +39,40 @@ impl TypeChecker<'_> {
             });
         }
 
-        // Step 3: Merge where clause bounds
+        // Step 3: Process where clauses
+        // - Non-projection clauses (where T: Eq) merge into generics
+        // - Projection clauses (where T.Item: Eq) go into where_constraints
+        let mut where_constraints = Vec::new();
         for wc in &func.where_clauses {
-            if let Some(gb) = generics.iter_mut().find(|g| g.param == wc.param) {
-                // Add bounds from where clause to existing generic
-                for bound in &wc.bounds {
-                    gb.bounds.push(bound.path());
-                }
-            } else {
-                // Where clause for a param not in generic list - create new entry
-                let bounds: Vec<Vec<Name>> = wc.bounds.iter()
-                    .map(sigil_ir::TraitBound::path)
-                    .collect();
-                let type_var = generic_type_vars.get(&wc.param).cloned()
-                    .unwrap_or_else(|| self.ctx.fresh_var());
-                generics.push(GenericBound {
+            let bounds: Vec<Vec<Name>> = wc.bounds.iter()
+                .map(sigil_ir::TraitBound::path)
+                .collect();
+            let type_var = generic_type_vars.get(&wc.param).cloned()
+                .unwrap_or_else(|| self.ctx.fresh_var());
+
+            if wc.projection.is_some() {
+                // Projection constraint: where T.Item: Eq
+                // Store separately for projection-aware checking
+                where_constraints.push(WhereConstraint {
                     param: wc.param,
+                    projection: wc.projection,
                     bounds,
                     type_var,
                 });
+            } else {
+                // Non-projection constraint: where T: Eq
+                // Merge into generics as before
+                if let Some(gb) = generics.iter_mut().find(|g| g.param == wc.param) {
+                    for bound in &wc.bounds {
+                        gb.bounds.push(bound.path());
+                    }
+                } else {
+                    generics.push(GenericBound {
+                        param: wc.param,
+                        bounds,
+                        type_var,
+                    });
+                }
             }
         }
 
@@ -88,6 +103,7 @@ impl TypeChecker<'_> {
         FunctionType {
             name: func.name,
             generics,
+            where_constraints,
             params,
             return_type,
             capabilities,

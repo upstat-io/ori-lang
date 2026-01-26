@@ -43,10 +43,15 @@ impl TraitBound {
     }
 }
 
-/// Where clause constraint: `T: Clone`, `U: Default`.
+/// Where clause constraint: `T: Clone`, `U: Default`, or `T.Item: Eq`.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct WhereClause {
+    /// The type parameter being constrained (e.g., `T` in `T: Clone` or `T.Item: Eq`).
     pub param: Name,
+    /// Optional associated type projection (e.g., `Item` in `T.Item: Eq`).
+    /// If `Some`, this is a constraint on an associated type: `param.projection: bounds`.
+    pub projection: Option<Name>,
+    /// The trait bounds that must be satisfied.
     pub bounds: Vec<TraitBound>,
     pub span: Span,
 }

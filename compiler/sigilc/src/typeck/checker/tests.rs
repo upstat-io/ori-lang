@@ -1866,3 +1866,123 @@ fn test_self_dot_item_type_reference() {
         other => panic!("expected Named type, got {:?}", other),
     }
 }
+
+// =============================================================================
+// Associated Type Constraints Tests
+// =============================================================================
+
+#[test]
+fn test_where_clause_with_projection_parsing() {
+    let source = r#"
+        trait Container {
+            type Item
+            @first (self) -> Option<Self.Item>
+        }
+
+        @needs_eq_item<C: Container> (c: C) -> bool where C.Item: Eq = true
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    // Find the function (skip the trait method)
+    let func = parse_result.module.functions.iter()
+        .find(|f| interner.lookup(f.name) == "needs_eq_item")
+        .expect("should find needs_eq_item function");
+
+    assert_eq!(func.where_clauses.len(), 1, "expected 1 where clause");
+    let wc = &func.where_clauses[0];
+    assert_eq!(interner.lookup(wc.param), "C", "where clause should constrain C");
+    assert!(wc.projection.is_some(), "where clause should have projection");
+    assert_eq!(interner.lookup(wc.projection.unwrap()), "Item", "projection should be Item");
+    assert_eq!(wc.bounds.len(), 1, "expected 1 bound");
+    assert_eq!(interner.lookup(wc.bounds[0].first), "Eq", "bound should be Eq");
+}
+
+#[test]
+fn test_where_constraint_stored_in_function_type() {
+    let source = r#"
+        trait Container {
+            type Item
+            @first (self) -> Option<Self.Item>
+        }
+
+        @needs_eq_item<C: Container> (c: C) -> bool where C.Item: Eq = true
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    let typed = type_check(&parse_result, &interner);
+
+    // Find the function type
+    let func_type = typed.function_types.iter()
+        .find(|ft| interner.lookup(ft.name) == "needs_eq_item")
+        .expect("should find needs_eq_item function type");
+
+    assert_eq!(func_type.where_constraints.len(), 1, "expected 1 where constraint");
+    let constraint = &func_type.where_constraints[0];
+    assert_eq!(interner.lookup(constraint.param), "C");
+    assert!(constraint.projection.is_some());
+    assert_eq!(interner.lookup(constraint.projection.unwrap()), "Item");
+    assert_eq!(constraint.bounds.len(), 1);
+}
+
+#[test]
+fn test_impl_missing_associated_type_error() {
+    let source = r#"
+        trait Container {
+            type Item
+            @first (self) -> Option<Self.Item>
+        }
+
+        type EmptyBox = { }
+
+        impl Container for EmptyBox {
+            @first (self) -> Option<Self.Item> = None
+        }
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    let typed = type_check(&parse_result, &interner);
+
+    // Should have an error about missing associated type
+    let missing_assoc_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.message.contains("missing associated type"))
+        .collect();
+
+    assert!(!missing_assoc_errors.is_empty(),
+        "expected error about missing associated type, got: {:?}",
+        typed.errors);
+}
+
+#[test]
+fn test_impl_with_associated_type_no_error() {
+    let source = r#"
+        trait Container {
+            type Item
+            @first (self) -> Option<Self.Item>
+        }
+
+        type IntBox = { value: int }
+
+        impl Container for IntBox {
+            type Item = int
+            @first (self) -> Option<Self.Item> = Some(self.value)
+        }
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    let typed = type_check(&parse_result, &interner);
+
+    // Should NOT have an error about missing associated type
+    let missing_assoc_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.message.contains("missing associated type"))
+        .collect();
+
+    assert!(missing_assoc_errors.is_empty(),
+        "should not have missing associated type errors, got: {:?}",
+        missing_assoc_errors);
+}
