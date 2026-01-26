@@ -104,7 +104,7 @@ pub fn infer_call_named(
         .collect();
 
     // Unify with function type
-    let result = match func_ty {
+    let (result, resolved_params) = match func_ty {
         Type::Function { params, ret } => {
             // Check argument count
             if params.len() != arg_types.len() {
@@ -128,22 +128,27 @@ pub fn infer_call_named(
                 }
             }
 
-            *ret
+            // Resolve the params after unification to get concrete types
+            let resolved: Vec<Type> = params.iter()
+                .map(|p| checker.ctx.resolve(p))
+                .collect();
+
+            (*ret, Some(resolved))
         }
-        Type::Error => Type::Error,
+        Type::Error => (Type::Error, None),
         _ => {
             checker.errors.push(TypeCheckError {
                 message: "expected function type for call".to_string(),
                 span,
                 code: crate::diagnostic::ErrorCode::E2001,
             });
-            Type::Error
+            (Type::Error, None)
         }
     };
 
     // After unification, check trait bounds for generic functions
     if let Some(name) = func_name {
-        check_generic_bounds(checker, name, span);
+        check_generic_bounds(checker, name, resolved_params.as_deref(), span);
         // Check capability propagation
         check_capability_propagation(checker, name, span);
     }
@@ -156,12 +161,16 @@ pub fn infer_call_named(
 /// After unification has resolved the generic type variables, this function
 /// verifies that the concrete types satisfy the required trait bounds.
 /// Delegates to `TypeChecker::check_function_bounds` for centralized bound checking.
+///
+/// `resolved_params` contains the resolved parameter types after unification,
+/// used to determine what concrete types were passed for generic parameters.
 fn check_generic_bounds(
     checker: &mut TypeChecker<'_>,
     func_name: Name,
+    resolved_params: Option<&[Type]>,
     span: Span,
 ) {
-    checker.check_function_bounds(func_name, span);
+    checker.check_function_bounds(func_name, resolved_params, span);
 }
 
 /// Check capability propagation for a function call.

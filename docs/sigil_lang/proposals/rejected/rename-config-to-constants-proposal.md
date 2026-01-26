@@ -1,8 +1,10 @@
 # Proposal: Rename "Config Variables" to "Constants"
 
-**Status:** Draft
+**Status:** Rejected
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-22
+**Rejected:** 2026-01-25
+**Reason:** Superseded by const-keyword-proposal.md — decided to replace `$` sigil entirely with `const` keyword for familiarity.
 **Affects:** Documentation, specification, compiler backend
 
 ---

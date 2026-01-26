@@ -8,6 +8,62 @@ use crate::types::Type;
 use super::super::checker::{TypeChecker, TypeCheckError};
 use super::super::operators::TypeOpResult;
 use super::infer_expr;
+use std::collections::HashMap;
+
+/// Substitute type parameter names with their corresponding type variables.
+///
+/// This is used when instantiating a generic struct type. Type parameters
+/// stored as `Type::Named(param_name)` are replaced with fresh type variables.
+fn substitute_type_params(ty: &Type, params: &HashMap<Name, Type>) -> Type {
+    match ty {
+        Type::Named(name) => {
+            // If this name is a type parameter, substitute with the type variable
+            if let Some(replacement) = params.get(name) {
+                replacement.clone()
+            } else {
+                ty.clone()
+            }
+        }
+        Type::List(inner) => {
+            Type::List(Box::new(substitute_type_params(inner, params)))
+        }
+        Type::Option(inner) => {
+            Type::Option(Box::new(substitute_type_params(inner, params)))
+        }
+        Type::Result { ok, err } => {
+            Type::Result {
+                ok: Box::new(substitute_type_params(ok, params)),
+                err: Box::new(substitute_type_params(err, params)),
+            }
+        }
+        Type::Map { key, value } => {
+            Type::Map {
+                key: Box::new(substitute_type_params(key, params)),
+                value: Box::new(substitute_type_params(value, params)),
+            }
+        }
+        Type::Set(inner) => {
+            Type::Set(Box::new(substitute_type_params(inner, params)))
+        }
+        Type::Tuple(elems) => {
+            Type::Tuple(elems.iter().map(|e| substitute_type_params(e, params)).collect())
+        }
+        Type::Function { params: fn_params, ret } => {
+            Type::Function {
+                params: fn_params.iter().map(|p| substitute_type_params(p, params)).collect(),
+                ret: Box::new(substitute_type_params(ret, params)),
+            }
+        }
+        Type::Range(inner) => {
+            Type::Range(Box::new(substitute_type_params(inner, params)))
+        }
+        Type::Channel(inner) => {
+            Type::Channel(Box::new(substitute_type_params(inner, params)))
+        }
+        // Primitives and other types don't need substitution
+        _ => ty.clone(),
+    }
+}
 
 /// Infer type for an identifier.
 pub fn infer_ident(checker: &mut TypeChecker<'_>, name: Name, span: Span) -> Type {
@@ -367,6 +423,38 @@ pub fn infer_struct(
         return Type::Error;
     };
 
+    // Handle generic type instantiation: create fresh type variables for type params
+    // and substitute them in field types
+    let (expected_fields, type_args) = if type_entry.type_params.is_empty() {
+        (expected_fields, Vec::new())
+    } else {
+        // Create fresh type variables for each type param (in order)
+        let type_args: Vec<Type> = type_entry
+            .type_params
+            .iter()
+            .map(|_| checker.ctx.fresh_var())
+            .collect();
+
+        // Create a mapping from type param names to their type variables
+        let type_param_vars: HashMap<Name, Type> = type_entry
+            .type_params
+            .iter()
+            .zip(type_args.iter())
+            .map(|(&param_name, type_var)| (param_name, type_var.clone()))
+            .collect();
+
+        // Substitute type params in field types
+        let substituted_fields = expected_fields
+            .into_iter()
+            .map(|(field_name, field_ty)| {
+                let substituted_ty = substitute_type_params(&field_ty, &type_param_vars);
+                (field_name, substituted_ty)
+            })
+            .collect();
+
+        (substituted_fields, type_args)
+    };
+
     // Build a map of expected field names to types
     let expected_map: std::collections::HashMap<Name, Type> = expected_fields
         .iter()
@@ -447,8 +535,12 @@ pub fn infer_struct(
         }
     }
 
-    // Return the struct type
-    Type::Named(name)
+    // Return the struct type (Applied for generics, Named for non-generics)
+    if type_args.is_empty() {
+        Type::Named(name)
+    } else {
+        Type::Applied { name, args: type_args }
+    }
 }
 
 /// Infer type for a range expression.
@@ -565,6 +657,71 @@ pub fn infer_field(
                 code: crate::diagnostic::ErrorCode::E2001,
             });
             Type::Error
+        }
+
+        // Applied generic struct field access: Box<int>.value -> int
+        Type::Applied { name: type_name, args } => {
+            // Look up the struct type in the registry
+            if let Some(entry) = checker.type_registry.get_by_name(type_name) {
+                let entry = entry.clone();
+                match &entry.kind {
+                    TypeKind::Struct { fields } => {
+                        // Create substitution map from type params to resolved args
+                        let type_param_map: HashMap<Name, Type> = entry
+                            .type_params
+                            .iter()
+                            .zip(args.iter())
+                            .map(|(&param_name, arg)| (param_name, arg.clone()))
+                            .collect();
+
+                        // Find the field and substitute type params
+                        for (field_name, field_ty) in fields {
+                            if *field_name == field {
+                                // Substitute type params with actual type args
+                                return substitute_type_params(field_ty, &type_param_map);
+                            }
+                        }
+
+                        // Field not found
+                        checker.errors.push(TypeCheckError {
+                            message: format!(
+                                "struct `{}` has no field `{}`",
+                                checker.interner.lookup(type_name),
+                                checker.interner.lookup(field)
+                            ),
+                            span: receiver_span,
+                            code: crate::diagnostic::ErrorCode::E2001,
+                        });
+                        Type::Error
+                    }
+                    TypeKind::Enum { .. } => {
+                        checker.errors.push(TypeCheckError {
+                            message: format!(
+                                "cannot access field `{}` on enum type `{}`",
+                                checker.interner.lookup(field),
+                                checker.interner.lookup(type_name)
+                            ),
+                            span: receiver_span,
+                            code: crate::diagnostic::ErrorCode::E2001,
+                        });
+                        Type::Error
+                    }
+                    TypeKind::Alias { .. } => {
+                        // This shouldn't happen - aliases resolved above
+                        Type::Error
+                    }
+                }
+            } else {
+                checker.errors.push(TypeCheckError {
+                    message: format!(
+                        "unknown type `{}`",
+                        checker.interner.lookup(type_name)
+                    ),
+                    span: receiver_span,
+                    code: crate::diagnostic::ErrorCode::E2003,
+                });
+                Type::Error
+            }
         }
 
         // Type variable - defer checking

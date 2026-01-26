@@ -57,12 +57,50 @@ impl std::hash::Hash for GenericBound {
     }
 }
 
+/// A where clause constraint, potentially with an associated type projection.
+///
+/// Examples:
+/// - `where T: Clone` → param=T, projection=None, bounds=[Clone]
+/// - `where C.Item: Eq` → param=C, projection=Some(Item), bounds=[Eq]
+#[derive(Clone, Debug)]
+pub struct WhereConstraint {
+    /// The type parameter being constrained (e.g., `T` or `C`).
+    pub param: Name,
+    /// Optional associated type projection (e.g., `Item` in `C.Item: Eq`).
+    pub projection: Option<Name>,
+    /// Trait bounds as paths (e.g., `["Eq"]`, `["Comparable"]`).
+    pub bounds: Vec<Vec<Name>>,
+    /// The type variable for the base parameter (for resolving at call sites).
+    pub type_var: Type,
+}
+
+// Manual Eq/PartialEq/Hash that ignores type_var
+impl PartialEq for WhereConstraint {
+    fn eq(&self, other: &Self) -> bool {
+        self.param == other.param
+            && self.projection == other.projection
+            && self.bounds == other.bounds
+    }
+}
+
+impl Eq for WhereConstraint {}
+
+impl std::hash::Hash for WhereConstraint {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.param.hash(state);
+        self.projection.hash(state);
+        self.bounds.hash(state);
+    }
+}
+
 /// Function type information.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct FunctionType {
     pub name: Name,
     /// Generic parameters with their trait bounds
     pub generics: Vec<GenericBound>,
+    /// Where clause constraints (may include associated type projections).
+    pub where_constraints: Vec<WhereConstraint>,
     pub params: Vec<Type>,
     pub return_type: Type,
     /// Capabilities required by this function (from `uses` clause)
