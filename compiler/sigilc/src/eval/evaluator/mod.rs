@@ -234,7 +234,7 @@ impl<'a> Evaluator<'a> {
             // correct evaluation when called from different contexts (e.g., passed
             // to a prelude function and called from within that function's context).
             ExprKind::Lambda { params, body, .. } => {
-                let names: Vec<Name> = self.arena.get_params(*params).iter().map(|p| p.name).collect();
+                let names = self.arena.get_param_names(*params);
                 let captures = self.env.capture();
                 let arena = match &self.imported_arena {
                     Some(arena) => arena.clone(),

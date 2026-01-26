@@ -2,24 +2,26 @@
 //!
 //! Registers trait definitions and implementations from modules.
 
-use sigil_ir::{Name, Module, TraitItem, ParamRange};
+use sigil_ir::{Name, Module, TraitItem, ParamRange, GenericParamRange, ExprArena};
 use sigil_types::Type;
 use super::TypeChecker;
-use super::types::TypeCheckError;
 use crate::registry::{
     TraitEntry, TraitMethodDef, TraitAssocTypeDef, ImplEntry, ImplMethodDef, ImplAssocTypeDef,
 };
+
+/// Extract type parameter names from a generic parameter range.
+fn extract_type_param_names(arena: &ExprArena, generics: GenericParamRange) -> Vec<Name> {
+    arena.get_generic_params(generics)
+        .iter()
+        .map(|gp| gp.name)
+        .collect()
+}
 
 impl TypeChecker<'_> {
     /// Register all trait definitions from a module.
     pub(crate) fn register_traits(&mut self, module: &Module) {
         for trait_def in &module.traits {
-            // Convert generic params to names
-            let type_params: Vec<Name> = self.context.arena
-                .get_generic_params(trait_def.generics)
-                .iter()
-                .map(|gp| gp.name)
-                .collect();
+            let type_params = extract_type_param_names(self.context.arena, trait_def.generics);
 
             // Convert super-traits to names
             let super_traits: Vec<Name> = trait_def.super_traits
@@ -78,12 +80,7 @@ impl TypeChecker<'_> {
     /// Register all implementation blocks from a module.
     pub(crate) fn register_impls(&mut self, module: &Module) {
         for impl_def in &module.impls {
-            // Convert generic params to names
-            let type_params: Vec<Name> = self.context.arena
-                .get_generic_params(impl_def.generics)
-                .iter()
-                .map(|gp| gp.name)
-                .collect();
+            let type_params = extract_type_param_names(self.context.arena, impl_def.generics);
 
             // Use the last segment of the trait path as the trait name.
             let trait_name = impl_def.trait_path.as_ref().and_then(|path| path.last().copied());
@@ -133,15 +130,15 @@ impl TypeChecker<'_> {
 
             // Register impl, checking for coherence violations
             if let Err(coherence_err) = self.registries.traits.register_impl(entry) {
-                self.diagnostics.errors.push(TypeCheckError {
-                    message: format!(
+                self.push_error(
+                    format!(
                         "{} (previous impl at {:?})",
                         coherence_err.message,
                         coherence_err.existing_span
                     ),
-                    span: coherence_err.span,
-                    code: sigil_diagnostic::ErrorCode::E2010,
-                });
+                    coherence_err.span,
+                    sigil_diagnostic::ErrorCode::E2010,
+                );
             }
         }
     }
@@ -167,13 +164,13 @@ impl TypeChecker<'_> {
                 let trait_name_str = self.context.interner.lookup(trait_name);
                 let assoc_name_str = self.context.interner.lookup(required_at.name);
                 let type_name = self_ty.display(self.context.interner);
-                self.diagnostics.errors.push(TypeCheckError {
-                    message: format!(
+                self.push_error(
+                    format!(
                         "impl of `{trait_name_str}` for `{type_name}` missing associated type `{assoc_name_str}`"
                     ),
                     span,
-                    code: sigil_diagnostic::ErrorCode::E2012,
-                });
+                    sigil_diagnostic::ErrorCode::E2012,
+                );
             }
         }
     }

@@ -5,6 +5,7 @@
 //! reducing the number of resolvers in the chain.
 
 use crate::context::SharedMutableRegistry;
+use sigil_ir::Name;
 use sigil_eval::UserMethodRegistry;
 use super::{MethodResolution, MethodResolver, Value};
 
@@ -30,7 +31,7 @@ impl UserRegistryResolver {
 }
 
 impl MethodResolver for UserRegistryResolver {
-    fn resolve(&self, _receiver: &Value, type_name: &str, method_name: &str) -> MethodResolution {
+    fn resolve(&self, _receiver: &Value, type_name: Name, method_name: Name) -> MethodResolution {
         let registry = self.registry.read();
 
         // Check user-defined methods first
@@ -58,6 +59,7 @@ impl MethodResolver for UserRegistryResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sigil_ir::SharedInterner;
 
     #[test]
     fn test_priority() {
@@ -68,10 +70,13 @@ mod tests {
 
     #[test]
     fn test_not_found_for_missing_method() {
+        let interner = SharedInterner::default();
         let registry = SharedMutableRegistry::new(UserMethodRegistry::new());
         let resolver = UserRegistryResolver::new(registry);
 
-        let result = resolver.resolve(&Value::Int(42), "int", "unknown_method");
+        let int_type = interner.intern("int");
+        let unknown_method = interner.intern("unknown_method");
+        let result = resolver.resolve(&Value::Int(42), int_type, unknown_method);
         assert!(matches!(result, MethodResolution::NotFound));
     }
 }

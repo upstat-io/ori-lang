@@ -51,14 +51,15 @@ fn test_user_method_dispatch() {
     let shared_arena = SharedArena::new(arena.clone());
     let user_method = UserMethod::new(vec![self_name], body, HashMap::new(), shared_arena);
     let mut registry = UserMethodRegistry::new();
-    registry.register("Point".to_string(), "double_x".to_string(), user_method);
+    let point_name = interner.intern("Point");
+    let double_x_name = interner.intern("double_x");
+    registry.register(point_name, double_x_name, user_method);
 
     let mut evaluator = EvaluatorBuilder::new(&interner, &arena)
         .user_method_registry(SharedMutableRegistry::new(registry))
         .build();
 
     // Create a struct value with x = 5
-    let point_name = interner.intern("Point");
     let mut fields = HashMap::new();
     fields.insert(x_name, Value::Int(5));
     let point = Value::Struct(StructValue::new(point_name, fields));
@@ -92,14 +93,15 @@ fn test_user_method_with_self_access() {
     let shared_arena = SharedArena::new(arena.clone());
     let user_method = UserMethod::new(vec![self_name], body, HashMap::new(), shared_arena);
     let mut registry = UserMethodRegistry::new();
-    registry.register("Point".to_string(), "get_x".to_string(), user_method);
+    let point_name = interner.intern("Point");
+    let get_x_name = interner.intern("get_x");
+    registry.register(point_name, get_x_name, user_method);
 
     let mut evaluator = EvaluatorBuilder::new(&interner, &arena)
         .user_method_registry(SharedMutableRegistry::new(registry))
         .build();
 
     // Create a struct value with x = 7
-    let point_name = interner.intern("Point");
     let mut fields = HashMap::new();
     fields.insert(x_name, Value::Int(7));
     let point = Value::Struct(StructValue::new(point_name, fields));
@@ -141,14 +143,15 @@ fn test_user_method_with_args() {
     let shared_arena = SharedArena::new(arena.clone());
     let user_method = UserMethod::new(vec![self_name, n_name], body, HashMap::new(), shared_arena);
     let mut registry = UserMethodRegistry::new();
-    registry.register("Point".to_string(), "add_to_x".to_string(), user_method);
+    let point_name = interner.intern("Point");
+    let add_to_x_name = interner.intern("add_to_x");
+    registry.register(point_name, add_to_x_name, user_method);
 
     let mut evaluator = EvaluatorBuilder::new(&interner, &arena)
         .user_method_registry(SharedMutableRegistry::new(registry))
         .build();
 
     // Create a struct value with x = 10
-    let point_name = interner.intern("Point");
     let mut fields = HashMap::new();
     fields.insert(x_name, Value::Int(10));
     let point = Value::Struct(StructValue::new(point_name, fields));

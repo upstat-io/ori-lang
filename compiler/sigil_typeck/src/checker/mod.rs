@@ -548,11 +548,11 @@ impl<'a> TypeChecker<'a> {
         for cap_ref in &func.capabilities {
             if !self.registries.traits.has_trait(cap_ref.name) {
                 let cap_name = self.context.interner.lookup(cap_ref.name);
-                self.diagnostics.errors.push(TypeCheckError {
-                    message: format!("unknown capability `{cap_name}`: capabilities must be defined traits"),
-                    span: cap_ref.span,
-                    code: sigil_diagnostic::ErrorCode::E2012,
-                });
+                self.push_error(
+                    format!("unknown capability `{cap_name}`: capabilities must be defined traits"),
+                    cap_ref.span,
+                    sigil_diagnostic::ErrorCode::E2012,
+                );
             }
         }
     }
@@ -618,6 +618,19 @@ impl<'a> TypeChecker<'a> {
     /// Store the type for an expression.
     pub(crate) fn store_type(&mut self, expr_id: ExprId, ty: Type) {
         self.inference.expr_types.insert(expr_id.index(), ty);
+    }
+
+    /// Push a type check error with the given message, span, and error code.
+    ///
+    /// This is a convenience method for the common pattern of creating
+    /// and pushing a TypeCheckError to the diagnostics list.
+    #[inline]
+    pub(crate) fn push_error(&mut self, msg: impl Into<String>, span: Span, code: sigil_diagnostic::ErrorCode) {
+        self.diagnostics.errors.push(TypeCheckError {
+            message: msg.into(),
+            span,
+            code,
+        });
     }
 }
 

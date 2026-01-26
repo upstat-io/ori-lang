@@ -6,58 +6,42 @@ use std::collections::HashMap;
 use sigil_diagnostic::ErrorCode;
 use sigil_ir::{Name, Span};
 use sigil_types::Type;
-use super::{TypeChecker, TypeCheckError, FunctionType};
+use super::{TypeChecker, FunctionType};
+
+/// Trait sets for primitive types (reduces duplication).
+const INT_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Default", "Printable"];
+const FLOAT_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Default", "Printable"];
+const BOOL_TRAITS: &[&str] = &["Eq", "Clone", "Hashable", "Default", "Printable"];
+const STR_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Default", "Printable", "Len", "IsEmpty"];
+const CHAR_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Printable"];
+const BYTE_TRAITS: &[&str] = &["Eq", "Clone", "Hashable", "Printable"];
+const UNIT_TRAITS: &[&str] = &["Eq", "Clone", "Default"];
+const DURATION_SIZE_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Printable"];
+const COLLECTION_TRAITS: &[&str] = &["Clone", "Eq", "Len", "IsEmpty"];
+const WRAPPER_TRAITS: &[&str] = &["Clone", "Eq", "Default"];
+const RESULT_TRAITS: &[&str] = &["Clone", "Eq"];
 
 /// Check if a primitive type has a built-in trait implementation.
 ///
 /// This is used to check both generic trait bounds and capability trait implementations.
 pub fn primitive_implements_trait(ty: &Type, trait_name: &str) -> bool {
-    match ty {
-        Type::Int => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Hashable" | "Default" | "Printable"),
-        Type::Float => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Default" | "Printable"),
-        Type::Bool => matches!(trait_name, "Eq" | "Clone" | "Hashable" | "Default" | "Printable"),
-        Type::Str => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Hashable" | "Default" | "Printable" | "Len" | "IsEmpty"),
-        Type::Char => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Hashable" | "Printable"),
-        Type::Byte => matches!(trait_name, "Eq" | "Clone" | "Hashable" | "Printable"),
-        Type::Unit => matches!(trait_name, "Eq" | "Clone" | "Default"),
-        Type::Duration => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Printable"),
-        Type::Size => matches!(trait_name, "Eq" | "Comparable" | "Clone" | "Printable"),
-
-        // Option<T> is Eq if T is Eq, Clone if T is Clone, etc.
-        Type::Option(inner) => {
-            // Option<T> satisfies Clone/Eq/Default if T does.
-            // Recursive verification deferred to trait solving.
-            let _ = inner;
-            matches!(trait_name, "Clone" | "Eq" | "Default")
-        }
-
-        // Result<T, E> is Eq if both T and E are Eq, etc.
-        Type::Result { ok, err } => {
-            if matches!(trait_name, "Clone" | "Eq") {
-                let _ = (ok, err);
-                true
-            } else {
-                false
-            }
-        }
-
-        // Lists implement Len, IsEmpty, Clone, Eq
-        Type::List(_) => matches!(trait_name, "Clone" | "Eq" | "Len" | "IsEmpty"),
-
-        // Maps implement Len, IsEmpty, Clone, Eq
-        Type::Map { .. } => matches!(trait_name, "Clone" | "Eq" | "Len" | "IsEmpty"),
-
-        // Sets implement Len, IsEmpty, Clone, Eq
-        Type::Set(_) => matches!(trait_name, "Clone" | "Eq" | "Len" | "IsEmpty"),
-
-        // Tuples implement Clone, Eq
-        Type::Tuple(_) => matches!(trait_name, "Clone" | "Eq"),
-
-        // Ranges implement Len
-        Type::Range(_) => matches!(trait_name, "Len"),
-
-        _ => false,
-    }
+    let traits: &[&str] = match ty {
+        Type::Int => INT_TRAITS,
+        Type::Float => FLOAT_TRAITS,
+        Type::Bool => BOOL_TRAITS,
+        Type::Str => STR_TRAITS,
+        Type::Char => CHAR_TRAITS,
+        Type::Byte => BYTE_TRAITS,
+        Type::Unit => UNIT_TRAITS,
+        Type::Duration | Type::Size => DURATION_SIZE_TRAITS,
+        Type::Option(_) => WRAPPER_TRAITS,
+        Type::Result { .. } => RESULT_TRAITS,
+        Type::List(_) | Type::Map { .. } | Type::Set(_) => COLLECTION_TRAITS,
+        Type::Tuple(_) => RESULT_TRAITS, // Clone, Eq
+        Type::Range(_) => &["Len"],
+        _ => return false,
+    };
+    traits.contains(&trait_name)
 }
 
 impl TypeChecker<'_> {
@@ -139,13 +123,13 @@ impl TypeChecker<'_> {
                     let type_name = resolved_type.display(self.context.interner);
                     let generic_name = self.context.interner.lookup(generic.param);
 
-                    self.diagnostics.errors.push(TypeCheckError {
-                        message: format!(
+                    self.push_error(
+                        format!(
                             "type `{type_name}` does not satisfy trait bound `{bound_name}` required by generic parameter `{generic_name}`"
                         ),
                         span,
-                        code: ErrorCode::E2009,
-                    });
+                        ErrorCode::E2009,
+                    );
                 }
             }
         }
@@ -194,13 +178,13 @@ impl TypeChecker<'_> {
                         self.context.interner.lookup(constraint.param).to_string()
                     };
 
-                    self.diagnostics.errors.push(TypeCheckError {
-                        message: format!(
+                    self.push_error(
+                        format!(
                             "type `{type_name}` (from `{constraint_desc}`) does not satisfy trait bound `{bound_name}`"
                         ),
                         span,
-                        code: ErrorCode::E2009,
-                    });
+                        ErrorCode::E2009,
+                    );
                 }
             }
         }

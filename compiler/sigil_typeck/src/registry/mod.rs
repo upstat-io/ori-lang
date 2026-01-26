@@ -102,6 +102,21 @@ impl TypeRegistry {
         id
     }
 
+    /// Internal helper to register a type entry.
+    fn register_entry(
+        &mut self,
+        name: Name,
+        kind: TypeKind,
+        span: Span,
+        type_params: Vec<Name>,
+    ) -> TypeId {
+        let type_id = self.next_id();
+        let entry = TypeEntry { name, type_id, kind, span, type_params };
+        self.types_by_name.insert(name, entry.clone());
+        self.types_by_id.insert(type_id, entry);
+        type_id
+    }
+
     /// Register a struct type.
     ///
     /// Returns the assigned `TypeId`.
@@ -112,17 +127,7 @@ impl TypeRegistry {
         span: Span,
         type_params: Vec<Name>,
     ) -> TypeId {
-        let type_id = self.next_id();
-        let entry = TypeEntry {
-            name,
-            type_id,
-            kind: TypeKind::Struct { fields },
-            span,
-            type_params,
-        };
-        self.types_by_name.insert(name, entry.clone());
-        self.types_by_id.insert(type_id, entry);
-        type_id
+        self.register_entry(name, TypeKind::Struct { fields }, span, type_params)
     }
 
     /// Register an enum type.
@@ -135,17 +140,7 @@ impl TypeRegistry {
         span: Span,
         type_params: Vec<Name>,
     ) -> TypeId {
-        let type_id = self.next_id();
-        let entry = TypeEntry {
-            name,
-            type_id,
-            kind: TypeKind::Enum { variants },
-            span,
-            type_params,
-        };
-        self.types_by_name.insert(name, entry.clone());
-        self.types_by_id.insert(type_id, entry);
-        type_id
+        self.register_entry(name, TypeKind::Enum { variants }, span, type_params)
     }
 
     /// Register a type alias.
@@ -158,17 +153,7 @@ impl TypeRegistry {
         span: Span,
         type_params: Vec<Name>,
     ) -> TypeId {
-        let type_id = self.next_id();
-        let entry = TypeEntry {
-            name,
-            type_id,
-            kind: TypeKind::Alias { target },
-            span,
-            type_params,
-        };
-        self.types_by_name.insert(name, entry.clone());
-        self.types_by_id.insert(type_id, entry);
-        type_id
+        self.register_entry(name, TypeKind::Alias { target }, span, type_params)
     }
 
     /// Look up a type entry by name.

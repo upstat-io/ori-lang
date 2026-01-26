@@ -58,7 +58,7 @@ impl<'a> EvaluatorBuilder<'a> {
         // Uses unified UserRegistryResolver for both user-defined and derived methods.
         let method_dispatcher = MethodDispatcher::new(vec![
             Box::new(UserRegistryResolver::new(user_meth_reg.clone())),
-            Box::new(CollectionMethodResolver::new()),
+            Box::new(CollectionMethodResolver::new(self.interner)),
             Box::new(BuiltinMethodResolver::new()),
         ]);
 

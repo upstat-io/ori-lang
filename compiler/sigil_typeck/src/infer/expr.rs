@@ -4,60 +4,124 @@ use sigil_ir::{
     Name, Span, ExprId, BinaryOp, UnaryOp,
     ExprRange, ParamRange, ParsedType, MapEntryRange, FieldInitRange,
 };
-use sigil_types::Type;
-use crate::checker::{TypeChecker, TypeCheckError};
+use sigil_types::{Type, TypeFolder};
+use crate::checker::TypeChecker;
 use crate::operators::TypeOpResult;
 use crate::registry::TypeKind;
 use super::infer_expr;
 use std::collections::HashMap;
 
 /// Substitute type parameter names with their corresponding type variables.
+///
+/// Uses TypeFolder to recursively transform Named types to their replacements.
 fn substitute_type_params(ty: &Type, params: &HashMap<Name, Type>) -> Type {
-    match ty {
-        Type::Named(name) => {
-            if let Some(replacement) = params.get(name) {
+    struct ParamSubstitutor<'a> {
+        params: &'a HashMap<Name, Type>,
+    }
+
+    impl TypeFolder for ParamSubstitutor<'_> {
+        fn fold_named(&mut self, name: Name) -> Type {
+            if let Some(replacement) = self.params.get(&name) {
                 replacement.clone()
             } else {
-                ty.clone()
+                Type::Named(name)
             }
         }
-        Type::List(inner) => {
-            Type::List(Box::new(substitute_type_params(inner, params)))
-        }
-        Type::Option(inner) => {
-            Type::Option(Box::new(substitute_type_params(inner, params)))
-        }
-        Type::Result { ok, err } => {
-            Type::Result {
-                ok: Box::new(substitute_type_params(ok, params)),
-                err: Box::new(substitute_type_params(err, params)),
+    }
+
+    let mut substitutor = ParamSubstitutor { params };
+    substitutor.fold(ty)
+}
+
+/// Result of looking up a struct field.
+enum FieldLookupResult {
+    /// Field found with resolved type.
+    Found(Type),
+    /// Type is not a struct (is an enum).
+    NotStruct,
+    /// Field not found in struct.
+    NoSuchField,
+    /// Type alias (should have been resolved).
+    Alias,
+}
+
+/// Look up a field in a struct type, optionally substituting type parameters.
+fn lookup_struct_field_in_entry(
+    entry: &crate::registry::TypeEntry,
+    field: Name,
+    type_args: Option<&[Type]>,
+) -> FieldLookupResult {
+    match &entry.kind {
+        TypeKind::Struct { fields } => {
+            // Build type param map if we have type arguments
+            let type_param_map: Option<HashMap<Name, Type>> = type_args.map(|args| {
+                entry.type_params.iter()
+                    .zip(args.iter())
+                    .map(|(&param_name, arg)| (param_name, arg.clone()))
+                    .collect()
+            });
+
+            for (field_name, field_ty) in fields {
+                if *field_name == field {
+                    let result_ty = match &type_param_map {
+                        Some(map) => substitute_type_params(field_ty, map),
+                        None => field_ty.clone(),
+                    };
+                    return FieldLookupResult::Found(result_ty);
+                }
             }
+            FieldLookupResult::NoSuchField
         }
-        Type::Map { key, value } => {
-            Type::Map {
-                key: Box::new(substitute_type_params(key, params)),
-                value: Box::new(substitute_type_params(value, params)),
-            }
+        TypeKind::Enum { .. } => FieldLookupResult::NotStruct,
+        TypeKind::Alias { .. } => FieldLookupResult::Alias,
+    }
+}
+
+/// Handle field access on a named or applied struct type.
+fn handle_struct_field_access(
+    checker: &mut TypeChecker<'_>,
+    type_name: Name,
+    field: Name,
+    type_args: Option<&[Type]>,
+    span: Span,
+) -> Type {
+    let Some(entry) = checker.registries.types.get_by_name(type_name) else {
+        checker.push_error(
+            format!("unknown type `{}`", checker.context.interner.lookup(type_name)),
+            span,
+            sigil_diagnostic::ErrorCode::E2003,
+        );
+        return Type::Error;
+    };
+    let entry = entry.clone();
+
+    match lookup_struct_field_in_entry(&entry, field, type_args) {
+        FieldLookupResult::Found(ty) => ty,
+        FieldLookupResult::NoSuchField => {
+            checker.push_error(
+                format!(
+                    "struct `{}` has no field `{}`",
+                    checker.context.interner.lookup(type_name),
+                    checker.context.interner.lookup(field)
+                ),
+                span,
+                sigil_diagnostic::ErrorCode::E2001,
+            );
+            Type::Error
         }
-        Type::Set(inner) => {
-            Type::Set(Box::new(substitute_type_params(inner, params)))
+        FieldLookupResult::NotStruct => {
+            checker.push_error(
+                format!(
+                    "cannot access field `{}` on enum type `{}`",
+                    checker.context.interner.lookup(field),
+                    checker.context.interner.lookup(type_name)
+                ),
+                span,
+                sigil_diagnostic::ErrorCode::E2001,
+            );
+            Type::Error
         }
-        Type::Tuple(elems) => {
-            Type::Tuple(elems.iter().map(|e| substitute_type_params(e, params)).collect())
-        }
-        Type::Function { params: fn_params, ret } => {
-            Type::Function {
-                params: fn_params.iter().map(|p| substitute_type_params(p, params)).collect(),
-                ret: Box::new(substitute_type_params(ret, params)),
-            }
-        }
-        Type::Range(inner) => {
-            Type::Range(Box::new(substitute_type_params(inner, params)))
-        }
-        Type::Channel(inner) => {
-            Type::Channel(Box::new(substitute_type_params(inner, params)))
-        }
-        _ => ty.clone(),
+        FieldLookupResult::Alias => Type::Error,
     }
 }
 
@@ -71,49 +135,34 @@ pub fn infer_ident(checker: &mut TypeChecker<'_>, name: Name, span: Span) -> Typ
             return ty;
         }
 
-        checker.diagnostics.errors.push(TypeCheckError {
-            message: format!(
-                "unknown identifier `{}`",
-                checker.context.interner.lookup(name)
-            ),
+        checker.push_error(
+            format!("unknown identifier `{}`", checker.context.interner.lookup(name)),
             span,
-            code: sigil_diagnostic::ErrorCode::E2003,
-        });
+            sigil_diagnostic::ErrorCode::E2003,
+        );
         Type::Error
+    }
+}
+
+/// Create a conversion function type: (T) -> ReturnType
+///
+/// Used for built-in conversion functions like `int(x)`, `float(x)`, etc.
+#[inline]
+fn make_conversion_type(checker: &mut TypeChecker<'_>, ret: Type) -> Type {
+    let param = checker.inference.ctx.fresh_var();
+    Type::Function {
+        params: vec![param],
+        ret: Box::new(ret),
     }
 }
 
 /// Get the type for a built-in function (function_val).
 fn builtin_function_type(checker: &mut TypeChecker<'_>, name: &str) -> Option<Type> {
     match name {
-        "str" => {
-            let param = checker.inference.ctx.fresh_var();
-            Some(Type::Function {
-                params: vec![param],
-                ret: Box::new(Type::Str),
-            })
-        }
-        "int" => {
-            let param = checker.inference.ctx.fresh_var();
-            Some(Type::Function {
-                params: vec![param],
-                ret: Box::new(Type::Int),
-            })
-        }
-        "float" => {
-            let param = checker.inference.ctx.fresh_var();
-            Some(Type::Function {
-                params: vec![param],
-                ret: Box::new(Type::Float),
-            })
-        }
-        "byte" => {
-            let param = checker.inference.ctx.fresh_var();
-            Some(Type::Function {
-                params: vec![param],
-                ret: Box::new(Type::Byte),
-            })
-        }
+        "str" => Some(make_conversion_type(checker, Type::Str)),
+        "int" => Some(make_conversion_type(checker, Type::Int)),
+        "float" => Some(make_conversion_type(checker, Type::Float)),
+        "byte" => Some(make_conversion_type(checker, Type::Byte)),
         _ => None,
     }
 }
@@ -123,14 +172,11 @@ pub fn infer_function_ref(checker: &mut TypeChecker<'_>, name: Name, span: Span)
     if let Some(scheme) = checker.inference.env.lookup_scheme(name) {
         checker.inference.ctx.instantiate(scheme)
     } else {
-        checker.diagnostics.errors.push(TypeCheckError {
-            message: format!(
-                "unknown function `@{}`",
-                checker.context.interner.lookup(name)
-            ),
+        checker.push_error(
+            format!("unknown function `@{}`", checker.context.interner.lookup(name)),
             span,
-            code: sigil_diagnostic::ErrorCode::E2003,
-        });
+            sigil_diagnostic::ErrorCode::E2003,
+        );
         Type::Error
     }
 }
@@ -166,11 +212,7 @@ fn check_binary_op(
     ) {
         TypeOpResult::Ok(ty) => ty,
         TypeOpResult::Err(e) => {
-            checker.diagnostics.errors.push(TypeCheckError {
-                message: e.message,
-                span,
-                code: e.code,
-            });
+            checker.push_error(e.message, span, e.code);
             Type::Error
         }
     }
@@ -200,14 +242,14 @@ fn check_unary_op(
             match resolved {
                 Type::Int | Type::Float | Type::Var(_) => resolved,
                 _ => {
-                    checker.diagnostics.errors.push(TypeCheckError {
-                        message: format!(
+                    checker.push_error(
+                        format!(
                             "cannot negate `{}`: negation requires a numeric type (int or float)",
                             operand.display(checker.context.interner)
                         ),
                         span,
-                        code: sigil_diagnostic::ErrorCode::E2001,
-                    });
+                        sigil_diagnostic::ErrorCode::E2001,
+                    );
                     Type::Error
                 }
             }
@@ -255,14 +297,15 @@ pub fn infer_lambda(
         })
         .collect();
 
-    let mut lambda_env = checker.inference.env.child();
-    for (param, ty) in params_slice.iter().zip(param_types.iter()) {
-        lambda_env.bind(param.name, ty.clone());
-    }
+    let bindings: Vec<_> = params_slice
+        .iter()
+        .zip(param_types.iter())
+        .map(|(param, ty)| (param.name, ty.clone()))
+        .collect();
 
-    let old_env = std::mem::replace(&mut checker.inference.env, lambda_env);
-    let body_ty = infer_expr(checker, body);
-    checker.inference.env = old_env;
+    let body_ty = checker.with_infer_bindings(bindings, |checker| {
+        infer_expr(checker, body)
+    });
 
     let final_ret_ty = match ret_ty {
         Some(parsed_ty) => {
@@ -357,14 +400,11 @@ pub fn infer_struct(
             sigil_ir::Span::new(0, 0)
         };
 
-        checker.diagnostics.errors.push(TypeCheckError {
-            message: format!(
-                "unknown struct type `{}`",
-                checker.context.interner.lookup(name)
-            ),
+        checker.push_error(
+            format!("unknown struct type `{}`", checker.context.interner.lookup(name)),
             span,
-            code: sigil_diagnostic::ErrorCode::E2003,
-        });
+            sigil_diagnostic::ErrorCode::E2003,
+        );
 
         for init in field_inits {
             if let Some(value_id) = init.value {
@@ -382,14 +422,11 @@ pub fn infer_struct(
             sigil_ir::Span::new(0, 0)
         };
 
-        checker.diagnostics.errors.push(TypeCheckError {
-            message: format!(
-                "`{}` is not a struct type",
-                checker.context.interner.lookup(name)
-            ),
+        checker.push_error(
+            format!("`{}` is not a struct type", checker.context.interner.lookup(name)),
             span,
-            code: sigil_diagnostic::ErrorCode::E2001,
-        });
+            sigil_diagnostic::ErrorCode::E2001,
+        );
         return Type::Error;
     };
 
@@ -430,14 +467,11 @@ pub fn infer_struct(
 
     for init in field_inits {
         if !provided_fields.insert(init.name) {
-            checker.diagnostics.errors.push(TypeCheckError {
-                message: format!(
-                    "field `{}` specified more than once",
-                    checker.context.interner.lookup(init.name)
-                ),
-                span: init.span,
-                code: sigil_diagnostic::ErrorCode::E2001,
-            });
+            checker.push_error(
+                format!("field `{}` specified more than once", checker.context.interner.lookup(init.name)),
+                init.span,
+                sigil_diagnostic::ErrorCode::E2001,
+            );
             continue;
         }
 
@@ -454,15 +488,15 @@ pub fn infer_struct(
                 }
             }
         } else {
-            checker.diagnostics.errors.push(TypeCheckError {
-                message: format!(
+            checker.push_error(
+                format!(
                     "struct `{}` has no field `{}`",
                     checker.context.interner.lookup(name),
                     checker.context.interner.lookup(init.name)
                 ),
-                span: init.span,
-                code: sigil_diagnostic::ErrorCode::E2001,
-            });
+                init.span,
+                sigil_diagnostic::ErrorCode::E2001,
+            );
 
             if let Some(value_id) = init.value {
                 infer_expr(checker, value_id);
@@ -478,15 +512,15 @@ pub fn infer_struct(
                 sigil_ir::Span::new(0, 0)
             };
 
-            checker.diagnostics.errors.push(TypeCheckError {
-                message: format!(
+            checker.push_error(
+                format!(
                     "missing field `{}` in struct `{}`",
                     checker.context.interner.lookup(*field_name),
                     checker.context.interner.lookup(name)
                 ),
                 span,
-                code: sigil_diagnostic::ErrorCode::E2001,
-            });
+                sigil_diagnostic::ErrorCode::E2001,
+            );
         }
     }
 
@@ -502,8 +536,6 @@ pub fn infer_range(
     checker: &mut TypeChecker<'_>,
     start: Option<ExprId>,
     end: Option<ExprId>,
-    _inclusive: bool,
-    _span: Span,
 ) -> Type {
     let elem_ty = if let Some(start_id) = start {
         infer_expr(checker, start_id)
@@ -537,54 +569,7 @@ pub fn infer_field(
 
     match resolved_ty {
         Type::Named(type_name) => {
-            if let Some(entry) = checker.registries.types.get_by_name(type_name) {
-                let entry = entry.clone();
-                match &entry.kind {
-                    TypeKind::Struct { fields } => {
-                        for (field_name, field_ty) in fields {
-                            if *field_name == field {
-                                return field_ty.clone();
-                            }
-                        }
-
-                        checker.diagnostics.errors.push(TypeCheckError {
-                            message: format!(
-                                "struct `{}` has no field `{}`",
-                                checker.context.interner.lookup(type_name),
-                                checker.context.interner.lookup(field)
-                            ),
-                            span: receiver_span,
-                            code: sigil_diagnostic::ErrorCode::E2001,
-                        });
-                        Type::Error
-                    }
-                    TypeKind::Enum { .. } => {
-                        checker.diagnostics.errors.push(TypeCheckError {
-                            message: format!(
-                                "cannot access field `{}` on enum type `{}`",
-                                checker.context.interner.lookup(field),
-                                checker.context.interner.lookup(type_name)
-                            ),
-                            span: receiver_span,
-                            code: sigil_diagnostic::ErrorCode::E2001,
-                        });
-                        Type::Error
-                    }
-                    TypeKind::Alias { .. } => {
-                        Type::Error
-                    }
-                }
-            } else {
-                checker.diagnostics.errors.push(TypeCheckError {
-                    message: format!(
-                        "unknown type `{}`",
-                        checker.context.interner.lookup(type_name)
-                    ),
-                    span: receiver_span,
-                    code: sigil_diagnostic::ErrorCode::E2003,
-                });
-                Type::Error
-            }
+            handle_struct_field_access(checker, type_name, field, None, receiver_span)
         }
 
         Type::Tuple(elems) => {
@@ -594,81 +579,27 @@ pub fn infer_field(
                     return elems[index].clone();
                 }
             }
-            checker.diagnostics.errors.push(TypeCheckError {
-                message: format!("tuple has no field `{field_name}`"),
-                span: receiver_span,
-                code: sigil_diagnostic::ErrorCode::E2001,
-            });
+            checker.push_error(
+                format!("tuple has no field `{field_name}`"),
+                receiver_span,
+                sigil_diagnostic::ErrorCode::E2001,
+            );
             Type::Error
         }
 
         Type::Applied { name: type_name, args } => {
-            if let Some(entry) = checker.registries.types.get_by_name(type_name) {
-                let entry = entry.clone();
-                match &entry.kind {
-                    TypeKind::Struct { fields } => {
-                        let type_param_map: HashMap<Name, Type> = entry
-                            .type_params
-                            .iter()
-                            .zip(args.iter())
-                            .map(|(&param_name, arg)| (param_name, arg.clone()))
-                            .collect();
-
-                        for (field_name, field_ty) in fields {
-                            if *field_name == field {
-                                return substitute_type_params(field_ty, &type_param_map);
-                            }
-                        }
-
-                        checker.diagnostics.errors.push(TypeCheckError {
-                            message: format!(
-                                "struct `{}` has no field `{}`",
-                                checker.context.interner.lookup(type_name),
-                                checker.context.interner.lookup(field)
-                            ),
-                            span: receiver_span,
-                            code: sigil_diagnostic::ErrorCode::E2001,
-                        });
-                        Type::Error
-                    }
-                    TypeKind::Enum { .. } => {
-                        checker.diagnostics.errors.push(TypeCheckError {
-                            message: format!(
-                                "cannot access field `{}` on enum type `{}`",
-                                checker.context.interner.lookup(field),
-                                checker.context.interner.lookup(type_name)
-                            ),
-                            span: receiver_span,
-                            code: sigil_diagnostic::ErrorCode::E2001,
-                        });
-                        Type::Error
-                    }
-                    TypeKind::Alias { .. } => {
-                        Type::Error
-                    }
-                }
-            } else {
-                checker.diagnostics.errors.push(TypeCheckError {
-                    message: format!(
-                        "unknown type `{}`",
-                        checker.context.interner.lookup(type_name)
-                    ),
-                    span: receiver_span,
-                    code: sigil_diagnostic::ErrorCode::E2003,
-                });
-                Type::Error
-            }
+            handle_struct_field_access(checker, type_name, field, Some(&args), receiver_span)
         }
 
         Type::Var(_) => checker.inference.ctx.fresh_var(),
         Type::Error => Type::Error,
 
         _ => {
-            checker.diagnostics.errors.push(TypeCheckError {
-                message: format!("type `{resolved_ty:?}` does not support field access"),
-                span: receiver_span,
-                code: sigil_diagnostic::ErrorCode::E2001,
-            });
+            checker.push_error(
+                format!("type `{resolved_ty:?}` does not support field access"),
+                receiver_span,
+                sigil_diagnostic::ErrorCode::E2001,
+            );
             Type::Error
         }
     }
@@ -706,14 +637,11 @@ pub fn infer_index(
         Type::Var(_) => checker.inference.ctx.fresh_var(),
         Type::Error => Type::Error,
         other => {
-            checker.diagnostics.errors.push(TypeCheckError {
-                message: format!(
-                    "type `{}` is not indexable",
-                    other.display(checker.context.interner)
-                ),
+            checker.push_error(
+                format!("type `{}` is not indexable", other.display(checker.context.interner)),
                 span,
-                code: sigil_diagnostic::ErrorCode::E2001,
-            });
+                sigil_diagnostic::ErrorCode::E2001,
+            );
             Type::Error
         }
     }

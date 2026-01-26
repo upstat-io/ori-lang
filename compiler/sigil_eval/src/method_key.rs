@@ -2,42 +2,51 @@
 //!
 //! Provides a type-safe key for method registry lookups,
 //! improving code clarity and enabling better error messages.
+//!
+//! Uses interned `Name` values for zero-allocation lookups.
 
-use std::fmt;
+use sigil_ir::{Name, SharedInterner};
 
 /// Key for looking up methods in registries.
 ///
 /// Combines a type name and method name into a single hashable key.
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+/// Uses interned `Name` values for efficient comparison and hashing.
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 pub struct MethodKey {
     /// The type name (e.g., "Point", "int", "[int]")
-    pub type_name: String,
+    pub type_name: Name,
     /// The method name (e.g., "distance", "double")
-    pub method_name: String,
+    pub method_name: Name,
 }
 
 impl MethodKey {
-    /// Create a new method key.
+    /// Create a new method key from interned names.
     #[inline]
-    pub fn new(type_name: impl Into<String>, method_name: impl Into<String>) -> Self {
+    pub const fn new(type_name: Name, method_name: Name) -> Self {
         Self {
-            type_name: type_name.into(),
-            method_name: method_name.into(),
+            type_name,
+            method_name,
         }
     }
 
-    /// Create a method key from string slices (allocates new Strings).
+    /// Format the method key for display (requires interner).
     #[inline]
-    pub fn from_strs(type_name: &str, method_name: &str) -> Self {
-        Self {
-            type_name: type_name.to_string(),
-            method_name: method_name.to_string(),
+    pub fn display<'a>(&self, interner: &'a SharedInterner) -> MethodKeyDisplay<'a> {
+        MethodKeyDisplay {
+            type_name: interner.lookup(self.type_name),
+            method_name: interner.lookup(self.method_name),
         }
     }
 }
 
-impl fmt::Display for MethodKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+/// Helper for displaying a MethodKey with resolved names.
+pub struct MethodKeyDisplay<'a> {
+    type_name: &'a str,
+    method_name: &'a str,
+}
+
+impl std::fmt::Display for MethodKeyDisplay<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}::{}", self.type_name, self.method_name)
     }
 }
@@ -49,9 +58,14 @@ mod tests {
 
     #[test]
     fn test_method_key_equality() {
-        let k1 = MethodKey::new("Point", "distance");
-        let k2 = MethodKey::new("Point", "distance");
-        let k3 = MethodKey::new("Point", "other");
+        let interner = SharedInterner::default();
+        let point = interner.intern("Point");
+        let distance = interner.intern("distance");
+        let other = interner.intern("other");
+
+        let k1 = MethodKey::new(point, distance);
+        let k2 = MethodKey::new(point, distance);
+        let k3 = MethodKey::new(point, other);
 
         assert_eq!(k1, k2);
         assert_ne!(k1, k3);
@@ -59,27 +73,39 @@ mod tests {
 
     #[test]
     fn test_method_key_as_hashmap_key() {
-        let mut map: HashMap<MethodKey, u32> = HashMap::new();
-        map.insert(MethodKey::new("Point", "distance"), 1);
-        map.insert(MethodKey::new("Point", "scale"), 2);
+        let interner = SharedInterner::default();
+        let point = interner.intern("Point");
+        let distance = interner.intern("distance");
+        let scale = interner.intern("scale");
+        let missing = interner.intern("missing");
 
-        assert_eq!(map.get(&MethodKey::new("Point", "distance")), Some(&1));
-        assert_eq!(map.get(&MethodKey::new("Point", "scale")), Some(&2));
-        assert_eq!(map.get(&MethodKey::new("Point", "missing")), None);
+        let mut map: HashMap<MethodKey, u32> = HashMap::new();
+        map.insert(MethodKey::new(point, distance), 1);
+        map.insert(MethodKey::new(point, scale), 2);
+
+        assert_eq!(map.get(&MethodKey::new(point, distance)), Some(&1));
+        assert_eq!(map.get(&MethodKey::new(point, scale)), Some(&2));
+        assert_eq!(map.get(&MethodKey::new(point, missing)), None);
     }
 
     #[test]
     fn test_method_key_display() {
-        let key = MethodKey::new("Point", "distance");
-        assert_eq!(format!("{key}"), "Point::distance");
+        let interner = SharedInterner::default();
+        let point = interner.intern("Point");
+        let distance = interner.intern("distance");
+
+        let key = MethodKey::new(point, distance);
+        assert_eq!(format!("{}", key.display(&interner)), "Point::distance");
     }
 
     #[test]
-    fn test_method_key_from_strs() {
-        let type_name = "Point";
-        let method_name = "distance";
-        let key = MethodKey::from_strs(type_name, method_name);
-        assert_eq!(key.type_name, "Point");
-        assert_eq!(key.method_name, "distance");
+    fn test_method_key_is_copy() {
+        let interner = SharedInterner::default();
+        let point = interner.intern("Point");
+        let distance = interner.intern("distance");
+
+        let key = MethodKey::new(point, distance);
+        let key_copy = key; // This should work since MethodKey is Copy
+        assert_eq!(key, key_copy);
     }
 }

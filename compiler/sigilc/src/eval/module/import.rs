@@ -375,10 +375,7 @@ impl<'a> ImportedModule<'a> {
         let mut module_functions: HashMap<Name, Value> = HashMap::new();
 
         for func in &parse_result.module.functions {
-            let params: Vec<_> = imported_arena.get_params(func.params)
-                .iter()
-                .map(|p| p.name)
-                .collect();
+            let params = imported_arena.get_param_names(func.params);
             let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
 
             let func_value = FunctionValue::with_capabilities(
@@ -445,10 +442,7 @@ pub fn register_imports(
                 )));
             }
 
-            let params: Vec<_> = imported.arena.get_params(func.params)
-                .iter()
-                .map(|p| p.name)
-                .collect();
+            let params = imported.arena.get_param_names(func.params);
             let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
 
             // Captures include: current environment + all module functions

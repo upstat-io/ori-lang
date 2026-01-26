@@ -83,4 +83,46 @@ impl TypeChecker<'_> {
 
         result
     }
+
+    /// Execute a closure with a child inference environment scope.
+    ///
+    /// Creates a new child environment, executes the closure, and then
+    /// restores the previous environment. This is the RAII pattern for
+    /// managing type environment scopes during inference.
+    ///
+    /// Use this when you need to introduce new bindings that should be
+    /// visible only within a specific scope (e.g., match arms, for loops,
+    /// lambda bodies).
+    pub fn with_infer_env_scope<T, F>(&mut self, f: F) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        let child_env = self.inference.env.child();
+        let old_env = std::mem::replace(&mut self.inference.env, child_env);
+
+        let result = f(self);
+
+        self.inference.env = old_env;
+        result
+    }
+
+    /// Execute a closure with pre-bound variables in a child scope.
+    ///
+    /// Creates a new child environment, binds the provided variables,
+    /// executes the closure, and then restores the previous environment.
+    ///
+    /// This is a convenience method for the common pattern of creating
+    /// a child scope and immediately binding variables (e.g., match arm
+    /// bindings, for loop variables).
+    pub fn with_infer_bindings<T, F>(&mut self, bindings: Vec<(Name, Type)>, f: F) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        self.with_infer_env_scope(|checker| {
+            for (name, ty) in bindings {
+                checker.inference.env.bind(name, ty);
+            }
+            f(checker)
+        })
+    }
 }

@@ -23,11 +23,10 @@ impl Evaluator<'_> {
     /// 3. Collection methods requiring evaluator (priority 2)
     /// 4. Built-in methods in `MethodRegistry` (priority 3)
     pub(super) fn eval_method_call(&mut self, receiver: Value, method: Name, args: Vec<Value>) -> EvalResult {
-        let method_name = self.interner.lookup(method);
         let type_name = self.get_value_type_name(&receiver);
 
         // Resolve the method using the resolver chain
-        let resolution = self.resolve_method(&receiver, &type_name, method_name);
+        let resolution = self.resolve_method(&receiver, type_name, method);
 
         // Execute based on resolution type
         match resolution {
@@ -41,12 +40,14 @@ impl Evaluator<'_> {
                 self.eval_collection_method(receiver, collection_method, &args)
             }
             MethodResolution::Builtin => {
+                let method_name = self.interner.lookup(method);
                 self.method_registry.dispatch(receiver, method_name, args)
             }
             MethodResolution::NotFound => {
                 // This shouldn't happen as BuiltinResolver always returns Builtin,
                 // but if it does, fall back to the method registry which will
                 // produce an appropriate error
+                let method_name = self.interner.lookup(method);
                 self.method_registry.dispatch(receiver, method_name, args)
             }
         }
@@ -57,7 +58,7 @@ impl Evaluator<'_> {
     /// Uses the pre-built dispatcher to try resolvers in priority order.
     /// The dispatcher sees method registrations made after construction because
     /// `user_method_registry` uses interior mutability (`SharedMutableRegistry`).
-    fn resolve_method(&self, receiver: &Value, type_name: &str, method_name: &str) -> MethodResolution {
+    fn resolve_method(&self, receiver: &Value, type_name: Name, method_name: Name) -> MethodResolution {
         self.method_dispatcher.resolve(receiver, type_name, method_name)
     }
 
@@ -211,83 +212,96 @@ impl Evaluator<'_> {
     // Collection Method Implementations
     // =========================================================================
 
-    fn eval_list_map(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
-        if args.len() != 1 {
-            return Err(wrong_arg_count("map", 1, args.len()));
+    /// Validate that the expected number of arguments was provided.
+    #[inline]
+    fn expect_arg_count(method_name: &str, expected: usize, args: &[Value]) -> Result<(), sigil_eval::EvalError> {
+        if args.len() != expected {
+            Err(wrong_arg_count(method_name, expected, args.len()))
+        } else {
+            Ok(())
         }
+    }
+
+    fn eval_list_map(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
+        Self::expect_arg_count("map", 1, args)?;
         self.map_iterator(items.iter().cloned(), &args[0])
     }
 
     fn eval_list_filter(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
-        if args.len() != 1 {
-            return Err(wrong_arg_count("filter", 1, args.len()));
-        }
+        Self::expect_arg_count("filter", 1, args)?;
         self.filter_iterator(items.iter().cloned(), &args[0])
     }
 
     fn eval_list_fold(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
-        if args.len() != 2 {
-            return Err(wrong_arg_count("fold", 2, args.len()));
-        }
+        Self::expect_arg_count("fold", 2, args)?;
         self.fold_iterator(items.iter().cloned(), args[0].clone(), &args[1])
     }
 
     fn eval_list_find(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
-        if args.len() != 1 {
-            return Err(wrong_arg_count("find", 1, args.len()));
-        }
+        Self::expect_arg_count("find", 1, args)?;
         self.find_in_iterator(items.iter().cloned(), &args[0])
     }
 
     fn eval_list_any(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
-        if args.len() != 1 {
-            return Err(wrong_arg_count("any", 1, args.len()));
-        }
+        Self::expect_arg_count("any", 1, args)?;
         self.any_in_iterator(items.iter().cloned(), &args[0])
     }
 
     fn eval_list_all(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
-        if args.len() != 1 {
-            return Err(wrong_arg_count("all", 1, args.len()));
-        }
+        Self::expect_arg_count("all", 1, args)?;
         self.all_in_iterator(items.iter().cloned(), &args[0])
     }
 
     fn eval_range_collect(&mut self, range: &sigil_patterns::RangeValue, args: &[Value]) -> EvalResult {
-        if !args.is_empty() {
-            return Err(wrong_arg_count("collect", 0, args.len()));
-        }
+        Self::expect_arg_count("collect", 0, args)?;
         let result: Vec<Value> = range.iter().map(Value::Int).collect();
         Ok(Value::list(result))
     }
 
     fn eval_range_map(&mut self, range: &sigil_patterns::RangeValue, args: &[Value]) -> EvalResult {
-        if args.len() != 1 {
-            return Err(wrong_arg_count("map", 1, args.len()));
-        }
+        Self::expect_arg_count("map", 1, args)?;
         self.map_iterator(range.iter().map(Value::Int), &args[0])
     }
 
     fn eval_range_filter(&mut self, range: &sigil_patterns::RangeValue, args: &[Value]) -> EvalResult {
-        if args.len() != 1 {
-            return Err(wrong_arg_count("filter", 1, args.len()));
-        }
+        Self::expect_arg_count("filter", 1, args)?;
         self.filter_iterator(range.iter().map(Value::Int), &args[0])
     }
 
     fn eval_range_fold(&mut self, range: &sigil_patterns::RangeValue, args: &[Value]) -> EvalResult {
-        if args.len() != 2 {
-            return Err(wrong_arg_count("fold", 2, args.len()));
-        }
+        Self::expect_arg_count("fold", 2, args)?;
         self.fold_iterator(range.iter().map(Value::Int), args[0].clone(), &args[1])
     }
 
-    /// Get the concrete type name for a value (for method lookup).
+    /// Get the concrete type name for a value as an interned Name.
     ///
-    /// Delegates to `Value::type_name_with_interner()` which resolves struct
-    /// names via the interner and returns static type names for other types.
-    pub(super) fn get_value_type_name(&self, value: &Value) -> String {
-        value.type_name_with_interner(self.interner).into_owned()
+    /// For struct values, returns the struct's type_name directly.
+    /// For other values, interns the static type name string.
+    ///
+    /// This avoids String allocation during method dispatch by using
+    /// interned Names throughout the lookup chain.
+    pub(super) fn get_value_type_name(&self, value: &Value) -> Name {
+        match value {
+            Value::Struct(s) => s.type_name,
+            Value::Range(_) => self.interner.intern("range"),
+            Value::Int(_) => self.interner.intern("int"),
+            Value::Float(_) => self.interner.intern("float"),
+            Value::Bool(_) => self.interner.intern("bool"),
+            Value::Str(_) => self.interner.intern("str"),
+            Value::Char(_) => self.interner.intern("char"),
+            Value::Byte(_) => self.interner.intern("byte"),
+            Value::Void => self.interner.intern("void"),
+            Value::Duration(_) => self.interner.intern("Duration"),
+            Value::Size(_) => self.interner.intern("Size"),
+            Value::List(_) => self.interner.intern("list"),
+            Value::Map(_) => self.interner.intern("map"),
+            Value::Tuple(_) => self.interner.intern("tuple"),
+            Value::Some(_) | Value::None => self.interner.intern("Option"),
+            Value::Ok(_) | Value::Err(_) => self.interner.intern("Result"),
+            Value::Function(_) => self.interner.intern("function"),
+            Value::FunctionVal(_, _) => self.interner.intern("function_val"),
+            Value::Error(_) => self.interner.intern("error"),
+        }
     }
 
     /// Evaluate a user-defined method from an impl block.

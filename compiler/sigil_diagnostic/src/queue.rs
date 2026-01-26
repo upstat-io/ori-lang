@@ -269,23 +269,7 @@ impl DiagnosticQueue {
 
     /// Check if a diagnostic is a syntax (parser) error.
     fn is_syntax_error(diag: &Diagnostic) -> bool {
-        matches!(
-            diag.code,
-            ErrorCode::E1001
-                | ErrorCode::E1002
-                | ErrorCode::E1003
-                | ErrorCode::E1004
-                | ErrorCode::E1005
-                | ErrorCode::E1006
-                | ErrorCode::E1007
-                | ErrorCode::E1008
-                | ErrorCode::E1009
-                | ErrorCode::E1010
-                | ErrorCode::E1011
-                | ErrorCode::E1012
-                | ErrorCode::E1013
-                | ErrorCode::E1014
-        )
+        diag.code.is_parser_error()
     }
 }
 

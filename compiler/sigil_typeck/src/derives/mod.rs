@@ -37,7 +37,7 @@ fn process_type_derives(
     user_method_registry: &mut UserMethodRegistry,
     interner: &StringInterner,
 ) {
-    let type_name = interner.lookup(type_decl.name).to_string();
+    let type_name = type_decl.name;
 
     // Get field names based on type kind
     let field_names = match &type_decl.kind {
@@ -55,13 +55,13 @@ fn process_type_derives(
 
     // Process each derived trait
     for derive_name in &type_decl.derives {
-        let trait_name = interner.lookup(*derive_name);
+        let trait_name_str = interner.lookup(*derive_name);
 
-        if let Some(trait_kind) = DerivedTrait::from_str(trait_name) {
-            let method_name = trait_kind.method_name().to_string();
+        if let Some(trait_kind) = DerivedTrait::from_str(trait_name_str) {
+            let method_name = interner.intern(trait_kind.method_name());
             let info = DerivedMethodInfo::new(trait_kind, field_names.clone());
 
-            user_method_registry.register_derived(type_name.clone(), method_name, info);
+            user_method_registry.register_derived(type_name, method_name, info);
         }
         // Unknown derive traits are ignored here (type checker may report an error)
     }
@@ -210,10 +210,13 @@ type Point = { x: int, y: int }
 
         process_derives(&parse_result.module, &type_registry, &mut user_method_registry, &interner);
 
-        // Should have registered an eq method for Point
-        assert!(user_method_registry.has_method("Point", "eq"));
+        let point = interner.intern("Point");
+        let eq = interner.intern("eq");
 
-        let info = user_method_registry.lookup_derived("Point", "eq").unwrap();
+        // Should have registered an eq method for Point
+        assert!(user_method_registry.has_method(point, eq));
+
+        let info = user_method_registry.lookup_derived(point, eq).unwrap();
         assert_eq!(info.trait_kind, DerivedTrait::Eq);
         assert_eq!(info.field_names.len(), 2);
     }
@@ -237,10 +240,15 @@ type Point = { x: int, y: int }
 
         process_derives(&parse_result.module, &type_registry, &mut user_method_registry, &interner);
 
+        let point = interner.intern("Point");
+        let eq = interner.intern("eq");
+        let clone_method = interner.intern("clone");
+        let to_string = interner.intern("to_string");
+
         // Should have all three methods registered
-        assert!(user_method_registry.has_method("Point", "eq"));
-        assert!(user_method_registry.has_method("Point", "clone"));
-        assert!(user_method_registry.has_method("Point", "to_string"));
+        assert!(user_method_registry.has_method(point, eq));
+        assert!(user_method_registry.has_method(point, clone_method));
+        assert!(user_method_registry.has_method(point, to_string));
     }
 
     #[test]
@@ -262,8 +270,12 @@ type Point = { x: int }
 
         process_derives(&parse_result.module, &type_registry, &mut user_method_registry, &interner);
 
+        let point = interner.intern("Point");
+        let eq = interner.intern("eq");
+        let unknown = interner.intern("unknown");
+
         // Should have Eq but not Unknown
-        assert!(user_method_registry.has_method("Point", "eq"));
-        assert!(!user_method_registry.has_method("Point", "unknown"));
+        assert!(user_method_registry.has_method(point, eq));
+        assert!(!user_method_registry.has_method(point, unknown));
     }
 }

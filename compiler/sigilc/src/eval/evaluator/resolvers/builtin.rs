@@ -2,6 +2,7 @@
 //!
 //! Resolves methods from the MethodRegistry (built-in methods on primitive types).
 
+use sigil_ir::Name;
 use super::{MethodResolution, MethodResolver, Value};
 
 /// Resolver for built-in methods from MethodRegistry.
@@ -28,7 +29,7 @@ impl Default for BuiltinMethodResolver {
 }
 
 impl MethodResolver for BuiltinMethodResolver {
-    fn resolve(&self, _receiver: &Value, _type_name: &str, _method_name: &str) -> MethodResolution {
+    fn resolve(&self, _receiver: &Value, _type_name: Name, _method_name: Name) -> MethodResolution {
         // Always return Builtin - the actual lookup happens in the registry
         // This acts as a catch-all that delegates to the MethodRegistry
         MethodResolution::Builtin
@@ -46,6 +47,7 @@ impl MethodResolver for BuiltinMethodResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sigil_ir::SharedInterner;
 
     #[test]
     fn test_priority() {
@@ -55,13 +57,19 @@ mod tests {
 
     #[test]
     fn test_always_returns_builtin() {
+        let interner = SharedInterner::default();
         let resolver = BuiltinMethodResolver::new();
 
+        let int_type = interner.intern("int");
+        let abs_method = interner.intern("abs");
+        let str_type = interner.intern("str");
+        let len_method = interner.intern("len");
+
         // Any method on any type returns Builtin
-        let result = resolver.resolve(&Value::Int(42), "int", "abs");
+        let result = resolver.resolve(&Value::Int(42), int_type, abs_method);
         assert!(matches!(result, MethodResolution::Builtin));
 
-        let result = resolver.resolve(&Value::string("hello"), "str", "len");
+        let result = resolver.resolve(&Value::string("hello"), str_type, len_method);
         assert!(matches!(result, MethodResolution::Builtin));
     }
 }

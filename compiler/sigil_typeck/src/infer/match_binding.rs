@@ -6,7 +6,7 @@
 use sigil_ir::{Name, Span, MatchPattern};
 use sigil_types::Type;
 use crate::registry::{TypeKind, VariantDef};
-use crate::checker::{TypeChecker, TypeCheckError};
+use crate::checker::TypeChecker;
 use super::infer_expr;
 use std::collections::HashSet;
 
@@ -216,15 +216,15 @@ pub fn unify_pattern_with_scrutinee(
             };
 
             if !valid_variant && !matches!(resolved_ty, Type::Error) {
-                checker.diagnostics.errors.push(TypeCheckError {
-                    message: format!(
+                checker.push_error(
+                    format!(
                         "pattern `{}` is not a valid variant for type `{}`",
                         variant_str,
                         resolved_ty.display(checker.context.interner)
                     ),
                     span,
-                    code: sigil_diagnostic::ErrorCode::E2001,
-                });
+                    sigil_diagnostic::ErrorCode::E2001,
+                );
             }
 
             if let Some(inner_pattern) = inner {
@@ -244,15 +244,15 @@ pub fn unify_pattern_with_scrutinee(
 
                 if field_ty.is_none() && !matches!(resolved_ty, Type::Var(_) | Type::Error) {
                     let field_str = checker.context.interner.lookup(*field_name);
-                    checker.diagnostics.errors.push(TypeCheckError {
-                        message: format!(
+                    checker.push_error(
+                        format!(
                             "type `{}` has no field `{}`",
                             resolved_ty.display(checker.context.interner),
                             field_str
                         ),
                         span,
-                        code: sigil_diagnostic::ErrorCode::E2001,
-                    });
+                        sigil_diagnostic::ErrorCode::E2001,
+                    );
                 }
 
                 if let (Some(nested), Some(ty)) = (opt_pattern, field_ty) {
@@ -265,15 +265,15 @@ pub fn unify_pattern_with_scrutinee(
             match &resolved_ty {
                 Type::Tuple(elems) => {
                     if patterns.len() != elems.len() {
-                        checker.diagnostics.errors.push(TypeCheckError {
-                            message: format!(
+                        checker.push_error(
+                            format!(
                                 "tuple pattern has {} elements but scrutinee has {}",
                                 patterns.len(),
                                 elems.len()
                             ),
                             span,
-                            code: sigil_diagnostic::ErrorCode::E2001,
-                        });
+                            sigil_diagnostic::ErrorCode::E2001,
+                        );
                     }
 
                     for (pattern, ty) in patterns.iter().zip(elems.iter()) {
@@ -295,14 +295,14 @@ pub fn unify_pattern_with_scrutinee(
                 }
                 Type::Error => {}
                 _ => {
-                    checker.diagnostics.errors.push(TypeCheckError {
-                        message: format!(
+                    checker.push_error(
+                        format!(
                             "tuple pattern cannot match type `{}`",
                             resolved_ty.display(checker.context.interner)
                         ),
                         span,
-                        code: sigil_diagnostic::ErrorCode::E2001,
-                    });
+                        sigil_diagnostic::ErrorCode::E2001,
+                    );
                 }
             }
         }
@@ -327,14 +327,14 @@ pub fn unify_pattern_with_scrutinee(
                 }
                 Type::Error => {}
                 _ => {
-                    checker.diagnostics.errors.push(TypeCheckError {
-                        message: format!(
+                    checker.push_error(
+                        format!(
                             "list pattern cannot match type `{}`",
                             resolved_ty.display(checker.context.interner)
                         ),
                         span,
-                        code: sigil_diagnostic::ErrorCode::E2001,
-                    });
+                        sigil_diagnostic::ErrorCode::E2001,
+                    );
                 }
             }
         }

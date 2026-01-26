@@ -152,10 +152,10 @@ impl UserMethodRegistry {
     /// Register a user-defined method.
     ///
     /// # Arguments
-    /// * `type_name` - The type this method is defined on (e.g., "Point", "int")
-    /// * `method_name` - The method name (e.g., "distance", "double")
+    /// * `type_name` - The type this method is defined on (interned)
+    /// * `method_name` - The method name (interned)
     /// * `method` - The method definition
-    pub fn register(&mut self, type_name: String, method_name: String, method: UserMethod) {
+    pub fn register(&mut self, type_name: Name, method_name: Name, method: UserMethod) {
         self.methods
             .insert(MethodKey::new(type_name, method_name), method);
     }
@@ -163,13 +163,13 @@ impl UserMethodRegistry {
     /// Register a derived method.
     ///
     /// # Arguments
-    /// * `type_name` - The type this method is defined on (e.g., "Point")
-    /// * `method_name` - The method name (e.g., "eq", "clone")
+    /// * `type_name` - The type this method is defined on (interned)
+    /// * `method_name` - The method name (interned)
     /// * `info` - The derived method information
     pub fn register_derived(
         &mut self,
-        type_name: String,
-        method_name: String,
+        type_name: Name,
+        method_name: Name,
         info: DerivedMethodInfo,
     ) {
         self.derived_methods
@@ -179,24 +179,23 @@ impl UserMethodRegistry {
     /// Look up a user-defined method.
     ///
     /// Returns None if no method is registered for this type/method combination.
-    pub fn lookup(&self, type_name: &str, method_name: &str) -> Option<&UserMethod> {
-        self.methods
-            .get(&MethodKey::from_strs(type_name, method_name))
+    pub fn lookup(&self, type_name: Name, method_name: Name) -> Option<&UserMethod> {
+        self.methods.get(&MethodKey::new(type_name, method_name))
     }
 
     /// Look up a derived method.
     ///
     /// Returns None if no derived method is registered for this type/method combination.
-    pub fn lookup_derived(&self, type_name: &str, method_name: &str) -> Option<&DerivedMethodInfo> {
+    pub fn lookup_derived(&self, type_name: Name, method_name: Name) -> Option<&DerivedMethodInfo> {
         self.derived_methods
-            .get(&MethodKey::from_strs(type_name, method_name))
+            .get(&MethodKey::new(type_name, method_name))
     }
 
     /// Look up any method (user-defined or derived).
     ///
     /// Returns the method entry if found.
-    pub fn lookup_any(&self, type_name: &str, method_name: &str) -> Option<MethodEntry> {
-        let key = MethodKey::from_strs(type_name, method_name);
+    pub fn lookup_any(&self, type_name: Name, method_name: Name) -> Option<MethodEntry> {
+        let key = MethodKey::new(type_name, method_name);
 
         if let Some(user_method) = self.methods.get(&key) {
             return Some(MethodEntry::User(user_method.clone()));
@@ -210,8 +209,8 @@ impl UserMethodRegistry {
     }
 
     /// Check if a method exists for the given type (user or derived).
-    pub fn has_method(&self, type_name: &str, method_name: &str) -> bool {
-        let key = MethodKey::from_strs(type_name, method_name);
+    pub fn has_method(&self, type_name: Name, method_name: Name) -> bool {
+        let key = MethodKey::new(type_name, method_name);
         self.methods.contains_key(&key) || self.derived_methods.contains_key(&key)
     }
 
@@ -255,24 +254,34 @@ mod tests {
 
     #[test]
     fn test_register_and_lookup() {
+        let interner = SharedInterner::default();
         let mut registry = UserMethodRegistry::new();
         let method = UserMethod::new(vec![dummy_name()], dummy_expr_id(), HashMap::new(), dummy_arena());
 
-        registry.register("Point".to_string(), "distance".to_string(), method);
+        let point = interner.intern("Point");
+        let distance = interner.intern("distance");
+        let other = interner.intern("other");
+        let other_type = interner.intern("Other");
 
-        assert!(registry.has_method("Point", "distance"));
-        assert!(!registry.has_method("Point", "other"));
-        assert!(!registry.has_method("Other", "distance"));
+        registry.register(point, distance, method);
 
-        let found = registry.lookup("Point", "distance");
+        assert!(registry.has_method(point, distance));
+        assert!(!registry.has_method(point, other));
+        assert!(!registry.has_method(other_type, distance));
+
+        let found = registry.lookup(point, distance);
         assert!(found.is_some());
     }
 
     #[test]
     fn test_empty_registry() {
+        let interner = SharedInterner::default();
         let registry = UserMethodRegistry::new();
-        assert!(!registry.has_method("Point", "distance"));
-        assert!(registry.lookup("Point", "distance").is_none());
+        let point = interner.intern("Point");
+        let distance = interner.intern("distance");
+
+        assert!(!registry.has_method(point, distance));
+        assert!(registry.lookup(point, distance).is_none());
     }
 
     #[test]
@@ -308,17 +317,19 @@ mod tests {
         let interner = SharedInterner::default();
         let mut registry = UserMethodRegistry::new();
 
+        let point = interner.intern("Point");
+        let eq = interner.intern("eq");
         let x_name = interner.intern("x");
         let y_name = interner.intern("y");
         let info = DerivedMethodInfo::new(DerivedTrait::Eq, vec![x_name, y_name]);
 
-        registry.register_derived("Point".to_string(), "eq".to_string(), info);
+        registry.register_derived(point, eq, info);
 
-        assert!(registry.has_method("Point", "eq"));
-        assert!(registry.lookup_derived("Point", "eq").is_some());
-        assert!(registry.lookup("Point", "eq").is_none()); // not a user method
+        assert!(registry.has_method(point, eq));
+        assert!(registry.lookup_derived(point, eq).is_some());
+        assert!(registry.lookup(point, eq).is_none()); // not a user method
 
-        let found = registry.lookup_derived("Point", "eq").unwrap();
+        let found = registry.lookup_derived(point, eq).unwrap();
         assert_eq!(found.trait_kind, DerivedTrait::Eq);
         assert_eq!(found.field_names.len(), 2);
     }
@@ -328,31 +339,36 @@ mod tests {
         let interner = SharedInterner::default();
         let mut registry = UserMethodRegistry::new();
 
+        let point = interner.intern("Point");
+        let distance = interner.intern("distance");
+        let eq = interner.intern("eq");
+        let nonexistent = interner.intern("nonexistent");
+
         // Register a user method
         let method = UserMethod::new(vec![dummy_name()], dummy_expr_id(), HashMap::new(), dummy_arena());
-        registry.register("Point".to_string(), "distance".to_string(), method);
+        registry.register(point, distance, method);
 
         // Register a derived method
         let x_name = interner.intern("x");
         let info = DerivedMethodInfo::new(DerivedTrait::Eq, vec![x_name]);
-        registry.register_derived("Point".to_string(), "eq".to_string(), info);
+        registry.register_derived(point, eq, info);
 
         // Lookup user method via lookup_any
-        if let Some(MethodEntry::User(_)) = registry.lookup_any("Point", "distance") {
+        if let Some(MethodEntry::User(_)) = registry.lookup_any(point, distance) {
             // ok
         } else {
             panic!("Expected User method entry");
         }
 
         // Lookup derived method via lookup_any
-        if let Some(MethodEntry::Derived(info)) = registry.lookup_any("Point", "eq") {
+        if let Some(MethodEntry::Derived(info)) = registry.lookup_any(point, eq) {
             assert_eq!(info.trait_kind, DerivedTrait::Eq);
         } else {
             panic!("Expected Derived method entry");
         }
 
         // Lookup non-existent method
-        assert!(registry.lookup_any("Point", "nonexistent").is_none());
+        assert!(registry.lookup_any(point, nonexistent).is_none());
     }
 
     #[test]
@@ -361,20 +377,24 @@ mod tests {
         let mut registry1 = UserMethodRegistry::new();
         let mut registry2 = UserMethodRegistry::new();
 
+        let point = interner.intern("Point");
+        let distance = interner.intern("distance");
+        let clone_name = interner.intern("clone");
+
         // Register in first registry
         let method = UserMethod::new(vec![dummy_name()], dummy_expr_id(), HashMap::new(), dummy_arena());
-        registry1.register("Point".to_string(), "distance".to_string(), method);
+        registry1.register(point, distance, method);
 
         // Register derived in second registry
         let x_name = interner.intern("x");
         let info = DerivedMethodInfo::new(DerivedTrait::Clone, vec![x_name]);
-        registry2.register_derived("Point".to_string(), "clone".to_string(), info);
+        registry2.register_derived(point, clone_name, info);
 
         // Merge
         registry1.merge(registry2);
 
         // Both should be present
-        assert!(registry1.has_method("Point", "distance"));
-        assert!(registry1.has_method("Point", "clone"));
+        assert!(registry1.has_method(point, distance));
+        assert!(registry1.has_method(point, clone_name));
     }
 }
