@@ -69,14 +69,7 @@ pub use errors::{
 
 pub use environment::{Environment, LocalScope, Scope};
 pub use methods::dispatch_builtin_method;
-#[allow(deprecated)]
-pub use methods::MethodRegistry;
-pub use methods::MethodDispatcher;
-#[allow(deprecated)]
-pub use operators::OperatorRegistry;
 pub use operators::evaluate_binary;
-#[allow(deprecated)]
-pub use unary_operators::UnaryOperatorRegistry;
 pub use unary_operators::evaluate_unary;
 pub use method_key::MethodKey;
 pub use user_methods::{MethodEntry, UserMethod, UserMethodRegistry};

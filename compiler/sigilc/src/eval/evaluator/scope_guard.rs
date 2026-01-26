@@ -113,13 +113,15 @@ impl Evaluator<'_> {
 mod tests {
     use super::*;
     use super::super::EvaluatorBuilder;
+    use crate::db::CompilerDb;
     use crate::ir::{ExprArena, StringInterner};
 
     #[test]
     fn test_with_env_scope_basic() {
         let interner = StringInterner::new();
         let arena = ExprArena::new();
-        let mut eval = EvaluatorBuilder::new(&interner, &arena).build();
+        let db = CompilerDb::new();
+        let mut eval = EvaluatorBuilder::new(&interner, &arena, &db).build();
 
         let x_name = interner.intern("x");
         eval.env.define(x_name, Value::Int(1), false);
@@ -142,7 +144,8 @@ mod tests {
     fn test_with_binding() {
         let interner = StringInterner::new();
         let arena = ExprArena::new();
-        let mut eval = EvaluatorBuilder::new(&interner, &arena).build();
+        let db = CompilerDb::new();
+        let mut eval = EvaluatorBuilder::new(&interner, &arena, &db).build();
 
         let x_name = interner.intern("x");
 
@@ -162,7 +165,8 @@ mod tests {
     fn test_with_match_bindings() {
         let interner = StringInterner::new();
         let arena = ExprArena::new();
-        let mut eval = EvaluatorBuilder::new(&interner, &arena).build();
+        let db = CompilerDb::new();
+        let mut eval = EvaluatorBuilder::new(&interner, &arena, &db).build();
 
         let a_name = interner.intern("a");
         let b_name = interner.intern("b");

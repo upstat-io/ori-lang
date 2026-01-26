@@ -1,27 +1,27 @@
 //! Function call evaluation methods for the Evaluator.
 
 use crate::ir::CallArgRange;
-use sigil_eval::{wrong_function_args, not_callable};
-use super::{Evaluator, EvalResult, EvalError};
+use sigil_eval::not_callable;
+use super::{Evaluator, EvalResult};
 use super::super::value::Value;
+use super::super::exec::call::{
+    check_arg_count, bind_captures, bind_parameters, bind_self,
+    eval_function_val_call, extract_named_args,
+};
 
 impl Evaluator<'_> {
     /// Evaluate a function call.
     pub(super) fn eval_call(&mut self, func: Value, args: &[Value]) -> EvalResult {
         match func.clone() {
             Value::Function(f) => {
-                if args.len() != f.params.len() {
-                    return Err(wrong_function_args(f.params.len(), args.len()));
-                }
+                check_arg_count(&f, args)?;
 
                 // Create new environment with captures, then push a local scope
                 let mut call_env = self.env.child();
-                call_env.push_scope();  // Push a new scope for this call's locals
+                call_env.push_scope();
 
-                // Bind captured variables (immutable captures via iterator)
-                for (name, value) in f.captures() {
-                    call_env.define(*name, value.clone(), false);
-                }
+                // Bind captured variables
+                bind_captures(&mut call_env, &f);
 
                 // Pass capabilities from calling scope to called function
                 // This enables capability propagation: functions that `uses` a capability
@@ -36,13 +36,10 @@ impl Evaluator<'_> {
                 }
 
                 // Bind parameters
-                for (param, arg) in f.params.iter().zip(args.iter()) {
-                    call_env.define(*param, arg.clone(), false);
-                }
+                bind_parameters(&mut call_env, &f, args);
 
                 // Bind 'self' to the current function for recursive patterns
-                let self_name = self.interner.intern("self");
-                call_env.define(self_name, func, false);
+                bind_self(&mut call_env, func, self.interner);
 
                 // Evaluate body using the function's arena (arena threading pattern).
                 let func_arena = f.arena();
@@ -51,8 +48,8 @@ impl Evaluator<'_> {
                 call_evaluator.env.pop_scope();
                 result
             }
-            Value::FunctionVal(func, _name) => {
-                func(args).map_err(EvalError::new)
+            Value::FunctionVal(func_ptr, _name) => {
+                eval_function_val_call(func_ptr, args)
             }
             _ => Err(not_callable(func.type_name())),
         }
@@ -60,11 +57,8 @@ impl Evaluator<'_> {
 
     /// Evaluate a function call with named arguments.
     pub(super) fn eval_call_named(&mut self, func: Value, args: CallArgRange) -> EvalResult {
-        let call_args = self.arena.get_call_args(args);
-        let arg_values: Result<Vec<_>, _> = call_args.iter()
-            .map(|arg| self.eval(arg.value))
-            .collect();
-        self.eval_call(func, &arg_values?)
+        let arg_values = extract_named_args(args, self.arena, |expr| self.eval(expr))?;
+        self.eval_call(func, &arg_values)
     }
 
     /// Call a function value with the given arguments.

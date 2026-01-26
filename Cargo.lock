@@ -896,7 +896,9 @@ dependencies = [
 name = "sigil_types"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "parking_lot",
  "pretty_assertions",
+ "rustc-hash",
  "sigil_diagnostic",
  "sigil_ir",
 ]

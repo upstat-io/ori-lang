@@ -13,7 +13,7 @@
 mod trait_registry;
 
 use sigil_ir::{Name, Span, TypeId};
-use sigil_types::Type;
+use sigil_types::{SharedTypeInterner, Type, TypeInterner};
 use std::collections::HashMap;
 
 pub use trait_registry::{
@@ -22,11 +22,13 @@ pub use trait_registry::{
 };
 
 /// Kind of user-defined type.
+///
+/// Field types are stored as `TypeId` for efficient equality comparisons.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum TypeKind {
     /// Struct type with named fields.
     Struct {
-        fields: Vec<(Name, Type)>,
+        fields: Vec<(Name, TypeId)>,
     },
     /// Sum type (enum) with variants.
     Enum {
@@ -34,7 +36,7 @@ pub enum TypeKind {
     },
     /// Type alias (newtype).
     Alias {
-        target: Type,
+        target: TypeId,
     },
 }
 
@@ -44,7 +46,7 @@ pub struct VariantDef {
     /// Variant name.
     pub name: Name,
     /// Variant fields (empty for unit variants).
-    pub fields: Vec<(Name, Type)>,
+    pub fields: Vec<(Name, TypeId)>,
 }
 
 /// Entry for a user-defined type.
@@ -70,12 +72,16 @@ pub struct TypeEntry {
 /// Maintains a mapping from type names to their definitions, and generates
 /// unique `TypeIds` for compound types.
 ///
+/// # Type Interning
+/// The registry stores field types as `TypeId` for efficient equality comparisons.
+/// The type interner is used to convert between `Type` and `TypeId`.
+///
 /// # Salsa Compatibility
 /// Has Clone, Eq, `PartialEq`, Debug for use in query results.
 /// Note: `HashMap` doesn't implement Hash, so `TypeRegistry` can't either.
 /// Salsa queries that return `TypeRegistry` should use interior mutability
 /// or return individual `TypeEntry` values instead.
-#[derive(Clone, Eq, PartialEq, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct TypeRegistry {
     /// Types indexed by name.
     types_by_name: HashMap<Name, TypeEntry>,
@@ -83,16 +89,54 @@ pub struct TypeRegistry {
     types_by_id: HashMap<TypeId, TypeEntry>,
     /// Next available `TypeId` for compound types.
     next_type_id: u32,
+    /// Type interner for Type↔TypeId conversions.
+    interner: SharedTypeInterner,
+}
+
+impl PartialEq for TypeRegistry {
+    fn eq(&self, other: &Self) -> bool {
+        self.types_by_name == other.types_by_name
+            && self.types_by_id == other.types_by_id
+            && self.next_type_id == other.next_type_id
+        // Interner is not compared - two registries with the same data are equal
+        // regardless of which interner they use
+    }
+}
+
+impl Eq for TypeRegistry {}
+
+impl Default for TypeRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TypeRegistry {
-    /// Create a new empty registry.
+    /// Create a new empty registry with a new type interner.
     pub fn new() -> Self {
         TypeRegistry {
             types_by_name: HashMap::new(),
             types_by_id: HashMap::new(),
             next_type_id: TypeId::FIRST_COMPOUND,
+            interner: SharedTypeInterner::new(),
         }
+    }
+
+    /// Create a new empty registry with a shared type interner.
+    ///
+    /// Use this when you want to share the interner with other compiler phases.
+    pub fn with_interner(interner: SharedTypeInterner) -> Self {
+        TypeRegistry {
+            types_by_name: HashMap::new(),
+            types_by_id: HashMap::new(),
+            next_type_id: TypeId::FIRST_COMPOUND,
+            interner,
+        }
+    }
+
+    /// Get a reference to the type interner.
+    pub fn interner(&self) -> &TypeInterner {
+        &self.interner
     }
 
     /// Generate the next available `TypeId` for a compound type.
@@ -119,6 +163,7 @@ impl TypeRegistry {
 
     /// Register a struct type.
     ///
+    /// Field types are converted to `TypeId` using the registry's interner.
     /// Returns the assigned `TypeId`.
     pub fn register_struct(
         &mut self,
@@ -127,24 +172,40 @@ impl TypeRegistry {
         span: Span,
         type_params: Vec<Name>,
     ) -> TypeId {
-        self.register_entry(name, TypeKind::Struct { fields }, span, type_params)
+        let field_ids: Vec<(Name, TypeId)> = fields
+            .into_iter()
+            .map(|(name, ty)| (name, ty.to_type_id(&self.interner)))
+            .collect();
+        self.register_entry(name, TypeKind::Struct { fields: field_ids }, span, type_params)
     }
 
     /// Register an enum type.
     ///
+    /// Variant field types are converted to `TypeId` using the registry's interner.
     /// Returns the assigned `TypeId`.
     pub fn register_enum(
         &mut self,
         name: Name,
-        variants: Vec<VariantDef>,
+        variants: Vec<(Name, Vec<(Name, Type)>)>,
         span: Span,
         type_params: Vec<Name>,
     ) -> TypeId {
-        self.register_entry(name, TypeKind::Enum { variants }, span, type_params)
+        let variant_defs: Vec<VariantDef> = variants
+            .into_iter()
+            .map(|(vname, vfields)| {
+                let field_ids: Vec<(Name, TypeId)> = vfields
+                    .into_iter()
+                    .map(|(fname, ty)| (fname, ty.to_type_id(&self.interner)))
+                    .collect();
+                VariantDef { name: vname, fields: field_ids }
+            })
+            .collect();
+        self.register_entry(name, TypeKind::Enum { variants: variant_defs }, span, type_params)
     }
 
     /// Register a type alias.
     ///
+    /// Target type is converted to `TypeId` using the registry's interner.
     /// Returns the assigned `TypeId`.
     pub fn register_alias(
         &mut self,
@@ -153,7 +214,8 @@ impl TypeRegistry {
         span: Span,
         type_params: Vec<Name>,
     ) -> TypeId {
-        self.register_entry(name, TypeKind::Alias { target }, span, type_params)
+        let target_id = target.to_type_id(&self.interner);
+        self.register_entry(name, TypeKind::Alias { target: target_id }, span, type_params)
     }
 
     /// Look up a type entry by name.
@@ -189,14 +251,50 @@ impl TypeRegistry {
     /// Convert a registered type to the type checker's Type representation.
     ///
     /// For struct and enum types, returns `Type::Named(name)`.
-    /// For aliases, returns the target type directly.
+    /// For aliases, returns the target type directly (converted from TypeId).
     pub fn to_type(&self, type_id: TypeId) -> Option<Type> {
         self.get_by_id(type_id).map(|entry| {
             match &entry.kind {
                 TypeKind::Struct { .. } | TypeKind::Enum { .. } => {
                     Type::Named(entry.name)
                 }
-                TypeKind::Alias { target } => target.clone(),
+                TypeKind::Alias { target } => self.interner.to_type(*target),
+            }
+        })
+    }
+
+    /// Get field types for a struct type.
+    ///
+    /// Returns the fields as (Name, Type) pairs by converting from TypeId.
+    pub fn get_struct_fields(&self, type_id: TypeId) -> Option<Vec<(Name, Type)>> {
+        self.get_by_id(type_id).and_then(|entry| {
+            match &entry.kind {
+                TypeKind::Struct { fields } => {
+                    Some(fields.iter()
+                        .map(|(name, ty_id)| (*name, self.interner.to_type(*ty_id)))
+                        .collect())
+                }
+                _ => None,
+            }
+        })
+    }
+
+    /// Get field types for an enum variant.
+    ///
+    /// Returns the fields as (Name, Type) pairs by converting from TypeId.
+    pub fn get_variant_fields(&self, type_id: TypeId, variant_name: Name) -> Option<Vec<(Name, Type)>> {
+        self.get_by_id(type_id).and_then(|entry| {
+            match &entry.kind {
+                TypeKind::Enum { variants } => {
+                    variants.iter()
+                        .find(|v| v.name == variant_name)
+                        .map(|v| {
+                            v.fields.iter()
+                                .map(|(name, ty_id)| (*name, self.interner.to_type(*ty_id)))
+                                .collect()
+                        })
+                }
+                _ => None,
             }
         })
     }
@@ -245,7 +343,8 @@ mod tests {
         if let TypeKind::Struct { fields: entry_fields } = &entry.kind {
             assert_eq!(entry_fields.len(), 2);
             assert_eq!(entry_fields[0].0, x_name);
-            assert_eq!(entry_fields[0].1, Type::Int);
+            // Fields are now stored as TypeId
+            assert_eq!(entry_fields[0].1, TypeId::INT);
         } else {
             panic!("Expected struct type");
         }
@@ -261,15 +360,10 @@ mod tests {
         let err_name = interner.intern("Err");
         let value_name = interner.intern("value");
 
+        // Use the new API: (variant_name, fields) tuples
         let variants = vec![
-            VariantDef {
-                name: ok_name,
-                fields: vec![(value_name, Type::Int)],
-            },
-            VariantDef {
-                name: err_name,
-                fields: vec![(value_name, Type::Str)],
-            },
+            (ok_name, vec![(value_name, Type::Int)]),
+            (err_name, vec![(value_name, Type::Str)]),
         ];
 
         let type_id = registry.register_enum(result_name, variants, make_span(), vec![]);
@@ -298,7 +392,8 @@ mod tests {
 
         let entry = registry.get_by_name(id_name).unwrap();
         if let TypeKind::Alias { target } = &entry.kind {
-            assert_eq!(*target, Type::Int);
+            // Target is now stored as TypeId
+            assert_eq!(*target, TypeId::INT);
         } else {
             panic!("Expected alias type");
         }

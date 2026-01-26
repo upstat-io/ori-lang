@@ -10,17 +10,22 @@ The diagnostics system spans multiple crates:
 compiler/
 ├── sigil_diagnostic/       # Core diagnostic types (separate crate)
 │   └── src/
-│       ├── lib.rs              # Diagnostic, ErrorCode, Applicability, Severity (~660 lines)
-│       ├── queue.rs            # DiagnosticQueue for deduplication/limits (~494 lines)
-│       ├── span_utils.rs       # Line/column computation from spans (~120 lines)
+│       ├── lib.rs              # Diagnostic, ErrorCode, Applicability, Severity, ErrorGuaranteed
+│       ├── queue.rs            # DiagnosticQueue for deduplication/limits
+│       ├── span_utils.rs       # Line/column computation from spans
+│       ├── errors/             # Embedded error documentation for --explain
+│       │   ├── mod.rs          # ErrorDocs registry
+│       │   ├── E0001.md        # Error documentation files
+│       │   ├── E0002.md
+│       │   └── ...             # (35+ error codes documented)
 │       ├── emitter/
-│       │   ├── mod.rs          # Emitter trait (~90 lines)
-│       │   ├── terminal.rs     # Terminal output (~285 lines)
-│       │   ├── json.rs         # JSON output (~176 lines)
-│       │   └── sarif.rs        # SARIF format (~453 lines)
+│       │   ├── mod.rs          # Emitter trait
+│       │   ├── terminal.rs     # Terminal output
+│       │   ├── json.rs         # JSON output
+│       │   └── sarif.rs        # SARIF format
 │       └── fixes/
-│           ├── mod.rs          # Code fix system (~258 lines)
-│           └── registry.rs     # Fix registry (~245 lines)
+│           ├── mod.rs          # Code fix system
+│           └── registry.rs     # Fix registry
 ├── sigil-macros/           # Proc-macro crate for diagnostic derives
 │   └── src/
 │       ├── lib.rs              # Derive macro exports
@@ -45,6 +50,62 @@ The `sigil_diagnostic` crate contains the core `Diagnostic` type, `ErrorCode` en
 2. **Machine-readable** - JSON/SARIF for tooling integration
 3. **Code fixes** - Automatic fix suggestions
 4. **Error codes** - Stable identifiers for documentation
+5. **Error guarantees** - Type-level proof that errors were reported
+
+## ErrorGuaranteed
+
+The `ErrorGuaranteed` type provides type-level proof that at least one error was emitted. This prevents "forgotten" error conditions where code fails silently without reporting an error.
+
+```rust
+/// Proof that at least one error was emitted.
+/// Can only be created by emitting an error via DiagnosticQueue.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub struct ErrorGuaranteed(());
+
+impl ErrorGuaranteed {
+    pub(crate) fn new() -> Self;  // Only callable from queue.rs
+    pub fn from_error_count(count: usize) -> Option<Self>;  // For downstream
+    pub fn new_for_downstream() -> Self;  // When errors verified elsewhere
+}
+```
+
+### Usage Pattern
+
+```rust
+// Functions return ErrorGuaranteed to prove they reported errors
+fn type_check(&mut self) -> Result<TypedModule, ErrorGuaranteed> {
+    if let Some(error) = self.check_for_errors() {
+        // Can only get ErrorGuaranteed by actually emitting
+        let guarantee = self.queue.emit_error(error.to_diagnostic(), line, col);
+        return Err(guarantee);
+    }
+    Ok(self.build_typed_module())
+}
+```
+
+### DiagnosticQueue Methods
+
+```rust
+impl DiagnosticQueue {
+    /// Emit error and get proof it was emitted.
+    pub fn emit_error(&mut self, diag: Diagnostic, line: u32, col: u32) -> ErrorGuaranteed;
+
+    /// Emit error with position computed from source.
+    pub fn emit_error_with_source(&mut self, diag: Diagnostic, source: &str) -> ErrorGuaranteed;
+
+    /// Check if any errors were emitted.
+    pub fn has_errors(&self) -> Option<ErrorGuaranteed>;
+}
+```
+
+### Salsa Compatibility
+
+`ErrorGuaranteed` implements `Copy`, `Clone`, `Eq`, `Hash` for use in Salsa query results:
+
+```rust
+#[salsa::tracked]
+fn typed(db: &dyn Db, file: SourceFile) -> Result<TypedModule, ErrorGuaranteed>
+```
 
 ## Error Code Ranges
 
@@ -379,6 +440,73 @@ Output formats:
 | Terminal | Human-readable, colored output |
 | JSON | IDE integration, tooling |
 | SARIF | Static analysis tools |
+
+## Error Documentation System
+
+The `errors/` directory contains embedded markdown documentation for each error code, accessible via `sigil --explain <code>`.
+
+### ErrorDocs Registry
+
+```rust
+pub struct ErrorDocs;
+
+impl ErrorDocs {
+    /// Get documentation for an error code.
+    pub fn get(code: ErrorCode) -> Option<&'static str>;
+
+    /// Get all documented error codes.
+    pub fn all_codes() -> impl Iterator<Item = ErrorCode>;
+
+    /// Check if an error code has documentation.
+    pub fn has_docs(code: ErrorCode) -> bool;
+}
+```
+
+### Documentation Format
+
+Each error code has a markdown file (e.g., `E2001.md`) with:
+
+```markdown
+# E2001: Type Mismatch
+
+An expression has a different type than expected in the given context.
+
+## Example
+
+```sigil
+let x: int = "hello"  // error: expected `int`, found `str`
+```
+
+## Common Causes
+
+1. Assigning wrong type to annotated variable
+2. Return type doesn't match function signature
+3. ...
+
+## Solutions
+
+- Remove type annotation if inference should determine the type
+- Convert the value explicitly: `int(value)`
+- ...
+```
+
+### Adding New Documentation
+
+1. Create a new file `EXXXX.md` in `compiler/sigil_diagnostic/src/errors/`
+2. Add an entry to the `DOCS` array in `errors/mod.rs`:
+   ```rust
+   (ErrorCode::EXXXX, include_str!("EXXXX.md")),
+   ```
+3. Run `cargo build` to embed the new documentation
+
+### CLI Integration
+
+```bash
+$ sigil --explain E2001
+# E2001: Type Mismatch
+
+An expression has a different type than expected...
+```
 
 ## Related Documents
 

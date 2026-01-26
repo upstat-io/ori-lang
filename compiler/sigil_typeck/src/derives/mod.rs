@@ -90,6 +90,7 @@ fn register_type_derived_impls(
     interner: &StringInterner,
 ) {
     let self_ty = Type::Named(type_decl.name);
+    let type_interner = trait_registry.interner();
     let mut methods = Vec::new();
 
     // Process each derived trait and collect methods
@@ -98,7 +99,7 @@ fn register_type_derived_impls(
 
         if let Some(trait_kind) = DerivedTrait::from_str(trait_name_str) {
             let method_name = interner.intern(trait_kind.method_name());
-            let method_def = create_derived_method_def(trait_kind, method_name, &self_ty);
+            let method_def = create_derived_method_def(trait_kind, method_name, &self_ty, type_interner);
             methods.push(method_def);
         }
     }
@@ -120,41 +121,45 @@ fn register_type_derived_impls(
 }
 
 /// Create a method definition for a derived trait.
+///
+/// Parameter and return types are converted to TypeId using the provided interner.
 fn create_derived_method_def(
     trait_kind: DerivedTrait,
     method_name: Name,
     self_ty: &Type,
+    interner: &sigil_types::TypeInterner,
 ) -> ImplMethodDef {
+    let self_ty_id = self_ty.to_type_id(interner);
     match trait_kind {
         DerivedTrait::Eq => ImplMethodDef {
             name: method_name,
             // eq(self, other: Self) -> bool
-            params: vec![self_ty.clone(), self_ty.clone()],
-            return_ty: Type::Bool,
+            params: vec![self_ty_id, self_ty_id],
+            return_ty: sigil_ir::TypeId::BOOL,
         },
         DerivedTrait::Clone => ImplMethodDef {
             name: method_name,
             // clone(self) -> Self
-            params: vec![self_ty.clone()],
-            return_ty: self_ty.clone(),
+            params: vec![self_ty_id],
+            return_ty: self_ty_id,
         },
         DerivedTrait::Hashable => ImplMethodDef {
             name: method_name,
             // hash(self) -> int
-            params: vec![self_ty.clone()],
-            return_ty: Type::Int,
+            params: vec![self_ty_id],
+            return_ty: sigil_ir::TypeId::INT,
         },
         DerivedTrait::Printable => ImplMethodDef {
             name: method_name,
             // to_string(self) -> str
-            params: vec![self_ty.clone()],
-            return_ty: Type::Str,
+            params: vec![self_ty_id],
+            return_ty: sigil_ir::TypeId::STR,
         },
         DerivedTrait::Default => ImplMethodDef {
             name: method_name,
             // default() -> Self (static method, no self param)
             params: vec![],
-            return_ty: self_ty.clone(),
+            return_ty: self_ty_id,
         },
     }
 }

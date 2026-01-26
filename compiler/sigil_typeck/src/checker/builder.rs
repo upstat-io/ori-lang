@@ -6,6 +6,7 @@
 use sigil_diagnostic::queue::{DiagnosticConfig, DiagnosticQueue};
 use sigil_ir::{ExprArena, StringInterner};
 use sigil_patterns::PatternRegistry;
+use sigil_types::SharedTypeInterner;
 
 use super::components::{
     CheckContext, DiagnosticState, InferenceState, Registries, ScopeContext,
@@ -20,6 +21,7 @@ pub struct TypeCheckerBuilder<'a> {
     source: Option<String>,
     registry: Option<SharedRegistry<PatternRegistry>>,
     diagnostic_config: Option<DiagnosticConfig>,
+    type_interner: Option<SharedTypeInterner>,
 }
 
 impl<'a> TypeCheckerBuilder<'a> {
@@ -31,6 +33,7 @@ impl<'a> TypeCheckerBuilder<'a> {
             source: None,
             registry: None,
             diagnostic_config: None,
+            type_interner: None,
         }
     }
 
@@ -57,13 +60,27 @@ impl<'a> TypeCheckerBuilder<'a> {
         self
     }
 
+    /// Set a shared type interner for TypeId interning.
+    ///
+    /// Use this when you need to share the type interner with other code
+    /// (e.g., for tests that need to verify TypeId values).
+    #[must_use]
+    pub fn with_type_interner(mut self, interner: SharedTypeInterner) -> Self {
+        self.type_interner = Some(interner);
+        self
+    }
+
     /// Build the TypeChecker with the configured options.
     pub fn build(self) -> TypeChecker<'a> {
         // Build context component
         let context = CheckContext::new(self.arena, self.interner);
 
         // Build inference component
-        let inference = InferenceState::new();
+        let inference = if let Some(type_interner) = self.type_interner {
+            InferenceState::with_type_interner(type_interner)
+        } else {
+            InferenceState::new()
+        };
 
         // Build registries component
         let registries = if let Some(registry) = self.registry {

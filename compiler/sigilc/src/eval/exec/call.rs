@@ -1,32 +1,11 @@
-//! Function and method call evaluation.
+//! Function call evaluation helpers.
 //!
-//! This module handles function calls, method dispatch, and named argument calls.
-//! It's designed to be called from the main Evaluator.
+//! This module provides helper functions for function call evaluation,
+//! including argument validation, parameter binding, and capture handling.
 
-use crate::ir::{Name, StringInterner, ExprArena, CallArgRange};
+use crate::ir::{StringInterner, ExprArena, CallArgRange};
 use crate::eval::{Value, FunctionValue, Environment, EvalResult, EvalError};
-use sigil_eval::{MethodRegistry, wrong_function_args};
-use crate::context::SharedRegistry;
-
-/// Configuration for function call evaluation.
-pub struct CallContext<'a> {
-    pub interner: &'a StringInterner,
-    pub arena: &'a ExprArena,
-    pub method_registry: &'a SharedRegistry<MethodRegistry>,
-}
-
-/// Evaluate a method call.
-///
-/// Delegates to the `MethodRegistry` for dispatch.
-pub fn eval_method_call(
-    receiver: Value,
-    method: Name,
-    args: Vec<Value>,
-    ctx: &CallContext<'_>,
-) -> EvalResult {
-    let method_name = ctx.interner.lookup(method);
-    ctx.method_registry.dispatch(receiver, method_name, args)
-}
+use sigil_eval::wrong_function_args;
 
 /// Check if a function has the correct argument count.
 pub fn check_arg_count(func: &FunctionValue, args: &[Value]) -> Result<(), EvalError> {

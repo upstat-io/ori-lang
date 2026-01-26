@@ -2,6 +2,68 @@
 
 Complete reference of Sigil compiler error codes.
 
+## Getting Detailed Help
+
+Use `sigil --explain <code>` to get detailed documentation for an error code:
+
+```bash
+$ sigil --explain E2001
+# E2001: Type Mismatch
+
+An expression has a different type than expected in the given context.
+...
+```
+
+## Error Code Reference Table
+
+| Code | Name | Description | Docs |
+|------|------|-------------|------|
+| **Lexer (E0xxx)** |
+| E0001 | Unterminated String | String literal not closed | ✓ |
+| E0002 | Invalid Character | Invalid character in source | ✓ |
+| E0003 | Invalid Number | Malformed number literal | ✓ |
+| E0004 | Unterminated Char | Character literal not closed | ✓ |
+| E0005 | Invalid Escape | Unknown escape sequence | ✓ |
+| **Parser (E1xxx)** |
+| E1001 | Unexpected Token | Parser found unexpected token | ✓ |
+| E1002 | Expected Expression | Expression expected but not found | ✓ |
+| E1003 | Unclosed Delimiter | Missing ), ], or } | ✓ |
+| E1004 | Expected Identifier | Identifier expected | ✓ |
+| E1005 | Expected Type | Type annotation expected | ✓ |
+| E1006 | Invalid Function | Invalid function definition | ✓ |
+| E1007 | Missing Function Body | Function has no body | ✓ |
+| E1008 | Invalid Pattern Syntax | Malformed pattern | ✓ |
+| E1009 | Missing Pattern Arg | Required pattern argument missing | ✓ |
+| E1010 | Unknown Pattern Arg | Unrecognized pattern argument | ✓ |
+| E1011 | Named Args Required | Multi-arg call needs named args | ✓ |
+| E1012 | Invalid function_seq | function_seq syntax error | ✓ |
+| E1013 | function_exp Named | function_exp needs named properties | ✓ |
+| E1014 | Reserved Name | Reserved built-in function name | ✓ |
+| **Type Checker (E2xxx)** |
+| E2001 | Type Mismatch | Types don't match | ✓ |
+| E2002 | Unknown Type | Type not defined | ✓ |
+| E2003 | Unknown Identifier | Name not in scope | ✓ |
+| E2004 | Arg Count Mismatch | Wrong number of arguments | ✓ |
+| E2005 | Cannot Infer | Type inference failed | ✓ |
+| E2006 | Duplicate Definition | Name defined twice | ✓ |
+| E2007 | Closure Self-Ref | Closure captures itself | ✓ |
+| E2008 | Cyclic Type | Type definition is cyclic | ✓ |
+| E2009 | Missing Trait Bound | Required trait not implemented | ✓ |
+| E2010 | Coherence Violation | Conflicting implementations | ✓ |
+| E2011 | Named Args Required | Named arguments required | ✓ |
+| E2012 | Unknown Capability | Capability not defined | ✓ |
+| E2013 | Provider Mismatch | Provider doesn't implement capability | ✓ |
+| E2014 | Missing Capability | Capability used but not declared | ✓ |
+| **Patterns (E3xxx)** |
+| E3001 | Unknown Pattern | Pattern name not recognized | ✓ |
+| E3002 | Invalid Pattern Args | Pattern arguments invalid | ✓ |
+| E3003 | Pattern Type Error | Pattern type mismatch | ✓ |
+| **Internal (E9xxx)** |
+| E9001 | Internal Error | Compiler bug | ✓ |
+| E9002 | Too Many Errors | Error limit reached | ✓ |
+
+**✓** = Detailed documentation available via `sigil --explain`
+
 ## Error Code Ranges
 
 | Range | Category | Description |

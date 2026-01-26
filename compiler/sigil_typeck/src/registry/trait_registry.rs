@@ -5,22 +5,28 @@
 //! - Implementations indexed by (trait, type) pair
 //! - Inherent implementations indexed by type
 //!
+//! # Type Interning
+//! Method parameter types and return types are stored as `TypeId` for efficient
+//! equality comparisons. The type interner is used to convert between `Type` and `TypeId`.
+//!
 //! # Salsa Compatibility
 //! All types implement Clone, Eq, Hash for use in query results.
 
-use sigil_ir::{Name, Span};
-use sigil_types::Type;
+use sigil_ir::{Name, Span, TypeId};
+use sigil_types::{SharedTypeInterner, Type, TypeInterner};
 use std::collections::{HashMap, HashSet};
 
 /// Method signature in a trait definition.
+///
+/// Parameter and return types are stored as `TypeId` for efficient equality comparisons.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct TraitMethodDef {
     /// Method name.
     pub name: Name,
     /// Parameter types (first is self type if present).
-    pub params: Vec<Type>,
+    pub params: Vec<TypeId>,
     /// Return type.
-    pub return_ty: Type,
+    pub return_ty: TypeId,
     /// Whether this method has a default implementation.
     pub has_default: bool,
 }
@@ -59,14 +65,16 @@ impl TraitEntry {
 }
 
 /// Implementation method.
+///
+/// Parameter and return types are stored as `TypeId` for efficient equality comparisons.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct ImplMethodDef {
     /// Method name.
     pub name: Name,
     /// Parameter types.
-    pub params: Vec<Type>,
+    pub params: Vec<TypeId>,
     /// Return type.
-    pub return_ty: Type,
+    pub return_ty: TypeId,
 }
 
 /// Associated type definition in an impl block (e.g., `type Item = T`).
@@ -74,8 +82,8 @@ pub struct ImplMethodDef {
 pub struct ImplAssocTypeDef {
     /// Associated type name (e.g., `Item`).
     pub name: Name,
-    /// Concrete type assigned (e.g., `T` or `int`).
-    pub ty: Type,
+    /// Concrete type assigned (e.g., `T` or `int`), stored as TypeId.
+    pub ty: TypeId,
 }
 
 /// Entry for an implementation block.
@@ -112,7 +120,11 @@ pub struct CoherenceError {
 /// - Trait definitions by name
 /// - Implementations indexed by (trait, type) pair
 /// - Inherent implementations indexed by type
-#[derive(Clone, Eq, PartialEq, Debug, Default)]
+///
+/// # Type Interning
+/// The registry stores method types as `TypeId` and uses the interner
+/// for Type↔TypeId conversions at API boundaries.
+#[derive(Clone, Debug)]
 pub struct TraitRegistry {
     /// Trait definitions by name.
     traits: HashMap<Name, TraitEntry>,
@@ -120,12 +132,53 @@ pub struct TraitRegistry {
     trait_impls: HashMap<(Name, Type), ImplEntry>,
     /// Inherent implementations by type.
     inherent_impls: HashMap<Type, ImplEntry>,
+    /// Type interner for Type↔TypeId conversions.
+    interner: SharedTypeInterner,
+}
+
+impl PartialEq for TraitRegistry {
+    fn eq(&self, other: &Self) -> bool {
+        self.traits == other.traits
+            && self.trait_impls == other.trait_impls
+            && self.inherent_impls == other.inherent_impls
+        // Interner is not compared - two registries with the same data are equal
+    }
+}
+
+impl Eq for TraitRegistry {}
+
+impl Default for TraitRegistry {
+    fn default() -> Self {
+        TraitRegistry {
+            traits: HashMap::new(),
+            trait_impls: HashMap::new(),
+            inherent_impls: HashMap::new(),
+            interner: SharedTypeInterner::new(),
+        }
+    }
 }
 
 impl TraitRegistry {
-    /// Create a new empty trait registry.
+    /// Create a new empty trait registry with a new type interner.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create a new empty registry with a shared type interner.
+    ///
+    /// Use this when you want to share the interner with other compiler phases.
+    pub fn with_interner(interner: SharedTypeInterner) -> Self {
+        TraitRegistry {
+            traits: HashMap::new(),
+            trait_impls: HashMap::new(),
+            inherent_impls: HashMap::new(),
+            interner,
+        }
+    }
+
+    /// Get a reference to the type interner.
+    pub fn interner(&self) -> &TypeInterner {
+        &self.interner
     }
 
     /// Register a trait definition.
@@ -204,6 +257,8 @@ impl TraitRegistry {
     }
 
     /// Look up a method on a type (checks inherent impls first, then trait impls).
+    ///
+    /// Returns the method signature with types converted from TypeId to Type.
     pub fn lookup_method(&self, self_ty: &Type, method_name: Name) -> Option<MethodLookup> {
         // First check inherent impls
         if let Some(impl_entry) = self.get_inherent_impl(self_ty) {
@@ -211,8 +266,8 @@ impl TraitRegistry {
                 return Some(MethodLookup {
                     trait_name: None,
                     method_name,
-                    params: method.params.clone(),
-                    return_ty: method.return_ty.clone(),
+                    params: method.params.iter().map(|id| self.interner.to_type(*id)).collect(),
+                    return_ty: self.interner.to_type(method.return_ty),
                 });
             }
         }
@@ -224,8 +279,8 @@ impl TraitRegistry {
                     return Some(MethodLookup {
                         trait_name: Some(*trait_name),
                         method_name,
-                        params: method.params.clone(),
-                        return_ty: method.return_ty.clone(),
+                        params: method.params.iter().map(|id| self.interner.to_type(*id)).collect(),
+                        return_ty: self.interner.to_type(method.return_ty),
                     });
                 }
             }
@@ -238,8 +293,8 @@ impl TraitRegistry {
                     return Some(MethodLookup {
                         trait_name: Some(*trait_name),
                         method_name,
-                        params: method.params.clone(),
-                        return_ty: method.return_ty.clone(),
+                        params: method.params.iter().map(|id| self.interner.to_type(*id)).collect(),
+                        return_ty: self.interner.to_type(method.return_ty),
                     });
                 }
             }
@@ -266,7 +321,8 @@ impl TraitRegistry {
     /// Look up an associated type definition for a type implementing a trait.
     ///
     /// Returns `Some(concrete_type)` if the type has an impl for the trait
-    /// with an associated type definition for `assoc_name`.
+    /// with an associated type definition for `assoc_name`. The TypeId is
+    /// converted to Type using the registry's interner.
     pub fn lookup_assoc_type(
         &self,
         self_ty: &Type,
@@ -276,11 +332,11 @@ impl TraitRegistry {
         // Get the trait impl for this type
         let impl_entry = self.get_trait_impl(trait_name, self_ty)?;
 
-        // Find the associated type definition
+        // Find the associated type definition and convert TypeId to Type
         impl_entry.assoc_types
             .iter()
             .find(|at| at.name == assoc_name)
-            .map(|at| at.ty.clone())
+            .map(|at| self.interner.to_type(at.ty))
     }
 
     /// Look up an associated type definition for a type by name only.
@@ -302,7 +358,7 @@ impl TraitRegistry {
             if impl_type == &target_type {
                 // Check if this impl has the associated type we're looking for
                 if let Some(assoc_def) = impl_entry.assoc_types.iter().find(|at| at.name == assoc_name) {
-                    return Some(assoc_def.ty.clone());
+                    return Some(self.interner.to_type(assoc_def.ty));
                 }
             }
         }
@@ -328,7 +384,7 @@ pub struct MethodLookup {
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
     use super::*;
-    use sigil_ir::SharedInterner;
+    use sigil_ir::{SharedInterner, TypeId};
 
     fn make_span() -> Span {
         Span::new(0, 0)
@@ -357,7 +413,7 @@ mod tests {
             methods: vec![TraitMethodDef {
                 name: to_string,
                 params: vec![],
-                return_ty: Type::Str,
+                return_ty: TypeId::STR,
                 has_default: false,
             }],
             assoc_types: vec![],
@@ -381,6 +437,7 @@ mod tests {
 
         let point = interner.intern("Point");
         let new_name = interner.intern("new");
+        let point_type_id = registry.interner().named(point);
 
         let entry = ImplEntry {
             trait_name: None,
@@ -389,8 +446,8 @@ mod tests {
             type_params: vec![],
             methods: vec![ImplMethodDef {
                 name: new_name,
-                params: vec![Type::Int, Type::Int],
-                return_ty: Type::Named(point),
+                params: vec![TypeId::INT, TypeId::INT],
+                return_ty: point_type_id,
             }],
             assoc_types: vec![],
         };
@@ -421,7 +478,7 @@ mod tests {
             methods: vec![TraitMethodDef {
                 name: to_string,
                 params: vec![],
-                return_ty: Type::Str,
+                return_ty: TypeId::STR,
                 has_default: false,
             }],
             assoc_types: vec![],
@@ -438,7 +495,7 @@ mod tests {
             methods: vec![ImplMethodDef {
                 name: to_string,
                 params: vec![],
-                return_ty: Type::Str,
+                return_ty: TypeId::STR,
             }],
             assoc_types: vec![],
         };
@@ -470,7 +527,7 @@ mod tests {
             methods: vec![ImplMethodDef {
                 name: describe,
                 params: vec![],
-                return_ty: Type::Str,
+                return_ty: TypeId::STR,
             }],
             assoc_types: vec![],
         };
@@ -499,7 +556,7 @@ mod tests {
             methods: vec![TraitMethodDef {
                 name: to_string,
                 params: vec![],
-                return_ty: Type::Str,
+                return_ty: TypeId::STR,
                 has_default: false,
             }],
             assoc_types: vec![],
@@ -516,7 +573,7 @@ mod tests {
             methods: vec![ImplMethodDef {
                 name: to_string,
                 params: vec![],
-                return_ty: Type::Str,
+                return_ty: TypeId::STR,
             }],
             assoc_types: vec![],
         };
@@ -531,7 +588,7 @@ mod tests {
             methods: vec![ImplMethodDef {
                 name: to_string,
                 params: vec![],
-                return_ty: Type::Str,
+                return_ty: TypeId::STR,
             }],
             assoc_types: vec![],
         };
@@ -555,7 +612,7 @@ mod tests {
             methods: vec![ImplMethodDef {
                 name: describe,
                 params: vec![],
-                return_ty: Type::Str,
+                return_ty: TypeId::STR,
             }],
             assoc_types: vec![],
         };
@@ -570,7 +627,7 @@ mod tests {
             methods: vec![ImplMethodDef {
                 name: describe,
                 params: vec![],
-                return_ty: Type::Int,
+                return_ty: TypeId::INT,
             }],
             assoc_types: vec![],
         };
@@ -595,7 +652,7 @@ mod tests {
             methods: vec![ImplMethodDef {
                 name: method1,
                 params: vec![],
-                return_ty: Type::Int,
+                return_ty: TypeId::INT,
             }],
             assoc_types: vec![],
         };
@@ -610,7 +667,7 @@ mod tests {
             methods: vec![ImplMethodDef {
                 name: method2,
                 params: vec![],
-                return_ty: Type::Str,
+                return_ty: TypeId::STR,
             }],
             assoc_types: vec![],
         };

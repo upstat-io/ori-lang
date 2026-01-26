@@ -14,7 +14,7 @@
 use std::sync::Arc;
 use std::fmt;
 use sigil_patterns::PatternRegistry;
-use crate::eval::{OperatorRegistry, MethodRegistry, UnaryOperatorRegistry};
+use sigil_types::SharedTypeInterner;
 
 // Re-export SharedRegistry from sigil_typeck so we have a single source of truth
 pub use sigil_typeck::SharedRegistry;
@@ -95,12 +95,8 @@ impl<T: fmt::Debug> fmt::Debug for SharedMutableRegistry<T> {
 pub struct CompilerContext {
     /// Pattern registry for `function_exp` patterns (map, filter, fold, etc.).
     pub pattern_registry: SharedRegistry<PatternRegistry>,
-    /// Binary operator registry for arithmetic, comparison, etc.
-    pub operator_registry: SharedRegistry<OperatorRegistry>,
-    /// Method registry for method dispatch.
-    pub method_registry: SharedRegistry<MethodRegistry>,
-    /// Unary operator registry for negation, not, etc.
-    pub unary_operator_registry: SharedRegistry<UnaryOperatorRegistry>,
+    /// Type interner for efficient type storage and O(1) equality comparison.
+    pub type_interner: SharedTypeInterner,
 }
 
 impl CompilerContext {
@@ -108,9 +104,7 @@ impl CompilerContext {
     pub fn new() -> Self {
         CompilerContext {
             pattern_registry: SharedRegistry::new(PatternRegistry::new()),
-            operator_registry: SharedRegistry::new(OperatorRegistry::new()),
-            method_registry: SharedRegistry::new(MethodRegistry::new()),
-            unary_operator_registry: SharedRegistry::new(UnaryOperatorRegistry::new()),
+            type_interner: SharedTypeInterner::new(),
         }
     }
 
@@ -123,30 +117,12 @@ impl CompilerContext {
         self
     }
 
-    /// Create a context with a custom operator registry.
+    /// Create a context with a custom type interner.
     ///
-    /// Useful for testing with mock operators.
+    /// Useful for sharing a type interner across compilation phases.
     #[must_use]
-    pub fn with_operator_registry(mut self, registry: OperatorRegistry) -> Self {
-        self.operator_registry = SharedRegistry::new(registry);
-        self
-    }
-
-    /// Create a context with a custom method registry.
-    ///
-    /// Useful for testing with mock methods.
-    #[must_use]
-    pub fn with_method_registry(mut self, registry: MethodRegistry) -> Self {
-        self.method_registry = SharedRegistry::new(registry);
-        self
-    }
-
-    /// Create a context with a custom unary operator registry.
-    ///
-    /// Useful for testing with mock unary operators.
-    #[must_use]
-    pub fn with_unary_operator_registry(mut self, registry: UnaryOperatorRegistry) -> Self {
-        self.unary_operator_registry = SharedRegistry::new(registry);
+    pub fn with_type_interner(mut self, interner: SharedTypeInterner) -> Self {
+        self.type_interner = interner;
         self
     }
 }
@@ -176,11 +152,7 @@ mod tests {
     #[test]
     fn test_context_creation() {
         let ctx = CompilerContext::new();
-        // Verify all registries are present - just check they exist
         let _ = &ctx.pattern_registry;
-        let _ = &ctx.operator_registry;
-        let _ = &ctx.method_registry;
-        let _ = &ctx.unary_operator_registry;
     }
 
     #[test]
@@ -194,19 +166,16 @@ mod tests {
         let ctx1 = CompilerContext::new();
         let ctx2 = ctx1.clone();
 
-        // Both contexts should have pattern registries
         let _ = &ctx1.pattern_registry;
         let _ = &ctx2.pattern_registry;
     }
 
     #[test]
     fn test_context_builder() {
-        // Test the builder pattern for custom registries
         let custom_pattern_registry = PatternRegistry::new();
         let ctx = CompilerContext::new()
             .with_pattern_registry(custom_pattern_registry);
 
-        // Should have a registry
         let _ = &ctx.pattern_registry;
     }
 
@@ -215,9 +184,7 @@ mod tests {
         let ctx = CompilerContext::new();
         let shared = shared_context(ctx);
 
-        // Clone the shared context
         let shared2 = shared.clone();
-        // Both should have pattern registries
         let _ = &shared.pattern_registry;
         let _ = &shared2.pattern_registry;
     }

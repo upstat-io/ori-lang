@@ -4,19 +4,33 @@
 //! - All types have Clone, Eq, Hash for Salsa compatibility
 //! - Interned type representations for efficiency
 //! - Flat structures for cache locality
+//!
+//! # Type Interning
+//!
+//! This crate provides two type representations:
+//! - `Type`: The traditional boxed representation for compatibility
+//! - `TypeData`/`TypeId`: The interned representation for O(1) equality
+//!
+//! Use `TypeInterner` to intern types and get `TypeId` handles.
 
 mod core;
 mod env;
 mod traverse;
 mod context;
 mod error;
+mod data;
+mod type_interner;
 
 // Re-export all public types
-pub use core::{Type, TypeVar, TypeScheme};
+pub use core::{Type, TypeScheme, TypeSchemeId};
 pub use env::TypeEnv;
-pub use traverse::{TypeFolder, TypeVisitor};
+pub use traverse::{TypeFolder, TypeIdFolder, TypeIdVisitor, TypeVisitor};
 pub use context::{InferenceContext, TypeContext};
 pub use error::TypeError;
+
+// Type interning exports
+pub use data::{TypeData, TypeVar};
+pub use type_interner::{TypeInterner, SharedTypeInterner, TypeLookup};
 
 // Size assertions to prevent accidental regressions.
 // Type is used throughout type checking and stored in query results.
@@ -69,7 +83,7 @@ mod tests {
         env.bind(x, Type::Int);
 
         // x is visible
-        assert_eq!(env.lookup(x), Some(&Type::Int));
+        assert_eq!(env.lookup(x), Some(Type::Int));
         // y is not visible
         assert_eq!(env.lookup(y), None);
 
@@ -78,9 +92,9 @@ mod tests {
         child.bind(y, Type::Bool);
 
         // x is still visible (from parent)
-        assert_eq!(child.lookup(x), Some(&Type::Int));
+        assert_eq!(child.lookup(x), Some(Type::Int));
         // y is now visible
-        assert_eq!(child.lookup(y), Some(&Type::Bool));
+        assert_eq!(child.lookup(y), Some(Type::Bool));
 
         // y is not visible in parent
         assert_eq!(env.lookup(y), None);

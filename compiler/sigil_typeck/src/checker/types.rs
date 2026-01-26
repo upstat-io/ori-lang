@@ -4,28 +4,46 @@
 //!
 //! # Salsa Compatibility
 //! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
+//!
+//! # TypeId Migration
+//! This module uses `TypeId` for efficient O(1) type comparisons.
+//! Convert to `Type` when needed using `TypeInterner::to_type()`.
 
-use sigil_diagnostic::{Diagnostic, ErrorCode};
-use sigil_ir::{Name, Span};
-use sigil_types::Type;
+use sigil_diagnostic::{Diagnostic, ErrorCode, ErrorGuaranteed};
+use sigil_ir::{Name, Span, TypeId};
 
 /// Type-checked module.
+///
+/// Uses `TypeId` internally for O(1) type equality comparisons.
+/// Convert to `Type` using a `TypeInterner` when needed.
 ///
 /// # Salsa Compatibility
 /// Has Clone, Eq, Hash for use in query results.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct TypedModule {
-    /// Type of each expression (indexed by `ExprId`).
-    pub expr_types: Vec<Type>,
+    /// Type of each expression (indexed by `ExprId`), stored as TypeId for efficiency.
+    pub expr_types: Vec<TypeId>,
     /// Type of each function.
     pub function_types: Vec<FunctionType>,
     /// Type checking errors.
     pub errors: Vec<TypeCheckError>,
+    /// Type-level proof that errors were emitted.
+    ///
+    /// `Some(guarantee)` if at least one error was emitted during type checking,
+    /// `None` if type checking succeeded without errors.
+    ///
+    /// This provides a compile-time guarantee that error reporting was not forgotten.
+    pub error_guarantee: Option<ErrorGuaranteed>,
 }
 
 impl TypedModule {
+    /// Check if this module has type errors.
+    ///
+    /// Returns `true` if any errors were emitted during type checking.
+    /// Prefer using `error_guarantee` for pattern matching when you need
+    /// to prove that errors exist at the type level.
     pub fn has_errors(&self) -> bool {
-        !self.errors.is_empty()
+        self.error_guarantee.is_some()
     }
 }
 
@@ -36,9 +54,9 @@ pub struct GenericBound {
     pub param: Name,
     /// Trait bounds as paths (e.g., `["Eq"]`, `["Comparable"]`)
     pub bounds: Vec<Vec<Name>>,
-    /// The type variable used for this generic in the function signature.
+    /// The type variable used for this generic in the function signature (as TypeId).
     /// Used to resolve the actual type at call sites for constraint checking.
-    pub type_var: Type,
+    pub type_var: TypeId,
 }
 
 // Manual Eq/PartialEq/Hash that ignores type_var (which contains fresh vars)
@@ -70,8 +88,8 @@ pub struct WhereConstraint {
     pub projection: Option<Name>,
     /// Trait bounds as paths (e.g., `["Eq"]`, `["Comparable"]`).
     pub bounds: Vec<Vec<Name>>,
-    /// The type variable for the base parameter (for resolving at call sites).
-    pub type_var: Type,
+    /// The type variable for the base parameter (as TypeId, for resolving at call sites).
+    pub type_var: TypeId,
 }
 
 // Manual Eq/PartialEq/Hash that ignores type_var
@@ -94,6 +112,8 @@ impl std::hash::Hash for WhereConstraint {
 }
 
 /// Function type information.
+///
+/// Uses `TypeId` for params and return_type for O(1) type comparisons.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct FunctionType {
     pub name: Name,
@@ -101,8 +121,10 @@ pub struct FunctionType {
     pub generics: Vec<GenericBound>,
     /// Where clause constraints (may include associated type projections).
     pub where_constraints: Vec<WhereConstraint>,
-    pub params: Vec<Type>,
-    pub return_type: Type,
+    /// Parameter types (as TypeId for efficiency)
+    pub params: Vec<TypeId>,
+    /// Return type (as TypeId for efficiency)
+    pub return_type: TypeId,
     /// Capabilities required by this function (from `uses` clause)
     pub capabilities: Vec<Name>,
 }

@@ -2,7 +2,7 @@
 //!
 //! Registers trait definitions and implementations from modules.
 
-use sigil_ir::{Name, Module, TraitItem, ParamRange, GenericParamRange, ExprArena};
+use sigil_ir::{Name, Module, TraitItem, ParamRange, GenericParamRange, ExprArena, TypeId};
 use sigil_types::Type;
 use super::TypeChecker;
 use crate::registry::{
@@ -36,22 +36,24 @@ impl TypeChecker<'_> {
             for item in &trait_def.items {
                 match item {
                     TraitItem::MethodSig(sig) => {
-                        let params = self.params_to_types(sig.params);
+                        let params = self.params_to_type_ids(sig.params);
                         let return_ty = self.parsed_type_to_type(&sig.return_ty);
+                        let return_ty_id = return_ty.to_type_id(self.registries.traits.interner());
                         methods.push(TraitMethodDef {
                             name: sig.name,
                             params,
-                            return_ty,
+                            return_ty: return_ty_id,
                             has_default: false,
                         });
                     }
                     TraitItem::DefaultMethod(method) => {
-                        let params = self.params_to_types(method.params);
+                        let params = self.params_to_type_ids(method.params);
                         let return_ty = self.parsed_type_to_type(&method.return_ty);
+                        let return_ty_id = return_ty.to_type_id(self.registries.traits.interner());
                         methods.push(TraitMethodDef {
                             name: method.name,
                             params,
-                            return_ty,
+                            return_ty: return_ty_id,
                             has_default: true,
                         });
                     }
@@ -88,28 +90,43 @@ impl TypeChecker<'_> {
             // Convert self type
             let self_ty = self.parsed_type_to_type(&impl_def.self_ty);
 
-            // Convert methods
-            let methods: Vec<ImplMethodDef> = impl_def.methods
+            // First collect all types (requires mutable self)
+            let methods_as_types: Vec<_> = impl_def.methods
                 .iter()
                 .map(|m| {
                     let params = self.params_to_types(m.params);
                     let return_ty = self.parsed_type_to_type(&m.return_ty);
+                    (m.name, params, return_ty)
+                })
+                .collect();
+
+            let assoc_types_as_types: Vec<_> = impl_def.assoc_types
+                .iter()
+                .map(|at| {
+                    let ty = self.parsed_type_to_type(&at.ty);
+                    (at.name, ty)
+                })
+                .collect();
+
+            // Then convert to TypeIds (immutable interner borrow)
+            let interner = self.registries.traits.interner();
+            let methods: Vec<ImplMethodDef> = methods_as_types
+                .into_iter()
+                .map(|(name, params, return_ty)| {
                     ImplMethodDef {
-                        name: m.name,
-                        params,
-                        return_ty,
+                        name,
+                        params: params.iter().map(|ty| ty.to_type_id(interner)).collect(),
+                        return_ty: return_ty.to_type_id(interner),
                     }
                 })
                 .collect();
 
-            // Convert associated type definitions
-            let assoc_types: Vec<ImplAssocTypeDef> = impl_def.assoc_types
-                .iter()
-                .map(|at| {
-                    let ty = self.parsed_type_to_type(&at.ty);
+            let assoc_types: Vec<ImplAssocTypeDef> = assoc_types_as_types
+                .into_iter()
+                .map(|(name, ty)| {
                     ImplAssocTypeDef {
-                        name: at.name,
-                        ty,
+                        name,
+                        ty: ty.to_type_id(interner),
                     }
                 })
                 .collect();
@@ -187,5 +204,17 @@ impl TypeChecker<'_> {
                 }
             })
             .collect()
+    }
+
+    /// Convert a parameter range to a vector of TypeIds.
+    ///
+    /// This is used when registering trait/impl methods where we want to
+    /// store types as interned TypeIds for efficient equality comparisons.
+    pub(crate) fn params_to_type_ids(&mut self, params: ParamRange) -> Vec<TypeId> {
+        // First collect all types (requires mutable self for fresh_var)
+        let types = self.params_to_types(params);
+        // Then convert to TypeIds
+        let interner = self.registries.traits.interner();
+        types.iter().map(|ty| ty.to_type_id(interner)).collect()
     }
 }

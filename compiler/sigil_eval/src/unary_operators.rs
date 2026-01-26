@@ -54,35 +54,6 @@ fn invalid_unary_op(type_name: &str, op: UnaryOp) -> EvalError {
     EvalError::new(format!("invalid unary {op:?} on {type_name}"))
 }
 
-// Legacy Operator Registry (Backward Compatibility)
-
-/// Registry of unary operators (deprecated).
-///
-/// Use [`evaluate_unary`] directly instead. This type is preserved for
-/// backward compatibility but delegates to `evaluate_unary` internally.
-#[deprecated(note = "Use evaluate_unary() directly")]
-pub struct UnaryOperatorRegistry;
-
-#[allow(deprecated)]
-impl UnaryOperatorRegistry {
-    /// Create a new unary operator registry.
-    pub fn new() -> Self {
-        UnaryOperatorRegistry
-    }
-
-    /// Evaluate a unary operation.
-    pub fn evaluate(&self, value: Value, op: UnaryOp) -> EvalResult {
-        evaluate_unary(value, op)
-    }
-}
-
-#[allow(deprecated)]
-impl Default for UnaryOperatorRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {

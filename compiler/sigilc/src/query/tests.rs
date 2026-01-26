@@ -3,6 +3,7 @@
 use super::*;
 use crate::CompilerDb;
 use salsa::Setter;
+use sigil_ir::TypeId;
 use std::path::PathBuf;
 
 #[test]
@@ -404,8 +405,6 @@ fn test_parsed_with_expressions() {
 
 #[test]
 fn test_typed_basic() {
-    use crate::types::Type;
-
     let db = CompilerDb::new();
 
     let file = SourceFile::new(
@@ -418,7 +417,7 @@ fn test_typed_basic() {
 
     assert!(!result.has_errors());
     assert_eq!(result.function_types.len(), 1);
-    assert_eq!(result.function_types[0].return_type, Type::Int);
+    assert_eq!(result.function_types[0].return_type, TypeId::INT);
 }
 
 #[test]
@@ -445,8 +444,6 @@ fn test_typed_caching() {
 
 #[test]
 fn test_typed_incremental() {
-    use crate::types::Type;
-
     let mut db = CompilerDb::new();
 
     let file = SourceFile::new(
@@ -457,14 +454,14 @@ fn test_typed_incremental() {
 
     // Initial type check
     let result1 = typed(&db, file);
-    assert_eq!(result1.function_types[0].return_type, Type::Int);
+    assert_eq!(result1.function_types[0].return_type, TypeId::INT);
 
     // Modify source to return bool
     file.set_text(&mut db).to("@main () -> bool = true".to_string());
 
     // Should re-type-check with new return type
     let result2 = typed(&db, file);
-    assert_eq!(result2.function_types[0].return_type, Type::Bool);
+    assert_eq!(result2.function_types[0].return_type, TypeId::BOOL);
 }
 
 #[test]

@@ -6,8 +6,11 @@
 // Arc and Mutex are required for Salsa database and thread-safe logging
 #![expect(clippy::disallowed_types, reason = "Arc/Mutex required for Salsa database")]
 
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use crate::ir::{StringInterner, SharedInterner};
+use crate::input::SourceFile;
 
 /// Main database trait that extends Salsa's Database.
 ///
@@ -17,6 +20,14 @@ use crate::ir::{StringInterner, SharedInterner};
 pub trait Db: salsa::Database {
     /// Get the string interner for interning identifiers and strings.
     fn interner(&self) -> &StringInterner;
+
+    /// Load a source file by path, creating a SourceFile input if needed.
+    ///
+    /// This is the proper way to load imported files - it creates Salsa inputs
+    /// so that changes to imported files are tracked and caches are invalidated.
+    ///
+    /// Returns None if the file cannot be read.
+    fn load_file(&self, path: &Path) -> Option<SourceFile>;
 }
 
 /// Concrete implementation of the compiler database.
@@ -35,6 +46,10 @@ pub struct CompilerDb {
     /// Shared via Arc so Clone works and strings persist.
     interner: SharedInterner,
 
+    /// Cache of loaded source files by path.
+    /// This ensures imported files become proper Salsa inputs.
+    file_cache: Arc<Mutex<HashMap<PathBuf, SourceFile>>>,
+
     /// Event logs for testing/debugging (optional).
     /// Wrapped in Arc<Mutex> so Clone works.
     logs: Arc<Mutex<Option<Vec<String>>>>,
@@ -45,6 +60,7 @@ impl Default for CompilerDb {
         Self {
             storage: salsa::Storage::default(),
             interner: SharedInterner::new(),
+            file_cache: Arc::default(),
             logs: Arc::default(),
         }
     }
@@ -84,6 +100,31 @@ impl CompilerDb {
 impl Db for CompilerDb {
     fn interner(&self) -> &StringInterner {
         &self.interner
+    }
+
+    fn load_file(&self, path: &Path) -> Option<SourceFile> {
+        // Canonicalize path for consistent caching
+        let canonical = path.canonicalize().ok()?;
+
+        // Check cache first
+        {
+            let cache = self.file_cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(&file) = cache.get(&canonical) {
+                return Some(file);
+            }
+        }
+
+        // Read file and create SourceFile input
+        let content = std::fs::read_to_string(&canonical).ok()?;
+        let file = SourceFile::new(self, canonical.clone(), content);
+
+        // Cache it
+        {
+            let mut cache = self.file_cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            cache.insert(canonical, file);
+        }
+
+        Some(file)
     }
 }
 

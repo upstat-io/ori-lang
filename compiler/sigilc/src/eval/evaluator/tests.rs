@@ -3,6 +3,7 @@
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 
 use super::*;
+use crate::db::CompilerDb;
 use crate::ir::{Span, SharedArena, SharedInterner};
 use crate::ir::ast::{Expr, ExprKind};
 use crate::context::SharedMutableRegistry;
@@ -55,7 +56,8 @@ fn test_user_method_dispatch() {
     let double_x_name = interner.intern("double_x");
     registry.register(point_name, double_x_name, user_method);
 
-    let mut evaluator = EvaluatorBuilder::new(&interner, &arena)
+    let db = CompilerDb::new();
+    let mut evaluator = EvaluatorBuilder::new(&interner, &arena, &db)
         .user_method_registry(SharedMutableRegistry::new(registry))
         .build();
 
@@ -97,7 +99,8 @@ fn test_user_method_with_self_access() {
     let get_x_name = interner.intern("get_x");
     registry.register(point_name, get_x_name, user_method);
 
-    let mut evaluator = EvaluatorBuilder::new(&interner, &arena)
+    let db = CompilerDb::new();
+    let mut evaluator = EvaluatorBuilder::new(&interner, &arena, &db)
         .user_method_registry(SharedMutableRegistry::new(registry))
         .build();
 
@@ -147,7 +150,8 @@ fn test_user_method_with_args() {
     let add_to_x_name = interner.intern("add_to_x");
     registry.register(point_name, add_to_x_name, user_method);
 
-    let mut evaluator = EvaluatorBuilder::new(&interner, &arena)
+    let db = CompilerDb::new();
+    let mut evaluator = EvaluatorBuilder::new(&interner, &arena, &db)
         .user_method_registry(SharedMutableRegistry::new(registry))
         .build();
 
@@ -168,8 +172,9 @@ fn test_user_method_with_args() {
 fn test_builtin_method_fallback() {
     let interner = SharedInterner::default();
     let arena = crate::ir::ExprArena::new();
+    let db = CompilerDb::new();
 
-    let mut evaluator = Evaluator::new(&interner, &arena);
+    let mut evaluator = Evaluator::new(&interner, &arena, &db);
 
     // Call built-in list.len() method (no user method registered)
     let list = Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);

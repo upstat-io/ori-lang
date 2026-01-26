@@ -14,8 +14,8 @@
 use std::collections::{HashMap, HashSet};
 
 use sigil_diagnostic::queue::DiagnosticQueue;
-use sigil_ir::{ExprArena, Name, StringInterner};
-use sigil_types::{InferenceContext, Type, TypeEnv};
+use sigil_ir::{ExprArena, Name, StringInterner, TypeId};
+use sigil_types::{InferenceContext, SharedTypeInterner, Type, TypeEnv};
 use sigil_patterns::PatternRegistry;
 
 use crate::operators::TypeOperatorRegistry;
@@ -47,8 +47,8 @@ pub struct InferenceState {
     pub env: TypeEnv,
     /// Frozen base environment for child scope creation.
     pub base_env: Option<TypeEnv>,
-    /// Inferred types for expressions.
-    pub expr_types: HashMap<usize, Type>,
+    /// Inferred types for expressions (stored as TypeId for efficiency).
+    pub expr_types: HashMap<usize, TypeId>,
 }
 
 impl InferenceState {
@@ -57,6 +57,19 @@ impl InferenceState {
         Self {
             ctx: InferenceContext::new(),
             env: TypeEnv::new(),
+            base_env: None,
+            expr_types: HashMap::new(),
+        }
+    }
+
+    /// Create a new inference state with a shared type interner.
+    ///
+    /// Use this when you need to share the type interner with other code
+    /// (e.g., for tests that need to verify TypeId values).
+    pub fn with_type_interner(interner: SharedTypeInterner) -> Self {
+        Self {
+            ctx: InferenceContext::with_interner(interner.clone()),
+            env: TypeEnv::with_interner(interner),
             base_env: None,
             expr_types: HashMap::new(),
         }

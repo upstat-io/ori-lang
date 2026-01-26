@@ -137,7 +137,7 @@ fn get_variant_inner_type(
                     if let TypeKind::Enum { variants } = &entry.kind {
                         for variant in variants {
                             if variant.name == variant_name {
-                                return get_variant_field_type(variant);
+                                return get_variant_field_type(variant, &checker.registries.types);
                             }
                         }
                     }
@@ -148,12 +148,13 @@ fn get_variant_inner_type(
     }
 }
 
-/// Get the field type for a variant.
-fn get_variant_field_type(variant: &VariantDef) -> Type {
+/// Get the field type for a variant, converting TypeId to Type.
+fn get_variant_field_type(variant: &VariantDef, registry: &crate::registry::TypeRegistry) -> Type {
+    let interner = registry.interner();
     match variant.fields.len() {
         0 => Type::Unit,
-        1 => variant.fields[0].1.clone(),
-        _ => Type::Tuple(variant.fields.iter().map(|(_, ty)| ty.clone()).collect()),
+        1 => interner.to_type(variant.fields[0].1),
+        _ => Type::Tuple(variant.fields.iter().map(|(_, ty_id)| interner.to_type(*ty_id)).collect()),
     }
 }
 
@@ -165,7 +166,10 @@ fn get_struct_field_types(
     if let Type::Named(type_name) = scrutinee_ty {
         if let Some(entry) = checker.registries.types.get_by_name(*type_name) {
             if let TypeKind::Struct { fields } = &entry.kind {
-                return fields.clone();
+                let interner = checker.registries.types.interner();
+                return fields.iter()
+                    .map(|(name, ty_id)| (*name, interner.to_type(*ty_id)))
+                    .collect();
             }
         }
     }

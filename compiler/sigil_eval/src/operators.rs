@@ -236,35 +236,6 @@ fn eval_result_binary(left: &Value, right: &Value, op: BinaryOp) -> EvalResult {
     }
 }
 
-// Legacy Operator Registry (Backward Compatibility)
-
-/// Registry of binary operators (deprecated).
-///
-/// Use [`evaluate_binary`] directly instead. This type is preserved for
-/// backward compatibility but delegates to `evaluate_binary` internally.
-#[deprecated(note = "Use evaluate_binary() directly")]
-pub struct OperatorRegistry;
-
-#[allow(deprecated)]
-impl OperatorRegistry {
-    /// Create a new operator registry.
-    pub fn new() -> Self {
-        OperatorRegistry
-    }
-
-    /// Evaluate a binary operation.
-    pub fn evaluate(&self, left: Value, right: Value, op: BinaryOp) -> EvalResult {
-        evaluate_binary(left, right, op)
-    }
-}
-
-#[allow(deprecated)]
-impl Default for OperatorRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
