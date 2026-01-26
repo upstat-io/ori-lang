@@ -47,6 +47,8 @@ pub use checker::{
     SavedCapabilityContext, SavedImplContext,
     TypedModule, FunctionType, GenericBound, WhereConstraint, TypeCheckError,
     add_pattern_bindings,
+    // Convenience functions
+    type_check, type_check_with_source, type_check_with_config,
 };
 
 // Re-export bound checking function

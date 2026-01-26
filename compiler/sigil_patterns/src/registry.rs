@@ -126,6 +126,7 @@ impl Default for PatternRegistry {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
     use super::*;
 

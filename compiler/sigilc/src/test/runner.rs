@@ -422,6 +422,7 @@ pub fn run_test_file(path: &Path) -> FileSummary {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
     use super::*;
     use tempfile::tempdir;

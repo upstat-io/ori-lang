@@ -3,6 +3,8 @@
 //! Tests operator evaluation including arithmetic, comparison, bitwise,
 //! and type checking.
 
+#![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+
 use sigil_eval::OperatorRegistry;
 use crate::eval::Value;
 use sigil_ir::BinaryOp;

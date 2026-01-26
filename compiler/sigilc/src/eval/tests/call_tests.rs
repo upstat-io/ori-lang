@@ -2,6 +2,8 @@
 //!
 //! Tests argument binding, parameter validation, and function call dispatch.
 
+#![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+
 use std::collections::HashMap;
 use crate::eval::exec::call::{
     check_arg_count, bind_parameters, bind_self, eval_function_val_call,

@@ -1,5 +1,7 @@
 //! Tests for expression evaluation (literals, operators, indexing, field access).
 
+#![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+
 use crate::eval::exec::expr::{
     eval_literal, eval_binary_values, get_collection_length, eval_index,
 };

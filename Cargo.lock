@@ -920,6 +920,7 @@ dependencies = [
  "sigil_lexer",
  "sigil_parse",
  "sigil_patterns",
+ "sigil_typeck",
  "sigil_types",
  "stacker",
  "tempfile",
