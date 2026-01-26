@@ -187,6 +187,55 @@ impl MethodDispatcher for RangeMethods {
 }
 
 // =============================================================================
+// Map Methods
+// =============================================================================
+
+/// Methods available on map values.
+pub struct MapMethods;
+
+impl MethodDispatcher for MapMethods {
+    fn type_name(&self) -> &'static str {
+        "map"
+    }
+
+    fn has_method(&self, method: &str) -> bool {
+        matches!(method, "len" | "is_empty" | "contains_key" | "keys" | "values")
+    }
+
+    fn dispatch(&self, receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+        let Value::Map(map) = receiver else {
+            return Err(EvalError::new("expected map"));
+        };
+
+        match method {
+            "len" => i64::try_from(map.len())
+                .map(Value::Int)
+                .map_err(|_| EvalError::new("map too large")),
+            "is_empty" => Ok(Value::Bool(map.is_empty())),
+            "contains_key" => {
+                if args.len() != 1 {
+                    return Err(wrong_arg_count("contains_key", 1, args.len()));
+                }
+                if let Value::Str(key) = &args[0] {
+                    Ok(Value::Bool(map.contains_key(key.as_str())))
+                } else {
+                    Err(wrong_arg_type("contains_key", "string"))
+                }
+            }
+            "keys" => {
+                let keys: Vec<Value> = map.keys().map(|k| Value::string(k.clone())).collect();
+                Ok(Value::list(keys))
+            }
+            "values" => {
+                let values: Vec<Value> = map.values().cloned().collect();
+                Ok(Value::list(values))
+            }
+            _ => Err(no_such_method(method, "map")),
+        }
+    }
+}
+
+// =============================================================================
 // Option Methods
 // =============================================================================
 
@@ -266,6 +315,7 @@ impl MethodRegistry {
 
         dispatchers.insert("list", Box::new(ListMethods));
         dispatchers.insert("str", Box::new(StringMethods));
+        dispatchers.insert("map", Box::new(MapMethods));
         dispatchers.insert("range", Box::new(RangeMethods));
         dispatchers.insert("Option", Box::new(OptionMethods));
         dispatchers.insert("Result", Box::new(ResultMethods));
@@ -280,6 +330,7 @@ impl MethodRegistry {
         let type_name = match &receiver {
             Value::List(_) => "list",
             Value::Str(_) => "str",
+            Value::Map(_) => "map",
             Value::Range(_) => "range",
             Value::Some(_) | Value::None => "Option",
             Value::Ok(_) | Value::Err(_) => "Result",

@@ -7,6 +7,7 @@ mod module_loading;
 mod function_call;
 mod method_dispatch;
 mod function_seq;
+pub mod resolvers;
 
 pub use builder::EvaluatorBuilder;
 

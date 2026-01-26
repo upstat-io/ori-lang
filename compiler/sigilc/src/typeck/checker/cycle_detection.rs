@@ -67,11 +67,11 @@ impl TypeChecker<'_> {
         add_pattern_bindings(pattern, &mut bound_names);
 
         // Check if init is a lambda that references any of the bound names
-        let expr = self.arena.get_expr(init);
+        let expr = self.context.arena.get_expr(init);
         if let ExprKind::Lambda { body, params, .. } = &expr.kind {
             // The lambda's parameters are bound in its body
             let mut lambda_bound = HashSet::new();
-            for param in self.arena.get_params(*params) {
+            for param in self.context.arena.get_params(*params) {
                 lambda_bound.insert(param.name);
             }
 
@@ -81,8 +81,8 @@ impl TypeChecker<'_> {
             // Check if any bound name is in the free variables
             for name in &bound_names {
                 if free_vars.contains(name) {
-                    let name_str = self.interner.lookup(*name);
-                    self.errors.push(TypeCheckError {
+                    let name_str = self.context.interner.lookup(*name);
+                    self.diagnostics.errors.push(TypeCheckError {
                         message: format!(
                             "closure cannot capture itself: `{name_str}` references itself in its body"
                         ),

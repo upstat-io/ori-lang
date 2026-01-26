@@ -21,7 +21,7 @@ impl TypeChecker<'_> {
     /// Register a single type declaration.
     fn register_type_decl(&mut self, type_decl: &TypeDecl) {
         // Convert generic params to names
-        let type_params: Vec<crate::ir::Name> = self.arena
+        let type_params: Vec<crate::ir::Name> = self.context.arena
             .get_generic_params(type_decl.generics)
             .iter()
             .map(|gp| gp.name)
@@ -38,7 +38,7 @@ impl TypeChecker<'_> {
                     })
                     .collect();
 
-                self.type_registry.register_struct(
+                self.registries.types.register_struct(
                     type_decl.name,
                     field_types,
                     type_decl.span,
@@ -65,7 +65,7 @@ impl TypeChecker<'_> {
                     })
                     .collect();
 
-                self.type_registry.register_enum(
+                self.registries.types.register_enum(
                     type_decl.name,
                     variant_defs,
                     type_decl.span,
@@ -76,7 +76,7 @@ impl TypeChecker<'_> {
             TypeDeclKind::Newtype(target_ty) => {
                 // For newtypes, convert the target ParsedType to Type
                 let target = self.parsed_type_to_type(target_ty);
-                self.type_registry.register_alias(
+                self.registries.types.register_alias(
                     type_decl.name,
                     target,
                     type_decl.span,
@@ -124,10 +124,10 @@ type Point = { x: int, y: int }
 "#;
 
         let (checker, _interner) = check_types(source);
-        assert_eq!(checker.type_registry.len(), 1);
+        assert_eq!(checker.registries.types.len(), 1);
 
         // Find Point type
-        let entry = checker.type_registry.iter().next().unwrap();
+        let entry = checker.registries.types.iter().next().unwrap();
         if let TypeKind::Struct { fields } = &entry.kind {
             assert_eq!(fields.len(), 2);
         } else {
@@ -144,9 +144,9 @@ type Status = Pending | Running | Done
 "#;
 
         let (checker, _interner) = check_types(source);
-        assert_eq!(checker.type_registry.len(), 1);
+        assert_eq!(checker.registries.types.len(), 1);
 
-        let entry = checker.type_registry.iter().next().unwrap();
+        let entry = checker.registries.types.iter().next().unwrap();
         if let TypeKind::Enum { variants } = &entry.kind {
             assert_eq!(variants.len(), 3);
         } else {
@@ -163,9 +163,9 @@ type UserId = int
 "#;
 
         let (checker, _interner) = check_types(source);
-        assert_eq!(checker.type_registry.len(), 1);
+        assert_eq!(checker.registries.types.len(), 1);
 
-        let entry = checker.type_registry.iter().next().unwrap();
+        let entry = checker.registries.types.iter().next().unwrap();
         if let TypeKind::Alias { target } = &entry.kind {
             assert_eq!(*target, crate::types::Type::Int);
         } else {

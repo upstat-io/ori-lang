@@ -3,7 +3,7 @@
 //! Measures parsing performance for various AST structures.
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use sigilc::{CompilerDb, SourceFile, Db};
+use sigilc::{CompilerDb, SourceFile};
 use sigilc::query::parsed;
 use std::path::PathBuf;
 
@@ -31,7 +31,7 @@ const LIST_LITERAL: &str = r#"
 fn generate_n_functions(n: usize) -> String {
     (0..n)
         .map(|i| format!("@func{} (x: int) -> int = x + {}", i, i))
-        collect::<Vec<_>>()
+        .collect::<Vec<_>>()
         .join("\n")
 }
 

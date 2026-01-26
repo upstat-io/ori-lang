@@ -21,17 +21,17 @@ pub fn infer_call(
     span: Span,
 ) -> Type {
     // Check if positional args are allowed for this call
-    let func_expr = checker.arena.get_expr(func);
+    let func_expr = checker.context.arena.get_expr(func);
     let positional_allowed = match &func_expr.kind {
         ExprKind::Ident(name) => {
-            let name_str = checker.interner.lookup(*name);
+            let name_str = checker.context.interner.lookup(*name);
             // Type conversions allow positional
             if matches!(name_str, "int" | "float" | "str" | "byte") {
                 true
             } else {
                 // Check if this is a function definition (requires named)
                 // or a variable of function type (allows positional)
-                !checker.function_sigs.contains_key(name)
+                !checker.scope.function_sigs.contains_key(name)
             }
         }
         // Non-identifier callees (e.g., array[0](...), obj.field(...))
@@ -39,10 +39,10 @@ pub fn infer_call(
         _ => true,
     };
 
-    let arg_ids = checker.arena.get_expr_list(args);
+    let arg_ids = checker.context.arena.get_expr_list(args);
 
     if !positional_allowed && !arg_ids.is_empty() {
-        checker.errors.push(TypeCheckError {
+        checker.diagnostics.errors.push(TypeCheckError {
             message: "named arguments required for function calls (name: value)".to_string(),
             span,
             code: crate::diagnostic::ErrorCode::E2011,
@@ -65,18 +65,18 @@ fn check_call(
     args: &[Type],
     span: Span,
 ) -> Type {
-    let result = checker.ctx.fresh_var();
+    let result = checker.inference.ctx.fresh_var();
     let expected = Type::Function {
         params: args.to_vec(),
         ret: Box::new(result.clone()),
     };
 
-    if let Err(e) = checker.ctx.unify(func, &expected) {
+    if let Err(e) = checker.inference.ctx.unify(func, &expected) {
         checker.report_type_error(&e, span);
         return Type::Error;
     }
 
-    checker.ctx.resolve(&result)
+    checker.inference.ctx.resolve(&result)
 }
 
 /// Infer type for a function call with named arguments.
@@ -88,7 +88,7 @@ pub fn infer_call_named(
 ) -> Type {
     // Get the function name if the callee is an identifier
     let func_name = {
-        let func_expr = checker.arena.get_expr(func);
+        let func_expr = checker.context.arena.get_expr(func);
         match &func_expr.kind {
             ExprKind::Ident(name) => Some(*name),
             _ => None,
@@ -96,7 +96,7 @@ pub fn infer_call_named(
     };
 
     let func_ty = infer_expr(checker, func);
-    let call_args = checker.arena.get_call_args(args);
+    let call_args = checker.context.arena.get_call_args(args);
 
     // Type check each argument
     let arg_types: Vec<Type> = call_args.iter()
@@ -108,7 +108,7 @@ pub fn infer_call_named(
         Type::Function { params, ret } => {
             // Check argument count
             if params.len() != arg_types.len() {
-                checker.errors.push(TypeCheckError {
+                checker.diagnostics.errors.push(TypeCheckError {
                     message: format!(
                         "expected {} arguments, found {}",
                         params.len(),
@@ -122,7 +122,7 @@ pub fn infer_call_named(
 
             // Unify argument types with parameter types
             for (i, (param_ty, arg_ty)) in params.iter().zip(arg_types.iter()).enumerate() {
-                if let Err(e) = checker.ctx.unify(param_ty, arg_ty) {
+                if let Err(e) = checker.inference.ctx.unify(param_ty, arg_ty) {
                     let arg_span = call_args[i].span;
                     checker.report_type_error(&e, arg_span);
                 }
@@ -130,14 +130,14 @@ pub fn infer_call_named(
 
             // Resolve the params after unification to get concrete types
             let resolved: Vec<Type> = params.iter()
-                .map(|p| checker.ctx.resolve(p))
+                .map(|p| checker.inference.ctx.resolve(p))
                 .collect();
 
             (*ret, Some(resolved))
         }
         Type::Error => (Type::Error, None),
         _ => {
-            checker.errors.push(TypeCheckError {
+            checker.diagnostics.errors.push(TypeCheckError {
                 message: "expected function type for call".to_string(),
                 span,
                 code: crate::diagnostic::ErrorCode::E2001,
@@ -186,20 +186,20 @@ fn check_capability_propagation(
     span: Span,
 ) {
     // Look up the called function's signature
-    let Some(func_sig) = checker.function_sigs.get(&func_name) else {
+    let Some(func_sig) = checker.scope.function_sigs.get(&func_name) else {
         // Not a known function - might be a variable or external
         return;
     };
 
     // Check each capability required by the called function
     for required_cap in &func_sig.capabilities.clone() {
-        let is_declared = checker.current_function_caps.contains(required_cap);
-        let is_provided = checker.provided_caps.contains(required_cap);
+        let is_declared = checker.scope.current_function_caps.contains(required_cap);
+        let is_provided = checker.scope.provided_caps.contains(required_cap);
 
         if !is_declared && !is_provided {
-            let func_name_str = checker.interner.lookup(func_name);
-            let cap_name_str = checker.interner.lookup(*required_cap);
-            checker.errors.push(TypeCheckError {
+            let func_name_str = checker.context.interner.lookup(func_name);
+            let cap_name_str = checker.context.interner.lookup(*required_cap);
+            checker.diagnostics.errors.push(TypeCheckError {
                 message: format!(
                     "function `{func_name_str}` uses `{cap_name_str}` capability, \
                      but caller does not declare or provide it"
@@ -223,9 +223,9 @@ pub fn infer_method_call(
     span: Span,
 ) -> Type {
     // Method calls require named arguments
-    let arg_ids = checker.arena.get_expr_list(args);
+    let arg_ids = checker.context.arena.get_expr_list(args);
     if !arg_ids.is_empty() {
-        checker.errors.push(TypeCheckError {
+        checker.diagnostics.errors.push(TypeCheckError {
             message: "named arguments required for method calls (name: value)".to_string(),
             span,
             code: crate::diagnostic::ErrorCode::E2011,
@@ -234,7 +234,7 @@ pub fn infer_method_call(
     }
 
     let receiver_ty = infer_expr(checker, receiver);
-    let resolved_receiver = checker.ctx.resolve(&receiver_ty);
+    let resolved_receiver = checker.inference.ctx.resolve(&receiver_ty);
 
     // Type check arguments first
     let arg_types: Vec<Type> = arg_ids.iter()
@@ -242,7 +242,7 @@ pub fn infer_method_call(
         .collect();
 
     // Try to look up the method in the trait registry
-    if let Some(method_lookup) = checker.trait_registry.lookup_method(&resolved_receiver, method) {
+    if let Some(method_lookup) = checker.registries.traits.lookup_method(&resolved_receiver, method) {
         // Found method - check argument count
         // The first param is 'self', so method_params includes self
         let expected_arg_count = if method_lookup.params.is_empty() {
@@ -253,10 +253,10 @@ pub fn infer_method_call(
         };
 
         if arg_types.len() != expected_arg_count {
-            checker.errors.push(TypeCheckError {
+            checker.diagnostics.errors.push(TypeCheckError {
                 message: format!(
                     "method `{}` expects {} arguments, found {}",
-                    checker.interner.lookup(method),
+                    checker.context.interner.lookup(method),
                     expected_arg_count,
                     arg_types.len()
                 ),
@@ -269,10 +269,10 @@ pub fn infer_method_call(
         // Unify argument types with parameter types (skip self param)
         let param_types: Vec<_> = method_lookup.params.iter().skip(1).collect();
         for (i, (param_ty, arg_ty)) in param_types.iter().zip(arg_types.iter()).enumerate() {
-            if let Err(e) = checker.ctx.unify(param_ty, arg_ty) {
+            if let Err(e) = checker.inference.ctx.unify(param_ty, arg_ty) {
                 // Use the span of the specific argument if available
                 let arg_span = if i < arg_ids.len() {
-                    checker.arena.get_expr(arg_ids[i]).span
+                    checker.context.arena.get_expr(arg_ids[i]).span
                 } else {
                     span
                 };
@@ -296,16 +296,16 @@ pub fn infer_method_call_named(
     span: Span,
 ) -> Type {
     let receiver_ty = infer_expr(checker, receiver);
-    let resolved_receiver = checker.ctx.resolve(&receiver_ty);
+    let resolved_receiver = checker.inference.ctx.resolve(&receiver_ty);
 
     // Type check arguments first
-    let call_args = checker.arena.get_call_args(args);
+    let call_args = checker.context.arena.get_call_args(args);
     let arg_types: Vec<Type> = call_args.iter()
         .map(|arg| infer_expr(checker, arg.value))
         .collect();
 
     // Try to look up the method in the trait registry
-    if let Some(method_lookup) = checker.trait_registry.lookup_method(&resolved_receiver, method) {
+    if let Some(method_lookup) = checker.registries.traits.lookup_method(&resolved_receiver, method) {
         // Found method - check argument count
         // The first param is 'self', so method_params includes self
         let expected_arg_count = if method_lookup.params.is_empty() {
@@ -316,10 +316,10 @@ pub fn infer_method_call_named(
         };
 
         if arg_types.len() != expected_arg_count {
-            checker.errors.push(TypeCheckError {
+            checker.diagnostics.errors.push(TypeCheckError {
                 message: format!(
                     "method `{}` expects {} arguments, found {}",
-                    checker.interner.lookup(method),
+                    checker.context.interner.lookup(method),
                     expected_arg_count,
                     arg_types.len()
                 ),
@@ -332,7 +332,7 @@ pub fn infer_method_call_named(
         // Unify argument types with parameter types (skip self param)
         let param_types: Vec<_> = method_lookup.params.iter().skip(1).collect();
         for (i, (param_ty, arg_ty)) in param_types.iter().zip(arg_types.iter()).enumerate() {
-            if let Err(e) = checker.ctx.unify(param_ty, arg_ty) {
+            if let Err(e) = checker.inference.ctx.unify(param_ty, arg_ty) {
                 // Use the span of the specific argument if available
                 let arg_span = if i < call_args.len() {
                     call_args[i].span
@@ -358,7 +358,7 @@ fn infer_builtin_method(
     arg_types: &[Type],
     span: Span,
 ) -> Type {
-    let method_name = checker.interner.lookup(method);
+    let method_name = checker.context.interner.lookup(method);
 
     match receiver_ty {
         // String methods
@@ -370,7 +370,7 @@ fn infer_builtin_method(
             "chars" => Type::List(Box::new(Type::Char)),
             "bytes" => Type::List(Box::new(Type::Byte)),
             _ => {
-                checker.errors.push(TypeCheckError {
+                checker.diagnostics.errors.push(TypeCheckError {
                     message: format!("unknown method `{method_name}` for type `str`"),
                     span,
                     code: crate::diagnostic::ErrorCode::E2002,
@@ -387,7 +387,7 @@ fn infer_builtin_method(
             "push" => Type::Unit,
             "map" => {
                 // map takes a function T -> U and returns [U]
-                let result_elem = checker.ctx.fresh_var();
+                let result_elem = checker.inference.ctx.fresh_var();
                 Type::List(Box::new(result_elem))
             }
             "filter" | "reverse" | "sort" => Type::List(elem_ty.clone()),
@@ -396,11 +396,11 @@ fn infer_builtin_method(
                 if let Some(acc_ty) = arg_types.first() {
                     acc_ty.clone()
                 } else {
-                    checker.ctx.fresh_var()
+                    checker.inference.ctx.fresh_var()
                 }
             }
             _ => {
-                checker.errors.push(TypeCheckError {
+                checker.diagnostics.errors.push(TypeCheckError {
                     message: format!("unknown method `{method_name}` for type `[T]`"),
                     span,
                     code: crate::diagnostic::ErrorCode::E2002,
@@ -417,7 +417,7 @@ fn infer_builtin_method(
             "keys" => Type::List(key_ty.clone()),
             "values" => Type::List(val_ty.clone()),
             _ => {
-                checker.errors.push(TypeCheckError {
+                checker.diagnostics.errors.push(TypeCheckError {
                     message: format!("unknown method `{method_name}` for type `{{K: V}}`"),
                     span,
                     code: crate::diagnostic::ErrorCode::E2002,
@@ -431,16 +431,16 @@ fn infer_builtin_method(
             "is_some" | "is_none" => Type::Bool,
             "unwrap" | "unwrap_or" => (**inner_ty).clone(),
             "map" | "and_then" => {
-                let result_inner = checker.ctx.fresh_var();
+                let result_inner = checker.inference.ctx.fresh_var();
                 Type::Option(Box::new(result_inner))
             }
             "filter" => Type::Option(inner_ty.clone()),
             "ok_or" => {
-                let err_ty = checker.ctx.fresh_var();
+                let err_ty = checker.inference.ctx.fresh_var();
                 Type::Result { ok: inner_ty.clone(), err: Box::new(err_ty) }
             }
             _ => {
-                checker.errors.push(TypeCheckError {
+                checker.diagnostics.errors.push(TypeCheckError {
                     message: format!("unknown method `{method_name}` for type `Option<T>`"),
                     span,
                     code: crate::diagnostic::ErrorCode::E2002,
@@ -457,15 +457,15 @@ fn infer_builtin_method(
             "ok" => Type::Option(ok_ty.clone()),
             "err" => Type::Option(err_ty.clone()),
             "map" | "and_then" => {
-                let result_ok = checker.ctx.fresh_var();
+                let result_ok = checker.inference.ctx.fresh_var();
                 Type::Result { ok: Box::new(result_ok), err: err_ty.clone() }
             }
             "map_err" => {
-                let result_err = checker.ctx.fresh_var();
+                let result_err = checker.inference.ctx.fresh_var();
                 Type::Result { ok: ok_ty.clone(), err: Box::new(result_err) }
             }
             _ => {
-                checker.errors.push(TypeCheckError {
+                checker.diagnostics.errors.push(TypeCheckError {
                     message: format!("unknown method `{method_name}` for type `Result<T, E>`"),
                     span,
                     code: crate::diagnostic::ErrorCode::E2002,
@@ -478,9 +478,9 @@ fn infer_builtin_method(
         Type::Int => match method_name {
             "abs" | "min" | "max" => Type::Int,
             "to_string" => Type::Str,
-            "compare" => Type::Named(checker.interner.intern("Ordering")),
+            "compare" => Type::Named(checker.context.interner.intern("Ordering")),
             _ => {
-                checker.errors.push(TypeCheckError {
+                checker.diagnostics.errors.push(TypeCheckError {
                     message: format!("unknown method `{method_name}` for type `int`"),
                     span,
                     code: crate::diagnostic::ErrorCode::E2002,
@@ -493,9 +493,9 @@ fn infer_builtin_method(
         Type::Float => match method_name {
             "abs" | "floor" | "ceil" | "round" | "sqrt" | "min" | "max" => Type::Float,
             "to_string" => Type::Str,
-            "compare" => Type::Named(checker.interner.intern("Ordering")),
+            "compare" => Type::Named(checker.context.interner.intern("Ordering")),
             _ => {
-                checker.errors.push(TypeCheckError {
+                checker.diagnostics.errors.push(TypeCheckError {
                     message: format!("unknown method `{method_name}` for type `float`"),
                     span,
                     code: crate::diagnostic::ErrorCode::E2002,
@@ -506,7 +506,7 @@ fn infer_builtin_method(
 
         // Bool methods
         Type::Bool => if method_name == "to_string" { Type::Str } else {
-            checker.errors.push(TypeCheckError {
+            checker.diagnostics.errors.push(TypeCheckError {
                 message: format!("unknown method `{method_name}` for type `bool`"),
                 span,
                 code: crate::diagnostic::ErrorCode::E2002,
@@ -515,17 +515,17 @@ fn infer_builtin_method(
         },
 
         // Type variable - can't check methods yet, return fresh var
-        Type::Var(_) => checker.ctx.fresh_var(),
+        Type::Var(_) => checker.inference.ctx.fresh_var(),
 
         // Error type - propagate
         Type::Error => Type::Error,
 
         // Other types - no known methods
         _ => {
-            checker.errors.push(TypeCheckError {
+            checker.diagnostics.errors.push(TypeCheckError {
                 message: format!(
                     "type `{}` has no method `{}`",
-                    receiver_ty.display(checker.interner),
+                    receiver_ty.display(checker.context.interner),
                     method_name
                 ),
                 span,

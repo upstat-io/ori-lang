@@ -468,7 +468,70 @@ impl PartialEq for Value {
             (Value::List(a), Value::List(b)) | (Value::Tuple(a), Value::Tuple(b)) => a == b,
             (Value::Duration(a), Value::Duration(b)) | (Value::Size(a), Value::Size(b)) => a == b,
             (Value::FunctionVal(_, name_a), Value::FunctionVal(_, name_b)) => name_a == name_b,
+            (Value::Struct(a), Value::Struct(b)) => {
+                a.type_name == b.type_name
+                    && a.fields.iter().zip(b.fields.iter()).all(|(av, bv)| av == bv)
+            }
+            (Value::Map(a), Value::Map(b)) => {
+                a.len() == b.len()
+                    && a.iter().all(|(k, v)| b.get(k).is_some_and(|bv| v == bv))
+            }
             _ => false,
+        }
+    }
+}
+
+impl Eq for Value {}
+
+impl std::hash::Hash for Value {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Use discriminant tags to distinguish variants
+        std::mem::discriminant(self).hash(state);
+
+        match self {
+            Value::Int(n) => n.hash(state),
+            Value::Float(f) => f.to_bits().hash(state),
+            Value::Bool(b) => b.hash(state),
+            Value::Str(s) => s.hash(state),
+            Value::Char(c) => c.hash(state),
+            Value::Byte(b) => b.hash(state),
+            Value::Void | Value::None => {}
+            Value::Duration(d) => d.hash(state),
+            Value::Size(s) => s.hash(state),
+            Value::Some(v) | Value::Ok(v) | Value::Err(v) => v.hash(state),
+            Value::List(items) | Value::Tuple(items) => {
+                for item in items.iter() {
+                    item.hash(state);
+                }
+            }
+            Value::Map(m) => {
+                // Hash length for consistency
+                m.len().hash(state);
+                // Note: Map iteration order may vary, so we sort keys for determinism
+                let mut keys: Vec<_> = m.keys().collect();
+                keys.sort();
+                for k in keys {
+                    k.hash(state);
+                    m.get(k).hash(state);
+                }
+            }
+            Value::Struct(s) => {
+                s.type_name.hash(state);
+                for v in s.fields.iter() {
+                    v.hash(state);
+                }
+            }
+            Value::Function(f) => {
+                // Hash by function identity (body expression ID)
+                f.body.hash(state);
+            }
+            Value::FunctionVal(_, name) => name.hash(state),
+            Value::Range(r) => {
+                r.start.hash(state);
+                r.end.hash(state);
+                r.inclusive.hash(state);
+            }
+            Value::Error(msg) => msg.hash(state),
         }
     }
 }
@@ -562,5 +625,88 @@ mod tests {
         let func = FunctionValue::new(vec![], ExprId::new(0), HashMap::new(), arena);
         assert!(func.params.is_empty());
         assert!(!func.has_captures());
+    }
+
+    #[test]
+    fn test_value_hash_consistency() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        fn hash_value(v: &Value) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            v.hash(&mut hasher);
+            hasher.finish()
+        }
+
+        // Equal values must have equal hashes
+        assert_eq!(hash_value(&Value::Int(42)), hash_value(&Value::Int(42)));
+        assert_eq!(hash_value(&Value::Bool(true)), hash_value(&Value::Bool(true)));
+        assert_eq!(hash_value(&Value::Void), hash_value(&Value::Void));
+        assert_eq!(hash_value(&Value::None), hash_value(&Value::None));
+
+        // Equal strings
+        let s1 = Value::string("hello");
+        let s2 = Value::string("hello");
+        assert_eq!(hash_value(&s1), hash_value(&s2));
+
+        // Equal lists
+        let l1 = Value::list(vec![Value::Int(1), Value::Int(2)]);
+        let l2 = Value::list(vec![Value::Int(1), Value::Int(2)]);
+        assert_eq!(hash_value(&l1), hash_value(&l2));
+
+        // Equal Option values
+        let o1 = Value::some(Value::Int(42));
+        let o2 = Value::some(Value::Int(42));
+        assert_eq!(hash_value(&o1), hash_value(&o2));
+    }
+
+    #[test]
+    fn test_value_in_hashset() {
+        use std::collections::HashSet;
+
+        let mut set: HashSet<Value> = HashSet::new();
+        set.insert(Value::Int(1));
+        set.insert(Value::Int(2));
+        set.insert(Value::Int(1)); // Duplicate
+
+        assert_eq!(set.len(), 2);
+        assert!(set.contains(&Value::Int(1)));
+        assert!(set.contains(&Value::Int(2)));
+        assert!(!set.contains(&Value::Int(3)));
+    }
+
+    #[test]
+    fn test_value_as_hashmap_key() {
+        use std::collections::HashMap;
+
+        let mut map: HashMap<Value, &str> = HashMap::new();
+        map.insert(Value::string("key1"), "value1");
+        map.insert(Value::Int(42), "value2");
+
+        assert_eq!(map.get(&Value::string("key1")), Some(&"value1"));
+        assert_eq!(map.get(&Value::Int(42)), Some(&"value2"));
+        assert_eq!(map.get(&Value::string("unknown")), None);
+    }
+
+    #[test]
+    fn test_value_different_types_different_hash() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        fn hash_value(v: &Value) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            v.hash(&mut hasher);
+            hasher.finish()
+        }
+
+        // Different value types should (likely) have different hashes
+        // This isn't guaranteed but is generally true for well-designed hash functions
+        let int_hash = hash_value(&Value::Int(1));
+        let bool_hash = hash_value(&Value::Bool(true));
+        let str_hash = hash_value(&Value::string("1"));
+
+        // At least some should differ (collision is possible but unlikely)
+        let all_same = int_hash == bool_hash && bool_hash == str_hash;
+        assert!(!all_same, "Different types should generally have different hashes");
     }
 }
