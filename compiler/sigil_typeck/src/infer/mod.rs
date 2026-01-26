@@ -17,7 +17,6 @@ use sigil_ir::{ExprId, ExprKind, Name, StmtKind, FunctionSeq, SeqBinding};
 use sigil_types::Type;
 use crate::ensure_sufficient_stack;
 use crate::checker::TypeChecker;
-use super::checker::types::TypeCheckError;
 use super::checker::bound_checking;
 use std::collections::HashSet;
 
@@ -146,8 +145,8 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
         }
 
         // Range
-        ExprKind::Range { start, end, inclusive } => {
-            infer_range(checker, *start, *end, *inclusive, span)
+        ExprKind::Range { start, end, .. } => {
+            infer_range(checker, *start, *end)
         }
 
         // Field access
@@ -193,14 +192,14 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
             if let Some(ty) = checker.scope.config_types.get(name) {
                 ty.clone()
             } else {
-                checker.diagnostics.errors.push(TypeCheckError {
-                    message: format!(
+                checker.push_error(
+                    format!(
                         "undefined config variable `${}`",
                         checker.context.interner.lookup(*name)
                     ),
                     span,
-                    code: sigil_diagnostic::ErrorCode::E2004,
-                });
+                    sigil_diagnostic::ErrorCode::E2004,
+                );
                 Type::Error
             }
         }
@@ -210,11 +209,11 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
             if let Some(ref self_ty) = checker.scope.current_impl_self {
                 self_ty.clone()
             } else {
-                checker.diagnostics.errors.push(TypeCheckError {
-                    message: "`self` can only be used inside impl blocks".to_string(),
+                checker.push_error(
+                    "`self` can only be used inside impl blocks",
                     span,
-                    code: sigil_diagnostic::ErrorCode::E2003,
-                });
+                    sigil_diagnostic::ErrorCode::E2003,
+                );
                 Type::Error
             }
         }
@@ -235,13 +234,13 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
 
                     if !implements_builtin {
                         let provider_ty_str = format!("{resolved_provider_ty:?}");
-                        checker.diagnostics.errors.push(TypeCheckError {
-                            message: format!(
+                        checker.push_error(
+                            format!(
                                 "provider type `{provider_ty_str}` does not implement capability `{cap_name}`"
                             ),
                             span,
-                            code: sigil_diagnostic::ErrorCode::E2013,
-                        });
+                            sigil_diagnostic::ErrorCode::E2013,
+                        );
                     }
                 }
             }

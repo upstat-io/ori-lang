@@ -17,58 +17,50 @@ pub fn infer_function_seq(
 ) -> Type {
     match func_seq {
         FunctionSeq::Run { bindings, result, .. } => {
-            let run_env = checker.inference.env.child();
-            let old_env = std::mem::replace(&mut checker.inference.env, run_env);
+            checker.with_infer_env_scope(|checker| {
+                let seq_bindings = checker.context.arena.get_seq_bindings(*bindings);
+                for binding in seq_bindings {
+                    match binding {
+                        SeqBinding::Let { pattern, value, span: binding_span, .. } => {
+                            checker.check_closure_self_capture(pattern, *value, *binding_span);
 
-            let seq_bindings = checker.context.arena.get_seq_bindings(*bindings);
-            for binding in seq_bindings {
-                match binding {
-                    SeqBinding::Let { pattern, value, span: binding_span, .. } => {
-                        checker.check_closure_self_capture(pattern, *value, *binding_span);
-
-                        let init_ty = infer_expr(checker, *value);
-                        checker.bind_pattern(pattern, init_ty);
-                    }
-                    SeqBinding::Stmt { expr, .. } => {
-                        infer_expr(checker, *expr);
+                            let init_ty = infer_expr(checker, *value);
+                            checker.bind_pattern(pattern, init_ty);
+                        }
+                        SeqBinding::Stmt { expr, .. } => {
+                            infer_expr(checker, *expr);
+                        }
                     }
                 }
-            }
 
-            let result_ty = infer_expr(checker, *result);
-
-            checker.inference.env = old_env;
-            result_ty
+                infer_expr(checker, *result)
+            })
         }
 
         FunctionSeq::Try { bindings, result, .. } => {
-            let try_env = checker.inference.env.child();
-            let old_env = std::mem::replace(&mut checker.inference.env, try_env);
+            checker.with_infer_env_scope(|checker| {
+                let seq_bindings = checker.context.arena.get_seq_bindings(*bindings);
+                for binding in seq_bindings {
+                    match binding {
+                        SeqBinding::Let { pattern, value, span: binding_span, .. } => {
+                            checker.check_closure_self_capture(pattern, *value, *binding_span);
 
-            let seq_bindings = checker.context.arena.get_seq_bindings(*bindings);
-            for binding in seq_bindings {
-                match binding {
-                    SeqBinding::Let { pattern, value, span: binding_span, .. } => {
-                        checker.check_closure_self_capture(pattern, *value, *binding_span);
-
-                        let init_ty = infer_expr(checker, *value);
-                        let unwrapped = match &init_ty {
-                            Type::Result { ok, .. } => (**ok).clone(),
-                            Type::Option(some_ty) => (**some_ty).clone(),
-                            other => other.clone(),
-                        };
-                        checker.bind_pattern(pattern, unwrapped);
-                    }
-                    SeqBinding::Stmt { expr, .. } => {
-                        infer_expr(checker, *expr);
+                            let init_ty = infer_expr(checker, *value);
+                            let unwrapped = match &init_ty {
+                                Type::Result { ok, .. } => (**ok).clone(),
+                                Type::Option(some_ty) => (**some_ty).clone(),
+                                other => other.clone(),
+                            };
+                            checker.bind_pattern(pattern, unwrapped);
+                        }
+                        SeqBinding::Stmt { expr, .. } => {
+                            infer_expr(checker, *expr);
+                        }
                     }
                 }
-            }
 
-            let result_ty = infer_expr(checker, *result);
-
-            checker.inference.env = old_env;
-            result_ty
+                infer_expr(checker, *result)
+            })
         }
 
         FunctionSeq::Match { scrutinee, arms, .. } => {
@@ -85,22 +77,16 @@ pub fn infer_function_seq(
 
                     let bindings = super::extract_match_pattern_bindings(checker, &arm.pattern, &scrutinee_ty);
 
-                    let mut arm_env = checker.inference.env.child();
-                    for (name, ty) in bindings {
-                        arm_env.bind(name, ty);
-                    }
-                    let old_env = std::mem::replace(&mut checker.inference.env, arm_env);
-
-                    if let Some(guard_id) = arm.guard {
-                        let guard_ty = infer_expr(checker, guard_id);
-                        if let Err(e) = checker.inference.ctx.unify(&guard_ty, &Type::Bool) {
-                            checker.report_type_error(&e, checker.context.arena.get_expr(guard_id).span);
+                    let arm_ty = checker.with_infer_bindings(bindings, |checker| {
+                        if let Some(guard_id) = arm.guard {
+                            let guard_ty = infer_expr(checker, guard_id);
+                            if let Err(e) = checker.inference.ctx.unify(&guard_ty, &Type::Bool) {
+                                checker.report_type_error(&e, checker.context.arena.get_expr(guard_id).span);
+                            }
                         }
-                    }
 
-                    let arm_ty = infer_expr(checker, arm.body);
-
-                    checker.inference.env = old_env;
+                        infer_expr(checker, arm.body)
+                    });
 
                     match &result_ty {
                         Some(expected) => {
@@ -142,22 +128,16 @@ pub fn infer_function_seq(
 
             let bindings = super::extract_match_pattern_bindings(checker, &arm.pattern, &scrutinee_ty);
 
-            let mut arm_env = checker.inference.env.child();
-            for (name, ty) in bindings {
-                arm_env.bind(name, ty);
-            }
-            let old_env = std::mem::replace(&mut checker.inference.env, arm_env);
-
-            if let Some(guard_id) = arm.guard {
-                let guard_ty = infer_expr(checker, guard_id);
-                if let Err(e) = checker.inference.ctx.unify(&guard_ty, &Type::Bool) {
-                    checker.report_type_error(&e, checker.context.arena.get_expr(guard_id).span);
+            let arm_ty = checker.with_infer_bindings(bindings, |checker| {
+                if let Some(guard_id) = arm.guard {
+                    let guard_ty = infer_expr(checker, guard_id);
+                    if let Err(e) = checker.inference.ctx.unify(&guard_ty, &Type::Bool) {
+                        checker.report_type_error(&e, checker.context.arena.get_expr(guard_id).span);
+                    }
                 }
-            }
 
-            let arm_ty = infer_expr(checker, arm.body);
-
-            checker.inference.env = old_env;
+                infer_expr(checker, arm.body)
+            });
 
             let default_ty = infer_expr(checker, *default);
 

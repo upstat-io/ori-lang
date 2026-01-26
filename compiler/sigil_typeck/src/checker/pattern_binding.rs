@@ -5,7 +5,6 @@
 use sigil_ir::{Span, BindingPattern};
 use sigil_types::Type;
 use super::TypeChecker;
-use super::types::TypeCheckError;
 
 impl TypeChecker<'_> {
     /// Bind a pattern to a type with generalization (for let-polymorphism).
@@ -79,15 +78,15 @@ impl TypeChecker<'_> {
                                 self.bind_pattern(pat, elem_ty);
                             }
                         } else {
-                            self.diagnostics.errors.push(TypeCheckError {
-                                message: format!(
+                            self.push_error(
+                                format!(
                                     "tuple pattern has {} elements, but type has {}",
                                     patterns.len(),
                                     elem_types.len()
                                 ),
-                                span: Span::default(),
-                                code: sigil_diagnostic::ErrorCode::E2001,
-                            });
+                                Span::default(),
+                                sigil_diagnostic::ErrorCode::E2001,
+                            );
                         }
                     }
                     Type::Var(_) => {
@@ -99,14 +98,14 @@ impl TypeChecker<'_> {
                     }
                     Type::Error => {} // Error recovery - don't cascade errors
                     other => {
-                        self.diagnostics.errors.push(TypeCheckError {
-                            message: format!(
+                        self.push_error(
+                            format!(
                                 "cannot destructure `{}` as a tuple",
                                 other.display(self.context.interner)
                             ),
-                            span: Span::default(),
-                            code: sigil_diagnostic::ErrorCode::E2001,
-                        });
+                            Span::default(),
+                            sigil_diagnostic::ErrorCode::E2001,
+                        );
                     }
                 }
             }
@@ -144,14 +143,14 @@ impl TypeChecker<'_> {
                     }
                     Type::Error => {} // Error recovery - don't cascade errors
                     other => {
-                        self.diagnostics.errors.push(TypeCheckError {
-                            message: format!(
+                        self.push_error(
+                            format!(
                                 "cannot destructure `{}` as a list",
                                 other.display(self.context.interner)
                             ),
-                            span: Span::default(),
-                            code: sigil_diagnostic::ErrorCode::E2001,
-                        });
+                            Span::default(),
+                            sigil_diagnostic::ErrorCode::E2001,
+                        );
                     }
                 }
             }

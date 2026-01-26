@@ -4,7 +4,7 @@
 
 use sigil_ir::{Name, Span, ExprId, ExprRange, CallArgRange, ExprKind};
 use sigil_types::Type;
-use crate::checker::{TypeChecker, TypeCheckError};
+use crate::checker::TypeChecker;
 use super::infer_expr;
 
 /// Infer type for a function call (positional arguments).
@@ -30,11 +30,11 @@ pub fn infer_call(
     let arg_ids = checker.context.arena.get_expr_list(args);
 
     if !positional_allowed && !arg_ids.is_empty() {
-        checker.diagnostics.errors.push(TypeCheckError {
-            message: "named arguments required for function calls (name: value)".to_string(),
+        checker.push_error(
+            "named arguments required for function calls (name: value)".to_string(),
             span,
-            code: sigil_diagnostic::ErrorCode::E2011,
-        });
+            sigil_diagnostic::ErrorCode::E2011,
+        );
         return Type::Error;
     }
 
@@ -92,15 +92,11 @@ pub fn infer_call_named(
     let (result, resolved_params) = match func_ty {
         Type::Function { params, ret } => {
             if params.len() != arg_types.len() {
-                checker.diagnostics.errors.push(TypeCheckError {
-                    message: format!(
-                        "expected {} arguments, found {}",
-                        params.len(),
-                        arg_types.len()
-                    ),
+                checker.push_error(
+                    format!("expected {} arguments, found {}", params.len(), arg_types.len()),
                     span,
-                    code: sigil_diagnostic::ErrorCode::E2004,
-                });
+                    sigil_diagnostic::ErrorCode::E2004,
+                );
                 return Type::Error;
             }
 
@@ -119,11 +115,11 @@ pub fn infer_call_named(
         }
         Type::Error => (Type::Error, None),
         _ => {
-            checker.diagnostics.errors.push(TypeCheckError {
-                message: "expected function type for call".to_string(),
+            checker.push_error(
+                "expected function type for call".to_string(),
                 span,
-                code: sigil_diagnostic::ErrorCode::E2001,
-            });
+                sigil_diagnostic::ErrorCode::E2001,
+            );
             (Type::Error, None)
         }
     };
@@ -163,14 +159,14 @@ fn check_capability_propagation(
         if !is_declared && !is_provided {
             let func_name_str = checker.context.interner.lookup(func_name);
             let cap_name_str = checker.context.interner.lookup(*required_cap);
-            checker.diagnostics.errors.push(TypeCheckError {
-                message: format!(
+            checker.push_error(
+                format!(
                     "function `{func_name_str}` uses `{cap_name_str}` capability, \
                      but caller does not declare or provide it"
                 ),
                 span,
-                code: sigil_diagnostic::ErrorCode::E2014,
-            });
+                sigil_diagnostic::ErrorCode::E2014,
+            );
         }
     }
 }
@@ -185,11 +181,11 @@ pub fn infer_method_call(
 ) -> Type {
     let arg_ids = checker.context.arena.get_expr_list(args);
     if !arg_ids.is_empty() {
-        checker.diagnostics.errors.push(TypeCheckError {
-            message: "named arguments required for method calls (name: value)".to_string(),
+        checker.push_error(
+            "named arguments required for method calls (name: value)".to_string(),
             span,
-            code: sigil_diagnostic::ErrorCode::E2011,
-        });
+            sigil_diagnostic::ErrorCode::E2011,
+        );
         return Type::Error;
     }
 
@@ -208,16 +204,16 @@ pub fn infer_method_call(
         };
 
         if arg_types.len() != expected_arg_count {
-            checker.diagnostics.errors.push(TypeCheckError {
-                message: format!(
+            checker.push_error(
+                format!(
                     "method `{}` expects {} arguments, found {}",
                     checker.context.interner.lookup(method),
                     expected_arg_count,
                     arg_types.len()
                 ),
                 span,
-                code: sigil_diagnostic::ErrorCode::E2004,
-            });
+                sigil_diagnostic::ErrorCode::E2004,
+            );
             return Type::Error;
         }
 
@@ -263,16 +259,16 @@ pub fn infer_method_call_named(
         };
 
         if arg_types.len() != expected_arg_count {
-            checker.diagnostics.errors.push(TypeCheckError {
-                message: format!(
+            checker.push_error(
+                format!(
                     "method `{}` expects {} arguments, found {}",
                     checker.context.interner.lookup(method),
                     expected_arg_count,
                     arg_types.len()
                 ),
                 span,
-                code: sigil_diagnostic::ErrorCode::E2004,
-            });
+                sigil_diagnostic::ErrorCode::E2004,
+            );
             return Type::Error;
         }
 
@@ -313,11 +309,11 @@ fn infer_builtin_method(
             "chars" => Type::List(Box::new(Type::Char)),
             "bytes" => Type::List(Box::new(Type::Byte)),
             _ => {
-                checker.diagnostics.errors.push(TypeCheckError {
-                    message: format!("unknown method `{method_name}` for type `str`"),
+                checker.push_error(
+                    format!("unknown method `{method_name}` for type `str`"),
                     span,
-                    code: sigil_diagnostic::ErrorCode::E2002,
-                });
+                    sigil_diagnostic::ErrorCode::E2002,
+                );
                 Type::Error
             }
         },
@@ -340,11 +336,11 @@ fn infer_builtin_method(
                 }
             }
             _ => {
-                checker.diagnostics.errors.push(TypeCheckError {
-                    message: format!("unknown method `{method_name}` for type `[T]`"),
+                checker.push_error(
+                    format!("unknown method `{method_name}` for type `[T]`"),
                     span,
-                    code: sigil_diagnostic::ErrorCode::E2002,
-                });
+                    sigil_diagnostic::ErrorCode::E2002,
+                );
                 Type::Error
             }
         },
@@ -356,11 +352,11 @@ fn infer_builtin_method(
             "keys" => Type::List(key_ty.clone()),
             "values" => Type::List(val_ty.clone()),
             _ => {
-                checker.diagnostics.errors.push(TypeCheckError {
-                    message: format!("unknown method `{method_name}` for type `{{K: V}}`"),
+                checker.push_error(
+                    format!("unknown method `{method_name}` for type `{{K: V}}`"),
                     span,
-                    code: sigil_diagnostic::ErrorCode::E2002,
-                });
+                    sigil_diagnostic::ErrorCode::E2002,
+                );
                 Type::Error
             }
         },
@@ -378,11 +374,11 @@ fn infer_builtin_method(
                 Type::Result { ok: inner_ty.clone(), err: Box::new(err_ty) }
             }
             _ => {
-                checker.diagnostics.errors.push(TypeCheckError {
-                    message: format!("unknown method `{method_name}` for type `Option<T>`"),
+                checker.push_error(
+                    format!("unknown method `{method_name}` for type `Option<T>`"),
                     span,
-                    code: sigil_diagnostic::ErrorCode::E2002,
-                });
+                    sigil_diagnostic::ErrorCode::E2002,
+                );
                 Type::Error
             }
         },
@@ -402,11 +398,11 @@ fn infer_builtin_method(
                 Type::Result { ok: ok_ty.clone(), err: Box::new(result_err) }
             }
             _ => {
-                checker.diagnostics.errors.push(TypeCheckError {
-                    message: format!("unknown method `{method_name}` for type `Result<T, E>`"),
+                checker.push_error(
+                    format!("unknown method `{method_name}` for type `Result<T, E>`"),
                     span,
-                    code: sigil_diagnostic::ErrorCode::E2002,
-                });
+                    sigil_diagnostic::ErrorCode::E2002,
+                );
                 Type::Error
             }
         },
@@ -416,11 +412,11 @@ fn infer_builtin_method(
             "to_string" => Type::Str,
             "compare" => Type::Named(checker.context.interner.intern("Ordering")),
             _ => {
-                checker.diagnostics.errors.push(TypeCheckError {
-                    message: format!("unknown method `{method_name}` for type `int`"),
+                checker.push_error(
+                    format!("unknown method `{method_name}` for type `int`"),
                     span,
-                    code: sigil_diagnostic::ErrorCode::E2002,
-                });
+                    sigil_diagnostic::ErrorCode::E2002,
+                );
                 Type::Error
             }
         },
@@ -430,21 +426,21 @@ fn infer_builtin_method(
             "to_string" => Type::Str,
             "compare" => Type::Named(checker.context.interner.intern("Ordering")),
             _ => {
-                checker.diagnostics.errors.push(TypeCheckError {
-                    message: format!("unknown method `{method_name}` for type `float`"),
+                checker.push_error(
+                    format!("unknown method `{method_name}` for type `float`"),
                     span,
-                    code: sigil_diagnostic::ErrorCode::E2002,
-                });
+                    sigil_diagnostic::ErrorCode::E2002,
+                );
                 Type::Error
             }
         },
 
         Type::Bool => if method_name == "to_string" { Type::Str } else {
-            checker.diagnostics.errors.push(TypeCheckError {
-                message: format!("unknown method `{method_name}` for type `bool`"),
+            checker.push_error(
+                format!("unknown method `{method_name}` for type `bool`"),
                 span,
-                code: sigil_diagnostic::ErrorCode::E2002,
-            });
+                sigil_diagnostic::ErrorCode::E2002,
+            );
             Type::Error
         },
 
@@ -452,15 +448,15 @@ fn infer_builtin_method(
         Type::Error => Type::Error,
 
         _ => {
-            checker.diagnostics.errors.push(TypeCheckError {
-                message: format!(
+            checker.push_error(
+                format!(
                     "type `{}` has no method `{}`",
                     receiver_ty.display(checker.context.interner),
                     method_name
                 ),
                 span,
-                code: sigil_diagnostic::ErrorCode::E2002,
-            });
+                sigil_diagnostic::ErrorCode::E2002,
+            );
             Type::Error
         }
     }

@@ -4,7 +4,7 @@
 
 use sigil_ir::{Name, Span, ExprId, StmtRange, ArmRange, ParsedType, BindingPattern};
 use sigil_types::Type;
-use crate::checker::{TypeChecker, TypeCheckError};
+use crate::checker::TypeChecker;
 use super::infer_expr;
 
 /// Infer type for an if expression.
@@ -56,22 +56,16 @@ pub fn infer_match(
 
             let bindings = super::extract_match_pattern_bindings(checker, &arm.pattern, &scrutinee_ty);
 
-            let mut arm_env = checker.inference.env.child();
-            for (name, ty) in bindings {
-                arm_env.bind(name, ty);
-            }
-            let old_env = std::mem::replace(&mut checker.inference.env, arm_env);
-
-            if let Some(guard_id) = arm.guard {
-                let guard_ty = infer_expr(checker, guard_id);
-                if let Err(e) = checker.inference.ctx.unify(&guard_ty, &Type::Bool) {
-                    checker.report_type_error(&e, checker.context.arena.get_expr(guard_id).span);
+            let arm_ty = checker.with_infer_bindings(bindings, |checker| {
+                if let Some(guard_id) = arm.guard {
+                    let guard_ty = infer_expr(checker, guard_id);
+                    if let Err(e) = checker.inference.ctx.unify(&guard_ty, &Type::Bool) {
+                        checker.report_type_error(&e, checker.context.arena.get_expr(guard_id).span);
+                    }
                 }
-            }
 
-            let arm_ty = infer_expr(checker, arm.body);
-
-            checker.inference.env = old_env;
+                infer_expr(checker, arm.body)
+            });
 
             match &result_ty {
                 Some(expected) => {
@@ -108,31 +102,28 @@ pub fn infer_for(
         Type::Var(_) => checker.inference.ctx.fresh_var(),
         Type::Error => Type::Error,
         other => {
-            checker.diagnostics.errors.push(TypeCheckError {
-                message: format!(
+            checker.push_error(
+                format!(
                     "`{}` is not iterable",
                     other.display(checker.context.interner)
                 ),
-                span: checker.context.arena.get_expr(iter).span,
-                code: sigil_diagnostic::ErrorCode::E2001,
-            });
+                checker.context.arena.get_expr(iter).span,
+                sigil_diagnostic::ErrorCode::E2001,
+            );
             Type::Error
         }
     };
 
-    let mut loop_env = checker.inference.env.child();
-    loop_env.bind(binding, elem_ty);
-    let old_env = std::mem::replace(&mut checker.inference.env, loop_env);
-
-    if let Some(guard_id) = guard {
-        let guard_ty = infer_expr(checker, guard_id);
-        if let Err(e) = checker.inference.ctx.unify(&guard_ty, &Type::Bool) {
-            checker.report_type_error(&e, checker.context.arena.get_expr(guard_id).span);
+    let body_ty = checker.with_infer_bindings(vec![(binding, elem_ty)], |checker| {
+        if let Some(guard_id) = guard {
+            let guard_ty = infer_expr(checker, guard_id);
+            if let Err(e) = checker.inference.ctx.unify(&guard_ty, &Type::Bool) {
+                checker.report_type_error(&e, checker.context.arena.get_expr(guard_id).span);
+            }
         }
-    }
 
-    let body_ty = infer_expr(checker, body);
-    checker.inference.env = old_env;
+        infer_expr(checker, body)
+    });
 
     if is_yield {
         Type::List(Box::new(body_ty))
@@ -154,40 +145,36 @@ pub fn infer_block(
     result: Option<ExprId>,
     _span: Span,
 ) -> Type {
-    let block_env = checker.inference.env.child();
-    let old_env = std::mem::replace(&mut checker.inference.env, block_env);
+    checker.with_infer_env_scope(|checker| {
+        for stmt in checker.context.arena.get_stmt_range(stmts) {
+            match &stmt.kind {
+                sigil_ir::StmtKind::Expr(e) => {
+                    infer_expr(checker, *e);
+                }
+                sigil_ir::StmtKind::Let { pattern, ty, init, .. } => {
+                    checker.check_closure_self_capture(pattern, *init, stmt.span);
 
-    for stmt in checker.context.arena.get_stmt_range(stmts) {
-        match &stmt.kind {
-            sigil_ir::StmtKind::Expr(e) => {
-                infer_expr(checker, *e);
-            }
-            sigil_ir::StmtKind::Let { pattern, ty, init, .. } => {
-                checker.check_closure_self_capture(pattern, *init, stmt.span);
-
-                let init_ty = infer_expr(checker, *init);
-                let final_ty = if let Some(type_id) = ty {
-                    let declared_ty = checker.type_id_to_type(*type_id);
-                    if let Err(e) = checker.inference.ctx.unify(&declared_ty, &init_ty) {
-                        checker.report_type_error(&e, checker.context.arena.get_expr(*init).span);
-                    }
-                    declared_ty
-                } else {
-                    init_ty
-                };
-                checker.bind_pattern_generalized(pattern, final_ty);
+                    let init_ty = infer_expr(checker, *init);
+                    let final_ty = if let Some(type_id) = ty {
+                        let declared_ty = checker.type_id_to_type(*type_id);
+                        if let Err(e) = checker.inference.ctx.unify(&declared_ty, &init_ty) {
+                            checker.report_type_error(&e, checker.context.arena.get_expr(*init).span);
+                        }
+                        declared_ty
+                    } else {
+                        init_ty
+                    };
+                    checker.bind_pattern_generalized(pattern, final_ty);
+                }
             }
         }
-    }
 
-    let result_ty = if let Some(result_id) = result {
-        infer_expr(checker, result_id)
-    } else {
-        Type::Unit
-    };
-
-    checker.inference.env = old_env;
-    result_ty
+        if let Some(result_id) = result {
+            infer_expr(checker, result_id)
+        } else {
+            Type::Unit
+        }
+    })
 }
 
 /// Infer type for a let binding (as expression).
@@ -233,11 +220,11 @@ pub fn infer_break(checker: &mut TypeChecker<'_>, value: Option<ExprId>) -> Type
 /// Infer type for await expression.
 pub fn infer_await(checker: &mut TypeChecker<'_>, inner: ExprId, span: Span) -> Type {
     let _ = infer_expr(checker, inner);
-    checker.diagnostics.errors.push(TypeCheckError {
-        message: "`.await` is not supported; use `uses Async` capability and `parallel(...)` pattern".to_string(),
+    checker.push_error(
+        "`.await` is not supported; use `uses Async` capability and `parallel(...)` pattern",
         span,
-        code: sigil_diagnostic::ErrorCode::E2001,
-    });
+        sigil_diagnostic::ErrorCode::E2001,
+    );
     Type::Error
 }
 
@@ -251,15 +238,15 @@ pub fn infer_try(checker: &mut TypeChecker<'_>, inner: ExprId, _span: Span) -> T
         Type::Var(_) => checker.inference.ctx.fresh_var(),
         Type::Error => Type::Error,
         other => {
-            checker.diagnostics.errors.push(TypeCheckError {
-                message: format!(
+            checker.push_error(
+                format!(
                     "the `?` operator can only be applied to `Result` or `Option`, \
                      found `{}`",
                     other.display(checker.context.interner)
                 ),
-                span: checker.context.arena.get_expr(inner).span,
-                code: sigil_diagnostic::ErrorCode::E2001,
-            });
+                checker.context.arena.get_expr(inner).span,
+                sigil_diagnostic::ErrorCode::E2001,
+            );
             Type::Error
         }
     }

@@ -5,7 +5,6 @@
 use std::collections::HashSet;
 use sigil_ir::{Name, Span, ExprId, ExprKind, BindingPattern};
 use super::TypeChecker;
-use super::types::TypeCheckError;
 use crate::infer;
 
 /// Add bindings from a pattern to the bound set.
@@ -80,13 +79,13 @@ impl TypeChecker<'_> {
             for name in &bound_names {
                 if free_vars.contains(name) {
                     let name_str = self.context.interner.lookup(*name);
-                    self.diagnostics.errors.push(TypeCheckError {
-                        message: format!(
+                    self.push_error(
+                        format!(
                             "closure cannot capture itself: `{name_str}` references itself in its body"
                         ),
                         span,
-                        code: sigil_diagnostic::ErrorCode::E2007,
-                    });
+                        sigil_diagnostic::ErrorCode::E2007,
+                    );
                 }
             }
         }

@@ -6,6 +6,23 @@ use super::{atty_check, DiagnosticEmitter};
 use crate::{Diagnostic, Severity};
 use std::io::{self, Write};
 
+/// ANSI color codes for terminal output.
+mod colors {
+    pub const ERROR: &str = "\x1b[1;31m";   // Bold red
+    pub const WARNING: &str = "\x1b[1;33m"; // Bold yellow
+    pub const NOTE: &str = "\x1b[1;36m";    // Bold cyan
+    pub const HELP: &str = "\x1b[1;32m";    // Bold green
+    pub const BOLD: &str = "\x1b[1m";
+    pub const SECONDARY: &str = "\x1b[1;34m"; // Bold blue
+    pub const RESET: &str = "\x1b[0m";
+}
+
+/// Returns "s" for plural counts, "" for singular.
+#[inline]
+fn plural_s(count: usize) -> &'static str {
+    if count == 1 { "" } else { "s" }
+}
+
 /// Terminal emitter with optional color support.
 pub struct TerminalEmitter<W: Write> {
     writer: W,
@@ -37,12 +54,12 @@ impl<W: Write> TerminalEmitter<W> {
     fn write_severity(&mut self, severity: Severity) {
         if self.colors {
             let color = match severity {
-                Severity::Error => "\x1b[1;31m",   // Bold red
-                Severity::Warning => "\x1b[1;33m", // Bold yellow
-                Severity::Note => "\x1b[1;36m",    // Bold cyan
-                Severity::Help => "\x1b[1;32m",    // Bold green
+                Severity::Error => colors::ERROR,
+                Severity::Warning => colors::WARNING,
+                Severity::Note => colors::NOTE,
+                Severity::Help => colors::HELP,
             };
-            let _ = write!(self.writer, "{color}{severity}\x1b[0m");
+            let _ = write!(self.writer, "{color}{severity}{}", colors::RESET);
         } else {
             let _ = write!(self.writer, "{severity}");
         }
@@ -50,7 +67,7 @@ impl<W: Write> TerminalEmitter<W> {
 
     fn write_code(&mut self, code: &str) {
         if self.colors {
-            let _ = write!(self.writer, "\x1b[1m[{code}]\x1b[0m");
+            let _ = write!(self.writer, "{}[{code}]{}", colors::BOLD, colors::RESET);
         } else {
             let _ = write!(self.writer, "[{code}]");
         }
@@ -58,7 +75,7 @@ impl<W: Write> TerminalEmitter<W> {
 
     fn write_primary(&mut self, text: &str) {
         if self.colors {
-            let _ = write!(self.writer, "\x1b[1;31m{text}\x1b[0m");
+            let _ = write!(self.writer, "{}{text}{}", colors::ERROR, colors::RESET);
         } else {
             let _ = write!(self.writer, "{text}");
         }
@@ -66,7 +83,7 @@ impl<W: Write> TerminalEmitter<W> {
 
     fn write_secondary(&mut self, text: &str) {
         if self.colors {
-            let _ = write!(self.writer, "\x1b[1;34m{text}\x1b[0m");
+            let _ = write!(self.writer, "{}{text}{}", colors::SECONDARY, colors::RESET);
         } else {
             let _ = write!(self.writer, "{text}");
         }
@@ -96,7 +113,7 @@ impl<W: Write> DiagnosticEmitter for TerminalEmitter<W> {
         for note in &diagnostic.notes {
             let _ = write!(self.writer, "  = ");
             if self.colors {
-                let _ = write!(self.writer, "\x1b[1mnote\x1b[0m");
+                let _ = write!(self.writer, "{}note{}", colors::BOLD, colors::RESET);
             } else {
                 let _ = write!(self.writer, "note");
             }
@@ -107,7 +124,7 @@ impl<W: Write> DiagnosticEmitter for TerminalEmitter<W> {
         for suggestion in &diagnostic.suggestions {
             let _ = write!(self.writer, "  = ");
             if self.colors {
-                let _ = write!(self.writer, "\x1b[1;32mhelp\x1b[0m");
+                let _ = write!(self.writer, "{}help{}", colors::HELP, colors::RESET);
             } else {
                 let _ = write!(self.writer, "help");
             }
@@ -127,7 +144,9 @@ impl<W: Write> DiagnosticEmitter for TerminalEmitter<W> {
                 if error_count > 0 {
                     let _ = write!(
                         self.writer,
-                        "\x1b[1;31merror\x1b[0m: aborting due to "
+                        "{}error{}: aborting due to ",
+                        colors::ERROR,
+                        colors::RESET
                     );
                     if error_count == 1 {
                         let _ = write!(self.writer, "previous error");
@@ -139,16 +158,18 @@ impl<W: Write> DiagnosticEmitter for TerminalEmitter<W> {
                             self.writer,
                             "; {} warning{} emitted",
                             warning_count,
-                            if warning_count == 1 { "" } else { "s" }
+                            plural_s(warning_count)
                         );
                     }
                     let _ = writeln!(self.writer);
                 } else if warning_count > 0 {
                     let _ = writeln!(
                         self.writer,
-                        "\x1b[1;33mwarning\x1b[0m: {} warning{} emitted",
+                        "{}warning{}: {} warning{} emitted",
+                        colors::WARNING,
+                        colors::RESET,
                         warning_count,
-                        if warning_count == 1 { "" } else { "s" }
+                        plural_s(warning_count)
                     );
                 }
             } else if error_count > 0 {
@@ -163,7 +184,7 @@ impl<W: Write> DiagnosticEmitter for TerminalEmitter<W> {
                         self.writer,
                         "; {} warning{} emitted",
                         warning_count,
-                        if warning_count == 1 { "" } else { "s" }
+                        plural_s(warning_count)
                     );
                 }
                 let _ = writeln!(self.writer);
@@ -172,7 +193,7 @@ impl<W: Write> DiagnosticEmitter for TerminalEmitter<W> {
                     self.writer,
                     "warning: {} warning{} emitted",
                     warning_count,
-                    if warning_count == 1 { "" } else { "s" }
+                    plural_s(warning_count)
                 );
             }
         }

@@ -17,18 +17,6 @@
 //! Each resolver implements the `MethodResolver` trait and handles a specific
 //! category of methods. The `MethodDispatcher` chains these resolvers and
 //! tries them in priority order until one handles the method call.
-//!
-//! # Legacy Resolvers
-//!
-//! `UserMethodResolver` and `DerivedMethodResolver` are still available for
-//! backward compatibility but `UserRegistryResolver` is the recommended unified resolver.
-
-// Legacy resolvers - kept for backward compatibility but not actively used.
-// Use UserRegistryResolver instead for new code.
-#[allow(dead_code)]
-mod user;
-#[allow(dead_code)]
-mod derived;
 
 mod user_registry;
 mod collection;
@@ -38,13 +26,7 @@ pub use user_registry::UserRegistryResolver;
 pub use collection::CollectionMethodResolver;
 pub use builtin::BuiltinMethodResolver;
 
-// Re-export legacy resolvers for backward compatibility.
-// These are deprecated in favor of UserRegistryResolver.
-#[allow(unused_imports)]
-pub use user::UserMethodResolver;
-#[allow(unused_imports)]
-pub use derived::DerivedMethodResolver;
-
+use sigil_ir::Name;
 use sigil_eval::{DerivedMethodInfo, UserMethod};
 use super::super::value::Value;
 
@@ -111,18 +93,20 @@ impl CollectionMethod {
 ///
 /// Each resolver handles a specific category of methods and returns
 /// a `MethodResolution` indicating what was found.
+///
+/// Uses interned `Name` values for efficient lookup without allocation.
 pub trait MethodResolver {
     /// Try to resolve a method call.
     ///
     /// # Arguments
     /// * `receiver` - The value the method is called on
-    /// * `type_name` - The concrete type name of the receiver
-    /// * `method_name` - The name of the method being called
+    /// * `type_name` - The concrete type name of the receiver (interned)
+    /// * `method_name` - The name of the method being called (interned)
     ///
     /// # Returns
     /// * `MethodResolution::NotFound` if this resolver doesn't handle this method
     /// * Other `MethodResolution` variant if the method was found
-    fn resolve(&self, receiver: &Value, type_name: &str, method_name: &str) -> MethodResolution;
+    fn resolve(&self, receiver: &Value, type_name: Name, method_name: Name) -> MethodResolution;
 
     /// Get the priority of this resolver (lower = higher priority).
     fn priority(&self) -> u8;
@@ -153,7 +137,7 @@ impl MethodDispatcher {
     /// Try to resolve a method using the resolver chain.
     ///
     /// Returns the first successful resolution, or `NotFound` if no resolver handles it.
-    pub fn resolve(&self, receiver: &Value, type_name: &str, method_name: &str) -> MethodResolution {
+    pub fn resolve(&self, receiver: &Value, type_name: Name, method_name: Name) -> MethodResolution {
         for resolver in &self.resolvers {
             let result = resolver.resolve(receiver, type_name, method_name);
             if !matches!(result, MethodResolution::NotFound) {
@@ -188,7 +172,7 @@ mod tests {
         }
 
         impl MethodResolver for TestResolver {
-            fn resolve(&self, _receiver: &Value, _type_name: &str, _method_name: &str) -> MethodResolution {
+            fn resolve(&self, _receiver: &Value, _type_name: Name, _method_name: Name) -> MethodResolution {
                 MethodResolution::NotFound
             }
             fn priority(&self) -> u8 { self.priority }

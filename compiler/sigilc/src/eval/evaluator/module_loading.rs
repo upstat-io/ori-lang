@@ -156,7 +156,7 @@ impl Evaluator<'_> {
             // Get the type name from self_path (e.g., "Point" for `impl Point { ... }`)
             let type_name = match impl_def.self_path.last() {
                 // Use the last segment of the path as the type name
-                Some(&name) => self.interner.lookup(name).to_string(),
+                Some(&name) => name,
                 None => continue, // Skip if no type path
             };
 
@@ -165,14 +165,10 @@ impl Evaluator<'_> {
 
             // Register each explicitly defined method
             for method in &impl_def.methods {
-                let method_name = self.interner.lookup(method.name).to_string();
                 overridden_methods.insert(method.name);
 
                 // Get parameter names
-                let params: Vec<Name> = arena.get_params(method.params)
-                    .iter()
-                    .map(|p| p.name)
-                    .collect();
+                let params = arena.get_param_names(method.params);
 
                 // Create user method with captures and arena
                 let user_method = UserMethod::new(
@@ -182,7 +178,7 @@ impl Evaluator<'_> {
                     arena.clone(),
                 );
 
-                registry.register(type_name.clone(), method_name, user_method);
+                registry.register(type_name, method.name, user_method);
             }
 
             // For trait impls, also register default trait methods that weren't overridden
@@ -193,11 +189,7 @@ impl Evaluator<'_> {
                             if let crate::ir::TraitItem::DefaultMethod(default_method) = item {
                                 // Only register if not overridden
                                 if !overridden_methods.contains(&default_method.name) {
-                                    let method_name = self.interner.lookup(default_method.name).to_string();
-                                    let params: Vec<Name> = arena.get_params(default_method.params)
-                                        .iter()
-                                        .map(|p| p.name)
-                                        .collect();
+                                    let params = arena.get_param_names(default_method.params);
 
                                     let user_method = UserMethod::new(
                                         params,
@@ -206,7 +198,7 @@ impl Evaluator<'_> {
                                         arena.clone(),
                                     );
 
-                                    registry.register(type_name.clone(), method_name, user_method);
+                                    registry.register(type_name, default_method.name, user_method);
                                 }
                             }
                         }
@@ -223,17 +215,12 @@ impl Evaluator<'_> {
     pub(super) fn collect_extend_methods(&self, module: &crate::ir::Module, arena: &SharedArena, registry: &mut UserMethodRegistry) {
         for extend_def in &module.extends {
             // Get the target type name (e.g., "list" for `extend [T] { ... }`)
-            let type_name = self.interner.lookup(extend_def.target_type_name).to_string();
+            let type_name = extend_def.target_type_name;
 
             // Register each method
             for method in &extend_def.methods {
-                let method_name = self.interner.lookup(method.name).to_string();
-
                 // Get parameter names
-                let params: Vec<Name> = arena.get_params(method.params)
-                    .iter()
-                    .map(|p| p.name)
-                    .collect();
+                let params = arena.get_param_names(method.params);
 
                 // Create user method with captures and arena
                 let user_method = UserMethod::new(
@@ -243,7 +230,7 @@ impl Evaluator<'_> {
                     arena.clone(),
                 );
 
-                registry.register(type_name.clone(), method_name, user_method);
+                registry.register(type_name, method.name, user_method);
             }
         }
     }
