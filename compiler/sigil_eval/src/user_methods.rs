@@ -74,45 +74,42 @@ impl DerivedMethodInfo {
 }
 
 /// A user-defined method from an impl block.
+///
+/// # Arena Requirement (Thread Safety)
+/// Every method carries its own arena reference. This is required for thread
+/// safety in parallel execution - when methods are called from different
+/// contexts (e.g., parallel test runner), they must use their own arena to
+/// resolve `ExprId` values correctly.
 #[derive(Clone, Debug)]
 pub struct UserMethod {
     /// Parameter names (first is always `self`).
     pub params: Vec<Name>,
     /// Method body expression.
     pub body: ExprId,
-    /// Arena for evaluating the body (Some for imported methods).
-    pub arena: Option<SharedArena>,
+    /// Arena for evaluating the body (required for thread safety).
+    pub arena: SharedArena,
     /// Captured variables from the defining scope.
     pub captures: HashMap<Name, Value>,
 }
 
 impl UserMethod {
     /// Create a new user method.
-    pub fn new(params: Vec<Name>, body: ExprId) -> Self {
+    ///
+    /// # Arguments
+    /// * `params` - Parameter names (first is always `self`)
+    /// * `body` - Method body expression ID
+    /// * `captures` - Captured variables from the defining scope
+    /// * `arena` - Arena for expression resolution (required for thread safety)
+    pub fn new(
+        params: Vec<Name>,
+        body: ExprId,
+        captures: HashMap<Name, Value>,
+        arena: SharedArena,
+    ) -> Self {
         UserMethod {
             params,
             body,
-            arena: None,
-            captures: HashMap::new(),
-        }
-    }
-
-    /// Create a user method from an imported module.
-    pub fn from_import(params: Vec<Name>, body: ExprId, arena: SharedArena) -> Self {
-        UserMethod {
-            params,
-            body,
-            arena: Some(arena),
-            captures: HashMap::new(),
-        }
-    }
-
-    /// Create a user method with captures.
-    pub fn with_captures(params: Vec<Name>, body: ExprId, captures: HashMap<Name, Value>) -> Self {
-        UserMethod {
-            params,
-            body,
-            arena: None,
+            arena,
             captures,
         }
     }
@@ -236,7 +233,7 @@ impl UserMethodRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sigil_ir::{ExprId, SharedInterner};
+    use sigil_ir::{ExprArena, ExprId, SharedInterner};
 
     fn dummy_expr_id() -> ExprId {
         ExprId::new(0)
@@ -247,10 +244,14 @@ mod tests {
         interner.intern("dummy")
     }
 
+    fn dummy_arena() -> SharedArena {
+        SharedArena::new(ExprArena::new())
+    }
+
     #[test]
     fn test_register_and_lookup() {
         let mut registry = UserMethodRegistry::new();
-        let method = UserMethod::new(vec![dummy_name()], dummy_expr_id());
+        let method = UserMethod::new(vec![dummy_name()], dummy_expr_id(), HashMap::new(), dummy_arena());
 
         registry.register("Point".to_string(), "distance".to_string(), method);
 
@@ -323,7 +324,7 @@ mod tests {
         let mut registry = UserMethodRegistry::new();
 
         // Register a user method
-        let method = UserMethod::new(vec![dummy_name()], dummy_expr_id());
+        let method = UserMethod::new(vec![dummy_name()], dummy_expr_id(), HashMap::new(), dummy_arena());
         registry.register("Point".to_string(), "distance".to_string(), method);
 
         // Register a derived method
@@ -356,7 +357,7 @@ mod tests {
         let mut registry2 = UserMethodRegistry::new();
 
         // Register in first registry
-        let method = UserMethod::new(vec![dummy_name()], dummy_expr_id());
+        let method = UserMethod::new(vec![dummy_name()], dummy_expr_id(), HashMap::new(), dummy_arena());
         registry1.register("Point".to_string(), "distance".to_string(), method);
 
         // Register derived in second registry

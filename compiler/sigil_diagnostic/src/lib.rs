@@ -94,6 +94,8 @@ pub enum ErrorCode {
     E2012,
     /// Provider does not implement capability trait
     E2013,
+    /// Missing capability declaration (function uses capability without declaring it)
+    E2014,
 
     // ===== Pattern Errors (E3xxx) =====
     /// Unknown pattern
@@ -149,6 +151,7 @@ impl ErrorCode {
             ErrorCode::E2011 => "E2011",
             ErrorCode::E2012 => "E2012",
             ErrorCode::E2013 => "E2013",
+            ErrorCode::E2014 => "E2014",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",

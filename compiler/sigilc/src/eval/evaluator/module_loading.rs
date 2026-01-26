@@ -118,10 +118,15 @@ impl Evaluator<'_> {
         // Then register all local functions
         import::register_module_functions(parse_result, &mut self.env);
 
+        // Create a shared arena for all methods in this module
+        // This ensures methods carry their arena reference for correct evaluation
+        // when called from different contexts (e.g., from within a prelude function)
+        let shared_arena = SharedArena::new(parse_result.arena.clone());
+
         // Build up user method registry from impl and extend blocks
         let mut user_methods = UserMethodRegistry::new();
-        self.collect_impl_methods(&parse_result.module, &parse_result.arena, &mut user_methods);
-        self.collect_extend_methods(&parse_result.module, &parse_result.arena, &mut user_methods);
+        self.collect_impl_methods(&parse_result.module, &shared_arena, &mut user_methods);
+        self.collect_extend_methods(&parse_result.module, &shared_arena, &mut user_methods);
 
         // Process derived traits (Eq, Clone, Hashable, Printable, Default)
         // Note: We use an empty TypeRegistry here since derive processing doesn't need it
@@ -136,7 +141,10 @@ impl Evaluator<'_> {
     }
 
     /// Collect methods from impl blocks into a registry.
-    pub(super) fn collect_impl_methods(&self, module: &crate::ir::Module, arena: &crate::ir::ExprArena, registry: &mut UserMethodRegistry) {
+    ///
+    /// Takes a SharedArena so that methods carry their arena reference for
+    /// correct evaluation when called from different contexts.
+    pub(super) fn collect_impl_methods(&self, module: &crate::ir::Module, arena: &SharedArena, registry: &mut UserMethodRegistry) {
         // First, build a map of trait names to their definitions for default method lookup
         let mut trait_map: std::collections::HashMap<Name, &crate::ir::TraitDef> = std::collections::HashMap::new();
         for trait_def in &module.traits {
@@ -165,11 +173,12 @@ impl Evaluator<'_> {
                     .map(|p| p.name)
                     .collect();
 
-                // Create user method with captures from current environment
-                let user_method = UserMethod::with_captures(
+                // Create user method with captures and arena
+                let user_method = UserMethod::new(
                     params,
                     method.body,
                     self.env.capture(),
+                    arena.clone(),
                 );
 
                 registry.register(type_name.clone(), method_name, user_method);
@@ -189,10 +198,11 @@ impl Evaluator<'_> {
                                         .map(|p| p.name)
                                         .collect();
 
-                                    let user_method = UserMethod::with_captures(
+                                    let user_method = UserMethod::new(
                                         params,
                                         default_method.body,
                                         self.env.capture(),
+                                        arena.clone(),
                                     );
 
                                     registry.register(type_name.clone(), method_name, user_method);
@@ -206,7 +216,10 @@ impl Evaluator<'_> {
     }
 
     /// Collect methods from extend blocks into a registry.
-    pub(super) fn collect_extend_methods(&self, module: &crate::ir::Module, arena: &crate::ir::ExprArena, registry: &mut UserMethodRegistry) {
+    ///
+    /// Takes a SharedArena so that methods carry their arena reference for
+    /// correct evaluation when called from different contexts.
+    pub(super) fn collect_extend_methods(&self, module: &crate::ir::Module, arena: &SharedArena, registry: &mut UserMethodRegistry) {
         for extend_def in &module.extends {
             // Get the target type name (e.g., "list" for `extend [T] { ... }`)
             let type_name = self.interner.lookup(extend_def.target_type_name).to_string();
@@ -221,11 +234,12 @@ impl Evaluator<'_> {
                     .map(|p| p.name)
                     .collect();
 
-                // Create user method with captures from current environment
-                let user_method = UserMethod::with_captures(
+                // Create user method with captures and arena
+                let user_method = UserMethod::new(
                     params,
                     method.body,
                     self.env.capture(),
+                    arena.clone(),
                 );
 
                 registry.register(type_name.clone(), method_name, user_method);

@@ -34,7 +34,7 @@ use crate::diagnostic::queue::{DiagnosticQueue, DiagnosticConfig};
 use super::operators::TypeOperatorRegistry;
 use super::type_registry::{TypeRegistry, TraitRegistry};
 use super::infer;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Type checker state.
 pub struct TypeChecker<'a> {
@@ -66,6 +66,12 @@ pub struct TypeChecker<'a> {
     pub(crate) current_impl_self: Option<Type>,
     /// Config variable types for $name references.
     pub(crate) config_types: HashMap<Name, Type>,
+    /// Capabilities declared by the current function (from `uses` clause).
+    /// Used for static capability propagation checking.
+    pub(crate) current_function_caps: HashSet<Name>,
+    /// Capabilities currently provided by `with...in` expressions in scope.
+    /// Used for static capability propagation checking.
+    pub(crate) provided_caps: HashSet<Name>,
 }
 
 impl<'a> TypeChecker<'a> {
@@ -88,6 +94,8 @@ impl<'a> TypeChecker<'a> {
             source: None,
             current_impl_self: None,
             config_types: HashMap::new(),
+            current_function_caps: HashSet::new(),
+            provided_caps: HashSet::new(),
         }
     }
 
@@ -112,6 +120,8 @@ impl<'a> TypeChecker<'a> {
             source: Some(source),
             current_impl_self: None,
             config_types: HashMap::new(),
+            current_function_caps: HashSet::new(),
+            provided_caps: HashSet::new(),
         }
     }
 
@@ -140,6 +150,8 @@ impl<'a> TypeChecker<'a> {
             source: None,
             current_impl_self: None,
             config_types: HashMap::new(),
+            current_function_caps: HashSet::new(),
+            provided_caps: HashSet::new(),
         }
     }
 
@@ -167,6 +179,8 @@ impl<'a> TypeChecker<'a> {
             source: Some(source),
             current_impl_self: None,
             config_types: HashMap::new(),
+            current_function_caps: HashSet::new(),
+            provided_caps: HashSet::new(),
         }
     }
 
@@ -476,6 +490,11 @@ impl<'a> TypeChecker<'a> {
         // Save current env and switch to function env
         let old_env = std::mem::replace(&mut self.env, func_env);
 
+        // Set current function's capabilities for propagation checking
+        let old_caps = std::mem::take(&mut self.current_function_caps);
+        self.current_function_caps = func.capabilities.iter().map(|c| c.name).collect();
+        let old_provided = std::mem::take(&mut self.provided_caps);
+
         // Infer body type
         let body_type = infer::infer_expr(self, func.body);
 
@@ -484,6 +503,10 @@ impl<'a> TypeChecker<'a> {
             let span = self.arena.get_expr(func.body).span;
             self.report_type_error(&e, span);
         }
+
+        // Restore capability context
+        self.current_function_caps = old_caps;
+        self.provided_caps = old_provided;
 
         // Restore environment
         self.env = old_env;
@@ -524,6 +547,11 @@ impl<'a> TypeChecker<'a> {
         // Save current env and switch to test env
         let old_env = std::mem::replace(&mut self.env, test_env);
 
+        // Tests don't declare capabilities, so we start with empty capability context
+        // but must still track provided capabilities from with...in expressions
+        let old_caps = std::mem::take(&mut self.current_function_caps);
+        let old_provided = std::mem::take(&mut self.provided_caps);
+
         // Infer body type
         let body_type = infer::infer_expr(self, test.body);
 
@@ -532,6 +560,10 @@ impl<'a> TypeChecker<'a> {
             let span = self.arena.get_expr(test.body).span;
             self.report_type_error(&e, span);
         }
+
+        // Restore capability context
+        self.current_function_caps = old_caps;
+        self.provided_caps = old_provided;
 
         // Restore environment
         self.env = old_env;

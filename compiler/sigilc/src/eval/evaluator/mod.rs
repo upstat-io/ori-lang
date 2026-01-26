@@ -113,6 +113,33 @@ impl<'a> Evaluator<'a> {
 
     /// Inner evaluation logic (wrapped by `eval` for stack safety).
     fn eval_inner(&mut self, expr_id: ExprId) -> EvalResult {
+        // Debug: Check arena bounds before access
+        if expr_id.index() >= self.arena.expr_count() {
+            // Try to get more context about what we were evaluating
+            let thread_id = std::thread::current().id();
+            let has_imported = self.imported_arena.is_some();
+            let arena_ptr = self.arena as *const _;
+            let imported_ptr = self.imported_arena.as_ref().map(|a| &**a as *const _);
+
+            // Get backtrace for more context
+            let bt = std::backtrace::Backtrace::force_capture();
+
+            panic!(
+                "ExprId {} out of bounds (arena has {} expressions). \n\
+                 Thread: {:?}\n\
+                 has_imported_arena: {}\n\
+                 arena_ptr: {:?}\n\
+                 imported_ptr: {:?}\n\
+                 Backtrace:\n{}",
+                expr_id.index(),
+                self.arena.expr_count(),
+                thread_id,
+                has_imported,
+                arena_ptr,
+                imported_ptr,
+                bt
+            );
+        }
         let expr = self.arena.get_expr(expr_id);
         match &expr.kind {
             // Literals
@@ -163,13 +190,18 @@ impl<'a> Evaluator<'a> {
             }
 
             // Lambda
+            //
+            // IMPORTANT: Lambdas MUST always carry their arena reference to ensure
+            // correct evaluation when called from different contexts (e.g., passed
+            // to a prelude function and called from within that function's context).
             ExprKind::Lambda { params, body, .. } => {
                 let names: Vec<Name> = self.arena.get_params(*params).iter().map(|p| p.name).collect();
                 let captures = self.env.capture();
-                let func = match &self.imported_arena {
-                    Some(arena) => FunctionValue::from_import(names, *body, captures, arena.clone()),
-                    None => FunctionValue::with_captures(names, *body, captures),
+                let arena = match &self.imported_arena {
+                    Some(arena) => arena.clone(),
+                    None => SharedArena::new(self.arena.clone()),
                 };
+                let func = FunctionValue::new(names, *body, captures, arena);
                 Ok(Value::Function(func))
             }
 

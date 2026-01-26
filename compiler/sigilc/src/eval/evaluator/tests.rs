@@ -1,7 +1,7 @@
 //! Tests for the Evaluator.
 
 use super::*;
-use crate::ir::{Span, SharedInterner};
+use crate::ir::{Span, SharedArena, SharedInterner};
 use crate::ir::ast::{Expr, ExprKind};
 use std::collections::HashMap;
 use sigil_eval::{UserMethod, UserMethodRegistry};
@@ -45,7 +45,8 @@ fn test_user_method_dispatch() {
     ));
 
     // Build registry before creating evaluator (immutable after construction)
-    let user_method = UserMethod::new(vec![self_name], body);
+    let shared_arena = SharedArena::new(arena.clone());
+    let user_method = UserMethod::new(vec![self_name], body, HashMap::new(), shared_arena);
     let mut registry = UserMethodRegistry::new();
     registry.register("Point".to_string(), "double_x".to_string(), user_method);
 
@@ -85,7 +86,8 @@ fn test_user_method_with_self_access() {
     ));
 
     // Build registry before creating evaluator (immutable after construction)
-    let user_method = UserMethod::new(vec![self_name], body);
+    let shared_arena = SharedArena::new(arena.clone());
+    let user_method = UserMethod::new(vec![self_name], body, HashMap::new(), shared_arena);
     let mut registry = UserMethodRegistry::new();
     registry.register("Point".to_string(), "get_x".to_string(), user_method);
 
@@ -133,7 +135,8 @@ fn test_user_method_with_args() {
     ));
 
     // Build registry before creating evaluator (immutable after construction)
-    let user_method = UserMethod::new(vec![self_name, n_name], body);
+    let shared_arena = SharedArena::new(arena.clone());
+    let user_method = UserMethod::new(vec![self_name, n_name], body, HashMap::new(), shared_arena);
     let mut registry = UserMethodRegistry::new();
     registry.register("Point".to_string(), "add_to_x".to_string(), user_method);
 

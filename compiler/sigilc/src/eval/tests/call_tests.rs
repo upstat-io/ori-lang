@@ -2,11 +2,22 @@
 //!
 //! Tests argument binding, parameter validation, and function call dispatch.
 
+use std::collections::HashMap;
 use crate::eval::exec::call::{
     check_arg_count, bind_parameters, bind_self, eval_function_val_call,
 };
 use crate::eval::{Value, FunctionValue, Environment};
-use crate::ir::{ExprId, SharedInterner};
+use crate::ir::{ExprArena, ExprId, Name, SharedArena, SharedInterner};
+
+/// Create a dummy arena for tests.
+fn dummy_arena() -> SharedArena {
+    SharedArena::new(ExprArena::new())
+}
+
+/// Create a test function with the given parameters.
+fn test_func(params: Vec<Name>, body: ExprId) -> FunctionValue {
+    FunctionValue::new(params, body, HashMap::new(), dummy_arena())
+}
 
 // =============================================================================
 // Argument Count Validation Tests
@@ -17,7 +28,7 @@ mod arg_count {
 
     #[test]
     fn correct_count_zero() {
-        let func = FunctionValue::new(vec![], ExprId::new(0));
+        let func = test_func(vec![], ExprId::new(0));
         let args: Vec<Value> = vec![];
         assert!(check_arg_count(&func, &args).is_ok());
     }
@@ -26,7 +37,7 @@ mod arg_count {
     fn correct_count_one() {
         let interner = SharedInterner::default();
         let x = interner.intern("x");
-        let func = FunctionValue::new(vec![x], ExprId::new(0));
+        let func = test_func(vec![x], ExprId::new(0));
         let args = vec![Value::Int(1)];
         assert!(check_arg_count(&func, &args).is_ok());
     }
@@ -34,7 +45,7 @@ mod arg_count {
     #[test]
     fn correct_count_many() {
         let interner = SharedInterner::default();
-        let func = FunctionValue::new(
+        let func = test_func(
             vec![
                 interner.intern("a"),
                 interner.intern("b"),
@@ -49,7 +60,7 @@ mod arg_count {
     #[test]
     fn too_few_args() {
         let interner = SharedInterner::default();
-        let func = FunctionValue::new(
+        let func = test_func(
             vec![interner.intern("a"), interner.intern("b")],
             ExprId::new(0),
         );
@@ -61,7 +72,7 @@ mod arg_count {
     #[test]
     fn too_many_args() {
         let interner = SharedInterner::default();
-        let func = FunctionValue::new(vec![interner.intern("x")], ExprId::new(0));
+        let func = test_func(vec![interner.intern("x")], ExprId::new(0));
         let args = vec![Value::Int(1), Value::Int(2)];
         let result = check_arg_count(&func, &args);
         assert!(result.is_err());
@@ -69,7 +80,7 @@ mod arg_count {
 
     #[test]
     fn zero_params_with_args() {
-        let func = FunctionValue::new(vec![], ExprId::new(0));
+        let func = test_func(vec![], ExprId::new(0));
         let args = vec![Value::Int(1)];
         let result = check_arg_count(&func, &args);
         assert!(result.is_err());
@@ -87,7 +98,7 @@ mod parameter_binding {
     fn single_param() {
         let interner = SharedInterner::default();
         let x = interner.intern("x");
-        let func = FunctionValue::new(vec![x], ExprId::new(0));
+        let func = test_func(vec![x], ExprId::new(0));
         let args = vec![Value::Int(42)];
 
         let mut env = Environment::new();
@@ -103,7 +114,7 @@ mod parameter_binding {
         let x = interner.intern("x");
         let y = interner.intern("y");
         let z = interner.intern("z");
-        let func = FunctionValue::new(vec![x, y, z], ExprId::new(0));
+        let func = test_func(vec![x, y, z], ExprId::new(0));
         let args = vec![Value::Int(1), Value::Int(2), Value::Int(3)];
 
         let mut env = Environment::new();
@@ -121,7 +132,7 @@ mod parameter_binding {
         let i = interner.intern("i");
         let s = interner.intern("s");
         let b = interner.intern("b");
-        let func = FunctionValue::new(vec![i, s, b], ExprId::new(0));
+        let func = test_func(vec![i, s, b], ExprId::new(0));
         let args = vec![
             Value::Int(42),
             Value::string("hello"),
@@ -141,7 +152,7 @@ mod parameter_binding {
     fn params_are_immutable() {
         let interner = SharedInterner::default();
         let x = interner.intern("x");
-        let func = FunctionValue::new(vec![x], ExprId::new(0));
+        let func = test_func(vec![x], ExprId::new(0));
         let args = vec![Value::Int(42)];
 
         let mut env = Environment::new();
@@ -164,7 +175,7 @@ mod self_binding {
     fn binds_self_name() {
         let interner = SharedInterner::default();
         let name = interner.intern("test");
-        let func = FunctionValue::new(vec![name], ExprId::new(0));
+        let func = test_func(vec![name], ExprId::new(0));
         let func_val = Value::Function(func);
 
         let mut env = Environment::new();
@@ -179,7 +190,7 @@ mod self_binding {
     fn self_is_the_function() {
         let interner = SharedInterner::default();
         let name = interner.intern("test");
-        let func = FunctionValue::new(vec![name], ExprId::new(0));
+        let func = test_func(vec![name], ExprId::new(0));
         let func_val = Value::Function(func);
 
         let mut env = Environment::new();
@@ -291,7 +302,7 @@ mod edge_cases {
         let params: Vec<_> = (0..100)
             .map(|i| interner.intern(&format!("p{}", i)))
             .collect();
-        let func = FunctionValue::new(params.clone(), ExprId::new(0));
+        let func = test_func(params.clone(), ExprId::new(0));
         let args: Vec<_> = (0..100).map(Value::Int).collect();
 
         let mut env = Environment::new();
@@ -306,7 +317,7 @@ mod edge_cases {
 
     #[test]
     fn empty_function() {
-        let func = FunctionValue::new(vec![], ExprId::new(0));
+        let func = test_func(vec![], ExprId::new(0));
         let args: Vec<Value> = vec![];
 
         assert!(check_arg_count(&func, &args).is_ok());
@@ -322,7 +333,7 @@ mod edge_cases {
         let interner = SharedInterner::default();
         let l = interner.intern("l");
         let t = interner.intern("t");
-        let func = FunctionValue::new(vec![l, t], ExprId::new(0));
+        let func = test_func(vec![l, t], ExprId::new(0));
 
         let list = Value::list(vec![Value::Int(1), Value::Int(2)]);
         let tuple = Value::tuple(vec![Value::string("a"), Value::Bool(true)]);

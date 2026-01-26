@@ -139,6 +139,7 @@ impl TestRunner {
 
         // Create evaluator and load the module (handles imports and function registration)
         let mut evaluator = Evaluator::new(interner, &parse_result.arena);
+
         evaluator.register_prelude();
 
         if let Err(e) = evaluator.load_module(&parse_result, path) {

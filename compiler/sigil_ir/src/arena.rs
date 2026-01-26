@@ -446,8 +446,8 @@ use std::sync::Arc;
 ///
 /// # Usage
 /// ```ignore
-/// let imported_arena = SharedArena::new(parse_result.arena);
-/// let func = FunctionValue::from_import(params, body, captures, imported_arena);
+/// let arena = SharedArena::new(parse_result.arena);
+/// let func = FunctionValue::new(params, body, captures, arena);
 /// ```
 #[derive(Clone)]
 pub struct SharedArena(Arc<ExprArena>);

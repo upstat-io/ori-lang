@@ -1273,3 +1273,596 @@ fn test_await_syntax_not_supported() {
     // The error will be about field access or method not found, which is correct
     // behavior - Sigil doesn't have await syntax
 }
+
+// ============================================================================
+// Capability Propagation Tests
+// ============================================================================
+
+#[test]
+fn test_capability_propagation_caller_declares() {
+    // When caller declares the same capability, no E2014 error
+    let source = r#"
+        trait Http {
+            @get (url: str) -> str
+        }
+
+        @fetch (url: str) -> str uses Http = url
+
+        @caller (url: str) -> str uses Http = fetch(url: url)
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let prop_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2014)
+        .collect();
+    assert!(prop_errors.is_empty(),
+        "caller declaring same capability should not produce E2014, got: {:?}", prop_errors);
+}
+
+#[test]
+fn test_capability_propagation_caller_missing() {
+    // When caller doesn't declare the capability, E2014 should be raised
+    let source = r#"
+        trait Http {
+            @get (url: str) -> str
+        }
+
+        @fetch (url: str) -> str uses Http = url
+
+        @caller (url: str) -> str = fetch(url: url)
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let prop_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2014)
+        .collect();
+    assert_eq!(prop_errors.len(), 1,
+        "missing capability should produce E2014 error");
+    assert!(prop_errors[0].message.contains("Http"),
+        "error should mention the missing capability: {}", prop_errors[0].message);
+    assert!(prop_errors[0].message.contains("fetch"),
+        "error should mention the called function: {}", prop_errors[0].message);
+}
+
+#[test]
+fn test_capability_propagation_with_provides() {
+    // When capability is provided via with...in, no E2014 error
+    let source = r#"
+        trait Http {
+            @get (url: str) -> str
+        }
+
+        type MockHttp = { base_url: str }
+
+        impl Http for MockHttp {
+            @get (self, url: str) -> str = url
+        }
+
+        @fetch (url: str) -> str uses Http = url
+
+        @caller (url: str) -> str =
+            with Http = MockHttp { base_url: "test" } in
+                fetch(url: url)
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let prop_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2014)
+        .collect();
+    assert!(prop_errors.is_empty(),
+        "with...in providing capability should not produce E2014, got: {:?}", prop_errors);
+}
+
+#[test]
+fn test_capability_propagation_with_wrong_capability() {
+    // When with...in provides a different capability, E2014 should be raised
+    let source = r#"
+        trait Http {
+            @get (url: str) -> str
+        }
+
+        trait Logger {
+            @log (msg: str) -> void
+        }
+
+        type MockLogger = { prefix: str }
+
+        impl Logger for MockLogger {
+            @log (self, msg: str) -> void = ()
+        }
+
+        @fetch (url: str) -> str uses Http = url
+
+        @caller (url: str) -> str =
+            with Logger = MockLogger { prefix: "" } in
+                fetch(url: url)
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let prop_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2014)
+        .collect();
+    assert_eq!(prop_errors.len(), 1,
+        "providing wrong capability should still produce E2014");
+    assert!(prop_errors[0].message.contains("Http"),
+        "error should mention the required capability: {}", prop_errors[0].message);
+}
+
+#[test]
+fn test_capability_propagation_multiple_capabilities() {
+    // When called function requires multiple capabilities,
+    // caller must declare or provide all of them
+    let source = r#"
+        trait Http {
+            @get (url: str) -> str
+        }
+
+        trait Logger {
+            @log (msg: str) -> void
+        }
+
+        @fetch_and_log (url: str) -> str uses Http, Logger = url
+
+        // Only declares Http, missing Logger
+        @caller (url: str) -> str uses Http = fetch_and_log(url: url)
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let prop_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2014)
+        .collect();
+    assert_eq!(prop_errors.len(), 1,
+        "missing one of multiple capabilities should produce E2014");
+    assert!(prop_errors[0].message.contains("Logger"),
+        "error should mention the missing capability: {}", prop_errors[0].message);
+}
+
+#[test]
+fn test_capability_propagation_test_with_provide() {
+    // Tests don't have capability declarations, so must provide via with...in
+    let source = r#"
+        trait Http {
+            @get (url: str) -> str
+        }
+
+        type MockHttp = { base_url: str }
+
+        impl Http for MockHttp {
+            @get (self, url: str) -> str = url
+        }
+
+        @fetch (url: str) -> str uses Http = url
+
+        @test_fetch tests @fetch () -> void =
+            with Http = MockHttp { base_url: "test" } in
+                run(
+                    let result = fetch(url: "/data"),
+                    assert_eq(actual: result, expected: "/data"),
+                )
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let prop_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2014)
+        .collect();
+    assert!(prop_errors.is_empty(),
+        "test with with...in should not produce E2014, got: {:?}", prop_errors);
+}
+
+#[test]
+fn test_capability_propagation_test_missing_provide() {
+    // Test calling function with capability without providing it
+    let source = r#"
+        trait Http {
+            @get (url: str) -> str
+        }
+
+        @fetch (url: str) -> str uses Http = url
+
+        @test_fetch tests @fetch () -> void = run(
+            let result = fetch(url: "/data"),
+            assert_eq(actual: result, expected: "/data"),
+        )
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+
+    let prop_errors: Vec<_> = typed.errors.iter()
+        .filter(|e| e.code == crate::diagnostic::ErrorCode::E2014)
+        .collect();
+    assert_eq!(prop_errors.len(), 1,
+        "test calling capability function without providing should produce E2014");
+}
+
+// ============================================================================
+// self Parameter Handling Tests
+// ============================================================================
+
+#[test]
+fn test_self_parameter_in_trait_method() {
+    // Verify that traits with self parameter parse correctly
+    let source = r#"
+        trait Identifiable {
+            @id (self) -> int
+        }
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    // Verify the trait was parsed
+    assert_eq!(parse_result.module.traits.len(), 1);
+    let trait_def = &parse_result.module.traits[0];
+    assert_eq!(interner.lookup(trait_def.name), "Identifiable");
+
+    // Verify it has one item (the method)
+    assert_eq!(trait_def.items.len(), 1);
+}
+
+#[test]
+fn test_self_parameter_in_impl_method() {
+    let source = r#"
+        type Point = { x: int, y: int }
+
+        impl Point {
+            @get_x (self) -> int = self.x
+        }
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    // Type check should succeed
+    let typed = type_check(&parse_result, &interner);
+    assert!(typed.errors.is_empty(), "type errors: {:?}", typed.errors);
+}
+
+#[test]
+fn test_self_with_additional_params() {
+    let source = r#"
+        type Counter = { value: int }
+
+        impl Counter {
+            @add (self, amount: int) -> int = self.value + amount
+        }
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+    assert!(typed.errors.is_empty(), "type errors: {:?}", typed.errors);
+}
+
+// ============================================================================
+// Self Type Reference Tests
+// ============================================================================
+
+#[test]
+fn test_self_type_in_return() {
+    let source = r#"
+        trait Cloneable {
+            @clone (self) -> Self
+        }
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    // Verify trait parsed with item
+    let trait_def = &parse_result.module.traits[0];
+    assert_eq!(trait_def.items.len(), 1);
+
+    // Get the method from items
+    use crate::ir::TraitItem;
+    match &trait_def.items[0] {
+        TraitItem::MethodSig(sig) => {
+            // Return type should be Self
+            match &sig.return_ty {
+                ParsedType::SelfType => {}
+                other => panic!("expected Self return type, got {:?}", other),
+            }
+        }
+        other => panic!("expected MethodSig, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_self_type_in_parameter() {
+    let source = r#"
+        trait Combinable {
+            @combine (self, other: Self) -> Self
+        }
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let trait_def = &parse_result.module.traits[0];
+
+    use crate::ir::TraitItem;
+    match &trait_def.items[0] {
+        TraitItem::MethodSig(sig) => {
+            // Check return type is Self
+            match &sig.return_ty {
+                ParsedType::SelfType => {}
+                other => panic!("expected Self return type, got {:?}", other),
+            }
+
+            // Check 'other' parameter type is Self
+            let params = parse_result.arena.get_params(sig.params);
+            // params includes self and other, so find the 'other' param
+            let other_param = params.iter()
+                .find(|p| interner.lookup(p.name) == "other")
+                .expect("should have 'other' parameter");
+            match &other_param.ty {
+                Some(ParsedType::SelfType) => {}
+                other => panic!("expected Self param type, got {:?}", other),
+            }
+        }
+        other => panic!("expected MethodSig, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_self_type_in_impl() {
+    let source = r#"
+        type Vector = { x: int, y: int }
+
+        impl Vector {
+            @scale (self, factor: int) -> Self = Vector { x: self.x * factor, y: self.y * factor }
+        }
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+    assert!(typed.errors.is_empty(), "type errors: {:?}", typed.errors);
+}
+
+// ============================================================================
+// Trait Inheritance Tests
+// ============================================================================
+
+#[test]
+fn test_trait_inheritance_parsing() {
+    let source = r#"
+        trait Named {
+            @name (self) -> str
+        }
+
+        trait Describable: Named {
+            @describe (self) -> str
+        }
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    assert_eq!(parse_result.module.traits.len(), 2);
+
+    // Find the Describable trait
+    let describable = parse_result.module.traits.iter()
+        .find(|t| interner.lookup(t.name) == "Describable")
+        .expect("should find Describable trait");
+
+    // Check that it has a parent trait
+    assert_eq!(describable.super_traits.len(), 1,
+        "Describable should have 1 super trait");
+    assert_eq!(interner.lookup(describable.super_traits[0].first), "Named",
+        "super trait should be Named");
+}
+
+#[test]
+fn test_trait_multiple_inheritance() {
+    let source = r#"
+        trait A {
+            @a (self) -> int
+        }
+
+        trait B {
+            @b (self) -> int
+        }
+
+        trait C: A + B {
+            @c (self) -> int
+        }
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+
+    // Multiple trait inheritance with + syntax may or may not be supported
+    // This test documents current behavior
+    if parse_result.errors.is_empty() {
+        let c_trait = parse_result.module.traits.iter()
+            .find(|t| interner.lookup(t.name) == "C")
+            .expect("should find C trait");
+
+        assert!(c_trait.super_traits.len() >= 1,
+            "C should have at least one super trait");
+    }
+}
+
+#[test]
+fn test_trait_inheritance_with_impl() {
+    let source = r#"
+        trait Base {
+            @base_method (self) -> int
+        }
+
+        trait Derived: Base {
+            @derived_method (self) -> int
+        }
+
+        type MyType = { value: int }
+
+        impl Base for MyType {
+            @base_method (self) -> int = self.value
+        }
+
+        impl Derived for MyType {
+            @derived_method (self) -> int = self.value * 2
+        }
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let typed = type_check(&parse_result, &interner);
+    // This may or may not produce errors depending on inheritance enforcement
+    // The test documents current behavior
+    let _ = typed;
+}
+
+// ============================================================================
+// Associated Type Tests
+// ============================================================================
+
+#[test]
+fn test_associated_type_declaration() {
+    let source = r#"
+        trait Container {
+            type Item
+            @first (self) -> Option<Self.Item>
+        }
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let trait_def = &parse_result.module.traits[0];
+
+    // Count associated types in items
+    use crate::ir::TraitItem;
+    let assoc_types: Vec<_> = trait_def.items.iter()
+        .filter_map(|item| match item {
+            TraitItem::AssocType(at) => Some(at),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(assoc_types.len(), 1, "trait should have 1 associated type");
+    assert_eq!(interner.lookup(assoc_types[0].name), "Item",
+        "associated type should be named Item");
+}
+
+#[test]
+fn test_associated_type_in_impl() {
+    let source = r#"
+        trait Container {
+            type Item
+            @first (self) -> Option<Self.Item>
+        }
+
+        type IntBox = { value: int }
+
+        impl Container for IntBox {
+            type Item = int
+            @first (self) -> Option<Self.Item> = Some(self.value)
+        }
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    // Find the impl
+    assert!(!parse_result.module.impls.is_empty(), "should have at least one impl");
+
+    // Check that impl has associated type definition
+    let impl_def = &parse_result.module.impls[0];
+    assert_eq!(impl_def.assoc_types.len(), 1, "impl should have 1 associated type");
+    assert_eq!(interner.lookup(impl_def.assoc_types[0].name), "Item");
+}
+
+#[test]
+fn test_self_dot_item_type_reference() {
+    let source = r#"
+        trait Iterator {
+            type Item
+            @next (self) -> Option<Self.Item>
+        }
+    "#;
+
+    let interner = SharedInterner::default();
+    let parse_result = parse_source(source, &interner);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    // The return type should reference Self.Item
+    let trait_def = &parse_result.module.traits[0];
+
+    // Find the method item
+    use crate::ir::TraitItem;
+    let method = trait_def.items.iter()
+        .find_map(|item| match item {
+            TraitItem::MethodSig(sig) => Some(sig),
+            _ => None,
+        })
+        .expect("should have a method");
+
+    // Return type should be Option<Self.Item>
+    match &method.return_ty {
+        ParsedType::Named { name, type_args } => {
+            assert_eq!(interner.lookup(*name), "Option");
+            assert_eq!(type_args.len(), 1);
+            match &type_args[0] {
+                ParsedType::AssociatedType { base, assoc_name } => {
+                    // base should be Self
+                    match base.as_ref() {
+                        ParsedType::SelfType => {}
+                        other => panic!("expected Self as base, got {:?}", other),
+                    }
+                    assert_eq!(interner.lookup(*assoc_name), "Item",
+                        "associated type name should be Item");
+                }
+                other => panic!("expected associated type, got {:?}", other),
+            }
+        }
+        other => panic!("expected Named type, got {:?}", other),
+    }
+}

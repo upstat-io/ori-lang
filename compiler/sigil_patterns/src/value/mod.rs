@@ -556,8 +556,10 @@ mod tests {
 
     #[test]
     fn test_function_value() {
-        use sigil_ir::ExprId;
-        let func = FunctionValue::new(vec![], ExprId::new(0));
+        use sigil_ir::{ExprArena, ExprId, SharedArena};
+        use std::collections::HashMap;
+        let arena = SharedArena::new(ExprArena::new());
+        let func = FunctionValue::new(vec![], ExprId::new(0), HashMap::new(), arena);
         assert!(func.params.is_empty());
         assert!(!func.has_captures());
     }

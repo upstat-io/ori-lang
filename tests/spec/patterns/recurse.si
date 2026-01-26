@@ -23,7 +23,7 @@ use std.testing { assert, assert_eq, assert_ne }
 )
 
 @factorial (n: int) -> int = recurse(
-    cond: n <= 1,
+    condition: n <= 1,
     base: 1,
     step: n * self(n - 1),
 )
@@ -44,7 +44,7 @@ use std.testing { assert, assert_eq, assert_ne }
 )
 
 @fibonacci (n: int) -> int = recurse(
-    cond: n <= 1,
+    condition: n <= 1,
     base: n,
     step: self(n - 1) + self(n - 2),
     memo: true,
@@ -66,7 +66,7 @@ use std.testing { assert, assert_eq, assert_ne }
 )
 
 @sum_to_n (n: int) -> int = recurse(
-    cond: n <= 0,
+    condition: n <= 0,
     base: 0,
     step: n + self(n - 1),
 )
@@ -96,7 +96,7 @@ use std.testing { assert, assert_eq, assert_ne }
 )
 
 @power (base: int, exp: int) -> int = recurse(
-    cond: exp <= 0,
+    condition: exp <= 0,
     base: 1,
     step: base * self(
         base: base,
@@ -126,7 +126,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // parallel: 5 means parallelize recursive calls when n > 5
 // Currently executes sequentially (stub) but syntax is accepted
 @fib_parallel (n: int) -> int = recurse(
-    cond: n <= 1,
+    condition: n <= 1,
     base: n,
     step: self(n - 1) + self(n - 2),
     parallel: 5,
