@@ -4,7 +4,7 @@
 
 // Count down from n to 0 (while n > 0)
 @countdown (n: int) -> [int] = recurse(
-    cond: n <= 0,
+    condition: n <= 0,
     base: [],
     step: [n] + self(n - 1)
 )
@@ -13,28 +13,28 @@
 @next_power_of_2 (n: int) -> int = find_power(target: n, current: 1)
 
 @find_power (target: int, current: int) -> int = recurse(
-    cond: current > target,
+    condition: current > target,
     base: current,
     step: self(target: target, current: current * 2)
 )
 
 // Collatz sequence (while n != 1)
 @collatz (n: int) -> [int] = recurse(
-    cond: n <= 1,
+    condition: n <= 1,
     base: [1],
     step: [n] + self(if n % 2 == 0 then n / 2 else 3 * n + 1)
 )
 
 // Sum digits of a number (while n > 0)
 @sum_digits (n: int) -> int = recurse(
-    cond: n == 0,
+    condition: n == 0,
     base: 0,
     step: (n % 10) + self(n / 10)
 )
 
 // GCD using Euclidean algorithm (while b != 0)
 @gcd (a: int, b: int) -> int = recurse(
-    cond: b == 0,
+    condition: b == 0,
     base: a,
     step: self(a: b, b: a % b)
 )

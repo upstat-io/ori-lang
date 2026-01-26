@@ -48,6 +48,76 @@ pub trait Default {
 }
 
 // =============================================================================
+// Capability Traits
+// =============================================================================
+//
+// Capabilities track effects and suspension. Functions must declare required
+// capabilities with `uses`. See spec/14-capabilities.md.
+//
+// Marker capabilities (Async, Unsafe) have no methods.
+// Effect capabilities (Http, FileSystem, etc.) define operations that may
+// have side effects.
+
+// Suspension marker - function may suspend (non-blocking I/O)
+// No methods; presence indicates async behavior
+pub trait Async {}
+
+// Unsafe marker - function may perform unsafe operations (FFI, raw pointers)
+// Required for extern functions and raw memory access
+pub trait Unsafe {}
+
+// HTTP client operations
+// Implementations may suspend (use with `uses Http, Async` for non-blocking)
+pub trait Http {
+    @get (url: str) -> Result<str, Error>
+    @post (url: str, body: str) -> Result<str, Error>
+    @put (url: str, body: str) -> Result<str, Error>
+    @delete (url: str) -> Result<str, Error>
+}
+
+// File system operations
+// Implementations may suspend (use with `uses FileSystem, Async` for non-blocking)
+pub trait FileSystem {
+    @read (path: str) -> Result<str, Error>
+    @write (path: str, content: str) -> Result<void, Error>
+    @exists (path: str) -> bool
+    @delete (path: str) -> Result<void, Error>
+}
+
+// Cache operations
+// Implementations may suspend (use with `uses Cache, Async` for non-blocking)
+pub trait Cache {
+    @get (key: str) -> Option<str>
+    @set (key: str, value: str) -> void
+    @del (key: str) -> void
+}
+
+// Time operations (typically synchronous)
+pub trait Clock {
+    @now () -> int
+    @today () -> str
+}
+
+// Random number generation (typically synchronous)
+pub trait Random {
+    @rand_int (min: int, max: int) -> int
+    @rand_float () -> float
+}
+
+// Logging operations (typically synchronous)
+pub trait Logger {
+    @debug (msg: str) -> void
+    @info (msg: str) -> void
+    @warn (msg: str) -> void
+    @error (msg: str) -> void
+}
+
+// Environment variable access (typically synchronous)
+pub trait Env {
+    @get (name: str) -> Option<str>
+}
+
+// =============================================================================
 // Utility Functions
 // =============================================================================
 

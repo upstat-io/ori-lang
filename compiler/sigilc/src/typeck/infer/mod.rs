@@ -248,8 +248,16 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
             // that declared it). For dynamic with...in expressions, we allow any name
             // to support gradual typing and mocking.
 
+            // Track this capability as provided for propagation checking
+            checker.provided_caps.insert(*capability);
+
             // The expression type is the body type
-            infer_expr(checker, *body)
+            let body_ty = infer_expr(checker, *body);
+
+            // Remove the provided capability after leaving scope
+            checker.provided_caps.remove(capability);
+
+            body_ty
         }
 
         // Error placeholder

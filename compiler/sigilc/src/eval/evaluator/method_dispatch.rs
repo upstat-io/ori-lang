@@ -1,7 +1,7 @@
 //! Method dispatch methods for the Evaluator.
 
-use crate::ir::{Name, SharedArena};
-use sigil_eval::{DerivedMethodInfo, DerivedTrait, UserMethod, wrong_function_args};
+use crate::ir::{ExprArena, Name, SharedArena};
+use sigil_eval::{DerivedMethodInfo, DerivedTrait, UserMethod, wrong_function_args, wrong_arg_count, EvalError};
 use super::{Evaluator, EvalResult};
 use super::super::value::Value;
 
@@ -11,7 +11,8 @@ impl Evaluator<'_> {
     /// Priority order:
     /// 1. User-defined methods from impl blocks
     /// 2. Derived methods from `#[derive(...)]`
-    /// 3. Built-in methods in `MethodRegistry`
+    /// 3. Collection methods requiring evaluator (map, filter, fold, find, collect)
+    /// 4. Built-in methods in `MethodRegistry`
     pub(super) fn eval_method_call(&mut self, receiver: Value, method: Name, args: Vec<Value>) -> EvalResult {
         let method_name = self.interner.lookup(method);
 
@@ -31,8 +32,213 @@ impl Evaluator<'_> {
             return self.eval_derived_method(receiver, &info, &args);
         }
 
+        // Third, check collection methods that require evaluator access
+        if let Some(result) = self.try_eval_collection_method(&receiver, method_name, &args)? {
+            return Ok(result);
+        }
+
         // Fall back to built-in methods
         self.method_registry.dispatch(receiver, method_name, args)
+    }
+
+    /// Try to evaluate a collection method that requires evaluator access.
+    ///
+    /// These methods (map, filter, fold, find, collect) take function arguments
+    /// and need to call them, which requires evaluator access.
+    ///
+    /// Returns Ok(Some(value)) if handled, Ok(None) if not a collection method.
+    fn try_eval_collection_method(
+        &mut self,
+        receiver: &Value,
+        method: &str,
+        args: &[Value],
+    ) -> Result<Option<Value>, EvalError> {
+        match receiver {
+            Value::List(items) => self.eval_list_method(items.as_ref(), method, args),
+            Value::Range(range) => self.eval_range_method(range, method, args),
+            Value::Map(map) => self.eval_map_method(map, method, args),
+            _ => Ok(None),
+        }
+    }
+
+    /// Evaluate a method on a list that requires function calls.
+    fn eval_list_method(
+        &mut self,
+        items: &[Value],
+        method: &str,
+        args: &[Value],
+    ) -> Result<Option<Value>, EvalError> {
+        match method {
+            "map" => {
+                // [T].map(transform: T -> U) -> [U]
+                if args.len() != 1 {
+                    return Err(wrong_arg_count("map", 1, args.len()));
+                }
+                let transform = args[0].clone();
+                let mut result = Vec::with_capacity(items.len());
+                for item in items {
+                    let mapped = self.eval_call(transform.clone(), &[item.clone()])?;
+                    result.push(mapped);
+                }
+                Ok(Some(Value::list(result)))
+            }
+            "filter" => {
+                // [T].filter(predicate: T -> bool) -> [T]
+                if args.len() != 1 {
+                    return Err(wrong_arg_count("filter", 1, args.len()));
+                }
+                let predicate = args[0].clone();
+                let mut result = Vec::new();
+                for item in items {
+                    let keep = self.eval_call(predicate.clone(), &[item.clone()])?;
+                    if keep.is_truthy() {
+                        result.push(item.clone());
+                    }
+                }
+                Ok(Some(Value::list(result)))
+            }
+            "fold" => {
+                // [T].fold(initial: U, op: (U, T) -> U) -> U
+                if args.len() != 2 {
+                    return Err(wrong_arg_count("fold", 2, args.len()));
+                }
+                let mut acc = args[0].clone();
+                let op = args[1].clone();
+                for item in items {
+                    acc = self.eval_call(op.clone(), &[acc, item.clone()])?;
+                }
+                Ok(Some(acc))
+            }
+            "find" => {
+                // [T].find(where: T -> bool) -> Option<T>
+                if args.len() != 1 {
+                    return Err(wrong_arg_count("find", 1, args.len()));
+                }
+                let predicate = args[0].clone();
+                for item in items {
+                    let found = self.eval_call(predicate.clone(), &[item.clone()])?;
+                    if found.is_truthy() {
+                        return Ok(Some(Value::some(item.clone())));
+                    }
+                }
+                Ok(Some(Value::None))
+            }
+            "any" => {
+                // [T].any(predicate: T -> bool) -> bool
+                if args.len() != 1 {
+                    return Err(wrong_arg_count("any", 1, args.len()));
+                }
+                let predicate = args[0].clone();
+                for item in items {
+                    let result = self.eval_call(predicate.clone(), &[item.clone()])?;
+                    if result.is_truthy() {
+                        return Ok(Some(Value::Bool(true)));
+                    }
+                }
+                Ok(Some(Value::Bool(false)))
+            }
+            "all" => {
+                // [T].all(predicate: T -> bool) -> bool
+                if args.len() != 1 {
+                    return Err(wrong_arg_count("all", 1, args.len()));
+                }
+                let predicate = args[0].clone();
+                for item in items {
+                    let result = self.eval_call(predicate.clone(), &[item.clone()])?;
+                    if !result.is_truthy() {
+                        return Ok(Some(Value::Bool(false)));
+                    }
+                }
+                Ok(Some(Value::Bool(true)))
+            }
+            _ => Ok(None), // Not a collection method, fall through
+        }
+    }
+
+    /// Evaluate a method on a range that requires function calls.
+    fn eval_range_method(
+        &mut self,
+        range: &sigil_patterns::RangeValue,
+        method: &str,
+        args: &[Value],
+    ) -> Result<Option<Value>, EvalError> {
+        match method {
+            "collect" => {
+                // Range<T>.collect() -> [T]
+                if !args.is_empty() {
+                    return Err(wrong_arg_count("collect", 0, args.len()));
+                }
+                let result: Vec<Value> = range.iter().map(Value::Int).collect();
+                Ok(Some(Value::list(result)))
+            }
+            "map" => {
+                // Range<T>.map(transform: T -> U) -> [U]
+                if args.len() != 1 {
+                    return Err(wrong_arg_count("map", 1, args.len()));
+                }
+                let transform = args[0].clone();
+                let mut result = Vec::new();
+                for i in range.iter() {
+                    let mapped = self.eval_call(transform.clone(), &[Value::Int(i)])?;
+                    result.push(mapped);
+                }
+                Ok(Some(Value::list(result)))
+            }
+            "filter" => {
+                // Range<T>.filter(predicate: T -> bool) -> [T]
+                if args.len() != 1 {
+                    return Err(wrong_arg_count("filter", 1, args.len()));
+                }
+                let predicate = args[0].clone();
+                let mut result = Vec::new();
+                for i in range.iter() {
+                    let keep = self.eval_call(predicate.clone(), &[Value::Int(i)])?;
+                    if keep.is_truthy() {
+                        result.push(Value::Int(i));
+                    }
+                }
+                Ok(Some(Value::list(result)))
+            }
+            "fold" => {
+                // Range<T>.fold(initial: U, op: (U, T) -> U) -> U
+                if args.len() != 2 {
+                    return Err(wrong_arg_count("fold", 2, args.len()));
+                }
+                let mut acc = args[0].clone();
+                let op = args[1].clone();
+                for i in range.iter() {
+                    acc = self.eval_call(op.clone(), &[acc, Value::Int(i)])?;
+                }
+                Ok(Some(acc))
+            }
+            _ => Ok(None), // Not a collection method, fall through
+        }
+    }
+
+    /// Evaluate a method on a map.
+    fn eval_map_method(
+        &mut self,
+        map: &sigil_patterns::Heap<std::collections::HashMap<String, Value>>,
+        method: &str,
+        args: &[Value],
+    ) -> Result<Option<Value>, EvalError> {
+        match method {
+            "len" => {
+                if !args.is_empty() {
+                    return Err(wrong_arg_count("len", 0, args.len()));
+                }
+                i64::try_from(map.len())
+                    .map(|n| Some(Value::Int(n)))
+                    .map_err(|_| EvalError::new("map too large"))
+            }
+            "is_empty" => {
+                if !args.is_empty() {
+                    return Err(wrong_arg_count("is_empty", 0, args.len()));
+                }
+                Ok(Some(Value::Bool(map.is_empty())))
+            }
+            _ => Ok(None), // Not a map method, fall through
+        }
     }
 
     /// Get the concrete type name for a value (for method lookup).
@@ -84,24 +290,15 @@ impl Evaluator<'_> {
             call_env.define(*param, arg.clone(), false);
         }
 
-        // Evaluate method body
-        let result = if let Some(ref func_arena) = method.arena {
-            // Method from an imported module - use its arena
-            let imported_arena = SharedArena::new((**func_arena).clone());
-            let mut call_evaluator = Evaluator::with_imported_arena(
-                self.interner, func_arena, call_env, imported_arena, self.user_method_registry.clone()
-            );
-            let result = call_evaluator.eval(method.body);
-            call_evaluator.env.pop_scope();
-            result
-        } else {
-            // Local method - use our arena
-            let mut call_evaluator = Evaluator::with_env(self.interner, self.arena, call_env, self.user_method_registry.clone());
-            let result = call_evaluator.eval(method.body);
-            call_evaluator.env.pop_scope();
-            result
-        };
-
+        // Evaluate method body using the method's arena.
+        // Every method carries its own arena for thread safety.
+        let func_arena: &ExprArena = &method.arena;
+        let imported_arena = SharedArena::new(func_arena.clone());
+        let mut call_evaluator = Evaluator::with_imported_arena(
+            self.interner, func_arena, call_env, imported_arena, self.user_method_registry.clone()
+        );
+        let result = call_evaluator.eval(method.body);
+        call_evaluator.env.pop_scope();
         result
     }
 

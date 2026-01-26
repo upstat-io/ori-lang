@@ -109,10 +109,11 @@ impl StructValue {
 /// This eliminates potential race conditions and simplifies reasoning about
 /// closure behavior.
 ///
-/// # Cross-Module Functions
-/// Functions from imported modules carry their own arena reference so their
-/// body expressions can be evaluated correctly. Local functions leave this
-/// as None and use the evaluator's arena.
+/// # Arena Requirement (Thread Safety)
+/// Every function carries its own arena reference. This is required for thread
+/// safety in parallel execution - when functions are called from different
+/// contexts (e.g., parallel test runner), they must use their own arena to
+/// resolve `ExprId` values correctly.
 #[derive(Clone)]
 pub struct FunctionValue {
     /// Parameter names.
@@ -123,11 +124,12 @@ pub struct FunctionValue {
     ///
     /// No `RwLock` needed since captures are immutable after creation.
     captures: Arc<HashMap<Name, Value>>,
-    /// Optional arena for cross-module functions.
+    /// Arena for expression resolution.
     ///
-    /// Functions from imported modules need their own arena reference since
-    /// the body `ExprId` refers to expressions in the imported file's arena.
-    arena: Option<SharedArena>,
+    /// Required for thread safety - the body `ExprId` must be resolved
+    /// against this arena, not whatever arena happens to be in scope
+    /// at call time.
+    arena: SharedArena,
     /// Required capabilities (from `uses` clause).
     ///
     /// When calling this function, capabilities with these names must be
@@ -136,76 +138,40 @@ pub struct FunctionValue {
 }
 
 impl FunctionValue {
-    /// Create a new function value with no captures or capabilities.
-    pub fn new(params: Vec<Name>, body: ExprId) -> Self {
-        FunctionValue {
-            params,
-            body,
-            captures: Arc::new(HashMap::new()),
-            arena: None,
-            capabilities: Vec::new(),
-        }
-    }
-
-    /// Create a function value with captured environment.
+    /// Create a new function value.
     ///
-    /// The captures are frozen and cannot be modified after creation.
-    pub fn with_captures(params: Vec<Name>, body: ExprId, captures: HashMap<Name, Value>) -> Self {
+    /// # Arguments
+    /// * `params` - Parameter names
+    /// * `body` - Body expression ID
+    /// * `captures` - Captured environment (frozen at creation)
+    /// * `arena` - Arena for expression resolution (required for thread safety)
+    pub fn new(
+        params: Vec<Name>,
+        body: ExprId,
+        captures: HashMap<Name, Value>,
+        arena: SharedArena,
+    ) -> Self {
         FunctionValue {
             params,
             body,
             captures: Arc::new(captures),
-            arena: None,
+            arena,
             capabilities: Vec::new(),
         }
     }
 
-    /// Create a function value with captured environment and capabilities.
+    /// Create a function value with capabilities.
     ///
-    /// The captures are frozen and cannot be modified after creation.
-    /// The capabilities list specifies which capabilities this function requires.
+    /// # Arguments
+    /// * `params` - Parameter names
+    /// * `body` - Body expression ID
+    /// * `captures` - Captured environment (frozen at creation)
+    /// * `arena` - Arena for expression resolution (required for thread safety)
+    /// * `capabilities` - Required capabilities from `uses` clause
     pub fn with_capabilities(
         params: Vec<Name>,
         body: ExprId,
         captures: HashMap<Name, Value>,
-        capabilities: Vec<Name>,
-    ) -> Self {
-        FunctionValue {
-            params,
-            body,
-            captures: Arc::new(captures),
-            arena: None,
-            capabilities,
-        }
-    }
-
-    /// Create a function value from an imported module.
-    ///
-    /// Imported functions carry their own arena reference since the body
-    /// `ExprId` refers to expressions in the imported file's arena.
-    pub fn from_import(
-        params: Vec<Name>,
-        body: ExprId,
-        captures: HashMap<Name, Value>,
-        arena: SharedArena,
-    ) -> Self {
-        FunctionValue {
-            params,
-            body,
-            captures: Arc::new(captures),
-            arena: Some(arena),
-            capabilities: Vec::new(),
-        }
-    }
-
-    /// Create a function value from an imported module with capabilities.
-    ///
-    /// Imported functions carry their own arena reference since the body
-    /// `ExprId` refers to expressions in the imported file's arena.
-    pub fn from_import_with_capabilities(
-        params: Vec<Name>,
-        body: ExprId,
-        captures: HashMap<Name, Value>,
         arena: SharedArena,
         capabilities: Vec<Name>,
     ) -> Self {
@@ -213,7 +179,7 @@ impl FunctionValue {
             params,
             body,
             captures: Arc::new(captures),
-            arena: Some(arena),
+            arena,
             capabilities,
         }
     }
@@ -233,9 +199,9 @@ impl FunctionValue {
         !self.captures.is_empty()
     }
 
-    /// Get the arena for this function (for cross-module functions).
-    pub fn arena(&self) -> Option<&ExprArena> {
-        self.arena.as_deref()
+    /// Get the arena for this function.
+    pub fn arena(&self) -> &ExprArena {
+        &self.arena
     }
 
     /// Get the required capabilities for this function.
@@ -324,6 +290,11 @@ impl RangeValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sigil_ir::ExprArena;
+
+    fn dummy_arena() -> SharedArena {
+        SharedArena::new(ExprArena::new())
+    }
 
     #[test]
     fn test_range_exclusive() {
@@ -347,7 +318,7 @@ mod tests {
 
     #[test]
     fn test_function_value_new() {
-        let func = FunctionValue::new(vec![], ExprId::new(0));
+        let func = FunctionValue::new(vec![], ExprId::new(0), HashMap::new(), dummy_arena());
         assert!(func.params.is_empty());
         assert!(!func.has_captures());
     }
@@ -356,7 +327,7 @@ mod tests {
     fn test_function_value_with_captures() {
         let mut captures = HashMap::new();
         captures.insert(Name::new(0, 1), Value::Int(42));
-        let func = FunctionValue::with_captures(vec![], ExprId::new(0), captures);
+        let func = FunctionValue::new(vec![], ExprId::new(0), captures, dummy_arena());
         assert!(func.has_captures());
         assert_eq!(func.get_capture(Name::new(0, 1)), Some(&Value::Int(42)));
     }

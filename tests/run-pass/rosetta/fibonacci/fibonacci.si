@@ -1,21 +1,13 @@
 // Rosetta Code: Fibonacci sequence
 // Task: Compute the nth Fibonacci number
-//
-// BLOCKED: Anonymous record types `{ field: Type }` not yet supported in V2
-// TODO: Enable in Phase 5 (Advanced Features)
 
 // Single fibonacci with memoization
 @fib (n: int) -> int = recurse(
-    cond: n <= 1,
+    condition: n <= 1,
     base: n,
     step: self(n - 1) + self(n - 2),
     memo: true
 )
 
-// Compute multiple fibonacci numbers in parallel
-// Returns anonymous record { first: int, second: int, third: int }
-@fib_parallel (a: int, b: int, c: int) -> { first: int, second: int, third: int } = parallel(
-    first: fib(a),
-    second: fib(b),
-    third: fib(c)
-)
+// NOTE: fib_parallel removed - requires anonymous record types not yet supported
+// TODO: Enable in Phase 5 (Advanced Features)

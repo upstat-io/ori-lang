@@ -5,7 +5,7 @@
 
 @get_first (arr: [int]) -> int = arr[0]
 
-@get_last (arr: [int]) -> int = arr[# - 1]
+@get_last (arr: [int]) -> int = arr[len(collection: arr) - 1]
 
 @get_at (arr: [int], index: int) -> int = arr[index]
 

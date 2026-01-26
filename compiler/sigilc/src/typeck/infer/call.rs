@@ -144,6 +144,8 @@ pub fn infer_call_named(
     // After unification, check trait bounds for generic functions
     if let Some(name) = func_name {
         check_generic_bounds(checker, name, span);
+        // Check capability propagation
+        check_capability_propagation(checker, name, span);
     }
 
     result
@@ -160,6 +162,44 @@ fn check_generic_bounds(
     span: Span,
 ) {
     checker.check_function_bounds(func_name, span);
+}
+
+/// Check capability propagation for a function call.
+///
+/// When calling a function that requires capabilities, the caller must either:
+/// - Declare those capabilities in its own `uses` clause, OR
+/// - Provide them via `with Capability = ... in call()`
+///
+/// Reports E2014 if a required capability is neither declared nor provided.
+fn check_capability_propagation(
+    checker: &mut TypeChecker<'_>,
+    func_name: Name,
+    span: Span,
+) {
+    // Look up the called function's signature
+    let Some(func_sig) = checker.function_sigs.get(&func_name) else {
+        // Not a known function - might be a variable or external
+        return;
+    };
+
+    // Check each capability required by the called function
+    for required_cap in &func_sig.capabilities.clone() {
+        let is_declared = checker.current_function_caps.contains(required_cap);
+        let is_provided = checker.provided_caps.contains(required_cap);
+
+        if !is_declared && !is_provided {
+            let func_name_str = checker.interner.lookup(func_name);
+            let cap_name_str = checker.interner.lookup(*required_cap);
+            checker.errors.push(TypeCheckError {
+                message: format!(
+                    "function `{func_name_str}` uses `{cap_name_str}` capability, \
+                     but caller does not declare or provide it"
+                ),
+                span,
+                code: crate::diagnostic::ErrorCode::E2014,
+            });
+        }
+    }
 }
 
 /// Infer type for a method call (positional arguments).

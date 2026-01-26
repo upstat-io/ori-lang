@@ -30,7 +30,7 @@
 
 // Recursive function
 @factorial (n: int) -> int = recurse(
-    cond: n <= 1,
+    condition: n <= 1,
     base: 1,
     step: n * self(n - 1),
 )
