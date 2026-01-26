@@ -93,6 +93,80 @@ Why Arc:
 - Multiple references to same list
 - Safe concurrent access
 
+## SharedRegistry vs SharedMutableRegistry
+
+The compiler uses two registry patterns:
+
+### SharedRegistry<T> (Immutable)
+
+For registries that are built completely before use:
+
+```rust
+pub struct SharedRegistry<T>(Arc<T>);
+
+impl<T> SharedRegistry<T> {
+    pub fn new(registry: T) -> Self {
+        SharedRegistry(Arc::new(registry))
+    }
+}
+```
+
+Use when:
+- Registry is fully populated before access
+- No modifications needed after construction
+- Salsa query compatibility required
+
+### SharedMutableRegistry<T> (Interior Mutability)
+
+For registries that need modification after dependent structures are built:
+
+```rust
+pub struct SharedMutableRegistry<T>(Arc<parking_lot::RwLock<T>>);
+
+impl<T> SharedMutableRegistry<T> {
+    pub fn new(registry: T) -> Self {
+        SharedMutableRegistry(Arc::new(parking_lot::RwLock::new(registry)))
+    }
+
+    pub fn read(&self) -> RwLockReadGuard<'_, T> {
+        self.0.read()
+    }
+
+    pub fn write(&self) -> RwLockWriteGuard<'_, T> {
+        self.0.write()
+    }
+}
+```
+
+Use when:
+- Need to add entries after construction
+- Dependent structures (like cached dispatchers) must see updates
+- Acceptable trade-off: RwLock overhead vs rebuilding cost
+
+**Example: Method Dispatch Caching**
+
+The `MethodDispatcher` is cached in the Evaluator to avoid rebuilding the resolver
+chain on every method call. However, `load_module()` registers new methods after
+the Evaluator is constructed. Using `SharedMutableRegistry<UserMethodRegistry>`:
+
+```rust
+// In EvaluatorBuilder::build():
+let user_method_registry = SharedMutableRegistry::new(UserMethodRegistry::new());
+let method_dispatcher = MethodDispatcher::new(vec![
+    Box::new(UserMethodResolver::new(user_method_registry.clone())),
+    // ... other resolvers
+]);
+
+// In load_module():
+self.user_method_registry.write().merge(new_methods);
+
+// In method resolution:
+if let Some(method) = self.registry.read().lookup(type_name, method_name) { ... }
+```
+
+This avoids 4 Box allocations per method call while still allowing dynamic
+method registration.
+
 ## Heap<T> Wrapper
 
 Ensures consistent allocation:
@@ -130,6 +204,34 @@ Benefits:
 - No heap allocation
 - Trivial to pass around
 - No lifetime complications
+
+## MethodKey
+
+Type-safe key for method registry lookups:
+
+```rust
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct MethodKey {
+    pub type_name: String,
+    pub method_name: String,
+}
+
+impl MethodKey {
+    pub fn new(type_name: impl Into<String>, method_name: impl Into<String>) -> Self;
+    pub fn from_strs(type_name: &str, method_name: &str) -> Self;
+}
+
+impl Display for MethodKey {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}::{}", self.type_name, self.method_name)
+    }
+}
+```
+
+Benefits:
+- Type-safe method lookups (vs tuple of strings)
+- Better error messages (`Point::distance` instead of `("Point", "distance")`)
+- Hashable for use in registries
 
 ## Token Storage
 

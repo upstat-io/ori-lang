@@ -1,6 +1,6 @@
 //! Function call evaluation methods for the Evaluator.
 
-use crate::ir::{SharedArena, CallArgRange};
+use crate::ir::CallArgRange;
 use sigil_eval::{wrong_function_args, not_callable};
 use super::{Evaluator, EvalResult, EvalError};
 use super::super::value::Value;
@@ -44,13 +44,9 @@ impl Evaluator<'_> {
                 let self_name = self.interner.intern("self");
                 call_env.define(self_name, func, false);
 
-                // Evaluate body in new environment using the function's arena.
-                // Every function carries its own arena for thread safety.
+                // Evaluate body using the function's arena (arena threading pattern).
                 let func_arena = f.arena();
-                let imported_arena = SharedArena::new(func_arena.clone());
-                let mut call_evaluator = Evaluator::with_imported_arena(
-                    self.interner, func_arena, call_env, imported_arena, self.user_method_registry.clone()
-                );
+                let mut call_evaluator = self.create_function_evaluator(func_arena, call_env);
                 let result = call_evaluator.eval(f.body);
                 call_evaluator.env.pop_scope();
                 result

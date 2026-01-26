@@ -7,14 +7,20 @@ The Sigil evaluator is a tree-walking interpreter that executes typed ASTs. It h
 ```
 compiler/sigilc/src/eval/
 ├── mod.rs              # Module exports
-├── evaluator/          # Main evaluator (~1,246 lines total)
-│   ├── mod.rs              # Evaluator struct, eval dispatch (~513 lines)
-│   ├── builder.rs          # EvaluatorBuilder (~58 lines)
-│   ├── module_loading.rs   # load_module, load_prelude (~195 lines)
-│   ├── function_call.rs    # eval_call, eval_call_named (~86 lines)
-│   ├── method_dispatch.rs  # eval_method_call, get_value_type_name (~98 lines)
-│   ├── function_seq.rs     # eval_function_seq (run, try, match) (~124 lines)
-│   └── tests.rs            # Unit tests (~172 lines)
+├── evaluator/          # Main evaluator
+│   ├── mod.rs              # Evaluator struct, eval dispatch, arena threading
+│   ├── builder.rs          # EvaluatorBuilder with MethodDispatcher construction
+│   ├── module_loading.rs   # load_module, load_prelude, method collection
+│   ├── function_call.rs    # eval_call, eval_call_named
+│   ├── method_dispatch.rs  # Method dispatch, iterator helpers, type resolution
+│   ├── function_seq.rs     # eval_function_seq (run, try, match)
+│   ├── resolvers/          # Method resolution chain (Chain of Responsibility)
+│   │   ├── mod.rs          # MethodDispatcher, MethodResolver trait
+│   │   ├── user.rs         # UserMethodResolver (user-defined methods)
+│   │   ├── derived.rs      # DerivedMethodResolver (derive macros)
+│   │   ├── collection.rs   # CollectionMethodResolver (list/range methods)
+│   │   └── builtin.rs      # BuiltinMethodResolver (built-in methods)
+│   └── tests.rs            # Unit tests
 ├── environment.rs      # Variable scoping (~408 lines)
 ├── operators.rs        # Binary operations (~486 lines)
 ├── methods.rs          # Method dispatch (~377 lines)
@@ -66,28 +72,54 @@ ModuleEvalResult {
 ### Evaluator
 
 ```rust
-pub struct Evaluator {
+pub struct Evaluator<'a> {
+    /// String interner for Name lookups
+    interner: &'a StringInterner,
+
+    /// Expression arena (from parser)
+    arena: &'a ExprArena,
+
     /// Variable environment
     env: Environment,
 
-    /// Expression arena (from parser)
-    arena: ExprArena,
+    /// User method registry with interior mutability
+    /// Uses SharedMutableRegistry to allow method registration after
+    /// MethodDispatcher construction (needed for load_module)
+    user_method_registry: SharedMutableRegistry<UserMethodRegistry>,
 
-    /// Type information (from type checker)
-    types: Vec<Type>,
+    /// Cached method dispatcher (Chain of Responsibility pattern)
+    /// Built once in EvaluatorBuilder, resolves methods via 4 resolvers:
+    /// UserMethodResolver → DerivedMethodResolver → CollectionMethodResolver → BuiltinMethodResolver
+    method_dispatcher: MethodDispatcher,
 
-    /// Pattern definitions
-    pattern_registry: SharedPatternRegistry,
+    /// Arena for imported functions (keeps them alive during evaluation)
+    imported_arena: Option<SharedArena>,
 
-    /// User-defined types
-    type_registry: SharedTypeRegistry,
+    /// Whether prelude has been loaded
+    prelude_loaded: bool,
 
     /// Captured output
     output: EvalOutput,
-
-    /// Module cache (for imports)
-    module_cache: HashMap<PathBuf, ModuleEvalResult>,
 }
+```
+
+#### Why `SharedMutableRegistry`?
+
+The `MethodDispatcher` is constructed once in `EvaluatorBuilder` with references to
+the `UserMethodRegistry`. However, `load_module()` needs to register new methods
+(from impl blocks, extends, and derives) after the Evaluator is created.
+
+Using `SharedMutableRegistry<T>` (which wraps `Arc<RwLock<T>>`) allows:
+1. The cached `MethodDispatcher` to see newly registered methods
+2. Efficient read access during method resolution (no rebuilding)
+3. Thread-safe method registration during module loading
+
+```rust
+// In load_module():
+self.user_method_registry.write().merge(new_methods);
+
+// In method resolution (via MethodDispatcher):
+if let Some(method) = self.registry.read().lookup(type_name, method_name) { ... }
 ```
 
 ### Evaluation Entry Point
@@ -196,6 +228,99 @@ fn load_module(&mut self, path: &Path) -> Result<ModuleEvalResult, EvalError> {
     Ok(result)
 }
 ```
+
+## Method Dispatch Architecture
+
+The evaluator uses a Chain of Responsibility pattern for method resolution:
+
+```
+receiver.method(args)
+    │
+    ▼
+MethodDispatcher.resolve(receiver, type_name, method_name)
+    │
+    ├─► UserMethodResolver     → User-defined methods (impl blocks)
+    │       │
+    │       ▼
+    ├─► DerivedMethodResolver  → Derived methods (Eq, Clone, etc.)
+    │       │
+    │       ▼
+    ├─► CollectionMethodResolver → Collection methods (map, filter, fold)
+    │       │
+    │       ▼
+    └─► BuiltinMethodResolver  → Built-in methods (len, push, etc.)
+```
+
+### Iterator Helpers
+
+Collection methods share logic via internal iterator helpers:
+
+```rust
+// Shared iterator-based implementations
+fn map_iterator(&mut self, iter: impl Iterator<Item=Value>, transform: &Value) -> EvalResult
+fn filter_iterator(&mut self, iter: impl Iterator<Item=Value>, predicate: &Value) -> EvalResult
+fn fold_iterator(&mut self, iter: impl Iterator<Item=Value>, acc: Value, op: &Value) -> EvalResult
+fn find_in_iterator(&mut self, iter: impl Iterator<Item=Value>, predicate: &Value) -> EvalResult
+fn any_in_iterator(&mut self, iter: impl Iterator<Item=Value>, predicate: &Value) -> EvalResult
+fn all_in_iterator(&mut self, iter: impl Iterator<Item=Value>, predicate: &Value) -> EvalResult
+
+// Used by both list and range methods:
+fn eval_list_map(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
+    self.map_iterator(items.iter().cloned(), &args[0])
+}
+
+fn eval_range_map(&mut self, range: &RangeValue, args: &[Value]) -> EvalResult {
+    self.map_iterator(range.iter().map(Value::Int), &args[0])
+}
+```
+
+### Type Name Resolution
+
+The `get_value_type_name()` method uses the `StringLookup` trait for unified type name resolution:
+
+```rust
+pub(super) fn get_value_type_name(&self, value: &Value) -> String {
+    value.type_name_with_interner(self.interner).into_owned()
+}
+```
+
+This handles struct type names (which require interner lookup) while delegating
+to `Value::type_name()` for primitives and built-in types.
+
+## Arena Threading Pattern
+
+When evaluating functions or methods from different modules, the evaluator must
+use the correct arena for expression lookups. The `create_function_evaluator`
+helper ensures this:
+
+```rust
+/// Create a new evaluator for function/method evaluation with the correct arena.
+///
+/// This is critical for cross-module calls: functions from imported modules
+/// carry their own SharedArena, and we must use that arena when evaluating
+/// their body expressions.
+pub(super) fn create_function_evaluator<'b>(
+    &self,
+    func_arena: &'b ExprArena,
+    call_env: Environment,
+) -> Evaluator<'b>
+where
+    'a: 'b,
+{
+    let imported_arena = SharedArena::new(func_arena.clone());
+    Evaluator::with_imported_arena(
+        self.interner,
+        func_arena,
+        call_env,
+        imported_arena,
+        self.user_method_registry.clone(),
+    )
+}
+```
+
+This pattern appears in:
+- `function_call.rs` - calling user functions
+- `method_dispatch.rs` - calling user methods
 
 ## Related Documents
 

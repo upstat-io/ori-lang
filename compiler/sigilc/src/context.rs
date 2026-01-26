@@ -64,6 +64,59 @@ impl<T: fmt::Debug> fmt::Debug for SharedRegistry<T> {
 }
 
 // =============================================================================
+// SharedMutableRegistry Newtype
+// =============================================================================
+
+/// Thread-safe mutable shared registry wrapper.
+///
+/// Unlike `SharedRegistry`, this type uses `RwLock` for interior mutability,
+/// allowing modifications through shared references. This is needed when:
+/// - The registry is cached (e.g., in a `MethodDispatcher`)
+/// - Methods need to be added after the cache is created
+///
+/// # Thread Safety
+/// Uses `Arc<RwLock<T>>` internally for thread-safe mutable access.
+///
+/// # Usage
+/// ```ignore
+/// let registry = SharedMutableRegistry::new(UserMethodRegistry::new());
+/// // Read access
+/// registry.read().lookup("Point", "distance");
+/// // Write access
+/// registry.write().register("Point".into(), "distance".into(), method);
+/// ```
+pub struct SharedMutableRegistry<T>(Arc<parking_lot::RwLock<T>>);
+
+impl<T> SharedMutableRegistry<T> {
+    /// Create a new shared mutable registry from an owned registry.
+    pub fn new(registry: T) -> Self {
+        SharedMutableRegistry(Arc::new(parking_lot::RwLock::new(registry)))
+    }
+
+    /// Get read access to the registry.
+    pub fn read(&self) -> parking_lot::RwLockReadGuard<'_, T> {
+        self.0.read()
+    }
+
+    /// Get write access to the registry.
+    pub fn write(&self) -> parking_lot::RwLockWriteGuard<'_, T> {
+        self.0.write()
+    }
+}
+
+impl<T> Clone for SharedMutableRegistry<T> {
+    fn clone(&self) -> Self {
+        SharedMutableRegistry(Arc::clone(&self.0))
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for SharedMutableRegistry<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SharedMutableRegistry({:?})", &*self.0.read())
+    }
+}
+
+// =============================================================================
 // Compiler Context
 // =============================================================================
 

@@ -14,12 +14,16 @@ compiler/sigilc/src/typeck/
 ├── mod.rs              # Module exports
 ├── checker/            # Main type checker
 │   ├── mod.rs              # TypeChecker struct, check_module entry
+│   ├── builder.rs          # TypeCheckerBuilder pattern
+│   ├── components.rs       # CheckContext, InferenceState, Registries, DiagnosticState, ScopeContext
+│   ├── scope_guards.rs     # RAII scope guards for capability/impl contexts
 │   ├── signatures.rs       # infer_function_signature
 │   ├── pattern_binding.rs  # bind_pattern logic
 │   ├── cycle_detection.rs  # collect_free_vars, closure self-capture
 │   ├── trait_registration.rs # register_traits, register_impls
 │   ├── bound_checking.rs   # type_satisfies_bound
-│   ├── types.rs            # Helper types
+│   ├── type_registration.rs # register_type_declarations
+│   ├── types.rs            # Helper types (FunctionType, TypeCheckError)
 │   └── tests.rs            # Unit tests
 ├── operators.rs        # Operator type rules
 ├── type_registry/      # User-defined types
@@ -30,6 +34,7 @@ compiler/sigilc/src/typeck/
     ├── expr.rs         # Expression inference
     ├── call.rs         # Call type checking
     ├── control.rs      # Control flow inference
+    ├── match_binding.rs # Match arm binding inference
     └── pattern.rs      # Pattern type checking
 ```
 
@@ -90,24 +95,68 @@ pub enum Type {
 
 ### TypeChecker
 
+The TypeChecker is organized into logical components for better testability and maintainability:
+
 ```rust
-pub struct TypeChecker {
-    /// Type environment (variable -> type)
-    env: TypeEnv,
+pub struct TypeChecker<'a> {
+    /// External references (arena, interner)
+    context: CheckContext<'a>,
 
-    /// User-defined types
-    registry: TypeRegistry,
+    /// Inference state (ctx, env, base_env, expr_types)
+    inference: InferenceState,
 
-    /// Fresh type variable counter
-    next_var: TypeVarId,
+    /// Registries (pattern, type_op, types, traits)
+    registries: Registries,
 
-    /// Substitution from unification
-    substitution: HashMap<TypeVarId, Type>,
+    /// Diagnostic collection (errors, queue, source)
+    diagnostics: DiagnosticState,
 
-    /// Accumulated errors
-    errors: Vec<TypeError>,
+    /// Function/scope context (function_sigs, current_impl_self, config_types, capabilities)
+    scope: ScopeContext,
 }
 ```
+
+#### Component Structs
+
+| Component | Purpose | Fields |
+|-----------|---------|--------|
+| `CheckContext<'a>` | Immutable external references | `arena`, `interner` |
+| `InferenceState` | Mutable inference context | `ctx`, `env`, `base_env`, `expr_types` |
+| `Registries` | Pattern, type, and trait registries | `pattern`, `type_op`, `types`, `traits` |
+| `DiagnosticState` | Error collection and limiting | `errors`, `queue`, `source` |
+| `ScopeContext` | Current scope state | `function_sigs`, `current_impl_self`, `config_types`, `current_function_caps`, `provided_caps` |
+
+#### TypeCheckerBuilder
+
+Use the builder pattern for flexible construction:
+
+```rust
+let checker = TypeCheckerBuilder::new(&arena, &interner)
+    .with_source(source_code)           // Enable diagnostic queue features
+    .with_context(&compiler_context)    // Use custom registries
+    .with_diagnostic_config(config)     // Custom error limits
+    .build();
+```
+
+#### RAII Scope Guards
+
+The type checker uses RAII-style scope guards for safe context management:
+
+```rust
+// Capability scope (for function checking)
+checker.with_capability_scope(new_caps, |c| {
+    // Capabilities are active here
+    // Automatically restored on return (even early returns)
+});
+
+// Impl scope (for impl block checking)
+checker.with_impl_scope(self_type, |c| {
+    // Self type is available here
+    // Automatically restored on return
+});
+```
+
+This prevents bugs from forgotten context restores and ensures cleanup on early returns.
 
 ### TypeEnv
 

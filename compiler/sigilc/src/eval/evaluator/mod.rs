@@ -1,6 +1,31 @@
 //! Expression evaluator for the Sigil interpreter.
 //!
 //! Provides tree-walking evaluation using the Salsa-compatible AST.
+//!
+//! # Arena Threading Pattern
+//!
+//! Functions and methods in Sigil carry their own expression arena (`SharedArena`)
+//! for thread safety. When evaluating a function or method call, we must use the
+//! callee's arena rather than the caller's, because:
+//!
+//! 1. **Thread Safety**: In parallel evaluation, different threads may evaluate
+//!    different functions simultaneously. Each function's arena contains only its
+//!    own expression nodes, avoiding shared mutable state.
+//!
+//! 2. **Expression IDs**: Each `ExprId` is valid only within its originating arena.
+//!    A function's body expression ID references nodes in that function's arena.
+//!
+//! 3. **Lambda Capture**: When a lambda is created, it captures a reference to the
+//!    current arena (via `imported_arena`). When the lambda is later called, we use
+//!    that captured arena to evaluate its body.
+//!
+//! The pattern appears in three places:
+//! - `function_call.rs`: Regular function calls
+//! - `method_dispatch.rs`: User-defined method calls
+//! - Lambda evaluation inherits from the arena captured at creation time
+//!
+//! Use `create_function_evaluator()` to correctly set up evaluation context
+//! with the callee's arena.
 
 mod builder;
 mod module_loading;
@@ -26,6 +51,7 @@ use sigil_eval::{
     parse_error, hash_outside_index, self_outside_method,
     await_not_supported, non_exhaustive_match, for_requires_iterable,
 };
+use crate::context::SharedMutableRegistry;
 
 /// Tree-walking evaluator for Sigil expressions.
 pub struct Evaluator<'a> {
@@ -42,9 +68,18 @@ pub struct Evaluator<'a> {
     /// Method registry for built-in method dispatch.
     pub(super) method_registry: SharedRegistry<MethodRegistry>,
     /// User-defined method registry for impl block methods.
-    pub(super) user_method_registry: SharedRegistry<UserMethodRegistry>,
+    ///
+    /// Uses `SharedMutableRegistry` to allow method registration after the
+    /// evaluator (and its cached dispatcher) is created.
+    pub(super) user_method_registry: SharedMutableRegistry<UserMethodRegistry>,
     /// Unary operator registry for unary operations.
     pub(super) unary_operator_registry: SharedRegistry<UnaryOperatorRegistry>,
+    /// Cached method dispatcher for efficient method resolution.
+    ///
+    /// The dispatcher chains all method resolvers (user, derived, collection, builtin)
+    /// and is built once during construction. Because `user_method_registry` uses
+    /// interior mutability, the dispatcher sees method registrations made after creation.
+    pub(super) method_dispatcher: resolvers::MethodDispatcher,
     /// Arena reference for imported functions.
     ///
     /// When evaluating an imported function, this holds the imported arena.
@@ -85,7 +120,7 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Create an evaluator with an existing environment.
-    pub fn with_env(interner: &'a StringInterner, arena: &'a ExprArena, env: Environment, user_methods: SharedRegistry<UserMethodRegistry>) -> Self {
+    pub fn with_env(interner: &'a StringInterner, arena: &'a ExprArena, env: Environment, user_methods: SharedMutableRegistry<UserMethodRegistry>) -> Self {
         EvaluatorBuilder::new(interner, arena).env(env).user_method_registry(user_methods).build()
     }
 
@@ -100,7 +135,7 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Create an evaluator with an imported arena context.
-    pub fn with_imported_arena(interner: &'a StringInterner, arena: &'a ExprArena, env: Environment, imported_arena: SharedArena, user_methods: SharedRegistry<UserMethodRegistry>) -> Self {
+    pub fn with_imported_arena(interner: &'a StringInterner, arena: &'a ExprArena, env: Environment, imported_arena: SharedArena, user_methods: SharedMutableRegistry<UserMethodRegistry>) -> Self {
         EvaluatorBuilder::new(interner, arena).env(env).imported_arena(imported_arena).user_method_registry(user_methods).build()
     }
 
@@ -506,6 +541,38 @@ impl<'a> Evaluator<'a> {
     /// Get a mutable reference to the environment.
     pub fn env_mut(&mut self) -> &mut Environment {
         &mut self.env
+    }
+
+    /// Create an evaluator for function/method body evaluation.
+    ///
+    /// This helper implements the arena threading pattern: the callee's arena
+    /// is used to evaluate the body, ensuring expression IDs are valid and
+    /// enabling thread-safe parallel evaluation.
+    ///
+    /// # Arguments
+    /// * `func_arena` - The callee's expression arena
+    /// * `call_env` - The environment with parameters bound
+    ///
+    /// # Returns
+    /// A new evaluator configured to evaluate the function body.
+    /// The returned evaluator's lifetime is tied to `func_arena`, not `self`,
+    /// but requires that `'a` outlives `'b` since we pass the interner through.
+    pub(super) fn create_function_evaluator<'b>(
+        &self,
+        func_arena: &'b ExprArena,
+        call_env: Environment,
+    ) -> Evaluator<'b>
+    where
+        'a: 'b,
+    {
+        let imported_arena = SharedArena::new(func_arena.clone());
+        Evaluator::with_imported_arena(
+            self.interner,
+            func_arena,
+            call_env,
+            imported_arena,
+            self.user_method_registry.clone(),
+        )
     }
 
     /// Register a `function_val` (type conversion function).

@@ -164,6 +164,29 @@ impl Default for StringInterner {
     }
 }
 
+/// Trait for looking up interned string names.
+///
+/// This trait exists to avoid tight coupling: higher-level crates can define
+/// methods that accept any `StringLookup` implementor without depending directly
+/// on `StringInterner`.
+///
+/// # Example
+/// ```ignore
+/// fn display_type_name<I: StringLookup>(value: &Value, interner: &I) -> String {
+///     value.type_name_with_interner(interner).into_owned()
+/// }
+/// ```
+pub trait StringLookup {
+    /// Look up the string for an interned name.
+    fn lookup(&self, name: Name) -> &str;
+}
+
+impl StringLookup for StringInterner {
+    fn lookup(&self, name: Name) -> &str {
+        StringInterner::lookup(self, name)
+    }
+}
+
 /// Shared interner for thread-safe string interning across compiler phases.
 ///
 /// This newtype enforces that all thread-safe interner sharing goes through

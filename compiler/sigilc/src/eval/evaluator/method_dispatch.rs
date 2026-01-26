@@ -1,13 +1,10 @@
 //! Method dispatch methods for the Evaluator.
 
-use crate::ir::{ExprArena, Name, SharedArena};
+use crate::ir::{ExprArena, Name};
 use sigil_eval::{DerivedMethodInfo, DerivedTrait, UserMethod, wrong_function_args, wrong_arg_count, EvalError};
 use super::{Evaluator, EvalResult};
 use super::super::value::Value;
-use super::resolvers::{
-    MethodResolution, CollectionMethod, MethodDispatcher,
-    UserMethodResolver, DerivedMethodResolver, CollectionMethodResolver, BuiltinMethodResolver,
-};
+use super::resolvers::{MethodResolution, CollectionMethod};
 
 impl Evaluator<'_> {
     /// Evaluate a method call using the Chain of Responsibility pattern.
@@ -47,19 +44,13 @@ impl Evaluator<'_> {
         }
     }
 
-    /// Resolve a method using the resolver chain.
+    /// Resolve a method using the cached dispatcher chain.
     ///
-    /// Creates a dispatcher with all resolvers and tries them in priority order.
+    /// Uses the pre-built dispatcher to try resolvers in priority order.
+    /// The dispatcher sees method registrations made after construction because
+    /// `user_method_registry` uses interior mutability (`SharedMutableRegistry`).
     fn resolve_method(&self, receiver: &Value, type_name: &str, method_name: &str) -> MethodResolution {
-        // Build the dispatcher with all resolvers
-        let dispatcher = MethodDispatcher::new(vec![
-            Box::new(UserMethodResolver::new(self.user_method_registry.clone())),
-            Box::new(DerivedMethodResolver::new(self.user_method_registry.clone())),
-            Box::new(CollectionMethodResolver::new()),
-            Box::new(BuiltinMethodResolver::new()),
-        ]);
-
-        dispatcher.resolve(receiver, type_name, method_name)
+        self.method_dispatcher.resolve(receiver, type_name, method_name)
     }
 
     /// Evaluate a collection method that requires evaluator access.
@@ -112,69 +103,80 @@ impl Evaluator<'_> {
         }
     }
 
-    // Individual collection method implementations
+    // =========================================================================
+    // Iterator Helper Methods
+    // =========================================================================
+    //
+    // These helpers unify the collection method implementations for lists and
+    // ranges. Each helper takes an iterator of Values and a function argument,
+    // eliminating the duplication between eval_list_* and eval_range_* methods.
 
-    fn eval_list_map(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
-        if args.len() != 1 {
-            return Err(wrong_arg_count("map", 1, args.len()));
-        }
-        let transform = args[0].clone();
-        let mut result = Vec::with_capacity(items.len());
-        for item in items {
-            let mapped = self.eval_call(transform.clone(), &[item.clone()])?;
+    /// Apply a transform function to each item in an iterator, collecting results.
+    fn map_iterator(
+        &mut self,
+        iter: impl Iterator<Item = Value>,
+        transform: &Value,
+    ) -> EvalResult {
+        let mut result = Vec::new();
+        for item in iter {
+            let mapped = self.eval_call(transform.clone(), &[item])?;
             result.push(mapped);
         }
         Ok(Value::list(result))
     }
 
-    fn eval_list_filter(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
-        if args.len() != 1 {
-            return Err(wrong_arg_count("filter", 1, args.len()));
-        }
-        let predicate = args[0].clone();
+    /// Filter items from an iterator using a predicate function.
+    fn filter_iterator(
+        &mut self,
+        iter: impl Iterator<Item = Value>,
+        predicate: &Value,
+    ) -> EvalResult {
         let mut result = Vec::new();
-        for item in items {
+        for item in iter {
             let keep = self.eval_call(predicate.clone(), &[item.clone()])?;
             if keep.is_truthy() {
-                result.push(item.clone());
+                result.push(item);
             }
         }
         Ok(Value::list(result))
     }
 
-    fn eval_list_fold(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
-        if args.len() != 2 {
-            return Err(wrong_arg_count("fold", 2, args.len()));
-        }
-        let mut acc = args[0].clone();
-        let op = args[1].clone();
-        for item in items {
-            acc = self.eval_call(op.clone(), &[acc, item.clone()])?;
+    /// Fold an iterator into a single value using an accumulator function.
+    fn fold_iterator(
+        &mut self,
+        iter: impl Iterator<Item = Value>,
+        mut acc: Value,
+        op: &Value,
+    ) -> EvalResult {
+        for item in iter {
+            acc = self.eval_call(op.clone(), &[acc, item])?;
         }
         Ok(acc)
     }
 
-    fn eval_list_find(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
-        if args.len() != 1 {
-            return Err(wrong_arg_count("find", 1, args.len()));
-        }
-        let predicate = args[0].clone();
-        for item in items {
+    /// Find the first item matching a predicate, returning Option.
+    fn find_in_iterator(
+        &mut self,
+        iter: impl Iterator<Item = Value>,
+        predicate: &Value,
+    ) -> EvalResult {
+        for item in iter {
             let found = self.eval_call(predicate.clone(), &[item.clone()])?;
             if found.is_truthy() {
-                return Ok(Value::some(item.clone()));
+                return Ok(Value::some(item));
             }
         }
         Ok(Value::None)
     }
 
-    fn eval_list_any(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
-        if args.len() != 1 {
-            return Err(wrong_arg_count("any", 1, args.len()));
-        }
-        let predicate = args[0].clone();
-        for item in items {
-            let result = self.eval_call(predicate.clone(), &[item.clone()])?;
+    /// Check if any item matches a predicate.
+    fn any_in_iterator(
+        &mut self,
+        iter: impl Iterator<Item = Value>,
+        predicate: &Value,
+    ) -> EvalResult {
+        for item in iter {
+            let result = self.eval_call(predicate.clone(), &[item])?;
             if result.is_truthy() {
                 return Ok(Value::Bool(true));
             }
@@ -182,18 +184,65 @@ impl Evaluator<'_> {
         Ok(Value::Bool(false))
     }
 
-    fn eval_list_all(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
-        if args.len() != 1 {
-            return Err(wrong_arg_count("all", 1, args.len()));
-        }
-        let predicate = args[0].clone();
-        for item in items {
-            let result = self.eval_call(predicate.clone(), &[item.clone()])?;
+    /// Check if all items match a predicate.
+    fn all_in_iterator(
+        &mut self,
+        iter: impl Iterator<Item = Value>,
+        predicate: &Value,
+    ) -> EvalResult {
+        for item in iter {
+            let result = self.eval_call(predicate.clone(), &[item])?;
             if !result.is_truthy() {
                 return Ok(Value::Bool(false));
             }
         }
         Ok(Value::Bool(true))
+    }
+
+    // =========================================================================
+    // Collection Method Implementations
+    // =========================================================================
+
+    fn eval_list_map(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("map", 1, args.len()));
+        }
+        self.map_iterator(items.iter().cloned(), &args[0])
+    }
+
+    fn eval_list_filter(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("filter", 1, args.len()));
+        }
+        self.filter_iterator(items.iter().cloned(), &args[0])
+    }
+
+    fn eval_list_fold(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
+        if args.len() != 2 {
+            return Err(wrong_arg_count("fold", 2, args.len()));
+        }
+        self.fold_iterator(items.iter().cloned(), args[0].clone(), &args[1])
+    }
+
+    fn eval_list_find(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("find", 1, args.len()));
+        }
+        self.find_in_iterator(items.iter().cloned(), &args[0])
+    }
+
+    fn eval_list_any(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("any", 1, args.len()));
+        }
+        self.any_in_iterator(items.iter().cloned(), &args[0])
+    }
+
+    fn eval_list_all(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("all", 1, args.len()));
+        }
+        self.all_in_iterator(items.iter().cloned(), &args[0])
     }
 
     fn eval_range_collect(&mut self, range: &sigil_patterns::RangeValue, args: &[Value]) -> EvalResult {
@@ -208,63 +257,29 @@ impl Evaluator<'_> {
         if args.len() != 1 {
             return Err(wrong_arg_count("map", 1, args.len()));
         }
-        let transform = args[0].clone();
-        let mut result = Vec::new();
-        for i in range.iter() {
-            let mapped = self.eval_call(transform.clone(), &[Value::Int(i)])?;
-            result.push(mapped);
-        }
-        Ok(Value::list(result))
+        self.map_iterator(range.iter().map(Value::Int), &args[0])
     }
 
     fn eval_range_filter(&mut self, range: &sigil_patterns::RangeValue, args: &[Value]) -> EvalResult {
         if args.len() != 1 {
             return Err(wrong_arg_count("filter", 1, args.len()));
         }
-        let predicate = args[0].clone();
-        let mut result = Vec::new();
-        for i in range.iter() {
-            let keep = self.eval_call(predicate.clone(), &[Value::Int(i)])?;
-            if keep.is_truthy() {
-                result.push(Value::Int(i));
-            }
-        }
-        Ok(Value::list(result))
+        self.filter_iterator(range.iter().map(Value::Int), &args[0])
     }
 
     fn eval_range_fold(&mut self, range: &sigil_patterns::RangeValue, args: &[Value]) -> EvalResult {
         if args.len() != 2 {
             return Err(wrong_arg_count("fold", 2, args.len()));
         }
-        let mut acc = args[0].clone();
-        let op = args[1].clone();
-        for i in range.iter() {
-            acc = self.eval_call(op.clone(), &[acc, Value::Int(i)])?;
-        }
-        Ok(acc)
+        self.fold_iterator(range.iter().map(Value::Int), args[0].clone(), &args[1])
     }
 
     /// Get the concrete type name for a value (for method lookup).
     ///
-    /// For struct values, returns the actual struct name.
-    /// For other values, returns the basic type name.
+    /// Delegates to `Value::type_name_with_interner()` which resolves struct
+    /// names via the interner and returns static type names for other types.
     pub(super) fn get_value_type_name(&self, value: &Value) -> String {
-        match value {
-            Value::Struct(s) => self.interner.lookup(s.type_name).to_string(),
-            Value::List(_) => "list".to_string(),
-            Value::Str(_) => "str".to_string(),
-            Value::Int(_) => "int".to_string(),
-            Value::Float(_) => "float".to_string(),
-            Value::Bool(_) => "bool".to_string(),
-            Value::Char(_) => "char".to_string(),
-            Value::Byte(_) => "byte".to_string(),
-            Value::Map(_) => "map".to_string(),
-            Value::Tuple(_) => "tuple".to_string(),
-            Value::Some(_) | Value::None => "Option".to_string(),
-            Value::Ok(_) | Value::Err(_) => "Result".to_string(),
-            Value::Range(_) => "range".to_string(),
-            _ => value.type_name().to_string(),
-        }
+        value.type_name_with_interner(self.interner).into_owned()
     }
 
     /// Evaluate a user-defined method from an impl block.
@@ -293,13 +308,9 @@ impl Evaluator<'_> {
             call_env.define(*param, arg.clone(), false);
         }
 
-        // Evaluate method body using the method's arena.
-        // Every method carries its own arena for thread safety.
+        // Evaluate method body using the method's arena (arena threading pattern).
         let func_arena: &ExprArena = &method.arena;
-        let imported_arena = SharedArena::new(func_arena.clone());
-        let mut call_evaluator = Evaluator::with_imported_arena(
-            self.interner, func_arena, call_env, imported_arena, self.user_method_registry.clone()
-        );
+        let mut call_evaluator = self.create_function_evaluator(func_arena, call_env);
         let result = call_evaluator.eval(method.body);
         call_evaluator.env.pop_scope();
         result

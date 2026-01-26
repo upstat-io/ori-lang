@@ -3,6 +3,7 @@
 use super::*;
 use crate::ir::{Span, SharedArena, SharedInterner};
 use crate::ir::ast::{Expr, ExprKind};
+use crate::context::SharedMutableRegistry;
 use std::collections::HashMap;
 use sigil_eval::{UserMethod, UserMethodRegistry};
 
@@ -51,7 +52,7 @@ fn test_user_method_dispatch() {
     registry.register("Point".to_string(), "double_x".to_string(), user_method);
 
     let mut evaluator = EvaluatorBuilder::new(&interner, &arena)
-        .user_method_registry(SharedRegistry::new(registry))
+        .user_method_registry(SharedMutableRegistry::new(registry))
         .build();
 
     // Create a struct value with x = 5
@@ -92,7 +93,7 @@ fn test_user_method_with_self_access() {
     registry.register("Point".to_string(), "get_x".to_string(), user_method);
 
     let mut evaluator = EvaluatorBuilder::new(&interner, &arena)
-        .user_method_registry(SharedRegistry::new(registry))
+        .user_method_registry(SharedMutableRegistry::new(registry))
         .build();
 
     // Create a struct value with x = 7
@@ -141,7 +142,7 @@ fn test_user_method_with_args() {
     registry.register("Point".to_string(), "add_to_x".to_string(), user_method);
 
     let mut evaluator = EvaluatorBuilder::new(&interner, &arena)
-        .user_method_registry(SharedRegistry::new(registry))
+        .user_method_registry(SharedMutableRegistry::new(registry))
         .build();
 
     // Create a struct value with x = 10
