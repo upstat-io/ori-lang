@@ -5,16 +5,28 @@ The Sigil parser organizes grammar rules into separate modules for maintainabili
 ## Module Structure
 
 ```
-compiler/sigilc/src/parser/
-├── mod.rs              # Parser struct, entry point
+compiler/sigil_parse/src/
+├── lib.rs              # Parser struct, entry point
 ├── error.rs            # Error types
 └── grammar/
     ├── mod.rs          # Re-exports
-    ├── expr.rs         # Expression parsing
-    ├── item.rs         # Top-level items
-    ├── type.rs         # Type annotations
-    ├── pattern.rs      # Destructuring patterns
-    ├── stmt.rs         # Statement-like constructs
+    ├── expr/           # Expression parsing (split into submodules)
+    │   ├── mod.rs          # Entry point, binary operators
+    │   ├── operators.rs    # Operator matching helpers
+    │   ├── primary.rs      # Literals, identifiers, lambdas
+    │   ├── postfix.rs      # Call, method call, field, index
+    │   └── patterns.rs     # run, try, match, for, function_exp
+    ├── item/           # Top-level items (split into submodules)
+    │   ├── mod.rs          # Re-exports
+    │   ├── use_def.rs      # Import/use statements
+    │   ├── config.rs       # Config variable parsing
+    │   ├── function.rs     # Function and test definitions
+    │   ├── trait_def.rs    # Trait definitions
+    │   ├── impl_def.rs     # Impl blocks
+    │   ├── type_decl.rs    # Type declarations (struct, enum, newtype)
+    │   ├── extend.rs       # Extend blocks
+    │   └── generics.rs     # Generic params, bounds, where clauses
+    ├── ty.rs           # Type annotations
     └── attr.rs         # Attributes
 ```
 
@@ -52,30 +64,42 @@ parse_struct()        // Point { x: 0, y: 0 }
 parse_lambda()        // x -> x + 1
 ```
 
-### item.rs (~446 lines)
+### item/ (~1,112 lines total, split into 8 modules)
 
 Handles top-level declarations:
 
 ```rust
-// Functions
-parse_function()      // @name (params) -> Type = body
+// use_def.rs - Imports
+parse_use()           // use './math' { add, subtract }
+
+// config.rs - Config variables
+parse_config()        // $timeout = 30s
+
+// function.rs - Functions and tests
+parse_function_or_test_with_attrs()  // @name (params) -> Type = body
 parse_params()        // (a: int, b: str)
 
-// Types
-parse_type_def()      // type Name = ...
-parse_struct_def()    // type Point = { x: int, y: int }
-parse_enum_def()      // type Option<T> = Some(T) | None
-
-// Traits
+// trait_def.rs - Traits
 parse_trait()         // trait Name { ... }
+parse_trait_item()    // Method signatures, default methods, assoc types
+
+// impl_def.rs - Implementations
 parse_impl()          // impl Trait for Type { ... }
+parse_impl_method()   // @method (self) -> Type = body
 
-// Tests
-parse_test()          // @test_name tests @target () -> void = ...
+// type_decl.rs - Type declarations
+parse_type_decl()     // type Name = ...
+parse_struct_body()   // { x: int, y: int }
+parse_sum_or_newtype()// Some(T) | None
 
-// Imports
-parse_import()        // use './math' { add, subtract }
-parse_config()        // $timeout = 30s
+// extend.rs - Extension methods
+parse_extend()        // extend [T] { @map... }
+
+// generics.rs - Generic parameters
+parse_generics()      // <T, U: Bound>
+parse_bounds()        // Eq + Clone + Printable
+parse_where_clauses() // where T: Clone, U: Default
+parse_uses_clause()   // uses Http, FileSystem
 ```
 
 ### type.rs
@@ -254,14 +278,13 @@ fn test_parse_new_feature() {
 
 ## File Size Guidelines
 
-| File | Target | Maximum | Current |
-|------|--------|---------|---------|
-| expr.rs | 800 | 1,500 | ~1,337 |
-| item.rs | 400 | 600 | ~446 |
-| type.rs | 200 | 400 | ~200 |
-| pattern.rs | 200 | 400 | ~200 |
-| stmt.rs | 100 | 200 | ~100 |
-| attr.rs | 100 | 200 | ~100 |
+| Module | Target | Maximum | Current |
+|--------|--------|---------|---------|
+| expr/ (total) | 800 | 1,500 | ~1,100 |
+| item/ (total) | 800 | 1,500 | ~1,112 |
+| ty.rs | 200 | 400 | ~400 |
+| attr.rs | 200 | 400 | ~400 |
 
-If a file exceeds limits, split into sub-modules:
-- `expr.rs` → `expr/binary.rs`, `expr/control.rs`, `expr/call.rs`
+Both `expr/` and `item/` have been split into sub-modules for maintainability:
+- `expr/` → `mod.rs`, `operators.rs`, `primary.rs`, `postfix.rs`, `patterns.rs`
+- `item/` → `mod.rs`, `use_def.rs`, `config.rs`, `function.rs`, `trait_def.rs`, `impl_def.rs`, `type_decl.rs`, `extend.rs`, `generics.rs`
