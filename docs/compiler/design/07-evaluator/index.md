@@ -10,14 +10,15 @@ compiler/sigilc/src/eval/
 ├── evaluator/          # Main evaluator
 │   ├── mod.rs              # Evaluator struct, eval dispatch, arena threading
 │   ├── builder.rs          # EvaluatorBuilder with MethodDispatcher construction
+│   ├── scope_guard.rs      # RAII scope management (with_env_scope, with_bindings)
 │   ├── module_loading.rs   # load_module, load_prelude, method collection
 │   ├── function_call.rs    # eval_call, eval_call_named
 │   ├── method_dispatch.rs  # Method dispatch, iterator helpers, type resolution
+│   ├── derived_methods.rs  # Derived method evaluation (Eq, Clone, Hash, etc.)
 │   ├── function_seq.rs     # eval_function_seq (run, try, match)
 │   ├── resolvers/          # Method resolution chain (Chain of Responsibility)
 │   │   ├── mod.rs          # MethodDispatcher, MethodResolver trait
-│   │   ├── user.rs         # UserMethodResolver (user-defined methods)
-│   │   ├── derived.rs      # DerivedMethodResolver (derive macros)
+│   │   ├── user_registry.rs # UserRegistryResolver (user + derived methods)
 │   │   ├── collection.rs   # CollectionMethodResolver (list/range methods)
 │   │   └── builtin.rs      # BuiltinMethodResolver (built-in methods)
 │   └── tests.rs            # Unit tests
@@ -88,8 +89,8 @@ pub struct Evaluator<'a> {
     user_method_registry: SharedMutableRegistry<UserMethodRegistry>,
 
     /// Cached method dispatcher (Chain of Responsibility pattern)
-    /// Built once in EvaluatorBuilder, resolves methods via 4 resolvers:
-    /// UserMethodResolver → DerivedMethodResolver → CollectionMethodResolver → BuiltinMethodResolver
+    /// Built once in EvaluatorBuilder, resolves methods via 3 resolvers:
+    /// UserRegistryResolver → CollectionMethodResolver → BuiltinMethodResolver
     method_dispatcher: MethodDispatcher,
 
     /// Arena for imported functions (keeps them alive during evaluation)
@@ -199,6 +200,29 @@ run(
 // x = 1 again
 ```
 
+### RAII Scope Guards
+
+The evaluator uses RAII-style scope guards for safe scope management:
+
+```rust
+// Execute within a new environment scope (auto-cleanup)
+self.with_env_scope(|eval| {
+    eval.env.define(name, value, mutable);
+    eval.eval(body)
+})
+
+// Execute with pre-defined bindings
+self.with_bindings(bindings, |eval| eval.eval(body))
+
+// Execute with match bindings (immutable)
+self.with_match_bindings(pattern_bindings, |eval| eval.eval(arm_body))
+
+// Execute with a single binding
+self.with_binding(name, value, mutable, |eval| eval.eval(body))
+```
+
+These guards guarantee cleanup even on early returns or errors.
+
 ### Pattern Delegation
 
 Patterns are evaluated via the registry:
@@ -239,17 +263,17 @@ receiver.method(args)
     ▼
 MethodDispatcher.resolve(receiver, type_name, method_name)
     │
-    ├─► UserMethodResolver     → User-defined methods (impl blocks)
+    ├─► UserRegistryResolver      → User + derived methods (impl blocks, #[derive])
     │       │
     │       ▼
-    ├─► DerivedMethodResolver  → Derived methods (Eq, Clone, etc.)
+    ├─► CollectionMethodResolver  → Collection methods (map, filter, fold)
     │       │
     │       ▼
-    ├─► CollectionMethodResolver → Collection methods (map, filter, fold)
-    │       │
-    │       ▼
-    └─► BuiltinMethodResolver  → Built-in methods (len, push, etc.)
+    └─► BuiltinMethodResolver     → Built-in methods (len, push, etc.)
 ```
+
+The `UserRegistryResolver` is a unified resolver that checks both user-defined methods
+(from impl blocks) and derived methods (from `#[derive(...)]`) in a single lookup.
 
 ### Iterator Helpers
 

@@ -31,7 +31,9 @@ mod builder;
 mod module_loading;
 mod function_call;
 mod method_dispatch;
+mod derived_methods;
 mod function_seq;
+mod scope_guard;
 pub mod resolvers;
 
 pub use builder::EvaluatorBuilder;
@@ -47,9 +49,10 @@ use crate::stack::ensure_sufficient_stack;
 use super::value::{Value, FunctionValue, StructValue};
 use sigil_eval::{
     Environment, MethodRegistry, OperatorRegistry, UnaryOperatorRegistry, UserMethodRegistry,
-    undefined_variable, undefined_function, undefined_config,
-    parse_error, hash_outside_index, self_outside_method,
-    await_not_supported, non_exhaustive_match, for_requires_iterable,
+    // Error factories
+    await_not_supported, for_requires_iterable, hash_outside_index,
+    map_keys_must_be_strings, non_exhaustive_match, parse_error, self_outside_method,
+    undefined_config, undefined_function, undefined_variable, unknown_pattern,
 };
 use crate::context::SharedMutableRegistry;
 
@@ -302,7 +305,7 @@ impl<'a> Evaluator<'a> {
                     if let Value::Str(k) = key {
                         map.insert(k.to_string(), value);
                     } else {
-                        return Err(EvalError::new("map keys must be strings"));
+                        return Err(map_keys_must_be_strings());
                     }
                 }
                 Ok(Value::map(map))
@@ -319,7 +322,7 @@ impl<'a> Evaluator<'a> {
                         // Shorthand: { x } means { x: x }
                         self.env.lookup(field.name).ok_or_else(|| {
                             let name_str = self.interner.lookup(field.name);
-                            EvalError::new(format!("undefined variable: {name_str}"))
+                            undefined_variable(name_str)
                         })?
                     };
                     field_values.insert(field.name, value);
@@ -347,11 +350,7 @@ impl<'a> Evaluator<'a> {
             // then bind it to the capability name in a new scope and evaluate the body.
             ExprKind::WithCapability { capability, provider, body } => {
                 let provider_val = self.eval(*provider)?;
-                self.env.push_scope();
-                self.env.define(*capability, provider_val, false);
-                let result = self.eval(*body);
-                self.env.pop_scope();
-                result
+                self.with_binding(*capability, provider_val, false, |e| e.eval(*body))
             }
             ExprKind::Error => Err(parse_error()),
             ExprKind::HashLength => Err(hash_outside_index()),
@@ -394,19 +393,18 @@ impl<'a> Evaluator<'a> {
 
     /// Evaluate a block of statements.
     fn eval_block(&mut self, stmts: crate::ir::StmtRange, result: Option<ExprId>) -> EvalResult {
-        self.env.push_scope();
-        for stmt in self.arena.get_stmt_range(stmts) {
-            match &stmt.kind {
-                StmtKind::Expr(e) => { self.eval(*e)?; }
-                StmtKind::Let { pattern, init, mutable, .. } => {
-                    let value = self.eval(*init)?;
-                    self.bind_pattern(pattern, value, *mutable)?;
+        self.with_env_scope_result(|eval| {
+            for stmt in eval.arena.get_stmt_range(stmts) {
+                match &stmt.kind {
+                    StmtKind::Expr(e) => { eval.eval(*e)?; }
+                    StmtKind::Let { pattern, init, mutable, .. } => {
+                        let value = eval.eval(*init)?;
+                        eval.bind_pattern(pattern, value, *mutable)?;
+                    }
                 }
             }
-        }
-        let result_val = result.map(|r| self.eval(r)).transpose()?.unwrap_or(Value::Void);
-        self.env.pop_scope();
-        Ok(result_val)
+            result.map(|r| eval.eval(r)).transpose().map(|v| v.unwrap_or(Value::Void))
+        })
     }
 
     /// Bind a pattern to a value using `exec::control` module.
@@ -423,10 +421,7 @@ impl<'a> Evaluator<'a> {
 
         // Look up pattern definition from registry
         let pattern = self.registry.get(func_exp.kind)
-            .ok_or_else(|| EvalError::new(format!(
-                "unknown pattern: {:?}",
-                func_exp.kind
-            )))?;
+            .ok_or_else(|| unknown_pattern(&format!("{:?}", func_exp.kind)))?;
 
         // Create evaluation context
         let ctx = EvalContext::new(self.interner, self.arena, props);

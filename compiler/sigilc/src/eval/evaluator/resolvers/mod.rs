@@ -6,26 +6,44 @@
 //! # Resolution Order
 //!
 //! Methods are resolved in the following priority order:
-//! 1. User-defined methods from impl blocks (priority 0)
-//! 2. Derived methods from `#[derive(...)]` (priority 1)
-//! 3. Collection methods requiring evaluator (priority 2)
-//! 4. Built-in methods in `MethodRegistry` (priority 3)
+//! 1. User-defined and derived methods via `UserRegistryResolver` (priority 0)
+//!    - User-defined methods from impl blocks (checked first)
+//!    - Derived methods from `#[derive(...)]` (checked second)
+//! 2. Collection methods requiring evaluator (priority 1)
+//! 3. Built-in methods in `MethodRegistry` (priority 2)
 //!
 //! # Architecture
 //!
 //! Each resolver implements the `MethodResolver` trait and handles a specific
 //! category of methods. The `MethodDispatcher` chains these resolvers and
 //! tries them in priority order until one handles the method call.
+//!
+//! # Legacy Resolvers
+//!
+//! `UserMethodResolver` and `DerivedMethodResolver` are still available for
+//! backward compatibility but `UserRegistryResolver` is the recommended unified resolver.
 
+// Legacy resolvers - kept for backward compatibility but not actively used.
+// Use UserRegistryResolver instead for new code.
+#[allow(dead_code)]
 mod user;
+#[allow(dead_code)]
 mod derived;
+
+mod user_registry;
 mod collection;
 mod builtin;
 
-pub use user::UserMethodResolver;
-pub use derived::DerivedMethodResolver;
+pub use user_registry::UserRegistryResolver;
 pub use collection::CollectionMethodResolver;
 pub use builtin::BuiltinMethodResolver;
+
+// Re-export legacy resolvers for backward compatibility.
+// These are deprecated in favor of UserRegistryResolver.
+#[allow(unused_imports)]
+pub use user::UserMethodResolver;
+#[allow(unused_imports)]
+pub use derived::DerivedMethodResolver;
 
 use sigil_eval::{DerivedMethodInfo, UserMethod};
 use super::super::value::Value;

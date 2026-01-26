@@ -3,6 +3,7 @@
 //! These problems occur during parsing when the source code doesn't match
 //! the expected grammar.
 
+use super::impl_has_span;
 use crate::ir::Span;
 
 /// Problems that occur during parsing.
@@ -132,30 +133,38 @@ pub enum ParseProblem {
     },
 }
 
+// Generate HasSpan implementation using macro.
+// Most variants use `span`, but UnclosedDelimiter uses `found_span`.
+impl_has_span! {
+    ParseProblem {
+        found_span: [UnclosedDelimiter],
+        span: [
+            UnexpectedToken,
+            ExpectedExpression,
+            ExpectedIdentifier,
+            ExpectedType,
+            InvalidFunctionDef,
+            MissingFunctionBody,
+            InvalidPatternSyntax,
+            MissingPatternArg,
+            UnknownPatternArg,
+            RequiresNamedArgs,
+            InvalidFunctionSeq,
+            RequiresNamedProps,
+            ReservedBuiltinName,
+            UnterminatedString,
+            InvalidCharacter,
+            InvalidNumber,
+            UnterminatedChar,
+            InvalidEscape,
+        ],
+    }
+}
+
 impl ParseProblem {
     /// Get the primary span of this problem.
     pub fn span(&self) -> Span {
-        match self {
-            ParseProblem::UnclosedDelimiter { found_span, .. } => *found_span,
-            ParseProblem::UnterminatedString { span }
-            | ParseProblem::UnterminatedChar { span }
-            | ParseProblem::UnexpectedToken { span, .. }
-            | ParseProblem::ExpectedExpression { span, .. }
-            | ParseProblem::ExpectedIdentifier { span, .. }
-            | ParseProblem::ExpectedType { span, .. }
-            | ParseProblem::InvalidFunctionDef { span, .. }
-            | ParseProblem::MissingFunctionBody { span, .. }
-            | ParseProblem::InvalidPatternSyntax { span, .. }
-            | ParseProblem::MissingPatternArg { span, .. }
-            | ParseProblem::UnknownPatternArg { span, .. }
-            | ParseProblem::RequiresNamedArgs { span, .. }
-            | ParseProblem::InvalidFunctionSeq { span, .. }
-            | ParseProblem::RequiresNamedProps { span, .. }
-            | ParseProblem::ReservedBuiltinName { span, .. }
-            | ParseProblem::InvalidCharacter { span, .. }
-            | ParseProblem::InvalidNumber { span, .. }
-            | ParseProblem::InvalidEscape { span, .. } => *span,
-        }
+        <Self as super::HasSpan>::span(self)
     }
 }
 

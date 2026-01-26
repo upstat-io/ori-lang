@@ -36,6 +36,69 @@ pub use typecheck::TypeProblem;
 
 use crate::ir::Span;
 
+// ============================================================================
+// HasSpan trait and macros for DRY problem implementations
+// ============================================================================
+
+/// Trait for problem types that have a primary source location span.
+pub trait HasSpan {
+    fn span(&self) -> Span;
+}
+
+/// Generate `HasSpan` implementation for an enum with span fields.
+///
+/// Groups variants by their span field name to handle exceptions.
+/// Most variants use `span`, but some (like `UnclosedDelimiter`) use a different field.
+///
+/// # Example
+///
+/// ```ignore
+/// impl_has_span! {
+///     ParseProblem {
+///         found_span: [UnclosedDelimiter],  // Exception case
+///         span: [UnexpectedToken, ExpectedExpression, ...],
+///     }
+/// }
+/// ```
+macro_rules! impl_has_span {
+    ($enum_name:ident { $( $field:ident : [ $($variant:ident),* $(,)? ] ),* $(,)? }) => {
+        impl $crate::problem::HasSpan for $enum_name {
+            fn span(&self) -> $crate::ir::Span {
+                match self {
+                    $( $( $enum_name::$variant { $field, .. } => *$field, )* )*
+                }
+            }
+        }
+    };
+}
+
+/// Generate `From<T> for Problem` implementation.
+macro_rules! impl_from_problem {
+    ($source:ty => $variant:path) => {
+        impl From<$source> for Problem {
+            fn from(p: $source) -> Self {
+                $variant(p)
+            }
+        }
+    };
+}
+
+/// Generate type predicates for Problem enum.
+macro_rules! impl_problem_predicates {
+    ($enum_name:ident { $( $variant:ident => $method:ident ),* $(,)? }) => {
+        impl $enum_name {
+            $(
+                #[doc = concat!("Check if this is a ", stringify!($variant), " problem.")]
+                pub fn $method(&self) -> bool {
+                    matches!(self, $enum_name::$variant(_))
+                }
+            )*
+        }
+    };
+}
+
+pub(crate) use impl_has_span;
+
 /// Unified problem enum for all compilation phases.
 ///
 /// # Salsa Compatibility
@@ -61,40 +124,19 @@ impl Problem {
             Problem::Semantic(p) => p.span(),
         }
     }
-
-    /// Check if this is a parse problem.
-    pub fn is_parse(&self) -> bool {
-        matches!(self, Problem::Parse(_))
-    }
-
-    /// Check if this is a type problem.
-    pub fn is_type(&self) -> bool {
-        matches!(self, Problem::Type(_))
-    }
-
-    /// Check if this is a semantic problem.
-    pub fn is_semantic(&self) -> bool {
-        matches!(self, Problem::Semantic(_))
-    }
 }
 
-impl From<ParseProblem> for Problem {
-    fn from(p: ParseProblem) -> Self {
-        Problem::Parse(p)
-    }
-}
+// Generate type predicates using macro
+impl_problem_predicates!(Problem {
+    Parse => is_parse,
+    Type => is_type,
+    Semantic => is_semantic,
+});
 
-impl From<TypeProblem> for Problem {
-    fn from(p: TypeProblem) -> Self {
-        Problem::Type(p)
-    }
-}
-
-impl From<SemanticProblem> for Problem {
-    fn from(p: SemanticProblem) -> Self {
-        Problem::Semantic(p)
-    }
-}
+// Generate From implementations using macro
+impl_from_problem!(ParseProblem => Problem::Parse);
+impl_from_problem!(TypeProblem => Problem::Type);
+impl_from_problem!(SemanticProblem => Problem::Semantic);
 
 #[cfg(test)]
 mod tests {

@@ -106,3 +106,50 @@ pub use sigil_patterns::{
     parse_error,
     self_outside_method,
 };
+
+// =============================================================================
+// Collection Method Errors
+// =============================================================================
+
+pub use sigil_patterns::{
+    all_requires_list,
+    any_requires_list,
+    collect_requires_range,
+    filter_entries_requires_map,
+    filter_requires_collection,
+    find_requires_list,
+    fold_requires_collection,
+    map_entries_requires_map,
+    map_requires_collection,
+};
+
+// =============================================================================
+// Not Implemented Errors
+// =============================================================================
+
+pub use sigil_patterns::{
+    default_requires_type_context,
+    field_assignment_not_implemented,
+    filter_entries_not_implemented,
+    index_assignment_not_implemented,
+    map_entries_not_implemented,
+};
+
+// =============================================================================
+// Index Context Errors
+// =============================================================================
+
+pub use sigil_patterns::{
+    collection_too_large,
+    non_integer_in_index,
+    operator_not_supported_in_index,
+};
+
+// =============================================================================
+// Pattern Errors
+// =============================================================================
+
+pub use sigil_patterns::{
+    for_pattern_requires_list,
+    unknown_pattern,
+};

@@ -3,6 +3,7 @@
 //! These problems occur during type checking when types don't match
 //! or can't be inferred.
 
+use super::impl_has_span;
 use crate::ir::Span;
 
 /// Problems that occur during type checking.
@@ -177,36 +178,44 @@ pub enum TypeProblem {
     },
 }
 
+// Generate HasSpan implementation using macro.
+// All variants use the standard `span` field.
+impl_has_span! {
+    TypeProblem {
+        span: [
+            TypeMismatch,
+            ArgCountMismatch,
+            TupleLengthMismatch,
+            ListLengthMismatch,
+            InfiniteType,
+            CannotInfer,
+            UnknownType,
+            NotCallable,
+            NotIndexable,
+            NoSuchField,
+            NoSuchMethod,
+            InvalidBinaryOp,
+            InvalidUnaryOp,
+            MissingNamedArg,
+            UnknownNamedArg,
+            DuplicateNamedArg,
+            ReturnTypeMismatch,
+            InvalidTryOperand,
+            InvalidAwait,
+            ConditionNotBool,
+            NotIterable,
+            MatchArmTypeMismatch,
+            PatternTypeMismatch,
+            CyclicType,
+            ClosureSelfReference,
+        ],
+    }
+}
+
 impl TypeProblem {
     /// Get the primary span of this problem.
     pub fn span(&self) -> Span {
-        match self {
-            TypeProblem::InfiniteType { span }
-            | TypeProblem::ClosureSelfReference { span }
-            | TypeProblem::TypeMismatch { span, .. }
-            | TypeProblem::ArgCountMismatch { span, .. }
-            | TypeProblem::TupleLengthMismatch { span, .. }
-            | TypeProblem::ListLengthMismatch { span, .. }
-            | TypeProblem::CannotInfer { span, .. }
-            | TypeProblem::UnknownType { span, .. }
-            | TypeProblem::NotCallable { span, .. }
-            | TypeProblem::NotIndexable { span, .. }
-            | TypeProblem::NoSuchField { span, .. }
-            | TypeProblem::NoSuchMethod { span, .. }
-            | TypeProblem::InvalidBinaryOp { span, .. }
-            | TypeProblem::InvalidUnaryOp { span, .. }
-            | TypeProblem::MissingNamedArg { span, .. }
-            | TypeProblem::UnknownNamedArg { span, .. }
-            | TypeProblem::DuplicateNamedArg { span, .. }
-            | TypeProblem::ReturnTypeMismatch { span, .. }
-            | TypeProblem::InvalidTryOperand { span, .. }
-            | TypeProblem::InvalidAwait { span, .. }
-            | TypeProblem::ConditionNotBool { span, .. }
-            | TypeProblem::NotIterable { span, .. }
-            | TypeProblem::MatchArmTypeMismatch { span, .. }
-            | TypeProblem::PatternTypeMismatch { span, .. }
-            | TypeProblem::CyclicType { span, .. } => *span,
-        }
+        <Self as super::HasSpan>::span(self)
     }
 }
 

@@ -8,9 +8,12 @@ use crate::ir::{ExprId, ExprKind, BinaryOp, UnaryOp, StringInterner, Name};
 use crate::eval::{Value, RangeValue, EvalResult, EvalError};
 use sigil_eval::{
     Environment, OperatorRegistry, UnaryOperatorRegistry,
-    undefined_variable, cannot_get_length, index_out_of_bounds, key_not_found,
-    cannot_index, no_field_on_struct, tuple_index_out_of_bounds, invalid_tuple_field,
-    cannot_access_field,
+    // Error factories
+    cannot_access_field, cannot_get_length, cannot_index, collection_too_large,
+    division_by_zero, index_out_of_bounds, invalid_tuple_field, key_not_found,
+    no_field_on_struct, non_integer_in_index, operator_not_supported_in_index,
+    range_bound_not_int, tuple_index_out_of_bounds, unbounded_range_end,
+    undefined_variable,
 };
 use crate::context::SharedRegistry;
 
@@ -110,14 +113,14 @@ pub fn eval_binary_values(left_val: Value, op: BinaryOp, right_val: Value) -> Ev
             BinaryOp::Mul => Ok(Value::Int(a * b)),
             BinaryOp::Div => {
                 if b == 0 {
-                    Err(EvalError::new("division by zero"))
+                    Err(division_by_zero())
                 } else {
                     Ok(Value::Int(a / b))
                 }
             }
-            _ => Err(EvalError::new("operator not supported in index context")),
+            _ => Err(operator_not_supported_in_index()),
         },
-        _ => Err(EvalError::new("non-integer in index context")),
+        _ => Err(non_integer_in_index()),
     }
 }
 
@@ -129,7 +132,7 @@ pub fn get_collection_length(value: &Value) -> Result<i64, EvalError> {
         Value::Map(map) => map.len(),
         _ => return Err(cannot_get_length(value.type_name())),
     };
-    i64::try_from(len).map_err(|_| EvalError::new("collection too large"))
+    i64::try_from(len).map_err(|_| collection_too_large())
 }
 
 /// Evaluate a range expression.
@@ -144,15 +147,15 @@ where
 {
     let start_val = if let Some(s) = start {
         eval_fn(s)?.as_int()
-            .ok_or_else(|| EvalError::new("range start must be an integer"))?
+            .ok_or_else(|| range_bound_not_int("start"))?
     } else {
         0
     };
     let end_val = if let Some(e) = end {
         eval_fn(e)?.as_int()
-            .ok_or_else(|| EvalError::new("range end must be an integer"))?
+            .ok_or_else(|| range_bound_not_int("end"))?
     } else {
-        return Err(EvalError::new("unbounded range end"));
+        return Err(unbounded_range_end());
     };
 
     if inclusive {

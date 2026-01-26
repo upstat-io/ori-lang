@@ -297,3 +297,133 @@ pub fn await_not_supported() -> EvalError {
 pub fn invalid_literal_pattern() -> EvalError {
     EvalError::new("invalid literal pattern")
 }
+
+// =============================================================================
+// Collection Method Errors
+// =============================================================================
+
+/// Map requires a collection (list or range).
+#[cold]
+pub fn map_requires_collection() -> EvalError {
+    EvalError::new("map requires a collection")
+}
+
+/// Filter requires a collection (list or range).
+#[cold]
+pub fn filter_requires_collection() -> EvalError {
+    EvalError::new("filter requires a collection")
+}
+
+/// Fold requires a collection (list or range).
+#[cold]
+pub fn fold_requires_collection() -> EvalError {
+    EvalError::new("fold requires a collection")
+}
+
+/// Find requires a list.
+#[cold]
+pub fn find_requires_list() -> EvalError {
+    EvalError::new("find requires a list")
+}
+
+/// Collect requires a range.
+#[cold]
+pub fn collect_requires_range() -> EvalError {
+    EvalError::new("collect requires a range")
+}
+
+/// Any requires a list.
+#[cold]
+pub fn any_requires_list() -> EvalError {
+    EvalError::new("any requires a list")
+}
+
+/// All requires a list.
+#[cold]
+pub fn all_requires_list() -> EvalError {
+    EvalError::new("all requires a list")
+}
+
+/// Map entries requires a map.
+#[cold]
+pub fn map_entries_requires_map() -> EvalError {
+    EvalError::new("map entries requires a map")
+}
+
+/// Filter entries requires a map.
+#[cold]
+pub fn filter_entries_requires_map() -> EvalError {
+    EvalError::new("filter entries requires a map")
+}
+
+// =============================================================================
+// Not Implemented Errors
+// =============================================================================
+
+/// Map entries not yet implemented.
+#[cold]
+pub fn map_entries_not_implemented() -> EvalError {
+    EvalError::new("map entries not yet implemented")
+}
+
+/// Filter entries not yet implemented.
+#[cold]
+pub fn filter_entries_not_implemented() -> EvalError {
+    EvalError::new("filter entries not yet implemented")
+}
+
+/// Index assignment not yet implemented.
+#[cold]
+pub fn index_assignment_not_implemented() -> EvalError {
+    EvalError::new("index assignment not yet implemented")
+}
+
+/// Field assignment not yet implemented.
+#[cold]
+pub fn field_assignment_not_implemented() -> EvalError {
+    EvalError::new("field assignment not yet implemented")
+}
+
+/// Default requires type context.
+#[cold]
+pub fn default_requires_type_context() -> EvalError {
+    EvalError::new("default() requires type context; use explicit construction instead")
+}
+
+// =============================================================================
+// Index Context Errors
+// =============================================================================
+
+/// Operator not supported in index context.
+#[cold]
+pub fn operator_not_supported_in_index() -> EvalError {
+    EvalError::new("operator not supported in index context")
+}
+
+/// Non-integer in index context.
+#[cold]
+pub fn non_integer_in_index() -> EvalError {
+    EvalError::new("non-integer in index context")
+}
+
+/// Collection too large for indexing.
+#[cold]
+pub fn collection_too_large() -> EvalError {
+    EvalError::new("collection too large")
+}
+
+// =============================================================================
+// Pattern Errors
+// =============================================================================
+
+/// Unknown pattern kind.
+#[cold]
+pub fn unknown_pattern(kind: &str) -> EvalError {
+    EvalError::new(format!("unknown pattern: {kind}"))
+}
+
+/// For pattern requires a list.
+#[cold]
+pub fn for_pattern_requires_list(actual: &str) -> EvalError {
+    EvalError::new(format!("for pattern requires a list, got {actual}"))
+}

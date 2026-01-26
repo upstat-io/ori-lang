@@ -6,7 +6,7 @@ use super::{MethodResolution, MethodResolver, Value};
 
 /// Resolver for built-in methods from MethodRegistry.
 ///
-/// Priority 3 (lowest) - built-in methods are the fallback when no other
+/// Priority 2 (lowest) - built-in methods are the fallback when no other
 /// resolver handles the method.
 ///
 /// This resolver always returns `Builtin` for any method, delegating
@@ -35,7 +35,7 @@ impl MethodResolver for BuiltinMethodResolver {
     }
 
     fn priority(&self) -> u8 {
-        3 // Lowest priority - fallback
+        2 // Lowest priority - fallback
     }
 
     fn name(&self) -> &'static str {
@@ -50,7 +50,7 @@ mod tests {
     #[test]
     fn test_priority() {
         let resolver = BuiltinMethodResolver::new();
-        assert_eq!(resolver.priority(), 3);
+        assert_eq!(resolver.priority(), 2);
     }
 
     #[test]
