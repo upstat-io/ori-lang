@@ -50,6 +50,7 @@ fn lookup_struct_field_in_entry(
     entry: &crate::registry::TypeEntry,
     field: Name,
     type_args: Option<&[Type]>,
+    registry: &crate::registry::TypeRegistry,
 ) -> FieldLookupResult {
     match &entry.kind {
         TypeKind::Struct { fields } => {
@@ -61,11 +62,13 @@ fn lookup_struct_field_in_entry(
                     .collect()
             });
 
-            for (field_name, field_ty) in fields {
+            let interner = registry.interner();
+            for (field_name, field_ty_id) in fields {
                 if *field_name == field {
+                    let field_ty = interner.to_type(*field_ty_id);
                     let result_ty = match &type_param_map {
-                        Some(map) => substitute_type_params(field_ty, map),
-                        None => field_ty.clone(),
+                        Some(map) => substitute_type_params(&field_ty, map),
+                        None => field_ty,
                     };
                     return FieldLookupResult::Found(result_ty);
                 }
@@ -95,7 +98,7 @@ fn handle_struct_field_access(
     };
     let entry = entry.clone();
 
-    match lookup_struct_field_in_entry(&entry, field, type_args) {
+    match lookup_struct_field_in_entry(&entry, field, type_args, &checker.registries.types) {
         FieldLookupResult::Found(ty) => ty,
         FieldLookupResult::NoSuchField => {
             checker.push_error(
@@ -128,7 +131,7 @@ fn handle_struct_field_access(
 /// Infer type for an identifier.
 pub fn infer_ident(checker: &mut TypeChecker<'_>, name: Name, span: Span) -> Type {
     if let Some(scheme) = checker.inference.env.lookup_scheme(name) {
-        checker.inference.ctx.instantiate(scheme)
+        checker.inference.ctx.instantiate(&scheme)
     } else {
         let name_str = checker.context.interner.lookup(name);
         if let Some(ty) = builtin_function_type(checker, name_str) {
@@ -170,7 +173,7 @@ fn builtin_function_type(checker: &mut TypeChecker<'_>, name: &str) -> Option<Ty
 /// Infer type for a function reference.
 pub fn infer_function_ref(checker: &mut TypeChecker<'_>, name: Name, span: Span) -> Type {
     if let Some(scheme) = checker.inference.env.lookup_scheme(name) {
-        checker.inference.ctx.instantiate(scheme)
+        checker.inference.ctx.instantiate(&scheme)
     } else {
         checker.push_error(
             format!("unknown function `@{}`", checker.context.interner.lookup(name)),
@@ -414,7 +417,13 @@ pub fn infer_struct(
         return Type::Error;
     };
 
-    let expected_fields = if let TypeKind::Struct { fields } = &type_entry.kind { fields.clone() } else {
+    // Get struct fields as TypeId, then convert to Type
+    let expected_fields: Vec<(Name, Type)> = if let TypeKind::Struct { fields } = &type_entry.kind {
+        let interner = checker.registries.types.interner();
+        fields.iter()
+            .map(|(name, ty_id)| (*name, interner.to_type(*ty_id)))
+            .collect()
+    } else {
         let field_inits = checker.context.arena.get_field_inits(fields);
         let span = if let Some(first) = field_inits.first() {
             first.span

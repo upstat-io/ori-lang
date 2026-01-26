@@ -5,7 +5,6 @@
 use sigil_ir::{Module, TypeDecl, TypeDeclKind};
 use sigil_types::Type;
 use super::TypeChecker;
-use crate::registry::VariantDef;
 
 impl TypeChecker<'_> {
     /// Register all user-defined type declarations from a module.
@@ -47,8 +46,8 @@ impl TypeChecker<'_> {
             }
 
             TypeDeclKind::Sum(variants) => {
-                // Convert AST variants to VariantDef
-                let variant_defs: Vec<VariantDef> = variants
+                // Convert AST variants to (Name, Vec<(Name, Type)>) tuples
+                let variant_inputs: Vec<(sigil_ir::Name, Vec<(sigil_ir::Name, Type)>)> = variants
                     .iter()
                     .map(|v| {
                         let fields: Vec<(sigil_ir::Name, Type)> = v.fields
@@ -58,16 +57,13 @@ impl TypeChecker<'_> {
                                 (f.name, ty)
                             })
                             .collect();
-                        VariantDef {
-                            name: v.name,
-                            fields,
-                        }
+                        (v.name, fields)
                     })
                     .collect();
 
                 self.registries.types.register_enum(
                     type_decl.name,
-                    variant_defs,
+                    variant_inputs,
                     type_decl.span,
                     type_params,
                 );

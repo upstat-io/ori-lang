@@ -9,6 +9,8 @@ repository.workspace = true
 [dependencies]
 sigil_ir.workspace = true
 sigil_diagnostic.workspace = true
+parking_lot.workspace = true
+rustc-hash.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true

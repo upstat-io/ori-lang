@@ -49,6 +49,8 @@ pub use registry::{PatternRegistry, SharedPattern};
 pub use signature::{DefaultValue, FunctionSignature, OptionalArg, PatternSignature};
 pub use value::{FunctionValFn, FunctionValue, Heap, RangeValue, StringLookup, StructLayout, StructValue, Value};
 
+// Note: ScopedBinding and ScopedBindingType are defined later in this file and auto-exported
+
 // Re-export error constructors for use by other crates
 pub use errors::{
     // Binary operation errors
@@ -425,6 +427,29 @@ pub trait PatternVariadic: PatternCore {
 
 // Main PatternDefinition Trait (Backward Compatible)
 
+/// Describes a binding that should be in scope when type-checking certain properties.
+///
+/// This allows patterns to introduce identifiers (like `self` for recursion) that
+/// are available during type checking of specific properties.
+#[derive(Clone, Debug)]
+pub struct ScopedBinding {
+    /// The identifier name to bind (e.g., "self").
+    pub name: &'static str,
+    /// Properties that require this binding to be in scope.
+    pub for_props: &'static [&'static str],
+    /// How to compute the binding's type from other properties.
+    pub type_from: ScopedBindingType,
+}
+
+/// How to derive a scoped binding's type from other property types.
+#[derive(Clone, Debug)]
+pub enum ScopedBindingType {
+    /// The binding has the same type as another property.
+    SameAs(&'static str),
+    /// The binding is a zero-argument function returning the same type as another property.
+    FunctionReturning(&'static str),
+}
+
 /// Trait defining a pattern's behavior across compilation phases.
 ///
 /// Each pattern (map, filter, fold, etc.) implements this trait to define
@@ -467,6 +492,17 @@ pub trait PatternDefinition: Send + Sync {
     ///
     /// Override this to provide default values for optional arguments.
     fn optional_args(&self) -> &'static [OptionalArg] {
+        &[]
+    }
+
+    /// Scoped bindings to introduce during type checking.
+    ///
+    /// Some patterns introduce identifiers that are only available within certain
+    /// property expressions. For example, `recurse` introduces `self` which is
+    /// available in the `step` property.
+    ///
+    /// Default: no scoped bindings.
+    fn scoped_bindings(&self) -> &'static [ScopedBinding] {
         &[]
     }
 

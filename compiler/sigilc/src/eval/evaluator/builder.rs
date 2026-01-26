@@ -1,8 +1,9 @@
 //! `EvaluatorBuilder` for creating Evaluator instances with various configurations.
 
+use crate::db::Db;
 use crate::ir::{StringInterner, ExprArena, SharedArena};
 use sigil_patterns::PatternRegistry;
-use sigil_eval::{MethodRegistry, OperatorRegistry, UnaryOperatorRegistry, UserMethodRegistry};
+use sigil_eval::UserMethodRegistry;
 use crate::context::{CompilerContext, SharedRegistry, SharedMutableRegistry};
 use super::{Evaluator, Environment};
 use super::resolvers::{
@@ -10,9 +11,12 @@ use super::resolvers::{
 };
 
 /// Builder for creating Evaluator instances with various configurations.
+///
+/// The database is required for proper Salsa-tracked file loading.
 pub struct EvaluatorBuilder<'a> {
     interner: &'a StringInterner,
     arena: &'a ExprArena,
+    db: &'a dyn Db,
     env: Option<Environment>,
     registry: Option<SharedRegistry<PatternRegistry>>,
     context: Option<&'a CompilerContext>,
@@ -21,9 +25,13 @@ pub struct EvaluatorBuilder<'a> {
 }
 
 impl<'a> EvaluatorBuilder<'a> {
-    pub fn new(interner: &'a StringInterner, arena: &'a ExprArena) -> Self {
+    /// Create a new builder with required database.
+    ///
+    /// The database is required for proper Salsa-tracked import resolution.
+    /// All file access goes through `db.load_file()`.
+    pub fn new(interner: &'a StringInterner, arena: &'a ExprArena, db: &'a dyn Db) -> Self {
         Self {
-            interner, arena, env: None, registry: None, context: None,
+            interner, arena, db, env: None, registry: None, context: None,
             imported_arena: None, user_method_registry: None,
         }
     }
@@ -40,14 +48,10 @@ impl<'a> EvaluatorBuilder<'a> {
     pub fn user_method_registry(mut self, r: SharedMutableRegistry<UserMethodRegistry>) -> Self { self.user_method_registry = Some(r); self }
 
     pub fn build(self) -> Evaluator<'a> {
-        let (pat_reg, op_reg, meth_reg, unary_reg) = if let Some(ctx) = self.context {
-            (ctx.pattern_registry.clone(), ctx.operator_registry.clone(),
-             ctx.method_registry.clone(), ctx.unary_operator_registry.clone())
+        let pat_reg = if let Some(ctx) = self.context {
+            ctx.pattern_registry.clone()
         } else {
-            (self.registry.unwrap_or_else(|| SharedRegistry::new(PatternRegistry::new())),
-             SharedRegistry::new(OperatorRegistry::new()),
-             SharedRegistry::new(MethodRegistry::new()),
-             SharedRegistry::new(UnaryOperatorRegistry::new()))
+            self.registry.unwrap_or_else(|| SharedRegistry::new(PatternRegistry::new()))
         };
 
         let user_meth_reg = self.user_method_registry
@@ -64,11 +68,10 @@ impl<'a> EvaluatorBuilder<'a> {
 
         Evaluator {
             interner: self.interner, arena: self.arena,
+            db: self.db,
             env: self.env.unwrap_or_default(),
-            registry: pat_reg, operator_registry: op_reg,
-            method_registry: meth_reg,
+            registry: pat_reg,
             user_method_registry: user_meth_reg,
-            unary_operator_registry: unary_reg,
             method_dispatcher,
             imported_arena: self.imported_arena,
             prelude_loaded: false,

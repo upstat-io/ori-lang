@@ -24,13 +24,23 @@ compiler/
 │       └── visitor.rs      # AST visitor pattern
 ├── sigil_diagnostic/   # Error reporting
 │   └── src/
-│       ├── lib.rs          # Diagnostic, Applicability, ErrorCode
-│       ├── emitter/        # Output formatting (terminal, JSON)
+│       ├── lib.rs          # Diagnostic, Applicability, ErrorCode, ErrorGuaranteed
+│       ├── queue.rs        # DiagnosticQueue (deduplication, limits, emit_error)
+│       ├── errors/         # Embedded error documentation for --explain
+│       ├── emitter/        # Output formatting (terminal, JSON, SARIF)
 │       └── fixes/          # Code suggestions and fixes
 ├── sigil_lexer/        # Tokenization (logos-based)
 │   └── src/lib.rs          # lex() function, token processing
 ├── sigil_types/        # Type system definitions
-│   └── src/lib.rs          # Type enum, TypeError
+│   └── src/
+│       ├── lib.rs          # Module exports
+│       ├── core.rs         # Type enum (external API)
+│       ├── data.rs         # TypeData enum (internal representation)
+│       ├── type_interner.rs # TypeInterner, SharedTypeInterner
+│       ├── context.rs      # InferenceContext (TypeId-based unification)
+│       ├── env.rs          # TypeEnv for scoping
+│       ├── traverse.rs     # TypeFolder, TypeVisitor, TypeIdFolder, TypeIdVisitor
+│       └── error.rs        # TypeError
 ├── sigil_parse/        # Recursive descent parser
 │   └── src/
 │       ├── lib.rs          # Parser struct, parse() entry point
@@ -175,9 +185,13 @@ impl PatternRegistry {
 | `ExprArena` | `sigil_ir` | Expression storage |
 | `ExprId` | `sigil_ir` | Index into ExprArena |
 | `Name` | `sigil_ir` | Interned string identifier |
-| `Type` | `sigil_types` | Type representation |
+| `TypeId` | `sigil_ir` | Interned type identifier (sharded: 4-bit shard + 28-bit local) |
+| `Type` | `sigil_types` | External type representation (uses Box) |
+| `TypeData` | `sigil_types` | Internal type representation (uses TypeId) |
+| `TypeInterner` | `sigil_types` | Sharded type interning for O(1) equality |
 | `Value` | `sigilc` | Runtime values |
 | `Diagnostic` | `sigil_diagnostic` | Rich error with suggestions |
+| `ErrorGuaranteed` | `sigil_diagnostic` | Proof that an error was emitted |
 | `Applicability` | `sigil_diagnostic` | Fix confidence level |
 | `ParseResult` | `sigil_parse` | Parser output (module + arena + errors) |
 
@@ -185,10 +199,10 @@ impl PatternRegistry {
 
 | Crate | Purpose |
 |-------|---------|
-| `sigil_ir` | Core IR types: tokens, spans, AST, arena, interning |
-| `sigil_diagnostic` | Error reporting, DiagnosticQueue, suggestions, emitters |
+| `sigil_ir` | Core IR types: tokens, spans, AST, arena, string interning, TypeId |
+| `sigil_diagnostic` | Error reporting, DiagnosticQueue, ErrorGuaranteed, emitters, error docs |
 | `sigil_lexer` | Tokenization via logos |
-| `sigil_types` | Type system: Type enum, TypeError, TypeContext, InferenceContext |
+| `sigil_types` | Type system: Type/TypeData, TypeInterner, InferenceContext, TypeIdFolder |
 | `sigil_parse` | Recursive descent parser |
 | `sigil-macros` | Proc-macros (`#[derive(Diagnostic)]`, etc.) |
 | `sigilc` | CLI orchestrator, Salsa queries, typeck, eval, patterns |
@@ -213,8 +227,8 @@ This pattern ensures:
 
 To maintain code quality, files follow size limits:
 
-- **Target**: ~300 lines per file
-- **Maximum**: 500 lines per file
+- **Target**: ~500 lines per file
+- **Maximum**: 800 lines per file
 - **Exception**: Grammar files may be larger due to many variants
 
 When files exceed limits, extract submodules:

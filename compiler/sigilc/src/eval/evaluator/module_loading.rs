@@ -1,8 +1,12 @@
 //! Module loading methods for the Evaluator.
+//!
+//! Provides Salsa-integrated module loading with proper dependency tracking.
+//! All file access goes through `db.load_file()`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use crate::ir::{Name, SharedArena};
 use crate::parser::ParseResult;
+use crate::query::parsed;
 use crate::typeck::derives::process_derives;
 use crate::typeck::type_registry::TypeRegistry;
 use sigil_eval::{UserMethod, UserMethodRegistry};
@@ -10,18 +14,15 @@ use super::Evaluator;
 use super::super::module::import;
 
 impl Evaluator<'_> {
-    /// Find the prelude path by searching for library/std/prelude.si
-    pub(super) fn find_prelude_path(current_file: &Path) -> Option<std::path::PathBuf> {
-        // Walk up from current file to find project root (contains library/)
+    /// Generate candidate paths for the prelude.
+    fn prelude_candidates(current_file: &Path) -> Vec<PathBuf> {
+        let mut candidates = Vec::new();
         let mut dir = current_file.parent();
         while let Some(d) = dir {
-            let prelude_path = d.join("library").join("std").join("prelude.si");
-            if prelude_path.exists() {
-                return Some(prelude_path);
-            }
+            candidates.push(d.join("library").join("std").join("prelude.si"));
             dir = d.parent();
         }
-        None
+        candidates
     }
 
     /// Check if a file is the prelude itself.
@@ -34,7 +35,8 @@ impl Evaluator<'_> {
     /// Auto-load the prelude (library/std/prelude.si).
     ///
     /// This is called automatically by `load_module` to make prelude functions
-    /// available without explicit import.
+    /// available without explicit import. All file access goes through
+    /// `db.load_file()` for proper Salsa tracking.
     pub(super) fn load_prelude(&mut self, current_file: &Path) -> Result<(), String> {
         // Don't load prelude if we're already loading it (avoid infinite recursion)
         if Self::is_prelude_file(current_file) {
@@ -42,21 +44,20 @@ impl Evaluator<'_> {
             return Ok(());
         }
 
-        // Find the prelude path
-        let Some(prelude_path) = Self::find_prelude_path(current_file) else {
-            // Prelude not found - this is okay, just skip it
-            // (e.g., running tests outside project directory)
-            self.prelude_loaded = true;
-            return Ok(());
-        };
-
         // Mark as loaded before actually loading to prevent recursion
         self.prelude_loaded = true;
 
-        // Load and parse the prelude
-        let prelude_result = import::load_imported_module(&prelude_path, self.interner)
-            .map_err(|e| e.message)?;
+        // Find and load prelude via Salsa-tracked file loading
+        let prelude_file = Self::prelude_candidates(current_file)
+            .iter()
+            .find_map(|candidate| self.db.load_file(candidate));
 
+        let Some(prelude_file) = prelude_file else {
+            // Prelude not found - this is okay (e.g., tests outside project)
+            return Ok(());
+        };
+
+        let prelude_result = parsed(self.db, prelude_file);
         let prelude_arena = SharedArena::new(prelude_result.arena.clone());
         let module_functions = import::build_module_functions(&prelude_result, &prelude_arena);
 
@@ -81,6 +82,8 @@ impl Evaluator<'_> {
     /// 3. Registering all local functions
     /// 4. Registering all impl block methods
     ///
+    /// All file access goes through `db.load_file()` for proper Salsa tracking.
+    ///
     /// After calling this, all functions from the module (and its imports)
     /// are available in the environment for evaluation.
     pub fn load_module(
@@ -93,13 +96,11 @@ impl Evaluator<'_> {
             self.load_prelude(file_path)?;
         }
 
-        // First, resolve imports
+        // Resolve and load imports via Salsa-tracked resolution
         for imp in &parse_result.module.imports {
-            let import_path = import::resolve_import_path(&imp.path, file_path, self.interner)
+            let resolved = import::resolve_import(self.db, &imp.path, file_path)
                 .map_err(|e| e.message)?;
-
-            let imported_result = import::load_imported_module(&import_path, self.interner)
-                .map_err(|e| e.message)?;
+            let imported_result = parsed(self.db, resolved.file);
 
             let imported_arena = SharedArena::new(imported_result.arena.clone());
             let imported_module = import::ImportedModule::new(&imported_result, &imported_arena);
@@ -109,7 +110,7 @@ impl Evaluator<'_> {
                 &imported_module,
                 &mut self.env,
                 self.interner,
-                &import_path,
+                &resolved.path,
                 file_path,
             ).map_err(|e| e.message)?;
         }

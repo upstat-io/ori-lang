@@ -5,8 +5,9 @@
 //! - Deduplication of same-line errors
 //! - Soft error suppression after hard errors
 //! - Follow-on error filtering
+//! - `ErrorGuaranteed` proof that errors were emitted
 
-use crate::{Diagnostic, ErrorCode};
+use crate::{Diagnostic, ErrorCode, ErrorGuaranteed};
 use sigil_ir::Span;
 
 /// Configuration for diagnostic processing.
@@ -198,6 +199,48 @@ impl DiagnosticQueue {
     /// Check if any hard errors have been recorded.
     pub fn has_hard_error(&self) -> bool {
         self.has_hard_error
+    }
+
+    /// Emit an error diagnostic and get proof it was emitted.
+    ///
+    /// This is the preferred method for reporting errors when you need
+    /// to prove that an error was actually emitted. The returned
+    /// `ErrorGuaranteed` can only be obtained by calling this method.
+    ///
+    /// # Arguments
+    /// * `diag` - The diagnostic to emit
+    /// * `line` - Line number (1-based)
+    /// * `column` - Column number (1-based)
+    ///
+    /// # Returns
+    /// `ErrorGuaranteed` proof that the error was emitted.
+    pub fn emit_error(&mut self, diag: Diagnostic, line: u32, column: u32) -> ErrorGuaranteed {
+        self.add(diag, line, column, false);
+        ErrorGuaranteed::new()
+    }
+
+    /// Emit an error diagnostic with position computed from source.
+    ///
+    /// Like `emit_error`, but computes the line/column from the source text.
+    pub fn emit_error_with_source(&mut self, diag: Diagnostic, source: &str) -> ErrorGuaranteed {
+        let (line, column) = if let Some(span) = diag.primary_span() {
+            crate::span_utils::offset_to_line_col(source, span.start)
+        } else {
+            (1, 1)
+        };
+        self.emit_error(diag, line, column)
+    }
+
+    /// Check if any errors were emitted and get proof if so.
+    ///
+    /// Returns `Some(ErrorGuaranteed)` if at least one error was emitted,
+    /// `None` otherwise.
+    pub fn has_errors(&self) -> Option<ErrorGuaranteed> {
+        if self.error_count > 0 {
+            Some(ErrorGuaranteed::new())
+        } else {
+            None
+        }
     }
 
     /// Sort diagnostics by position and return them.
@@ -474,5 +517,54 @@ mod tests {
         // Error counts
         assert!(queue.add(make_error(ErrorCode::E2001, "error", 10), 2, 1, false));
         assert!(queue.limit_reached());
+    }
+
+    #[test]
+    fn test_emit_error_returns_guarantee() {
+        let mut queue = DiagnosticQueue::new();
+
+        // No errors yet
+        assert!(queue.has_errors().is_none());
+
+        // emit_error returns a guarantee
+        let diag = make_error(ErrorCode::E2001, "test error", 0);
+        let _guarantee = queue.emit_error(diag, 1, 1);
+
+        // Now has_errors returns Some
+        assert!(queue.has_errors().is_some());
+        assert_eq!(queue.error_count(), 1);
+    }
+
+    #[test]
+    fn test_emit_error_with_source() {
+        let mut queue = DiagnosticQueue::new();
+        let source = "let x = 42\nlet y = true";
+
+        let diag = Diagnostic::error(ErrorCode::E2001)
+            .with_message("test")
+            .with_label(Span::new(11, 15), "here"); // Line 2
+
+        let _guarantee = queue.emit_error_with_source(diag, source);
+
+        assert!(queue.has_errors().is_some());
+    }
+
+    #[test]
+    fn test_error_guaranteed_salsa_traits() {
+        use std::collections::HashSet;
+
+        let mut queue = DiagnosticQueue::new();
+        let diag = make_error(ErrorCode::E2001, "error", 0);
+        let g1 = queue.emit_error(diag.clone(), 1, 1);
+        let g2 = queue.emit_error(diag, 2, 1);
+
+        // ErrorGuaranteed implements Eq
+        assert_eq!(g1, g2);
+
+        // ErrorGuaranteed implements Hash
+        let mut set = HashSet::new();
+        set.insert(g1);
+        set.insert(g2); // duplicate
+        assert_eq!(set.len(), 1);
     }
 }

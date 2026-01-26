@@ -17,9 +17,18 @@
 //!
 //! Files in `_test/` directories with `.test.si` extension can access private
 //! items from their parent module without the `::` prefix.
+//!
+//! ## Salsa Integration
+//!
+//! All import resolution goes through [`resolve_import`], which provides proper
+//! Salsa dependency tracking:
+//! - All file access goes through `db.load_file()`, creating Salsa inputs
+//! - File content changes are tracked and invalidate dependent queries
 
 use std::path::{Path, PathBuf};
 use std::collections::{HashMap, HashSet};
+use crate::db::Db;
+use crate::input::SourceFile;
 use crate::ir::{Name, StringInterner, ImportPath, SharedArena};
 use crate::parser::ParseResult;
 use crate::eval::{Value, FunctionValue, Environment};
@@ -123,6 +132,166 @@ fn normalize_path(path: &Path) -> PathBuf {
     result
 }
 
+/// Result of resolving an import through the Salsa database.
+///
+/// Contains both the loaded source file (a Salsa input) and the resolved path.
+#[derive(Debug)]
+pub struct ResolvedImport {
+    /// The loaded source file as a Salsa input.
+    pub file: SourceFile,
+    /// The resolved file path (for error messages and cycle detection).
+    pub path: PathBuf,
+}
+
+/// Resolve and load an import using the Salsa database.
+///
+/// This is the primary import resolution function. All file access goes through
+/// `db.load_file()`, ensuring proper Salsa dependency tracking. When a file is
+/// loaded, it becomes a Salsa input and content changes are tracked.
+///
+/// # Arguments
+///
+/// - `db`: The Salsa database for tracked file loading
+/// - `import_path`: The import path from the AST
+/// - `current_file`: Path to the file containing the import statement
+///
+/// # Returns
+///
+/// - `Ok(ResolvedImport)` with the loaded source file
+/// - `Err(ImportError)` if the import cannot be resolved
+///
+/// # Salsa Tracking
+///
+/// Unlike [`resolve_import_path`], this function creates proper Salsa inputs:
+/// - Successful loads create tracked `SourceFile` inputs
+/// - Content changes to imported files invalidate dependent queries
+/// - File creation/deletion is detected on next query execution
+pub fn resolve_import(
+    db: &dyn Db,
+    import_path: &ImportPath,
+    current_file: &Path,
+) -> Result<ResolvedImport, ImportError> {
+    let interner = db.interner();
+
+    match import_path {
+        ImportPath::Relative(name) => {
+            let path = resolve_relative_path_to_pathbuf(*name, current_file, interner);
+            match db.load_file(&path) {
+                Some(file) => Ok(ResolvedImport { file, path }),
+                None => Err(ImportError::new(format!(
+                    "cannot find import '{}' at '{}'",
+                    interner.lookup(*name),
+                    path.display()
+                ))),
+            }
+        }
+        ImportPath::Module(segments) => {
+            resolve_module_import_tracked(db, segments, current_file)
+        }
+    }
+}
+
+/// Resolve a module import using tracked file loading.
+///
+/// Generates candidate paths and probes each via `db.load_file()`.
+/// The first successful load wins. All file access is tracked by Salsa.
+fn resolve_module_import_tracked(
+    db: &dyn Db,
+    segments: &[Name],
+    current_file: &Path,
+) -> Result<ResolvedImport, ImportError> {
+    if segments.is_empty() {
+        return Err(ImportError::new("empty module path"));
+    }
+
+    let interner = db.interner();
+    let components: Vec<&str> = segments.iter()
+        .map(|s| interner.lookup(*s))
+        .collect();
+    let module_name = components.join(".");
+
+    // Generate candidate paths and try each via db.load_file()
+    for path in generate_module_candidates(&components, current_file) {
+        if let Some(file) = db.load_file(&path) {
+            return Ok(ResolvedImport { file, path });
+        }
+    }
+
+    Err(ImportError::new(format!(
+        "module '{}' not found. Searched: SIGIL_STDLIB, ./library/, standard locations",
+        module_name
+    )))
+}
+
+/// Generate candidate file paths for a module import.
+///
+/// Returns paths to try in priority order:
+/// 1. `$SIGIL_STDLIB/<module>.si` (if env var set)
+/// 2. `<ancestor>/library/<module>.si` (walking up from current file)
+/// 3. `<ancestor>/library/<module>/mod.si` (directory module pattern)
+/// 4. Standard system locations
+fn generate_module_candidates(components: &[&str], current_file: &Path) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    // 1. Try SIGIL_STDLIB environment variable
+    if let Ok(stdlib_path) = std::env::var("SIGIL_STDLIB") {
+        let mut path = PathBuf::from(stdlib_path);
+        for component in components {
+            path.push(component);
+        }
+        candidates.push(path.with_extension("si"));
+    }
+
+    // 2. Walk up directory tree looking for library/ directories
+    let mut dir = current_file.parent();
+    while let Some(d) = dir {
+        let library_dir = d.join("library");
+
+        // Try library/std/math.si pattern
+        let mut path = library_dir.clone();
+        for component in components {
+            path.push(component);
+        }
+        candidates.push(path.with_extension("si"));
+
+        // Try library/std/math/mod.si pattern (directory modules)
+        let mut mod_path = library_dir;
+        for component in components {
+            mod_path.push(component);
+        }
+        mod_path.push("mod.si");
+        candidates.push(mod_path);
+
+        dir = d.parent();
+    }
+
+    // 3. Try standard system locations
+    for base in ["/usr/local/lib/sigil/stdlib", "/usr/lib/sigil/stdlib"] {
+        let mut path = PathBuf::from(base);
+        for component in components {
+            path.push(component);
+        }
+        candidates.push(path.with_extension("si"));
+    }
+
+    candidates
+}
+
+/// Resolve a relative import path to a PathBuf.
+///
+/// Helper function for path computation without file access.
+fn resolve_relative_path_to_pathbuf(name: Name, current_file: &Path, interner: &StringInterner) -> PathBuf {
+    let path_str = interner.lookup(name);
+    let current_dir = current_file.parent().unwrap_or(Path::new("."));
+    let resolved = current_dir.join(path_str);
+
+    if resolved.extension().is_none() {
+        resolved.with_extension("si")
+    } else {
+        resolved
+    }
+}
+
 /// Context for loading modules with cycle detection.
 ///
 /// Tracks which modules are currently being loaded to detect circular imports.
@@ -174,189 +343,6 @@ impl LoadingContext {
         self.loading_stack.pop();
         self.loaded.insert(path);
     }
-}
-
-/// Resolve an import path to a file path.
-///
-/// Handles relative paths (starting with './' or '../') and module paths.
-///
-/// Module paths are resolved by looking in:
-/// 1. `SIGIL_STDLIB` environment variable (if set)
-/// 2. ./library/ relative to project root
-/// 3. Standard locations (/usr/local/lib/sigil/stdlib, etc.)
-pub fn resolve_import_path(
-    import_path: &ImportPath,
-    current_file: &Path,
-    interner: &StringInterner,
-) -> Result<PathBuf, ImportError> {
-    match import_path {
-        ImportPath::Relative(name) => {
-            let path_str = interner.lookup(*name);
-            let current_dir = current_file.parent().unwrap_or(Path::new("."));
-
-            // Handle relative paths like '../a_plus_b' or './math'
-            let resolved = current_dir.join(path_str);
-
-            // Add .si extension if not present
-            let with_ext = if resolved.extension().is_none() {
-                resolved.with_extension("si")
-            } else {
-                resolved
-            };
-
-            Ok(with_ext)
-        }
-        ImportPath::Module(segments) => {
-            resolve_module_path(segments, current_file, interner)
-        }
-    }
-}
-
-/// Resolve a module path like `std.math` to a file path.
-///
-/// Search order:
-/// 1. `SIGIL_STDLIB` environment variable
-/// 2. ./library/ relative to project root (for development)
-/// 3. Standard locations
-///
-/// # Salsa Caching Warning
-///
-/// This function performs filesystem checks (`.exists()`, `.is_dir()`) which
-/// bypass Salsa's dependency tracking. See [`load_imported_module`] for details.
-fn resolve_module_path(
-    segments: &[Name],
-    current_file: &Path,
-    interner: &StringInterner,
-) -> Result<PathBuf, ImportError> {
-    if segments.is_empty() {
-        return Err(ImportError::new("empty module path"));
-    }
-
-    // Convert segments to path components
-    let components: Vec<&str> = segments.iter()
-        .map(|s| interner.lookup(*s))
-        .collect();
-
-    let module_name = components.join(".");
-
-    // Try SIGIL_STDLIB first
-    if let Ok(stdlib_path) = std::env::var("SIGIL_STDLIB") {
-        let mut path = PathBuf::from(stdlib_path);
-        for component in &components {
-            path.push(component);
-        }
-        path.set_extension("si");
-        if path.exists() {
-            return Ok(path);
-        }
-    }
-
-    // Try ./library/ relative to project root
-    // Walk up from current file to find project root (contains Sigil.toml or library/)
-    let mut project_root = current_file.parent();
-    while let Some(dir) = project_root {
-        let library_dir = dir.join("library");
-        if library_dir.is_dir() {
-            // Try direct file path: library/std/math.si
-            let mut path = library_dir.clone();
-            for component in &components {
-                path.push(component);
-            }
-            path.set_extension("si");
-            if path.exists() {
-                return Ok(path);
-            }
-            // Also try with mod.si for directory modules: library/std/math/mod.si
-            let mut mod_path = library_dir;
-            for component in &components {
-                mod_path.push(component);
-            }
-            mod_path.push("mod.si");
-            if mod_path.exists() {
-                return Ok(mod_path);
-            }
-            break; // Found library dir, no need to keep searching
-        }
-        project_root = dir.parent();
-    }
-
-    // Try standard locations
-    let standard_locations = [
-        "/usr/local/lib/sigil/stdlib",
-        "/usr/lib/sigil/stdlib",
-    ];
-
-    for base in standard_locations {
-        let base_path = Path::new(base);
-        if base_path.is_dir() {
-            let mut path = base_path.to_path_buf();
-            for component in &components {
-                path.push(component);
-            }
-            path.set_extension("si");
-            if path.exists() {
-                return Ok(path);
-            }
-        }
-    }
-
-    Err(ImportError::new(format!(
-        "module '{module_name}' not found. Searched: SIGIL_STDLIB, ./library/, standard locations"
-    )))
-}
-
-/// Load and parse an imported module.
-///
-/// Returns the parse result for the imported file.
-///
-/// # Salsa Caching Warning
-///
-/// **IMPORTANT:** This function performs direct file I/O (`std::fs::read_to_string`)
-/// which bypasses Salsa's dependency tracking. When called from within a Salsa query
-/// (e.g., `evaluated`), changes to imported files will NOT automatically invalidate
-/// the query cache.
-///
-/// ## Why this matters
-///
-/// If file A imports file B, and the `evaluated(A)` query is cached:
-/// - Modifying A → Salsa invalidates cache ✓
-/// - Modifying B → Cache NOT invalidated ✗ (stale result returned)
-///
-/// ## Proper fix (TODO)
-///
-/// To fix this properly, imported files should be loaded through the Salsa input
-/// system, either by:
-/// 1. Creating `SourceFile` inputs for each imported file
-/// 2. Adding a `file_content(path)` query to the database
-/// 3. Passing a file provider callback instead of doing direct I/O
-///
-/// See: <https://salsa-rs.github.io/salsa/> for Salsa input patterns.
-pub fn load_imported_module(
-    import_path: &Path,
-    interner: &StringInterner,
-) -> Result<ParseResult, ImportError> {
-    // FIXME(salsa): This file I/O bypasses Salsa's dependency tracking.
-    // Changes to imported files won't invalidate query caches.
-    let content = std::fs::read_to_string(import_path)
-        .map_err(|e| ImportError::new(format!("Failed to read '{}': {}", import_path.display(), e)))?;
-
-    // Parse the imported file
-    let tokens = sigil_lexer::lex(&content, interner);
-    let imported_result = crate::parser::parse(&tokens, interner);
-
-    if imported_result.has_errors() {
-        let errors: Vec<String> = imported_result.errors
-            .iter()
-            .map(|e| format!("{}: {}", e.span, e.message))
-            .collect();
-        return Err(ImportError::new(format!(
-            "Errors in '{}': {}",
-            import_path.display(),
-            errors.join(", ")
-        )));
-    }
-
-    Ok(imported_result)
 }
 
 /// Represents a parsed and loaded module ready for import registration.
@@ -520,41 +506,40 @@ pub fn register_module_functions(
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
     use super::*;
+    use crate::db::CompilerDb;
     use crate::ir::SharedInterner;
     use std::path::PathBuf;
 
     #[test]
-    fn test_resolve_relative_path() {
+    fn test_resolve_relative_path_computation() {
         let interner = SharedInterner::default();
         let name = interner.intern("./math");
-        let path = ImportPath::Relative(name);
         let current = PathBuf::from("/project/src/main.si");
 
-        let result = resolve_import_path(&path, &current, &interner).unwrap();
+        let result = resolve_relative_path_to_pathbuf(name, &current, &interner);
         assert_eq!(result, PathBuf::from("/project/src/math.si"));
     }
 
     #[test]
-    fn test_resolve_parent_path() {
+    fn test_resolve_parent_path_computation() {
         let interner = SharedInterner::default();
         let name = interner.intern("../utils");
-        let path = ImportPath::Relative(name);
         let current = PathBuf::from("/project/src/main.si");
 
-        let result = resolve_import_path(&path, &current, &interner).unwrap();
+        let result = resolve_relative_path_to_pathbuf(name, &current, &interner);
         assert_eq!(result, PathBuf::from("/project/src/../utils.si"));
     }
 
     #[test]
     fn test_resolve_module_path_not_found() {
-        let interner = SharedInterner::default();
+        let db = CompilerDb::new();
+        let interner = db.interner();
         let std = interner.intern("std");
         let math = interner.intern("math");
         let path = ImportPath::Module(vec![std, math]);
-        let current = PathBuf::from("/project/src/main.si");
+        let current = PathBuf::from("/nonexistent/project/src/main.si");
 
-        let result = resolve_import_path(&path, &current, &interner);
-        // Module resolution searches paths but won't find std.math in tests
+        let result = resolve_import(&db, &path, &current);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("not found"));
     }
@@ -564,10 +549,6 @@ mod tests {
         let err = ImportError::new("test error");
         assert_eq!(format!("{}", err), "test error");
     }
-
-    // =========================================================================
-    // Test Module Detection Tests
-    // =========================================================================
 
     #[test]
     fn test_is_test_module_valid() {
@@ -620,10 +601,6 @@ mod tests {
         let import = PathBuf::from("/project/src/math.si");
         assert!(!is_parent_module_import(&current, &import));
     }
-
-    // =========================================================================
-    // Loading Context Tests
-    // =========================================================================
 
     #[test]
     fn test_loading_context_cycle_detection() {

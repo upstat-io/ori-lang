@@ -6,7 +6,7 @@ use sigil_types::Type;
 
 use crate::{
     DefaultValue, EvalContext, EvalResult, OptionalArg, PatternDefinition, PatternExecutor,
-    TypeCheckContext,
+    ScopedBinding, ScopedBindingType, TypeCheckContext,
 };
 
 /// The `recurse` pattern enables conditional recursion with optional memoization.
@@ -46,6 +46,19 @@ impl PatternDefinition for RecursePattern {
             },
         ];
         &OPTIONAL
+    }
+
+    fn scoped_bindings(&self) -> &'static [ScopedBinding] {
+        // `self` is a zero-argument function that returns the same type as `base`
+        // It's available when type-checking the `step` property
+        static BINDINGS: [ScopedBinding; 1] = [
+            ScopedBinding {
+                name: "self",
+                for_props: &["step"],
+                type_from: ScopedBindingType::FunctionReturning("base"),
+            },
+        ];
+        &BINDINGS
     }
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {

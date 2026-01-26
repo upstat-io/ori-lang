@@ -9,9 +9,11 @@ Type definitions are split across two crates:
 ```
 compiler/sigil_types/src/
 ├── lib.rs              # Module exports, size assertions, tests
-├── core.rs             # Type enum, TypeVar, TypeScheme
+├── core.rs             # Type enum, TypeScheme (external API)
+├── data.rs             # TypeData enum, TypeVar (internal representation)
+├── type_interner.rs    # TypeInterner, SharedTypeInterner (O(1) equality)
 ├── env.rs              # TypeEnv for name resolution/scoping
-├── traverse.rs         # TypeFolder, TypeVisitor traits
+├── traverse.rs         # TypeFolder, TypeVisitor, TypeIdFolder, TypeIdVisitor
 ├── context.rs          # InferenceContext, TypeContext
 └── error.rs            # TypeError enum with diagnostic conversion
 
@@ -53,10 +55,14 @@ compiler/sigil_typeck/src/
 ```
 
 The `sigil_types` crate contains:
-- `core.rs`: The `Type` enum, `TypeVar`, and `TypeScheme` definitions
+- `core.rs`: The external `Type` enum and `TypeScheme` definitions
+- `data.rs`: The internal `TypeData` enum and `TypeVar` for the interner
+- `type_interner.rs`: `TypeInterner` and `SharedTypeInterner` for O(1) type equality
 - `env.rs`: `TypeEnv` for variable-to-type bindings with scope support
-- `traverse.rs`: `TypeFolder` and `TypeVisitor` traits for type transformations
-- `context.rs`: `InferenceContext` (unification, generalization) and `TypeContext` (deduplication)
+- `traverse.rs`: Traversal traits for both representations:
+  - `TypeFolder`/`TypeVisitor`: Work with boxed `Type` (external API)
+  - `TypeIdFolder`/`TypeIdVisitor`: Work with interned `TypeId` (internal, preferred)
+- `context.rs`: `InferenceContext` (TypeId-based unification) and `TypeContext` (deduplication)
 - `error.rs`: `TypeError` enum with diagnostic conversion
 
 The type checker lives in the `sigil_typeck` crate, with orchestration in `sigilc` via Salsa queries.
@@ -227,31 +233,52 @@ impl TypeContext {
 
 ### InferenceContext
 
-InferenceContext integrates type variable management with TypeContext:
+InferenceContext uses TypeId internally for O(1) equality, with Type conversion at API boundaries:
 
 ```rust
 pub struct InferenceContext {
     next_var: u32,
-    substitutions: HashMap<TypeVar, Type>,
-    type_context: TypeContext,  // Integrated deduplication
+    substitutions: HashMap<TypeVar, TypeId>,  // Internal: TypeId-based
+    type_context: TypeContext,
+    interner: SharedTypeInterner,             // Shared type interner
 }
 
 impl InferenceContext {
+    // Construction
+    pub fn new() -> Self;                                    // New interner
+    pub fn with_interner(interner: SharedTypeInterner) -> Self;  // Shared
+
     // Type variable management
-    pub fn fresh_var(&mut self) -> Type;
+    pub fn fresh_var(&mut self) -> Type;         // External API
+    pub fn fresh_var_id(&mut self) -> TypeId;    // Internal API
+
+    // Unification (external API accepts Type)
     pub fn unify(&mut self, t1: &Type, t2: &Type) -> Result<(), TypeError>;
-    pub fn apply(&self, ty: &Type) -> Type;
+
+    // Unification (internal API uses TypeId for O(1) fast-path)
+    pub fn unify_ids(&mut self, id1: TypeId, id2: TypeId) -> Result<(), TypeError>;
+
+    // Resolution
+    pub fn resolve(&self, ty: &Type) -> Type;      // External
+    pub fn resolve_id(&self, id: TypeId) -> TypeId;  // Internal
 
     // Type construction (uses TypeContext for deduplication)
     pub fn make_list(&mut self, elem: Type) -> Type;
     pub fn make_option(&mut self, inner: Type) -> Type;
     pub fn make_result(&mut self, ok: Type, err: Type) -> Type;
-    pub fn make_map(&mut self, key: Type, value: Type) -> Type;
-    pub fn make_set(&mut self, elem: Type) -> Type;
-    pub fn make_range(&mut self, elem: Type) -> Type;
-    pub fn make_channel(&mut self, elem: Type) -> Type;
-    pub fn make_tuple(&mut self, types: Vec<Type>) -> Type;
-    pub fn make_function(&mut self, params: Vec<Type>, ret: Type) -> Type;
+    // ... other make_* methods
+}
+```
+
+**TypeId-based unification provides O(1) fast-path:**
+
+```rust
+pub fn unify_ids(&mut self, id1: TypeId, id2: TypeId) -> Result<(), TypeError> {
+    // O(1) fast path: identical TypeIds always unify
+    if id1 == id2 {
+        return Ok(());
+    }
+    // ... full structural unification if needed
 }
 ```
 
@@ -264,6 +291,52 @@ Type::List(Box::new(elem_type))
 // Use:
 checker.ctx.make_list(elem_type)
 ```
+
+### TypeIdFolder and TypeIdVisitor
+
+The `TypeIdFolder` and `TypeIdVisitor` traits provide traversal for interned types:
+
+```rust
+/// Transform interned types via structural recursion.
+pub trait TypeIdFolder {
+    fn interner(&self) -> &TypeInterner;
+    fn fold(&mut self, id: TypeId) -> TypeId;
+    fn fold_var(&mut self, var: TypeVar) -> TypeId;
+    fn fold_function(&mut self, params: &[TypeId], ret: TypeId) -> TypeId;
+    // ... other fold_* methods
+}
+
+/// Visit interned types without modification.
+pub trait TypeIdVisitor {
+    fn interner(&self) -> &TypeInterner;
+    fn visit(&mut self, id: TypeId);
+    fn visit_var(&mut self, var: TypeVar);
+    // ... other visit_* methods
+}
+```
+
+Example: Resolving type variables with TypeIdFolder:
+
+```rust
+struct TypeIdResolver<'a> {
+    interner: &'a TypeInterner,
+    substitutions: &'a HashMap<TypeVar, TypeId>,
+}
+
+impl TypeIdFolder for TypeIdResolver<'_> {
+    fn interner(&self) -> &TypeInterner { self.interner }
+
+    fn fold_var(&mut self, var: TypeVar) -> TypeId {
+        if let Some(&resolved) = self.substitutions.get(&var) {
+            self.fold(resolved)  // Recursively resolve
+        } else {
+            self.interner.intern(TypeData::Var(var))
+        }
+    }
+}
+```
+
+These traits should be preferred over `TypeFolder`/`TypeVisitor` for new code as they enable O(1) equality comparisons and better cache locality.
 
 ## Inference Algorithm
 

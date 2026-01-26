@@ -1,13 +1,12 @@
-//! Expression evaluation for literals, operators, and variables.
+//! Expression evaluation helpers.
 //!
-//! This module handles the core expression evaluation that doesn't involve
-//! control flow or function calls. It's designed to be called from the
-//! main Evaluator.
+//! This module provides helper functions for expression evaluation including
+//! literals, operators, indexing, and field access. Used by the main Evaluator.
 
-use crate::ir::{ExprId, ExprKind, BinaryOp, UnaryOp, StringInterner, Name};
+use crate::ir::{ExprId, ExprKind, BinaryOp, StringInterner, Name};
 use crate::eval::{Value, RangeValue, EvalResult, EvalError};
 use sigil_eval::{
-    Environment, OperatorRegistry, UnaryOperatorRegistry,
+    Environment, evaluate_binary,
     // Error factories
     cannot_access_field, cannot_get_length, cannot_index, collection_too_large,
     division_by_zero, index_out_of_bounds, invalid_tuple_field, key_not_found,
@@ -15,7 +14,6 @@ use sigil_eval::{
     range_bound_not_int, tuple_index_out_of_bounds, unbounded_range_end,
     undefined_variable,
 };
-use crate::context::SharedRegistry;
 
 /// Evaluate a literal expression.
 ///
@@ -57,7 +55,6 @@ pub fn eval_binary<F>(
     left: ExprId,
     op: BinaryOp,
     right: ExprId,
-    operator_registry: &SharedRegistry<OperatorRegistry>,
     mut eval_fn: F,
 ) -> EvalResult
 where
@@ -85,23 +82,7 @@ where
     }
 
     let right_val = eval_fn(right)?;
-
-    // Delegate to operator registry
-    operator_registry.evaluate(left_val, right_val, op)
-}
-
-/// Evaluate a unary operation.
-pub fn eval_unary<F>(
-    op: UnaryOp,
-    operand: ExprId,
-    unary_registry: &SharedRegistry<UnaryOperatorRegistry>,
-    mut eval_fn: F,
-) -> EvalResult
-where
-    F: FnMut(ExprId) -> EvalResult,
-{
-    let value = eval_fn(operand)?;
-    unary_registry.evaluate(value, op)
+    evaluate_binary(left_val, right_val, op)
 }
 
 /// Evaluate binary operation on already-evaluated values (for index context).

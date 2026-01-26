@@ -40,7 +40,7 @@ pub use builder::EvaluatorBuilder;
 
 use crate::ir::{
     Name, StringInterner, ExprId, ExprArena, SharedArena,
-    ExprKind, BinaryOp, UnaryOp, StmtKind, BindingPattern,
+    ExprKind, UnaryOp, StmtKind, BindingPattern,
     ArmRange,
 };
 use sigil_patterns::{PatternRegistry, EvalContext, PatternExecutor, EvalError, EvalResult};
@@ -48,7 +48,8 @@ use crate::context::SharedRegistry;
 use crate::stack::ensure_sufficient_stack;
 use super::value::{Value, FunctionValue, StructValue};
 use sigil_eval::{
-    Environment, MethodRegistry, OperatorRegistry, UnaryOperatorRegistry, UserMethodRegistry,
+    Environment, UserMethodRegistry,
+    evaluate_unary,
     // Error factories
     await_not_supported, for_requires_iterable, hash_outside_index,
     map_keys_must_be_strings, non_exhaustive_match, parse_error, self_outside_method,
@@ -66,17 +67,11 @@ pub struct Evaluator<'a> {
     pub(super) env: Environment,
     /// Pattern registry for `function_exp` evaluation.
     pub(super) registry: SharedRegistry<PatternRegistry>,
-    /// Operator registry for binary operations.
-    pub(super) operator_registry: SharedRegistry<OperatorRegistry>,
-    /// Method registry for built-in method dispatch.
-    pub(super) method_registry: SharedRegistry<MethodRegistry>,
     /// User-defined method registry for impl block methods.
     ///
     /// Uses `SharedMutableRegistry` to allow method registration after the
     /// evaluator (and its cached dispatcher) is created.
     pub(super) user_method_registry: SharedMutableRegistry<UserMethodRegistry>,
-    /// Unary operator registry for unary operations.
-    pub(super) unary_operator_registry: SharedRegistry<UnaryOperatorRegistry>,
     /// Cached method dispatcher for efficient method resolution.
     ///
     /// The dispatcher chains all method resolvers (user, derived, collection, builtin)
@@ -90,6 +85,11 @@ pub struct Evaluator<'a> {
     pub(super) imported_arena: Option<SharedArena>,
     /// Whether the prelude has been auto-loaded.
     pub(super) prelude_loaded: bool,
+    /// Database reference for Salsa-tracked file loading.
+    ///
+    /// All file access goes through `db.load_file()`, ensuring proper
+    /// dependency tracking and cache invalidation.
+    pub(super) db: &'a dyn crate::db::Db,
 }
 
 /// Implement `PatternExecutor` for Evaluator to enable pattern evaluation.
@@ -109,9 +109,17 @@ impl PatternExecutor for Evaluator<'_> {
 impl<'a> Evaluator<'a> {
     /// Create a new evaluator with default registries.
     ///
-    /// For more configuration options, use `EvaluatorBuilder::new(interner, arena)`.
-    pub fn new(interner: &'a StringInterner, arena: &'a ExprArena) -> Self {
-        EvaluatorBuilder::new(interner, arena).build()
+    /// The database is required for Salsa-tracked import resolution.
+    /// For more configuration options, use `EvaluatorBuilder::new(interner, arena, db)`.
+    pub fn new(interner: &'a StringInterner, arena: &'a ExprArena, db: &'a dyn crate::db::Db) -> Self {
+        EvaluatorBuilder::new(interner, arena, db).build()
+    }
+
+    /// Create an evaluator builder for more configuration options.
+    ///
+    /// The database is required for Salsa-tracked import resolution.
+    pub fn builder(interner: &'a StringInterner, arena: &'a ExprArena, db: &'a dyn crate::db::Db) -> EvaluatorBuilder<'a> {
+        EvaluatorBuilder::new(interner, arena, db)
     }
 
     /// Evaluate an expression.
@@ -152,23 +160,23 @@ impl<'a> Evaluator<'a> {
             );
         }
         let expr = self.arena.get_expr(expr_id);
-        match &expr.kind {
-            // Literals
-            ExprKind::Int(n) => Ok(Value::Int(*n)),
-            ExprKind::Float(bits) => Ok(Value::Float(f64::from_bits(*bits))),
-            ExprKind::Bool(b) => Ok(Value::Bool(*b)),
-            ExprKind::String(s) => Ok(Value::string(self.interner.lookup(*s).to_string())),
-            ExprKind::Char(c) => Ok(Value::Char(*c)),
-            ExprKind::Unit => Ok(Value::Void),
-            ExprKind::Duration { value, unit } => Ok(Value::Duration(unit.to_millis(*value))),
-            ExprKind::Size { value, unit } => Ok(Value::Size(unit.to_bytes(*value))),
 
-            // Identifiers and references
-            ExprKind::Ident(name) => self.env.lookup(*name)
-                .ok_or_else(|| undefined_variable(self.interner.lookup(*name))),
+        // Try literal evaluation first (handles Int, Float, Bool, String, Char, Unit, Duration, Size)
+        if let Some(result) = super::exec::expr::eval_literal(&expr.kind, self.interner) {
+            return result;
+        }
+
+        match &expr.kind {
+            // Literals handled by eval_literal above
+            ExprKind::Int(_) | ExprKind::Float(_) | ExprKind::Bool(_) |
+            ExprKind::String(_) | ExprKind::Char(_) | ExprKind::Unit |
+            ExprKind::Duration { .. } | ExprKind::Size { .. } => unreachable!("handled by eval_literal"),
+
+            // Identifiers
+            ExprKind::Ident(name) => super::exec::expr::eval_ident(*name, &self.env, self.interner),
 
             // Operators
-            ExprKind::Binary { left, op, right } => self.eval_binary(*left, *op, *right),
+            ExprKind::Binary { left, op, right } => super::exec::expr::eval_binary(*left, *op, *right, |e| self.eval(e)),
             ExprKind::Unary { op, operand } => self.eval_unary(*op, *operand),
 
             // Control flow
@@ -331,22 +339,10 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    /// Evaluate a binary operation with short-circuit logic for && and ||.
-    fn eval_binary(&mut self, left: ExprId, op: BinaryOp, right: ExprId) -> EvalResult {
-        let left_val = self.eval(left)?;
-        match op {
-            BinaryOp::And => return Ok(Value::Bool(left_val.is_truthy() && self.eval(right)?.is_truthy())),
-            BinaryOp::Or => return Ok(Value::Bool(left_val.is_truthy() || self.eval(right)?.is_truthy())),
-            _ => {}
-        }
-        let right_val = self.eval(right)?;
-        self.operator_registry.evaluate(left_val, right_val, op)
-    }
-
     /// Evaluate a unary operation.
     fn eval_unary(&mut self, op: UnaryOp, operand: ExprId) -> EvalResult {
         let value = self.eval(operand)?;
-        self.unary_operator_registry.evaluate(value, op)
+        evaluate_unary(value, op)
     }
 
     /// Evaluate an expression with # (`HashLength`) resolved to a specific length.
@@ -533,7 +529,7 @@ impl<'a> Evaluator<'a> {
         'a: 'b,
     {
         let imported_arena = SharedArena::new(func_arena.clone());
-        EvaluatorBuilder::new(self.interner, func_arena)
+        EvaluatorBuilder::new(self.interner, func_arena, self.db)
             .env(call_env)
             .imported_arena(imported_arena)
             .user_method_registry(self.user_method_registry.clone())

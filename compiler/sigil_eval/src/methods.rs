@@ -188,52 +188,6 @@ fn dispatch_result_method(receiver: Value, method: &str, _args: Vec<Value>) -> E
     }
 }
 
-// Legacy Method Dispatcher (Backward Compatibility)
-
-/// Trait for handling method calls on values (deprecated).
-///
-/// Use [`dispatch_builtin_method`] directly instead. This trait is preserved
-/// for backward compatibility with user-defined method dispatchers.
-pub trait MethodDispatcher: Send + Sync {
-    /// The type name this dispatcher handles (e.g., "list", "str").
-    fn type_name(&self) -> &'static str;
-
-    /// Check if this dispatcher has the given method.
-    fn has_method(&self, method: &str) -> bool;
-
-    /// Dispatch a method call.
-    ///
-    /// Only called if `has_method` returns true.
-    fn dispatch(&self, receiver: Value, method: &str, args: Vec<Value>) -> EvalResult;
-}
-
-/// Registry of method dispatchers (deprecated).
-///
-/// Use [`dispatch_builtin_method`] directly instead. This type is preserved for
-/// backward compatibility but delegates to `dispatch_builtin_method` internally.
-#[deprecated(note = "Use dispatch_builtin_method() directly")]
-pub struct MethodRegistry;
-
-#[allow(deprecated)]
-impl MethodRegistry {
-    /// Create a new method registry.
-    pub fn new() -> Self {
-        MethodRegistry
-    }
-
-    /// Dispatch a method call.
-    pub fn dispatch(&self, receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
-        dispatch_builtin_method(receiver, method, args)
-    }
-}
-
-#[allow(deprecated)]
-impl Default for MethodRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {

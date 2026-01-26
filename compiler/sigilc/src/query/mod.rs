@@ -3,6 +3,7 @@
 //! Queries are functions that compute values from inputs or other queries.
 //! Salsa automatically caches results and invalidates when dependencies change.
 
+use std::path::Path;
 use crate::db::Db;
 use crate::input::SourceFile;
 use crate::ir::TokenList;
@@ -12,6 +13,22 @@ use crate::eval::{Evaluator, ModuleEvalResult, EvalOutput};
 
 #[cfg(test)]
 mod tests;
+
+/// Parse a file by path, loading it through the Salsa input system.
+///
+/// This is the proper way to parse imported files - it creates a SourceFile
+/// input if needed, ensuring that changes to the file are tracked by Salsa.
+///
+/// Returns None if the file cannot be read or has parse errors.
+pub fn parsed_path(db: &dyn Db, path: &Path) -> Option<ParseResult> {
+    let file = db.load_file(path)?;
+    let result = parsed(db, file);
+    if result.has_errors() {
+        None
+    } else {
+        Some(result)
+    }
+}
 
 /// Tokenize a source file.
 ///
@@ -97,10 +114,22 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
         return ModuleEvalResult::failure("parse errors".to_string());
     }
 
+    // Check for type errors using the error guarantee
+    let typed_module = typed(db, file);
+    if let Some(_guarantee) = typed_module.error_guarantee {
+        // Type errors exist - cannot safely evaluate
+        let error_count = typed_module.errors.len();
+        return ModuleEvalResult::failure(format!(
+            "{error_count} type error{} found",
+            if error_count == 1 { "" } else { "s" }
+        ));
+    }
+
     let interner = db.interner();
 
-    // Create evaluator and load the module (handles imports and function registration)
-    let mut evaluator = Evaluator::new(interner, &parse_result.arena);
+    // Create evaluator with database for Salsa-tracked import loading
+    let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db)
+        .build();
     evaluator.register_prelude();
 
     let file_path = file.path(db);

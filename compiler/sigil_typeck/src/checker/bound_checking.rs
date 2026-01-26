@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use sigil_diagnostic::ErrorCode;
 use sigil_ir::{Name, Span};
-use sigil_types::Type;
+use sigil_types::{Type, TypeData};
 use super::{TypeChecker, FunctionType};
 
 /// Trait sets for primitive types (reduces duplication).
@@ -201,17 +201,18 @@ impl TypeChecker<'_> {
         resolved_params: &[Type],
     ) -> HashMap<Name, Type> {
         let mut map = HashMap::new();
+        let interner = self.inference.env.interner();
 
         // Build a map from type var ID to generic param name
         let mut type_var_to_generic: HashMap<u32, Name> = HashMap::new();
         for generic in &func_sig.generics {
-            if let Type::Var(tv) = &generic.type_var {
+            if let TypeData::Var(tv) = interner.lookup(generic.type_var) {
                 type_var_to_generic.insert(tv.0, generic.param);
             }
         }
         // Also add type vars from where constraints
         for constraint in &func_sig.where_constraints {
-            if let Type::Var(tv) = &constraint.type_var {
+            if let TypeData::Var(tv) = interner.lookup(constraint.type_var) {
                 type_var_to_generic.insert(tv.0, constraint.param);
             }
         }
@@ -219,7 +220,7 @@ impl TypeChecker<'_> {
         // Match signature params to resolved params
         for (sig_param, resolved_param) in func_sig.params.iter().zip(resolved_params.iter()) {
             // If the sig param is a type var, look up which generic it corresponds to
-            if let Type::Var(tv) = sig_param {
+            if let TypeData::Var(tv) = interner.lookup(*sig_param) {
                 if let Some(generic_name) = type_var_to_generic.get(&tv.0) {
                     map.insert(*generic_name, resolved_param.clone());
                 }

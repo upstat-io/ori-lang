@@ -157,15 +157,96 @@ pub fn infer_function_exp(
 ) -> Type {
     let props = checker.context.arena.get_named_exprs(func_exp.props);
 
-    let prop_types: HashMap<Name, Type> = props.iter()
-        .map(|prop| (prop.name, infer_expr(checker, prop.value)))
-        .collect();
-
     let Some(pattern) = checker.registries.pattern.get(func_exp.kind) else {
         return Type::Error;
     };
 
-    let mut ctx = TypeCheckContext::new(checker.context.interner, &mut checker.inference.ctx, prop_types);
+    let scoped_bindings = pattern.scoped_bindings();
 
+    // If there are no scoped bindings, use the simple path
+    if scoped_bindings.is_empty() {
+        let prop_types: HashMap<Name, Type> = props.iter()
+            .map(|prop| (prop.name, infer_expr(checker, prop.value)))
+            .collect();
+
+        let mut ctx = TypeCheckContext::new(
+            checker.context.interner,
+            &mut checker.inference.ctx,
+            prop_types,
+        );
+        return pattern.type_check(&mut ctx);
+    }
+
+    // Handle scoped bindings: type-check in phases
+    infer_function_exp_with_scoped_bindings(checker, props, &*pattern, scoped_bindings)
+}
+
+/// Infer type for a `function_exp` that has scoped bindings.
+///
+/// This handles patterns like `recurse` where certain properties (like `step`)
+/// need identifiers (like `self`) to be in scope during type checking.
+fn infer_function_exp_with_scoped_bindings(
+    checker: &mut TypeChecker<'_>,
+    props: &[sigil_ir::NamedExpr],
+    pattern: &dyn sigil_patterns::PatternDefinition,
+    scoped_bindings: &[sigil_patterns::ScopedBinding],
+) -> Type {
+    use sigil_patterns::ScopedBindingType;
+
+    let props_needing_scope: std::collections::HashSet<Name> = scoped_bindings
+        .iter()
+        .flat_map(|b| b.for_props.iter().map(|p| checker.context.interner.intern(p)))
+        .collect();
+
+    let mut prop_types: HashMap<Name, Type> = HashMap::new();
+
+    for prop in props {
+        if !props_needing_scope.contains(&prop.name) {
+            let ty = infer_expr(checker, prop.value);
+            prop_types.insert(prop.name, ty);
+        }
+    }
+
+    for prop in props {
+        if props_needing_scope.contains(&prop.name) {
+            let bindings_for_prop: Vec<(Name, Type)> = scoped_bindings
+                .iter()
+                .filter(|b| b.for_props.iter().any(|p| checker.context.interner.intern(p) == prop.name))
+                .map(|binding| {
+                    let binding_name = checker.context.interner.intern(binding.name);
+                    let binding_type = match &binding.type_from {
+                        ScopedBindingType::SameAs(source_prop) => {
+                            let source_name = checker.context.interner.intern(source_prop);
+                            prop_types.get(&source_name)
+                                .cloned()
+                                .unwrap_or_else(|| checker.inference.ctx.fresh_var())
+                        }
+                        ScopedBindingType::FunctionReturning(source_prop) => {
+                            let source_name = checker.context.interner.intern(source_prop);
+                            let ret_type = prop_types.get(&source_name)
+                                .cloned()
+                                .unwrap_or_else(|| checker.inference.ctx.fresh_var());
+                            Type::Function {
+                                params: vec![],
+                                ret: Box::new(ret_type),
+                            }
+                        }
+                    };
+                    (binding_name, binding_type)
+                })
+                .collect();
+
+            let ty = checker.with_infer_bindings(bindings_for_prop, |checker| {
+                infer_expr(checker, prop.value)
+            });
+            prop_types.insert(prop.name, ty);
+        }
+    }
+
+    let mut ctx = TypeCheckContext::new(
+        checker.context.interner,
+        &mut checker.inference.ctx,
+        prop_types,
+    );
     pattern.type_check(&mut ctx)
 }

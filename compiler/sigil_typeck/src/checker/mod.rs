@@ -36,7 +36,7 @@ pub use types::{FunctionType, GenericBound, TypeCheckError, TypedModule, WhereCo
 
 use sigil_diagnostic::queue::DiagnosticConfig;
 use sigil_ir::{ExprArena, ExprId, Module, Function, Name, ParsedType, Span, StringInterner, TestDef, TypeId};
-use sigil_types::{Type, TypeError, TypeScheme};
+use sigil_types::{Type, TypeData, TypeError, TypeScheme};
 use std::collections::HashMap;
 
 use crate::infer;
@@ -125,16 +125,17 @@ impl<'a> TypeChecker<'a> {
             // Bind function name to its type
             // For generic functions, create a polymorphic type scheme
             // so each call site gets fresh type variables
+            let interner = self.inference.env.interner();
             let fn_type = Type::Function {
-                params: func_type.params.clone(),
-                ret: Box::new(func_type.return_type.clone()),
+                params: func_type.params.iter().map(|&id| interner.to_type(id)).collect(),
+                ret: Box::new(interner.to_type(func_type.return_type)),
             };
 
             // Extract type vars from generic parameters
             let type_vars: Vec<_> = func_type.generics.iter()
                 .filter_map(|g| {
-                    if let Type::Var(tv) = &g.type_var {
-                        Some(tv.clone())
+                    if let TypeData::Var(tv) = interner.lookup(g.type_var) {
+                        Some(tv)
                     } else {
                         None
                     }
@@ -169,29 +170,51 @@ impl<'a> TypeChecker<'a> {
         }
 
         // Build expression types vector with resolved types
+        // expr_types already stores TypeId, just need to resolve type variables
+        let interner = self.inference.base_env.as_ref()
+            .map(|env| env.interner())
+            .unwrap_or_else(|| self.inference.env.interner());
         let max_expr = self.inference.expr_types.keys().max().copied().unwrap_or(0);
-        let mut expr_types = vec![Type::Error; max_expr + 1];
-        for (id, ty) in self.inference.expr_types {
-            expr_types[id] = self.inference.ctx.resolve(&ty);
+        let mut expr_types = vec![interner.error(); max_expr + 1];
+        for (id, type_id) in self.inference.expr_types {
+            expr_types[id] = self.inference.ctx.resolve_id(type_id);
         }
 
-        // Resolve function types
+        // Resolve function types (params and return_type are already TypeId)
         let resolved_function_types: Vec<FunctionType> = function_types
             .into_iter()
-            .map(|ft| FunctionType {
-                name: ft.name,
-                generics: ft.generics,
-                where_constraints: ft.where_constraints,
-                params: ft.params.iter().map(|t| self.inference.ctx.resolve(t)).collect(),
-                return_type: self.inference.ctx.resolve(&ft.return_type),
-                capabilities: ft.capabilities,
+            .map(|ft| {
+                // Resolve each param TypeId through the inference context
+                let resolved_params: Vec<TypeId> = ft.params.iter()
+                    .map(|&type_id| {
+                        let ty = interner.to_type(type_id);
+                        let resolved = self.inference.ctx.resolve(&ty);
+                        resolved.to_type_id(interner)
+                    })
+                    .collect();
+                let ret_ty = interner.to_type(ft.return_type);
+                let resolved_ret = self.inference.ctx.resolve(&ret_ty);
+
+                FunctionType {
+                    name: ft.name,
+                    generics: ft.generics,
+                    where_constraints: ft.where_constraints,
+                    params: resolved_params,
+                    return_type: resolved_ret.to_type_id(interner),
+                    capabilities: ft.capabilities,
+                }
             })
             .collect();
+
+        // Create the error guarantee from the error count
+        let error_guarantee =
+            sigil_diagnostic::ErrorGuaranteed::from_error_count(self.diagnostics.errors.len());
 
         TypedModule {
             expr_types,
             function_types: resolved_function_types,
             errors: self.diagnostics.errors,
+            error_guarantee,
         }
     }
 
@@ -408,14 +431,17 @@ impl<'a> TypeChecker<'a> {
             self.inference.env.child()
         };
 
-        // Bind parameters
+        // Bind parameters (convert TypeId to Type for binding)
         let params = self.context.arena.get_params(func.params);
-        for (param, param_type) in params.iter().zip(func_type.params.iter()) {
-            func_env.bind(param.name, param_type.clone());
+        for (param, &param_type_id) in params.iter().zip(func_type.params.iter()) {
+            func_env.bind_id(param.name, param_type_id);
         }
 
         // Save current env and switch to function env
         let old_env = std::mem::replace(&mut self.inference.env, func_env);
+
+        // Convert return type from TypeId to Type for unification
+        let return_type = self.inference.env.interner().to_type(func_type.return_type);
 
         // Set current function's capabilities for propagation checking
         let new_caps = func.capabilities.iter().map(|c| c.name).collect();
@@ -424,7 +450,7 @@ impl<'a> TypeChecker<'a> {
             let body_type = infer::infer_expr(checker, func.body);
 
             // Unify with declared return type
-            if let Err(e) = checker.inference.ctx.unify(&body_type, &func_type.return_type) {
+            if let Err(e) = checker.inference.ctx.unify(&body_type, &return_type) {
                 let span = checker.context.arena.get_expr(func.body).span;
                 checker.report_type_error(&e, span);
             }
@@ -566,7 +592,8 @@ impl<'a> TypeChecker<'a> {
             Type::Named(name) => {
                 if let Some(entry) = self.registries.types.get_by_name(*name) {
                     if let TypeKind::Alias { target } = &entry.kind {
-                        return self.resolve_through_aliases(target);
+                        let target_type = self.registries.types.interner().to_type(*target);
+                        return self.resolve_through_aliases(&target_type);
                     }
                 }
                 ty.clone()
@@ -616,8 +643,11 @@ impl<'a> TypeChecker<'a> {
     }
 
     /// Store the type for an expression.
+    ///
+    /// Converts the Type to TypeId for efficient storage.
     pub(crate) fn store_type(&mut self, expr_id: ExprId, ty: Type) {
-        self.inference.expr_types.insert(expr_id.index(), ty);
+        let type_id = ty.to_type_id(self.inference.ctx.interner());
+        self.inference.expr_types.insert(expr_id.index(), type_id);
     }
 
     /// Push a type check error with the given message, span, and error code.
@@ -671,14 +701,31 @@ pub fn type_check_with_config(
 mod tests {
     use super::*;
     use sigil_ir::SharedInterner;
-    use sigil_types::Type;
+    use sigil_types::SharedTypeInterner;
+
+    /// Result of check_source including the type interner for verifying compound types.
+    struct CheckResult {
+        parsed: sigil_parse::ParseResult,
+        typed: TypedModule,
+        type_interner: SharedTypeInterner,
+    }
 
     fn check_source(source: &str) -> (sigil_parse::ParseResult, TypedModule) {
+        let result = check_source_with_interner(source);
+        (result.parsed, result.typed)
+    }
+
+    fn check_source_with_interner(source: &str) -> CheckResult {
         let interner = SharedInterner::default();
+        let type_interner = SharedTypeInterner::new();
         let tokens = sigil_lexer::lex(source, &interner);
         let parsed = sigil_parse::parse(&tokens, &interner);
-        let typed = type_check(&parsed, &interner);
-        (parsed, typed)
+        // Use builder to pass the type interner
+        let checker = TypeCheckerBuilder::new(&parsed.arena, &interner)
+            .with_type_interner(type_interner.clone())
+            .build();
+        let typed = checker.check_module(&parsed.module);
+        CheckResult { parsed, typed, type_interner }
     }
 
     #[test]
@@ -689,8 +736,8 @@ mod tests {
         assert_eq!(typed.function_types.len(), 1);
 
         let func = &parsed.module.functions[0];
-        let body_type = &typed.expr_types[func.body.index()];
-        assert_eq!(*body_type, Type::Int);
+        let body_type = typed.expr_types[func.body.index()];
+        assert_eq!(body_type, TypeId::INT);
     }
 
     #[test]
@@ -700,8 +747,8 @@ mod tests {
         assert!(!typed.has_errors());
 
         let func = &parsed.module.functions[0];
-        let body_type = &typed.expr_types[func.body.index()];
-        assert_eq!(*body_type, Type::Int);
+        let body_type = typed.expr_types[func.body.index()];
+        assert_eq!(body_type, TypeId::INT);
     }
 
     #[test]
@@ -711,8 +758,8 @@ mod tests {
         assert!(!typed.has_errors());
 
         let func = &parsed.module.functions[0];
-        let body_type = &typed.expr_types[func.body.index()];
-        assert_eq!(*body_type, Type::Bool);
+        let body_type = typed.expr_types[func.body.index()];
+        assert_eq!(body_type, TypeId::BOOL);
     }
 
     #[test]
@@ -722,19 +769,28 @@ mod tests {
         assert!(!typed.has_errors());
 
         let func = &parsed.module.functions[0];
-        let body_type = &typed.expr_types[func.body.index()];
-        assert_eq!(*body_type, Type::Int);
+        let body_type = typed.expr_types[func.body.index()];
+        assert_eq!(body_type, TypeId::INT);
     }
 
     #[test]
     fn test_list_type() {
-        let (parsed, typed) = check_source("@test () = [1, 2, 3]");
+        use sigil_types::TypeData;
 
-        assert!(!typed.has_errors());
+        let result = check_source_with_interner("@test () = [1, 2, 3]");
 
-        let func = &parsed.module.functions[0];
-        let body_type = &typed.expr_types[func.body.index()];
-        assert_eq!(*body_type, Type::List(Box::new(Type::Int)));
+        assert!(!result.typed.has_errors());
+
+        let func = &result.parsed.module.functions[0];
+        let body_type = result.typed.expr_types[func.body.index()];
+        // Verify it's a List(Int) by looking up in the shared interner
+        let type_data = result.type_interner.lookup(body_type);
+        match type_data {
+            TypeData::List(elem_id) => {
+                assert_eq!(elem_id, TypeId::INT, "List element should be int");
+            }
+            _ => panic!("Expected List type, got {:?}", type_data),
+        }
     }
 
     #[test]
@@ -773,9 +829,9 @@ mod tests {
 
         let func_type = &typed.function_types[0];
         assert_eq!(func_type.params.len(), 2);
-        assert_eq!(func_type.params[0], Type::Int);
-        assert_eq!(func_type.params[1], Type::Int);
-        assert_eq!(func_type.return_type, Type::Int);
+        assert_eq!(func_type.params[0], TypeId::INT);
+        assert_eq!(func_type.params[1], TypeId::INT);
+        assert_eq!(func_type.return_type, TypeId::INT);
     }
 
     #[test]
@@ -786,7 +842,7 @@ mod tests {
         assert_eq!(typed.function_types.len(), 1);
 
         let func_type = &typed.function_types[0];
-        assert_eq!(func_type.return_type, Type::Int);
+        assert_eq!(func_type.return_type, TypeId::INT);
     }
 
     #[test]
@@ -798,16 +854,25 @@ mod tests {
 
     #[test]
     fn test_tuple_type() {
-        let (parsed, typed) = check_source("@test () = (1, true, \"hello\")");
+        use sigil_types::TypeData;
 
-        assert!(!typed.has_errors());
+        let result = check_source_with_interner("@test () = (1, true, \"hello\")");
 
-        let func = &parsed.module.functions[0];
-        let body_type = &typed.expr_types[func.body.index()];
-        assert_eq!(
-            *body_type,
-            Type::Tuple(vec![Type::Int, Type::Bool, Type::Str])
-        );
+        assert!(!result.typed.has_errors());
+
+        let func = &result.parsed.module.functions[0];
+        let body_type = result.typed.expr_types[func.body.index()];
+        // Verify it's a Tuple(Int, Bool, Str) by looking up in the shared interner
+        let type_data = result.type_interner.lookup(body_type);
+        match type_data {
+            TypeData::Tuple(elem_ids) => {
+                assert_eq!(elem_ids.len(), 3, "Tuple should have 3 elements");
+                assert_eq!(elem_ids[0], TypeId::INT, "First element should be int");
+                assert_eq!(elem_ids[1], TypeId::BOOL, "Second element should be bool");
+                assert_eq!(elem_ids[2], TypeId::STR, "Third element should be str");
+            }
+            _ => panic!("Expected Tuple type, got {:?}", type_data),
+        }
     }
 
     #[test]

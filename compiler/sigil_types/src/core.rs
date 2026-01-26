@@ -2,7 +2,9 @@
 //!
 //! Foundational types for the Sigil type system.
 
-use sigil_ir::{Name, StringInterner};
+use sigil_ir::{Name, StringInterner, TypeId};
+use crate::data::{TypeData, TypeVar};
+use crate::type_interner::TypeInterner;
 
 /// Concrete type representation.
 ///
@@ -125,6 +127,98 @@ impl Type {
         }
     }
 
+    /// Convert this boxed Type to an interned TypeId.
+    ///
+    /// This enables migration from `Type` to `TypeId` by providing
+    /// bidirectional conversion. The interner ensures that equivalent
+    /// types get the same TypeId for O(1) equality comparisons.
+    pub fn to_type_id(&self, interner: &TypeInterner) -> TypeId {
+        match self {
+            // Primitives map to pre-interned constants
+            Type::Int => TypeId::INT,
+            Type::Float => TypeId::FLOAT,
+            Type::Bool => TypeId::BOOL,
+            Type::Str => TypeId::STR,
+            Type::Char => TypeId::CHAR,
+            Type::Byte => TypeId::BYTE,
+            Type::Unit => TypeId::VOID,
+            Type::Never => TypeId::NEVER,
+            Type::Duration => interner.intern(TypeData::Duration),
+            Type::Size => interner.intern(TypeData::Size),
+            Type::Error => interner.error(),
+
+            // Container types with single inner type
+            Type::List(inner) => {
+                let inner_id = inner.to_type_id(interner);
+                interner.list(inner_id)
+            }
+            Type::Option(inner) => {
+                let inner_id = inner.to_type_id(interner);
+                interner.option(inner_id)
+            }
+            Type::Set(inner) => {
+                let inner_id = inner.to_type_id(interner);
+                interner.set(inner_id)
+            }
+            Type::Range(inner) => {
+                let inner_id = inner.to_type_id(interner);
+                interner.range(inner_id)
+            }
+            Type::Channel(inner) => {
+                let inner_id = inner.to_type_id(interner);
+                interner.channel(inner_id)
+            }
+
+            // Container types with multiple inner types
+            Type::Map { key, value } => {
+                let key_id = key.to_type_id(interner);
+                let value_id = value.to_type_id(interner);
+                interner.map(key_id, value_id)
+            }
+            Type::Result { ok, err } => {
+                let ok_id = ok.to_type_id(interner);
+                let err_id = err.to_type_id(interner);
+                interner.result(ok_id, err_id)
+            }
+
+            // Compound types
+            Type::Tuple(types) => {
+                let type_ids: Vec<TypeId> = types
+                    .iter()
+                    .map(|t| t.to_type_id(interner))
+                    .collect();
+                interner.tuple(type_ids)
+            }
+            Type::Function { params, ret } => {
+                let param_ids: Vec<TypeId> = params
+                    .iter()
+                    .map(|p| p.to_type_id(interner))
+                    .collect();
+                let ret_id = ret.to_type_id(interner);
+                interner.function(param_ids, ret_id)
+            }
+
+            // Named and generic types
+            Type::Named(name) => interner.named(*name),
+            Type::Applied { name, args } => {
+                let arg_ids: Vec<TypeId> = args
+                    .iter()
+                    .map(|a| a.to_type_id(interner))
+                    .collect();
+                interner.applied(*name, arg_ids)
+            }
+
+            // Type variables
+            Type::Var(var) => interner.intern(TypeData::Var(*var)),
+
+            // Projections
+            Type::Projection { base, trait_name, assoc_name } => {
+                let base_id = base.to_type_id(interner);
+                interner.projection(base_id, *trait_name, *assoc_name)
+            }
+        }
+    }
+
     /// Format type for display.
     pub fn display(&self, interner: &StringInterner) -> String {
         match self {
@@ -177,15 +271,7 @@ impl Type {
     }
 }
 
-/// Type variable for inference.
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-pub struct TypeVar(pub u32);
-
-impl TypeVar {
-    pub fn new(id: u32) -> Self {
-        TypeVar(id)
-    }
-}
+// TypeVar is defined in data.rs and re-exported from lib.rs
 
 /// A type scheme (polymorphic type) with quantified type variables.
 ///
@@ -218,5 +304,57 @@ impl TypeScheme {
     /// Check if this is a monomorphic type (no quantified variables).
     pub fn is_mono(&self) -> bool {
         self.vars.is_empty()
+    }
+
+    /// Convert this TypeScheme to a TypeSchemeId using the given interner.
+    pub fn to_scheme_id(&self, interner: &TypeInterner) -> TypeSchemeId {
+        TypeSchemeId {
+            vars: self.vars.clone(),
+            ty: self.ty.to_type_id(interner),
+        }
+    }
+}
+
+/// A type scheme with interned TypeId instead of boxed Type.
+///
+/// This is the TypeId-based equivalent of `TypeScheme`, enabling O(1)
+/// type comparisons within type schemes.
+///
+/// # Example
+/// The identity function `fn id<T>(x: T) -> T` has type scheme:
+/// `TypeSchemeId { vars: [T], ty: <interned T -> T> }`
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct TypeSchemeId {
+    /// Quantified type variables (∀ these variables)
+    pub vars: Vec<TypeVar>,
+    /// The type as an interned TypeId
+    pub ty: TypeId,
+}
+
+impl TypeSchemeId {
+    /// Create a monomorphic scheme (no quantified variables).
+    pub fn mono(ty: TypeId) -> Self {
+        TypeSchemeId {
+            vars: Vec::new(),
+            ty,
+        }
+    }
+
+    /// Create a polymorphic scheme with the given quantified variables.
+    pub fn poly(vars: Vec<TypeVar>, ty: TypeId) -> Self {
+        TypeSchemeId { vars, ty }
+    }
+
+    /// Check if this is a monomorphic type (no quantified variables).
+    pub fn is_mono(&self) -> bool {
+        self.vars.is_empty()
+    }
+
+    /// Convert this TypeSchemeId back to a boxed TypeScheme.
+    pub fn to_scheme(&self, interner: &TypeInterner) -> TypeScheme {
+        TypeScheme {
+            vars: self.vars.clone(),
+            ty: interner.to_type(self.ty),
+        }
     }
 }

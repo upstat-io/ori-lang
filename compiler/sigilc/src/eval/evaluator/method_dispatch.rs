@@ -2,7 +2,7 @@
 
 use crate::ir::{ExprArena, Name};
 use sigil_eval::{
-    UserMethod,
+    UserMethod, dispatch_builtin_method,
     // Error factories for collection methods
     all_requires_list, any_requires_list, collect_requires_range,
     filter_entries_not_implemented, filter_entries_requires_map, filter_requires_collection,
@@ -41,14 +41,14 @@ impl Evaluator<'_> {
             }
             MethodResolution::Builtin => {
                 let method_name = self.interner.lookup(method);
-                self.method_registry.dispatch(receiver, method_name, args)
+                dispatch_builtin_method(receiver, method_name, args)
             }
             MethodResolution::NotFound => {
                 // This shouldn't happen as BuiltinResolver always returns Builtin,
-                // but if it does, fall back to the method registry which will
+                // but if it does, fall back to dispatch_builtin_method which will
                 // produce an appropriate error
                 let method_name = self.interner.lookup(method);
-                self.method_registry.dispatch(receiver, method_name, args)
+                dispatch_builtin_method(receiver, method_name, args)
             }
         }
     }

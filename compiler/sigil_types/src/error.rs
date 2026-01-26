@@ -1,7 +1,7 @@
 //! Type errors and diagnostics.
 
 use sigil_ir::{Name, Span, StringInterner};
-use crate::Type;
+use crate::core::Type;
 
 /// Type error.
 #[derive(Clone, Debug)]

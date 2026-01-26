@@ -137,8 +137,9 @@ impl TestRunner {
 
         let interner = db.interner();
 
-        // Create evaluator and load the module (handles imports and function registration)
-        let mut evaluator = Evaluator::new(interner, &parse_result.arena);
+        // Create evaluator with database for proper Salsa-tracked import resolution
+        let mut evaluator = Evaluator::builder(interner, &parse_result.arena, &db)
+            .build();
 
         evaluator.register_prelude();
 

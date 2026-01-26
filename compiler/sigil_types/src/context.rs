@@ -4,27 +4,60 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 
-use sigil_ir::Name;
-use crate::{Type, TypeVar, TypeScheme, TypeFolder, TypeVisitor, TypeError};
+use sigil_ir::{Name, TypeId};
+use crate::core::{Type, TypeScheme};
+use crate::data::{TypeData, TypeVar};
+use crate::traverse::{TypeIdFolder, TypeIdVisitor};
+use crate::type_interner::{SharedTypeInterner, TypeInterner};
+use crate::error::TypeError;
 
 /// Type inference context.
+///
+/// Internally uses `TypeId` for O(1) type equality comparisons.
+/// The public API accepts and returns `Type` for compatibility with
+/// existing code, converting at the boundaries.
 pub struct InferenceContext {
     /// Next type variable ID.
     next_var: u32,
-    /// Type variable substitutions.
-    substitutions: HashMap<TypeVar, Type>,
+    /// Type variable substitutions (stored as TypeId for efficiency).
+    substitutions: HashMap<TypeVar, TypeId>,
     /// Type context for deduplicating generic instantiations.
     type_context: TypeContext,
+    /// Type interner for converting between Type and TypeId.
+    interner: SharedTypeInterner,
 }
 
 impl InferenceContext {
-    /// Create a new inference context.
+    /// Create a new inference context with a new type interner.
     pub fn new() -> Self {
         InferenceContext {
             next_var: 0,
             substitutions: HashMap::new(),
             type_context: TypeContext::new(),
+            interner: SharedTypeInterner::new(),
         }
+    }
+
+    /// Create a new inference context with a shared type interner.
+    ///
+    /// Use this when you want to share the interner with other compiler phases.
+    pub fn with_interner(interner: SharedTypeInterner) -> Self {
+        InferenceContext {
+            next_var: 0,
+            substitutions: HashMap::new(),
+            type_context: TypeContext::new(),
+            interner,
+        }
+    }
+
+    /// Get a reference to the type interner.
+    pub fn interner(&self) -> &TypeInterner {
+        &self.interner
+    }
+
+    /// Get the shared type interner handle.
+    pub fn shared_interner(&self) -> SharedTypeInterner {
+        self.interner.clone()
     }
 
     /// Create a fresh type variable.
@@ -34,32 +67,70 @@ impl InferenceContext {
         Type::Var(var)
     }
 
+    /// Create a fresh type variable and return its TypeId.
+    pub fn fresh_var_id(&mut self) -> TypeId {
+        let var = TypeVar::new(self.next_var);
+        self.next_var += 1;
+        self.interner.intern(TypeData::Var(var))
+    }
+
     /// Unify two types, returning error if they can't be unified.
+    ///
+    /// This is the public API that accepts `Type` references.
+    /// Internally converts to `TypeId` for O(1) equality fast-paths.
     pub fn unify(&mut self, t1: &Type, t2: &Type) -> Result<(), TypeError> {
-        let t1 = self.resolve(t1);
-        let t2 = self.resolve(t2);
+        let id1 = t1.to_type_id(&self.interner);
+        let id2 = t2.to_type_id(&self.interner);
+        self.unify_ids(id1, id2)
+    }
 
-        match (&t1, &t2) {
-            // Same types unify
-            _ if t1 == t2 => Ok(()),
+    /// Unify two TypeIds, returning error if they can't be unified.
+    ///
+    /// This is the internal implementation using interned types.
+    /// Provides O(1) fast-path when types are identical.
+    pub fn unify_ids(&mut self, id1: TypeId, id2: TypeId) -> Result<(), TypeError> {
+        // O(1) fast path: identical TypeIds always unify
+        if id1 == id2 {
+            return Ok(());
+        }
 
+        let id1 = self.resolve_id(id1);
+        let id2 = self.resolve_id(id2);
+
+        // Check again after resolution
+        if id1 == id2 {
+            return Ok(());
+        }
+
+        let data1 = self.interner.lookup(id1);
+        let data2 = self.interner.lookup(id2);
+
+        match (&data1, &data2) {
             // Type variables unify with anything
-            (Type::Var(v), t) | (t, Type::Var(v)) => {
+            (TypeData::Var(v), _) => {
                 // Occurs check
-                if self.occurs(*v, t) {
+                if self.occurs_id(*v, id2) {
                     return Err(TypeError::InfiniteType);
                 }
-                self.substitutions.insert(*v, t.clone());
+                self.substitutions.insert(*v, id2);
+                Ok(())
+            }
+            (_, TypeData::Var(v)) => {
+                // Occurs check
+                if self.occurs_id(*v, id1) {
+                    return Err(TypeError::InfiniteType);
+                }
+                self.substitutions.insert(*v, id1);
                 Ok(())
             }
 
             // Error type unifies with anything (for error recovery)
-            (Type::Error, _) | (_, Type::Error) => Ok(()),
+            (TypeData::Error, _) | (_, TypeData::Error) => Ok(()),
 
             // Function types
             (
-                Type::Function { params: p1, ret: r1 },
-                Type::Function { params: p2, ret: r2 },
+                TypeData::Function { params: p1, ret: r1 },
+                TypeData::Function { params: p2, ret: r2 },
             ) => {
                 if p1.len() != p2.len() {
                     return Err(TypeError::ArgCountMismatch {
@@ -67,113 +138,146 @@ impl InferenceContext {
                         found: p2.len(),
                     });
                 }
-                for (a, b) in p1.iter().zip(p2.iter()) {
-                    self.unify(a, b)?;
+                for (&a, &b) in p1.iter().zip(p2.iter()) {
+                    self.unify_ids(a, b)?;
                 }
-                self.unify(r1, r2)
+                self.unify_ids(*r1, *r2)
             }
 
             // Tuple types
-            (Type::Tuple(t1), Type::Tuple(t2)) => {
+            (TypeData::Tuple(t1), TypeData::Tuple(t2)) => {
                 if t1.len() != t2.len() {
                     return Err(TypeError::TupleLengthMismatch {
                         expected: t1.len(),
                         found: t2.len(),
                     });
                 }
-                for (a, b) in t1.iter().zip(t2.iter()) {
-                    self.unify(a, b)?;
+                for (&a, &b) in t1.iter().zip(t2.iter()) {
+                    self.unify_ids(a, b)?;
                 }
                 Ok(())
             }
 
             // Single-parameter container types: unify inner types
-            (Type::List(a), Type::List(b))
-            | (Type::Option(a), Type::Option(b))
-            | (Type::Set(a), Type::Set(b))
-            | (Type::Range(a), Type::Range(b))
-            | (Type::Channel(a), Type::Channel(b)) => self.unify(a, b),
+            (TypeData::List(a), TypeData::List(b))
+            | (TypeData::Option(a), TypeData::Option(b))
+            | (TypeData::Set(a), TypeData::Set(b))
+            | (TypeData::Range(a), TypeData::Range(b))
+            | (TypeData::Channel(a), TypeData::Channel(b)) => self.unify_ids(*a, *b),
 
             // Map types
             (
-                Type::Map { key: k1, value: v1 },
-                Type::Map { key: k2, value: v2 },
+                TypeData::Map { key: k1, value: v1 },
+                TypeData::Map { key: k2, value: v2 },
             ) => {
-                self.unify(k1, k2)?;
-                self.unify(v1, v2)
+                self.unify_ids(*k1, *k2)?;
+                self.unify_ids(*v1, *v2)
             }
 
             // Result types
             (
-                Type::Result { ok: o1, err: e1 },
-                Type::Result { ok: o2, err: e2 },
+                TypeData::Result { ok: o1, err: e1 },
+                TypeData::Result { ok: o2, err: e2 },
             ) => {
-                self.unify(o1, o2)?;
-                self.unify(e1, e2)
+                self.unify_ids(*o1, *o2)?;
+                self.unify_ids(*e1, *e2)
             }
 
             // Projection types: unify if same trait/assoc_name and bases unify
             (
-                Type::Projection { base: b1, trait_name: t1, assoc_name: a1 },
-                Type::Projection { base: b2, trait_name: t2, assoc_name: a2 },
+                TypeData::Projection { base: b1, trait_name: t1, assoc_name: a1 },
+                TypeData::Projection { base: b2, trait_name: t2, assoc_name: a2 },
             ) if t1 == t2 && a1 == a2 => {
-                self.unify(b1, b2)
+                self.unify_ids(*b1, *b2)
             }
 
             // Applied generic types: unify if same base name and args unify
             (
-                Type::Applied { name: n1, args: a1 },
-                Type::Applied { name: n2, args: a2 },
+                TypeData::Applied { name: n1, args: a1 },
+                TypeData::Applied { name: n2, args: a2 },
             ) if n1 == n2 && a1.len() == a2.len() => {
-                for (arg1, arg2) in a1.iter().zip(a2.iter()) {
-                    self.unify(arg1, arg2)?;
+                for (&arg1, &arg2) in a1.iter().zip(a2.iter()) {
+                    self.unify_ids(arg1, arg2)?;
                 }
                 Ok(())
             }
 
-            // Incompatible types
+            // Incompatible types - convert back to Type for error message
             _ => Err(TypeError::TypeMismatch {
-                expected: t1,
-                found: t2,
+                expected: self.interner.to_type(id1),
+                found: self.interner.to_type(id2),
             }),
         }
     }
 
     /// Resolve a type by following substitutions.
+    ///
+    /// This is the public API that accepts and returns `Type`.
     pub fn resolve(&self, ty: &Type) -> Type {
-        struct Resolver<'a> {
-            substitutions: &'a HashMap<TypeVar, Type>,
+        let id = ty.to_type_id(&self.interner);
+        let resolved_id = self.resolve_id(id);
+        self.interner.to_type(resolved_id)
+    }
+
+    /// Resolve a TypeId by following substitutions.
+    ///
+    /// This is the internal implementation using interned types.
+    pub fn resolve_id(&self, id: TypeId) -> TypeId {
+        struct IdResolver<'a> {
+            substitutions: &'a HashMap<TypeVar, TypeId>,
+            interner: &'a TypeInterner,
         }
 
-        impl TypeFolder for Resolver<'_> {
-            fn fold_var(&mut self, var: TypeVar) -> Type {
-                if let Some(resolved) = self.substitutions.get(&var) {
+        impl TypeIdFolder for IdResolver<'_> {
+            fn interner(&self) -> &TypeInterner {
+                self.interner
+            }
+
+            fn fold_var(&mut self, var: TypeVar) -> TypeId {
+                if let Some(&resolved) = self.substitutions.get(&var) {
                     self.fold(resolved)
                 } else {
-                    Type::Var(var)
+                    self.interner.intern(TypeData::Var(var))
                 }
             }
         }
 
-        let mut resolver = Resolver {
+        let mut resolver = IdResolver {
             substitutions: &self.substitutions,
+            interner: &self.interner,
         };
-        resolver.fold(ty)
+        resolver.fold(id)
     }
 
     /// Check if a type variable occurs in a type (for occurs check).
+    ///
+    /// This is the public API that accepts `Type`.
+    #[allow(dead_code)]
     fn occurs(&self, var: TypeVar, ty: &Type) -> bool {
+        let id = ty.to_type_id(&self.interner);
+        self.occurs_id(var, id)
+    }
+
+    /// Check if a type variable occurs in a TypeId (for occurs check).
+    ///
+    /// This is the internal implementation using interned types.
+    fn occurs_id(&self, var: TypeVar, id: TypeId) -> bool {
         struct OccursChecker<'a> {
             target: TypeVar,
-            substitutions: &'a HashMap<TypeVar, Type>,
+            substitutions: &'a HashMap<TypeVar, TypeId>,
+            interner: &'a TypeInterner,
             found: bool,
         }
 
-        impl TypeVisitor for OccursChecker<'_> {
+        impl TypeIdVisitor for OccursChecker<'_> {
+            fn interner(&self) -> &TypeInterner {
+                self.interner
+            }
+
             fn visit_var(&mut self, var: TypeVar) {
                 if var == self.target {
                     self.found = true;
-                } else if let Some(resolved) = self.substitutions.get(&var) {
+                } else if let Some(&resolved) = self.substitutions.get(&var) {
                     self.visit(resolved);
                 }
             }
@@ -182,9 +286,10 @@ impl InferenceContext {
         let mut checker = OccursChecker {
             target: var,
             substitutions: &self.substitutions,
+            interner: &self.interner,
             found: false,
         };
-        checker.visit(ty);
+        checker.visit(id);
         checker.found
     }
 
@@ -193,14 +298,27 @@ impl InferenceContext {
     /// Free variables are those that appear in the type but are not in the
     /// current substitution (i.e., they haven't been unified with anything).
     pub fn free_vars(&self, ty: &Type) -> Vec<TypeVar> {
+        let id = ty.to_type_id(&self.interner);
+        self.free_vars_id(id)
+    }
+
+    /// Collect all free type variables in a TypeId.
+    ///
+    /// This is the internal implementation using interned types.
+    pub fn free_vars_id(&self, id: TypeId) -> Vec<TypeVar> {
         struct FreeVarCollector<'a> {
-            substitutions: &'a HashMap<TypeVar, Type>,
+            substitutions: &'a HashMap<TypeVar, TypeId>,
+            interner: &'a TypeInterner,
             vars: Vec<TypeVar>,
         }
 
-        impl TypeVisitor for FreeVarCollector<'_> {
+        impl TypeIdVisitor for FreeVarCollector<'_> {
+            fn interner(&self) -> &TypeInterner {
+                self.interner
+            }
+
             fn visit_var(&mut self, var: TypeVar) {
-                if let Some(resolved) = self.substitutions.get(&var) {
+                if let Some(&resolved) = self.substitutions.get(&var) {
                     self.visit(resolved);
                 } else if !self.vars.contains(&var) {
                     self.vars.push(var);
@@ -210,9 +328,10 @@ impl InferenceContext {
 
         let mut collector = FreeVarCollector {
             substitutions: &self.substitutions,
+            interner: &self.interner,
             vars: Vec::new(),
         };
-        collector.visit(ty);
+        collector.visit(id);
         collector.vars
     }
 
@@ -263,19 +382,38 @@ impl InferenceContext {
 
     /// Substitute type variables according to a mapping.
     fn substitute_vars(&self, ty: &Type, mapping: &HashMap<TypeVar, Type>) -> Type {
+        // Convert mapping to TypeId-based
+        let id_mapping: HashMap<TypeVar, TypeId> = mapping
+            .iter()
+            .map(|(&v, t)| (v, t.to_type_id(&self.interner)))
+            .collect();
+        let id = ty.to_type_id(&self.interner);
+        let result_id = self.substitute_vars_id(id, &id_mapping);
+        self.interner.to_type(result_id)
+    }
+
+    /// Substitute type variables according to a TypeId mapping.
+    ///
+    /// This is the internal implementation using interned types.
+    fn substitute_vars_id(&self, id: TypeId, mapping: &HashMap<TypeVar, TypeId>) -> TypeId {
         struct VarSubstitutor<'a> {
-            mapping: &'a HashMap<TypeVar, Type>,
-            substitutions: &'a HashMap<TypeVar, Type>,
+            mapping: &'a HashMap<TypeVar, TypeId>,
+            substitutions: &'a HashMap<TypeVar, TypeId>,
+            interner: &'a TypeInterner,
         }
 
-        impl TypeFolder for VarSubstitutor<'_> {
-            fn fold_var(&mut self, var: TypeVar) -> Type {
-                if let Some(replacement) = self.mapping.get(&var) {
-                    replacement.clone()
-                } else if let Some(resolved) = self.substitutions.get(&var) {
+        impl TypeIdFolder for VarSubstitutor<'_> {
+            fn interner(&self) -> &TypeInterner {
+                self.interner
+            }
+
+            fn fold_var(&mut self, var: TypeVar) -> TypeId {
+                if let Some(&replacement) = self.mapping.get(&var) {
+                    replacement
+                } else if let Some(&resolved) = self.substitutions.get(&var) {
                     self.fold(resolved)
                 } else {
-                    Type::Var(var)
+                    self.interner.intern(TypeData::Var(var))
                 }
             }
         }
@@ -283,8 +421,9 @@ impl InferenceContext {
         let mut substitutor = VarSubstitutor {
             mapping,
             substitutions: &self.substitutions,
+            interner: &self.interner,
         };
-        substitutor.fold(ty)
+        substitutor.fold(id)
     }
 
     /// Get or create a List<elem> type, deduplicating identical instantiations.

@@ -548,23 +548,7 @@ pub fn walk_function_exp<'ast, V: Visitor<'ast> + ?Sized>(
     }
 }
 
-// Backwards Compatibility
-
-/// Type alias for backwards compatibility.
-#[deprecated(note = "Use Visitor instead")]
-pub trait Visit<'ast>: Visitor<'ast> {}
-
-#[allow(deprecated)]
-impl<'ast, T: Visitor<'ast>> Visit<'ast> for T {}
-
-/// Type alias for backwards compatibility.
-#[deprecated(note = "Use Visitor instead")]
-pub trait VisitMut<'ast>: Visitor<'ast> {}
-
-#[allow(deprecated)]
-impl<'ast, T: Visitor<'ast>> VisitMut<'ast> for T {}
-
-// Tests
+#[cfg(test)]
 
 #[cfg(test)]
 mod tests {

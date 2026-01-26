@@ -119,27 +119,79 @@ See [String Interning](string-interning.md) for details.
 
 ### 4. Type Representation
 
-Types are represented as an enum:
+Types have a dual representation for different use cases:
+
+**External API (`Type`)** - Uses `Box<Type>` for recursive types:
 
 ```rust
 enum Type {
-    Int,
-    Float,
-    Bool,
-    String,
-    Char,
-    Void,
+    Int, Float, Bool, String, Char, Void,
     List(Box<Type>),
     Option(Box<Type>),
     Result(Box<Type>, Box<Type>),
     Function { params: Vec<Type>, ret: Box<Type> },
-    TypeVar(TypeVarId),
+    TypeVar(TypeVar),
+    Named(Name),
+    // ...
+}
+```
+
+**Internal Representation (`TypeData`)** - Uses `TypeId` for O(1) equality:
+
+```rust
+enum TypeData {
+    Int, Float, Bool, Str, Char, Byte, Unit, Never,
+    List(TypeId),
+    Option(TypeId),
+    Result { ok: TypeId, err: TypeId },
+    Function { params: Box<[TypeId]>, ret: TypeId },
+    Var(TypeVar),
     Named(Name),
     // ...
 }
 ```
 
 See [Type Representation](type-representation.md) for details.
+
+### 5. Type Interning
+
+Types are interned for O(1) equality comparison using `TypeInterner`:
+
+```rust
+pub struct TypeInterner {
+    shards: [RwLock<TypeShard>; 16],  // 16 shards for concurrent access
+    next_var: AtomicU32,
+}
+
+impl TypeInterner {
+    pub fn intern(&self, data: TypeData) -> TypeId;    // Intern a type
+    pub fn lookup(&self, id: TypeId) -> TypeData;      // Look up by ID
+    pub fn to_type(&self, id: TypeId) -> Type;         // Convert to external Type
+}
+```
+
+**Sharded Layout:**
+- TypeId is 32 bits: 4 bits shard index + 28 bits local index
+- Supports up to 268 million types per shard (16 shards total)
+- Primitives are pre-interned in shard 0 with fixed indices
+
+```rust
+// TypeId layout: [shard:4][local:28]
+impl TypeId {
+    pub const INT: TypeId = TypeId(0);    // Shard 0, local 0
+    pub const FLOAT: TypeId = TypeId(1);  // Shard 0, local 1
+    // ...
+
+    pub fn shard(self) -> usize { (self.0 >> 28) as usize }
+    pub fn local(self) -> usize { (self.0 & 0x0FFF_FFFF) as usize }
+}
+```
+
+Benefits:
+- O(1) type equality (compare TypeIds, not structure)
+- Pre-interned primitives for fast primitive checks
+- Concurrent access via sharded locking
+- Memory sharing (same type = same TypeId)
 
 ## Salsa Compatibility
 
@@ -194,13 +246,33 @@ Several types use ID patterns for indirection:
 | Type | ID | Storage |
 |------|-----|---------|
 | `Expr` | `ExprId(u32)` | `ExprArena` |
-| `String` | `Name(u32)` | `Interner` |
-| `TypeVar` | `TypeVarId(u32)` | `TypeChecker` |
+| `String` | `Name(u32)` | `StringInterner` |
+| `Type` | `TypeId(u32)` | `TypeInterner` |
+| `TypeVar` | `TypeVar(u32)` | `InferenceContext` |
 
 Benefits:
 - O(1) comparison (compare IDs, not contents)
 - Memory sharing (same ID = same content)
 - Salsa-friendly (IDs are hashable)
+
+### TypeId Layout
+
+TypeId uses a sharded layout for concurrent type interning:
+
+```
+Bits: [31-28: shard][27-0: local index]
+```
+
+| Field | Bits | Range |
+|-------|------|-------|
+| Shard | 4 | 0-15 |
+| Local | 28 | 0-268,435,455 |
+
+Pre-interned primitives (shard 0):
+- `TypeId::INT` = 0, `TypeId::FLOAT` = 1, `TypeId::BOOL` = 2
+- `TypeId::STR` = 3, `TypeId::CHAR` = 4, `TypeId::BYTE` = 5
+- `TypeId::VOID` = 6, `TypeId::NEVER` = 7
+- `TypeId::INFER` = 8, `TypeId::SELF_TYPE` = 9
 
 ## Derived Trait Definitions
 

@@ -3,6 +3,7 @@
 //! This module provides utilities for testing the compiler components,
 //! including expression evaluation helpers and test macros.
 
+use crate::db::{CompilerDb, Db};
 use crate::eval::{Evaluator, Value, EvalResult, EvalError};
 use crate::ir::SharedInterner;
 use crate::parser::{self, ParseResult};
@@ -23,9 +24,10 @@ use crate::typeck::{TypedModule, type_check};
 /// assert_eq!(result, Value::Int(3));
 /// ```
 pub fn eval_expr(source: &str) -> EvalResult {
-    let interner = SharedInterner::default();
-    let tokens = sigil_lexer::lex(source, &interner);
-    let parsed = parser::parse(&tokens, &interner);
+    let db = CompilerDb::new();
+    let interner = db.interner();
+    let tokens = sigil_lexer::lex(source, interner);
+    let parsed = parser::parse(&tokens, interner);
 
     if parsed.has_errors() {
         return Err(EvalError::new(format!(
@@ -34,7 +36,7 @@ pub fn eval_expr(source: &str) -> EvalResult {
         )));
     }
 
-    let mut evaluator = Evaluator::new(&interner, &parsed.arena);
+    let mut evaluator = Evaluator::new(interner, &parsed.arena, &db);
 
     // Find and evaluate main function if it exists
     for func in &parsed.module.functions {
@@ -52,9 +54,10 @@ pub fn eval_expr(source: &str) -> EvalResult {
 
 /// Evaluate a full source file with a main function.
 pub fn eval_source(source: &str) -> EvalResult {
-    let interner = SharedInterner::default();
-    let tokens = sigil_lexer::lex(source, &interner);
-    let parsed = parser::parse(&tokens, &interner);
+    let db = CompilerDb::new();
+    let interner = db.interner();
+    let tokens = sigil_lexer::lex(source, interner);
+    let parsed = parser::parse(&tokens, interner);
 
     if parsed.has_errors() {
         return Err(EvalError::new(format!(
@@ -63,7 +66,7 @@ pub fn eval_source(source: &str) -> EvalResult {
         )));
     }
 
-    let mut evaluator = Evaluator::new(&interner, &parsed.arena);
+    let mut evaluator = Evaluator::new(interner, &parsed.arena, &db);
 
     // Find and evaluate main function
     for func in &parsed.module.functions {
