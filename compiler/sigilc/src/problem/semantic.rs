@@ -3,6 +3,7 @@
 //! These problems occur during semantic analysis (name resolution,
 //! duplicate definitions, visibility, etc.).
 
+use super::impl_has_span;
 use crate::ir::Span;
 
 /// Problems that occur during semantic analysis.
@@ -185,37 +186,48 @@ impl std::fmt::Display for DefinitionKind {
     }
 }
 
+// Generate HasSpan implementation using macro.
+// All variants use the standard `span` field.
+impl_has_span! {
+    SemanticProblem {
+        span: [
+            UnknownIdentifier,
+            UnknownFunction,
+            UnknownConfig,
+            DuplicateDefinition,
+            PrivateAccess,
+            ImportNotFound,
+            ImportedItemNotFound,
+            ImmutableMutation,
+            UseBeforeInit,
+            MissingTest,
+            TestTargetNotFound,
+            BreakOutsideLoop,
+            ContinueOutsideLoop,
+            ReturnOutsideFunction,
+            SelfOutsideMethod,
+            InfiniteRecursion,
+            UnusedVariable,
+            UnusedFunction,
+            UnreachableCode,
+            NonExhaustiveMatch,
+            RedundantPattern,
+            MissingCapability,
+            DuplicateCapability,
+        ],
+    }
+}
+
 impl SemanticProblem {
     /// Get the primary span of this problem.
     pub fn span(&self) -> Span {
-        match self {
-            SemanticProblem::BreakOutsideLoop { span }
-            | SemanticProblem::ContinueOutsideLoop { span }
-            | SemanticProblem::ReturnOutsideFunction { span }
-            | SemanticProblem::SelfOutsideMethod { span }
-            | SemanticProblem::UnreachableCode { span }
-            | SemanticProblem::UnknownIdentifier { span, .. }
-            | SemanticProblem::UnknownFunction { span, .. }
-            | SemanticProblem::UnknownConfig { span, .. }
-            | SemanticProblem::DuplicateDefinition { span, .. }
-            | SemanticProblem::PrivateAccess { span, .. }
-            | SemanticProblem::ImportNotFound { span, .. }
-            | SemanticProblem::ImportedItemNotFound { span, .. }
-            | SemanticProblem::ImmutableMutation { span, .. }
-            | SemanticProblem::UseBeforeInit { span, .. }
-            | SemanticProblem::MissingTest { span, .. }
-            | SemanticProblem::TestTargetNotFound { span, .. }
-            | SemanticProblem::InfiniteRecursion { span, .. }
-            | SemanticProblem::UnusedVariable { span, .. }
-            | SemanticProblem::UnusedFunction { span, .. }
-            | SemanticProblem::NonExhaustiveMatch { span, .. }
-            | SemanticProblem::RedundantPattern { span, .. }
-            | SemanticProblem::MissingCapability { span, .. }
-            | SemanticProblem::DuplicateCapability { span, .. } => *span,
-        }
+        <Self as super::HasSpan>::span(self)
     }
 
     /// Check if this is a warning (vs error).
+    ///
+    /// Note: This method is kept manual because the warning logic
+    /// is different from the span extraction pattern.
     pub fn is_warning(&self) -> bool {
         matches!(
             self,

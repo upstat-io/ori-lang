@@ -14,9 +14,11 @@ use crate::ir::{
 use crate::eval::{Value, EvalResult, EvalError};
 use sigil_eval::{
     Environment,
-    tuple_pattern_mismatch, expected_tuple, missing_struct_field, expected_struct,
-    list_pattern_too_long, expected_list, invalid_literal_pattern, non_exhaustive_match,
-    for_requires_iterable, cannot_assign_immutable, invalid_assignment_target,
+    // Error factories
+    cannot_assign_immutable, expected_list, expected_struct, expected_tuple,
+    field_assignment_not_implemented, for_requires_iterable, index_assignment_not_implemented,
+    invalid_assignment_target, invalid_literal_pattern, list_pattern_too_long,
+    missing_struct_field, non_exhaustive_match, tuple_pattern_mismatch,
 };
 
 /// Evaluate an if/else expression.
@@ -436,11 +438,11 @@ pub fn eval_assign(
         }
         ExprKind::Index { .. } => {
             // Assignment to index would require mutable values
-            Err(EvalError::new("index assignment not yet implemented"))
+            Err(index_assignment_not_implemented())
         }
         ExprKind::Field { .. } => {
             // Assignment to field would require mutable structs
-            Err(EvalError::new("field assignment not yet implemented"))
+            Err(field_assignment_not_implemented())
         }
         _ => Err(invalid_assignment_target()),
     }

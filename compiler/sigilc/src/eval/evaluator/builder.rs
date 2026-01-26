@@ -6,8 +6,7 @@ use sigil_eval::{MethodRegistry, OperatorRegistry, UnaryOperatorRegistry, UserMe
 use crate::context::{CompilerContext, SharedRegistry, SharedMutableRegistry};
 use super::{Evaluator, Environment};
 use super::resolvers::{
-    MethodDispatcher, UserMethodResolver, DerivedMethodResolver,
-    CollectionMethodResolver, BuiltinMethodResolver,
+    MethodDispatcher, UserRegistryResolver, CollectionMethodResolver, BuiltinMethodResolver,
 };
 
 /// Builder for creating Evaluator instances with various configurations.
@@ -56,9 +55,9 @@ impl<'a> EvaluatorBuilder<'a> {
 
         // Build method dispatcher once. Because user_method_registry uses interior
         // mutability (RwLock), the dispatcher will see methods registered later.
+        // Uses unified UserRegistryResolver for both user-defined and derived methods.
         let method_dispatcher = MethodDispatcher::new(vec![
-            Box::new(UserMethodResolver::new(user_meth_reg.clone())),
-            Box::new(DerivedMethodResolver::new(user_meth_reg.clone())),
+            Box::new(UserRegistryResolver::new(user_meth_reg.clone())),
             Box::new(CollectionMethodResolver::new()),
             Box::new(BuiltinMethodResolver::new()),
         ]);

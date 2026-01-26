@@ -1,7 +1,8 @@
 //! `FunctionSeq` evaluation methods for the Evaluator.
 
 use crate::ir::{FunctionSeq, SeqBinding};
-use super::{Evaluator, EvalResult, EvalError};
+use sigil_eval::for_pattern_requires_list;
+use super::{Evaluator, EvalResult};
 use super::super::value::Value;
 
 impl Evaluator<'_> {
@@ -80,10 +81,7 @@ impl Evaluator<'_> {
                 let items = self.eval(*over)?;
 
                 let Value::List(items_list) = items else {
-                    return Err(EvalError::new(format!(
-                        "for pattern requires a list, got {}",
-                        items.type_name()
-                    )));
+                    return Err(for_pattern_requires_list(items.type_name()));
                 };
 
                 // Iterate and find first match

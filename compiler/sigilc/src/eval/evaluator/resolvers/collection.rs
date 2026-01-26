@@ -7,7 +7,7 @@ use super::{CollectionMethod, MethodResolution, MethodResolver, Value};
 
 /// Resolver for collection methods that require evaluator access.
 ///
-/// Priority 2 - collection methods are checked after user and derived methods.
+/// Priority 1 - collection methods are checked after user/derived methods.
 ///
 /// These methods take function arguments and need evaluator access to call them:
 /// - map, filter, fold, find on lists
@@ -68,7 +68,7 @@ impl MethodResolver for CollectionMethodResolver {
     }
 
     fn priority(&self) -> u8 {
-        2
+        1 // After user/derived methods (priority 0)
     }
 
     fn name(&self) -> &'static str {
@@ -83,7 +83,7 @@ mod tests {
     #[test]
     fn test_priority() {
         let resolver = CollectionMethodResolver::new();
-        assert_eq!(resolver.priority(), 2);
+        assert_eq!(resolver.priority(), 1);
     }
 
     #[test]
