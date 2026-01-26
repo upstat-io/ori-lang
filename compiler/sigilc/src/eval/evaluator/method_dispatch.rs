@@ -112,13 +112,7 @@ impl Evaluator<'_> {
         }
     }
 
-    // =========================================================================
-    // Iterator Helper Methods
-    // =========================================================================
-    //
-    // These helpers unify the collection method implementations for lists and
-    // ranges. Each helper takes an iterator of Values and a function argument,
-    // eliminating the duplication between eval_list_* and eval_range_* methods.
+    // Iterator Helper Methods - unify collection method implementations for lists and ranges
 
     /// Apply a transform function to each item in an iterator, collecting results.
     fn map_iterator(
@@ -207,10 +201,6 @@ impl Evaluator<'_> {
         }
         Ok(Value::Bool(true))
     }
-
-    // =========================================================================
-    // Collection Method Implementations
-    // =========================================================================
 
     /// Validate that the expected number of arguments was provided.
     #[inline]

@@ -36,9 +36,7 @@ pub use typecheck::TypeProblem;
 
 use crate::ir::Span;
 
-// ============================================================================
 // HasSpan trait and macros for DRY problem implementations
-// ============================================================================
 
 /// Trait for problem types that have a primary source location span.
 pub trait HasSpan {

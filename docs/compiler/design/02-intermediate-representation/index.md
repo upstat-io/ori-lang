@@ -32,6 +32,7 @@ compiler/sigil_ir/src/
 │       ├── exp.rs          # FunctionExp (map, filter, etc.) (~72 lines)
 │       └── binding.rs      # Match patterns and arms (~83 lines)
 ├── arena.rs        # Expression arena (~475 lines)
+├── derives.rs      # DerivedTrait, DerivedMethodInfo (~103 lines)
 ├── token.rs        # Token definitions (~690 lines)
 ├── visitor.rs      # AST visitor pattern (~1,230 lines)
 ├── interner.rs     # String interning (~260 lines)
@@ -200,6 +201,29 @@ Benefits:
 - O(1) comparison (compare IDs, not contents)
 - Memory sharing (same ID = same content)
 - Salsa-friendly (IDs are hashable)
+
+## Derived Trait Definitions
+
+The `derives.rs` module contains types used by both the type checker and evaluator for `#[derive(...)]` support:
+
+```rust
+/// A derived trait that can be auto-implemented.
+pub enum DerivedTrait {
+    Eq,        // Structural equality
+    Clone,     // Field-by-field cloning
+    Hashable,  // Hash computation
+    Printable, // String representation
+    Default,   // Default value construction
+}
+
+/// Information about a derived method.
+pub struct DerivedMethodInfo {
+    pub trait_kind: DerivedTrait,
+    pub field_names: Vec<Name>,  // Struct fields (in order)
+}
+```
+
+These types live in `sigil_ir` (rather than `sigil_typeck` or `sigil_eval`) to avoid circular dependencies—both the type checker and evaluator need these definitions, and `sigil_ir` has no dependencies.
 
 ## Size Assertions
 

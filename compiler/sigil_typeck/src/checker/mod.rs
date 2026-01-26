@@ -836,10 +836,6 @@ mod tests {
         assert!(!typed.has_errors());
     }
 
-    // =========================================================================
-    // Closure Self-Capture Detection Tests
-    // =========================================================================
-
     #[test]
     fn test_closure_self_capture_direct() {
         let (_, typed) = check_source(r#"
@@ -942,10 +938,6 @@ mod tests {
             e.code == sigil_diagnostic::ErrorCode::E2007
         ));
     }
-
-    // =========================================================================
-    // TypeRegistry Integration Tests
-    // =========================================================================
 
     #[test]
     fn test_type_registry_in_checker() {

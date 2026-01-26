@@ -832,7 +832,6 @@ dependencies = [
  "rustc-hash",
  "sigil_diagnostic",
  "sigil_ir",
- "sigil_parse",
  "sigil_patterns",
  "sigil_types",
  "stacker",

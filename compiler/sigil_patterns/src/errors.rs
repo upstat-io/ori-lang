@@ -34,9 +34,7 @@ impl EvalError {
     }
 }
 
-// =============================================================================
 // Binary Operation Errors
-// =============================================================================
 
 /// Invalid operator for a specific type.
 #[cold]
@@ -64,9 +62,7 @@ pub fn modulo_by_zero() -> EvalError {
     EvalError::new("modulo by zero")
 }
 
-// =============================================================================
 // Method Call Errors
-// =============================================================================
 
 /// No such method on a type.
 #[cold]
@@ -88,9 +84,7 @@ pub fn wrong_arg_type(method: &str, expected: &str) -> EvalError {
     EvalError::new(format!("{method} expects a {expected} argument"))
 }
 
-// =============================================================================
 // Variable and Function Errors
-// =============================================================================
 
 /// Undefined variable.
 #[cold]
@@ -122,9 +116,7 @@ pub fn wrong_function_args(expected: usize, got: usize) -> EvalError {
     EvalError::new(format!("expected {expected} arguments, got {got}"))
 }
 
-// =============================================================================
 // Index and Field Access Errors
-// =============================================================================
 
 /// Index out of bounds.
 #[cold]
@@ -174,9 +166,7 @@ pub fn cannot_access_field(type_name: &str) -> EvalError {
     EvalError::new(format!("cannot access field on {type_name}"))
 }
 
-// =============================================================================
 // Type Conversion and Validation Errors
-// =============================================================================
 
 /// Range start/end must be integer.
 #[cold]
@@ -196,9 +186,7 @@ pub fn map_keys_must_be_strings() -> EvalError {
     EvalError::new("map keys must be strings")
 }
 
-// =============================================================================
 // Control Flow Errors
-// =============================================================================
 
 /// Non-exhaustive match.
 #[cold]
@@ -224,9 +212,7 @@ pub fn for_requires_iterable() -> EvalError {
     EvalError::new("for requires an iterable")
 }
 
-// =============================================================================
 // Pattern Binding Errors
-// =============================================================================
 
 /// Tuple pattern length mismatch.
 #[cold]
@@ -264,9 +250,7 @@ pub fn missing_struct_field() -> EvalError {
     EvalError::new("missing struct field")
 }
 
-// =============================================================================
 // Miscellaneous Errors
-// =============================================================================
 
 /// Self used outside of method context.
 #[cold]
@@ -298,9 +282,7 @@ pub fn invalid_literal_pattern() -> EvalError {
     EvalError::new("invalid literal pattern")
 }
 
-// =============================================================================
 // Collection Method Errors
-// =============================================================================
 
 /// Map requires a collection (list or range).
 #[cold]
@@ -356,9 +338,7 @@ pub fn filter_entries_requires_map() -> EvalError {
     EvalError::new("filter entries requires a map")
 }
 
-// =============================================================================
 // Not Implemented Errors
-// =============================================================================
 
 /// Map entries not yet implemented.
 #[cold]
@@ -390,9 +370,7 @@ pub fn default_requires_type_context() -> EvalError {
     EvalError::new("default() requires type context; use explicit construction instead")
 }
 
-// =============================================================================
 // Index Context Errors
-// =============================================================================
 
 /// Operator not supported in index context.
 #[cold]
@@ -412,9 +390,7 @@ pub fn collection_too_large() -> EvalError {
     EvalError::new("collection too large")
 }
 
-// =============================================================================
 // Pattern Errors
-// =============================================================================
 
 /// Unknown pattern kind.
 #[cold]

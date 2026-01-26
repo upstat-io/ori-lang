@@ -5,6 +5,7 @@
 use sigil_ir::{Name, Span, ExprId, ExprRange, CallArgRange, ExprKind};
 use sigil_types::Type;
 use crate::checker::TypeChecker;
+use super::builtin_methods::{BuiltinMethodRegistry, MethodTypeResult};
 use super::infer_expr;
 
 /// Infer type for a function call (positional arguments).
@@ -300,164 +301,41 @@ fn infer_builtin_method(
 ) -> Type {
     let method_name = checker.context.interner.lookup(method);
 
+    // Handle special cases first
     match receiver_ty {
-        Type::Str => match method_name {
-            "len" => Type::Int,
-            "is_empty" | "contains" | "starts_with" | "ends_with" => Type::Bool,
-            "to_uppercase" | "to_lowercase" | "trim" => Type::Str,
-            "split" => Type::List(Box::new(Type::Str)),
-            "chars" => Type::List(Box::new(Type::Char)),
-            "bytes" => Type::List(Box::new(Type::Byte)),
-            _ => {
-                checker.push_error(
-                    format!("unknown method `{method_name}` for type `str`"),
-                    span,
-                    sigil_diagnostic::ErrorCode::E2002,
-                );
+        Type::Var(_) => return checker.inference.ctx.fresh_var(),
+        Type::Error => return Type::Error,
+        _ => {}
+    }
+
+    // Use the registry to check the method
+    let registry = BuiltinMethodRegistry::new();
+    if let Some(result) = registry.check(
+        &mut checker.inference.ctx,
+        checker.context.interner,
+        receiver_ty,
+        method_name,
+        arg_types,
+        span,
+    ) {
+        match result {
+            MethodTypeResult::Ok(ty) => ty,
+            MethodTypeResult::Err(e) => {
+                checker.push_error(e.message, span, e.code);
                 Type::Error
             }
-        },
-
-        Type::List(elem_ty) => match method_name {
-            "len" => Type::Int,
-            "is_empty" | "contains" => Type::Bool,
-            "first" | "last" | "pop" | "find" => Type::Option(elem_ty.clone()),
-            "push" => Type::Unit,
-            "map" => {
-                let result_elem = checker.inference.ctx.fresh_var();
-                Type::List(Box::new(result_elem))
-            }
-            "filter" | "reverse" | "sort" => Type::List(elem_ty.clone()),
-            "fold" => {
-                if let Some(acc_ty) = arg_types.first() {
-                    acc_ty.clone()
-                } else {
-                    checker.inference.ctx.fresh_var()
-                }
-            }
-            _ => {
-                checker.push_error(
-                    format!("unknown method `{method_name}` for type `[T]`"),
-                    span,
-                    sigil_diagnostic::ErrorCode::E2002,
-                );
-                Type::Error
-            }
-        },
-
-        Type::Map { key: key_ty, value: val_ty } => match method_name {
-            "len" => Type::Int,
-            "is_empty" | "contains_key" => Type::Bool,
-            "get" | "insert" | "remove" => Type::Option(val_ty.clone()),
-            "keys" => Type::List(key_ty.clone()),
-            "values" => Type::List(val_ty.clone()),
-            _ => {
-                checker.push_error(
-                    format!("unknown method `{method_name}` for type `{{K: V}}`"),
-                    span,
-                    sigil_diagnostic::ErrorCode::E2002,
-                );
-                Type::Error
-            }
-        },
-
-        Type::Option(inner_ty) => match method_name {
-            "is_some" | "is_none" => Type::Bool,
-            "unwrap" | "unwrap_or" => (**inner_ty).clone(),
-            "map" | "and_then" => {
-                let result_inner = checker.inference.ctx.fresh_var();
-                Type::Option(Box::new(result_inner))
-            }
-            "filter" => Type::Option(inner_ty.clone()),
-            "ok_or" => {
-                let err_ty = checker.inference.ctx.fresh_var();
-                Type::Result { ok: inner_ty.clone(), err: Box::new(err_ty) }
-            }
-            _ => {
-                checker.push_error(
-                    format!("unknown method `{method_name}` for type `Option<T>`"),
-                    span,
-                    sigil_diagnostic::ErrorCode::E2002,
-                );
-                Type::Error
-            }
-        },
-
-        Type::Result { ok: ok_ty, err: err_ty } => match method_name {
-            "is_ok" | "is_err" => Type::Bool,
-            "unwrap" | "unwrap_or" => (**ok_ty).clone(),
-            "unwrap_err" => (**err_ty).clone(),
-            "ok" => Type::Option(ok_ty.clone()),
-            "err" => Type::Option(err_ty.clone()),
-            "map" | "and_then" => {
-                let result_ok = checker.inference.ctx.fresh_var();
-                Type::Result { ok: Box::new(result_ok), err: err_ty.clone() }
-            }
-            "map_err" => {
-                let result_err = checker.inference.ctx.fresh_var();
-                Type::Result { ok: ok_ty.clone(), err: Box::new(result_err) }
-            }
-            _ => {
-                checker.push_error(
-                    format!("unknown method `{method_name}` for type `Result<T, E>`"),
-                    span,
-                    sigil_diagnostic::ErrorCode::E2002,
-                );
-                Type::Error
-            }
-        },
-
-        Type::Int => match method_name {
-            "abs" | "min" | "max" => Type::Int,
-            "to_string" => Type::Str,
-            "compare" => Type::Named(checker.context.interner.intern("Ordering")),
-            _ => {
-                checker.push_error(
-                    format!("unknown method `{method_name}` for type `int`"),
-                    span,
-                    sigil_diagnostic::ErrorCode::E2002,
-                );
-                Type::Error
-            }
-        },
-
-        Type::Float => match method_name {
-            "abs" | "floor" | "ceil" | "round" | "sqrt" | "min" | "max" => Type::Float,
-            "to_string" => Type::Str,
-            "compare" => Type::Named(checker.context.interner.intern("Ordering")),
-            _ => {
-                checker.push_error(
-                    format!("unknown method `{method_name}` for type `float`"),
-                    span,
-                    sigil_diagnostic::ErrorCode::E2002,
-                );
-                Type::Error
-            }
-        },
-
-        Type::Bool => if method_name == "to_string" { Type::Str } else {
-            checker.push_error(
-                format!("unknown method `{method_name}` for type `bool`"),
-                span,
-                sigil_diagnostic::ErrorCode::E2002,
-            );
-            Type::Error
-        },
-
-        Type::Var(_) => checker.inference.ctx.fresh_var(),
-        Type::Error => Type::Error,
-
-        _ => {
-            checker.push_error(
-                format!(
-                    "type `{}` has no method `{}`",
-                    receiver_ty.display(checker.context.interner),
-                    method_name
-                ),
-                span,
-                sigil_diagnostic::ErrorCode::E2002,
-            );
-            Type::Error
         }
+    } else {
+        // No handler found for this type
+        checker.push_error(
+            format!(
+                "type `{}` has no method `{}`",
+                receiver_ty.display(checker.context.interner),
+                method_name
+            ),
+            span,
+            sigil_diagnostic::ErrorCode::E2002,
+        );
+        Type::Error
     }
 }

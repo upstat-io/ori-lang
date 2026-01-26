@@ -45,6 +45,7 @@ mod parsed_type;
 pub mod ast;
 mod arena;
 pub mod visitor;
+mod derives;
 
 pub use span::Span;
 pub use name::Name;
@@ -82,3 +83,4 @@ pub use ast::{
     CapabilityRef,
 };
 pub use arena::{ExprArena, SharedArena};
+pub use derives::{DerivedMethodInfo, DerivedTrait};

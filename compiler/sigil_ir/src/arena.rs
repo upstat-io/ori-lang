@@ -16,8 +16,6 @@
 
 use super::{ExprId, ExprRange, StmtId, StmtRange};
 
-// ===== Safe casting helpers =====
-
 /// Convert usize to u32, panicking with a clear message on overflow.
 #[inline]
 fn to_u32(value: usize, context: &str) -> u32 {
@@ -122,8 +120,6 @@ impl ExprArena {
         }
     }
 
-    // ===== Expression allocation =====
-
     /// Allocate expression, return ID.
     #[inline]
     pub fn alloc_expr(&mut self, expr: Expr) -> ExprId {
@@ -158,8 +154,6 @@ impl ExprArena {
         self.exprs.len()
     }
 
-    // ===== Expression list allocation =====
-
     /// Allocate expression list, return range.
     pub fn alloc_expr_list(&mut self, exprs: impl IntoIterator<Item = ExprId>) -> ExprRange {
         let start = to_u32(self.expr_lists.len(), "expression lists");
@@ -175,8 +169,6 @@ impl ExprArena {
         let end = start + range.len as usize;
         &self.expr_lists[start..end]
     }
-
-    // ===== Statement allocation =====
 
     /// Allocate statement, return ID.
     #[inline]
@@ -208,8 +200,6 @@ impl ExprArena {
         &self.stmts[start..end]
     }
 
-    // ===== Parameter allocation =====
-
     /// Allocate parameter list, return range.
     pub fn alloc_params(&mut self, params: impl IntoIterator<Item = Param>) -> ParamRange {
         let start = to_u32(self.params.len(), "parameters");
@@ -235,8 +225,6 @@ impl ExprArena {
         self.get_params(range).iter().map(|p| p.name).collect()
     }
 
-    // ===== Match arm allocation =====
-
     /// Allocate match arms, return range.
     pub fn alloc_arms(&mut self, arms: impl IntoIterator<Item = MatchArm>) -> ArmRange {
         let start = to_u32(self.arms.len(), "match arms");
@@ -252,8 +240,6 @@ impl ExprArena {
         let end = start + range.len as usize;
         &self.arms[start..end]
     }
-
-    // ===== Map entry allocation =====
 
     /// Allocate map entries, return range.
     pub fn alloc_map_entries(&mut self, entries: impl IntoIterator<Item = MapEntry>) -> MapEntryRange {
@@ -271,8 +257,6 @@ impl ExprArena {
         &self.map_entries[start..end]
     }
 
-    // ===== Field init allocation =====
-
     /// Allocate field initializers, return range.
     pub fn alloc_field_inits(&mut self, inits: impl IntoIterator<Item = FieldInit>) -> FieldInitRange {
         let start = to_u32(self.field_inits.len(), "field initializers");
@@ -288,8 +272,6 @@ impl ExprArena {
         let end = start + range.len as usize;
         &self.field_inits[start..end]
     }
-
-    // ===== Sequence binding allocation (function_seq) =====
 
     /// Allocate sequence bindings, return range.
     pub fn alloc_seq_bindings(&mut self, bindings: impl IntoIterator<Item = SeqBinding>) -> SeqBindingRange {
@@ -307,8 +289,6 @@ impl ExprArena {
         &self.seq_bindings[start..end]
     }
 
-    // ===== Named expression allocation (function_exp) =====
-
     /// Allocate named expressions, return range.
     pub fn alloc_named_exprs(&mut self, exprs: impl IntoIterator<Item = NamedExpr>) -> NamedExprRange {
         let start = to_u32(self.named_exprs.len(), "named expressions");
@@ -324,8 +304,6 @@ impl ExprArena {
         let end = start + range.len as usize;
         &self.named_exprs[start..end]
     }
-
-    // ===== Call argument allocation =====
 
     /// Allocate call arguments, return range.
     pub fn alloc_call_args(&mut self, args: impl IntoIterator<Item = CallArg>) -> CallArgRange {
@@ -343,8 +321,6 @@ impl ExprArena {
         &self.call_args[start..end]
     }
 
-    // ===== Generic parameter allocation =====
-
     /// Allocate generic parameters, return range.
     pub fn alloc_generic_params(&mut self, params: impl IntoIterator<Item = GenericParam>) -> GenericParamRange {
         let start = to_u32(self.generic_params.len(), "generic parameters");
@@ -360,8 +336,6 @@ impl ExprArena {
         let end = start + range.len as usize;
         &self.generic_params[start..end]
     }
-
-    // ===== Utility =====
 
     /// Reset arena for reuse (keeps capacity).
     pub fn reset(&mut self) {
@@ -434,9 +408,7 @@ impl fmt::Debug for ExprArena {
     }
 }
 
-// =============================================================================
 // SharedArena
-// =============================================================================
 
 use std::sync::Arc;
 

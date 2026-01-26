@@ -25,7 +25,8 @@ use std::fmt;
 /// - E9xxx: Internal compiler errors
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum ErrorCode {
-    // ===== Lexer Errors (E0xxx) =====
+    // Lexer Errors (E0xxx)
+
     /// Unterminated string literal
     E0001,
     /// Invalid character in source
@@ -37,7 +38,8 @@ pub enum ErrorCode {
     /// Invalid escape sequence
     E0005,
 
-    // ===== Parser Errors (E1xxx) =====
+    // Parser Errors (E1xxx)
+
     /// Unexpected token
     E1001,
     /// Expected expression
@@ -67,7 +69,8 @@ pub enum ErrorCode {
     /// Reserved built-in function name
     E1014,
 
-    // ===== Type Errors (E2xxx) =====
+    // Type Errors (E2xxx)
+
     /// Type mismatch
     E2001,
     /// Unknown type
@@ -97,7 +100,8 @@ pub enum ErrorCode {
     /// Missing capability declaration (function uses capability without declaring it)
     E2014,
 
-    // ===== Pattern Errors (E3xxx) =====
+    // Pattern Errors (E3xxx)
+
     /// Unknown pattern
     E3001,
     /// Invalid pattern arguments
@@ -105,7 +109,8 @@ pub enum ErrorCode {
     /// Pattern type error
     E3003,
 
-    // ===== Internal Errors (E9xxx) =====
+    // Internal Errors (E9xxx)
+
     /// Internal compiler error
     E9001,
     /// Too many errors
@@ -477,8 +482,6 @@ impl Diagnostic {
         self.structured_suggestions.iter().filter(|s| s.applicability.is_machine_applicable())
     }
 }
-
-// ===== Diagnostic Helpers (DRY) =====
 
 /// Create a "type mismatch" diagnostic.
 pub fn type_mismatch(

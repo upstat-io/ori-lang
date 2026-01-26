@@ -8,9 +8,7 @@ use sigil_diagnostic::ErrorCode;
 use sigil_ir::{BinaryOp, Span, StringInterner};
 use sigil_types::{Type, InferenceContext};
 
-// =============================================================================
 // Type Operator Result
-// =============================================================================
 
 /// Result of type checking a binary operation.
 pub enum TypeOpResult {
@@ -38,9 +36,7 @@ impl TypeOpError {
     }
 }
 
-// =============================================================================
 // Type Operator Trait
-// =============================================================================
 
 /// Trait for type checking binary operations.
 ///
@@ -64,9 +60,7 @@ pub trait TypeOperator: Send + Sync {
     ) -> TypeOpResult;
 }
 
-// =============================================================================
 // Arithmetic Type Operator
-// =============================================================================
 
 /// Type checking for arithmetic operators: +, -, *, /, %, div
 pub struct ArithmeticTypeOp;
@@ -128,9 +122,7 @@ impl TypeOperator for ArithmeticTypeOp {
     }
 }
 
-// =============================================================================
 // Comparison Type Operator
-// =============================================================================
 
 /// Type checking for comparison operators: ==, !=, <, <=, >, >=
 pub struct ComparisonTypeOp;
@@ -167,9 +159,7 @@ impl TypeOperator for ComparisonTypeOp {
     }
 }
 
-// =============================================================================
 // Logical Type Operator
-// =============================================================================
 
 /// Type checking for logical operators: &&, ||
 pub struct LogicalTypeOp;
@@ -204,9 +194,7 @@ impl TypeOperator for LogicalTypeOp {
     }
 }
 
-// =============================================================================
 // Bitwise Type Operator
-// =============================================================================
 
 /// Type checking for bitwise operators: &, |, ^, <<, >>
 pub struct BitwiseTypeOp;
@@ -248,9 +236,7 @@ impl TypeOperator for BitwiseTypeOp {
     }
 }
 
-// =============================================================================
 // Range Type Operator
-// =============================================================================
 
 /// Type checking for range operators: .., ..=
 pub struct RangeTypeOp;
@@ -279,9 +265,7 @@ impl TypeOperator for RangeTypeOp {
     }
 }
 
-// =============================================================================
 // Coalesce Type Operator
-// =============================================================================
 
 /// Type checking for coalesce operator: ??
 pub struct CoalesceTypeOp;
@@ -320,9 +304,7 @@ impl TypeOperator for CoalesceTypeOp {
     }
 }
 
-// =============================================================================
 // Type Operator Registry
-// =============================================================================
 
 /// Registry of type operators.
 ///

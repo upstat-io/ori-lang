@@ -33,6 +33,21 @@ Before starting:
 
 ---
 
+## Spec Updates Required
+
+Approved proposals that need spec documentation:
+
+- [ ] **Clone Trait** — Add trait definition to `spec/06-types.md` or `spec/08-declarations.md`
+  - Proposal: `proposals/approved/clone-trait-proposal.md`
+  - Implementation: Already in `sigilc/src/typeck/derives/mod.rs`
+  - Missing: Spec definition of `trait Clone { @clone (self) -> Self }`
+
+- [ ] **Zipper Data Structures** — Add to stdlib roadmap
+  - Proposal: `proposals/drafts/zipper-stdlib-proposal.md`
+  - Covers: `Zipper<T>`, `TreeZipper<T>` for ARC-safe bidirectional traversal
+
+---
+
 ## Phase Execution Order
 
 ### Tier 1: Foundation (REQUIRED FIRST)

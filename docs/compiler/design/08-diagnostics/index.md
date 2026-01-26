@@ -27,9 +27,14 @@ compiler/
 │       ├── diagnostic.rs       # #[derive(Diagnostic)] implementation
 │       └── subdiagnostic.rs    # #[derive(Subdiagnostic)] implementation
 └── sigilc/src/
-    └── problem/            # Problem types (specific to compiler phases)
-        ├── mod.rs              # Problem enum
-        └── report.rs           # Report formatting
+    ├── problem/            # Problem types (specific to compiler phases)
+    │   ├── mod.rs              # Problem enum (Parse, Type, Semantic variants)
+    │   └── semantic.rs         # SemanticProblem enum, DefinitionKind
+    └── reporting/          # Diagnostic rendering (Problem → Diagnostic)
+        ├── mod.rs              # Render trait, render_all, Report type
+        ├── parse.rs            # ParseProblem rendering
+        ├── semantic.rs         # SemanticProblem rendering
+        └── type_errors.rs      # TypeProblem rendering
 ```
 
 The `sigil_diagnostic` crate contains the core `Diagnostic` type, `ErrorCode` enum, `Applicability` levels, diagnostic queue, and output emitters. It depends only on `sigil_ir` (for `Span`). The proc-macros in `sigil-macros` generate implementations of the `IntoDiagnostic` trait.
@@ -110,6 +115,56 @@ let typed = type_check_with_source(&parse_result, interner, source.clone());
 // With custom config
 let config = DiagnosticConfig { error_limit: 5, ..Default::default() };
 let typed = type_check_with_config(&parse_result, interner, source, config);
+```
+
+## Diagnostic Rendering
+
+The rendering system converts structured `Problem` types into user-facing `Diagnostic` messages. This separates "what went wrong" (Problem) from "how to display it" (Diagnostic).
+
+### Render Trait
+
+The `Render` trait provides the conversion interface:
+
+```rust
+pub trait Render {
+    fn render(&self) -> Diagnostic;
+}
+
+impl Render for Problem {
+    fn render(&self) -> Diagnostic {
+        match self {
+            Problem::Parse(p) => p.render(),
+            Problem::Type(p) => p.render(),
+            Problem::Semantic(p) => p.render(),
+        }
+    }
+}
+```
+
+### Module Organization
+
+Each problem category has its own rendering module:
+
+| Module | Problem Type | Error Codes |
+|--------|--------------|-------------|
+| `parse.rs` | `ParseProblem` | E1xxx (parser errors) |
+| `semantic.rs` | `SemanticProblem` | E2xxx (name resolution, duplicates) |
+| `type_errors.rs` | `TypeProblem` | E2xxx (type mismatches, inference) |
+
+This separation follows the Single Responsibility Principle—each module focuses on rendering one category of problems with domain-specific context and suggestions.
+
+### Helper Functions
+
+```rust
+/// Render all problems to diagnostics.
+pub fn render_all(problems: &[Problem]) -> Vec<Diagnostic>;
+
+/// Process type errors through the diagnostic queue.
+pub fn process_type_errors(
+    errors: Vec<TypeCheckError>,
+    source: &str,
+    config: Option<DiagnosticConfig>,
+) -> Vec<Diagnostic>;
 ```
 
 ## Diagnostic Structure

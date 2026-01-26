@@ -15,10 +15,10 @@ sigil_patterns.workspace = true
 sigil_eval.workspace = true
 stacker.workspace = true
 rustc-hash.workspace = true
-sigil_lexer.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+sigil_lexer.workspace = true
 
 [lints]
 workspace = true

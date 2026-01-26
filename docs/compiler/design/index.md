@@ -17,14 +17,15 @@ This keeps the compiler small (~30K lines), focused, and maintainable. The stdli
 
 The Sigil compiler is a Rust-based incremental compiler built on the Salsa framework. It is organized as a **multi-crate workspace** with clear separation of concerns:
 
-- **`sigil_ir`** - Core IR types with no dependencies
+- **`sigil_ir`** - Core IR types with no dependencies (AST, arena, interning, derives)
 - **`sigil_diagnostic`** - Error reporting system
 - **`sigil_lexer`** - Tokenization
 - **`sigil_types`** - Type system definitions
 - **`sigil_parse`** - Recursive descent parser
+- **`sigil_typeck`** - Type checking and inference
 - **`sigil_patterns`** - Pattern system, Value types, EvalError (single source of truth)
 - **`sigil_eval`** - Core evaluator components (Environment, operators)
-- **`sigilc`** - CLI orchestrator, Salsa queries, type checker, evaluator
+- **`sigilc`** - CLI orchestrator, Salsa queries, evaluator, reporting
 
 The compiler features:
 
@@ -152,15 +153,16 @@ The compiler is organized as a multi-crate workspace:
 
 | Crate | Path | Purpose |
 |-------|------|---------|
-| `sigil_ir` | `compiler/sigil_ir/src/` | Core IR types (tokens, spans, AST, arena, interning) |
+| `sigil_ir` | `compiler/sigil_ir/src/` | Core IR types (tokens, spans, AST, arena, interning, derives) |
 | `sigil_diagnostic` | `compiler/sigil_diagnostic/src/` | DiagnosticQueue, error reporting, suggestions, emitters |
 | `sigil_lexer` | `compiler/sigil_lexer/src/` | Tokenization via logos |
 | `sigil_types` | `compiler/sigil_types/src/` | Type, TypeError, TypeContext, InferenceContext |
 | `sigil_parse` | `compiler/sigil_parse/src/` | Recursive descent parser |
+| `sigil_typeck` | `compiler/sigil_typeck/src/` | Type checking, inference, BuiltinMethodRegistry |
 | `sigil_patterns` | `compiler/sigil_patterns/src/` | Pattern definitions, Value types, EvalError, EvalContext |
 | `sigil_eval` | `compiler/sigil_eval/src/` | Environment, OperatorRegistry (core eval components) |
 | `sigil-macros` | `compiler/sigil-macros/src/` | Diagnostic derive macros |
-| `sigilc` | `compiler/sigilc/src/` | CLI, Salsa queries, typeck, eval orchestration |
+| `sigilc` | `compiler/sigilc/src/` | CLI, Salsa queries, eval orchestration, reporting |
 
 **Note:** `sigilc` modules (`ir`, `parser`, `diagnostic`, `types`) re-export from source crates for DRY.
 
@@ -171,8 +173,9 @@ The compiler is organized as a multi-crate workspace:
 | Library root | `compiler/sigilc/src/lib.rs` |
 | Salsa database | `compiler/sigilc/src/db.rs` |
 | Query system | `compiler/sigilc/src/query/` |
-| Type checker | `compiler/sigilc/src/typeck/` |
 | Evaluator | `compiler/sigilc/src/eval/` |
+| Problem types | `compiler/sigilc/src/problem/` |
+| Diagnostic rendering | `compiler/sigilc/src/reporting/` |
 | Tests | `compiler/sigilc/src/test/` |
 
 ### Architecture Notes

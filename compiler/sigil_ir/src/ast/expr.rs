@@ -61,8 +61,6 @@ impl Spanned for Expr {
 /// Has all required traits: Clone, Eq, `PartialEq`, Hash, Debug
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub enum ExprKind {
-    // ===== Literals (no children) =====
-
     /// Integer literal: 42, `1_000`
     Int(i64),
 
@@ -93,8 +91,6 @@ pub enum ExprKind {
     /// Unit: ()
     Unit,
 
-    // ===== References =====
-
     /// Variable reference
     Ident(Name),
 
@@ -109,8 +105,6 @@ pub enum ExprKind {
 
     /// Hash in index context (refers to length): #
     HashLength,
-
-    // ===== Compound expressions =====
 
     /// Binary operation: left op right
     Binary {
@@ -165,8 +159,6 @@ pub enum ExprKind {
         index: ExprId,
     },
 
-    // ===== Control flow =====
-
     /// Conditional: if cond then t else e
     If {
         cond: ExprId,
@@ -200,8 +192,6 @@ pub enum ExprKind {
         result: Option<ExprId>,
     },
 
-    // ===== Binding =====
-
     /// Let binding: let pattern = init
     Let {
         pattern: BindingPattern,
@@ -218,8 +208,6 @@ pub enum ExprKind {
         ret_ty: Option<ParsedType>,
         body: ExprId,
     },
-
-    // ===== Collections =====
 
     /// List literal: [a, b, c]
     List(ExprRange),
@@ -243,8 +231,6 @@ pub enum ExprKind {
         inclusive: bool,
     },
 
-    // ===== Variant constructors =====
-
     /// Ok(value)
     Ok(Option<ExprId>),
 
@@ -256,8 +242,6 @@ pub enum ExprKind {
 
     /// None
     None,
-
-    // ===== Control =====
 
     /// Return from function
     Return(Option<ExprId>),
@@ -280,8 +264,6 @@ pub enum ExprKind {
         value: ExprId,
     },
 
-    // ===== Capabilities =====
-
     /// Capability provision: with Http = RealHttp { ... } in body
     WithCapability {
         /// The capability name (e.g., Http)
@@ -291,8 +273,6 @@ pub enum ExprKind {
         /// The body expression where the capability is in scope
         body: ExprId,
     },
-
-    // ===== function_seq / function_exp =====
 
     /// Sequential expression construct: run, try, match
     ///
@@ -305,8 +285,6 @@ pub enum ExprKind {
     /// Contains named expressions (`name: value`).
     /// Requires named property syntax - positional not allowed.
     FunctionExp(FunctionExp),
-
-    // ===== Error recovery =====
 
     /// Parse error placeholder
     Error,

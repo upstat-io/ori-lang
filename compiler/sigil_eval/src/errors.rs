@@ -13,9 +13,7 @@
 // Re-export EvalError and EvalResult types
 pub use sigil_patterns::{EvalError, EvalResult};
 
-// =============================================================================
 // Binary Operation Errors
-// =============================================================================
 
 pub use sigil_patterns::{
     binary_type_mismatch,
@@ -24,9 +22,7 @@ pub use sigil_patterns::{
     modulo_by_zero,
 };
 
-// =============================================================================
 // Method Call Errors
-// =============================================================================
 
 pub use sigil_patterns::{
     no_such_method,
@@ -34,9 +30,7 @@ pub use sigil_patterns::{
     wrong_arg_type,
 };
 
-// =============================================================================
 // Variable and Function Errors
-// =============================================================================
 
 pub use sigil_patterns::{
     not_callable,
@@ -46,9 +40,7 @@ pub use sigil_patterns::{
     wrong_function_args,
 };
 
-// =============================================================================
 // Index and Field Access Errors
-// =============================================================================
 
 pub use sigil_patterns::{
     cannot_access_field,
@@ -61,9 +53,7 @@ pub use sigil_patterns::{
     tuple_index_out_of_bounds,
 };
 
-// =============================================================================
 // Type Conversion and Validation Errors
-// =============================================================================
 
 pub use sigil_patterns::{
     map_keys_must_be_strings,
@@ -71,9 +61,7 @@ pub use sigil_patterns::{
     unbounded_range_end,
 };
 
-// =============================================================================
 // Control Flow Errors
-// =============================================================================
 
 pub use sigil_patterns::{
     cannot_assign_immutable,
@@ -82,9 +70,7 @@ pub use sigil_patterns::{
     non_exhaustive_match,
 };
 
-// =============================================================================
 // Pattern Binding Errors
-// =============================================================================
 
 pub use sigil_patterns::{
     expected_list,
@@ -95,9 +81,7 @@ pub use sigil_patterns::{
     tuple_pattern_mismatch,
 };
 
-// =============================================================================
 // Miscellaneous Errors
-// =============================================================================
 
 pub use sigil_patterns::{
     await_not_supported,
@@ -107,9 +91,7 @@ pub use sigil_patterns::{
     self_outside_method,
 };
 
-// =============================================================================
 // Collection Method Errors
-// =============================================================================
 
 pub use sigil_patterns::{
     all_requires_list,
@@ -123,9 +105,7 @@ pub use sigil_patterns::{
     map_requires_collection,
 };
 
-// =============================================================================
 // Not Implemented Errors
-// =============================================================================
 
 pub use sigil_patterns::{
     default_requires_type_context,
@@ -135,9 +115,7 @@ pub use sigil_patterns::{
     map_entries_not_implemented,
 };
 
-// =============================================================================
 // Index Context Errors
-// =============================================================================
 
 pub use sigil_patterns::{
     collection_too_large,
@@ -145,9 +123,7 @@ pub use sigil_patterns::{
     operator_not_supported_in_index,
 };
 
-// =============================================================================
 // Pattern Errors
-// =============================================================================
 
 pub use sigil_patterns::{
     for_pattern_requires_list,

@@ -10,7 +10,6 @@ use sigil_ir::{Name, StringInterner};
 /// Has Clone, Eq, Hash for use in query results.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum Type {
-    // ===== Primitives =====
     /// Integer type
     Int,
     /// Floating point type
@@ -28,13 +27,11 @@ pub enum Type {
     /// Never type (diverging)
     Never,
 
-    // ===== Special types =====
     /// Duration type (30s, 100ms)
     Duration,
     /// Size type (4kb, 10mb)
     Size,
 
-    // ===== Compound types =====
     /// Function type: (params) -> return
     Function {
         params: Vec<Type>,
@@ -71,7 +68,6 @@ pub enum Type {
     /// Channel type: Channel<T>
     Channel(Box<Type>),
 
-    // ===== Named types =====
     /// User-defined type reference (non-generic or unapplied generic)
     Named(Name),
 

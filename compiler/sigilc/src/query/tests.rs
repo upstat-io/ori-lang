@@ -132,8 +132,6 @@ fn test_caching_verified_with_logs() {
     assert!(logs2.is_empty(), "Second call should use cache");
 }
 
-// ===== TOKENS QUERY TESTS =====
-
 #[test]
 fn test_tokens_basic() {
     use crate::ir::TokenKind;
@@ -268,8 +266,6 @@ fn test_tokens_with_patterns() {
     assert!(matches!(toks[1].kind, TokenKind::LParen));
     assert!(matches!(toks[2].kind, TokenKind::Ident(_)));
 }
-
-// ===== PARSED QUERY TESTS =====
 
 #[test]
 fn test_parsed_basic() {
@@ -406,8 +402,6 @@ fn test_parsed_with_expressions() {
     }
 }
 
-// ===== TYPED QUERY TESTS =====
-
 #[test]
 fn test_typed_basic() {
     use crate::types::Type;
@@ -488,8 +482,6 @@ fn test_typed_with_error() {
     // Should have type error: condition must be bool
     assert!(result.has_errors());
 }
-
-// ===== EVALUATED QUERY TESTS =====
 
 #[test]
 fn test_evaluated_basic() {

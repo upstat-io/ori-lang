@@ -44,10 +44,6 @@ impl std::fmt::Display for ImportError {
 
 impl std::error::Error for ImportError {}
 
-// =============================================================================
-// Test Module Detection
-// =============================================================================
-
 /// Check if a file is a test module.
 ///
 /// A test module is defined as:
@@ -127,10 +123,6 @@ fn normalize_path(path: &Path) -> PathBuf {
     result
 }
 
-// =============================================================================
-// Module Loading Context
-// =============================================================================
-
 /// Context for loading modules with cycle detection.
 ///
 /// Tracks which modules are currently being loaded to detect circular imports.
@@ -184,10 +176,6 @@ impl LoadingContext {
     }
 }
 
-// =============================================================================
-// Path Resolution
-// =============================================================================
-
 /// Resolve an import path to a file path.
 ///
 /// Handles relative paths (starting with './' or '../') and module paths.
@@ -230,6 +218,11 @@ pub fn resolve_import_path(
 /// 1. `SIGIL_STDLIB` environment variable
 /// 2. ./library/ relative to project root (for development)
 /// 3. Standard locations
+///
+/// # Salsa Caching Warning
+///
+/// This function performs filesystem checks (`.exists()`, `.is_dir()`) which
+/// bypass Salsa's dependency tracking. See [`load_imported_module`] for details.
 fn resolve_module_path(
     segments: &[Name],
     current_file: &Path,
@@ -315,11 +308,35 @@ fn resolve_module_path(
 /// Load and parse an imported module.
 ///
 /// Returns the parse result for the imported file.
+///
+/// # Salsa Caching Warning
+///
+/// **IMPORTANT:** This function performs direct file I/O (`std::fs::read_to_string`)
+/// which bypasses Salsa's dependency tracking. When called from within a Salsa query
+/// (e.g., `evaluated`), changes to imported files will NOT automatically invalidate
+/// the query cache.
+///
+/// ## Why this matters
+///
+/// If file A imports file B, and the `evaluated(A)` query is cached:
+/// - Modifying A → Salsa invalidates cache ✓
+/// - Modifying B → Cache NOT invalidated ✗ (stale result returned)
+///
+/// ## Proper fix (TODO)
+///
+/// To fix this properly, imported files should be loaded through the Salsa input
+/// system, either by:
+/// 1. Creating `SourceFile` inputs for each imported file
+/// 2. Adding a `file_content(path)` query to the database
+/// 3. Passing a file provider callback instead of doing direct I/O
+///
+/// See: <https://salsa-rs.github.io/salsa/> for Salsa input patterns.
 pub fn load_imported_module(
     import_path: &Path,
     interner: &StringInterner,
 ) -> Result<ParseResult, ImportError> {
-    // Read the imported file
+    // FIXME(salsa): This file I/O bypasses Salsa's dependency tracking.
+    // Changes to imported files won't invalidate query caches.
     let content = std::fs::read_to_string(import_path)
         .map_err(|e| ImportError::new(format!("Failed to read '{}': {}", import_path.display(), e)))?;
 
@@ -341,10 +358,6 @@ pub fn load_imported_module(
 
     Ok(imported_result)
 }
-
-// =============================================================================
-// Imported Module
-// =============================================================================
 
 /// Represents a parsed and loaded module ready for import registration.
 ///

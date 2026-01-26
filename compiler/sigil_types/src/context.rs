@@ -287,10 +287,6 @@ impl InferenceContext {
         substitutor.fold(ty)
     }
 
-    // =========================================================================
-    // Type context convenience methods for deduplicating compound types
-    // =========================================================================
-
     /// Get or create a List<elem> type, deduplicating identical instantiations.
     pub fn make_list(&mut self, elem: Type) -> Type {
         self.type_context.list_type(elem)
@@ -347,8 +343,6 @@ impl Default for InferenceContext {
         Self::new()
     }
 }
-
-// ===== Type Instantiation Deduplication =====
 
 /// Entry in the type context cache.
 #[derive(Clone, Debug)]

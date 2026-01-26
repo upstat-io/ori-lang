@@ -14,9 +14,7 @@ use std::rc::Rc;
 use sigil_ir::Name;
 use sigil_patterns::Value;
 
-// =============================================================================
 // LocalScope<T> - Newtype wrapper for single-threaded scopes
-// =============================================================================
 
 /// A single-threaded scope wrapper for reference-counted interior mutability.
 ///
@@ -89,9 +87,7 @@ impl<T> Deref for LocalScope<T> {
     }
 }
 
-// =============================================================================
 // Scope
-// =============================================================================
 
 /// A single scope containing variable bindings.
 #[derive(Clone, Debug)]
@@ -368,10 +364,6 @@ mod tests {
         assert_eq!(captures.get(&x), Some(&Value::Int(1)));
         assert_eq!(captures.get(&y), Some(&Value::Int(2)));
     }
-
-    // =========================================================================
-    // LocalScope Tests
-    // =========================================================================
 
     #[test]
     fn test_local_scope_new() {

@@ -19,9 +19,7 @@ use crate::eval::{OperatorRegistry, MethodRegistry, UnaryOperatorRegistry};
 // Re-export SharedRegistry from sigil_typeck so we have a single source of truth
 pub use sigil_typeck::SharedRegistry;
 
-// =============================================================================
 // SharedMutableRegistry Newtype
-// =============================================================================
 
 /// Thread-safe mutable shared registry wrapper.
 ///
@@ -72,9 +70,7 @@ impl<T: fmt::Debug> fmt::Debug for SharedMutableRegistry<T> {
     }
 }
 
-// =============================================================================
 // Compiler Context
-// =============================================================================
 
 /// Shared compiler context containing registries and configuration.
 ///
@@ -161,9 +157,7 @@ impl Default for CompilerContext {
     }
 }
 
-// =============================================================================
 // Shared Context
-// =============================================================================
 
 /// Thread-safe shared context reference.
 ///

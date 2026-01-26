@@ -5,9 +5,9 @@
 //! - `UserMethodRegistry` (for evaluation)
 //! - `TraitRegistry` (for type checking)
 
-use sigil_ir::{Module, Name, StringInterner, TypeDecl, TypeDeclKind};
+use sigil_ir::{DerivedMethodInfo, DerivedTrait, Module, Name, StringInterner, TypeDecl, TypeDeclKind};
 use sigil_types::Type;
-use sigil_eval::{DerivedMethodInfo, DerivedTrait, UserMethodRegistry};
+use sigil_eval::UserMethodRegistry;
 
 use crate::registry::{
     ImplEntry, ImplMethodDef, TraitRegistry, TypeKind, TypeRegistry,

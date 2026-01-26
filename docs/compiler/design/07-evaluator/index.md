@@ -311,6 +311,24 @@ pub(super) fn get_value_type_name(&self, value: &Value) -> String {
 This handles struct type names (which require interner lookup) while delegating
 to `Value::type_name()` for primitives and built-in types.
 
+## EvaluatorBuilder
+
+The evaluator uses a builder pattern for construction. This replaces ad-hoc constructors (`with_context`, `with_registry`, `with_env`, etc.) with a single, flexible entry point:
+
+```rust
+let evaluator = EvaluatorBuilder::new(interner, arena)
+    .env(call_env)                          // Optional: custom environment
+    .imported_arena(shared_arena)           // Optional: cross-module arena
+    .user_method_registry(registry)         // Optional: user methods
+    .build();
+```
+
+Benefits:
+- Single entry point for all configuration options
+- Clearer intent—named methods describe what each option does
+- Easier to add new configuration options without API changes
+- Defaults work for common cases; override only what you need
+
 ## Arena Threading Pattern
 
 When evaluating functions or methods from different modules, the evaluator must
@@ -332,13 +350,11 @@ where
     'a: 'b,
 {
     let imported_arena = SharedArena::new(func_arena.clone());
-    Evaluator::with_imported_arena(
-        self.interner,
-        func_arena,
-        call_env,
-        imported_arena,
-        self.user_method_registry.clone(),
-    )
+    EvaluatorBuilder::new(self.interner, func_arena)
+        .env(call_env)
+        .imported_arena(imported_arena)
+        .user_method_registry(self.user_method_registry.clone())
+        .build()
 }
 ```
 

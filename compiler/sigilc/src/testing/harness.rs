@@ -8,9 +8,7 @@ use crate::ir::SharedInterner;
 use crate::parser::{self, ParseResult};
 use crate::typeck::{TypedModule, type_check};
 
-// =============================================================================
 // Expression Evaluation Helpers
-// =============================================================================
 
 /// Evaluate a source expression and return the result value.
 ///
@@ -78,9 +76,7 @@ pub fn eval_source(source: &str) -> EvalResult {
     Err(EvalError::new("no main function found"))
 }
 
-// =============================================================================
 // Parse Helpers
-// =============================================================================
 
 /// Parse source code and return the parse result.
 pub fn parse_source(source: &str) -> (ParseResult, SharedInterner) {
@@ -99,9 +95,7 @@ pub fn type_check_source(source: &str) -> (ParseResult, TypedModule, SharedInter
     (parsed, typed, interner)
 }
 
-// =============================================================================
 // Assertion Helpers
-// =============================================================================
 
 /// Assert that evaluation produces the expected integer value.
 pub fn assert_eval_int(source: &str, expected: i64) {
