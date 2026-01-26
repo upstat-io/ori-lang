@@ -15,8 +15,8 @@ compiler/sigil_types/src/
 ├── context.rs          # InferenceContext, TypeContext
 └── error.rs            # TypeError enum with diagnostic conversion
 
-compiler/sigilc/src/typeck/
-├── mod.rs              # Module exports
+compiler/sigil_typeck/src/
+├── lib.rs              # Module exports
 ├── checker/            # Main type checker
 │   ├── mod.rs              # TypeChecker struct, check_module entry
 │   ├── builder.rs          # TypeCheckerBuilder pattern
@@ -28,10 +28,11 @@ compiler/sigilc/src/typeck/
 │   ├── trait_registration.rs # register_traits, register_impls
 │   ├── bound_checking.rs   # type_satisfies_bound
 │   ├── type_registration.rs # register_type_declarations
-│   ├── types.rs            # Helper types (FunctionType, TypeCheckError)
-│   └── tests.rs            # Unit tests
+│   └── types.rs            # Helper types (FunctionType, TypeCheckError)
 ├── operators.rs        # Operator type rules
-├── type_registry/      # User-defined types
+├── derives/            # Derive macro support
+│   └── mod.rs              # Derive registration and checking
+├── registry/           # User-defined types
 │   ├── mod.rs              # TypeRegistry struct
 │   └── trait_registry.rs   # TraitRegistry, TraitEntry, ImplEntry
 └── infer/
@@ -40,7 +41,15 @@ compiler/sigilc/src/typeck/
     ├── call.rs         # Call type checking
     ├── control.rs      # Control flow inference
     ├── match_binding.rs # Match arm binding inference
-    └── pattern.rs      # Pattern type checking
+    ├── pattern.rs      # Pattern type checking
+    └── builtin_methods/ # Built-in type method handlers
+        ├── mod.rs          # BuiltinMethodRegistry, BuiltinMethodHandler trait
+        ├── string.rs       # StringMethodHandler
+        ├── list.rs         # ListMethodHandler
+        ├── map.rs          # MapMethodHandler
+        ├── option.rs       # OptionMethodHandler
+        ├── result.rs       # ResultMethodHandler
+        └── numeric.rs      # NumericMethodHandler (int, float, bool)
 ```
 
 The `sigil_types` crate contains:
@@ -50,7 +59,7 @@ The `sigil_types` crate contains:
 - `context.rs`: `InferenceContext` (unification, generalization) and `TypeContext` (deduplication)
 - `error.rs`: `TypeError` enum with diagnostic conversion
 
-The type checker itself remains in `sigil_typeck` (with orchestration in `sigilc`) due to complex dependencies on the evaluator and pattern system.
+The type checker lives in the `sigil_typeck` crate, with orchestration in `sigilc` via Salsa queries.
 
 Note: `sigilc/src/types.rs` re-exports from `sigil_types` (DRY consolidation).
 
@@ -318,6 +327,79 @@ if cond then t else e
   body : Int
   function : (Int, Int) -> Int
 ```
+
+## Built-in Method Type Checking
+
+The type checker uses a registry-based pattern for type checking method calls on built-in types. This follows the Open/Closed Principle—new type handlers can be added without modifying existing code.
+
+### BuiltinMethodHandler Trait
+
+Each built-in type has a dedicated handler implementing the `BuiltinMethodHandler` trait:
+
+```rust
+pub trait BuiltinMethodHandler: Send + Sync {
+    /// Check if this handler handles the given receiver type.
+    fn handles(&self, receiver_ty: &Type) -> bool;
+
+    /// Type check the method call.
+    fn check(
+        &self,
+        ctx: &mut InferenceContext,
+        interner: &StringInterner,
+        receiver_ty: &Type,
+        method: &str,
+        args: &[Type],
+        span: Span,
+    ) -> MethodTypeResult;
+}
+```
+
+### BuiltinMethodRegistry
+
+The registry iterates through handlers to find one that handles the receiver type:
+
+```rust
+pub struct BuiltinMethodRegistry {
+    handlers: Vec<Box<dyn BuiltinMethodHandler>>,
+}
+
+impl BuiltinMethodRegistry {
+    pub fn new() -> Self {
+        BuiltinMethodRegistry {
+            handlers: vec![
+                Box::new(StringMethodHandler),
+                Box::new(ListMethodHandler),
+                Box::new(MapMethodHandler),
+                Box::new(OptionMethodHandler),
+                Box::new(ResultMethodHandler),
+                Box::new(NumericMethodHandler),
+            ],
+        }
+    }
+
+    pub fn check(&self, ...) -> Option<MethodTypeResult> {
+        for handler in &self.handlers {
+            if handler.handles(receiver_ty) {
+                return Some(handler.check(...));
+            }
+        }
+        None
+    }
+}
+```
+
+### Handler Organization
+
+| Handler | Types | Methods |
+|---------|-------|---------|
+| `StringMethodHandler` | `str` | `len`, `split`, `trim`, `contains`, etc. |
+| `ListMethodHandler` | `[T]` | `len`, `push`, `pop`, `get`, `map`, `filter`, etc. |
+| `MapMethodHandler` | `{K: V}` | `len`, `get`, `insert`, `remove`, `keys`, etc. |
+| `OptionMethodHandler` | `Option<T>` | `map`, `unwrap_or`, `ok_or`, `and_then`, etc. |
+| `ResultMethodHandler` | `Result<T, E>` | `map`, `map_err`, `unwrap_or`, `ok`, `err`, etc. |
+| `NumericMethodHandler` | `int`, `float`, `bool` | `abs`, `to_string`, numeric methods |
+
+This design replaces nested match statements with focused, single-responsibility handlers.
 
 ## Related Documents
 

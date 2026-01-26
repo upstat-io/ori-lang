@@ -12,6 +12,7 @@ mod control;
 mod expr;
 mod match_binding;
 mod pattern;
+pub mod builtin_methods;
 
 use sigil_ir::{ExprId, ExprKind, Name, StmtKind, FunctionSeq, SeqBinding};
 use sigil_types::Type;

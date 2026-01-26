@@ -10,7 +10,7 @@
 
 use sigil_ir::{Name, Span};
 use sigil_types::Type;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Method signature in a trait definition.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
@@ -117,10 +117,9 @@ pub struct TraitRegistry {
     /// Trait definitions by name.
     traits: HashMap<Name, TraitEntry>,
     /// Trait implementations: (`trait_name`, `self_type`) -> `ImplEntry`.
-    /// For inherent impls, `trait_name` is stored as the self type's name.
-    trait_impls: HashMap<(Name, String), ImplEntry>,
-    /// Inherent implementations by type name.
-    inherent_impls: HashMap<String, ImplEntry>,
+    trait_impls: HashMap<(Name, Type), ImplEntry>,
+    /// Inherent implementations by type.
+    inherent_impls: HashMap<Type, ImplEntry>,
 }
 
 impl TraitRegistry {
@@ -148,7 +147,7 @@ impl TraitRegistry {
     ///
     /// Returns an error if there's already an impl for the same trait/type combination.
     pub fn register_impl(&mut self, entry: ImplEntry) -> Result<(), CoherenceError> {
-        let type_key = format!("{:?}", entry.self_ty);
+        let type_key = entry.self_ty.clone();
 
         if let Some(trait_name) = entry.trait_name {
             // Trait implementation - check for duplicate
@@ -164,9 +163,12 @@ impl TraitRegistry {
         } else {
             // Inherent implementation - check for duplicate methods
             if let Some(existing) = self.inherent_impls.get(&type_key) {
+                // Build set of existing method names for O(1) lookup
+                let existing_names: HashSet<Name> =
+                    existing.methods.iter().map(|m| m.name).collect();
                 // Check if any methods conflict
                 for new_method in &entry.methods {
-                    if existing.methods.iter().any(|m| m.name == new_method.name) {
+                    if existing_names.contains(&new_method.name) {
                         return Err(CoherenceError {
                             message: "conflicting implementation: method already defined for this type".to_string(),
                             span: entry.span,
@@ -188,14 +190,12 @@ impl TraitRegistry {
 
     /// Find implementation of a trait for a type.
     pub fn get_trait_impl(&self, trait_name: Name, self_ty: &Type) -> Option<&ImplEntry> {
-        let type_key = format!("{self_ty:?}");
-        self.trait_impls.get(&(trait_name, type_key))
+        self.trait_impls.get(&(trait_name, self_ty.clone()))
     }
 
     /// Find inherent implementation for a type.
     pub fn get_inherent_impl(&self, self_ty: &Type) -> Option<&ImplEntry> {
-        let type_key = format!("{self_ty:?}");
-        self.inherent_impls.get(&type_key)
+        self.inherent_impls.get(self_ty)
     }
 
     /// Check if a type implements a trait.
@@ -218,9 +218,8 @@ impl TraitRegistry {
         }
 
         // Then check all trait impls for this type
-        let type_key = format!("{self_ty:?}");
-        for ((trait_name, impl_type_key), impl_entry) in &self.trait_impls {
-            if impl_type_key == &type_key {
+        for ((trait_name, impl_type), impl_entry) in &self.trait_impls {
+            if impl_type == self_ty {
                 if let Some(method) = impl_entry.methods.iter().find(|m| m.name == method_name) {
                     return Some(MethodLookup {
                         trait_name: Some(*trait_name),
@@ -296,11 +295,11 @@ impl TraitRegistry {
         type_name: Name,
         assoc_name: Name,
     ) -> Option<Type> {
-        let type_key = format!("{:?}", Type::Named(type_name));
+        let target_type = Type::Named(type_name);
 
         // Search all trait impls for this type
-        for ((_, impl_type_key), impl_entry) in &self.trait_impls {
-            if impl_type_key == &type_key {
+        for ((_, impl_type), impl_entry) in &self.trait_impls {
+            if impl_type == &target_type {
                 // Check if this impl has the associated type we're looking for
                 if let Some(assoc_def) = impl_entry.assoc_types.iter().find(|at| at.name == assoc_name) {
                     return Some(assoc_def.ty.clone());

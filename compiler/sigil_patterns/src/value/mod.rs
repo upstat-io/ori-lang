@@ -47,9 +47,8 @@ pub type FunctionValFn = fn(&[Value]) -> Result<Value, String>;
 /// Runtime value in the Sigil interpreter.
 #[derive(Clone)]
 pub enum Value {
-    // =========================================================================
     // Primitives (inline, no heap allocation)
-    // =========================================================================
+
     /// Integer value.
     Int(i64),
     /// Floating-point value.
@@ -67,9 +66,8 @@ pub enum Value {
     /// Size value (in bytes).
     Size(u64),
 
-    // =========================================================================
     // Heap Types (use Heap<T> for enforced Arc usage)
-    // =========================================================================
+
     /// String value.
     Str(Heap<String>),
     /// List of values.
@@ -79,9 +77,8 @@ pub enum Value {
     /// Tuple of values.
     Tuple(Heap<Vec<Value>>),
 
-    // =========================================================================
     // Algebraic Types (use Heap<T> for consistency)
-    // =========================================================================
+
     /// Option: Some(value).
     Some(Heap<Value>),
     /// Option: None.
@@ -91,9 +88,8 @@ pub enum Value {
     /// Result: Err(error).
     Err(Heap<Value>),
 
-    // =========================================================================
     // Composite Types
-    // =========================================================================
+
     /// Struct instance.
     Struct(StructValue),
     /// Function value (closure).
@@ -104,16 +100,13 @@ pub enum Value {
     /// Range value.
     Range(RangeValue),
 
-    // =========================================================================
     // Error Recovery
-    // =========================================================================
+
     /// Error value for error recovery.
     Error(String),
 }
 
-// =============================================================================
 // Factory Methods (ONLY way to construct heap values)
-// =============================================================================
 
 impl Value {
     /// Create a string value.
@@ -197,9 +190,7 @@ impl Value {
     }
 }
 
-// =============================================================================
 // Value Methods
-// =============================================================================
 
 impl Value {
     /// Check if this value is truthy.
@@ -366,9 +357,7 @@ impl Value {
     }
 }
 
-// =============================================================================
 // Trait Implementations
-// =============================================================================
 
 impl fmt::Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

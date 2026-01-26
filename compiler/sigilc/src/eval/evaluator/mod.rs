@@ -44,7 +44,7 @@ use crate::ir::{
     ArmRange,
 };
 use sigil_patterns::{PatternRegistry, EvalContext, PatternExecutor, EvalError, EvalResult};
-use crate::context::{CompilerContext, SharedRegistry};
+use crate::context::SharedRegistry;
 use crate::stack::ensure_sufficient_stack;
 use super::value::{Value, FunctionValue, StructValue};
 use sigil_eval::{
@@ -108,38 +108,10 @@ impl PatternExecutor for Evaluator<'_> {
 
 impl<'a> Evaluator<'a> {
     /// Create a new evaluator with default registries.
+    ///
+    /// For more configuration options, use `EvaluatorBuilder::new(interner, arena)`.
     pub fn new(interner: &'a StringInterner, arena: &'a ExprArena) -> Self {
         EvaluatorBuilder::new(interner, arena).build()
-    }
-
-    /// Create an evaluator with a custom compiler context.
-    pub fn with_context(interner: &'a StringInterner, arena: &'a ExprArena, context: &'a CompilerContext) -> Self {
-        EvaluatorBuilder::new(interner, arena).context(context).build()
-    }
-
-    /// Create an evaluator with a custom pattern registry.
-    pub fn with_registry(interner: &'a StringInterner, arena: &'a ExprArena, registry: PatternRegistry) -> Self {
-        EvaluatorBuilder::new(interner, arena).registry(registry).build()
-    }
-
-    /// Create an evaluator with an existing environment.
-    pub fn with_env(interner: &'a StringInterner, arena: &'a ExprArena, env: Environment, user_methods: SharedMutableRegistry<UserMethodRegistry>) -> Self {
-        EvaluatorBuilder::new(interner, arena).env(env).user_method_registry(user_methods).build()
-    }
-
-    /// Create an evaluator with both a custom environment and pattern registry.
-    pub fn with_env_and_registry(interner: &'a StringInterner, arena: &'a ExprArena, env: Environment, registry: PatternRegistry) -> Self {
-        EvaluatorBuilder::new(interner, arena).env(env).registry(registry).build()
-    }
-
-    /// Create an evaluator with a custom environment and compiler context.
-    pub fn with_env_and_context(interner: &'a StringInterner, arena: &'a ExprArena, env: Environment, context: &'a CompilerContext) -> Self {
-        EvaluatorBuilder::new(interner, arena).env(env).context(context).build()
-    }
-
-    /// Create an evaluator with an imported arena context.
-    pub fn with_imported_arena(interner: &'a StringInterner, arena: &'a ExprArena, env: Environment, imported_arena: SharedArena, user_methods: SharedMutableRegistry<UserMethodRegistry>) -> Self {
-        EvaluatorBuilder::new(interner, arena).env(env).imported_arena(imported_arena).user_method_registry(user_methods).build()
     }
 
     /// Evaluate an expression.
@@ -561,13 +533,11 @@ impl<'a> Evaluator<'a> {
         'a: 'b,
     {
         let imported_arena = SharedArena::new(func_arena.clone());
-        Evaluator::with_imported_arena(
-            self.interner,
-            func_arena,
-            call_env,
-            imported_arena,
-            self.user_method_registry.clone(),
-        )
+        EvaluatorBuilder::new(self.interner, func_arena)
+            .env(call_env)
+            .imported_arena(imported_arena)
+            .user_method_registry(self.user_method_registry.clone())
+            .build()
     }
 
     /// Register a `function_val` (type conversion function).

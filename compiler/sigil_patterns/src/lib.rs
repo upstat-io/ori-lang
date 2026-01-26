@@ -221,9 +221,7 @@ impl<'a> EvalContext<'a> {
     }
 }
 
-// =============================================================================
 // Iterable Abstraction
-// =============================================================================
 
 /// Represents something that can be iterated over in pattern evaluation.
 ///
@@ -377,9 +375,7 @@ pub trait PatternExecutor {
     fn call(&mut self, func: Value, args: Vec<Value>) -> EvalResult;
 }
 
-// =============================================================================
 // Focused Pattern Traits (ISP Compliance)
-// =============================================================================
 
 /// Core pattern behavior - required by all patterns.
 ///
@@ -427,9 +423,7 @@ pub trait PatternVariadic: PatternCore {
     }
 }
 
-// =============================================================================
 // Main PatternDefinition Trait (Backward Compatible)
-// =============================================================================
 
 /// Trait defining a pattern's behavior across compilation phases.
 ///
@@ -537,9 +531,7 @@ pub trait PatternDefinition: Send + Sync {
     }
 }
 
-// =============================================================================
 // Blanket Implementation
-// =============================================================================
 
 /// Blanket implementation: Any type implementing `PatternDefinition` also implements `PatternCore`.
 impl<T: PatternDefinition> PatternCore for T {

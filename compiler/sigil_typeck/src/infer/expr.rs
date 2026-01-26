@@ -647,26 +647,25 @@ pub fn infer_index(
     }
 }
 
+/// Common implementation for Ok/Err variant type inference.
+fn infer_result_variant(checker: &mut TypeChecker<'_>, inner: Option<ExprId>, is_ok: bool) -> Type {
+    let inner_ty = inner.map_or(Type::Unit, |id| infer_expr(checker, id));
+    let fresh = checker.inference.ctx.fresh_var();
+    if is_ok {
+        checker.inference.ctx.make_result(inner_ty, fresh)
+    } else {
+        checker.inference.ctx.make_result(fresh, inner_ty)
+    }
+}
+
 /// Infer type for Ok variant constructor.
 pub fn infer_ok(checker: &mut TypeChecker<'_>, inner: Option<ExprId>) -> Type {
-    let ok_ty = if let Some(id) = inner {
-        infer_expr(checker, id)
-    } else {
-        Type::Unit
-    };
-    let err_ty = checker.inference.ctx.fresh_var();
-    checker.inference.ctx.make_result(ok_ty, err_ty)
+    infer_result_variant(checker, inner, true)
 }
 
 /// Infer type for Err variant constructor.
 pub fn infer_err(checker: &mut TypeChecker<'_>, inner: Option<ExprId>) -> Type {
-    let err_ty = if let Some(id) = inner {
-        infer_expr(checker, id)
-    } else {
-        Type::Unit
-    };
-    let ok_ty = checker.inference.ctx.fresh_var();
-    checker.inference.ctx.make_result(ok_ty, err_ty)
+    infer_result_variant(checker, inner, false)
 }
 
 /// Infer type for Some variant constructor.

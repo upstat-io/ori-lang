@@ -31,10 +31,6 @@ impl<'a> Cursor<'a> {
         self.interner
     }
 
-    // -------------------------------------------------------------------------
-    // Token Access
-    // -------------------------------------------------------------------------
-
     /// Get the current token.
     pub fn current(&self) -> &Token {
         self.tokens.get(self.pos).unwrap_or(&self.tokens[self.tokens.len() - 1])
@@ -58,10 +54,6 @@ impl<'a> Cursor<'a> {
             Span::DUMMY
         }
     }
-
-    // -------------------------------------------------------------------------
-    // Lookahead
-    // -------------------------------------------------------------------------
 
     /// Check if at end of token stream.
     pub fn is_at_end(&self) -> bool {
@@ -141,10 +133,6 @@ impl<'a> Cursor<'a> {
             _ => None,
         }
     }
-
-    // -------------------------------------------------------------------------
-    // Token Consumption
-    // -------------------------------------------------------------------------
 
     /// Advance to the next token and return the consumed token.
     pub fn advance(&mut self) -> &Token {

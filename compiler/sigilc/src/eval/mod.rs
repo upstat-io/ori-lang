@@ -31,9 +31,13 @@ pub mod value {
 
 pub use value::{Value, FunctionValue, RangeValue, StructValue, StructLayout, Heap, FunctionValFn};
 pub use sigil_eval::{
-    Environment, LocalScope, Scope, OperatorRegistry, BinaryOperator,
-    UnaryOperator, UnaryOperatorRegistry, MethodDispatcher, MethodRegistry,
-    UserMethod, UserMethodRegistry,
+    Environment, LocalScope, Scope,
+    // Deprecated registries (use evaluate_binary/evaluate_unary/dispatch_builtin_method directly)
+    OperatorRegistry, UnaryOperatorRegistry, MethodRegistry,
+    // New direct dispatch functions
+    evaluate_binary, evaluate_unary, dispatch_builtin_method,
+    // Method traits and types
+    MethodDispatcher, UserMethod, UserMethodRegistry,
 };
 pub use evaluator::{Evaluator, EvaluatorBuilder};
 pub use sigil_patterns::{EvalResult, EvalError};

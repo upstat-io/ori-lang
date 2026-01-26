@@ -51,49 +51,45 @@ impl CollectionMethodResolver {
             methods: MethodNames::new(interner),
         }
     }
+
+    /// Resolve methods common to all iterable types (List, Range).
+    fn resolve_iterable_method(&self, method_name: Name) -> Option<CollectionMethod> {
+        if method_name == self.methods.map {
+            Some(CollectionMethod::Map)
+        } else if method_name == self.methods.filter {
+            Some(CollectionMethod::Filter)
+        } else if method_name == self.methods.fold {
+            Some(CollectionMethod::Fold)
+        } else if method_name == self.methods.find {
+            Some(CollectionMethod::Find)
+        } else if method_name == self.methods.any {
+            Some(CollectionMethod::Any)
+        } else if method_name == self.methods.all {
+            Some(CollectionMethod::All)
+        } else {
+            None
+        }
+    }
 }
 
 impl MethodResolver for CollectionMethodResolver {
     fn resolve(&self, receiver: &Value, _type_name: Name, method_name: Name) -> MethodResolution {
         // Check if this is a collection type and the method is a known collection method
         match receiver {
-            Value::List(_) => {
-                if method_name == self.methods.map {
-                    MethodResolution::Collection(CollectionMethod::Map)
-                } else if method_name == self.methods.filter {
-                    MethodResolution::Collection(CollectionMethod::Filter)
-                } else if method_name == self.methods.fold {
-                    MethodResolution::Collection(CollectionMethod::Fold)
-                } else if method_name == self.methods.find {
-                    MethodResolution::Collection(CollectionMethod::Find)
-                } else if method_name == self.methods.any {
-                    MethodResolution::Collection(CollectionMethod::Any)
-                } else if method_name == self.methods.all {
-                    MethodResolution::Collection(CollectionMethod::All)
-                } else {
-                    MethodResolution::NotFound
-                }
-            }
+            Value::List(_) => self
+                .resolve_iterable_method(method_name)
+                .map_or(MethodResolution::NotFound, MethodResolution::Collection),
             Value::Range(_) => {
+                // Range has collect() in addition to iterable methods
                 if method_name == self.methods.collect {
                     MethodResolution::Collection(CollectionMethod::Collect)
-                } else if method_name == self.methods.map {
-                    MethodResolution::Collection(CollectionMethod::Map)
-                } else if method_name == self.methods.filter {
-                    MethodResolution::Collection(CollectionMethod::Filter)
-                } else if method_name == self.methods.fold {
-                    MethodResolution::Collection(CollectionMethod::Fold)
-                } else if method_name == self.methods.find {
-                    MethodResolution::Collection(CollectionMethod::Find)
-                } else if method_name == self.methods.any {
-                    MethodResolution::Collection(CollectionMethod::Any)
-                } else if method_name == self.methods.all {
-                    MethodResolution::Collection(CollectionMethod::All)
                 } else {
-                    MethodResolution::NotFound
+                    self.resolve_iterable_method(method_name)
+                        .map_or(MethodResolution::NotFound, MethodResolution::Collection)
                 }
             }
             Value::Map(_) => {
+                // Map uses special *Entries variants for map/filter
                 if method_name == self.methods.map {
                     MethodResolution::Collection(CollectionMethod::MapEntries)
                 } else if method_name == self.methods.filter {

@@ -5,9 +5,7 @@
 
 use crate::eval::Value;
 
-// =============================================================================
 // Test Value Constructors
-// =============================================================================
 
 /// Create a simple test value for use in tests.
 pub fn test_int(n: i64) -> Value {
@@ -69,9 +67,7 @@ pub fn test_void() -> Value {
     Value::Void
 }
 
-// =============================================================================
 // Value Matchers
-// =============================================================================
 
 /// Check if a value is an integer with the expected value.
 pub fn is_int(value: &Value, expected: i64) -> bool {

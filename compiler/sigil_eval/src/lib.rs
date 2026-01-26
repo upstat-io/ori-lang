@@ -6,9 +6,9 @@
 //!
 //! The evaluator uses:
 //! - `Environment`: Variable scoping with a scope stack
-//! - `OperatorRegistry`: Binary operator dispatch
-//! - `UnaryOperatorRegistry`: Unary operator dispatch
-//! - `MethodRegistry`: Method dispatch for built-in types
+//! - `evaluate_binary`: Direct enum-based binary operator dispatch
+//! - `evaluate_unary`: Direct enum-based unary operator dispatch
+//! - `dispatch_builtin_method`: Direct enum-based method dispatch for built-in types
 //! - `UserMethodRegistry`: User-defined method dispatch for impl blocks
 //! - `Value` types from `sigil_patterns`
 //!
@@ -68,13 +68,20 @@ pub use errors::{
 };
 
 pub use environment::{Environment, LocalScope, Scope};
-pub use methods::{MethodDispatcher, MethodRegistry};
-pub use operators::{BinaryOperator, OperatorRegistry};
-pub use unary_operators::{UnaryOperator, UnaryOperatorRegistry};
+pub use methods::dispatch_builtin_method;
+#[allow(deprecated)]
+pub use methods::MethodRegistry;
+pub use methods::MethodDispatcher;
+#[allow(deprecated)]
+pub use operators::OperatorRegistry;
+pub use operators::evaluate_binary;
+#[allow(deprecated)]
+pub use unary_operators::UnaryOperatorRegistry;
+pub use unary_operators::evaluate_unary;
 pub use method_key::MethodKey;
-pub use user_methods::{
-    DerivedMethodInfo, DerivedTrait, MethodEntry, UserMethod, UserMethodRegistry,
-};
+pub use user_methods::{MethodEntry, UserMethod, UserMethodRegistry};
+// Re-export from sigil_ir for backward compatibility
+pub use sigil_ir::{DerivedMethodInfo, DerivedTrait};
 
 pub use function_val::{
     function_val_byte, function_val_float, function_val_int, function_val_str,

@@ -38,9 +38,7 @@ use super::ast::{
 };
 use super::{ExprArena, ExprId};
 
-// =============================================================================
 // Visitor Trait
-// =============================================================================
 
 /// AST Visitor trait.
 ///
@@ -152,9 +150,7 @@ pub trait Visitor<'ast> {
     }
 }
 
-// =============================================================================
 // Walk Functions
-// =============================================================================
 
 /// Walk a module's children.
 pub fn walk_module<'ast, V: Visitor<'ast> + ?Sized>(
@@ -552,9 +548,7 @@ pub fn walk_function_exp<'ast, V: Visitor<'ast> + ?Sized>(
     }
 }
 
-// =============================================================================
 // Backwards Compatibility
-// =============================================================================
 
 /// Type alias for backwards compatibility.
 #[deprecated(note = "Use Visitor instead")]
@@ -570,9 +564,7 @@ pub trait VisitMut<'ast>: Visitor<'ast> {}
 #[allow(deprecated)]
 impl<'ast, T: Visitor<'ast>> VisitMut<'ast> for T {}
 
-// =============================================================================
 // Tests
-// =============================================================================
 
 #[cfg(test)]
 mod tests {

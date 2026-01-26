@@ -40,10 +40,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Cursor delegation methods
-    // These delegate to the underlying Cursor for token navigation.
-    // -------------------------------------------------------------------------
+    /// Cursor delegation methods - delegate to the underlying Cursor for token navigation.
 
     #[inline]
     fn current(&self) -> &Token {
@@ -702,10 +699,6 @@ mod tests {
 
         assert!(!result.has_errors(), "Expected no parse errors: {:?}", result.errors);
     }
-
-    // ========================================================================
-    // Async Capability Tests
-    // ========================================================================
 
     #[test]
     fn test_no_async_type_modifier() {
