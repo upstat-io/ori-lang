@@ -257,6 +257,39 @@ impl Name {
 }
 ```
 
+## StringLookup Trait
+
+The `StringLookup` trait provides a minimal interface for Name resolution, avoiding
+circular dependencies between crates:
+
+```rust
+// In sigil_ir::interner
+pub trait StringLookup {
+    fn lookup(&self, name: Name) -> &str;
+}
+
+impl StringLookup for StringInterner {
+    fn lookup(&self, name: Name) -> &str {
+        StringInterner::lookup(self, name)
+    }
+}
+```
+
+This trait is re-exported from `sigil_patterns` and used by `Value::type_name_with_interner()`:
+
+```rust
+// In sigil_patterns::value
+pub fn type_name_with_interner<I: StringLookup>(&self, interner: &I) -> Cow<'static, str> {
+    match self {
+        Value::Struct(s) => Cow::Owned(interner.lookup(s.type_name).to_string()),
+        _ => Cow::Borrowed(self.type_name()),
+    }
+}
+```
+
+This pattern allows the value crate to resolve struct type names without depending
+on the full interner implementation.
+
 ## Limitations
 
 1. **Interned strings are never freed** - The interner only grows

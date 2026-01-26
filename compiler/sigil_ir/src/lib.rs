@@ -49,7 +49,7 @@ pub mod visitor;
 pub use span::Span;
 pub use name::Name;
 pub use token::{Token, TokenKind, TokenList, DurationUnit, SizeUnit};
-pub use interner::{StringInterner, SharedInterner};
+pub use interner::{StringInterner, SharedInterner, StringLookup};
 pub use type_id::TypeId;
 pub use expr_id::{ExprId, ExprRange, StmtId, StmtRange};
 pub use parsed_type::ParsedType;

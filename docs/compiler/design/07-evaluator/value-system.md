@@ -179,24 +179,112 @@ impl Value {
 }
 ```
 
+## Type Name Resolution
+
+Two methods exist for getting type names:
+
+### `type_name()` - Static Type Names
+
+Returns a static string for the value's type. For structs, returns `"struct"`
+(cannot resolve the actual type name without an interner).
+
+```rust
+pub fn type_name(&self) -> &'static str {
+    match self {
+        Value::Int(_) => "int",
+        Value::Struct(_) => "struct",  // Cannot resolve actual name
+        // ...
+    }
+}
+```
+
+### `type_name_with_interner()` - Full Type Names
+
+Returns the actual type name, using the interner to resolve struct type names:
+
+```rust
+pub fn type_name_with_interner<I: StringLookup>(&self, interner: &I) -> Cow<'static, str> {
+    match self {
+        Value::Struct(s) => Cow::Owned(interner.lookup(s.type_name).to_string()),
+        Value::Range(_) => Cow::Borrowed("range"),
+        _ => Cow::Borrowed(self.type_name()),
+    }
+}
+```
+
+The `StringLookup` trait is defined in `sigil_ir::interner` and implemented for
+`StringInterner`. This avoids circular dependencies between crates.
+
+**Usage in method dispatch:**
+
+```rust
+// In Evaluator::get_value_type_name()
+pub(super) fn get_value_type_name(&self, value: &Value) -> String {
+    value.type_name_with_interner(self.interner).into_owned()
+}
+```
+
 Truthiness rules:
 - `Bool(false)`, `Int(0)`, empty string, empty list, `None`, `Err`, `Void` → falsy
 - Everything else → truthy
 
-## Equality
+## Equality and Hashing
+
+Values implement `Eq` and `Hash` for use in collections:
 
 ```rust
-impl Value {
-    /// Structural equality comparison.
-    pub fn equals(&self, other: &Value) -> bool;
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Int(a), Value::Int(b)) => a == b,
+            (Value::Struct(a), Value::Struct(b)) => {
+                a.type_name == b.type_name
+                    && a.fields.iter().zip(b.fields.iter()).all(|(av, bv)| av == bv)
+            }
+            (Value::Map(a), Value::Map(b)) => {
+                a.len() == b.len()
+                    && a.iter().all(|(k, v)| b.get(k).is_some_and(|bv| v == bv))
+            }
+            // ... other cases
+        }
+    }
 }
 
-impl PartialEq for Value {
-    fn eq(&self, other: &Self) -> bool;
+impl Eq for Value {}
+
+impl Hash for Value {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Value::Int(n) => n.hash(state),
+            Value::Float(f) => f.to_bits().hash(state),
+            Value::Map(m) => {
+                m.len().hash(state);
+                // Sort keys for deterministic hashing
+                let mut keys: Vec<_> = m.keys().collect();
+                keys.sort();
+                for k in keys {
+                    k.hash(state);
+                    m.get(k).hash(state);
+                }
+            }
+            // ... other cases
+        }
+    }
 }
 ```
 
-Note: Float comparison uses direct `==` (may differ from IEEE semantics for NaN).
+This enables Values to be used in `HashSet<Value>` and as keys in `HashMap<Value, _>`:
+
+```rust
+let mut set: HashSet<Value> = HashSet::new();
+set.insert(Value::Int(1));
+set.insert(Value::Int(2));
+set.insert(Value::Int(1)); // Duplicate, not added
+assert_eq!(set.len(), 2);
+```
+
+Note: Float comparison uses direct `==` (may differ from IEEE semantics for NaN). Float hashing uses `to_bits()` for consistency.
 
 ## Display
 

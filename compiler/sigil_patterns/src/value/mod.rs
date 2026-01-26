@@ -28,8 +28,12 @@
 mod composite;
 mod heap;
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
+
+// Re-export StringLookup from sigil_ir for convenience
+pub use sigil_ir::StringLookup;
 
 pub use composite::{FunctionValue, RangeValue, StructLayout, StructValue};
 pub use heap::Heap;
@@ -281,6 +285,23 @@ impl Value {
             Value::Size(_) => "Size",
             Value::Range(_) => "Range",
             Value::Error(_) => "error",
+        }
+    }
+
+    /// Get the concrete type name, resolving struct names via the interner.
+    ///
+    /// For struct values, this returns the actual struct name (e.g., "Point").
+    /// For Range values, returns "range" (lowercase) for method dispatch consistency.
+    /// For all other types, delegates to `type_name()`.
+    ///
+    /// This method unifies the type name logic that was previously duplicated
+    /// between `Value::type_name()` and `Evaluator::get_value_type_name()`.
+    pub fn type_name_with_interner<I: StringLookup>(&self, interner: &I) -> Cow<'static, str> {
+        match self {
+            Value::Struct(s) => Cow::Owned(interner.lookup(s.type_name).to_string()),
+            // Range uses lowercase for method dispatch (distinct from type_name()'s "Range")
+            Value::Range(_) => Cow::Borrowed("range"),
+            _ => Cow::Borrowed(self.type_name()),
         }
     }
 

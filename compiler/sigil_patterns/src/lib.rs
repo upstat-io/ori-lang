@@ -47,7 +47,7 @@ pub use errors::{EvalError, EvalResult};
 pub use fusion::{ChainLink, FusedPattern, FusionAnalyzer, FusionHints, PatternChain};
 pub use registry::{PatternRegistry, SharedPattern};
 pub use signature::{DefaultValue, FunctionSignature, OptionalArg, PatternSignature};
-pub use value::{FunctionValFn, FunctionValue, Heap, RangeValue, StructLayout, StructValue, Value};
+pub use value::{FunctionValFn, FunctionValue, Heap, RangeValue, StringLookup, StructLayout, StructValue, Value};
 
 // Re-export error constructors for use by other crates
 pub use errors::{

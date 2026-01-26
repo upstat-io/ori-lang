@@ -2,27 +2,30 @@
 //!
 //! Resolves methods defined in impl blocks.
 
-use crate::context::SharedRegistry;
+use crate::context::SharedMutableRegistry;
 use sigil_eval::UserMethodRegistry;
 use super::{MethodResolution, MethodResolver, Value};
 
 /// Resolver for user-defined methods from impl blocks.
 ///
 /// Priority 0 (highest) - user methods take precedence over all others.
+///
+/// Uses `SharedMutableRegistry` so that methods registered after the dispatcher
+/// is created are still visible.
 pub struct UserMethodResolver {
-    registry: SharedRegistry<UserMethodRegistry>,
+    registry: SharedMutableRegistry<UserMethodRegistry>,
 }
 
 impl UserMethodResolver {
     /// Create a new resolver with the given registry.
-    pub fn new(registry: SharedRegistry<UserMethodRegistry>) -> Self {
+    pub fn new(registry: SharedMutableRegistry<UserMethodRegistry>) -> Self {
         Self { registry }
     }
 }
 
 impl MethodResolver for UserMethodResolver {
     fn resolve(&self, _receiver: &Value, type_name: &str, method_name: &str) -> MethodResolution {
-        if let Some(user_method) = self.registry.lookup(type_name, method_name) {
+        if let Some(user_method) = self.registry.read().lookup(type_name, method_name) {
             MethodResolution::User(user_method.clone())
         } else {
             MethodResolution::NotFound
@@ -44,14 +47,14 @@ mod tests {
 
     #[test]
     fn test_priority() {
-        let registry = SharedRegistry::new(UserMethodRegistry::new());
+        let registry = SharedMutableRegistry::new(UserMethodRegistry::new());
         let resolver = UserMethodResolver::new(registry);
         assert_eq!(resolver.priority(), 0);
     }
 
     #[test]
     fn test_not_found_for_missing_method() {
-        let registry = SharedRegistry::new(UserMethodRegistry::new());
+        let registry = SharedMutableRegistry::new(UserMethodRegistry::new());
         let resolver = UserMethodResolver::new(registry);
 
         let result = resolver.resolve(&Value::Int(42), "int", "unknown_method");
