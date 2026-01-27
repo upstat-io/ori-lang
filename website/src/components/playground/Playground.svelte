@@ -130,7 +130,7 @@
     display: flex;
     flex-direction: column;
     width: 100%;
-    background: var(--color-bg-code, #1e1e1e);
+    background: var(--color-bg-secondary, #13141a);
     border: 1px solid var(--color-border, #2a2b35);
     border-radius: var(--radius-lg, 8px);
     overflow: hidden;

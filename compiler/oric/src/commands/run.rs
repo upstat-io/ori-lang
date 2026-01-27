@@ -1,0 +1,50 @@
+//! The `run` command: parse, type-check, and evaluate an Ori source file.
+
+use oric::query::{evaluated, parsed, typed};
+use oric::{CompilerDb, SourceFile};
+use std::path::PathBuf;
+
+use super::read_file;
+
+/// Run an Ori source file: parse, type-check, and evaluate it.
+pub(crate) fn run_file(path: &str) {
+    let content = read_file(path);
+    let db = CompilerDb::new();
+    let file = SourceFile::new(&db, PathBuf::from(path), content);
+
+    // First check for parse errors
+    let parse_result = parsed(&db, file);
+    if parse_result.has_errors() {
+        eprintln!("Parse errors in '{path}':");
+        for error in &parse_result.errors {
+            eprintln!("  {}: {}", error.span, error.message);
+        }
+        std::process::exit(1);
+    }
+
+    // Then check for type errors
+    let type_result = typed(&db, file);
+    if type_result.has_errors() {
+        eprintln!("Type errors in '{path}':");
+        for error in &type_result.errors {
+            eprintln!("  {error:?}");
+        }
+        std::process::exit(1);
+    }
+
+    // Finally, evaluate
+    let eval_result = evaluated(&db, file);
+    if eval_result.is_failure() {
+        eprintln!("Runtime error: {}", eval_result.error.unwrap_or_default());
+        std::process::exit(1);
+    }
+
+    // Print the result if it's not void
+    if let Some(result) = eval_result.result {
+        use oric::EvalOutput;
+        match result {
+            EvalOutput::Void => {}
+            _ => println!("{}", result.display()),
+        }
+    }
+}

@@ -276,7 +276,38 @@ impl TraitRegistry {
     /// Look up a method on a type (checks inherent impls first, then trait impls).
     ///
     /// Returns the method signature with types converted from `TypeId` to Type.
+    ///
+    /// Results are cached: the first lookup for a `(type, method_name)` pair performs the
+    /// full scan through inherent impls, trait impls, and default methods, then caches the
+    /// result. Subsequent lookups for the same pair return the cached value in O(1).
+    /// The cache is invalidated whenever traits or implementations are registered.
     pub fn lookup_method(&self, self_ty: &Type, method_name: Name) -> Option<MethodLookup> {
+        let cache_key = (self_ty.clone(), method_name);
+
+        // Check the cache first
+        if let Some(cached) = self.method_cache.borrow().get(&cache_key) {
+            return cached.clone();
+        }
+
+        // Cache miss — perform the full lookup
+        let result = self.lookup_method_uncached(self_ty, method_name);
+
+        // Cache the result (including None, to avoid repeated misses)
+        self.method_cache
+            .borrow_mut()
+            .insert(cache_key, result.clone());
+
+        result
+    }
+
+    /// Perform method lookup without consulting the cache.
+    ///
+    /// Checks inherent impls first, then trait impls, then default methods.
+    fn lookup_method_uncached(
+        &self,
+        self_ty: &Type,
+        method_name: Name,
+    ) -> Option<MethodLookup> {
         // First check inherent impls
         if let Some(impl_entry) = self.get_inherent_impl(self_ty) {
             if let Some(method) = impl_entry.methods.iter().find(|m| m.name == method_name) {

@@ -31,10 +31,18 @@ compiler/
 │       └── visitor.rs        # AST visitor pattern
 ├── ori_diagnostic/           # Error reporting
 │   └── src/
-│       ├── lib.rs            # Diagnostic, Applicability, ErrorCode
+│       ├── lib.rs            # Module organization and re-exports
+│       ├── error_code.rs     # ErrorCode enum, as_str(), Display
+│       ├── diagnostic.rs     # Diagnostic, Label, Severity, Applicability, Suggestion
+│       ├── guarantee.rs      # ErrorGuaranteed type-level proof
 │       ├── queue.rs          # DiagnosticQueue (deduplication, limits)
+│       ├── span_utils.rs     # Line/column computation from spans
 │       ├── errors/           # Embedded error documentation
 │       ├── emitter/          # Output formatting (terminal, JSON, SARIF)
+│       │   ├── mod.rs        # Emitter trait, trailing_comma() helper
+│       │   ├── terminal.rs   # Terminal output (colored)
+│       │   ├── json.rs       # JSON output
+│       │   └── sarif.rs      # SARIF format (BTreeSet for rule dedup)
 │       └── fixes/            # Code suggestions and fixes
 ├── ori_lexer/                # Tokenization (logos-based)
 │   └── src/lib.rs            # lex() function, token processing
@@ -68,7 +76,7 @@ compiler/
 │       ├── errors.rs         # EvalError factories
 │       ├── operators.rs      # Binary operator dispatch
 │       ├── unary_operators.rs # Unary operator dispatch
-│       ├── methods.rs        # Built-in method dispatch
+│       ├── methods.rs        # Built-in method dispatch, EVAL_BUILTIN_METHODS constant
 │       ├── function_val.rs   # Type conversion functions (int, float, str, byte)
 │       ├── user_methods.rs   # UserMethodRegistry
 │       ├── print_handler.rs  # Print output capture
@@ -100,7 +108,15 @@ compiler/
 └── oric/                     # CLI orchestrator + Salsa queries
     └── src/
         ├── lib.rs            # Module organization
-        ├── main.rs           # CLI entry point
+        ├── main.rs           # CLI dispatcher (thin: delegates to commands/)
+        ├── commands/         # Command handlers (extracted from main.rs)
+        │   ├── mod.rs        # Re-exports all command functions
+        │   ├── run.rs        # run_file()
+        │   ├── test.rs       # run_tests()
+        │   ├── check.rs      # check_file()
+        │   ├── compile.rs    # compile_file()
+        │   ├── explain.rs    # explain_error(), parse_error_code()
+        │   └── debug.rs      # parse_file(), lex_file()
         ├── db.rs             # Salsa database definition
         ├── query/            # Salsa query definitions
         ├── typeck/           # Type checking and inference
@@ -244,7 +260,7 @@ impl PatternRegistry {
 | Crate | Purpose |
 |-------|---------|
 | `ori_ir` | Core IR types: tokens, spans, AST, arena, string interning, TypeId |
-| `ori_diagnostic` | Error reporting, DiagnosticQueue, ErrorGuaranteed, emitters, error docs |
+| `ori_diagnostic` | Error reporting (split: error_code, diagnostic, guarantee), DiagnosticQueue, emitters, error docs |
 | `ori_lexer` | Tokenization via logos |
 | `ori_types` | Type system: Type/TypeData, TypeInterner, InferenceContext, TypeIdFolder |
 | `ori_parse` | Recursive descent parser |

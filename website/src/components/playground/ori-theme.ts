@@ -2,23 +2,85 @@ import type * as Monaco from 'monaco-editor';
 
 export const oriDarkTheme: Monaco.editor.IStandaloneThemeData = {
   base: 'vs-dark',
-  inherit: true,
+  inherit: false,
   rules: [
-    { token: 'entity.name.function', foreground: 'DCDCAA' },
-    { token: 'variable.parameter', foreground: '9CDCFE' },
-    { token: 'keyword', foreground: '569CD6' },
-    { token: 'type', foreground: '4EC9B0' },
-    { token: 'string', foreground: 'CE9178' },
-    { token: 'number', foreground: 'B5CEA8' },
-    { token: 'comment', foreground: '6A9955' },
-    { token: 'operator', foreground: 'D4D4D4' },
+    // Functions - accent blue, slightly brighter
+    { token: 'entity.name.function', foreground: '6cb6ff' },
+    // Parameters - secondary text
+    { token: 'variable.parameter', foreground: '9ca0ab' },
+    // Keywords - accent blue
+    { token: 'keyword', foreground: '569cd6' },
+    // Types - success teal
+    { token: 'type', foreground: '4ec9b0' },
+    // Strings - warm muted orange
+    { token: 'string', foreground: 'd4976c' },
+    // Numbers - soft purple (complement to teal)
+    { token: 'number', foreground: 'b4a7d6' },
+    // Comments - muted
+    { token: 'comment', foreground: '636874' },
+    // Operators - primary text
+    { token: 'operator', foreground: 'e2e4e9' },
+    // Punctuation - muted
+    { token: 'delimiter', foreground: '9ca0ab' },
+    { token: 'delimiter.bracket', foreground: '9ca0ab' },
+    // Constants (true, false, None, etc)
+    { token: 'constant', foreground: 'd4976c' },
+    // Attributes
+    { token: 'annotation', foreground: '636874' },
   ],
   colors: {
-    'editor.background': '#1e1e1e',
-    'editor.foreground': '#d4d4d4',
-    'editorLineNumber.foreground': '#858585',
-    'editorCursor.foreground': '#aeafad',
-    'editor.selectionBackground': '#264f78',
-    'editor.lineHighlightBackground': '#2a2a2a',
+    // Backgrounds - match website tokens
+    'editor.background': '#13141a',
+    'editor.foreground': '#e2e4e9',
+    'editorLineNumber.foreground': '#636874',
+    'editorLineNumber.activeForeground': '#9ca0ab',
+    'editorCursor.foreground': '#569cd6',
+    'editor.selectionBackground': 'rgba(86, 156, 214, 0.3)',
+    'editor.inactiveSelectionBackground': 'rgba(86, 156, 214, 0.15)',
+    'editor.lineHighlightBackground': '#1a1b23',
+    'editor.lineHighlightBorder': '#2a2b35',
+    // Scrollbar
+    'scrollbarSlider.background': 'rgba(99, 104, 116, 0.3)',
+    'scrollbarSlider.hoverBackground': 'rgba(99, 104, 116, 0.5)',
+    'scrollbarSlider.activeBackground': 'rgba(99, 104, 116, 0.7)',
+    // Widget
+    'editorWidget.background': '#1a1b23',
+    'editorWidget.border': '#2a2b35',
+    'editorSuggestWidget.background': '#1a1b23',
+    'editorSuggestWidget.border': '#2a2b35',
+    'editorSuggestWidget.selectedBackground': '#21222c',
+    // Misc
+    'editorIndentGuide.background': '#2a2b35',
+    'editorIndentGuide.activeBackground': '#3c3d4a',
+    // Bracket matching - subtle highlight
+    'editorBracketMatch.background': 'rgba(86, 156, 214, 0.15)',
+    'editorBracketMatch.border': 'rgba(86, 156, 214, 0.5)',
+    // Bracket pair colorization - all muted
+    'editorBracketHighlight.foreground1': '#9ca0ab',
+    'editorBracketHighlight.foreground2': '#9ca0ab',
+    'editorBracketHighlight.foreground3': '#9ca0ab',
+    'editorBracketHighlight.foreground4': '#9ca0ab',
+    'editorBracketHighlight.foreground5': '#9ca0ab',
+    'editorBracketHighlight.foreground6': '#9ca0ab',
+    'editorBracketHighlight.unexpectedBracket.foreground': '#9ca0ab',
+    // Bracket pair guides
+    'editorBracketPairGuide.activeBackground1': '#9ca0ab',
+    'editorBracketPairGuide.activeBackground2': '#9ca0ab',
+    'editorBracketPairGuide.activeBackground3': '#9ca0ab',
+    'editorBracketPairGuide.activeBackground4': '#9ca0ab',
+    'editorBracketPairGuide.activeBackground5': '#9ca0ab',
+    'editorBracketPairGuide.activeBackground6': '#9ca0ab',
+    'editorBracketPairGuide.background1': 'transparent',
+    'editorBracketPairGuide.background2': 'transparent',
+    'editorBracketPairGuide.background3': 'transparent',
+    'editorBracketPairGuide.background4': 'transparent',
+    'editorBracketPairGuide.background5': 'transparent',
+    'editorBracketPairGuide.background6': 'transparent',
+    // Overview ruler brackets
+    'editorOverviewRuler.bracketMatchForeground': '#569cd6',
+    // Error squiggles and markers
+    'editorError.foreground': '#f14c4c',
+    'editorWarning.foreground': '#cca700',
+    'editorInfo.foreground': '#569cd6',
   },
 };

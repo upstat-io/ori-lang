@@ -17,7 +17,10 @@ The diagnostics system spans multiple crates:
 compiler/
 ├── ori_diagnostic/               # Core diagnostic types (separate crate)
 │   └── src/
-│       ├── lib.rs                    # Diagnostic, ErrorCode, Applicability, Severity, ErrorGuaranteed
+│       ├── lib.rs                    # Module organization and re-exports
+│       ├── error_code.rs             # ErrorCode enum, as_str(), Display
+│       ├── diagnostic.rs             # Diagnostic, Label, Severity, Applicability, Suggestion
+│       ├── guarantee.rs              # ErrorGuaranteed type-level proof
 │       ├── queue.rs                  # DiagnosticQueue for deduplication/limits
 │       ├── span_utils.rs             # Line/column computation from spans
 │       ├── errors/                   # Embedded error documentation for --explain
@@ -26,10 +29,10 @@ compiler/
 │       │   ├── E0002.md
 │       │   └── ...                       # (35+ error codes documented)
 │       ├── emitter/
-│       │   ├── mod.rs                    # Emitter trait
+│       │   ├── mod.rs                    # Emitter trait, trailing_comma() helper
 │       │   ├── terminal.rs               # Terminal output
 │       │   ├── json.rs                   # JSON output
-│       │   └── sarif.rs                  # SARIF format
+│       │   └── sarif.rs                  # SARIF format (BTreeSet for rule dedup)
 │       └── fixes/
 │           ├── mod.rs                    # Code fix system
 │           └── registry.rs               # Fix registry
@@ -47,9 +50,16 @@ compiler/
         ├── parse.rs                  # ParseProblem rendering
         ├── semantic.rs               # SemanticProblem rendering
         └── type_errors.rs            # TypeProblem rendering
+
+**Note:** The `problem/` and `reporting/` modules have an intentional 1:1 coupling.
+Each problem variant in `problem/mod.rs` has a corresponding `Render` implementation
+in `reporting/`. This separation keeps "what went wrong" (Problem) distinct from
+"how to display it" (Diagnostic), while the 1:1 mapping ensures every problem
+gets a tailored error message. Adding a new problem type requires adding its
+renderer in the corresponding reporting module.
 ```
 
-The `ori_diagnostic` crate contains the core `Diagnostic` type, `ErrorCode` enum, `Applicability` levels, diagnostic queue, and output emitters. It depends only on `ori_ir` (for `Span`). The proc-macros in `ori-macros` generate implementations of the `IntoDiagnostic` trait.
+The `ori_diagnostic` crate is organized into focused submodules: `error_code.rs` (ErrorCode enum), `diagnostic.rs` (Diagnostic, Label, Severity, Applicability, Suggestion types), and `guarantee.rs` (ErrorGuaranteed). The `lib.rs` re-exports all public types. It depends only on `ori_ir` (for `Span`). The proc-macros in `ori-macros` generate implementations of the `IntoDiagnostic` trait.
 
 ## Design Goals
 

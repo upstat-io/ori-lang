@@ -194,7 +194,7 @@ impl TypeInterner {
 
     /// Convert a `TypeId` back to a boxed Type.
     ///
-    /// This is the reverse direction of the bidirectional Type<->TypeId conversion.
+    /// This is the reverse direction of the bidirectional `Type`<->`TypeId` conversion.
     /// The forward operation is [`Type::to_type_id`], which interns a `Type`
     /// into a compact `TypeId`. Together they satisfy:
     ///
