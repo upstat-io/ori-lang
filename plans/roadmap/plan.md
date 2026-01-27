@@ -48,6 +48,50 @@ Approved proposals that need spec documentation:
 
 ---
 
+## Draft Proposals (Prelude Enhancements)
+
+New proposals from Rust prelude comparison (2026-01-27). These enhance Ori's prelude with commonly-needed functionality.
+
+### Syntax Changes
+
+- [ ] **`as` Conversion Syntax** — Replace `int()`, `float()`, `str()`, `byte()` with `as`/`as?`
+  - Proposal: `proposals/drafts/as-conversion-proposal.md`
+  - Removes special-case positional argument exception
+  - Adds `As<T>`, `TryAs<T>` traits to prelude
+  - Strict: `as` only for infallible, `as?` for fallible, explicit methods for lossy
+  - **Affects**: Phase 7 (Stdlib), Phase 15 (Syntax)
+
+### New Prelude Traits
+
+- [ ] **Iterator Traits** — Formalize iteration with `Iterator`, `Iterable`, `Collect`
+  - Proposal: `proposals/drafts/iterator-traits-proposal.md`
+  - Enables user types in `for` loops
+  - Formalizes `.map()`, `.filter()`, `.fold()` as trait extensions
+  - **Affects**: Phase 3 (Traits), Phase 7 (Stdlib)
+
+- [ ] **Debug Trait** — Separate from `Printable` for developer-facing output
+  - Proposal: `proposals/drafts/debug-trait-proposal.md`
+  - Derivable structural representation
+  - Enables `dbg` function
+  - **Affects**: Phase 3 (Traits), Phase 7 (Stdlib)
+
+### New Prelude Functions
+
+- [ ] **Developer Functions** — `todo`, `unreachable`, `dbg`
+  - Proposal: `proposals/drafts/developer-functions-proposal.md`
+  - `todo(reason:)` → `Never` — marks unfinished code
+  - `unreachable(reason:)` → `Never` — marks impossible branches
+  - `dbg(value:, label:)` → `T` — debug print that returns value
+  - **Affects**: Phase 7 (Stdlib)
+
+### Behavioral Decisions (No Proposal Needed)
+
+- **NaN comparisons panic** — Comparing NaN values panics (fits "bugs should be caught" philosophy)
+- **Skip `AsRef`/`AsMut`** — Ori's value semantics don't need reference conversion traits
+- **Skip `debug_assert*`** — Same behavior in all builds (consistency over conditional checks)
+
+---
+
 ## Phase Execution Order
 
 ### Tier 1: Foundation (REQUIRED FIRST)

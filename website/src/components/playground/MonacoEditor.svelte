@@ -57,6 +57,9 @@
       folding: true,
       lineDecorationsWidth: 10,
       lineNumbersMinChars: 3,
+      // Disable rainbow bracket colorization
+      'bracketPairColorization.enabled': false,
+      matchBrackets: 'always',
     });
 
     // Sync editor changes to bindable value
@@ -86,5 +89,14 @@
     width: 100%;
     height: 100%;
     min-height: 0;
+  }
+
+  /* Override Monaco's bracket matching - subtle blue accent */
+  .monaco-container :global(.monaco-editor .bracket-match),
+  .monaco-container :global(.monaco-editor .matchingBracket),
+  .monaco-container :global(.bracket-match) {
+    background-color: rgba(86, 156, 214, 0.2) !important;
+    border: 1px solid rgba(86, 156, 214, 0.6) !important;
+    box-sizing: border-box;
   }
 </style>

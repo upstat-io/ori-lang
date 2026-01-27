@@ -10,21 +10,56 @@
 
 ## 7.1 Type Conversions
 
-- [ ] **Implement**: `int(x)` — spec/11-built-in-functions.md § int
-  - [ ] **Rust Tests**: `oric/src/eval/function_val.rs` — int conversion tests
+> **PROPOSAL**: `proposals/drafts/as-conversion-proposal.md`
+>
+> Type conversions use `as`/`as?` syntax instead of `int()`, `float()`, etc.
+> This removes the special-case exception for positional arguments.
+
+- [ ] **Implement**: `As<T>` trait — infallible conversions
+  - [ ] **Rust Tests**: `oric/src/typeck/traits/as_trait.rs` — As trait tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/conversions.ori`
 
-- [ ] **Implement**: `float(x)` — spec/11-built-in-functions.md § float
-  - [ ] **Rust Tests**: `oric/src/eval/function_val.rs` — float conversion tests
+- [ ] **Implement**: `TryAs<T>` trait — fallible conversions returning `Option<T>`
+  - [ ] **Rust Tests**: `oric/src/typeck/traits/try_as_trait.rs` — TryAs trait tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/conversions.ori`
 
-- [ ] **Implement**: `str(x)` — spec/11-built-in-functions.md § str
-  - [ ] **Rust Tests**: `oric/src/eval/function_val.rs` — str conversion tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/conversions.ori`
+- [ ] **Implement**: `x as T` syntax — desugars to `As<T>.as(self: x)`
+  - [ ] **Rust Tests**: `oric/src/eval/as_conversion.rs` — as syntax tests
+  - [ ] **Ori Tests**: `tests/spec/expressions/as_conversion.ori`
 
-- [ ] **Implement**: `byte(x)` — spec/11-built-in-functions.md § byte
-  - [ ] **Rust Tests**: `oric/src/eval/function_val.rs` — byte conversion tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/conversions.ori`
+- [ ] **Implement**: `x as? T` syntax — desugars to `TryAs<T>.try_as(self: x)`
+  - [ ] **Rust Tests**: `oric/src/eval/as_conversion.rs` — as? syntax tests
+  - [ ] **Ori Tests**: `tests/spec/expressions/as_conversion.ori`
+
+- [ ] **Implement**: Standard `As` implementations
+  - `impl As<float> for int` — widening (infallible)
+  - `impl As<str> for int` — formatting (infallible)
+  - `impl As<str> for float` — formatting (infallible)
+  - `impl As<str> for bool` — "true"/"false" (infallible)
+  - `impl As<int> for char` — codepoint (infallible)
+  - [ ] **Ori Tests**: `tests/spec/stdlib/as_impls.ori`
+
+- [ ] **Implement**: Standard `TryAs` implementations
+  - `impl TryAs<int> for str` — parsing (fallible)
+  - `impl TryAs<float> for str` — parsing (fallible)
+  - `impl TryAs<byte> for int` — range check (fallible)
+  - `impl TryAs<char> for int` — valid codepoint check (fallible)
+  - [ ] **Ori Tests**: `tests/spec/stdlib/try_as_impls.ori`
+
+- [ ] **Implement**: Compile-time enforcement — `as` only for infallible conversions
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/as_conversion.rs` — enforcement tests
+  - [ ] **Ori Tests**: `tests/compile-fail/as_fallible.ori`
+
+- [ ] **Implement**: Float truncation methods (not `as`)
+  - `float.truncate() -> int` — toward zero
+  - `float.round() -> int` — nearest
+  - `float.floor() -> int` — toward negative infinity
+  - `float.ceil() -> int` — toward positive infinity
+  - [ ] **Ori Tests**: `tests/spec/stdlib/float_methods.ori`
+
+- [ ] **Remove**: `int()`, `float()`, `str()`, `byte()` function syntax
+  - These are replaced by `as`/`as?` syntax
+  - No migration period needed if implementing fresh
 
 ---
 
@@ -472,7 +507,150 @@ Returns `Option<T>` — `None` on overflow:
 
 ---
 
-## 7.15 Phase Completion Checklist
+## 7.15 Iterator Traits
+
+> **PROPOSAL**: `proposals/drafts/iterator-traits-proposal.md`
+>
+> Formalize iteration with traits, enabling user types in `for` loops and generic iteration.
+
+- [ ] **Implement**: `Iterator` trait
+  ```ori
+  trait Iterator {
+      type Item
+      @next (mut self) -> Option<Self.Item>
+  }
+  ```
+  - [ ] **Rust Tests**: `oric/src/typeck/traits/iterator.rs`
+  - [ ] **Ori Tests**: `tests/spec/traits/iterator.ori`
+
+- [ ] **Implement**: `Iterable` trait
+  ```ori
+  trait Iterable {
+      type Item
+      @iter (self) -> impl Iterator where Item == Self.Item
+  }
+  ```
+  - [ ] **Rust Tests**: `oric/src/typeck/traits/iterable.rs`
+  - [ ] **Ori Tests**: `tests/spec/traits/iterable.ori`
+
+- [ ] **Implement**: `Collect` trait
+  ```ori
+  trait Collect<T> {
+      @from_iter (iter: impl Iterator where Item == T) -> Self
+  }
+  ```
+  - [ ] **Rust Tests**: `oric/src/typeck/traits/collect.rs`
+  - [ ] **Ori Tests**: `tests/spec/traits/collect.ori`
+
+- [ ] **Implement**: Standard `Iterable` implementations
+  - `impl<T> Iterable for [T]` — list iteration
+  - `impl<K, V> Iterable for {K: V}` — map iteration (yields tuples)
+  - `impl<T> Iterable for Set<T>` — set iteration
+  - `impl Iterable for str` — character iteration
+  - `impl Iterable for Range<int>` — range iteration
+  - `impl<T> Iterable for Option<T>` — zero/one element
+  - [ ] **Ori Tests**: `tests/spec/stdlib/iterable_impls.ori`
+
+- [ ] **Implement**: Standard `Collect` implementations
+  - `impl<T> Collect<T> for [T]` — collect to list
+  - `impl<T> Collect<T> for Set<T>` — collect to set
+  - [ ] **Ori Tests**: `tests/spec/stdlib/collect_impls.ori`
+
+- [ ] **Implement**: `for` loop desugaring to `.iter()` and `.next()`
+  - [ ] **Rust Tests**: `oric/src/eval/for_loop.rs`
+  - [ ] **Ori Tests**: `tests/spec/control/for_iterator.ori`
+
+- [ ] **Implement**: Iterator extension methods
+  - `map`, `filter`, `fold`, `find`, `collect`, `count`
+  - `any`, `all`, `take`, `skip`, `enumerate`, `zip`, `chain`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/iterator_methods.ori`
+
+---
+
+## 7.16 Debug Trait
+
+> **PROPOSAL**: `proposals/drafts/debug-trait-proposal.md`
+>
+> Developer-facing structural output, separate from user-facing `Printable`.
+
+- [ ] **Implement**: `Debug` trait
+  ```ori
+  trait Debug {
+      @debug (self) -> str
+  }
+  ```
+  - [ ] **Rust Tests**: `oric/src/typeck/traits/debug.rs`
+  - [ ] **Ori Tests**: `tests/spec/traits/debug.ori`
+
+- [ ] **Implement**: `#[derive(Debug)]` for structs and sum types
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/debug.rs`
+  - [ ] **Ori Tests**: `tests/spec/traits/debug_derive.ori`
+
+- [ ] **Implement**: Standard `Debug` implementations
+  - All primitives: `int`, `float`, `bool`, `str`, `char`, `byte`, `void`
+  - Collections: `[T]`, `{K: V}`, `Set<T>` (require `T: Debug`)
+  - `Option<T>`, `Result<T, E>` (require inner types `Debug`)
+  - Tuples (require element types `Debug`)
+  - [ ] **Ori Tests**: `tests/spec/stdlib/debug_impls.ori`
+
+- [ ] **Implement**: String escaping in Debug output
+  - `"hello".debug()` → `"\"hello\""`
+  - `'\n'.debug()` → `"'\\n'"`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/debug_escaping.ori`
+
+---
+
+## 7.17 Developer Functions
+
+> **PROPOSAL**: `proposals/drafts/developer-functions-proposal.md`
+>
+> Convenience functions for development: placeholders and debugging.
+
+- [ ] **Implement**: `todo()` and `todo(reason: str)` → `Never`
+  - Panics with "not yet implemented" and location
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — todo tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/todo.ori`
+
+- [ ] **Implement**: `unreachable()` and `unreachable(reason: str)` → `Never`
+  - Panics with "unreachable code reached" and location
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — unreachable tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/unreachable.ori`
+
+- [ ] **Implement**: `dbg(value: T)` and `dbg(value: T, label: str)` → `T`
+  - Requires `T: Debug`
+  - Prints `[file:line] label = <debug>` to stderr
+  - Returns value unchanged
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — dbg tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/dbg.ori`
+
+- [ ] **Implement**: Location capture for `todo`, `unreachable`, `dbg`
+  - Compiler passes call-site location implicitly
+  - [ ] **Rust Tests**: `oric/src/eval/location.rs`
+
+---
+
+## 7.18 Float NaN Behavior
+
+> **Decision**: NaN comparisons panic (no proposal needed — behavioral decision)
+>
+> Fits Ori's "bugs should be caught" philosophy (same as integer overflow).
+
+- [ ] **Implement**: NaN comparison panics
+  - `NaN == NaN` → PANIC
+  - `NaN < x` → PANIC
+  - `NaN > x` → PANIC
+  - [ ] **Rust Tests**: `oric/src/eval/exec/binary.rs` — NaN comparison tests
+  - [ ] **Ori Tests**: `tests/spec/types/float_nan.ori`
+
+- [ ] **Implement**: NaN-producing operations don't panic (only comparisons)
+  - `0.0 / 0.0` → NaN (allowed)
+  - Using NaN in arithmetic → NaN (allowed)
+  - Comparing NaN → PANIC
+  - [ ] **Ori Tests**: `tests/spec/types/float_nan_ops.ori`
+
+---
+
+## 7.19 Phase Completion Checklist
 
 - [ ] All items above have all three checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md

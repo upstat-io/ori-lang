@@ -115,13 +115,25 @@ pub trait PatternDefinition: Send + Sync {
         args: &[EvalArg],
         evaluator: &mut Evaluator,
     ) -> Result<Value, EvalError>;
+}
+```
 
-    /// Optional: fuse with following pattern
-    fn fuse_with(&self, _next: &dyn PatternDefinition) -> Option<Box<dyn PatternDefinition>> {
-        None
+## Iterable Helpers
+
+The `Iterable` enum (List or Range) provides a shared `iter_values()` method that abstracts over iteration:
+
+```rust
+impl Iterable {
+    fn iter_values(&self) -> Box<dyn Iterator<Item = Value> + '_> {
+        match self {
+            Iterable::List(list) => Box::new(list.iter().cloned()),
+            Iterable::Range(range) => Box::new(range.iter().map(Value::int)),
+        }
     }
 }
 ```
+
+The `map_values`, `filter_values`, `fold_values`, and `find_value` methods all use `iter_values()`, eliminating duplicated match arms across each operation.
 
 ## Usage Example
 
@@ -143,5 +155,5 @@ let sum = items.fold(initial: 0, op: (acc, x) -> acc + x)
 
 - [Pattern Trait](pattern-trait.md) - PatternDefinition interface
 - [Pattern Registry](pattern-registry.md) - Registration system
-- [Pattern Fusion](pattern-fusion.md) - Optimization passes
+- [Pattern Fusion](pattern-fusion.md) - Fusion optimization (FusionOptimizer)
 - [Adding Patterns](adding-patterns.md) - How to add new patterns

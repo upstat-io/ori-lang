@@ -27,10 +27,12 @@ compiler/ori_types/src/
 compiler/ori_typeck/src/
 ├── lib.rs                    # Module exports
 ├── checker/                  # Main type checker
-│   ├── mod.rs                    # TypeChecker struct, check_module entry
+│   ├── mod.rs                    # TypeChecker struct, check_module entry (~798 lines)
 │   ├── builder.rs                # TypeCheckerBuilder pattern
 │   ├── components.rs             # CheckContext, InferenceState, Registries, DiagnosticState, ScopeContext
-│   ├── scope_guards.rs           # RAII scope guards for capability/impl contexts
+│   ├── scope_guards.rs           # RAII scope guards (private fields, pub(super) access)
+│   ├── function_checking.rs      # check_callable, check_function, check_test, check_impl_methods
+│   ├── type_resolution.rs        # type_id_to_type, parsed_type_to_type, resolve_well_known_generic
 │   ├── signatures.rs             # infer_function_signature
 │   ├── pattern_binding.rs        # bind_pattern logic
 │   ├── cycle_detection.rs        # collect_free_vars, closure self-capture
@@ -43,7 +45,7 @@ compiler/ori_typeck/src/
 │   └── mod.rs                    # Derive registration and checking
 ├── registry/                 # User-defined types
 │   ├── mod.rs                    # TypeRegistry struct
-│   └── trait_registry.rs         # TraitRegistry, TraitEntry, ImplEntry
+│   └── trait_registry.rs         # TraitRegistry (with method_cache), TraitEntry, ImplEntry
 └── infer/
     ├── mod.rs                # Inference dispatcher
     ├── expr.rs               # Expression inference
@@ -192,6 +194,41 @@ checker.with_impl_scope(self_type, |c| {
 
 This prevents bugs from forgotten context restores and ensures cleanup on early returns.
 
+The scope guard structs (`SavedCapabilityContext`, `SavedImplContext`) use private fields with `pub(super)` access, ensuring they can only be constructed through the guard methods.
+
+#### Extracted Checker Modules
+
+The type checker's `check_function` and `check_test` methods share ~95% of their logic. The shared `check_callable()` method in `function_checking.rs` eliminates this duplication:
+
+```rust
+// function_checking.rs
+fn check_callable(&mut self, params: &[Param], param_types: &[Type],
+                   return_type: &Type, body: ExprId, capabilities: HashSet<Name>)
+```
+
+Both `check_function()` and `check_test()` prepare their specific params/capabilities then delegate to `check_callable()`.
+
+Type resolution logic (`type_id_to_type`, `parsed_type_to_type`, `resolve_well_known_generic`, `make_projection_type`) is extracted to `type_resolution.rs`.
+
+#### TraitRegistry Method Cache
+
+The `TraitRegistry` uses a `RefCell<HashMap<(Type, Name), Option<MethodLookup>>>` cache for method lookups, converting the `lookup_method()` scan from O(n) to O(1) for repeated lookups:
+
+```rust
+pub fn lookup_method(&self, self_ty: &Type, method_name: Name) -> Option<MethodLookup> {
+    // Check cache first
+    if let Some(cached) = self.method_cache.borrow().get(&cache_key) {
+        return cached.clone();
+    }
+    // Uncached path: scan all impls, then cache result
+    let result = self.lookup_method_uncached(self_ty, method_name);
+    self.method_cache.borrow_mut().insert(cache_key, result.clone());
+    result
+}
+```
+
+The cache is cleared whenever `register_trait()` or `register_impl()` is called.
+
 ### TypeEnv
 
 ```rust
@@ -222,10 +259,17 @@ pub struct TypeContext {
 
 This ensures identical generic instantiations (e.g., `Option<int>`) share the same `Type` instance, reducing allocations and enabling fast equality checks.
 
-**Convenience methods:**
+**Convenience methods** (built on shared `deduplicate_type()` helper):
+
+All convenience methods delegate to `deduplicate_type(origin_id, targs, make_type)`, which handles the hash lookup, deduplication check, and caching. Named origin constants (`LIST_ORIGIN`, `OPTION_ORIGIN`, etc.) replace magic numbers:
 
 ```rust
 impl TypeContext {
+    // Shared deduplication helper
+    fn deduplicate_type(&mut self, origin_id: u32, targs: Vec<Type>,
+                        make_type: impl FnOnce() -> Type) -> Type;
+
+    // Each method is a thin wrapper around deduplicate_type()
     pub fn list_type(&mut self, elem: Type) -> Type;
     pub fn option_type(&mut self, inner: Type) -> Type;
     pub fn result_type(&mut self, ok: Type, err: Type) -> Type;
@@ -480,6 +524,8 @@ impl BuiltinMethodRegistry {
 | `NumericMethodHandler` | `int`, `float`, `bool` | `abs`, `to_string`, numeric methods |
 
 This design replaces nested match statements with focused, single-responsibility handlers.
+
+A `TYPECK_BUILTIN_METHODS` constant in `builtin_methods/mod.rs` exports a sorted list of all `(type_name, method_name)` pairs. A cross-crate consistency test in `oric` verifies that the evaluator's `EVAL_BUILTIN_METHODS` is a subset of this list, catching drift between the two crates.
 
 ## Related Documents
 

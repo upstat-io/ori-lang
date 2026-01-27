@@ -12,7 +12,7 @@ The Ori lexer converts source text into a stream of tokens. It's implemented usi
 ## Location
 
 ```
-compiler/ori_lexer/src/lib.rs (~707 lines)
+compiler/ori_lexer/src/lib.rs (~643 lines)
 ```
 
 The lexer is a separate crate with minimal dependencies:
@@ -148,6 +148,27 @@ TokenList {
     spans,
 }
 ```
+
+## Escape Sequence Handling
+
+String and character unescaping share a common `resolve_escape()` helper:
+
+```rust
+fn resolve_escape(c: char) -> Option<char> {
+    match c {
+        'n' => Some('\n'),
+        't' => Some('\t'),
+        'r' => Some('\r'),
+        '0' => Some('\0'),
+        '\\' => Some('\\'),
+        '"' => Some('"'),
+        '\'' => Some('\''),
+        _ => None,
+    }
+}
+```
+
+Both `unescape_string()` and `unescape_char()` delegate to this function, avoiding duplicated escape logic.
 
 ## Special Literals
 

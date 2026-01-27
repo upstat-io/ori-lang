@@ -51,7 +51,11 @@ Formalize the distinction between sequential patterns and named-expression patte
 
 **function_seq** (special syntax): `run`, `try`, `match`, `catch`
 **function_exp** (named args): `recurse`, `parallel`, `spawn`, `timeout`, `cache`, `with`, `for`
-**function_val** (positional): `int`, `float`, `str`, `byte`
+~~**function_val** (positional): `int`, `float`, `str`, `byte`~~ — **REMOVED** by `as` proposal
+
+> **NOTE**: The `as` conversion proposal (`proposals/drafts/as-conversion-proposal.md`)
+> removes `function_val` entirely. Type conversions now use `x as T` / `x as? T` syntax,
+> eliminating the special case for positional arguments.
 
 ### Implementation
 
@@ -210,7 +214,65 @@ print(`Hello, {name}! You are {age} years old.`)
 
 ---
 
-## 15.7 Phase Completion Checklist
+## 15.7 `as` Conversion Syntax
+
+**Proposal**: `proposals/drafts/as-conversion-proposal.md`
+
+Replace `int()`, `float()`, `str()`, `byte()` with `as`/`as?` keyword syntax.
+
+```ori
+// Before (special-cased positional args)
+let x = int("42")
+let y = float(value)
+
+// After (consistent keyword syntax)
+let x = "42" as? int
+let y = value as float
+```
+
+### Lexer
+
+- [ ] **Implement**: `as` keyword token (if not already reserved)
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — as keyword tokenization
+  - [ ] **Ori Tests**: `tests/spec/lexical/as_keyword.ori`
+
+### Parser
+
+- [ ] **Implement**: Parse `expression as Type` as conversion expression
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — as expression parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/as_syntax.ori`
+
+- [ ] **Implement**: Parse `expression as? Type` as fallible conversion
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — as? expression parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/as_fallible_syntax.ori`
+
+### Type Checker
+
+- [ ] **Implement**: Validate `as` only used with `As<T>` trait implementations
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/as_expr.rs`
+  - [ ] **Ori Tests**: `tests/compile-fail/as_not_implemented.ori`
+
+- [ ] **Implement**: Validate `as?` only used with `TryAs<T>` trait implementations
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/as_expr.rs`
+  - [ ] **Ori Tests**: `tests/compile-fail/try_as_not_implemented.ori`
+
+- [ ] **Implement**: Error when using `as` for fallible conversion (must use `as?`)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/as_expr.rs`
+  - [ ] **Ori Tests**: `tests/compile-fail/as_fallible_conversion.ori`
+
+### Codegen
+
+- [ ] **Implement**: Desugar `x as T` to `As<T>.as(self: x)`
+- [ ] **Implement**: Desugar `x as? T` to `TryAs<T>.try_as(self: x)`
+
+### Migration
+
+- [ ] **Implement**: Remove `int()`, `float()`, `str()`, `byte()` from parser
+- [ ] **Implement**: Update error messages to suggest `as` syntax
+
+---
+
+## 15.8 Phase Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[x]`
 - [ ] All spec docs updated

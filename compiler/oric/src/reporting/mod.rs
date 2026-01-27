@@ -1,8 +1,12 @@
 //! Diagnostic Rendering
 //!
-//! Converts structured Problem types into user-facing Diagnostic messages.
-//! This separates the "what went wrong" (Problem) from "how to display it"
-//! (Diagnostic).
+//! Converts structured [`super::problem`] types into user-facing Diagnostic
+//! messages. This separates the "what went wrong" (Problem) from "how to
+//! display it" (Diagnostic).
+//!
+//! The 1:1 coupling with `problem` is intentional: each problem variant has a
+//! corresponding `Render` implementation here. Adding a new problem type
+//! requires adding its renderer in this module.
 //!
 //! # Design
 //!

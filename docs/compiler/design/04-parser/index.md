@@ -18,13 +18,22 @@ compiler/ori_parse/src/
 ├── stack.rs                # Stack safety (stacker integration)
 └── grammar/
     ├── mod.rs              # Grammar module organization
-    ├── expr/               # Expression parsing (~1,436 lines total)
-    │   ├── mod.rs              # Entry point, binary precedence chain (~271 lines)
-    │   ├── operators.rs        # Operator matching helpers (~95 lines)
-    │   ├── patterns.rs         # function_seq/function_exp parsing (~444 lines)
-    │   ├── postfix.rs          # Call, method call, field, index (~167 lines)
-    │   └── primary.rs          # Primary expressions, literals (~459 lines)
-    ├── item.rs             # Function/type/test parsing (~446 lines)
+    ├── expr/               # Expression parsing (~1,681 lines total)
+    │   ├── mod.rs              # Entry point, parse_binary_level! macro (~247 lines)
+    │   ├── operators.rs        # Operator matching helpers (~103 lines)
+    │   ├── patterns.rs         # function_seq/function_exp parsing (~472 lines)
+    │   ├── postfix.rs          # Call, method call, field, index (~248 lines)
+    │   └── primary.rs          # Primary expressions, literals (~611 lines)
+    ├── item/               # Item parsing (split into submodules)
+    │   ├── mod.rs              # Re-exports
+    │   ├── function.rs         # Function/test parsing (~199 lines)
+    │   ├── type_decl.rs        # Type declarations
+    │   ├── trait_def.rs        # Trait definitions
+    │   ├── impl_def.rs         # Impl blocks
+    │   ├── use_def.rs          # Import statements
+    │   ├── extend.rs           # Extension definitions
+    │   ├── generics.rs         # Generic parameter parsing
+    │   └── config.rs           # Config variable parsing
     ├── type.rs             # Type annotation parsing
     ├── pattern.rs          # Pattern parsing
     ├── stmt.rs             # Statement parsing
@@ -121,28 +130,23 @@ impl Parser<'_> {
 
 ### Expression Parsing
 
+Binary operator precedence levels are generated via the `parse_binary_level!` macro, which creates a precedence chain of parsing functions. Each level calls the next-higher precedence as its "next" parser:
+
 ```rust
-impl Parser<'_> {
-    fn parse_expr(&mut self) -> ExprId {
-        self.parse_expr_precedence(0)
-    }
+/// Generate a binary operator parsing function.
+/// Two forms:
+///   parse_binary_level! { fn_name, next_fn, matcher_fn }     — for multi-op levels
+///   parse_binary_level! { fn_name, next_fn, token: T, op: O } — for single-token levels
+macro_rules! parse_binary_level { ... }
 
-    fn parse_expr_precedence(&mut self, min_prec: u8) -> ExprId {
-        let mut left = self.parse_unary();
-
-        while let Some((op, prec)) = self.binary_op() {
-            if prec < min_prec {
-                break;
-            }
-            self.advance();
-            let right = self.parse_expr_precedence(prec + 1);
-            left = self.arena.alloc(Expr::binary(left, op, right));
-        }
-
-        left
-    }
-}
+// 10 precedence levels generated:
+parse_binary_level! { parse_logical_or, parse_logical_and, match_logical_or_op }
+parse_binary_level! { parse_logical_and, parse_bitwise_or, match_logical_and_op }
+// ... through to:
+parse_binary_level! { parse_multiply, parse_coalesce, match_multiplicative_op }
 ```
+
+This replaces 10 hand-written functions that differed only in which operator they matched and which "next" function they called.
 
 ### Arena Allocation
 

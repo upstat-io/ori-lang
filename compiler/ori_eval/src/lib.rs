@@ -115,7 +115,7 @@ pub use errors::{
 
 pub use environment::{Environment, LocalScope, Scope};
 pub use method_key::MethodKey;
-pub use methods::dispatch_builtin_method;
+pub use methods::{dispatch_builtin_method, EVAL_BUILTIN_METHODS};
 pub use operators::evaluate_binary;
 pub use unary_operators::evaluate_unary;
 pub use user_methods::{MethodEntry, UserMethod, UserMethodRegistry};

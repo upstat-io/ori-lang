@@ -272,3 +272,21 @@ ori test tests/spec/async/        # Tier 6
 - `validate` function (4): in std.validate, not implemented
 
 **Known issue:** Parallel test runner has a thread-safety panic (index out of bounds on ExprArena). Individual test directories pass; full test run may show panic but still completes.
+
+---
+
+## Draft Proposals Pending Review (2026-01-27)
+
+New prelude enhancements from Rust prelude comparison. See `plan.md` for details.
+
+| Proposal | File | Affects Phases |
+|----------|------|----------------|
+| `as` Conversion Syntax | `proposals/drafts/as-conversion-proposal.md` | 7, 15 |
+| Iterator Traits | `proposals/drafts/iterator-traits-proposal.md` | 3, 7 |
+| Debug Trait | `proposals/drafts/debug-trait-proposal.md` | 3, 7 |
+| Developer Functions | `proposals/drafts/developer-functions-proposal.md` | 7 |
+
+**Decisions made (no proposal needed):**
+- NaN comparisons panic (Phase 7.18)
+- Skip `AsRef`/`AsMut` — Ori's value semantics don't need them
+- Skip `debug_assert*` — same behavior in all builds

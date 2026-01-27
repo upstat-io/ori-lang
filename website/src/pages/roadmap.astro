@@ -215,7 +215,7 @@ const tiers: Tier[] = [
         num: 7,
         name: "Standard Library",
         status: "partial",
-        note: "Collection methods done; retry, validate pending",
+        note: "Collection methods done; retry, validate, new prelude additions pending",
         goal: "Core standard library modules",
         spec: "library/std/",
         sections: [
@@ -224,6 +224,28 @@ const tiers: Tier[] = [
             { name: "List: any, all", done: true },
             { name: "Range: collect, map, filter, fold", done: true },
             { name: "Map: len, is_empty", done: true },
+          ]},
+          { name: "Type Conversions (as/as? syntax)", tasks: [
+            { name: "As<T> trait for infallible conversions", done: false },
+            { name: "TryAs<T> trait for fallible conversions", done: false },
+            { name: "x as T / x as? T syntax", done: false },
+            { name: "Float truncation methods", done: false },
+          ]},
+          { name: "Iterator Traits", tasks: [
+            { name: "Iterator trait with next()", done: false },
+            { name: "Iterable trait with iter()", done: false },
+            { name: "Collect trait for collection building", done: false },
+            { name: "Iterator extension methods", done: false },
+          ]},
+          { name: "Debug Trait", tasks: [
+            { name: "Debug trait definition", done: false },
+            { name: "#[derive(Debug)] support", done: false },
+            { name: "Standard Debug implementations", done: false },
+          ]},
+          { name: "Developer Functions", tasks: [
+            { name: "todo() placeholder function", done: false },
+            { name: "unreachable() assertion", done: false },
+            { name: "dbg() debug helper", done: false },
           ]},
           { name: "Resilience (std.resilience)", tasks: [
             { name: "retry function", done: false },
@@ -432,16 +454,33 @@ const tiers: Tier[] = [
         num: 15,
         name: "Syntax Proposals",
         status: "not-started",
-        note: "15.1-15.5 from V3",
+        note: "15.1-15.7 approved syntax changes",
         goal: "Implement approved syntax changes",
         spec: "docs/ori_lang/proposals/",
         sections: [
-          { name: "Approved Proposals", tasks: [
-            { name: "Review and implement 15.1", done: false },
-            { name: "Review and implement 15.2", done: false },
-            { name: "Review and implement 15.3", done: false },
-            { name: "Review and implement 15.4", done: false },
-            { name: "Review and implement 15.5", done: false },
+          { name: "Attribute Syntax (15.1)", tasks: [
+            { name: "#name(...) simplified attributes", done: false },
+          ]},
+          { name: "Function Categories (15.2)", tasks: [
+            { name: "function_seq vs function_exp formalization", done: false },
+          ]},
+          { name: "Named Arguments (15.3)", tasks: [
+            { name: "Remove dot prefix from named args", done: false },
+          ]},
+          { name: "Comments (15.4)", tasks: [
+            { name: "Inline comments prohibition", done: false },
+          ]},
+          { name: "Contracts (15.5)", tasks: [
+            { name: "pre_check/post_check for run pattern", done: false },
+          ]},
+          { name: "String Interpolation (15.6)", tasks: [
+            { name: "Template strings with backticks", done: false },
+            { name: "{expr} interpolation", done: false },
+          ]},
+          { name: "as Conversion Syntax (15.7)", tasks: [
+            { name: "x as T / x as? T parsing", done: false },
+            { name: "Type checker enforcement", done: false },
+            { name: "Remove int()/float()/str()/byte()", done: false },
           ]},
         ],
       },
@@ -651,6 +690,16 @@ const statusLabels: Record<string, string> = {
   "near-complete": "Near Complete",
 };
 
+// Extract completed phases for the completed section
+const completedPhases: Phase[] = [];
+for (const tier of tiers) {
+  for (const phase of tier.phases) {
+    if (phase.status === "complete") {
+      completedPhases.push(phase);
+    }
+  }
+}
+
 const statusColors: Record<string, string> = {
   "complete": "success",
   "partial": "warning",
@@ -688,7 +737,7 @@ function countTasks(sections: Section[]): { done: number; total: number } {
       <div class="stats">
         <div class="stat">
           <span class="stat-value">4</span>
-          <span class="stat-label">Phases Complete</span>
+          <span class="stat-label">Completed</span>
         </div>
         <div class="stat">
           <span class="stat-value">5</span>
@@ -701,15 +750,40 @@ function countTasks(sections: Section[]): { done: number; total: number } {
       </div>
     </section>
 
-    <section class="current-focus">
-      <h2>Current Focus</h2>
-      <div class="focus-flow">
-        <span class="focus-item complete">Phase 6: Capabilities ✓</span>
-        <span class="focus-arrow">→</span>
-        <span class="focus-item active">Phase 7: Stdlib</span>
-        <span class="focus-arrow">→</span>
-        <span class="focus-item pending">Phase 8: Patterns</span>
-      </div>
+    <section class="completed-section">
+      <details>
+        <summary class="completed-header">
+          <span class="completed-icon">✓</span>
+          <h2>Completed</h2>
+          <span class="completed-count">{completedPhases.length} phases</span>
+          <span class="expand-icon"></span>
+        </summary>
+        <div class="completed-phases">
+          {completedPhases.map((phase) => {
+            const { done, total } = countTasks(phase.sections);
+            return (
+              <button
+                class="phase-card complete"
+                data-phase={JSON.stringify(phase)}
+                type="button"
+              >
+                <div class="phase-header">
+                  <span class="phase-num">Phase {phase.num}</span>
+                  <span class="phase-status success">Complete</span>
+                </div>
+                <h3>{phase.name}</h3>
+                <p class="phase-note">{phase.note || phase.goal}</p>
+                <div class="phase-progress">
+                  <div class="progress-bar">
+                    <div class="progress-fill" style={`width: 100%`}></div>
+                  </div>
+                  <span class="progress-text">{done}/{total} tasks</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </details>
     </section>
 
     <section class="roadmap-content">
@@ -727,7 +801,7 @@ function countTasks(sections: Section[]): { done: number; total: number } {
           </div>
 
           <div class="phases">
-            {tier.phases.map((phase) => {
+            {tier.phases.filter(p => p.status !== "complete").map((phase) => {
               const { done, total } = countTasks(phase.sections);
               return (
                 <button
@@ -958,6 +1032,11 @@ Branches:
 
   .stat {
     text-align: center;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5) var(--space-8);
+    width: 160px;
   }
 
   .stat-value {
@@ -966,6 +1045,7 @@ Branches:
     font-weight: var(--weight-bold);
     color: var(--color-accent);
     font-family: var(--font-mono);
+    margin-bottom: var(--space-1);
   }
 
   .stat-label {
@@ -973,49 +1053,100 @@ Branches:
     color: var(--color-text-muted);
   }
 
-  /* Current Focus */
-  .current-focus {
-    margin-bottom: var(--space-12);
+  /* Completed Section */
+  .completed-section {
+    margin-bottom: var(--space-8);
   }
 
-  .current-focus h2 {
-    font-size: var(--text-xl);
-    font-weight: var(--weight-semibold);
-    margin-bottom: var(--space-4);
-    color: var(--color-text-primary);
+  .completed-section details {
+    background: rgba(74, 222, 128, 0.05);
+    border: 1px solid rgba(74, 222, 128, 0.2);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
   }
 
-  .focus-flow {
+  .completed-section details[open] {
+    background: rgba(74, 222, 128, 0.08);
+  }
+
+  .completed-header {
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    flex-wrap: wrap;
+    padding: var(--space-4) var(--space-5);
+    cursor: pointer;
+    list-style: none;
   }
 
-  .focus-item {
+  .completed-header::-webkit-details-marker {
+    display: none;
+  }
+
+  .completed-header h2 {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+    color: var(--color-success);
+    margin: 0;
+    flex: 1;
+  }
+
+  .completed-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: rgba(74, 222, 128, 0.15);
+    color: var(--color-success);
+    border-radius: 50%;
     font-size: var(--text-sm);
-    padding: var(--space-2) var(--space-3);
+    font-weight: var(--weight-bold);
+  }
+
+  .completed-count {
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    background: var(--color-bg-tertiary);
+    padding: var(--space-1) var(--space-3);
     border-radius: var(--radius-full);
   }
 
-  .focus-item.complete {
-    background: rgba(74, 222, 128, 0.15);
-    color: var(--color-success);
+  .expand-icon {
+    width: 20px;
+    height: 20px;
+    position: relative;
+    color: var(--color-text-muted);
   }
 
-  .focus-item.active {
-    background: rgba(96, 165, 250, 0.2);
-    color: var(--color-accent);
-    font-weight: var(--weight-semibold);
+  .expand-icon::before {
+    content: "▸";
+    font-size: var(--text-sm);
+    transition: transform 0.2s ease;
+    display: inline-block;
   }
 
-  .focus-item.pending {
+  details[open] .expand-icon::before {
+    transform: rotate(90deg);
+  }
+
+  .completed-phases {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: var(--space-3);
+    padding: 0 var(--space-4) var(--space-4);
+  }
+
+  .completed-section .phase-card.complete {
+    border-left-color: var(--color-success);
+    background: var(--color-bg-secondary);
+  }
+
+  .completed-section .phase-card.complete:hover {
     background: var(--color-bg-tertiary);
-    color: var(--color-text-muted);
   }
 
-  .focus-arrow {
-    color: var(--color-text-muted);
+  .completed-section .progress-fill {
+    background: var(--color-success);
   }
 
   /* Tiers */
@@ -1587,16 +1718,6 @@ Branches:
 
     .stats {
       gap: var(--space-6);
-    }
-
-    .focus-path {
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    .focus-arrow {
-      transform: rotate(90deg);
-      text-align: center;
     }
 
     .phases {

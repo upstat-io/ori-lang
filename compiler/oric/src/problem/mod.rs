@@ -4,6 +4,11 @@
 //! what went wrong in a structured way, while rendering converts them to
 //! user-facing diagnostics.
 //!
+//! The 1:1 coupling with [`super::reporting`] is intentional: each problem type
+//! has a corresponding renderer. `problem` owns the *data*, `reporting` owns
+//! the *presentation*. This separation keeps error descriptions independent of
+//! output format while guaranteeing every problem has a rendering.
+//!
 //! # Design
 //!
 //! Problems are categorized by compilation phase:

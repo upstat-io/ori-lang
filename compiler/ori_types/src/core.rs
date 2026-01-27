@@ -124,7 +124,7 @@ impl Type {
 
     /// Convert this boxed Type to an interned `TypeId`.
     ///
-    /// This is the forward direction of the bidirectional Type<->TypeId conversion.
+    /// This is the forward direction of the bidirectional `Type`<->`TypeId` conversion.
     /// The inverse operation is [`TypeInterner::to_type`], which reconstructs a
     /// `Type` from a `TypeId`. Together they satisfy:
     ///

@@ -27,7 +27,7 @@ compiler/ori_eval/src/
 ├── errors.rs                 # EvalError factory functions
 ├── operators.rs              # Binary operator dispatch
 ├── unary_operators.rs        # Unary operator dispatch
-├── methods.rs                # Built-in method dispatch (dispatch_builtin_method)
+├── methods.rs                # Built-in method dispatch, EVAL_BUILTIN_METHODS constant
 ├── function_val.rs           # Type conversions (int, float, str, byte)
 ├── user_methods.rs           # UserMethodRegistry for user-defined methods
 ├── print_handler.rs          # Print output capture (stdout/buffer handlers)
@@ -292,6 +292,15 @@ fn load_module(&mut self, path: &Path) -> Result<ModuleEvalResult, EvalError> {
     Ok(result)
 }
 ```
+
+## Cross-Crate Method Consistency
+
+The evaluator exports an `EVAL_BUILTIN_METHODS` constant listing all `(type_name, method_name)` pairs it handles. The type checker exports a corresponding `TYPECK_BUILTIN_METHODS` constant. A consistency test in `oric/src/eval/tests/methods_tests.rs` verifies:
+
+1. Every eval method is a subset of typeck methods (no runtime-only methods that the type checker doesn't know about)
+2. Both lists are sorted for maintainability
+
+Known exceptions (methods in eval but not yet in typeck) are tracked in a `KNOWN_EVAL_ONLY` list.
 
 ## Method Dispatch Architecture
 
