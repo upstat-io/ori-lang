@@ -34,11 +34,7 @@ pub use registry::{
 };
 
 // Re-export operator types
-pub use operators::{
-    TypeOperator, TypeOpResult, TypeOpError, TypeOperatorRegistry,
-    ArithmeticTypeOp, ComparisonTypeOp, LogicalTypeOp, BitwiseTypeOp,
-    RangeTypeOp, CoalesceTypeOp,
-};
+pub use operators::{TypeOpResult, TypeOpError, check_binary_operation};
 
 // Re-export checker types
 pub use checker::{

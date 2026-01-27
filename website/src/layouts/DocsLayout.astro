@@ -1,0 +1,89 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import DocsSidebar from '../components/docs/DocsSidebar.astro';
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description } = Astro.props;
+---
+
+<BaseLayout title={`${title} — Ori Docs`} description={description}>
+  <div class="docs-layout">
+    <DocsSidebar />
+    <main class="docs-content">
+      <article class="docs-article">
+        <slot />
+      </article>
+    </main>
+  </div>
+</BaseLayout>
+
+<style>
+  .docs-layout {
+    display: flex;
+    min-height: calc(100vh - var(--header-height, 56px) - 48px);
+  }
+
+  .docs-content {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-8, 2rem) var(--space-8, 2rem);
+    max-width: var(--max-width-narrow, 800px);
+    margin: 0 auto;
+  }
+
+  .docs-article {
+    line-height: var(--leading-relaxed, 1.65);
+  }
+
+  .docs-article :global(h1) {
+    margin-bottom: var(--space-6, 1.5rem);
+  }
+
+  .docs-article :global(h2) {
+    margin-top: var(--space-10, 2.5rem);
+    margin-bottom: var(--space-4, 1rem);
+    padding-bottom: var(--space-2, 0.5rem);
+    border-bottom: 1px solid var(--color-border, #2a2b35);
+  }
+
+  .docs-article :global(h3) {
+    margin-top: var(--space-8, 2rem);
+    margin-bottom: var(--space-3, 0.75rem);
+  }
+
+  .docs-article :global(p) {
+    margin-bottom: var(--space-4, 1rem);
+  }
+
+  .docs-article :global(ul),
+  .docs-article :global(ol) {
+    margin-bottom: var(--space-4, 1rem);
+  }
+
+  .docs-article :global(pre) {
+    margin-bottom: var(--space-4, 1rem);
+  }
+
+  .docs-article :global(table) {
+    margin-bottom: var(--space-4, 1rem);
+    font-size: var(--text-sm, 0.875rem);
+  }
+
+  .docs-article :global(blockquote) {
+    margin-bottom: var(--space-4, 1rem);
+  }
+
+  @media (max-width: 768px) {
+    .docs-layout {
+      flex-direction: column;
+    }
+
+    .docs-content {
+      padding: var(--space-4, 1rem);
+    }
+  }
+</style>

@@ -594,7 +594,6 @@ name = "ori_typeck"
 version = "0.1.0-alpha.1"
 dependencies = [
  "ori_diagnostic",
- "ori_eval",
  "ori_ir",
  "ori_lexer",
  "ori_parse",

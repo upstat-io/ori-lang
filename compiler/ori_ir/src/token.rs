@@ -43,7 +43,6 @@ impl fmt::Debug for Token {
 /// String/Ident use interned Name for Hash compatibility.
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub enum TokenKind {
-    // === Literals ===
     /// Integer literal: 42, `1_000` (stored as u64; negation folded in parser)
     Int(u64),
     /// Float literal: 3.14, 2.5e-8 (stored as bits for Eq/Hash)
@@ -57,11 +56,9 @@ pub enum TokenKind {
     /// Size literal: 4kb, 10mb
     Size(u64, SizeUnit),
 
-    // === Identifiers ===
     /// Identifier (interned)
     Ident(Name),
 
-    // === Keywords (Reserved) ===
     Async,
     Break,
     Continue,
@@ -98,7 +95,6 @@ pub enum TokenKind {
     Extension,
     Skip,
 
-    // === Type Keywords ===
     IntType,     // int
     FloatType,   // float
     BoolType,    // bool
@@ -107,13 +103,11 @@ pub enum TokenKind {
     ByteType,    // byte
     NeverType,   // Never
 
-    // === Constructors/Prelude ===
     Ok,
     Err,
     Some,
     None,
 
-    // === Pattern Keywords (Compiler-Supported Only) ===
     Cache,
     Catch,
     Parallel,
@@ -123,11 +117,9 @@ pub enum TokenKind {
     Timeout,
     Try,
 
-    // === Built-in I/O Primitives ===
     Print,
     Panic,
 
-    // === Symbols ===
     HashBracket,  // #[
     At,           // @
     Dollar,       // $
@@ -152,7 +144,6 @@ pub enum TokenKind {
     Underscore,   // _
     Semicolon,    // ;
 
-    // === Operators ===
     Eq,           // =
     EqEq,         // ==
     NotEq,        // !=
@@ -175,11 +166,9 @@ pub enum TokenKind {
     Caret,        // ^
     Div,          // div (floor division keyword)
 
-    // === Whitespace/Trivia ===
     Newline,
     Eof,
 
-    // === Error ===
     Error,
 }
 

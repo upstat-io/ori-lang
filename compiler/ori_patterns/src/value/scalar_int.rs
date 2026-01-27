@@ -498,10 +498,6 @@ mod tests {
         );
     }
 
-    // =========================================================================
-    // Addition boundary tests
-    // =========================================================================
-
     #[test]
     fn checked_add_max_plus_max_overflows() {
         assert_eq!(ScalarInt::MAX.checked_add(ScalarInt::MAX), None);
@@ -566,10 +562,6 @@ mod tests {
         assert_eq!(a.checked_add(b), b.checked_add(a));
     }
 
-    // =========================================================================
-    // Subtraction boundary tests
-    // =========================================================================
-
     #[test]
     fn checked_sub_max_minus_neg1_overflows() {
         assert_eq!(ScalarInt::MAX.checked_sub(ScalarInt::new(-1)), None);
@@ -619,10 +611,6 @@ mod tests {
             None
         );
     }
-
-    // =========================================================================
-    // Multiplication boundary tests
-    // =========================================================================
 
     #[test]
     fn checked_mul_min_times_neg1_overflows() {
@@ -686,10 +674,6 @@ mod tests {
         );
     }
 
-    // =========================================================================
-    // Division boundary tests
-    // =========================================================================
-
     #[test]
     fn checked_div_zero_divided_by_anything() {
         assert_eq!(
@@ -733,10 +717,6 @@ mod tests {
             Some(ScalarInt::new(-i64::MAX))
         );
     }
-
-    // =========================================================================
-    // Remainder boundary tests
-    // =========================================================================
 
     #[test]
     fn checked_rem_min_mod_neg1_overflows() {
@@ -788,10 +768,6 @@ mod tests {
         );
     }
 
-    // =========================================================================
-    // Floor division boundary tests
-    // =========================================================================
-
     #[test]
     fn checked_floor_div_neg1_div_2() {
         // -1 div 2 = -1 (floor toward negative infinity)
@@ -835,10 +811,6 @@ mod tests {
             Some(ScalarInt::new(-2))
         );
     }
-
-    // =========================================================================
-    // Shift boundary tests
-    // =========================================================================
 
     #[test]
     fn checked_shl_zero_shift() {
@@ -906,10 +878,6 @@ mod tests {
         assert_eq!(ScalarInt::new(8).checked_shr(ScalarInt::new(64)), None);
     }
 
-    // =========================================================================
-    // Bitwise boundary tests
-    // =========================================================================
-
     #[test]
     fn bitwise_and_max_min() {
         assert_eq!(ScalarInt::MAX & ScalarInt::MIN, ScalarInt::ZERO);
@@ -935,10 +903,6 @@ mod tests {
     fn bitwise_not_min() {
         assert_eq!(!ScalarInt::MIN, ScalarInt::MAX);
     }
-
-    // =========================================================================
-    // Negation boundary tests
-    // =========================================================================
 
     #[test]
     fn checked_neg_max() {
@@ -972,10 +936,6 @@ mod tests {
             Some(ScalarInt::MAX)
         );
     }
-
-    // =========================================================================
-    // Property tests
-    // =========================================================================
 
     #[test]
     #[expect(clippy::unwrap_used, reason = "test verifies add/sub inverse property")]

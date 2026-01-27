@@ -7,7 +7,7 @@
 
 use ori_ir::{DerivedMethodInfo, DerivedTrait, Module, Name, StringInterner, TypeDecl, TypeDeclKind};
 use ori_types::Type;
-use ori_eval::UserMethodRegistry;
+use ori_patterns::UserMethodRegistry;
 
 use crate::registry::{
     ImplEntry, ImplMethodDef, TraitRegistry, TypeKind, TypeRegistry,

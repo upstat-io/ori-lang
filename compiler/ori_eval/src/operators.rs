@@ -382,10 +382,6 @@ mod tests {
         );
     }
 
-    // =========================================================================
-    // Overflow error message tests
-    // =========================================================================
-
     fn assert_overflow(left: i64, right: i64, op: BinaryOp) {
         let result = evaluate_binary(Value::int(left), Value::int(right), op);
         assert!(result.is_err(), "expected overflow for {left} {op:?} {right}");
@@ -451,10 +447,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // =========================================================================
-    // Division/modulo by zero error tests
-    // =========================================================================
-
     #[test]
     fn div_zero_message() {
         let result = evaluate_binary(Value::int(42), Value::int(0), BinaryOp::Div);
@@ -475,10 +467,6 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("division by zero"));
     }
-
-    // =========================================================================
-    // Near-boundary valid operations (must NOT overflow)
-    // =========================================================================
 
     #[test]
     fn near_boundary_add_valid() {
@@ -520,10 +508,6 @@ mod tests {
         );
     }
 
-    // =========================================================================
-    // Floor division edge cases
-    // =========================================================================
-
     #[test]
     fn floor_div_positive() {
         assert_eq!(
@@ -556,10 +540,6 @@ mod tests {
         );
     }
 
-    // =========================================================================
-    // Remainder sign semantics
-    // =========================================================================
-
     #[test]
     fn rem_negative_numerator() {
         // -7 % 3 = -1 (sign follows numerator)
@@ -586,10 +566,6 @@ mod tests {
             Value::int(-1)
         );
     }
-
-    // =========================================================================
-    // Shift amount validation
-    // =========================================================================
 
     #[test]
     fn shl_boundary_63() {

@@ -1,0 +1,21 @@
+{
+  "name": "ori-website",
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "build:wasm": "cd ../playground/wasm && wasm-pack build --target web --out-dir ../pkg && cd ../../website && bash scripts/copy-wasm.sh",
+    "build:all": "bun run build:wasm && bun run build"
+  },
+  "dependencies": {
+    "@astrojs/mdx": "^4.3.13",
+    "@astrojs/svelte": "^7.2.5",
+    "astro": "^5.16.15",
+    "svelte": "^5.48.3"
+  },
+  "devDependencies": {
+    "monaco-editor": "^0.55.1"
+  }
+}

@@ -9,19 +9,15 @@ use ori_ir::{Span, Token, TokenKind, TokenList, DurationUnit, SizeUnit, StringIn
 #[derive(Logos, Debug, Clone, Copy, PartialEq)]
 #[logos(skip r"[ \t\r]+")] // Skip horizontal whitespace
 enum RawToken {
-    // === Comments (skip) ===
     #[regex(r"//[^\n]*")]
     LineComment,
 
-    // === Newlines ===
     #[token("\n")]
     Newline,
 
-    // === Line continuation ===
     #[regex(r"\\[ \t]*\n")]
     LineContinuation,
 
-    // === Keywords ===
     #[token("async")]
     Async,
     #[token("break")]
@@ -91,7 +87,6 @@ enum RawToken {
     #[token("skip")]
     Skip,
 
-    // === Type keywords ===
     #[token("int")]
     IntType,
     #[token("float")]
@@ -107,7 +102,6 @@ enum RawToken {
     #[token("Never")]
     NeverType,
 
-    // === Constructors ===
     #[token("Ok")]
     Ok,
     #[token("Err")]
@@ -117,7 +111,6 @@ enum RawToken {
     #[token("None")]
     None,
 
-    // === Pattern keywords (compiler-supported patterns only) ===
     #[token("cache")]
     Cache,
     #[token("catch")]
@@ -135,13 +128,11 @@ enum RawToken {
     #[token("try")]
     Try,
 
-    // === Built-in I/O primitives (require runtime support) ===
     #[token("print")]
     Print,
     #[token("panic")]
     Panic,
 
-    // === Symbols ===
     #[token("#[")]
     HashBracket,
     #[token("@")]
@@ -189,7 +180,6 @@ enum RawToken {
     #[token(";")]
     Semicolon,
 
-    // === Operators ===
     #[token("==")]
     EqEq,
     #[token("=")]
@@ -232,8 +222,6 @@ enum RawToken {
     Caret,
     #[token("div")]
     Div,
-
-    // === Literals ===
 
     // Hex integer
     #[regex(r"0x[0-9a-fA-F][0-9a-fA-F_]*", |lex| {

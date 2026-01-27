@@ -18,7 +18,6 @@ use ori_ir::{ExprArena, Name, StringInterner, TypeId};
 use ori_types::{InferenceContext, SharedTypeInterner, Type, TypeEnv};
 use ori_patterns::PatternRegistry;
 
-use crate::operators::TypeOperatorRegistry;
 use crate::registry::{TraitRegistry, TypeRegistry};
 use crate::shared::SharedRegistry;
 use super::types::{FunctionType, TypeCheckError};
@@ -80,8 +79,6 @@ impl InferenceState {
 pub struct Registries {
     /// Pattern registry for `function_exp` type checking.
     pub pattern: SharedRegistry<PatternRegistry>,
-    /// Type operator registry for binary operation type checking.
-    pub type_op: TypeOperatorRegistry,
     /// Registry for user-defined types (structs, enums, aliases).
     pub types: TypeRegistry,
     /// Registry for traits and implementations.
@@ -93,7 +90,6 @@ impl Registries {
     pub fn new() -> Self {
         Self {
             pattern: SharedRegistry::new(PatternRegistry::new()),
-            type_op: TypeOperatorRegistry::new(),
             types: TypeRegistry::new(),
             traits: TraitRegistry::new(),
         }
@@ -103,7 +99,6 @@ impl Registries {
     pub fn with_pattern_registry(pattern: SharedRegistry<PatternRegistry>) -> Self {
         Self {
             pattern,
-            type_op: TypeOperatorRegistry::new(),
             types: TypeRegistry::new(),
             traits: TraitRegistry::new(),
         }

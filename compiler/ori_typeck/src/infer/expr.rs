@@ -6,7 +6,7 @@ use ori_ir::{
 };
 use ori_types::{Type, TypeFolder};
 use crate::checker::TypeChecker;
-use crate::operators::TypeOpResult;
+use crate::operators::{TypeOpResult, check_binary_operation};
 use crate::registry::TypeKind;
 use super::infer_expr;
 use std::collections::HashMap;
@@ -205,7 +205,7 @@ fn check_binary_op(
     right: &Type,
     span: Span,
 ) -> Type {
-    match checker.registries.type_op.check(
+    match check_binary_operation(
         &mut checker.inference.ctx,
         checker.context.interner,
         op,
