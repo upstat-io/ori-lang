@@ -1,0 +1,128 @@
+---
+const steps = [
+  { label: 'Capabilities', detail: 'declare effects explicitly' },
+  { label: 'Easy Mocking', detail: 'inject test doubles trivially' },
+  { label: 'Fast Tests', detail: 'no real I/O in tests' },
+  { label: 'Dep-Aware Testing', detail: 'only run what changed' },
+  { label: 'Mandatory Tests', detail: 'every function verified' },
+  { label: 'Code Integrity', detail: 'if it compiles, it works' },
+];
+---
+
+<section class="cycle">
+  <div class="cycle-inner">
+    <h2 class="cycle-heading">The Virtuous Cycle</h2>
+    <p class="cycle-subtitle">
+      Each design decision reinforces the next, creating a system where verification is practical, not painful.
+    </p>
+    <div class="cycle-steps">
+      {steps.map((step, i) => (
+        <div class="cycle-step">
+          <div class="step-number">{i + 1}</div>
+          <div class="step-content">
+            <div class="step-label">{step.label}</div>
+            <div class="step-detail">{step.detail}</div>
+          </div>
+          {i < steps.length - 1 && (
+            <div class="step-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M5 12h14M12 5l7 7-7 7"/>
+              </svg>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .cycle {
+    padding: var(--space-16) 0;
+  }
+
+  .cycle-inner {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 0 var(--space-6);
+  }
+
+  .cycle-heading {
+    text-align: center;
+    margin-bottom: var(--space-3);
+    font-size: var(--text-3xl);
+  }
+
+  .cycle-subtitle {
+    text-align: center;
+    color: var(--color-text-secondary);
+    margin-bottom: var(--space-10);
+    font-size: var(--text-lg);
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .cycle-steps {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .cycle-step {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .step-number {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--color-accent-subtle);
+    color: var(--color-accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    flex-shrink: 0;
+  }
+
+  .step-content {
+    text-align: left;
+  }
+
+  .step-label {
+    font-weight: var(--weight-semibold);
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
+  }
+
+  .step-detail {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+
+  .step-arrow {
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+    margin: 0 var(--space-1);
+  }
+
+  @media (max-width: 768px) {
+    .cycle-steps {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--space-4);
+    }
+
+    .step-arrow {
+      transform: rotate(90deg);
+      align-self: center;
+      margin: 0;
+    }
+  }
+</style>

@@ -23,8 +23,10 @@
 
 mod errors;
 mod fusion;
+pub mod method_key;
 mod registry;
 mod signature;
+pub mod user_methods;
 mod value;
 
 // Pattern implementations
@@ -48,6 +50,8 @@ pub use errors::{EvalError, EvalResult};
 pub use fusion::{ChainLink, FusedPattern, FusionAnalyzer, FusionHints, PatternChain};
 pub use registry::{PatternRegistry, SharedPattern};
 pub use signature::{DefaultValue, FunctionSignature, OptionalArg, PatternSignature};
+pub use method_key::{MethodKey, MethodKeyDisplay};
+pub use user_methods::{MethodEntry, UserMethod, UserMethodRegistry};
 pub use value::{FunctionValFn, FunctionValue, Heap, MemoizedFunctionValue, RangeValue, ScalarInt, StringLookup, StructLayout, StructValue, Value};
 
 // Note: ScopedBinding and ScopedBindingType are defined later in this file and auto-exported

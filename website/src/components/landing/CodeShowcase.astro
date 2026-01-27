@@ -1,0 +1,45 @@
+---
+---
+
+<section class="showcase">
+  <div class="showcase-inner">
+    <h2 class="showcase-heading">See It In Action</h2>
+    <p class="showcase-subtitle">
+      Try Ori right in your browser. Write code, click Run, see results instantly.
+    </p>
+    <div class="showcase-playground">
+      <slot />
+    </div>
+  </div>
+</section>
+
+<style>
+  .showcase {
+    padding: var(--space-16) 0;
+  }
+
+  .showcase-inner {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 0 var(--space-6);
+  }
+
+  .showcase-heading {
+    text-align: center;
+    margin-bottom: var(--space-3);
+    font-size: var(--text-3xl);
+  }
+
+  .showcase-subtitle {
+    text-align: center;
+    color: var(--color-text-secondary);
+    margin-bottom: var(--space-8);
+    font-size: var(--text-lg);
+  }
+
+  .showcase-playground {
+    max-width: 960px;
+    margin: 0 auto;
+    height: 420px;
+  }
+</style>
