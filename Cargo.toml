@@ -9,6 +9,8 @@ members = [
     "compiler/sigil_patterns",
     "compiler/sigil_typeck",
     "compiler/sigil_eval",
+    "compiler/sigil_codegen",
+    "compiler/sigil_llvm",
     "compiler/sigil-macros",
     "compiler/sigilc",
 ]
@@ -45,6 +47,8 @@ sigil_parse = { path = "compiler/sigil_parse" }
 sigil_patterns = { path = "compiler/sigil_patterns" }
 sigil_typeck = { path = "compiler/sigil_typeck" }
 sigil_eval = { path = "compiler/sigil_eval" }
+sigil_codegen = { path = "compiler/sigil_codegen" }
+sigil_llvm = { path = "compiler/sigil_llvm" }
 sigil-macros = { path = "compiler/sigil-macros" }
 
 # Workspace-wide lint configuration

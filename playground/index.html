@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ori Playground</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <span class="logo-text">Ori</span>
+                <span class="logo-tag">Playground</span>
+            </div>
+            <div class="actions">
+                <button id="run-btn" class="btn btn-primary">
+                    <span class="btn-icon">▶</span>
+                    Run
+                </button>
+                <button id="share-btn" class="btn btn-secondary">Share</button>
+                <select id="examples" class="select">
+                    <option value="">Examples...</option>
+                    <option value="hello">Hello World</option>
+                    <option value="fibonacci">Fibonacci</option>
+                    <option value="factorial">Factorial</option>
+                    <option value="list-ops">List Operations</option>
+                    <option value="pattern-match">Pattern Matching</option>
+                </select>
+            </div>
+        </header>
+
+        <main>
+            <div class="editor-pane">
+                <div class="pane-header">
+                    <span>main.ori</span>
+                </div>
+                <div id="editor"></div>
+            </div>
+
+            <div class="output-pane">
+                <div class="pane-header">
+                    <span>Output</span>
+                    <span id="status" class="status"></span>
+                </div>
+                <div id="output" class="output"></div>
+            </div>
+        </main>
+
+        <footer>
+            <span id="version">Loading...</span>
+            <a href="https://ori-lang.com" target="_blank">ori-lang.com</a>
+        </footer>
+    </div>
+
+    <!-- Monaco Editor from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+
+    <!-- WASM Module -->
+    <script type="module" src="app.js"></script>
+</body>
+</html>

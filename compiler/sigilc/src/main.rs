@@ -4,7 +4,7 @@
 
 use sigil_diagnostic::{ErrorCode, ErrorDocs};
 use sigilc::{CompilerDb, SourceFile, Db};
-use sigilc::query::{tokens, parsed, typed, evaluated};
+use sigilc::query::{tokens, parsed, typed, evaluated, codegen_c};
 use sigilc::test::{TestRunner, TestRunnerConfig, TestSummary};
 use std::path::{Path, PathBuf};
 
@@ -40,6 +40,10 @@ fn main() {
                     config.parallel = false;
                 } else if arg == "--coverage" {
                     config.coverage = true;
+                } else if arg == "--backend=llvm" {
+                    config.backend = sigilc::test::Backend::LLVM;
+                } else if arg == "--backend=interpreter" {
+                    config.backend = sigilc::test::Backend::Interpreter;
                 } else if !arg.starts_with('-') && path.is_none() {
                     path = Some(arg.clone());
                 }
@@ -55,6 +59,23 @@ fn main() {
                 std::process::exit(1);
             }
             check_file(&args[2]);
+        }
+        "compile" => {
+            if args.len() < 3 {
+                eprintln!("Usage: sigil compile <file.si> [-o output.c]");
+                std::process::exit(1);
+            }
+            let input_file = &args[2];
+            let output_file = if args.len() >= 5 && args[3] == "-o" {
+                args[4].clone()
+            } else {
+                // Default: replace .si with .c
+                let path = Path::new(input_file);
+                path.with_extension("c")
+                    .to_string_lossy()
+                    .to_string()
+            };
+            compile_file(input_file, &output_file);
         }
         "parse" => {
             if args.len() < 3 {
@@ -111,6 +132,7 @@ fn print_usage() {
     println!("  run <file.si>       Run/evaluate a Sigil program");
     println!("  test [path]         Run tests (default: current directory)");
     println!("  check <file.si>     Type check a file (no execution)");
+    println!("  compile <file.si>   Generate C code (-o output.c)");
     println!("  parse <file.si>     Parse and display AST info");
     println!("  lex <file.si>       Tokenize and display tokens");
     println!("  --explain <code>    Explain an error code (e.g., E2001)");
@@ -121,6 +143,7 @@ fn print_usage() {
     println!("  --filter=<pattern>  Only run tests matching pattern");
     println!("  --verbose, -v       Show detailed output");
     println!("  --no-parallel       Run tests sequentially");
+    println!("  --backend=<name>    Use backend: interpreter (default), llvm");
     println!();
     println!("Examples:");
     println!("  sigil run main.si");
@@ -128,6 +151,7 @@ fn print_usage() {
     println!("  sigil test tests/spec/patterns/");
     println!("  sigil test --filter=map");
     println!("  sigil check lib.si");
+    println!("  sigil compile main.si -o out.c");
     println!("  sigil --explain E2001         # Explain type mismatch");
     println!("  sigil main.si       (shorthand for 'run')");
 }
@@ -257,6 +281,31 @@ fn run_file(path: &str) {
             _ => println!("{}", result.display()),
         }
     }
+}
+
+fn compile_file(input_path: &str, output_path: &str) {
+    let content = read_file(input_path);
+    let db = CompilerDb::new();
+    let file = SourceFile::new(&db, PathBuf::from(input_path), content);
+
+    // Generate C code
+    let result = codegen_c(&db, file);
+
+    if result.has_errors() {
+        eprintln!("Compilation errors:");
+        for error in &result.errors {
+            eprintln!("  {}", error.message);
+        }
+        std::process::exit(1);
+    }
+
+    // Write output
+    if let Err(e) = std::fs::write(output_path, &result.code) {
+        eprintln!("Error writing '{output_path}': {e}");
+        std::process::exit(1);
+    }
+
+    println!("Generated: {output_path}");
 }
 
 fn check_file(path: &str) {
