@@ -1,14 +1,14 @@
 //! Expression type inference for literals, identifiers, and operators.
 
+use super::infer_expr;
+use crate::checker::TypeChecker;
+use crate::operators::{check_binary_operation, TypeOpResult};
+use crate::registry::TypeKind;
 use ori_ir::{
-    Name, Span, ExprId, BinaryOp, UnaryOp,
-    ExprRange, ParamRange, ParsedType, MapEntryRange, FieldInitRange,
+    BinaryOp, ExprId, ExprRange, FieldInitRange, MapEntryRange, Name, ParamRange, ParsedType, Span,
+    UnaryOp,
 };
 use ori_types::{Type, TypeFolder};
-use crate::checker::TypeChecker;
-use crate::operators::{TypeOpResult, check_binary_operation};
-use crate::registry::TypeKind;
-use super::infer_expr;
 use std::collections::HashMap;
 
 /// Substitute type parameter names with their corresponding type variables.
@@ -56,7 +56,9 @@ fn lookup_struct_field_in_entry(
         TypeKind::Struct { fields } => {
             // Build type param map if we have type arguments
             let type_param_map: Option<HashMap<Name, Type>> = type_args.map(|args| {
-                entry.type_params.iter()
+                entry
+                    .type_params
+                    .iter()
                     .zip(args.iter())
                     .map(|(&param_name, arg)| (param_name, arg.clone()))
                     .collect()
@@ -90,7 +92,10 @@ fn handle_struct_field_access(
 ) -> Type {
     let Some(entry) = checker.registries.types.get_by_name(type_name) else {
         checker.push_error(
-            format!("unknown type `{}`", checker.context.interner.lookup(type_name)),
+            format!(
+                "unknown type `{}`",
+                checker.context.interner.lookup(type_name)
+            ),
             span,
             ori_diagnostic::ErrorCode::E2003,
         );
@@ -139,7 +144,10 @@ pub fn infer_ident(checker: &mut TypeChecker<'_>, name: Name, span: Span) -> Typ
         }
 
         checker.push_error(
-            format!("unknown identifier `{}`", checker.context.interner.lookup(name)),
+            format!(
+                "unknown identifier `{}`",
+                checker.context.interner.lookup(name)
+            ),
             span,
             ori_diagnostic::ErrorCode::E2003,
         );
@@ -176,7 +184,10 @@ pub fn infer_function_ref(checker: &mut TypeChecker<'_>, name: Name, span: Span)
         checker.inference.ctx.instantiate(&scheme)
     } else {
         checker.push_error(
-            format!("unknown function `@{}`", checker.context.interner.lookup(name)),
+            format!(
+                "unknown function `@{}`",
+                checker.context.interner.lookup(name)
+            ),
             span,
             ori_diagnostic::ErrorCode::E2003,
         );
@@ -233,12 +244,7 @@ pub fn infer_unary(
 }
 
 /// Check a unary operation.
-fn check_unary_op(
-    checker: &mut TypeChecker<'_>,
-    op: UnaryOp,
-    operand: &Type,
-    span: Span,
-) -> Type {
+fn check_unary_op(checker: &mut TypeChecker<'_>, op: UnaryOp, operand: &Type, span: Span) -> Type {
     match op {
         UnaryOp::Neg => {
             let resolved = checker.inference.ctx.resolve(operand);
@@ -292,11 +298,9 @@ pub fn infer_lambda(
     let params_slice = checker.context.arena.get_params(params);
     let param_types: Vec<Type> = params_slice
         .iter()
-        .map(|p| {
-            match &p.ty {
-                Some(parsed_ty) => checker.parsed_type_to_type(parsed_ty),
-                None => checker.inference.ctx.fresh_var(),
-            }
+        .map(|p| match &p.ty {
+            Some(parsed_ty) => checker.parsed_type_to_type(parsed_ty),
+            None => checker.inference.ctx.fresh_var(),
         })
         .collect();
 
@@ -306,9 +310,7 @@ pub fn infer_lambda(
         .map(|(param, ty)| (param.name, ty.clone()))
         .collect();
 
-    let body_ty = checker.with_infer_bindings(bindings, |checker| {
-        infer_expr(checker, body)
-    });
+    let body_ty = checker.with_infer_bindings(bindings, |checker| infer_expr(checker, body));
 
     let final_ret_ty = match ret_ty {
         Some(parsed_ty) => {
@@ -352,7 +354,8 @@ pub fn infer_tuple(checker: &mut TypeChecker<'_>, elements: ExprRange) -> Type {
     if element_ids.is_empty() {
         Type::Unit
     } else {
-        let types: Vec<Type> = element_ids.iter()
+        let types: Vec<Type> = element_ids
+            .iter()
             .map(|id| infer_expr(checker, *id))
             .collect();
         checker.inference.ctx.make_tuple(types)
@@ -360,11 +363,7 @@ pub fn infer_tuple(checker: &mut TypeChecker<'_>, elements: ExprRange) -> Type {
 }
 
 /// Infer type for a map literal.
-pub fn infer_map(
-    checker: &mut TypeChecker<'_>,
-    entries: MapEntryRange,
-    _span: Span,
-) -> Type {
+pub fn infer_map(checker: &mut TypeChecker<'_>, entries: MapEntryRange, _span: Span) -> Type {
     let map_entries = checker.context.arena.get_map_entries(entries);
     if map_entries.is_empty() {
         let key = checker.inference.ctx.fresh_var();
@@ -388,14 +387,12 @@ pub fn infer_map(
 }
 
 /// Infer type for a struct literal.
-pub fn infer_struct(
-    checker: &mut TypeChecker<'_>,
-    name: Name,
-    fields: FieldInitRange,
-) -> Type {
+pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInitRange) -> Type {
     use std::collections::HashSet;
 
-    let type_entry = if let Some(entry) = checker.registries.types.get_by_name(name) { entry.clone() } else {
+    let type_entry = if let Some(entry) = checker.registries.types.get_by_name(name) {
+        entry.clone()
+    } else {
         let field_inits = checker.context.arena.get_field_inits(fields);
         let span = if let Some(first) = field_inits.first() {
             first.span
@@ -404,7 +401,10 @@ pub fn infer_struct(
         };
 
         checker.push_error(
-            format!("unknown struct type `{}`", checker.context.interner.lookup(name)),
+            format!(
+                "unknown struct type `{}`",
+                checker.context.interner.lookup(name)
+            ),
             span,
             ori_diagnostic::ErrorCode::E2003,
         );
@@ -420,7 +420,8 @@ pub fn infer_struct(
     // Get struct fields as TypeId, then convert to Type
     let expected_fields: Vec<(Name, Type)> = if let TypeKind::Struct { fields } = &type_entry.kind {
         let interner = checker.registries.types.interner();
-        fields.iter()
+        fields
+            .iter()
             .map(|(name, ty_id)| (*name, interner.to_type(*ty_id)))
             .collect()
     } else {
@@ -432,7 +433,10 @@ pub fn infer_struct(
         };
 
         checker.push_error(
-            format!("`{}` is not a struct type", checker.context.interner.lookup(name)),
+            format!(
+                "`{}` is not a struct type",
+                checker.context.interner.lookup(name)
+            ),
             span,
             ori_diagnostic::ErrorCode::E2001,
         );
@@ -466,10 +470,8 @@ pub fn infer_struct(
         (substituted_fields, type_args)
     };
 
-    let expected_map: std::collections::HashMap<Name, Type> = expected_fields
-        .iter()
-        .cloned()
-        .collect();
+    let expected_map: std::collections::HashMap<Name, Type> =
+        expected_fields.iter().cloned().collect();
 
     let field_inits = checker.context.arena.get_field_inits(fields);
     let mut provided_fields: HashSet<Name> = HashSet::new();
@@ -477,7 +479,10 @@ pub fn infer_struct(
     for init in field_inits {
         if !provided_fields.insert(init.name) {
             checker.push_error(
-                format!("field `{}` specified more than once", checker.context.interner.lookup(init.name)),
+                format!(
+                    "field `{}` specified more than once",
+                    checker.context.interner.lookup(init.name)
+                ),
                 init.span,
                 ori_diagnostic::ErrorCode::E2001,
             );
@@ -536,7 +541,10 @@ pub fn infer_struct(
     if type_args.is_empty() {
         Type::Named(name)
     } else {
-        Type::Applied { name, args: type_args }
+        Type::Applied {
+            name,
+            args: type_args,
+        }
     }
 }
 
@@ -566,11 +574,7 @@ pub fn infer_range(
 }
 
 /// Infer type for field access.
-pub fn infer_field(
-    checker: &mut TypeChecker<'_>,
-    receiver: ExprId,
-    field: Name,
-) -> Type {
+pub fn infer_field(checker: &mut TypeChecker<'_>, receiver: ExprId, field: Name) -> Type {
     let receiver_ty = infer_expr(checker, receiver);
     let resolved_ty = checker.inference.ctx.resolve(&receiver_ty);
     let resolved_ty = checker.resolve_through_aliases(&resolved_ty);
@@ -596,9 +600,10 @@ pub fn infer_field(
             Type::Error
         }
 
-        Type::Applied { name: type_name, args } => {
-            handle_struct_field_access(checker, type_name, field, Some(&args), receiver_span)
-        }
+        Type::Applied {
+            name: type_name,
+            args,
+        } => handle_struct_field_access(checker, type_name, field, Some(&args), receiver_span),
 
         Type::Var(_) => checker.inference.ctx.fresh_var(),
         Type::Error => Type::Error,
@@ -647,7 +652,10 @@ pub fn infer_index(
         Type::Error => Type::Error,
         other => {
             checker.push_error(
-                format!("type `{}` is not indexable", other.display(checker.context.interner)),
+                format!(
+                    "type `{}` is not indexable",
+                    other.display(checker.context.interner)
+                ),
                 span,
                 ori_diagnostic::ErrorCode::E2001,
             );

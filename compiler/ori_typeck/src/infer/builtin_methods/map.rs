@@ -23,7 +23,11 @@ impl BuiltinMethodHandler for MapMethodHandler {
         _args: &[Type],
         _span: Span,
     ) -> MethodTypeResult {
-        let Type::Map { key: key_ty, value: val_ty } = receiver_ty else {
+        let Type::Map {
+            key: key_ty,
+            value: val_ty,
+        } = receiver_ty
+        else {
             unreachable!("handles() verified type is Map");
         };
 

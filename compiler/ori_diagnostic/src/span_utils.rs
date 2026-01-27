@@ -74,9 +74,9 @@ mod tests {
     #[test]
     fn test_line_from_offset_multiple_lines() {
         let source = "line1\nline2\nline3";
-        assert_eq!(line_from_offset(source, 0), 1);  // 'l' of line1
-        assert_eq!(line_from_offset(source, 5), 1);  // '\n' after line1
-        assert_eq!(line_from_offset(source, 6), 2);  // 'l' of line2
+        assert_eq!(line_from_offset(source, 0), 1); // 'l' of line1
+        assert_eq!(line_from_offset(source, 5), 1); // '\n' after line1
+        assert_eq!(line_from_offset(source, 6), 2); // 'l' of line2
         assert_eq!(line_from_offset(source, 11), 2); // '\n' after line2
         assert_eq!(line_from_offset(source, 12), 3); // 'l' of line3
     }
@@ -95,10 +95,10 @@ mod tests {
         // Line 1
         assert_eq!(offset_to_line_col(source, 0), (1, 1)); // 'a'
         assert_eq!(offset_to_line_col(source, 2), (1, 3)); // 'c'
-        // Line 2
+                                                           // Line 2
         assert_eq!(offset_to_line_col(source, 4), (2, 1)); // 'd'
         assert_eq!(offset_to_line_col(source, 7), (2, 4)); // 'g'
-        // Line 3
+                                                           // Line 3
         assert_eq!(offset_to_line_col(source, 10), (3, 1)); // 'i'
     }
 

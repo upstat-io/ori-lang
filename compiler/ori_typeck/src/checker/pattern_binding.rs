@@ -2,9 +2,9 @@
 //!
 //! Handles binding patterns to types for let expressions and function parameters.
 
-use ori_ir::{Span, BindingPattern};
-use ori_types::Type;
 use super::TypeChecker;
+use ori_ir::{BindingPattern, Span};
+use ori_types::Type;
 
 impl TypeChecker<'_> {
     /// Bind a pattern to a type with generalization (for let-polymorphism).
@@ -36,7 +36,9 @@ impl TypeChecker<'_> {
                 // For struct destructuring, bind each field with generalization
                 for (field_name, opt_pattern) in fields {
                     let field_ty = self.inference.ctx.fresh_var();
-                    if let Some(nested) = opt_pattern { self.bind_pattern_generalized(nested, field_ty) } else {
+                    if let Some(nested) = opt_pattern {
+                        self.bind_pattern_generalized(nested, field_ty)
+                    } else {
                         let scheme = self.inference.ctx.generalize(&field_ty, &env_free_vars);
                         self.inference.env.bind_scheme(*field_name, scheme);
                     }
@@ -135,7 +137,9 @@ impl TypeChecker<'_> {
                             self.bind_pattern(elem_pat, elem_ty.clone());
                         }
                         if let Some(rest_name) = rest {
-                            self.inference.env.bind(*rest_name, Type::List(Box::new(elem_ty)));
+                            self.inference
+                                .env
+                                .bind(*rest_name, Type::List(Box::new(elem_ty)));
                         }
                     }
                     Type::Error => {} // Error recovery - don't cascade errors

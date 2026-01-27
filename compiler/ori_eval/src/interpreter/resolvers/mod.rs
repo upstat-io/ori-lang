@@ -18,16 +18,16 @@
 //! category of methods. The `MethodDispatcher` chains these resolvers and
 //! tries them in priority order until one handles the method call.
 
-mod user_registry;
-mod collection;
 mod builtin;
+mod collection;
+mod user_registry;
 
-pub use user_registry::UserRegistryResolver;
-pub use collection::CollectionMethodResolver;
 pub use builtin::BuiltinMethodResolver;
+pub use collection::CollectionMethodResolver;
+pub use user_registry::UserRegistryResolver;
 
-use ori_ir::Name;
 use crate::{DerivedMethodInfo, UserMethod, Value};
+use ori_ir::Name;
 
 /// Result of method resolution - identifies what kind of method was found.
 #[derive(Clone, Debug)]
@@ -136,7 +136,12 @@ impl MethodDispatcher {
     /// Try to resolve a method using the resolver chain.
     ///
     /// Returns the first successful resolution, or `NotFound` if no resolver handles it.
-    pub fn resolve(&self, receiver: &Value, type_name: Name, method_name: Name) -> MethodResolution {
+    pub fn resolve(
+        &self,
+        receiver: &Value,
+        type_name: Name,
+        method_name: Name,
+    ) -> MethodResolution {
         for resolver in &self.resolvers {
             let result = resolver.resolve(receiver, type_name, method_name);
             if !matches!(result, MethodResolution::NotFound) {
@@ -153,13 +158,34 @@ mod tests {
 
     #[test]
     fn test_collection_method_from_name() {
-        assert_eq!(CollectionMethod::from_name("map"), Some(CollectionMethod::Map));
-        assert_eq!(CollectionMethod::from_name("filter"), Some(CollectionMethod::Filter));
-        assert_eq!(CollectionMethod::from_name("fold"), Some(CollectionMethod::Fold));
-        assert_eq!(CollectionMethod::from_name("find"), Some(CollectionMethod::Find));
-        assert_eq!(CollectionMethod::from_name("collect"), Some(CollectionMethod::Collect));
-        assert_eq!(CollectionMethod::from_name("any"), Some(CollectionMethod::Any));
-        assert_eq!(CollectionMethod::from_name("all"), Some(CollectionMethod::All));
+        assert_eq!(
+            CollectionMethod::from_name("map"),
+            Some(CollectionMethod::Map)
+        );
+        assert_eq!(
+            CollectionMethod::from_name("filter"),
+            Some(CollectionMethod::Filter)
+        );
+        assert_eq!(
+            CollectionMethod::from_name("fold"),
+            Some(CollectionMethod::Fold)
+        );
+        assert_eq!(
+            CollectionMethod::from_name("find"),
+            Some(CollectionMethod::Find)
+        );
+        assert_eq!(
+            CollectionMethod::from_name("collect"),
+            Some(CollectionMethod::Collect)
+        );
+        assert_eq!(
+            CollectionMethod::from_name("any"),
+            Some(CollectionMethod::Any)
+        );
+        assert_eq!(
+            CollectionMethod::from_name("all"),
+            Some(CollectionMethod::All)
+        );
         assert_eq!(CollectionMethod::from_name("unknown"), None);
     }
 
@@ -171,17 +197,35 @@ mod tests {
         }
 
         impl MethodResolver for TestResolver {
-            fn resolve(&self, _receiver: &Value, _type_name: Name, _method_name: Name) -> MethodResolution {
+            fn resolve(
+                &self,
+                _receiver: &Value,
+                _type_name: Name,
+                _method_name: Name,
+            ) -> MethodResolution {
                 MethodResolution::NotFound
             }
-            fn priority(&self) -> u8 { self.priority }
-            fn name(&self) -> &'static str { self.name }
+            fn priority(&self) -> u8 {
+                self.priority
+            }
+            fn name(&self) -> &'static str {
+                self.name
+            }
         }
 
         let resolvers: Vec<Box<dyn MethodResolver + Send + Sync>> = vec![
-            Box::new(TestResolver { priority: 3, name: "third" }),
-            Box::new(TestResolver { priority: 1, name: "first" }),
-            Box::new(TestResolver { priority: 2, name: "second" }),
+            Box::new(TestResolver {
+                priority: 3,
+                name: "third",
+            }),
+            Box::new(TestResolver {
+                priority: 1,
+                name: "first",
+            }),
+            Box::new(TestResolver {
+                priority: 2,
+                name: "second",
+            }),
         ];
 
         let dispatcher = MethodDispatcher::new(resolvers);

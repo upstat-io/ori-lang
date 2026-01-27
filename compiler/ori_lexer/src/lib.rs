@@ -3,7 +3,7 @@
 //! Produces `TokenList` for Salsa queries.
 
 use logos::Logos;
-use ori_ir::{Span, Token, TokenKind, TokenList, DurationUnit, SizeUnit, StringInterner};
+use ori_ir::{DurationUnit, SizeUnit, Span, StringInterner, Token, TokenKind, TokenList};
 
 /// Raw token from logos (before interning).
 #[derive(Logos, Debug, Clone, Copy, PartialEq)]
@@ -344,9 +344,8 @@ pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
     }
 
     // Add EOF token
-    let eof_pos = u32::try_from(source.len()).unwrap_or_else(|_| {
-        panic!("source file exceeds {} bytes", u32::MAX)
-    });
+    let eof_pos = u32::try_from(source.len())
+        .unwrap_or_else(|_| panic!("source file exceeds {} bytes", u32::MAX));
     let eof_span = Span::point(eof_pos);
     result.push(Token::new(TokenKind::Eof, eof_span));
 
@@ -360,30 +359,28 @@ fn convert_token(raw: RawToken, slice: &str, interner: &StringInterner) -> Token
         RawToken::Int(n) | RawToken::HexInt(n) | RawToken::BinInt(n) => TokenKind::Int(n),
         RawToken::Float(f) => TokenKind::Float(f.to_bits()),
         RawToken::String => {
-            let content = &slice[1..slice.len()-1];
+            let content = &slice[1..slice.len() - 1];
             let unescaped = unescape_string(content);
             TokenKind::String(interner.intern(&unescaped))
         }
         RawToken::Char => {
-            let content = &slice[1..slice.len()-1];
+            let content = &slice[1..slice.len() - 1];
             let c = unescape_char(content);
             TokenKind::Char(c)
         }
-        RawToken::Ident => {
-            TokenKind::Ident(interner.intern(slice))
-        }
+        RawToken::Ident => TokenKind::Ident(interner.intern(slice)),
 
         // Duration
-        RawToken::DurationMs((v, u)) |
-        RawToken::DurationS((v, u)) |
-        RawToken::DurationM((v, u)) |
-        RawToken::DurationH((v, u)) => TokenKind::Duration(v, u),
+        RawToken::DurationMs((v, u))
+        | RawToken::DurationS((v, u))
+        | RawToken::DurationM((v, u))
+        | RawToken::DurationH((v, u)) => TokenKind::Duration(v, u),
 
         // Size
-        RawToken::SizeB((v, u)) |
-        RawToken::SizeKb((v, u)) |
-        RawToken::SizeMb((v, u)) |
-        RawToken::SizeGb((v, u)) => TokenKind::Size(v, u),
+        RawToken::SizeB((v, u))
+        | RawToken::SizeKb((v, u))
+        | RawToken::SizeMb((v, u))
+        | RawToken::SizeGb((v, u)) => TokenKind::Size(v, u),
 
         // Keywords
         RawToken::Async => TokenKind::Async,

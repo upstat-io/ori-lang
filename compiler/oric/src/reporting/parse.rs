@@ -2,9 +2,9 @@
 //!
 //! Renders `ParseProblem` variants into user-facing Diagnostic messages.
 
+use super::Render;
 use crate::diagnostic::{Diagnostic, ErrorCode};
 use crate::problem::ParseProblem;
-use super::Render;
 
 impl Render for ParseProblem {
     fn render(&self) -> Diagnostic {
@@ -19,11 +19,9 @@ impl Render for ParseProblem {
                 ))
                 .with_label(*span, format!("expected {expected}")),
 
-            ParseProblem::ExpectedExpression { span, found } => {
-                Diagnostic::error(ErrorCode::E1002)
-                    .with_message(format!("expected expression, found `{found}`"))
-                    .with_label(*span, "expected expression here")
-            }
+            ParseProblem::ExpectedExpression { span, found } => Diagnostic::error(ErrorCode::E1002)
+                .with_message(format!("expected expression, found `{found}`"))
+                .with_label(*span, "expected expression here"),
 
             ParseProblem::UnclosedDelimiter {
                 open_span,
@@ -42,11 +40,9 @@ impl Render for ParseProblem {
                     .with_secondary_label(*open_span, "unclosed delimiter opened here")
             }
 
-            ParseProblem::ExpectedIdentifier { span, found } => {
-                Diagnostic::error(ErrorCode::E1004)
-                    .with_message(format!("expected identifier, found `{found}`"))
-                    .with_label(*span, "expected identifier")
-            }
+            ParseProblem::ExpectedIdentifier { span, found } => Diagnostic::error(ErrorCode::E1004)
+                .with_message(format!("expected identifier, found `{found}`"))
+                .with_label(*span, "expected identifier"),
 
             ParseProblem::ExpectedType { span, found } => Diagnostic::error(ErrorCode::E1005)
                 .with_message(format!("expected type, found `{found}`"))
@@ -58,12 +54,10 @@ impl Render for ParseProblem {
                     .with_label(*span, reason.clone())
             }
 
-            ParseProblem::MissingFunctionBody { span, name } => {
-                Diagnostic::error(ErrorCode::E1007)
-                    .with_message(format!("function `@{name}` is missing its body"))
-                    .with_label(*span, "expected `=` followed by function body")
-                    .with_suggestion("add a body: @{name} (...) -> Type = expression")
-            }
+            ParseProblem::MissingFunctionBody { span, name } => Diagnostic::error(ErrorCode::E1007)
+                .with_message(format!("function `@{name}` is missing its body"))
+                .with_label(*span, "expected `=` followed by function body")
+                .with_suggestion("add a body: @{name} (...) -> Type = expression"),
 
             ParseProblem::InvalidPatternSyntax {
                 span,
@@ -128,17 +122,13 @@ impl Render for ParseProblem {
                         "`{exp_name}` requires named properties (`name: value`)"
                     ))
                     .with_label(*span, "use named properties")
-                    .with_suggestion(format!(
-                        "example: {exp_name}(over: items, transform: fn)"
-                    ))
+                    .with_suggestion(format!("example: {exp_name}(over: items, transform: fn)"))
             }
 
-            ParseProblem::ReservedBuiltinName { span, name } => {
-                Diagnostic::error(ErrorCode::E1014)
-                    .with_message(format!("`{name}` is a reserved built-in function name"))
-                    .with_label(*span, "cannot use this name for user-defined functions")
-                    .with_note("built-in names are reserved in call position")
-            }
+            ParseProblem::ReservedBuiltinName { span, name } => Diagnostic::error(ErrorCode::E1014)
+                .with_message(format!("`{name}` is a reserved built-in function name"))
+                .with_label(*span, "cannot use this name for user-defined functions")
+                .with_note("built-in names are reserved in call position"),
 
             ParseProblem::UnterminatedString { span } => Diagnostic::error(ErrorCode::E0001)
                 .with_message("unterminated string literal")

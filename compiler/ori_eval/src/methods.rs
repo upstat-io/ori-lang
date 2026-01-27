@@ -20,7 +20,11 @@ fn require_args(method: &str, expected: usize, actual: usize) -> Result<(), Eval
 
 /// Extract a string argument at the given index.
 #[inline]
-fn require_str_arg<'a>(method: &str, args: &'a [Value], index: usize) -> Result<&'a str, EvalError> {
+fn require_str_arg<'a>(
+    method: &str,
+    args: &'a [Value],
+    index: usize,
+) -> Result<&'a str, EvalError> {
     match args.get(index) {
         Some(Value::Str(s)) => Ok(s.as_str()),
         _ => Err(wrong_arg_type(method, "string")),
@@ -65,7 +69,10 @@ pub fn dispatch_builtin_method(receiver: Value, method: &str, args: Vec<Value>) 
 // Type-Specific Dispatch Functions
 
 /// Dispatch methods on list values.
-#[expect(clippy::needless_pass_by_value, reason = "Consistent method dispatch signature")]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
 fn dispatch_list_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::List(items) = receiver else {
         unreachable!();
@@ -85,7 +92,10 @@ fn dispatch_list_method(receiver: Value, method: &str, args: Vec<Value>) -> Eval
 }
 
 /// Dispatch methods on string values.
-#[expect(clippy::needless_pass_by_value, reason = "Consistent method dispatch signature")]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
 fn dispatch_string_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Str(s) = receiver else {
         unreachable!();
@@ -117,7 +127,10 @@ fn dispatch_string_method(receiver: Value, method: &str, args: Vec<Value>) -> Ev
 }
 
 /// Dispatch methods on range values.
-#[expect(clippy::needless_pass_by_value, reason = "Consistent method dispatch signature")]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
 fn dispatch_range_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Range(r) = receiver else {
         unreachable!();
@@ -135,7 +148,10 @@ fn dispatch_range_method(receiver: Value, method: &str, args: Vec<Value>) -> Eva
 }
 
 /// Dispatch methods on map values.
-#[expect(clippy::needless_pass_by_value, reason = "Consistent method dispatch signature")]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
 fn dispatch_map_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Map(map) = receiver else {
         unreachable!();
@@ -162,7 +178,10 @@ fn dispatch_map_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalR
 }
 
 /// Dispatch methods on Option values.
-#[expect(clippy::needless_pass_by_value, reason = "Consistent method dispatch signature")]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
 fn dispatch_option_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     match (method, &receiver) {
         ("unwrap" | "unwrap_or", Value::Some(v)) => Ok((**v).clone()),
@@ -181,13 +200,14 @@ fn dispatch_option_method(receiver: Value, method: &str, args: Vec<Value>) -> Ev
 }
 
 /// Dispatch methods on Result values.
-#[expect(clippy::needless_pass_by_value, reason = "Consistent method dispatch signature")]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
 fn dispatch_result_method(receiver: Value, method: &str, _args: Vec<Value>) -> EvalResult {
     match (method, &receiver) {
         ("unwrap", Value::Ok(v)) => Ok((**v).clone()),
-        ("unwrap", Value::Err(e)) => {
-            Err(EvalError::new(format!("called unwrap on Err: {e:?}")))
-        }
+        ("unwrap", Value::Err(e)) => Err(EvalError::new(format!("called unwrap on Err: {e:?}"))),
         ("is_ok", Value::Ok(_)) | ("is_err", Value::Err(_)) => Ok(Value::Bool(true)),
         ("is_ok", Value::Err(_)) | ("is_err", Value::Ok(_)) => Ok(Value::Bool(false)),
         _ => Err(no_such_method(method, "Result")),
@@ -243,8 +263,7 @@ mod tests {
             .unwrap();
             assert_eq!(result, Value::some(Value::int(1)));
 
-            let result =
-                dispatch_builtin_method(Value::list(vec![]), "first", vec![]).unwrap();
+            let result = dispatch_builtin_method(Value::list(vec![]), "first", vec![]).unwrap();
             assert_eq!(result, Value::None);
         }
 
@@ -258,8 +277,7 @@ mod tests {
             .unwrap();
             assert_eq!(result, Value::some(Value::int(2)));
 
-            let result =
-                dispatch_builtin_method(Value::list(vec![]), "last", vec![]).unwrap();
+            let result = dispatch_builtin_method(Value::list(vec![]), "last", vec![]).unwrap();
             assert_eq!(result, Value::None);
         }
 
@@ -282,12 +300,10 @@ mod tests {
             let list = Value::list(vec![Value::int(1)]);
 
             assert!(dispatch_builtin_method(list.clone(), "contains", vec![]).is_err());
-            assert!(dispatch_builtin_method(
-                list,
-                "contains",
-                vec![Value::int(1), Value::int(2)]
-            )
-            .is_err());
+            assert!(
+                dispatch_builtin_method(list, "contains", vec![Value::int(1), Value::int(2)])
+                    .is_err()
+            );
         }
     }
 
@@ -407,21 +423,13 @@ mod tests {
         #[test]
         fn len() {
             assert_eq!(
-                dispatch_builtin_method(
-                    Value::Range(RangeValue::exclusive(0, 10)),
-                    "len",
-                    vec![]
-                )
-                .unwrap(),
+                dispatch_builtin_method(Value::Range(RangeValue::exclusive(0, 10)), "len", vec![])
+                    .unwrap(),
                 Value::int(10)
             );
             assert_eq!(
-                dispatch_builtin_method(
-                    Value::Range(RangeValue::inclusive(0, 10)),
-                    "len",
-                    vec![]
-                )
-                .unwrap(),
+                dispatch_builtin_method(Value::Range(RangeValue::inclusive(0, 10)), "len", vec![])
+                    .unwrap(),
                 Value::int(11)
             );
         }
@@ -443,9 +451,7 @@ mod tests {
         #[test]
         fn contains_wrong_type() {
             let range = Value::Range(RangeValue::exclusive(0, 10));
-            assert!(
-                dispatch_builtin_method(range, "contains", vec![Value::string("5")]).is_err()
-            );
+            assert!(dispatch_builtin_method(range, "contains", vec![Value::string("5")]).is_err());
         }
     }
 
@@ -520,12 +526,10 @@ mod tests {
 
         #[test]
         fn unwrap_err_error() {
-            assert!(dispatch_builtin_method(
-                Value::err(Value::string("error")),
-                "unwrap",
-                vec![]
-            )
-            .is_err());
+            assert!(
+                dispatch_builtin_method(Value::err(Value::string("error")), "unwrap", vec![])
+                    .is_err()
+            );
         }
 
         #[test]
@@ -558,9 +562,7 @@ mod tests {
 
         #[test]
         fn no_such_method() {
-            assert!(
-                dispatch_builtin_method(Value::list(vec![]), "nonexistent", vec![]).is_err()
-            );
+            assert!(dispatch_builtin_method(Value::list(vec![]), "nonexistent", vec![]).is_err());
             assert!(
                 dispatch_builtin_method(Value::string("hello"), "nonexistent", vec![]).is_err()
             );

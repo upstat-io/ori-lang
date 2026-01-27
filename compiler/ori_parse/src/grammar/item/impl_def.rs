@@ -1,7 +1,7 @@
 //! Impl block parsing.
 
-use ori_ir::{GenericParamRange, ImplAssocType, ImplDef, ImplMethod, TokenKind};
 use crate::{ParseError, Parser};
+use ori_ir::{GenericParamRange, ImplAssocType, ImplDef, ImplMethod, TokenKind};
 
 impl Parser<'_> {
     /// Parse an impl block.

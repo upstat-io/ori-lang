@@ -2,9 +2,9 @@
 //!
 //! Renders `TypeProblem` variants into user-facing Diagnostic messages.
 
+use super::Render;
 use crate::diagnostic::{Diagnostic, ErrorCode};
 use crate::problem::TypeProblem;
-use super::Render;
 
 impl Render for TypeProblem {
     fn render(&self) -> Diagnostic {
@@ -86,15 +86,11 @@ impl Render for TypeProblem {
                 available_fields,
             } => {
                 let mut diag = Diagnostic::error(ErrorCode::E2003)
-                    .with_message(format!(
-                        "no field `{field_name}` on type `{type_name}`"
-                    ))
+                    .with_message(format!("no field `{field_name}` on type `{type_name}`"))
                     .with_label(*span, "unknown field");
                 if !available_fields.is_empty() {
-                    diag = diag.with_note(format!(
-                        "available fields: {}",
-                        available_fields.join(", ")
-                    ));
+                    diag = diag
+                        .with_note(format!("available fields: {}", available_fields.join(", ")));
                 }
                 diag
             }
@@ -104,9 +100,7 @@ impl Render for TypeProblem {
                 type_name,
                 method_name,
             } => Diagnostic::error(ErrorCode::E2003)
-                .with_message(format!(
-                    "no method `{method_name}` on type `{type_name}`"
-                ))
+                .with_message(format!("no method `{method_name}` on type `{type_name}`"))
                 .with_label(*span, "method not found"),
 
             TypeProblem::InvalidBinaryOp {
@@ -141,8 +135,7 @@ impl Render for TypeProblem {
                     .with_message(format!("unknown argument `.{arg_name}:`"))
                     .with_label(*span, "unknown argument");
                 if !valid_args.is_empty() {
-                    diag =
-                        diag.with_note(format!("valid arguments: .{}", valid_args.join(", .")));
+                    diag = diag.with_note(format!("valid arguments: .{}", valid_args.join(", .")));
                 }
                 diag
             }
@@ -176,14 +169,14 @@ impl Render for TypeProblem {
             }
 
             TypeProblem::InvalidAwait { span, found_type } => Diagnostic::error(ErrorCode::E2001)
-                .with_message(format!("`await` requires async value, found `{found_type}`"))
+                .with_message(format!(
+                    "`await` requires async value, found `{found_type}`"
+                ))
                 .with_label(*span, "not async"),
 
             TypeProblem::ConditionNotBool { span, found_type } => {
                 Diagnostic::error(ErrorCode::E2001)
-                    .with_message(format!(
-                        "condition must be `bool`, found `{found_type}`"
-                    ))
+                    .with_message(format!("condition must be `bool`, found `{found_type}`"))
                     .with_label(*span, "expected `bool`")
             }
 

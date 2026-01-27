@@ -45,52 +45,90 @@ macro_rules! static_assert_size {
 
 pub mod db;
 pub mod input;
-pub mod query;
 pub mod ir;
 pub mod parser;
+pub mod query;
 
 // Re-export lex function from the ori_lexer crate (single source of truth)
 pub use ori_lexer::lex;
+pub mod context;
+pub mod debug;
 pub mod diagnostic;
 pub mod edit;
+pub mod eval;
 pub mod problem;
 pub mod reporting;
-pub mod suggest;
-pub mod types;
-pub mod typeck;
-pub mod eval;
-pub mod test;
-pub mod context;
-pub mod testing;
-pub mod debug;
 pub mod stack;
+pub mod suggest;
+pub mod test;
+pub mod testing;
+pub mod typeck;
+pub mod types;
 
 // Re-exports for convenience
-pub use db::{Db, CompilerDb};
+pub use context::{shared_context, CompilerContext, SharedContext};
+pub use db::{CompilerDb, Db};
+pub use diagnostic::{Diagnostic, ErrorCode, Label, Severity};
+pub use eval::{
+    Environment, EvalError, EvalOutput, EvalResult, Evaluator, FunctionValue, ModuleEvalResult,
+    RangeValue, Value,
+};
 pub use input::SourceFile;
 pub use ir::{
-    Name, Span, Token, TokenKind, TokenList, DurationUnit, SizeUnit,
-    StringInterner, SharedInterner,
-    TypeId, ExprId, ExprRange, StmtId, StmtRange,
-    Spanned, Named, Typed,
-    Expr, ExprKind, Stmt, StmtKind, Param, ParamRange,
-    BinaryOp, UnaryOp, Function, Module, TestDef,
-    ExprArena,
-    BindingPattern, MatchPattern, MatchArm,
-    MapEntry, FieldInit,
-    ArmRange, MapEntryRange, FieldInitRange,
-    // function_seq types
-    SeqBinding, SeqBindingRange, FunctionSeq,
-    // function_exp types
-    NamedExpr, NamedExprRange, FunctionExpKind, FunctionExp,
+    ArmRange,
+    BinaryOp,
+    BindingPattern,
     // CallNamed types
-    CallArg, CallArgRange,
+    CallArg,
+    CallArgRange,
+    DurationUnit,
+    Expr,
+    ExprArena,
+    ExprId,
+    ExprKind,
+    ExprRange,
+    FieldInit,
+    FieldInitRange,
+    Function,
+    FunctionExp,
+    FunctionExpKind,
+    FunctionSeq,
+    MapEntry,
+    MapEntryRange,
+    MatchArm,
+    MatchPattern,
+    Module,
+    Name,
+    Named,
+    // function_exp types
+    NamedExpr,
+    NamedExprRange,
+    Param,
+    ParamRange,
+    // function_seq types
+    SeqBinding,
+    SeqBindingRange,
+    SharedInterner,
+    SizeUnit,
+    Span,
+    Spanned,
+    Stmt,
+    StmtId,
+    StmtKind,
+    StmtRange,
+    StringInterner,
+    TestDef,
+    Token,
+    TokenKind,
+    TokenList,
+    TypeId,
+    Typed,
+    UnaryOp,
 };
-pub use diagnostic::{Diagnostic, ErrorCode, Severity, Label};
-pub use types::{Type, TypeVar, TypeScheme, TypeEnv, InferenceContext, TypeError};
-pub use typeck::{TypedModule, TypeChecker, TypeCheckError, type_check, type_check_with_context};
-pub use eval::{Value, FunctionValue, RangeValue, Environment, Evaluator, EvalResult, EvalError, EvalOutput, ModuleEvalResult};
+pub use ori_patterns::{EvalContext, PatternDefinition, PatternRegistry, TypeCheckContext};
 pub use query::evaluated;
-pub use test::{TestRunner, TestRunnerConfig, TestSummary, TestResult, TestOutcome, run_tests, run_test_file};
-pub use ori_patterns::{PatternRegistry, PatternDefinition, TypeCheckContext, EvalContext};
-pub use context::{CompilerContext, SharedContext, shared_context};
+pub use test::{
+    run_test_file, run_tests, TestOutcome, TestResult, TestRunner, TestRunnerConfig, TestSummary,
+};
+pub use typeck::{type_check, type_check_with_context, TypeCheckError, TypeChecker, TypedModule};
+pub use types::{InferenceContext, Type, TypeEnv, TypeError, TypeScheme, TypeVar};

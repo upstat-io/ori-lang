@@ -17,11 +17,11 @@
 //! error messages for different situations.
 
 mod parse;
-mod type_errors;
 mod semantic;
+mod type_errors;
 
-use crate::diagnostic::{Diagnostic, Severity};
 use crate::diagnostic::queue::{DiagnosticConfig, DiagnosticQueue};
+use crate::diagnostic::{Diagnostic, Severity};
 use crate::problem::Problem;
 use crate::typeck::TypeCheckError;
 
@@ -136,7 +136,9 @@ impl Report {
     }
 
     pub fn has_errors(&self) -> bool {
-        self.diagnostics.iter().any(ori_diagnostic::Diagnostic::is_error)
+        self.diagnostics
+            .iter()
+            .any(ori_diagnostic::Diagnostic::is_error)
     }
 
     pub fn error_count(&self) -> usize {
@@ -156,8 +158,8 @@ mod tests {
     use super::*;
     use crate::diagnostic::ErrorCode;
     use crate::ir::Span;
-    use crate::problem::{ParseProblem, TypeProblem, SemanticProblem};
     use crate::problem::semantic::DefinitionKind;
+    use crate::problem::{ParseProblem, SemanticProblem, TypeProblem};
 
     #[test]
     fn test_render_parse_problem() {

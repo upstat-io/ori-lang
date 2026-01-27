@@ -2,10 +2,10 @@
 //!
 //! Detects closure self-capture and collects free variables from expressions.
 
-use std::collections::HashSet;
-use ori_ir::{Name, Span, ExprId, ExprKind, BindingPattern};
 use super::TypeChecker;
 use crate::infer;
+use ori_ir::{BindingPattern, ExprId, ExprKind, Name, Span};
+use std::collections::HashSet;
 
 /// Add bindings from a pattern to the bound set.
 #[expect(clippy::implicit_hasher, reason = "Standard HashSet sufficient here")]
@@ -23,7 +23,9 @@ pub fn add_pattern_bindings(pattern: &BindingPattern, bound: &mut HashSet<Name>)
             for (field_name, opt_pattern) in fields {
                 match opt_pattern {
                     Some(nested) => add_pattern_bindings(nested, bound),
-                    None => { bound.insert(*field_name); }
+                    None => {
+                        bound.insert(*field_name);
+                    }
                 }
             }
         }
@@ -44,7 +46,11 @@ impl TypeChecker<'_> {
     ///
     /// This is used for closure self-capture detection. A variable is "free"
     /// if it's referenced but not bound within the expression.
-    pub(crate) fn collect_free_vars(&self, expr_id: ExprId, bound: &HashSet<Name>) -> HashSet<Name> {
+    pub(crate) fn collect_free_vars(
+        &self,
+        expr_id: ExprId,
+        bound: &HashSet<Name>,
+    ) -> HashSet<Name> {
         let mut free = HashSet::new();
         infer::collect_free_vars_inner(self, expr_id, bound, &mut free);
         free

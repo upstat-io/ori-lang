@@ -29,9 +29,9 @@
 //! #[compile_fail("unknown identifier")]
 //! ```
 
-use ori_diagnostic::ErrorCode;
-use ori_ir::{Name, TokenKind, ExpectedError};
 use crate::{ParseError, Parser};
+use ori_diagnostic::ErrorCode;
+use ori_ir::{ExpectedError, Name, TokenKind};
 
 /// Parsed attributes for a function or test.
 #[derive(Default, Clone, Debug)]
@@ -80,10 +80,7 @@ impl AttrKind {
 
 impl Parser<'_> {
     /// Parse zero or more attributes: `#[attr("value")]` or `#[derive(Trait)]`.
-    pub(crate) fn parse_attributes(
-        &mut self,
-        errors: &mut Vec<ParseError>,
-    ) -> ParsedAttrs {
+    pub(crate) fn parse_attributes(&mut self, errors: &mut Vec<ParseError>) -> ParsedAttrs {
         let mut attrs = ParsedAttrs::default();
 
         while self.check(&TokenKind::HashBracket) {
@@ -246,7 +243,9 @@ impl Parser<'_> {
         if let TokenKind::String(string_name) = self.current_kind() {
             // Simple format: #[compile_fail("message")]
             self.advance();
-            attrs.expected_errors.push(ExpectedError::from_message(string_name));
+            attrs
+                .expected_errors
+                .push(ExpectedError::from_message(string_name));
 
             // Expect )
             if self.check(&TokenKind::RParen) {
@@ -470,8 +469,8 @@ impl Parser<'_> {
 
 #[cfg(test)]
 mod tests {
-    use ori_ir::StringInterner;
     use crate::parse;
+    use ori_ir::StringInterner;
 
     fn parse_with_errors(source: &str) -> (crate::ParseResult, StringInterner) {
         let interner = StringInterner::new();
@@ -482,10 +481,12 @@ mod tests {
 
     #[test]
     fn test_parse_skip_attribute() {
-        let (result, _interner) = parse_with_errors(r#"
+        let (result, _interner) = parse_with_errors(
+            r#"
 #[skip("not implemented")]
 @test_example () -> void = print(msg: "test")
-"#);
+"#,
+        );
 
         assert!(!result.has_errors(), "errors: {:?}", result.errors);
         assert_eq!(result.module.tests.len(), 1);
@@ -495,10 +496,12 @@ mod tests {
 
     #[test]
     fn test_parse_compile_fail_attribute() {
-        let (result, _interner) = parse_with_errors(r#"
+        let (result, _interner) = parse_with_errors(
+            r#"
 #[compile_fail("type error")]
 @test_should_fail () -> void = print(msg: "test")
-"#);
+"#,
+        );
 
         assert!(!result.has_errors(), "errors: {:?}", result.errors);
         assert_eq!(result.module.tests.len(), 1);
@@ -509,10 +512,12 @@ mod tests {
 
     #[test]
     fn test_parse_fail_attribute() {
-        let (result, _interner) = parse_with_errors(r#"
+        let (result, _interner) = parse_with_errors(
+            r#"
 #[fail("assertion failed")]
 @test_expect_failure () -> void = panic(msg: "expected failure")
-"#);
+"#,
+        );
 
         assert!(!result.has_errors(), "errors: {:?}", result.errors);
         assert_eq!(result.module.tests.len(), 1);
@@ -522,32 +527,41 @@ mod tests {
 
     #[test]
     fn test_parse_derive_attribute() {
-        let (result, _interner) = parse_with_errors(r#"
+        let (result, _interner) = parse_with_errors(
+            r#"
 #[derive(Eq, Clone)]
 @test_with_derive () -> void = print(msg: "test")
-"#);
+"#,
+        );
 
         assert!(!result.has_errors(), "errors: {:?}", result.errors);
     }
 
     #[test]
     fn test_parse_unknown_attribute() {
-        let (result, _interner) = parse_with_errors(r#"
+        let (result, _interner) = parse_with_errors(
+            r#"
 #[unknown("value")]
 @test_unknown () -> void = print(msg: "test")
-"#);
+"#,
+        );
 
         // Should have an error for unknown attribute
         assert!(result.has_errors());
-        assert!(result.errors.iter().any(|e| e.message.contains("unknown attribute")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("unknown attribute")));
     }
 
     #[test]
     fn test_parse_attribute_missing_paren() {
-        let (result, _interner) = parse_with_errors(r"
+        let (result, _interner) = parse_with_errors(
+            r"
 #[skip]
 @test_bad () -> void = assert(cond: true)
-");
+",
+        );
 
         // Should have an error for missing (
         assert!(result.has_errors());
@@ -555,10 +569,12 @@ mod tests {
 
     #[test]
     fn test_parse_attribute_missing_string() {
-        let (result, _interner) = parse_with_errors(r"
+        let (result, _interner) = parse_with_errors(
+            r"
 #[skip()]
 @test_bad () -> void = assert(cond: true)
-");
+",
+        );
 
         // Should have an error for missing string argument
         assert!(result.has_errors());
@@ -567,11 +583,13 @@ mod tests {
     #[test]
     fn test_parse_multiple_attributes() {
         // Multiple attributes on same item isn't typical but parser should handle
-        let (result, _interner) = parse_with_errors(r#"
+        let (result, _interner) = parse_with_errors(
+            r#"
 #[skip("reason")]
 #[fail("expected")]
 @test_multi () -> void = print(msg: "test")
-"#);
+"#,
+        );
 
         // Last attribute wins for each field
         assert!(!result.has_errors(), "errors: {:?}", result.errors);

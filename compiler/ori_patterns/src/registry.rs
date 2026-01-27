@@ -1,7 +1,10 @@
 //! Pattern registry for looking up pattern definitions by kind.
 
 // Arc is needed for SharedPattern - storing pattern definitions as trait objects
-#![expect(clippy::disallowed_types, reason = "Arc is the implementation of SharedPattern")]
+#![expect(
+    clippy::disallowed_types,
+    reason = "Arc is the implementation of SharedPattern"
+)]
 
 use std::collections::HashMap;
 use std::sync::Arc;

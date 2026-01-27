@@ -2,10 +2,10 @@
 //!
 //! Handles if/else, match, loops, blocks, and other control flow.
 
-use ori_ir::{Name, Span, ExprId, StmtRange, ArmRange, ParsedType, BindingPattern};
-use ori_types::Type;
-use crate::checker::TypeChecker;
 use super::infer_expr;
+use crate::checker::TypeChecker;
+use ori_ir::{ArmRange, BindingPattern, ExprId, Name, ParsedType, Span, StmtRange};
+use ori_types::Type;
 
 /// Infer type for an if expression.
 pub fn infer_if(
@@ -54,13 +54,15 @@ pub fn infer_match(
         for arm in match_arms {
             super::unify_pattern_with_scrutinee(checker, &arm.pattern, &scrutinee_ty, arm.span);
 
-            let bindings = super::extract_match_pattern_bindings(checker, &arm.pattern, &scrutinee_ty);
+            let bindings =
+                super::extract_match_pattern_bindings(checker, &arm.pattern, &scrutinee_ty);
 
             let arm_ty = checker.with_infer_bindings(bindings, |checker| {
                 if let Some(guard_id) = arm.guard {
                     let guard_ty = infer_expr(checker, guard_id);
                     if let Err(e) = checker.inference.ctx.unify(&guard_ty, &Type::Bool) {
-                        checker.report_type_error(&e, checker.context.arena.get_expr(guard_id).span);
+                        checker
+                            .report_type_error(&e, checker.context.arena.get_expr(guard_id).span);
                     }
                 }
 
@@ -151,7 +153,9 @@ pub fn infer_block(
                 ori_ir::StmtKind::Expr(e) => {
                     infer_expr(checker, *e);
                 }
-                ori_ir::StmtKind::Let { pattern, ty, init, .. } => {
+                ori_ir::StmtKind::Let {
+                    pattern, ty, init, ..
+                } => {
                     let init_ty = super::infer_let_init(checker, pattern, *init, stmt.span);
                     let final_ty = super::check_type_annotation_id(checker, *ty, init_ty, *init);
                     checker.bind_pattern_generalized(pattern, final_ty);

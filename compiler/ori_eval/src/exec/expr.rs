@@ -3,17 +3,28 @@
 //! This module provides helper functions for expression evaluation including
 //! literals, operators, indexing, and field access. Used by the Interpreter.
 
-use ori_ir::{ExprId, ExprKind, BinaryOp, StringInterner, Name};
 use crate::{
-    Value, RangeValue, EvalResult, EvalError,
-    Environment, evaluate_binary,
     // Error factories
-    cannot_access_field, cannot_get_length, cannot_index, collection_too_large,
-    index_out_of_bounds, invalid_tuple_field, key_not_found,
+    cannot_access_field,
+    cannot_get_length,
+    cannot_index,
+    collection_too_large,
+    evaluate_binary,
+    index_out_of_bounds,
+    invalid_tuple_field,
+    key_not_found,
     no_field_on_struct,
-    range_bound_not_int, tuple_index_out_of_bounds, unbounded_range_end,
+    range_bound_not_int,
+    tuple_index_out_of_bounds,
+    unbounded_range_end,
     undefined_variable,
+    Environment,
+    EvalError,
+    EvalResult,
+    RangeValue,
+    Value,
 };
+use ori_ir::{BinaryOp, ExprId, ExprKind, Name, StringInterner};
 
 /// Evaluate a literal expression.
 ///
@@ -29,12 +40,8 @@ pub fn eval_literal(kind: &ExprKind, interner: &StringInterner) -> Option<EvalRe
         }
         ExprKind::Char(c) => Some(Ok(Value::Char(*c))),
         ExprKind::Unit => Some(Ok(Value::Void)),
-        ExprKind::Duration { value, unit } => {
-            Some(Ok(Value::Duration(unit.to_millis(*value))))
-        }
-        ExprKind::Size { value, unit } => {
-            Some(Ok(Value::Size(unit.to_bytes(*value))))
-        }
+        ExprKind::Duration { value, unit } => Some(Ok(Value::Duration(unit.to_millis(*value)))),
+        ExprKind::Size { value, unit } => Some(Ok(Value::Size(unit.to_bytes(*value)))),
         _ => None,
     }
 }
@@ -51,12 +58,7 @@ pub fn eval_ident(name: Name, env: &Environment, interner: &StringInterner) -> E
 ///
 /// The `eval_fn` callback is used to evaluate the operands, allowing
 /// lazy evaluation for short-circuit operators.
-pub fn eval_binary<F>(
-    left: ExprId,
-    op: BinaryOp,
-    right: ExprId,
-    mut eval_fn: F,
-) -> EvalResult
+pub fn eval_binary<F>(left: ExprId, op: BinaryOp, right: ExprId, mut eval_fn: F) -> EvalResult
 where
     F: FnMut(ExprId) -> EvalResult,
 {
@@ -112,13 +114,15 @@ where
     F: FnMut(ExprId) -> EvalResult,
 {
     let start_val = if let Some(s) = start {
-        eval_fn(s)?.as_int()
+        eval_fn(s)?
+            .as_int()
             .ok_or_else(|| range_bound_not_int("start"))?
     } else {
         0
     };
     let end_val = if let Some(e) = end {
-        eval_fn(e)?.as_int()
+        eval_fn(e)?
+            .as_int()
             .ok_or_else(|| range_bound_not_int("end"))?
     } else {
         return Err(unbounded_range_end());
@@ -132,16 +136,27 @@ where
 }
 
 /// Convert a signed index to unsigned, handling negative indices from the end.
-#[expect(clippy::arithmetic_side_effects, reason = "index arithmetic is bounds-checked")]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "index arithmetic is bounds-checked"
+)]
 fn resolve_index(i: i64, len: usize) -> Option<usize> {
     if i >= 0 {
         let idx = usize::try_from(i).ok()?;
-        if idx < len { Some(idx) } else { None }
+        if idx < len {
+            Some(idx)
+        } else {
+            None
+        }
     } else {
         // Negative index: count from end
         // -i is positive since i < 0, safe to convert
         let positive = usize::try_from(-i).ok()?;
-        if positive <= len { Some(len - positive) } else { None }
+        if positive <= len {
+            Some(len - positive)
+        } else {
+            None
+        }
     }
 }
 
@@ -150,23 +165,25 @@ pub fn eval_index(value: Value, index: Value) -> EvalResult {
     match (value, index) {
         (Value::List(items), Value::Int(i)) => {
             let raw = i.raw();
-            let idx = resolve_index(raw, items.len())
-                .ok_or_else(|| index_out_of_bounds(raw))?;
-            items.get(idx).cloned().ok_or_else(|| index_out_of_bounds(raw))
+            let idx = resolve_index(raw, items.len()).ok_or_else(|| index_out_of_bounds(raw))?;
+            items
+                .get(idx)
+                .cloned()
+                .ok_or_else(|| index_out_of_bounds(raw))
         }
         (Value::Str(s), Value::Int(i)) => {
             let raw = i.raw();
             let char_count = s.chars().count();
-            let idx = resolve_index(raw, char_count)
-                .ok_or_else(|| index_out_of_bounds(raw))?;
-            s.chars().nth(idx)
+            let idx = resolve_index(raw, char_count).ok_or_else(|| index_out_of_bounds(raw))?;
+            s.chars()
+                .nth(idx)
                 .map(Value::Char)
                 .ok_or_else(|| index_out_of_bounds(raw))
         }
-        (Value::Map(map), Value::Str(key)) => {
-            map.get(key.as_str()).cloned()
-                .ok_or_else(|| key_not_found(&key))
-        }
+        (Value::Map(map), Value::Str(key)) => map
+            .get(key.as_str())
+            .cloned()
+            .ok_or_else(|| key_not_found(&key)),
         (value, index) => Err(cannot_index(value.type_name(), index.type_name())),
     }
 }
@@ -174,17 +191,18 @@ pub fn eval_index(value: Value, index: Value) -> EvalResult {
 /// Evaluate field access.
 pub fn eval_field_access(value: Value, field: Name, interner: &StringInterner) -> EvalResult {
     match value {
-        Value::Struct(s) => {
-            s.get_field(field).cloned().ok_or_else(|| {
-                let field_name = interner.lookup(field);
-                no_field_on_struct(field_name)
-            })
-        }
+        Value::Struct(s) => s.get_field(field).cloned().ok_or_else(|| {
+            let field_name = interner.lookup(field);
+            no_field_on_struct(field_name)
+        }),
         Value::Tuple(items) => {
             // Tuple field access like t.0, t.1
             let field_name = interner.lookup(field);
             if let Ok(idx) = field_name.parse::<usize>() {
-                items.get(idx).cloned().ok_or_else(|| tuple_index_out_of_bounds(idx))
+                items
+                    .get(idx)
+                    .cloned()
+                    .ok_or_else(|| tuple_index_out_of_bounds(idx))
             } else {
                 Err(invalid_tuple_field(field_name))
             }

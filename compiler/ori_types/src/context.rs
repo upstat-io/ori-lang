@@ -1,15 +1,15 @@
 //! Type inference context and type deduplication.
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
 
-use ori_ir::{Name, TypeId};
 use crate::core::{Type, TypeScheme};
 use crate::data::{TypeData, TypeVar};
+use crate::error::TypeError;
 use crate::traverse::{TypeIdFolder, TypeIdVisitor};
 use crate::type_interner::{SharedTypeInterner, TypeInterner};
-use crate::error::TypeError;
+use ori_ir::{Name, TypeId};
 
 /// Type inference context.
 ///
@@ -129,8 +129,14 @@ impl InferenceContext {
 
             // Function types
             (
-                TypeData::Function { params: p1, ret: r1 },
-                TypeData::Function { params: p2, ret: r2 },
+                TypeData::Function {
+                    params: p1,
+                    ret: r1,
+                },
+                TypeData::Function {
+                    params: p2,
+                    ret: r2,
+                },
             ) => {
                 if p1.len() != p2.len() {
                     return Err(TypeError::ArgCountMismatch {
@@ -166,30 +172,30 @@ impl InferenceContext {
             | (TypeData::Channel(a), TypeData::Channel(b)) => self.unify_ids(*a, *b),
 
             // Map types
-            (
-                TypeData::Map { key: k1, value: v1 },
-                TypeData::Map { key: k2, value: v2 },
-            ) => {
+            (TypeData::Map { key: k1, value: v1 }, TypeData::Map { key: k2, value: v2 }) => {
                 self.unify_ids(*k1, *k2)?;
                 self.unify_ids(*v1, *v2)
             }
 
             // Result types
-            (
-                TypeData::Result { ok: o1, err: e1 },
-                TypeData::Result { ok: o2, err: e2 },
-            ) => {
+            (TypeData::Result { ok: o1, err: e1 }, TypeData::Result { ok: o2, err: e2 }) => {
                 self.unify_ids(*o1, *o2)?;
                 self.unify_ids(*e1, *e2)
             }
 
             // Projection types: unify if same trait/assoc_name and bases unify
             (
-                TypeData::Projection { base: b1, trait_name: t1, assoc_name: a1 },
-                TypeData::Projection { base: b2, trait_name: t2, assoc_name: a2 },
-            ) if t1 == t2 && a1 == a2 => {
-                self.unify_ids(*b1, *b2)
-            }
+                TypeData::Projection {
+                    base: b1,
+                    trait_name: t1,
+                    assoc_name: a1,
+                },
+                TypeData::Projection {
+                    base: b2,
+                    trait_name: t2,
+                    assoc_name: a2,
+                },
+            ) if t1 == t2 && a1 == a2 => self.unify_ids(*b1, *b2),
 
             // Applied generic types: unify if same base name and args unify
             (
@@ -370,11 +376,8 @@ impl InferenceContext {
         }
 
         // Create fresh variables for each quantified variable
-        let fresh_vars: HashMap<TypeVar, Type> = scheme
-            .vars
-            .iter()
-            .map(|v| (*v, self.fresh_var()))
-            .collect();
+        let fresh_vars: HashMap<TypeVar, Type> =
+            scheme.vars.iter().map(|v| (*v, self.fresh_var())).collect();
 
         // Substitute quantified variables with fresh ones
         self.substitute_vars(&scheme.ty, &fresh_vars)

@@ -3,9 +3,9 @@
 //! The `CodegenContext` holds all state needed during code generation,
 //! including type information, ownership analysis results, and output buffers.
 
-use rustc_hash::FxHashSet;
 use ori_ir::{ExprId, Name, StringInterner, TypeId};
 use ori_types::TypeInterner;
+use rustc_hash::FxHashSet;
 
 use crate::analysis::OwnershipInfo;
 

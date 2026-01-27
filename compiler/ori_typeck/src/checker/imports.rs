@@ -9,10 +9,10 @@
 //! 2. Call `TypeChecker::register_imported_functions()` before `check_module()`
 //! 3. Imported functions will be available for call type checking
 
-use ori_ir::Name;
-use ori_types::Type;
 use super::types::{FunctionType, GenericBound};
 use super::TypeChecker;
+use ori_ir::Name;
+use ori_types::Type;
 
 /// A generic parameter with its trait bounds for imported functions.
 ///
@@ -60,7 +60,8 @@ impl ImportedFunction {
         interner: &ori_types::TypeInterner,
     ) -> Self {
         // Convert param TypeIds to Types
-        let params: Vec<Type> = func_type.params
+        let params: Vec<Type> = func_type
+            .params
             .iter()
             .map(|&type_id| interner.to_type(type_id))
             .collect();
@@ -69,7 +70,8 @@ impl ImportedFunction {
         let return_type = interner.to_type(func_type.return_type);
 
         // Convert generics (bounds are already Names, just copy them)
-        let generics: Vec<ImportedGeneric> = func_type.generics
+        let generics: Vec<ImportedGeneric> = func_type
+            .generics
             .iter()
             .map(|g| ImportedGeneric {
                 param: g.param,
@@ -116,28 +118,32 @@ impl TypeChecker<'_> {
 
         let prepared: Vec<PreparedImport> = {
             let interner = self.inference.env.interner();
-            imports.iter().map(|import| {
-                // Convert portable Types to TypeIds
-                let params: Vec<ori_ir::TypeId> = import.params
-                    .iter()
-                    .map(|t| t.to_type_id(interner))
-                    .collect();
-                let return_type = import.return_type.to_type_id(interner);
+            imports
+                .iter()
+                .map(|import| {
+                    // Convert portable Types to TypeIds
+                    let params: Vec<ori_ir::TypeId> = import
+                        .params
+                        .iter()
+                        .map(|t| t.to_type_id(interner))
+                        .collect();
+                    let return_type = import.return_type.to_type_id(interner);
 
-                // Create Type::Function for environment binding
-                let fn_type = Type::Function {
-                    params: import.params.clone(),
-                    ret: Box::new(import.return_type.clone()),
-                };
+                    // Create Type::Function for environment binding
+                    let fn_type = Type::Function {
+                        params: import.params.clone(),
+                        ret: Box::new(import.return_type.clone()),
+                    };
 
-                PreparedImport {
-                    name: import.name,
-                    params,
-                    return_type,
-                    fn_type,
-                    capabilities: import.capabilities.clone(),
-                }
-            }).collect()
+                    PreparedImport {
+                        name: import.name,
+                        params,
+                        return_type,
+                        fn_type,
+                        capabilities: import.capabilities.clone(),
+                    }
+                })
+                .collect()
         };
 
         // Second pass: create fresh type vars and do mutations
@@ -169,7 +175,8 @@ impl TypeChecker<'_> {
             // Bind to environment
             // For generic functions, create a polymorphic type scheme
             let interner = self.inference.env.interner();
-            let type_vars: Vec<_> = generics.iter()
+            let type_vars: Vec<_> = generics
+                .iter()
                 .filter_map(|g| {
                     if let ori_types::TypeData::Var(tv) = interner.lookup(g.type_var) {
                         Some(tv)

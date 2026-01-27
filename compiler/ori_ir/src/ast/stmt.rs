@@ -7,8 +7,8 @@
 
 use std::fmt;
 
-use crate::{Span, TypeId, ExprId, Spanned};
 use super::patterns::BindingPattern;
+use crate::{ExprId, Span, Spanned, TypeId};
 
 /// Statement node.
 #[derive(Clone, Eq, PartialEq, Hash)]

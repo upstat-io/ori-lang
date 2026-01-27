@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::CompilerDb;
-use salsa::Setter;
 use ori_ir::TypeId;
+use salsa::Setter;
 use std::path::PathBuf;
 
 #[test]
@@ -29,7 +29,7 @@ fn test_non_empty_line_count() {
         "line1\n\nline3\n".to_string(),
     );
 
-    assert_eq!(line_count(&db, file), 3);  // "line1\n\nline3\n" = 3 lines
+    assert_eq!(line_count(&db, file), 3); // "line1\n\nline3\n" = 3 lines
     assert_eq!(non_empty_line_count(&db, file), 2);
 }
 
@@ -50,11 +50,7 @@ fn test_first_line() {
 fn test_incremental_recomputation() {
     let mut db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "line1\nline2".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), "line1\nline2".to_string());
 
     // Initial computation
     assert_eq!(line_count(&db, file), 2);
@@ -73,11 +69,7 @@ fn test_incremental_recomputation() {
 fn test_multiple_files() {
     let db = CompilerDb::new();
 
-    let file1 = SourceFile::new(
-        &db,
-        PathBuf::from("/a.ori"),
-        "one\ntwo".to_string(),
-    );
+    let file1 = SourceFile::new(&db, PathBuf::from("/a.ori"), "one\ntwo".to_string());
 
     let file2 = SourceFile::new(
         &db,
@@ -116,11 +108,7 @@ fn test_caching_verified_with_logs() {
     let db = CompilerDb::new();
     db.enable_logging();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "line1\nline2".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), "line1\nline2".to_string());
 
     // First call - should execute
     let _ = line_count(&db, file);
@@ -139,11 +127,7 @@ fn test_tokens_basic() {
 
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "let x = 42".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), "let x = 42".to_string());
 
     let toks = tokens(&db, file);
 
@@ -184,11 +168,7 @@ fn test_tokens_caching() {
     let db = CompilerDb::new();
     db.enable_logging();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "let x = 1".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), "let x = 1".to_string());
 
     // First call - should execute
     let _ = tokens(&db, file);
@@ -207,11 +187,7 @@ fn test_tokens_incremental() {
 
     let mut db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "let x = 1".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), "let x = 1".to_string());
 
     // Initial tokens
     let toks1 = tokens(&db, file);
@@ -327,7 +303,10 @@ fn test_parsed_incremental() {
     // Initial parse
     let result1 = parsed(&db, file);
     assert!(matches!(
-        result1.arena.get_expr(result1.module.functions[0].body).kind,
+        result1
+            .arena
+            .get_expr(result1.module.functions[0].body)
+            .kind,
         ExprKind::Int(1)
     ));
 
@@ -337,7 +316,10 @@ fn test_parsed_incremental() {
     // Should re-parse with new value
     let result2 = parsed(&db, file);
     assert!(matches!(
-        result2.arena.get_expr(result2.module.functions[0].body).kind,
+        result2
+            .arena
+            .get_expr(result2.module.functions[0].body)
+            .kind,
         ExprKind::Int(2)
     ));
 }
@@ -360,19 +342,23 @@ fn test_parsed_early_cutoff() {
 
     // Add whitespace (tokens should be identical after lexing)
     // Note: This depends on lexer behavior with whitespace
-    file.set_text(&mut db).to("@main () -> int = 42  ".to_string());
+    file.set_text(&mut db)
+        .to("@main () -> int = 42  ".to_string());
 
     // Get tokens to verify they're the same semantically
     // Even if tokens differ, parsed result should be equivalent
     let result2 = parsed(&db, file);
 
     // Results should be functionally equivalent
-    assert_eq!(result1.module.functions.len(), result2.module.functions.len());
+    assert_eq!(
+        result1.module.functions.len(),
+        result2.module.functions.len()
+    );
 }
 
 #[test]
 fn test_parsed_with_expressions() {
-    use crate::ir::{ExprKind, BinaryOp};
+    use crate::ir::{BinaryOp, ExprKind};
 
     let db = CompilerDb::new();
 
@@ -389,10 +375,23 @@ fn test_parsed_with_expressions() {
     let func = &result.module.functions[0];
     let body = result.arena.get_expr(func.body);
 
-    if let ExprKind::Binary { op: BinaryOp::Add, left, right } = &body.kind {
-        assert!(matches!(result.arena.get_expr(*left).kind, ExprKind::Int(1)));
+    if let ExprKind::Binary {
+        op: BinaryOp::Add,
+        left,
+        right,
+    } = &body.kind
+    {
+        assert!(matches!(
+            result.arena.get_expr(*left).kind,
+            ExprKind::Int(1)
+        ));
         let right_expr = result.arena.get_expr(*right);
-        if let ExprKind::Binary { op: BinaryOp::Mul, left: l2, right: r2 } = &right_expr.kind {
+        if let ExprKind::Binary {
+            op: BinaryOp::Mul,
+            left: l2,
+            right: r2,
+        } = &right_expr.kind
+        {
             assert!(matches!(result.arena.get_expr(*l2).kind, ExprKind::Int(2)));
             assert!(matches!(result.arena.get_expr(*r2).kind, ExprKind::Int(3)));
         } else {
@@ -457,7 +456,8 @@ fn test_typed_incremental() {
     assert_eq!(result1.function_types[0].return_type, TypeId::INT);
 
     // Modify source to return bool
-    file.set_text(&mut db).to("@main () -> bool = true".to_string());
+    file.set_text(&mut db)
+        .to("@main () -> bool = true".to_string());
 
     // Should re-type-check with new return type
     let result2 = typed(&db, file);
@@ -566,7 +566,11 @@ fn test_evaluated_list() {
 
     let result = evaluated(&db, file);
 
-    assert!(!result.is_failure(), "Evaluation failed: {:?}", result.error);
+    assert!(
+        !result.is_failure(),
+        "Evaluation failed: {:?}",
+        result.error
+    );
 
     assert_eq!(
         result.result,
@@ -673,7 +677,8 @@ fn test_evaluated_run_pattern() {
             let x: int = 1,
             let y: int = 2,
             x + y
-        )".to_string(),
+        )"
+        .to_string(),
     );
 
     let result = evaluated(&db, file);
@@ -681,7 +686,11 @@ fn test_evaluated_run_pattern() {
     if result.is_failure() {
         eprintln!("Error: {:?}", result.error);
     }
-    assert!(result.is_success(), "Expected success, got error: {:?}", result.error);
+    assert!(
+        result.is_success(),
+        "Expected success, got error: {:?}",
+        result.error
+    );
     assert_eq!(result.result, Some(EvalOutput::Int(3)));
 }
 
@@ -699,7 +708,8 @@ fn test_evaluated_recurse_pattern() {
             condition: true,
             base: 42,
             step: self()
-        )".to_string(),
+        )"
+        .to_string(),
     );
 
     // Debug: print parse errors
@@ -715,6 +725,10 @@ fn test_evaluated_recurse_pattern() {
     if !result.is_success() {
         eprintln!("Error: {:?}", result.error);
     }
-    assert!(result.is_success(), "Expected success, got error: {:?}", result.error);
+    assert!(
+        result.is_success(),
+        "Expected success, got error: {:?}",
+        result.error
+    );
     assert_eq!(result.result, Some(EvalOutput::Int(42)));
 }

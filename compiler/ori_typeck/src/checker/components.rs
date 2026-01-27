@@ -15,12 +15,12 @@ use std::collections::{HashMap, HashSet};
 
 use ori_diagnostic::queue::DiagnosticQueue;
 use ori_ir::{ExprArena, Name, StringInterner, TypeId};
-use ori_types::{InferenceContext, SharedTypeInterner, Type, TypeEnv};
 use ori_patterns::PatternRegistry;
+use ori_types::{InferenceContext, SharedTypeInterner, Type, TypeEnv};
 
+use super::types::{FunctionType, TypeCheckError};
 use crate::registry::{TraitRegistry, TypeRegistry};
 use crate::shared::SharedRegistry;
-use super::types::{FunctionType, TypeCheckError};
 
 /// Context references for type checking (external, immutable references).
 pub struct CheckContext<'a> {

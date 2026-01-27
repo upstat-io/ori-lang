@@ -5,8 +5,8 @@
 
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 
-use ori_eval::dispatch_builtin_method;
 use crate::eval::Value;
+use ori_eval::dispatch_builtin_method;
 
 // List methods
 
@@ -16,7 +16,12 @@ mod list_methods {
     #[test]
     fn len() {
         assert_eq!(
-            dispatch_builtin_method(Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]), "len", vec![]).unwrap(),
+            dispatch_builtin_method(
+                Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]),
+                "len",
+                vec![]
+            )
+            .unwrap(),
             Value::int(3)
         );
         assert_eq!(
@@ -39,9 +44,13 @@ mod list_methods {
 
     #[test]
     fn first() {
-        
         // Non-empty list
-        let result = dispatch_builtin_method(Value::list(vec![Value::int(1), Value::int(2)]), "first", vec![]).unwrap();
+        let result = dispatch_builtin_method(
+            Value::list(vec![Value::int(1), Value::int(2)]),
+            "first",
+            vec![],
+        )
+        .unwrap();
         assert_eq!(result, Value::some(Value::int(1)));
 
         // Empty list
@@ -51,9 +60,13 @@ mod list_methods {
 
     #[test]
     fn last() {
-        
         // Non-empty list
-        let result = dispatch_builtin_method(Value::list(vec![Value::int(1), Value::int(2)]), "last", vec![]).unwrap();
+        let result = dispatch_builtin_method(
+            Value::list(vec![Value::int(1), Value::int(2)]),
+            "last",
+            vec![],
+        )
+        .unwrap();
         assert_eq!(result, Value::some(Value::int(2)));
 
         // Empty list
@@ -80,7 +93,9 @@ mod list_methods {
         let list = Value::list(vec![Value::int(1)]);
 
         assert!(dispatch_builtin_method(list.clone(), "contains", vec![]).is_err());
-        assert!(dispatch_builtin_method(list, "contains", vec![Value::int(1), Value::int(2)]).is_err());
+        assert!(
+            dispatch_builtin_method(list, "contains", vec![Value::int(1), Value::int(2)]).is_err()
+        );
     }
 }
 
@@ -148,11 +163,21 @@ mod string_methods {
     #[test]
     fn contains() {
         assert_eq!(
-            dispatch_builtin_method(Value::string("hello world"), "contains", vec![Value::string("world")]).unwrap(),
+            dispatch_builtin_method(
+                Value::string("hello world"),
+                "contains",
+                vec![Value::string("world")]
+            )
+            .unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            dispatch_builtin_method(Value::string("hello"), "contains", vec![Value::string("xyz")]).unwrap(),
+            dispatch_builtin_method(
+                Value::string("hello"),
+                "contains",
+                vec![Value::string("xyz")]
+            )
+            .unwrap(),
             Value::Bool(false)
         );
     }
@@ -160,11 +185,21 @@ mod string_methods {
     #[test]
     fn starts_with() {
         assert_eq!(
-            dispatch_builtin_method(Value::string("hello world"), "starts_with", vec![Value::string("hello")]).unwrap(),
+            dispatch_builtin_method(
+                Value::string("hello world"),
+                "starts_with",
+                vec![Value::string("hello")]
+            )
+            .unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            dispatch_builtin_method(Value::string("hello"), "starts_with", vec![Value::string("world")]).unwrap(),
+            dispatch_builtin_method(
+                Value::string("hello"),
+                "starts_with",
+                vec![Value::string("world")]
+            )
+            .unwrap(),
             Value::Bool(false)
         );
     }
@@ -172,20 +207,32 @@ mod string_methods {
     #[test]
     fn ends_with() {
         assert_eq!(
-            dispatch_builtin_method(Value::string("hello world"), "ends_with", vec![Value::string("world")]).unwrap(),
+            dispatch_builtin_method(
+                Value::string("hello world"),
+                "ends_with",
+                vec![Value::string("world")]
+            )
+            .unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            dispatch_builtin_method(Value::string("hello"), "ends_with", vec![Value::string("xyz")]).unwrap(),
+            dispatch_builtin_method(
+                Value::string("hello"),
+                "ends_with",
+                vec![Value::string("xyz")]
+            )
+            .unwrap(),
             Value::Bool(false)
         );
     }
 
     #[test]
     fn wrong_arg_type() {
-        
         // contains expects string, not int
-        assert!(dispatch_builtin_method(Value::string("hello"), "contains", vec![Value::int(1)]).is_err());
+        assert!(
+            dispatch_builtin_method(Value::string("hello"), "contains", vec![Value::int(1)])
+                .is_err()
+        );
     }
 }
 
@@ -198,15 +245,18 @@ mod range_methods {
     #[test]
     fn len() {
         assert_eq!(
-            dispatch_builtin_method(Value::Range(RangeValue::exclusive(0, 10)), "len", vec![]).unwrap(),
+            dispatch_builtin_method(Value::Range(RangeValue::exclusive(0, 10)), "len", vec![])
+                .unwrap(),
             Value::int(10)
         );
         assert_eq!(
-            dispatch_builtin_method(Value::Range(RangeValue::inclusive(0, 10)), "len", vec![]).unwrap(),
+            dispatch_builtin_method(Value::Range(RangeValue::inclusive(0, 10)), "len", vec![])
+                .unwrap(),
             Value::int(11)
         );
         assert_eq!(
-            dispatch_builtin_method(Value::Range(RangeValue::exclusive(5, 5)), "len", vec![]).unwrap(),
+            dispatch_builtin_method(Value::Range(RangeValue::exclusive(5, 5)), "len", vec![])
+                .unwrap(),
             Value::int(0)
         );
     }
@@ -225,7 +275,7 @@ mod range_methods {
         );
         assert_eq!(
             dispatch_builtin_method(range.clone(), "contains", vec![Value::int(10)]).unwrap(),
-            Value::Bool(false)  // Exclusive end
+            Value::Bool(false) // Exclusive end
         );
         assert_eq!(
             dispatch_builtin_method(range, "contains", vec![Value::int(-1)]).unwrap(),
@@ -239,7 +289,7 @@ mod range_methods {
 
         assert_eq!(
             dispatch_builtin_method(range.clone(), "contains", vec![Value::int(10)]).unwrap(),
-            Value::Bool(true)  // Inclusive end
+            Value::Bool(true) // Inclusive end
         );
     }
 }
@@ -259,14 +309,18 @@ mod option_methods {
 
     #[test]
     fn unwrap_none_error() {
-        
         assert!(dispatch_builtin_method(Value::None, "unwrap", vec![]).is_err());
     }
 
     #[test]
     fn unwrap_or() {
         assert_eq!(
-            dispatch_builtin_method(Value::some(Value::int(42)), "unwrap_or", vec![Value::int(0)]).unwrap(),
+            dispatch_builtin_method(
+                Value::some(Value::int(42)),
+                "unwrap_or",
+                vec![Value::int(0)]
+            )
+            .unwrap(),
             Value::int(42)
         );
         assert_eq!(
@@ -315,8 +369,9 @@ mod result_methods {
 
     #[test]
     fn unwrap_err_error() {
-        
-        assert!(dispatch_builtin_method(Value::err(Value::string("error")), "unwrap", vec![]).is_err());
+        assert!(
+            dispatch_builtin_method(Value::err(Value::string("error")), "unwrap", vec![]).is_err()
+        );
     }
 
     #[test]
@@ -351,7 +406,6 @@ mod errors {
 
     #[test]
     fn no_such_method() {
-        
         assert!(dispatch_builtin_method(Value::list(vec![]), "nonexistent", vec![]).is_err());
         assert!(dispatch_builtin_method(Value::string("hello"), "nonexistent", vec![]).is_err());
         assert!(dispatch_builtin_method(Value::int(42), "len", vec![]).is_err());
@@ -400,7 +454,8 @@ mod string_edge_cases {
     fn trim_unicode_whitespace() {
         // Non-breaking space (U+00A0)
         assert_eq!(
-            dispatch_builtin_method(Value::string("\u{00A0}hello\u{00A0}"), "trim", vec![]).unwrap(),
+            dispatch_builtin_method(Value::string("\u{00A0}hello\u{00A0}"), "trim", vec![])
+                .unwrap(),
             Value::string("hello")
         );
     }
@@ -409,11 +464,13 @@ mod string_edge_cases {
     fn contains_empty_string() {
         // Empty string is always contained
         assert_eq!(
-            dispatch_builtin_method(Value::string("hello"), "contains", vec![Value::string("")]).unwrap(),
+            dispatch_builtin_method(Value::string("hello"), "contains", vec![Value::string("")])
+                .unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            dispatch_builtin_method(Value::string(""), "contains", vec![Value::string("")]).unwrap(),
+            dispatch_builtin_method(Value::string(""), "contains", vec![Value::string("")])
+                .unwrap(),
             Value::Bool(true)
         );
     }
@@ -421,7 +478,12 @@ mod string_edge_cases {
     #[test]
     fn starts_with_empty() {
         assert_eq!(
-            dispatch_builtin_method(Value::string("hello"), "starts_with", vec![Value::string("")]).unwrap(),
+            dispatch_builtin_method(
+                Value::string("hello"),
+                "starts_with",
+                vec![Value::string("")]
+            )
+            .unwrap(),
             Value::Bool(true)
         );
     }
@@ -429,7 +491,8 @@ mod string_edge_cases {
     #[test]
     fn ends_with_empty() {
         assert_eq!(
-            dispatch_builtin_method(Value::string("hello"), "ends_with", vec![Value::string("")]).unwrap(),
+            dispatch_builtin_method(Value::string("hello"), "ends_with", vec![Value::string("")])
+                .unwrap(),
             Value::Bool(true)
         );
     }
@@ -437,7 +500,12 @@ mod string_edge_cases {
     #[test]
     fn starts_with_full_string() {
         assert_eq!(
-            dispatch_builtin_method(Value::string("hello"), "starts_with", vec![Value::string("hello")]).unwrap(),
+            dispatch_builtin_method(
+                Value::string("hello"),
+                "starts_with",
+                vec![Value::string("hello")]
+            )
+            .unwrap(),
             Value::Bool(true)
         );
     }
@@ -445,7 +513,12 @@ mod string_edge_cases {
     #[test]
     fn ends_with_full_string() {
         assert_eq!(
-            dispatch_builtin_method(Value::string("hello"), "ends_with", vec![Value::string("hello")]).unwrap(),
+            dispatch_builtin_method(
+                Value::string("hello"),
+                "ends_with",
+                vec![Value::string("hello")]
+            )
+            .unwrap(),
             Value::Bool(true)
         );
     }
@@ -453,7 +526,12 @@ mod string_edge_cases {
     #[test]
     fn starts_with_longer_than_string() {
         assert_eq!(
-            dispatch_builtin_method(Value::string("hi"), "starts_with", vec![Value::string("hello")]).unwrap(),
+            dispatch_builtin_method(
+                Value::string("hi"),
+                "starts_with",
+                vec![Value::string("hello")]
+            )
+            .unwrap(),
             Value::Bool(false)
         );
     }
@@ -461,7 +539,12 @@ mod string_edge_cases {
     #[test]
     fn contains_case_sensitive() {
         assert_eq!(
-            dispatch_builtin_method(Value::string("Hello"), "contains", vec![Value::string("hello")]).unwrap(),
+            dispatch_builtin_method(
+                Value::string("Hello"),
+                "contains",
+                vec![Value::string("hello")]
+            )
+            .unwrap(),
             Value::Bool(false)
         );
     }
@@ -490,13 +573,15 @@ mod list_edge_cases {
 
     #[test]
     fn first_single_element() {
-        let result = dispatch_builtin_method(Value::list(vec![Value::int(42)]), "first", vec![]).unwrap();
+        let result =
+            dispatch_builtin_method(Value::list(vec![Value::int(42)]), "first", vec![]).unwrap();
         assert_eq!(result, Value::some(Value::int(42)));
     }
 
     #[test]
     fn last_single_element() {
-        let result = dispatch_builtin_method(Value::list(vec![Value::int(42)]), "last", vec![]).unwrap();
+        let result =
+            dispatch_builtin_method(Value::list(vec![Value::int(42)]), "last", vec![]).unwrap();
         assert_eq!(result, Value::some(Value::int(42)));
     }
 
@@ -621,7 +706,6 @@ mod option_result_edge_cases {
 
     #[test]
     fn unwrap_or_wrong_arg_count() {
-        
         assert!(dispatch_builtin_method(Value::None, "unwrap_or", vec![]).is_err());
     }
 

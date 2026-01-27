@@ -1,18 +1,29 @@
 //! Method dispatch methods for the Interpreter.
 
-use ori_ir::{ExprArena, Name};
-use crate::{
-    Value, EvalResult, EvalError,
-    UserMethod, dispatch_builtin_method,
-    // Error factories for collection methods
-    all_requires_list, any_requires_list, collect_requires_range,
-    filter_entries_not_implemented, filter_entries_requires_map, filter_requires_collection,
-    find_requires_list, fold_requires_collection, map_entries_not_implemented,
-    map_entries_requires_map, map_requires_collection,
-    wrong_arg_count, wrong_function_args,
-};
+use super::resolvers::{CollectionMethod, MethodResolution};
 use super::Interpreter;
-use super::resolvers::{MethodResolution, CollectionMethod};
+use crate::{
+    // Error factories for collection methods
+    all_requires_list,
+    any_requires_list,
+    collect_requires_range,
+    dispatch_builtin_method,
+    filter_entries_not_implemented,
+    filter_entries_requires_map,
+    filter_requires_collection,
+    find_requires_list,
+    fold_requires_collection,
+    map_entries_not_implemented,
+    map_entries_requires_map,
+    map_requires_collection,
+    wrong_arg_count,
+    wrong_function_args,
+    EvalError,
+    EvalResult,
+    UserMethod,
+    Value,
+};
+use ori_ir::{ExprArena, Name};
 
 impl Interpreter<'_> {
     /// Evaluate a method call using the Chain of Responsibility pattern.
@@ -22,7 +33,12 @@ impl Interpreter<'_> {
     /// 2. Derived methods from `#[derive(...)]` (priority 1)
     /// 3. Collection methods requiring interpreter (priority 2)
     /// 4. Built-in methods in `MethodRegistry` (priority 3)
-    pub fn eval_method_call(&mut self, receiver: Value, method: Name, args: Vec<Value>) -> EvalResult {
+    pub fn eval_method_call(
+        &mut self,
+        receiver: Value,
+        method: Name,
+        args: Vec<Value>,
+    ) -> EvalResult {
         let type_name = self.get_value_type_name(&receiver);
 
         // Resolve the method using the resolver chain
@@ -58,8 +74,14 @@ impl Interpreter<'_> {
     /// Uses the pre-built dispatcher to try resolvers in priority order.
     /// The dispatcher sees method registrations made after construction because
     /// `user_method_registry` uses interior mutability (`SharedMutableRegistry`).
-    fn resolve_method(&self, receiver: &Value, type_name: Name, method_name: Name) -> MethodResolution {
-        self.method_dispatcher.resolve(receiver, type_name, method_name)
+    fn resolve_method(
+        &self,
+        receiver: &Value,
+        type_name: Name,
+        method_name: Name,
+    ) -> MethodResolution {
+        self.method_dispatcher
+            .resolve(receiver, type_name, method_name)
     }
 
     /// Evaluate a collection method that requires interpreter access.
@@ -115,11 +137,7 @@ impl Interpreter<'_> {
     // Iterator Helper Methods - unify collection method implementations for lists and ranges
 
     /// Apply a transform function to each item in an iterator, collecting results.
-    fn map_iterator(
-        &mut self,
-        iter: impl Iterator<Item = Value>,
-        transform: &Value,
-    ) -> EvalResult {
+    fn map_iterator(&mut self, iter: impl Iterator<Item = Value>, transform: &Value) -> EvalResult {
         let mut result = Vec::new();
         for item in iter {
             let mapped = self.eval_call(transform.clone(), &[item])?;
@@ -204,7 +222,11 @@ impl Interpreter<'_> {
 
     /// Validate that the expected number of arguments was provided.
     #[inline]
-    fn expect_arg_count(method_name: &str, expected: usize, args: &[Value]) -> Result<(), EvalError> {
+    fn expect_arg_count(
+        method_name: &str,
+        expected: usize,
+        args: &[Value],
+    ) -> Result<(), EvalError> {
         if args.len() == expected {
             Ok(())
         } else {
@@ -242,7 +264,10 @@ impl Interpreter<'_> {
         self.all_in_iterator(items.iter().cloned(), &args[0])
     }
 
-    #[expect(clippy::unused_self, reason = "Consistent method signature with other eval_range_* methods that do use self")]
+    #[expect(
+        clippy::unused_self,
+        reason = "Consistent method signature with other eval_range_* methods that do use self"
+    )]
     fn eval_range_collect(&mut self, range: &crate::RangeValue, args: &[Value]) -> EvalResult {
         Self::expect_arg_count("collect", 0, args)?;
         let result: Vec<Value> = range.iter().map(Value::int).collect();
@@ -296,8 +321,16 @@ impl Interpreter<'_> {
     }
 
     /// Evaluate a user-defined method from an impl block.
-    #[expect(clippy::arithmetic_side_effects, reason = "method params always include self, so len >= 1")]
-    pub(super) fn eval_user_method(&mut self, receiver: Value, method: &UserMethod, args: &[Value]) -> EvalResult {
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "method params always include self, so len >= 1"
+    )]
+    pub(super) fn eval_user_method(
+        &mut self,
+        receiver: Value,
+        method: &UserMethod,
+        args: &[Value],
+    ) -> EvalResult {
         // Method params include 'self' as first parameter
         if method.params.len() != args.len() + 1 {
             return Err(wrong_function_args(method.params.len() - 1, args.len()));

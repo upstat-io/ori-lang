@@ -41,33 +41,19 @@ pub enum TypeProblem {
     },
 
     /// Infinite type detected (occurs check failure).
-    InfiniteType {
-        span: Span,
-    },
+    InfiniteType { span: Span },
 
     /// Cannot infer type.
-    CannotInfer {
-        span: Span,
-        context: String,
-    },
+    CannotInfer { span: Span, context: String },
 
     /// Unknown type name.
-    UnknownType {
-        span: Span,
-        name: String,
-    },
+    UnknownType { span: Span, name: String },
 
     /// Type is not callable.
-    NotCallable {
-        span: Span,
-        found_type: String,
-    },
+    NotCallable { span: Span, found_type: String },
 
     /// Type is not indexable.
-    NotIndexable {
-        span: Span,
-        found_type: String,
-    },
+    NotIndexable { span: Span, found_type: String },
 
     /// Type doesn't have the accessed field.
     NoSuchField {
@@ -100,10 +86,7 @@ pub enum TypeProblem {
     },
 
     /// Missing named argument in function call.
-    MissingNamedArg {
-        span: Span,
-        arg_name: String,
-    },
+    MissingNamedArg { span: Span, arg_name: String },
 
     /// Unknown named argument in function call.
     UnknownNamedArg {
@@ -128,28 +111,16 @@ pub enum TypeProblem {
     },
 
     /// Try operator used on non-Result/Option type.
-    InvalidTryOperand {
-        span: Span,
-        found_type: String,
-    },
+    InvalidTryOperand { span: Span, found_type: String },
 
     /// Await used on non-async value.
-    InvalidAwait {
-        span: Span,
-        found_type: String,
-    },
+    InvalidAwait { span: Span, found_type: String },
 
     /// Condition must be bool.
-    ConditionNotBool {
-        span: Span,
-        found_type: String,
-    },
+    ConditionNotBool { span: Span, found_type: String },
 
     /// Iterator type mismatch in for loop.
-    NotIterable {
-        span: Span,
-        found_type: String,
-    },
+    NotIterable { span: Span, found_type: String },
 
     /// Match arms have different types.
     MatchArmTypeMismatch {
@@ -167,15 +138,10 @@ pub enum TypeProblem {
     },
 
     /// Cyclic type definition.
-    CyclicType {
-        span: Span,
-        type_name: String,
-    },
+    CyclicType { span: Span, type_name: String },
 
     /// Closure cannot capture itself.
-    ClosureSelfReference {
-        span: Span,
-    },
+    ClosureSelfReference { span: Span },
 }
 
 // Generate HasSpan implementation using macro.

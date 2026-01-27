@@ -4,12 +4,12 @@
 
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 
-use std::collections::HashMap;
 use crate::eval::exec::call::{
-    check_arg_count, bind_parameters, bind_self, eval_function_val_call,
+    bind_parameters, bind_self, check_arg_count, eval_function_val_call,
 };
-use crate::eval::{Value, FunctionValue, Environment};
+use crate::eval::{Environment, FunctionValue, Value};
 use crate::ir::{ExprArena, ExprId, Name, SharedArena, SharedInterner};
+use std::collections::HashMap;
 
 /// Create a dummy arena for tests.
 fn dummy_arena() -> SharedArena {
@@ -131,11 +131,7 @@ mod parameter_binding {
         let s = interner.intern("s");
         let b = interner.intern("b");
         let func = test_func(vec![i, s, b], ExprId::new(0));
-        let args = vec![
-            Value::int(42),
-            Value::string("hello"),
-            Value::Bool(true),
-        ];
+        let args = vec![Value::int(42), Value::string("hello"), Value::Bool(true)];
 
         let mut env = Environment::new();
         env.push_scope();
@@ -245,16 +241,16 @@ mod function_val_call {
             Ok(Value::int(total))
         }
 
-        let result = eval_function_val_call(
-            sum,
-            &[Value::int(1), Value::int(2), Value::int(3)],
-        );
+        let result = eval_function_val_call(sum, &[Value::int(1), Value::int(2), Value::int(3)]);
         assert_eq!(result.unwrap(), Value::int(6));
     }
 
     #[test]
     fn no_args() {
-        #[expect(clippy::unnecessary_wraps, reason = "function signature required by eval_function_val_call")]
+        #[expect(
+            clippy::unnecessary_wraps,
+            reason = "function signature required by eval_function_val_call"
+        )]
         fn constant(_args: &[Value]) -> Result<Value, String> {
             Ok(Value::int(42))
         }
@@ -265,7 +261,10 @@ mod function_val_call {
 
     #[test]
     fn returns_different_types() {
-        #[expect(clippy::unnecessary_wraps, reason = "function signature required by eval_function_val_call")]
+        #[expect(
+            clippy::unnecessary_wraps,
+            reason = "function signature required by eval_function_val_call"
+        )]
         fn to_string(args: &[Value]) -> Result<Value, String> {
             Ok(Value::string(format!("{}", args[0])))
         }

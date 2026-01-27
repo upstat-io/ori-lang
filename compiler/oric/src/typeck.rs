@@ -11,21 +11,35 @@
 
 // Re-export all public types from ori_typeck
 pub use ori_typeck::{
-    // Main type checker
-    TypeChecker, TypeCheckerBuilder,
-    // Components
-    CheckContext, InferenceState, Registries, DiagnosticState, ScopeContext,
-    SavedCapabilityContext, SavedImplContext,
-    // Output types
-    TypedModule, FunctionType, GenericBound, WhereConstraint, TypeCheckError,
-    // Convenience functions
-    type_check, type_check_with_source, type_check_with_config,
     // Utility
-    add_pattern_bindings, ensure_sufficient_stack,
+    add_pattern_bindings,
+    ensure_sufficient_stack,
     primitive_implements_trait,
-    SharedRegistry,
+    // Convenience functions
+    type_check,
+    type_check_with_config,
+    type_check_with_source,
+    // Components
+    CheckContext,
+    DiagnosticState,
+    FunctionType,
+    GenericBound,
     // Import support
-    ImportedFunction, ImportedGeneric,
+    ImportedFunction,
+    ImportedGeneric,
+    InferenceState,
+    Registries,
+    SavedCapabilityContext,
+    SavedImplContext,
+    ScopeContext,
+    SharedRegistry,
+    TypeCheckError,
+    // Main type checker
+    TypeChecker,
+    TypeCheckerBuilder,
+    // Output types
+    TypedModule,
+    WhereConstraint,
 };
 
 // Registry re-exports (also available as ori_typeck::registry::*)
@@ -34,9 +48,8 @@ pub mod type_registry {
 }
 
 pub use ori_typeck::registry::{
-    TypeRegistry, TypeEntry, TypeKind, VariantDef,
-    TraitRegistry, TraitEntry, TraitMethodDef, TraitAssocTypeDef,
-    ImplEntry, ImplMethodDef, ImplAssocTypeDef, MethodLookup, CoherenceError,
+    CoherenceError, ImplAssocTypeDef, ImplEntry, ImplMethodDef, MethodLookup, TraitAssocTypeDef,
+    TraitEntry, TraitMethodDef, TraitRegistry, TypeEntry, TypeKind, TypeRegistry, VariantDef,
 };
 
 // Operator re-exports
@@ -62,7 +75,7 @@ use std::path::Path;
 use crate::context::CompilerContext;
 use crate::db::Db;
 use crate::eval::module::import::{resolve_import, ImportError};
-use crate::ir::{StringInterner, Name};
+use crate::ir::{Name, StringInterner};
 use crate::parser::ParseResult;
 use crate::query::parsed;
 
@@ -108,13 +121,15 @@ pub fn resolve_imports_for_type_checking(
         let imported_parsed = parsed(db, resolved.file);
 
         // Build a map of imported function names to their aliases
-        let import_map: std::collections::HashMap<Name, Option<Name>> = imp.items
+        let import_map: std::collections::HashMap<Name, Option<Name>> = imp
+            .items
             .iter()
             .map(|item| (item.name, item.alias))
             .collect();
 
         // Build a set of names that request private access
-        let private_access: std::collections::HashSet<Name> = imp.items
+        let private_access: std::collections::HashSet<Name> = imp
+            .items
             .iter()
             .filter(|item| item.is_private)
             .map(|item| item.name)
@@ -176,12 +191,10 @@ fn parsed_type_to_type(parsed: &ori_ir::ParsedType, interner: &StringInterner) -
                 "Option" if type_args.len() == 1 => {
                     Type::Option(Box::new(parsed_type_to_type(&type_args[0], interner)))
                 }
-                "Result" if type_args.len() == 2 => {
-                    Type::Result {
-                        ok: Box::new(parsed_type_to_type(&type_args[0], interner)),
-                        err: Box::new(parsed_type_to_type(&type_args[1], interner)),
-                    }
-                }
+                "Result" if type_args.len() == 2 => Type::Result {
+                    ok: Box::new(parsed_type_to_type(&type_args[0], interner)),
+                    err: Box::new(parsed_type_to_type(&type_args[1], interner)),
+                },
                 "Set" if type_args.len() == 1 => {
                     Type::Set(Box::new(parsed_type_to_type(&type_args[0], interner)))
                 }
@@ -196,31 +209,37 @@ fn parsed_type_to_type(parsed: &ori_ir::ParsedType, interner: &StringInterner) -
                 _ if type_args.is_empty() => Type::Named(*name),
                 _ => Type::Applied {
                     name: *name,
-                    args: type_args.iter().map(|t| parsed_type_to_type(t, interner)).collect(),
+                    args: type_args
+                        .iter()
+                        .map(|t| parsed_type_to_type(t, interner))
+                        .collect(),
                 },
             }
         }
-        ParsedType::List(elem) => {
-            Type::List(Box::new(parsed_type_to_type(elem, interner)))
-        }
-        ParsedType::Tuple(elems) => {
-            Type::Tuple(elems.iter().map(|e| parsed_type_to_type(e, interner)).collect())
-        }
-        ParsedType::Function { params, ret } => {
-            Type::Function {
-                params: params.iter().map(|p| parsed_type_to_type(p, interner)).collect(),
-                ret: Box::new(parsed_type_to_type(ret, interner)),
-            }
-        }
-        ParsedType::Map { key, value } => {
-            Type::Map {
-                key: Box::new(parsed_type_to_type(key, interner)),
-                value: Box::new(parsed_type_to_type(value, interner)),
-            }
-        }
+        ParsedType::List(elem) => Type::List(Box::new(parsed_type_to_type(elem, interner))),
+        ParsedType::Tuple(elems) => Type::Tuple(
+            elems
+                .iter()
+                .map(|e| parsed_type_to_type(e, interner))
+                .collect(),
+        ),
+        ParsedType::Function { params, ret } => Type::Function {
+            params: params
+                .iter()
+                .map(|p| parsed_type_to_type(p, interner))
+                .collect(),
+            ret: Box::new(parsed_type_to_type(ret, interner)),
+        },
+        ParsedType::Map { key, value } => Type::Map {
+            key: Box::new(parsed_type_to_type(key, interner)),
+            value: Box::new(parsed_type_to_type(value, interner)),
+        },
         ParsedType::Infer => Type::Var(ori_types::TypeVar::new(0)), // Fresh var placeholder
         ParsedType::SelfType => Type::Named(interner.intern("Self")),
-        ParsedType::AssociatedType { base: _, assoc_name } => {
+        ParsedType::AssociatedType {
+            base: _,
+            assoc_name,
+        } => {
             // For associated types, we create a projection type
             // This is a simplified representation
             Type::Named(*assoc_name)
@@ -235,7 +254,8 @@ fn create_imported_function(
     interner: &StringInterner,
 ) -> ImportedFunction {
     // Convert parameter types
-    let params: Vec<ori_types::Type> = arena.get_params(func.params)
+    let params: Vec<ori_types::Type> = arena
+        .get_params(func.params)
         .iter()
         .map(|p| {
             match &p.ty {
@@ -252,7 +272,8 @@ fn create_imported_function(
     };
 
     // Convert generics
-    let generics: Vec<ImportedGeneric> = arena.get_generic_params(func.generics)
+    let generics: Vec<ImportedGeneric> = arena
+        .get_generic_params(func.generics)
         .iter()
         .map(|gp| ImportedGeneric {
             param: gp.name,
@@ -261,7 +282,9 @@ fn create_imported_function(
         .collect();
 
     // Extract capabilities
-    let capabilities: Vec<Name> = func.capabilities.iter()
+    let capabilities: Vec<Name> = func
+        .capabilities
+        .iter()
         .map(|cap_ref| cap_ref.name)
         .collect();
 
@@ -298,7 +321,8 @@ pub fn type_check_with_imports(
     let interner = db.interner();
 
     // Resolve imports and extract function signatures
-    let imported_functions = match resolve_imports_for_type_checking(db, parse_result, current_file) {
+    let imported_functions = match resolve_imports_for_type_checking(db, parse_result, current_file)
+    {
         Ok(imports) => imports,
         Err(e) => {
             // Return a TypedModule with the import error
@@ -336,7 +360,8 @@ pub fn type_check_with_imports_and_source(
     let interner = db.interner();
 
     // Resolve imports and extract function signatures
-    let imported_functions = match resolve_imports_for_type_checking(db, parse_result, current_file) {
+    let imported_functions = match resolve_imports_for_type_checking(db, parse_result, current_file)
+    {
         Ok(imports) => imports,
         Err(e) => {
             return TypedModule {

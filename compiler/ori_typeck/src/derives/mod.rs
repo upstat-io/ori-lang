@@ -5,13 +5,13 @@
 //! - `UserMethodRegistry` (for evaluation)
 //! - `TraitRegistry` (for type checking)
 
-use ori_ir::{DerivedMethodInfo, DerivedTrait, Module, Name, StringInterner, TypeDecl, TypeDeclKind};
-use ori_types::Type;
-use ori_patterns::UserMethodRegistry;
-
-use crate::registry::{
-    ImplEntry, ImplMethodDef, TraitRegistry, TypeKind, TypeRegistry,
+use ori_ir::{
+    DerivedMethodInfo, DerivedTrait, Module, Name, StringInterner, TypeDecl, TypeDeclKind,
 };
+use ori_patterns::UserMethodRegistry;
+use ori_types::Type;
+
+use crate::registry::{ImplEntry, ImplMethodDef, TraitRegistry, TypeKind, TypeRegistry};
 
 /// Process all derive attributes in a module.
 ///
@@ -99,7 +99,8 @@ fn register_type_derived_impls(
 
         if let Some(trait_kind) = DerivedTrait::from_name(trait_name_str) {
             let method_name = interner.intern(trait_kind.method_name());
-            let method_def = create_derived_method_def(trait_kind, method_name, &self_ty, type_interner);
+            let method_def =
+                create_derived_method_def(trait_kind, method_name, &self_ty, type_interner);
             methods.push(method_def);
         }
     }
@@ -193,8 +194,8 @@ pub fn get_variant_info(
 mod tests {
     use super::*;
     use ori_ir::SharedInterner;
-    use ori_parse::parse;
     use ori_lexer::lex;
+    use ori_parse::parse;
 
     #[test]
     fn test_process_struct_derives() {
@@ -208,12 +209,21 @@ type Point = { x: int, y: int }
 
         let tokens = lex(source, &interner);
         let parse_result = parse(&tokens, &interner);
-        assert!(!parse_result.has_errors(), "Parse errors: {:?}", parse_result.errors);
+        assert!(
+            !parse_result.has_errors(),
+            "Parse errors: {:?}",
+            parse_result.errors
+        );
 
         let type_registry = TypeRegistry::new();
         let mut user_method_registry = UserMethodRegistry::new();
 
-        process_derives(&parse_result.module, &type_registry, &mut user_method_registry, &interner);
+        process_derives(
+            &parse_result.module,
+            &type_registry,
+            &mut user_method_registry,
+            &interner,
+        );
 
         let point = interner.intern("Point");
         let eq = interner.intern("eq");
@@ -243,7 +253,12 @@ type Point = { x: int, y: int }
         let type_registry = TypeRegistry::new();
         let mut user_method_registry = UserMethodRegistry::new();
 
-        process_derives(&parse_result.module, &type_registry, &mut user_method_registry, &interner);
+        process_derives(
+            &parse_result.module,
+            &type_registry,
+            &mut user_method_registry,
+            &interner,
+        );
 
         let point = interner.intern("Point");
         let eq = interner.intern("eq");
@@ -273,7 +288,12 @@ type Point = { x: int }
         let type_registry = TypeRegistry::new();
         let mut user_method_registry = UserMethodRegistry::new();
 
-        process_derives(&parse_result.module, &type_registry, &mut user_method_registry, &interner);
+        process_derives(
+            &parse_result.module,
+            &type_registry,
+            &mut user_method_registry,
+            &interner,
+        );
 
         let point = interner.intern("Point");
         let eq = interner.intern("eq");

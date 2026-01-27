@@ -8,15 +8,15 @@ use std::time::Instant;
 use rayon::prelude::*;
 
 use crate::db::{CompilerDb, Db};
-use crate::input::SourceFile;
-use crate::query::parsed;
 use crate::eval::Evaluator;
+use crate::input::SourceFile;
 use crate::ir::TestDef;
+use crate::query::parsed;
 use crate::typeck::type_check_with_imports_and_source;
 
 use super::discovery::{discover_tests_in, TestFile};
-use super::error_matching::{match_errors, format_expected, format_actual};
-use super::result::{TestResult, TestSummary, FileSummary, CoverageReport};
+use super::error_matching::{format_actual, format_expected, match_errors};
+use super::result::{CoverageReport, FileSummary, TestResult, TestSummary};
 
 /// Backend for test execution.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -151,11 +151,14 @@ impl TestRunner {
         let interner = db.interner();
 
         // Type check with import resolution (enables proper type checking of imported functions)
-        let typed_module = type_check_with_imports_and_source(&db, &parse_result, path, source.clone());
+        let typed_module =
+            type_check_with_imports_and_source(&db, &parse_result, path, source.clone());
 
         // Separate compile_fail tests from regular tests
         // compile_fail tests don't need evaluation - they just check for type errors
-        let (compile_fail_tests, regular_tests): (Vec<_>, Vec<_>) = parse_result.module.tests
+        let (compile_fail_tests, regular_tests): (Vec<_>, Vec<_>) = parse_result
+            .module
+            .tests
             .iter()
             .partition(|t| t.is_compile_fail());
 
@@ -190,8 +193,7 @@ impl TestRunner {
             Backend::Interpreter => {
                 // Create evaluator with database for proper Salsa-tracked import resolution
                 // load_module enforces type checking - will fail if there are type errors
-                let mut evaluator = Evaluator::builder(interner, &parse_result.arena, &db)
-                    .build();
+                let mut evaluator = Evaluator::builder(interner, &parse_result.arena, &db).build();
 
                 evaluator.register_prelude();
 
@@ -225,11 +227,19 @@ impl TestRunner {
             #[cfg(feature = "llvm")]
             Backend::LLVM => {
                 // Use LLVM JIT backend
-                self.run_file_llvm(&mut summary, &parse_result, &typed_module, &source, interner);
+                self.run_file_llvm(
+                    &mut summary,
+                    &parse_result,
+                    &typed_module,
+                    &source,
+                    interner,
+                );
             }
             #[cfg(not(feature = "llvm"))]
             Backend::LLVM => {
-                summary.add_error("LLVM backend not available (compile with --features llvm)".to_string());
+                summary.add_error(
+                    "LLVM backend not available (compile with --features llvm)".to_string(),
+                );
             }
         }
 
@@ -272,7 +282,13 @@ impl TestRunner {
                 // compile_fail: test expects compilation to fail
                 Self::run_compile_fail_test(test, typed_module, source, interner)
             } else {
-                Self::run_single_test_llvm(&llvm_eval, test, &parse_result.arena, &parse_result.module, interner)
+                Self::run_single_test_llvm(
+                    &llvm_eval,
+                    test,
+                    &parse_result.arena,
+                    &parse_result.module,
+                    interner,
+                )
             };
 
             // If #[fail] is present, wrap the result
@@ -296,7 +312,8 @@ impl TestRunner {
         interner: &crate::ir::StringInterner,
     ) -> TestResult {
         let test_name = interner.lookup(test.name).to_string();
-        let targets: Vec<String> = test.targets
+        let targets: Vec<String> = test
+            .targets
             .iter()
             .map(|t| interner.lookup(*t).to_string())
             .collect();
@@ -312,12 +329,8 @@ impl TestRunner {
 
         // Evaluate the test body using LLVM JIT
         match llvm_eval.eval_test(test.name, test.body, arena, module, interner) {
-            Ok(_) => {
-                TestResult::passed(test_name, targets, start.elapsed())
-            }
-            Err(e) => {
-                TestResult::failed(test_name, targets, e.message, start.elapsed())
-            }
+            Ok(_) => TestResult::passed(test_name, targets, start.elapsed()),
+            Err(e) => TestResult::failed(test_name, targets, e.message, start.elapsed()),
         }
     }
 
@@ -332,7 +345,8 @@ impl TestRunner {
         interner: &crate::ir::StringInterner,
     ) -> TestResult {
         let test_name = interner.lookup(test.name).to_string();
-        let targets: Vec<String> = test.targets
+        let targets: Vec<String> = test
+            .targets
             .iter()
             .map(|t| interner.lookup(*t).to_string())
             .collect();
@@ -347,7 +361,8 @@ impl TestRunner {
 
         // If no errors were produced but we expected some
         if typed_module.errors.is_empty() {
-            let expected_strs: Vec<String> = test.expected_errors
+            let expected_strs: Vec<String> = test
+                .expected_errors
                 .iter()
                 .map(|e| format_expected(e, interner))
                 .collect();
@@ -376,12 +391,14 @@ impl TestRunner {
             TestResult::passed(test_name, targets, start.elapsed())
         } else {
             // Some expectations were not matched
-            let unmatched: Vec<String> = match_result.unmatched_expectations
+            let unmatched: Vec<String> = match_result
+                .unmatched_expectations
                 .iter()
                 .map(|&i| format_expected(&test.expected_errors[i], interner))
                 .collect();
 
-            let actual: Vec<String> = typed_module.errors
+            let actual: Vec<String> = typed_module
+                .errors
                 .iter()
                 .map(|e| format_actual(e, source))
                 .collect();
@@ -425,9 +442,7 @@ impl TestRunner {
                 TestResult::failed(
                     inner_result.name,
                     inner_result.targets,
-                    format!(
-                        "expected test to fail with '{expected_substr}', but test passed"
-                    ),
+                    format!("expected test to fail with '{expected_substr}', but test passed"),
                     inner_result.duration,
                 )
             }
@@ -462,7 +477,8 @@ impl TestRunner {
         interner: &crate::ir::StringInterner,
     ) -> TestResult {
         let test_name = interner.lookup(test.name).to_string();
-        let targets: Vec<String> = test.targets
+        let targets: Vec<String> = test
+            .targets
             .iter()
             .map(|t| interner.lookup(*t).to_string())
             .collect();
@@ -478,12 +494,8 @@ impl TestRunner {
 
         // Evaluate the test body
         match evaluator.eval(test.body) {
-            Ok(_) => {
-                TestResult::passed(test_name, targets, start.elapsed())
-            }
-            Err(e) => {
-                TestResult::failed(test_name, targets, e.message, start.elapsed())
-            }
+            Ok(_) => TestResult::passed(test_name, targets, start.elapsed()),
+            Err(e) => TestResult::failed(test_name, targets, e.message, start.elapsed()),
         }
     }
 }
@@ -531,10 +543,7 @@ impl TestRunner {
         for test in &parse_result.module.tests {
             let test_name = interner.lookup(test.name).to_string();
             for target in &test.targets {
-                test_map
-                    .entry(*target)
-                    .or_default()
-                    .push(test_name.clone());
+                test_map.entry(*target).or_default().push(test_name.clone());
             }
         }
 
@@ -593,14 +602,18 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("pass.ori");
         // Test passes by completing without panic
-        std::fs::write(&path, r#"
+        std::fs::write(
+            &path,
+            r#"
 @add (a: int, b: int) -> int = a + b
 
 @test_add tests @add () -> void = run(
     let result = add(a: 1, b: 2),
     print(msg: "done")
 )
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let summary = run_test_file(&path);
         assert_eq!(summary.passed, 1);
@@ -614,7 +627,9 @@ mod tests {
         // Test fails by causing division by zero
         // (Note: panic() returns Never which doesn't type check in void context,
         // so we use division by zero to cause a runtime failure instead)
-        std::fs::write(&path, r"
+        std::fs::write(
+            &path,
+            r"
 @add (a: int, b: int) -> int = a + b
 
 @test_add tests @add () -> void = run(
@@ -622,7 +637,9 @@ mod tests {
     let _ = 1 / 0,
     ()
 )
-").unwrap();
+",
+        )
+        .unwrap();
 
         let summary = run_test_file(&path);
         assert_eq!(summary.passed, 0);
@@ -634,13 +651,17 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("filter.ori");
         // Tests pass by completing without panic
-        std::fs::write(&path, r#"
+        std::fs::write(
+            &path,
+            r#"
 @foo () -> int = 1
 @bar () -> int = 2
 
 @test_foo tests @foo () -> void = print(msg: "pass")
 @test_bar tests @bar () -> void = print(msg: "pass")
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let config = TestRunnerConfig {
             filter: Some("foo".to_string()),

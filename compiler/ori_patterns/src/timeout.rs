@@ -4,9 +4,7 @@
 
 use ori_types::Type;
 
-use crate::{
-    EvalContext, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext, Value,
-};
+use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext, Value};
 
 /// The `timeout` pattern executes an operation with a timeout.
 ///

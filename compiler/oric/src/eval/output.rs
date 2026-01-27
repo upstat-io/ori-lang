@@ -3,9 +3,9 @@
 //! These types are designed for use in Salsa queries, requiring
 //! Clone + Eq + `PartialEq` + Hash + Debug traits.
 
-use std::hash::{Hash, Hasher};
-use crate::ir::StringInterner;
 use super::value::Value;
+use crate::ir::StringInterner;
+use std::hash::{Hash, Hasher};
 
 /// Salsa-compatible representation of an evaluated value.
 ///
@@ -47,7 +47,11 @@ pub enum EvalOutput {
     /// Size in bytes.
     Size(u64),
     /// Range value.
-    Range { start: i64, end: i64, inclusive: bool },
+    Range {
+        start: i64,
+        end: i64,
+        inclusive: bool,
+    },
     /// Function (not directly representable, stored as description).
     Function(String),
     /// Struct (stored as description).
@@ -69,12 +73,18 @@ impl EvalOutput {
             Value::Char(c) => EvalOutput::Char(*c),
             Value::Byte(b) => EvalOutput::Byte(*b),
             Value::Void => EvalOutput::Void,
-            Value::List(items) => {
-                EvalOutput::List(items.iter().map(|v| Self::from_value(v, interner)).collect())
-            }
-            Value::Tuple(items) => {
-                EvalOutput::Tuple(items.iter().map(|v| Self::from_value(v, interner)).collect())
-            }
+            Value::List(items) => EvalOutput::List(
+                items
+                    .iter()
+                    .map(|v| Self::from_value(v, interner))
+                    .collect(),
+            ),
+            Value::Tuple(items) => EvalOutput::Tuple(
+                items
+                    .iter()
+                    .map(|v| Self::from_value(v, interner))
+                    .collect(),
+            ),
             Value::Some(v) => EvalOutput::Some(Box::new(Self::from_value(v, interner))),
             Value::None => EvalOutput::None,
             Value::Ok(v) => EvalOutput::Ok(Box::new(Self::from_value(v, interner))),
@@ -89,9 +99,10 @@ impl EvalOutput {
             Value::Function(f) => {
                 EvalOutput::Function(format!("<function with {} params>", f.params.len()))
             }
-            Value::MemoizedFunction(mf) => {
-                EvalOutput::Function(format!("<memoized function with {} params>", mf.func.params.len()))
-            }
+            Value::MemoizedFunction(mf) => EvalOutput::Function(format!(
+                "<memoized function with {} params>",
+                mf.func.params.len()
+            )),
             Value::FunctionVal(_, name) => EvalOutput::Function(format!("<{name}>")),
             Value::Struct(s) => {
                 EvalOutput::Struct(format!("<struct {}>", interner.lookup(s.name())))
@@ -131,7 +142,11 @@ impl EvalOutput {
             EvalOutput::Err(v) => format!("Err({})", v.display()),
             EvalOutput::Duration(ms) => format!("{ms}ms"),
             EvalOutput::Size(bytes) => format!("{bytes}b"),
-            EvalOutput::Range { start, end, inclusive } => {
+            EvalOutput::Range {
+                start,
+                end,
+                inclusive,
+            } => {
                 if *inclusive {
                     format!("{start}..={end}")
                 } else {
@@ -176,13 +191,20 @@ impl PartialEq for EvalOutput {
             | (EvalOutput::Err(a), EvalOutput::Err(b)) => a == b,
             (EvalOutput::Map(a), EvalOutput::Map(b)) => a == b,
             // Unit types
-            (EvalOutput::Void, EvalOutput::Void)
-            | (EvalOutput::None, EvalOutput::None) => true,
+            (EvalOutput::Void, EvalOutput::Void) | (EvalOutput::None, EvalOutput::None) => true,
             // Range with multiple fields
-            (EvalOutput::Range { start: s1, end: e1, inclusive: i1 },
-             EvalOutput::Range { start: s2, end: e2, inclusive: i2 }) => {
-                s1 == s2 && e1 == e2 && i1 == i2
-            }
+            (
+                EvalOutput::Range {
+                    start: s1,
+                    end: e1,
+                    inclusive: i1,
+                },
+                EvalOutput::Range {
+                    start: s2,
+                    end: e2,
+                    inclusive: i2,
+                },
+            ) => s1 == s2 && e1 == e2 && i1 == i2,
             _ => false,
         }
     }
@@ -199,25 +221,26 @@ impl Hash for EvalOutput {
             EvalOutput::Char(c) => c.hash(state),
             EvalOutput::Byte(b) => b.hash(state),
             // u64 types
-            EvalOutput::Float(bits)
-            | EvalOutput::Duration(bits)
-            | EvalOutput::Size(bits) => bits.hash(state),
+            EvalOutput::Float(bits) | EvalOutput::Duration(bits) | EvalOutput::Size(bits) => {
+                bits.hash(state)
+            }
             // String types
             EvalOutput::Str(s)
             | EvalOutput::Function(s)
             | EvalOutput::Struct(s)
             | EvalOutput::Error(s) => s.hash(state),
             // Vec<EvalOutput> types
-            EvalOutput::List(items)
-            | EvalOutput::Tuple(items) => items.hash(state),
+            EvalOutput::List(items) | EvalOutput::Tuple(items) => items.hash(state),
             // Box<EvalOutput> types
-            EvalOutput::Some(v)
-            | EvalOutput::Ok(v)
-            | EvalOutput::Err(v) => v.hash(state),
+            EvalOutput::Some(v) | EvalOutput::Ok(v) | EvalOutput::Err(v) => v.hash(state),
             EvalOutput::Map(entries) => entries.hash(state),
             // Unit types
             EvalOutput::Void | EvalOutput::None => {}
-            EvalOutput::Range { start, end, inclusive } => {
+            EvalOutput::Range {
+                start,
+                end,
+                inclusive,
+            } => {
                 start.hash(state);
                 end.hash(state);
                 inclusive.hash(state);
@@ -313,8 +336,14 @@ mod tests {
         assert_eq!(EvalOutput::Bool(true).display(), "true");
         assert_eq!(EvalOutput::Void.display(), "void");
         assert_eq!(EvalOutput::None.display(), "None");
-        assert_eq!(EvalOutput::Some(Box::new(EvalOutput::Int(1))).display(), "Some(1)");
-        assert_eq!(EvalOutput::Ok(Box::new(EvalOutput::Int(1))).display(), "Ok(1)");
+        assert_eq!(
+            EvalOutput::Some(Box::new(EvalOutput::Int(1))).display(),
+            "Some(1)"
+        );
+        assert_eq!(
+            EvalOutput::Ok(Box::new(EvalOutput::Int(1))).display(),
+            "Ok(1)"
+        );
         assert_eq!(
             EvalOutput::List(vec![EvalOutput::Int(1), EvalOutput::Int(2)]).display(),
             "[1, 2]"

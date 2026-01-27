@@ -20,10 +20,7 @@ pub enum ParseProblem {
     },
 
     /// Expected an expression, found something else.
-    ExpectedExpression {
-        span: Span,
-        found: String,
-    },
+    ExpectedExpression { span: Span, found: String },
 
     /// Unclosed delimiter (parenthesis, bracket, brace).
     UnclosedDelimiter {
@@ -33,28 +30,16 @@ pub enum ParseProblem {
     },
 
     /// Expected an identifier.
-    ExpectedIdentifier {
-        span: Span,
-        found: String,
-    },
+    ExpectedIdentifier { span: Span, found: String },
 
     /// Expected a type annotation.
-    ExpectedType {
-        span: Span,
-        found: String,
-    },
+    ExpectedType { span: Span, found: String },
 
     /// Invalid function definition.
-    InvalidFunctionDef {
-        span: Span,
-        reason: String,
-    },
+    InvalidFunctionDef { span: Span, reason: String },
 
     /// Missing function body.
-    MissingFunctionBody {
-        span: Span,
-        name: String,
-    },
+    MissingFunctionBody { span: Span, name: String },
 
     /// Invalid pattern syntax.
     InvalidPatternSyntax {
@@ -93,44 +78,25 @@ pub enum ParseProblem {
     },
 
     /// `function_exp` requires named properties.
-    RequiresNamedProps {
-        span: Span,
-        exp_name: String,
-    },
+    RequiresNamedProps { span: Span, exp_name: String },
 
     /// Reserved built-in function name used for user function.
-    ReservedBuiltinName {
-        span: Span,
-        name: String,
-    },
+    ReservedBuiltinName { span: Span, name: String },
 
     /// Unterminated string literal.
-    UnterminatedString {
-        span: Span,
-    },
+    UnterminatedString { span: Span },
 
     /// Invalid character in source.
-    InvalidCharacter {
-        span: Span,
-        char: char,
-    },
+    InvalidCharacter { span: Span, char: char },
 
     /// Invalid number literal.
-    InvalidNumber {
-        span: Span,
-        reason: String,
-    },
+    InvalidNumber { span: Span, reason: String },
 
     /// Unterminated character literal.
-    UnterminatedChar {
-        span: Span,
-    },
+    UnterminatedChar { span: Span },
 
     /// Invalid escape sequence.
-    InvalidEscape {
-        span: Span,
-        escape: String,
-    },
+    InvalidEscape { span: Span, escape: String },
 }
 
 // Generate HasSpan implementation using macro.

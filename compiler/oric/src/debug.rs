@@ -38,8 +38,12 @@ impl DebugFlags {
     pub const PATTERNS: Self = Self(0b0010_0000);
     /// All debug flags.
     pub const ALL: Self = Self(
-        Self::TOKENS.0 | Self::AST.0 | Self::TYPES.0
-        | Self::EVAL.0 | Self::IMPORTS.0 | Self::PATTERNS.0
+        Self::TOKENS.0
+            | Self::AST.0
+            | Self::TYPES.0
+            | Self::EVAL.0
+            | Self::IMPORTS.0
+            | Self::PATTERNS.0,
     );
 
     /// Create empty flags.

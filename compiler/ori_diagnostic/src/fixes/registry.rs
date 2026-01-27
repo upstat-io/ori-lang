@@ -3,7 +3,10 @@
 //! Manages registration and lookup of code fixes by error code.
 
 // Box and Arc are needed for trait objects in the registry
-#![expect(clippy::disallowed_types, reason = "Box/Arc needed for trait object storage")]
+#![expect(
+    clippy::disallowed_types,
+    reason = "Box/Arc needed for trait object storage"
+)]
 
 use super::{CodeAction, CodeFix, FixContext};
 use crate::ErrorCode;
@@ -91,10 +94,10 @@ impl std::fmt::Debug for FixRegistry {
 
 #[cfg(test)]
 mod tests {
+    use super::super::TextEdit;
     use super::*;
     use crate::Diagnostic;
     use ori_ir::Span;
-    use super::super::TextEdit;
 
     struct AddSemicolonFix;
 

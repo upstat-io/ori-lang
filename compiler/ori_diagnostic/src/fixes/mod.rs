@@ -226,7 +226,10 @@ mod tests {
         }
 
         fn get_fixes(&self, _ctx: &FixContext) -> Vec<CodeAction> {
-            vec![CodeAction::new("Mock fix", vec![TextEdit::insert(0, "fix")])]
+            vec![CodeAction::new(
+                "Mock fix",
+                vec![TextEdit::insert(0, "fix")],
+            )]
         }
     }
 

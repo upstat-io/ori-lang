@@ -5,7 +5,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, Data, Fields, Field, LitStr};
+use syn::{parse_macro_input, Data, DeriveInput, Field, Fields, LitStr};
 
 /// Main entry point for the Subdiagnostic derive macro.
 pub fn derive_subdiagnostic(input: TokenStream) -> TokenStream {
@@ -24,15 +24,19 @@ fn derive_subdiagnostic_impl(input: &DeriveInput) -> syn::Result<TokenStream2> {
     let fields = match &input.data {
         Data::Struct(data) => match &data.fields {
             Fields::Named(fields) => &fields.named,
-            _ => return Err(syn::Error::new_spanned(
-                input,
-                "Subdiagnostic derive only supports structs with named fields"
-            )),
+            _ => {
+                return Err(syn::Error::new_spanned(
+                    input,
+                    "Subdiagnostic derive only supports structs with named fields",
+                ))
+            }
         },
-        _ => return Err(syn::Error::new_spanned(
-            input,
-            "Subdiagnostic derive only supports structs"
-        )),
+        _ => {
+            return Err(syn::Error::new_spanned(
+                input,
+                "Subdiagnostic derive only supports structs",
+            ))
+        }
     };
 
     // Determine the kind of subdiagnostic from struct-level attributes
@@ -94,18 +98,18 @@ fn determine_subdiag_kind(input: &DeriveInput) -> syn::Result<SubdiagKind> {
 
     Err(syn::Error::new_spanned(
         input,
-        "missing #[label(...)], #[note(...)], or #[help(...)] attribute"
+        "missing #[label(...)], #[note(...)], or #[help(...)] attribute",
     ))
 }
 
-fn find_span_field<'a>(
-    fields: impl Iterator<Item = &'a Field>,
-) -> syn::Result<syn::Ident> {
+fn find_span_field<'a>(fields: impl Iterator<Item = &'a Field>) -> syn::Result<syn::Ident> {
     for field in fields {
         // Look for #[primary_span] attribute
         for attr in &field.attrs {
             if attr.path().is_ident("primary_span") {
-                return field.ident.clone()
+                return field
+                    .ident
+                    .clone()
                     .ok_or_else(|| syn::Error::new_spanned(field, "expected named field"));
             }
         }
@@ -113,6 +117,6 @@ fn find_span_field<'a>(
 
     Err(syn::Error::new(
         proc_macro2::Span::call_site(),
-        "no field marked with #[primary_span]"
+        "no field marked with #[primary_span]",
     ))
 }

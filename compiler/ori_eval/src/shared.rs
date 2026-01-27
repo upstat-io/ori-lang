@@ -3,10 +3,13 @@
 //! Provides thread-safe access to registries using `Arc` and `Arc<RwLock>`.
 
 // Arc is the implementation - all usage goes through the newtype
-#![expect(clippy::disallowed_types, reason = "Arc is the implementation of SharedRegistry")]
+#![expect(
+    clippy::disallowed_types,
+    reason = "Arc is the implementation of SharedRegistry"
+)]
 
-use std::sync::Arc;
 use std::fmt;
+use std::sync::Arc;
 
 /// Thread-safe shared registry wrapper (immutable).
 ///

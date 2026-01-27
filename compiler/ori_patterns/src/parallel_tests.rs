@@ -10,7 +10,10 @@
 //! - Thread safety
 
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
-#![expect(clippy::disallowed_types, reason = "Tests use Arc/Mutex directly for thread-safety assertions")]
+#![expect(
+    clippy::disallowed_types,
+    reason = "Tests use Arc/Mutex directly for thread-safety assertions"
+)]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -651,10 +654,7 @@ mod all_settled {
             })
             .collect();
 
-        let successes: usize = results
-            .iter()
-            .filter(|v| matches!(v, Value::Ok(_)))
-            .count();
+        let successes: usize = results.iter().filter(|v| matches!(v, Value::Ok(_))).count();
         let failures: usize = results
             .iter()
             .filter(|v| matches!(v, Value::Err(_)))
@@ -772,7 +772,10 @@ mod edge_cases {
             let start_idx = seq.iter().position(|s| s == &format!("start_{i}"));
             let end_idx = seq.iter().position(|s| s == &format!("end_{i}"));
             if let (Some(s), Some(e)) = (start_idx, end_idx) {
-                assert!(e == s + 1, "start and end should be consecutive with max_concurrent=1");
+                assert!(
+                    e == s + 1,
+                    "start and end should be consecutive with max_concurrent=1"
+                );
             }
         }
     }
@@ -855,7 +858,9 @@ mod thread_safety {
         assert!(result.is_err());
 
         // Should still be able to access with into_inner
-        let guard = data.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let guard = data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         assert_eq!(*guard, 42);
     }
 }

@@ -7,18 +7,18 @@
 //! - `pattern.rs`: Pattern expressions (run, try, match, map, etc.)
 //! - `match_binding.rs`: Match pattern binding extraction
 
+pub mod builtin_methods;
 mod call;
 mod control;
 mod expr;
 mod match_binding;
 mod pattern;
-pub mod builtin_methods;
 
-use ori_ir::{ExprId, ExprKind, Name, StmtKind, FunctionSeq, SeqBinding};
-use ori_types::Type;
-use crate::ensure_sufficient_stack;
-use crate::checker::TypeChecker;
 use super::checker::bound_checking;
+use crate::checker::TypeChecker;
+use crate::ensure_sufficient_stack;
+use ori_ir::{ExprId, ExprKind, FunctionSeq, Name, SeqBinding, StmtKind};
+use ori_types::Type;
 use std::collections::HashSet;
 
 pub use call::*;
@@ -61,114 +61,94 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
         ExprKind::FunctionRef(name) => infer_function_ref(checker, *name, span),
 
         // Binary operations
-        ExprKind::Binary { op, left, right } => {
-            infer_binary(checker, *op, *left, *right, span)
-        }
+        ExprKind::Binary { op, left, right } => infer_binary(checker, *op, *left, *right, span),
 
         // Unary operations
-        ExprKind::Unary { op, operand } => {
-            infer_unary(checker, *op, *operand, span)
-        }
+        ExprKind::Unary { op, operand } => infer_unary(checker, *op, *operand, span),
 
         // Function call
-        ExprKind::Call { func, args } => {
-            infer_call(checker, *func, *args, span)
-        }
+        ExprKind::Call { func, args } => infer_call(checker, *func, *args, span),
 
         // Named call
-        ExprKind::CallNamed { func, args } => {
-            infer_call_named(checker, *func, *args, span)
-        }
+        ExprKind::CallNamed { func, args } => infer_call_named(checker, *func, *args, span),
 
         // Method call
-        ExprKind::MethodCall { receiver, method, args } => {
-            infer_method_call(checker, *receiver, *method, *args, span)
-        }
+        ExprKind::MethodCall {
+            receiver,
+            method,
+            args,
+        } => infer_method_call(checker, *receiver, *method, *args, span),
 
         // Method call with named arguments
-        ExprKind::MethodCallNamed { receiver, method, args } => {
-            infer_method_call_named(checker, *receiver, *method, *args, span)
-        }
+        ExprKind::MethodCallNamed {
+            receiver,
+            method,
+            args,
+        } => infer_method_call_named(checker, *receiver, *method, *args, span),
 
         // If expression
-        ExprKind::If { cond, then_branch, else_branch } => {
-            infer_if(checker, *cond, *then_branch, *else_branch, span)
-        }
+        ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => infer_if(checker, *cond, *then_branch, *else_branch, span),
 
         // Match expression
-        ExprKind::Match { scrutinee, arms } => {
-            infer_match(checker, *scrutinee, *arms, span)
-        }
+        ExprKind::Match { scrutinee, arms } => infer_match(checker, *scrutinee, *arms, span),
 
         // For loop
-        ExprKind::For { binding, iter, guard, body, is_yield } => {
-            infer_for(checker, *binding, *iter, *guard, *body, *is_yield, span)
-        }
+        ExprKind::For {
+            binding,
+            iter,
+            guard,
+            body,
+            is_yield,
+        } => infer_for(checker, *binding, *iter, *guard, *body, *is_yield, span),
 
         // Loop
-        ExprKind::Loop { body } => {
-            infer_loop(checker, *body)
-        }
+        ExprKind::Loop { body } => infer_loop(checker, *body),
 
         // Block
-        ExprKind::Block { stmts, result } => {
-            infer_block(checker, *stmts, *result, span)
-        }
+        ExprKind::Block { stmts, result } => infer_block(checker, *stmts, *result, span),
 
         // Let binding (as expression)
-        ExprKind::Let { pattern, ty, init, .. } => {
-            infer_let(checker, pattern, ty.as_ref(), *init, span)
-        }
+        ExprKind::Let {
+            pattern, ty, init, ..
+        } => infer_let(checker, pattern, ty.as_ref(), *init, span),
 
         // Lambda
-        ExprKind::Lambda { params, ret_ty, body } => {
-            infer_lambda(checker, *params, ret_ty.as_ref(), *body, span)
-        }
+        ExprKind::Lambda {
+            params,
+            ret_ty,
+            body,
+        } => infer_lambda(checker, *params, ret_ty.as_ref(), *body, span),
 
         // List
-        ExprKind::List(elements) => {
-            infer_list(checker, *elements)
-        }
+        ExprKind::List(elements) => infer_list(checker, *elements),
 
         // Tuple
-        ExprKind::Tuple(elements) => {
-            infer_tuple(checker, *elements)
-        }
+        ExprKind::Tuple(elements) => infer_tuple(checker, *elements),
 
         // Map
-        ExprKind::Map(entries) => {
-            infer_map(checker, *entries, span)
-        }
+        ExprKind::Map(entries) => infer_map(checker, *entries, span),
 
         // Struct literal
-        ExprKind::Struct { name, fields } => {
-            infer_struct(checker, *name, *fields)
-        }
+        ExprKind::Struct { name, fields } => infer_struct(checker, *name, *fields),
 
         // Range
-        ExprKind::Range { start, end, .. } => {
-            infer_range(checker, *start, *end)
-        }
+        ExprKind::Range { start, end, .. } => infer_range(checker, *start, *end),
 
         // Field access
-        ExprKind::Field { receiver, field } => {
-            infer_field(checker, *receiver, *field)
-        }
+        ExprKind::Field { receiver, field } => infer_field(checker, *receiver, *field),
 
         // Index access
-        ExprKind::Index { receiver, index } => {
-            infer_index(checker, *receiver, *index, span)
-        }
+        ExprKind::Index { receiver, index } => infer_index(checker, *receiver, *index, span),
 
         // FunctionSeq: run, try, match
-        ExprKind::FunctionSeq(func_seq) => {
-            infer_function_seq(checker, func_seq, span)
-        }
+        ExprKind::FunctionSeq(func_seq) => infer_function_seq(checker, func_seq, span),
 
         // FunctionExp: map, filter, fold, etc.
-        ExprKind::FunctionExp(func_exp) => {
-            infer_function_exp(checker, func_exp)
-        }
+        ExprKind::FunctionExp(func_exp) => infer_function_exp(checker, func_exp),
 
         // Variant constructors
         ExprKind::Ok(inner) => infer_ok(checker, *inner),
@@ -184,9 +164,7 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
         ExprKind::Await(inner) => infer_await(checker, *inner, span),
         ExprKind::Try(inner) => infer_try(checker, *inner, span),
 
-        ExprKind::Assign { target, value } => {
-            infer_assign(checker, *target, *value, span)
-        }
+        ExprKind::Assign { target, value } => infer_assign(checker, *target, *value, span),
 
         // Config reference
         ExprKind::Config(name) => {
@@ -220,7 +198,11 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
         }
 
         // Capability provision: type is the body's type
-        ExprKind::WithCapability { capability, provider, body } => {
+        ExprKind::WithCapability {
+            capability,
+            provider,
+            body,
+        } => {
             // Infer the provider type (capability implementation)
             let provider_ty = infer_expr(checker, *provider);
             let resolved_provider_ty = checker.inference.ctx.resolve(&provider_ty);
@@ -228,10 +210,15 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
             // Validate: if capability is a known trait, provider must implement it
             if checker.registries.traits.has_trait(*capability) {
                 // Check if provider type implements the capability trait
-                if !checker.registries.traits.implements(&resolved_provider_ty, *capability) {
+                if !checker
+                    .registries
+                    .traits
+                    .implements(&resolved_provider_ty, *capability)
+                {
                     // Also check built-in trait implementations
                     let cap_name = checker.context.interner.lookup(*capability);
-                    let implements_builtin = bound_checking::primitive_implements_trait(&resolved_provider_ty, cap_name);
+                    let implements_builtin =
+                        bound_checking::primitive_implements_trait(&resolved_provider_ty, cap_name);
 
                     if !implements_builtin {
                         let provider_ty_str = format!("{resolved_provider_ty:?}");
@@ -270,7 +257,10 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
 /// Collect free variables from an expression (inner recursive helper).
 ///
 /// This is used for closure self-capture detection.
-#[expect(clippy::implicit_hasher, reason = "Standard HashMap/HashSet sufficient here")]
+#[expect(
+    clippy::implicit_hasher,
+    reason = "Standard HashMap/HashSet sufficient here"
+)]
 pub fn collect_free_vars_inner(
     checker: &TypeChecker<'_>,
     expr_id: ExprId,
@@ -358,7 +348,11 @@ pub fn collect_free_vars_inner(
         }
 
         // If expression
-        ExprKind::If { cond, then_branch, else_branch } => {
+        ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             collect_free_vars_inner(checker, *cond, bound, free);
             collect_free_vars_inner(checker, *then_branch, bound, free);
             if let Some(else_id) = else_branch {
@@ -384,7 +378,13 @@ pub fn collect_free_vars_inner(
         }
 
         // For loop - binding is bound in body
-        ExprKind::For { binding, iter, guard, body, .. } => {
+        ExprKind::For {
+            binding,
+            iter,
+            guard,
+            body,
+            ..
+        } => {
             collect_free_vars_inner(checker, *iter, bound, free);
             let mut body_bound = bound.clone();
             body_bound.insert(*binding);
@@ -526,8 +526,12 @@ fn collect_free_vars_function_seq(
     free: &mut HashSet<Name>,
 ) {
     match func_seq {
-        FunctionSeq::Run { bindings, result, .. }
-        | FunctionSeq::Try { bindings, result, .. } => {
+        FunctionSeq::Run {
+            bindings, result, ..
+        }
+        | FunctionSeq::Try {
+            bindings, result, ..
+        } => {
             let mut seq_bound = bound.clone();
             for binding in checker.context.arena.get_seq_bindings(*bindings) {
                 match binding {
@@ -542,7 +546,9 @@ fn collect_free_vars_function_seq(
             }
             collect_free_vars_inner(checker, *result, &seq_bound, free);
         }
-        FunctionSeq::Match { scrutinee, arms, .. } => {
+        FunctionSeq::Match {
+            scrutinee, arms, ..
+        } => {
             collect_free_vars_inner(checker, *scrutinee, bound, free);
             for arm in checker.context.arena.get_arms(*arms) {
                 // Collect pattern bindings
@@ -557,7 +563,13 @@ fn collect_free_vars_function_seq(
                 collect_free_vars_inner(checker, arm.body, &arm_bound, free);
             }
         }
-        FunctionSeq::ForPattern { over, map, arm, default, .. } => {
+        FunctionSeq::ForPattern {
+            over,
+            map,
+            arm,
+            default,
+            ..
+        } => {
             collect_free_vars_inner(checker, *over, bound, free);
             if let Some(map_fn) = map {
                 collect_free_vars_inner(checker, *map_fn, bound, free);
@@ -588,7 +600,9 @@ pub fn add_pattern_bindings(pattern: &ori_ir::BindingPattern, bound: &mut HashSe
             for (field_name, opt_pattern) in fields {
                 match opt_pattern {
                     Some(nested) => add_pattern_bindings(nested, bound),
-                    None => { bound.insert(*field_name); }
+                    None => {
+                        bound.insert(*field_name);
+                    }
                 }
             }
         }

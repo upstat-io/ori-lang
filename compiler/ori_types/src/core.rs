@@ -2,9 +2,9 @@
 //!
 //! Foundational types for the Ori type system.
 
-use ori_ir::{Name, StringInterner, TypeId};
 use crate::data::{TypeData, TypeVar};
 use crate::type_interner::TypeInterner;
+use ori_ir::{Name, StringInterner, TypeId};
 
 /// Concrete type representation.
 ///
@@ -35,10 +35,7 @@ pub enum Type {
     Size,
 
     /// Function type: (params) -> return
-    Function {
-        params: Vec<Type>,
-        ret: Box<Type>,
-    },
+    Function { params: Vec<Type>, ret: Box<Type> },
 
     /// Tuple type: (T, U, V)
     Tuple(Vec<Type>),
@@ -47,10 +44,7 @@ pub enum Type {
     List(Box<Type>),
 
     /// Map type: {K: V}
-    Map {
-        key: Box<Type>,
-        value: Box<Type>,
-    },
+    Map { key: Box<Type>, value: Box<Type> },
 
     /// Set type: Set<T>
     Set(Box<Type>),
@@ -59,10 +53,7 @@ pub enum Type {
     Option(Box<Type>),
 
     /// Result type: Result<T, E>
-    Result {
-        ok: Box<Type>,
-        err: Box<Type>,
-    },
+    Result { ok: Box<Type>, err: Box<Type> },
 
     /// Range type: Range<T>
     Range(Box<Type>),
@@ -75,10 +66,7 @@ pub enum Type {
 
     /// Applied generic type: the base type name with concrete type arguments.
     /// For example, `Box<int>` is `Applied { name: "Box", args: [Int] }`.
-    Applied {
-        name: Name,
-        args: Vec<Type>,
-    },
+    Applied { name: Name, args: Vec<Type> },
 
     /// Generic type variable (for inference)
     Var(TypeVar),
@@ -103,8 +91,14 @@ impl Type {
     pub fn is_primitive(&self) -> bool {
         matches!(
             self,
-            Type::Int | Type::Float | Type::Bool | Type::Str |
-            Type::Char | Type::Byte | Type::Unit | Type::Never
+            Type::Int
+                | Type::Float
+                | Type::Bool
+                | Type::Str
+                | Type::Char
+                | Type::Byte
+                | Type::Unit
+                | Type::Never
         )
     }
 
@@ -121,8 +115,9 @@ impl Type {
     /// Get inner type for Option, List, etc.
     pub fn inner(&self) -> Option<&Type> {
         match self {
-            Type::List(t) | Type::Option(t) | Type::Set(t) |
-            Type::Range(t) | Type::Channel(t) => Some(t),
+            Type::List(t) | Type::Option(t) | Type::Set(t) | Type::Range(t) | Type::Channel(t) => {
+                Some(t)
+            }
             _ => None,
         }
     }
@@ -183,17 +178,12 @@ impl Type {
 
             // Compound types
             Type::Tuple(types) => {
-                let type_ids: Vec<TypeId> = types
-                    .iter()
-                    .map(|t| t.to_type_id(interner))
-                    .collect();
+                let type_ids: Vec<TypeId> = types.iter().map(|t| t.to_type_id(interner)).collect();
                 interner.tuple(type_ids)
             }
             Type::Function { params, ret } => {
-                let param_ids: Vec<TypeId> = params
-                    .iter()
-                    .map(|p| p.to_type_id(interner))
-                    .collect();
+                let param_ids: Vec<TypeId> =
+                    params.iter().map(|p| p.to_type_id(interner)).collect();
                 let ret_id = ret.to_type_id(interner);
                 interner.function(param_ids, ret_id)
             }
@@ -201,10 +191,7 @@ impl Type {
             // Named and generic types
             Type::Named(name) => interner.named(*name),
             Type::Applied { name, args } => {
-                let arg_ids: Vec<TypeId> = args
-                    .iter()
-                    .map(|a| a.to_type_id(interner))
-                    .collect();
+                let arg_ids: Vec<TypeId> = args.iter().map(|a| a.to_type_id(interner)).collect();
                 interner.applied(*name, arg_ids)
             }
 
@@ -212,7 +199,11 @@ impl Type {
             Type::Var(var) => interner.intern(TypeData::Var(*var)),
 
             // Projections
-            Type::Projection { base, trait_name, assoc_name } => {
+            Type::Projection {
+                base,
+                trait_name,
+                assoc_name,
+            } => {
                 let base_id = base.to_type_id(interner);
                 interner.projection(base_id, *trait_name, *assoc_name)
             }
@@ -233,15 +224,11 @@ impl Type {
             Type::Duration => "Duration".to_string(),
             Type::Size => "Size".to_string(),
             Type::Function { params, ret } => {
-                let params_str: Vec<_> = params.iter()
-                    .map(|p| p.display(interner))
-                    .collect();
+                let params_str: Vec<_> = params.iter().map(|p| p.display(interner)).collect();
                 format!("({}) -> {}", params_str.join(", "), ret.display(interner))
             }
             Type::Tuple(types) => {
-                let types_str: Vec<_> = types.iter()
-                    .map(|t| t.display(interner))
-                    .collect();
+                let types_str: Vec<_> = types.iter().map(|t| t.display(interner)).collect();
                 format!("({})", types_str.join(", "))
             }
             Type::List(t) => format!("[{}]", t.display(interner)),
@@ -251,21 +238,31 @@ impl Type {
             Type::Set(t) => format!("Set<{}>", t.display(interner)),
             Type::Option(t) => format!("Option<{}>", t.display(interner)),
             Type::Result { ok, err } => {
-                format!("Result<{}, {}>", ok.display(interner), err.display(interner))
+                format!(
+                    "Result<{}, {}>",
+                    ok.display(interner),
+                    err.display(interner)
+                )
             }
             Type::Range(t) => format!("Range<{}>", t.display(interner)),
             Type::Channel(t) => format!("Channel<{}>", t.display(interner)),
             Type::Named(name) => interner.lookup(*name).to_string(),
             Type::Applied { name, args } => {
-                let args_str: Vec<_> = args.iter()
-                    .map(|a| a.display(interner))
-                    .collect();
+                let args_str: Vec<_> = args.iter().map(|a| a.display(interner)).collect();
                 format!("{}<{}>", interner.lookup(*name), args_str.join(", "))
             }
             Type::Var(v) => format!("?{}", v.0),
             Type::Error => "<error>".to_string(),
-            Type::Projection { base, trait_name: _, assoc_name } => {
-                format!("{}.{}", base.display(interner), interner.lookup(*assoc_name))
+            Type::Projection {
+                base,
+                trait_name: _,
+                assoc_name,
+            } => {
+                format!(
+                    "{}.{}",
+                    base.display(interner),
+                    interner.lookup(*assoc_name)
+                )
             }
         }
     }

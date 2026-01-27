@@ -7,17 +7,29 @@
 //! - Loop expressions
 //! - Break and continue
 
-use ori_ir::{
-    Name, ExprId, ExprKind, ExprArena, StringInterner, StmtKind, StmtRange,
-    BindingPattern, ArmRange, MatchPattern,
-};
 use crate::{
-    Value, EvalResult, EvalError, Environment,
     // Error factories
-    cannot_assign_immutable, expected_list, expected_struct, expected_tuple,
-    field_assignment_not_implemented, for_requires_iterable, index_assignment_not_implemented,
-    invalid_assignment_target, invalid_literal_pattern, list_pattern_too_long,
-    missing_struct_field, non_exhaustive_match, tuple_pattern_mismatch,
+    cannot_assign_immutable,
+    expected_list,
+    expected_struct,
+    expected_tuple,
+    field_assignment_not_implemented,
+    for_requires_iterable,
+    index_assignment_not_implemented,
+    invalid_assignment_target,
+    invalid_literal_pattern,
+    list_pattern_too_long,
+    missing_struct_field,
+    non_exhaustive_match,
+    tuple_pattern_mismatch,
+    Environment,
+    EvalError,
+    EvalResult,
+    Value,
+};
+use ori_ir::{
+    ArmRange, BindingPattern, ExprArena, ExprId, ExprKind, MatchPattern, Name, StmtKind, StmtRange,
+    StringInterner,
 };
 
 /// Evaluate an if/else expression.
@@ -115,9 +127,7 @@ pub fn try_match(
     match pattern {
         MatchPattern::Wildcard => Ok(Some(vec![])),
 
-        MatchPattern::Binding(name) => {
-            Ok(Some(vec![(*name, value.clone())]))
-        }
+        MatchPattern::Binding(name) => Ok(Some(vec![(*name, value.clone())])),
 
         MatchPattern::Literal(expr_id) => {
             let lit_val = arena.get_expr(*expr_id);
@@ -237,18 +247,30 @@ pub fn try_match(
             }
         }
 
-        MatchPattern::Range { start, end, inclusive } => {
+        MatchPattern::Range {
+            start,
+            end,
+            inclusive,
+        } => {
             if let Value::Int(n) = value {
                 let n_raw = n.raw();
                 let start_val = if let Some(s) = start {
                     let expr = arena.get_expr(*s);
-                    if let ExprKind::Int(i) = expr.kind { i } else { return Ok(None); }
+                    if let ExprKind::Int(i) = expr.kind {
+                        i
+                    } else {
+                        return Ok(None);
+                    }
                 } else {
                     i64::MIN
                 };
                 let end_val = if let Some(e) = end {
                     let expr = arena.get_expr(*e);
-                    if let ExprKind::Int(i) = expr.kind { i } else { return Ok(None); }
+                    if let ExprKind::Int(i) = expr.kind {
+                        i
+                    } else {
+                        return Ok(None);
+                    }
                 } else {
                     i64::MAX
                 };
@@ -470,7 +492,12 @@ where
             StmtKind::Expr(expr) => {
                 eval_fn(*expr)?;
             }
-            StmtKind::Let { pattern, init, mutable, .. } => {
+            StmtKind::Let {
+                pattern,
+                init,
+                mutable,
+                ..
+            } => {
                 let value = eval_fn(*init)?;
                 bind_fn(pattern, value, *mutable)?;
             }

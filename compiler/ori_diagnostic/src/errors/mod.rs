@@ -31,9 +31,7 @@ impl ErrorDocs {
     /// }
     /// ```
     pub fn get(code: ErrorCode) -> Option<&'static str> {
-        DOCS.iter()
-            .find(|(c, _)| *c == code)
-            .map(|(_, doc)| *doc)
+        DOCS.iter().find(|(c, _)| *c == code).map(|(_, doc)| *doc)
     }
 
     /// Get all documented error codes.
@@ -57,7 +55,6 @@ static DOCS: &[(ErrorCode, &str)] = &[
     (ErrorCode::E0003, include_str!("E0003.md")),
     (ErrorCode::E0004, include_str!("E0004.md")),
     (ErrorCode::E0005, include_str!("E0005.md")),
-
     // Parser errors (E1xxx)
     (ErrorCode::E1001, include_str!("E1001.md")),
     (ErrorCode::E1002, include_str!("E1002.md")),
@@ -73,7 +70,6 @@ static DOCS: &[(ErrorCode, &str)] = &[
     (ErrorCode::E1012, include_str!("E1012.md")),
     (ErrorCode::E1013, include_str!("E1013.md")),
     (ErrorCode::E1014, include_str!("E1014.md")),
-
     // Type errors (E2xxx)
     (ErrorCode::E2001, include_str!("E2001.md")),
     (ErrorCode::E2002, include_str!("E2002.md")),
@@ -89,12 +85,10 @@ static DOCS: &[(ErrorCode, &str)] = &[
     (ErrorCode::E2012, include_str!("E2012.md")),
     (ErrorCode::E2013, include_str!("E2013.md")),
     (ErrorCode::E2014, include_str!("E2014.md")),
-
     // Pattern errors (E3xxx)
     (ErrorCode::E3001, include_str!("E3001.md")),
     (ErrorCode::E3002, include_str!("E3002.md")),
     (ErrorCode::E3003, include_str!("E3003.md")),
-
     // Internal errors (E9xxx)
     (ErrorCode::E9001, include_str!("E9001.md")),
     (ErrorCode::E9002, include_str!("E9002.md")),

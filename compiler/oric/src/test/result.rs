@@ -163,7 +163,9 @@ impl TestSummary {
     pub fn exit_code(&self) -> i32 {
         if self.total() == 0 {
             2
-        } else { i32::from(self.has_failures()) }
+        } else {
+            i32::from(self.has_failures())
+        }
     }
 }
 
@@ -199,7 +201,11 @@ impl CoverageReport {
             self.covered += 1;
         }
         self.total += 1;
-        self.functions.push(FunctionCoverage { name, has_tests, test_names });
+        self.functions.push(FunctionCoverage {
+            name,
+            has_tests,
+            test_names,
+        });
     }
 
     /// Get coverage percentage (0-100).
@@ -245,8 +251,17 @@ mod tests {
     #[test]
     fn test_file_summary() {
         let mut summary = FileSummary::new(PathBuf::from("test.ori"));
-        summary.add_result(TestResult::passed("test1".into(), vec![], Duration::from_millis(10)));
-        summary.add_result(TestResult::failed("test2".into(), vec![], "error".into(), Duration::from_millis(5)));
+        summary.add_result(TestResult::passed(
+            "test1".into(),
+            vec![],
+            Duration::from_millis(10),
+        ));
+        summary.add_result(TestResult::failed(
+            "test2".into(),
+            vec![],
+            "error".into(),
+            Duration::from_millis(5),
+        ));
         summary.add_result(TestResult::skipped("test3".into(), vec![], "skip".into()));
 
         assert_eq!(summary.passed, 1);

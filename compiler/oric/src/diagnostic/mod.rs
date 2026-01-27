@@ -12,12 +12,23 @@
 
 // Re-export core diagnostic types from ori_diagnostic
 pub use ori_diagnostic::{
-    Applicability, Diagnostic, ErrorCode, Label, Severity, Substitution, Suggestion,
     // Helper functions
-    expected_expression, missing_pattern_arg, type_mismatch, unclosed_delimiter,
-    unknown_identifier, unknown_pattern_arg,
+    expected_expression,
+    missing_pattern_arg,
     // Queue and span utilities
-    queue, span_utils,
+    queue,
+    span_utils,
+    type_mismatch,
+    unclosed_delimiter,
+    unknown_identifier,
+    unknown_pattern_arg,
+    Applicability,
+    Diagnostic,
+    ErrorCode,
+    Label,
+    Severity,
+    Substitution,
+    Suggestion,
 };
 
 // Re-export emitter and fixes submodules from ori_diagnostic

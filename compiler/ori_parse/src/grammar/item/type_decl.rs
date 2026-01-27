@@ -1,10 +1,10 @@
 //! Type declaration parsing (struct, enum, newtype).
 
+use crate::{ParseError, ParsedAttrs, Parser};
 use ori_ir::{
     GenericParamRange, Name, ParsedType, Span, StructField, TokenKind, TypeDecl, TypeDeclKind,
     Variant, VariantField,
 };
-use crate::{ParsedAttrs, ParseError, Parser};
 
 impl Parser<'_> {
     /// Parse a type declaration.
@@ -15,7 +15,11 @@ impl Parser<'_> {
     /// - Newtype: `type Name = ExistingType`
     /// - Generic: `type Name<T> = ...`
     /// - With derives: `#[derive(Eq, Clone)] type Name = ...`
-    pub(crate) fn parse_type_decl(&mut self, attrs: ParsedAttrs, is_public: bool) -> Result<TypeDecl, ParseError> {
+    pub(crate) fn parse_type_decl(
+        &mut self,
+        attrs: ParsedAttrs,
+        is_public: bool,
+    ) -> Result<TypeDecl, ParseError> {
         let start_span = self.current_span();
         self.expect(&TokenKind::Type)?;
 
@@ -119,7 +123,10 @@ impl Parser<'_> {
             if self.check(&TokenKind::Gt) {
                 self.advance(); // >
             }
-            return Ok(TypeDeclKind::Newtype(ParsedType::Named { name: first_name, type_args }));
+            return Ok(TypeDeclKind::Newtype(ParsedType::Named {
+                name: first_name,
+                type_args,
+            }));
         }
 
         // Check if this is a sum type (has | following)
@@ -161,7 +168,10 @@ impl Parser<'_> {
         }
 
         // Single identifier without | or ( - newtype referring to another type
-        Ok(TypeDeclKind::Newtype(ParsedType::Named { name: first_name, type_args: Vec::new() }))
+        Ok(TypeDeclKind::Newtype(ParsedType::Named {
+            name: first_name,
+            type_args: Vec::new(),
+        }))
     }
 
     /// Create a Variant, parsing optional fields.

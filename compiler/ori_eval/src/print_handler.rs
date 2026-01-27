@@ -73,37 +73,58 @@ impl Default for BufferPrintHandler {
 
 impl PrintHandler for BufferPrintHandler {
     fn println(&self, msg: &str) {
-        let mut buf = self.buffer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut buf = self
+            .buffer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         buf.push_str(msg);
         buf.push('\n');
     }
 
     fn print(&self, msg: &str) {
-        let mut buf = self.buffer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut buf = self
+            .buffer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         buf.push_str(msg);
     }
 
     fn get_output(&self) -> String {
-        self.buffer.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+        self.buffer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     fn clear(&self) {
-        self.buffer.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+        self.buffer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
     }
 }
 
 /// Shared print handler that can be passed around.
-#[expect(clippy::disallowed_types, reason = "Arc required for SharedPrintHandler dyn trait object shared across threads")]
+#[expect(
+    clippy::disallowed_types,
+    reason = "Arc required for SharedPrintHandler dyn trait object shared across threads"
+)]
 pub type SharedPrintHandler = std::sync::Arc<dyn PrintHandler>;
 
 /// Create a default stdout print handler.
-#[expect(clippy::disallowed_types, reason = "Arc required for SharedPrintHandler dyn trait object")]
+#[expect(
+    clippy::disallowed_types,
+    reason = "Arc required for SharedPrintHandler dyn trait object"
+)]
 pub fn stdout_handler() -> SharedPrintHandler {
     std::sync::Arc::new(StdoutPrintHandler)
 }
 
 /// Create a buffer print handler for capturing output.
-#[expect(clippy::disallowed_types, reason = "Arc required for SharedPrintHandler dyn trait object")]
+#[expect(
+    clippy::disallowed_types,
+    reason = "Arc required for SharedPrintHandler dyn trait object"
+)]
 pub fn buffer_handler() -> SharedPrintHandler {
     std::sync::Arc::new(BufferPrintHandler::new())
 }

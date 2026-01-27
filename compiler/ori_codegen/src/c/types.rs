@@ -115,9 +115,7 @@ impl CTypeMapper {
                     .collect::<Vec<_>>()
                     .join("_");
                 format!("struct ori_{}_{}_s*", name.raw(), suffix)
-            }
-
-            // Note: Var(_), Projection { .. }, and Error are handled above
+            } // Note: Var(_), Projection { .. }, and Error are handled above
         }
     }
 
@@ -192,18 +190,16 @@ impl CTypeMapper {
     /// Map a parsed type annotation to a C type.
     pub fn map_parsed_type(parsed: &ParsedType, interner: &StringInterner) -> String {
         match parsed {
-            ParsedType::Primitive(type_id) => {
-                match *type_id {
-                    TypeId::INT => "int64_t".to_string(),
-                    TypeId::FLOAT => "double".to_string(),
-                    TypeId::BOOL => "bool".to_string(),
-                    TypeId::STR => "ori_string_t".to_string(),
-                    TypeId::CHAR => "uint32_t".to_string(),
-                    TypeId::BYTE => "uint8_t".to_string(),
-                    TypeId::VOID | TypeId::NEVER => "void".to_string(),
-                    _ => "void*".to_string(),
-                }
-            }
+            ParsedType::Primitive(type_id) => match *type_id {
+                TypeId::INT => "int64_t".to_string(),
+                TypeId::FLOAT => "double".to_string(),
+                TypeId::BOOL => "bool".to_string(),
+                TypeId::STR => "ori_string_t".to_string(),
+                TypeId::CHAR => "uint32_t".to_string(),
+                TypeId::BYTE => "uint8_t".to_string(),
+                TypeId::VOID | TypeId::NEVER => "void".to_string(),
+                _ => "void*".to_string(),
+            },
 
             ParsedType::Named { name, type_args } => {
                 let name_str = interner.lookup(*name);
@@ -379,7 +375,10 @@ mod tests {
         assert_eq!(CTypeMapper::map_type_id(TypeId::INT, &interner), "int64_t");
         assert_eq!(CTypeMapper::map_type_id(TypeId::FLOAT, &interner), "double");
         assert_eq!(CTypeMapper::map_type_id(TypeId::BOOL, &interner), "bool");
-        assert_eq!(CTypeMapper::map_type_id(TypeId::STR, &interner), "ori_string_t");
+        assert_eq!(
+            CTypeMapper::map_type_id(TypeId::STR, &interner),
+            "ori_string_t"
+        );
         assert_eq!(CTypeMapper::map_type_id(TypeId::VOID, &interner), "void");
     }
 

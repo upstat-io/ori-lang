@@ -7,12 +7,11 @@
 //! - `#[derive(Printable)]` -> `to_string` method
 //! - `#[derive(Default)]` -> `default` method
 
-use crate::{
-    Value, EvalResult,
-    DerivedMethodInfo, DerivedTrait,
-    default_requires_type_context, wrong_function_args,
-};
 use super::Interpreter;
+use crate::{
+    default_requires_type_context, wrong_function_args, DerivedMethodInfo, DerivedTrait,
+    EvalResult, Value,
+};
 
 impl Interpreter<'_> {
     /// Evaluate a derived method (from `#[derive(...)]`).
@@ -37,8 +36,14 @@ impl Interpreter<'_> {
     /// Evaluate derived `eq` method for structs.
     ///
     /// Compares each field recursively.
-    #[expect(clippy::unused_self, reason = "Method on Interpreter for organizational consistency with other derived methods")]
-    #[expect(clippy::needless_pass_by_value, reason = "Consistent derived method dispatch signature")]
+    #[expect(
+        clippy::unused_self,
+        reason = "Method on Interpreter for organizational consistency with other derived methods"
+    )]
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "Consistent derived method dispatch signature"
+    )]
     fn eval_derived_eq(
         &self,
         receiver: Value,
@@ -83,8 +88,14 @@ impl Interpreter<'_> {
     /// Evaluate derived `clone` method for structs.
     ///
     /// Creates a deep copy of the struct.
-    #[expect(clippy::unused_self, reason = "Method on Interpreter for organizational consistency with other derived methods")]
-    #[expect(clippy::unnecessary_wraps, reason = "Returns EvalResult for consistent derived method dispatch interface")]
+    #[expect(
+        clippy::unused_self,
+        reason = "Method on Interpreter for organizational consistency with other derived methods"
+    )]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "Returns EvalResult for consistent derived method dispatch interface"
+    )]
     fn eval_derived_clone(&self, receiver: Value, _info: &DerivedMethodInfo) -> EvalResult {
         let Value::Struct(struct_val) = receiver else {
             return Ok(receiver.clone()); // Non-structs just clone directly
@@ -99,9 +110,18 @@ impl Interpreter<'_> {
     /// Evaluate derived `hash` method for structs.
     ///
     /// Combines hashes of all fields.
-    #[expect(clippy::needless_pass_by_value, reason = "Consistent derived method dispatch signature")]
-    #[expect(clippy::unnecessary_wraps, reason = "Returns EvalResult for consistent derived method dispatch interface")]
-    #[expect(clippy::cast_possible_wrap, reason = "Hash values are opaque identifiers; wrapping is acceptable")]
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "Consistent derived method dispatch signature"
+    )]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "Returns EvalResult for consistent derived method dispatch interface"
+    )]
+    #[expect(
+        clippy::cast_possible_wrap,
+        reason = "Hash values are opaque identifiers; wrapping is acceptable"
+    )]
     fn eval_derived_hash(&self, receiver: Value, info: &DerivedMethodInfo) -> EvalResult {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -131,8 +151,14 @@ impl Interpreter<'_> {
     /// Evaluate derived `to_string` method for structs.
     ///
     /// Produces a string representation like "Point { x: 10, y: 20 }".
-    #[expect(clippy::needless_pass_by_value, reason = "Consistent derived method dispatch signature")]
-    #[expect(clippy::unnecessary_wraps, reason = "Returns EvalResult for consistent derived method dispatch interface")]
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "Consistent derived method dispatch signature"
+    )]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "Returns EvalResult for consistent derived method dispatch interface"
+    )]
     fn eval_derived_to_string(&self, receiver: Value, info: &DerivedMethodInfo) -> EvalResult {
         let Value::Struct(struct_val) = &receiver else {
             return Ok(Value::string(format!("{receiver}")));
@@ -157,7 +183,10 @@ impl Interpreter<'_> {
     /// Returns the default value for the type.
     /// Note: This is currently a stub - a proper implementation would need
     /// to recursively default-construct each field.
-    #[expect(clippy::unused_self, reason = "Method on Interpreter for organizational consistency with other derived methods")]
+    #[expect(
+        clippy::unused_self,
+        reason = "Method on Interpreter for organizational consistency with other derived methods"
+    )]
     fn eval_derived_default(&self, _info: &DerivedMethodInfo) -> EvalResult {
         // Default is a static method that doesn't take self.
         // For now, return an error since we'd need type information

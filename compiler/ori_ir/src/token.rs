@@ -24,7 +24,10 @@ impl Token {
 
     /// Create a dummy token for testing/generated code.
     pub fn dummy(kind: TokenKind) -> Self {
-        Token { kind, span: Span::DUMMY }
+        Token {
+            kind,
+            span: Span::DUMMY,
+        }
     }
 }
 
@@ -74,8 +77,8 @@ pub enum TokenKind {
     Match,
     Mut,
     Pub,
-    SelfLower,  // self
-    SelfUpper,  // Self
+    SelfLower, // self
+    SelfUpper, // Self
     Then,
     Trait,
     True,
@@ -95,13 +98,13 @@ pub enum TokenKind {
     Extension,
     Skip,
 
-    IntType,     // int
-    FloatType,   // float
-    BoolType,    // bool
-    StrType,     // str
-    CharType,    // char
-    ByteType,    // byte
-    NeverType,   // Never
+    IntType,   // int
+    FloatType, // float
+    BoolType,  // bool
+    StrType,   // str
+    CharType,  // char
+    ByteType,  // byte
+    NeverType, // Never
 
     Ok,
     Err,
@@ -120,51 +123,51 @@ pub enum TokenKind {
     Print,
     Panic,
 
-    HashBracket,  // #[
-    At,           // @
-    Dollar,       // $
-    Hash,         // #
-    LParen,       // (
-    RParen,       // )
-    LBrace,       // {
-    RBrace,       // }
-    LBracket,     // [
-    RBracket,     // ]
-    Colon,        // :
-    DoubleColon,  // ::
-    Comma,        // ,
-    Dot,          // .
-    DotDot,       // ..
-    DotDotEq,     // ..=
-    Arrow,        // ->
-    FatArrow,     // =>
-    Pipe,         // |
-    Question,     // ?
+    HashBracket,    // #[
+    At,             // @
+    Dollar,         // $
+    Hash,           // #
+    LParen,         // (
+    RParen,         // )
+    LBrace,         // {
+    RBrace,         // }
+    LBracket,       // [
+    RBracket,       // ]
+    Colon,          // :
+    DoubleColon,    // ::
+    Comma,          // ,
+    Dot,            // .
+    DotDot,         // ..
+    DotDotEq,       // ..=
+    Arrow,          // ->
+    FatArrow,       // =>
+    Pipe,           // |
+    Question,       // ?
     DoubleQuestion, // ??
-    Underscore,   // _
-    Semicolon,    // ;
+    Underscore,     // _
+    Semicolon,      // ;
 
-    Eq,           // =
-    EqEq,         // ==
-    NotEq,        // !=
-    Lt,           // <
-    LtEq,         // <=
-    Shl,          // <<
-    Gt,           // >
-    GtEq,         // >=
-    Shr,          // >>
-    Plus,         // +
-    Minus,        // -
-    Star,         // *
-    Slash,        // /
-    Percent,      // %
-    Bang,         // !
-    Tilde,        // ~
-    Amp,          // &
-    AmpAmp,       // &&
-    PipePipe,     // ||
-    Caret,        // ^
-    Div,          // div (floor division keyword)
+    Eq,       // =
+    EqEq,     // ==
+    NotEq,    // !=
+    Lt,       // <
+    LtEq,     // <=
+    Shl,      // <<
+    Gt,       // >
+    GtEq,     // >=
+    Shr,      // >>
+    Plus,     // +
+    Minus,    // -
+    Star,     // *
+    Slash,    // /
+    Percent,  // %
+    Bang,     // !
+    Tilde,    // ~
+    Amp,      // &
+    AmpAmp,   // &&
+    PipePipe, // ||
+    Caret,    // ^
+    Div,      // div (floor division keyword)
 
     Newline,
     Eof,
@@ -177,16 +180,42 @@ impl TokenKind {
     pub fn can_start_expr(&self) -> bool {
         matches!(
             self,
-            TokenKind::Int(_) | TokenKind::Float(_) | TokenKind::String(_) |
-            TokenKind::Char(_) | TokenKind::Duration(_, _) | TokenKind::Size(_, _) |
-            TokenKind::Ident(_) | TokenKind::True | TokenKind::False |
-            TokenKind::If | TokenKind::For | TokenKind::Match | TokenKind::Loop |
-            TokenKind::Let | TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace |
-            TokenKind::At | TokenKind::Dollar | TokenKind::Minus | TokenKind::Bang |
-            TokenKind::Tilde | TokenKind::Ok | TokenKind::Err | TokenKind::Some | TokenKind::None |
-            TokenKind::Run | TokenKind::Try | TokenKind::Recurse |
-            TokenKind::Parallel | TokenKind::Spawn | TokenKind::Timeout |
-            TokenKind::Cache | TokenKind::Catch | TokenKind::Print | TokenKind::Panic
+            TokenKind::Int(_)
+                | TokenKind::Float(_)
+                | TokenKind::String(_)
+                | TokenKind::Char(_)
+                | TokenKind::Duration(_, _)
+                | TokenKind::Size(_, _)
+                | TokenKind::Ident(_)
+                | TokenKind::True
+                | TokenKind::False
+                | TokenKind::If
+                | TokenKind::For
+                | TokenKind::Match
+                | TokenKind::Loop
+                | TokenKind::Let
+                | TokenKind::LParen
+                | TokenKind::LBracket
+                | TokenKind::LBrace
+                | TokenKind::At
+                | TokenKind::Dollar
+                | TokenKind::Minus
+                | TokenKind::Bang
+                | TokenKind::Tilde
+                | TokenKind::Ok
+                | TokenKind::Err
+                | TokenKind::Some
+                | TokenKind::None
+                | TokenKind::Run
+                | TokenKind::Try
+                | TokenKind::Recurse
+                | TokenKind::Parallel
+                | TokenKind::Spawn
+                | TokenKind::Timeout
+                | TokenKind::Cache
+                | TokenKind::Catch
+                | TokenKind::Print
+                | TokenKind::Panic
         )
     }
 
@@ -194,10 +223,16 @@ impl TokenKind {
     pub fn is_pattern_keyword(&self) -> bool {
         matches!(
             self,
-            TokenKind::Cache | TokenKind::Catch |
-            TokenKind::Parallel | TokenKind::Spawn | TokenKind::Recurse |
-            TokenKind::Run | TokenKind::Timeout | TokenKind::Try |
-            TokenKind::Print | TokenKind::Panic
+            TokenKind::Cache
+                | TokenKind::Catch
+                | TokenKind::Parallel
+                | TokenKind::Spawn
+                | TokenKind::Recurse
+                | TokenKind::Run
+                | TokenKind::Timeout
+                | TokenKind::Try
+                | TokenKind::Print
+                | TokenKind::Panic
         )
     }
 
@@ -527,7 +562,7 @@ impl<'a> IntoIterator for &'a TokenList {
 // These are compile-time checks that will fail the build if sizes change.
 #[cfg(target_pointer_width = "64")]
 mod size_asserts {
-    use super::{Token, TokenKind, DurationUnit, SizeUnit};
+    use super::{DurationUnit, SizeUnit, Token, TokenKind};
     // Token is frequently allocated in TokenList, keep it compact.
     // Contains: TokenKind (16 bytes) + Span (8 bytes) = 24 bytes
     crate::static_assert_size!(Token, 24);
@@ -587,9 +622,7 @@ mod tests {
             Token::new(TokenKind::Int(1), Span::new(0, 1)),
             Token::new(TokenKind::Plus, Span::new(2, 3)),
         ]);
-        let list3 = TokenList::from_vec(vec![
-            Token::new(TokenKind::Int(2), Span::new(0, 1)),
-        ]);
+        let list3 = TokenList::from_vec(vec![Token::new(TokenKind::Int(2), Span::new(0, 1))]);
 
         set.insert(list1);
         set.insert(list2); // same as list1
@@ -599,7 +632,10 @@ mod tests {
     }
 
     #[test]
-    #[expect(clippy::approx_constant, reason = "testing float literal parsing, not using PI")]
+    #[expect(
+        clippy::approx_constant,
+        reason = "testing float literal parsing, not using PI"
+    )]
     fn test_float_bits_hash() {
         use std::collections::HashSet;
         let mut set = HashSet::new();

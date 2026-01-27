@@ -1,19 +1,26 @@
 //! `FunctionSeq` evaluation methods for the Interpreter.
 
-use ori_ir::{FunctionSeq, SeqBinding};
-use crate::{Value, EvalResult, for_pattern_requires_list};
 use super::Interpreter;
+use crate::{for_pattern_requires_list, EvalResult, Value};
+use ori_ir::{FunctionSeq, SeqBinding};
 
 impl Interpreter<'_> {
     /// Evaluate a `function_seq` expression (run, try, match).
     pub(super) fn eval_function_seq(&mut self, func_seq: &FunctionSeq) -> EvalResult {
         match func_seq {
-            FunctionSeq::Run { bindings, result, .. } => {
+            FunctionSeq::Run {
+                bindings, result, ..
+            } => {
                 // Evaluate bindings and statements in sequence
                 let seq_bindings = self.arena.get_seq_bindings(*bindings);
                 for binding in seq_bindings {
                     match binding {
-                        SeqBinding::Let { pattern, value, mutable, .. } => {
+                        SeqBinding::Let {
+                            pattern,
+                            value,
+                            mutable,
+                            ..
+                        } => {
                             let val = self.eval(*value)?;
                             self.bind_pattern(pattern, val, *mutable)?;
                         }
@@ -27,12 +34,19 @@ impl Interpreter<'_> {
                 self.eval(*result)
             }
 
-            FunctionSeq::Try { bindings, result, .. } => {
+            FunctionSeq::Try {
+                bindings, result, ..
+            } => {
                 // Evaluate bindings, unwrapping Result/Option and short-circuiting on error
                 let seq_bindings = self.arena.get_seq_bindings(*bindings);
                 for binding in seq_bindings {
                     match binding {
-                        SeqBinding::Let { pattern, value, mutable, .. } => {
+                        SeqBinding::Let {
+                            pattern,
+                            value,
+                            mutable,
+                            ..
+                        } => {
                             match self.eval(*value) {
                                 Ok(value) => {
                                     // Unwrap Result/Option types per spec:
@@ -70,12 +84,20 @@ impl Interpreter<'_> {
                 self.eval(*result)
             }
 
-            FunctionSeq::Match { scrutinee, arms, .. } => {
+            FunctionSeq::Match {
+                scrutinee, arms, ..
+            } => {
                 let value = self.eval(*scrutinee)?;
                 self.eval_match(&value, *arms)
             }
 
-            FunctionSeq::ForPattern { over, map, arm, default, .. } => {
+            FunctionSeq::ForPattern {
+                over,
+                map,
+                arm,
+                default,
+                ..
+            } => {
                 // Evaluate the collection to iterate over
                 let items = self.eval(*over)?;
 

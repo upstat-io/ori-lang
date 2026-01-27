@@ -25,13 +25,13 @@
 //! - All file access goes through `db.load_file()`, creating Salsa inputs
 //! - File content changes are tracked and invalidate dependent queries
 
-use std::path::{Path, PathBuf};
-use std::collections::{HashMap, HashSet};
 use crate::db::Db;
+use crate::eval::{Environment, FunctionValue, Value};
 use crate::input::SourceFile;
-use crate::ir::{Name, StringInterner, ImportPath, SharedArena};
+use crate::ir::{ImportPath, Name, SharedArena, StringInterner};
 use crate::parser::ParseResult;
-use crate::eval::{Value, FunctionValue, Environment};
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 /// Error during import resolution.
 #[derive(Debug, Clone)]
@@ -41,7 +41,9 @@ pub struct ImportError {
 
 impl ImportError {
     pub fn new(message: impl Into<String>) -> Self {
-        ImportError { message: message.into() }
+        ImportError {
+            message: message.into(),
+        }
     }
 }
 
@@ -63,7 +65,8 @@ impl std::error::Error for ImportError {}
 /// using the `::` prefix.
 pub fn is_test_module(path: &Path) -> bool {
     // Check if the file has .test.ori extension
-    let has_test_extension = path.file_name()
+    let has_test_extension = path
+        .file_name()
         .and_then(|n| n.to_str())
         .is_some_and(|n| n.ends_with(".test.ori"));
 
@@ -72,12 +75,11 @@ pub fn is_test_module(path: &Path) -> bool {
     }
 
     // Check if any parent directory is named _test
-    path.parent()
-        .is_some_and(|parent| {
-            parent.components().any(|c| {
-                c.as_os_str().to_str() == Some("_test")
-            })
-        })
+    path.parent().is_some_and(|parent| {
+        parent
+            .components()
+            .any(|c| c.as_os_str().to_str() == Some("_test"))
+    })
 }
 
 /// Check if the imported path is from the test module's parent module.
@@ -89,8 +91,7 @@ pub fn is_parent_module_import(current_file: &Path, import_path: &Path) -> bool 
     let current_dir = current_file.parent().unwrap_or(Path::new("."));
 
     // Check if current dir is named _test
-    let is_in_test_dir = current_dir.file_name()
-        .and_then(|n| n.to_str()) == Some("_test");
+    let is_in_test_dir = current_dir.file_name().and_then(|n| n.to_str()) == Some("_test");
 
     if !is_in_test_dir {
         return false;
@@ -185,9 +186,7 @@ pub fn resolve_import(
                 ))),
             }
         }
-        ImportPath::Module(segments) => {
-            resolve_module_import_tracked(db, segments, current_file)
-        }
+        ImportPath::Module(segments) => resolve_module_import_tracked(db, segments, current_file),
     }
 }
 
@@ -205,9 +204,7 @@ fn resolve_module_import_tracked(
     }
 
     let interner = db.interner();
-    let components: Vec<&str> = segments.iter()
-        .map(|s| interner.lookup(*s))
-        .collect();
+    let components: Vec<&str> = segments.iter().map(|s| interner.lookup(*s)).collect();
     let module_name = components.join(".");
 
     // Generate candidate paths and try each via db.load_file()
@@ -279,7 +276,11 @@ fn generate_module_candidates(components: &[&str], current_file: &Path) -> Vec<P
 /// Resolve a relative import path to a `PathBuf`.
 ///
 /// Helper function for path computation without file access.
-fn resolve_relative_path_to_pathbuf(name: Name, current_file: &Path, interner: &StringInterner) -> PathBuf {
+fn resolve_relative_path_to_pathbuf(
+    name: Name,
+    current_file: &Path,
+    interner: &StringInterner,
+) -> PathBuf {
     let path_str = interner.lookup(name);
     let current_dir = current_file.parent().unwrap_or(Path::new("."));
     let resolved = current_dir.join(path_str);
@@ -324,7 +325,9 @@ impl LoadingContext {
     /// Start loading a module. Returns error if this would create a cycle.
     pub fn start_loading(&mut self, path: PathBuf) -> Result<(), ImportError> {
         if self.would_cycle(&path) {
-            let cycle: Vec<String> = self.loading_stack.iter()
+            let cycle: Vec<String> = self
+                .loading_stack
+                .iter()
                 .chain(std::iter::once(&path))
                 .map(|p| p.display().to_string())
                 .collect();
@@ -363,13 +366,20 @@ impl<'a> ImportedModule<'a> {
     /// Builds the function map automatically.
     pub fn new(result: &'a ParseResult, arena: &'a SharedArena) -> Self {
         let functions = Self::build_functions(result, arena);
-        ImportedModule { result, arena, functions }
+        ImportedModule {
+            result,
+            arena,
+            functions,
+        }
     }
 
     /// Build a map of all functions in a module.
     ///
     /// This allows imported functions to call other functions from their module.
-    fn build_functions(parse_result: &ParseResult, imported_arena: &SharedArena) -> HashMap<Name, Value> {
+    fn build_functions(
+        parse_result: &ParseResult,
+        imported_arena: &SharedArena,
+    ) -> HashMap<Name, Value> {
         let mut module_functions: HashMap<Name, Value> = HashMap::new();
 
         for func in &parse_result.module.functions {
@@ -418,14 +428,17 @@ pub fn register_imports(
     current_file: &Path,
 ) -> Result<(), ImportError> {
     // Check if this is a test module importing from its parent module
-    let allow_private_access = is_test_module(current_file)
-        && is_parent_module_import(current_file, import_path);
+    let allow_private_access =
+        is_test_module(current_file) && is_parent_module_import(current_file, import_path);
 
     for item in &import.items {
         let item_name_str = interner.lookup(item.name);
 
         // Find the function in the imported module
-        let func = imported.result.module.functions
+        let func = imported
+            .result
+            .module
+            .functions
             .iter()
             .find(|f| interner.lookup(f.name) == item_name_str);
 
@@ -475,15 +488,14 @@ pub fn register_imports(
 /// IMPORTANT: All functions carry a `SharedArena` reference to ensure correct
 /// evaluation when called from different contexts (e.g., from within a prelude
 /// function or other imported code).
-pub fn register_module_functions(
-    parse_result: &ParseResult,
-    env: &mut Environment,
-) {
+pub fn register_module_functions(parse_result: &ParseResult, env: &mut Environment) {
     // Create a shared arena for all functions in this module
     let shared_arena = SharedArena::new(parse_result.arena.clone());
 
     for func in &parse_result.module.functions {
-        let params: Vec<_> = parse_result.arena.get_params(func.params)
+        let params: Vec<_> = parse_result
+            .arena
+            .get_params(func.params)
             .iter()
             .map(|p| p.name)
             .collect();

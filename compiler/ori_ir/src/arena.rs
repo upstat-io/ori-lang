@@ -12,7 +12,10 @@
 //! These limits are enforced at runtime with clear panic messages.
 
 // Arc is needed for SharedArena - the implementation of shared arena references
-#![expect(clippy::disallowed_types, reason = "Arc is the implementation of SharedArena")]
+#![expect(
+    clippy::disallowed_types,
+    reason = "Arc is the implementation of SharedArena"
+)]
 
 use super::{ExprId, ExprRange, StmtId, StmtRange};
 
@@ -38,13 +41,9 @@ fn to_u16(value: usize, context: &str) -> u16 {
     })
 }
 use super::ast::{
-    Expr, Stmt, Param, ParamRange,
-    MatchArm, MapEntry, FieldInit,
-    ArmRange, MapEntryRange, FieldInitRange,
-    SeqBinding, SeqBindingRange,
-    NamedExpr, NamedExprRange,
-    CallArg, CallArgRange,
-    GenericParam, GenericParamRange,
+    ArmRange, CallArg, CallArgRange, Expr, FieldInit, FieldInitRange, GenericParam,
+    GenericParamRange, MapEntry, MapEntryRange, MatchArm, NamedExpr, NamedExprRange, Param,
+    ParamRange, SeqBinding, SeqBindingRange, Stmt,
 };
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -242,7 +241,10 @@ impl ExprArena {
     }
 
     /// Allocate map entries, return range.
-    pub fn alloc_map_entries(&mut self, entries: impl IntoIterator<Item = MapEntry>) -> MapEntryRange {
+    pub fn alloc_map_entries(
+        &mut self,
+        entries: impl IntoIterator<Item = MapEntry>,
+    ) -> MapEntryRange {
         let start = to_u32(self.map_entries.len(), "map entries");
         self.map_entries.extend(entries);
         let len = to_u16(self.map_entries.len() - start as usize, "map entry list");
@@ -258,10 +260,16 @@ impl ExprArena {
     }
 
     /// Allocate field initializers, return range.
-    pub fn alloc_field_inits(&mut self, inits: impl IntoIterator<Item = FieldInit>) -> FieldInitRange {
+    pub fn alloc_field_inits(
+        &mut self,
+        inits: impl IntoIterator<Item = FieldInit>,
+    ) -> FieldInitRange {
         let start = to_u32(self.field_inits.len(), "field initializers");
         self.field_inits.extend(inits);
-        let len = to_u16(self.field_inits.len() - start as usize, "field initializer list");
+        let len = to_u16(
+            self.field_inits.len() - start as usize,
+            "field initializer list",
+        );
         FieldInitRange::new(start, len)
     }
 
@@ -274,10 +282,16 @@ impl ExprArena {
     }
 
     /// Allocate sequence bindings, return range.
-    pub fn alloc_seq_bindings(&mut self, bindings: impl IntoIterator<Item = SeqBinding>) -> SeqBindingRange {
+    pub fn alloc_seq_bindings(
+        &mut self,
+        bindings: impl IntoIterator<Item = SeqBinding>,
+    ) -> SeqBindingRange {
         let start = to_u32(self.seq_bindings.len(), "sequence bindings");
         self.seq_bindings.extend(bindings);
-        let len = to_u16(self.seq_bindings.len() - start as usize, "sequence binding list");
+        let len = to_u16(
+            self.seq_bindings.len() - start as usize,
+            "sequence binding list",
+        );
         SeqBindingRange::new(start, len)
     }
 
@@ -290,10 +304,16 @@ impl ExprArena {
     }
 
     /// Allocate named expressions, return range.
-    pub fn alloc_named_exprs(&mut self, exprs: impl IntoIterator<Item = NamedExpr>) -> NamedExprRange {
+    pub fn alloc_named_exprs(
+        &mut self,
+        exprs: impl IntoIterator<Item = NamedExpr>,
+    ) -> NamedExprRange {
         let start = to_u32(self.named_exprs.len(), "named expressions");
         self.named_exprs.extend(exprs);
-        let len = to_u16(self.named_exprs.len() - start as usize, "named expression list");
+        let len = to_u16(
+            self.named_exprs.len() - start as usize,
+            "named expression list",
+        );
         NamedExprRange::new(start, len)
     }
 
@@ -322,10 +342,16 @@ impl ExprArena {
     }
 
     /// Allocate generic parameters, return range.
-    pub fn alloc_generic_params(&mut self, params: impl IntoIterator<Item = GenericParam>) -> GenericParamRange {
+    pub fn alloc_generic_params(
+        &mut self,
+        params: impl IntoIterator<Item = GenericParam>,
+    ) -> GenericParamRange {
         let start = to_u32(self.generic_params.len(), "generic parameters");
         self.generic_params.extend(params);
-        let len = to_u16(self.generic_params.len() - start as usize, "generic parameter list");
+        let len = to_u16(
+            self.generic_params.len() - start as usize,
+            "generic parameter list",
+        );
         GenericParamRange::new(start, len)
     }
 
@@ -457,7 +483,7 @@ impl fmt::Debug for SharedArena {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Span, ast::ExprKind};
+    use crate::{ast::ExprKind, Span};
 
     #[test]
     fn test_alloc_expr() {

@@ -13,13 +13,13 @@
 //! - `patterns.rs`: run, try, match, for, `function_exp`
 
 mod operators;
-mod primary;
-mod postfix;
 mod patterns;
+mod postfix;
+mod primary;
 
-use ori_ir::{BinaryOp, Expr, ExprId, ExprKind, TokenKind, UnaryOp};
-use crate::{ParseError, Parser};
 use crate::stack::ensure_sufficient_stack;
+use crate::{ParseError, Parser};
+use ori_ir::{BinaryOp, Expr, ExprId, ExprKind, TokenKind, UnaryOp};
 
 impl Parser<'_> {
     /// Parse an expression.
@@ -43,7 +43,10 @@ impl Parser<'_> {
             let right_span = self.arena.get_expr(right).span;
             let span = left_span.merge(right_span);
             return Ok(self.arena.alloc_expr(Expr::new(
-                ExprKind::Assign { target: left, value: right },
+                ExprKind::Assign {
+                    target: left,
+                    value: right,
+                },
                 span,
             )));
         }
@@ -59,9 +62,17 @@ impl Parser<'_> {
             self.advance();
             let right = self.parse_binary_and()?;
 
-            let span = self.arena.get_expr(left).span.merge(self.arena.get_expr(right).span);
+            let span = self
+                .arena
+                .get_expr(left)
+                .span
+                .merge(self.arena.get_expr(right).span);
             left = self.arena.alloc_expr(Expr::new(
-                ExprKind::Binary { op: BinaryOp::Or, left, right },
+                ExprKind::Binary {
+                    op: BinaryOp::Or,
+                    left,
+                    right,
+                },
                 span,
             ));
         }
@@ -77,9 +88,17 @@ impl Parser<'_> {
             self.advance();
             let right = self.parse_bitwise_or()?;
 
-            let span = self.arena.get_expr(left).span.merge(self.arena.get_expr(right).span);
+            let span = self
+                .arena
+                .get_expr(left)
+                .span
+                .merge(self.arena.get_expr(right).span);
             left = self.arena.alloc_expr(Expr::new(
-                ExprKind::Binary { op: BinaryOp::And, left, right },
+                ExprKind::Binary {
+                    op: BinaryOp::And,
+                    left,
+                    right,
+                },
                 span,
             ));
         }
@@ -95,9 +114,17 @@ impl Parser<'_> {
             self.advance();
             let right = self.parse_bitwise_xor()?;
 
-            let span = self.arena.get_expr(left).span.merge(self.arena.get_expr(right).span);
+            let span = self
+                .arena
+                .get_expr(left)
+                .span
+                .merge(self.arena.get_expr(right).span);
             left = self.arena.alloc_expr(Expr::new(
-                ExprKind::Binary { op: BinaryOp::BitOr, left, right },
+                ExprKind::Binary {
+                    op: BinaryOp::BitOr,
+                    left,
+                    right,
+                },
                 span,
             ));
         }
@@ -113,9 +140,17 @@ impl Parser<'_> {
             self.advance();
             let right = self.parse_bitwise_and()?;
 
-            let span = self.arena.get_expr(left).span.merge(self.arena.get_expr(right).span);
+            let span = self
+                .arena
+                .get_expr(left)
+                .span
+                .merge(self.arena.get_expr(right).span);
             left = self.arena.alloc_expr(Expr::new(
-                ExprKind::Binary { op: BinaryOp::BitXor, left, right },
+                ExprKind::Binary {
+                    op: BinaryOp::BitXor,
+                    left,
+                    right,
+                },
                 span,
             ));
         }
@@ -131,9 +166,17 @@ impl Parser<'_> {
             self.advance();
             let right = self.parse_equality()?;
 
-            let span = self.arena.get_expr(left).span.merge(self.arena.get_expr(right).span);
+            let span = self
+                .arena
+                .get_expr(left)
+                .span
+                .merge(self.arena.get_expr(right).span);
             left = self.arena.alloc_expr(Expr::new(
-                ExprKind::Binary { op: BinaryOp::BitAnd, left, right },
+                ExprKind::Binary {
+                    op: BinaryOp::BitAnd,
+                    left,
+                    right,
+                },
                 span,
             ));
         }
@@ -149,11 +192,14 @@ impl Parser<'_> {
             self.advance();
             let right = self.parse_comparison()?;
 
-            let span = self.arena.get_expr(left).span.merge(self.arena.get_expr(right).span);
-            left = self.arena.alloc_expr(Expr::new(
-                ExprKind::Binary { op, left, right },
-                span,
-            ));
+            let span = self
+                .arena
+                .get_expr(left)
+                .span
+                .merge(self.arena.get_expr(right).span);
+            left = self
+                .arena
+                .alloc_expr(Expr::new(ExprKind::Binary { op, left, right }, span));
         }
 
         Ok(left)
@@ -167,11 +213,14 @@ impl Parser<'_> {
             self.advance();
             let right = self.parse_range()?;
 
-            let span = self.arena.get_expr(left).span.merge(self.arena.get_expr(right).span);
-            left = self.arena.alloc_expr(Expr::new(
-                ExprKind::Binary { op, left, right },
-                span,
-            ));
+            let span = self
+                .arena
+                .get_expr(left)
+                .span
+                .merge(self.arena.get_expr(right).span);
+            left = self
+                .arena
+                .alloc_expr(Expr::new(ExprKind::Binary { op, left, right }, span));
         }
 
         Ok(left)
@@ -185,21 +234,31 @@ impl Parser<'_> {
             let inclusive = self.check(&TokenKind::DotDotEq);
             self.advance();
 
-            let end = if self.check(&TokenKind::Comma) || self.check(&TokenKind::RParen) ||
-                        self.check(&TokenKind::RBracket) || self.is_at_end() {
+            let end = if self.check(&TokenKind::Comma)
+                || self.check(&TokenKind::RParen)
+                || self.check(&TokenKind::RBracket)
+                || self.is_at_end()
+            {
                 None
             } else {
                 Some(self.parse_shift()?)
             };
 
             let span = if let Some(end_expr) = end {
-                self.arena.get_expr(left).span.merge(self.arena.get_expr(end_expr).span)
+                self.arena
+                    .get_expr(left)
+                    .span
+                    .merge(self.arena.get_expr(end_expr).span)
             } else {
                 self.arena.get_expr(left).span.merge(self.previous_span())
             };
 
             left = self.arena.alloc_expr(Expr::new(
-                ExprKind::Range { start: Some(left), end, inclusive },
+                ExprKind::Range {
+                    start: Some(left),
+                    end,
+                    inclusive,
+                },
                 span,
             ));
         }
@@ -215,11 +274,14 @@ impl Parser<'_> {
             self.advance();
             let right = self.parse_additive()?;
 
-            let span = self.arena.get_expr(left).span.merge(self.arena.get_expr(right).span);
-            left = self.arena.alloc_expr(Expr::new(
-                ExprKind::Binary { op, left, right },
-                span,
-            ));
+            let span = self
+                .arena
+                .get_expr(left)
+                .span
+                .merge(self.arena.get_expr(right).span);
+            left = self
+                .arena
+                .alloc_expr(Expr::new(ExprKind::Binary { op, left, right }, span));
         }
 
         Ok(left)
@@ -233,11 +295,14 @@ impl Parser<'_> {
             self.advance();
             let right = self.parse_multiplicative()?;
 
-            let span = self.arena.get_expr(left).span.merge(self.arena.get_expr(right).span);
-            left = self.arena.alloc_expr(Expr::new(
-                ExprKind::Binary { op, left, right },
-                span,
-            ));
+            let span = self
+                .arena
+                .get_expr(left)
+                .span
+                .merge(self.arena.get_expr(right).span);
+            left = self
+                .arena
+                .alloc_expr(Expr::new(ExprKind::Binary { op, left, right }, span));
         }
 
         Ok(left)
@@ -251,11 +316,14 @@ impl Parser<'_> {
             self.advance();
             let right = self.parse_unary()?;
 
-            let span = self.arena.get_expr(left).span.merge(self.arena.get_expr(right).span);
-            left = self.arena.alloc_expr(Expr::new(
-                ExprKind::Binary { op, left, right },
-                span,
-            ));
+            let span = self
+                .arena
+                .get_expr(left)
+                .span
+                .merge(self.arena.get_expr(right).span);
+            left = self
+                .arena
+                .alloc_expr(Expr::new(ExprKind::Binary { op, left, right }, span));
         }
 
         Ok(left)
@@ -282,15 +350,13 @@ impl Parser<'_> {
                     let span = start.merge(lit_span);
 
                     return if let Ok(signed) = i64::try_from(n) {
-                        Ok(self.arena.alloc_expr(Expr::new(
-                            ExprKind::Int(-signed),
-                            span,
-                        )))
+                        Ok(self
+                            .arena
+                            .alloc_expr(Expr::new(ExprKind::Int(-signed), span)))
                     } else if n == I64_MIN_ABS {
-                        Ok(self.arena.alloc_expr(Expr::new(
-                            ExprKind::Int(i64::MIN),
-                            span,
-                        )))
+                        Ok(self
+                            .arena
+                            .alloc_expr(Expr::new(ExprKind::Int(i64::MIN), span)))
                     } else {
                         Err(ParseError::new(
                             ori_diagnostic::ErrorCode::E1002,
@@ -305,10 +371,9 @@ impl Parser<'_> {
             let operand = self.parse_unary()?;
 
             let span = start.merge(self.arena.get_expr(operand).span);
-            return Ok(self.arena.alloc_expr(Expr::new(
-                ExprKind::Unary { op, operand },
-                span,
-            )));
+            return Ok(self
+                .arena
+                .alloc_expr(Expr::new(ExprKind::Unary { op, operand }, span)));
         }
 
         self.parse_call()

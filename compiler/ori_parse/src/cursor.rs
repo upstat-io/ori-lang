@@ -2,9 +2,9 @@
 //!
 //! Provides low-level token access, lookahead, and consumption methods.
 
-use ori_diagnostic::ErrorCode;
-use ori_ir::{Name, Span, Token, TokenKind, TokenList, StringInterner};
 use super::ParseError;
+use ori_diagnostic::ErrorCode;
+use ori_ir::{Name, Span, StringInterner, Token, TokenKind, TokenList};
 
 /// Cursor for navigating tokens.
 ///
@@ -33,7 +33,9 @@ impl<'a> Cursor<'a> {
 
     /// Get the current token.
     pub fn current(&self) -> &Token {
-        self.tokens.get(self.pos).unwrap_or(&self.tokens[self.tokens.len() - 1])
+        self.tokens
+            .get(self.pos)
+            .unwrap_or(&self.tokens[self.tokens.len() - 1])
     }
 
     /// Get the current token's kind.
@@ -74,9 +76,14 @@ impl<'a> Cursor<'a> {
     pub fn check_type_keyword(&self) -> bool {
         matches!(
             self.current_kind(),
-            TokenKind::IntType | TokenKind::FloatType | TokenKind::BoolType |
-            TokenKind::StrType | TokenKind::CharType | TokenKind::ByteType |
-            TokenKind::Void | TokenKind::NeverType
+            TokenKind::IntType
+                | TokenKind::FloatType
+                | TokenKind::BoolType
+                | TokenKind::StrType
+                | TokenKind::CharType
+                | TokenKind::ByteType
+                | TokenKind::Void
+                | TokenKind::NeverType
         )
     }
 
@@ -92,12 +99,14 @@ impl<'a> Cursor<'a> {
 
     /// Check if the next token (lookahead) is a left paren.
     pub fn next_is_lparen(&self) -> bool {
-        self.pos + 1 < self.tokens.len() && matches!(self.tokens[self.pos + 1].kind, TokenKind::LParen)
+        self.pos + 1 < self.tokens.len()
+            && matches!(self.tokens[self.pos + 1].kind, TokenKind::LParen)
     }
 
     /// Check if the next token (lookahead) is a colon.
     pub fn next_is_colon(&self) -> bool {
-        self.pos + 1 < self.tokens.len() && matches!(self.tokens[self.pos + 1].kind, TokenKind::Colon)
+        self.pos + 1 < self.tokens.len()
+            && matches!(self.tokens[self.pos + 1].kind, TokenKind::Colon)
     }
 
     /// Check if this is capability provision syntax: `with Ident =`
@@ -128,8 +137,14 @@ impl<'a> Cursor<'a> {
     fn is_keyword_usable_as_name(&self) -> bool {
         matches!(
             self.current_kind(),
-            TokenKind::Where | TokenKind::Match | TokenKind::For | TokenKind::In |
-            TokenKind::If | TokenKind::Type | TokenKind::Parallel | TokenKind::Timeout
+            TokenKind::Where
+                | TokenKind::Match
+                | TokenKind::For
+                | TokenKind::In
+                | TokenKind::If
+                | TokenKind::Type
+                | TokenKind::Parallel
+                | TokenKind::Timeout
         )
     }
 
@@ -169,7 +184,8 @@ impl<'a> Cursor<'a> {
                 ErrorCode::E1001,
                 format!("expected {kind:?}, found {:?}", self.current_kind()),
                 self.current_span(),
-            ).with_context(format!("expected {kind:?}")))
+            )
+            .with_context(format!("expected {kind:?}")))
         }
     }
 
@@ -238,7 +254,10 @@ impl<'a> Cursor<'a> {
             }
             _ => Err(ParseError::new(
                 ErrorCode::E1004,
-                format!("expected identifier or keyword, found {:?}", self.current_kind()),
+                format!(
+                    "expected identifier or keyword, found {:?}",
+                    self.current_kind()
+                ),
                 self.current_span(),
             )),
         }

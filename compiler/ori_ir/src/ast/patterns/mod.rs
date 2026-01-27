@@ -3,9 +3,9 @@
 //! Binding patterns (for let expressions) and match patterns (for match expressions).
 
 mod binding;
-mod seq;
 mod exp;
+mod seq;
 
-pub use binding::{BindingPattern, MatchPattern, MatchArm};
-pub use seq::{SeqBinding, FunctionSeq};
-pub use exp::{NamedExpr, FunctionExpKind, FunctionExp};
+pub use binding::{BindingPattern, MatchArm, MatchPattern};
+pub use exp::{FunctionExp, FunctionExpKind, NamedExpr};
+pub use seq::{FunctionSeq, SeqBinding};

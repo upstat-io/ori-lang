@@ -2,16 +2,17 @@
 //!
 //! Registers trait definitions and implementations from modules.
 
-use ori_ir::{Name, Module, TraitItem, ParamRange, GenericParamRange, ExprArena, TypeId};
-use ori_types::Type;
 use super::TypeChecker;
 use crate::registry::{
-    TraitEntry, TraitMethodDef, TraitAssocTypeDef, ImplEntry, ImplMethodDef, ImplAssocTypeDef,
+    ImplAssocTypeDef, ImplEntry, ImplMethodDef, TraitAssocTypeDef, TraitEntry, TraitMethodDef,
 };
+use ori_ir::{ExprArena, GenericParamRange, Module, Name, ParamRange, TraitItem, TypeId};
+use ori_types::Type;
 
 /// Extract type parameter names from a generic parameter range.
 fn extract_type_param_names(arena: &ExprArena, generics: GenericParamRange) -> Vec<Name> {
-    arena.get_generic_params(generics)
+    arena
+        .get_generic_params(generics)
         .iter()
         .map(|gp| gp.name)
         .collect()
@@ -24,7 +25,8 @@ impl TypeChecker<'_> {
             let type_params = extract_type_param_names(self.context.arena, trait_def.generics);
 
             // Convert super-traits to names
-            let super_traits: Vec<Name> = trait_def.super_traits
+            let super_traits: Vec<Name> = trait_def
+                .super_traits
                 .iter()
                 .map(ori_ir::TraitBound::name)
                 .collect();
@@ -58,9 +60,7 @@ impl TypeChecker<'_> {
                         });
                     }
                     TraitItem::AssocType(at) => {
-                        assoc_types.push(TraitAssocTypeDef {
-                            name: at.name,
-                        });
+                        assoc_types.push(TraitAssocTypeDef { name: at.name });
                     }
                 }
             }
@@ -85,13 +85,17 @@ impl TypeChecker<'_> {
             let type_params = extract_type_param_names(self.context.arena, impl_def.generics);
 
             // Use the last segment of the trait path as the trait name.
-            let trait_name = impl_def.trait_path.as_ref().and_then(|path| path.last().copied());
+            let trait_name = impl_def
+                .trait_path
+                .as_ref()
+                .and_then(|path| path.last().copied());
 
             // Convert self type
             let self_ty = self.parsed_type_to_type(&impl_def.self_ty);
 
             // First collect all types (requires mutable self)
-            let methods_as_types: Vec<_> = impl_def.methods
+            let methods_as_types: Vec<_> = impl_def
+                .methods
                 .iter()
                 .map(|m| {
                     let params = self.params_to_types(m.params);
@@ -100,7 +104,8 @@ impl TypeChecker<'_> {
                 })
                 .collect();
 
-            let assoc_types_as_types: Vec<_> = impl_def.assoc_types
+            let assoc_types_as_types: Vec<_> = impl_def
+                .assoc_types
                 .iter()
                 .map(|at| {
                     let ty = self.parsed_type_to_type(&at.ty);
@@ -112,22 +117,18 @@ impl TypeChecker<'_> {
             let interner = self.registries.traits.interner();
             let methods: Vec<ImplMethodDef> = methods_as_types
                 .into_iter()
-                .map(|(name, params, return_ty)| {
-                    ImplMethodDef {
-                        name,
-                        params: params.iter().map(|ty| ty.to_type_id(interner)).collect(),
-                        return_ty: return_ty.to_type_id(interner),
-                    }
+                .map(|(name, params, return_ty)| ImplMethodDef {
+                    name,
+                    params: params.iter().map(|ty| ty.to_type_id(interner)).collect(),
+                    return_ty: return_ty.to_type_id(interner),
                 })
                 .collect();
 
             let assoc_types: Vec<ImplAssocTypeDef> = assoc_types_as_types
                 .into_iter()
-                .map(|(name, ty)| {
-                    ImplAssocTypeDef {
-                        name,
-                        ty: ty.to_type_id(interner),
-                    }
+                .map(|(name, ty)| ImplAssocTypeDef {
+                    name,
+                    ty: ty.to_type_id(interner),
                 })
                 .collect();
 
@@ -150,8 +151,7 @@ impl TypeChecker<'_> {
                 self.push_error(
                     format!(
                         "{} (previous impl at {:?})",
-                        coherence_err.message,
-                        coherence_err.existing_span
+                        coherence_err.message, coherence_err.existing_span
                     ),
                     coherence_err.span,
                     ori_diagnostic::ErrorCode::E2010,
@@ -176,7 +176,9 @@ impl TypeChecker<'_> {
 
         // Check each required associated type
         for required_at in &trait_entry.assoc_types {
-            let defined = impl_assoc_types.iter().any(|at| at.name == required_at.name);
+            let defined = impl_assoc_types
+                .iter()
+                .any(|at| at.name == required_at.name);
             if !defined {
                 let trait_name_str = self.context.interner.lookup(trait_name);
                 let assoc_name_str = self.context.interner.lookup(required_at.name);
@@ -194,14 +196,13 @@ impl TypeChecker<'_> {
 
     /// Convert a parameter range to a vector of types.
     pub(crate) fn params_to_types(&mut self, params: ParamRange) -> Vec<Type> {
-        self.context.arena
+        self.context
+            .arena
             .get_params(params)
             .iter()
-            .map(|p| {
-                match &p.ty {
-                    Some(parsed_ty) => self.parsed_type_to_type(parsed_ty),
-                    None => self.inference.ctx.fresh_var(),
-                }
+            .map(|p| match &p.ty {
+                Some(parsed_ty) => self.parsed_type_to_type(parsed_ty),
+                None => self.inference.ctx.fresh_var(),
             })
             .collect()
     }

@@ -5,17 +5,19 @@
 //! Returns `[Result<T, E>]` - all tasks run to completion, errors captured as values.
 
 // Arc and Mutex are required for thread synchronization in parallel execution
-#![expect(clippy::disallowed_types, reason = "Arc/Mutex required for thread synchronization")]
+#![expect(
+    clippy::disallowed_types,
+    reason = "Arc/Mutex required for thread synchronization"
+)]
 
-use std::sync::{mpsc, Arc, Mutex, Condvar};
+use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use ori_types::Type;
 
 use crate::{
-    EvalContext, EvalError, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext,
-    Value,
+    EvalContext, EvalError, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext, Value,
 };
 
 /// The `parallel` pattern executes multiple tasks concurrently with all-settled semantics.
@@ -138,27 +140,48 @@ impl Semaphore {
     }
 
     /// Acquire a slot from the semaphore, blocking if at capacity.
-    #[expect(clippy::arithmetic_side_effects, reason = "counting semaphore bounded by max")]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "counting semaphore bounded by max"
+    )]
     pub fn acquire(&self) {
-        let mut count = self.count.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut count = self
+            .count
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         while *count >= self.max {
-            count = self.condvar.wait(count).unwrap_or_else(std::sync::PoisonError::into_inner);
+            count = self
+                .condvar
+                .wait(count)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
         *count += 1;
     }
 
     /// Release a slot back to the semaphore.
-    #[expect(clippy::arithmetic_side_effects, reason = "counting semaphore bounded by max")]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "counting semaphore bounded by max"
+    )]
     pub fn release(&self) {
-        let mut count = self.count.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut count = self
+            .count
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         *count -= 1;
         self.condvar.notify_one();
     }
 }
 
 /// Execute tasks in parallel with optional concurrency limit and timeout.
-#[expect(clippy::arithmetic_side_effects, reason = "completion counter bounded by task count")]
-#[expect(clippy::unnecessary_wraps, reason = "returns EvalResult to match PatternDefinition::evaluate interface")]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "completion counter bounded by task count"
+)]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "returns EvalResult to match PatternDefinition::evaluate interface"
+)]
 fn execute_parallel(
     task_list: &[Value],
     max_concurrent: Option<usize>,
@@ -193,7 +216,9 @@ fn execute_parallel(
                         sem.release();
                     }
 
-                    let mut guard = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let mut guard = results
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     guard[i] = Some(result);
                     drop(guard);
                     let _ = tx.send(i);
@@ -203,7 +228,10 @@ fn execute_parallel(
 
             // Wait for results with overall timeout
             let start = std::time::Instant::now();
-            let task_count = results_clone.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len();
+            let task_count = results_clone
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .len();
             let mut completed = 0;
 
             while completed < task_count {
@@ -219,7 +247,9 @@ fn execute_parallel(
         });
 
         // Build results - timed out tasks get Err(TimeoutError)
-        let guard = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let guard = results
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let final_results: Vec<Value> = guard
             .iter()
             .map(|opt| match opt {
@@ -249,13 +279,17 @@ fn execute_parallel(
                         sem.release();
                     }
 
-                    let mut guard = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let mut guard = results
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     guard[i] = Some(result);
                 });
             }
         });
 
-        let guard = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let guard = results
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let final_results: Vec<Value> = guard
             .iter()
             .map(|opt| {

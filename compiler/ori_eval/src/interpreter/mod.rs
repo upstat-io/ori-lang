@@ -29,33 +29,44 @@
 //! with the callee's arena.
 
 mod builder;
-mod function_call;
-mod method_dispatch;
 mod derived_methods;
+mod function_call;
 mod function_seq;
-mod scope_guard;
+mod method_dispatch;
 pub mod resolvers;
+mod scope_guard;
 
 pub use builder::InterpreterBuilder;
 
-use ori_ir::{
-    Name, StringInterner, ExprId, ExprArena, SharedArena,
-    ExprKind, UnaryOp, StmtKind, BindingPattern,
-    ArmRange,
-};
-use ori_patterns::{PatternRegistry, EvalContext, PatternExecutor, EvalError, EvalResult};
-use crate::{
-    SharedRegistry, SharedMutableRegistry,
-    Environment, UserMethodRegistry,
-    evaluate_unary,
-    // Error factories
-    await_not_supported, for_requires_iterable, hash_outside_index,
-    map_keys_must_be_strings, non_exhaustive_match, parse_error, self_outside_method,
-    undefined_config, undefined_function, undefined_variable, unknown_pattern,
-    Value, FunctionValue, StructValue,
-};
-use crate::stack::ensure_sufficient_stack;
 use crate::print_handler::SharedPrintHandler;
+use crate::stack::ensure_sufficient_stack;
+use crate::{
+    // Error factories
+    await_not_supported,
+    evaluate_unary,
+    for_requires_iterable,
+    hash_outside_index,
+    map_keys_must_be_strings,
+    non_exhaustive_match,
+    parse_error,
+    self_outside_method,
+    undefined_config,
+    undefined_function,
+    undefined_variable,
+    unknown_pattern,
+    Environment,
+    FunctionValue,
+    SharedMutableRegistry,
+    SharedRegistry,
+    StructValue,
+    UserMethodRegistry,
+    Value,
+};
+use ori_ir::{
+    ArmRange, BindingPattern, ExprArena, ExprId, ExprKind, Name, SharedArena, StmtKind,
+    StringInterner, UnaryOp,
+};
+use ori_patterns::{EvalContext, EvalError, EvalResult, PatternExecutor, PatternRegistry};
 
 /// Tree-walking interpreter for Ori expressions.
 ///
@@ -238,33 +249,64 @@ impl<'a> Interpreter<'a> {
 
         match &expr.kind {
             // Literals handled by eval_literal above
-            ExprKind::Int(_) | ExprKind::Float(_) | ExprKind::Bool(_) |
-            ExprKind::String(_) | ExprKind::Char(_) | ExprKind::Unit |
-            ExprKind::Duration { .. } | ExprKind::Size { .. } => unreachable!("handled by eval_literal"),
+            ExprKind::Int(_)
+            | ExprKind::Float(_)
+            | ExprKind::Bool(_)
+            | ExprKind::String(_)
+            | ExprKind::Char(_)
+            | ExprKind::Unit
+            | ExprKind::Duration { .. }
+            | ExprKind::Size { .. } => unreachable!("handled by eval_literal"),
 
             // Identifiers
             ExprKind::Ident(name) => crate::exec::expr::eval_ident(*name, &self.env, self.interner),
 
             // Operators
-            ExprKind::Binary { left, op, right } => crate::exec::expr::eval_binary(*left, *op, *right, |e| self.eval(e)),
+            ExprKind::Binary { left, op, right } => {
+                crate::exec::expr::eval_binary(*left, *op, *right, |e| self.eval(e))
+            }
             ExprKind::Unary { op, operand } => self.eval_unary(*op, *operand),
 
             // Control flow
-            ExprKind::If { cond, then_branch, else_branch } => {
-                if self.eval(*cond)?.is_truthy() { self.eval(*then_branch) }
-                else { else_branch.map(|e| self.eval(e)).transpose()?.map_or(Ok(Value::Void), Ok) }
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                if self.eval(*cond)?.is_truthy() {
+                    self.eval(*then_branch)
+                } else {
+                    else_branch
+                        .map(|e| self.eval(e))
+                        .transpose()?
+                        .map_or(Ok(Value::Void), Ok)
+                }
             }
 
             // Collections
             ExprKind::List(range) => {
-                let vals: Result<Vec<_>, _> = self.arena.get_expr_list(*range).iter().map(|id| self.eval(*id)).collect();
+                let vals: Result<Vec<_>, _> = self
+                    .arena
+                    .get_expr_list(*range)
+                    .iter()
+                    .map(|id| self.eval(*id))
+                    .collect();
                 Ok(Value::list(vals?))
             }
             ExprKind::Tuple(range) => {
-                let vals: Result<Vec<_>, _> = self.arena.get_expr_list(*range).iter().map(|id| self.eval(*id)).collect();
+                let vals: Result<Vec<_>, _> = self
+                    .arena
+                    .get_expr_list(*range)
+                    .iter()
+                    .map(|id| self.eval(*id))
+                    .collect();
                 Ok(Value::tuple(vals?))
             }
-            ExprKind::Range { start, end, inclusive } => crate::exec::expr::eval_range(*start, *end, *inclusive, |e| self.eval(e)),
+            ExprKind::Range {
+                start,
+                end,
+                inclusive,
+            } => crate::exec::expr::eval_range(*start, *end, *inclusive, |e| self.eval(e)),
 
             // Access
             ExprKind::Index { receiver, index } => {
@@ -298,18 +340,38 @@ impl<'a> Interpreter<'a> {
 
             ExprKind::Call { func, args } => {
                 let func_val = self.eval(*func)?;
-                let arg_vals: Result<Vec<_>, _> = self.arena.get_expr_list(*args).iter().map(|id| self.eval(*id)).collect();
+                let arg_vals: Result<Vec<_>, _> = self
+                    .arena
+                    .get_expr_list(*args)
+                    .iter()
+                    .map(|id| self.eval(*id))
+                    .collect();
                 self.eval_call(func_val, &arg_vals?)
             }
 
             // Variant constructors
             ExprKind::Some(inner) => Ok(Value::some(self.eval(*inner)?)),
             ExprKind::None => Ok(Value::None),
-            ExprKind::Ok(inner) => Ok(Value::ok(inner.map(|e| self.eval(e)).transpose()?.unwrap_or(Value::Void))),
-            ExprKind::Err(inner) => Ok(Value::err(inner.map(|e| self.eval(e)).transpose()?.unwrap_or(Value::Void))),
+            ExprKind::Ok(inner) => Ok(Value::ok(
+                inner
+                    .map(|e| self.eval(e))
+                    .transpose()?
+                    .unwrap_or(Value::Void),
+            )),
+            ExprKind::Err(inner) => Ok(Value::err(
+                inner
+                    .map(|e| self.eval(e))
+                    .transpose()?
+                    .unwrap_or(Value::Void),
+            )),
 
             // Let binding
-            ExprKind::Let { pattern, init, mutable, .. } => {
+            ExprKind::Let {
+                pattern,
+                init,
+                mutable,
+                ..
+            } => {
                 let value = self.eval(*init)?;
                 self.bind_pattern(pattern, value, *mutable)?;
                 Ok(Value::Void)
@@ -321,25 +383,49 @@ impl<'a> Interpreter<'a> {
                 let func_val = self.eval(*func)?;
                 self.eval_call_named(func_val, *args)
             }
-            ExprKind::FunctionRef(name) => self.env.lookup(*name)
+            ExprKind::FunctionRef(name) => self
+                .env
+                .lookup(*name)
                 .ok_or_else(|| undefined_function(self.interner.lookup(*name))),
-            ExprKind::MethodCall { receiver, method, args } => {
+            ExprKind::MethodCall {
+                receiver,
+                method,
+                args,
+            } => {
                 let recv = self.eval(*receiver)?;
-                let arg_vals: Result<Vec<_>, _> = self.arena.get_expr_list(*args).iter()
-                    .map(|id| self.eval(*id)).collect();
+                let arg_vals: Result<Vec<_>, _> = self
+                    .arena
+                    .get_expr_list(*args)
+                    .iter()
+                    .map(|id| self.eval(*id))
+                    .collect();
                 self.eval_method_call(recv, *method, arg_vals?)
             }
-            ExprKind::MethodCallNamed { receiver, method, args } => {
+            ExprKind::MethodCallNamed {
+                receiver,
+                method,
+                args,
+            } => {
                 let recv = self.eval(*receiver)?;
-                let arg_vals: Result<Vec<_>, _> = self.arena.get_call_args(*args).iter()
-                    .map(|arg| self.eval(arg.value)).collect();
+                let arg_vals: Result<Vec<_>, _> = self
+                    .arena
+                    .get_call_args(*args)
+                    .iter()
+                    .map(|arg| self.eval(arg.value))
+                    .collect();
                 self.eval_method_call(recv, *method, arg_vals?)
             }
             ExprKind::Match { scrutinee, arms } => {
                 let value = self.eval(*scrutinee)?;
                 self.eval_match(&value, *arms)
             }
-            ExprKind::For { binding, iter, guard, body, is_yield } => {
+            ExprKind::For {
+                binding,
+                iter,
+                guard,
+                body,
+                is_yield,
+            } => {
                 let iter_val = self.eval(*iter)?;
                 self.eval_for(*binding, iter_val, *guard, *body, *is_yield)
             }
@@ -380,8 +466,14 @@ impl<'a> Interpreter<'a> {
                 Ok(Value::Struct(StructValue::new(*name, field_values)))
             }
 
-            ExprKind::Return(v) => Err(EvalError::new(format!("return:{}", v.map(|x| self.eval(x)).transpose()?.unwrap_or(Value::Void)))),
-            ExprKind::Break(v) => Err(EvalError::new(format!("break:{}", v.map(|x| self.eval(x)).transpose()?.unwrap_or(Value::Void)))),
+            ExprKind::Return(v) => Err(EvalError::new(format!(
+                "return:{}",
+                v.map(|x| self.eval(x)).transpose()?.unwrap_or(Value::Void)
+            ))),
+            ExprKind::Break(v) => Err(EvalError::new(format!(
+                "break:{}",
+                v.map(|x| self.eval(x)).transpose()?.unwrap_or(Value::Void)
+            ))),
             ExprKind::Continue => Err(EvalError::new("continue")),
             ExprKind::Assign { target, value } => {
                 let val = self.eval(*value)?;
@@ -389,22 +481,34 @@ impl<'a> Interpreter<'a> {
             }
             ExprKind::Try(inner) => match self.eval(*inner)? {
                 Value::Ok(v) | Value::Some(v) => Ok((*v).clone()),
-                Value::Err(e) => Err(EvalError::propagate(Value::Err(e.clone()), format!("propagated error: {e}"))),
+                Value::Err(e) => Err(EvalError::propagate(
+                    Value::Err(e.clone()),
+                    format!("propagated error: {e}"),
+                )),
                 Value::None => Err(EvalError::propagate(Value::None, "propagated None")),
                 other => Ok(other),
             },
-            ExprKind::Config(name) => self.env.lookup(*name)
+            ExprKind::Config(name) => self
+                .env
+                .lookup(*name)
                 .ok_or_else(|| undefined_config(self.interner.lookup(*name))),
             // Capability provision: with Capability = Provider in body
             // For now, we evaluate the provider (which may have side effects),
             // then bind it to the capability name in a new scope and evaluate the body.
-            ExprKind::WithCapability { capability, provider, body } => {
+            ExprKind::WithCapability {
+                capability,
+                provider,
+                body,
+            } => {
                 let provider_val = self.eval(*provider)?;
                 self.with_binding(*capability, provider_val, false, |e| e.eval(*body))
             }
             ExprKind::Error => Err(parse_error()),
             ExprKind::HashLength => Err(hash_outside_index()),
-            ExprKind::SelfRef => self.env.lookup(self.interner.intern("self")).ok_or_else(self_outside_method),
+            ExprKind::SelfRef => self
+                .env
+                .lookup(self.interner.intern("self"))
+                .ok_or_else(self_outside_method),
             ExprKind::Await(_) => Err(await_not_supported()),
         }
     }
@@ -434,19 +538,34 @@ impl<'a> Interpreter<'a> {
         self.with_env_scope_result(|eval| {
             for stmt in eval.arena.get_stmt_range(stmts) {
                 match &stmt.kind {
-                    StmtKind::Expr(e) => { eval.eval(*e)?; }
-                    StmtKind::Let { pattern, init, mutable, .. } => {
+                    StmtKind::Expr(e) => {
+                        eval.eval(*e)?;
+                    }
+                    StmtKind::Let {
+                        pattern,
+                        init,
+                        mutable,
+                        ..
+                    } => {
                         let value = eval.eval(*init)?;
                         eval.bind_pattern(pattern, value, *mutable)?;
                     }
                 }
             }
-            result.map(|r| eval.eval(r)).transpose().map(|v| v.unwrap_or(Value::Void))
+            result
+                .map(|r| eval.eval(r))
+                .transpose()
+                .map(|v| v.unwrap_or(Value::Void))
         })
     }
 
     /// Bind a pattern to a value using `exec::control` module.
-    pub(super) fn bind_pattern(&mut self, pattern: &BindingPattern, value: Value, mutable: bool) -> EvalResult {
+    pub(super) fn bind_pattern(
+        &mut self,
+        pattern: &BindingPattern,
+        value: Value,
+        mutable: bool,
+    ) -> EvalResult {
         crate::exec::control::bind_pattern(pattern, value, mutable, &mut self.env)
     }
 
@@ -458,7 +577,9 @@ impl<'a> Interpreter<'a> {
         let props = self.arena.get_named_exprs(func_exp.props);
 
         // Look up pattern definition from registry
-        let pattern = self.registry.get(func_exp.kind)
+        let pattern = self
+            .registry
+            .get(func_exp.kind)
             .ok_or_else(|| unknown_pattern(&format!("{:?}", func_exp.kind)))?;
 
         // Create evaluation context
@@ -504,8 +625,15 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Evaluate a for loop using `exec::control` helpers.
-    fn eval_for(&mut self, binding: Name, iter: Value, guard: Option<ExprId>, body: ExprId, is_yield: bool) -> EvalResult {
-        use crate::exec::control::{LoopAction, parse_loop_control};
+    fn eval_for(
+        &mut self,
+        binding: Name,
+        iter: Value,
+        guard: Option<ExprId>,
+        body: ExprId,
+        is_yield: bool,
+    ) -> EvalResult {
+        use crate::exec::control::{parse_loop_control, LoopAction};
 
         let items = match iter {
             Value::List(list) => list.iter().cloned().collect::<Vec<_>>(),
@@ -519,7 +647,10 @@ impl<'a> Interpreter<'a> {
                 self.env.push_scope();
                 self.env.define(binding, item, false);
                 if let Some(g) = guard {
-                    if !self.eval(g)?.is_truthy() { self.env.pop_scope(); continue; }
+                    if !self.eval(g)?.is_truthy() {
+                        self.env.pop_scope();
+                        continue;
+                    }
                 }
                 results.push(self.eval(body)?);
                 self.env.pop_scope();
@@ -530,15 +661,24 @@ impl<'a> Interpreter<'a> {
                 self.env.push_scope();
                 self.env.define(binding, item, false);
                 if let Some(g) = guard {
-                    if !self.eval(g)?.is_truthy() { self.env.pop_scope(); continue; }
+                    if !self.eval(g)?.is_truthy() {
+                        self.env.pop_scope();
+                        continue;
+                    }
                 }
                 match self.eval(body) {
                     Ok(_) => {}
                     Err(e) => match parse_loop_control(&e.message) {
                         LoopAction::Continue => {}
-                        LoopAction::Break(v) => { self.env.pop_scope(); return Ok(v); }
-                        LoopAction::Error(_) => { self.env.pop_scope(); return Err(e); }
-                    }
+                        LoopAction::Break(v) => {
+                            self.env.pop_scope();
+                            return Ok(v);
+                        }
+                        LoopAction::Error(_) => {
+                            self.env.pop_scope();
+                            return Err(e);
+                        }
+                    },
                 }
                 self.env.pop_scope();
             }
@@ -548,7 +688,7 @@ impl<'a> Interpreter<'a> {
 
     /// Evaluate a loop expression using `exec::control` helpers.
     fn eval_loop(&mut self, body: ExprId) -> EvalResult {
-        use crate::exec::control::{LoopAction, parse_loop_control};
+        use crate::exec::control::{parse_loop_control, LoopAction};
         loop {
             match self.eval(body) {
                 Ok(_) => {}
@@ -556,7 +696,7 @@ impl<'a> Interpreter<'a> {
                     LoopAction::Continue => {}
                     LoopAction::Break(v) => return Ok(v),
                     LoopAction::Error(_) => return Err(e),
-                }
+                },
             }
         }
     }
@@ -608,9 +748,15 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Register a `function_val` (type conversion function).
-    pub fn register_function_val(&mut self, name: &str, func: crate::FunctionValFn, display_name: &'static str) {
+    pub fn register_function_val(
+        &mut self,
+        name: &str,
+        func: crate::FunctionValFn,
+        display_name: &'static str,
+    ) {
         let name = self.interner.intern(name);
-        self.env.define_global(name, Value::FunctionVal(func, display_name));
+        self.env
+            .define_global(name, Value::FunctionVal(func, display_name));
     }
 
     /// Register all `function_val` (type conversion) functions.
@@ -618,7 +764,10 @@ impl<'a> Interpreter<'a> {
     /// `function_val`: Type conversion functions like int(x), str(x), float(x)
     /// that allow positional arguments per the spec.
     pub fn register_prelude(&mut self) {
-        use crate::{function_val_str, function_val_int, function_val_float, function_val_byte, function_val_thread_id};
+        use crate::{
+            function_val_byte, function_val_float, function_val_int, function_val_str,
+            function_val_thread_id,
+        };
 
         // Type conversion functions (positional args allowed per spec)
         self.register_function_val("str", function_val_str, "str");
@@ -651,8 +800,8 @@ impl<'a> Interpreter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ori_ir::SharedInterner;
     use crate::print_handler::buffer_handler;
+    use ori_ir::SharedInterner;
 
     #[test]
     fn print_handler_integration_println() {

@@ -36,12 +36,10 @@ impl Span {
     #[inline]
     pub fn from_range(range: std::ops::Range<usize>) -> Self {
         Span {
-            start: u32::try_from(range.start).unwrap_or_else(|_| {
-                panic!("span start {} exceeds u32::MAX", range.start)
-            }),
-            end: u32::try_from(range.end).unwrap_or_else(|_| {
-                panic!("span end {} exceeds u32::MAX", range.end)
-            }),
+            start: u32::try_from(range.start)
+                .unwrap_or_else(|_| panic!("span start {} exceeds u32::MAX", range.start)),
+            end: u32::try_from(range.end)
+                .unwrap_or_else(|_| panic!("span end {} exceeds u32::MAX", range.end)),
         }
     }
 
@@ -86,7 +84,10 @@ impl Span {
     /// Create a point span (zero-length).
     #[inline]
     pub const fn point(offset: u32) -> Span {
-        Span { start: offset, end: offset }
+        Span {
+            start: offset,
+            end: offset,
+        }
     }
 
     /// Convert to a `std::ops::Range`.

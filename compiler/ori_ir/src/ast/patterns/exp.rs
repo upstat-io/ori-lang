@@ -5,8 +5,8 @@
 //! # Salsa Compatibility
 //! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
-use crate::{Name, Span, ExprId, Spanned};
 use super::super::ranges::NamedExprRange;
+use crate::{ExprId, Name, Span, Spanned};
 
 /// Named expression for `function_exp`.
 ///

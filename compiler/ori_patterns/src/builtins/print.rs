@@ -5,9 +5,7 @@
 
 use ori_types::Type;
 
-use crate::{
-    EvalContext, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext, Value,
-};
+use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext, Value};
 
 /// The `print` pattern prints a message using the Print capability.
 ///
@@ -43,7 +41,11 @@ impl PatternDefinition for PrintPattern {
         } else {
             // Fallback: no Print capability, use default output
             // This calls a built-in that the interpreter provides
-            exec.call_method(Value::Void, "__builtin_println", vec![Value::string(msg_str)])?;
+            exec.call_method(
+                Value::Void,
+                "__builtin_println",
+                vec![Value::string(msg_str)],
+            )?;
         }
 
         Ok(Value::Void)

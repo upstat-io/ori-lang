@@ -1,7 +1,7 @@
 //! Import/use statement parsing.
 
-use ori_ir::{ImportPath, TokenKind, UseDef, UseItem};
 use crate::{ParseError, Parser};
+use ori_ir::{ImportPath, TokenKind, UseDef, UseItem};
 
 impl Parser<'_> {
     /// Parse a use/import statement.
@@ -56,7 +56,11 @@ impl Parser<'_> {
                 None
             };
 
-            items.push(UseItem { name, alias, is_private });
+            items.push(UseItem {
+                name,
+                alias,
+                is_private,
+            });
 
             // Comma separator (optional before closing brace)
             if self.check(&TokenKind::Comma) {
