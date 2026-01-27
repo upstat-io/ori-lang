@@ -6,12 +6,16 @@
     <div class="footer-left">
       <span class="footer-brand">Ori</span>
       <span class="footer-sep">&middot;</span>
-      <span>Code That Proves Itself</span>
+      <span>A project by <a href="https://upstat.io" target="_blank" rel="noopener" class="upstat-link">upstat.io</a></span>
     </div>
     <div class="footer-right">
       <a href="https://github.com/upstat-io/ori-lang" target="_blank" rel="noopener">GitHub</a>
       <span class="footer-sep">&middot;</span>
-      <a href="/docs/">Docs</a>
+      <a href="https://github.com/sponsors/upstat-io" target="_blank" rel="noopener">Sponsor</a>
+      <span class="footer-sep">&middot;</span>
+      <a href="/docs/getting-started">Docs</a>
+      <span class="footer-sep">&middot;</span>
+      <a href="/roadmap">Roadmap</a>
       <span class="footer-sep">&middot;</span>
       <a href="/playground">Playground</a>
     </div>
@@ -66,6 +70,16 @@
 
   .footer-right a:hover {
     color: var(--color-text-primary);
+  }
+
+  .upstat-link {
+    color: var(--color-text-muted);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+  }
+
+  .upstat-link:hover {
+    color: var(--color-accent);
   }
 
   @media (max-width: 640px) {

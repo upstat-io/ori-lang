@@ -1,4 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="6" fill="#0d0e11"/>
-  <text x="16" y="23" text-anchor="middle" font-family="monospace" font-weight="700" font-size="20" fill="#569cd6">O</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- Background -->
+  <rect width="32" height="32" rx="6" fill="#21222c"/>
+
+  <!-- Circle outline -->
+  <circle cx="16" cy="16" r="9" stroke="#3b82f6" stroke-width="2.5" fill="none"/>
+
+  <!-- Checkmark inside -->
+  <path d="M12 16l2.5 2.5 5.5-5.5" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

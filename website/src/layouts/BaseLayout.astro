@@ -6,9 +6,41 @@ import '../styles/global.css';
 interface Props {
   title: string;
   description?: string;
+  keywords?: string;
+  ogImage?: string;
+  ogType?: 'website' | 'article';
+  noindex?: boolean;
 }
 
-const { title, description = 'Code That Proves Itself — A language with strict static typing, mandatory testing, and dependency-aware integrity.' } = Astro.props;
+const canonicalURL = new URL(Astro.url.pathname, Astro.site);
+
+const {
+  title,
+  description = 'A programming language with strict static typing, mandatory testing, and dependency-aware integrity. If it compiles, it has tests. If it has tests, they pass.',
+  keywords = 'programming language, static typing, mandatory testing, type inference, compiler, Ori',
+  ogImage = '/og-image.svg',
+  ogType = 'website',
+  noindex = false,
+} = Astro.props;
+
+const siteName = 'Ori';
+const twitterHandle = '@upaborern';
+
+const structuredData = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Ori',
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'Cross-platform',
+  description: description,
+  url: 'https://ori-lang.com',
+  author: {
+    '@type': 'Organization',
+    name: 'upstat-io',
+    url: 'https://github.com/upstat-io',
+  },
+  license: 'https://opensource.org/licenses/MIT',
+};
 ---
 
 <!DOCTYPE html>
@@ -16,12 +48,46 @@ const { title, description = 'Code That Proves Itself — A language with strict
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content={description} />
+
+  <!-- Primary Meta Tags -->
   <title>{title}</title>
+  <meta name="title" content={title} />
+  <meta name="description" content={description} />
+  <meta name="keywords" content={keywords} />
+  <meta name="author" content="upstat-io" />
+  {noindex && <meta name="robots" content="noindex, nofollow" />}
+
+  <!-- Canonical URL -->
+  <link rel="canonical" href={canonicalURL} />
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content={ogType} />
+  <meta property="og:url" content={canonicalURL} />
+  <meta property="og:title" content={title} />
+  <meta property="og:description" content={description} />
+  <meta property="og:image" content={new URL(ogImage, Astro.site)} />
+  <meta property="og:site_name" content={siteName} />
+  <meta property="og:locale" content="en_US" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:url" content={canonicalURL} />
+  <meta name="twitter:title" content={title} />
+  <meta name="twitter:description" content={description} />
+  <meta name="twitter:image" content={new URL(ogImage, Astro.site)} />
+  <meta name="twitter:creator" content={twitterHandle} />
+
+  <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.svg" />
+
+  <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <!-- Structured Data -->
+  <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />
 </head>
 <body>
   <Header />
