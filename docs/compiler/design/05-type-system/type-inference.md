@@ -1,3 +1,10 @@
+---
+title: "Type Inference"
+description: "Ori Compiler Design — Type Inference"
+order: 502
+section: "Type System"
+---
+
 # Type Inference
 
 Ori uses Hindley-Milner (HM) type inference, extended with features for patterns and capabilities.

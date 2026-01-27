@@ -1,10 +1,16 @@
+---
+title: "Types"
+description: "Ori Language Specification — Types"
+order: 6
+---
+
 # Types
 
 Every value has a type determined at compile time.
 
 ## Type Syntax
 
-```
+```ebnf
 type          = type_path [ type_args ]
               | list_type | map_type | tuple_type | function_type
               | "dyn" type .
@@ -109,7 +115,7 @@ type Channel<T>   // bounded async channel
 
 ## User-Defined Types
 
-```
+```ebnf
 type_def      = [ "pub" ] [ derive ] "type" identifier [ generics ] [ where ] "=" type_body .
 derive        = "#[derive(" identifier { "," identifier } ")]" .
 generics      = "<" generic_param { "," generic_param } ">" .

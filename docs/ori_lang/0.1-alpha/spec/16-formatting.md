@@ -1,3 +1,9 @@
+---
+title: "Formatting"
+description: "Ori Language Specification — Formatting"
+order: 16
+---
+
 # Formatting
 
 Canonical source formatting. Zero-config, deterministic.

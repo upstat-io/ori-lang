@@ -1,3 +1,10 @@
+---
+title: "Appendix A: Salsa Patterns"
+description: "Ori Compiler Design — Appendix A: Salsa Patterns"
+order: 1001
+section: "Appendices"
+---
+
 # Appendix A: Salsa Patterns
 
 Common patterns for working with Salsa in the Ori compiler.

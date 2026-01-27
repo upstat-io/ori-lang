@@ -1,3 +1,10 @@
+---
+title: "Testing System Overview"
+description: "Ori Compiler Design — Testing System Overview"
+order: 900
+section: "Testing"
+---
+
 # Testing System Overview
 
 The Ori test system provides test discovery, parallel execution, and coverage tracking. Testing is mandatory in Ori - every function requires tests.

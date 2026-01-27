@@ -1,3 +1,10 @@
+---
+title: "Module Loading"
+description: "Ori Compiler Design — Module Loading"
+order: 702
+section: "Evaluator"
+---
+
 # Module Loading
 
 Module loading handles `use` statements, resolving imports and making external functions available.

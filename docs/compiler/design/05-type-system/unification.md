@@ -1,3 +1,10 @@
+---
+title: "Unification"
+description: "Ori Compiler Design — Unification"
+order: 504
+section: "Type System"
+---
+
 # Unification
 
 Unification is the process of finding a substitution that makes two types equal. It's the core algorithm for type inference.

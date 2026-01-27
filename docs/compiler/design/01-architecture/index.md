@@ -1,3 +1,10 @@
+---
+title: "Architecture Overview"
+description: "Ori Compiler Design — Architecture Overview"
+order: 100
+section: "Architecture"
+---
+
 # Architecture Overview
 
 The Ori compiler (`oric`) is an incremental compiler built on Salsa, a framework for on-demand, incremental computation. The architecture prioritizes:

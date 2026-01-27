@@ -1,3 +1,9 @@
+---
+title: "Modules"
+description: "Ori Language Specification — Modules"
+order: 12
+---
+
 # Modules
 
 Every source file defines one module.
@@ -13,7 +19,7 @@ Every source file defines one module.
 
 ## Imports
 
-```
+```ebnf
 import      = "use" import_path [ import_list | "as" identifier ] .
 import_path = string_literal | identifier { "." identifier } .
 import_list = "{" import_item { "," import_item } "}" .
@@ -71,7 +77,7 @@ pub use './client' { get, post }
 
 ### Definition
 
-```
+```ebnf
 extension_def = "extend" identifier [ where ] "{" { method } "}" .
 ```
 
@@ -87,7 +93,7 @@ extend Iterator where Self.Item: Add {
 
 ### Import
 
-```
+```ebnf
 extension_import = "extension" import_path "{" trait "." method { "," trait "." method } "}" .
 ```
 

@@ -1,3 +1,10 @@
+---
+title: "Type Representation"
+description: "Ori Compiler Design — Type Representation"
+order: 204
+section: "Intermediate Representation"
+---
+
 # Type Representation
 
 This document describes how types are represented in the Ori compiler.

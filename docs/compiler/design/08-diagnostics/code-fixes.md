@@ -1,3 +1,10 @@
+---
+title: "Code Fixes"
+description: "Ori Compiler Design — Code Fixes"
+order: 801
+section: "Diagnostics"
+---
+
 # Code Fixes
 
 Code fixes are automatic repair suggestions that can be applied to resolve errors.

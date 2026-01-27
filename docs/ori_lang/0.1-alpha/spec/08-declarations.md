@@ -1,10 +1,16 @@
+---
+title: "Declarations"
+description: "Ori Language Specification — Declarations"
+order: 8
+---
+
 # Declarations
 
 Functions, types, traits, and implementations.
 
 ## Functions
 
-```
+```ebnf
 function      = [ "pub" ] "@" identifier [ generics ] params "->" type [ uses ] [ where ] "=" expression .
 params        = "(" [ param { "," param } ] ")" .
 param         = identifier ":" type .
@@ -31,7 +37,7 @@ pub @identity<T> (x: T) -> T = x
 
 ## Types
 
-```
+```ebnf
 type_def    = [ "pub" ] [ derive ] "type" identifier [ generics ] "=" type_body .
 derive      = "#[derive(" identifier { "," identifier } ")]" .
 type_body   = struct_body | sum_body | type .
@@ -54,7 +60,7 @@ type User = { id: int, name: str }
 
 ## Traits
 
-```
+```ebnf
 trait_def    = [ "pub" ] "trait" identifier [ generics ] [ ":" bounds ] "{" { trait_item } "}" .
 trait_item   = method_sig | default_method | assoc_type .
 method_sig   = "@" identifier params "->" type .
@@ -82,7 +88,7 @@ trait Iterator {
 
 ## Implementations
 
-```
+```ebnf
 impl_block    = inherent_impl | trait_impl .
 inherent_impl = "impl" [ generics ] type_path [ where ] "{" { method } "}" .
 trait_impl    = "impl" [ generics ] type_path "for" type [ where ] "{" { method } "}" .
@@ -104,7 +110,7 @@ impl<T: Printable> Printable for [T] {
 
 ## Tests
 
-```
+```ebnf
 test = "@" identifier "tests" "@" identifier { "tests" "@" identifier } params "->" "void" "=" expression .
 ```
 

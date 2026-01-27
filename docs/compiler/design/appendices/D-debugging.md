@@ -1,3 +1,10 @@
+---
+title: "Appendix D: Debugging"
+description: "Ori Compiler Design — Appendix D: Debugging"
+order: 1004
+section: "Appendices"
+---
+
 # Appendix D: Debugging
 
 Debug flags and techniques for the Ori compiler.

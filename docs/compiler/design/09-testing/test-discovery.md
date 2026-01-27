@@ -1,3 +1,10 @@
+---
+title: "Test Discovery"
+description: "Ori Compiler Design — Test Discovery"
+order: 901
+section: "Testing"
+---
+
 # Test Discovery
 
 Test discovery finds all test functions in a module and determines coverage.

@@ -1,3 +1,9 @@
+---
+title: "Properties of Types"
+description: "Ori Language Specification — Properties of Types"
+order: 7
+---
+
 # Properties of Types
 
 Type identity, assignability, and constraints.
@@ -50,7 +56,7 @@ Generics are invariant. `Container<T>` is only compatible with `Container<T>`.
 
 ## Type Constraints
 
-```
+```ebnf
 constraint   = identifier ":" bounds .
 bounds       = type_path { "+" type_path } .
 where_clause = "where" constraint { "," constraint } .

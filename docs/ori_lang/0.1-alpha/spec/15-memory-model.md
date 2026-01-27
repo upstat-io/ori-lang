@@ -1,3 +1,9 @@
+---
+title: "Memory Model"
+description: "Ori Language Specification — Memory Model"
+order: 15
+---
+
 # Memory Model
 
 Ori uses Automatic Reference Counting (ARC) without cycle detection. This is made possible by language design choices that structurally prevent reference cycles.

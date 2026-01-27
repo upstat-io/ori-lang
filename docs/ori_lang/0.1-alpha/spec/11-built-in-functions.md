@@ -1,3 +1,9 @@
+---
+title: "Built-in Functions"
+description: "Ori Language Specification — Built-in Functions"
+order: 11
+---
+
 # Built-in Functions
 
 Core functions provided by the language. All built-in functions require named arguments, except type conversions.

@@ -2,24 +2,54 @@
 import { getCollection } from 'astro:content';
 
 const docs = await getCollection('docs');
+const spec = await getCollection('spec');
+const compilerDesign = await getCollection('compiler-design');
 const currentPath = Astro.url.pathname;
 
-const sections = [
+// Group docs by section
+const docsSections = [
   { key: 'getting-started', label: 'Getting Started' },
-  { key: 'spec', label: 'Specification' },
 ] as const;
 
-const grouped = sections.map(section => ({
+const groupedDocs = docsSections.map(section => ({
   ...section,
   items: docs
     .filter(doc => doc.data.section === section.key)
     .sort((a, b) => a.data.order - b.data.order),
 }));
+
+// Sort spec by order
+const sortedSpec = spec.sort((a, b) => a.data.order - b.data.order);
+
+// Group compiler design by section
+const designOverview = compilerDesign
+  .filter(d => !d.data.section)
+  .sort((a, b) => a.data.order - b.data.order);
+
+const designSections = [
+  'Architecture',
+  'Intermediate Representation',
+  'Lexer',
+  'Parser',
+  'Type System',
+  'Pattern System',
+  'Evaluator',
+  'Diagnostics',
+  'Testing',
+  'Appendices',
+];
+
+const groupedDesign = designSections.map(section => ({
+  name: section,
+  items: compilerDesign
+    .filter(d => d.data.section === section)
+    .sort((a, b) => a.data.order - b.data.order),
+})).filter(g => g.items.length > 0);
 ---
 
 <aside class="sidebar">
   <nav class="sidebar-nav">
-    {grouped.map(section => (
+    {groupedDocs.map(section => (
       <div class="sidebar-section">
         <h3 class="sidebar-section-title">{section.label}</h3>
         <ul class="sidebar-list">
@@ -37,6 +67,65 @@ const grouped = sections.map(section => ({
         </ul>
       </div>
     ))}
+
+    <div class="sidebar-section">
+      <h3 class="sidebar-section-title">Specification</h3>
+      <ul class="sidebar-list">
+        {sortedSpec.map(item => {
+          const href = `/docs/spec/${item.id}`;
+          const isActive = currentPath === href || currentPath === `${href}/`;
+          return (
+            <li>
+              <a href={href} class:list={['sidebar-link', { active: isActive }]}>
+                {item.data.title}
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+
+    <div class="sidebar-section">
+      <h3 class="sidebar-section-title">Compiler Design</h3>
+      <ul class="sidebar-list">
+        {designOverview.map(item => {
+          const href = `/docs/compiler-design/${item.id}`;
+          const isActive = currentPath === href || currentPath === `${href}/`;
+          return (
+            <li>
+              <a href={href} class:list={['sidebar-link', { active: isActive }]}>
+                {item.data.title}
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+
+      {groupedDesign.map(group => {
+        const hasActiveItem = group.items.some(item => {
+          const href = `/docs/compiler-design/${item.id}`;
+          return currentPath === href || currentPath === `${href}/`;
+        });
+        return (
+          <details class="design-section" open={hasActiveItem}>
+            <summary class="design-summary">{group.name}</summary>
+            <ul class="sidebar-list design-list">
+              {group.items.map(item => {
+                const href = `/docs/compiler-design/${item.id}`;
+                const isActive = currentPath === href || currentPath === `${href}/`;
+                return (
+                  <li>
+                    <a href={href} class:list={['sidebar-link', { active: isActive }]}>
+                      {item.data.title}
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          </details>
+        );
+      })}
+    </div>
   </nav>
 </aside>
 
@@ -100,6 +189,48 @@ const grouped = sections.map(section => ({
     background: var(--color-accent-subtle);
   }
 
+  .design-section {
+    margin-top: var(--space-3);
+  }
+
+  .design-summary {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--color-text-secondary);
+    padding: var(--space-1) var(--space-3);
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+  }
+
+  .design-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .design-summary::before {
+    content: '›';
+    font-size: 1.1em;
+    transition: transform var(--transition-fast);
+  }
+
+  details[open] .design-summary::before {
+    transform: rotate(90deg);
+  }
+
+  .design-summary:hover {
+    color: var(--color-text-primary);
+    background: var(--color-bg-tertiary);
+  }
+
+  .design-list {
+    padding-left: var(--space-4);
+    margin-top: var(--space-2);
+  }
+
   @media (max-width: 768px) {
     .sidebar {
       width: 100%;
@@ -111,3 +242,23 @@ const grouped = sections.map(section => ({
     }
   }
 </style>
+
+<script is:inline>
+  (function() {
+    const sidebar = document.querySelector('.sidebar');
+    if (!sidebar) return;
+
+    // Restore scroll position
+    const savedScroll = sessionStorage.getItem('sidebar-scroll');
+    if (savedScroll) {
+      sidebar.scrollTop = parseInt(savedScroll, 10);
+    }
+
+    // Save scroll position before navigating
+    document.querySelectorAll('.sidebar-link').forEach(link => {
+      link.addEventListener('click', () => {
+        sessionStorage.setItem('sidebar-scroll', sidebar.scrollTop.toString());
+      });
+    });
+  })();
+</script>

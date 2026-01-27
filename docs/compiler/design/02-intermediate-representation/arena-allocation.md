@@ -1,3 +1,10 @@
+---
+title: "Arena Allocation"
+description: "Ori Compiler Design — Arena Allocation"
+order: 201
+section: "Intermediate Representation"
+---
+
 # Arena Allocation
 
 The Ori compiler uses arena allocation for expressions. This document explains the implementation and rationale.

@@ -1,3 +1,10 @@
+---
+title: "Pattern Registry"
+description: "Ori Compiler Design — Pattern Registry"
+order: 603
+section: "Pattern System"
+---
+
 # Pattern Registry
 
 The PatternRegistry stores pattern definitions and provides lookup by name. It enables extensibility without modifying core compiler code.

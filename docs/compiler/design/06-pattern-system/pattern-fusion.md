@@ -1,3 +1,10 @@
+---
+title: "Pattern Fusion"
+description: "Ori Compiler Design — Pattern Fusion"
+order: 602
+section: "Pattern System"
+---
+
 # Pattern Fusion
 
 Pattern fusion is an optimization that combines multiple patterns into a single pass, eliminating intermediate data structures.

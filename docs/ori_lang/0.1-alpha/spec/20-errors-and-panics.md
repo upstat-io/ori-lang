@@ -1,3 +1,9 @@
+---
+title: "Errors and Panics"
+description: "Ori Language Specification — Errors and Panics"
+order: 20
+---
+
 # Errors and Panics
 
 Ori distinguishes between recoverable errors and unrecoverable panics.
@@ -73,7 +79,7 @@ Addition, subtraction, multiplication, and negation all panic on overflow. Progr
 
 The `catch` pattern captures panics and converts them to `Result<T, str>`:
 
-```
+```ebnf
 catch_expr = "catch" "(" "expr" ":" expression ")" .
 ```
 

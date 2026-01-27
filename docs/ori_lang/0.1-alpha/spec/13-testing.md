@@ -1,10 +1,16 @@
+---
+title: "Testing"
+description: "Ori Language Specification — Testing"
+order: 13
+---
+
 # Testing
 
 Every function must have at least one test. Compile-time error otherwise.
 
 ## Test Declaration
 
-```
+```ebnf
 test   = [ attribute ] "@" identifier [ "tests" target { "tests" target } ] "()" "->" "void" "=" expression .
 target = "@" identifier .
 ```
@@ -41,7 +47,7 @@ Does not satisfy coverage; used for integration tests.
 
 ## Attributes
 
-```
+```ebnf
 attribute = "#" ( "skip" | "compile_fail" | "fail" ) "(" string_literal ")" .
 ```
 

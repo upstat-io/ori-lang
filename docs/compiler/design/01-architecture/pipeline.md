@@ -1,3 +1,10 @@
+---
+title: "Compilation Pipeline"
+description: "Ori Compiler Design — Compilation Pipeline"
+order: 102
+section: "Architecture"
+---
+
 # Compilation Pipeline
 
 The Ori compiler uses a query-based pipeline where each phase is a Salsa query. This design enables incremental compilation and parallel processing.
@@ -104,21 +111,13 @@ Key characteristics:
 
 ## Query Dependencies
 
-```
-SourceFile
-    │
-    ├─────────────────┐
-    │                 │
-    v                 v
-tokens()          parsed()
-    │                 │
-    └────────┬────────┘
-             │
-             v
-          typed()
-             │
-             v
-        evaluated()
+```mermaid
+flowchart TB
+    A["SourceFile"] --> B["tokens()"]
+    A --> C["parsed()"]
+    B --> D["typed()"]
+    C --> D
+    D --> E["evaluated()"]
 ```
 
 When `SourceFile` changes:

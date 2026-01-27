@@ -1,3 +1,10 @@
+---
+title: "Diagnostics Overview"
+description: "Ori Compiler Design — Diagnostics Overview"
+order: 800
+section: "Diagnostics"
+---
+
 # Diagnostics Overview
 
 The diagnostics system provides error reporting, warnings, and code fix suggestions for the Ori compiler.

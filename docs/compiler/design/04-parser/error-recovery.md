@@ -1,3 +1,10 @@
+---
+title: "Parser Error Recovery"
+description: "Ori Compiler Design — Parser Error Recovery"
+order: 401
+section: "Parser"
+---
+
 # Parser Error Recovery
 
 The Ori parser uses error recovery to parse as much as possible despite syntax errors. This enables reporting multiple errors in one pass.

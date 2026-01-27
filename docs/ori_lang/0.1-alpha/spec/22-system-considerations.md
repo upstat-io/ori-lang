@@ -1,3 +1,9 @@
+---
+title: "System Considerations"
+description: "Ori Language Specification — System Considerations"
+order: 22
+---
+
 # System Considerations
 
 This section specifies implementation-level requirements and platform considerations.

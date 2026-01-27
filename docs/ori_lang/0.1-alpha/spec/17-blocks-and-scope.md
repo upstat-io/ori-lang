@@ -1,3 +1,9 @@
+---
+title: "Blocks and Scope"
+description: "Ori Language Specification — Blocks and Scope"
+order: 17
+---
+
 # Blocks and Scope
 
 A _scope_ is a region of source code within which a name refers to a specific binding.

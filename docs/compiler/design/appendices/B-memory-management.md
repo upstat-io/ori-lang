@@ -1,3 +1,10 @@
+---
+title: "Appendix B: Memory Management"
+description: "Ori Compiler Design — Appendix B: Memory Management"
+order: 1002
+section: "Appendices"
+---
+
 # Appendix B: Memory Management
 
 Memory management strategies used in the Ori compiler.

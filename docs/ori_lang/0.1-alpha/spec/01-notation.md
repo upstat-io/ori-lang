@@ -1,10 +1,16 @@
+---
+title: "Notation"
+description: "Ori Language Specification — Notation"
+order: 1
+---
+
 # Notation
 
 The syntax is specified using Extended Backus-Naur Form (EBNF).
 
 ## Productions
 
-```
+```ebnf
 production_name = expression .
 ```
 

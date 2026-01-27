@@ -1,18 +1,178 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 
-const tiers = [
+interface Task {
+  name: string;
+  done: boolean;
+}
+
+interface Section {
+  name: string;
+  tasks: Task[];
+}
+
+interface Phase {
+  num: number;
+  name: string;
+  status: "complete" | "partial" | "not-started";
+  note?: string;
+  goal: string;
+  spec?: string;
+  sections: Section[];
+}
+
+interface Tier {
+  id: number;
+  name: string;
+  status: string;
+  description: string;
+  phases: Phase[];
+  milestone: string;
+  milestoneStatus: string;
+  exitCriteria: string;
+}
+
+const tiers: Tier[] = [
   {
     id: 1,
     name: "Foundation",
-    status: "complete",
+    status: "partial",
     description: "Core type system and language fundamentals",
     phases: [
-      { num: 1, name: "Type System Foundation", status: "complete" },
-      { num: 2, name: "Type Inference", status: "complete" },
-      { num: 3, name: "Traits", status: "complete" },
-      { num: 4, name: "Modules", status: "partial", note: "Core complete; module alias, re-exports pending" },
-      { num: 5, name: "Type Declarations", status: "partial", note: "Structs work; destructuring, sum type matching pending" },
+      {
+        num: 1,
+        name: "Type System Foundation",
+        status: "complete",
+        goal: "Fix type checking to properly use type annotations",
+        spec: "spec/06-types.md, spec/07-properties-of-types.md",
+        sections: [
+          { name: "Primitive Types", tasks: [
+            { name: "int, float, bool, str types", done: true },
+            { name: "char, byte types", done: true },
+            { name: "void, Never types", done: true },
+          ]},
+          { name: "Parameter Type Annotations", tasks: [
+            { name: "type_id_to_type() helper", done: true },
+            { name: "Use Param.ty in infer_function_signature()", done: true },
+            { name: "Handle declared return types", done: true },
+          ]},
+          { name: "Lambda Type Annotations", tasks: [
+            { name: "Typed lambda parameters", done: true },
+            { name: "Explicit return type", done: true },
+          ]},
+          { name: "Let Binding Types", tasks: [
+            { name: "Type annotation in let bindings", done: true },
+          ]},
+        ],
+      },
+      {
+        num: 2,
+        name: "Type Inference",
+        status: "complete",
+        goal: "Implement Hindley-Milner style type inference",
+        spec: "spec/06-types.md",
+        sections: [
+          { name: "Unification", tasks: [
+            { name: "Type variable creation", done: true },
+            { name: "Unification algorithm", done: true },
+            { name: "Occurs check", done: true },
+          ]},
+          { name: "Constraint Generation", tasks: [
+            { name: "Expression constraints", done: true },
+            { name: "Function call constraints", done: true },
+            { name: "Pattern constraints", done: true },
+          ]},
+          { name: "Generalization", tasks: [
+            { name: "Let polymorphism", done: true },
+            { name: "Function generalization", done: true },
+          ]},
+        ],
+      },
+      {
+        num: 3,
+        name: "Traits",
+        status: "complete",
+        goal: "Implement trait system with bounds and implementations",
+        spec: "spec/08-declarations.md",
+        sections: [
+          { name: "Trait Definitions", tasks: [
+            { name: "Trait declaration parsing", done: true },
+            { name: "Required methods", done: true },
+            { name: "Default implementations", done: true },
+            { name: "Associated types", done: true },
+          ]},
+          { name: "Trait Implementations", tasks: [
+            { name: "impl Trait for Type", done: true },
+            { name: "Generic implementations", done: true },
+            { name: "Coherence checking", done: true },
+          ]},
+          { name: "Trait Bounds", tasks: [
+            { name: "Single bounds", done: true },
+            { name: "Multiple bounds (T: A + B)", done: true },
+            { name: "Where clauses", done: true },
+          ]},
+          { name: "Derive Macros", tasks: [
+            { name: "Eq derive", done: true },
+            { name: "Clone derive", done: true },
+            { name: "Default derive", done: true },
+          ]},
+        ],
+      },
+      {
+        num: 4,
+        name: "Modules",
+        status: "partial",
+        note: "Core complete; module alias, re-exports pending",
+        goal: "Implement module system with imports and visibility",
+        spec: "spec/12-modules.md",
+        sections: [
+          { name: "Basic Imports", tasks: [
+            { name: "Relative imports (./path)", done: true },
+            { name: "Package imports (std.math)", done: true },
+            { name: "Named imports { a, b }", done: true },
+          ]},
+          { name: "Visibility", tasks: [
+            { name: "pub modifier", done: true },
+            { name: "Private by default", done: true },
+            { name: "Private access (::prefix)", done: true },
+          ]},
+          { name: "Advanced Features", tasks: [
+            { name: "Module aliases (as)", done: false },
+            { name: "Re-exports (pub use)", done: false },
+            { name: "Qualified access", done: false },
+          ]},
+        ],
+      },
+      {
+        num: 5,
+        name: "Type Declarations",
+        status: "partial",
+        note: "Structs work; destructuring, sum type matching pending",
+        goal: "User-defined types: structs, enums, newtypes",
+        spec: "spec/06-types.md, spec/08-declarations.md",
+        sections: [
+          { name: "Struct Types", tasks: [
+            { name: "Struct declaration", done: true },
+            { name: "Field access", done: true },
+            { name: "Struct literals", done: true },
+            { name: "Generic structs", done: true },
+          ]},
+          { name: "Sum Types", tasks: [
+            { name: "Enum declaration", done: true },
+            { name: "Variant constructors", done: false },
+            { name: "Pattern matching", done: false },
+          ]},
+          { name: "Newtypes", tasks: [
+            { name: "Type aliases", done: true },
+            { name: "Newtype wrapper", done: false },
+          ]},
+          { name: "Destructuring", tasks: [
+            { name: "Struct destructuring", done: false },
+            { name: "Tuple destructuring", done: true },
+            { name: "Nested destructuring", done: false },
+          ]},
+        ],
+      },
     ],
     milestone: "M1: Bootstrapped",
     milestoneStatus: "near-complete",
@@ -24,8 +184,56 @@ const tiers = [
     status: "partial",
     description: "Effect tracking and standard library",
     phases: [
-      { num: 6, name: "Capabilities", status: "complete" },
-      { num: 7, name: "Standard Library", status: "partial", note: "Collection methods done; retry, validate pending" },
+      {
+        num: 6,
+        name: "Capabilities",
+        status: "complete",
+        note: "27/27 tests pass",
+        goal: "Implement capability system for effect tracking",
+        spec: "spec/14-capabilities.md",
+        sections: [
+          { name: "Capability Declaration", tasks: [
+            { name: "uses clause parsing", done: true },
+            { name: "Capability trait definitions", done: true },
+            { name: "Standard capabilities (Http, FileSystem, etc.)", done: true },
+          ]},
+          { name: "Capability Propagation", tasks: [
+            { name: "Automatic propagation to callers", done: true },
+            { name: "E2014 missing capability errors", done: true },
+          ]},
+          { name: "Capability Providing", tasks: [
+            { name: "with...in expression", done: true },
+            { name: "Mock implementations for testing", done: true },
+          ]},
+          { name: "Async Capability", tasks: [
+            { name: "Async marker capability", done: true },
+            { name: "Integration with parallel pattern", done: true },
+          ]},
+        ],
+      },
+      {
+        num: 7,
+        name: "Standard Library",
+        status: "partial",
+        note: "Collection methods done; retry, validate pending",
+        goal: "Core standard library modules",
+        spec: "library/std/",
+        sections: [
+          { name: "Collection Methods", tasks: [
+            { name: "List: map, filter, fold, find", done: true },
+            { name: "List: any, all", done: true },
+            { name: "Range: collect, map, filter, fold", done: true },
+            { name: "Map: len, is_empty", done: true },
+          ]},
+          { name: "Resilience (std.resilience)", tasks: [
+            { name: "retry function", done: false },
+          ]},
+          { name: "Validation (std.validate)", tasks: [
+            { name: "validate function", done: false },
+            { name: "Validation rules", done: false },
+          ]},
+        ],
+      },
     ],
     milestone: "M2: Capabilities & Stdlib",
     milestoneStatus: "partial",
@@ -37,9 +245,84 @@ const tiers = [
     status: "in-progress",
     description: "Pattern evaluation and control flow",
     phases: [
-      { num: 8, name: "Pattern Evaluation", status: "partial", note: "Data transformation done; timeout, cache, recurse pending" },
-      { num: 9, name: "Match Expressions", status: "partial", note: "Guards and exhaustiveness pending" },
-      { num: 10, name: "Control Flow", status: "not-started" },
+      {
+        num: 8,
+        name: "Pattern Evaluation",
+        status: "partial",
+        note: "Data transformation done; retry pattern pending",
+        goal: "Implement compiler patterns: run, try, recurse, parallel, etc.",
+        spec: "spec/09-expressions.md",
+        sections: [
+          { name: "Sequential Patterns", tasks: [
+            { name: "run(...) pattern", done: true },
+            { name: "try(...) with ? propagation", done: true },
+          ]},
+          { name: "Recursion", tasks: [
+            { name: "recurse(...) pattern", done: true },
+            { name: "self() recursive call", done: true },
+            { name: "Memoization (memo: true)", done: false },
+          ]},
+          { name: "Concurrency", tasks: [
+            { name: "parallel(...) pattern", done: true },
+            { name: "spawn(...) fire-and-forget", done: true },
+            { name: "timeout(...) pattern", done: false },
+          ]},
+          { name: "Resources", tasks: [
+            { name: "cache(...) pattern", done: false },
+            { name: "with(...) resource management", done: true },
+          ]},
+        ],
+      },
+      {
+        num: 9,
+        name: "Match Expressions",
+        status: "partial",
+        note: "Guards and exhaustiveness pending",
+        goal: "Pattern matching with exhaustiveness checking",
+        spec: "spec/10-patterns.md",
+        sections: [
+          { name: "Basic Patterns", tasks: [
+            { name: "Literal patterns", done: true },
+            { name: "Variable binding", done: true },
+            { name: "Wildcard (_)", done: true },
+            { name: "Variant patterns", done: true },
+          ]},
+          { name: "Advanced Patterns", tasks: [
+            { name: "Struct patterns", done: true },
+            { name: "List patterns with rest (..)", done: true },
+            { name: "Or patterns (A | B)", done: true },
+            { name: "At patterns (x @ pat)", done: false },
+          ]},
+          { name: "Guards & Exhaustiveness", tasks: [
+            { name: "Guard expressions", done: false },
+            { name: "Exhaustiveness checking", done: false },
+            { name: "Usefulness analysis", done: false },
+          ]},
+        ],
+      },
+      {
+        num: 10,
+        name: "Control Flow",
+        status: "not-started",
+        goal: "Loops, break, continue, labeled blocks",
+        spec: "spec/19-control-flow.md",
+        sections: [
+          { name: "Loops", tasks: [
+            { name: "loop(...) expression", done: false },
+            { name: "for...do imperative", done: false },
+            { name: "for...yield collection", done: false },
+          ]},
+          { name: "Control", tasks: [
+            { name: "break expression", done: false },
+            { name: "break with value", done: false },
+            { name: "continue expression", done: false },
+          ]},
+          { name: "Labels", tasks: [
+            { name: "Labeled loops (loop:name)", done: false },
+            { name: "Labeled break/continue", done: false },
+          ]},
+        ],
+      },
     ],
     milestone: "M3: Core Patterns",
     milestoneStatus: "partial",
@@ -51,8 +334,47 @@ const tiers = [
     status: "planned",
     description: "Foreign code integration",
     phases: [
-      { num: 11, name: "FFI", status: "not-started", note: "Critical for ecosystem" },
-      { num: 12, name: "Variadic Functions", status: "not-started" },
+      {
+        num: 11,
+        name: "FFI",
+        status: "not-started",
+        note: "Critical for ecosystem",
+        goal: "Call C functions and use C types",
+        spec: "Design pending",
+        sections: [
+          { name: "C Function Calls", tasks: [
+            { name: "extern declarations", done: false },
+            { name: "Calling convention", done: false },
+            { name: "Unsafe capability", done: false },
+          ]},
+          { name: "C Types", tasks: [
+            { name: "Primitive type mapping", done: false },
+            { name: "Pointer types", done: false },
+            { name: "Struct layout", done: false },
+          ]},
+          { name: "Callbacks", tasks: [
+            { name: "Ori functions as C callbacks", done: false },
+            { name: "Closure conversion", done: false },
+          ]},
+        ],
+      },
+      {
+        num: 12,
+        name: "Variadic Functions",
+        status: "not-started",
+        goal: "Support C-style variadic functions",
+        spec: "Design pending",
+        sections: [
+          { name: "C Variadics", tasks: [
+            { name: "Call variadic C functions", done: false },
+            { name: "va_list handling", done: false },
+          ]},
+          { name: "Ori Variadics (optional)", tasks: [
+            { name: "Variadic function declaration", done: false },
+            { name: "Type-safe variadics", done: false },
+          ]},
+        ],
+      },
     ],
     milestone: "M4: FFI & Interop",
     milestoneStatus: "not-started",
@@ -64,9 +386,65 @@ const tiers = [
     status: "planned",
     description: "Platform support and testing framework",
     phases: [
-      { num: 13, name: "Conditional Compilation", status: "not-started" },
-      { num: 14, name: "Testing Framework", status: "not-started" },
-      { num: 15, name: "Syntax Proposals", status: "not-started" },
+      {
+        num: 13,
+        name: "Conditional Compilation",
+        status: "not-started",
+        goal: "Platform and feature-based compilation",
+        spec: "Design pending",
+        sections: [
+          { name: "Platform Detection", tasks: [
+            { name: "#[cfg(os = \"linux\")]", done: false },
+            { name: "#[cfg(arch = \"x86_64\")]", done: false },
+          ]},
+          { name: "Feature Flags", tasks: [
+            { name: "#[cfg(feature = \"async\")]", done: false },
+            { name: "Cargo-style features", done: false },
+          ]},
+        ],
+      },
+      {
+        num: 14,
+        name: "Testing Framework",
+        status: "not-started",
+        note: "Gap analysis complete",
+        goal: "Mandatory testing with dependency tracking",
+        spec: "spec/13-testing.md",
+        sections: [
+          { name: "Test Declaration", tasks: [
+            { name: "@test annotation", done: false },
+            { name: "tests @target binding", done: false },
+            { name: "Free-floating tests", done: false },
+          ]},
+          { name: "Test Execution", tasks: [
+            { name: "Parallel test runner", done: false },
+            { name: "Dependency-aware execution", done: false },
+            { name: "Change detection", done: false },
+          ]},
+          { name: "Special Tests", tasks: [
+            { name: "#[skip] annotation", done: false },
+            { name: "#[compile_fail] tests", done: false },
+            { name: "#[fail] expected failure", done: false },
+          ]},
+        ],
+      },
+      {
+        num: 15,
+        name: "Syntax Proposals",
+        status: "not-started",
+        note: "15.1-15.5 from V3",
+        goal: "Implement approved syntax changes",
+        spec: "docs/ori_lang/proposals/",
+        sections: [
+          { name: "Approved Proposals", tasks: [
+            { name: "Review and implement 15.1", done: false },
+            { name: "Review and implement 15.2", done: false },
+            { name: "Review and implement 15.3", done: false },
+            { name: "Review and implement 15.4", done: false },
+            { name: "Review and implement 15.5", done: false },
+          ]},
+        ],
+      },
     ],
     milestone: "M5: Language Complete",
     milestoneStatus: "not-started",
@@ -78,8 +456,46 @@ const tiers = [
     status: "future",
     description: "Async runtime and concurrent programming",
     phases: [
-      { num: 16, name: "Async Support", status: "not-started" },
-      { num: 17, name: "Concurrency Extended", status: "not-started", note: "Select, cancel, enhanced channels" },
+      {
+        num: 16,
+        name: "Async Support",
+        status: "not-started",
+        goal: "Async runtime with capability-based effects",
+        spec: "spec/14-capabilities.md",
+        sections: [
+          { name: "Async Runtime", tasks: [
+            { name: "Event loop", done: false },
+            { name: "Task scheduler", done: false },
+            { name: "Non-blocking I/O", done: false },
+          ]},
+          { name: "Async Capability", tasks: [
+            { name: "uses Async declaration", done: false },
+            { name: "Suspension points", done: false },
+          ]},
+        ],
+      },
+      {
+        num: 17,
+        name: "Concurrency Extended",
+        status: "not-started",
+        note: "Select, cancel, enhanced channels",
+        goal: "Advanced concurrency primitives",
+        spec: "Design pending",
+        sections: [
+          { name: "Select", tasks: [
+            { name: "select(...) pattern", done: false },
+            { name: "First-to-complete semantics", done: false },
+          ]},
+          { name: "Cancellation", tasks: [
+            { name: "Cancel tokens", done: false },
+            { name: "Structured cancellation", done: false },
+          ]},
+          { name: "Channels", tasks: [
+            { name: "Buffered channels", done: false },
+            { name: "Channel select", done: false },
+          ]},
+        ],
+      },
     ],
     milestone: "M6: Production Async",
     milestoneStatus: "not-started",
@@ -91,8 +507,42 @@ const tiers = [
     status: "future",
     description: "Power-user type features",
     phases: [
-      { num: 18, name: "Const Generics", status: "not-started" },
-      { num: 19, name: "Existential Types", status: "not-started", note: "impl Trait" },
+      {
+        num: 18,
+        name: "Const Generics",
+        status: "not-started",
+        goal: "Compile-time constant type parameters",
+        spec: "Design pending",
+        sections: [
+          { name: "Const Parameters", tasks: [
+            { name: "Type<const N: int> syntax", done: false },
+            { name: "Const evaluation", done: false },
+            { name: "Array sizes", done: false },
+          ]},
+          { name: "Const Expressions", tasks: [
+            { name: "Arithmetic in types", done: false },
+            { name: "Const functions in types", done: false },
+          ]},
+        ],
+      },
+      {
+        num: 19,
+        name: "Existential Types",
+        status: "not-started",
+        note: "impl Trait",
+        goal: "impl Trait return types and parameters",
+        spec: "Design pending",
+        sections: [
+          { name: "Return Position", tasks: [
+            { name: "-> impl Trait syntax", done: false },
+            { name: "Type inference for impl Trait", done: false },
+          ]},
+          { name: "Argument Position", tasks: [
+            { name: "(x: impl Trait) syntax", done: false },
+            { name: "Universal quantification", done: false },
+          ]},
+        ],
+      },
     ],
     milestone: "M7: Advanced Types",
     milestoneStatus: "not-started",
@@ -102,15 +552,92 @@ const tiers = [
     id: 8,
     name: "Advanced Features",
     status: "future",
-    description: "Reflection, codegen, and tooling",
+    description: "Reflection, native compilation, and tooling",
     phases: [
-      { num: 20, name: "Reflection", status: "not-started" },
-      { num: 21, name: "Code Generation", status: "not-started", note: "LLVM/Cranelift backend" },
-      { num: 22, name: "Tooling", status: "not-started", note: "Formatter, LSP, REPL" },
+      {
+        num: 20,
+        name: "Reflection",
+        status: "not-started",
+        goal: "Runtime type introspection",
+        spec: "Design pending",
+        sections: [
+          { name: "Type Info", tasks: [
+            { name: "TypeInfo struct", done: false },
+            { name: "Field introspection", done: false },
+            { name: "Method introspection", done: false },
+          ]},
+          { name: "Dynamic Dispatch", tasks: [
+            { name: "dyn Trait objects", done: false },
+            { name: "Runtime method lookup", done: false },
+          ]},
+        ],
+      },
+      {
+        num: 21,
+        name: "LLVM Backend",
+        status: "not-started",
+        note: "Native compilation via LLVM",
+        goal: "Compile to native code via LLVM",
+        spec: "Implementation-specific",
+        sections: [
+          { name: "LLVM Setup", tasks: [
+            { name: "LLVM 17+ integration", done: false },
+            { name: "inkwell/llvm-sys bindings", done: false },
+            { name: "Target configuration", done: false },
+          ]},
+          { name: "IR Generation", tasks: [
+            { name: "Type lowering (Ori -> LLVM)", done: false },
+            { name: "Expression codegen", done: false },
+            { name: "Function codegen", done: false },
+            { name: "Control flow graphs", done: false },
+          ]},
+          { name: "Optimization", tasks: [
+            { name: "O0-O3 optimization levels", done: false },
+            { name: "Debug info (DWARF)", done: false },
+          ]},
+          { name: "Output", tasks: [
+            { name: "Object file emission", done: false },
+            { name: "Executable linking", done: false },
+            { name: "JIT compilation (optional)", done: false },
+          ]},
+          { name: "Runtime", tasks: [
+            { name: "ARC memory management", done: false },
+            { name: "Runtime support functions", done: false },
+            { name: "FFI runtime support", done: false },
+          ]},
+        ],
+      },
+      {
+        num: 22,
+        name: "Tooling",
+        status: "not-started",
+        note: "Formatter, LSP, REPL",
+        goal: "Developer tooling ecosystem",
+        spec: "Implementation-specific",
+        sections: [
+          { name: "Formatter", tasks: [
+            { name: "ori fmt command", done: false },
+            { name: "Zero-config formatting", done: false },
+            { name: "IDE integration", done: false },
+          ]},
+          { name: "Language Server", tasks: [
+            { name: "LSP implementation", done: false },
+            { name: "Go to definition", done: false },
+            { name: "Find references", done: false },
+            { name: "Hover info", done: false },
+            { name: "Completions", done: false },
+          ]},
+          { name: "REPL", tasks: [
+            { name: "Interactive shell", done: false },
+            { name: "Expression evaluation", done: false },
+            { name: "History and completion", done: false },
+          ]},
+        ],
+      },
     ],
     milestone: "M8: Full Featured",
     milestoneStatus: "not-started",
-    exitCriteria: "Full IDE support, generic serialization",
+    exitCriteria: "Full IDE support, generic serialization, native binaries",
   },
 ];
 
@@ -133,22 +660,34 @@ const statusColors: Record<string, string> = {
   "future": "muted",
   "near-complete": "warning",
 };
+
+function countTasks(sections: Section[]): { done: number; total: number } {
+  let done = 0;
+  let total = 0;
+  for (const section of sections) {
+    for (const task of section.tasks) {
+      total++;
+      if (task.done) done++;
+    }
+  }
+  return { done, total };
+}
 ---
 
 <BaseLayout
   title="Roadmap — Ori"
-  description="Ori compiler roadmap: 22 phases across 8 tiers. Track progress on type system, traits, capabilities, async, FFI, and tooling."
-  keywords="Ori roadmap, compiler development, language features, type system, async, FFI, tooling"
+  description="Ori compiler roadmap: 22 phases across 8 tiers. Track progress on type system, traits, capabilities, async, FFI, LLVM backend, and tooling."
+  keywords="Ori roadmap, compiler development, language features, type system, async, FFI, LLVM, tooling"
 >
   <main class="roadmap-page">
     <section class="roadmap-hero">
       <h1>Compiler Roadmap</h1>
       <p class="roadmap-subtitle">
-        22 phases across 8 tiers. Dependency-ordered for systematic implementation.
+        22 phases across 8 tiers. Click any phase to view details.
       </p>
       <div class="stats">
         <div class="stat">
-          <span class="stat-value">6</span>
+          <span class="stat-value">4</span>
           <span class="stat-label">Phases Complete</span>
         </div>
         <div class="stat">
@@ -156,7 +695,7 @@ const statusColors: Record<string, string> = {
           <span class="stat-label">In Progress</span>
         </div>
         <div class="stat">
-          <span class="stat-value">11</span>
+          <span class="stat-value">13</span>
           <span class="stat-label">Planned</span>
         </div>
       </div>
@@ -164,26 +703,12 @@ const statusColors: Record<string, string> = {
 
     <section class="current-focus">
       <h2>Current Focus</h2>
-      <div class="focus-card">
-        <div class="focus-path">
-          <div class="focus-step complete">
-            <span class="step-num">Phase 6</span>
-            <span class="step-name">Capabilities</span>
-            <span class="step-status">✓ Complete</span>
-          </div>
-          <div class="focus-arrow">→</div>
-          <div class="focus-step active">
-            <span class="step-num">Phase 7</span>
-            <span class="step-name">Stdlib</span>
-            <span class="step-status">Collection methods done</span>
-          </div>
-          <div class="focus-arrow">→</div>
-          <div class="focus-step pending">
-            <span class="step-num">Phase 8</span>
-            <span class="step-name">Patterns</span>
-            <span class="step-status">Fix timeout, cache, recurse</span>
-          </div>
-        </div>
+      <div class="focus-flow">
+        <span class="focus-item complete">Phase 6: Capabilities ✓</span>
+        <span class="focus-arrow">→</span>
+        <span class="focus-item active">Phase 7: Stdlib</span>
+        <span class="focus-arrow">→</span>
+        <span class="focus-item pending">Phase 8: Patterns</span>
       </div>
     </section>
 
@@ -202,18 +727,31 @@ const statusColors: Record<string, string> = {
           </div>
 
           <div class="phases">
-            {tier.phases.map((phase) => (
-              <div class={`phase-card ${phase.status}`}>
-                <div class="phase-header">
-                  <span class="phase-num">Phase {phase.num}</span>
-                  <span class={`phase-status ${statusColors[phase.status]}`}>
-                    {statusLabels[phase.status]}
-                  </span>
-                </div>
-                <h3>{phase.name}</h3>
-                {phase.note && <p class="phase-note">{phase.note}</p>}
-              </div>
-            ))}
+            {tier.phases.map((phase) => {
+              const { done, total } = countTasks(phase.sections);
+              return (
+                <button
+                  class={`phase-card ${phase.status}`}
+                  data-phase={JSON.stringify(phase)}
+                  type="button"
+                >
+                  <div class="phase-header">
+                    <span class="phase-num">Phase {phase.num}</span>
+                    <span class={`phase-status ${statusColors[phase.status]}`}>
+                      {statusLabels[phase.status]}
+                    </span>
+                  </div>
+                  <h3>{phase.name}</h3>
+                  <p class="phase-note">{phase.note || phase.goal}</p>
+                  <div class="phase-progress">
+                    <div class="progress-bar">
+                      <div class="progress-fill" style={`width: ${total > 0 ? (done / total) * 100 : 0}%`}></div>
+                    </div>
+                    <span class="progress-text">{done}/{total} tasks</span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
 
           <div class="milestone">
@@ -241,7 +779,7 @@ Branches:
   Phase 3 ──→ Phase 19 (Existential Types)
   Phase 2 ──→ Phase 18 (Const Generics)
   Phase 11 ──→ Phase 20 (Reflection)
-  Core Complete (1-15) ──→ Phase 21 (Codegen) → Phase 22 (Tooling)`}</pre>
+  Core Complete (1-15) ──→ Phase 21 (LLVM) → Phase 22 (Tooling)`}</pre>
       </div>
     </section>
 
@@ -268,14 +806,120 @@ Branches:
 
     <section class="roadmap-cta">
       <h2>Want to contribute?</h2>
-      <p>The roadmap lives in <code>plans/sigil-compiler-roadmap/</code>. Each phase has detailed implementation tasks.</p>
+      <p>The roadmap lives in <code>plans/roadmap/</code>. Each phase has detailed implementation tasks.</p>
       <div class="cta-buttons">
-        <a href="https://github.com/upstat-io/ori-lang/tree/master/plans/sigil-compiler-roadmap" class="btn btn-primary" target="_blank" rel="noopener">View Full Roadmap</a>
+        <a href="https://github.com/upstat-io/ori-lang/tree/master/plans/roadmap" class="btn btn-primary" target="_blank" rel="noopener">View Full Roadmap</a>
         <a href="https://github.com/upstat-io/ori-lang" class="btn btn-secondary" target="_blank" rel="noopener">GitHub</a>
       </div>
     </section>
   </main>
+
+  <!-- Modal -->
+  <div class="modal-overlay" id="phase-modal">
+    <div class="modal-content">
+      <button class="modal-close" type="button" aria-label="Close modal">&times;</button>
+      <div class="modal-header">
+        <div class="modal-phase-num" id="modal-phase-num"></div>
+        <h2 class="modal-title" id="modal-title"></h2>
+        <span class="modal-status" id="modal-status"></span>
+      </div>
+      <p class="modal-goal" id="modal-goal"></p>
+      <div class="modal-sections" id="modal-sections"></div>
+    </div>
+  </div>
 </BaseLayout>
+
+<script is:inline>
+  (function() {
+    const modal = document.getElementById('phase-modal');
+    const modalClose = modal ? modal.querySelector('.modal-close') : null;
+    const phaseCards = document.querySelectorAll('.phase-card');
+
+    const statusLabels = {
+      "complete": "Complete",
+      "partial": "In Progress",
+      "not-started": "Not Started"
+    };
+
+    const statusColors = {
+      "complete": "success",
+      "partial": "warning",
+      "not-started": "muted"
+    };
+
+    function openModal(phaseData) {
+      if (!phaseData || !modal) return;
+
+      const phase = JSON.parse(phaseData);
+
+      var phaseNum = document.getElementById('modal-phase-num');
+      var title = document.getElementById('modal-title');
+      var status = document.getElementById('modal-status');
+      var goal = document.getElementById('modal-goal');
+      var sections = document.getElementById('modal-sections');
+
+      if (phaseNum) phaseNum.textContent = 'Phase ' + phase.num;
+      if (title) title.textContent = phase.name;
+      if (status) {
+        status.textContent = statusLabels[phase.status] || phase.status;
+        status.className = 'modal-status ' + (statusColors[phase.status] || 'muted');
+      }
+      if (goal) goal.textContent = phase.goal;
+
+      if (sections) {
+        var html = '';
+        for (var i = 0; i < phase.sections.length; i++) {
+          var section = phase.sections[i];
+          html += '<div class="modal-section">';
+          html += '<h4>' + section.name + '</h4>';
+          html += '<ul class="task-list">';
+          for (var j = 0; j < section.tasks.length; j++) {
+            var task = section.tasks[j];
+            var cls = task.done ? 'done' : 'pending';
+            html += '<li class="' + cls + '">' + task.name + '</li>';
+          }
+          html += '</ul>';
+          html += '</div>';
+        }
+        sections.innerHTML = html;
+      }
+
+      modal.classList.add('active');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal() {
+      if (modal) {
+        modal.classList.remove('active');
+        document.body.style.overflow = '';
+      }
+    }
+
+    for (var i = 0; i < phaseCards.length; i++) {
+      (function(card) {
+        card.addEventListener('click', function(e) {
+          e.preventDefault();
+          var phaseData = card.getAttribute('data-phase');
+          openModal(phaseData);
+        });
+      })(phaseCards[i]);
+    }
+
+    if (modalClose) {
+      modalClose.addEventListener('click', closeModal);
+    }
+
+    if (modal) {
+      modal.addEventListener('click', function(e) {
+        if (e.target === modal) closeModal();
+      });
+    }
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') closeModal();
+    });
+  })();
+</script>
 
 <style>
   .roadmap-page {
@@ -341,64 +985,37 @@ Branches:
     color: var(--color-text-primary);
   }
 
-  .focus-card {
-    background: var(--color-bg-secondary);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    padding: var(--space-6);
-    overflow-x: auto;
-  }
-
-  .focus-path {
+  .focus-flow {
     display: flex;
     align-items: center;
-    gap: var(--space-4);
-    min-width: max-content;
+    gap: var(--space-3);
+    flex-wrap: wrap;
   }
 
-  .focus-step {
-    display: flex;
-    flex-direction: column;
-    padding: var(--space-4);
-    background: var(--color-bg-tertiary);
-    border-radius: var(--radius-md);
-    min-width: 160px;
+  .focus-item {
+    font-size: var(--text-sm);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-full);
   }
 
-  .focus-step.complete {
-    border-left: 3px solid var(--color-success);
+  .focus-item.complete {
+    background: rgba(74, 222, 128, 0.15);
+    color: var(--color-success);
   }
 
-  .focus-step.active {
-    border-left: 3px solid var(--color-accent);
-    background: rgba(96, 165, 250, 0.1);
-  }
-
-  .focus-step.pending {
-    border-left: 3px solid var(--color-text-muted);
-  }
-
-  .step-num {
-    font-size: var(--text-xs);
-    color: var(--color-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .step-name {
+  .focus-item.active {
+    background: rgba(96, 165, 250, 0.2);
+    color: var(--color-accent);
     font-weight: var(--weight-semibold);
-    color: var(--color-text-primary);
   }
 
-  .step-status {
-    font-size: var(--text-xs);
-    color: var(--color-text-secondary);
-    margin-top: var(--space-1);
+  .focus-item.pending {
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-muted);
   }
 
   .focus-arrow {
     color: var(--color-text-muted);
-    font-size: var(--text-xl);
   }
 
   /* Tiers */
@@ -480,16 +1097,39 @@ Branches:
   /* Phases */
   .phases {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
     gap: var(--space-3);
     margin-bottom: var(--space-4);
   }
 
   .phase-card {
+    display: flex;
+    flex-direction: column;
+    height: 140px;
     background: var(--color-bg-secondary);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     padding: var(--space-4);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    text-align: left;
+    width: 100%;
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+    -webkit-appearance: none;
+    appearance: none;
+    outline: none;
+  }
+
+  .phase-card:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  .phase-card:hover {
+    background: var(--color-bg-tertiary);
+    border-color: var(--color-border-hover, var(--color-border));
   }
 
   .phase-card.complete {
@@ -502,7 +1142,7 @@ Branches:
 
   .phase-card.not-started {
     border-left: 3px solid var(--color-text-muted);
-    opacity: 0.7;
+    opacity: 0.8;
   }
 
   .phase-header {
@@ -510,6 +1150,7 @@ Branches:
     justify-content: space-between;
     align-items: center;
     margin-bottom: var(--space-2);
+    flex-shrink: 0;
   }
 
   .phase-num {
@@ -544,14 +1185,208 @@ Branches:
     font-size: var(--text-sm);
     font-weight: var(--weight-semibold);
     color: var(--color-text-primary);
-    margin: 0;
+    margin: 0 0 var(--space-2) 0;
+    flex-shrink: 0;
+  }
+
+  .phase-progress {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-shrink: 0;
+    margin-top: auto;
+  }
+
+  .progress-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--color-bg-tertiary);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: var(--color-accent);
+    border-radius: var(--radius-full);
+    transition: width var(--transition-base);
+  }
+
+  .phase-card.complete .progress-fill {
+    background: var(--color-success);
+  }
+
+  .phase-card.partial .progress-fill {
+    background: var(--color-warning);
+  }
+
+  .progress-text {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    white-space: nowrap;
   }
 
   .phase-note {
     font-size: var(--text-xs);
     color: var(--color-text-secondary);
-    margin-top: var(--space-2);
+    margin: 0;
+    flex: 1;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-clamp: 2;
+    min-height: 0;
+  }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s;
+    padding: var(--space-4);
+  }
+
+  .modal-overlay.active {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .modal-content {
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    max-width: 480px;
+    width: 100%;
+    max-height: 80vh;
+    overflow-y: auto;
+    position: relative;
+  }
+
+  .modal-close {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+  }
+
+  .modal-close:hover {
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-primary);
+  }
+
+  .modal-header {
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .modal-phase-num {
+    font-size: 10px;
+    font-weight: var(--weight-medium);
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .modal-title {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-text-primary);
+    margin: 0 0 var(--space-1) 0;
+    padding-right: var(--space-6);
+  }
+
+  .modal-status {
+    display: inline-block;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+  }
+
+  .modal-status.success {
+    background: rgba(74, 222, 128, 0.15);
+    color: var(--color-success);
+  }
+
+  .modal-status.warning {
+    background: rgba(251, 191, 36, 0.15);
+    color: var(--color-warning);
+  }
+
+  .modal-status.muted {
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-muted);
+  }
+
+  .modal-goal {
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    margin: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .modal-spec {
+    display: none;
+  }
+
+  .modal-sections {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .modal-section {
+    margin-bottom: var(--space-3);
+  }
+
+  .modal-section:last-child {
     margin-bottom: 0;
+  }
+
+  :global(.modal-section h4) {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    margin: 0 0 4px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  :global(.task-list) {
+    margin: 0 0 12px 0;
+    padding-left: 20px;
+    list-style: disc;
+  }
+
+  :global(.task-list li) {
+    font-size: 12px;
+    line-height: 1.4;
+    margin-bottom: 2px;
+  }
+
+  :global(.task-list li.done) {
+    color: var(--color-text-secondary);
+  }
+
+  :global(.task-list li.pending) {
+    color: var(--color-text-muted);
   }
 
   /* Milestone */
@@ -770,6 +1605,15 @@ Branches:
 
     .tier {
       padding-left: var(--space-4);
+    }
+
+    .modal-content {
+      padding: var(--space-4);
+    }
+
+    .modal-header {
+      flex-direction: column;
+      align-items: flex-start;
     }
   }
 </style>

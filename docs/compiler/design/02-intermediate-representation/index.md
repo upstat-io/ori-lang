@@ -1,3 +1,10 @@
+---
+title: "Intermediate Representation Overview"
+description: "Ori Compiler Design — Intermediate Representation Overview"
+order: 200
+section: "Intermediate Representation"
+---
+
 # Intermediate Representation Overview
 
 The Ori compiler uses a carefully designed intermediate representation (IR) optimized for:

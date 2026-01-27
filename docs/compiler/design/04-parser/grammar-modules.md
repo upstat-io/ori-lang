@@ -1,3 +1,10 @@
+---
+title: "Grammar Modules"
+description: "Ori Compiler Design — Grammar Modules"
+order: 402
+section: "Parser"
+---
+
 # Grammar Modules
 
 The Ori parser organizes grammar rules into separate modules for maintainability.

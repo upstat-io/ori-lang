@@ -1,3 +1,10 @@
+---
+title: "Pattern System Overview"
+description: "Ori Compiler Design — Pattern System Overview"
+order: 600
+section: "Pattern System"
+---
+
 # Pattern System Overview
 
 Ori's pattern system provides compiler-level constructs for control flow, concurrency, and resource management. These are distinct from regular function calls because they require special syntax or static analysis.

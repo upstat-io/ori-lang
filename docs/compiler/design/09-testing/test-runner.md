@@ -1,3 +1,10 @@
+---
+title: "Test Runner"
+description: "Ori Compiler Design — Test Runner"
+order: 902
+section: "Testing"
+---
+
 # Test Runner
 
 The test runner executes discovered tests in parallel and reports results.

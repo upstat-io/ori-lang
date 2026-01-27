@@ -1,3 +1,10 @@
+---
+title: "Parser Overview"
+description: "Ori Compiler Design — Parser Overview"
+order: 400
+section: "Parser"
+---
+
 # Parser Overview
 
 The Ori parser transforms a token stream into an AST. It uses recursive descent parsing with operator precedence handling.
