@@ -15,7 +15,7 @@
 //!
 //! // Test a full program
 //! let result = eval_source("@main () -> int = 42");
-//! assert_eq!(result.unwrap(), Value::Int(42));
+//! assert_eq!(result.unwrap(), Value::int(42));
 //! ```
 
 pub mod harness;

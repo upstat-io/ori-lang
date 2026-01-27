@@ -82,7 +82,7 @@ pub struct ImplMethodDef {
 pub struct ImplAssocTypeDef {
     /// Associated type name (e.g., `Item`).
     pub name: Name,
-    /// Concrete type assigned (e.g., `T` or `int`), stored as TypeId.
+    /// Concrete type assigned (e.g., `T` or `int`), stored as `TypeId`.
     pub ty: TypeId,
 }
 
@@ -258,7 +258,7 @@ impl TraitRegistry {
 
     /// Look up a method on a type (checks inherent impls first, then trait impls).
     ///
-    /// Returns the method signature with types converted from TypeId to Type.
+    /// Returns the method signature with types converted from `TypeId` to Type.
     pub fn lookup_method(&self, self_ty: &Type, method_name: Name) -> Option<MethodLookup> {
         // First check inherent impls
         if let Some(impl_entry) = self.get_inherent_impl(self_ty) {
@@ -321,7 +321,7 @@ impl TraitRegistry {
     /// Look up an associated type definition for a type implementing a trait.
     ///
     /// Returns `Some(concrete_type)` if the type has an impl for the trait
-    /// with an associated type definition for `assoc_name`. The TypeId is
+    /// with an associated type definition for `assoc_name`. The `TypeId` is
     /// converted to Type using the registry's interner.
     pub fn lookup_assoc_type(
         &self,

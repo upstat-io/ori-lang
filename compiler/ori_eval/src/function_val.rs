@@ -19,7 +19,7 @@ pub fn function_val_int(args: &[Value]) -> Result<Value, String> {
         return Err("int expects 1 argument".to_string());
     }
     match &args[0] {
-        Value::Int(n) => Ok(Value::Int(*n)),
+        Value::Int(n) => Ok(Value::int(n.raw())),
         Value::Float(f) => {
             if f.is_nan() {
                 return Err("cannot convert NaN to int".to_string());
@@ -42,14 +42,14 @@ pub fn function_val_int(args: &[Value]) -> Result<Value, String> {
             let int_str = format!("{truncated:.0}");
             int_str
                 .parse::<i64>()
-                .map(Value::Int)
+                .map(Value::int)
                 .map_err(|_| format!("float {f} out of range for int"))
         }
         Value::Str(s) => s
             .parse::<i64>()
-            .map(Value::Int)
+            .map(Value::int)
             .map_err(|_| format!("cannot parse '{s}' as int")),
-        Value::Bool(b) => Ok(Value::Int(i64::from(*b))),
+        Value::Bool(b) => Ok(Value::int(i64::from(*b))),
         _ => Err(format!("cannot convert {} to int", args[0].type_name())),
     }
 }
@@ -62,13 +62,14 @@ pub fn function_val_float(args: &[Value]) -> Result<Value, String> {
     match &args[0] {
         Value::Float(f) => Ok(Value::Float(*f)),
         Value::Int(n) => {
+            let raw = n.raw();
             // Use i32 for lossless f64 conversion when possible
-            if let Ok(i32_val) = i32::try_from(*n) {
+            if let Ok(i32_val) = i32::try_from(raw) {
                 Ok(Value::Float(f64::from(i32_val)))
             } else {
                 // For larger values, use string parsing to avoid cast warning
                 // This matches "as f64" rounding behavior within f64's precision
-                Ok(Value::Float(format!("{n}").parse().unwrap_or(f64::NAN)))
+                Ok(Value::Float(format!("{raw}").parse().unwrap_or(f64::NAN)))
             }
         }
         Value::Str(s) => s
@@ -85,9 +86,9 @@ pub fn function_val_byte(args: &[Value]) -> Result<Value, String> {
         return Err("byte expects 1 argument".to_string());
     }
     match &args[0] {
-        Value::Int(n) => u8::try_from(*n)
+        Value::Int(n) => u8::try_from(n.raw())
             .map(Value::Byte)
-            .map_err(|_| format!("byte value {n} out of range (0-255)")),
+            .map_err(|_| format!("byte value {} out of range (0-255)", n.raw())),
         Value::Byte(b) => Ok(Value::Byte(*b)),
         Value::Char(c) => u8::try_from(u32::from(*c))
             .map(Value::Byte)
@@ -109,7 +110,7 @@ pub fn function_val_thread_id(args: &[Value]) -> Result<Value, String> {
         .trim_end_matches(')')
         .parse::<i64>()
         .map_err(|_| "failed to parse thread id".to_string())?;
-    Ok(Value::Int(id_num))
+    Ok(Value::int(id_num))
 }
 
 #[cfg(test)]
@@ -124,19 +125,19 @@ mod tests {
         fn int_from_float_basic() {
             assert_eq!(
                 function_val_int(&[Value::Float(3.7)]).unwrap(),
-                Value::Int(3)
+                Value::int(3)
             );
             assert_eq!(
                 function_val_int(&[Value::Float(3.2)]).unwrap(),
-                Value::Int(3)
+                Value::int(3)
             );
             assert_eq!(
                 function_val_int(&[Value::Float(-3.7)]).unwrap(),
-                Value::Int(-3)
+                Value::int(-3)
             );
             assert_eq!(
                 function_val_int(&[Value::Float(-3.2)]).unwrap(),
-                Value::Int(-3)
+                Value::int(-3)
             );
         }
 
@@ -144,23 +145,23 @@ mod tests {
         fn int_from_float_whole_numbers() {
             assert_eq!(
                 function_val_int(&[Value::Float(0.0)]).unwrap(),
-                Value::Int(0)
+                Value::int(0)
             );
             assert_eq!(
                 function_val_int(&[Value::Float(-0.0)]).unwrap(),
-                Value::Int(0)
+                Value::int(0)
             );
             assert_eq!(
                 function_val_int(&[Value::Float(1.0)]).unwrap(),
-                Value::Int(1)
+                Value::int(1)
             );
             assert_eq!(
                 function_val_int(&[Value::Float(-1.0)]).unwrap(),
-                Value::Int(-1)
+                Value::int(-1)
             );
             assert_eq!(
                 function_val_int(&[Value::Float(42.0)]).unwrap(),
-                Value::Int(42)
+                Value::int(42)
             );
         }
 
@@ -168,19 +169,19 @@ mod tests {
         fn int_from_float_near_zero() {
             assert_eq!(
                 function_val_int(&[Value::Float(0.1)]).unwrap(),
-                Value::Int(0)
+                Value::int(0)
             );
             assert_eq!(
                 function_val_int(&[Value::Float(0.9)]).unwrap(),
-                Value::Int(0)
+                Value::int(0)
             );
             assert_eq!(
                 function_val_int(&[Value::Float(-0.1)]).unwrap(),
-                Value::Int(0)
+                Value::int(0)
             );
             assert_eq!(
                 function_val_int(&[Value::Float(-0.9)]).unwrap(),
-                Value::Int(0)
+                Value::int(0)
             );
         }
 
@@ -213,19 +214,19 @@ mod tests {
         fn int_from_string_basic() {
             assert_eq!(
                 function_val_int(&[Value::string("0")]).unwrap(),
-                Value::Int(0)
+                Value::int(0)
             );
             assert_eq!(
                 function_val_int(&[Value::string("1")]).unwrap(),
-                Value::Int(1)
+                Value::int(1)
             );
             assert_eq!(
                 function_val_int(&[Value::string("-1")]).unwrap(),
-                Value::Int(-1)
+                Value::int(-1)
             );
             assert_eq!(
                 function_val_int(&[Value::string("12345")]).unwrap(),
-                Value::Int(12345)
+                Value::int(12345)
             );
         }
 
@@ -233,11 +234,11 @@ mod tests {
         fn int_from_string_boundaries() {
             assert_eq!(
                 function_val_int(&[Value::string("9223372036854775807")]).unwrap(),
-                Value::Int(i64::MAX)
+                Value::int(i64::MAX)
             );
             assert_eq!(
                 function_val_int(&[Value::string("-9223372036854775808")]).unwrap(),
-                Value::Int(i64::MIN)
+                Value::int(i64::MIN)
             );
         }
 
@@ -253,38 +254,38 @@ mod tests {
         fn int_from_bool() {
             assert_eq!(
                 function_val_int(&[Value::Bool(true)]).unwrap(),
-                Value::Int(1)
+                Value::int(1)
             );
             assert_eq!(
                 function_val_int(&[Value::Bool(false)]).unwrap(),
-                Value::Int(0)
+                Value::int(0)
             );
         }
 
         #[test]
         fn int_from_int_identity() {
             assert_eq!(
-                function_val_int(&[Value::Int(0)]).unwrap(),
-                Value::Int(0)
+                function_val_int(&[Value::int(0)]).unwrap(),
+                Value::int(0)
             );
             assert_eq!(
-                function_val_int(&[Value::Int(42)]).unwrap(),
-                Value::Int(42)
+                function_val_int(&[Value::int(42)]).unwrap(),
+                Value::int(42)
             );
             assert_eq!(
-                function_val_int(&[Value::Int(i64::MAX)]).unwrap(),
-                Value::Int(i64::MAX)
+                function_val_int(&[Value::int(i64::MAX)]).unwrap(),
+                Value::int(i64::MAX)
             );
             assert_eq!(
-                function_val_int(&[Value::Int(i64::MIN)]).unwrap(),
-                Value::Int(i64::MIN)
+                function_val_int(&[Value::int(i64::MIN)]).unwrap(),
+                Value::int(i64::MIN)
             );
         }
 
         #[test]
         fn int_wrong_arg_count() {
             assert!(function_val_int(&[]).is_err());
-            assert!(function_val_int(&[Value::Int(1), Value::Int(2)]).is_err());
+            assert!(function_val_int(&[Value::int(1), Value::int(2)]).is_err());
         }
 
         #[test]
@@ -300,19 +301,19 @@ mod tests {
         #[test]
         fn float_from_int_basic() {
             assert_eq!(
-                function_val_float(&[Value::Int(0)]).unwrap(),
+                function_val_float(&[Value::int(0)]).unwrap(),
                 Value::Float(0.0)
             );
             assert_eq!(
-                function_val_float(&[Value::Int(1)]).unwrap(),
+                function_val_float(&[Value::int(1)]).unwrap(),
                 Value::Float(1.0)
             );
             assert_eq!(
-                function_val_float(&[Value::Int(-1)]).unwrap(),
+                function_val_float(&[Value::int(-1)]).unwrap(),
                 Value::Float(-1.0)
             );
             assert_eq!(
-                function_val_float(&[Value::Int(42)]).unwrap(),
+                function_val_float(&[Value::int(42)]).unwrap(),
                 Value::Float(42.0)
             );
         }
@@ -320,12 +321,12 @@ mod tests {
         #[test]
         fn float_from_int_i32_boundaries() {
             assert_eq!(
-                function_val_float(&[Value::Int(i32::MAX as i64)]).unwrap(),
-                Value::Float(i32::MAX as f64)
+                function_val_float(&[Value::int(i64::from(i32::MAX))]).unwrap(),
+                Value::Float(f64::from(i32::MAX))
             );
             assert_eq!(
-                function_val_float(&[Value::Int(i32::MIN as i64)]).unwrap(),
-                Value::Float(i32::MIN as f64)
+                function_val_float(&[Value::int(i64::from(i32::MIN))]).unwrap(),
+                Value::Float(f64::from(i32::MIN))
             );
         }
 
@@ -369,6 +370,7 @@ mod tests {
         }
 
         #[test]
+        #[expect(clippy::approx_constant, reason = "Testing float operations, not using PI")]
         fn float_from_float_identity() {
             assert_eq!(
                 function_val_float(&[Value::Float(0.0)]).unwrap(),
@@ -383,7 +385,7 @@ mod tests {
         #[test]
         fn float_wrong_arg_count() {
             assert!(function_val_float(&[]).is_err());
-            assert!(function_val_float(&[Value::Int(1), Value::Int(2)]).is_err());
+            assert!(function_val_float(&[Value::int(1), Value::int(2)]).is_err());
         }
 
         #[test]
@@ -399,24 +401,25 @@ mod tests {
         #[test]
         fn str_from_int() {
             assert_eq!(
-                function_val_str(&[Value::Int(0)]).unwrap(),
+                function_val_str(&[Value::int(0)]).unwrap(),
                 Value::string("0")
             );
             assert_eq!(
-                function_val_str(&[Value::Int(1)]).unwrap(),
+                function_val_str(&[Value::int(1)]).unwrap(),
                 Value::string("1")
             );
             assert_eq!(
-                function_val_str(&[Value::Int(-1)]).unwrap(),
+                function_val_str(&[Value::int(-1)]).unwrap(),
                 Value::string("-1")
             );
             assert_eq!(
-                function_val_str(&[Value::Int(42)]).unwrap(),
+                function_val_str(&[Value::int(42)]).unwrap(),
                 Value::string("42")
             );
         }
 
         #[test]
+        #[expect(clippy::approx_constant, reason = "Testing float operations, not using PI")]
         fn str_from_float() {
             assert_eq!(
                 function_val_str(&[Value::Float(0.0)]).unwrap(),
@@ -443,7 +446,7 @@ mod tests {
         #[test]
         fn str_wrong_arg_count() {
             assert!(function_val_str(&[]).is_err());
-            assert!(function_val_str(&[Value::Int(1), Value::Int(2)]).is_err());
+            assert!(function_val_str(&[Value::int(1), Value::int(2)]).is_err());
         }
     }
 
@@ -453,28 +456,28 @@ mod tests {
         #[test]
         fn byte_from_int_valid_range() {
             assert_eq!(
-                function_val_byte(&[Value::Int(0)]).unwrap(),
+                function_val_byte(&[Value::int(0)]).unwrap(),
                 Value::Byte(0)
             );
             assert_eq!(
-                function_val_byte(&[Value::Int(1)]).unwrap(),
+                function_val_byte(&[Value::int(1)]).unwrap(),
                 Value::Byte(1)
             );
             assert_eq!(
-                function_val_byte(&[Value::Int(127)]).unwrap(),
+                function_val_byte(&[Value::int(127)]).unwrap(),
                 Value::Byte(127)
             );
             assert_eq!(
-                function_val_byte(&[Value::Int(255)]).unwrap(),
+                function_val_byte(&[Value::int(255)]).unwrap(),
                 Value::Byte(255)
             );
         }
 
         #[test]
         fn byte_from_int_out_of_range() {
-            assert!(function_val_byte(&[Value::Int(-1)]).is_err());
-            assert!(function_val_byte(&[Value::Int(256)]).is_err());
-            assert!(function_val_byte(&[Value::Int(1000)]).is_err());
+            assert!(function_val_byte(&[Value::int(-1)]).is_err());
+            assert!(function_val_byte(&[Value::int(256)]).is_err());
+            assert!(function_val_byte(&[Value::int(1000)]).is_err());
         }
 
         #[test]
@@ -514,7 +517,7 @@ mod tests {
         #[test]
         fn byte_wrong_arg_count() {
             assert!(function_val_byte(&[]).is_err());
-            assert!(function_val_byte(&[Value::Int(1), Value::Int(2)]).is_err());
+            assert!(function_val_byte(&[Value::int(1), Value::int(2)]).is_err());
         }
 
         #[test]

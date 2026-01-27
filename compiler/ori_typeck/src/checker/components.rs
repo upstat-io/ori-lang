@@ -1,10 +1,10 @@
-//! Component structs for TypeChecker organization.
+//! Component structs for `TypeChecker` organization.
 //!
 //! These structs group related fields for better organization and testability.
 //!
 //! # Component Architecture
 //!
-//! TypeChecker is organized into logical components:
+//! `TypeChecker` is organized into logical components:
 //! - `CheckContext`: Immutable references to arena and interner
 //! - `InferenceState`: Mutable inference context, environments, and expression types
 //! - `Registries`: Pattern, type operator, type, and trait registries
@@ -47,7 +47,7 @@ pub struct InferenceState {
     pub env: TypeEnv,
     /// Frozen base environment for child scope creation.
     pub base_env: Option<TypeEnv>,
-    /// Inferred types for expressions (stored as TypeId for efficiency).
+    /// Inferred types for expressions (stored as `TypeId` for efficiency).
     pub expr_types: HashMap<usize, TypeId>,
 }
 
@@ -65,7 +65,7 @@ impl InferenceState {
     /// Create a new inference state with a shared type interner.
     ///
     /// Use this when you need to share the type interner with other code
-    /// (e.g., for tests that need to verify TypeId values).
+    /// (e.g., for tests that need to verify `TypeId` values).
     pub fn with_type_interner(interner: SharedTypeInterner) -> Self {
         Self {
             ctx: InferenceContext::with_interner(interner.clone()),
@@ -165,6 +165,9 @@ pub struct ScopeContext {
     pub current_function_caps: HashSet<Name>,
     /// Capabilities currently provided by `with...in` expressions in scope.
     pub provided_caps: HashSet<Name>,
+    /// The type of the current function being checked.
+    /// Used for patterns like `recurse` that need `self` to have the enclosing function's signature.
+    pub current_function_type: Option<Type>,
 }
 
 impl ScopeContext {
@@ -176,6 +179,7 @@ impl ScopeContext {
             config_types: HashMap::new(),
             current_function_caps: HashSet::new(),
             provided_caps: HashSet::new(),
+            current_function_type: None,
         }
     }
 }

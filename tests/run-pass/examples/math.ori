@@ -1,4 +1,4 @@
-// Math functions in Sigil
+// Math functions in Ori
 
 @add (a: int, b: int) -> int = a + b
 

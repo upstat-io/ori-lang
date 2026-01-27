@@ -148,7 +148,7 @@ fn get_variant_inner_type(
     }
 }
 
-/// Get the field type for a variant, converting TypeId to Type.
+/// Get the field type for a variant, converting `TypeId` to Type.
 fn get_variant_field_type(variant: &VariantDef, registry: &crate::registry::TypeRegistry) -> Type {
     let interner = registry.interner();
     match variant.fields.len() {

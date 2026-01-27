@@ -66,7 +66,7 @@ impl PatternDefinition for SpawnPattern {
             .map(|p| exec.eval(p.value))
             .transpose()?
             .and_then(|v| match v {
-                Value::Int(n) => usize::try_from(n).ok(),
+                Value::Int(n) => usize::try_from(n.raw()).ok(),
                 _ => None,
             });
 

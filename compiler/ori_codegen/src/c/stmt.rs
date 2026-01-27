@@ -38,7 +38,7 @@ pub fn emit_stmt(
     }
 }
 
-/// Emit a let binding from a StmtKind::Let.
+/// Emit a let binding from a `StmtKind::Let`.
 fn emit_let_binding_from_stmt(
     ctx: &mut CodegenContext<'_>,
     arena: &ExprArena,
@@ -450,7 +450,7 @@ fn emit_block(
     ctx.writeln("}");
 }
 
-/// Emit a function_seq (run/try block).
+/// Emit a `function_seq` (run/try block).
 fn emit_function_seq(
     ctx: &mut CodegenContext<'_>,
     arena: &ExprArena,
@@ -500,6 +500,6 @@ mod tests {
     // For now, just verify the module compiles
     #[test]
     fn test_module_compiles() {
-        assert!(true);
+        // Intentionally empty: validates that the module compiles
     }
 }

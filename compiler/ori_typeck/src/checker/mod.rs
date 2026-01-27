@@ -5,7 +5,7 @@
 //! # Module Structure
 //!
 //! - `types`: Output types (`TypedModule`, `FunctionType`, etc.)
-//! - `components`: Component structs for TypeChecker organization
+//! - `components`: Component structs for `TypeChecker` organization
 //! - `scope_guards`: RAII scope guards for context management
 //! - `signatures`: Function signature inference
 //! - `pattern_binding`: Pattern to type binding
@@ -13,12 +13,13 @@
 //! - `type_registration`: User-defined type registration
 //! - `trait_registration`: Trait and impl registration
 //! - `bound_checking`: Trait bound verification
-//! - `builder`: TypeChecker builder pattern
+//! - `builder`: `TypeChecker` builder pattern
 
 mod builder;
 pub mod bound_checking;
 pub mod components;
 mod cycle_detection;
+pub mod imports;
 mod pattern_binding;
 mod scope_guards;
 mod signatures;
@@ -171,9 +172,7 @@ impl<'a> TypeChecker<'a> {
 
         // Build expression types vector with resolved types
         // expr_types already stores TypeId, just need to resolve type variables
-        let interner = self.inference.base_env.as_ref()
-            .map(|env| env.interner())
-            .unwrap_or_else(|| self.inference.env.interner());
+        let interner = self.inference.base_env.as_ref().map_or_else(|| self.inference.env.interner(), ori_types::TypeEnv::interner);
         let max_expr = self.inference.expr_types.keys().max().copied().unwrap_or(0);
         let mut expr_types = vec![interner.error(); max_expr + 1];
         for (id, type_id) in self.inference.expr_types {
@@ -441,7 +440,21 @@ impl<'a> TypeChecker<'a> {
         let old_env = std::mem::replace(&mut self.inference.env, func_env);
 
         // Convert return type from TypeId to Type for unification
-        let return_type = self.inference.env.interner().to_type(func_type.return_type);
+        let interner = self.inference.env.interner();
+        let return_type = interner.to_type(func_type.return_type);
+
+        // Build the current function type for patterns like `recurse` that need `self`
+        let param_types: Vec<Type> = func_type.params.iter()
+            .map(|&id| interner.to_type(id))
+            .collect();
+        let current_fn_type = Type::Function {
+            params: param_types,
+            ret: Box::new(return_type.clone()),
+        };
+
+        // Save and set current function type
+        let old_fn_type = self.scope.current_function_type.take();
+        self.scope.current_function_type = Some(current_fn_type);
 
         // Set current function's capabilities for propagation checking
         let new_caps = func.capabilities.iter().map(|c| c.name).collect();
@@ -456,7 +469,8 @@ impl<'a> TypeChecker<'a> {
             }
         });
 
-        // Restore environment
+        // Restore function type and environment
+        self.scope.current_function_type = old_fn_type;
         self.inference.env = old_env;
     }
 
@@ -644,8 +658,8 @@ impl<'a> TypeChecker<'a> {
 
     /// Store the type for an expression.
     ///
-    /// Converts the Type to TypeId for efficient storage.
-    pub(crate) fn store_type(&mut self, expr_id: ExprId, ty: Type) {
+    /// Converts the Type to `TypeId` for efficient storage.
+    pub(crate) fn store_type(&mut self, expr_id: ExprId, ty: &Type) {
         let type_id = ty.to_type_id(self.inference.ctx.interner());
         self.inference.expr_types.insert(expr_id.index(), type_id);
     }
@@ -653,7 +667,7 @@ impl<'a> TypeChecker<'a> {
     /// Push a type check error with the given message, span, and error code.
     ///
     /// This is a convenience method for the common pattern of creating
-    /// and pushing a TypeCheckError to the diagnostics list.
+    /// and pushing a `TypeCheckError` to the diagnostics list.
     #[inline]
     pub(crate) fn push_error(&mut self, msg: impl Into<String>, span: Span, code: ori_diagnostic::ErrorCode) {
         self.diagnostics.errors.push(TypeCheckError {
@@ -703,7 +717,7 @@ mod tests {
     use ori_ir::SharedInterner;
     use ori_types::SharedTypeInterner;
 
-    /// Result of check_source including the type interner for verifying compound types.
+    /// Result of `check_source` including the type interner for verifying compound types.
     struct CheckResult {
         parsed: ori_parse::ParseResult,
         typed: TypedModule,
@@ -789,7 +803,7 @@ mod tests {
             TypeData::List(elem_id) => {
                 assert_eq!(elem_id, TypeId::INT, "List element should be int");
             }
-            _ => panic!("Expected List type, got {:?}", type_data),
+            _ => panic!("Expected List type, got {type_data:?}"),
         }
     }
 
@@ -800,6 +814,32 @@ mod tests {
         assert!(typed.has_errors());
         assert!(typed.errors[0].message.contains("type mismatch") ||
                 typed.errors[0].message.contains("expected"));
+    }
+
+    #[test]
+    fn test_let_type_annotation_mismatch() {
+        // Simpler test - just the let binding
+        let source = r#"@main () -> void = let x: int = "hello""#;
+        let (parsed, typed) = check_source(source);
+
+        eprintln!("Parse errors: {:?}", parsed.errors);
+        eprintln!("Type errors: {:?}", typed.errors);
+        assert!(typed.has_errors(), "Should have type error for let x: int = \"hello\"");
+    }
+
+    #[test]
+    fn test_let_type_annotation_mismatch_in_run() {
+        // Test inside run pattern - with void return
+        let source = r#"@main () -> void = run(let x: int = "hello", ())"#;
+        let (parsed, typed) = check_source(source);
+
+        eprintln!("Parse errors: {:?}", parsed.errors);
+        eprintln!("Type errors: {:?}", typed.errors);
+        // Should catch the int/str mismatch, not just return type
+        let has_int_str_error = typed.errors.iter().any(|e|
+            e.message.contains("int") && e.message.contains("str")
+        );
+        assert!(has_int_str_error, "Should have type error for let x: int = \"hello\" inside run");
     }
 
     #[test]
@@ -871,44 +911,44 @@ mod tests {
                 assert_eq!(elem_ids[1], TypeId::BOOL, "Second element should be bool");
                 assert_eq!(elem_ids[2], TypeId::STR, "Third element should be str");
             }
-            _ => panic!("Expected Tuple type, got {:?}", type_data),
+            _ => panic!("Expected Tuple type, got {type_data:?}"),
         }
     }
 
     #[test]
     fn test_nested_if_type() {
-        let (_, typed) = check_source(r#"
+        let (_, typed) = check_source(r"
             @test (x: int) -> int =
                 if x > 0 then
                     if x > 10 then 100 else 10
                 else
                     0
-        "#);
+        ");
 
         assert!(!typed.has_errors());
     }
 
     #[test]
     fn test_run_pattern_type() {
-        let (_, typed) = check_source(r#"
+        let (_, typed) = check_source(r"
             @test () -> int = run(
                 let x: int = 1,
                 let y: int = 2,
                 x + y
             )
-        "#);
+        ");
 
         assert!(!typed.has_errors());
     }
 
     #[test]
     fn test_closure_self_capture_direct() {
-        let (_, typed) = check_source(r#"
+        let (_, typed) = check_source(r"
             @test () -> int = run(
                 let f = () -> f,
                 0
             )
-        "#);
+        ");
 
         assert!(typed.has_errors());
         assert!(typed.errors.iter().any(|e|
@@ -919,12 +959,12 @@ mod tests {
 
     #[test]
     fn test_closure_self_capture_call() {
-        let (_, typed) = check_source(r#"
+        let (_, typed) = check_source(r"
             @test () -> int = run(
                 let f = (x: int) -> f(x + 1),
                 0
             )
-        "#);
+        ");
 
         assert!(typed.has_errors());
         assert!(typed.errors.iter().any(|e|
@@ -934,13 +974,13 @@ mod tests {
 
     #[test]
     fn test_no_self_capture_uses_outer_binding() {
-        let (_, typed) = check_source(r#"
+        let (_, typed) = check_source(r"
             @test () -> int = run(
                 let f = 42,
                 let g = () -> f,
                 g()
             )
-        "#);
+        ");
 
         assert!(!typed.errors.iter().any(|e|
             e.code == ori_diagnostic::ErrorCode::E2007
@@ -949,24 +989,24 @@ mod tests {
 
     #[test]
     fn test_no_self_capture_non_lambda() {
-        let (_, typed) = check_source(r#"
+        let (_, typed) = check_source(r"
             @test () -> int = run(
                 let x = 1 + 2,
                 x
             )
-        "#);
+        ");
 
         assert!(!typed.has_errors());
     }
 
     #[test]
     fn test_closure_self_capture_in_run() {
-        let (_, typed) = check_source(r#"
+        let (_, typed) = check_source(r"
             @test () -> int = run(
                 let f = () -> f,
                 0
             )
-        "#);
+        ");
 
         assert!(typed.has_errors());
         assert!(typed.errors.iter().any(|e|
@@ -976,12 +1016,12 @@ mod tests {
 
     #[test]
     fn test_closure_self_capture_nested_expression() {
-        let (_, typed) = check_source(r#"
+        let (_, typed) = check_source(r"
             @test () -> int = run(
                 let f = () -> if true then f else f,
                 0
             )
-        "#);
+        ");
 
         assert!(typed.has_errors());
         assert!(typed.errors.iter().any(|e|
@@ -991,13 +1031,13 @@ mod tests {
 
     #[test]
     fn test_valid_mutual_recursion_via_outer_scope() {
-        let (_, typed) = check_source(r#"
+        let (_, typed) = check_source(r"
             @f (x: int) -> int = x
             @test () -> int = run(
                 let g = (x: int) -> @f(x),
                 g(1)
             )
-        "#);
+        ");
 
         assert!(!typed.errors.iter().any(|e|
             e.code == ori_diagnostic::ErrorCode::E2007
@@ -1039,7 +1079,7 @@ mod tests {
         let id_name = interner.intern("UserId");
         let type_id = checker.registries.types.register_alias(
             id_name,
-            Type::Int,
+            &Type::Int,
             ori_ir::Span::new(0, 0),
             vec![],
         );

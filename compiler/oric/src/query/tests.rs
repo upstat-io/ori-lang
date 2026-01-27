@@ -566,9 +566,7 @@ fn test_evaluated_list() {
 
     let result = evaluated(&db, file);
 
-    if result.is_failure() {
-        panic!("Evaluation failed: {:?}", result.error);
-    }
+    assert!(!result.is_failure(), "Evaluation failed: {:?}", result.error);
 
     assert_eq!(
         result.result,
@@ -671,11 +669,11 @@ fn test_evaluated_run_pattern() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        r#"@main () -> int = run(
+        r"@main () -> int = run(
             let x: int = 1,
             let y: int = 2,
             x + y
-        )"#.to_string(),
+        )".to_string(),
     );
 
     let result = evaluated(&db, file);
@@ -697,18 +695,18 @@ fn test_evaluated_recurse_pattern() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        r#"@main () -> int = recurse(
+        r"@main () -> int = recurse(
             condition: true,
             base: 42,
             step: self()
-        )"#.to_string(),
+        )".to_string(),
     );
 
     // Debug: print parse errors
     let parsed = parsed(&db, file);
     if !parsed.errors.is_empty() {
         for err in &parsed.errors {
-            eprintln!("Parse error: {:?}", err);
+            eprintln!("Parse error: {err:?}");
         }
     }
 

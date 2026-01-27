@@ -373,7 +373,7 @@ mod tests {
 
         match registry.check(&mut ctx, &interner, BinaryOp::Add, &Type::Int, &Type::Int, span) {
             TypeOpResult::Ok(ty) => assert_eq!(ty, Type::Int),
-            TypeOpResult::Err(e) => panic!("unexpected error: {:?}", e),
+            TypeOpResult::Err(e) => panic!("unexpected error: {e:?}"),
         }
     }
 
@@ -386,7 +386,7 @@ mod tests {
 
         match registry.check(&mut ctx, &interner, BinaryOp::Mul, &Type::Float, &Type::Float, span) {
             TypeOpResult::Ok(ty) => assert_eq!(ty, Type::Float),
-            TypeOpResult::Err(e) => panic!("unexpected error: {:?}", e),
+            TypeOpResult::Err(e) => panic!("unexpected error: {e:?}"),
         }
     }
 
@@ -399,7 +399,7 @@ mod tests {
 
         match registry.check(&mut ctx, &interner, BinaryOp::Add, &Type::Str, &Type::Str, span) {
             TypeOpResult::Ok(ty) => assert_eq!(ty, Type::Str),
-            TypeOpResult::Err(e) => panic!("unexpected error: {:?}", e),
+            TypeOpResult::Err(e) => panic!("unexpected error: {e:?}"),
         }
     }
 
@@ -412,7 +412,7 @@ mod tests {
 
         match registry.check(&mut ctx, &interner, BinaryOp::Eq, &Type::Int, &Type::Int, span) {
             TypeOpResult::Ok(ty) => assert_eq!(ty, Type::Bool),
-            TypeOpResult::Err(e) => panic!("unexpected error: {:?}", e),
+            TypeOpResult::Err(e) => panic!("unexpected error: {e:?}"),
         }
     }
 
@@ -425,7 +425,7 @@ mod tests {
 
         match registry.check(&mut ctx, &interner, BinaryOp::And, &Type::Bool, &Type::Bool, span) {
             TypeOpResult::Ok(ty) => assert_eq!(ty, Type::Bool),
-            TypeOpResult::Err(e) => panic!("unexpected error: {:?}", e),
+            TypeOpResult::Err(e) => panic!("unexpected error: {e:?}"),
         }
     }
 
@@ -438,7 +438,7 @@ mod tests {
 
         match registry.check(&mut ctx, &interner, BinaryOp::BitAnd, &Type::Int, &Type::Int, span) {
             TypeOpResult::Ok(ty) => assert_eq!(ty, Type::Int),
-            TypeOpResult::Err(e) => panic!("unexpected error: {:?}", e),
+            TypeOpResult::Err(e) => panic!("unexpected error: {e:?}"),
         }
     }
 
@@ -451,7 +451,7 @@ mod tests {
 
         match registry.check(&mut ctx, &interner, BinaryOp::Range, &Type::Int, &Type::Int, span) {
             TypeOpResult::Ok(ty) => assert_eq!(ty, Type::Range(Box::new(Type::Int))),
-            TypeOpResult::Err(e) => panic!("unexpected error: {:?}", e),
+            TypeOpResult::Err(e) => panic!("unexpected error: {e:?}"),
         }
     }
 
@@ -465,7 +465,7 @@ mod tests {
         let option_int = Type::Option(Box::new(Type::Int));
         match registry.check(&mut ctx, &interner, BinaryOp::Coalesce, &option_int, &Type::Int, span) {
             TypeOpResult::Ok(ty) => assert_eq!(ty, Type::Int),
-            TypeOpResult::Err(e) => panic!("unexpected error: {:?}", e),
+            TypeOpResult::Err(e) => panic!("unexpected error: {e:?}"),
         }
     }
 

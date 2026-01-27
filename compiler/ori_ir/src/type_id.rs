@@ -24,7 +24,7 @@ use std::hash::{Hash, Hasher};
 /// # Pre-interned Types
 /// Primitive types are pre-interned in shard 0 with fixed local indices:
 /// - INT, FLOAT, BOOL, STR, CHAR, BYTE, VOID, NEVER
-/// - INFER and SELF_TYPE are special markers
+/// - INFER and `SELF_TYPE` are special markers
 #[derive(Copy, Clone, Eq, PartialEq)]
 #[repr(transparent)]
 pub struct TypeId(u32);
@@ -57,7 +57,7 @@ impl TypeId {
         TypeId(index)
     }
 
-    /// Create a TypeId from shard and local index.
+    /// Create a `TypeId` from shard and local index.
     ///
     /// # Layout
     /// The shard occupies bits 31-28 (4 bits), and the local index
@@ -93,7 +93,7 @@ impl TypeId {
         TypeId(raw)
     }
 
-    /// Get the raw index (legacy API, same as raw()).
+    /// Get the raw index (legacy API, same as `raw()`).
     #[inline]
     pub const fn index(self) -> u32 {
         self.0
@@ -230,8 +230,8 @@ mod tests {
         ];
 
         for (i, &prim) in primitives.iter().enumerate() {
-            assert_eq!(prim.shard(), 0, "Primitive at index {} not in shard 0", i);
-            assert_eq!(prim.local(), i, "Primitive at index {} has wrong local", i);
+            assert_eq!(prim.shard(), 0, "Primitive at index {i} not in shard 0");
+            assert_eq!(prim.local(), i, "Primitive at index {i} has wrong local");
         }
     }
 }

@@ -1,6 +1,6 @@
 //! Semantic problem rendering.
 //!
-//! Renders SemanticProblem variants into user-facing Diagnostic messages.
+//! Renders `SemanticProblem` variants into user-facing Diagnostic messages.
 
 use crate::diagnostic::{Diagnostic, ErrorCode};
 use crate::problem::SemanticProblem;

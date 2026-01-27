@@ -1,3 +1,4 @@
+#![deny(clippy::arithmetic_side_effects)]
 //! Ori Patterns - Pattern system for the Ori compiler.
 //!
 //! This crate provides:
@@ -47,14 +48,14 @@ pub use errors::{EvalError, EvalResult};
 pub use fusion::{ChainLink, FusedPattern, FusionAnalyzer, FusionHints, PatternChain};
 pub use registry::{PatternRegistry, SharedPattern};
 pub use signature::{DefaultValue, FunctionSignature, OptionalArg, PatternSignature};
-pub use value::{FunctionValFn, FunctionValue, Heap, RangeValue, StringLookup, StructLayout, StructValue, Value};
+pub use value::{FunctionValFn, FunctionValue, Heap, MemoizedFunctionValue, RangeValue, ScalarInt, StringLookup, StructLayout, StructValue, Value};
 
 // Note: ScopedBinding and ScopedBindingType are defined later in this file and auto-exported
 
 // Re-export error constructors for use by other crates
 pub use errors::{
     // Binary operation errors
-    binary_type_mismatch, division_by_zero, invalid_binary_op, modulo_by_zero,
+    binary_type_mismatch, division_by_zero, integer_overflow, invalid_binary_op, modulo_by_zero,
     // Method call errors
     no_such_method, wrong_arg_count, wrong_arg_type,
     // Variable and function errors
@@ -266,7 +267,7 @@ impl Iterable {
             Iterable::Range(range) => {
                 let mut results = Vec::new();
                 for i in range.iter() {
-                    let result = exec.call(func.clone(), vec![Value::Int(i)])?;
+                    let result = exec.call(func.clone(), vec![Value::int(i)])?;
                     results.push(result);
                 }
                 Ok(Value::list(results))
@@ -290,7 +291,7 @@ impl Iterable {
             Iterable::Range(range) => {
                 let mut results = Vec::new();
                 for i in range.iter() {
-                    let val = Value::Int(i);
+                    let val = Value::int(i);
                     let keep = exec.call(func.clone(), vec![val.clone()])?;
                     if keep.is_truthy() {
                         results.push(val);
@@ -317,7 +318,7 @@ impl Iterable {
             }
             Iterable::Range(range) => {
                 for i in range.iter() {
-                    acc = exec.call(func.clone(), vec![acc, Value::Int(i)])?;
+                    acc = exec.call(func.clone(), vec![acc, Value::int(i)])?;
                 }
                 Ok(acc)
             }
@@ -344,7 +345,7 @@ impl Iterable {
             }
             Iterable::Range(range) => {
                 for i in range.iter() {
-                    let val = Value::Int(i);
+                    let val = Value::int(i);
                     let matches = exec.call(func.clone(), vec![val.clone()])?;
                     if matches.is_truthy() {
                         return Ok(Some(val));
@@ -375,6 +376,26 @@ pub trait PatternExecutor {
 
     /// Call a function value with the given arguments.
     fn call(&mut self, func: Value, args: Vec<Value>) -> EvalResult;
+
+    /// Look up a capability from the environment.
+    ///
+    /// Used by patterns that need to access capabilities like Print.
+    fn lookup_capability(&self, name: &str) -> Option<Value>;
+
+    /// Call a method on a value.
+    ///
+    /// Used by patterns to invoke capability methods.
+    fn call_method(&mut self, receiver: Value, method: &str, args: Vec<Value>) -> EvalResult;
+
+    /// Look up a variable in the current scope.
+    ///
+    /// Returns `None` if the variable is not defined.
+    fn lookup_var(&self, name: &str) -> Option<Value>;
+
+    /// Bind a variable in the current scope.
+    ///
+    /// Used by patterns to introduce scoped bindings during evaluation.
+    fn bind_var(&mut self, name: &str, value: Value);
 }
 
 // Focused Pattern Traits (ISP Compliance)
@@ -448,6 +469,9 @@ pub enum ScopedBindingType {
     SameAs(&'static str),
     /// The binding is a zero-argument function returning the same type as another property.
     FunctionReturning(&'static str),
+    /// The binding is a function with the same signature as the enclosing function.
+    /// Used for `self` in `recurse` pattern to enable recursive calls with arguments.
+    EnclosingFunction,
 }
 
 /// Trait defining a pattern's behavior across compilation phases.

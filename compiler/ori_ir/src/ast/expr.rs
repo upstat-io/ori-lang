@@ -264,11 +264,11 @@ pub enum ExprKind {
         value: ExprId,
     },
 
-    /// Capability provision: with Http = RealHttp { ... } in body
+    /// Capability provision: with Http = `RealHttp` { ... } in body
     WithCapability {
         /// The capability name (e.g., Http)
         capability: Name,
-        /// The provider expression (e.g., RealHttp { base_url: "..." })
+        /// The provider expression (e.g., `RealHttp` { `base_url`: "..." })
         provider: ExprId,
         /// The body expression where the capability is in scope
         body: ExprId,

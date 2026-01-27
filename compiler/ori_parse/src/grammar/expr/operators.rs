@@ -96,6 +96,7 @@ impl Parser<'_> {
         match self.current_kind() {
             TokenKind::Print => Some(FunctionExpKind::Print),
             TokenKind::Panic => Some(FunctionExpKind::Panic),
+            TokenKind::Catch => Some(FunctionExpKind::Catch),
             _ => None,
         }
     }

@@ -5,8 +5,8 @@
 use ori_types::Type;
 
 use crate::{
-    DefaultValue, EvalContext, EvalResult, OptionalArg, PatternDefinition, PatternExecutor,
-    ScopedBinding, ScopedBindingType, TypeCheckContext,
+    DefaultValue, EvalContext, EvalResult, MemoizedFunctionValue, OptionalArg, PatternDefinition,
+    PatternExecutor, ScopedBinding, ScopedBindingType, TypeCheckContext, Value,
 };
 
 /// The `recurse` pattern enables conditional recursion with optional memoization.
@@ -49,13 +49,13 @@ impl PatternDefinition for RecursePattern {
     }
 
     fn scoped_bindings(&self) -> &'static [ScopedBinding] {
-        // `self` is a zero-argument function that returns the same type as `base`
-        // It's available when type-checking the `step` property
+        // `self` is a function with the same signature as the enclosing function.
+        // This enables recursive calls like `self(n - 1)` in the `step` property.
         static BINDINGS: [ScopedBinding; 1] = [
             ScopedBinding {
                 name: "self",
                 for_props: &["step"],
-                type_from: ScopedBindingType::FunctionReturning("base"),
+                type_from: ScopedBindingType::EnclosingFunction,
             },
         ];
         &BINDINGS
@@ -64,6 +64,20 @@ impl PatternDefinition for RecursePattern {
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
         let base_expr = ctx.get_prop("base")?;
         let step_expr = ctx.get_prop("step")?;
+
+        // Check if memoization is enabled
+        let memo_enabled = ctx
+            .eval_prop_opt("memo", exec)?
+            .is_some_and(|v| v.is_truthy());
+
+        // If memo is enabled, wrap `self` in a memoized function
+        if memo_enabled {
+            if let Some(Value::Function(f)) = exec.lookup_var("self") {
+                // Create memoized wrapper and rebind `self`
+                let memoized = Value::MemoizedFunction(MemoizedFunctionValue::new(f));
+                exec.bind_var("self", memoized);
+            }
+        }
 
         let cond_val = ctx.eval_prop("condition", exec)?;
 

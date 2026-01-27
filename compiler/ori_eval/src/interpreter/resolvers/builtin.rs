@@ -1,17 +1,17 @@
 //! Built-in method resolver.
 //!
-//! Resolves methods from the MethodRegistry (built-in methods on primitive types).
+//! Resolves methods from the `MethodRegistry` (built-in methods on primitive types).
 
 use ori_ir::Name;
 use super::{MethodResolution, MethodResolver, Value};
 
-/// Resolver for built-in methods from MethodRegistry.
+/// Resolver for built-in methods from `MethodRegistry`.
 ///
 /// Priority 2 (lowest) - built-in methods are the fallback when no other
 /// resolver handles the method.
 ///
 /// This resolver always returns `Builtin` for any method, delegating
-/// the actual lookup to the MethodRegistry. If the method doesn't exist,
+/// the actual lookup to the `MethodRegistry`. If the method doesn't exist,
 /// the registry will return an appropriate error.
 pub struct BuiltinMethodResolver;
 
@@ -66,7 +66,7 @@ mod tests {
         let len_method = interner.intern("len");
 
         // Any method on any type returns Builtin
-        let result = resolver.resolve(&Value::Int(42), int_type, abs_method);
+        let result = resolver.resolve(&Value::int(42), int_type, abs_method);
         assert!(matches!(result, MethodResolution::Builtin));
 
         let result = resolver.resolve(&Value::string("hello"), str_type, len_method);

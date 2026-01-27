@@ -27,6 +27,13 @@ trait FileSystem {
     @read (path: str) -> Result<str, Error>
     @write (path: str, content: str) -> Result<void, Error>
 }
+
+trait Print {
+    @print (msg: str) -> void
+    @println (msg: str) -> void
+    @output () -> str
+    @clear () -> void
+}
 ```
 
 ## Async Capability
@@ -84,9 +91,20 @@ Capabilities propagate: if A calls B with capability C, A must declare or provid
 | `Cache` | Caching | May |
 | `Clock` | Time | No |
 | `Random` | RNG | No |
-| `Logger` | Logging | No |
+| `Print` | Standard output | No |
+| `Logger` | Structured logging | No |
 | `Env` | Environment | No |
 | `Async` | Suspension marker | Yes |
+
+## Default Capabilities
+
+`Print` has a default implementation. Programs may use `print` without declaring `uses Print`:
+
+```ori
+@main () -> void = print(msg: "Hello, World!")
+```
+
+The default is `StdoutPrint` for native execution, `BufferPrint` for WASM.
 
 ## Testing
 

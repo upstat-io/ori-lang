@@ -7,11 +7,14 @@
 //! - `#[derive(Printable)]` -> `to_string` method
 //! - `#[derive(Default)]` -> `default` method
 
-use ori_eval::{DerivedMethodInfo, DerivedTrait, default_requires_type_context, wrong_function_args};
-use super::{Evaluator, EvalResult};
-use super::super::value::Value;
+use crate::{
+    Value, EvalResult,
+    DerivedMethodInfo, DerivedTrait,
+    default_requires_type_context, wrong_function_args,
+};
+use super::Interpreter;
 
-impl Evaluator<'_> {
+impl Interpreter<'_> {
     /// Evaluate a derived method (from `#[derive(...)]`).
     ///
     /// These methods operate directly on struct field values rather than
@@ -34,6 +37,8 @@ impl Evaluator<'_> {
     /// Evaluate derived `eq` method for structs.
     ///
     /// Compares each field recursively.
+    #[expect(clippy::unused_self, reason = "Method on Interpreter for organizational consistency with other derived methods")]
+    #[expect(clippy::needless_pass_by_value, reason = "Consistent derived method dispatch signature")]
     fn eval_derived_eq(
         &self,
         receiver: Value,
@@ -48,9 +53,8 @@ impl Evaluator<'_> {
         let other = &args[0];
 
         // Both must be structs
-        let (self_struct, other_struct) = match (&receiver, other) {
-            (Value::Struct(s), Value::Struct(o)) => (s, o),
-            _ => return Ok(Value::Bool(false)), // Different types are not equal
+        let (Value::Struct(self_struct), Value::Struct(other_struct)) = (&receiver, other) else {
+            return Ok(Value::Bool(false)); // Different types are not equal
         };
 
         // Must be the same type
@@ -79,10 +83,11 @@ impl Evaluator<'_> {
     /// Evaluate derived `clone` method for structs.
     ///
     /// Creates a deep copy of the struct.
+    #[expect(clippy::unused_self, reason = "Method on Interpreter for organizational consistency with other derived methods")]
+    #[expect(clippy::unnecessary_wraps, reason = "Returns EvalResult for consistent derived method dispatch interface")]
     fn eval_derived_clone(&self, receiver: Value, _info: &DerivedMethodInfo) -> EvalResult {
-        let struct_val = match receiver {
-            Value::Struct(s) => s,
-            _ => return Ok(receiver.clone()), // Non-structs just clone directly
+        let Value::Struct(struct_val) = receiver else {
+            return Ok(receiver.clone()); // Non-structs just clone directly
         };
 
         // Clone the struct (Value::Struct already uses Arc for cheap cloning)
@@ -94,18 +99,18 @@ impl Evaluator<'_> {
     /// Evaluate derived `hash` method for structs.
     ///
     /// Combines hashes of all fields.
+    #[expect(clippy::needless_pass_by_value, reason = "Consistent derived method dispatch signature")]
+    #[expect(clippy::unnecessary_wraps, reason = "Returns EvalResult for consistent derived method dispatch interface")]
+    #[expect(clippy::cast_possible_wrap, reason = "Hash values are opaque identifiers; wrapping is acceptable")]
     fn eval_derived_hash(&self, receiver: Value, info: &DerivedMethodInfo) -> EvalResult {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
-        let struct_val = match &receiver {
-            Value::Struct(s) => s,
-            _ => {
-                // For non-structs, use a simple hash
-                let mut hasher = DefaultHasher::new();
-                receiver.type_name().hash(&mut hasher);
-                return Ok(Value::Int(hasher.finish() as i64));
-            }
+        let Value::Struct(struct_val) = &receiver else {
+            // For non-structs, use a simple hash
+            let mut hasher = DefaultHasher::new();
+            receiver.type_name().hash(&mut hasher);
+            return Ok(Value::int(hasher.finish() as i64));
         };
 
         let mut hasher = DefaultHasher::new();
@@ -120,16 +125,17 @@ impl Evaluator<'_> {
             }
         }
 
-        Ok(Value::Int(hasher.finish() as i64))
+        Ok(Value::int(hasher.finish() as i64))
     }
 
     /// Evaluate derived `to_string` method for structs.
     ///
     /// Produces a string representation like "Point { x: 10, y: 20 }".
+    #[expect(clippy::needless_pass_by_value, reason = "Consistent derived method dispatch signature")]
+    #[expect(clippy::unnecessary_wraps, reason = "Returns EvalResult for consistent derived method dispatch interface")]
     fn eval_derived_to_string(&self, receiver: Value, info: &DerivedMethodInfo) -> EvalResult {
-        let struct_val = match &receiver {
-            Value::Struct(s) => s,
-            _ => return Ok(Value::string(format!("{receiver}"))),
+        let Value::Struct(struct_val) = &receiver else {
+            return Ok(Value::string(format!("{receiver}")));
         };
 
         let type_name = self.interner.lookup(struct_val.type_name);
@@ -151,6 +157,7 @@ impl Evaluator<'_> {
     /// Returns the default value for the type.
     /// Note: This is currently a stub - a proper implementation would need
     /// to recursively default-construct each field.
+    #[expect(clippy::unused_self, reason = "Method on Interpreter for organizational consistency with other derived methods")]
     fn eval_derived_default(&self, _info: &DerivedMethodInfo) -> EvalResult {
         // Default is a static method that doesn't take self.
         // For now, return an error since we'd need type information

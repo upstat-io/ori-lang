@@ -1,12 +1,12 @@
 #!/bin/sh
-# Sigil installer script
-# Usage: curl -sSf https://raw.githubusercontent.com/upstat-io/sigil-lang/master/install.sh | sh
+# Ori installer script
+# Usage: curl -sSf https://raw.githubusercontent.com/upstat-io/ori-lang/master/install.sh | sh
 
 set -e
 
-REPO="upstat-io/sigil-lang"
-INSTALL_DIR="${SIGIL_INSTALL_DIR:-$HOME/.local/bin}"
-BINARY_NAME="sigil"
+REPO="upstat-io/ori-lang"
+INSTALL_DIR="${ORI_INSTALL_DIR:-$HOME/.local/bin}"
+BINARY_NAME="ori"
 
 # Colors for output
 RED='\033[0;31m'
@@ -72,7 +72,7 @@ download() {
 }
 
 main() {
-    info "Installing Sigil..."
+    info "Installing Ori..."
 
     OS=$(detect_os)
     ARCH=$(detect_arch)
@@ -90,11 +90,11 @@ main() {
     info "Latest version: $VERSION"
 
     # Construct download URL
-    # Binary naming: sigil-{version}-{os}-{arch}.tar.gz (or .zip for Windows)
+    # Binary naming: ori-{version}-{os}-{arch}.tar.gz (or .zip for Windows)
     if [ "$OS" = "windows" ]; then
-        ARCHIVE_NAME="sigil-${VERSION}-${OS}-${ARCH}.zip"
+        ARCHIVE_NAME="ori-${VERSION}-${OS}-${ARCH}.zip"
     else
-        ARCHIVE_NAME="sigil-${VERSION}-${OS}-${ARCH}.tar.gz"
+        ARCHIVE_NAME="ori-${VERSION}-${OS}-${ARCH}.tar.gz"
     fi
 
     DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE_NAME}"
@@ -138,7 +138,7 @@ main() {
     mv "$BINARY_PATH" "$INSTALLED_PATH"
     chmod +x "$INSTALLED_PATH"
 
-    info "Installed sigil to ${INSTALLED_PATH}"
+    info "Installed ori to ${INSTALLED_PATH}"
 
     # Check if install directory is in PATH
     case ":$PATH:" in
@@ -164,10 +164,10 @@ main() {
     # Verify installation
     if [ -x "$INSTALLED_PATH" ]; then
         echo ""
-        info "Sigil ${VERSION} installed successfully!"
+        info "Ori ${VERSION} installed successfully!"
         echo ""
         echo "Get started:"
-        echo "  sigil --help"
+        echo "  ori --help"
         echo ""
     else
         error "Installation verification failed"

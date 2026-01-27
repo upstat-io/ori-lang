@@ -1,0 +1,70 @@
+// Spec: 20-errors-and-panics.md § Catching Panics
+// Spec: 10-patterns.md § catch
+
+// =============================================================================
+// catch — Panic Recovery
+// =============================================================================
+
+// catch returns Ok when expression succeeds
+@test_catch_success tests @catch_success () -> void = run(
+    let result = catch(expr: 42),
+    assert(cond: is_ok(res: result)),
+)
+
+@catch_success () -> int = 42
+
+// catch returns Err when expression panics
+@test_catch_panic tests @catch_panic () -> void = run(
+    let result = catch(expr: panic(msg: "test error")),
+    assert(cond: is_err(res: result)),
+)
+
+@catch_panic () -> int = run(
+    let result = catch(expr: panic(msg: "test error")),
+    if is_err(res: result) then 1 else 0,
+)
+
+// catch captures panic message
+@test_catch_message tests @catch_message () -> void = run(
+    let result = catch(expr: panic(msg: "specific error")),
+    match(result,
+        Err(msg) -> assert_eq(
+            actual: msg,
+            expected: "panic: specific error",
+        ),
+        Ok(_) -> panic(msg: "expected Err"),
+    )
+)
+
+@catch_message () -> str = run(
+    let result = catch(expr: panic(msg: "specific error")),
+    match(result,
+        Err(msg) -> msg,
+        Ok(_) -> "no error",
+    )
+)
+
+// catch captures division by zero
+@test_catch_div_zero tests @catch_div_zero () -> void = run(
+    let result = catch(expr: 1 / 0),
+    assert(cond: is_err(res: result)),
+)
+
+@catch_div_zero () -> int = run(
+    let result = catch(expr: 1 / 0),
+    if is_err(res: result) then 1 else 0,
+)
+
+// catch wraps successful value in Ok
+@test_catch_ok_value tests @catch_ok_value () -> void = run(
+    let result = catch(expr: 10 + 20),
+    match(result,
+        Ok(v) -> assert_eq(
+            actual: v,
+            expected: 30,
+        ),
+        Err(_) -> panic(msg: "expected Ok"),
+    )
+)
+
+@catch_ok_value () -> int = 10 + 20

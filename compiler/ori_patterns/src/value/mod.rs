@@ -10,7 +10,7 @@
 //! ```ignore
 //! let s = Value::string("hello");        // OK
 //! let list = Value::list(vec![]);        // OK
-//! let opt = Value::some(Value::Int(42)); // OK
+//! let opt = Value::some(Value::int(42)); // OK
 //! ```
 //!
 //! ## Prevented (Won't Compile)
@@ -27,6 +27,7 @@
 
 mod composite;
 mod heap;
+mod scalar_int;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -35,8 +36,9 @@ use std::fmt;
 // Re-export StringLookup from ori_ir for convenience
 pub use ori_ir::StringLookup;
 
-pub use composite::{FunctionValue, RangeValue, StructLayout, StructValue};
+pub use composite::{FunctionValue, MemoizedFunctionValue, RangeValue, StructLayout, StructValue};
 pub use heap::Heap;
+pub use scalar_int::ScalarInt;
 
 /// Type conversion function signature.
 ///
@@ -49,8 +51,8 @@ pub type FunctionValFn = fn(&[Value]) -> Result<Value, String>;
 pub enum Value {
     // Primitives (inline, no heap allocation)
 
-    /// Integer value.
-    Int(i64),
+    /// Integer value (uses `ScalarInt` to prevent unchecked arithmetic).
+    Int(ScalarInt),
     /// Floating-point value.
     Float(f64),
     /// Boolean value.
@@ -94,6 +96,11 @@ pub enum Value {
     Struct(StructValue),
     /// Function value (closure).
     Function(FunctionValue),
+    /// Memoized function value (closure with result caching).
+    ///
+    /// Used by the `recurse` pattern with `memo: true` to cache results
+    /// of recursive calls, enabling efficient algorithms like memoized Fibonacci.
+    MemoizedFunction(MemoizedFunctionValue),
     /// Type conversion function (`function_val`).
     /// Examples: int(x), str(x), float(x), byte(x)
     FunctionVal(FunctionValFn, &'static str),
@@ -109,6 +116,15 @@ pub enum Value {
 // Factory Methods (ONLY way to construct heap values)
 
 impl Value {
+    /// Create an integer value from a raw `i64`.
+    ///
+    /// This is the preferred way to construct `Value::Int` — it wraps the
+    /// raw integer in `ScalarInt` automatically.
+    #[inline]
+    pub fn int(n: i64) -> Self {
+        Value::Int(ScalarInt::new(n))
+    }
+
     /// Create a string value.
     ///
     /// # Example
@@ -126,7 +142,7 @@ impl Value {
     /// # Example
     /// ```ignore
     /// let empty = Value::list(vec![]);
-    /// let nums = Value::list(vec![Value::Int(1), Value::Int(2)]);
+    /// let nums = Value::list(vec![Value::int(1), Value::int(2)]);
     /// ```
     #[inline]
     pub fn list(items: Vec<Value>) -> Self {
@@ -148,7 +164,7 @@ impl Value {
     ///
     /// # Example
     /// ```ignore
-    /// let pair = Value::tuple(vec![Value::Int(1), Value::Bool(true)]);
+    /// let pair = Value::tuple(vec![Value::int(1), Value::Bool(true)]);
     /// ```
     #[inline]
     pub fn tuple(items: Vec<Value>) -> Self {
@@ -159,7 +175,7 @@ impl Value {
     ///
     /// # Example
     /// ```ignore
-    /// let some = Value::some(Value::Int(42));
+    /// let some = Value::some(Value::int(42));
     /// ```
     #[inline]
     pub fn some(v: Value) -> Self {
@@ -170,7 +186,7 @@ impl Value {
     ///
     /// # Example
     /// ```ignore
-    /// let ok = Value::ok(Value::Int(42));
+    /// let ok = Value::ok(Value::int(42));
     /// let ok_void = Value::ok(Value::Void);
     /// ```
     #[inline]
@@ -197,7 +213,7 @@ impl Value {
     pub fn is_truthy(&self) -> bool {
         match self {
             Value::Bool(b) => *b,
-            Value::Int(n) => *n != 0,
+            Value::Int(n) => !n.is_zero(),
             Value::Str(s) => !s.is_empty(),
             Value::List(items) => !items.is_empty(),
             Value::None | Value::Err(_) | Value::Void => false,
@@ -208,7 +224,7 @@ impl Value {
     /// Try to convert to an integer.
     pub fn as_int(&self) -> Option<i64> {
         match self {
-            Value::Int(n) => Some(*n),
+            Value::Int(n) => Some(n.raw()),
             _ => None,
         }
     }
@@ -218,12 +234,13 @@ impl Value {
         match self {
             Value::Float(f) => Some(*f),
             Value::Int(n) => {
+                let raw = n.raw();
                 // Use i32 for lossless f64 conversion when possible
-                if let Ok(i32_val) = i32::try_from(*n) {
+                if let Ok(i32_val) = i32::try_from(raw) {
                     Some(f64::from(i32_val))
                 } else {
                     // For larger values, use string parsing to avoid cast warning
-                    Some(format!("{n}").parse().unwrap_or(f64::NAN))
+                    Some(format!("{raw}").parse().unwrap_or(f64::NAN))
                 }
             }
             _ => None,
@@ -270,7 +287,7 @@ impl Value {
             Value::Some(_) | Value::None => "Option",
             Value::Ok(_) | Value::Err(_) => "Result",
             Value::Struct(_) => "struct",
-            Value::Function(_) => "function",
+            Value::Function(_) | Value::MemoizedFunction(_) => "function",
             Value::FunctionVal(_, _) => "function_val",
             Value::Duration(_) => "Duration",
             Value::Size(_) => "Size",
@@ -326,7 +343,7 @@ impl Value {
             Value::Ok(v) => format!("Ok({})", v.display_value()),
             Value::Err(v) => format!("Err({})", v.display_value()),
             Value::Struct(s) => format!("{s:?}"),
-            Value::Function(_) => "<function>".to_string(),
+            Value::Function(_) | Value::MemoizedFunction(_) => "<function>".to_string(),
             Value::FunctionVal(_, name) => format!("<function_val {name}>"),
             Value::Duration(ms) => format!("{ms}ms"),
             Value::Size(bytes) => format!("{bytes}b"),
@@ -378,6 +395,7 @@ impl fmt::Debug for Value {
             Value::Err(v) => write!(f, "Err({:?})", &**v),
             Value::Struct(s) => write!(f, "Struct({s:?})"),
             Value::Function(func) => write!(f, "Function({func:?})"),
+            Value::MemoizedFunction(mf) => write!(f, "MemoizedFunction({mf:?})"),
             Value::FunctionVal(_, name) => write!(f, "FunctionVal({name})"),
             Value::Duration(ms) => write!(f, "Duration({ms}ms)"),
             Value::Size(bytes) => write!(f, "Size({bytes}b)"),
@@ -432,7 +450,7 @@ impl fmt::Display for Value {
             Value::Ok(v) => write!(f, "Ok({})", &**v),
             Value::Err(e) => write!(f, "Err({})", &**e),
             Value::Struct(s) => write!(f, "<struct {:?}>", s.type_name),
-            Value::Function(_) => write!(f, "<function>"),
+            Value::Function(_) | Value::MemoizedFunction(_) => write!(f, "<function>"),
             Value::FunctionVal(_, name) => write!(f, "<function_val {name}>"),
             Value::Duration(ms) => {
                 if *ms >= 1000 {
@@ -478,6 +496,9 @@ impl PartialEq for Value {
             (Value::List(a), Value::List(b)) | (Value::Tuple(a), Value::Tuple(b)) => a == b,
             (Value::Duration(a), Value::Duration(b)) | (Value::Size(a), Value::Size(b)) => a == b,
             (Value::FunctionVal(_, name_a), Value::FunctionVal(_, name_b)) => name_a == name_b,
+            // Functions are equal by body identity
+            (Value::Function(a), Value::Function(b)) => a.body == b.body,
+            (Value::MemoizedFunction(a), Value::MemoizedFunction(b)) => a.func.body == b.func.body,
             (Value::Struct(a), Value::Struct(b)) => {
                 a.type_name == b.type_name
                     && a.fields.iter().zip(b.fields.iter()).all(|(av, bv)| av == bv)
@@ -535,6 +556,10 @@ impl std::hash::Hash for Value {
                 // Hash by function identity (body expression ID)
                 f.body.hash(state);
             }
+            Value::MemoizedFunction(mf) => {
+                // Hash by underlying function identity
+                mf.func.body.hash(state);
+            }
             Value::FunctionVal(_, name) => name.hash(state),
             Value::Range(r) => {
                 r.start.hash(state);
@@ -554,14 +579,14 @@ mod tests {
     fn test_value_truthy() {
         assert!(Value::Bool(true).is_truthy());
         assert!(!Value::Bool(false).is_truthy());
-        assert!(Value::Int(1).is_truthy());
-        assert!(!Value::Int(0).is_truthy());
+        assert!(Value::int(1).is_truthy());
+        assert!(!Value::int(0).is_truthy());
         assert!(!Value::None.is_truthy());
     }
 
     #[test]
     fn test_value_display() {
-        assert_eq!(format!("{}", Value::Int(42)), "42");
+        assert_eq!(format!("{}", Value::int(42)), "42");
         assert_eq!(format!("{}", Value::Bool(true)), "true");
         assert_eq!(format!("{}", Value::string("hello")), "\"hello\"");
     }
@@ -572,18 +597,18 @@ mod tests {
         let s = Value::string("hello");
         assert_eq!(s.as_str(), Some("hello"));
 
-        let list = Value::list(vec![Value::Int(1), Value::Int(2)]);
-        assert_eq!(list.as_list().map(|l| l.len()), Some(2));
+        let list = Value::list(vec![Value::int(1), Value::int(2)]);
+        assert_eq!(list.as_list().map(<[Value]>::len), Some(2));
 
-        let opt = Value::some(Value::Int(42));
+        let opt = Value::some(Value::int(42));
         match opt {
-            Value::Some(v) => assert_eq!(*v, Value::Int(42)),
+            Value::Some(v) => assert_eq!(*v, Value::int(42)),
             _ => panic!("expected Some"),
         }
 
-        let ok = Value::ok(Value::Int(42));
+        let ok = Value::ok(Value::int(42));
         match ok {
-            Value::Ok(v) => assert_eq!(*v, Value::Int(42)),
+            Value::Ok(v) => assert_eq!(*v, Value::int(42)),
             _ => panic!("expected Ok"),
         }
 
@@ -596,8 +621,8 @@ mod tests {
 
     #[test]
     fn test_value_equality() {
-        assert!(Value::Int(42).equals(&Value::Int(42)));
-        assert!(!Value::Int(42).equals(&Value::Int(43)));
+        assert!(Value::int(42).equals(&Value::int(42)));
+        assert!(!Value::int(42).equals(&Value::int(43)));
         assert!(Value::None.equals(&Value::None));
 
         let s1 = Value::string("hello");
@@ -649,7 +674,7 @@ mod tests {
         }
 
         // Equal values must have equal hashes
-        assert_eq!(hash_value(&Value::Int(42)), hash_value(&Value::Int(42)));
+        assert_eq!(hash_value(&Value::int(42)), hash_value(&Value::int(42)));
         assert_eq!(hash_value(&Value::Bool(true)), hash_value(&Value::Bool(true)));
         assert_eq!(hash_value(&Value::Void), hash_value(&Value::Void));
         assert_eq!(hash_value(&Value::None), hash_value(&Value::None));
@@ -660,41 +685,43 @@ mod tests {
         assert_eq!(hash_value(&s1), hash_value(&s2));
 
         // Equal lists
-        let l1 = Value::list(vec![Value::Int(1), Value::Int(2)]);
-        let l2 = Value::list(vec![Value::Int(1), Value::Int(2)]);
+        let l1 = Value::list(vec![Value::int(1), Value::int(2)]);
+        let l2 = Value::list(vec![Value::int(1), Value::int(2)]);
         assert_eq!(hash_value(&l1), hash_value(&l2));
 
         // Equal Option values
-        let o1 = Value::some(Value::Int(42));
-        let o2 = Value::some(Value::Int(42));
+        let o1 = Value::some(Value::int(42));
+        let o2 = Value::some(Value::int(42));
         assert_eq!(hash_value(&o1), hash_value(&o2));
     }
 
     #[test]
+    #[expect(clippy::mutable_key_type, reason = "Value hash is based on immutable content")]
     fn test_value_in_hashset() {
         use std::collections::HashSet;
 
         let mut set: HashSet<Value> = HashSet::new();
-        set.insert(Value::Int(1));
-        set.insert(Value::Int(2));
-        set.insert(Value::Int(1)); // Duplicate
+        set.insert(Value::int(1));
+        set.insert(Value::int(2));
+        set.insert(Value::int(1)); // Duplicate
 
         assert_eq!(set.len(), 2);
-        assert!(set.contains(&Value::Int(1)));
-        assert!(set.contains(&Value::Int(2)));
-        assert!(!set.contains(&Value::Int(3)));
+        assert!(set.contains(&Value::int(1)));
+        assert!(set.contains(&Value::int(2)));
+        assert!(!set.contains(&Value::int(3)));
     }
 
     #[test]
+    #[expect(clippy::mutable_key_type, reason = "Value hash is based on immutable content")]
     fn test_value_as_hashmap_key() {
         use std::collections::HashMap;
 
         let mut map: HashMap<Value, &str> = HashMap::new();
         map.insert(Value::string("key1"), "value1");
-        map.insert(Value::Int(42), "value2");
+        map.insert(Value::int(42), "value2");
 
         assert_eq!(map.get(&Value::string("key1")), Some(&"value1"));
-        assert_eq!(map.get(&Value::Int(42)), Some(&"value2"));
+        assert_eq!(map.get(&Value::int(42)), Some(&"value2"));
         assert_eq!(map.get(&Value::string("unknown")), None);
     }
 
@@ -711,7 +738,7 @@ mod tests {
 
         // Different value types should (likely) have different hashes
         // This isn't guaranteed but is generally true for well-designed hash functions
-        let int_hash = hash_value(&Value::Int(1));
+        let int_hash = hash_value(&Value::int(1));
         let bool_hash = hash_value(&Value::Bool(true));
         let str_hash = hash_value(&Value::string("1"));
 

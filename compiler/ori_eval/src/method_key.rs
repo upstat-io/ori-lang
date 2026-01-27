@@ -39,7 +39,7 @@ impl MethodKey {
     }
 }
 
-/// Helper for displaying a MethodKey with resolved names.
+/// Helper for displaying a `MethodKey` with resolved names.
 pub struct MethodKeyDisplay<'a> {
     type_name: &'a str,
     method_name: &'a str,

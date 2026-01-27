@@ -17,7 +17,7 @@ pub struct CodegenContext<'a> {
     pub interner: &'a StringInterner,
     /// Type interner for resolving types.
     pub type_interner: &'a TypeInterner,
-    /// Types for each expression (indexed by ExprId).
+    /// Types for each expression (indexed by `ExprId`).
     pub expr_types: &'a [TypeId],
     /// Ownership analysis results for ARC elision.
     pub ownership: OwnershipInfo,
@@ -51,6 +51,7 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Set ownership analysis results.
+    #[must_use]
     pub fn with_ownership(mut self, ownership: OwnershipInfo) -> Self {
         self.ownership = ownership;
         self

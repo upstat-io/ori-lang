@@ -1,6 +1,6 @@
 // Rosetta Code: Loops/For
 // Task: Demonstrate a for-loop
-// In Sigil, iteration is done via patterns like collect, map, and fold
+// In Ori, iteration is done via patterns like collect, map, and fold
 
 // Print numbers 1 to 5 (collect builds a list from a range)
 @count_to_five () -> [int] = collect(

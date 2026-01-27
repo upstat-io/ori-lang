@@ -1,6 +1,6 @@
-// Sigil Standard Library - Prelude
+// Ori Standard Library - Prelude
 //
-// Auto-imported into every Sigil program (like Rust's std::prelude).
+// Auto-imported into every Ori program (like Rust's std::prelude).
 // Provides core traits and utility functions.
 //
 // Note: Primitive types (int, float, bool, str, char, byte, void, Never)
@@ -180,6 +180,23 @@ pub @assert_ok (res: Result<int, str>) -> void = run(
 pub @assert_err (res: Result<int, str>) -> void = run(
     if is_err(res: res) then ()
     else panic(msg: "assertion failed: expected Err, got Ok")
+)
+
+// Assert that an expression panics
+pub @assert_panics (f: () -> void) -> void = run(
+    let result = catch(expr: f()),
+    if is_err(res: result) then ()
+    else panic(msg: "assertion failed: expected panic but succeeded")
+)
+
+// Assert that an expression panics with a specific message
+pub @assert_panics_with (f: () -> void, msg: str) -> void = run(
+    let result = catch(expr: f()),
+    match(result,
+        Err(actual_msg) -> if actual_msg == msg then ()
+            else panic(msg: "assertion failed: expected panic with: " + msg + " but got: " + actual_msg),
+        Ok(_) -> panic(msg: "assertion failed: expected panic with: " + msg + " but succeeded"),
+    )
 )
 
 // =============================================================================

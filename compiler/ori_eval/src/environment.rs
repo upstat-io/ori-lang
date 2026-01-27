@@ -293,8 +293,8 @@ mod tests {
         let x = interner.intern("x");
 
         let mut scope = Scope::new();
-        scope.define(x, Value::Int(42), false);
-        assert_eq!(scope.lookup(x), Some(Value::Int(42)));
+        scope.define(x, Value::int(42), false);
+        assert_eq!(scope.lookup(x), Some(Value::int(42)));
     }
 
     #[test]
@@ -303,13 +303,13 @@ mod tests {
         let x = interner.intern("x");
 
         let parent = LocalScope::new(Scope::new());
-        parent.borrow_mut().define(x, Value::Int(1), false);
+        parent.borrow_mut().define(x, Value::int(1), false);
 
         let mut child = Scope::with_parent(parent);
-        child.define(x, Value::Int(2), false);
+        child.define(x, Value::int(2), false);
 
         // Child's binding shadows parent's
-        assert_eq!(child.lookup(x), Some(Value::Int(2)));
+        assert_eq!(child.lookup(x), Some(Value::int(2)));
     }
 
     #[test]
@@ -318,14 +318,14 @@ mod tests {
         let x = interner.intern("x");
 
         let mut env = Environment::new();
-        env.define(x, Value::Int(1), false);
+        env.define(x, Value::int(1), false);
 
         env.push_scope();
-        env.define(x, Value::Int(2), false);
-        assert_eq!(env.lookup(x), Some(Value::Int(2)));
+        env.define(x, Value::int(2), false);
+        assert_eq!(env.lookup(x), Some(Value::int(2)));
 
         env.pop_scope();
-        assert_eq!(env.lookup(x), Some(Value::Int(1)));
+        assert_eq!(env.lookup(x), Some(Value::int(1)));
     }
 
     #[test]
@@ -334,9 +334,9 @@ mod tests {
         let x = interner.intern("x");
 
         let mut env = Environment::new();
-        env.define(x, Value::Int(1), true);
-        assert!(env.assign(x, Value::Int(2)).is_ok());
-        assert_eq!(env.lookup(x), Some(Value::Int(2)));
+        env.define(x, Value::int(1), true);
+        assert!(env.assign(x, Value::int(2)).is_ok());
+        assert_eq!(env.lookup(x), Some(Value::int(2)));
     }
 
     #[test]
@@ -345,8 +345,8 @@ mod tests {
         let x = interner.intern("x");
 
         let mut env = Environment::new();
-        env.define(x, Value::Int(1), false);
-        assert!(env.assign(x, Value::Int(2)).is_err());
+        env.define(x, Value::int(1), false);
+        assert!(env.assign(x, Value::int(2)).is_err());
     }
 
     #[test]
@@ -356,13 +356,13 @@ mod tests {
         let y = interner.intern("y");
 
         let mut env = Environment::new();
-        env.define(x, Value::Int(1), false);
+        env.define(x, Value::int(1), false);
         env.push_scope();
-        env.define(y, Value::Int(2), false);
+        env.define(y, Value::int(2), false);
 
         let captures = env.capture();
-        assert_eq!(captures.get(&x), Some(&Value::Int(1)));
-        assert_eq!(captures.get(&y), Some(&Value::Int(2)));
+        assert_eq!(captures.get(&x), Some(&Value::int(1)));
+        assert_eq!(captures.get(&y), Some(&Value::int(2)));
     }
 
     #[test]

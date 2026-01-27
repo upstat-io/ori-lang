@@ -1,3 +1,4 @@
+#![deny(clippy::arithmetic_side_effects)]
 //! Ori Eval - Interpreter/evaluator for the Ori compiler.
 //!
 //! This crate provides the tree-walking interpreter for Ori programs.
@@ -20,18 +21,23 @@
 
 mod environment;
 pub mod errors;
+pub mod exec;
 mod function_val;
+pub mod interpreter;
 mod method_key;
 mod methods;
 mod operators;
+mod print_handler;
+mod shared;
+mod stack;
 mod unary_operators;
 mod user_methods;
 
 // Re-export value types from ori_patterns
 pub use ori_patterns::{
-    EvalContext, EvalError, EvalResult, FunctionValFn, FunctionValue, Heap, PatternDefinition,
-    PatternExecutor, PatternRegistry, RangeValue, SharedPattern, StructLayout, StructValue,
-    TypeCheckContext, Value,
+    EvalContext, EvalError, EvalResult, FunctionValFn, FunctionValue, Heap, MemoizedFunctionValue,
+    PatternDefinition, PatternExecutor, PatternRegistry, RangeValue, ScalarInt, SharedPattern,
+    StructLayout, StructValue, TypeCheckContext, Value,
 };
 
 // Re-export error constructors for convenience (canonical path is ori_eval::errors::*)
@@ -79,4 +85,11 @@ pub use ori_ir::{DerivedMethodInfo, DerivedTrait};
 pub use function_val::{
     function_val_byte, function_val_float, function_val_int, function_val_str,
     function_val_thread_id,
+};
+pub use shared::{SharedRegistry, SharedMutableRegistry};
+pub use stack::ensure_sufficient_stack;
+pub use interpreter::{Interpreter, InterpreterBuilder};
+pub use print_handler::{
+    PrintHandler, StdoutPrintHandler, BufferPrintHandler, SharedPrintHandler,
+    stdout_handler, buffer_handler,
 };

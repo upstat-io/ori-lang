@@ -172,7 +172,7 @@ mod tests {
         assert_eq!(diag.code, ErrorCode::E1001);
         assert!(diag.message.contains("unexpected token"));
         assert!(diag.message.contains("expression"));
-        assert!(diag.message.contains("}"));
+        assert!(diag.message.contains('}'));
         assert!(diag.is_error());
     }
 

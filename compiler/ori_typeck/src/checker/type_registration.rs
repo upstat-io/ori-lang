@@ -74,7 +74,7 @@ impl TypeChecker<'_> {
                 let target = self.parsed_type_to_type(target_ty);
                 self.registries.types.register_alias(
                     type_decl.name,
-                    target,
+                    &target,
                     type_decl.span,
                     type_params,
                 );

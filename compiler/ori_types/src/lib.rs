@@ -281,8 +281,8 @@ mod tests {
         let var2 = ctx.fresh_var();
 
         // Extract the TypeVars
-        let tv1 = if let Type::Var(v) = var1 { v } else { panic!() };
-        let tv2 = if let Type::Var(v) = var2 { v } else { panic!() };
+        let Type::Var(tv1) = var1 else { panic!() };
+        let Type::Var(tv2) = var2 else { panic!() };
 
         // Function using both vars
         let fn_ty = Type::Function {

@@ -21,7 +21,7 @@ pub trait Db: salsa::Database {
     /// Get the string interner for interning identifiers and strings.
     fn interner(&self) -> &StringInterner;
 
-    /// Load a source file by path, creating a SourceFile input if needed.
+    /// Load a source file by path, creating a `SourceFile` input if needed.
     ///
     /// This is the proper way to load imported files - it creates Salsa inputs
     /// so that changes to imported files are tracked and caches are invalidated.
@@ -165,6 +165,6 @@ mod tests {
 
     #[test]
     fn test_db_default() {
-        let _db: CompilerDb = Default::default();
+        let _db = CompilerDb::default();
     }
 }

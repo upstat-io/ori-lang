@@ -18,7 +18,7 @@ mod tests;
 
 /// Parse a file by path, loading it through the Salsa input system.
 ///
-/// This is the proper way to parse imported files - it creates a SourceFile
+/// This is the proper way to parse imported files - it creates a `SourceFile`
 /// input if needed, ensuring that changes to the file are tracked by Salsa.
 ///
 /// Returns None if the file cannot be read or has parse errors.
@@ -82,10 +82,17 @@ pub fn parsed(db: &dyn Db, file: SourceFile) -> ParseResult {
 /// - First call: performs type checking, caches result
 /// - Subsequent calls (same input): returns cached `TypedModule`
 /// - After source changes: re-checks only if parsed result changed
+///
+/// # Import Resolution
+///
+/// This query now resolves imports before type checking, making imported
+/// functions available to the type checker. This prevents false "unknown
+/// identifier" errors for imported functions.
 #[salsa::tracked]
 pub fn typed(db: &dyn Db, file: SourceFile) -> TypedModule {
     let parse_result = parsed(db, file);
-    typeck::type_check(&parse_result, db.interner())
+    let file_path = file.path(db);
+    typeck::type_check_with_imports(db, &parse_result, file_path)
 }
 
 /// Evaluate a source file.

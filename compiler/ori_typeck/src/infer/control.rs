@@ -152,18 +152,8 @@ pub fn infer_block(
                     infer_expr(checker, *e);
                 }
                 ori_ir::StmtKind::Let { pattern, ty, init, .. } => {
-                    checker.check_closure_self_capture(pattern, *init, stmt.span);
-
-                    let init_ty = infer_expr(checker, *init);
-                    let final_ty = if let Some(type_id) = ty {
-                        let declared_ty = checker.type_id_to_type(*type_id);
-                        if let Err(e) = checker.inference.ctx.unify(&declared_ty, &init_ty) {
-                            checker.report_type_error(&e, checker.context.arena.get_expr(*init).span);
-                        }
-                        declared_ty
-                    } else {
-                        init_ty
-                    };
+                    let init_ty = super::infer_let_init(checker, pattern, *init, stmt.span);
+                    let final_ty = super::check_type_annotation_id(checker, *ty, init_ty, *init);
                     checker.bind_pattern_generalized(pattern, final_ty);
                 }
             }
@@ -185,18 +175,8 @@ pub fn infer_let(
     init: ExprId,
     span: Span,
 ) -> Type {
-    checker.check_closure_self_capture(pattern, init, span);
-
-    let init_ty = infer_expr(checker, init);
-    let final_ty = if let Some(parsed_ty) = ty {
-        let declared_ty = checker.parsed_type_to_type(parsed_ty);
-        if let Err(e) = checker.inference.ctx.unify(&declared_ty, &init_ty) {
-            checker.report_type_error(&e, checker.context.arena.get_expr(init).span);
-        }
-        declared_ty
-    } else {
-        init_ty
-    };
+    let init_ty = super::infer_let_init(checker, pattern, init, span);
+    let final_ty = super::check_type_annotation(checker, ty, init_ty, init);
     checker.bind_pattern_generalized(pattern, final_ty);
     Type::Unit
 }

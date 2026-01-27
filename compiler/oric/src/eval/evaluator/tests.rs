@@ -2,11 +2,12 @@
 
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 
-use super::*;
+use super::{Evaluator, EvaluatorBuilder};
 use crate::db::CompilerDb;
-use crate::ir::{Span, SharedArena, SharedInterner};
+use crate::ir::{Span, SharedArena, SharedInterner, BinaryOp, ExprArena};
 use crate::ir::ast::{Expr, ExprKind};
-use crate::context::SharedMutableRegistry;
+use ori_eval::SharedMutableRegistry;
+use crate::eval::{Value, StructValue, EvalError};
 use std::collections::HashMap;
 use ori_eval::{UserMethod, UserMethodRegistry};
 
@@ -27,7 +28,7 @@ fn test_eval_error_propagate() {
 #[test]
 fn test_user_method_dispatch() {
     let interner = SharedInterner::default();
-    let mut arena = crate::ir::ExprArena::new();
+    let mut arena = ExprArena::new();
 
     // Create method body: self.x * 2
     let self_name = interner.intern("self");
@@ -44,7 +45,7 @@ fn test_user_method_dispatch() {
     let two = arena.alloc_expr(Expr::new(ExprKind::Int(2), Span::new(9, 10)));
     // Build: self.x * 2
     let body = arena.alloc_expr(Expr::new(
-        ExprKind::Binary { left: self_x, op: crate::ir::BinaryOp::Mul, right: two },
+        ExprKind::Binary { left: self_x, op: BinaryOp::Mul, right: two },
         Span::new(0, 10),
     ));
 
@@ -63,7 +64,7 @@ fn test_user_method_dispatch() {
 
     // Create a struct value with x = 5
     let mut fields = HashMap::new();
-    fields.insert(x_name, Value::Int(5));
+    fields.insert(x_name, Value::int(5));
     let point = Value::Struct(StructValue::new(point_name, fields));
 
     // Call point.double_x() -> should return 10
@@ -71,13 +72,13 @@ fn test_user_method_dispatch() {
     let result = evaluator.eval_method_call(point, method_name, vec![]);
 
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), Value::Int(10));
+    assert_eq!(result.unwrap(), Value::int(10));
 }
 
 #[test]
 fn test_user_method_with_self_access() {
     let interner = SharedInterner::default();
-    let mut arena = crate::ir::ExprArena::new();
+    let mut arena = ExprArena::new();
 
     // Create method body that accesses self.x: ExprKind::Field { receiver: self, field: x }
     let self_name = interner.intern("self");
@@ -106,7 +107,7 @@ fn test_user_method_with_self_access() {
 
     // Create a struct value with x = 7
     let mut fields = HashMap::new();
-    fields.insert(x_name, Value::Int(7));
+    fields.insert(x_name, Value::int(7));
     let point = Value::Struct(StructValue::new(point_name, fields));
 
     // Call point.get_x()
@@ -114,13 +115,13 @@ fn test_user_method_with_self_access() {
     let result = evaluator.eval_method_call(point, method_name, vec![]);
 
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), Value::Int(7));
+    assert_eq!(result.unwrap(), Value::int(7));
 }
 
 #[test]
 fn test_user_method_with_args() {
     let interner = SharedInterner::default();
-    let mut arena = crate::ir::ExprArena::new();
+    let mut arena = ExprArena::new();
 
     // Create method body: self.x + n (where n is an argument)
     let self_name = interner.intern("self");
@@ -138,7 +139,7 @@ fn test_user_method_with_args() {
     let n_ref = arena.alloc_expr(Expr::new(ExprKind::Ident(n_name), Span::new(7, 8)));
     // Build: self.x + n
     let body = arena.alloc_expr(Expr::new(
-        ExprKind::Binary { left: self_x, op: crate::ir::BinaryOp::Add, right: n_ref },
+        ExprKind::Binary { left: self_x, op: BinaryOp::Add, right: n_ref },
         Span::new(0, 10),
     ));
 
@@ -157,30 +158,30 @@ fn test_user_method_with_args() {
 
     // Create a struct value with x = 10
     let mut fields = HashMap::new();
-    fields.insert(x_name, Value::Int(10));
+    fields.insert(x_name, Value::int(10));
     let point = Value::Struct(StructValue::new(point_name, fields));
 
     // Call point.add_to_x(n: 5) -> should return 15
     let method_name = interner.intern("add_to_x");
-    let result = evaluator.eval_method_call(point, method_name, vec![Value::Int(5)]);
+    let result = evaluator.eval_method_call(point, method_name, vec![Value::int(5)]);
 
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), Value::Int(15));
+    assert_eq!(result.unwrap(), Value::int(15));
 }
 
 #[test]
 fn test_builtin_method_fallback() {
     let interner = SharedInterner::default();
-    let arena = crate::ir::ExprArena::new();
+    let arena = ExprArena::new();
     let db = CompilerDb::new();
 
     let mut evaluator = Evaluator::new(&interner, &arena, &db);
 
     // Call built-in list.len() method (no user method registered)
-    let list = Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+    let list = Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]);
     let method_name = interner.intern("len");
     let result = evaluator.eval_method_call(list, method_name, vec![]);
 
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), Value::Int(3));
+    assert_eq!(result.unwrap(), Value::int(3));
 }

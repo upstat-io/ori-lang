@@ -85,7 +85,7 @@ impl PatternDefinition for ParallelPattern {
             .transpose()?
             .and_then(|v| match v {
                 Value::Duration(ms) => Some(ms),
-                Value::Int(n) => u64::try_from(n).ok(),
+                Value::Int(n) => u64::try_from(n.raw()).ok(),
                 _ => None,
             });
 
@@ -97,7 +97,7 @@ impl PatternDefinition for ParallelPattern {
             .map(|p| exec.eval(p.value))
             .transpose()?
             .and_then(|v| match v {
-                Value::Int(n) if n > 0 => usize::try_from(n).ok(),
+                Value::Int(n) if n.raw() > 0 => usize::try_from(n.raw()).ok(),
                 _ => None,
             });
 
@@ -138,6 +138,7 @@ impl Semaphore {
     }
 
     /// Acquire a slot from the semaphore, blocking if at capacity.
+    #[expect(clippy::arithmetic_side_effects, reason = "counting semaphore bounded by max")]
     pub fn acquire(&self) {
         let mut count = self.count.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         while *count >= self.max {
@@ -147,6 +148,7 @@ impl Semaphore {
     }
 
     /// Release a slot back to the semaphore.
+    #[expect(clippy::arithmetic_side_effects, reason = "counting semaphore bounded by max")]
     pub fn release(&self) {
         let mut count = self.count.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         *count -= 1;
@@ -155,6 +157,8 @@ impl Semaphore {
 }
 
 /// Execute tasks in parallel with optional concurrency limit and timeout.
+#[expect(clippy::arithmetic_side_effects, reason = "completion counter bounded by task count")]
+#[expect(clippy::unnecessary_wraps, reason = "returns EvalResult to match PatternDefinition::evaluate interface")]
 fn execute_parallel(
     task_list: &[Value],
     max_concurrent: Option<usize>,

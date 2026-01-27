@@ -219,7 +219,7 @@ impl ExprArena {
     /// Get just the parameter names from a range.
     ///
     /// This is a convenience method for the common pattern of extracting
-    /// parameter names from a ParamRange for function/method registration.
+    /// parameter names from a `ParamRange` for function/method registration.
     #[inline]
     pub fn get_param_names(&self, range: ParamRange) -> Vec<super::Name> {
         self.get_params(range).iter().map(|p| p.name).collect()

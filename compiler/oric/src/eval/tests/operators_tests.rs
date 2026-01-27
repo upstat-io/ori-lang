@@ -17,24 +17,24 @@ mod int_ops {
     #[test]
     fn arithmetic() {
         assert_eq!(
-            evaluate_binary(Value::Int(2), Value::Int(3), BinaryOp::Add).unwrap(),
-            Value::Int(5)
+            evaluate_binary(Value::int(2), Value::int(3), BinaryOp::Add).unwrap(),
+            Value::int(5)
         );
         assert_eq!(
-            evaluate_binary(Value::Int(5), Value::Int(3), BinaryOp::Sub).unwrap(),
-            Value::Int(2)
+            evaluate_binary(Value::int(5), Value::int(3), BinaryOp::Sub).unwrap(),
+            Value::int(2)
         );
         assert_eq!(
-            evaluate_binary(Value::Int(2), Value::Int(3), BinaryOp::Mul).unwrap(),
-            Value::Int(6)
+            evaluate_binary(Value::int(2), Value::int(3), BinaryOp::Mul).unwrap(),
+            Value::int(6)
         );
         assert_eq!(
-            evaluate_binary(Value::Int(10), Value::Int(3), BinaryOp::Div).unwrap(),
-            Value::Int(3)
+            evaluate_binary(Value::int(10), Value::int(3), BinaryOp::Div).unwrap(),
+            Value::int(3)
         );
         assert_eq!(
-            evaluate_binary(Value::Int(10), Value::Int(3), BinaryOp::Mod).unwrap(),
-            Value::Int(1)
+            evaluate_binary(Value::int(10), Value::int(3), BinaryOp::Mod).unwrap(),
+            Value::int(1)
         );
     }
 
@@ -42,50 +42,50 @@ mod int_ops {
     fn floor_division() {
         // Positive numbers
         assert_eq!(
-            evaluate_binary(Value::Int(7), Value::Int(3), BinaryOp::FloorDiv).unwrap(),
-            Value::Int(2)
+            evaluate_binary(Value::int(7), Value::int(3), BinaryOp::FloorDiv).unwrap(),
+            Value::int(2)
         );
         // Negative dividend - should round toward negative infinity
         assert_eq!(
-            evaluate_binary(Value::Int(-7), Value::Int(3), BinaryOp::FloorDiv).unwrap(),
-            Value::Int(-3)
+            evaluate_binary(Value::int(-7), Value::int(3), BinaryOp::FloorDiv).unwrap(),
+            Value::int(-3)
         );
         // Negative divisor
         assert_eq!(
-            evaluate_binary(Value::Int(7), Value::Int(-3), BinaryOp::FloorDiv).unwrap(),
-            Value::Int(-3)
+            evaluate_binary(Value::int(7), Value::int(-3), BinaryOp::FloorDiv).unwrap(),
+            Value::int(-3)
         );
         // Both negative
         assert_eq!(
-            evaluate_binary(Value::Int(-7), Value::Int(-3), BinaryOp::FloorDiv).unwrap(),
-            Value::Int(2)
+            evaluate_binary(Value::int(-7), Value::int(-3), BinaryOp::FloorDiv).unwrap(),
+            Value::int(2)
         );
     }
 
     #[test]
     fn comparison() {
         assert_eq!(
-            evaluate_binary(Value::Int(2), Value::Int(3), BinaryOp::Lt).unwrap(),
+            evaluate_binary(Value::int(2), Value::int(3), BinaryOp::Lt).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            evaluate_binary(Value::Int(3), Value::Int(2), BinaryOp::Gt).unwrap(),
+            evaluate_binary(Value::int(3), Value::int(2), BinaryOp::Gt).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            evaluate_binary(Value::Int(2), Value::Int(2), BinaryOp::Eq).unwrap(),
+            evaluate_binary(Value::int(2), Value::int(2), BinaryOp::Eq).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            evaluate_binary(Value::Int(2), Value::Int(3), BinaryOp::NotEq).unwrap(),
+            evaluate_binary(Value::int(2), Value::int(3), BinaryOp::NotEq).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            evaluate_binary(Value::Int(2), Value::Int(2), BinaryOp::LtEq).unwrap(),
+            evaluate_binary(Value::int(2), Value::int(2), BinaryOp::LtEq).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            evaluate_binary(Value::Int(2), Value::Int(2), BinaryOp::GtEq).unwrap(),
+            evaluate_binary(Value::int(2), Value::int(2), BinaryOp::GtEq).unwrap(),
             Value::Bool(true)
         );
     }
@@ -93,50 +93,50 @@ mod int_ops {
     #[test]
     fn bitwise() {
         assert_eq!(
-            evaluate_binary(Value::Int(0b1100), Value::Int(0b1010), BinaryOp::BitAnd).unwrap(),
-            Value::Int(0b1000)
+            evaluate_binary(Value::int(0b1100), Value::int(0b1010), BinaryOp::BitAnd).unwrap(),
+            Value::int(0b1000)
         );
         assert_eq!(
-            evaluate_binary(Value::Int(0b1100), Value::Int(0b1010), BinaryOp::BitOr).unwrap(),
-            Value::Int(0b1110)
+            evaluate_binary(Value::int(0b1100), Value::int(0b1010), BinaryOp::BitOr).unwrap(),
+            Value::int(0b1110)
         );
         assert_eq!(
-            evaluate_binary(Value::Int(0b1100), Value::Int(0b1010), BinaryOp::BitXor).unwrap(),
-            Value::Int(0b0110)
+            evaluate_binary(Value::int(0b1100), Value::int(0b1010), BinaryOp::BitXor).unwrap(),
+            Value::int(0b0110)
         );
     }
 
     #[test]
     fn shift() {
         assert_eq!(
-            evaluate_binary(Value::Int(1), Value::Int(4), BinaryOp::Shl).unwrap(),
-            Value::Int(16)
+            evaluate_binary(Value::int(1), Value::int(4), BinaryOp::Shl).unwrap(),
+            Value::int(16)
         );
         assert_eq!(
-            evaluate_binary(Value::Int(16), Value::Int(2), BinaryOp::Shr).unwrap(),
-            Value::Int(4)
+            evaluate_binary(Value::int(16), Value::int(2), BinaryOp::Shr).unwrap(),
+            Value::int(4)
         );
     }
 
     #[test]
     fn shift_out_of_range() {
         // Shift by negative amount should error
-        assert!(evaluate_binary(Value::Int(1), Value::Int(-1), BinaryOp::Shl).is_err());
+        assert!(evaluate_binary(Value::int(1), Value::int(-1), BinaryOp::Shl).is_err());
         // Shift by >= 64 should error
-        assert!(evaluate_binary(Value::Int(1), Value::Int(64), BinaryOp::Shl).is_err());
-        assert!(evaluate_binary(Value::Int(1), Value::Int(100), BinaryOp::Shr).is_err());
+        assert!(evaluate_binary(Value::int(1), Value::int(64), BinaryOp::Shl).is_err());
+        assert!(evaluate_binary(Value::int(1), Value::int(100), BinaryOp::Shr).is_err());
     }
 
     #[test]
     fn division_by_zero() {
-        assert!(evaluate_binary(Value::Int(5), Value::Int(0), BinaryOp::Div).is_err());
-        assert!(evaluate_binary(Value::Int(5), Value::Int(0), BinaryOp::Mod).is_err());
-        assert!(evaluate_binary(Value::Int(5), Value::Int(0), BinaryOp::FloorDiv).is_err());
+        assert!(evaluate_binary(Value::int(5), Value::int(0), BinaryOp::Div).is_err());
+        assert!(evaluate_binary(Value::int(5), Value::int(0), BinaryOp::Mod).is_err());
+        assert!(evaluate_binary(Value::int(5), Value::int(0), BinaryOp::FloorDiv).is_err());
     }
 
     #[test]
     fn range() {
-        let result = evaluate_binary(Value::Int(1), Value::Int(5), BinaryOp::Range).unwrap();
+        let result = evaluate_binary(Value::int(1), Value::int(5), BinaryOp::Range).unwrap();
         if let Value::Range(r) = result {
             assert_eq!(r.start, 1);
             assert_eq!(r.end, 5);
@@ -145,7 +145,7 @@ mod int_ops {
             panic!("Expected Range");
         }
 
-        let result = evaluate_binary(Value::Int(1), Value::Int(5), BinaryOp::RangeInclusive).unwrap();
+        let result = evaluate_binary(Value::int(1), Value::int(5), BinaryOp::RangeInclusive).unwrap();
         if let Value::Range(r) = result {
             assert!(r.inclusive);
         } else {
@@ -295,28 +295,28 @@ mod list_ops {
     #[test]
     fn concat() {
         let result = evaluate_binary(
-            Value::list(vec![Value::Int(1), Value::Int(2)]),
-            Value::list(vec![Value::Int(3), Value::Int(4)]),
+            Value::list(vec![Value::int(1), Value::int(2)]),
+            Value::list(vec![Value::int(3), Value::int(4)]),
             BinaryOp::Add,
         ).unwrap();
 
-        assert_eq!(result, Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(4)]));
+        assert_eq!(result, Value::list(vec![Value::int(1), Value::int(2), Value::int(3), Value::int(4)]));
     }
 
     #[test]
     fn equality() {
         assert_eq!(
             evaluate_binary(
-                Value::list(vec![Value::Int(1), Value::Int(2)]),
-                Value::list(vec![Value::Int(1), Value::Int(2)]),
+                Value::list(vec![Value::int(1), Value::int(2)]),
+                Value::list(vec![Value::int(1), Value::int(2)]),
                 BinaryOp::Eq
             ).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
             evaluate_binary(
-                Value::list(vec![Value::Int(1)]),
-                Value::list(vec![Value::Int(2)]),
+                Value::list(vec![Value::int(1)]),
+                Value::list(vec![Value::int(2)]),
                 BinaryOp::Eq
             ).unwrap(),
             Value::Bool(false)
@@ -332,14 +332,14 @@ mod type_errors {
     #[test]
     fn mixed_int_float() {
         // Per spec: "No implicit conversions" - int + float is a type error
-        assert!(evaluate_binary(Value::Int(2), Value::Float(3.0), BinaryOp::Add).is_err());
-        assert!(evaluate_binary(Value::Float(2.0), Value::Int(3), BinaryOp::Add).is_err());
+        assert!(evaluate_binary(Value::int(2), Value::Float(3.0), BinaryOp::Add).is_err());
+        assert!(evaluate_binary(Value::Float(2.0), Value::int(3), BinaryOp::Add).is_err());
     }
 
     #[test]
     fn incompatible_types() {
-        assert!(evaluate_binary(Value::Int(1), Value::Bool(true), BinaryOp::Add).is_err());
-        assert!(evaluate_binary(Value::string("a"), Value::Int(1), BinaryOp::Add).is_err());
+        assert!(evaluate_binary(Value::int(1), Value::Bool(true), BinaryOp::Add).is_err());
+        assert!(evaluate_binary(Value::string("a"), Value::int(1), BinaryOp::Add).is_err());
     }
 
     #[test]
@@ -359,7 +359,7 @@ mod option_result_ops {
     #[test]
     fn option_equality() {
         assert_eq!(
-            evaluate_binary(Value::some(Value::Int(1)), Value::some(Value::Int(1)), BinaryOp::Eq).unwrap(),
+            evaluate_binary(Value::some(Value::int(1)), Value::some(Value::int(1)), BinaryOp::Eq).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
@@ -367,7 +367,7 @@ mod option_result_ops {
             Value::Bool(true)
         );
         assert_eq!(
-            evaluate_binary(Value::some(Value::Int(1)), Value::None, BinaryOp::Eq).unwrap(),
+            evaluate_binary(Value::some(Value::int(1)), Value::None, BinaryOp::Eq).unwrap(),
             Value::Bool(false)
         );
     }
@@ -375,7 +375,7 @@ mod option_result_ops {
     #[test]
     fn result_equality() {
         assert_eq!(
-            evaluate_binary(Value::ok(Value::Int(1)), Value::ok(Value::Int(1)), BinaryOp::Eq).unwrap(),
+            evaluate_binary(Value::ok(Value::int(1)), Value::ok(Value::int(1)), BinaryOp::Eq).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
@@ -383,7 +383,7 @@ mod option_result_ops {
             Value::Bool(true)
         );
         assert_eq!(
-            evaluate_binary(Value::ok(Value::Int(1)), Value::err(Value::string("e")), BinaryOp::Eq).unwrap(),
+            evaluate_binary(Value::ok(Value::int(1)), Value::err(Value::string("e")), BinaryOp::Eq).unwrap(),
             Value::Bool(false)
         );
     }

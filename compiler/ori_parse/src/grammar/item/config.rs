@@ -38,7 +38,14 @@ impl Parser<'_> {
         let kind = match self.current_kind() {
             TokenKind::Int(n) => {
                 self.advance();
-                ExprKind::Int(n)
+                let value = i64::try_from(n).map_err(|_| {
+                    ParseError::new(
+                        ori_diagnostic::ErrorCode::E1002,
+                        "integer literal too large".to_string(),
+                        span,
+                    )
+                })?;
+                ExprKind::Int(value)
             }
             TokenKind::Float(bits) => {
                 self.advance();

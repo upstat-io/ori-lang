@@ -62,7 +62,7 @@ impl EvalOutput {
     /// Convert a runtime Value to a Salsa-compatible `EvalOutput`.
     pub fn from_value(value: &Value, interner: &StringInterner) -> Self {
         match value {
-            Value::Int(n) => EvalOutput::Int(*n),
+            Value::Int(n) => EvalOutput::Int(n.raw()),
             Value::Float(f) => EvalOutput::Float(f.to_bits()),
             Value::Bool(b) => EvalOutput::Bool(*b),
             Value::Str(s) => EvalOutput::Str(s.to_string()),
@@ -88,6 +88,9 @@ impl EvalOutput {
             },
             Value::Function(f) => {
                 EvalOutput::Function(format!("<function with {} params>", f.params.len()))
+            }
+            Value::MemoizedFunction(mf) => {
+                EvalOutput::Function(format!("<memoized function with {} params>", mf.func.params.len()))
             }
             Value::FunctionVal(_, name) => EvalOutput::Function(format!("<{name}>")),
             Value::Struct(s) => {
@@ -287,7 +290,7 @@ mod tests {
         let interner = SharedInterner::default();
 
         assert_eq!(
-            EvalOutput::from_value(&Value::Int(42), &interner),
+            EvalOutput::from_value(&Value::int(42), &interner),
             EvalOutput::Int(42)
         );
         assert_eq!(

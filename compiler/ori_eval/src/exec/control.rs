@@ -7,13 +7,12 @@
 //! - Loop expressions
 //! - Break and continue
 
-use crate::ir::{
-    Name, ExprId, ExprKind, ExprArena, StringInterner, StmtKind,
+use ori_ir::{
+    Name, ExprId, ExprKind, ExprArena, StringInterner, StmtKind, StmtRange,
     BindingPattern, ArmRange, MatchPattern,
 };
-use crate::eval::{Value, EvalResult, EvalError};
-use ori_eval::{
-    Environment,
+use crate::{
+    Value, EvalResult, EvalError, Environment,
     // Error factories
     cannot_assign_immutable, expected_list, expected_struct, expected_tuple,
     field_assignment_not_implemented, for_requires_iterable, index_assignment_not_implemented,
@@ -123,7 +122,7 @@ pub fn try_match(
         MatchPattern::Literal(expr_id) => {
             let lit_val = arena.get_expr(*expr_id);
             let lit = match &lit_val.kind {
-                ExprKind::Int(n) => Value::Int(*n),
+                ExprKind::Int(n) => Value::int(*n),
                 ExprKind::Float(bits) => Value::Float(f64::from_bits(*bits)),
                 ExprKind::Bool(b) => Value::Bool(*b),
                 ExprKind::String(s) => Value::string(interner.lookup(*s).to_string()),
@@ -240,6 +239,7 @@ pub fn try_match(
 
         MatchPattern::Range { start, end, inclusive } => {
             if let Value::Int(n) = value {
+                let n_raw = n.raw();
                 let start_val = if let Some(s) = start {
                     let expr = arena.get_expr(*s);
                     if let ExprKind::Int(i) = expr.kind { i } else { return Ok(None); }
@@ -254,9 +254,9 @@ pub fn try_match(
                 };
 
                 let in_range = if *inclusive {
-                    *n >= start_val && *n <= end_val
+                    n_raw >= start_val && n_raw <= end_val
                 } else {
-                    *n >= start_val && *n < end_val
+                    n_raw >= start_val && n_raw < end_val
                 };
 
                 if in_range {
@@ -337,7 +337,7 @@ where
 {
     let items = match iter {
         Value::List(list) => list.iter().cloned().collect::<Vec<_>>(),
-        Value::Range(range) => range.iter().map(Value::Int).collect(),
+        Value::Range(range) => range.iter().map(Value::int).collect(),
         _ => return Err(for_requires_iterable()),
     };
 
@@ -450,7 +450,7 @@ pub fn eval_assign(
 
 /// Evaluate a block of statements.
 pub fn eval_block<F, G>(
-    stmts: crate::ir::StmtRange,
+    stmts: StmtRange,
     result: Option<ExprId>,
     arena: &ExprArena,
     env: &mut Environment,

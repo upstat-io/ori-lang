@@ -16,43 +16,44 @@ mod negation {
     #[test]
     fn int_positive() {
         assert_eq!(
-            evaluate_unary(Value::Int(5), UnaryOp::Neg).unwrap(),
-            Value::Int(-5)
+            evaluate_unary(Value::int(5), UnaryOp::Neg).unwrap(),
+            Value::int(-5)
         );
     }
 
     #[test]
     fn int_negative() {
         assert_eq!(
-            evaluate_unary(Value::Int(-5), UnaryOp::Neg).unwrap(),
-            Value::Int(5)
+            evaluate_unary(Value::int(-5), UnaryOp::Neg).unwrap(),
+            Value::int(5)
         );
     }
 
     #[test]
     fn int_zero() {
         assert_eq!(
-            evaluate_unary(Value::Int(0), UnaryOp::Neg).unwrap(),
-            Value::Int(0)
+            evaluate_unary(Value::int(0), UnaryOp::Neg).unwrap(),
+            Value::int(0)
         );
     }
 
     #[test]
     fn int_max() {
         assert_eq!(
-            evaluate_unary(Value::Int(i64::MAX), UnaryOp::Neg).unwrap(),
-            Value::Int(-i64::MAX)
+            evaluate_unary(Value::int(i64::MAX), UnaryOp::Neg).unwrap(),
+            Value::int(-i64::MAX)
         );
     }
 
     #[test]
-    #[should_panic(expected = "negate with overflow")]
-    fn int_min_overflow_panics() {
-        // -i64::MIN overflows in debug mode
-        let _ = evaluate_unary(Value::Int(i64::MIN), UnaryOp::Neg);
+    fn int_min_overflow_errors() {
+        let result = evaluate_unary(Value::int(i64::MIN), UnaryOp::Neg);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("integer overflow"));
     }
 
     #[test]
+    #[expect(clippy::approx_constant, reason = "testing float negation, not using pi")]
     fn float_positive() {
         assert_eq!(
             evaluate_unary(Value::Float(3.14), UnaryOp::Neg).unwrap(),
@@ -61,6 +62,7 @@ mod negation {
     }
 
     #[test]
+    #[expect(clippy::approx_constant, reason = "testing float negation, not using pi")]
     fn float_negative() {
         assert_eq!(
             evaluate_unary(Value::Float(-3.14), UnaryOp::Neg).unwrap(),
@@ -156,16 +158,16 @@ mod bitwise_not {
     #[test]
     fn zero_becomes_minus_one() {
         assert_eq!(
-            evaluate_unary(Value::Int(0), UnaryOp::BitNot).unwrap(),
-            Value::Int(-1)
+            evaluate_unary(Value::int(0), UnaryOp::BitNot).unwrap(),
+            Value::int(-1)
         );
     }
 
     #[test]
     fn minus_one_becomes_zero() {
         assert_eq!(
-            evaluate_unary(Value::Int(-1), UnaryOp::BitNot).unwrap(),
-            Value::Int(0)
+            evaluate_unary(Value::int(-1), UnaryOp::BitNot).unwrap(),
+            Value::int(0)
         );
     }
 
@@ -173,8 +175,8 @@ mod bitwise_not {
     fn positive_value() {
         // ~5 = -6 in two's complement
         assert_eq!(
-            evaluate_unary(Value::Int(5), UnaryOp::BitNot).unwrap(),
-            Value::Int(-6)
+            evaluate_unary(Value::int(5), UnaryOp::BitNot).unwrap(),
+            Value::int(-6)
         );
     }
 
@@ -182,30 +184,30 @@ mod bitwise_not {
     fn negative_value() {
         // ~(-6) = 5
         assert_eq!(
-            evaluate_unary(Value::Int(-6), UnaryOp::BitNot).unwrap(),
-            Value::Int(5)
+            evaluate_unary(Value::int(-6), UnaryOp::BitNot).unwrap(),
+            Value::int(5)
         );
     }
 
     #[test]
     fn max_value() {
         assert_eq!(
-            evaluate_unary(Value::Int(i64::MAX), UnaryOp::BitNot).unwrap(),
-            Value::Int(i64::MIN)
+            evaluate_unary(Value::int(i64::MAX), UnaryOp::BitNot).unwrap(),
+            Value::int(i64::MIN)
         );
     }
 
     #[test]
     fn min_value() {
         assert_eq!(
-            evaluate_unary(Value::Int(i64::MIN), UnaryOp::BitNot).unwrap(),
-            Value::Int(i64::MAX)
+            evaluate_unary(Value::int(i64::MIN), UnaryOp::BitNot).unwrap(),
+            Value::int(i64::MAX)
         );
     }
 
     #[test]
     fn double_negation_identity() {
-        let val = Value::Int(12345);
+        let val = Value::int(12345);
         let once = evaluate_unary(val.clone(), UnaryOp::BitNot).unwrap();
         let twice = evaluate_unary(once, UnaryOp::BitNot).unwrap();
         assert_eq!(twice, val);
@@ -215,18 +217,18 @@ mod bitwise_not {
     fn powers_of_two() {
         // ~1 = -2
         assert_eq!(
-            evaluate_unary(Value::Int(1), UnaryOp::BitNot).unwrap(),
-            Value::Int(-2)
+            evaluate_unary(Value::int(1), UnaryOp::BitNot).unwrap(),
+            Value::int(-2)
         );
         // ~2 = -3
         assert_eq!(
-            evaluate_unary(Value::Int(2), UnaryOp::BitNot).unwrap(),
-            Value::Int(-3)
+            evaluate_unary(Value::int(2), UnaryOp::BitNot).unwrap(),
+            Value::int(-3)
         );
         // ~4 = -5
         assert_eq!(
-            evaluate_unary(Value::Int(4), UnaryOp::BitNot).unwrap(),
-            Value::Int(-5)
+            evaluate_unary(Value::int(4), UnaryOp::BitNot).unwrap(),
+            Value::int(-5)
         );
     }
 }
@@ -238,10 +240,10 @@ mod try_operator {
 
     #[test]
     fn ok_unwraps() {
-        let ok_val = Value::ok(Value::Int(42));
+        let ok_val = Value::ok(Value::int(42));
         assert_eq!(
             evaluate_unary(ok_val, UnaryOp::Try).unwrap(),
-            Value::Int(42)
+            Value::int(42)
         );
     }
 
@@ -254,10 +256,10 @@ mod try_operator {
 
     #[test]
     fn some_unwraps() {
-        let some_val = Value::some(Value::Int(42));
+        let some_val = Value::some(Value::int(42));
         assert_eq!(
             evaluate_unary(some_val, UnaryOp::Try).unwrap(),
-            Value::Int(42)
+            Value::int(42)
         );
     }
 
@@ -269,24 +271,24 @@ mod try_operator {
 
     #[test]
     fn nested_ok() {
-        let nested = Value::ok(Value::ok(Value::Int(42)));
+        let nested = Value::ok(Value::ok(Value::int(42)));
         let result = evaluate_unary(nested, UnaryOp::Try).unwrap();
-        assert_eq!(result, Value::ok(Value::Int(42)));
+        assert_eq!(result, Value::ok(Value::int(42)));
     }
 
     #[test]
     fn nested_some() {
-        let nested = Value::some(Value::some(Value::Int(42)));
+        let nested = Value::some(Value::some(Value::int(42)));
         let result = evaluate_unary(nested, UnaryOp::Try).unwrap();
-        assert_eq!(result, Value::some(Value::Int(42)));
+        assert_eq!(result, Value::some(Value::int(42)));
     }
 
     #[test]
     fn passthrough_int() {
         // Non-Option/Result types pass through unchanged
         assert_eq!(
-            evaluate_unary(Value::Int(42), UnaryOp::Try).unwrap(),
-            Value::Int(42)
+            evaluate_unary(Value::int(42), UnaryOp::Try).unwrap(),
+            Value::int(42)
         );
     }
 
@@ -334,7 +336,7 @@ mod type_errors {
 
     #[test]
     fn logical_not_int_fails() {
-        let result = evaluate_unary(Value::Int(1), UnaryOp::Not);
+        let result = evaluate_unary(Value::int(1), UnaryOp::Not);
         assert!(result.is_err());
     }
 
@@ -345,6 +347,7 @@ mod type_errors {
     }
 
     #[test]
+    #[expect(clippy::approx_constant, reason = "testing type error, not using pi")]
     fn bitwise_not_float_fails() {
         let result = evaluate_unary(Value::Float(3.14), UnaryOp::BitNot);
         assert!(result.is_err());

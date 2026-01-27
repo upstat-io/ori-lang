@@ -43,8 +43,8 @@ jobs:
       - name: Run Rust tests
         run: cargo test
 
-      - name: Run Sigil tests
-        run: cargo run --bin sigil -- test
+      - name: Run Ori tests
+        run: cargo run --bin ori -- test
 
   # Test on multiple platforms
   cross-platform:
@@ -62,4 +62,4 @@ jobs:
         run: cargo build
 
       - name: Test
-        run: cargo run --bin sigil -- test
+        run: cargo run --bin ori -- test

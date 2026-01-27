@@ -19,11 +19,11 @@ use crate::error::TypeError;
 pub struct InferenceContext {
     /// Next type variable ID.
     next_var: u32,
-    /// Type variable substitutions (stored as TypeId for efficiency).
+    /// Type variable substitutions (stored as `TypeId` for efficiency).
     substitutions: HashMap<TypeVar, TypeId>,
     /// Type context for deduplicating generic instantiations.
     type_context: TypeContext,
-    /// Type interner for converting between Type and TypeId.
+    /// Type interner for converting between Type and `TypeId`.
     interner: SharedTypeInterner,
 }
 
@@ -67,7 +67,7 @@ impl InferenceContext {
         Type::Var(var)
     }
 
-    /// Create a fresh type variable and return its TypeId.
+    /// Create a fresh type variable and return its `TypeId`.
     pub fn fresh_var_id(&mut self) -> TypeId {
         let var = TypeVar::new(self.next_var);
         self.next_var += 1;
@@ -84,7 +84,7 @@ impl InferenceContext {
         self.unify_ids(id1, id2)
     }
 
-    /// Unify two TypeIds, returning error if they can't be unified.
+    /// Unify two `TypeIds`, returning error if they can't be unified.
     ///
     /// This is the internal implementation using interned types.
     /// Provides O(1) fast-path when types are identical.
@@ -219,7 +219,7 @@ impl InferenceContext {
         self.interner.to_type(resolved_id)
     }
 
-    /// Resolve a TypeId by following substitutions.
+    /// Resolve a `TypeId` by following substitutions.
     ///
     /// This is the internal implementation using interned types.
     pub fn resolve_id(&self, id: TypeId) -> TypeId {
@@ -258,7 +258,7 @@ impl InferenceContext {
         self.occurs_id(var, id)
     }
 
-    /// Check if a type variable occurs in a TypeId (for occurs check).
+    /// Check if a type variable occurs in a `TypeId` (for occurs check).
     ///
     /// This is the internal implementation using interned types.
     fn occurs_id(&self, var: TypeVar, id: TypeId) -> bool {
@@ -302,7 +302,7 @@ impl InferenceContext {
         self.free_vars_id(id)
     }
 
-    /// Collect all free type variables in a TypeId.
+    /// Collect all free type variables in a `TypeId`.
     ///
     /// This is the internal implementation using interned types.
     pub fn free_vars_id(&self, id: TypeId) -> Vec<TypeVar> {
@@ -392,7 +392,7 @@ impl InferenceContext {
         self.interner.to_type(result_id)
     }
 
-    /// Substitute type variables according to a TypeId mapping.
+    /// Substitute type variables according to a `TypeId` mapping.
     ///
     /// This is the internal implementation using interned types.
     fn substitute_vars_id(&self, id: TypeId, mapping: &HashMap<TypeVar, TypeId>) -> TypeId {

@@ -1,0 +1,205 @@
+// Type checking tests for let bindings in all contexts
+// Spec: 06-types.md § Type Inference
+// Spec: 09-expressions.md § Let Expressions
+//
+// Type annotations on let bindings must match the inferred type of the initializer.
+
+use std.testing { assert, assert_eq, assert_ne }
+
+// =============================================================================
+// Basic let bindings (outside patterns)
+// =============================================================================
+
+// Valid: correct type annotation
+@test_let_int_annotation () -> void = run(
+    let x: int = 42,
+    assert_eq(actual: x, expected: 42),
+)
+
+// Valid: correct type annotation with expression
+@test_let_int_expr_annotation () -> void = run(
+    let x: int = 20 + 22,
+    assert_eq(actual: x, expected: 42),
+)
+
+// Invalid: wrong type annotation
+#[compile_fail("type mismatch")]
+@test_let_wrong_annotation () -> void = run(
+    let x: int = "hello",
+    (),
+)
+
+// Invalid: float where int expected
+#[compile_fail("type mismatch")]
+@test_let_float_for_int () -> void = run(
+    let x: int = 3.14,
+    (),
+)
+
+// Invalid: int where float expected
+#[compile_fail("type mismatch")]
+@test_let_int_for_float () -> void = run(
+    let x: float = 42,
+    (),
+)
+
+// Invalid: int where str expected
+#[compile_fail("type mismatch")]
+@test_let_int_for_str () -> void = run(
+    let x: str = 42,
+    (),
+)
+
+// Invalid: str where bool expected
+#[compile_fail("type mismatch")]
+@test_let_str_for_bool () -> void = run(
+    let x: bool = "true",
+    (),
+)
+
+// =============================================================================
+// Let bindings inside run() pattern
+// =============================================================================
+
+// Valid: multiple let bindings with correct annotations
+@test_run_multiple_lets () -> void = run(
+    let a: int = 1,
+    let b: int = 2,
+    let c: int = a + b,
+    assert_eq(actual: c, expected: 3),
+)
+
+// Invalid: type mismatch in middle of run sequence
+#[compile_fail("type mismatch")]
+@test_run_middle_mismatch () -> void = run(
+    let a: int = 1,
+    let b: str = 42,
+    let c: int = a,
+    (),
+)
+
+// Invalid: type mismatch in last let of run sequence
+#[compile_fail("type mismatch")]
+@test_run_last_mismatch () -> void = run(
+    let a: int = 1,
+    let b: int = 2,
+    let c: str = a + b,
+    (),
+)
+
+// =============================================================================
+// Let bindings inside try() pattern
+// =============================================================================
+
+// Helper that returns Result
+@succeed (x: int) = Ok(x)
+
+@fail_always () = Err("failed")
+
+// Valid: try with Result unwrapping and type annotation
+@test_try_result_annotation () -> void = run(
+    let result = try(
+        let x: int = succeed(42),
+        Ok(x * 2),
+    ),
+    assert(cond: is_ok(result: result)),
+)
+
+// Invalid: wrong annotation for unwrapped Result
+#[compile_fail("type mismatch")]
+@test_try_result_wrong_annotation () -> void = run(
+    let result = try(
+        let x: str = succeed(42),
+        Ok(x),
+    ),
+    (),
+)
+
+// Valid: try with multiple bindings
+@test_try_multiple_bindings () -> void = run(
+    let result = try(
+        let a: int = succeed(10),
+        let b: int = succeed(20),
+        Ok(a + b),
+    ),
+    assert(cond: is_ok(result: result)),
+)
+
+// Invalid: try with type mismatch in middle binding
+#[compile_fail("type mismatch")]
+@test_try_middle_mismatch () -> void = run(
+    let result = try(
+        let a: int = succeed(10),
+        let b: str = succeed(20),
+        Ok(a),
+    ),
+    (),
+)
+
+// =============================================================================
+// Let with mutable bindings
+// =============================================================================
+
+// Valid: mutable binding with annotation
+@test_let_mut_annotation () -> void = run(
+    let mut x: int = 0,
+    x = 42,
+    assert_eq(actual: x, expected: 42),
+)
+
+// Invalid: mutable binding with wrong annotation
+#[compile_fail("type mismatch")]
+@test_let_mut_wrong_annotation () -> void = run(
+    let mut x: int = "hello",
+    (),
+)
+
+// Invalid: reassign mutable to wrong type
+#[compile_fail("type mismatch")]
+@test_let_mut_reassign_wrong_type () -> void = run(
+    let mut x: int = 42,
+    x = "hello",
+    (),
+)
+
+// =============================================================================
+// Let with inference (no annotation - should pass)
+// =============================================================================
+
+// Valid: inferred type from literal
+@test_let_inferred_int () -> void = run(
+    let x = 42,
+    assert_eq(actual: x, expected: 42),
+)
+
+// Valid: inferred type from expression
+@test_let_inferred_expr () -> void = run(
+    let x = 20 + 22,
+    assert_eq(actual: x, expected: 42),
+)
+
+// Valid: inferred type from function call
+@helper_int () -> int = 42
+
+@test_let_inferred_call tests @helper_int () -> void = run(
+    let x = helper_int(),
+    assert_eq(actual: x, expected: 42),
+)
+
+// =============================================================================
+// Let with shadowing
+// =============================================================================
+
+// Valid: shadowing with different type (allowed)
+@test_let_shadow () -> void = run(
+    let x = 42,
+    let x = "now a string",
+    assert_eq(actual: x, expected: "now a string"),
+)
+
+// Valid: shadowing with annotation
+@test_let_shadow_annotation () -> void = run(
+    let x: int = 42,
+    let x: str = "now a string",
+    assert_eq(actual: x, expected: "now a string"),
+)

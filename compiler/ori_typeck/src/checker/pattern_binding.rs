@@ -36,12 +36,9 @@ impl TypeChecker<'_> {
                 // For struct destructuring, bind each field with generalization
                 for (field_name, opt_pattern) in fields {
                     let field_ty = self.inference.ctx.fresh_var();
-                    match opt_pattern {
-                        Some(nested) => self.bind_pattern_generalized(nested, field_ty),
-                        None => {
-                            let scheme = self.inference.ctx.generalize(&field_ty, &env_free_vars);
-                            self.inference.env.bind_scheme(*field_name, scheme);
-                        }
+                    if let Some(nested) = opt_pattern { self.bind_pattern_generalized(nested, field_ty) } else {
+                        let scheme = self.inference.ctx.generalize(&field_ty, &env_free_vars);
+                        self.inference.env.bind_scheme(*field_name, scheme);
                     }
                 }
             }

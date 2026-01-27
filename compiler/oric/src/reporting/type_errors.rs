@@ -1,6 +1,6 @@
 //! Type problem rendering.
 //!
-//! Renders TypeProblem variants into user-facing Diagnostic messages.
+//! Renders `TypeProblem` variants into user-facing Diagnostic messages.
 
 use crate::diagnostic::{Diagnostic, ErrorCode};
 use crate::problem::TypeProblem;

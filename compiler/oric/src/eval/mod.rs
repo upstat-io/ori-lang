@@ -16,8 +16,10 @@
 
 mod evaluator;
 mod output;
-pub mod exec;
 pub mod module;
+
+// Re-export exec module from ori_eval
+pub use ori_eval::exec;
 
 /// Re-export Value types from `ori_patterns` (single source of truth).
 ///

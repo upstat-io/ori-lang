@@ -3,9 +3,8 @@
 //! This module provides helper functions for function call evaluation,
 //! including argument validation, parameter binding, and capture handling.
 
-use crate::ir::{StringInterner, ExprArena, CallArgRange};
-use crate::eval::{Value, FunctionValue, Environment, EvalResult, EvalError};
-use ori_eval::wrong_function_args;
+use ori_ir::{StringInterner, ExprArena, ExprId, CallArgRange};
+use crate::{Value, FunctionValue, Environment, EvalResult, EvalError, wrong_function_args};
 
 /// Check if a function has the correct argument count.
 pub fn check_arg_count(func: &FunctionValue, args: &[Value]) -> Result<(), EvalError> {
@@ -52,7 +51,7 @@ pub fn extract_named_args<F>(
     mut eval_fn: F,
 ) -> Result<Vec<Value>, EvalError>
 where
-    F: FnMut(crate::ir::ExprId) -> EvalResult,
+    F: FnMut(ExprId) -> EvalResult,
 {
     let call_args = arena.get_call_args(args);
     call_args.iter()

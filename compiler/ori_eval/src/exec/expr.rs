@@ -1,16 +1,16 @@
 //! Expression evaluation helpers.
 //!
 //! This module provides helper functions for expression evaluation including
-//! literals, operators, indexing, and field access. Used by the main Evaluator.
+//! literals, operators, indexing, and field access. Used by the Interpreter.
 
-use crate::ir::{ExprId, ExprKind, BinaryOp, StringInterner, Name};
-use crate::eval::{Value, RangeValue, EvalResult, EvalError};
-use ori_eval::{
+use ori_ir::{ExprId, ExprKind, BinaryOp, StringInterner, Name};
+use crate::{
+    Value, RangeValue, EvalResult, EvalError,
     Environment, evaluate_binary,
     // Error factories
     cannot_access_field, cannot_get_length, cannot_index, collection_too_large,
-    division_by_zero, index_out_of_bounds, invalid_tuple_field, key_not_found,
-    no_field_on_struct, non_integer_in_index, operator_not_supported_in_index,
+    index_out_of_bounds, invalid_tuple_field, key_not_found,
+    no_field_on_struct,
     range_bound_not_int, tuple_index_out_of_bounds, unbounded_range_end,
     undefined_variable,
 };
@@ -20,7 +20,7 @@ use ori_eval::{
 /// Returns the Value for the given literal `ExprKind`, or None if not a literal.
 pub fn eval_literal(kind: &ExprKind, interner: &StringInterner) -> Option<EvalResult> {
     match kind {
-        ExprKind::Int(n) => Some(Ok(Value::Int(*n))),
+        ExprKind::Int(n) => Some(Ok(Value::int(*n))),
         ExprKind::Float(bits) => Some(Ok(Value::Float(f64::from_bits(*bits)))),
         ExprKind::Bool(b) => Some(Ok(Value::Bool(*b))),
         ExprKind::String(s) => {
@@ -87,22 +87,7 @@ where
 
 /// Evaluate binary operation on already-evaluated values (for index context).
 pub fn eval_binary_values(left_val: Value, op: BinaryOp, right_val: Value) -> EvalResult {
-    match (left_val, right_val) {
-        (Value::Int(a), Value::Int(b)) => match op {
-            BinaryOp::Add => Ok(Value::Int(a + b)),
-            BinaryOp::Sub => Ok(Value::Int(a - b)),
-            BinaryOp::Mul => Ok(Value::Int(a * b)),
-            BinaryOp::Div => {
-                if b == 0 {
-                    Err(division_by_zero())
-                } else {
-                    Ok(Value::Int(a / b))
-                }
-            }
-            _ => Err(operator_not_supported_in_index()),
-        },
-        _ => Err(non_integer_in_index()),
-    }
+    evaluate_binary(left_val, right_val, op)
 }
 
 /// Get the length of a collection for `HashLength` resolution.
@@ -147,6 +132,7 @@ where
 }
 
 /// Convert a signed index to unsigned, handling negative indices from the end.
+#[expect(clippy::arithmetic_side_effects, reason = "index arithmetic is bounds-checked")]
 fn resolve_index(i: i64, len: usize) -> Option<usize> {
     if i >= 0 {
         let idx = usize::try_from(i).ok()?;
@@ -163,17 +149,19 @@ fn resolve_index(i: i64, len: usize) -> Option<usize> {
 pub fn eval_index(value: Value, index: Value) -> EvalResult {
     match (value, index) {
         (Value::List(items), Value::Int(i)) => {
-            let idx = resolve_index(i, items.len())
-                .ok_or_else(|| index_out_of_bounds(i))?;
-            items.get(idx).cloned().ok_or_else(|| index_out_of_bounds(i))
+            let raw = i.raw();
+            let idx = resolve_index(raw, items.len())
+                .ok_or_else(|| index_out_of_bounds(raw))?;
+            items.get(idx).cloned().ok_or_else(|| index_out_of_bounds(raw))
         }
         (Value::Str(s), Value::Int(i)) => {
+            let raw = i.raw();
             let char_count = s.chars().count();
-            let idx = resolve_index(i, char_count)
-                .ok_or_else(|| index_out_of_bounds(i))?;
+            let idx = resolve_index(raw, char_count)
+                .ok_or_else(|| index_out_of_bounds(raw))?;
             s.chars().nth(idx)
                 .map(Value::Char)
-                .ok_or_else(|| index_out_of_bounds(i))
+                .ok_or_else(|| index_out_of_bounds(raw))
         }
         (Value::Map(map), Value::Str(key)) => {
             map.get(key.as_str()).cloned()

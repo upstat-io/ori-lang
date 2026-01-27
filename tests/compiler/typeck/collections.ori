@@ -1,0 +1,235 @@
+// Type checking tests for collections
+// Spec: 06-types.md § Compound Types
+// Spec: 06-types.md § List
+// Spec: 06-types.md § Map
+//
+// Collections have homogeneous element types.
+// Note: Map indexing behavior and tuple indexing not tested (runtime issues)
+
+use std.testing { assert, assert_eq, assert_ne }
+
+// =============================================================================
+// List type checking
+// =============================================================================
+
+// Valid: homogeneous list
+@test_list_homogeneous () -> void = run(
+    let nums: [int] = [1, 2, 3],
+    assert_eq(actual: nums, expected: [1, 2, 3]),
+)
+
+// Valid: empty list with type annotation
+@test_empty_list_annotated () -> void = run(
+    let nums: [int] = [],
+    assert_eq(actual: nums, expected: []),
+)
+
+// Invalid: heterogeneous list
+#[compile_fail("type mismatch")]
+@test_list_heterogeneous () -> void = run(
+    let mixed = [1, "two", 3],
+    (),
+)
+
+// Invalid: list type annotation mismatch
+#[compile_fail("type mismatch")]
+@test_list_wrong_annotation () -> void = run(
+    let nums: [str] = [1, 2, 3],
+    (),
+)
+
+// Valid: nested list
+@test_nested_list () -> void = run(
+    let matrix: [[int]] = [[1, 2], [3, 4]],
+    assert_eq(actual: matrix, expected: [[1, 2], [3, 4]]),
+)
+
+// Invalid: inconsistent nested list types
+#[compile_fail("type mismatch")]
+@test_nested_list_inconsistent () -> void = run(
+    let matrix = [[1, 2], ["a", "b"]],
+    (),
+)
+
+// =============================================================================
+// List indexing
+// =============================================================================
+
+// Valid: list index returns element type
+@test_list_index_type () -> void = run(
+    let nums = [1, 2, 3],
+    let x: int = nums[0],
+    assert_eq(actual: x, expected: 1),
+)
+
+// Invalid: string index on list
+#[compile_fail("type mismatch")]
+@test_list_string_index () -> void = run(
+    let nums = [1, 2, 3],
+    let x = nums["first"],
+    (),
+)
+
+// =============================================================================
+// Map type checking
+// =============================================================================
+
+// Invalid: heterogeneous map values
+#[compile_fail("type mismatch")]
+@test_map_heterogeneous_values () -> void = run(
+    let mixed = {"a": 1, "b": "two"},
+    (),
+)
+
+// Invalid: heterogeneous map keys
+#[compile_fail("type mismatch")]
+@test_map_heterogeneous_keys () -> void = run(
+    let mixed = {"a": 1, 2: 3},
+    (),
+)
+
+// Invalid: map type annotation mismatch
+#[compile_fail("type mismatch")]
+@test_map_wrong_annotation () -> void = run(
+    let m: {str: str} = {"a": 1},
+    (),
+)
+
+// =============================================================================
+// Unit type
+// =============================================================================
+
+// Valid: unit value
+@test_unit_value () -> void = run(
+    let u: () = (),
+    (),
+)
+
+// Invalid: unit annotation with non-unit
+#[compile_fail("type mismatch")]
+@test_unit_wrong () -> void = run(
+    let u: () = 42,
+    (),
+)
+
+// =============================================================================
+// Option type checking
+// =============================================================================
+
+// Valid: Some with inferred type
+@test_option_some () -> void = run(
+    let opt = Some(42),
+    assert(cond: is_some(opt: opt)),
+)
+
+// Valid: None
+@test_option_none () -> void = run(
+    let opt = None,
+    assert(cond: is_none(opt: opt)),
+)
+
+// =============================================================================
+// Result type checking
+// =============================================================================
+
+// Valid: Ok
+@test_result_ok () -> void = run(
+    let res = Ok(42),
+    assert(cond: is_ok(result: res)),
+)
+
+// Valid: Err
+@test_result_err () -> void = run(
+    let res = Err("error"),
+    assert(cond: is_err(result: res)),
+)
+
+// =============================================================================
+// Collection operations type propagation
+// =============================================================================
+
+// Valid: map preserves inner type transformation
+@test_list_map_type () -> void = run(
+    let nums = [1, 2, 3],
+    let strs: [str] = nums.map(transform: x -> str(x)),
+    (),
+)
+
+// Invalid: map result type mismatch
+#[compile_fail("type mismatch")]
+@test_list_map_wrong_type () -> void = run(
+    let nums = [1, 2, 3],
+    let result: [int] = nums.map(transform: x -> str(x)),
+    (),
+)
+
+// Valid: filter preserves element type
+@test_list_filter_type () -> void = run(
+    let nums = [1, 2, 3, 4],
+    let evens: [int] = nums.filter(predicate: x -> x % 2 == 0),
+    assert_eq(actual: evens, expected: [2, 4]),
+)
+
+// Valid: fold with accumulator type
+@test_list_fold_type () -> void = run(
+    let nums = [1, 2, 3],
+    let sum: int = nums.fold(initial: 0, op: (acc, x) -> acc + x),
+    assert_eq(actual: sum, expected: 6),
+)
+
+// Invalid: fold accumulator type mismatch
+#[compile_fail("type mismatch")]
+@test_list_fold_wrong_acc () -> void = run(
+    let nums = [1, 2, 3],
+    let sum: str = nums.fold(initial: 0, op: (acc, x) -> acc + x),
+    (),
+)
+
+// =============================================================================
+// Range type checking
+// =============================================================================
+
+// Valid: int range
+@test_int_range () -> void = run(
+    let r = 0..10,
+    (),
+)
+
+// Valid: inclusive range
+@test_inclusive_range () -> void = run(
+    let r = 0..=5,
+    (),
+)
+
+// Invalid: mixed type range
+#[compile_fail("type mismatch")]
+@test_mixed_range () -> void = run(
+    let r = 0.."ten",
+    (),
+)
+
+// =============================================================================
+// Tuple type checking
+// =============================================================================
+
+// Valid: tuple creation
+@test_tuple_creation () -> void = run(
+    let t = (1, "hello", true),
+    (),
+)
+
+// Valid: tuple destructuring
+@test_tuple_destructure () -> void = run(
+    let t = (42, "hello"),
+    let (a, b) = t,
+    assert_eq(actual: a, expected: 42),
+    assert_eq(actual: b, expected: "hello"),
+)
+
+// Valid: nested tuple
+@test_nested_tuple () -> void = run(
+    let t = ((1, 2), "pair"),
+    let (pair, label) = t,
+    let (a, b) = pair,
+    assert_eq(actual: a, expected: 1),
+)

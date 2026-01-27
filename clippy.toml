@@ -1,4 +1,4 @@
-# Clippy configuration for sigilc
+# Clippy configuration for oric
 #
 # Enforce usage of wrapper types instead of raw smart pointers:
 # - LocalScope<T> for single-threaded scopes (instead of Rc<RefCell<T>>)

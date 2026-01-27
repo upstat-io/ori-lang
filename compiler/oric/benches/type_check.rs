@@ -19,7 +19,7 @@ const MIXED_FUNCTION: &str = "@process (x: int, y) -> int = x + y";
 /// Multiple typed functions
 fn generate_typed_functions(n: usize) -> String {
     (0..n)
-        .map(|i| format!("@func{} (x: int) -> int = x + {}", i, i))
+        .map(|i| format!("@func{i} (x: int) -> int = x + {i}"))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -27,27 +27,27 @@ fn generate_typed_functions(n: usize) -> String {
 /// Multiple inferred functions
 fn generate_inferred_functions(n: usize) -> String {
     (0..n)
-        .map(|i| format!("@func{} (x) = x + {}", i, i))
+        .map(|i| format!("@func{i} (x) = x + {i}"))
         .collect::<Vec<_>>()
         .join("\n")
 }
 
 /// Complex expression requiring inference
-const COMPLEX_INFERENCE: &str = r#"
+const COMPLEX_INFERENCE: &str = r"
 @complex (a: int, b: int) -> int =
     if a > b then a * 2 else b * 3
-"#;
+";
 
 /// List operations
-const LIST_OPERATIONS: &str = r#"
+const LIST_OPERATIONS: &str = r"
 @make_list () = [1, 2, 3, 4, 5]
-"#;
+";
 
 /// Nested let bindings
 #[allow(dead_code)]
 fn generate_let_chain(n: usize) -> String {
     let lets: Vec<String> = (0..n)
-        .map(|i| format!("let x{}: int = {}", i, i))
+        .map(|i| format!("let x{i}: int = {i}"))
         .collect();
     let final_expr = format!("x{}", n - 1);
     format!(
@@ -65,8 +65,8 @@ fn bench_typeck_annotated(c: &mut Criterion) {
     c.bench_function("typeck/annotated_function", |b| {
         b.iter(|| {
             let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), TYPED_FUNCTION.to_string());
-            black_box(typed(&db, file))
-        })
+            black_box(typed(&db, file));
+        });
     });
 }
 
@@ -76,8 +76,8 @@ fn bench_typeck_inferred(c: &mut Criterion) {
     c.bench_function("typeck/inferred_function", |b| {
         b.iter(|| {
             let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), INFERRED_FUNCTION.to_string());
-            black_box(typed(&db, file))
-        })
+            black_box(typed(&db, file));
+        });
     });
 }
 
@@ -87,8 +87,8 @@ fn bench_typeck_mixed(c: &mut Criterion) {
     c.bench_function("typeck/mixed_annotations", |b| {
         b.iter(|| {
             let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), MIXED_FUNCTION.to_string());
-            black_box(typed(&db, file))
-        })
+            black_box(typed(&db, file));
+        });
     });
 }
 
@@ -98,8 +98,8 @@ fn bench_typeck_complex(c: &mut Criterion) {
     c.bench_function("typeck/complex_inference", |b| {
         b.iter(|| {
             let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), COMPLEX_INFERENCE.to_string());
-            black_box(typed(&db, file))
-        })
+            black_box(typed(&db, file));
+        });
     });
 }
 
@@ -109,8 +109,8 @@ fn bench_typeck_list(c: &mut Criterion) {
     c.bench_function("typeck/list_operations", |b| {
         b.iter(|| {
             let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), LIST_OPERATIONS.to_string());
-            black_box(typed(&db, file))
-        })
+            black_box(typed(&db, file));
+        });
     });
 }
 
@@ -118,13 +118,13 @@ fn bench_typeck_scaling_annotated(c: &mut Criterion) {
     let db = CompilerDb::new();
     let mut group = c.benchmark_group("typeck/scaling_annotated");
 
-    for size in [10, 50, 100, 500].iter() {
+    for size in &[10, 50, 100, 500] {
         let source = generate_typed_functions(*size);
         group.bench_with_input(BenchmarkId::new("functions", size), &source, |b, src| {
             b.iter(|| {
                 let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), src.clone());
-                black_box(typed(&db, file))
-            })
+                black_box(typed(&db, file));
+            });
         });
     }
 
@@ -135,13 +135,13 @@ fn bench_typeck_scaling_inferred(c: &mut Criterion) {
     let db = CompilerDb::new();
     let mut group = c.benchmark_group("typeck/scaling_inferred");
 
-    for size in [10, 50, 100, 500].iter() {
+    for size in &[10, 50, 100, 500] {
         let source = generate_inferred_functions(*size);
         group.bench_with_input(BenchmarkId::new("functions", size), &source, |b, src| {
             b.iter(|| {
                 let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), src.clone());
-                black_box(typed(&db, file))
-            })
+                black_box(typed(&db, file));
+            });
         });
     }
 
@@ -159,8 +159,8 @@ fn bench_typeck_incremental(c: &mut Criterion) {
     c.bench_function("typeck/incremental_cached", |b| {
         b.iter(|| {
             // Same file, should be cached by Salsa
-            black_box(typed(&db, file))
-        })
+            black_box(typed(&db, file));
+        });
     });
 }
 
@@ -177,15 +177,15 @@ fn bench_typeck_annotation_impact(c: &mut Criterion) {
     group.bench_function("with_annotations", |b| {
         b.iter(|| {
             let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), annotated.clone());
-            black_box(typed(&db, file))
-        })
+            black_box(typed(&db, file));
+        });
     });
 
     group.bench_function("with_inference", |b| {
         b.iter(|| {
             let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), inferred.clone());
-            black_box(typed(&db, file))
-        })
+            black_box(typed(&db, file));
+        });
     });
 
     group.finish();

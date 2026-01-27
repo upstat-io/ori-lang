@@ -157,28 +157,22 @@ fn print_usage() {
 }
 
 fn explain_error(code_str: &str) {
-    let code = match parse_error_code(code_str) {
-        Some(c) => c,
-        None => {
-            eprintln!("Unknown error code: {code_str}");
-            eprintln!();
-            eprintln!("Error codes have the format EXXXX where X is a digit.");
-            eprintln!("Examples: E0001, E1001, E2001");
-            std::process::exit(1);
-        }
+    let Some(code) = parse_error_code(code_str) else {
+        eprintln!("Unknown error code: {code_str}");
+        eprintln!();
+        eprintln!("Error codes have the format EXXXX where X is a digit.");
+        eprintln!("Examples: E0001, E1001, E2001");
+        std::process::exit(1);
     };
 
-    match ErrorDocs::get(code) {
-        Some(doc) => {
-            println!("{doc}");
-        }
-        None => {
-            eprintln!("No documentation available for {code_str}");
-            eprintln!();
-            eprintln!("This error code exists but doesn't have detailed documentation yet.");
-            eprintln!("Please check the error message for guidance.");
-            std::process::exit(1);
-        }
+    if let Some(doc) = ErrorDocs::get(code) {
+        println!("{doc}");
+    } else {
+        eprintln!("No documentation available for {code_str}");
+        eprintln!();
+        eprintln!("This error code exists but doesn't have detailed documentation yet.");
+        eprintln!("Please check the error message for guidance.");
+        std::process::exit(1);
     }
 }
 

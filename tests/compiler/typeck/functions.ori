@@ -1,0 +1,233 @@
+// Type checking tests for function signatures
+// Spec: 08-declarations.md § Function Declaration
+// Spec: 06-types.md § Function
+//
+// Function parameters and return types must be explicitly annotated.
+// Function bodies must match declared return types.
+
+use std.testing { assert, assert_eq, assert_ne }
+
+// =============================================================================
+// Return type checking
+// =============================================================================
+
+// Valid: correct return type
+@returns_int () -> int = 42
+
+@test_returns_int tests @returns_int () -> void = run(
+    assert_eq(actual: returns_int(), expected: 42),
+)
+
+// Valid: void return
+@returns_void () -> void = ()
+
+@test_returns_void tests @returns_void () -> void = run(
+    returns_void(),
+)
+
+// Invalid: return type mismatch (int declared, str returned)
+#[compile_fail("type mismatch")]
+@bad_return_int_str () -> int = "hello"
+
+@test_bad_return_int_str tests @bad_return_int_str () -> void = ()
+
+// Invalid: return type mismatch (str declared, int returned)
+#[compile_fail("type mismatch")]
+@bad_return_str_int () -> str = 42
+
+@test_bad_return_str_int tests @bad_return_str_int () -> void = ()
+
+// Invalid: return type mismatch (bool declared, int returned)
+#[compile_fail("type mismatch")]
+@bad_return_bool_int () -> bool = 1
+
+@test_bad_return_bool_int tests @bad_return_bool_int () -> void = ()
+
+// =============================================================================
+// Parameter type checking
+// =============================================================================
+
+// Valid: correct argument type
+@takes_int (x: int) -> int = x * 2
+
+@test_takes_int tests @takes_int () -> void = run(
+    assert_eq(actual: takes_int(x: 21), expected: 42),
+)
+
+// Valid: multiple parameters
+@add_ints (a: int, b: int) -> int = a + b
+
+@test_add_ints tests @add_ints () -> void = run(
+    assert_eq(actual: add_ints(a: 20, b: 22), expected: 42),
+)
+
+// Invalid: wrong argument type (str where int expected)
+#[compile_fail("type mismatch")]
+@test_wrong_arg_type () -> void = run(
+    let result = takes_int(x: "hello"),
+    (),
+)
+
+// Invalid: wrong argument type (float where int expected)
+#[compile_fail("type mismatch")]
+@test_float_for_int_arg () -> void = run(
+    let result = takes_int(x: 3.14),
+    (),
+)
+
+// =============================================================================
+// Lambda type checking
+// =============================================================================
+
+// Valid: lambda with explicit types
+@test_typed_lambda () -> void = run(
+    let f = (x: int) -> int = x * 2,
+    assert_eq(actual: f(21), expected: 42),
+)
+
+// Invalid: lambda return type mismatch
+#[compile_fail("type mismatch")]
+@test_lambda_bad_return () -> void = run(
+    let f = (x: int) -> int = "not an int",
+    (),
+)
+
+// Invalid: lambda body type doesn't match annotation
+#[compile_fail("type mismatch")]
+@test_lambda_body_mismatch () -> void = run(
+    let f = (x: int) -> str = x + 1,
+    (),
+)
+
+// Valid: lambda with inferred types
+@test_inferred_lambda () -> void = run(
+    let f = x -> x + 1,
+    assert_eq(actual: f(41), expected: 42),
+)
+
+// =============================================================================
+// Higher-order functions
+// =============================================================================
+
+// Valid: function taking function parameter
+@apply (f: (int) -> int, x: int) -> int = f(x)
+
+@test_apply tests @apply () -> void = run(
+    let double = x -> x * 2,
+    assert_eq(actual: apply(f: double, x: 21), expected: 42),
+)
+
+// Invalid: wrong function parameter type
+#[compile_fail("type mismatch")]
+@test_apply_wrong_fn_type () -> void = run(
+    let to_str = (x: int) -> str = "string",
+    let result = apply(f: to_str, x: 21),
+    (),
+)
+
+// Valid: function returning function
+@make_adder (n: int) -> (int) -> int = x -> x + n
+
+@test_make_adder tests @make_adder () -> void = run(
+    let add10 = make_adder(n: 10),
+    assert_eq(actual: add10(32), expected: 42),
+)
+
+// =============================================================================
+// Generic functions
+// =============================================================================
+
+// Valid: generic identity function
+@identity<T> (x: T) -> T = x
+
+@test_identity tests @identity () -> void = run(
+    assert_eq(actual: identity(x: 42), expected: 42),
+    assert_eq(actual: identity(x: "hello"), expected: "hello"),
+)
+
+// =============================================================================
+// Void return enforcement
+// =============================================================================
+
+// Valid: void function with unit value
+@void_fn () -> void = ()
+
+@test_void_fn tests @void_fn () -> void = run(
+    void_fn(),
+)
+
+// Valid: void function with run that ends in unit
+@void_fn_run () -> void = run(
+    let x = 42,
+    (),
+)
+
+@test_void_fn_run tests @void_fn_run () -> void = run(
+    void_fn_run(),
+)
+
+// Invalid: void function returning non-unit
+#[compile_fail("type mismatch")]
+@bad_void_returns_int () -> void = 42
+
+@test_bad_void_returns_int tests @bad_void_returns_int () -> void = ()
+
+// =============================================================================
+// Return type with run pattern
+// =============================================================================
+
+// Valid: run returns correct type
+@compute_sum () -> int = run(
+    let a = 10,
+    let b = 32,
+    a + b,
+)
+
+@test_compute_sum tests @compute_sum () -> void = run(
+    assert_eq(actual: compute_sum(), expected: 42),
+)
+
+// Invalid: run returns wrong type for function signature
+#[compile_fail("type mismatch")]
+@bad_run_return () -> int = run(
+    let x = 42,
+    "not an int",
+)
+
+@test_bad_run_return tests @bad_run_return () -> void = ()
+
+// =============================================================================
+// Function with complex return
+// =============================================================================
+
+// Valid: conditional return
+@abs (x: int) -> int = if x < 0 then -x else x
+
+@test_abs tests @abs () -> void = run(
+    assert_eq(actual: abs(x: -5), expected: 5),
+    assert_eq(actual: abs(x: 5), expected: 5),
+)
+
+// Invalid: conditional branches return different types
+#[compile_fail("type mismatch")]
+@bad_conditional_return () -> int = if true then 42 else "not int"
+
+@test_bad_conditional_return tests @bad_conditional_return () -> void = ()
+
+// =============================================================================
+// Method type checking
+// =============================================================================
+
+type Counter = { value: int }
+
+impl Counter {
+    @get (self) -> int = self.value
+
+    @increment (self) -> Counter = Counter { value: self.value + 1 }
+}
+
+@test_method_returns tests @get tests @increment () -> void = run(
+    let c = Counter { value: 0 },
+    let c2 = c.increment(),
+    assert_eq(actual: c2.get(), expected: 1),
+)

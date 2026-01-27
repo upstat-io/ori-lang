@@ -329,7 +329,7 @@ impl LanguageServer for OriLanguageServer {
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
-                name: "sigil-lsp".to_string(),
+                name: "ori-lsp".to_string(),
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),
             }),
         })

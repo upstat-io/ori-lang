@@ -1,6 +1,6 @@
 # Ori Playground
 
-Browser-based playground for the Ori programming language. Runs the interpreter entirely in WebAssembly — no server required.
+Browser-based playground for the Ori programming language. Runs the interpreter entirely in WebAssembly.
 
 ## Quick Start
 
@@ -13,48 +13,50 @@ cargo install wasm-pack
 ### 2. Build the WASM module
 
 ```bash
-cd playground/wasm
-wasm-pack build --target web
+cd playground
+bun run build:wasm
 ```
 
-This generates `playground/wasm/pkg/` with the JavaScript bindings.
-
-### 3. Serve the playground
+Or manually:
 
 ```bash
-cd playground && bun --bun serve .
+cd playground/wasm
+wasm-pack build --target web --out-dir ../pkg
+```
+
+### 3. Start the dev server
+
+```bash
+cd playground
+bun run dev
 ```
 
 ### 4. Open in browser
 
-Navigate to `http://localhost:8080`
+Navigate to `http://localhost:3000`
 
-## Development
-
-### Project Structure
+## Project Structure
 
 ```
 playground/
+├── package.json    # Bun project config
+├── server.ts       # Bun dev server
 ├── index.html      # Main page
 ├── style.css       # Styling (VS Code dark theme)
-├── app.js          # Monaco editor + WASM glue
-├── wasm/           # WASM crate
-│   ├── Cargo.toml
-│   └── src/
-│       └── lib.rs  # Rust → WASM bindings
-└── pkg/            # Generated WASM output (after build)
+├── app.js          # Monaco editor + WASM integration
+├── pkg/            # Generated WASM output (after build)
+└── wasm/           # WASM crate
+    ├── Cargo.toml
+    └── src/
+        └── lib.rs  # Rust → WASM bindings via wasm-bindgen
 ```
 
-### Rebuilding
+## Scripts
 
-After making changes to the Rust code:
-
-```bash
-cd playground/wasm
-wasm-pack build --target web
-```
-
-Then refresh the browser.
+| Command | Description |
+|---------|-------------|
+| `bun run dev` | Start development server on port 3000 |
+| `bun run build:wasm` | Rebuild the WASM module |
 
 ## Features
 
@@ -64,13 +66,16 @@ Then refresh the browser.
 - **Share** button (encodes code in URL hash)
 - **Ctrl+Enter** to run
 
+## How It Works
+
+The playground uses wasm-bindgen to expose the Ori interpreter to JavaScript:
+
+1. `lib.rs` exports `run_ori(source: &str) -> String` which returns JSON
+2. The WASM module uses the same Salsa-based interpreter as `cargo st`
+3. `app.js` imports the WASM module and calls `run_ori()` when you click Run
+
 ## Deployment
 
-The playground is static files only. Deploy to:
-- GitHub Pages
-- Cloudflare Pages
-- Netlify
-- Vercel
-- Any static host
+The playground is static files only. Deploy to GitHub Pages, Cloudflare Pages, Netlify, Vercel, or any static host.
 
 Just copy the `playground/` directory (after building WASM).

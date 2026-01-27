@@ -1,15 +1,14 @@
-//! Function call evaluation methods for the Evaluator.
+//! Function call evaluation methods for the Interpreter.
 
-use crate::ir::CallArgRange;
-use ori_eval::not_callable;
-use super::{Evaluator, EvalResult};
-use super::super::value::Value;
-use super::super::exec::call::{
+use ori_ir::CallArgRange;
+use crate::{Value, EvalResult, not_callable};
+use crate::exec::call::{
     check_arg_count, bind_captures, bind_parameters, bind_self,
     eval_function_val_call, extract_named_args,
 };
+use super::Interpreter;
 
-impl Evaluator<'_> {
+impl Interpreter<'_> {
     /// Evaluate a function call.
     pub(super) fn eval_call(&mut self, func: Value, args: &[Value]) -> EvalResult {
         match func.clone() {
@@ -43,9 +42,52 @@ impl Evaluator<'_> {
 
                 // Evaluate body using the function's arena (arena threading pattern).
                 let func_arena = f.arena();
-                let mut call_evaluator = self.create_function_evaluator(func_arena, call_env);
-                let result = call_evaluator.eval(f.body);
-                call_evaluator.env.pop_scope();
+                let mut call_interpreter = self.create_function_interpreter(func_arena, call_env);
+                let result = call_interpreter.eval(f.body);
+                call_interpreter.env.pop_scope();
+                result
+            }
+            Value::MemoizedFunction(mf) => {
+                // Check cache first
+                if let Some(cached) = mf.get_cached(args) {
+                    return Ok(cached);
+                }
+
+                // Not cached - evaluate the underlying function
+                let f = &mf.func;
+                check_arg_count(f, args)?;
+
+                // Create new environment with captures, then push a local scope
+                let mut call_env = self.env.child();
+                call_env.push_scope();
+
+                // Bind captured variables
+                bind_captures(&mut call_env, f);
+
+                // Pass capabilities from calling scope to called function
+                for cap_name in f.capabilities() {
+                    if let Some(cap_value) = self.env.lookup(*cap_name) {
+                        call_env.define(*cap_name, cap_value, false);
+                    }
+                }
+
+                // Bind parameters
+                bind_parameters(&mut call_env, f, args);
+
+                // Bind 'self' to the MEMOIZED function so recursive calls also use the cache
+                bind_self(&mut call_env, func, self.interner);
+
+                // Evaluate body using the function's arena (arena threading pattern).
+                let func_arena = f.arena();
+                let mut call_interpreter = self.create_function_interpreter(func_arena, call_env);
+                let result = call_interpreter.eval(f.body);
+                call_interpreter.env.pop_scope();
+
+                // Cache the result before returning
+                if let Ok(ref value) = result {
+                    mf.cache_result(args, value.clone());
+                }
+
                 result
             }
             Value::FunctionVal(func_ptr, _name) => {

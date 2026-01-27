@@ -17,7 +17,7 @@ mod primary;
 mod postfix;
 mod patterns;
 
-use ori_ir::{BinaryOp, Expr, ExprId, ExprKind, TokenKind};
+use ori_ir::{BinaryOp, Expr, ExprId, ExprKind, TokenKind, UnaryOp};
 use crate::{ParseError, Parser};
 use crate::stack::ensure_sufficient_stack;
 
@@ -262,9 +262,45 @@ impl Parser<'_> {
     }
 
     /// Parse unary operators.
+    ///
+    /// When the operator is `-` and the next token is an integer literal,
+    /// folds them into a single `ExprKind::Int` node. This allows
+    /// `-9223372036854775808` (`i64::MIN`) to be represented directly.
     fn parse_unary(&mut self) -> Result<ExprId, ParseError> {
+        /// Absolute value of `i64::MIN` as `u64` (for negation folding).
+        const I64_MIN_ABS: u64 = 9_223_372_036_854_775_808;
+
         if let Some(op) = self.match_unary_op() {
             let start = self.current_span();
+
+            // Fold negation with integer literals: `-42` → `ExprKind::Int(-42)`
+            if op == UnaryOp::Neg {
+                if let TokenKind::Int(n) = self.peek_next_kind() {
+                    self.advance(); // consume `-`
+                    let lit_span = self.current_span();
+                    self.advance(); // consume integer literal
+                    let span = start.merge(lit_span);
+
+                    return if let Ok(signed) = i64::try_from(n) {
+                        Ok(self.arena.alloc_expr(Expr::new(
+                            ExprKind::Int(-signed),
+                            span,
+                        )))
+                    } else if n == I64_MIN_ABS {
+                        Ok(self.arena.alloc_expr(Expr::new(
+                            ExprKind::Int(i64::MIN),
+                            span,
+                        )))
+                    } else {
+                        Err(ParseError::new(
+                            ori_diagnostic::ErrorCode::E1002,
+                            "integer literal too large".to_string(),
+                            span,
+                        ))
+                    };
+                }
+            }
+
             self.advance();
             let operand = self.parse_unary()?;
 

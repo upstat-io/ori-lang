@@ -4,9 +4,8 @@
 //! `UserMethodResolver` and `DerivedMethodResolver` into a single resolver,
 //! reducing the number of resolvers in the chain.
 
-use crate::context::SharedMutableRegistry;
 use ori_ir::Name;
-use ori_eval::UserMethodRegistry;
+use crate::{SharedMutableRegistry, UserMethodRegistry};
 use super::{MethodResolution, MethodResolver, Value};
 
 /// Resolver for both user-defined and derived methods.
@@ -76,7 +75,7 @@ mod tests {
 
         let int_type = interner.intern("int");
         let unknown_method = interner.intern("unknown_method");
-        let result = resolver.resolve(&Value::Int(42), int_type, unknown_method);
+        let result = resolver.resolve(&Value::int(42), int_type, unknown_method);
         assert!(matches!(result, MethodResolution::NotFound));
     }
 }

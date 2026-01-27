@@ -1,9 +1,9 @@
 {
-    "name": "sigil-lang",
-    "displayName": "Sigil Language",
-    "description": "Syntax highlighting for the Sigil programming language",
+    "name": "ori-lang",
+    "displayName": "Ori Language",
+    "description": "Syntax highlighting for the Ori programming language",
     "version": "0.1.0",
-    "publisher": "sigil-lang",
+    "publisher": "ori-lang",
     "engines": {
         "vscode": "^1.75.0"
     },
@@ -13,22 +13,22 @@
     "contributes": {
         "languages": [
             {
-                "id": "sigil",
+                "id": "ori",
                 "aliases": [
-                    "Sigil",
-                    "sigil"
+                    "Ori",
+                    "ori"
                 ],
                 "extensions": [
-                    ".si"
+                    ".ori"
                 ],
                 "configuration": "./language-configuration.json"
             }
         ],
         "grammars": [
             {
-                "language": "sigil",
-                "scopeName": "source.sigil",
-                "path": "./syntaxes/sigil.tmLanguage.json"
+                "language": "ori",
+                "scopeName": "source.ori",
+                "path": "./syntaxes/ori.tmLanguage.json"
             }
         ]
     }

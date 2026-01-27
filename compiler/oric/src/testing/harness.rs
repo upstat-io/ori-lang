@@ -21,7 +21,7 @@ use crate::typeck::{TypedModule, type_check};
 /// use oric::testing::harness::eval_expr;
 ///
 /// let result = eval_expr("1 + 2").unwrap();
-/// assert_eq!(result, Value::Int(3));
+/// assert_eq!(result, Value::int(3));
 /// ```
 pub fn eval_expr(source: &str) -> EvalResult {
     let db = CompilerDb::new();
@@ -104,7 +104,7 @@ pub fn type_check_source(source: &str) -> (ParseResult, TypedModule, SharedInter
 pub fn assert_eval_int(source: &str, expected: i64) {
     let wrapped = format!("@main () -> int = {source}");
     match eval_source(&wrapped) {
-        Ok(Value::Int(n)) => assert_eq!(n, expected, "source: {source}"),
+        Ok(Value::Int(n)) => assert_eq!(n.raw(), expected, "source: {source}"),
         Ok(other) => panic!("expected Int({expected}), got {other:?} for: {source}"),
         Err(e) => panic!("evaluation error for '{source}': {e:?}"),
     }
@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn test_eval_source() {
         let result = eval_source("@main () -> int = 42");
-        assert_eq!(result.unwrap(), Value::Int(42));
+        assert_eq!(result.unwrap(), Value::int(42));
     }
 
     #[test]

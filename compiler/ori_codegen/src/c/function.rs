@@ -148,7 +148,6 @@ mod tests {
         let _ctx = CodegenContext::new(&interner, &type_interner, &[]);
 
         // Can't easily test without a valid ExprId
-        // Just verify the module compiles
-        assert!(true);
+        // Just verify the module compiles and the context can be created
     }
 }

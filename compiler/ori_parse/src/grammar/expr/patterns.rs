@@ -278,9 +278,17 @@ impl Parser<'_> {
                 Ok(MatchPattern::Wildcard)
             }
             TokenKind::Int(n) => {
+                let pat_span = self.current_span();
                 self.advance();
+                let value = i64::try_from(n).map_err(|_| {
+                    ParseError::new(
+                        ori_diagnostic::ErrorCode::E1002,
+                        "integer literal too large".to_string(),
+                        pat_span,
+                    )
+                })?;
                 Ok(MatchPattern::Literal(self.arena.alloc_expr(Expr::new(
-                    ExprKind::Int(n),
+                    ExprKind::Int(value),
                     self.previous_span(),
                 ))))
             }

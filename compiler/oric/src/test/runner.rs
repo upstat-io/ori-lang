@@ -12,7 +12,7 @@ use crate::input::SourceFile;
 use crate::query::parsed;
 use crate::eval::Evaluator;
 use crate::ir::TestDef;
-use crate::typeck::type_check_with_source;
+use crate::typeck::type_check_with_imports_and_source;
 
 use super::discovery::{discover_tests_in, TestFile};
 use super::error_matching::{match_errors, format_expected, format_actual};
@@ -150,13 +150,46 @@ impl TestRunner {
 
         let interner = db.interner();
 
-        // Type check for compile_fail tests (with source for error deduplication)
-        let typed_module = type_check_with_source(&parse_result, interner, source.clone());
+        // Type check with import resolution (enables proper type checking of imported functions)
+        let typed_module = type_check_with_imports_and_source(&db, &parse_result, path, source.clone());
 
-        // Run tests based on backend
+        // Separate compile_fail tests from regular tests
+        // compile_fail tests don't need evaluation - they just check for type errors
+        let (compile_fail_tests, regular_tests): (Vec<_>, Vec<_>) = parse_result.module.tests
+            .iter()
+            .partition(|t| t.is_compile_fail());
+
+        // Run compile_fail tests first (they don't need load_module)
+        for test in &compile_fail_tests {
+            // Apply filter if set
+            if let Some(filter) = &self.config.filter {
+                let test_name = interner.lookup(test.name);
+                if !test_name.contains(filter.as_str()) {
+                    continue;
+                }
+            }
+
+            let inner_result = Self::run_compile_fail_test(test, &typed_module, &source, interner);
+
+            let result = if let Some(expected_failure) = test.fail_expected {
+                Self::apply_fail_wrapper(inner_result, expected_failure, interner)
+            } else {
+                inner_result
+            };
+
+            summary.add_result(result);
+        }
+
+        // Skip regular test execution if there are no regular tests
+        if regular_tests.is_empty() {
+            return summary;
+        }
+
+        // Run regular tests based on backend
         match self.config.backend {
             Backend::Interpreter => {
                 // Create evaluator with database for proper Salsa-tracked import resolution
+                // load_module enforces type checking - will fail if there are type errors
                 let mut evaluator = Evaluator::builder(interner, &parse_result.arena, &db)
                     .build();
 
@@ -167,8 +200,8 @@ impl TestRunner {
                     return summary;
                 }
 
-                // Run each test
-                for test in &parse_result.module.tests {
+                // Run each regular test
+                for test in &regular_tests {
                     // Apply filter if set
                     if let Some(filter) = &self.config.filter {
                         let test_name = interner.lookup(test.name);
@@ -177,13 +210,7 @@ impl TestRunner {
                         }
                     }
 
-                    // Run the inner test (compile_fail or regular)
-                    let inner_result = if test.is_compile_fail() {
-                        // compile_fail: test expects compilation to fail
-                        Self::run_compile_fail_test(test, &typed_module, &source, interner)
-                    } else {
-                        Self::run_single_test(&mut evaluator, test, interner)
-                    };
+                    let inner_result = Self::run_single_test(&mut evaluator, test, interner);
 
                     // If #[fail] is present, wrap the result
                     let result = if let Some(expected_failure) = test.fail_expected {
@@ -584,15 +611,18 @@ mod tests {
     fn test_runner_failing_test() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("fail.ori");
-        // Test fails by calling panic
-        std::fs::write(&path, r#"
+        // Test fails by causing division by zero
+        // (Note: panic() returns Never which doesn't type check in void context,
+        // so we use division by zero to cause a runtime failure instead)
+        std::fs::write(&path, r"
 @add (a: int, b: int) -> int = a + b
 
 @test_add tests @add () -> void = run(
     let _ = add(a: 1, b: 2),
-    panic(msg: "intentional failure")
+    let _ = 1 / 0,
+    ()
 )
-"#).unwrap();
+").unwrap();
 
         let summary = run_test_file(&path);
         assert_eq!(summary.passed, 0);

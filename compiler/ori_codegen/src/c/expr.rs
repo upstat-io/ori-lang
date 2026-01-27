@@ -137,7 +137,7 @@ pub fn emit_expr(
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            format!("ori_{}({})", method_name, all_args)
+            format!("ori_{method_name}({all_args})")
         }
 
         ExprKind::MethodCallNamed { receiver, method, args } => {
@@ -154,7 +154,7 @@ pub fn emit_expr(
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            format!("ori_{}({})", method_name, all_args)
+            format!("ori_{method_name}({all_args})")
         }
 
         // Field access
@@ -497,7 +497,7 @@ fn emit_callee(
     }
 }
 
-/// Emit a string literal as a ori_string_t.
+/// Emit a string literal as a `ori_string_t`.
 fn emit_string_literal(s: &str) -> String {
     // Escape special characters
     let escaped: String = s

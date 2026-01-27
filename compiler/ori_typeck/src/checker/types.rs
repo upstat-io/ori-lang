@@ -5,7 +5,7 @@
 //! # Salsa Compatibility
 //! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 //!
-//! # TypeId Migration
+//! # `TypeId` Migration
 //! This module uses `TypeId` for efficient O(1) type comparisons.
 //! Convert to `Type` when needed using `TypeInterner::to_type()`.
 
@@ -21,7 +21,7 @@ use ori_ir::{Name, Span, TypeId};
 /// Has Clone, Eq, Hash for use in query results.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct TypedModule {
-    /// Type of each expression (indexed by `ExprId`), stored as TypeId for efficiency.
+    /// Type of each expression (indexed by `ExprId`), stored as `TypeId` for efficiency.
     pub expr_types: Vec<TypeId>,
     /// Type of each function.
     pub function_types: Vec<FunctionType>,
@@ -54,7 +54,7 @@ pub struct GenericBound {
     pub param: Name,
     /// Trait bounds as paths (e.g., `["Eq"]`, `["Comparable"]`)
     pub bounds: Vec<Vec<Name>>,
-    /// The type variable used for this generic in the function signature (as TypeId).
+    /// The type variable used for this generic in the function signature (as `TypeId`).
     /// Used to resolve the actual type at call sites for constraint checking.
     pub type_var: TypeId,
 }
@@ -88,7 +88,7 @@ pub struct WhereConstraint {
     pub projection: Option<Name>,
     /// Trait bounds as paths (e.g., `["Eq"]`, `["Comparable"]`).
     pub bounds: Vec<Vec<Name>>,
-    /// The type variable for the base parameter (as TypeId, for resolving at call sites).
+    /// The type variable for the base parameter (as `TypeId`, for resolving at call sites).
     pub type_var: TypeId,
 }
 
@@ -113,7 +113,7 @@ impl std::hash::Hash for WhereConstraint {
 
 /// Function type information.
 ///
-/// Uses `TypeId` for params and return_type for O(1) type comparisons.
+/// Uses `TypeId` for params and `return_type` for O(1) type comparisons.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct FunctionType {
     pub name: Name,
@@ -121,9 +121,9 @@ pub struct FunctionType {
     pub generics: Vec<GenericBound>,
     /// Where clause constraints (may include associated type projections).
     pub where_constraints: Vec<WhereConstraint>,
-    /// Parameter types (as TypeId for efficiency)
+    /// Parameter types (as `TypeId` for efficiency)
     pub params: Vec<TypeId>,
-    /// Return type (as TypeId for efficiency)
+    /// Return type (as `TypeId` for efficiency)
     pub return_type: TypeId,
     /// Capabilities required by this function (from `uses` clause)
     pub capabilities: Vec<Name>,

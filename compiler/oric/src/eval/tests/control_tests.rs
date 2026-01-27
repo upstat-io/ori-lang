@@ -25,11 +25,11 @@ mod if_else {
                 if call_count == 1 {
                     Ok(Value::Bool(true)) // condition
                 } else {
-                    Ok(Value::Int(42)) // then branch
+                    Ok(Value::int(42)) // then branch
                 }
             },
         );
-        assert_eq!(result.unwrap(), Value::Int(42));
+        assert_eq!(result.unwrap(), Value::int(42));
     }
 
     #[test]
@@ -54,12 +54,12 @@ mod if_else {
                 call_count += 1;
                 match id.raw() {
                     0 => Ok(Value::Bool(false)), // condition
-                    2 => Ok(Value::Int(99)),     // else branch
+                    2 => Ok(Value::int(99)),     // else branch
                     _ => Ok(Value::Void),
                 }
             },
         );
-        assert_eq!(result.unwrap(), Value::Int(99));
+        assert_eq!(result.unwrap(), Value::int(99));
     }
 
     #[test]
@@ -72,13 +72,13 @@ mod if_else {
             |_| {
                 call_count += 1;
                 if call_count == 1 {
-                    Ok(Value::Int(1)) // truthy: nonzero
+                    Ok(Value::int(1)) // truthy: nonzero
                 } else {
-                    Ok(Value::Int(42))
+                    Ok(Value::int(42))
                 }
             },
         );
-        assert_eq!(result.unwrap(), Value::Int(42));
+        assert_eq!(result.unwrap(), Value::int(42));
     }
 
     #[test]
@@ -87,7 +87,7 @@ mod if_else {
             ExprId::new(0),
             ExprId::new(1),
             None,
-            |_| Ok(Value::Int(0)), // falsy: zero
+            |_| Ok(Value::int(0)), // falsy: zero
         );
         assert_eq!(result.unwrap(), Value::Void);
     }
@@ -119,9 +119,9 @@ mod pattern_binding {
             let pattern = BindingPattern::Name(x);
 
             let mut env = Environment::new();
-            bind_pattern(&pattern, Value::Int(42), false, &mut env).unwrap();
+            bind_pattern(&pattern, Value::int(42), false, &mut env).unwrap();
 
-            assert_eq!(env.lookup(x), Some(Value::Int(42)));
+            assert_eq!(env.lookup(x), Some(Value::int(42)));
         }
 
         #[test]
@@ -131,10 +131,10 @@ mod pattern_binding {
             let pattern = BindingPattern::Name(x);
 
             let mut env = Environment::new();
-            bind_pattern(&pattern, Value::Int(42), true, &mut env).unwrap();
+            bind_pattern(&pattern, Value::int(42), true, &mut env).unwrap();
 
             // Mutable binding can be reassigned
-            assert!(env.assign(x, Value::Int(100)).is_ok());
+            assert!(env.assign(x, Value::int(100)).is_ok());
         }
 
         #[test]
@@ -144,10 +144,10 @@ mod pattern_binding {
             let pattern = BindingPattern::Name(x);
 
             let mut env = Environment::new();
-            bind_pattern(&pattern, Value::Int(42), false, &mut env).unwrap();
+            bind_pattern(&pattern, Value::int(42), false, &mut env).unwrap();
 
             // Immutable binding cannot be reassigned
-            assert!(env.assign(x, Value::Int(100)).is_err());
+            assert!(env.assign(x, Value::int(100)).is_err());
         }
     }
 
@@ -157,7 +157,7 @@ mod pattern_binding {
         #[test]
         fn ignores_value() {
             let mut env = Environment::new();
-            let result = bind_pattern(&BindingPattern::Wildcard, Value::Int(42), false, &mut env);
+            let result = bind_pattern(&BindingPattern::Wildcard, Value::int(42), false, &mut env);
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), Value::Void);
         }
@@ -177,11 +177,11 @@ mod pattern_binding {
             ]);
 
             let mut env = Environment::new();
-            let value = Value::tuple(vec![Value::Int(1), Value::Int(2)]);
+            let value = Value::tuple(vec![Value::int(1), Value::int(2)]);
             bind_pattern(&pattern, value, false, &mut env).unwrap();
 
-            assert_eq!(env.lookup(a), Some(Value::Int(1)));
-            assert_eq!(env.lookup(b), Some(Value::Int(2)));
+            assert_eq!(env.lookup(a), Some(Value::int(1)));
+            assert_eq!(env.lookup(b), Some(Value::int(2)));
         }
 
         #[test]
@@ -200,14 +200,14 @@ mod pattern_binding {
 
             let mut env = Environment::new();
             let value = Value::tuple(vec![
-                Value::Int(1),
-                Value::tuple(vec![Value::Int(2), Value::Int(3)]),
+                Value::int(1),
+                Value::tuple(vec![Value::int(2), Value::int(3)]),
             ]);
             bind_pattern(&pattern, value, false, &mut env).unwrap();
 
-            assert_eq!(env.lookup(a), Some(Value::Int(1)));
-            assert_eq!(env.lookup(b), Some(Value::Int(2)));
-            assert_eq!(env.lookup(c), Some(Value::Int(3)));
+            assert_eq!(env.lookup(a), Some(Value::int(1)));
+            assert_eq!(env.lookup(b), Some(Value::int(2)));
+            assert_eq!(env.lookup(c), Some(Value::int(3)));
         }
 
         #[test]
@@ -220,10 +220,10 @@ mod pattern_binding {
             ]);
 
             let mut env = Environment::new();
-            let value = Value::tuple(vec![Value::Int(1), Value::Int(2)]);
+            let value = Value::tuple(vec![Value::int(1), Value::int(2)]);
             bind_pattern(&pattern, value, false, &mut env).unwrap();
 
-            assert_eq!(env.lookup(a), Some(Value::Int(1)));
+            assert_eq!(env.lookup(a), Some(Value::int(1)));
         }
 
         #[test]
@@ -235,7 +235,7 @@ mod pattern_binding {
             ]);
 
             let mut env = Environment::new();
-            let value = Value::tuple(vec![Value::Int(1), Value::Int(2)]);
+            let value = Value::tuple(vec![Value::int(1), Value::int(2)]);
             let result = bind_pattern(&pattern, value, false, &mut env);
             assert!(result.is_err());
         }
@@ -249,7 +249,7 @@ mod pattern_binding {
             ]);
 
             let mut env = Environment::new();
-            let result = bind_pattern(&pattern, Value::Int(42), false, &mut env);
+            let result = bind_pattern(&pattern, Value::int(42), false, &mut env);
             assert!(result.is_err());
         }
 
@@ -277,11 +277,11 @@ mod pattern_binding {
             };
 
             let mut env = Environment::new();
-            let value = Value::list(vec![Value::Int(1), Value::Int(2)]);
+            let value = Value::list(vec![Value::int(1), Value::int(2)]);
             bind_pattern(&pattern, value, false, &mut env).unwrap();
 
-            assert_eq!(env.lookup(a), Some(Value::Int(1)));
-            assert_eq!(env.lookup(b), Some(Value::Int(2)));
+            assert_eq!(env.lookup(a), Some(Value::int(1)));
+            assert_eq!(env.lookup(b), Some(Value::int(2)));
         }
 
         #[test]
@@ -295,11 +295,11 @@ mod pattern_binding {
             };
 
             let mut env = Environment::new();
-            let value = Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+            let value = Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]);
             bind_pattern(&pattern, value, false, &mut env).unwrap();
 
-            assert_eq!(env.lookup(head), Some(Value::Int(1)));
-            assert_eq!(env.lookup(tail), Some(Value::list(vec![Value::Int(2), Value::Int(3)])));
+            assert_eq!(env.lookup(head), Some(Value::int(1)));
+            assert_eq!(env.lookup(tail), Some(Value::list(vec![Value::int(2), Value::int(3)])));
         }
 
         #[test]
@@ -313,10 +313,10 @@ mod pattern_binding {
             };
 
             let mut env = Environment::new();
-            let value = Value::list(vec![Value::Int(1)]);
+            let value = Value::list(vec![Value::int(1)]);
             bind_pattern(&pattern, value, false, &mut env).unwrap();
 
-            assert_eq!(env.lookup(head), Some(Value::Int(1)));
+            assert_eq!(env.lookup(head), Some(Value::int(1)));
             assert_eq!(env.lookup(tail), Some(Value::list(vec![])));
         }
 
@@ -331,7 +331,7 @@ mod pattern_binding {
             };
 
             let mut env = Environment::new();
-            let value = Value::list(vec![Value::Int(1)]);
+            let value = Value::list(vec![Value::int(1)]);
             let result = bind_pattern(&pattern, value, false, &mut env);
             assert!(result.is_err());
         }
@@ -346,7 +346,7 @@ mod pattern_binding {
             };
 
             let mut env = Environment::new();
-            let result = bind_pattern(&pattern, Value::Int(42), false, &mut env);
+            let result = bind_pattern(&pattern, Value::int(42), false, &mut env);
             assert!(result.is_err());
         }
     }
@@ -423,7 +423,7 @@ mod edge_cases {
             Value::tuple(vec![
                 Value::tuple(vec![
                     Value::tuple(vec![
-                        Value::Int(42),
+                        Value::int(42),
                     ]),
                 ]),
             ]),
@@ -431,7 +431,7 @@ mod edge_cases {
 
         let mut env = Environment::new();
         bind_pattern(&pattern, value, false, &mut env).unwrap();
-        assert_eq!(env.lookup(x), Some(Value::Int(42)));
+        assert_eq!(env.lookup(x), Some(Value::int(42)));
     }
 
     #[test]
@@ -451,14 +451,14 @@ mod edge_cases {
         ]);
 
         let value = Value::tuple(vec![
-            Value::Int(1),
-            Value::list(vec![Value::Int(2), Value::Int(3)]),
+            Value::int(1),
+            Value::list(vec![Value::int(2), Value::int(3)]),
         ]);
 
         let mut env = Environment::new();
         bind_pattern(&pattern, value, false, &mut env).unwrap();
-        assert_eq!(env.lookup(a), Some(Value::Int(1)));
-        assert_eq!(env.lookup(b), Some(Value::Int(2)));
-        assert_eq!(env.lookup(c), Some(Value::Int(3)));
+        assert_eq!(env.lookup(a), Some(Value::int(1)));
+        assert_eq!(env.lookup(b), Some(Value::int(2)));
+        assert_eq!(env.lookup(c), Some(Value::int(3)));
     }
 }

@@ -11,10 +11,10 @@ use ori_patterns::{no_such_method, wrong_arg_count, wrong_arg_type, EvalError, E
 /// Validate expected argument count.
 #[inline]
 fn require_args(method: &str, expected: usize, actual: usize) -> Result<(), EvalError> {
-    if actual != expected {
-        Err(wrong_arg_count(method, expected, actual))
-    } else {
+    if actual == expected {
         Ok(())
+    } else {
+        Err(wrong_arg_count(method, expected, actual))
     }
 }
 
@@ -31,7 +31,7 @@ fn require_str_arg<'a>(method: &str, args: &'a [Value], index: usize) -> Result<
 #[inline]
 fn require_int_arg(method: &str, args: &[Value], index: usize) -> Result<i64, EvalError> {
     match args.get(index) {
-        Some(Value::Int(n)) => Ok(*n),
+        Some(Value::Int(n)) => Ok(n.raw()),
         _ => Err(wrong_arg_type(method, "int")),
     }
 }
@@ -40,7 +40,7 @@ fn require_int_arg(method: &str, args: &[Value], index: usize) -> Result<i64, Ev
 #[inline]
 fn len_to_value(len: usize, collection_type: &str) -> EvalResult {
     i64::try_from(len)
-        .map(Value::Int)
+        .map(Value::int)
         .map_err(|_| EvalError::new(format!("{collection_type} too large")))
 }
 
@@ -65,6 +65,7 @@ pub fn dispatch_builtin_method(receiver: Value, method: &str, args: Vec<Value>) 
 // Type-Specific Dispatch Functions
 
 /// Dispatch methods on list values.
+#[expect(clippy::needless_pass_by_value, reason = "Consistent method dispatch signature")]
 fn dispatch_list_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::List(items) = receiver else {
         unreachable!();
@@ -84,6 +85,7 @@ fn dispatch_list_method(receiver: Value, method: &str, args: Vec<Value>) -> Eval
 }
 
 /// Dispatch methods on string values.
+#[expect(clippy::needless_pass_by_value, reason = "Consistent method dispatch signature")]
 fn dispatch_string_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Str(s) = receiver else {
         unreachable!();
@@ -115,6 +117,7 @@ fn dispatch_string_method(receiver: Value, method: &str, args: Vec<Value>) -> Ev
 }
 
 /// Dispatch methods on range values.
+#[expect(clippy::needless_pass_by_value, reason = "Consistent method dispatch signature")]
 fn dispatch_range_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Range(r) = receiver else {
         unreachable!();
@@ -132,6 +135,7 @@ fn dispatch_range_method(receiver: Value, method: &str, args: Vec<Value>) -> Eva
 }
 
 /// Dispatch methods on map values.
+#[expect(clippy::needless_pass_by_value, reason = "Consistent method dispatch signature")]
 fn dispatch_map_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Map(map) = receiver else {
         unreachable!();
@@ -158,6 +162,7 @@ fn dispatch_map_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalR
 }
 
 /// Dispatch methods on Option values.
+#[expect(clippy::needless_pass_by_value, reason = "Consistent method dispatch signature")]
 fn dispatch_option_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     match (method, &receiver) {
         ("unwrap" | "unwrap_or", Value::Some(v)) => Ok((**v).clone()),
@@ -176,6 +181,7 @@ fn dispatch_option_method(receiver: Value, method: &str, args: Vec<Value>) -> Ev
 }
 
 /// Dispatch methods on Result values.
+#[expect(clippy::needless_pass_by_value, reason = "Consistent method dispatch signature")]
 fn dispatch_result_method(receiver: Value, method: &str, _args: Vec<Value>) -> EvalResult {
     match (method, &receiver) {
         ("unwrap", Value::Ok(v)) => Ok((**v).clone()),
@@ -201,16 +207,16 @@ mod tests {
         fn len() {
             assert_eq!(
                 dispatch_builtin_method(
-                    Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]),
+                    Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]),
                     "len",
                     vec![]
                 )
                 .unwrap(),
-                Value::Int(3)
+                Value::int(3)
             );
             assert_eq!(
                 dispatch_builtin_method(Value::list(vec![]), "len", vec![]).unwrap(),
-                Value::Int(0)
+                Value::int(0)
             );
         }
 
@@ -221,7 +227,7 @@ mod tests {
                 Value::Bool(true)
             );
             assert_eq!(
-                dispatch_builtin_method(Value::list(vec![Value::Int(1)]), "is_empty", vec![])
+                dispatch_builtin_method(Value::list(vec![Value::int(1)]), "is_empty", vec![])
                     .unwrap(),
                 Value::Bool(false)
             );
@@ -230,12 +236,12 @@ mod tests {
         #[test]
         fn first() {
             let result = dispatch_builtin_method(
-                Value::list(vec![Value::Int(1), Value::Int(2)]),
+                Value::list(vec![Value::int(1), Value::int(2)]),
                 "first",
                 vec![],
             )
             .unwrap();
-            assert_eq!(result, Value::some(Value::Int(1)));
+            assert_eq!(result, Value::some(Value::int(1)));
 
             let result =
                 dispatch_builtin_method(Value::list(vec![]), "first", vec![]).unwrap();
@@ -245,12 +251,12 @@ mod tests {
         #[test]
         fn last() {
             let result = dispatch_builtin_method(
-                Value::list(vec![Value::Int(1), Value::Int(2)]),
+                Value::list(vec![Value::int(1), Value::int(2)]),
                 "last",
                 vec![],
             )
             .unwrap();
-            assert_eq!(result, Value::some(Value::Int(2)));
+            assert_eq!(result, Value::some(Value::int(2)));
 
             let result =
                 dispatch_builtin_method(Value::list(vec![]), "last", vec![]).unwrap();
@@ -259,27 +265,27 @@ mod tests {
 
         #[test]
         fn contains() {
-            let list = Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+            let list = Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]);
 
             assert_eq!(
-                dispatch_builtin_method(list.clone(), "contains", vec![Value::Int(2)]).unwrap(),
+                dispatch_builtin_method(list.clone(), "contains", vec![Value::int(2)]).unwrap(),
                 Value::Bool(true)
             );
             assert_eq!(
-                dispatch_builtin_method(list, "contains", vec![Value::Int(5)]).unwrap(),
+                dispatch_builtin_method(list, "contains", vec![Value::int(5)]).unwrap(),
                 Value::Bool(false)
             );
         }
 
         #[test]
         fn contains_wrong_arg_count() {
-            let list = Value::list(vec![Value::Int(1)]);
+            let list = Value::list(vec![Value::int(1)]);
 
             assert!(dispatch_builtin_method(list.clone(), "contains", vec![]).is_err());
             assert!(dispatch_builtin_method(
                 list,
                 "contains",
-                vec![Value::Int(1), Value::Int(2)]
+                vec![Value::int(1), Value::int(2)]
             )
             .is_err());
         }
@@ -292,11 +298,11 @@ mod tests {
         fn len() {
             assert_eq!(
                 dispatch_builtin_method(Value::string("hello"), "len", vec![]).unwrap(),
-                Value::Int(5)
+                Value::int(5)
             );
             assert_eq!(
                 dispatch_builtin_method(Value::string(""), "len", vec![]).unwrap(),
-                Value::Int(0)
+                Value::int(0)
             );
         }
 
@@ -389,7 +395,7 @@ mod tests {
             assert!(dispatch_builtin_method(
                 Value::string("hello"),
                 "contains",
-                vec![Value::Int(1)]
+                vec![Value::int(1)]
             )
             .is_err());
         }
@@ -407,7 +413,7 @@ mod tests {
                     vec![]
                 )
                 .unwrap(),
-                Value::Int(10)
+                Value::int(10)
             );
             assert_eq!(
                 dispatch_builtin_method(
@@ -416,7 +422,7 @@ mod tests {
                     vec![]
                 )
                 .unwrap(),
-                Value::Int(11)
+                Value::int(11)
             );
         }
 
@@ -425,11 +431,11 @@ mod tests {
             let range = Value::Range(RangeValue::exclusive(0, 10));
 
             assert_eq!(
-                dispatch_builtin_method(range.clone(), "contains", vec![Value::Int(5)]).unwrap(),
+                dispatch_builtin_method(range.clone(), "contains", vec![Value::int(5)]).unwrap(),
                 Value::Bool(true)
             );
             assert_eq!(
-                dispatch_builtin_method(range, "contains", vec![Value::Int(10)]).unwrap(),
+                dispatch_builtin_method(range, "contains", vec![Value::int(10)]).unwrap(),
                 Value::Bool(false)
             );
         }
@@ -449,8 +455,8 @@ mod tests {
         #[test]
         fn unwrap_some() {
             assert_eq!(
-                dispatch_builtin_method(Value::some(Value::Int(42)), "unwrap", vec![]).unwrap(),
-                Value::Int(42)
+                dispatch_builtin_method(Value::some(Value::int(42)), "unwrap", vec![]).unwrap(),
+                Value::int(42)
             );
         }
 
@@ -463,23 +469,23 @@ mod tests {
         fn unwrap_or() {
             assert_eq!(
                 dispatch_builtin_method(
-                    Value::some(Value::Int(42)),
+                    Value::some(Value::int(42)),
                     "unwrap_or",
-                    vec![Value::Int(0)]
+                    vec![Value::int(0)]
                 )
                 .unwrap(),
-                Value::Int(42)
+                Value::int(42)
             );
             assert_eq!(
-                dispatch_builtin_method(Value::None, "unwrap_or", vec![Value::Int(0)]).unwrap(),
-                Value::Int(0)
+                dispatch_builtin_method(Value::None, "unwrap_or", vec![Value::int(0)]).unwrap(),
+                Value::int(0)
             );
         }
 
         #[test]
         fn is_some() {
             assert_eq!(
-                dispatch_builtin_method(Value::some(Value::Int(1)), "is_some", vec![]).unwrap(),
+                dispatch_builtin_method(Value::some(Value::int(1)), "is_some", vec![]).unwrap(),
                 Value::Bool(true)
             );
             assert_eq!(
@@ -495,7 +501,7 @@ mod tests {
                 Value::Bool(true)
             );
             assert_eq!(
-                dispatch_builtin_method(Value::some(Value::Int(1)), "is_none", vec![]).unwrap(),
+                dispatch_builtin_method(Value::some(Value::int(1)), "is_none", vec![]).unwrap(),
                 Value::Bool(false)
             );
         }
@@ -507,8 +513,8 @@ mod tests {
         #[test]
         fn unwrap_ok() {
             assert_eq!(
-                dispatch_builtin_method(Value::ok(Value::Int(42)), "unwrap", vec![]).unwrap(),
-                Value::Int(42)
+                dispatch_builtin_method(Value::ok(Value::int(42)), "unwrap", vec![]).unwrap(),
+                Value::int(42)
             );
         }
 
@@ -525,7 +531,7 @@ mod tests {
         #[test]
         fn is_ok() {
             assert_eq!(
-                dispatch_builtin_method(Value::ok(Value::Int(1)), "is_ok", vec![]).unwrap(),
+                dispatch_builtin_method(Value::ok(Value::int(1)), "is_ok", vec![]).unwrap(),
                 Value::Bool(true)
             );
             assert_eq!(
@@ -541,7 +547,7 @@ mod tests {
                 Value::Bool(true)
             );
             assert_eq!(
-                dispatch_builtin_method(Value::ok(Value::Int(1)), "is_err", vec![]).unwrap(),
+                dispatch_builtin_method(Value::ok(Value::int(1)), "is_err", vec![]).unwrap(),
                 Value::Bool(false)
             );
         }
@@ -558,7 +564,7 @@ mod tests {
             assert!(
                 dispatch_builtin_method(Value::string("hello"), "nonexistent", vec![]).is_err()
             );
-            assert!(dispatch_builtin_method(Value::Int(42), "len", vec![]).is_err());
+            assert!(dispatch_builtin_method(Value::int(42), "len", vec![]).is_err());
         }
     }
 }

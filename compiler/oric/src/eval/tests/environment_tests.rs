@@ -1,4 +1,4 @@
-//! Tests for the Environment and LocalScope types.
+//! Tests for the Environment and `LocalScope` types.
 //!
 //! Tests variable scoping, binding, shadowing, mutability, and capture.
 
@@ -19,8 +19,8 @@ mod scope {
         let x = interner.intern("x");
 
         let mut scope = Scope::new();
-        scope.define(x, Value::Int(42), false);
-        assert_eq!(scope.lookup(x), Some(Value::Int(42)));
+        scope.define(x, Value::int(42), false);
+        assert_eq!(scope.lookup(x), Some(Value::int(42)));
     }
 
     #[test]
@@ -38,13 +38,13 @@ mod scope {
         let x = interner.intern("x");
 
         let parent = LocalScope::new(Scope::new());
-        parent.borrow_mut().define(x, Value::Int(1), false);
+        parent.borrow_mut().define(x, Value::int(1), false);
 
         let mut child = Scope::with_parent(parent);
-        child.define(x, Value::Int(2), false);
+        child.define(x, Value::int(2), false);
 
         // Child's binding shadows parent's
-        assert_eq!(child.lookup(x), Some(Value::Int(2)));
+        assert_eq!(child.lookup(x), Some(Value::int(2)));
     }
 
     #[test]
@@ -54,14 +54,14 @@ mod scope {
         let y = interner.intern("y");
 
         let parent = LocalScope::new(Scope::new());
-        parent.borrow_mut().define(x, Value::Int(1), false);
+        parent.borrow_mut().define(x, Value::int(1), false);
 
         let mut child = Scope::with_parent(parent);
-        child.define(y, Value::Int(2), false);
+        child.define(y, Value::int(2), false);
 
         // Child can see parent's binding
-        assert_eq!(child.lookup(x), Some(Value::Int(1)));
-        assert_eq!(child.lookup(y), Some(Value::Int(2)));
+        assert_eq!(child.lookup(x), Some(Value::int(1)));
+        assert_eq!(child.lookup(y), Some(Value::int(2)));
     }
 
     #[test]
@@ -70,9 +70,9 @@ mod scope {
         let x = interner.intern("x");
 
         let mut scope = Scope::new();
-        scope.define(x, Value::Int(1), true);
-        assert!(scope.assign(x, Value::Int(2)).is_ok());
-        assert_eq!(scope.lookup(x), Some(Value::Int(2)));
+        scope.define(x, Value::int(1), true);
+        assert!(scope.assign(x, Value::int(2)).is_ok());
+        assert_eq!(scope.lookup(x), Some(Value::int(2)));
     }
 
     #[test]
@@ -81,8 +81,8 @@ mod scope {
         let x = interner.intern("x");
 
         let mut scope = Scope::new();
-        scope.define(x, Value::Int(1), false);
-        let result = scope.assign(x, Value::Int(2));
+        scope.define(x, Value::int(1), false);
+        let result = scope.assign(x, Value::int(2));
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("immutable"));
     }
@@ -93,7 +93,7 @@ mod scope {
         let x = interner.intern("x");
 
         let mut scope = Scope::new();
-        let result = scope.assign(x, Value::Int(1));
+        let result = scope.assign(x, Value::int(1));
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("undefined"));
     }
@@ -104,13 +104,13 @@ mod scope {
         let x = interner.intern("x");
 
         let parent = LocalScope::new(Scope::new());
-        parent.borrow_mut().define(x, Value::Int(1), true);
+        parent.borrow_mut().define(x, Value::int(1), true);
 
         let mut child = Scope::with_parent(parent.clone());
-        assert!(child.assign(x, Value::Int(2)).is_ok());
+        assert!(child.assign(x, Value::int(2)).is_ok());
 
         // Check parent was updated
-        assert_eq!(parent.borrow().lookup(x), Some(Value::Int(2)));
+        assert_eq!(parent.borrow().lookup(x), Some(Value::int(2)));
     }
 }
 
@@ -125,14 +125,14 @@ mod environment {
         let x = interner.intern("x");
 
         let mut env = Environment::new();
-        env.define(x, Value::Int(1), false);
+        env.define(x, Value::int(1), false);
 
         env.push_scope();
-        env.define(x, Value::Int(2), false);
-        assert_eq!(env.lookup(x), Some(Value::Int(2)));
+        env.define(x, Value::int(2), false);
+        assert_eq!(env.lookup(x), Some(Value::int(2)));
 
         env.pop_scope();
-        assert_eq!(env.lookup(x), Some(Value::Int(1)));
+        assert_eq!(env.lookup(x), Some(Value::int(1)));
     }
 
     #[test]
@@ -141,9 +141,9 @@ mod environment {
         let x = interner.intern("x");
 
         let mut env = Environment::new();
-        env.define(x, Value::Int(1), true);
-        assert!(env.assign(x, Value::Int(2)).is_ok());
-        assert_eq!(env.lookup(x), Some(Value::Int(2)));
+        env.define(x, Value::int(1), true);
+        assert!(env.assign(x, Value::int(2)).is_ok());
+        assert_eq!(env.lookup(x), Some(Value::int(2)));
     }
 
     #[test]
@@ -152,8 +152,8 @@ mod environment {
         let x = interner.intern("x");
 
         let mut env = Environment::new();
-        env.define(x, Value::Int(1), false);
-        assert!(env.assign(x, Value::Int(2)).is_err());
+        env.define(x, Value::int(1), false);
+        assert!(env.assign(x, Value::int(2)).is_err());
     }
 
     #[test]
@@ -163,13 +163,13 @@ mod environment {
         let y = interner.intern("y");
 
         let mut env = Environment::new();
-        env.define(x, Value::Int(1), false);
+        env.define(x, Value::int(1), false);
         env.push_scope();
-        env.define(y, Value::Int(2), false);
+        env.define(y, Value::int(2), false);
 
         let captures = env.capture();
-        assert_eq!(captures.get(&x), Some(&Value::Int(1)));
-        assert_eq!(captures.get(&y), Some(&Value::Int(2)));
+        assert_eq!(captures.get(&x), Some(&Value::int(1)));
+        assert_eq!(captures.get(&y), Some(&Value::int(2)));
     }
 
     #[test]
@@ -178,13 +178,13 @@ mod environment {
         let x = interner.intern("x");
 
         let mut env = Environment::new();
-        env.define(x, Value::Int(1), false);
+        env.define(x, Value::int(1), false);
         env.push_scope();
-        env.define(x, Value::Int(2), false);
+        env.define(x, Value::int(2), false);
 
         let captures = env.capture();
         // Inner scope's binding wins
-        assert_eq!(captures.get(&x), Some(&Value::Int(2)));
+        assert_eq!(captures.get(&x), Some(&Value::int(2)));
     }
 
     #[test]
@@ -193,12 +193,12 @@ mod environment {
         let g = interner.intern("global_var");
 
         let mut env = Environment::new();
-        env.define_global(g, Value::Int(100));
+        env.define_global(g, Value::int(100));
 
         env.push_scope();
         env.push_scope();
         // Global is visible from nested scope
-        assert_eq!(env.lookup(g), Some(Value::Int(100)));
+        assert_eq!(env.lookup(g), Some(Value::int(100)));
     }
 
     #[test]
@@ -222,11 +222,11 @@ mod environment {
         let g = interner.intern("global_var");
 
         let mut env = Environment::new();
-        env.define_global(g, Value::Int(100));
+        env.define_global(g, Value::int(100));
 
         let child = env.child();
         // Child sees global
-        assert_eq!(child.lookup(g), Some(Value::Int(100)));
+        assert_eq!(child.lookup(g), Some(Value::int(100)));
     }
 
     #[test]
@@ -289,7 +289,7 @@ mod local_scope {
     #[test]
     fn debug_format() {
         let scope = LocalScope::new(42);
-        let debug_str = format!("{:?}", scope);
+        let debug_str = format!("{scope:?}");
         assert!(debug_str.contains("LocalScope"));
     }
 }
@@ -305,21 +305,21 @@ mod edge_cases {
         let x = interner.intern("x");
 
         let mut env = Environment::new();
-        env.define(x, Value::Int(0), false);
+        env.define(x, Value::int(0), false);
 
         // Create 100 nested scopes
         for i in 1..=100 {
             env.push_scope();
-            env.define(x, Value::Int(i), false);
+            env.define(x, Value::int(i), false);
         }
 
-        assert_eq!(env.lookup(x), Some(Value::Int(100)));
+        assert_eq!(env.lookup(x), Some(Value::int(100)));
         assert_eq!(env.depth(), 101);
 
         // Pop all
         for i in (0..100).rev() {
             env.pop_scope();
-            assert_eq!(env.lookup(x), Some(Value::Int(i)));
+            assert_eq!(env.lookup(x), Some(Value::int(i)));
         }
     }
 
@@ -329,14 +329,14 @@ mod edge_cases {
 
         let mut env = Environment::new();
         for i in 0..1000 {
-            let name = interner.intern(&format!("var_{}", i));
-            env.define(name, Value::Int(i), false);
+            let name = interner.intern(&format!("var_{i}"));
+            env.define(name, Value::int(i), false);
         }
 
         // Verify all can be looked up
         for i in 0..1000 {
-            let name = interner.intern(&format!("var_{}", i));
-            assert_eq!(env.lookup(name), Some(Value::Int(i)));
+            let name = interner.intern(&format!("var_{i}"));
+            assert_eq!(env.lookup(name), Some(Value::int(i)));
         }
     }
 
@@ -346,10 +346,10 @@ mod edge_cases {
         let x = interner.intern("x");
 
         let mut env = Environment::new();
-        env.define(x, Value::Int(1), false);
-        env.define(x, Value::Int(2), false);
+        env.define(x, Value::int(1), false);
+        env.define(x, Value::int(2), false);
 
-        assert_eq!(env.lookup(x), Some(Value::Int(2)));
+        assert_eq!(env.lookup(x), Some(Value::int(2)));
     }
 
     #[test]
@@ -360,6 +360,8 @@ mod edge_cases {
     }
 
     #[test]
+    #[expect(clippy::many_single_char_names, reason = "single-char names mirror the variable names being interned")]
+    #[expect(clippy::approx_constant, reason = "testing float binding, not using pi")]
     fn different_value_types() {
         let interner = SharedInterner::default();
 
@@ -371,13 +373,13 @@ mod edge_cases {
         let s = interner.intern("s");
         let l = interner.intern("l");
 
-        env.define(i, Value::Int(42), false);
+        env.define(i, Value::int(42), false);
         env.define(f, Value::Float(3.14), false);
         env.define(b, Value::Bool(true), false);
         env.define(s, Value::string("hello"), false);
-        env.define(l, Value::list(vec![Value::Int(1)]), false);
+        env.define(l, Value::list(vec![Value::int(1)]), false);
 
-        assert_eq!(env.lookup(i), Some(Value::Int(42)));
+        assert_eq!(env.lookup(i), Some(Value::int(42)));
         assert_eq!(env.lookup(f), Some(Value::Float(3.14)));
         assert_eq!(env.lookup(b), Some(Value::Bool(true)));
         assert_eq!(env.lookup(s), Some(Value::string("hello")));

@@ -46,7 +46,14 @@ impl Parser<'_> {
             // Literals
             TokenKind::Int(n) => {
                 self.advance();
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Int(n), span)))
+                let value = i64::try_from(n).map_err(|_| {
+                    ParseError::new(
+                        ori_diagnostic::ErrorCode::E1002,
+                        "integer literal too large".to_string(),
+                        span,
+                    )
+                })?;
+                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Int(value), span)))
             }
             TokenKind::Float(bits) => {
                 self.advance();
@@ -99,6 +106,11 @@ impl Parser<'_> {
             }
             TokenKind::Panic => {
                 let name = self.interner().intern("panic");
+                self.advance();
+                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+            }
+            TokenKind::Catch => {
+                let name = self.interner().intern("catch");
                 self.advance();
                 Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
             }

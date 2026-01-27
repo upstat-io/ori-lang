@@ -16,12 +16,12 @@ mod list_methods {
     #[test]
     fn len() {
         assert_eq!(
-            dispatch_builtin_method(Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]), "len", vec![]).unwrap(),
-            Value::Int(3)
+            dispatch_builtin_method(Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]), "len", vec![]).unwrap(),
+            Value::int(3)
         );
         assert_eq!(
             dispatch_builtin_method(Value::list(vec![]), "len", vec![]).unwrap(),
-            Value::Int(0)
+            Value::int(0)
         );
     }
 
@@ -32,7 +32,7 @@ mod list_methods {
             Value::Bool(true)
         );
         assert_eq!(
-            dispatch_builtin_method(Value::list(vec![Value::Int(1)]), "is_empty", vec![]).unwrap(),
+            dispatch_builtin_method(Value::list(vec![Value::int(1)]), "is_empty", vec![]).unwrap(),
             Value::Bool(false)
         );
     }
@@ -41,8 +41,8 @@ mod list_methods {
     fn first() {
         
         // Non-empty list
-        let result = dispatch_builtin_method(Value::list(vec![Value::Int(1), Value::Int(2)]), "first", vec![]).unwrap();
-        assert_eq!(result, Value::some(Value::Int(1)));
+        let result = dispatch_builtin_method(Value::list(vec![Value::int(1), Value::int(2)]), "first", vec![]).unwrap();
+        assert_eq!(result, Value::some(Value::int(1)));
 
         // Empty list
         let result = dispatch_builtin_method(Value::list(vec![]), "first", vec![]).unwrap();
@@ -53,8 +53,8 @@ mod list_methods {
     fn last() {
         
         // Non-empty list
-        let result = dispatch_builtin_method(Value::list(vec![Value::Int(1), Value::Int(2)]), "last", vec![]).unwrap();
-        assert_eq!(result, Value::some(Value::Int(2)));
+        let result = dispatch_builtin_method(Value::list(vec![Value::int(1), Value::int(2)]), "last", vec![]).unwrap();
+        assert_eq!(result, Value::some(Value::int(2)));
 
         // Empty list
         let result = dispatch_builtin_method(Value::list(vec![]), "last", vec![]).unwrap();
@@ -63,24 +63,24 @@ mod list_methods {
 
     #[test]
     fn contains() {
-        let list = Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+        let list = Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]);
 
         assert_eq!(
-            dispatch_builtin_method(list.clone(), "contains", vec![Value::Int(2)]).unwrap(),
+            dispatch_builtin_method(list.clone(), "contains", vec![Value::int(2)]).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            dispatch_builtin_method(list, "contains", vec![Value::Int(5)]).unwrap(),
+            dispatch_builtin_method(list, "contains", vec![Value::int(5)]).unwrap(),
             Value::Bool(false)
         );
     }
 
     #[test]
     fn contains_wrong_arg_count() {
-        let list = Value::list(vec![Value::Int(1)]);
+        let list = Value::list(vec![Value::int(1)]);
 
         assert!(dispatch_builtin_method(list.clone(), "contains", vec![]).is_err());
-        assert!(dispatch_builtin_method(list, "contains", vec![Value::Int(1), Value::Int(2)]).is_err());
+        assert!(dispatch_builtin_method(list, "contains", vec![Value::int(1), Value::int(2)]).is_err());
     }
 }
 
@@ -93,11 +93,11 @@ mod string_methods {
     fn len() {
         assert_eq!(
             dispatch_builtin_method(Value::string("hello"), "len", vec![]).unwrap(),
-            Value::Int(5)
+            Value::int(5)
         );
         assert_eq!(
             dispatch_builtin_method(Value::string(""), "len", vec![]).unwrap(),
-            Value::Int(0)
+            Value::int(0)
         );
     }
 
@@ -185,7 +185,7 @@ mod string_methods {
     fn wrong_arg_type() {
         
         // contains expects string, not int
-        assert!(dispatch_builtin_method(Value::string("hello"), "contains", vec![Value::Int(1)]).is_err());
+        assert!(dispatch_builtin_method(Value::string("hello"), "contains", vec![Value::int(1)]).is_err());
     }
 }
 
@@ -199,15 +199,15 @@ mod range_methods {
     fn len() {
         assert_eq!(
             dispatch_builtin_method(Value::Range(RangeValue::exclusive(0, 10)), "len", vec![]).unwrap(),
-            Value::Int(10)
+            Value::int(10)
         );
         assert_eq!(
             dispatch_builtin_method(Value::Range(RangeValue::inclusive(0, 10)), "len", vec![]).unwrap(),
-            Value::Int(11)
+            Value::int(11)
         );
         assert_eq!(
             dispatch_builtin_method(Value::Range(RangeValue::exclusive(5, 5)), "len", vec![]).unwrap(),
-            Value::Int(0)
+            Value::int(0)
         );
     }
 
@@ -216,19 +216,19 @@ mod range_methods {
         let range = Value::Range(RangeValue::exclusive(0, 10));
 
         assert_eq!(
-            dispatch_builtin_method(range.clone(), "contains", vec![Value::Int(5)]).unwrap(),
+            dispatch_builtin_method(range.clone(), "contains", vec![Value::int(5)]).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            dispatch_builtin_method(range.clone(), "contains", vec![Value::Int(0)]).unwrap(),
+            dispatch_builtin_method(range.clone(), "contains", vec![Value::int(0)]).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            dispatch_builtin_method(range.clone(), "contains", vec![Value::Int(10)]).unwrap(),
+            dispatch_builtin_method(range.clone(), "contains", vec![Value::int(10)]).unwrap(),
             Value::Bool(false)  // Exclusive end
         );
         assert_eq!(
-            dispatch_builtin_method(range, "contains", vec![Value::Int(-1)]).unwrap(),
+            dispatch_builtin_method(range, "contains", vec![Value::int(-1)]).unwrap(),
             Value::Bool(false)
         );
     }
@@ -238,7 +238,7 @@ mod range_methods {
         let range = Value::Range(RangeValue::inclusive(0, 10));
 
         assert_eq!(
-            dispatch_builtin_method(range.clone(), "contains", vec![Value::Int(10)]).unwrap(),
+            dispatch_builtin_method(range.clone(), "contains", vec![Value::int(10)]).unwrap(),
             Value::Bool(true)  // Inclusive end
         );
     }
@@ -252,8 +252,8 @@ mod option_methods {
     #[test]
     fn unwrap_some() {
         assert_eq!(
-            dispatch_builtin_method(Value::some(Value::Int(42)), "unwrap", vec![]).unwrap(),
-            Value::Int(42)
+            dispatch_builtin_method(Value::some(Value::int(42)), "unwrap", vec![]).unwrap(),
+            Value::int(42)
         );
     }
 
@@ -266,19 +266,19 @@ mod option_methods {
     #[test]
     fn unwrap_or() {
         assert_eq!(
-            dispatch_builtin_method(Value::some(Value::Int(42)), "unwrap_or", vec![Value::Int(0)]).unwrap(),
-            Value::Int(42)
+            dispatch_builtin_method(Value::some(Value::int(42)), "unwrap_or", vec![Value::int(0)]).unwrap(),
+            Value::int(42)
         );
         assert_eq!(
-            dispatch_builtin_method(Value::None, "unwrap_or", vec![Value::Int(0)]).unwrap(),
-            Value::Int(0)
+            dispatch_builtin_method(Value::None, "unwrap_or", vec![Value::int(0)]).unwrap(),
+            Value::int(0)
         );
     }
 
     #[test]
     fn is_some() {
         assert_eq!(
-            dispatch_builtin_method(Value::some(Value::Int(1)), "is_some", vec![]).unwrap(),
+            dispatch_builtin_method(Value::some(Value::int(1)), "is_some", vec![]).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
@@ -294,7 +294,7 @@ mod option_methods {
             Value::Bool(true)
         );
         assert_eq!(
-            dispatch_builtin_method(Value::some(Value::Int(1)), "is_none", vec![]).unwrap(),
+            dispatch_builtin_method(Value::some(Value::int(1)), "is_none", vec![]).unwrap(),
             Value::Bool(false)
         );
     }
@@ -308,8 +308,8 @@ mod result_methods {
     #[test]
     fn unwrap_ok() {
         assert_eq!(
-            dispatch_builtin_method(Value::ok(Value::Int(42)), "unwrap", vec![]).unwrap(),
-            Value::Int(42)
+            dispatch_builtin_method(Value::ok(Value::int(42)), "unwrap", vec![]).unwrap(),
+            Value::int(42)
         );
     }
 
@@ -322,7 +322,7 @@ mod result_methods {
     #[test]
     fn is_ok() {
         assert_eq!(
-            dispatch_builtin_method(Value::ok(Value::Int(1)), "is_ok", vec![]).unwrap(),
+            dispatch_builtin_method(Value::ok(Value::int(1)), "is_ok", vec![]).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
@@ -338,7 +338,7 @@ mod result_methods {
             Value::Bool(true)
         );
         assert_eq!(
-            dispatch_builtin_method(Value::ok(Value::Int(1)), "is_err", vec![]).unwrap(),
+            dispatch_builtin_method(Value::ok(Value::int(1)), "is_err", vec![]).unwrap(),
             Value::Bool(false)
         );
     }
@@ -354,7 +354,7 @@ mod errors {
         
         assert!(dispatch_builtin_method(Value::list(vec![]), "nonexistent", vec![]).is_err());
         assert!(dispatch_builtin_method(Value::string("hello"), "nonexistent", vec![]).is_err());
-        assert!(dispatch_builtin_method(Value::Int(42), "len", vec![]).is_err());
+        assert!(dispatch_builtin_method(Value::int(42), "len", vec![]).is_err());
     }
 }
 
@@ -369,14 +369,14 @@ mod string_edge_cases {
         // Note: our len returns byte length, not char count
         let result = dispatch_builtin_method(Value::string("café"), "len", vec![]).unwrap();
         // Check if it returns byte length (5) or char count (4)
-        assert!(matches!(result, Value::Int(4) | Value::Int(5)));
+        assert!(matches!(result, Value::Int(n) if n.raw() == 4 || n.raw() == 5));
     }
 
     #[test]
     fn len_emoji() {
         // Single emoji can be 4 bytes
         let result = dispatch_builtin_method(Value::string("😀"), "len", vec![]).unwrap();
-        assert!(matches!(result, Value::Int(1) | Value::Int(4)));
+        assert!(matches!(result, Value::Int(n) if n.raw() == 1 || n.raw() == 4));
     }
 
     #[test]
@@ -490,22 +490,22 @@ mod list_edge_cases {
 
     #[test]
     fn first_single_element() {
-        let result = dispatch_builtin_method(Value::list(vec![Value::Int(42)]), "first", vec![]).unwrap();
-        assert_eq!(result, Value::some(Value::Int(42)));
+        let result = dispatch_builtin_method(Value::list(vec![Value::int(42)]), "first", vec![]).unwrap();
+        assert_eq!(result, Value::some(Value::int(42)));
     }
 
     #[test]
     fn last_single_element() {
-        let result = dispatch_builtin_method(Value::list(vec![Value::Int(42)]), "last", vec![]).unwrap();
-        assert_eq!(result, Value::some(Value::Int(42)));
+        let result = dispatch_builtin_method(Value::list(vec![Value::int(42)]), "last", vec![]).unwrap();
+        assert_eq!(result, Value::some(Value::int(42)));
     }
 
     #[test]
     fn contains_different_types() {
-        let list = Value::list(vec![Value::Int(1), Value::string("two"), Value::Bool(true)]);
+        let list = Value::list(vec![Value::int(1), Value::string("two"), Value::Bool(true)]);
 
         assert_eq!(
-            dispatch_builtin_method(list.clone(), "contains", vec![Value::Int(1)]).unwrap(),
+            dispatch_builtin_method(list.clone(), "contains", vec![Value::int(1)]).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
@@ -517,15 +517,15 @@ mod list_edge_cases {
             Value::Bool(true)
         );
         assert_eq!(
-            dispatch_builtin_method(list, "contains", vec![Value::Int(2)]).unwrap(),
+            dispatch_builtin_method(list, "contains", vec![Value::int(2)]).unwrap(),
             Value::Bool(false)
         );
     }
 
     #[test]
     fn contains_nested_list() {
-        let inner = Value::list(vec![Value::Int(1), Value::Int(2)]);
-        let outer = Value::list(vec![inner.clone(), Value::Int(3)]);
+        let inner = Value::list(vec![Value::int(1), Value::int(2)]);
+        let outer = Value::list(vec![inner.clone(), Value::int(3)]);
 
         assert_eq!(
             dispatch_builtin_method(outer, "contains", vec![inner]).unwrap(),
@@ -535,12 +535,12 @@ mod list_edge_cases {
 
     #[test]
     fn len_large_list() {
-        let items: Vec<Value> = (0..10000).map(Value::Int).collect();
+        let items: Vec<Value> = (0..10000).map(Value::int).collect();
         let list = Value::list(items);
 
         assert_eq!(
             dispatch_builtin_method(list, "len", vec![]).unwrap(),
-            Value::Int(10000)
+            Value::int(10000)
         );
     }
 }
@@ -556,15 +556,15 @@ mod range_edge_cases {
         let range = Value::Range(RangeValue::exclusive(-10, 0));
 
         assert_eq!(
-            dispatch_builtin_method(range.clone(), "contains", vec![Value::Int(-5)]).unwrap(),
+            dispatch_builtin_method(range.clone(), "contains", vec![Value::int(-5)]).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            dispatch_builtin_method(range.clone(), "contains", vec![Value::Int(-10)]).unwrap(),
+            dispatch_builtin_method(range.clone(), "contains", vec![Value::int(-10)]).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            dispatch_builtin_method(range, "contains", vec![Value::Int(0)]).unwrap(),
+            dispatch_builtin_method(range, "contains", vec![Value::int(0)]).unwrap(),
             Value::Bool(false)
         );
     }
@@ -575,7 +575,7 @@ mod range_edge_cases {
 
         assert_eq!(
             dispatch_builtin_method(range, "len", vec![]).unwrap(),
-            Value::Int(10)
+            Value::int(10)
         );
     }
 
@@ -585,7 +585,7 @@ mod range_edge_cases {
 
         assert_eq!(
             dispatch_builtin_method(range, "len", vec![]).unwrap(),
-            Value::Int(1)
+            Value::int(1)
         );
     }
 
@@ -605,18 +605,18 @@ mod option_result_edge_cases {
 
     #[test]
     fn unwrap_nested_some() {
-        let nested = Value::some(Value::some(Value::Int(42)));
+        let nested = Value::some(Value::some(Value::int(42)));
 
         let result = dispatch_builtin_method(nested, "unwrap", vec![]).unwrap();
-        assert_eq!(result, Value::some(Value::Int(42)));
+        assert_eq!(result, Value::some(Value::int(42)));
     }
 
     #[test]
     fn unwrap_nested_ok() {
-        let nested = Value::ok(Value::ok(Value::Int(42)));
+        let nested = Value::ok(Value::ok(Value::int(42)));
 
         let result = dispatch_builtin_method(nested, "unwrap", vec![]).unwrap();
-        assert_eq!(result, Value::ok(Value::Int(42)));
+        assert_eq!(result, Value::ok(Value::int(42)));
     }
 
     #[test]

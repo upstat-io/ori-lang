@@ -70,7 +70,7 @@ pub struct ErrorGuaranteed(());
 impl ErrorGuaranteed {
     /// Private constructor - only `DiagnosticQueue::emit_error` can create this.
     ///
-    /// This is pub(crate) so that queue.rs can create ErrorGuaranteed instances.
+    /// This is pub(crate) so that queue.rs can create `ErrorGuaranteed` instances.
     pub(crate) fn new() -> Self {
         ErrorGuaranteed(())
     }

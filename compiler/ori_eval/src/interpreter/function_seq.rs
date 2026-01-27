@@ -1,11 +1,10 @@
-//! `FunctionSeq` evaluation methods for the Evaluator.
+//! `FunctionSeq` evaluation methods for the Interpreter.
 
-use crate::ir::{FunctionSeq, SeqBinding};
-use ori_eval::for_pattern_requires_list;
-use super::{Evaluator, EvalResult};
-use super::super::value::Value;
+use ori_ir::{FunctionSeq, SeqBinding};
+use crate::{Value, EvalResult, for_pattern_requires_list};
+use super::Interpreter;
 
-impl Evaluator<'_> {
+impl Interpreter<'_> {
     /// Evaluate a `function_seq` expression (run, try, match).
     pub(super) fn eval_function_seq(&mut self, func_seq: &FunctionSeq) -> EvalResult {
         match func_seq {
@@ -95,7 +94,7 @@ impl Evaluator<'_> {
                     };
 
                     // Try to match against the arm pattern
-                    if let Some(bindings) = super::super::exec::control::try_match(
+                    if let Some(bindings) = crate::exec::control::try_match(
                         &arm.pattern,
                         &match_item,
                         self.arena,

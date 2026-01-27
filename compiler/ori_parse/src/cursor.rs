@@ -80,6 +80,16 @@ impl<'a> Cursor<'a> {
         )
     }
 
+    /// Peek at the next token's kind (one-token lookahead).
+    /// Returns `TokenKind::Eof` if at the end of the stream.
+    pub fn peek_next_kind(&self) -> TokenKind {
+        if self.pos + 1 < self.tokens.len() {
+            self.tokens[self.pos + 1].kind.clone()
+        } else {
+            TokenKind::Eof
+        }
+    }
+
     /// Check if the next token (lookahead) is a left paren.
     pub fn next_is_lparen(&self) -> bool {
         self.pos + 1 < self.tokens.len() && matches!(self.tokens[self.pos + 1].kind, TokenKind::LParen)
@@ -238,7 +248,6 @@ impl<'a> Cursor<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ori_lexer;
 
     #[test]
     fn test_cursor_navigation() {

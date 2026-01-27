@@ -180,7 +180,7 @@ pub trait TypeVisitor {
             Type::Channel(inner) => self.visit_channel(inner),
             Type::Applied { name, args } => self.visit_applied(*name, args),
             Type::Projection { base, trait_name, assoc_name } => {
-                self.visit_projection(base, *trait_name, *assoc_name)
+                self.visit_projection(base, *trait_name, *assoc_name);
             }
             // Leaf types - no-op by default
             Type::Int | Type::Float | Type::Bool | Type::Str | Type::Char |
@@ -289,7 +289,7 @@ pub trait TypeIdFolder {
     /// Get the type interner for lookups and creating new types.
     fn interner(&self) -> &TypeInterner;
 
-    /// Fold a TypeId by dispatching to variant-specific methods.
+    /// Fold a `TypeId` by dispatching to variant-specific methods.
     fn fold(&mut self, id: TypeId) -> TypeId {
         let data = self.interner().lookup(id);
         match data {
@@ -421,7 +421,7 @@ pub trait TypeIdVisitor {
     /// Get the type interner for lookups.
     fn interner(&self) -> &TypeInterner;
 
-    /// Visit a TypeId by dispatching to variant-specific methods.
+    /// Visit a `TypeId` by dispatching to variant-specific methods.
     fn visit(&mut self, id: TypeId) {
         let data = self.interner().lookup(id);
         match data {
@@ -438,7 +438,7 @@ pub trait TypeIdVisitor {
             TypeData::Channel(inner) => self.visit_channel(inner),
             TypeData::Applied { name, args } => self.visit_applied(name, &args),
             TypeData::Projection { base, trait_name, assoc_name } => {
-                self.visit_projection(base, trait_name, assoc_name)
+                self.visit_projection(base, trait_name, assoc_name);
             }
             // Leaf types - no-op by default
             TypeData::Int | TypeData::Float | TypeData::Bool | TypeData::Str |

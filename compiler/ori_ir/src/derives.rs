@@ -2,7 +2,7 @@
 //!
 //! This module contains the `DerivedTrait` enum and `DerivedMethodInfo` struct
 //! that are used by both the type checker and the evaluator. By placing them
-//! in ori_ir, we avoid a circular dependency between ori_typeck and ori_eval.
+//! in `ori_ir`, we avoid a circular dependency between `ori_typeck` and `ori_eval`.
 
 use crate::Name;
 
@@ -22,8 +22,8 @@ pub enum DerivedTrait {
 }
 
 impl DerivedTrait {
-    /// Parse a trait name string into a DerivedTrait.
-    pub fn from_str(s: &str) -> Option<DerivedTrait> {
+    /// Parse a trait name string into a `DerivedTrait`.
+    pub fn from_name(s: &str) -> Option<DerivedTrait> {
         match s {
             "Eq" => Some(DerivedTrait::Eq),
             "Clone" => Some(DerivedTrait::Clone),
@@ -73,22 +73,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_derived_trait_from_str() {
-        assert_eq!(DerivedTrait::from_str("Eq"), Some(DerivedTrait::Eq));
-        assert_eq!(DerivedTrait::from_str("Clone"), Some(DerivedTrait::Clone));
+    fn test_derived_trait_from_name() {
+        assert_eq!(DerivedTrait::from_name("Eq"), Some(DerivedTrait::Eq));
+        assert_eq!(DerivedTrait::from_name("Clone"), Some(DerivedTrait::Clone));
         assert_eq!(
-            DerivedTrait::from_str("Hashable"),
+            DerivedTrait::from_name("Hashable"),
             Some(DerivedTrait::Hashable)
         );
         assert_eq!(
-            DerivedTrait::from_str("Printable"),
+            DerivedTrait::from_name("Printable"),
             Some(DerivedTrait::Printable)
         );
         assert_eq!(
-            DerivedTrait::from_str("Default"),
+            DerivedTrait::from_name("Default"),
             Some(DerivedTrait::Default)
         );
-        assert_eq!(DerivedTrait::from_str("Unknown"), None);
+        assert_eq!(DerivedTrait::from_name("Unknown"), None);
     }
 
     #[test]

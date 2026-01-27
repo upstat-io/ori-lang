@@ -1,40 +1,29 @@
 // Ori Playground Application
 
+import initWasm, { run_ori, version } from './pkg/ori_playground_wasm.js';
+
 // Example programs
 const EXAMPLES = {
     hello: `// Hello World in Ori
 @main () -> void = print(msg: "Hello, World!")`,
 
-    fibonacci: `// Fibonacci sequence
-@fib (n: int) -> int =
-    if n < 2
-    then n
-    else @fib(n: n - 1) + @fib(n: n - 2)
-
-@main () -> void = run(
-    print(msg: "fib(10) = " + str(@fib(n: 10)))
+    fibonacci: `// Memoized - O(n) instead of O(2^n)
+@fib (n: int) -> int = recurse(
+    condition: n < 2,
+    base: n,
+    step: self(n - 1) + self(n - 2),
+    memo: true,
 )
 
-@test_fib tests @fib () -> void = run(
-    assert_eq(actual: @fib(n: 0), expected: 0),
-    assert_eq(actual: @fib(n: 1), expected: 1),
-    assert_eq(actual: @fib(n: 10), expected: 55)
+@main () -> void = run(
+    print(msg: "fib(30) = " + str(fib(n: 30)))
 )`,
 
     factorial: `// Factorial with recursion
-@factorial (n: int) -> int =
-    if n <= 1
-    then 1
-    else n * @factorial(n: n - 1)
+@factorial (n: int) -> int = if n <= 1 then 1 else n * factorial(n: n - 1)
 
 @main () -> void = run(
-    print(msg: "5! = " + str(@factorial(n: 5)))
-)
-
-@test_factorial tests @factorial () -> void = run(
-    assert_eq(actual: @factorial(n: 0), expected: 1),
-    assert_eq(actual: @factorial(n: 1), expected: 1),
-    assert_eq(actual: @factorial(n: 5), expected: 120)
+    print(msg: "5! = " + str(factorial(n: 5)))
 )`,
 
     'list-ops': `// List operations
@@ -46,27 +35,19 @@ const EXAMPLES = {
     print(msg: "Sum of doubled evens: " + str(sum))
 )`,
 
-    'pattern-match': `// Pattern matching
-type Shape = Circle(radius: float) | Rectangle(width: float, height: float)
+    'structs': `// Structs and methods
+type Point = { x: int, y: int }
 
-@area (shape: Shape) -> float = match(
-    shape,
-    Circle(radius) -> 3.14159 * radius * radius,
-    Rectangle(width, height) -> width * height
-)
+impl Point {
+    @sum (self) -> int = self.x + self.y
+    @scale (self, factor: int) -> Point = Point { x: self.x * factor, y: self.y * factor }
+}
 
 @main () -> void = run(
-    let circle = Circle(radius: 5.0),
-    let rect = Rectangle(width: 4.0, height: 3.0),
-    print(msg: "Circle area: " + str(@area(shape: circle))),
-    print(msg: "Rectangle area: " + str(@area(shape: rect)))
-)
-
-@test_area tests @area () -> void = run(
-    assert_eq(
-        actual: @area(shape: Rectangle(width: 2.0, height: 3.0)),
-        expected: 6.0,
-    )
+    let p = Point { x: 3, y: 4 },
+    print(msg: "Point sum: " + str(p.sum())),
+    let scaled = p.scale(factor: 2),
+    print(msg: "Scaled: (" + str(scaled.x) + ", " + str(scaled.y) + ")")
 )`
 };
 
@@ -78,8 +59,7 @@ const DEFAULT_CODE = `// Welcome to the Ori Playground!
 
 // State
 let editor = null;
-let wasmBytes = null;
-let wasiReady = false;
+let wasmReady = false;
 
 // DOM Elements
 const runBtn = document.getElementById('run-btn');
@@ -259,27 +239,36 @@ async function initMonaco() {
     });
 }
 
-// Initialize WASM/WASI
-async function initWasm() {
+// Initialize WASM module
+async function initWasmModule() {
     try {
-        // Load @wasmer/wasi from CDN
-        const wasiModule = await import('https://unpkg.com/@aspect/run-wasi@0.5.0');
-        await wasiModule.init();
-        window.WasiModule = wasiModule;
-
-        // Load the WASM binary
-        const response = await fetch('./pkg/ori-playground.wasm');
-        wasmBytes = await response.arrayBuffer();
-        wasiReady = true;
-        versionEl.textContent = 'Ori 0.1.0-alpha';
+        await initWasm();
+        wasmReady = true;
+        versionEl.textContent = version();
         return true;
     } catch (e) {
-        console.error('Failed to load WASM/WASI:', e);
+        console.error('Failed to load WASM:', e);
         versionEl.textContent = 'WASM not loaded';
-        outputEl.textContent = `Note: WASM module not loaded.\n\nBuild with:\ncd playground/wasm && cargo build --target wasm32-wasi --release\nmkdir -p ../pkg && cp target/wasm32-wasi/release/ori-playground.wasm ../pkg/\n\nError: ${e.message}`;
+        outputEl.textContent = `Failed to load WASM module.\n\nBuild with:\ncd playground/wasm && wasm-pack build --target web --out-dir ../pkg\n\nError: ${e.message}`;
         outputEl.className = 'output error';
         return false;
     }
+}
+
+// Create the timing line element
+function createTimingLine(elapsedStr) {
+    const el = document.createElement('div');
+    el.className = 'timing-line';
+    const ran = document.createElement('span');
+    ran.className = 'timing-duration';
+    ran.textContent = `Ran in ${elapsedStr}`;
+    const label = document.createElement('span');
+    label.className = 'timing-label';
+    label.textContent = 'interpreted in WASM';
+    el.appendChild(ran);
+    el.appendChild(document.createTextNode(' · '));
+    el.appendChild(label);
+    return el;
 }
 
 // Run code
@@ -288,8 +277,8 @@ async function runCode() {
 
     const code = editor.getValue();
 
-    if (!wasiReady || !wasmBytes) {
-        outputEl.textContent = 'WASM module not loaded.\n\nBuild with:\ncd playground/wasm && cargo build --target wasm32-wasi --release';
+    if (!wasmReady) {
+        outputEl.textContent = 'WASM module not loaded.\n\nBuild with:\ncd playground/wasm && wasm-pack build --target web --out-dir ../pkg';
         outputEl.className = 'output error';
         statusEl.textContent = 'Not Ready';
         statusEl.className = 'status error';
@@ -307,36 +296,41 @@ async function runCode() {
         // Run in next tick to allow UI to update
         await new Promise(resolve => setTimeout(resolve, 10));
 
-        // Create WASI instance with stdin containing the source code
-        const encoder = new TextEncoder();
-        const stdinData = encoder.encode(code);
+        // Call the WASM function and measure execution time
+        const startTime = performance.now();
+        const resultJson = run_ori(code);
+        const elapsed = performance.now() - startTime;
+        const result = JSON.parse(resultJson);
 
-        const wasi = new window.WasiModule.WASI({
-            args: ['ori-playground'],
-            env: {},
-            stdin: stdinData,
-        });
+        const elapsedSec = elapsed / 1000;
+        const elapsedStr = elapsedSec >= 0.01
+            ? `${elapsedSec.toFixed(2)}s`
+            : `${elapsed.toFixed(1)}ms`;
 
-        // Compile and instantiate
-        const module = await WebAssembly.compile(wasmBytes);
-        const instance = await wasi.instantiate(module, {});
-
-        // Run
-        const exitCode = wasi.start(instance);
-
-        // Get output
-        const stdout = wasi.getStdoutString();
-        const stderr = wasi.getStderrString();
-
-        if (exitCode === 0) {
-            outputEl.textContent = stdout || '(no output)';
+        if (result.success) {
+            let output = '';
+            if (result.printed) {
+                output += result.printed;
+            }
+            if (result.output) {
+                if (output) output += '\n';
+                output += result.output;
+            }
+            outputEl.innerHTML = '';
+            outputEl.appendChild(document.createTextNode(output || '(no output)'));
+            outputEl.appendChild(createTimingLine(elapsedStr));
             outputEl.className = 'output success';
             statusEl.textContent = 'Success';
             statusEl.className = 'status success';
         } else {
-            outputEl.textContent = stderr || stdout || 'Unknown error';
+            const errorType = result.error_type ? `[${result.error_type}] ` : '';
+            outputEl.innerHTML = '';
+            outputEl.appendChild(document.createTextNode(`${errorType}${result.error || 'Unknown error'}`));
+            outputEl.appendChild(createTimingLine(elapsedStr));
             outputEl.className = 'output error';
-            statusEl.textContent = 'Error';
+            statusEl.textContent = result.error_type === 'parse' ? 'Parse Error' :
+                                   result.error_type === 'type' ? 'Type Error' :
+                                   'Runtime Error';
             statusEl.className = 'status error';
         }
     } catch (e) {
@@ -388,7 +382,7 @@ examplesSelect.addEventListener('change', (e) => loadExample(e.target.value));
 async function init() {
     await Promise.all([
         initMonaco(),
-        initWasm()
+        initWasmModule()
     ]);
 
     console.log('Ori Playground initialized');

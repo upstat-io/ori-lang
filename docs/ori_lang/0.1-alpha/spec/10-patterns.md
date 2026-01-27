@@ -7,7 +7,7 @@ Compiler-level control flow and concurrency constructs.
 | Category | Patterns | Purpose |
 |----------|----------|---------|
 | `function_seq` | `run`, `try`, `match` | Sequential expressions |
-| `function_exp` | `recurse`, `parallel`, `spawn`, `timeout`, `cache`, `with`, `for` | Concurrency, recursion, resources |
+| `function_exp` | `recurse`, `parallel`, `spawn`, `timeout`, `cache`, `with`, `for`, `catch` | Concurrency, recursion, resources, error recovery |
 | `function_val` | `int`, `float`, `str`, `byte` | Type conversion |
 
 > **Note:** Data transformation (`map`, `filter`, `fold`, `find`, `collect`) and resilience (`retry`, `validate`) are stdlib methods, not compiler patterns. See [Built-in Functions](11-built-in-functions.md).
@@ -20,7 +20,7 @@ function_seq   = run_expr | try_expr | match_expr | for_pattern .
 function_exp   = pattern_name "(" named_arg { "," named_arg } ")" .
 function_val   = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
 named_arg      = identifier ":" expression .
-pattern_name   = "recurse" | "parallel" | "spawn" | "timeout" | "cache" | "with" .
+pattern_name   = "recurse" | "parallel" | "spawn" | "timeout" | "cache" | "with" | "catch" .
 ```
 
 ## Sequential (function_seq)
@@ -154,6 +154,20 @@ with(
 ```
 
 `release` always runs.
+
+## Error Recovery (function_exp)
+
+### catch
+
+Captures panics and converts them to `Result<T, str>`.
+
+```ori
+catch(expr: may_panic())
+```
+
+If the expression evaluates successfully, returns `Ok(value)`. If the expression panics, returns `Err(message)` where `message` is the panic message string.
+
+See [Errors and Panics § Catching Panics](20-errors-and-panics.md#catching-panics).
 
 ## for Pattern
 
