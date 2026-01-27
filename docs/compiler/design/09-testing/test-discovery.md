@@ -5,7 +5,7 @@ Test discovery finds all test functions in a module and determines coverage.
 ## Location
 
 ```
-compiler/sigilc/src/test/discovery.rs (~310 lines)
+compiler/oric/src/test/discovery.rs (~310 lines)
 ```
 
 ## Discovery Process

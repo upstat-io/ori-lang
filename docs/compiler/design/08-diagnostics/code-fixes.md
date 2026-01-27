@@ -5,7 +5,7 @@ Code fixes are automatic repair suggestions that can be applied to resolve error
 ## Location
 
 ```
-compiler/sigilc/src/diagnostic/fixes/mod.rs (~258 lines)
+compiler/oric/src/diagnostic/fixes/mod.rs (~258 lines)
 ```
 
 ## CodeFix Structure
@@ -239,7 +239,7 @@ Fixes are exposed in LSP `codeAction` responses:
   "diagnostics": [{ "code": "E2002" }],
   "edit": {
     "changes": {
-      "file:///src/main.si": [
+      "file:///src/main.ori": [
         {
           "range": { "start": { "line": 5, "character": 4 }, "end": { "line": 5, "character": 9 } },
           "newText": "print"

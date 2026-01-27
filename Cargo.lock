@@ -42,12 +42,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5192cca8006f1fd4f7237516f40fa183bb07f8fbdfedaa0036de5ea9b0b45e78"
 
 [[package]]
-name = "anyhow"
-version = "1.0.100"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
-
-[[package]]
 name = "ar_archive_writer"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -382,30 +376,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "inkwell"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1def4112dfb2ce2993db7027f7acdb43c1f4ee1c70a082a2eef306ed5d0df365"
-dependencies = [
- "inkwell_internals",
- "libc",
- "llvm-sys",
- "once_cell",
- "thiserror",
-]
-
-[[package]]
-name = "inkwell_internals"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63736175c9a30ea123f7018de9f26163e0b39cd6978990ae486b510c4f3bad69"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "is-terminal"
 version = "0.4.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -458,20 +428,6 @@ name = "linux-raw-sys"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df1d3c3b53da64cf5760482273a98e575c651a67eec7f77df96b5b642de8f039"
-
-[[package]]
-name = "llvm-sys"
-version = "170.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a5e5f51e78d53a09a9e7763d700d34859f3cc45a8fb9eaad2e8555bc84ff2a0"
-dependencies = [
- "anyhow",
- "cc",
- "lazy_static",
- "libc",
- "regex-lite",
- "semver",
-]
 
 [[package]]
 name = "lock_api"
@@ -550,6 +506,139 @@ name = "oorandom"
 version = "11.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
+
+[[package]]
+name = "ori-macros"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+ "trybuild",
+]
+
+[[package]]
+name = "ori_codegen"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "ori_ir",
+ "ori_types",
+ "pretty_assertions",
+ "rustc-hash",
+]
+
+[[package]]
+name = "ori_diagnostic"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "ori_ir",
+ "pretty_assertions",
+]
+
+[[package]]
+name = "ori_eval"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "ori_diagnostic",
+ "ori_ir",
+ "ori_patterns",
+ "ori_types",
+ "pretty_assertions",
+ "rayon",
+ "rustc-hash",
+ "stacker",
+]
+
+[[package]]
+name = "ori_ir"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "parking_lot",
+ "pretty_assertions",
+ "rustc-hash",
+]
+
+[[package]]
+name = "ori_lexer"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "logos",
+ "ori_ir",
+ "pretty_assertions",
+]
+
+[[package]]
+name = "ori_parse"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "ori_diagnostic",
+ "ori_ir",
+ "ori_lexer",
+ "pretty_assertions",
+ "stacker",
+]
+
+[[package]]
+name = "ori_patterns"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "ori_ir",
+ "ori_types",
+ "pretty_assertions",
+ "rustc-hash",
+]
+
+[[package]]
+name = "ori_typeck"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "ori_diagnostic",
+ "ori_eval",
+ "ori_ir",
+ "ori_lexer",
+ "ori_parse",
+ "ori_patterns",
+ "ori_types",
+ "pretty_assertions",
+ "rustc-hash",
+ "stacker",
+]
+
+[[package]]
+name = "ori_types"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "ori_diagnostic",
+ "ori_ir",
+ "parking_lot",
+ "pretty_assertions",
+ "rustc-hash",
+]
+
+[[package]]
+name = "oric"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "criterion",
+ "logos",
+ "ori-macros",
+ "ori_codegen",
+ "ori_diagnostic",
+ "ori_eval",
+ "ori_ir",
+ "ori_lexer",
+ "ori_parse",
+ "ori_patterns",
+ "ori_typeck",
+ "ori_types",
+ "parking_lot",
+ "pretty_assertions",
+ "rayon",
+ "rustc-hash",
+ "salsa",
+ "stacker",
+ "tempfile",
+]
 
 [[package]]
 name = "parking_lot"
@@ -705,12 +794,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "regex-lite"
-version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d942b98df5e658f56f20d592c7f868833fe38115e65c33003d8cd224b0155da"
-
-[[package]]
 name = "regex-syntax"
 version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -798,12 +881,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
-name = "semver"
-version = "1.0.27"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
-
-[[package]]
 name = "serde"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -860,150 +937,6 @@ name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
-
-[[package]]
-name = "sigil-macros"
-version = "0.1.0-alpha.1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
- "trybuild",
-]
-
-[[package]]
-name = "sigil_codegen"
-version = "0.1.0-alpha.1"
-dependencies = [
- "pretty_assertions",
- "rustc-hash",
- "sigil_ir",
- "sigil_types",
-]
-
-[[package]]
-name = "sigil_diagnostic"
-version = "0.1.0-alpha.1"
-dependencies = [
- "pretty_assertions",
- "sigil_ir",
-]
-
-[[package]]
-name = "sigil_eval"
-version = "0.1.0-alpha.1"
-dependencies = [
- "pretty_assertions",
- "rayon",
- "rustc-hash",
- "sigil_diagnostic",
- "sigil_ir",
- "sigil_patterns",
- "sigil_types",
- "stacker",
-]
-
-[[package]]
-name = "sigil_ir"
-version = "0.1.0-alpha.1"
-dependencies = [
- "parking_lot",
- "pretty_assertions",
- "rustc-hash",
-]
-
-[[package]]
-name = "sigil_lexer"
-version = "0.1.0-alpha.1"
-dependencies = [
- "logos",
- "pretty_assertions",
- "sigil_ir",
-]
-
-[[package]]
-name = "sigil_llvm"
-version = "0.1.0-alpha.1"
-dependencies = [
- "inkwell",
- "pretty_assertions",
- "sigil_ir",
- "sigil_types",
-]
-
-[[package]]
-name = "sigil_parse"
-version = "0.1.0-alpha.1"
-dependencies = [
- "pretty_assertions",
- "sigil_diagnostic",
- "sigil_ir",
- "sigil_lexer",
- "stacker",
-]
-
-[[package]]
-name = "sigil_patterns"
-version = "0.1.0-alpha.1"
-dependencies = [
- "pretty_assertions",
- "rustc-hash",
- "sigil_ir",
- "sigil_types",
-]
-
-[[package]]
-name = "sigil_typeck"
-version = "0.1.0-alpha.1"
-dependencies = [
- "pretty_assertions",
- "rustc-hash",
- "sigil_diagnostic",
- "sigil_eval",
- "sigil_ir",
- "sigil_lexer",
- "sigil_parse",
- "sigil_patterns",
- "sigil_types",
- "stacker",
-]
-
-[[package]]
-name = "sigil_types"
-version = "0.1.0-alpha.1"
-dependencies = [
- "parking_lot",
- "pretty_assertions",
- "rustc-hash",
- "sigil_diagnostic",
- "sigil_ir",
-]
-
-[[package]]
-name = "sigilc"
-version = "0.1.0-alpha.1"
-dependencies = [
- "criterion",
- "logos",
- "parking_lot",
- "pretty_assertions",
- "rayon",
- "rustc-hash",
- "salsa",
- "sigil-macros",
- "sigil_codegen",
- "sigil_diagnostic",
- "sigil_eval",
- "sigil_ir",
- "sigil_lexer",
- "sigil_llvm",
- "sigil_parse",
- "sigil_patterns",
- "sigil_typeck",
- "sigil_types",
- "stacker",
- "tempfile",
-]
 
 [[package]]
 name = "smallvec"
@@ -1072,26 +1005,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
-]
-
-[[package]]
-name = "thiserror"
-version = "2.0.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4288b5bcbc7920c07a1149a35cf9590a2aa808e0bc1eafaade0b80947865fbc4"
-dependencies = [
- "thiserror-impl",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "2.0.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebc4ee7f67670e9b64d05fa4253e753e016c6c95ff35b89b7941d6b856dec1d5"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]

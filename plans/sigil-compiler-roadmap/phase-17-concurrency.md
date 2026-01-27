@@ -2,7 +2,7 @@
 
 **Goal**: Complete concurrency support with select, cancellation, and enhanced channels
 
-> **PROPOSAL**: `docs/sigil_lang/proposals/approved/parallel-concurrency-proposal.md`
+> **PROPOSAL**: `docs/ori_lang/proposals/approved/parallel-concurrency-proposal.md`
 
 **Dependencies**: Phase 16 (Async Support)
 
@@ -12,7 +12,7 @@
 
 Types that can safely cross task boundaries.
 
-```sigil
+```ori
 trait Sendable {
     // Marker trait - no methods
 }
@@ -24,8 +24,8 @@ trait Sendable {
 ### Implementation
 
 - [ ] **Implement**: Add `Sendable` marker trait
-  - [ ] **Rust Tests**: `sigilc/src/typeck/traits/sendable.rs` — sendable trait
-  - [ ] **Sigil Tests**: `tests/spec/concurrency/sendable.si`
+  - [ ] **Rust Tests**: `oric/src/typeck/traits/sendable.rs` — sendable trait
+  - [ ] **Ori Tests**: `tests/spec/concurrency/sendable.ori`
 
 - [ ] **Implement**: Auto-derive for primitives and immutable collections
 
@@ -37,7 +37,7 @@ trait Sendable {
 
 Split channels into producer/consumer roles.
 
-```sigil
+```ori
 type ChannelPair<T> = {
     producer: Producer<T>,
     consumer: Consumer<T>,
@@ -51,8 +51,8 @@ let value = recv(rx)
 ### Implementation
 
 - [ ] **Implement**: Split `Channel<T>` into `Producer<T>` and `Consumer<T>`
-  - [ ] **Rust Tests**: `sigilc/src/eval/channel.rs` — role-based channels
-  - [ ] **Sigil Tests**: `tests/spec/concurrency/channels.si`
+  - [ ] **Rust Tests**: `oric/src/eval/channel.rs` — role-based channels
+  - [ ] **Ori Tests**: `tests/spec/concurrency/channels.ori`
 
 - [ ] **Implement**: Add `Sharing` enum: `Exclusive | Producers | Consumers | Both`
 
@@ -61,8 +61,8 @@ let value = recv(rx)
 - [ ] **Implement**: Enforce clonability based on sharing mode
 
 - [ ] **Implement**: Ownership transfer on send (value consumed)
-  - [ ] **Rust Tests**: `sigilc/src/typeck/checker/ownership.rs` — channel ownership
-  - [ ] **Sigil Tests**: `tests/compile-fail/channel_ownership.si`
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/ownership.rs` — channel ownership
+  - [ ] **Ori Tests**: `tests/compile-fail/channel_ownership.ori`
 
 ---
 
@@ -70,7 +70,7 @@ let value = recv(rx)
 
 Multiplex over multiple channel operations.
 
-```sigil
+```ori
 let result = select(
     recv(ch1) -> value: handle_ch1(value: value),
     recv(ch2) -> value: handle_ch2(value: value),
@@ -81,8 +81,8 @@ let result = select(
 ### Basic Select
 
 - [ ] **Implement**: `select` expression parsing
-  - [ ] **Rust Tests**: `sigil_parse/src/grammar/expr.rs` — select parsing
-  - [ ] **Sigil Tests**: `tests/spec/concurrency/select_basic.si`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — select parsing
+  - [ ] **Ori Tests**: `tests/spec/concurrency/select_basic.ori`
 
 - [ ] **Implement**: `recv(channel) -> pattern: expr` arm
 
@@ -95,20 +95,20 @@ let result = select(
 ### Default Case
 
 - [ ] **Implement**: `else: expr` for non-blocking select
-  - [ ] **Rust Tests**: `sigilc/src/eval/exec/select.rs` — default case
-  - [ ] **Sigil Tests**: `tests/spec/concurrency/select_default.si`
+  - [ ] **Rust Tests**: `oric/src/eval/exec/select.rs` — default case
+  - [ ] **Ori Tests**: `tests/spec/concurrency/select_default.ori`
 
 ### Timeout Integration
 
 - [ ] **Implement**: `after(duration): expr` for timed select
-  - [ ] **Rust Tests**: `sigilc/src/eval/exec/select.rs` — timeout arm
-  - [ ] **Sigil Tests**: `tests/spec/concurrency/select_timeout.si`
+  - [ ] **Rust Tests**: `oric/src/eval/exec/select.rs` — timeout arm
+  - [ ] **Ori Tests**: `tests/spec/concurrency/select_timeout.ori`
 
 ### Closed Channel Handling
 
 - [ ] **Implement**: `recv` returns `Option<T>` (None when closed)
-  - [ ] **Rust Tests**: `sigilc/src/eval/channel.rs` — closed channel handling
-  - [ ] **Sigil Tests**: `tests/spec/concurrency/select_closed.si`
+  - [ ] **Rust Tests**: `oric/src/eval/channel.rs` — closed channel handling
+  - [ ] **Ori Tests**: `tests/spec/concurrency/select_closed.ori`
 
 ---
 
@@ -116,7 +116,7 @@ let result = select(
 
 Structured cancellation for async operations.
 
-```sigil
+```ori
 let token = CancellationToken.new()
 let child = token.child()
 
@@ -140,7 +140,7 @@ select(
 
 - [ ] **Implement**: `CancellationToken` type in stdlib
   - [ ] **Rust Tests**: `library/std/cancellation.rs` — cancellation token
-  - [ ] **Sigil Tests**: `tests/spec/concurrency/cancellation_tokens.si`
+  - [ ] **Ori Tests**: `tests/spec/concurrency/cancellation_tokens.ori`
 
 - [ ] **Implement**: `new()`, `child()`, `cancel()`, `is_cancelled()`
 
@@ -156,7 +156,7 @@ select(
 
 Cooperative cancellation in async code.
 
-```sigil
+```ori
 @fetch_data (url: str, cancel: CancellationToken) -> Result<Data, Error> uses Http, Async = run(
     if cancel.is_cancelled() then
         return Err(CancelledError {})
@@ -174,7 +174,7 @@ Cooperative cancellation in async code.
 
 - [ ] **Implement**: `CancelledError` type in stdlib
   - [ ] **Rust Tests**: `library/std/error.rs` — cancelled error type
-  - [ ] **Sigil Tests**: `tests/spec/concurrency/cancellable_ops.si`
+  - [ ] **Ori Tests**: `tests/spec/concurrency/cancellable_ops.ori`
 
 - [ ] **Implement**: Document cooperative checking patterns
 
@@ -184,7 +184,7 @@ Cooperative cancellation in async code.
 
 Integration with parallel/spawn patterns.
 
-```sigil
+```ori
 parallel(
     tasks: [task1, task2, task3],
     cancel: token,  // If cancelled, all tasks receive cancellation
@@ -194,8 +194,8 @@ parallel(
 ### Implementation
 
 - [ ] **Implement**: Add `cancel:` parameter to `parallel` pattern
-  - [ ] **Rust Tests**: `sigilc/src/patterns/parallel.rs` — cancel parameter
-  - [ ] **Sigil Tests**: `tests/spec/concurrency/propagation.si`
+  - [ ] **Rust Tests**: `oric/src/patterns/parallel.rs` — cancel parameter
+  - [ ] **Ori Tests**: `tests/spec/concurrency/propagation.ori`
 
 - [ ] **Implement**: Add `cancel:` parameter to `spawn` pattern
 
@@ -207,7 +207,7 @@ parallel(
 
 Guaranteed cleanup even when cancelled.
 
-```sigil
+```ori
 with(
     acquire: open_file(path: path),
     use: file -> process(file: file, cancel: cancel),
@@ -218,8 +218,8 @@ with(
 ### Implementation
 
 - [ ] **Implement**: `with` release runs on cancellation
-  - [ ] **Rust Tests**: `sigilc/src/patterns/with.rs` — cancellation cleanup
-  - [ ] **Sigil Tests**: `tests/spec/concurrency/cleanup.si`
+  - [ ] **Rust Tests**: `oric/src/patterns/with.rs` — cancellation cleanup
+  - [ ] **Ori Tests**: `tests/spec/concurrency/cleanup.ori`
 
 - [ ] **Implement**: Document cleanup patterns
 
@@ -227,7 +227,7 @@ with(
 
 ## 17.8 Timeout as Cancellation
 
-```sigil
+```ori
 let token = CancellationToken.with_timeout(duration: 30s)
 fetch_data(url: url, cancel: token)
 ```
@@ -236,7 +236,7 @@ fetch_data(url: url, cancel: token)
 
 - [ ] **Implement**: `CancellationToken.with_timeout(duration:)`
   - [ ] **Rust Tests**: `library/std/cancellation.rs` — timeout-based cancel
-  - [ ] **Sigil Tests**: `tests/spec/concurrency/timeout_cancel.si`
+  - [ ] **Ori Tests**: `tests/spec/concurrency/timeout_cancel.ori`
 
 - [ ] **Implement**: Auto-cancel on timeout expiry
 
@@ -244,7 +244,7 @@ fetch_data(url: url, cancel: token)
 
 ## 17.9 Graceful Shutdown Pattern
 
-```sigil
+```ori
 @main () -> void uses Async = run(
     let shutdown = CancellationToken.new()
 
@@ -258,7 +258,7 @@ fetch_data(url: url, cancel: token)
 
 - [ ] **Implement**: `on_signal` in stdlib
   - [ ] **Rust Tests**: `library/std/signal.rs` — signal handling
-  - [ ] **Sigil Tests**: `tests/spec/concurrency/graceful_shutdown.si`
+  - [ ] **Ori Tests**: `tests/spec/concurrency/graceful_shutdown.ori`
 
 - [ ] **Implement**: SIGINT, SIGTERM support
 
@@ -274,7 +274,7 @@ fetch_data(url: url, cancel: token)
 - [ ] Select expression working
 - [ ] Cancellation tokens working
 - [ ] Propagation working
-- [ ] All tests pass: `cargo test && sigil test tests/spec/concurrency/`
+- [ ] All tests pass: `cargo test && ori test tests/spec/concurrency/`
 
 **Exit Criteria**: Can write a server with graceful shutdown on SIGINT
 
@@ -282,7 +282,7 @@ fetch_data(url: url, cancel: token)
 
 ## Example: Chat Server with Graceful Shutdown
 
-```sigil
+```ori
 type Message = { from: str, content: str }
 
 @chat_server (

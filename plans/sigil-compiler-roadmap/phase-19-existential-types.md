@@ -37,7 +37,7 @@
 
 ### Syntax
 
-```sigil
+```ori
 // Return opaque type
 @make_iterator (items: [int]) -> impl Iterator<Item = int> = run(
     items.iter()
@@ -76,7 +76,7 @@ for x in iter do print(str(x))  // Works via Iterator trait
   - [ ] Verify all returns same type
   - [ ] Check trait bounds satisfied
 
-- [ ] **Test**: `tests/spec/types/impl_trait.si`
+- [ ] **Test**: `tests/spec/types/impl_trait.ori`
   - [ ] Basic impl Trait return
   - [ ] Multiple bounds
   - [ ] Associated type constraints
@@ -89,7 +89,7 @@ for x in iter do print(str(x))  // Works via Iterator trait
 
 ### Rules
 
-```sigil
+```ori
 // Concrete type inferred from function body
 @numbers () -> impl Iterator<Item = int> = run(
     [1, 2, 3].iter()  // Concrete: ListIterator<int>
@@ -129,7 +129,7 @@ for x in iter do print(str(x))  // Works via Iterator trait
   - [ ] Show both concrete types
   - [ ] Suggest Box<dyn Trait>
 
-- [ ] **Test**: `tests/spec/types/impl_trait_inference.si`
+- [ ] **Test**: `tests/spec/types/impl_trait_inference.ori`
   - [ ] Multiple return paths same type
   - [ ] Error on different types
 
@@ -141,7 +141,7 @@ for x in iter do print(str(x))  // Works via Iterator trait
 
 ### Syntax
 
-```sigil
+```ori
 // Constrain associated type
 @int_iterator () -> impl Iterator<Item = int> = ...
 
@@ -168,7 +168,7 @@ trait Mapping {
   - [ ] Match concrete type's assoc types
   - [ ] Error on mismatch
 
-- [ ] **Test**: `tests/spec/types/impl_trait_assoc.si`
+- [ ] **Test**: `tests/spec/types/impl_trait_assoc.ori`
   - [ ] Iterator with Item
   - [ ] Custom trait with assoc types
 
@@ -180,7 +180,7 @@ trait Mapping {
 
 ### Not Supported (Initially)
 
-```sigil
+```ori
 // Argument position - NOT supported
 @take_iterator (iter: impl Iterator<Item = int>) -> void = ...
 // Use generic instead:
@@ -210,7 +210,7 @@ trait Foo {
 
 ```
 error: `impl Trait` is only allowed in return position
-  --> src/main.si:5:20
+  --> src/main.ori:5:20
   |
 5 | @foo (x: impl Trait) -> void
   |          ^^^^^^^^^^ impl Trait not allowed here
@@ -234,7 +234,7 @@ error: `impl Trait` is only allowed in return position
   - [ ] Generic parameter
   - [ ] Associated type
 
-- [ ] **Test**: `tests/compile-fail/types/impl_trait_position.si`
+- [ ] **Test**: `tests/compile-fail/types/impl_trait_position.ori`
   - [ ] Arg position error
   - [ ] Struct field error
   - [ ] Trait method error
@@ -257,7 +257,7 @@ error: `impl Trait` is only allowed in return position
 
 ### When to Use
 
-```sigil
+```ori
 // Use impl Trait: single concrete type, performance matters
 @fast_iterator () -> impl Iterator<Item = int> = [1, 2, 3].iter()
 
@@ -281,7 +281,7 @@ error: `impl Trait` is only allowed in return position
   - [ ] Decision flowchart
   - [ ] Common patterns
 
-- [ ] **Test**: `tests/spec/types/impl_vs_dyn.si`
+- [ ] **Test**: `tests/spec/types/impl_vs_dyn.ori`
   - [ ] impl Trait usage
   - [ ] dyn Trait usage
   - [ ] Conversion between them
@@ -297,7 +297,7 @@ error: `impl Trait` is only allowed in return position
 - [ ] Type inference correct
 - [ ] Associated type constraints work
 - [ ] Clear errors for invalid positions
-- [ ] All tests pass: `cargo test && sigil test tests/spec/types/`
+- [ ] All tests pass: `cargo test && ori test tests/spec/types/`
 
 **Exit Criteria**: Can write iterator-returning functions with clean APIs
 
@@ -305,7 +305,7 @@ error: `impl Trait` is only allowed in return position
 
 ## Example: Iterator Combinators
 
-```sigil
+```ori
 // Clean API with impl Trait in return position
 // Note: impl Trait is only allowed in return position, not argument position
 // Use generics for arguments instead

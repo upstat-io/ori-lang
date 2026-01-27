@@ -1,0 +1,153 @@
+//! Test file discovery.
+//!
+//! Finds all test files in a given directory tree.
+//! Convention: All .ori files can contain tests (functions with `tests` keyword).
+
+use std::path::{Path, PathBuf};
+use std::fs;
+
+/// A discovered test file.
+#[derive(Clone, Debug)]
+pub struct TestFile {
+    /// Path to the test file.
+    pub path: PathBuf,
+}
+
+impl TestFile {
+    pub fn new(path: PathBuf) -> Self {
+        TestFile { path }
+    }
+}
+
+/// Discover all test files in a directory tree.
+///
+/// # Arguments
+/// * `root` - Root directory to search
+///
+/// # Returns
+/// Vector of discovered test files, sorted by path.
+pub fn discover_tests(root: &Path) -> Vec<TestFile> {
+    let mut files = Vec::new();
+    discover_recursive(root, &mut files);
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    files
+}
+
+fn discover_recursive(dir: &Path, files: &mut Vec<TestFile>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+
+        // Skip hidden files and directories
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if name.starts_with('.') {
+                continue;
+            }
+        }
+
+        if path.is_dir() {
+            // Skip common non-source directories
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if matches!(name, "target" | "node_modules" | ".git" | "__pycache__") {
+                    continue;
+                }
+            }
+            discover_recursive(&path, files);
+        } else if path.extension().is_some_and(|e| e == "ori") {
+            files.push(TestFile::new(path));
+        }
+    }
+}
+
+/// Discover tests in a specific file or directory.
+///
+/// If `path` is a file, returns just that file.
+/// If `path` is a directory, discovers all .ori files recursively.
+pub fn discover_tests_in(path: &Path) -> Vec<TestFile> {
+    if path.is_file() {
+        if path.extension().is_some_and(|e| e == "ori") {
+            vec![TestFile::new(path.to_path_buf())]
+        } else {
+            vec![]
+        }
+    } else if path.is_dir() {
+        discover_tests(path)
+    } else {
+        vec![]
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_discover_empty_dir() {
+        let dir = tempdir().unwrap();
+        let files = discover_tests(dir.path());
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn test_discover_si_files() {
+        let dir = tempdir().unwrap();
+
+        // Create some test files
+        File::create(dir.path().join("test1.ori")).unwrap();
+        File::create(dir.path().join("test2.ori")).unwrap();
+        File::create(dir.path().join("not_a_test.txt")).unwrap();
+
+        let files = discover_tests(dir.path());
+        assert_eq!(files.len(), 2);
+    }
+
+    #[test]
+    fn test_discover_recursive() {
+        let dir = tempdir().unwrap();
+
+        // Create nested structure
+        let sub = dir.path().join("subdir");
+        fs::create_dir(&sub).unwrap();
+
+        File::create(dir.path().join("root.ori")).unwrap();
+        File::create(sub.join("nested.ori")).unwrap();
+
+        let files = discover_tests(dir.path());
+        assert_eq!(files.len(), 2);
+    }
+
+    #[test]
+    fn test_skip_hidden_and_target() {
+        let dir = tempdir().unwrap();
+
+        // Create directories that should be skipped
+        let hidden = dir.path().join(".hidden");
+        let target = dir.path().join("target");
+        fs::create_dir(&hidden).unwrap();
+        fs::create_dir(&target).unwrap();
+
+        File::create(hidden.join("test.ori")).unwrap();
+        File::create(target.join("test.ori")).unwrap();
+        File::create(dir.path().join("real.ori")).unwrap();
+
+        let files = discover_tests(dir.path());
+        assert_eq!(files.len(), 1);
+        assert!(files[0].path.ends_with("real.ori"));
+    }
+
+    #[test]
+    fn test_discover_single_file() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.ori");
+        File::create(&path).unwrap();
+
+        let files = discover_tests_in(&path);
+        assert_eq!(files.len(), 1);
+    }
+}

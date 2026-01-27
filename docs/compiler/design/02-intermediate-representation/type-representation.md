@@ -1,6 +1,6 @@
 # Type Representation
 
-This document describes how types are represented in the Sigil compiler.
+This document describes how types are represented in the Ori compiler.
 
 ## Type Enum
 

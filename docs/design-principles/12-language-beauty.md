@@ -40,7 +40,7 @@ public static void main(String[] args) {
 // Low ceremony (Python)
 print("Hello")
 
-// Sigil
+// Ori
 @main () -> void = print(msg: "Hello")
 ```
 
@@ -58,7 +58,7 @@ Clarity means:
 - Names communicate purpose
 - No hidden behavior
 
-```sigil
+```ori
 // Clear intent
 @fibonacci (n: int) -> int = recurse(
     cond: n <= 1,
@@ -81,7 +81,7 @@ Consistency means:
 - Patterns are predictable
 - No surprising exceptions
 
-```sigil
+```ori
 // Consistent pattern syntax
 fold(
     over: arr,
@@ -122,7 +122,7 @@ Code is visual. The Gestalt principles of perception explain why some code "look
 ### Proximity
 Elements close together are perceived as grouped.
 
-```sigil
+```ori
 // Good: Related things are close
 @user (
     name: str,
@@ -137,7 +137,7 @@ Elements close together are perceived as grouped.
 ### Similarity
 Similar things appear grouped even when apart.
 
-```sigil
+```ori
 // Good: Consistent structure
 over: items,
 init: 0,
@@ -150,7 +150,7 @@ over=items, init: 0, .op -> +
 ### Alignment
 Aligned elements reduce cognitive load.
 
-```sigil
+```ori
 // Good: Vertical alignment
 @add      (a: int, b: int) -> int   = a + b
 @subtract (a: int, b: int) -> int   = a - b
@@ -165,7 +165,7 @@ Aligned elements reduce cognitive load.
 ### Closure
 The mind completes incomplete shapes.
 
-```sigil
+```ori
 // Good: Clear boundaries
 @process () -> int = run(
     let x = fetch(),
@@ -206,7 +206,7 @@ Whitespace communicates:
 - **Grouping** through blank lines
 - **Rhythm** through consistent spacing
 
-```sigil
+```ori
 // Good: Whitespace shows structure
 @process (items: [int]) -> int = run(
     let doubled = map(
@@ -261,7 +261,7 @@ transform: x -> x * 2,
 
 **CamelCase vs snake_case:** Research suggests CamelCase facilitates faster scanning, but consistency matters more than choice.
 
-**Sigils add information without altering words:**
+**Oris add information without altering words:**
 - `@fetch` — clearly a function
 - `$timeout` — clearly a config
 - `over:` — clearly a named argument
@@ -299,14 +299,14 @@ Elegance is not the default. It requires:
 
 ---
 
-## Beauty in Sigil: Design Implications
+## Beauty in Ori: Design Implications
 
-Based on this research, beautiful Sigil code should exhibit:
+Based on this research, beautiful Ori code should exhibit:
 
 ### 1. Visual Rhythm
 Stacked patterns create predictable vertical flow:
 
-```sigil
+```ori
 @fetch_data (url: str) -> Result<Data, Error> = retry(
     op: http_get(url: url),
     attempts: 3,
@@ -318,12 +318,12 @@ Stacked patterns create predictable vertical flow:
 ```
 
 ### 2. Low Noise
-The `@`, `$`, `name:` sigils add signal, not noise — they communicate meaning instantly.
+The `@`, `$`, `name:` oris add signal, not noise — they communicate meaning instantly.
 
 ### 3. Consistent Structure
 Every pattern follows the same form:
 
-```sigil
+```ori
 pattern(
     property: value,
     property: value,
@@ -336,7 +336,7 @@ No hidden behavior. `try` shows error propagation. `parallel` shows concurrency.
 ### 5. Inevitable Solutions
 Patterns capture common operations so completely that alternatives feel unnatural:
 
-```sigil
+```ori
 // This feels right
 @sum (arr: [int]) -> int = fold(
     over: arr,

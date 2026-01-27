@@ -1,15 +1,15 @@
 # Lexer Overview
 
-The Sigil lexer converts source text into a stream of tokens. It's implemented using the [logos](https://github.com/maciejhirsz/logos) crate for DFA-based tokenization.
+The Ori lexer converts source text into a stream of tokens. It's implemented using the [logos](https://github.com/maciejhirsz/logos) crate for DFA-based tokenization.
 
 ## Location
 
 ```
-compiler/sigil_lexer/src/lib.rs (~707 lines)
+compiler/ori_lexer/src/lib.rs (~707 lines)
 ```
 
 The lexer is a separate crate with minimal dependencies:
-- `sigil_ir` - for `Token`, `TokenKind`, `Span`, `TokenList`, `StringInterner`
+- `ori_ir` - for `Token`, `TokenKind`, `Span`, `TokenList`, `StringInterner`
 - `logos` - for DFA-based tokenization
 
 ## Design Goals

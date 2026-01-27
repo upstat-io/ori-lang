@@ -1,10 +1,10 @@
 # Appendix E: Coding Guidelines
 
-Coding standards and best practices for the Sigil compiler codebase.
+Coding standards and best practices for the Ori compiler codebase.
 
 ## Overview
 
-This document establishes coding conventions to maintain consistency, readability, and quality across the Sigil compiler. All contributors should follow these guidelines.
+This document establishes coding conventions to maintain consistency, readability, and quality across the Ori compiler. All contributors should follow these guidelines.
 
 ---
 
@@ -25,7 +25,7 @@ Use a **hybrid approach** following Rust compiler conventions:
 **Example structure:**
 
 ```
-sigilc/src/eval/
+oric/src/eval/
 ├── function_val.rs           # Implementation (minimal or no inline tests)
 ├── operators.rs              # Implementation
 ├── methods.rs                # Implementation
@@ -99,7 +99,7 @@ mod category_2 {
 
 ```bash
 cargo test --workspace              # All tests
-cargo test -p sigilc                # Single crate
+cargo test -p oric                # Single crate
 cargo test -- eval::tests           # Specific module
 cargo test -- --nocapture           # Show println! output
 ```
@@ -145,8 +145,8 @@ use std::path::Path;
 use salsa::Database;
 
 // 3. Workspace crates
-use sigil_ir::{ExprId, Name};
-use sigil_patterns::Value;
+use ori_ir::{ExprId, Name};
+use ori_patterns::Value;
 
 // 4. Local modules
 use crate::eval::Environment;
@@ -226,7 +226,7 @@ Every module needs a doc comment:
 //! Type conversion functions (`function_val`).
 //!
 //! These are the built-in type conversion functions like `int(x)`, `str(x)`
-//! that allow positional arguments per the Sigil spec.
+//! that allow positional arguments per the Ori spec.
 ```
 
 ### 4.2 Public API Documentation
@@ -276,15 +276,15 @@ eval/
 Dependencies flow downward:
 
 ```
-sigilc (orchestration)
+oric (orchestration)
     ↓
-sigil_typeck, sigil_eval, sigil_patterns
+ori_typeck, ori_eval, ori_patterns
     ↓
-sigil_parse
+ori_parse
     ↓
-sigil_lexer
+ori_lexer
     ↓
-sigil_ir, sigil_diagnostic (no dependencies)
+ori_ir, ori_diagnostic (no dependencies)
 ```
 
 Never import upward in the hierarchy.

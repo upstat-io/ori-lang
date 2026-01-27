@@ -5,14 +5,14 @@ Module loading handles `use` statements, resolving imports and making external f
 ## Location
 
 ```
-compiler/sigilc/src/eval/module/import.rs (~240 lines)
+compiler/oric/src/eval/module/import.rs (~240 lines)
 ```
 
 ## Import Types
 
 ### Relative Imports
 
-```sigil
+```ori
 use './math' { add, subtract }
 use '../utils' { helper }
 use './http/client' { get, post }
@@ -20,14 +20,14 @@ use './http/client' { get, post }
 
 ### Module Imports
 
-```sigil
+```ori
 use std.math { sqrt, abs }
 use std.time { Duration }
 ```
 
 ### Private Imports
 
-```sigil
+```ori
 use './internal' { ::private_helper }
 ```
 
@@ -226,9 +226,9 @@ impl ModuleCache {
 
 ```rust
 fn resolve_module_path(module_path: &[Name]) -> Result<PathBuf, ImportError> {
-    // std.math -> $SIGIL_STDLIB/std/math.si
-    let stdlib_path = std::env::var("SIGIL_STDLIB")
-        .unwrap_or_else(|_| "/usr/local/lib/sigil/stdlib".into());
+    // std.math -> $ORI_STDLIB/std/math.ori
+    let stdlib_path = std::env::var("ORI_STDLIB")
+        .unwrap_or_else(|_| "/usr/local/lib/ori/stdlib".into());
 
     let mut path = PathBuf::from(stdlib_path);
     for component in module_path {
@@ -246,8 +246,8 @@ fn resolve_module_path(module_path: &[Name]) -> Result<PathBuf, ImportError> {
 
 ## Re-exports
 
-```sigil
-// In lib.si
+```ori
+// In lib.ori
 pub use './internal' { Widget }  // Re-export Widget
 ```
 

@@ -1,29 +1,31 @@
 [workspace]
 resolver = "2"
 members = [
-    "compiler/sigil_ir",
-    "compiler/sigil_diagnostic",
-    "compiler/sigil_lexer",
-    "compiler/sigil_types",
-    "compiler/sigil_parse",
-    "compiler/sigil_patterns",
-    "compiler/sigil_typeck",
-    "compiler/sigil_eval",
-    "compiler/sigil_codegen",
-    "compiler/sigil_llvm",
-    "compiler/sigil-macros",
-    "compiler/sigilc",
+    "compiler/ori_ir",
+    "compiler/ori_diagnostic",
+    "compiler/ori_lexer",
+    "compiler/ori_types",
+    "compiler/ori_parse",
+    "compiler/ori_patterns",
+    "compiler/ori_typeck",
+    "compiler/ori_eval",
+    "compiler/ori_codegen",
+    # "compiler/ori_llvm",  # Temporarily excluded - needs LLVM installed
+    "compiler/ori-macros",
+    "compiler/oric",
 ]
 # LSP excluded until updated to use new compiler
+# ori_llvm temporarily excluded - needs LLVM installed
 exclude = [
-    "tools/sigil-lsp",
+    "tools/ori-lsp",
+    "compiler/ori_llvm",
 ]
 
 [workspace.package]
 version = "0.1.0-alpha.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/upstat-io/sigil-lang"
+repository = "https://github.com/anthropics/ori-lang"
 
 [workspace.dependencies]
 logos = "0.14"
@@ -39,17 +41,17 @@ rustc-hash = "2.1"
 stacker = "0.1"
 
 # Internal crates
-sigil_ir = { path = "compiler/sigil_ir" }
-sigil_diagnostic = { path = "compiler/sigil_diagnostic" }
-sigil_lexer = { path = "compiler/sigil_lexer" }
-sigil_types = { path = "compiler/sigil_types" }
-sigil_parse = { path = "compiler/sigil_parse" }
-sigil_patterns = { path = "compiler/sigil_patterns" }
-sigil_typeck = { path = "compiler/sigil_typeck" }
-sigil_eval = { path = "compiler/sigil_eval" }
-sigil_codegen = { path = "compiler/sigil_codegen" }
-sigil_llvm = { path = "compiler/sigil_llvm" }
-sigil-macros = { path = "compiler/sigil-macros" }
+ori_ir = { path = "compiler/ori_ir" }
+ori_diagnostic = { path = "compiler/ori_diagnostic" }
+ori_lexer = { path = "compiler/ori_lexer" }
+ori_types = { path = "compiler/ori_types" }
+ori_parse = { path = "compiler/ori_parse" }
+ori_patterns = { path = "compiler/ori_patterns" }
+ori_typeck = { path = "compiler/ori_typeck" }
+ori_eval = { path = "compiler/ori_eval" }
+ori_codegen = { path = "compiler/ori_codegen" }
+ori_llvm = { path = "compiler/ori_llvm" }
+ori-macros = { path = "compiler/ori-macros" }
 
 # Workspace-wide lint configuration
 [workspace.lints.rust]

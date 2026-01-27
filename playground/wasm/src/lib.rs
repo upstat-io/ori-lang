@@ -3,8 +3,8 @@
 //! Exposes the Ori interpreter to JavaScript for browser-based execution.
 
 use wasm_bindgen::prelude::*;
-use sigilc::{CompilerDb, SourceFile};
-use sigilc::query::{parsed, typed, evaluated};
+use oric::{CompilerDb, SourceFile};
+use oric::query::{parsed, typed, evaluated};
 use std::path::PathBuf;
 use std::cell::RefCell;
 use serde::Serialize;
@@ -120,7 +120,7 @@ fn run_ori_internal(source: &str) -> RunResult {
 
     // Format output
     let output = if let Some(result) = eval_result.result {
-        use sigilc::EvalOutput;
+        use oric::EvalOutput;
         match result {
             EvalOutput::Void => String::new(),
             _ => result.display(),

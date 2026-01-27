@@ -1,11 +1,11 @@
 # Evaluator Overview
 
-The Sigil evaluator is a tree-walking interpreter that executes typed ASTs. It handles expression evaluation, function calls, pattern execution, and module loading.
+The Ori evaluator is a tree-walking interpreter that executes typed ASTs. It handles expression evaluation, function calls, pattern execution, and module loading.
 
 ## Location
 
 ```
-compiler/sigilc/src/eval/
+compiler/oric/src/eval/
 ├── mod.rs              # Module exports
 ├── evaluator/          # Main evaluator
 │   ├── mod.rs              # Evaluator struct, eval dispatch, arena threading

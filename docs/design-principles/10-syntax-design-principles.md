@@ -16,7 +16,7 @@ Every major construct should start with a distinctive keyword.
 - AI code generation (clear start markers)
 - Human scanning (find definitions by keyword)
 
-```sigil
+```ori
 // Good: Every construct starts with a keyword
 @function_name (...)   // @ signals function
 type Point = { ... }   // type signals type definition
@@ -38,7 +38,7 @@ Design grammar so one token of lookahead determines the parse.
 - AI generation errors (wrong parse interpretation)
 - Confusing error messages
 
-```sigil
+```ori
 // Good: Keywords eliminate dangling else ambiguity
 if condition then result_a else result_b
 
@@ -53,7 +53,7 @@ else
     other;
 ```
 
-**Sigil's approach:** Use `then`/`else` keywords instead of braces. This makes `else if` unambiguous and prevents ["goto fail" bugs](https://dwheeler.com/essays/apple-goto-fail.html). Expression-based `if` always requires both branches.
+**Ori's approach:** Use `then`/`else` keywords instead of braces. This makes `else if` unambiguous and prevents ["goto fail" bugs](https://dwheeler.com/essays/apple-goto-fail.html). Expression-based `if` always requires both branches.
 
 ### 1.3 Avoid Syntactic Ambiguity with Types
 
@@ -61,7 +61,7 @@ Don't require type information to parse.
 
 **Why:** IDEs need to parse without running the type checker. AI generates code incrementally.
 
-```sigil
+```ori
 // Good: Can parse without knowing types
 foo(x, y)              // Always a function call
 arr[i]                 // Always indexing
@@ -88,7 +88,7 @@ There should be exactly one way to express common operations.
 - Make code review harder
 - Increase cognitive load
 
-```sigil
+```ori
 // Good: One way to define functions
 @add (a: int, b: int) -> int = a + b
 
@@ -104,7 +104,7 @@ const add = function(a: number, b: number) { return a + b; };
 
 Syntactic patterns should be visually consistent.
 
-```sigil
+```ori
 // Good: All patterns use same named-property syntax
 fold(
     over: arr,
@@ -142,7 +142,7 @@ Follow mathematical convention. Don't invent new precedence rules.
 if (flags & FLAG_MASK == FLAG_MASK)  // Parsed as: flags & (FLAG_MASK == FLAG_MASK)
 ```
 
-**Sigil approach:**
+**Ori approach:**
 - Math operators: standard precedence
 - Boolean: `&&` binds tighter than `||`
 - Comparison: all same level, don't chain
@@ -158,7 +158,7 @@ Make behavior visible in syntax.
 
 **Python's Zen:** "Explicit is better than implicit."
 
-```sigil
+```ori
 // Good: Explicit conversion
 result = str(value: number) + suffix
 
@@ -166,7 +166,7 @@ result = str(value: number) + suffix
 result = number + suffix  // Does this work? What type is result?
 ```
 
-```sigil
+```ori
 // Good: Explicit error propagation
 data = try(
     let result = fetch()?,
@@ -183,7 +183,7 @@ Mutation should be syntactically obvious.
 
 **Rust's approach:** `let` vs `let mut`
 
-```sigil
+```ori
 // Good: Mutation is explicit
 let x = 5           // immutable
 let mut y = 5       // mutable, clearly marked
@@ -196,7 +196,7 @@ var x = 5          // Mutable? Depends on language!
 
 If it doesn't look like a function call, it shouldn't be one.
 
-```sigil
+```ori
 // Good: All calls look like calls
 result = compute()
 formatted = obj.to_string()
@@ -210,31 +210,31 @@ arr[i]              // Actually calls operator[]()
 
 ---
 
-## 4. Sigils and Prefixes
+## 4. Oris and Prefixes
 
-### 4.1 Use Sigils for Namespacing
+### 4.1 Use Oris for Namespacing
 
-Sigils visually separate different kinds of names.
+Oris visually separate different kinds of names.
 
-| Sigil | Meaning | Benefit |
+| Ori | Meaning | Benefit |
 |-------|---------|---------|
 | `@` | Function definition | Instantly recognizable |
 | `$` | Configuration | Distinguishes from variables |
 | `name:` | Named argument | Can't confuse with variables |
 | `_` | Unused binding | Explicit discard |
 
-**Why sigils work:**
-- "Sigils are like capital letters: both add information to an existing word without altering the word's meaning."
+**Why oris work:**
+- "Oris are like capital letters: both add information to an existing word without altering the word's meaning."
 - They provide information to both compiler and human reader
 - They enable context-sensitive keywords (keywords only special in certain contexts)
 
-**Source:** [Raku Advent Calendar - Sigils](https://raku-advent.blog/2022/12/20/sigils/)
+**Source:** [Raku Advent Calendar - Oris](https://raku-advent.blog/2022/12/20/oris/)
 
-### 4.2 Consistent Sigil Meaning
+### 4.2 Consistent Ori Meaning
 
-A sigil should mean the same thing everywhere.
+A ori should mean the same thing everywhere.
 
-```sigil
+```ori
 // Good: @ always means function definition
 @add (a: int, b: int) -> int = a + b
 @main () -> void = print(msg: "hello")
@@ -259,7 +259,7 @@ Put the name first, type second.
 
 **Why (Rust analysis):** "It's more readable, because you put the most important part, the name, first."
 
-```sigil
+```ori
 // Good: Name first
 @calculate (amount: int, rate: float) -> float
 
@@ -275,7 +275,7 @@ Code is read far more than written. AI writes instantly anyway.
 
 **Go philosophy:** "Readable: Prioritizes reading code over writing it."
 
-```sigil
+```ori
 // Good: Verbose but clear
 @retry_with_backoff (
     operation: () -> Result<T, Error>,
@@ -293,7 +293,7 @@ Code should be readable in error messages, diffs, and grep output.
 
 **Rust Style Guide:** "Readability of code in contexts without syntax highlighting or IDE assistance."
 
-```sigil
+```ori
 // Good: Keywords provide context
 @sum (arr: [int]) -> int = fold(
     over: arr,
@@ -320,7 +320,7 @@ AI models work with tokens, not characters.
 - Punctuation: Dense but may tokenize badly
 - Whitespace: Usually ignored by tokenizers
 
-```sigil
+```ori
 // Reasonable: Clear keywords, minimal punctuation
 @sum (arr: [int]) -> int = fold(
     over: arr,
@@ -358,7 +358,7 @@ error[E001]: unexpected token
 
 Syntax should support fine-grained references.
 
-```sigil
+```ori
 // Structure enables addressing
 @fetch_data (url: str) -> Result<Data, Error> = retry(
     op: http_get(url: url),        // Address: @fetch_data.retry.op
@@ -378,7 +378,7 @@ Syntax should support fine-grained references.
 
 One symbol, one meaning.
 
-```sigil
+```ori
 // Bad: << means different things (C++)
 cout << value;       // Stream output
 flags << 2;          // Bit shift
@@ -392,7 +392,7 @@ flags.shift_left(n: 2)  // Bit operations
 
 Don't make meaning depend on position.
 
-```sigil
+```ori
 // Bad: Trailing comma changes meaning (Python)
 x = (1)    // int
 x = (1,)   // tuple
@@ -409,7 +409,7 @@ Design syntax that can grow without breaking.
 **Hejlsberg's approach:** "Anders tends to add features carefully rather than overhaul a language all at once."
 
 **Practical:**
-- Reserve sigils/keywords for future use
+- Reserve oris/keywords for future use
 - Use delimiters that allow trailing commas
 - Design grammar with extension points
 
@@ -461,7 +461,7 @@ Before finalizing any syntax:
 - [The Zen of Python (PEP 20)](https://peps.python.org/pep-0020/)
 - [Zig Language Overview](https://ziglang.org/learn/overview/)
 - [TypeScript's Rise in the AI Era](https://github.blog/developer-skills/programming-languages-and-frameworks/typescripts-rise-in-the-ai-era-insights-from-lead-architect-anders-hejlsberg/)
-- [Sigils in Programming Languages](https://en.wikipedia.org/wiki/Sigil_(computer_programming))
+- [Oris in Programming Languages](https://en.wikipedia.org/wiki/Ori_(computer_programming))
 - [AI Coders Are Among Us: Rethinking Grammar](https://arxiv.org/abs/2404.16333)
 - [5 Mistakes in Programming Language Design](https://beza1e1.tuxen.de/articles/proglang_mistakes.html)
 - [Hundred Year Mistakes (Eric Lippert)](https://ericlippert.com/2020/02/27/hundred-year-mistakes/)

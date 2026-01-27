@@ -5,7 +5,7 @@ The PatternRegistry stores pattern definitions and provides lookup by name. It e
 ## Location
 
 ```
-compiler/sigilc/src/patterns/registry.rs (~289 lines)
+compiler/oric/src/patterns/registry.rs (~289 lines)
 ```
 
 ## Structure

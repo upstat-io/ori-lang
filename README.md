@@ -1,18 +1,18 @@
 <div align="center">
 
-# Sigil
+# Ori
 
 **Code That Proves Itself**
 
 A statically-typed, expression-based language with mandatory testing, causality tracking, and explicit effects.
 
-[Getting Started](#quick-start) | [Specification](docs/sigil_lang/0.1-alpha/spec/) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
+[Getting Started](#quick-start) | [Specification](docs/ori_lang/0.1-alpha/spec/) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
 
 </div>
 
-> **Experimental:** Sigil is under active development and not ready for production use. The language, APIs, and tooling may change without notice.
+> **Experimental:** Ori is under active development and not ready for production use. The language, APIs, and tooling may change without notice.
 
-## Why Sigil?
+## Why Ori?
 
 **Code that proves itself.**
 
@@ -24,7 +24,7 @@ Code without tests is just a hypothesis. Developers forget to write tests, skip 
 
 ### The Solution
 
-Sigil makes verification automatic. The compiler enforces what discipline cannot.
+Ori makes verification automatic. The compiler enforces what discipline cannot.
 
 - **Every function tested** — No tests, no compile. The compiler ensures coverage.
 - **Tests bound to code** — `@test tests @target` creates a compiler-enforced bond
@@ -37,7 +37,7 @@ Sigil makes verification automatic. The compiler enforces what discipline cannot
 
 Every function requires tests. No exceptions. No skipping. No "I'll add tests later."
 
-```sigil
+```ori
 @fibonacci (n: int) -> int = recurse(
     condition: n <= 1,
     base: n,
@@ -56,7 +56,7 @@ Every function requires tests. No exceptions. No skipping. No "I'll add tests la
 
 Tests are in the dependency graph. Change `@parse`, and tests for `@compile` (which calls `@parse`) run too.
 
-```sigil
+```ori
 @parse (input: str) -> Result<Ast, Error> = ...
 @test_parse tests @parse () -> void = ...
 
@@ -71,12 +71,12 @@ Change `@parse` → compiler runs `@test_parse` AND `@test_compile`.
 
 ### Causality Tracking
 
-Sigil tracks the impact of every change through your codebase.
+Ori tracks the impact of every change through your codebase.
 
 **Before you change — know the blast radius:**
 
 ```bash
-$ sigil impact @parse
+$ ori impact @parse
 If @parse changes:
   @compile        → uses @parse directly
   @run_program    → uses @compile
@@ -88,9 +88,9 @@ If @parse changes:
 **After something breaks — trace it to the source:**
 
 ```bash
-$ sigil why @compile
+$ ori why @compile
 @compile broke because:
-  → @parse changed (src/parser.si:42)
+  → @parse changed (src/parser.ori:42)
     - line 42: changed return type from Ast to Result<Ast, Error>
 ```
 
@@ -100,7 +100,7 @@ Know what breaks before you break it. Know why it broke after.
 
 Side effects are tracked through capabilities. Mocking is just providing a different implementation.
 
-```sigil
+```ori
 @fetch_user (id: UserId) -> Result<User, Error> uses Http =
     Http.get("/users/" + str(id))
 
@@ -119,7 +119,7 @@ No test framework. No mocking library. Just the language.
 
 Functions declare and enforce their invariants.
 
-```sigil
+```ori
 @sqrt (x: float) -> float = run(
     pre_check: x >= 0.0,
     newton_raphson(x),
@@ -136,7 +136,7 @@ Functions declare and enforce their invariants.
 
 Express *what* you want, not *how*. First-class patterns replace error-prone loops.
 
-```sigil
+```ori
 @process_users (users: [User]) -> [str] = run(
     let active = filter(over: users, predicate: u -> u.is_active),
     let sorted = sort_by(over: active, key: u -> u.name),
@@ -157,7 +157,7 @@ Express *what* you want, not *how*. First-class patterns replace error-prone loo
 
 `Result<T, E>` and `Option<T>` make errors visible and impossible to ignore.
 
-```sigil
+```ori
 @divide (a: int, b: int) -> Result<int, str> =
     if b == 0 then Err("division by zero")
     else Ok(a / b)
@@ -176,66 +176,66 @@ Express *what* you want, not *how*. First-class patterns replace error-prone loo
 
 ## Quick Start
 
-Install Sigil:
+Install Ori:
 
 ```bash
-curl -sSf https://raw.githubusercontent.com/sigil-lang/sigil/master/install.sh | sh
+curl -sSf https://raw.githubusercontent.com/ori-lang/ori/master/install.sh | sh
 ```
 
-Write your first program (`hello.si`):
+Write your first program (`hello.ori`):
 
-```sigil
-@main () -> void = print("Hello, Sigil!")
+```ori
+@main () -> void = print("Hello, Ori!")
 ```
 
 Run it:
 
 ```bash
-sigil run hello.si
+ori run hello.ori
 ```
 
 ## Usage
 
 ```bash
-sigil run program.si      # Run a program
-sigil test                # Run all tests (parallel)
-sigil test file.test.si   # Run specific test file
-sigil build program.si    # Compile to native binary
-sigil check program.si    # Check test coverage
-sigil emit program.si     # Emit generated C code
+ori run program.ori      # Run a program
+ori test                # Run all tests (parallel)
+ori test file.test.ori   # Run specific test file
+ori build program.ori    # Compile to native binary
+ori check program.ori    # Check test coverage
+ori emit program.ori     # Emit generated C code
 ```
 
 ## Installation
 
 ### Binary Distributions
 
-Official binaries are available at [GitHub Releases](https://github.com/upstat-io/sigil-lang/releases).
+Official binaries are available at [GitHub Releases](https://github.com/upstat-io/ori-lang/releases).
 
 **Platforms:** Linux (x86_64, aarch64), macOS (x86_64, Apple Silicon), Windows (x86_64)
 
 ### Install from Source
 
 ```bash
-git clone https://github.com/upstat-io/sigil-lang
-cd sigil
+git clone https://github.com/upstat-io/ori-lang
+cd ori
 cargo build --release
-cp target/release/sigil ~/.local/bin/
+cp target/release/ori ~/.local/bin/
 ```
 
 Requires Rust 1.70+ and a C compiler (for native compilation).
 
 ## Documentation
 
-- [Language Specification](docs/sigil_lang/0.1-alpha/spec/) — Formal language definition
-- [Proposals](docs/sigil_lang/proposals/) — Design decisions and rationale
+- [Language Specification](docs/ori_lang/0.1-alpha/spec/) — Formal language definition
+- [Proposals](docs/ori_lang/proposals/) — Design decisions and rationale
 
 ## Design Philosophy
 
 **Code that proves itself.** Every function tested. Every change traced. Every effect explicit.
 
-Sigil makes verification automatic — the compiler enforces what discipline alone cannot.
+Ori makes verification automatic — the compiler enforces what discipline alone cannot.
 
-| Traditional Approach | Sigil Approach |
+| Traditional Approach | Ori Approach |
 |---------------------|----------------|
 | Tests are optional | Tests are mandatory |
 | Tests are external | Tests are in the dependency graph |
@@ -257,22 +257,22 @@ Capabilities make mocking easy
 
 ## Getting Help
 
-- **Bug reports & feature requests:** [GitHub Issues](https://github.com/upstat-io/sigil-lang/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/upstat-io/sigil-lang/discussions)
+- **Bug reports & feature requests:** [GitHub Issues](https://github.com/upstat-io/ori-lang/issues)
+- **Discussions:** [GitHub Discussions](https://github.com/upstat-io/ori-lang/discussions)
 
 ## Contributing
 
-Sigil is open source and we welcome contributions. Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Ori is open source and we welcome contributions. Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ### Running Tests
 
 ```bash
 cargo test              # Compiler unit tests
-sigil test              # Language test suite
+ori test              # Language test suite
 ```
 
 ## License
 
-Sigil is distributed under the terms of both the MIT license and the Apache License (Version 2.0).
+Ori is distributed under the terms of both the MIT license and the Apache License (Version 2.0).
 
 See [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE) for details.

@@ -1,0 +1,24 @@
+[package]
+name = "ori_typeck"
+description = "Type checker for the Ori compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ori_ir.workspace = true
+ori_types.workspace = true
+ori_diagnostic.workspace = true
+ori_parse.workspace = true
+ori_patterns.workspace = true
+ori_eval.workspace = true
+stacker.workspace = true
+rustc-hash.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+ori_lexer.workspace = true
+
+[lints]
+workspace = true

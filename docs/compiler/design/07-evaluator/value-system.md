@@ -1,11 +1,11 @@
 # Value System
 
-The Value enum represents runtime values in the Sigil evaluator.
+The Value enum represents runtime values in the Ori evaluator.
 
 ## Location
 
 ```
-compiler/sigil_patterns/src/value/
+compiler/ori_patterns/src/value/
 ├── mod.rs          # Value enum and factory methods (~569 lines)
 ├── heap.rs         # Heap<T> wrapper for Arc enforcement (~147 lines)
 └── composite.rs    # FunctionValue, StructValue, RangeValue
@@ -212,7 +212,7 @@ pub fn type_name_with_interner<I: StringLookup>(&self, interner: &I) -> Cow<'sta
 }
 ```
 
-The `StringLookup` trait is defined in `sigil_ir::interner` and implemented for
+The `StringLookup` trait is defined in `ori_ir::interner` and implemented for
 `StringInterner`. This avoids circular dependencies between crates.
 
 **Usage in method dispatch:**

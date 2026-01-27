@@ -1,6 +1,6 @@
 # Appendix B: Memory Management
 
-Memory management strategies used in the Sigil compiler.
+Memory management strategies used in the Ori compiler.
 
 ## Stack Safety
 
@@ -300,7 +300,7 @@ For large programs:
 
 ```bash
 # Run with memory profiler
-SIGIL_PROFILE_MEMORY=1 sigil run large_file.si
+ORI_PROFILE_MEMORY=1 ori run large_file.ori
 
 # Output
 Arena: 1.2 MB (12,000 expressions)

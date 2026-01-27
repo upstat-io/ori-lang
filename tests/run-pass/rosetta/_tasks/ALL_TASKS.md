@@ -2,7 +2,7 @@
 
 Complete list of ~1,200 programming tasks for language validation.
 
-## Essential Tasks for Sigil (Recommended Starting Set)
+## Essential Tasks for Ori (Recommended Starting Set)
 
 These 20 tasks cover the core language features:
 

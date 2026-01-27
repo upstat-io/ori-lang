@@ -1,0 +1,75 @@
+[package]
+name = "oric"
+version = "0.1.0-alpha.1"
+edition = "2021"
+description = "The Ori compiler - Salsa-first incremental compilation"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/anthropics/ori-lang"
+keywords = ["compiler", "programming-language", "ori", "incremental", "salsa"]
+categories = ["compilers", "development-tools"]
+
+[lib]
+name = "oric"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ori"
+path = "src/main.rs"
+
+[features]
+default = []
+llvm = []  # Requires LLVM installed (add ori_llvm dependency when enabled)
+
+[dependencies]
+# Incremental compilation - THE FOUNDATION
+salsa.workspace = true
+
+# Ori crates
+ori_ir.workspace = true
+ori_diagnostic.workspace = true
+ori_lexer.workspace = true
+ori_types.workspace = true
+ori_parse.workspace = true
+ori_patterns.workspace = true
+ori_eval.workspace = true
+ori_typeck.workspace = true
+ori_codegen.workspace = true
+
+# Optional LLVM backend (requires LLVM installed)
+# ori_llvm = { workspace = true, optional = true }
+
+# Lexing
+logos.workspace = true
+
+# Concurrency and hashing
+parking_lot.workspace = true
+rustc-hash.workspace = true
+
+# Parallel test execution
+rayon.workspace = true
+
+# Stack safety for deep recursion
+stacker = "0.1"
+
+# Diagnostic derive macros
+ori-macros = { path = "../ori-macros" }
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3.10"
+
+[[bench]]
+name = "type_check"
+harness = false
+
+[[bench]]
+name = "lexer"
+harness = false
+
+[[bench]]
+name = "parser"
+harness = false
+
+[lints]
+workspace = true

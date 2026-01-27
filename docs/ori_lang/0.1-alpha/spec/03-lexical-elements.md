@@ -1,0 +1,204 @@
+# Lexical Elements
+
+```
+token = identifier | keyword | literal | operator | delimiter .
+```
+
+## Comments
+
+```
+comment      = "//" { unicode_char - newline } newline .
+```
+
+Comments start with `//` and extend to end of line. Inline comments are not permitted.
+
+```ori
+// Valid comment
+@add (a: int, b: int) -> int = a + b
+
+@sub (a: int, b: int) -> int = a - b  // error: inline comment
+```
+
+### Doc Comments
+
+```
+doc_comment = "//" doc_marker { unicode_char - newline } newline .
+doc_marker  = "#" | "@param" | "@field" | "!" | ">" .
+```
+
+| Marker | Purpose |
+|--------|---------|
+| `#` | Description |
+| `@param` | Parameter |
+| `@field` | Field |
+| `!` | Warning |
+| `>` | Example |
+
+## Identifiers
+
+```
+identifier = ( letter | "_" ) { letter | digit | "_" } .
+```
+
+Identifiers are case-sensitive. Must not start with digit or be a reserved keyword.
+
+## Keywords
+
+### Reserved
+
+```
+async    break    continue  do       else     false
+for      if       impl      in       let      loop
+match    mut      pub       self     Self     then
+trait    true     type      use      uses     void
+where    with     yield
+```
+
+### Context-Sensitive
+
+Keywords only in pattern expressions:
+
+```
+cache    collect  filter    find     fold
+map      parallel recurse   retry    run
+timeout  try      validate
+```
+
+### Built-in Names
+
+Reserved in call position (`name(`), usable as variables otherwise:
+
+```
+int      float    str       byte     len
+is_empty is_some  is_none   is_ok    is_err
+assert   assert_eq assert_ne compare  min
+max      print    panic
+```
+
+## Operators
+
+```
+arith_op  = "+" | "-" | "*" | "/" | "%" | "div" .
+comp_op   = "==" | "!=" | "<" | ">" | "<=" | ">=" .
+logic_op  = "&&" | "||" | "!" .
+bit_op    = "&" | "|" | "^" | "~" | "<<" | ">>" .
+other_op  = ".." | "..=" | "??" | "?" | "->" | "=>" .
+```
+
+### Precedence
+
+| Prec | Operators | Assoc |
+|------|-----------|-------|
+| 1 | `.` `[]` `()` `?` | Left |
+| 2 | `!` `-` `~` (unary) | Right |
+| 3 | `*` `/` `%` `div` | Left |
+| 4 | `+` `-` | Left |
+| 5 | `<<` `>>` | Left |
+| 6 | `..` `..=` | Left |
+| 7 | `<` `>` `<=` `>=` | Left |
+| 8 | `==` `!=` | Left |
+| 9 | `&` | Left |
+| 10 | `^` | Left |
+| 11 | `\|` | Left |
+| 12 | `&&` | Left |
+| 13 | `\|\|` | Left |
+| 14 | `??` | Left |
+
+## Delimiters
+
+```
+delimiter = "(" | ")" | "[" | "]" | "{" | "}"
+          | "," | ":" | "." | "@" | "$" .
+```
+
+## Literals
+
+### Integer
+
+```
+int_literal = decimal_lit | hex_lit .
+decimal_lit = digit { digit | "_" } .
+hex_lit     = "0x" hex_digit { hex_digit | "_" } .
+```
+
+```ori
+42
+1_000_000
+0xFF
+```
+
+### Float
+
+```
+float_literal = decimal_lit "." decimal_lit [ exponent ] .
+exponent      = ( "e" | "E" ) [ "+" | "-" ] decimal_lit .
+```
+
+```ori
+3.14
+2.5e-8
+```
+
+### String
+
+```
+string_literal = '"' { string_char } '"' .
+string_char    = unicode_char - ( '"' | '\' | newline ) | escape .
+escape         = '\' ( '"' | '\' | 'n' | 't' | 'r' ) .
+```
+
+```ori
+"hello"
+"line1\nline2"
+```
+
+### Character
+
+```
+char_literal = "'" char_char "'" .
+char_char    = unicode_char - ( "'" | '\' | newline ) | char_escape .
+char_escape  = '\' ( "'" | '\' | 'n' | 't' | 'r' | '0' ) .
+```
+
+```ori
+'a'
+'\n'
+```
+
+### Boolean
+
+```
+bool_literal = "true" | "false" .
+```
+
+### Duration
+
+```
+duration_literal = int_literal duration_unit .
+duration_unit    = "ms" | "s" | "m" | "h" .
+```
+
+```ori
+100ms
+30s
+```
+
+### Size
+
+```
+size_literal = int_literal size_unit .
+size_unit    = "b" | "kb" | "mb" | "gb" .
+```
+
+```ori
+4kb
+10mb
+```
+
+## Semicolons
+
+Not required. Newlines terminate statements. Commas separate elements within delimiters.
+
+## Trailing Commas
+
+Permitted in all comma-separated lists. Required by formatter in multi-line constructs.

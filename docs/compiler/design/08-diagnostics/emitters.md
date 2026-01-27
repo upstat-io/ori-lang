@@ -87,7 +87,7 @@ Machine-readable JSON output:
       "code": "E2001",
       "severity": "error",
       "message": "type mismatch",
-      "file": "src/main.si",
+      "file": "src/main.ori",
       "line": 10,
       "column": 15,
       "labels": [
@@ -167,13 +167,13 @@ impl Emitter for JsonEmitter {
     {
       "tool": {
         "driver": {
-          "name": "sigilc",
+          "name": "oric",
           "version": "0.1.0",
           "rules": [
             {
               "id": "E2001",
               "shortDescription": { "text": "Type mismatch" },
-              "helpUri": "https://sigil-lang.org/errors/E2001"
+              "helpUri": "https://ori-lang.org/errors/E2001"
             }
           ]
         }
@@ -186,7 +186,7 @@ impl Emitter for JsonEmitter {
           "locations": [
             {
               "physicalLocation": {
-                "artifactLocation": { "uri": "src/main.si" },
+                "artifactLocation": { "uri": "src/main.ori" },
                 "region": {
                   "startLine": 10,
                   "startColumn": 15,
@@ -201,7 +201,7 @@ impl Emitter for JsonEmitter {
               "description": { "text": "convert using `int()`" },
               "artifactChanges": [
                 {
-                  "artifactLocation": { "uri": "src/main.si" },
+                  "artifactLocation": { "uri": "src/main.ori" },
                   "replacements": [
                     {
                       "deletedRegion": { "startLine": 10, "startColumn": 15, "endColumn": 15 },
@@ -252,7 +252,7 @@ impl Emitter for SarifEmitter {
             runs: vec![sarif::Run {
                 tool: sarif::Tool {
                     driver: sarif::Driver {
-                        name: "sigilc".into(),
+                        name: "oric".into(),
                         version: env!("CARGO_PKG_VERSION").into(),
                         rules: self.build_rules(),
                     },
@@ -283,11 +283,11 @@ pub fn create_emitter(format: OutputFormat) -> Box<dyn Emitter> {
 
 ```bash
 # Terminal (default)
-sigil check src/main.si
+ori check src/main.ori
 
 # JSON
-sigil check --format=json src/main.si
+ori check --format=json src/main.ori
 
 # SARIF
-sigil check --format=sarif src/main.si > results.sarif
+ori check --format=sarif src/main.ori > results.sarif
 ```

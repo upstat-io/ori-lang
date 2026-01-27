@@ -1,6 +1,6 @@
 # Diagnostics Overview
 
-The diagnostics system provides error reporting, warnings, and code fix suggestions for the Sigil compiler.
+The diagnostics system provides error reporting, warnings, and code fix suggestions for the Ori compiler.
 
 ## Location
 
@@ -8,7 +8,7 @@ The diagnostics system spans multiple crates:
 
 ```
 compiler/
-├── sigil_diagnostic/       # Core diagnostic types (separate crate)
+├── ori_diagnostic/       # Core diagnostic types (separate crate)
 │   └── src/
 │       ├── lib.rs              # Diagnostic, ErrorCode, Applicability, Severity, ErrorGuaranteed
 │       ├── queue.rs            # DiagnosticQueue for deduplication/limits
@@ -26,12 +26,12 @@ compiler/
 │       └── fixes/
 │           ├── mod.rs          # Code fix system
 │           └── registry.rs     # Fix registry
-├── sigil-macros/           # Proc-macro crate for diagnostic derives
+├── ori-macros/           # Proc-macro crate for diagnostic derives
 │   └── src/
 │       ├── lib.rs              # Derive macro exports
 │       ├── diagnostic.rs       # #[derive(Diagnostic)] implementation
 │       └── subdiagnostic.rs    # #[derive(Subdiagnostic)] implementation
-└── sigilc/src/
+└── oric/src/
     ├── problem/            # Problem types (specific to compiler phases)
     │   ├── mod.rs              # Problem enum (Parse, Type, Semantic variants)
     │   └── semantic.rs         # SemanticProblem enum, DefinitionKind
@@ -42,7 +42,7 @@ compiler/
         └── type_errors.rs      # TypeProblem rendering
 ```
 
-The `sigil_diagnostic` crate contains the core `Diagnostic` type, `ErrorCode` enum, `Applicability` levels, diagnostic queue, and output emitters. It depends only on `sigil_ir` (for `Span`). The proc-macros in `sigil-macros` generate implementations of the `IntoDiagnostic` trait.
+The `ori_diagnostic` crate contains the core `Diagnostic` type, `ErrorCode` enum, `Applicability` levels, diagnostic queue, and output emitters. It depends only on `ori_ir` (for `Span`). The proc-macros in `ori-macros` generate implementations of the `IntoDiagnostic` trait.
 
 ## Design Goals
 
@@ -250,7 +250,7 @@ pub struct Diagnostic {
     /// Simple text suggestions (human-readable)
     pub suggestions: Vec<String>,
 
-    /// Structured suggestions with spans and applicability (for `sigil fix`)
+    /// Structured suggestions with spans and applicability (for `ori fix`)
     pub structured_suggestions: Vec<Suggestion>,
 }
 
@@ -264,7 +264,7 @@ pub enum Severity {
 
 ## Structured Suggestions
 
-Structured suggestions enable `sigil fix` to auto-apply fixes:
+Structured suggestions enable `ori fix` to auto-apply fixes:
 
 ```rust
 /// Applicability level for code suggestions
@@ -390,7 +390,7 @@ pub enum Problem {
 
 ## Diagnostic Derive Macros
 
-The `sigil-macros` crate provides derive macros for declarative diagnostic definitions:
+The `ori-macros` crate provides derive macros for declarative diagnostic definitions:
 
 ```rust
 #[derive(Diagnostic)]
@@ -443,7 +443,7 @@ Output formats:
 
 ## Error Documentation System
 
-The `errors/` directory contains embedded markdown documentation for each error code, accessible via `sigil --explain <code>`.
+The `errors/` directory contains embedded markdown documentation for each error code, accessible via `ori --explain <code>`.
 
 ### ErrorDocs Registry
 
@@ -473,7 +473,7 @@ An expression has a different type than expected in the given context.
 
 ## Example
 
-```sigil
+```ori
 let x: int = "hello"  // error: expected `int`, found `str`
 ```
 
@@ -492,7 +492,7 @@ let x: int = "hello"  // error: expected `int`, found `str`
 
 ### Adding New Documentation
 
-1. Create a new file `EXXXX.md` in `compiler/sigil_diagnostic/src/errors/`
+1. Create a new file `EXXXX.md` in `compiler/ori_diagnostic/src/errors/`
 2. Add an entry to the `DOCS` array in `errors/mod.rs`:
    ```rust
    (ErrorCode::EXXXX, include_str!("EXXXX.md")),
@@ -502,7 +502,7 @@ let x: int = "hello"  // error: expected `int`, found `str`
 ### CLI Integration
 
 ```bash
-$ sigil --explain E2001
+$ ori --explain E2001
 # E2001: Type Mismatch
 
 An expression has a different type than expected...

@@ -13,13 +13,13 @@ path = "src/main.rs"
 
 [dependencies]
 # Only the crates needed for interpretation (no LLVM)
-sigil_ir = { path = "../../compiler/sigil_ir" }
-sigil_lexer = { path = "../../compiler/sigil_lexer" }
-sigil_parse = { path = "../../compiler/sigil_parse" }
-sigil_types = { path = "../../compiler/sigil_types" }
-sigil_typeck = { path = "../../compiler/sigil_typeck" }
-sigil_eval = { path = "../../compiler/sigil_eval" }
-sigil_patterns = { path = "../../compiler/sigil_patterns" }
+ori_ir = { path = "../../compiler/ori_ir" }
+ori_lexer = { path = "../../compiler/ori_lexer" }
+ori_parse = { path = "../../compiler/ori_parse" }
+ori_types = { path = "../../compiler/ori_types" }
+ori_typeck = { path = "../../compiler/ori_typeck" }
+ori_eval = { path = "../../compiler/ori_eval" }
+ori_patterns = { path = "../../compiler/ori_patterns" }
 
 [profile.release]
 opt-level = "s"

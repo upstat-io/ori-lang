@@ -5,7 +5,7 @@ The TypeRegistry stores user-defined types (structs, enums, type aliases). It en
 ## Location
 
 ```
-compiler/sigilc/src/typeck/type_registry.rs (~432 lines)
+compiler/oric/src/typeck/type_registry.rs (~432 lines)
 ```
 
 ## Structure

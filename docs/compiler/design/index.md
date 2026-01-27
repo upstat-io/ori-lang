@@ -1,6 +1,6 @@
-# Sigil Compiler Design Documentation
+# Ori Compiler Design Documentation
 
-This documentation describes the architecture and design decisions of the Sigil compiler.
+This documentation describes the architecture and design decisions of the Ori compiler.
 
 ## Design Principle: Lean Core, Rich Libraries
 
@@ -15,17 +15,17 @@ This keeps the compiler small (~30K lines), focused, and maintainable. The stdli
 
 ## Overview
 
-The Sigil compiler is a Rust-based incremental compiler built on the Salsa framework. It is organized as a **multi-crate workspace** with clear separation of concerns:
+The Ori compiler is a Rust-based incremental compiler built on the Salsa framework. It is organized as a **multi-crate workspace** with clear separation of concerns:
 
-- **`sigil_ir`** - Core IR types with no dependencies (AST, arena, interning, derives)
-- **`sigil_diagnostic`** - Error reporting system
-- **`sigil_lexer`** - Tokenization
-- **`sigil_types`** - Type system definitions
-- **`sigil_parse`** - Recursive descent parser
-- **`sigil_typeck`** - Type checking and inference
-- **`sigil_patterns`** - Pattern system, Value types, EvalError (single source of truth)
-- **`sigil_eval`** - Core evaluator components (Environment, operators)
-- **`sigilc`** - CLI orchestrator, Salsa queries, evaluator, reporting
+- **`ori_ir`** - Core IR types with no dependencies (AST, arena, interning, derives)
+- **`ori_diagnostic`** - Error reporting system
+- **`ori_lexer`** - Tokenization
+- **`ori_types`** - Type system definitions
+- **`ori_parse`** - Recursive descent parser
+- **`ori_typeck`** - Type checking and inference
+- **`ori_patterns`** - Pattern system, Value types, EvalError (single source of truth)
+- **`ori_eval`** - Core evaluator components (Environment, operators)
+- **`oric`** - CLI orchestrator, Salsa queries, evaluator, reporting
 
 The compiler features:
 
@@ -153,33 +153,33 @@ The compiler is organized as a multi-crate workspace:
 
 | Crate | Path | Purpose |
 |-------|------|---------|
-| `sigil_ir` | `compiler/sigil_ir/src/` | Core IR types (tokens, spans, AST, arena, interning, derives) |
-| `sigil_diagnostic` | `compiler/sigil_diagnostic/src/` | DiagnosticQueue, error reporting, suggestions, emitters |
-| `sigil_lexer` | `compiler/sigil_lexer/src/` | Tokenization via logos |
-| `sigil_types` | `compiler/sigil_types/src/` | Type, TypeError, TypeContext, InferenceContext |
-| `sigil_parse` | `compiler/sigil_parse/src/` | Recursive descent parser |
-| `sigil_typeck` | `compiler/sigil_typeck/src/` | Type checking, inference, BuiltinMethodRegistry |
-| `sigil_patterns` | `compiler/sigil_patterns/src/` | Pattern definitions, Value types, EvalError, EvalContext |
-| `sigil_eval` | `compiler/sigil_eval/src/` | Environment, OperatorRegistry (core eval components) |
-| `sigil-macros` | `compiler/sigil-macros/src/` | Diagnostic derive macros |
-| `sigilc` | `compiler/sigilc/src/` | CLI, Salsa queries, eval orchestration, reporting |
+| `ori_ir` | `compiler/ori_ir/src/` | Core IR types (tokens, spans, AST, arena, interning, derives) |
+| `ori_diagnostic` | `compiler/ori_diagnostic/src/` | DiagnosticQueue, error reporting, suggestions, emitters |
+| `ori_lexer` | `compiler/ori_lexer/src/` | Tokenization via logos |
+| `ori_types` | `compiler/ori_types/src/` | Type, TypeError, TypeContext, InferenceContext |
+| `ori_parse` | `compiler/ori_parse/src/` | Recursive descent parser |
+| `ori_typeck` | `compiler/ori_typeck/src/` | Type checking, inference, BuiltinMethodRegistry |
+| `ori_patterns` | `compiler/ori_patterns/src/` | Pattern definitions, Value types, EvalError, EvalContext |
+| `ori_eval` | `compiler/ori_eval/src/` | Environment, OperatorRegistry (core eval components) |
+| `ori-macros` | `compiler/ori-macros/src/` | Diagnostic derive macros |
+| `oric` | `compiler/oric/src/` | CLI, Salsa queries, eval orchestration, reporting |
 
-**Note:** `sigilc` modules (`ir`, `parser`, `diagnostic`, `types`) re-export from source crates for DRY.
+**Note:** `oric` modules (`ir`, `parser`, `diagnostic`, `types`) re-export from source crates for DRY.
 
-### sigilc Internal Paths
+### oric Internal Paths
 
 | Component | Path |
 |-----------|------|
-| Library root | `compiler/sigilc/src/lib.rs` |
-| Salsa database | `compiler/sigilc/src/db.rs` |
-| Query system | `compiler/sigilc/src/query/` |
-| Evaluator | `compiler/sigilc/src/eval/` |
-| Problem types | `compiler/sigilc/src/problem/` |
-| Diagnostic rendering | `compiler/sigilc/src/reporting/` |
-| Tests | `compiler/sigilc/src/test/` |
+| Library root | `compiler/oric/src/lib.rs` |
+| Salsa database | `compiler/oric/src/db.rs` |
+| Query system | `compiler/oric/src/query/` |
+| Evaluator | `compiler/oric/src/eval/` |
+| Problem types | `compiler/oric/src/problem/` |
+| Diagnostic rendering | `compiler/oric/src/reporting/` |
+| Tests | `compiler/oric/src/test/` |
 
 ### Architecture Notes
 
-- **Patterns**: Pattern definitions and Value types are in `sigil_patterns`. sigilc re-exports from this crate.
-- **Environment**: The `Environment` type for variable scoping is in `sigil_eval`. sigilc uses this directly.
-- **Re-exports**: sigilc modules (`ir`, `types`, `diagnostic`) re-export from their source crates for DRY.
+- **Patterns**: Pattern definitions and Value types are in `ori_patterns`. oric re-exports from this crate.
+- **Environment**: The `Environment` type for variable scoping is in `ori_eval`. oric uses this directly.
+- **Re-exports**: oric modules (`ir`, `types`, `diagnostic`) re-export from their source crates for DRY.

@@ -200,8 +200,8 @@ These are improvements to the compiler itself (Rust code) that don't fit into la
 
 Consolidated duplicate code across crates:
 
-- **Lexer**: Single source of truth in `sigil_lexer` crate
-- **Value types**: Single source in `sigil_patterns::value`
+- **Lexer**: Single source of truth in `ori_lexer` crate
+- **Value types**: Single source in `ori_patterns::value`
 - **Error messages**: Wrapper pattern for consistent errors
 - **Type inference fixes**: Range types, await errors, type aliases, Self type, config lookup
 
@@ -212,11 +212,11 @@ See `.claude/plans/witty-nibbling-falcon.md` for details.
 Reorganized compiler tests following Go-style test scenarios:
 
 **Files created:**
-- `sigilc/src/eval/tests/environment_tests.rs` — 25 tests for scope/binding/capture
-- `sigilc/src/eval/tests/unary_operators_tests.rs` — 40 tests for negation, not, bitwise, try
-- `sigilc/src/eval/tests/expr_tests.rs` — 55 tests for literals, indexing, collection ops
-- `sigilc/src/eval/tests/control_tests.rs` — 28 tests for if/else, pattern binding, loops
-- `sigilc/src/eval/tests/call_tests.rs` — 20 tests for function calls, parameter binding
+- `oric/src/eval/tests/environment_tests.rs` — 25 tests for scope/binding/capture
+- `oric/src/eval/tests/unary_operators_tests.rs` — 40 tests for negation, not, bitwise, try
+- `oric/src/eval/tests/expr_tests.rs` — 55 tests for literals, indexing, collection ops
+- `oric/src/eval/tests/control_tests.rs` — 28 tests for if/else, pattern binding, loops
+- `oric/src/eval/tests/call_tests.rs` — 20 tests for function calls, parameter binding
 
 **Results:**
 - Test count increased from 653 to 813 (+160 tests)
@@ -236,15 +236,15 @@ Reorganized compiler tests following Go-style test scenarios:
 cargo test
 
 # Full spec tests
-sigil test tests/spec/
+ori test tests/spec/
 
 # By tier
-sigil test tests/spec/types/        # Tier 1
-sigil test tests/spec/traits/       # Tier 1
-sigil test tests/spec/capabilities/ # Tier 2
-sigil test tests/spec/patterns/     # Tier 3
-sigil test tests/spec/ffi/          # Tier 4
-sigil test tests/spec/async/        # Tier 6
+ori test tests/spec/types/        # Tier 1
+ori test tests/spec/traits/       # Tier 1
+ori test tests/spec/capabilities/ # Tier 2
+ori test tests/spec/patterns/     # Tier 3
+ori test tests/spec/ffi/          # Tier 4
+ori test tests/spec/async/        # Tier 6
 ```
 
 ---
@@ -253,7 +253,7 @@ sigil test tests/spec/async/        # Tier 6
 
 **Rust unit tests:** 1006 passed, 0 failed
 
-**Sigil spec tests:** 335 passed, 0 failed, 5 skipped (340 total)
+**Ori spec tests:** 335 passed, 0 failed, 5 skipped (340 total)
 
 | Category | Passed | Skipped | Notes |
 |----------|--------|---------|-------|

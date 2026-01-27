@@ -1,4 +1,4 @@
-# Sigil Compiler Roadmap — Execution Plan
+# Ori Compiler Roadmap — Execution Plan
 
 ## How to Use This Plan
 
@@ -6,7 +6,7 @@
 
 Before starting:
 1. Familiarize yourself with `CLAUDE.md` (language quick reference)
-2. Familiarize yourself with `docs/sigil_lang/0.1-alpha/spec/` (authoritative spec)
+2. Familiarize yourself with `docs/ori_lang/0.1-alpha/spec/` (authoritative spec)
 3. Ensure `cargo test` passes
 
 ### Execution Rules
@@ -21,8 +21,8 @@ Before starting:
 
 ```markdown
 - [ ] **Implement**: [description] — [spec reference]
-  - [ ] **Write test**: `tests/spec/category/file.si`
-  - [ ] **Run test**: `sigil test tests/spec/category/file.si`
+  - [ ] **Write test**: `tests/spec/category/file.ori`
+  - [ ] **Run test**: `ori test tests/spec/category/file.ori`
 ```
 
 ### Updating Progress
@@ -39,7 +39,7 @@ Approved proposals that need spec documentation:
 
 - [ ] **Clone Trait** — Add trait definition to `spec/06-types.md` or `spec/08-declarations.md`
   - Proposal: `proposals/approved/clone-trait-proposal.md`
-  - Implementation: Already in `sigilc/src/typeck/derives/mod.rs`
+  - Implementation: Already in `oric/src/typeck/derives/mod.rs`
   - Missing: Spec definition of `trait Clone { @clone (self) -> Self }`
 
 - [ ] **Zipper Data Structures** — Add to stdlib roadmap
@@ -124,14 +124,14 @@ Approved proposals that need spec documentation:
 cargo test
 
 # All spec tests
-sigil test tests/spec/
+ori test tests/spec/
 
 # Specific category
-sigil test tests/spec/types/
-sigil test tests/spec/traits/
+ori test tests/spec/types/
+ori test tests/spec/traits/
 
 # Single file
-sigil test tests/spec/types/primitives.si
+ori test tests/spec/types/primitives.ori
 ```
 
 ---

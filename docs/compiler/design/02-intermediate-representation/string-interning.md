@@ -1,6 +1,6 @@
 # String Interning
 
-The Sigil compiler interns all identifiers to enable O(1) comparison and reduce memory usage.
+The Ori compiler interns all identifiers to enable O(1) comparison and reduce memory usage.
 
 ## What is String Interning?
 
@@ -263,7 +263,7 @@ The `StringLookup` trait provides a minimal interface for Name resolution, avoid
 circular dependencies between crates:
 
 ```rust
-// In sigil_ir::interner
+// In ori_ir::interner
 pub trait StringLookup {
     fn lookup(&self, name: Name) -> &str;
 }
@@ -275,10 +275,10 @@ impl StringLookup for StringInterner {
 }
 ```
 
-This trait is re-exported from `sigil_patterns` and used by `Value::type_name_with_interner()`:
+This trait is re-exported from `ori_patterns` and used by `Value::type_name_with_interner()`:
 
 ```rust
-// In sigil_patterns::value
+// In ori_patterns::value
 pub fn type_name_with_interner<I: StringLookup>(&self, interner: &I) -> Cow<'static, str> {
     match self {
         Value::Struct(s) => Cow::Owned(interner.lookup(s.type_name).to_string()),

@@ -1,6 +1,6 @@
 # Pattern System Overview
 
-Sigil's pattern system provides compiler-level constructs for control flow, concurrency, and resource management. These are distinct from regular function calls because they require special syntax or static analysis.
+Ori's pattern system provides compiler-level constructs for control flow, concurrency, and resource management. These are distinct from regular function calls because they require special syntax or static analysis.
 
 ## Lean Core, Rich Libraries
 
@@ -18,7 +18,7 @@ Data transformation moved to stdlib because `items.map(transform: fn)` is just a
 ## Location
 
 ```
-compiler/sigil_patterns/src/
+compiler/ori_patterns/src/
 ├── lib.rs          # Core interfaces and re-exports
 ├── registry.rs     # Pattern registration
 ├── signature.rs    # Pattern signatures
@@ -50,7 +50,7 @@ compiler/sigil_patterns/src/
 
 ### Control Flow (function_seq)
 
-```sigil
+```ori
 run(expr1, expr2, result)              // Sequential execution
 try(expr?, Ok(value))                  // Error propagation
 match(value, pat -> expr, ...)         // Pattern matching
@@ -58,7 +58,7 @@ match(value, pat -> expr, ...)         // Pattern matching
 
 ### Recursion
 
-```sigil
+```ori
 recurse(
     cond: base_case,
     base: value,
@@ -68,7 +68,7 @@ recurse(
 
 ### Concurrency
 
-```sigil
+```ori
 parallel(tasks: [...], max_concurrent: 4)  // Concurrent execution
 spawn(tasks: [...])                        // Fire and forget
 timeout(op: expr, after: 5s)               // Time limit
@@ -76,7 +76,7 @@ timeout(op: expr, after: 5s)               // Time limit
 
 ### Resource Management
 
-```sigil
+```ori
 cache(key: k, op: expensive(), ttl: 5m)    // Requires Cache capability
 with(acquire: resource, use: r -> use(r), release: r -> cleanup(r))
 ```
@@ -118,7 +118,7 @@ pub trait PatternDefinition: Send + Sync {
 
 ## Usage Example
 
-```sigil
+```ori
 // Compiler patterns: special syntax for concurrency
 let results = parallel(
     tasks: [fetch(url1), fetch(url2), fetch(url3)],

@@ -1,6 +1,6 @@
 # Recursive Descent Parsing
 
-The Sigil parser uses recursive descent, a top-down parsing technique where each grammar rule becomes a function.
+The Ori parser uses recursive descent, a top-down parsing technique where each grammar rule becomes a function.
 
 ## What is Recursive Descent?
 
@@ -224,7 +224,7 @@ fn parse_add_expr(&mut self) -> ExprId {
 }
 ```
 
-## Sigil-Specific Parsing
+## Ori-Specific Parsing
 
 ### Named Arguments
 

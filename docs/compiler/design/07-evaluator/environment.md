@@ -5,7 +5,7 @@ The Environment manages variable bindings during evaluation. It uses a stack of 
 ## Location
 
 ```
-compiler/sigilc/src/eval/environment.rs (~408 lines)
+compiler/oric/src/eval/environment.rs (~408 lines)
 ```
 
 ## Structure
@@ -120,7 +120,7 @@ impl Environment {
 
 Variables are looked up in the lexical scope:
 
-```sigil
+```ori
 let x = 1
 
 @foo () -> int = x + 1  // x refers to outer x
@@ -154,7 +154,7 @@ fn eval_let(&mut self, name: Name, value: ExprId, body: ExprId) -> Result<Value,
 
 Closures capture their environment:
 
-```sigil
+```ori
 let multiplier = 2
 let double = x -> x * multiplier  // Captures multiplier
 double(5)  // 10
@@ -190,7 +190,7 @@ impl Environment {
 
 Mutable variables use `let mut`:
 
-```sigil
+```ori
 let mut x = 0
 run(
     x = x + 1,  // Mutate x

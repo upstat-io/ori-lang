@@ -3,7 +3,7 @@
 **CRITICAL: Tests are the source of truth.**
 
 These tests validate that the compiler conforms to the language specification
-defined in `docs/sigil_lang/0.1-alpha/spec/`.
+defined in `docs/ori_lang/0.1-alpha/spec/`.
 
 ## Philosophy
 
@@ -20,35 +20,35 @@ defined in `docs/sigil_lang/0.1-alpha/spec/`.
 ```
 tests/spec/
 ├── lexical/          # 03-lexical-elements.md
-│   ├── literals.si
-│   ├── identifiers.si
-│   ├── keywords.si
-│   └── operators.si
+│   ├── literals.ori
+│   ├── identifiers.ori
+│   ├── keywords.ori
+│   └── operators.ori
 ├── types/            # 06-types.md
-│   ├── primitives.si
-│   ├── collections.si
-│   ├── generics.si
-│   └── inference.si
+│   ├── primitives.ori
+│   ├── collections.ori
+│   ├── generics.ori
+│   └── inference.ori
 ├── expressions/      # 09-expressions.md
-│   ├── arithmetic.si
-│   ├── comparison.si
-│   ├── conditionals.si
-│   └── bindings.si
+│   ├── arithmetic.ori
+│   ├── comparison.ori
+│   ├── conditionals.ori
+│   └── bindings.ori
 └── patterns/         # 10-patterns.md
-    ├── run.si
-    ├── try.si
-    ├── match.si
-    └── data.si
+    ├── run.ori
+    ├── try.ori
+    ├── match.ori
+    └── data.ori
 ```
 
 ## Running Spec Tests
 
 ```bash
 # Run all spec tests
-sigil test tests/spec/
+ori test tests/spec/
 
 # Run specific category
-sigil test tests/spec/lexical/
+ori test tests/spec/lexical/
 ```
 
 ## Adding New Tests

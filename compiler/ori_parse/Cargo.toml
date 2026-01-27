@@ -1,0 +1,19 @@
+[package]
+name = "ori_parse"
+description = "Parser for the Ori compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ori_ir.workspace = true
+ori_diagnostic.workspace = true
+stacker.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+ori_lexer.workspace = true
+
+[lints]
+workspace = true

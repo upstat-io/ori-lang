@@ -1,6 +1,6 @@
 # Data Flow
 
-This document describes how data flows through the Sigil compiler, from source text to execution result.
+This document describes how data flows through the Ori compiler, from source text to execution result.
 
 ## Overview
 

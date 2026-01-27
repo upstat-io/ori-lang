@@ -1,6 +1,6 @@
 # Parser Error Recovery
 
-The Sigil parser uses error recovery to parse as much as possible despite syntax errors. This enables reporting multiple errors in one pass.
+The Ori parser uses error recovery to parse as much as possible despite syntax errors. This enables reporting multiple errors in one pass.
 
 ## Goals
 
@@ -293,7 +293,7 @@ fn error_unexpected_token(&mut self) {
         TokenKind::Eq if self.expected_double_eq() =>
             Some("did you mean '=='?"),
         TokenKind::Semicolon =>
-            Some("unexpected ';' - Sigil uses expressions, not statements"),
+            Some("unexpected ';' - Ori uses expressions, not statements"),
         _ => None,
     };
 

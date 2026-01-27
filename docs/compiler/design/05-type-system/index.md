@@ -1,13 +1,13 @@
 # Type System Overview
 
-The Sigil type system provides strict static typing with Hindley-Milner type inference. The type checker validates programs and infers types for expressions.
+The Ori type system provides strict static typing with Hindley-Milner type inference. The type checker validates programs and infers types for expressions.
 
 ## Location
 
 Type definitions are split across two crates:
 
 ```
-compiler/sigil_types/src/
+compiler/ori_types/src/
 ├── lib.rs              # Module exports, size assertions, tests
 ├── core.rs             # Type enum, TypeScheme (external API)
 ├── data.rs             # TypeData enum, TypeVar (internal representation)
@@ -17,7 +17,7 @@ compiler/sigil_types/src/
 ├── context.rs          # InferenceContext, TypeContext
 └── error.rs            # TypeError enum with diagnostic conversion
 
-compiler/sigil_typeck/src/
+compiler/ori_typeck/src/
 ├── lib.rs              # Module exports
 ├── checker/            # Main type checker
 │   ├── mod.rs              # TypeChecker struct, check_module entry
@@ -54,7 +54,7 @@ compiler/sigil_typeck/src/
         └── numeric.rs      # NumericMethodHandler (int, float, bool)
 ```
 
-The `sigil_types` crate contains:
+The `ori_types` crate contains:
 - `core.rs`: The external `Type` enum and `TypeScheme` definitions
 - `data.rs`: The internal `TypeData` enum and `TypeVar` for the interner
 - `type_interner.rs`: `TypeInterner` and `SharedTypeInterner` for O(1) type equality
@@ -65,9 +65,9 @@ The `sigil_types` crate contains:
 - `context.rs`: `InferenceContext` (TypeId-based unification) and `TypeContext` (deduplication)
 - `error.rs`: `TypeError` enum with diagnostic conversion
 
-The type checker lives in the `sigil_typeck` crate, with orchestration in `sigilc` via Salsa queries.
+The type checker lives in the `ori_typeck` crate, with orchestration in `oric` via Salsa queries.
 
-Note: `sigilc/src/types.rs` re-exports from `sigil_types` (DRY consolidation).
+Note: `oric/src/types.rs` re-exports from `ori_types` (DRY consolidation).
 
 ## Design Goals
 
