@@ -13,28 +13,28 @@ The Ori parser organizes grammar rules into separate modules for maintainability
 
 ```
 compiler/ori_parse/src/
-├── lib.rs              # Parser struct, entry point
-├── error.rs            # Error types
+├── lib.rs                  # Parser struct, entry point
+├── error.rs                # Error types
 └── grammar/
-    ├── mod.rs          # Re-exports
-    ├── expr/           # Expression parsing (split into submodules)
-    │   ├── mod.rs          # Entry point, binary operators
-    │   ├── operators.rs    # Operator matching helpers
-    │   ├── primary.rs      # Literals, identifiers, lambdas
-    │   ├── postfix.rs      # Call, method call, field, index
-    │   └── patterns.rs     # run, try, match, for, function_exp
-    ├── item/           # Top-level items (split into submodules)
-    │   ├── mod.rs          # Re-exports
-    │   ├── use_def.rs      # Import/use statements
-    │   ├── config.rs       # Config variable parsing
-    │   ├── function.rs     # Function and test definitions
-    │   ├── trait_def.rs    # Trait definitions
-    │   ├── impl_def.rs     # Impl blocks
-    │   ├── type_decl.rs    # Type declarations (struct, enum, newtype)
-    │   ├── extend.rs       # Extend blocks
-    │   └── generics.rs     # Generic params, bounds, where clauses
-    ├── ty.rs           # Type annotations
-    └── attr.rs         # Attributes
+    ├── mod.rs              # Re-exports
+    ├── expr/               # Expression parsing (split into submodules)
+    │   ├── mod.rs              # Entry point, binary operators
+    │   ├── operators.rs        # Operator matching helpers
+    │   ├── primary.rs          # Literals, identifiers, lambdas
+    │   ├── postfix.rs          # Call, method call, field, index
+    │   └── patterns.rs         # run, try, match, for, function_exp
+    ├── item/               # Top-level items (split into submodules)
+    │   ├── mod.rs              # Re-exports
+    │   ├── use_def.rs          # Import/use statements
+    │   ├── config.rs           # Config variable parsing
+    │   ├── function.rs         # Function and test definitions
+    │   ├── trait_def.rs        # Trait definitions
+    │   ├── impl_def.rs         # Impl blocks
+    │   ├── type_decl.rs        # Type declarations (struct, enum, newtype)
+    │   ├── extend.rs           # Extend blocks
+    │   └── generics.rs         # Generic params, bounds, where clauses
+    ├── ty.rs               # Type annotations
+    └── attr.rs             # Attributes
 ```
 
 ## Module Responsibilities

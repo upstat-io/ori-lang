@@ -33,14 +33,14 @@ Use a **hybrid approach** following Rust compiler conventions:
 
 ```
 oric/src/eval/
-├── function_val.rs           # Implementation (minimal or no inline tests)
-├── operators.rs              # Implementation
-├── methods.rs                # Implementation
+├── function_val.rs             # Implementation (minimal or no inline tests)
+├── operators.rs                # Implementation
+├── methods.rs                  # Implementation
 └── tests/
-    ├── mod.rs                # Test module declarations
-    ├── function_val_tests.rs # Comprehensive type conversion tests
-    ├── operators_tests.rs    # Binary operator tests
-    └── methods_tests.rs      # Method dispatch tests
+    ├── mod.rs                  # Test module declarations
+    ├── function_val_tests.rs   # Comprehensive type conversion tests
+    ├── operators_tests.rs      # Binary operator tests
+    └── methods_tests.rs        # Method dispatch tests
 ```
 
 ### 1.2 Test File Structure
@@ -270,12 +270,12 @@ Follow single responsibility principle:
 
 ```
 eval/
-├── mod.rs              # Public exports only
-├── evaluator.rs        # Core evaluation logic
-├── environment.rs      # Variable scoping
-├── operators.rs        # Binary operators
-├── methods.rs          # Method dispatch
-└── tests/              # Comprehensive tests
+├── mod.rs           # Public exports only
+├── evaluator.rs     # Core evaluation logic
+├── environment.rs   # Variable scoping
+├── operators.rs     # Binary operators
+├── methods.rs       # Method dispatch
+└── tests/           # Comprehensive tests
 ```
 
 ### 5.2 Dependency Direction

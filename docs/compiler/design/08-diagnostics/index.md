@@ -15,38 +15,38 @@ The diagnostics system spans multiple crates:
 
 ```
 compiler/
-├── ori_diagnostic/       # Core diagnostic types (separate crate)
+├── ori_diagnostic/               # Core diagnostic types (separate crate)
 │   └── src/
-│       ├── lib.rs              # Diagnostic, ErrorCode, Applicability, Severity, ErrorGuaranteed
-│       ├── queue.rs            # DiagnosticQueue for deduplication/limits
-│       ├── span_utils.rs       # Line/column computation from spans
-│       ├── errors/             # Embedded error documentation for --explain
-│       │   ├── mod.rs          # ErrorDocs registry
-│       │   ├── E0001.md        # Error documentation files
+│       ├── lib.rs                    # Diagnostic, ErrorCode, Applicability, Severity, ErrorGuaranteed
+│       ├── queue.rs                  # DiagnosticQueue for deduplication/limits
+│       ├── span_utils.rs             # Line/column computation from spans
+│       ├── errors/                   # Embedded error documentation for --explain
+│       │   ├── mod.rs                    # ErrorDocs registry
+│       │   ├── E0001.md                  # Error documentation files
 │       │   ├── E0002.md
-│       │   └── ...             # (35+ error codes documented)
+│       │   └── ...                       # (35+ error codes documented)
 │       ├── emitter/
-│       │   ├── mod.rs          # Emitter trait
-│       │   ├── terminal.rs     # Terminal output
-│       │   ├── json.rs         # JSON output
-│       │   └── sarif.rs        # SARIF format
+│       │   ├── mod.rs                    # Emitter trait
+│       │   ├── terminal.rs               # Terminal output
+│       │   ├── json.rs                   # JSON output
+│       │   └── sarif.rs                  # SARIF format
 │       └── fixes/
-│           ├── mod.rs          # Code fix system
-│           └── registry.rs     # Fix registry
-├── ori-macros/           # Proc-macro crate for diagnostic derives
+│           ├── mod.rs                    # Code fix system
+│           └── registry.rs               # Fix registry
+├── ori-macros/                   # Proc-macro crate for diagnostic derives
 │   └── src/
-│       ├── lib.rs              # Derive macro exports
-│       ├── diagnostic.rs       # #[derive(Diagnostic)] implementation
-│       └── subdiagnostic.rs    # #[derive(Subdiagnostic)] implementation
+│       ├── lib.rs                    # Derive macro exports
+│       ├── diagnostic.rs             # #[derive(Diagnostic)] implementation
+│       └── subdiagnostic.rs          # #[derive(Subdiagnostic)] implementation
 └── oric/src/
-    ├── problem/            # Problem types (specific to compiler phases)
-    │   ├── mod.rs              # Problem enum (Parse, Type, Semantic variants)
-    │   └── semantic.rs         # SemanticProblem enum, DefinitionKind
-    └── reporting/          # Diagnostic rendering (Problem → Diagnostic)
-        ├── mod.rs              # Render trait, render_all, Report type
-        ├── parse.rs            # ParseProblem rendering
-        ├── semantic.rs         # SemanticProblem rendering
-        └── type_errors.rs      # TypeProblem rendering
+    ├── problem/                  # Problem types (specific to compiler phases)
+    │   ├── mod.rs                    # Problem enum (Parse, Type, Semantic variants)
+    │   └── semantic.rs               # SemanticProblem enum, DefinitionKind
+    └── reporting/                # Diagnostic rendering (Problem → Diagnostic)
+        ├── mod.rs                    # Render trait, render_all, Report type
+        ├── parse.rs                  # ParseProblem rendering
+        ├── semantic.rs               # SemanticProblem rendering
+        └── type_errors.rs            # TypeProblem rendering
 ```
 
 The `ori_diagnostic` crate contains the core `Diagnostic` type, `ErrorCode` enum, `Applicability` levels, diagnostic queue, and output emitters. It depends only on `ori_ir` (for `Span`). The proc-macros in `ori-macros` generate implementations of the `IntoDiagnostic` trait.
