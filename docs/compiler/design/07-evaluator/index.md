@@ -13,37 +13,37 @@ The Ori evaluator is a tree-walking interpreter that executes typed ASTs. It han
 
 ```
 compiler/oric/src/eval/
-├── mod.rs              # Module exports
-├── evaluator/          # Main evaluator
-│   ├── mod.rs              # Evaluator struct, eval dispatch, arena threading
-│   ├── builder.rs          # EvaluatorBuilder with MethodDispatcher construction
-│   ├── scope_guard.rs      # RAII scope management (with_env_scope, with_bindings)
-│   ├── module_loading.rs   # load_module, load_prelude, method collection
-│   ├── function_call.rs    # eval_call, eval_call_named
-│   ├── method_dispatch.rs  # Method dispatch, iterator helpers, type resolution
-│   ├── derived_methods.rs  # Derived method evaluation (Eq, Clone, Hash, etc.)
-│   ├── function_seq.rs     # eval_function_seq (run, try, match)
-│   ├── resolvers/          # Method resolution chain (Chain of Responsibility)
-│   │   ├── mod.rs          # MethodDispatcher, MethodResolver trait
-│   │   ├── user_registry.rs # UserRegistryResolver (user + derived methods)
-│   │   ├── collection.rs   # CollectionMethodResolver (list/range methods)
-│   │   └── builtin.rs      # BuiltinMethodResolver (built-in methods)
-│   └── tests.rs            # Unit tests
-├── environment.rs      # Variable scoping (~408 lines)
-├── operators.rs        # Binary operations (~486 lines)
-├── methods.rs          # Method dispatch (~377 lines)
-├── function_val.rs     # Type conversions (~104 lines)
-├── output.rs           # Output types
+├── mod.rs                    # Module exports
+├── evaluator/                # Main evaluator
+│   ├── mod.rs                    # Evaluator struct, eval dispatch, arena threading
+│   ├── builder.rs                # EvaluatorBuilder with MethodDispatcher construction
+│   ├── scope_guard.rs            # RAII scope management (with_env_scope, with_bindings)
+│   ├── module_loading.rs         # load_module, load_prelude, method collection
+│   ├── function_call.rs          # eval_call, eval_call_named
+│   ├── method_dispatch.rs        # Method dispatch, iterator helpers, type resolution
+│   ├── derived_methods.rs        # Derived method evaluation (Eq, Clone, Hash, etc.)
+│   ├── function_seq.rs           # eval_function_seq (run, try, match)
+│   ├── resolvers/                # Method resolution chain (Chain of Responsibility)
+│   │   ├── mod.rs                    # MethodDispatcher, MethodResolver trait
+│   │   ├── user_registry.rs          # UserRegistryResolver (user + derived methods)
+│   │   ├── collection.rs             # CollectionMethodResolver (list/range methods)
+│   │   └── builtin.rs                # BuiltinMethodResolver (built-in methods)
+│   └── tests.rs                  # Unit tests
+├── environment.rs            # Variable scoping (~408 lines)
+├── operators.rs              # Binary operations (~486 lines)
+├── methods.rs                # Method dispatch (~377 lines)
+├── function_val.rs           # Type conversions (~104 lines)
+├── output.rs                 # Output types
 ├── value/
-│   └── mod.rs          # Value type (~566 lines)
+│   └── mod.rs                # Value type (~566 lines)
 ├── exec/
-│   ├── mod.rs          # Execution modules
-│   ├── expr.rs         # Expression evaluation (~295 lines)
-│   ├── call.rs         # Call evaluation (~163 lines)
-│   ├── control.rs      # Control flow (~584 lines)
-│   └── pattern.rs      # Pattern evaluation (~202 lines)
+│   ├── mod.rs                # Execution modules
+│   ├── expr.rs               # Expression evaluation (~295 lines)
+│   ├── call.rs               # Call evaluation (~163 lines)
+│   ├── control.rs            # Control flow (~584 lines)
+│   └── pattern.rs            # Pattern evaluation (~202 lines)
 └── module/
-    └── import.rs       # Module loading (~240 lines)
+    └── import.rs             # Module loading (~240 lines)
 ```
 
 ## Design Goals

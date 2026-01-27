@@ -26,24 +26,24 @@ Data transformation moved to stdlib because `items.map(transform: fn)` is just a
 
 ```
 compiler/ori_patterns/src/
-├── lib.rs          # Core interfaces and re-exports
-├── registry.rs     # Pattern registration
-├── signature.rs    # Pattern signatures
-├── errors.rs       # Pattern errors
-├── builtins/       # Built-in patterns
-│   ├── mod.rs          # Re-exports
-│   ├── print.rs        # PrintPattern implementation
-│   └── panic.rs        # PanicPattern implementation
-├── recurse.rs      # recurse pattern
-├── parallel.rs     # parallel pattern
-├── spawn.rs        # spawn pattern
-├── timeout.rs      # timeout pattern
-├── cache.rs        # cache pattern
-├── with_pattern.rs # with pattern (RAII resource management)
-└── value/          # Runtime value system
-    ├── mod.rs          # Value enum and factory methods
-    ├── heap.rs         # Heap<T> wrapper for Arc enforcement
-    └── composite.rs    # FunctionValue, StructValue, RangeValue
+├── lib.rs              # Core interfaces and re-exports
+├── registry.rs         # Pattern registration
+├── signature.rs        # Pattern signatures
+├── errors.rs           # Pattern errors
+├── builtins/           # Built-in patterns
+│   ├── mod.rs              # Re-exports
+│   ├── print.rs            # PrintPattern implementation
+│   └── panic.rs            # PanicPattern implementation
+├── recurse.rs          # recurse pattern
+├── parallel.rs         # parallel pattern
+├── spawn.rs            # spawn pattern
+├── timeout.rs          # timeout pattern
+├── cache.rs            # cache pattern
+├── with_pattern.rs     # with pattern (RAII resource management)
+└── value/              # Runtime value system
+    ├── mod.rs              # Value enum and factory methods
+    ├── heap.rs             # Heap<T> wrapper for Arc enforcement
+    └── composite.rs        # FunctionValue, StructValue, RangeValue
 ```
 
 ## Design Goals

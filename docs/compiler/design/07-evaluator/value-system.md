@@ -13,9 +13,9 @@ The Value enum represents runtime values in the Ori evaluator.
 
 ```
 compiler/ori_patterns/src/value/
-├── mod.rs          # Value enum and factory methods (~569 lines)
-├── heap.rs         # Heap<T> wrapper for Arc enforcement (~147 lines)
-└── composite.rs    # FunctionValue, StructValue, RangeValue
+├── mod.rs        # Value enum and factory methods (~569 lines)
+├── heap.rs       # Heap<T> wrapper for Arc enforcement (~147 lines)
+└── composite.rs  # FunctionValue, StructValue, RangeValue
 ```
 
 ## Heap<T> Wrapper

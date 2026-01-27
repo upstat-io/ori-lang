@@ -92,6 +92,7 @@ const { title, description } = Astro.props;
     }
   }
 
+
   /* Mermaid diagram styles */
   .docs-article :global(.mermaid) {
     background: var(--color-bg-secondary, #1a1b26);
@@ -111,9 +112,6 @@ const { title, description } = Astro.props;
 
 <script>
   import mermaid from 'mermaid';
-  import elkLayouts from '@mermaid-js/layout-elk';
-
-  await mermaid.registerLayoutLoaders(elkLayouts);
 
   mermaid.initialize({
     startOnLoad: false,
@@ -134,18 +132,12 @@ const { title, description } = Astro.props;
       edgeLabelBackground: '#27272a',
     },
     flowchart: {
-      defaultRenderer: 'elk',
-      curve: 'linear',
-    },
-    layout: 'elk',
-    elk: {
-      'elk.algorithm': 'layered',
-      'elk.edgeRouting': 'ORTHOGONAL',
-      'elk.layered.edgeRouting.splines.mode': 'CONSERVATIVE',
+      curve: 'basis',
+      padding: 20,
     },
   });
 
-  // Find all mermaid code blocks and render them
+  // Render mermaid diagrams
   document.addEventListener('DOMContentLoaded', async () => {
     const codeBlocks = document.querySelectorAll('pre[data-language="mermaid"]');
 

@@ -15,50 +15,50 @@ Type definitions are split across two crates:
 
 ```
 compiler/ori_types/src/
-├── lib.rs              # Module exports, size assertions, tests
-├── core.rs             # Type enum, TypeScheme (external API)
-├── data.rs             # TypeData enum, TypeVar (internal representation)
-├── type_interner.rs    # TypeInterner, SharedTypeInterner (O(1) equality)
-├── env.rs              # TypeEnv for name resolution/scoping
-├── traverse.rs         # TypeFolder, TypeVisitor, TypeIdFolder, TypeIdVisitor
-├── context.rs          # InferenceContext, TypeContext
-└── error.rs            # TypeError enum with diagnostic conversion
+├── lib.rs                    # Module exports, size assertions, tests
+├── core.rs                   # Type enum, TypeScheme (external API)
+├── data.rs                   # TypeData enum, TypeVar (internal representation)
+├── type_interner.rs          # TypeInterner, SharedTypeInterner (O(1) equality)
+├── env.rs                    # TypeEnv for name resolution/scoping
+├── traverse.rs               # TypeFolder, TypeVisitor, TypeIdFolder, TypeIdVisitor
+├── context.rs                # InferenceContext, TypeContext
+└── error.rs                  # TypeError enum with diagnostic conversion
 
 compiler/ori_typeck/src/
-├── lib.rs              # Module exports
-├── checker/            # Main type checker
-│   ├── mod.rs              # TypeChecker struct, check_module entry
-│   ├── builder.rs          # TypeCheckerBuilder pattern
-│   ├── components.rs       # CheckContext, InferenceState, Registries, DiagnosticState, ScopeContext
-│   ├── scope_guards.rs     # RAII scope guards for capability/impl contexts
-│   ├── signatures.rs       # infer_function_signature
-│   ├── pattern_binding.rs  # bind_pattern logic
-│   ├── cycle_detection.rs  # collect_free_vars, closure self-capture
-│   ├── trait_registration.rs # register_traits, register_impls
-│   ├── bound_checking.rs   # type_satisfies_bound
-│   ├── type_registration.rs # register_type_declarations
-│   └── types.rs            # Helper types (FunctionType, TypeCheckError)
-├── operators.rs        # Operator type rules
-├── derives/            # Derive macro support
-│   └── mod.rs              # Derive registration and checking
-├── registry/           # User-defined types
-│   ├── mod.rs              # TypeRegistry struct
-│   └── trait_registry.rs   # TraitRegistry, TraitEntry, ImplEntry
+├── lib.rs                    # Module exports
+├── checker/                  # Main type checker
+│   ├── mod.rs                    # TypeChecker struct, check_module entry
+│   ├── builder.rs                # TypeCheckerBuilder pattern
+│   ├── components.rs             # CheckContext, InferenceState, Registries, DiagnosticState, ScopeContext
+│   ├── scope_guards.rs           # RAII scope guards for capability/impl contexts
+│   ├── signatures.rs             # infer_function_signature
+│   ├── pattern_binding.rs        # bind_pattern logic
+│   ├── cycle_detection.rs        # collect_free_vars, closure self-capture
+│   ├── trait_registration.rs     # register_traits, register_impls
+│   ├── bound_checking.rs         # type_satisfies_bound
+│   ├── type_registration.rs      # register_type_declarations
+│   └── types.rs                  # Helper types (FunctionType, TypeCheckError)
+├── operators.rs              # Operator type rules
+├── derives/                  # Derive macro support
+│   └── mod.rs                    # Derive registration and checking
+├── registry/                 # User-defined types
+│   ├── mod.rs                    # TypeRegistry struct
+│   └── trait_registry.rs         # TraitRegistry, TraitEntry, ImplEntry
 └── infer/
-    ├── mod.rs          # Inference dispatcher
-    ├── expr.rs         # Expression inference
-    ├── call.rs         # Call type checking
-    ├── control.rs      # Control flow inference
-    ├── match_binding.rs # Match arm binding inference
-    ├── pattern.rs      # Pattern type checking
-    └── builtin_methods/ # Built-in type method handlers
-        ├── mod.rs          # BuiltinMethodRegistry, BuiltinMethodHandler trait
-        ├── string.rs       # StringMethodHandler
-        ├── list.rs         # ListMethodHandler
-        ├── map.rs          # MapMethodHandler
-        ├── option.rs       # OptionMethodHandler
-        ├── result.rs       # ResultMethodHandler
-        └── numeric.rs      # NumericMethodHandler (int, float, bool)
+    ├── mod.rs                # Inference dispatcher
+    ├── expr.rs               # Expression inference
+    ├── call.rs               # Call type checking
+    ├── control.rs            # Control flow inference
+    ├── match_binding.rs      # Match arm binding inference
+    ├── pattern.rs            # Pattern type checking
+    └── builtin_methods/      # Built-in type method handlers
+        ├── mod.rs                # BuiltinMethodRegistry, BuiltinMethodHandler trait
+        ├── string.rs             # StringMethodHandler
+        ├── list.rs               # ListMethodHandler
+        ├── map.rs                # MapMethodHandler
+        ├── option.rs             # OptionMethodHandler
+        ├── result.rs             # ResultMethodHandler
+        └── numeric.rs            # NumericMethodHandler (int, float, bool)
 ```
 
 The `ori_types` crate contains:

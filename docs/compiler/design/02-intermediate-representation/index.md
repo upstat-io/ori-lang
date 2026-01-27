@@ -20,30 +20,30 @@ The IR lives in its own crate `ori_ir`, which has no dependencies and is used by
 
 ```
 compiler/ori_ir/src/
-├── lib.rs          # Module exports, static_assert_size! macro
-├── ast/            # Expression and statement types (~1,570 lines total)
-│   ├── mod.rs          # Module re-exports (~110 lines)
-│   ├── expr.rs         # ExprKind variants (~364 lines)
-│   ├── stmt.rs         # Statement types (~51 lines)
-│   ├── operators.rs    # Operator enums (~51 lines)
-│   ├── ranges.rs       # Range types for arena allocation (~273 lines)
-│   ├── collections.rs  # Collection literals (~53 lines)
-│   ├── items/          # Top-level item definitions
-│   │   ├── mod.rs          # Re-exports (~15 lines)
-│   │   ├── function.rs     # Function, TestDef (~141 lines)
-│   │   ├── imports.rs      # UseDef, ImportPath (~39 lines)
-│   │   └── traits.rs       # TraitDef, ImplDef, ExtendDef (~205 lines)
-│   └── patterns/       # Pattern constructs
-│       ├── mod.rs          # Re-exports (~11 lines)
-│       ├── seq.rs          # FunctionSeq (run, try, match) (~102 lines)
-│       ├── exp.rs          # FunctionExp (map, filter, etc.) (~72 lines)
-│       └── binding.rs      # Match patterns and arms (~83 lines)
-├── arena.rs        # Expression arena (~475 lines)
-├── derives.rs      # DerivedTrait, DerivedMethodInfo (~103 lines)
-├── token.rs        # Token definitions (~690 lines)
-├── visitor.rs      # AST visitor pattern (~1,230 lines)
-├── interner.rs     # String interning (~260 lines)
-└── span.rs         # Source location tracking
+├── lib.rs              # Module exports, static_assert_size! macro
+├── ast/                # Expression and statement types (~1,570 lines total)
+│   ├── mod.rs              # Module re-exports (~110 lines)
+│   ├── expr.rs             # ExprKind variants (~364 lines)
+│   ├── stmt.rs             # Statement types (~51 lines)
+│   ├── operators.rs        # Operator enums (~51 lines)
+│   ├── ranges.rs           # Range types for arena allocation (~273 lines)
+│   ├── collections.rs      # Collection literals (~53 lines)
+│   ├── items/              # Top-level item definitions
+│   │   ├── mod.rs              # Re-exports (~15 lines)
+│   │   ├── function.rs         # Function, TestDef (~141 lines)
+│   │   ├── imports.rs          # UseDef, ImportPath (~39 lines)
+│   │   └── traits.rs           # TraitDef, ImplDef, ExtendDef (~205 lines)
+│   └── patterns/           # Pattern constructs
+│       ├── mod.rs              # Re-exports (~11 lines)
+│       ├── seq.rs              # FunctionSeq (run, try, match) (~102 lines)
+│       ├── exp.rs              # FunctionExp (map, filter, etc.) (~72 lines)
+│       └── binding.rs          # Match patterns and arms (~83 lines)
+├── arena.rs            # Expression arena (~475 lines)
+├── derives.rs          # DerivedTrait, DerivedMethodInfo (~103 lines)
+├── token.rs            # Token definitions (~690 lines)
+├── visitor.rs          # AST visitor pattern (~1,230 lines)
+├── interner.rs         # String interning (~260 lines)
+└── span.rs             # Source location tracking
 ```
 
 ## Key Design Decisions

@@ -20,67 +20,67 @@ The compiler is organized as a Cargo workspace with multiple crates:
 
 ```
 compiler/
-├── ori_ir/           # Core IR types (tokens, spans, AST, interning)
+├── ori_ir/                   # Core IR types (tokens, spans, AST, interning)
 │   └── src/
-│       ├── lib.rs          # Module organization, static_assert_size! macro
-│       ├── ast/            # Expression and statement types
-│       ├── token.rs        # Token definitions
-│       ├── span.rs         # Source location tracking
-│       ├── arena.rs        # Expression arena allocation
-│       ├── interner.rs     # String interning
-│       └── visitor.rs      # AST visitor pattern
-├── ori_diagnostic/   # Error reporting
+│       ├── lib.rs            # Module organization, static_assert_size! macro
+│       ├── ast/              # Expression and statement types
+│       ├── token.rs          # Token definitions
+│       ├── span.rs           # Source location tracking
+│       ├── arena.rs          # Expression arena allocation
+│       ├── interner.rs       # String interning
+│       └── visitor.rs        # AST visitor pattern
+├── ori_diagnostic/           # Error reporting
 │   └── src/
-│       ├── lib.rs          # Diagnostic, Applicability, ErrorCode, ErrorGuaranteed
-│       ├── queue.rs        # DiagnosticQueue (deduplication, limits, emit_error)
-│       ├── errors/         # Embedded error documentation for --explain
-│       ├── emitter/        # Output formatting (terminal, JSON, SARIF)
-│       └── fixes/          # Code suggestions and fixes
-├── ori_lexer/        # Tokenization (logos-based)
-│   └── src/lib.rs          # lex() function, token processing
-├── ori_types/        # Type system definitions
+│       ├── lib.rs            # Diagnostic, Applicability, ErrorCode
+│       ├── queue.rs          # DiagnosticQueue (deduplication, limits)
+│       ├── errors/           # Embedded error documentation
+│       ├── emitter/          # Output formatting (terminal, JSON, SARIF)
+│       └── fixes/            # Code suggestions and fixes
+├── ori_lexer/                # Tokenization (logos-based)
+│   └── src/lib.rs            # lex() function, token processing
+├── ori_types/                # Type system definitions
 │   └── src/
-│       ├── lib.rs          # Module exports
-│       ├── core.rs         # Type enum (external API)
-│       ├── data.rs         # TypeData enum (internal representation)
-│       ├── type_interner.rs # TypeInterner, SharedTypeInterner
-│       ├── context.rs      # InferenceContext (TypeId-based unification)
-│       ├── env.rs          # TypeEnv for scoping
-│       ├── traverse.rs     # TypeFolder, TypeVisitor, TypeIdFolder, TypeIdVisitor
-│       └── error.rs        # TypeError
-├── ori_parse/        # Recursive descent parser
+│       ├── lib.rs            # Module exports
+│       ├── core.rs           # Type enum (external API)
+│       ├── data.rs           # TypeData enum (internal representation)
+│       ├── type_interner.rs  # TypeInterner, SharedTypeInterner
+│       ├── context.rs        # InferenceContext (TypeId-based unification)
+│       ├── env.rs            # TypeEnv for scoping
+│       ├── traverse.rs       # TypeFolder, TypeVisitor
+│       └── error.rs          # TypeError
+├── ori_parse/                # Recursive descent parser
 │   └── src/
-│       ├── lib.rs          # Parser struct, parse() entry point
-│       ├── error.rs        # Parse error types
-│       ├── stack.rs        # Stack safety (stacker integration)
-│       └── grammar/        # Grammar modules (expr, item, type, etc.)
-├── ori_patterns/     # Pattern system, Value types
+│       ├── lib.rs            # Parser struct, parse() entry point
+│       ├── error.rs          # Parse error types
+│       ├── stack.rs          # Stack safety (stacker integration)
+│       └── grammar/          # Grammar modules (expr, item, type, etc.)
+├── ori_patterns/             # Pattern system, Value types
 │   └── src/
-│       ├── lib.rs          # PatternDefinition, TypeCheckContext, EvalContext
-│       ├── registry.rs     # PatternRegistry, SharedPattern
-│       ├── value/          # Value types, Heap, FunctionValue
-│       ├── errors.rs       # EvalError, EvalResult, error constructors
-│       └── *.rs            # Pattern implementations (recurse, parallel, etc.)
-├── ori_eval/         # Core evaluator components
+│       ├── lib.rs            # PatternDefinition, TypeCheckContext
+│       ├── registry.rs       # PatternRegistry, SharedPattern
+│       ├── value/            # Value types, Heap, FunctionValue
+│       ├── errors.rs         # EvalError, EvalResult
+│       └── *.rs              # Pattern implementations
+├── ori_eval/                 # Core evaluator components
 │   └── src/
-│       ├── lib.rs          # Re-exports
-│       ├── environment.rs  # Environment, Scope, LocalScope
-│       └── operators.rs    # BinaryOperator, OperatorRegistry
-├── ori-macros/       # Proc-macro crate
+│       ├── lib.rs            # Re-exports
+│       ├── environment.rs    # Environment, Scope, LocalScope
+│       └── operators.rs      # BinaryOperator, OperatorRegistry
+├── ori-macros/               # Proc-macro crate
 │   └── src/
-│       ├── lib.rs          # Diagnostic/Subdiagnostic derives
-│       ├── diagnostic.rs   # #[derive(Diagnostic)] impl
-│       └── subdiagnostic.rs # #[derive(Subdiagnostic)] impl
-└── oric/             # CLI orchestrator + Salsa queries
+│       ├── lib.rs            # Diagnostic/Subdiagnostic derives
+│       ├── diagnostic.rs     # #[derive(Diagnostic)] impl
+│       └── subdiagnostic.rs  # #[derive(Subdiagnostic)] impl
+└── oric/                     # CLI orchestrator + Salsa queries
     └── src/
-        ├── lib.rs          # Module organization
-        ├── main.rs         # CLI entry point
-        ├── db.rs           # Salsa database definition
-        ├── query/          # Salsa query definitions
-        ├── typeck/         # Type checking and inference
-        ├── eval/           # Tree-walking interpreter (uses ori_eval)
-        ├── test/           # Test runner
-        └── debug.rs        # Debug flags
+        ├── lib.rs            # Module organization
+        ├── main.rs           # CLI entry point
+        ├── db.rs             # Salsa database definition
+        ├── query/            # Salsa query definitions
+        ├── typeck/           # Type checking and inference
+        ├── eval/             # Tree-walking interpreter
+        ├── test/             # Test runner
+        └── debug.rs          # Debug flags
 ```
 
 ### Crate Dependencies

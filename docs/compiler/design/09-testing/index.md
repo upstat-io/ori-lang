@@ -13,16 +13,16 @@ The Ori test system provides test discovery, parallel execution, and coverage tr
 
 ```
 compiler/oric/src/test/
-├── mod.rs              # Module exports
-├── runner.rs           # Test execution
-├── discovery.rs        # Test finding
-├── result.rs           # Test result types
-└── error_matching.rs   # ExpectedError matching for compile_fail tests
+├── mod.rs            # Module exports
+├── runner.rs         # Test execution
+├── discovery.rs      # Test finding
+├── result.rs         # Test result types
+└── error_matching.rs # ExpectedError matching for compile_fail tests
 
 compiler/oric/src/testing/
-├── mod.rs              # Testing utilities
-├── harness.rs          # Test harness
-└── mocks.rs            # Mock implementations
+├── mod.rs     # Testing utilities
+├── harness.rs # Test harness
+└── mocks.rs   # Mock implementations
 ```
 
 ## Design Goals

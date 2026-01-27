@@ -13,22 +13,22 @@ The Ori parser transforms a token stream into an AST. It uses recursive descent 
 
 ```
 compiler/ori_parse/src/
-├── lib.rs              # Parser struct and entry point
-├── error.rs            # Parse error types
-├── stack.rs            # Stack safety (stacker integration)
+├── lib.rs                  # Parser struct and entry point
+├── error.rs                # Parse error types
+├── stack.rs                # Stack safety (stacker integration)
 └── grammar/
-    ├── mod.rs          # Grammar module organization
-    ├── expr/           # Expression parsing (~1,436 lines total)
-    │   ├── mod.rs          # Entry point, binary precedence chain (~271 lines)
-    │   ├── operators.rs    # Operator matching helpers (~95 lines)
-    │   ├── patterns.rs     # function_seq/function_exp parsing (~444 lines)
-    │   ├── postfix.rs      # Call, method call, field, index (~167 lines)
-    │   └── primary.rs      # Primary expressions, literals (~459 lines)
-    ├── item.rs         # Function/type/test parsing (~446 lines)
-    ├── type.rs         # Type annotation parsing
-    ├── pattern.rs      # Pattern parsing
-    ├── stmt.rs         # Statement parsing
-    └── attr.rs         # Attribute parsing
+    ├── mod.rs              # Grammar module organization
+    ├── expr/               # Expression parsing (~1,436 lines total)
+    │   ├── mod.rs              # Entry point, binary precedence chain (~271 lines)
+    │   ├── operators.rs        # Operator matching helpers (~95 lines)
+    │   ├── patterns.rs         # function_seq/function_exp parsing (~444 lines)
+    │   ├── postfix.rs          # Call, method call, field, index (~167 lines)
+    │   └── primary.rs          # Primary expressions, literals (~459 lines)
+    ├── item.rs             # Function/type/test parsing (~446 lines)
+    ├── type.rs             # Type annotation parsing
+    ├── pattern.rs          # Pattern parsing
+    ├── stmt.rs             # Statement parsing
+    └── attr.rs             # Attribute parsing
 ```
 
 The parser is a separate crate with dependencies:

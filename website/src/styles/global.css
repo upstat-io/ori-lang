@@ -63,7 +63,7 @@ pre {
   padding: var(--space-4);
   overflow-x: auto;
   font-size: var(--text-sm);
-  line-height: var(--leading-relaxed);
+  line-height: 1.2;
 }
 
 pre code {
@@ -71,6 +71,17 @@ pre code {
   background: none;
   border-radius: 0;
   font-size: inherit;
+}
+
+/* Hide mermaid source code - rendered by JS */
+pre[data-language="mermaid"] {
+  height: 600px;
+  background: var(--color-bg-secondary) !important;
+  border: 1px dashed var(--color-border) !important;
+}
+
+pre[data-language="mermaid"] code {
+  display: none !important;
 }
 
 h1, h2, h3, h4, h5, h6 {
