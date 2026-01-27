@@ -1,0 +1,64 @@
+// Spec: 09-expressions.md § Conditional
+
+// =============================================================================
+// If-Then Without Else (void context)
+// =============================================================================
+
+// When else is omitted, the expression has type void.
+
+@test_if_then_true_executes tests @if_then_true_executes () -> void = run(
+    let mut x = 0,
+    if_then_true_executes(x: x),
+)
+
+@if_then_true_executes (x: int) -> void =
+    if true then assert_eq(actual: x, expected: 0)
+
+@test_if_then_false_skips tests @if_then_false_skips () -> void = run(
+    if_then_false_skips(),
+    assert(cond: true),
+)
+
+@if_then_false_skips () -> void =
+    if false then panic(msg: "should not execute")
+
+@test_if_then_guard_pattern tests @if_then_guard_pattern () -> void = run(
+    if_then_guard_pattern(x: 5),
+    assert(cond: true),
+)
+
+// Never then-branch (panic) is valid without else
+@if_then_guard_pattern (x: int) -> void =
+    if x <= 0 then panic(msg: "x must be positive")
+
+@test_if_then_explicit_unit tests @if_then_explicit_unit () -> void = run(
+    if_then_explicit_unit(cond: true),
+    if_then_explicit_unit(cond: false),
+)
+
+@if_then_explicit_unit (cond: bool) -> void =
+    if cond then ()
+
+// =============================================================================
+// If-Then-Else (standard form)
+// =============================================================================
+
+@test_if_then_else tests @if_then_else () -> void = run(
+    assert_eq(actual: if_then_else(x: 5), expected: "positive"),
+    assert_eq(actual: if_then_else(x: 0), expected: "non-positive"),
+    assert_eq(actual: if_then_else(x: -3), expected: "non-positive"),
+)
+
+@if_then_else (x: int) -> str =
+    if x > 0 then "positive" else "non-positive"
+
+@test_if_else_if tests @if_else_if () -> void = run(
+    assert_eq(actual: if_else_if(x: 5), expected: "positive"),
+    assert_eq(actual: if_else_if(x: 0), expected: "zero"),
+    assert_eq(actual: if_else_if(x: -3), expected: "negative"),
+)
+
+@if_else_if (x: int) -> str =
+    if x > 0 then "positive"
+    else if x == 0 then "zero"
+    else "negative"
