@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" fill="none">
+  <!-- Background -->
+  <rect width="1200" height="630" fill="#0d0e11"/>
+
+  <!-- Subtle grid pattern -->
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1a1b23" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="630" fill="url(#grid)" opacity="0.5"/>
+
+  <!-- Logo mark - larger version with dark background -->
+  <g transform="translate(500, 120)">
+    <rect width="200" height="200" rx="30" fill="#21222c"/>
+    <circle cx="100" cy="100" r="70" stroke="#3b82f6" stroke-width="8" fill="none"/>
+    <path d="M70 100l20 20 40-40" stroke="#22c55e" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="600" y="380" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="72" fill="#e2e4e9">Ori</text>
+
+  <!-- Tagline -->
+  <text x="600" y="440" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="400" font-size="28" fill="#9ca0ab">Code That Proves Itself</text>
+
+  <!-- Subtitle -->
+  <text x="600" y="500" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="400" font-size="20" fill="#636874">Mandatory testing · Dependency-aware integrity · Explicit effects</text>
+
+  <!-- URL -->
+  <text x="600" y="580" text-anchor="middle" font-family="monospace" font-weight="500" font-size="18" fill="#60a5fa">ori-lang.com</text>
+</svg>

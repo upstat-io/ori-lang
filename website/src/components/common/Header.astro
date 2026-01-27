@@ -2,7 +2,7 @@
 const currentPath = Astro.url.pathname;
 const navLinks = [
   { href: '/', label: 'Home' },
-  { href: '/docs/', label: 'Docs' },
+  { href: '/docs/getting-started', label: 'Docs' },
   { href: '/playground', label: 'Playground' },
   { href: '/roadmap', label: 'Roadmap' },
 ];
@@ -11,6 +11,11 @@ const navLinks = [
 <header class="site-header">
   <div class="header-inner">
     <a href="/" class="logo">
+      <svg class="logo-icon" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="32" height="32" rx="6" fill="#21222c"/>
+        <circle cx="16" cy="16" r="9" stroke="#3b82f6" stroke-width="2.5" fill="none"/>
+        <path d="M12 16l2.5 2.5 5.5-5.5" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
       <span class="logo-text">Ori</span>
     </a>
 
@@ -59,7 +64,15 @@ const navLinks = [
   }
 
   .logo {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
     text-decoration: none;
+  }
+
+  .logo-icon {
+    width: 28px;
+    height: 28px;
   }
 
   .logo-text {

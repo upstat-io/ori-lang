@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@astrojs/mdx": "^4.3.13",
+    "@astrojs/sitemap": "^3.7.0",
     "@astrojs/svelte": "^7.2.5",
     "astro": "^5.16.15",
     "svelte": "^5.48.3"

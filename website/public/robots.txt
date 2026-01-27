@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://ori-lang.com/sitemap-index.xml

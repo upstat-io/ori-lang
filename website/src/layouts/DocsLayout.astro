@@ -10,7 +10,12 @@ interface Props {
 const { title, description } = Astro.props;
 ---
 
-<BaseLayout title={`${title} — Ori Docs`} description={description}>
+<BaseLayout
+  title={`${title} — Ori Docs`}
+  description={description || `Learn about ${title} in Ori — a programming language with mandatory testing and dependency-aware integrity.`}
+  keywords={`Ori docs, ${title.toLowerCase()}, documentation, programming language, tutorial`}
+  ogType="article"
+>
   <div class="docs-layout">
     <DocsSidebar />
     <main class="docs-content">
@@ -24,7 +29,7 @@ const { title, description } = Astro.props;
 <style>
   .docs-layout {
     display: flex;
-    min-height: calc(100vh - var(--header-height, 56px) - 48px);
+    min-height: calc(100vh - var(--header-height, 56px));
   }
 
   .docs-content {

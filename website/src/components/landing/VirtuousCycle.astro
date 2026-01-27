@@ -1,11 +1,11 @@
 ---
 const steps = [
-  { label: 'Capabilities', detail: 'declare effects explicitly' },
-  { label: 'Easy Mocking', detail: 'inject test doubles trivially' },
-  { label: 'Fast Tests', detail: 'no real I/O in tests' },
-  { label: 'Dep-Aware Testing', detail: 'only run what changed' },
-  { label: 'Mandatory Tests', detail: 'every function verified' },
-  { label: 'Code Integrity', detail: 'if it compiles, it works' },
+  { num: 1, label: 'Capabilities', detail: 'Declare effects explicitly' },
+  { num: 2, label: 'Easy Mocking', detail: 'Inject test doubles trivially' },
+  { num: 3, label: 'Fast Tests', detail: 'No real I/O in unit tests' },
+  { num: 4, label: 'Dep-Aware Testing', detail: 'Only run what changed' },
+  { num: 5, label: 'Mandatory Tests', detail: 'Every function verified' },
+  { num: 6, label: 'Code Integrity', detail: 'If it compiles, it works' },
 ];
 ---
 
@@ -15,30 +15,26 @@ const steps = [
     <p class="cycle-subtitle">
       Each design decision reinforces the next, creating a system where verification is practical, not painful.
     </p>
-    <div class="cycle-steps">
-      {steps.map((step, i) => (
-        <div class="cycle-step">
-          <div class="step-number">{i + 1}</div>
-          <div class="step-content">
-            <div class="step-label">{step.label}</div>
-            <div class="step-detail">{step.detail}</div>
+
+    <div class="cycle-grid">
+      {steps.map((step) => (
+        <div class="cycle-card">
+          <div class="card-number">{step.num}</div>
+          <div class="card-content">
+            <h3 class="card-label">{step.label}</h3>
+            <p class="card-detail">{step.detail}</p>
           </div>
-          {i < steps.length - 1 && (
-            <div class="step-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M5 12h14M12 5l7 7-7 7"/>
-              </svg>
-            </div>
-          )}
         </div>
       ))}
     </div>
+
   </div>
 </section>
 
 <style>
   .cycle {
     padding: var(--space-16) 0;
+    background: var(--color-bg-secondary);
   }
 
   .cycle-inner {
@@ -51,6 +47,8 @@ const steps = [
     text-align: center;
     margin-bottom: var(--space-3);
     font-size: var(--text-3xl);
+    font-weight: var(--weight-bold);
+    color: var(--color-text-primary);
   }
 
   .cycle-subtitle {
@@ -63,66 +61,70 @@ const steps = [
     margin-right: auto;
   }
 
-  .cycle-steps {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: var(--space-2);
+  .cycle-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-4);
   }
 
-  .cycle-step {
+  .cycle-card {
     display: flex;
-    align-items: center;
-    gap: var(--space-2);
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    transition: all var(--transition-fast);
   }
 
-  .step-number {
-    width: 32px;
-    height: 32px;
+  .cycle-card:hover {
+    border-color: var(--color-border-hover);
+    transform: translateY(-2px);
+  }
+
+  .card-number {
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
-    background: var(--color-accent-subtle);
-    color: var(--color-accent);
+    background: var(--color-accent);
+    color: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: var(--text-sm);
-    font-weight: var(--weight-semibold);
+    font-weight: var(--weight-bold);
     flex-shrink: 0;
   }
 
-  .step-content {
-    text-align: left;
+  .card-content {
+    flex: 1;
+    min-width: 0;
   }
 
-  .step-label {
+  .card-label {
     font-weight: var(--weight-semibold);
-    font-size: var(--text-sm);
+    font-size: var(--text-base);
     color: var(--color-text-primary);
+    margin: 0 0 var(--space-1) 0;
   }
 
-  .step-detail {
-    font-size: var(--text-xs);
-    color: var(--color-text-muted);
+  .card-detail {
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    margin: 0;
+    line-height: var(--leading-relaxed);
   }
 
-  .step-arrow {
-    color: var(--color-text-muted);
-    flex-shrink: 0;
-    margin: 0 var(--space-1);
-  }
-
-  @media (max-width: 768px) {
-    .cycle-steps {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: var(--space-4);
+  @media (max-width: 900px) {
+    .cycle-grid {
+      grid-template-columns: repeat(2, 1fr);
     }
+  }
 
-    .step-arrow {
-      transform: rotate(90deg);
-      align-self: center;
-      margin: 0;
+  @media (max-width: 600px) {
+    .cycle-grid {
+      grid-template-columns: 1fr;
     }
   }
 </style>
