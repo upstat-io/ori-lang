@@ -1,6 +1,6 @@
 # Appendix A: Salsa Patterns
 
-Common patterns for working with Salsa in the Sigil compiler.
+Common patterns for working with Salsa in the Ori compiler.
 
 ## Query Definition
 
@@ -121,7 +121,7 @@ pub struct Database {
 impl salsa::Database for Database {
     fn salsa_event(&self, event: &dyn Fn() -> salsa::Event) {
         // Optional: log events for debugging
-        if std::env::var("SIGIL_DEBUG").is_ok() {
+        if std::env::var("ORI_DEBUG").is_ok() {
             eprintln!("[Salsa] {:?}", event());
         }
     }
@@ -199,7 +199,7 @@ fn test_incremental() {
     let mut db = Database::default();
 
     // Initial compilation
-    let file = SourceFile::new(&db, "let x = 1".into(), "test.si".into());
+    let file = SourceFile::new(&db, "let x = 1".into(), "test.ori".into());
     let result1 = typed(&db, file);
 
     // Modify and recompile

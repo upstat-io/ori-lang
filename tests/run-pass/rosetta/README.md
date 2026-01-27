@@ -1,6 +1,6 @@
-# Rosetta Code Tasks for Sigil
+# Rosetta Code Tasks for Ori
 
-This folder contains implementations of [Rosetta Code](https://rosettacode.org) programming tasks in Sigil.
+This folder contains implementations of [Rosetta Code](https://rosettacode.org) programming tasks in Ori.
 
 ## Folder Structure
 
@@ -10,13 +10,13 @@ Each task has its own folder with source and test files:
 rosetta/
 ├── README.md
 ├── hello_world/
-│   ├── hello_world.si
+│   ├── hello_world.ori
 │   └── _test/
-│       └── hello_world.test.si
+│       └── hello_world.test.ori
 ├── fizzbuzz/
-│   ├── fizzbuzz.si
+│   ├── fizzbuzz.ori
 │   └── _test/
-│       └── fizzbuzz.test.si
+│       └── fizzbuzz.test.ori
 └── ...
 ```
 
@@ -24,12 +24,12 @@ rosetta/
 
 Run a task:
 ```bash
-cargo run -- run rosetta/hello_world/hello_world.si
+cargo run -- run rosetta/hello_world/hello_world.ori
 ```
 
 Run tests for a task:
 ```bash
-cargo run -- test rosetta/hello_world/_test/hello_world.test.si
+cargo run -- test rosetta/hello_world/_test/hello_world.test.ori
 ```
 
 ## Implementation Progress

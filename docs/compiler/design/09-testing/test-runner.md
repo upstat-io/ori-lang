@@ -5,7 +5,7 @@ The test runner executes discovered tests in parallel and reports results.
 ## Location
 
 ```
-compiler/sigilc/src/test/runner.rs (~494 lines)
+compiler/oric/src/test/runner.rs (~494 lines)
 ```
 
 ## Runner Structure
@@ -285,17 +285,17 @@ Benefits:
 
 ```bash
 # Run all tests
-sigil test
+ori test
 
 # Run tests matching pattern
-sigil test math
+ori test math
 
 # Run tests for specific function
-sigil test --target add
+ori test --target add
 
 # Run with parallelism
-sigil test --jobs 8
+ori test --jobs 8
 
 # Output JSON
-sigil test --format json
+ori test --format json
 ```

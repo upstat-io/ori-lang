@@ -1,6 +1,6 @@
 # Arena Allocation
 
-The Sigil compiler uses arena allocation for expressions. This document explains the implementation and rationale.
+The Ori compiler uses arena allocation for expressions. This document explains the implementation and rationale.
 
 ## What is Arena Allocation?
 

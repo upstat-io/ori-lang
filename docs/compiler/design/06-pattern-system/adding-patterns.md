@@ -1,6 +1,6 @@
 # Adding New Patterns
 
-This guide explains how to add new patterns to the Sigil compiler.
+This guide explains how to add new patterns to the Ori compiler.
 
 ## Overview
 
@@ -13,7 +13,7 @@ To add a new pattern:
 
 ## Step 1: Create Pattern Struct
 
-Create a new file in `compiler/sigilc/src/patterns/`:
+Create a new file in `compiler/oric/src/patterns/`:
 
 ```rust
 // patterns/take.rs
@@ -153,7 +153,7 @@ mod tests {
 
 ## Step 5: Add Documentation
 
-Update `docs/sigil_lang/0.1-alpha/spec/10-patterns.md`:
+Update `docs/ori_lang/0.1-alpha/spec/10-patterns.md`:
 
 ```markdown
 ### take
@@ -170,7 +170,7 @@ take(over: [T], count: int) -> [T]
 - `.count` - Number of elements to take
 
 **Example:**
-```sigil
+```ori
 take(over: [1, 2, 3, 4, 5], count: 3)  // [1, 2, 3]
 ```
 ```

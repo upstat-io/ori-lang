@@ -1,11 +1,11 @@
 # Parser Overview
 
-The Sigil parser transforms a token stream into an AST. It uses recursive descent parsing with operator precedence handling.
+The Ori parser transforms a token stream into an AST. It uses recursive descent parsing with operator precedence handling.
 
 ## Location
 
 ```
-compiler/sigil_parse/src/
+compiler/ori_parse/src/
 ├── lib.rs              # Parser struct and entry point
 ├── error.rs            # Parse error types
 ├── stack.rs            # Stack safety (stacker integration)
@@ -25,8 +25,8 @@ compiler/sigil_parse/src/
 ```
 
 The parser is a separate crate with dependencies:
-- `sigil_ir` - for `Token`, `TokenKind`, `Span`, `ExprArena`, etc.
-- `sigil_diagnostic` - for `Diagnostic`, `ErrorCode`
+- `ori_ir` - for `Token`, `TokenKind`, `Span`, `ExprArena`, etc.
+- `ori_diagnostic` - for `Diagnostic`, `ErrorCode`
 - `stacker` - for stack overflow protection on deeply nested expressions
 
 ## Design Goals

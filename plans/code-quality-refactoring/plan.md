@@ -8,7 +8,7 @@ Before starting:
 1. Familiarize yourself with `CLAUDE.md` (project overview)
 2. Review `docs/compiler/design/appendices/E-coding-guidelines.md` (coding standards)
 3. Ensure `cargo t` passes (all Rust unit tests)
-4. Ensure `cargo st` passes (all Sigil language tests)
+4. Ensure `cargo st` passes (all Ori language tests)
 
 ### Execution Rules
 
@@ -17,7 +17,7 @@ Before starting:
 3. **Within each section**, complete items top to bottom
 4. **Each item requires**: Implementation → Tests → Verification
 5. **Do not skip phases** unless marked complete or explicitly skipped
-6. **Run tests after each change** — `cargo t` for Rust, `cargo st` for Sigil
+6. **Run tests after each change** — `cargo t` for Rust, `cargo st` for Ori
 
 ### Item Structure
 
@@ -66,14 +66,14 @@ Before starting:
 **Goal**: Eliminate constructor duplication in TypeChecker by introducing a builder pattern.
 
 **Implementation**:
-- Created `compiler/sigilc/src/typeck/checker/builder.rs` with `TypeCheckerBuilder`
+- Created `compiler/oric/src/typeck/checker/builder.rs` with `TypeCheckerBuilder`
 - Refactored all 4 constructors to delegate to builder
 - Added 5 builder tests (default, with_source, with_context, with_diagnostic_config, combined)
 - All tests pass: `cargo t && cargo st`
 
 ### 1.1 Create TypeCheckerBuilder
 
-- [x] **Implement**: Create `TypeCheckerBuilder` struct in new file `compiler/sigilc/src/typeck/checker/builder.rs`
+- [x] **Implement**: Create `TypeCheckerBuilder` struct in new file `compiler/oric/src/typeck/checker/builder.rs`
   - [x] Define builder struct with required fields (`arena`, `interner`) and optional fields
   - [x] Implement `new()` constructor taking required references
   - [x] Add `#[must_use]` chainable setter methods: `with_source()`, `with_context()`, `with_diagnostic_config()`
@@ -83,7 +83,7 @@ Before starting:
 
 ### 1.2 Integrate Builder into mod.rs
 
-- [x] **Implement**: Add `mod builder;` and `pub use builder::TypeCheckerBuilder;` to `compiler/sigilc/src/typeck/checker/mod.rs`
+- [x] **Implement**: Add `mod builder;` and `pub use builder::TypeCheckerBuilder;` to `compiler/oric/src/typeck/checker/mod.rs`
   - [x] **Verify**: Module compiles without errors
 
 ### 1.3 Refactor Constructors to Use Builder
@@ -108,7 +108,7 @@ Before starting:
 **Goal**: Replace manual save/restore patterns with RAII guards to prevent bugs from forgotten restores.
 
 **Implementation**:
-- Created `compiler/sigilc/src/typeck/checker/scope_guards.rs`
+- Created `compiler/oric/src/typeck/checker/scope_guards.rs`
 - Implemented closure-based scope methods: `with_capability_scope()`, `with_empty_capability_scope()`, `with_impl_scope()`
 - Refactored `check_function`, `check_test`, `check_impl_methods` to use scope methods
 - Removed old `enter_impl`/`exit_impl` methods
@@ -140,7 +140,7 @@ Before starting:
 **Goal**: Implement `Eq` and `Hash` traits for `Value` to enable use in collections and eliminate duplicate helper functions.
 
 **Implementation**:
-- Added `impl Eq for Value {}` in `compiler/sigil_patterns/src/value/mod.rs`
+- Added `impl Eq for Value {}` in `compiler/ori_patterns/src/value/mod.rs`
 - Added `impl Hash for Value` with proper discriminant handling
 - Updated `PartialEq` to include `Struct` and `Map` variants
 - Deleted duplicate `values_equal()` and `hash_value()` functions from method_dispatch.rs
@@ -174,7 +174,7 @@ Before starting:
 **Goal**: Create consistent key types across registries to improve type safety and reduce string allocations.
 
 **Implementation**:
-- Created `compiler/sigil_eval/src/method_key.rs` with `MethodKey` newtype
+- Created `compiler/ori_eval/src/method_key.rs` with `MethodKey` newtype
 - Refactored `UserMethodRegistry` to use `MethodKey` instead of `(String, String)` tuples
 - Updated all registry methods: `register`, `register_derived`, `lookup`, `lookup_derived`, `lookup_any`, `has_method`, `all_methods`, `all_derived_methods`
 - Added 4 MethodKey tests
@@ -244,7 +244,7 @@ Before starting:
 **Goal**: Split TypeChecker's 18 fields into logical component structs for better organization and testability.
 
 **Implementation**:
-- Created `compiler/sigilc/src/typeck/checker/components.rs`
+- Created `compiler/oric/src/typeck/checker/components.rs`
 - Defined component structs: `CheckContext`, `InferenceState`, `Registries`, `DiagnosticState`, `ScopeContext`
 - Updated TypeChecker to use 5 component fields instead of 18 flat fields
 - Updated TypeCheckerBuilder to construct component structs
@@ -297,7 +297,7 @@ Before starting:
 **Goal**: Replace cascading if-else in method dispatch with extensible Chain of Responsibility pattern.
 
 **Implementation**:
-- Created `compiler/sigilc/src/eval/evaluator/resolvers/` module with:
+- Created `compiler/oric/src/eval/evaluator/resolvers/` module with:
   - `mod.rs` - MethodResolver trait, MethodDispatcher, MethodResolution enum, CollectionMethod enum
   - `user.rs` - UserMethodResolver (priority 0)
   - `derived.rs` - DerivedMethodResolver (priority 1)
@@ -366,7 +366,7 @@ Before starting:
 # Rust unit tests (all workspace crates)
 cargo t
 
-# Sigil language tests (all)
+# Ori language tests (all)
 cargo st
 
 # Filter by test pattern (use --lib for library tests)
@@ -459,15 +459,15 @@ Each phase can be rolled back independently:
 **Lines removed**: ~100+ lines of duplicate code (values_equal, hash_value functions)
 
 **New files created**:
-- `compiler/sigilc/src/typeck/checker/builder.rs` - TypeCheckerBuilder
-- `compiler/sigilc/src/typeck/checker/scope_guards.rs` - Closure-based scope management
-- `compiler/sigilc/src/typeck/checker/components.rs` - Component struct definitions
-- `compiler/sigil_eval/src/method_key.rs` - MethodKey newtype
-- `compiler/sigilc/src/eval/evaluator/resolvers/mod.rs` - MethodResolver trait, MethodDispatcher
-- `compiler/sigilc/src/eval/evaluator/resolvers/user.rs` - UserMethodResolver
-- `compiler/sigilc/src/eval/evaluator/resolvers/derived.rs` - DerivedMethodResolver
-- `compiler/sigilc/src/eval/evaluator/resolvers/collection.rs` - CollectionMethodResolver
-- `compiler/sigilc/src/eval/evaluator/resolvers/builtin.rs` - BuiltinMethodResolver
+- `compiler/oric/src/typeck/checker/builder.rs` - TypeCheckerBuilder
+- `compiler/oric/src/typeck/checker/scope_guards.rs` - Closure-based scope management
+- `compiler/oric/src/typeck/checker/components.rs` - Component struct definitions
+- `compiler/ori_eval/src/method_key.rs` - MethodKey newtype
+- `compiler/oric/src/eval/evaluator/resolvers/mod.rs` - MethodResolver trait, MethodDispatcher
+- `compiler/oric/src/eval/evaluator/resolvers/user.rs` - UserMethodResolver
+- `compiler/oric/src/eval/evaluator/resolvers/derived.rs` - DerivedMethodResolver
+- `compiler/oric/src/eval/evaluator/resolvers/collection.rs` - CollectionMethodResolver
+- `compiler/oric/src/eval/evaluator/resolvers/builtin.rs` - BuiltinMethodResolver
 
 ---
 
@@ -477,17 +477,17 @@ Each phase can be rolled back independently:
 
 | Phase | Primary Files |
 |-------|---------------|
-| 1 | `compiler/sigilc/src/typeck/checker/mod.rs`, `builder.rs` |
-| 2 | `compiler/sigilc/src/typeck/checker/mod.rs`, `scope_guards.rs` |
-| 3 | `compiler/sigil_patterns/src/value/mod.rs`, `compiler/sigilc/src/eval/evaluator/method_dispatch.rs` |
-| 4 | `compiler/sigil_eval/src/user_methods.rs`, `method_key.rs` |
-| 5 | `compiler/sigilc/src/typeck/checker/mod.rs` |
-| 6 | `compiler/sigilc/src/typeck/checker/mod.rs`, `components.rs`, `builder.rs`, all checker submodules, infer module |
-| 7 | `compiler/sigilc/src/eval/evaluator/method_dispatch.rs`, `resolvers/mod.rs`, `resolvers/user.rs`, `resolvers/derived.rs`, `resolvers/collection.rs`, `resolvers/builtin.rs` |
+| 1 | `compiler/oric/src/typeck/checker/mod.rs`, `builder.rs` |
+| 2 | `compiler/oric/src/typeck/checker/mod.rs`, `scope_guards.rs` |
+| 3 | `compiler/ori_patterns/src/value/mod.rs`, `compiler/oric/src/eval/evaluator/method_dispatch.rs` |
+| 4 | `compiler/ori_eval/src/user_methods.rs`, `method_key.rs` |
+| 5 | `compiler/oric/src/typeck/checker/mod.rs` |
+| 6 | `compiler/oric/src/typeck/checker/mod.rs`, `components.rs`, `builder.rs`, all checker submodules, infer module |
+| 7 | `compiler/oric/src/eval/evaluator/method_dispatch.rs`, `resolvers/mod.rs`, `resolvers/user.rs`, `resolvers/derived.rs`, `resolvers/collection.rs`, `resolvers/builtin.rs` |
 
 ### Existing Patterns to Reference
 
-- **Builder Pattern**: `compiler/sigilc/src/eval/evaluator/builder.rs`
+- **Builder Pattern**: `compiler/oric/src/eval/evaluator/builder.rs`
 - **RAII Guards**: Rust stdlib `MutexGuard`, `RefMut`
-- **Trait Implementation**: `compiler/sigil_patterns/src/value/mod.rs:455` (PartialEq)
-- **Registry Pattern**: `compiler/sigil_eval/src/user_methods.rs`
+- **Trait Implementation**: `compiler/ori_patterns/src/value/mod.rs:455` (PartialEq)
+- **Registry Pattern**: `compiler/ori_eval/src/user_methods.rs`

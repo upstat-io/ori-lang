@@ -1,6 +1,6 @@
 # Type Inference
 
-Sigil uses Hindley-Milner (HM) type inference, extended with features for patterns and capabilities.
+Ori uses Hindley-Milner (HM) type inference, extended with features for patterns and capabilities.
 
 ## How HM Inference Works
 
@@ -123,7 +123,7 @@ fn apply_subst(&self, ty: &Type) -> Type {
 
 ### Let Binding
 
-```sigil
+```ori
 let x = 42
 let y = x + 1
 ```
@@ -139,7 +139,7 @@ let y = x + 1
 
 ### Function Application
 
-```sigil
+```ori
 @double (x: int) -> int = x * 2
 double(21)
 ```
@@ -152,7 +152,7 @@ double(21)
 
 ### Generic Function
 
-```sigil
+```ori
 @identity<T> (x: T) -> T = x
 identity(42)
 identity("hello")
@@ -172,7 +172,7 @@ identity("hello")
 
 ### List Inference
 
-```sigil
+```ori
 let xs = [1, 2, 3]
 let ys = map(over: xs, transform: x -> x * 2)
 ```
@@ -193,7 +193,7 @@ let ys = map(over: xs, transform: x -> x * 2)
 
 Variables bound with `let` can be polymorphic:
 
-```sigil
+```ori
 let id = x -> x           // forall T. T -> T
 let a = id(42)            // Int
 let b = id("hello")       // String

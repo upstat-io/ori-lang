@@ -43,7 +43,7 @@ Rust doesn't have variadic functions in the language; uses macros instead.
 
 ### Syntax
 
-```sigil
+```ori
 // Variadic parameter (receives as list)
 @sum (numbers: ...int) -> int = run(
     numbers.fold(initial: 0, op: (acc, n) -> acc + n)
@@ -107,7 +107,7 @@ SpreadExpr       = '...' Expression ;
   - [ ] Handle spread expansion
   - [ ] Mixed literal and spread
 
-- [ ] **Test**: `tests/spec/functions/variadic.si`
+- [ ] **Test**: `tests/spec/functions/variadic.ori`
   - [ ] Basic variadic function
   - [ ] With required parameters
   - [ ] Spread operator
@@ -121,7 +121,7 @@ SpreadExpr       = '...' Expression ;
 
 ### Syntax
 
-```sigil
+```ori
 // Require at least one argument
 @max (first: int, rest: ...int) -> int = run(
     rest.fold(initial: first, op: (a, b) -> if a > b then a else b)
@@ -150,7 +150,7 @@ max()          // Error: max requires at least 1 argument
   - [ ] "expected at least N arguments, got M"
   - [ ] Show required vs optional
 
-- [ ] **Test**: `tests/spec/functions/variadic_min.si`
+- [ ] **Test**: `tests/spec/functions/variadic_min.ori`
   - [ ] Minimum 1 with required param
   - [ ] Minimum 0 (variadic only)
   - [ ] Error cases
@@ -163,7 +163,7 @@ max()          // Error: max requires at least 1 argument
 
 ### Syntax
 
-```sigil
+```ori
 // Generic variadic with trait bound
 @print_all<T: Printable> (items: ...T) -> void = run(
     for item in items do print(item.to_str())
@@ -193,7 +193,7 @@ print_any(1, "hello", true)     // OK: all Printable
   - [ ] Infer common type
   - [ ] Trait object boxing
 
-- [ ] **Test**: `tests/spec/functions/variadic_bounds.si`
+- [ ] **Test**: `tests/spec/functions/variadic_bounds.ori`
   - [ ] Generic variadic
   - [ ] Trait object variadic
   - [ ] Bound violations
@@ -206,7 +206,7 @@ print_any(1, "hello", true)     // OK: all Printable
 
 ### Syntax
 
-```sigil
+```ori
 // Declare C variadic function
 extern "C" {
     @printf (format: *byte, ...) -> c_int  // C-style variadic
@@ -218,9 +218,9 @@ unsafe {
 }
 ```
 
-### Distinction from Sigil Variadics
+### Distinction from Ori Variadics
 
-| Feature | Sigil `...T` | C `...` |
+| Feature | Ori `...T` | C `...` |
 |---------|--------------|---------|
 | Type safety | Homogeneous, checked | Unchecked |
 | Context | Safe code | Unsafe only |
@@ -235,7 +235,7 @@ unsafe {
 
 - [ ] **Parser**: Parse C variadics
   - [ ] `...` without type in extern
-  - [ ] Distinguish from Sigil variadics
+  - [ ] Distinguish from Ori variadics
 
 - [ ] **Type checker**: C variadic rules
   - [ ] Must be in extern block
@@ -246,7 +246,7 @@ unsafe {
   - [ ] Platform-specific ABI
   - [ ] Argument passing conventions
 
-- [ ] **Test**: `tests/spec/ffi/c_variadics.si`
+- [ ] **Test**: `tests/spec/ffi/c_variadics.ori`
   - [ ] printf call
   - [ ] Mixed argument types
   - [ ] Requires unsafe
@@ -259,7 +259,7 @@ unsafe {
 
 ### Consideration
 
-```sigil
+```ori
 // Should variadic work in patterns?
 @process_commands (commands: ...(str, int)) -> void = run(
     for (name, priority) in commands do
@@ -283,7 +283,7 @@ Defer to future consideration. Current phase focuses on function parameters only
 - [ ] Homogeneous variadics work
 - [ ] Spread operator works
 - [ ] C variadic interop works (after Phase 11)
-- [ ] All tests pass: `cargo test && sigil test tests/spec/functions/`
+- [ ] All tests pass: `cargo test && ori test tests/spec/functions/`
 
 **Exit Criteria**: Can implement `format()` and call C's `printf()`
 
@@ -291,8 +291,8 @@ Defer to future consideration. Current phase focuses on function parameters only
 
 ## Example: Format Function
 
-```sigil
-// Sigil's format function (like Python's format or Rust's format!)
+```ori
+// Ori's format function (like Python's format or Rust's format!)
 @format (template: str, args: ...dyn Printable) -> str = run(
     let mut result = ""
     let mut arg_index = 0

@@ -5,13 +5,13 @@ Pattern fusion is an optimization that combines multiple patterns into a single 
 ## Location
 
 ```
-compiler/sigilc/src/patterns/fusion.rs (~420 lines)
+compiler/oric/src/patterns/fusion.rs (~420 lines)
 ```
 
 ## Motivation
 
 Without fusion:
-```sigil
+```ori
 // Creates intermediate list after map
 filter(
     over: map(over: items, transform: x -> x * 2),
@@ -181,7 +181,7 @@ impl FusionOptimizer {
 
 ### map → map
 
-```sigil
+```ori
 map(over: map(over: xs, transform: f), transform: g)
 // Becomes:
 map(over: xs, transform: x -> g(f(x)))
@@ -200,7 +200,7 @@ impl MapPattern {
 
 ### map → filter
 
-```sigil
+```ori
 filter(over: map(over: xs, transform: f), predicate: p)
 // Becomes:
 map_filter(over: xs, transform: f, predicate: p)
@@ -208,7 +208,7 @@ map_filter(over: xs, transform: f, predicate: p)
 
 ### filter → filter
 
-```sigil
+```ori
 filter(over: filter(over: xs, predicate: p1), predicate: p2)
 // Becomes:
 filter(over: xs, predicate: x -> p1(x) && p2(x))
@@ -216,7 +216,7 @@ filter(over: xs, predicate: x -> p1(x) && p2(x))
 
 ### filter → map
 
-```sigil
+```ori
 map(over: filter(over: xs, predicate: p), transform: f)
 // Becomes:
 filter_map(over: xs, predicate: p, transform: f)
@@ -250,7 +250,7 @@ Conditions:
 Disable fusion for debugging:
 
 ```bash
-SIGIL_NO_FUSION=1 sigil run file.si
+ORI_NO_FUSION=1 ori run file.ori
 ```
 
 Or in code:

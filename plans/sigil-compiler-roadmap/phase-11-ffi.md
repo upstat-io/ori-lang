@@ -1,8 +1,8 @@
 # Phase 11: Foreign Function Interface (FFI)
 
-**Goal**: Enable Sigil to call C libraries and system APIs
+**Goal**: Enable Ori to call C libraries and system APIs
 
-**Criticality**: **CRITICAL** — Without FFI, Sigil cannot integrate with the software ecosystem
+**Criticality**: **CRITICAL** — Without FFI, Ori cannot integrate with the software ecosystem
 
 ---
 
@@ -12,7 +12,7 @@
 
 | Question | Decision | Rationale |
 |----------|----------|-----------|
-| Should FFI require unsafe? | Yes | C code can violate Sigil's safety guarantees |
+| Should FFI require unsafe? | Yes | C code can violate Ori's safety guarantees |
 | How to integrate with capabilities? | `uses Unsafe` capability | Consistent with effect tracking |
 | Support C++ directly? | No | C ABI only; C++ via extern "C" |
 | Support callbacks? | Yes, Phase 1.4 | Required for many C APIs |
@@ -20,7 +20,7 @@
 
 ### Capability Integration
 
-```sigil
+```ori
 // FFI functions require Unsafe capability
 @call_c_function () -> int uses Unsafe = extern("c_function")
 
@@ -73,7 +73,7 @@ ExternStatic   = '$' Identifier ':' Type ;
 
 ### Semantics
 
-```sigil
+```ori
 // Declare external C functions
 extern "C" {
     @strlen (s: *byte) -> int
@@ -109,7 +109,7 @@ extern "C" {
   - [ ] Handle calling convention
   - [ ] Link external symbols
 
-- [ ] **Test**: `tests/spec/ffi/extern_blocks.si`
+- [ ] **Test**: `tests/spec/ffi/extern_blocks.ori`
   - [ ] Basic extern function declaration
   - [ ] Multiple functions in one block
   - [ ] External statics
@@ -122,7 +122,7 @@ extern "C" {
 
 ### Primitive Mappings
 
-| Sigil Type | C Type | Size |
+| Ori Type | C Type | Size |
 |------------|--------|------|
 | `c_char` | `char` | 1 byte |
 | `c_short` | `short` | 2 bytes |
@@ -136,7 +136,7 @@ extern "C" {
 
 ### Pointer Types
 
-```sigil
+```ori
 *T           // Raw pointer to T (nullable)
 *mut T       // Mutable raw pointer
 *byte        // void* equivalent
@@ -144,7 +144,7 @@ extern "C" {
 
 ### Struct Layout
 
-```sigil
+```ori
 #repr(C)
 type Point = {
     x: c_int,
@@ -172,7 +172,7 @@ type Point = {
   - [ ] Warn on non-FFI-safe types
   - [ ] Validate `#repr(C)` structs
 
-- [ ] **Test**: `tests/spec/ffi/c_types.si`
+- [ ] **Test**: `tests/spec/ffi/c_types.ori`
   - [ ] All primitive C types
   - [ ] Pointer operations
   - [ ] Repr(C) structs
@@ -185,7 +185,7 @@ type Point = {
 
 ### Syntax
 
-```sigil
+```ori
 unsafe {
     // Operations that require manual safety guarantees
     let ptr = malloc(100)
@@ -221,12 +221,12 @@ Inside `unsafe`:
   - [ ] Pointer dereference
   - [ ] Raw memory access
 
-- [ ] **Test**: `tests/spec/ffi/unsafe_blocks.si`
+- [ ] **Test**: `tests/spec/ffi/unsafe_blocks.ori`
   - [ ] Basic unsafe block
   - [ ] Nested unsafe
   - [ ] Unsafe operations outside block (compile error)
 
-- [ ] **Test**: `tests/compile-fail/ffi/unsafe_required.si`
+- [ ] **Test**: `tests/compile-fail/ffi/unsafe_required.ori`
   - [ ] Pointer deref outside unsafe
   - [ ] Extern call without capability
 
@@ -238,7 +238,7 @@ Inside `unsafe`:
 
 ### Operations
 
-```sigil
+```ori
 // Creation
 let ptr: *int = raw_ptr(some_int)      // Take address
 let null_ptr: *int = null()            // Null pointer
@@ -276,7 +276,7 @@ let opt = ptr.as_option()              // *T -> Option<&T>
   - [ ] Address-of `raw_ptr(x)`
   - [ ] Offset `.offset(n)`
 
-- [ ] **Test**: `tests/spec/ffi/raw_pointers.si`
+- [ ] **Test**: `tests/spec/ffi/raw_pointers.ori`
   - [ ] Pointer creation
   - [ ] Null checks
   - [ ] Dereference (in unsafe)
@@ -290,7 +290,7 @@ let opt = ptr.as_option()              // *T -> Option<&T>
 
 ### Design
 
-```sigil
+```ori
 // The Unsafe capability
 trait Unsafe {
     // Marker trait - no methods
@@ -328,7 +328,7 @@ type DenyUnsafe impl Unsafe = {}  // Compile error if used
   - [ ] Require `uses Unsafe` for extern calls
   - [ ] Require `uses Unsafe` for unsafe blocks
 
-- [ ] **Test**: `tests/spec/ffi/unsafe_capability.si`
+- [ ] **Test**: `tests/spec/ffi/unsafe_capability.ori`
   - [ ] Function requiring Unsafe
   - [ ] Providing Unsafe in tests
   - [ ] Missing capability error
@@ -341,7 +341,7 @@ type DenyUnsafe impl Unsafe = {}  // Compile error if used
 
 ### Link Attributes
 
-```sigil
+```ori
 #link(name: "sqlite3")]
 extern "C" {
     @sqlite3_open (filename: *byte, ppDb: **sqlite3) -> c_int
@@ -365,10 +365,10 @@ extern "C" {
   - [ ] Library search
 
 - [ ] **Build system**: Handle native dependencies
-  - [ ] `sigil.toml` native deps section
+  - [ ] `ori.toml` native deps section
   - [ ] pkg-config integration
 
-- [ ] **Test**: `tests/spec/ffi/linking.si`
+- [ ] **Test**: `tests/spec/ffi/linking.ori`
   - [ ] Link to libc
   - [ ] Link to libm
   - [ ] Custom library
@@ -381,7 +381,7 @@ extern "C" {
 
 ### Syntax
 
-```sigil
+```ori
 // C function that takes a callback
 extern "C" {
     @qsort (
@@ -414,7 +414,7 @@ qsort(base: arr_ptr, nmemb: len, size: 4, compar: callback)
 
 - [ ] **Spec**: Callback semantics
   - [ ] `extern fn` type syntax
-  - [ ] Conversion from Sigil functions
+  - [ ] Conversion from Ori functions
   - [ ] Lifetime considerations
 
 - [ ] **Types**: Extern function type
@@ -425,7 +425,7 @@ qsort(base: arr_ptr, nmemb: len, size: 4, compar: callback)
   - [ ] Trampoline functions
   - [ ] ABI adaptation
 
-- [ ] **Test**: `tests/spec/ffi/callbacks.si`
+- [ ] **Test**: `tests/spec/ffi/callbacks.ori`
   - [ ] Simple callback
   - [ ] qsort example
   - [ ] Callback with userdata
@@ -440,7 +440,7 @@ qsort(base: arr_ptr, nmemb: len, size: 4, compar: callback)
 - [ ] Can call libc functions (strlen, malloc, free)
 - [ ] Can call libm functions (sin, cos, sqrt)
 - [ ] Can create and use SQLite binding
-- [ ] All tests pass: `cargo test && sigil test tests/spec/ffi/`
+- [ ] All tests pass: `cargo test && ori test tests/spec/ffi/`
 - [ ] `uses Unsafe` properly enforced
 
 **Exit Criteria**: Can write a program that opens and queries a SQLite database
@@ -451,7 +451,7 @@ qsort(base: arr_ptr, nmemb: len, size: 4, compar: callback)
 
 Target capability demonstration:
 
-```sigil
+```ori
 #link(name: "sqlite3")]
 extern "C" {
     @sqlite3_open (filename: *byte, ppDb: **Sqlite3) -> c_int

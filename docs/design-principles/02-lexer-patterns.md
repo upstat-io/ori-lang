@@ -215,7 +215,7 @@ if a > 0 and \
 - Backslash before newline continues line
 - Lexer consumes `\` and newline, continues
 
-### Natural Continuation (Sigil)
+### Natural Continuation (Ori)
 ```
 if a > 0
    && b > 0

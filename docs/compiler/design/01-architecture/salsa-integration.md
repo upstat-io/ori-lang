@@ -1,6 +1,6 @@
 # Salsa Integration
 
-The Sigil compiler uses [Salsa](https://github.com/salsa-rs/salsa), a framework for on-demand, incremental computation. This document explains how Salsa is integrated.
+The Ori compiler uses [Salsa](https://github.com/salsa-rs/salsa), a framework for on-demand, incremental computation. This document explains how Salsa is integrated.
 
 ## What is Salsa?
 
@@ -177,7 +177,7 @@ impl salsa::Database for Database {
 
 Or use environment variable:
 ```bash
-SIGIL_DEBUG=salsa cargo run
+ORI_DEBUG=salsa cargo run
 ```
 
 ## Common Patterns

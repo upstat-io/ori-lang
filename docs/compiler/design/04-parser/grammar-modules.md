@@ -1,11 +1,11 @@
 # Grammar Modules
 
-The Sigil parser organizes grammar rules into separate modules for maintainability.
+The Ori parser organizes grammar rules into separate modules for maintainability.
 
 ## Module Structure
 
 ```
-compiler/sigil_parse/src/
+compiler/ori_parse/src/
 ├── lib.rs              # Parser struct, entry point
 ├── error.rs            # Error types
 └── grammar/

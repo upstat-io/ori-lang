@@ -37,7 +37,7 @@
 
 ### Syntax
 
-```sigil
+```ori
 // Const parameter in type
 type Array<T, const N: int> = {
     data: *T,  // Or internal representation
@@ -79,7 +79,7 @@ ConstType     = 'int' | 'bool' ;
   - [ ] Validate const type (int, bool)
   - [ ] Unification with const values
 
-- [ ] **Test**: `tests/spec/types/const_generics.si`
+- [ ] **Test**: `tests/spec/types/const_generics.ori`
   - [ ] Basic const parameter
   - [ ] Multiple const parameters
   - [ ] Mixed type and const
@@ -92,7 +92,7 @@ ConstType     = 'int' | 'bool' ;
 
 ### Syntax
 
-```sigil
+```ori
 // Array type with const size
 let arr: [int; 5] = [0, 0, 0, 0, 0]
 
@@ -136,7 +136,7 @@ let slice: [int] = arr.as_slice()
   - [ ] Literal inference
   - [ ] Bounds check optimization
 
-- [ ] **Test**: `tests/spec/types/fixed_arrays.si`
+- [ ] **Test**: `tests/spec/types/fixed_arrays.ori`
   - [ ] Array declaration
   - [ ] Array literal with inferred size
   - [ ] Slice conversion
@@ -149,7 +149,7 @@ let slice: [int] = arr.as_slice()
 
 ### Syntax
 
-```sigil
+```ori
 // Arithmetic in const position
 type Matrix<const ROWS: int, const COLS: int> = {
     data: [float; ROWS * COLS],
@@ -193,7 +193,7 @@ type Buffer<const SIZE: int> = {
   - [ ] All operands must be const
   - [ ] Result must be correct type
 
-- [ ] **Test**: `tests/spec/types/const_expressions.si`
+- [ ] **Test**: `tests/spec/types/const_expressions.ori`
   - [ ] Arithmetic in types
   - [ ] Const functions in types
   - [ ] Conditional const
@@ -206,7 +206,7 @@ type Buffer<const SIZE: int> = {
 
 ### Syntax
 
-```sigil
+```ori
 // Bound on const parameter value
 @non_empty_array<const N: int> () -> [int; N]
     where N > 0  // Const bound
@@ -239,7 +239,7 @@ type Buffer<const SIZE: int> = {
   - [ ] Check at instantiation
   - [ ] Error messages
 
-- [ ] **Test**: `tests/spec/types/const_bounds.si`
+- [ ] **Test**: `tests/spec/types/const_bounds.ori`
   - [ ] Positive size constraint
   - [ ] Equality constraint
   - [ ] Bound violation error
@@ -252,7 +252,7 @@ type Buffer<const SIZE: int> = {
 
 ### Syntax
 
-```sigil
+```ori
 // Default value for const parameter
 type Buffer<const SIZE: int = 1024> = {
     data: [byte; SIZE],
@@ -284,7 +284,7 @@ let custom_buf = create_buffer<8192>()    // 8192
   - [ ] When not specified
   - [ ] Before other inference
 
-- [ ] **Test**: `tests/spec/types/const_defaults.si`
+- [ ] **Test**: `tests/spec/types/const_defaults.ori`
   - [ ] Type with default
   - [ ] Function with default
   - [ ] Override default
@@ -297,7 +297,7 @@ let custom_buf = create_buffer<8192>()    // 8192
 
 ### Syntax
 
-```sigil
+```ori
 // Trait with const parameter
 trait FixedSize {
     const SIZE: int
@@ -327,7 +327,7 @@ impl FixedSize for [int; 5] {
   - [ ] Require in impl
   - [ ] Access via type
 
-- [ ] **Test**: `tests/spec/traits/const_associated.si`
+- [ ] **Test**: `tests/spec/traits/const_associated.ori`
   - [ ] Trait with const
   - [ ] Impl with const
   - [ ] Use in generic context
@@ -343,7 +343,7 @@ impl FixedSize for [int; 5] {
 - [ ] Const parameters in types work
 - [ ] Const expressions in type positions work
 - [ ] Const bounds work
-- [ ] All tests pass: `cargo test && sigil test tests/spec/types/`
+- [ ] All tests pass: `cargo test && ori test tests/spec/types/`
 
 **Exit Criteria**: Can implement a matrix library with compile-time dimension checking
 
@@ -351,7 +351,7 @@ impl FixedSize for [int; 5] {
 
 ## Example: Matrix Library
 
-```sigil
+```ori
 type Matrix<const ROWS: int, const COLS: int> = {
     data: [float; ROWS * COLS],
 }

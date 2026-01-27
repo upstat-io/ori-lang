@@ -1,11 +1,11 @@
-# Sigil Compiler Roadmap
+# Ori Compiler Roadmap
 
 > **Unified Implementation Plan** — Merges V3 implementation and language gap fixes into a single dependency-ordered roadmap.
 
 ## Source Plans
 
 This roadmap consolidates:
-- `plans/sigilc-v3-implementation/` — Core compiler implementation
+- `plans/oric-v3-implementation/` — Core compiler implementation
 - `plans/fix-lang-gaps/` — Language gap analysis and fixes
 
 Both source plans are preserved for reference. This roadmap provides the authoritative execution order.
@@ -14,7 +14,7 @@ Both source plans are preserved for reference. This roadmap provides the authori
 
 ## Design Philosophy
 
-From CLAUDE.md — Sigil's core tenets:
+From CLAUDE.md — Ori's core tenets:
 
 1. **Code that proves itself** — Mandatory tests bound to functions
 2. **Dependency-aware integrity** — Change propagates to tests automatically
@@ -154,8 +154,8 @@ Core Complete (1-15) ──→ Phase 21 (Codegen) → Phase 22 (Tooling)
 
 A phase is complete when:
 
-1. **Implemented** — Compiler support in `compiler/sigilc/`
-2. **Specified** — Spec updated in `docs/sigil_lang/0.1-alpha/spec/`
+1. **Implemented** — Compiler support in `compiler/oric/`
+2. **Specified** — Spec updated in `docs/ori_lang/0.1-alpha/spec/`
 3. **Tested** — Tests in `tests/spec/`
 4. **Documented** — CLAUDE.md updated if syntax affected
 
@@ -190,7 +190,7 @@ Milestones align with tiers for consistent tracking.
 
 | Reference | Location |
 |-----------|----------|
-| Spec | `docs/sigil_lang/0.1-alpha/spec/` |
-| Proposals | `docs/sigil_lang/proposals/` |
-| Compiler | `compiler/sigilc/` |
+| Spec | `docs/ori_lang/0.1-alpha/spec/` |
+| Proposals | `docs/ori_lang/proposals/` |
+| Compiler | `compiler/oric/` |
 | Tests | `tests/spec/` |

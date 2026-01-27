@@ -3,12 +3,12 @@
 //! Reads Ori source from stdin, executes it, prints result to stdout.
 //! Designed to run in browser via @wasmer/wasi.
 
-use sigil_ir::StringInterner;
-use sigil_lexer::lex;
-use sigil_parse::parse;
-use sigil_typeck::type_check;
-use sigil_eval::{Environment, Value};
-use sigil_patterns::PatternRegistry;
+use ori_ir::StringInterner;
+use ori_lexer::lex;
+use ori_parse::parse;
+use ori_typeck::type_check;
+use ori_eval::{Environment, Value};
+use ori_patterns::PatternRegistry;
 use std::io::{self, Read};
 use std::sync::Arc;
 
@@ -68,7 +68,7 @@ fn run_ori(source: &str) -> Result<String, String> {
 
     // Register functions
     for func in &parse_result.module.functions {
-        let func_value = Value::Function(sigil_eval::FunctionValue {
+        let func_value = Value::Function(ori_eval::FunctionValue {
             params: parse_result.arena.get_params(func.params).to_vec(),
             body: func.body,
             env: env.capture(),
@@ -97,14 +97,14 @@ fn run_ori(source: &str) -> Result<String, String> {
 }
 
 fn eval_expr(
-    arena: &sigil_ir::ExprArena,
-    expr_id: sigil_ir::ExprId,
+    arena: &ori_ir::ExprArena,
+    expr_id: ori_ir::ExprId,
     env: &mut Environment,
     registry: &PatternRegistry,
     interner: &Arc<StringInterner>,
 ) -> Result<Value, String> {
-    use sigil_ir::ExprKind;
-    use sigil_eval::*;
+    use ori_ir::ExprKind;
+    use ori_eval::*;
 
     let expr = arena.get(expr_id);
     match &expr.kind {

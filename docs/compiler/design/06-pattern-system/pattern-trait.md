@@ -1,6 +1,6 @@
 # Pattern Trait
 
-The `PatternDefinition` trait defines the interface for all patterns in Sigil.
+The `PatternDefinition` trait defines the interface for all patterns in Ori.
 
 ## Trait Definition
 

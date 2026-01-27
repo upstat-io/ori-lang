@@ -6,7 +6,7 @@ Evaluation of the new `let` / `let mut` syntax against syntax design principles.
 
 ## What Was Added
 
-```sigil
+```ori
 // Immutable binding
 let x = compute()
 
@@ -27,7 +27,7 @@ counter = counter + 1
 
 `let` is a leading keyword - immediately distinguishes binding from expression.
 
-```sigil
+```ori
 run(
     let x = compute(),    // Clearly a binding
     x + 1                 // Clearly an expression
@@ -42,7 +42,7 @@ Before (bare `=`), the parser had to disambiguate `x = ...` in context. Now `let
 
 This directly addresses the "Partial" rating from the previous evaluation.
 
-```sigil
+```ori
 let x = 5           // Immutable - explicit
 let mut y = 5       // Mutable - explicit and visible
 
@@ -61,12 +61,12 @@ x = x + 1           // New binding or mutation?
 | Language | Immutable | Mutable |
 |----------|-----------|---------|
 | Rust | `let x = ...` | `let mut x = ...` |
-| **Sigil** | `let x = ...` | `let mut x = ...` |
+| **Ori** | `let x = ...` | `let mut x = ...` |
 | Swift | `let x = ...` | `var x = ...` |
 | Kotlin | `val x = ...` | `var x = ...` |
 | JS | `const x = ...` | `let x = ...` |
 
-Sigil now matches Rust's syntax exactly. This is good for:
+Ori now matches Rust's syntax exactly. This is good for:
 - Developers coming from Rust
 - AI models trained heavily on Rust code
 - Consistent mental model
@@ -75,7 +75,7 @@ Sigil now matches Rust's syntax exactly. This is good for:
 
 **Rating: Pass**
 
-```sigil
+```ori
 // Clear: I intend to mutate this
 let mut total = 0
 for item in items do
@@ -86,7 +86,7 @@ let config = load_config()
 ```
 
 Before, "shadowing as mutation" was clever but confusing:
-```sigil
+```ori
 // Old style: Is this mutation or shadowing?
 config = load_config()
 config = validate(config: config)   // New binding? Same binding? Who knows!
@@ -102,7 +102,7 @@ For AI generating code:
 - Reassignment without `let` is clearly mutation, not new binding
 
 **Reduces ambiguity errors:**
-```sigil
+```ori
 // AI knows exactly what to generate
 let result = compute()           // New immutable binding
 let mut buffer = []              // New mutable binding
@@ -115,7 +115,7 @@ buffer = buffer + [item]         // Mutation of existing
 
 All bindings require explicit `let` or `let mut`:
 
-```sigil
+```ori
 run(
     let x = 5,           // Immutable binding
     let mut y = 10,      // Mutable binding
@@ -134,7 +134,7 @@ See [Syntax Improvements § 11](13-syntax-improvements.md) for rationale.
 
 Shadowing is allowed with `let`. Each `let` creates a new binding:
 
-```sigil
+```ori
 @process (data: Data) -> Data = run(
     let data = step1(data: data),
     let data = step2(data: data),
@@ -147,7 +147,7 @@ Shadowing is allowed with `let`. Each `let` creates a new binding:
 
 Use `let mut` when you need actual mutation:
 
-```sigil
+```ori
 @sum (items: [int]) -> int = run(
     let mut total = 0,
     for item in items do
@@ -166,7 +166,7 @@ This enables imperative algorithms when appropriate.
 
 Every binding now needs `let`:
 
-```sigil
+```ori
 // Before: 4 tokens
 x = compute()
 
@@ -180,7 +180,7 @@ let x = compute()
 
 With `let mut` available, code might become mutation-heavy:
 
-```sigil
+```ori
 // Bad pattern that's now possible
 let mut x = 0
 let mut y = 0
@@ -197,7 +197,7 @@ z = compute_z(x: x, y: y)
 
 ### 3. Shadowing + Mutation Confusion
 
-```sigil
+```ori
 let mut x = 5
 let x = 10      // Is this shadowing or error?
 x = 15          // Does this affect which x?
@@ -213,7 +213,7 @@ x = 15          // Does this affect which x?
 
 ## Formatter Rules Update
 
-```sigil
+```ori
 // Immutable binding - single line OK
 let x = compute()
 
@@ -269,7 +269,7 @@ The language is now **more beautiful** because:
 3. **Predictability** — Can tell at a glance what's mutable
 4. **Scanability** — `mut` keyword stands out visually
 
-```sigil
+```ori
 @process_items (items: [Item]) -> Summary = run(
     let validated = validate_all(items: items),
     let grouped = group_by(

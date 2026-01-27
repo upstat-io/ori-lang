@@ -1,0 +1,18 @@
+[package]
+name = "ori_patterns"
+description = "Pattern system for the Ori compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ori_ir.workspace = true
+ori_types.workspace = true
+rustc-hash.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true

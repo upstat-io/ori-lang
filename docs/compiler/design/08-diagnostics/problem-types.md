@@ -232,7 +232,7 @@ impl ErrorCode {
 This error occurs when a value's type doesn't match what was expected.
 
 Example:
-```sigil
+```ori
 let x: int = "hello"  // Error: expected int, found str
 ```
 

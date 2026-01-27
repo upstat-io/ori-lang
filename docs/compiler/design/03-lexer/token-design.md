@@ -1,6 +1,6 @@
 # Token Design
 
-This document describes the design of tokens in the Sigil lexer.
+This document describes the design of tokens in the Ori lexer.
 
 ## Token Categories
 
@@ -158,9 +158,9 @@ pub struct Span {
 }
 ```
 
-## Sigil-Specific Tokens
+## Ori-Specific Tokens
 
-### @ (Function Sigil)
+### @ (Function Ori)
 
 ```rust
 At  // @
@@ -170,7 +170,7 @@ At  // @
 @add (a: int, b: int) -> int = ...
 ```
 
-### $ (Config Sigil)
+### $ (Config Ori)
 
 ```rust
 Dollar  // $
@@ -307,7 +307,7 @@ Comments are **not** tokens - they're stripped during lexing:
 // Line comments
 #[regex(r"//[^\n]*", logos::skip)]
 
-// No block comments in Sigil
+// No block comments in Ori
 ```
 
 ## Whitespace

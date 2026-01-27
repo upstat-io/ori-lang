@@ -1,18 +1,18 @@
 # Testing System Overview
 
-The Sigil test system provides test discovery, parallel execution, and coverage tracking. Testing is mandatory in Sigil - every function requires tests.
+The Ori test system provides test discovery, parallel execution, and coverage tracking. Testing is mandatory in Ori - every function requires tests.
 
 ## Location
 
 ```
-compiler/sigilc/src/test/
+compiler/oric/src/test/
 ├── mod.rs              # Module exports
 ├── runner.rs           # Test execution
 ├── discovery.rs        # Test finding
 ├── result.rs           # Test result types
 └── error_matching.rs   # ExpectedError matching for compile_fail tests
 
-compiler/sigilc/src/testing/
+compiler/oric/src/testing/
 ├── mod.rs              # Testing utilities
 ├── harness.rs          # Test harness
 └── mocks.rs            # Mock implementations
@@ -31,7 +31,7 @@ compiler/sigilc/src/testing/
 
 Test a specific function:
 
-```sigil
+```ori
 @add (a: int, b: int) -> int = a + b
 
 @test_add tests @add () -> void = run(
@@ -43,7 +43,7 @@ Test a specific function:
 
 Test multiple things or integration:
 
-```sigil
+```ori
 @test_integration () -> void = run(
     let result = process_data(input),
     assert(cond: result.is_valid),
@@ -54,7 +54,7 @@ Test multiple things or integration:
 
 Test multiple functions:
 
-```sigil
+```ori
 @test_math tests @add tests @subtract () -> void = run(
     assert_eq(actual: add(1, 2), expected: 3),
     assert_eq(actual: subtract(5, 3), expected: 2),
@@ -67,7 +67,7 @@ Test multiple functions:
 
 Skip a test:
 
-```sigil
+```ori
 #[skip("not implemented yet")]
 @test_future_feature () -> void = ...
 ```
@@ -76,7 +76,7 @@ Skip a test:
 
 Expect compilation to fail:
 
-```sigil
+```ori
 #[compile_fail("type mismatch")]
 @test_type_error () -> void = run(
     let x: int = "not an int",
@@ -87,7 +87,7 @@ Expect compilation to fail:
 
 The `compile_fail` attribute supports rich error specifications:
 
-```sigil
+```ori
 // Simple message matching (legacy)
 #[compile_fail("type mismatch")]
 
@@ -138,7 +138,7 @@ pub fn matches_expected(
 
 Expect test to fail at runtime:
 
-```sigil
+```ori
 #[fail("assertion failed")]
 @test_expected_failure () -> void = run(
     assert(cond: false),

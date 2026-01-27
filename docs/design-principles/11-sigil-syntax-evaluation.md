@@ -1,6 +1,6 @@
-# Sigil Syntax Evaluation
+# Ori Syntax Evaluation
 
-Evaluation of Sigil's current design against the syntax principles in `10-syntax-design-principles.md`.
+Evaluation of Ori's current design against the syntax principles in `10-syntax-design-principles.md`.
 
 **Rating Scale:** Pass | Partial | Needs Review | Fail
 
@@ -12,7 +12,7 @@ Evaluation of Sigil's current design against the syntax principles in `10-syntax
 
 **Rating: Pass**
 
-Sigil uses distinctive leading markers for all major constructs:
+Ori uses distinctive leading markers for all major constructs:
 
 | Construct | Marker | Example |
 |-----------|--------|---------|
@@ -25,13 +25,13 @@ Sigil uses distinctive leading markers for all major constructs:
 | Impl | `impl` | `impl Eq for Point { ... }` |
 | Visibility | `pub` | `pub @add ...` |
 
-The `@` sigil for functions is particularly strong - it's visually distinctive and enables LL(1) dispatch immediately.
+The `@` ori for functions is particularly strong - it's visually distinctive and enables LL(1) dispatch immediately.
 
 ### 1.2 Unambiguous Grammar (LL(1) Where Possible)
 
 **Rating: Pass**
 
-From the grammar reference, Sigil is largely LL(1):
+From the grammar reference, Ori is largely LL(1):
 
 - **No dangling else:** `if condition then expr else expr` - always requires both branches
 - **Clear expression boundaries:** Patterns use `(...)`, blocks use `run(...)`
@@ -43,7 +43,7 @@ From the grammar reference, Sigil is largely LL(1):
 
 **Rating: Pass**
 
-Sigil can parse without type information:
+Ori can parse without type information:
 
 - Function calls: `foo(x, y)` - always a call
 - Indexing: `arr[i]` - always indexing
@@ -60,7 +60,7 @@ No C++ style `T * x` ambiguity or `foo<T>(x)` parse confusion.
 
 **Rating: Pass**
 
-Sigil enforces singular approaches:
+Ori enforces singular approaches:
 
 | Operation | One Way |
 |-----------|---------|
@@ -78,7 +78,7 @@ No TypeScript-style "three ways to define functions" problem.
 
 Pattern syntax is remarkably consistent:
 
-```sigil
+```ori
 fold(
     over: arr,
     init: 0,
@@ -133,7 +133,7 @@ No surprises. The `??` coalesce operator is lowest, which is intuitive.
 
 **Rating: Pass**
 
-Sigil strongly favors explicitness:
+Ori strongly favors explicitness:
 
 - **No implicit conversions:** `str(value: number)` required
 - **Explicit error propagation:** `try` pattern makes it visible
@@ -148,7 +148,7 @@ From the docs: "If code doesn't look like it calls a function, it shouldn't call
 
 Variables are immutable by default. `let` introduces immutable bindings, `let mut` introduces mutable bindings:
 
-```sigil
+```ori
 let x = 5           // immutable
 let mut y = 5       // mutable, clearly marked
 
@@ -179,15 +179,15 @@ Mutation is syntactically obvious with the `mut` keyword, following Rust's prove
 
 ---
 
-## 4. Sigils and Prefixes
+## 4. Oris and Prefixes
 
-### 4.1 Use Sigils for Namespacing
+### 4.1 Use Oris for Namespacing
 
 **Rating: Pass**
 
-Sigil uses sigils effectively:
+Ori uses oris effectively:
 
-| Sigil | Meaning | Consistency |
+| Ori | Meaning | Consistency |
 |-------|---------|-------------|
 | `@` | Function definition | Always |
 | `$` | Config variable | Always |
@@ -197,7 +197,7 @@ Sigil uses sigils effectively:
 
 The `name:` prefix for pattern properties is particularly clever - it's visually distinct and can't be confused with regular variables.
 
-### 4.2 Consistent Sigil Meaning
+### 4.2 Consistent Ori Meaning
 
 **Rating: Pass**
 
@@ -215,7 +215,7 @@ No symbol overloading across different contexts.
 
 **Rating: Pass**
 
-```sigil
+```ori
 @calculate (amount: int, rate: float) -> float
 //          ^^^^^^ name first, then type
 ```
@@ -226,9 +226,9 @@ Follows the Rust/TypeScript convention of `name: Type` rather than C's `Type nam
 
 **Rating: Pass**
 
-Sigil favors clarity over brevity:
+Ori favors clarity over brevity:
 
-```sigil
+```ori
 @retry_with_backoff (
     operation: () -> Result<T, Error>,
     max_attempts: int,
@@ -242,7 +242,7 @@ Named properties (`over:`, `init:`, `transform:`) are more verbose than position
 
 **Rating: Pass**
 
-```sigil
+```ori
 @sum (arr: [int]) -> int = fold(
     over: arr,
     init: 0,
@@ -257,7 +257,7 @@ In plain text:
 - `fold(...)` - clearly a pattern call
 - `over:`, `init:`, `op:` - clearly named arguments
 
-The `@` sigil and `name:` syntax work without color.
+The `@` ori and `name:` syntax work without color.
 
 ---
 
@@ -267,7 +267,7 @@ The `@` sigil and `name:` syntax work without color.
 
 **Rating: Pass**
 
-Sigil prioritizes clarity over token efficiency, which is the correct trade-off:
+Ori prioritizes clarity over token efficiency, which is the correct trade-off:
 
 - Keywords are clear single tokens
 - Named properties explicit but redundant for humans (fine for AI)
@@ -291,7 +291,7 @@ Error messages show exact locations with suggestions.
 
 Pattern syntax naturally supports addressing:
 
-```sigil
+```ori
 @fetch_data (url: str) -> Result<Data, Error> = retry(
     op: http_get(url: url),        // @fetch_data.retry.op
     attempts: 3,                    // @fetch_data.retry.attempts
@@ -322,7 +322,7 @@ No symbol overloading observed:
 
 No Python-style `(1)` vs `(1,)` tuple ambiguity. Tuples are explicit:
 
-```sigil
+```ori
 x = (1, 2)        // tuple
 y = Point { x: 1 } // struct
 ```
@@ -380,11 +380,11 @@ Grammar designed for keyword-based recovery. All major constructs start with dis
 | **3.1** Explicit Over Implicit | Pass | No implicit conversions |
 | **3.2** Visible Mutability | Pass | `let` vs `let mut` makes mutation explicit |
 | **3.3** No Hidden Control Flow | Pass | `try` is explicit |
-| **4.1** Use Sigils | Pass | `@`, `$`, `name:` |
-| **4.2** Consistent Sigil Meaning | Pass | No overloading |
+| **4.1** Use Oris | Pass | `@`, `$`, `name:` |
+| **4.2** Consistent Ori Meaning | Pass | No overloading |
 | **5.1** Names Before Types | Pass | `name: Type` syntax |
 | **5.2** Reading Over Writing | Pass | Verbose but clear |
-| **5.3** Works Without Highlighting | Pass | Sigils provide context |
+| **5.3** Works Without Highlighting | Pass | Oris provide context |
 | **6.1** Tokenization Efficiency | Pass | Clarity over brevity |
 | **6.2** Error Recovery | Pass | Keyword synchronization |
 | **6.3** Semantic Addressing | Pass | Explicit design goal |
@@ -412,7 +412,7 @@ Grammar designed for keyword-based recovery. All major constructs start with dis
 
 1. **Pattern property syntax** (`name:`) - This is excellent. Clear, unambiguous, self-documenting.
 
-2. **`@` sigil for functions** - Instantly recognizable, enables LL(1) parsing.
+2. **`@` ori for functions** - Instantly recognizable, enables LL(1) parsing.
 
 3. **Context-sensitive keywords** - Allows `map`, `filter`, `fold` as both pattern names and identifiers without conflict.
 
@@ -424,6 +424,6 @@ Grammar designed for keyword-based recovery. All major constructs start with dis
 
 ## Conclusion
 
-Sigil's syntax design is remarkably well-aligned with established syntax design principles. It demonstrates strong awareness of parser-friendliness, consistency, and AI-first considerations. All evaluation criteria now pass.
+Ori's syntax design is remarkably well-aligned with established syntax design principles. It demonstrates strong awareness of parser-friendliness, consistency, and AI-first considerations. All evaluation criteria now pass.
 
 The pattern system with `name:` property syntax is a standout design decision that other languages could learn from. The recent additions of `let` / `let mut` for explicit mutability and natural line continuation further strengthen the design.

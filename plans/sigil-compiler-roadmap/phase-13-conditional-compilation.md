@@ -42,7 +42,7 @@
 
 ### Syntax
 
-```sigil
+```ori
 // On items
 #cfg(target_os: "linux")]
 @linux_specific () -> void = ...
@@ -95,7 +95,7 @@ CfgNot       = 'not' '(' CfgPredicate ')' ;
   - [ ] Prune false branches
   - [ ] Track for error messages
 
-- [ ] **Test**: `tests/spec/cfg/basic.si`
+- [ ] **Test**: `tests/spec/cfg/basic.ori`
   - [ ] Simple cfg
   - [ ] Nested predicates
   - [ ] cfg on various items
@@ -108,7 +108,7 @@ CfgNot       = 'not' '(' CfgPredicate ')' ;
 
 ### Built-in Predicates
 
-```sigil
+```ori
 // Operating system
 #cfg(target_os: "linux")]
 #cfg(target_os: "macos")]
@@ -157,7 +157,7 @@ CfgNot       = 'not' '(' CfgPredicate ')' ;
   - [ ] `std.env.TARGET_ARCH`
   - [ ] Runtime equivalents (for dynamic checks)
 
-- [ ] **Test**: `tests/spec/cfg/platform.si`
+- [ ] **Test**: `tests/spec/cfg/platform.ori`
   - [ ] OS-specific code
   - [ ] Arch-specific code
   - [ ] Cross-platform fallback
@@ -170,8 +170,8 @@ CfgNot       = 'not' '(' CfgPredicate ')' ;
 
 ### Syntax
 
-```sigil
-// In sigil.toml
+```ori
+// In ori.toml
 [features]
 default = ["logging"]
 logging = []
@@ -193,12 +193,12 @@ use std.metrics { Counter, Gauge }
 ### Implementation
 
 - [ ] **Spec**: Feature flag semantics
-  - [ ] Declaration in sigil.toml
+  - [ ] Declaration in ori.toml
   - [ ] Dependency resolution
   - [ ] Default features
 
 - [ ] **Build system**: Feature processing
-  - [ ] Parse sigil.toml features
+  - [ ] Parse ori.toml features
   - [ ] Resolve feature dependencies
   - [ ] Pass to compiler
 
@@ -207,7 +207,7 @@ use std.metrics { Counter, Gauge }
   - [ ] `--no-default-features` flag
   - [ ] `--all-features` flag
 
-- [ ] **Test**: `tests/spec/cfg/features.si`
+- [ ] **Test**: `tests/spec/cfg/features.ori`
   - [ ] Basic feature gating
   - [ ] Feature dependencies
   - [ ] Default features
@@ -220,7 +220,7 @@ use std.metrics { Counter, Gauge }
 
 ### Combinators
 
-```sigil
+```ori
 // All (AND)
 #cfg(all(target_os: "linux", target_arch: "x86_64"))]
 @linux_x64_only () -> void = ...
@@ -258,7 +258,7 @@ use std.metrics { Counter, Gauge }
   - [ ] Boolean logic
   - [ ] Short-circuit for efficiency
 
-- [ ] **Test**: `tests/spec/cfg/compound.si`
+- [ ] **Test**: `tests/spec/cfg/compound.ori`
   - [ ] all() combinations
   - [ ] any() combinations
   - [ ] not() negation
@@ -272,7 +272,7 @@ use std.metrics { Counter, Gauge }
 
 ### cfg_match
 
-```sigil
+```ori
 // Multi-way cfg selection
 let line_ending = cfg_match(
     cfg(target_os: "windows") -> "\r\n",
@@ -290,7 +290,7 @@ let max_threads = cfg_match(
 
 ### cfg! predicate function
 
-```sigil
+```ori
 // Check cfg at compile time, returns bool
 if cfg!(feature: "logging") then
     print("Logging is enabled")
@@ -316,7 +316,7 @@ let debug_mode = cfg!(debug_assertions)
   - [ ] All branches same type
   - [ ] Dead branch elimination
 
-- [ ] **Test**: `tests/spec/cfg/expressions.si`
+- [ ] **Test**: `tests/spec/cfg/expressions.ori`
   - [ ] cfg_match
   - [ ] cfg! function
   - [ ] Type consistency
@@ -327,7 +327,7 @@ let debug_mode = cfg!(debug_assertions)
 
 **Spec section**: `spec/24-conditional-compilation.md § Build Configuration`
 
-### sigil.toml
+### ori.toml
 
 ```toml
 [package]
@@ -356,30 +356,30 @@ custom_key = "custom_value"
 
 ```bash
 # Enable features
-sigil build --features logging,metrics
+ori build --features logging,metrics
 
 # Disable default features
-sigil build --no-default-features --features alloc
+ori build --no-default-features --features alloc
 
 # Enable all features
-sigil build --all-features
+ori build --all-features
 
 # Set custom cfg
-sigil build --cfg custom_key="value"
+ori build --cfg custom_key="value"
 
 # Target cross-compilation
-sigil build --target aarch64-unknown-linux-gnu
+ori build --target aarch64-unknown-linux-gnu
 ```
 
 ### Implementation
 
 - [ ] **Spec**: Build configuration
-  - [ ] sigil.toml format
+  - [ ] ori.toml format
   - [ ] CLI flag reference
   - [ ] Precedence rules
 
 - [ ] **Build system**: Configuration processing
-  - [ ] Parse sigil.toml
+  - [ ] Parse ori.toml
   - [ ] Merge with CLI flags
   - [ ] Pass to compiler
 
@@ -401,14 +401,14 @@ sigil build --target aarch64-unknown-linux-gnu
 
 ### Error Messages
 
-```sigil
+```ori
 // Clear errors for cfg mismatch
 #cfg(target_os: "linux")]
 @linux_only () -> void = ...
 
 // On Windows:
 // error: function `linux_only` is not available on this platform
-//   --> src/main.si:5:1
+//   --> src/main.ori:5:1
 //   |
 // 5 | linux_only()
 //   | ^^^^^^^^^^ requires cfg(target_os: "linux")
@@ -419,7 +419,7 @@ sigil build --target aarch64-unknown-linux-gnu
 
 ### Dead Code Warnings
 
-```sigil
+```ori
 // Warn about never-true cfg
 #cfg(all(target_os: "linux", target_os: "windows"))]
 @impossible () -> void = ...
@@ -456,7 +456,7 @@ sigil build --target aarch64-unknown-linux-gnu
 - [ ] Feature flags work
 - [ ] `cfg_match` expression works
 - [ ] Build system integration complete
-- [ ] All tests pass: `cargo test && sigil test tests/spec/cfg/`
+- [ ] All tests pass: `cargo test && ori test tests/spec/cfg/`
 
 **Exit Criteria**: Can build a cross-platform CLI tool with platform-specific implementations
 
@@ -464,7 +464,7 @@ sigil build --target aarch64-unknown-linux-gnu
 
 ## Example: Cross-Platform Path Handling
 
-```sigil
+```ori
 // Platform-specific path separator
 $PATH_SEP: str = cfg_match(
     cfg(target_os: "windows") -> "\\",

@@ -1,14 +1,14 @@
-# Contributing to Sigil
+# Contributing to Ori
 
-Thank you for your interest in contributing to Sigil!
+Thank you for your interest in contributing to Ori!
 
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/yourusername/sigil`
+2. Clone your fork: `git clone https://github.com/yourusername/ori`
 3. Create a branch: `git checkout -b my-feature`
 4. Make your changes
-5. Run tests: `cargo test && cargo run --bin sigil -- test`
+5. Run tests: `cargo test && cargo run --bin ori -- test`
 6. Commit: `git commit -m "Add my feature"`
 7. Push: `git push origin my-feature`
 8. Open a Pull Request
@@ -22,8 +22,8 @@ cargo build
 # Run the compiler tests (Rust)
 cargo test
 
-# Run the language tests (Sigil)
-cargo run --bin sigil -- test
+# Run the language tests (Ori)
+cargo run --bin ori -- test
 
 # Build release version
 cargo build --release
@@ -31,7 +31,7 @@ cargo build --release
 
 ## Project Structure
 
-- `compiler/sigilc/` - The compiler implementation
+- `compiler/oric/` - The compiler implementation
   - `src/lexer/` - Tokenizer (uses logos)
   - `src/parser/` - Recursive descent parser
   - `src/ast/` - Abstract syntax tree definitions
@@ -51,16 +51,16 @@ Add your test to `tests/run-pass/`. Follow the existing structure:
 
 ```
 tests/run-pass/my_feature/
-├── my_feature.si          # Implementation
+├── my_feature.ori          # Implementation
 └── _test/
-    └── my_feature.test.si # Tests
+    └── my_feature.test.ori # Tests
 ```
 
 ### Compile-fail tests
 
-Add a `.si` file to `tests/compile-fail/` with a comment describing the expected error:
+Add a `.ori` file to `tests/compile-fail/` with a comment describing the expected error:
 
-```sigil
+```ori
 // Compile-fail test: description
 // Expected error: the error message
 

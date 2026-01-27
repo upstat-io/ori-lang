@@ -2,8 +2,8 @@
 
 **Goal**: Implement approved syntax changes from V3 Phase 15.1-15.5
 
-> **Source**: `docs/sigil_lang/proposals/approved/`
-> **Proposals**: `docs/sigil_lang/proposals/approved/`
+> **Source**: `docs/ori_lang/proposals/approved/`
+> **Proposals**: `docs/ori_lang/proposals/approved/`
 
 ---
 
@@ -13,7 +13,7 @@
 
 Change attribute syntax from `#[name(...)]` to `#name(...)`.
 
-```sigil
+```ori
 // Before
 #[derive(Eq, Clone)]
 #[skip("reason")]
@@ -26,20 +26,20 @@ Change attribute syntax from `#[name(...)]` to `#name(...)`.
 ### Implementation
 
 - [ ] **Implement**: Update lexer to emit `Hash` token instead of `HashBracket`
-  - [ ] **Rust Tests**: `sigil_lexer/src/lib.rs` — attribute token tests
-  - [ ] **Sigil Tests**: `tests/spec/attributes/simplified_syntax.si`
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — attribute token tests
+  - [ ] **Ori Tests**: `tests/spec/attributes/simplified_syntax.ori`
 
 - [ ] **Implement**: Update parser to parse `#name(...)` syntax
-  - [ ] **Rust Tests**: `sigil_parse/src/grammar/attr.rs` — simplified attribute parsing
-  - [ ] **Sigil Tests**: `tests/spec/attributes/simplified_syntax.si`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — simplified attribute parsing
+  - [ ] **Ori Tests**: `tests/spec/attributes/simplified_syntax.ori`
 
 - [ ] **Implement**: Support migration: accept both syntaxes temporarily
-  - [ ] **Rust Tests**: `sigil_parse/src/grammar/attr.rs` — migration compatibility
-  - [ ] **Sigil Tests**: `tests/spec/attributes/migration.si`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — migration compatibility
+  - [ ] **Ori Tests**: `tests/spec/attributes/migration.ori`
 
 - [ ] **Implement**: Add deprecation warning for bracket syntax
 
-- [ ] **Implement**: Update `sigil fmt` to auto-migrate
+- [ ] **Implement**: Update `ori fmt` to auto-migrate
 
 ---
 
@@ -56,20 +56,20 @@ Formalize the distinction between sequential patterns and named-expression patte
 ### Implementation
 
 - [ ] **Implement**: Verify AST has separate `FunctionSeq` and `FunctionExp` types
-  - [ ] **Rust Tests**: `sigil_ir/src/ast/expr.rs` — AST variant tests
-  - [ ] **Sigil Tests**: `tests/spec/patterns/function_seq_exp.si`
+  - [ ] **Rust Tests**: `ori_ir/src/ast/expr.rs` — AST variant tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/function_seq_exp.ori`
 
 - [ ] **Implement**: Parser allows positional for type conversions only
-  - [ ] **Rust Tests**: `sigil_parse/src/grammar/call.rs` — positional arg handling
-  - [ ] **Sigil Tests**: `tests/spec/expressions/type_conversions.si`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/call.rs` — positional arg handling
+  - [ ] **Ori Tests**: `tests/spec/expressions/type_conversions.ori`
 
 - [ ] **Implement**: Parser enforces named args for all other builtins
-  - [ ] **Rust Tests**: `sigil_parse/src/grammar/call.rs` — named arg enforcement
-  - [ ] **Sigil Tests**: `tests/spec/expressions/builtin_named_args.si`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/call.rs` — named arg enforcement
+  - [ ] **Ori Tests**: `tests/spec/expressions/builtin_named_args.ori`
 
 - [ ] **Implement**: Add clear error message for positional args in builtins
-  - [ ] **Rust Tests**: `sigil_diagnostic/src/problem.rs` — positional arg error
-  - [ ] **Sigil Tests**: `tests/compile-fail/builtin_positional_args.si`
+  - [ ] **Rust Tests**: `ori_diagnostic/src/problem.rs` — positional arg error
+  - [ ] **Ori Tests**: `tests/compile-fail/builtin_positional_args.ori`
 
 ---
 
@@ -79,7 +79,7 @@ Formalize the distinction between sequential patterns and named-expression patte
 
 Change named argument syntax from `.name: value` to `name: value`.
 
-```sigil
+```ori
 // Before
 fetch_user(.id: 1)
 map(.over: items, .transform: x -> x * 2)
@@ -92,14 +92,14 @@ map(over: items, transform: x -> x * 2)
 ### Implementation
 
 - [ ] **Implement**: Update parser to expect `IDENTIFIER ':'` instead of `'.' IDENTIFIER ':'`
-  - [ ] **Rust Tests**: `sigil_parse/src/grammar/call.rs` — named arg syntax
-  - [ ] **Sigil Tests**: `tests/spec/expressions/named_args.si`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/call.rs` — named arg syntax
+  - [ ] **Ori Tests**: `tests/spec/expressions/named_args.ori`
 
 - [ ] **Implement**: Update error messages to show new syntax
-  - [ ] **Rust Tests**: `sigil_diagnostic/src/problem.rs` — syntax error messages
-  - [ ] **Sigil Tests**: `tests/compile-fail/named_arg_syntax.si`
+  - [ ] **Rust Tests**: `ori_diagnostic/src/problem.rs` — syntax error messages
+  - [ ] **Ori Tests**: `tests/compile-fail/named_arg_syntax.ori`
 
-- [ ] **Implement**: Add migration tool `sigil migrate remove-dot-prefix`
+- [ ] **Implement**: Add migration tool `ori migrate remove-dot-prefix`
 
 - [ ] **Implement**: Update formatter with width-based stacking rule
 
@@ -109,7 +109,7 @@ map(over: items, transform: x -> x * 2)
 
 Comments must appear on their own line. Inline comments are not allowed.
 
-```sigil
+```ori
 // This is valid
 let x = 42
 
@@ -119,8 +119,8 @@ let y = 42  // SYNTAX ERROR
 ### Implementation
 
 - [ ] **Implement**: Update lexer to reject inline comments
-  - [ ] **Rust Tests**: `sigil_lexer/src/lib.rs` — inline comment rejection
-  - [ ] **Sigil Tests**: `tests/compile-fail/inline_comments.si`
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — inline comment rejection
+  - [ ] **Ori Tests**: `tests/compile-fail/inline_comments.ori`
 
 - [ ] **Implement**: Add clear error message for inline comments
 
@@ -132,7 +132,7 @@ let y = 42  // SYNTAX ERROR
 
 Extend `run` pattern with `pre_check:` and `post_check:` properties.
 
-```sigil
+```ori
 @divide (a: int, b: int) -> int = run(
     pre_check: b != 0,
     a div b,
@@ -143,8 +143,8 @@ Extend `run` pattern with `pre_check:` and `post_check:` properties.
 ### Implementation
 
 - [ ] **Implement**: Parser: Add `pre_check:` and `post_check:` to run pattern
-  - [ ] **Rust Tests**: `sigil_parse/src/grammar/pattern.rs` — check property parsing
-  - [ ] **Sigil Tests**: `tests/spec/patterns/checks.si`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — check property parsing
+  - [ ] **Ori Tests**: `tests/spec/patterns/checks.ori`
 
 - [ ] **Implement**: Parser: Enforce position (pre_check first, post_check last)
 
@@ -168,7 +168,7 @@ Extend `run` pattern with `pre_check:` and `post_check:` properties.
 
 Add template strings with backtick delimiters and `{expr}` interpolation.
 
-```sigil
+```ori
 let name = "Alice"
 let age = 30
 print(`Hello, {name}! You are {age} years old.`)
@@ -177,8 +177,8 @@ print(`Hello, {name}! You are {age} years old.`)
 ### Lexer
 
 - [ ] **Implement**: Add template string literal tokenization
-  - [ ] **Rust Tests**: `sigil_lexer/src/lib.rs` — template string tokenization
-  - [ ] **Sigil Tests**: `tests/spec/lexical/template_strings.si`
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — template string tokenization
+  - [ ] **Ori Tests**: `tests/spec/lexical/template_strings.ori`
 
 - [ ] **Implement**: Handle `{expr}` interpolation boundaries
 
@@ -189,8 +189,8 @@ print(`Hello, {name}! You are {age} years old.`)
 ### Parser
 
 - [ ] **Implement**: Parse template strings as sequence of parts
-  - [ ] **Rust Tests**: `sigil_parse/src/grammar/expr.rs` — template string parsing
-  - [ ] **Sigil Tests**: `tests/spec/expressions/interpolation.si`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — template string parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/interpolation.ori`
 
 - [ ] **Implement**: Parse interpolated expressions
 
@@ -199,8 +199,8 @@ print(`Hello, {name}! You are {age} years old.`)
 ### Type System
 
 - [ ] **Implement**: Interpolated expressions must implement `Printable`
-  - [ ] **Rust Tests**: `sigilc/src/typeck/checker/interpolation.rs` — printable constraint
-  - [ ] **Sigil Tests**: `tests/spec/types/printable.si`
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/interpolation.rs` — printable constraint
+  - [ ] **Ori Tests**: `tests/spec/types/printable.ori`
 
 ### Codegen
 
@@ -216,6 +216,6 @@ print(`Hello, {name}! You are {age} years old.`)
 - [ ] All spec docs updated
 - [ ] CLAUDE.md updated with syntax changes
 - [ ] Migration tools working
-- [ ] All tests pass: `cargo test && sigil test tests/spec/`
+- [ ] All tests pass: `cargo test && ori test tests/spec/`
 
 **Exit Criteria**: All approved syntax changes implemented and documented

@@ -1,6 +1,6 @@
 # Tree Walking Interpretation
 
-The Sigil evaluator uses tree-walking interpretation, where the AST is traversed and evaluated directly without compilation to bytecode.
+The Ori evaluator uses tree-walking interpretation, where the AST is traversed and evaluated directly without compilation to bytecode.
 
 ## How It Works
 
@@ -245,9 +245,9 @@ For production, consider:
 
 ## Tail Call Optimization
 
-Currently, Sigil does not implement tail call optimization. Deep recursion can cause stack overflow:
+Currently, Ori does not implement tail call optimization. Deep recursion can cause stack overflow:
 
-```sigil
+```ori
 // This will overflow for large n
 @factorial (n: int) -> int =
     if n <= 1 then 1 else n * factorial(n - 1)

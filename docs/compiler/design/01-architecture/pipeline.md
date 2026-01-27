@@ -1,6 +1,6 @@
 # Compilation Pipeline
 
-The Sigil compiler uses a query-based pipeline where each phase is a Salsa query. This design enables incremental compilation and parallel processing.
+The Ori compiler uses a query-based pipeline where each phase is a Salsa query. This design enables incremental compilation and parallel processing.
 
 ## Pipeline Stages
 
@@ -160,7 +160,7 @@ This provides users with comprehensive diagnostics in one pass.
 For debugging, the pipeline logs Salsa events:
 
 ```
-SIGIL_DEBUG=salsa cargo run
+ORI_DEBUG=salsa cargo run
 ```
 
 Output shows query execution:

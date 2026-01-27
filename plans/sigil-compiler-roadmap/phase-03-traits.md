@@ -67,45 +67,45 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
 ### 3.0.1 Len Trait ✅
 
 - [x] **Implemented**: Trait bound `Len` recognized for `[T]`, `str`, `{K: V}`, `Set<T>`, `Range<T>`
-  - [x] **Rust Tests**: `sigilc/src/typeck/checker/tests.rs` — `test_len_bound_satisfied_by_*`
-  - [x] **Sigil Tests**: `tests/spec/traits/core/len.si`
+  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — `test_len_bound_satisfied_by_*`
+  - [x] **Ori Tests**: `tests/spec/traits/core/len.ori`
 - [x] **Implemented**: `.len()` method works on all collection types
-  - [x] **Tests**: `sigil_eval/src/methods.rs` — list/string/range method tests
+  - [x] **Tests**: `ori_eval/src/methods.rs` — list/string/range method tests
 
 ### 3.0.2 IsEmpty Trait ✅
 
 - [x] **Implemented**: Trait bound `IsEmpty` recognized for `[T]`, `str`, `{K: V}`, `Set<T>`
-  - [x] **Rust Tests**: `sigilc/src/typeck/checker/tests.rs` — `test_is_empty_bound_satisfied_by_*`
-  - [x] **Sigil Tests**: `tests/spec/traits/core/is_empty.si`
+  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — `test_is_empty_bound_satisfied_by_*`
+  - [x] **Ori Tests**: `tests/spec/traits/core/is_empty.ori`
 - [x] **Implemented**: `.is_empty()` method works on all collection types
-  - [x] **Tests**: `sigil_eval/src/methods.rs` — list/string method tests
+  - [x] **Tests**: `ori_eval/src/methods.rs` — list/string method tests
 
 ### 3.0.3 Option Methods ✅
 
 - [x] **Implemented**: `.is_some()`, `.is_none()`, `.unwrap()`, `.unwrap_or()` methods
-  - [x] **Rust Tests**: `sigil_eval/src/methods.rs` — `option_methods` module
-  - [x] **Sigil Tests**: `tests/spec/traits/core/option.si`
+  - [x] **Rust Tests**: `ori_eval/src/methods.rs` — `option_methods` module
+  - [x] **Ori Tests**: `tests/spec/traits/core/option.ori`
 - [x] **Type checking**: `infer_builtin_method()` handles Option methods
 
 ### 3.0.4 Result Methods ✅
 
 - [x] **Implemented**: `.is_ok()`, `.is_err()`, `.unwrap()` methods
-  - [x] **Rust Tests**: `sigil_eval/src/methods.rs` — `result_methods` module
-  - [x] **Sigil Tests**: `tests/spec/traits/core/result.si`
+  - [x] **Rust Tests**: `ori_eval/src/methods.rs` — `result_methods` module
+  - [x] **Ori Tests**: `tests/spec/traits/core/result.ori`
 - [x] **Type checking**: `infer_builtin_method()` handles Result methods
 
 ### 3.0.5 Comparable Trait ✅
 
 - [x] **Implemented**: Trait bound `Comparable` recognized for `int`, `float`, `str`, `char`, `Duration`, `Size`
-  - [x] **Rust Tests**: `sigilc/src/typeck/checker/tests.rs` — `test_comparable_bound_satisfied_by_*`
-  - [x] **Sigil Tests**: `tests/spec/traits/core/comparable.si`
+  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — `test_comparable_bound_satisfied_by_*`
+  - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori`
 - [x] **Type checking**: `int.compare()` and `float.compare()` return `Ordering`
 
 ### 3.0.6 Eq Trait ✅
 
 - [x] **Implemented**: Trait bound `Eq` recognized for all primitive types
-  - [x] **Rust Tests**: `sigilc/src/typeck/checker/tests.rs` — `test_eq_bound_satisfied_by_*`
-  - [x] **Sigil Tests**: `tests/spec/traits/core/eq.si`
+  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — `test_eq_bound_satisfied_by_*`
+  - [x] **Ori Tests**: `tests/spec/traits/core/eq.ori`
 
 ### Additional Traits ✅
 
@@ -120,61 +120,61 @@ The following traits are also recognized in trait bounds:
 ## 3.1 Trait Declarations
 
 - [x] **Implement**: Parse `trait Name { ... }` — spec/08-declarations.md § Trait Declarations
-  - [x] **Write test**: `tests/spec/traits/declaration.si`
-  - [x] **Run test**: `sigil test tests/spec/traits/declaration.si` (4 tests pass)
+  - [x] **Write test**: `tests/spec/traits/declaration.ori`
+  - [x] **Run test**: `ori test tests/spec/traits/declaration.ori` (4 tests pass)
 
 - [x] **Implement**: Required method signatures — spec/08-declarations.md § Trait Declarations
-  - [x] **Write test**: `tests/spec/traits/declaration.si`
-  - [x] **Run test**: `sigil test tests/spec/traits/declaration.si`
+  - [x] **Write test**: `tests/spec/traits/declaration.ori`
+  - [x] **Run test**: `ori test tests/spec/traits/declaration.ori`
 
 - [x] **Implement**: Default method implementations — spec/08-declarations.md § Trait Declarations
-  - [x] **Write test**: `tests/spec/traits/declaration.si` (test_default_method)
-  - [x] **Run test**: `sigil test tests/spec/traits/declaration.si` (5 tests pass)
+  - [x] **Write test**: `tests/spec/traits/declaration.ori` (test_default_method)
+  - [x] **Run test**: `ori test tests/spec/traits/declaration.ori` (5 tests pass)
   - **Note**: Added default trait method dispatch in `module_loading.rs:collect_impl_methods()`
 
 - [x] **Implement**: Associated types — spec/08-declarations.md § Associated Types
-  - [x] **Rust Tests**: `sigilc/src/typeck/checker/tests.rs` — associated type parsing
-  - [x] **Sigil Tests**: `tests/spec/traits/associated_types.si`
+  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — associated type parsing
+  - [x] **Ori Tests**: `tests/spec/traits/associated_types.ori`
 
 - [x] **Implement**: `self` parameter — spec/08-declarations.md § self Parameter
-  - [x] **Rust Tests**: `sigilc/src/typeck/checker/tests.rs` — self parameter handling
-  - [x] **Sigil Tests**: `tests/spec/traits/self_param.si`
+  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — self parameter handling
+  - [x] **Ori Tests**: `tests/spec/traits/self_param.ori`
 
 - [x] **Implement**: `Self` type reference — spec/08-declarations.md § Self Type
-  - [x] **Rust Tests**: `sigilc/src/typeck/checker/tests.rs` — Self type resolution
-  - [x] **Sigil Tests**: `tests/spec/traits/self_type.si`
+  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — Self type resolution
+  - [x] **Ori Tests**: `tests/spec/traits/self_type.ori`
 
 - [x] **Implement**: Trait inheritance `trait Child: Parent` — spec/08-declarations.md § Trait Inheritance
-  - [x] **Rust Tests**: `sigilc/src/typeck/checker/tests.rs` — trait inheritance
-  - [x] **Sigil Tests**: `tests/spec/traits/inheritance.si`
+  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — trait inheritance
+  - [x] **Ori Tests**: `tests/spec/traits/inheritance.ori`
 
 ---
 
 ## 3.2 Trait Implementations
 
 - [x] **Implement**: Inherent impl `impl Type { ... }` — spec/08-declarations.md § Inherent Implementations (PARSING + TYPE CHECK)
-  - [x] **Write test**: `tests/spec/traits/declaration.si` (tests `Widget.get_name()`, `Widget.get_value()`)
-  - [x] **Run test**: `sigil test tests/spec/traits/declaration.si`
+  - [x] **Write test**: `tests/spec/traits/declaration.ori` (tests `Widget.get_name()`, `Widget.get_value()`)
+  - [x] **Run test**: `ori test tests/spec/traits/declaration.ori`
 
 - [x] **Implement**: Trait impl `impl Trait for Type { ... }` — spec/08-declarations.md § Trait Implementations (PARSING + TYPE CHECK)
-  - [x] **Write test**: `tests/spec/traits/declaration.si` (tests `Widget.greet()`, `Widget.describe()`)
-  - [x] **Run test**: `sigil test tests/spec/traits/declaration.si`
+  - [x] **Write test**: `tests/spec/traits/declaration.ori` (tests `Widget.greet()`, `Widget.describe()`)
+  - [x] **Run test**: `ori test tests/spec/traits/declaration.ori`
 
 - [x] **Implement**: Generic impl `impl<T: Bound> Trait for Container<T>` — spec/08-declarations.md § Generic Implementations (PARSING + TYPE CHECK)
-  - [x] **Rust Tests**: Parser tests in `sigil_parse/src/grammar/item.rs`
-  - [x] **Sigil Tests**: `tests/spec/traits/generic_impl.si` — 4 tests (inherent + trait impls on generic types)
+  - [x] **Rust Tests**: Parser tests in `ori_parse/src/grammar/item.rs`
+  - [x] **Ori Tests**: `tests/spec/traits/generic_impl.ori` — 4 tests (inherent + trait impls on generic types)
   - **Note**: Added `parse_impl_type()` to handle `Box<T>` syntax in impl blocks. Also added
     `Type::Applied` for tracking instantiated generic types with their type arguments.
 
 - [x] **Implement**: Where clauses — spec/08-declarations.md § Where Clauses (PARSING + TYPE CHECK)
-  - [x] **Rust Tests**: `sigilc/src/typeck/checker/tests.rs` — where clause parsing
-  - [x] **Sigil Tests**: `tests/spec/traits/declaration.si` — uses where clauses in trait methods
+  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — where clause parsing
+  - [x] **Ori Tests**: `tests/spec/traits/declaration.ori` — uses where clauses in trait methods
 
 - [x] **Implement**: Method resolution in type checker — spec/08-declarations.md § Method Resolution
   - `TraitRegistry.lookup_method()` checks inherent impls, then trait impls, then default methods
   - `infer_method_call()` uses trait registry, falls back to built-in methods
   - [x] **Rust Tests**: Covered by existing tests in `typeck/infer/call.rs`
-  - [x] **Sigil Tests**: `tests/spec/traits/declaration.si`, `tests/spec/traits/generic_impl.si`
+  - [x] **Ori Tests**: `tests/spec/traits/declaration.ori`, `tests/spec/traits/generic_impl.ori`
 
 - [x] **Implement**: User-defined impl method dispatch in evaluator
   - Created `UserMethodRegistry` to store impl method definitions
@@ -234,8 +234,8 @@ The following traits are also recognized in trait bounds:
   - [x] **Run test**: `cargo test --lib typeck::checker::tests` (all pass)
 
 - [x] **Implement**: Constraint satisfaction checking — spec/07-properties-of-types.md § Trait Bounds
-  - [x] **Rust Tests**: `sigilc/src/typeck/checker/tests.rs` — 10+ constraint satisfaction tests
-  - [ ] **Sigil Tests**: `tests/spec/traits/bounds.si`
+  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 10+ constraint satisfaction tests
+  - [ ] **Ori Tests**: `tests/spec/traits/bounds.ori`
 
 ---
 
@@ -244,26 +244,26 @@ The following traits are also recognized in trait bounds:
 **STATUS: ✅ COMPLETE (2026-01-25)**
 
 Infrastructure implemented:
-- `ParsedType::AssociatedType` variant in `sigil_ir/src/parsed_type.rs`
-- `Type::Projection` variant in `sigil_types/src/lib.rs`
+- `ParsedType::AssociatedType` variant in `ori_ir/src/parsed_type.rs`
+- `Type::Projection` variant in `ori_types/src/lib.rs`
 - Parser handles `Self.Item` and `T.Item` syntax in type positions
 - `ImplAssocType` for associated type definitions in impl blocks
 - `ImplEntry.assoc_types` stores associated type definitions
 - `TraitRegistry.lookup_assoc_type()` resolves associated types
 
 - [x] **Implement**: Associated type declarations — spec/08-declarations.md § Associated Types
-  - [x] **Rust Tests**: `sigil_parse/src/grammar/ty.rs` — associated type parsing tests
-  - [x] **Sigil Tests**: `tests/spec/traits/associated_types.si`
+  - [x] **Rust Tests**: `ori_parse/src/grammar/ty.rs` — associated type parsing tests
+  - [x] **Ori Tests**: `tests/spec/traits/associated_types.ori`
 
 - [x] **Implement**: Constraints `where T.Item: Eq` — spec/08-declarations.md § Where Clauses
   - [x] **Rust Tests**: Parser/type checker support in `bound_checking.rs`
-  - [x] **Sigil Tests**: `tests/spec/traits/associated_types.si` — `test_fnbox_fails_eq_constraint`
+  - [x] **Ori Tests**: `tests/spec/traits/associated_types.ori` — `test_fnbox_fails_eq_constraint`
   - **Note**: Added `WhereConstraint` struct with projection support. Parser handles `where C.Item: Eq`.
     Bound checking resolves associated types via `lookup_assoc_type_by_name()`.
 
 - [x] **Implement**: Impl validation (require all associated types defined)
-  - [x] **Rust Tests**: `sigilc/src/typeck/checker/trait_registration.rs` — `validate_associated_types`
-  - [x] **Sigil Tests**: `tests/compile-fail/impl_missing_assoc_type.si`
+  - [x] **Rust Tests**: `oric/src/typeck/checker/trait_registration.rs` — `validate_associated_types`
+  - [x] **Ori Tests**: `tests/compile-fail/impl_missing_assoc_type.ori`
   - **Note**: Added validation in `register_impls()` that checks all required associated types are defined.
 
 ---
@@ -272,28 +272,28 @@ Infrastructure implemented:
 
 **STATUS: ✅ COMPLETE (2026-01-25)**
 
-All 5 derive traits implemented in `sigilc/src/typeck/derives/mod.rs`.
-Tests at `tests/spec/traits/derive/all_derives.si` (7 tests pass).
+All 5 derive traits implemented in `oric/src/typeck/derives/mod.rs`.
+Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
 
 - [x] **Implement**: Auto-implement `Eq` — spec/08-declarations.md § Attributes
-  - [x] **Rust Tests**: `sigilc/src/typeck/derives/mod.rs` — `test_process_struct_derives`
-  - [x] **Sigil Tests**: `tests/spec/traits/derive/all_derives.si`
+  - [x] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — `test_process_struct_derives`
+  - [x] **Ori Tests**: `tests/spec/traits/derive/all_derives.ori`
 
 - [x] **Implement**: Auto-implement `Clone` — spec/08-declarations.md § Attributes
-  - [x] **Rust Tests**: `sigilc/src/typeck/derives/mod.rs` — `test_process_multiple_derives`
-  - [x] **Sigil Tests**: `tests/spec/traits/derive/all_derives.si`
+  - [x] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — `test_process_multiple_derives`
+  - [x] **Ori Tests**: `tests/spec/traits/derive/all_derives.ori`
 
 - [x] **Implement**: Auto-implement `Hashable` — spec/08-declarations.md § Attributes
-  - [x] **Rust Tests**: `sigilc/src/typeck/derives/mod.rs`
-  - [x] **Sigil Tests**: `tests/spec/traits/derive/all_derives.si`
+  - [x] **Rust Tests**: `oric/src/typeck/derives/mod.rs`
+  - [x] **Ori Tests**: `tests/spec/traits/derive/all_derives.ori`
 
 - [x] **Implement**: Auto-implement `Printable` — spec/08-declarations.md § Attributes
-  - [x] **Rust Tests**: `sigilc/src/typeck/derives/mod.rs`
-  - [x] **Sigil Tests**: `tests/spec/traits/derive/all_derives.si`
+  - [x] **Rust Tests**: `oric/src/typeck/derives/mod.rs`
+  - [x] **Ori Tests**: `tests/spec/traits/derive/all_derives.ori`
 
 - [x] **Implement**: Auto-implement `Default` — spec/08-declarations.md § Attributes
-  - [x] **Rust Tests**: `sigilc/src/typeck/derives/mod.rs` — `create_derived_method_def` handles Default
-  - [ ] **Sigil Tests**: `tests/spec/traits/derive/default.si` — test file not yet created
+  - [x] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — `create_derived_method_def` handles Default
+  - [ ] **Ori Tests**: `tests/spec/traits/derive/default.ori` — test file not yet created
 
 ---
 
@@ -306,7 +306,7 @@ Tests at `tests/spec/traits/derive/all_derives.si` (7 tests pass).
 - [x] Associated types (3.4): All complete ✅ (2026-01-25)
 - [x] Derive traits (3.5): All 5 derives implemented ✅
 - [x] 148 trait tests pass
-- [x] Run full test suite: `cargo test && sigil test tests/spec/traits/`
+- [x] Run full test suite: `cargo test && ori test tests/spec/traits/`
 
 **Exit Criteria**: Trait-based code compiles and runs ✅
 

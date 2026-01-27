@@ -1,6 +1,6 @@
 # Appendix D: Debugging
 
-Debug flags and techniques for the Sigil compiler.
+Debug flags and techniques for the Ori compiler.
 
 ## Debug Flags
 
@@ -23,17 +23,17 @@ impl DebugFlags {
 
 ## Environment Variable
 
-Enable debugging via `SIGIL_DEBUG`:
+Enable debugging via `ORI_DEBUG`:
 
 ```bash
 # Enable all debug output
-SIGIL_DEBUG=all sigil run file.si
+ORI_DEBUG=all ori run file.ori
 
 # Enable specific flags
-SIGIL_DEBUG=tokens,ast sigil run file.si
+ORI_DEBUG=tokens,ast ori run file.ori
 
 # Enable single flag
-SIGIL_DEBUG=types sigil run file.si
+ORI_DEBUG=types ori run file.ori
 ```
 
 ## Debug Macros
@@ -49,7 +49,7 @@ debug_eval!("Evaluating: {:?}", expr);
 ## Token Debugging
 
 ```bash
-SIGIL_DEBUG=tokens sigil run file.si
+ORI_DEBUG=tokens ori run file.ori
 ```
 
 Output:
@@ -64,7 +64,7 @@ Output:
 ## AST Debugging
 
 ```bash
-SIGIL_DEBUG=ast sigil run file.si
+ORI_DEBUG=ast ori run file.ori
 ```
 
 Output:
@@ -88,7 +88,7 @@ Output:
 ## Type Debugging
 
 ```bash
-SIGIL_DEBUG=types sigil run file.si
+ORI_DEBUG=types ori run file.ori
 ```
 
 Output:
@@ -108,7 +108,7 @@ Output:
 ## Evaluation Debugging
 
 ```bash
-SIGIL_DEBUG=eval sigil run file.si
+ORI_DEBUG=eval ori run file.ori
 ```
 
 Output:
@@ -126,7 +126,7 @@ Output:
 ## Salsa Debugging
 
 ```bash
-SIGIL_DEBUG=salsa sigil run file.si
+ORI_DEBUG=salsa ori run file.ori
 ```
 
 Output:
@@ -142,14 +142,14 @@ Output:
 ## Import Debugging
 
 ```bash
-SIGIL_DEBUG=imports sigil run file.si
+ORI_DEBUG=imports ori run file.ori
 ```
 
 Output:
 ```
 [IMPORTS] Resolving: './math'
-  Base: /home/user/project/src/main.si
-  Resolved: /home/user/project/src/math.si
+  Base: /home/user/project/src/main.ori
+  Resolved: /home/user/project/src/math.ori
   Cache: miss
   Loading...
 
@@ -161,7 +161,7 @@ Output:
 ## Pattern Debugging
 
 ```bash
-SIGIL_DEBUG=patterns sigil run file.si
+ORI_DEBUG=patterns ori run file.ori
 ```
 
 Output:
@@ -202,10 +202,10 @@ For VS Code debugging, launchjson:
       "name": "Debug Compiler",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/target/debug/sigilc",
+      "program": "${workspaceFolder}/target/debug/oric",
       "args": ["run", "${file}"],
       "env": {
-        "SIGIL_DEBUG": "all",
+        "ORI_DEBUG": "all",
         "RUST_BACKTRACE": "1"
       }
     }
@@ -218,8 +218,8 @@ For VS Code debugging, launchjson:
 Enable backtraces:
 
 ```bash
-RUST_BACKTRACE=1 sigil run file.si
-RUST_BACKTRACE=full sigil run file.si
+RUST_BACKTRACE=1 ori run file.ori
+RUST_BACKTRACE=full ori run file.ori
 ```
 
 ## Memory Debugging
@@ -227,7 +227,7 @@ RUST_BACKTRACE=full sigil run file.si
 Using valgrind:
 
 ```bash
-valgrind --leak-check=full target/debug/sigilc run file.si
+valgrind --leak-check=full target/debug/oric run file.ori
 ```
 
 ## Performance Profiling
@@ -235,7 +235,7 @@ valgrind --leak-check=full target/debug/sigilc run file.si
 Using perf:
 
 ```bash
-perf record target/release/sigilc run large_file.si
+perf record target/release/oric run large_file.ori
 perf report
 ```
 
@@ -244,7 +244,7 @@ perf report
 Debug specific test:
 
 ```bash
-SIGIL_DEBUG=all cargo test test_type_inference -- --nocapture
+ORI_DEBUG=all cargo test test_type_inference -- --nocapture
 ```
 
 ## Common Debug Scenarios
@@ -252,7 +252,7 @@ SIGIL_DEBUG=all cargo test test_type_inference -- --nocapture
 ### "Why is this type wrong?"
 
 ```bash
-SIGIL_DEBUG=types sigil check file.si
+ORI_DEBUG=types ori check file.ori
 ```
 
 Look for:
@@ -263,7 +263,7 @@ Look for:
 ### "Why isn't this imported?"
 
 ```bash
-SIGIL_DEBUG=imports sigil run file.si
+ORI_DEBUG=imports ori run file.ori
 ```
 
 Look for:
@@ -274,7 +274,7 @@ Look for:
 ### "Why is Salsa recomputing?"
 
 ```bash
-SIGIL_DEBUG=salsa sigil run file.si
+ORI_DEBUG=salsa ori run file.ori
 ```
 
 Look for:

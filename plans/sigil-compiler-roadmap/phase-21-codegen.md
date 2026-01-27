@@ -9,48 +9,48 @@
 ## 21.1 C Backend
 
 - [ ] **Implement**: Expression compilation
-  - [ ] **Rust Tests**: `sigilc/src/codegen/c/expr.rs` — C expression codegen
-  - [ ] **Sigil Tests**: `tests/spec/codegen/c_expressions.si`
+  - [ ] **Rust Tests**: `oric/src/codegen/c/expr.rs` — C expression codegen
+  - [ ] **Ori Tests**: `tests/spec/codegen/c_expressions.ori`
 
 - [ ] **Implement**: Function compilation
-  - [ ] **Rust Tests**: `sigilc/src/codegen/c/function.rs` — C function codegen
-  - [ ] **Sigil Tests**: `tests/spec/codegen/c_functions.si`
+  - [ ] **Rust Tests**: `oric/src/codegen/c/function.rs` — C function codegen
+  - [ ] **Ori Tests**: `tests/spec/codegen/c_functions.ori`
 
 - [ ] **Implement**: Type mapping to C
-  - [ ] **Rust Tests**: `sigilc/src/codegen/c/types.rs` — C type mapping
-  - [ ] **Sigil Tests**: `tests/spec/codegen/c_types.si`
+  - [ ] **Rust Tests**: `oric/src/codegen/c/types.rs` — C type mapping
+  - [ ] **Ori Tests**: `tests/spec/codegen/c_types.ori`
 
 ---
 
 ## 21.2 LLVM Backend (Alternative)
 
 - [ ] **Implement**: LLVM IR generation
-  - [ ] **Rust Tests**: `sigilc/src/codegen/llvm/ir.rs` — LLVM IR generation
-  - [ ] **Sigil Tests**: `tests/spec/codegen/llvm_ir.si`
+  - [ ] **Rust Tests**: `oric/src/codegen/llvm/ir.rs` — LLVM IR generation
+  - [ ] **Ori Tests**: `tests/spec/codegen/llvm_ir.ori`
 
 - [ ] **Implement**: Optimization passes
-  - [ ] **Rust Tests**: `sigilc/src/codegen/llvm/opt.rs` — optimization passes
-  - [ ] **Sigil Tests**: `tests/spec/codegen/llvm_opt.si`
+  - [ ] **Rust Tests**: `oric/src/codegen/llvm/opt.rs` — optimization passes
+  - [ ] **Ori Tests**: `tests/spec/codegen/llvm_opt.ori`
 
 - [ ] **Implement**: Native code output
-  - [ ] **Rust Tests**: `sigilc/src/codegen/llvm/native.rs` — native output
-  - [ ] **Sigil Tests**: `tests/spec/codegen/llvm_native.si`
+  - [ ] **Rust Tests**: `oric/src/codegen/llvm/native.rs` — native output
+  - [ ] **Ori Tests**: `tests/spec/codegen/llvm_native.ori`
 
 ---
 
 ## 21.3 Runtime
 
 - [ ] **Implement**: Memory management
-  - [ ] **Rust Tests**: `sigilc/src/runtime/memory.rs` — memory management
-  - [ ] **Sigil Tests**: `tests/spec/runtime/memory.si`
+  - [ ] **Rust Tests**: `oric/src/runtime/memory.rs` — memory management
+  - [ ] **Ori Tests**: `tests/spec/runtime/memory.ori`
 
 - [ ] **Implement**: Garbage collection or ownership
-  - [ ] **Rust Tests**: `sigilc/src/runtime/gc.rs` — garbage collection
-  - [ ] **Sigil Tests**: `tests/spec/runtime/gc.si`
+  - [ ] **Rust Tests**: `oric/src/runtime/gc.rs` — garbage collection
+  - [ ] **Ori Tests**: `tests/spec/runtime/gc.ori`
 
 - [ ] **Implement**: FFI support
-  - [ ] **Rust Tests**: `sigilc/src/runtime/ffi.rs` — FFI runtime
-  - [ ] **Sigil Tests**: `tests/spec/runtime/ffi.si`
+  - [ ] **Rust Tests**: `oric/src/runtime/ffi.rs` — FFI runtime
+  - [ ] **Ori Tests**: `tests/spec/runtime/ffi.ori`
 
 ---
 
@@ -59,6 +59,6 @@
 - [ ] All items above have all three checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
 - [ ] 80+% test coverage
-- [ ] Run full test suite: `cargo test && sigil test tests/spec/`
+- [ ] Run full test suite: `cargo test && ori test tests/spec/`
 
 **Exit Criteria**: Native binaries run correctly

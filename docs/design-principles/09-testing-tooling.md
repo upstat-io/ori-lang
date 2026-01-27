@@ -320,7 +320,7 @@ proptest! {
 
 ## Mandatory Test Coverage
 
-### Sigil-Style Coverage Checking
+### Ori-Style Coverage Checking
 ```rust
 // Every function must have at least one test
 fn check_test_coverage(module: &Module) -> Vec<UncoveredFunction> {

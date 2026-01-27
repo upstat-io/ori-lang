@@ -1,13 +1,13 @@
 # Appendix C: Error Codes
 
-Complete reference of Sigil compiler error codes.
+Complete reference of Ori compiler error codes.
 
 ## Getting Detailed Help
 
-Use `sigil --explain <code>` to get detailed documentation for an error code:
+Use `ori --explain <code>` to get detailed documentation for an error code:
 
 ```bash
-$ sigil --explain E2001
+$ ori --explain E2001
 # E2001: Type Mismatch
 
 An expression has a different type than expected in the given context.
@@ -62,7 +62,7 @@ An expression has a different type than expected in the given context.
 | E9001 | Internal Error | Compiler bug | ✓ |
 | E9002 | Too Many Errors | Error limit reached | ✓ |
 
-**✓** = Detailed documentation available via `sigil --explain`
+**✓** = Detailed documentation available via `ori --explain`
 
 ## Error Code Ranges
 
@@ -315,7 +315,7 @@ error[E5001]: cannot find module './utils'
 1 | use './utils' { helper }
   |     ^^^^^^^^^^ file not found
   |
-  = help: looked for: src/utils.si
+  = help: looked for: src/utils.ori
 ```
 
 ### E5002: Item Not Exported
@@ -339,7 +339,7 @@ error[E5003]: circular import detected
 1 | use './b' { foo }
   | ^^^^^^^^^^^^^^^^^
   |
-  = note: import cycle: a.si -> b.si -> a.si
+  = note: import cycle: a.ori -> b.ori -> a.ori
 ```
 
 ## Internal Errors (E9xxx)
@@ -350,6 +350,6 @@ error[E5003]: circular import detected
 error[E9001]: internal compiler error
   |
   = note: this is a bug in the compiler
-  = note: please report at https://github.com/sigil-lang/sigil/issues
+  = note: please report at https://github.com/ori-lang/ori/issues
   = note: message: unexpected None in type_of_expr
 ```

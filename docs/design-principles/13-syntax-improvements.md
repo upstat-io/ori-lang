@@ -1,4 +1,4 @@
-# Syntax Improvements: Making Sigil Beautiful
+# Syntax Improvements: Making Ori Beautiful
 
 Based on research into what developers hate about language syntax and what makes code beautiful. Decisions finalized.
 
@@ -18,7 +18,7 @@ Based on research into what developers hate about language syntax and what makes
 
 ---
 
-## Current Sigil: What's Already Good
+## Current Ori: What's Already Good
 
 | Feature | Why It's Good |
 |---------|---------------|
@@ -41,7 +41,7 @@ Based on research into what developers hate about language syntax and what makes
 
 Patterns with 2+ properties must be stacked (one property per line):
 
-```sigil
+```ori
 @sum (arr: [int]) -> int = fold(
     over: arr,
     init: 0,
@@ -66,7 +66,7 @@ Patterns with 2+ properties must be stacked (one property per line):
 
 Lines continue naturally after binary operators:
 
-```sigil
+```ori
 if a > 0
    && b > 0
    && c > 0
@@ -81,7 +81,7 @@ else false
 - Less "syntax noise"
 
 **Alternative:** Use parentheses for grouping if needed:
-```sigil
+```ori
 if (a > 0
     && b > 0
     && c > 0)
@@ -95,7 +95,7 @@ else false
 
 **Decision: Keep `<>`**
 
-```sigil
+```ori
 @identity<T> (x: T) -> T = x
 @map<T, U> (items: [T], f: (T) -> U) -> [U] = ...
 ```
@@ -112,12 +112,12 @@ else false
 **Decision: YES**
 
 **Short (single line OK):**
-```sigil
+```ori
 let result = if x > 0 then "positive" else "negative"
 ```
 
 **Long (formatter stacks):**
-```sigil
+```ori
 let result = if very_long_condition_here
     then value_when_true
     else value_when_false
@@ -131,7 +131,7 @@ let result = if very_long_condition_here
 
 **Decision: Keep `run`**
 
-```sigil
+```ori
 @process (items: [int]) -> int = run(
     let doubled = map(
         over: items,
@@ -165,7 +165,7 @@ let result = if very_long_condition_here
 
 Typed lambdas use `=` to separate signature from body:
 
-```sigil
+```ori
 (x: int) -> int = x * 2
 (a: int, b: int) -> int = a + b
 ```
@@ -175,7 +175,7 @@ Typed lambdas use `=` to separate signature from body:
 - `=` clearly separates signature from implementation
 
 **Standard lambda (inferred types):**
-```sigil
+```ori
 x -> x * 2
 (a, b) -> a + b
 ```
@@ -187,13 +187,13 @@ x -> x * 2
 **Decision: Keep `#`, add `.first`/`.last`**
 
 **Keep:**
-```sigil
+```ori
 arr[# - 1]    // last element
 arr[# / 2]    // middle element
 ```
 
 **Add convenience accessors:**
-```sigil
+```ori
 arr.first     // first element (Option)
 arr.last      // last element (Option)
 ```
@@ -209,7 +209,7 @@ arr.last      // last element (Option)
 
 **Decision: Use `.map_err()` method**
 
-```sigil
+```ori
 let content = read_file(path).map_err(e -> AppError.Io(e))?
 ```
 
@@ -226,7 +226,7 @@ let content = read_file(path).map_err(e -> AppError.Io(e))?
 
 **Decision: YES — Enforce everywhere**
 
-```sigil
+```ori
 @fetch (
     url: str,
     timeout: Duration,
@@ -257,12 +257,12 @@ let content = read_file(path).map_err(e -> AppError.Io(e))?
 **Decision: YES**
 
 **Simple (inline OK):**
-```sigil
+```ori
 @sort<T> (items: [T]) -> [T] where T: Comparable = ...
 ```
 
 **Complex (formatter stacks):**
-```sigil
+```ori
 @complex<T, U> (a: T, b: U) -> Result<T, U>
 where
     T: Serializable + Comparable,
@@ -282,7 +282,7 @@ where
 
 All bindings require explicit `let`:
 
-```sigil
+```ori
 run(
     let x = compute(),
     let y = transform(value: x),
@@ -302,7 +302,7 @@ run(
 
 **Decision: YES — Linter warning**
 
-```sigil
+```ori
 let mut x = 5    // Warning: mutable binding 'x' is never reassigned
 let y = x + 1
 ```
@@ -366,9 +366,9 @@ warning: mutable binding `x` is never reassigned
 
 ## The Result
 
-After these changes, Sigil code looks like:
+After these changes, Ori code looks like:
 
-```sigil
+```ori
 @fetch_user_dashboard (user_id: str) -> Result<Dashboard, Error> = try(
     let user = fetch_user(id: user_id),
     let posts = fetch_posts(user_id: user_id),

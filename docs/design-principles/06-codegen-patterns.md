@@ -265,7 +265,7 @@ store i32 %val, ptr %ptr    ; write
 ```rust
 // Using llvm-sys or inkwell crate
 fn codegen_function(&mut self, func: &Function) {
-    let fn_type = self.llvm_fn_type(&func.sig);
+    let fn_type = self.llvm_fn_type(&func.orig);
     let llvm_fn = self.module.add_function(&func.name, fn_type);
 
     let entry_bb = self.context.append_basic_block(llvm_fn, "entry");

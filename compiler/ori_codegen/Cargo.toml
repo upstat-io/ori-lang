@@ -1,0 +1,21 @@
+[package]
+name = "ori_codegen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Code generation backend for the Ori compiler"
+
+[dependencies]
+# Ori crates
+ori_ir.workspace = true
+ori_types.workspace = true
+
+# Hashing for efficient lookups
+rustc-hash.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true

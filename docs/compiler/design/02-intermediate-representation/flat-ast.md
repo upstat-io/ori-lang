@@ -1,6 +1,6 @@
 # Flat AST Design
 
-The Sigil compiler uses a "flat" AST where expressions are stored in an arena and referenced by ID, rather than using traditional heap-allocated tree structures.
+The Ori compiler uses a "flat" AST where expressions are stored in an arena and referenced by ID, rather than using traditional heap-allocated tree structures.
 
 ## Traditional vs Flat AST
 

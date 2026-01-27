@@ -15,7 +15,7 @@
 | Scope | Opt-in per type | Performance, code size |
 | Operations | Read-only initially | Safety, complexity |
 | Type info | Minimal but useful | Balance info vs overhead |
-| Integration | Via trait | Consistent with Sigil |
+| Integration | Via trait | Consistent with Ori |
 
 ---
 
@@ -43,7 +43,7 @@
 
 ### Syntax
 
-```sigil
+```ori
 // Trait for reflectable types
 trait Reflect {
     @type_info (self) -> TypeInfo
@@ -86,7 +86,7 @@ for i in 0..person.field_count() do run(
   - [ ] Generate field metadata
   - [ ] Generate accessors
 
-- [ ] **Test**: `tests/spec/reflect/basic.si`
+- [ ] **Test**: `tests/spec/reflect/basic.ori`
   - [ ] Derive Reflect
   - [ ] Access type info
   - [ ] Iterate fields
@@ -99,7 +99,7 @@ for i in 0..person.field_count() do run(
 
 ### Structure
 
-```sigil
+```ori
 type TypeInfo = {
     name: str,           // "Person"
     module: str,         // "myapp.models"
@@ -137,7 +137,7 @@ type VariantInfo = {
   - [ ] Emit TypeInfo at compile time
   - [ ] Optimize for space
 
-- [ ] **Test**: `tests/spec/reflect/type_info.si`
+- [ ] **Test**: `tests/spec/reflect/type_info.ori`
   - [ ] Struct TypeInfo
   - [ ] Enum TypeInfo
   - [ ] Nested types
@@ -150,7 +150,7 @@ type VariantInfo = {
 
 ### Syntax
 
-```sigil
+```ori
 // Any can hold any value with type info
 type Any = {
     value: *void,
@@ -189,7 +189,7 @@ if any.is<int>() then
   - [ ] Unique ID per type
   - [ ] Runtime comparison
 
-- [ ] **Test**: `tests/spec/reflect/any.si`
+- [ ] **Test**: `tests/spec/reflect/any.ori`
   - [ ] Create Any
   - [ ] Type checking
   - [ ] Downcast success/failure
@@ -202,7 +202,7 @@ if any.is<int>() then
 
 ### Syntax
 
-```sigil
+```ori
 // Access field by name
 @get_field (obj: dyn Reflect, name: str) -> Option<dyn Any> = run(
     let info = obj.type_info()
@@ -229,7 +229,7 @@ let missing = get_field(obj: person, name: "email")  // None
   - [ ] get_field function
   - [ ] Field iteration
 
-- [ ] **Test**: `tests/spec/reflect/dynamic_access.si`
+- [ ] **Test**: `tests/spec/reflect/dynamic_access.ori`
   - [ ] Get by name
   - [ ] Get by index
   - [ ] Missing field
@@ -242,7 +242,7 @@ let missing = get_field(obj: person, name: "email")  // None
 
 ### Example: JSON Serialization
 
-```sigil
+```ori
 use std.reflect { Reflect, TypeInfo, TypeKind }
 use std.json { JsonValue }
 
@@ -298,7 +298,7 @@ let json = to_json(value: user)
   - [ ] Custom serializers
   - [ ] Performance considerations
 
-- [ ] **Test**: `tests/spec/reflect/serialization.si`
+- [ ] **Test**: `tests/spec/reflect/serialization.ori`
   - [ ] Struct to JSON
   - [ ] JSON to struct
   - [ ] Nested types
@@ -311,7 +311,7 @@ let json = to_json(value: user)
 
 ### Opt-in Design
 
-```sigil
+```ori
 // Only types with #derive(Reflect) have reflection overhead
 type FastType = { x: int }  // No reflection, no overhead
 
@@ -356,7 +356,7 @@ let info = value.type_info()  // Fast: returns pointer to static data
 
 ### Read-Only (Phase 1)
 
-```sigil
+```ori
 // Cannot set fields dynamically (initially)
 // This would require:
 // - Mutable reflection
@@ -366,14 +366,14 @@ let info = value.type_info()  // Fast: returns pointer to static data
 
 ### No Dynamic Type Creation
 
-```sigil
+```ori
 // Cannot create types at runtime
-// Sigil is statically typed
+// Ori is statically typed
 ```
 
 ### No Method Reflection
 
-```sigil
+```ori
 // Initially, no method invocation via reflection
 // Focus on data (fields) first
 ```
@@ -400,7 +400,7 @@ let info = value.type_info()  // Fast: returns pointer to static data
 - [ ] Any type works
 - [ ] Dynamic field access works
 - [ ] JSON serialization example works
-- [ ] All tests pass: `cargo test && sigil test tests/spec/reflect/`
+- [ ] All tests pass: `cargo test && ori test tests/spec/reflect/`
 
 **Exit Criteria**: Can implement generic JSON serialization/deserialization
 
@@ -408,7 +408,7 @@ let info = value.type_info()  // Fast: returns pointer to static data
 
 ## Example: Debug Printer
 
-```sigil
+```ori
 use std.reflect { Reflect, TypeKind }
 
 // Generic debug printer using reflection

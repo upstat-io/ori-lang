@@ -109,7 +109,7 @@ impl TypeEnv {
 
 Variables in inner scopes shadow outer ones:
 
-```sigil
+```ori
 let x = 1       // x : Int in outer scope
 let result = run(
     let x = "hello",  // x : String in inner scope
@@ -168,7 +168,7 @@ impl TypeEnv {
 ```
 
 Example:
-```sigil
+```ori
 let id = x -> x  // forall T. T -> T
 id(42)           // Instantiate: T0 -> T0, then unify T0=Int
 id("hi")         // Instantiate: T1 -> T1, then unify T1=String

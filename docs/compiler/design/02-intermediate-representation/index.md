@@ -1,6 +1,6 @@
 # Intermediate Representation Overview
 
-The Sigil compiler uses a carefully designed intermediate representation (IR) optimized for:
+The Ori compiler uses a carefully designed intermediate representation (IR) optimized for:
 
 - **Memory efficiency** via arena allocation
 - **Fast comparison** via string interning
@@ -9,10 +9,10 @@ The Sigil compiler uses a carefully designed intermediate representation (IR) op
 
 ## IR Components
 
-The IR lives in its own crate `sigil_ir`, which has no dependencies and is used by all other compiler crates.
+The IR lives in its own crate `ori_ir`, which has no dependencies and is used by all other compiler crates.
 
 ```
-compiler/sigil_ir/src/
+compiler/ori_ir/src/
 ├── lib.rs          # Module exports, static_assert_size! macro
 ├── ast/            # Expression and statement types (~1,570 lines total)
 │   ├── mod.rs          # Module re-exports (~110 lines)
@@ -53,10 +53,10 @@ enum Expr {
 }
 ```
 
-Sigil uses arena allocation:
+Ori uses arena allocation:
 
 ```rust
-// Sigil (arena-allocated)
+// Ori (arena-allocated)
 struct Expr {
     kind: ExprKind,
     span: Span,
@@ -295,14 +295,14 @@ pub struct DerivedMethodInfo {
 }
 ```
 
-These types live in `sigil_ir` (rather than `sigil_typeck` or `sigil_eval`) to avoid circular dependencies—both the type checker and evaluator need these definitions, and `sigil_ir` has no dependencies.
+These types live in `ori_ir` (rather than `ori_typeck` or `ori_eval`) to avoid circular dependencies—both the type checker and evaluator need these definitions, and `ori_ir` has no dependencies.
 
 ## Size Assertions
 
-To prevent accidental size regressions in frequently-allocated types, the compiler uses compile-time size assertions. The `static_assert_size!` macro is defined in `sigil_ir` and used across all crates:
+To prevent accidental size regressions in frequently-allocated types, the compiler uses compile-time size assertions. The `static_assert_size!` macro is defined in `ori_ir` and used across all crates:
 
 ```rust
-// In sigil_ir/src/lib.rs
+// In ori_ir/src/lib.rs
 #[macro_export]
 macro_rules! static_assert_size {
     ($ty:ty, $size:expr) => {
@@ -310,20 +310,20 @@ macro_rules! static_assert_size {
     };
 }
 
-// In sigil_ir type files
+// In ori_ir type files
 #[cfg(target_pointer_width = "64")]
 mod size_asserts {
-    sigil_ir::static_assert_size!(Span, 8);
-    sigil_ir::static_assert_size!(Token, 24);
-    sigil_ir::static_assert_size!(TokenKind, 16);
-    sigil_ir::static_assert_size!(Expr, 88);
-    sigil_ir::static_assert_size!(ExprKind, 80);
+    ori_ir::static_assert_size!(Span, 8);
+    ori_ir::static_assert_size!(Token, 24);
+    ori_ir::static_assert_size!(TokenKind, 16);
+    ori_ir::static_assert_size!(Expr, 88);
+    ori_ir::static_assert_size!(ExprKind, 80);
 }
 
-// In sigil_types
+// In ori_types
 #[cfg(target_pointer_width = "64")]
 mod size_asserts {
-    sigil_ir::static_assert_size!(Type, 32);
+    ori_ir::static_assert_size!(Type, 32);
 }
 ```
 
