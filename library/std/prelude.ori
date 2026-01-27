@@ -144,57 +144,43 @@ pub @is_err (res: Result<int, str>) -> bool = match(res, Ok(_) -> false, Err(_) 
 // =============================================================================
 
 // Assert that a condition is true
-pub @assert (cond: bool) -> void = if cond then () else panic(msg: "assertion failed")
+pub @assert (cond: bool) -> void = if !cond then panic(msg: "assertion failed")
 
 // Assert that two values are equal
-pub @assert_eq (actual: int, expected: int) -> void = run(
-    if actual == expected then ()
-    else panic(msg: "assertion failed: " + str(actual) + " != " + str(expected))
-)
+pub @assert_eq (actual: int, expected: int) -> void =
+    if actual != expected then panic(msg: "assertion failed: " + str(actual) + " != " + str(expected))
 
 // Assert that two values are not equal
-pub @assert_ne (actual: int, unexpected: int) -> void = run(
-    if actual != unexpected then ()
-    else panic(msg: "assertion failed: values are equal: " + str(actual))
-)
+pub @assert_ne (actual: int, unexpected: int) -> void =
+    if actual == unexpected then panic(msg: "assertion failed: values are equal: " + str(actual))
 
 // Assert that an Option is Some
-pub @assert_some (opt: Option<int>) -> void = run(
-    if is_some(opt: opt) then ()
-    else panic(msg: "assertion failed: expected Some, got None")
-)
+pub @assert_some (opt: Option<int>) -> void =
+    if is_none(opt: opt) then panic(msg: "assertion failed: expected Some, got None")
 
 // Assert that an Option is None
-pub @assert_none (opt: Option<int>) -> void = run(
-    if is_none(opt: opt) then ()
-    else panic(msg: "assertion failed: expected None, got Some")
-)
+pub @assert_none (opt: Option<int>) -> void =
+    if is_some(opt: opt) then panic(msg: "assertion failed: expected None, got Some")
 
 // Assert that a Result is Ok
-pub @assert_ok (res: Result<int, str>) -> void = run(
-    if is_ok(res: res) then ()
-    else panic(msg: "assertion failed: expected Ok, got Err")
-)
+pub @assert_ok (res: Result<int, str>) -> void =
+    if is_err(res: res) then panic(msg: "assertion failed: expected Ok, got Err")
 
 // Assert that a Result is Err
-pub @assert_err (res: Result<int, str>) -> void = run(
-    if is_err(res: res) then ()
-    else panic(msg: "assertion failed: expected Err, got Ok")
-)
+pub @assert_err (res: Result<int, str>) -> void =
+    if is_ok(res: res) then panic(msg: "assertion failed: expected Err, got Ok")
 
 // Assert that an expression panics
 pub @assert_panics (f: () -> void) -> void = run(
     let result = catch(expr: f()),
-    if is_err(res: result) then ()
-    else panic(msg: "assertion failed: expected panic but succeeded")
+    if is_ok(res: result) then panic(msg: "assertion failed: expected panic but succeeded"),
 )
 
 // Assert that an expression panics with a specific message
 pub @assert_panics_with (f: () -> void, msg: str) -> void = run(
     let result = catch(expr: f()),
     match(result,
-        Err(actual_msg) -> if actual_msg == msg then ()
-            else panic(msg: "assertion failed: expected panic with: " + msg + " but got: " + actual_msg),
+        Err(actual_msg) -> if actual_msg != msg then panic(msg: "assertion failed: expected panic with: " + msg + " but got: " + actual_msg),
         Ok(_) -> panic(msg: "assertion failed: expected panic with: " + msg + " but succeeded"),
     )
 )

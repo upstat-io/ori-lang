@@ -226,14 +226,27 @@ let { x, y } = point
 ```
 if_expr = "if" expression "then" expression
           { "else" "if" expression "then" expression }
-          "else" expression .
+          [ "else" expression ] .
 ```
 
 ```ori
 if x > 0 then "positive" else "non-positive"
 ```
 
-Condition must be `bool`. Branches must have compatible types.
+Condition must be `bool`. When `else` is present, branches must have compatible types.
+
+When `else` is omitted, the expression has type `void`. The `then` branch must also have type `void` (or type `Never`, which is compatible with any type).
+
+```ori
+// Valid: then-branch is void
+if debug then print(msg: "debug mode")
+
+// Valid: then-branch is Never (panic returns Never)
+if !valid then panic(msg: "invalid state")
+
+// Invalid: then-branch has non-void type without else
+if x > 0 then "positive"  // error: non-void then-branch requires else
+```
 
 ## For Expression
 
