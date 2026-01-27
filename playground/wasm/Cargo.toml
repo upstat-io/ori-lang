@@ -1,0 +1,26 @@
+[package]
+name = "ori-playground-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "WASI binary for the Ori language playground"
+
+# Standalone package (not part of main workspace)
+[workspace]
+
+[[bin]]
+name = "ori-playground"
+path = "src/main.rs"
+
+[dependencies]
+# Only the crates needed for interpretation (no LLVM)
+sigil_ir = { path = "../../compiler/sigil_ir" }
+sigil_lexer = { path = "../../compiler/sigil_lexer" }
+sigil_parse = { path = "../../compiler/sigil_parse" }
+sigil_types = { path = "../../compiler/sigil_types" }
+sigil_typeck = { path = "../../compiler/sigil_typeck" }
+sigil_eval = { path = "../../compiler/sigil_eval" }
+sigil_patterns = { path = "../../compiler/sigil_patterns" }
+
+[profile.release]
+opt-level = "s"
+lto = true

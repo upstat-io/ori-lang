@@ -18,6 +18,16 @@ use super::discovery::{discover_tests_in, TestFile};
 use super::error_matching::{match_errors, format_expected, format_actual};
 use super::result::{TestResult, TestSummary, FileSummary, CoverageReport};
 
+/// Backend for test execution.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Backend {
+    /// Tree-walking interpreter (default).
+    #[default]
+    Interpreter,
+    /// LLVM JIT compiler.
+    LLVM,
+}
+
 /// Configuration for the test runner.
 #[derive(Clone, Debug)]
 pub struct TestRunnerConfig {
@@ -29,6 +39,8 @@ pub struct TestRunnerConfig {
     pub parallel: bool,
     /// Generate coverage report.
     pub coverage: bool,
+    /// Backend to use for execution.
+    pub backend: Backend,
 }
 
 impl Default for TestRunnerConfig {
@@ -38,6 +50,7 @@ impl Default for TestRunnerConfig {
             verbose: false,
             parallel: true,
             coverage: false,
+            backend: Backend::Interpreter,
         }
     }
 }
@@ -137,19 +150,79 @@ impl TestRunner {
 
         let interner = db.interner();
 
-        // Create evaluator with database for proper Salsa-tracked import resolution
-        let mut evaluator = Evaluator::builder(interner, &parse_result.arena, &db)
-            .build();
-
-        evaluator.register_prelude();
-
-        if let Err(e) = evaluator.load_module(&parse_result, path) {
-            summary.add_error(e);
-            return summary;
-        }
-
         // Type check for compile_fail tests (with source for error deduplication)
         let typed_module = type_check_with_source(&parse_result, interner, source.clone());
+
+        // Run tests based on backend
+        match self.config.backend {
+            Backend::Interpreter => {
+                // Create evaluator with database for proper Salsa-tracked import resolution
+                let mut evaluator = Evaluator::builder(interner, &parse_result.arena, &db)
+                    .build();
+
+                evaluator.register_prelude();
+
+                if let Err(e) = evaluator.load_module(&parse_result, path) {
+                    summary.add_error(e);
+                    return summary;
+                }
+
+                // Run each test
+                for test in &parse_result.module.tests {
+                    // Apply filter if set
+                    if let Some(filter) = &self.config.filter {
+                        let test_name = interner.lookup(test.name);
+                        if !test_name.contains(filter.as_str()) {
+                            continue;
+                        }
+                    }
+
+                    // Run the inner test (compile_fail or regular)
+                    let inner_result = if test.is_compile_fail() {
+                        // compile_fail: test expects compilation to fail
+                        Self::run_compile_fail_test(test, &typed_module, &source, interner)
+                    } else {
+                        Self::run_single_test(&mut evaluator, test, interner)
+                    };
+
+                    // If #[fail] is present, wrap the result
+                    let result = if let Some(expected_failure) = test.fail_expected {
+                        Self::apply_fail_wrapper(inner_result, expected_failure, interner)
+                    } else {
+                        inner_result
+                    };
+
+                    summary.add_result(result);
+                }
+            }
+            Backend::LLVM => {
+                // Use LLVM JIT backend
+                self.run_file_llvm(&mut summary, &parse_result, &typed_module, &source, interner);
+            }
+        }
+
+        summary
+    }
+
+    /// Run tests in a file using the LLVM backend.
+    fn run_file_llvm(
+        &self,
+        summary: &mut FileSummary,
+        parse_result: &sigil_parse::ParseResult,
+        typed_module: &crate::typeck::TypedModule,
+        source: &str,
+        interner: &crate::ir::StringInterner,
+    ) {
+        use sigil_llvm::evaluator::OwnedLLVMEvaluator;
+
+        // Create LLVM evaluator (owns its context)
+        let mut llvm_eval = OwnedLLVMEvaluator::new();
+
+        // Load the module
+        if let Err(e) = llvm_eval.load_module(&parse_result.module, &parse_result.arena) {
+            summary.add_error(e);
+            return;
+        }
 
         // Run each test
         for test in &parse_result.module.tests {
@@ -164,9 +237,9 @@ impl TestRunner {
             // Run the inner test (compile_fail or regular)
             let inner_result = if test.is_compile_fail() {
                 // compile_fail: test expects compilation to fail
-                Self::run_compile_fail_test(test, &typed_module, &source, interner)
+                Self::run_compile_fail_test(test, typed_module, source, interner)
             } else {
-                Self::run_single_test(&mut evaluator, test, interner)
+                Self::run_single_test_llvm(&llvm_eval, test, &parse_result.arena, &parse_result.module, interner)
             };
 
             // If #[fail] is present, wrap the result
@@ -178,8 +251,40 @@ impl TestRunner {
 
             summary.add_result(result);
         }
+    }
 
-        summary
+    /// Run a single test using LLVM.
+    fn run_single_test_llvm(
+        llvm_eval: &sigil_llvm::evaluator::OwnedLLVMEvaluator,
+        test: &TestDef,
+        arena: &crate::ir::ExprArena,
+        module: &crate::ir::Module,
+        interner: &crate::ir::StringInterner,
+    ) -> TestResult {
+        let test_name = interner.lookup(test.name).to_string();
+        let targets: Vec<String> = test.targets
+            .iter()
+            .map(|t| interner.lookup(*t).to_string())
+            .collect();
+
+        // Check if test is skipped
+        if let Some(reason) = test.skip_reason {
+            let reason_str = interner.lookup(reason).to_string();
+            return TestResult::skipped(test_name, targets, reason_str);
+        }
+
+        // Time the test execution
+        let start = Instant::now();
+
+        // Evaluate the test body using LLVM JIT
+        match llvm_eval.eval_test(test.name, test.body, arena, module, interner) {
+            Ok(_) => {
+                TestResult::passed(test_name, targets, start.elapsed())
+            }
+            Err(e) => {
+                TestResult::failed(test_name, targets, e.message, start.elapsed())
+            }
+        }
     }
 
     /// Run a `compile_fail` test.
