@@ -14,6 +14,87 @@ use crate::data::{TypeData, TypeVar};
 use crate::type_interner::TypeInterner;
 use ori_ir::{Name, TypeId};
 
+/// Match arm pattern for leaf `Type` variants that are returned as-is (clone).
+macro_rules! type_leaf_pattern {
+    () => {
+        Type::Int
+            | Type::Float
+            | Type::Bool
+            | Type::Str
+            | Type::Char
+            | Type::Byte
+            | Type::Unit
+            | Type::Never
+            | Type::Duration
+            | Type::Size
+            | Type::Error
+    };
+}
+
+/// Match arm pattern for leaf `TypeData` variants that are returned as-is.
+macro_rules! type_data_leaf_pattern {
+    () => {
+        TypeData::Int
+            | TypeData::Float
+            | TypeData::Bool
+            | TypeData::Str
+            | TypeData::Char
+            | TypeData::Byte
+            | TypeData::Unit
+            | TypeData::Never
+            | TypeData::Duration
+            | TypeData::Size
+            | TypeData::Error
+    };
+}
+
+/// Generate fold/visit methods for single-inner-type containers on `Type`-based traits.
+///
+/// For fold: `fn fold_<name>(&mut self, inner: &Type) -> Type`
+/// For visit: `fn visit_<name>(&mut self, inner: &Type)`
+macro_rules! impl_single_inner_type_methods {
+    (fold: $( ($method:ident, $variant:ident, $doc:literal) ),+ $(,)?) => {
+        $(
+            #[doc = $doc]
+            fn $method(&mut self, inner: &Type) -> Type {
+                Type::$variant(Box::new(self.fold(inner)))
+            }
+        )+
+    };
+    (visit: $( ($method:ident, $variant:ident, $doc:literal) ),+ $(,)?) => {
+        $(
+            #[doc = $doc]
+            fn $method(&mut self, inner: &Type) {
+                self.visit(inner);
+            }
+        )+
+    };
+}
+
+/// Generate fold/visit methods for single-inner-type containers on `TypeId`-based traits.
+///
+/// For fold: `fn fold_<name>(&mut self, inner: TypeId) -> TypeId`
+/// For visit: `fn visit_<name>(&mut self, inner: TypeId)`
+macro_rules! impl_single_inner_type_id_methods {
+    (fold: $( ($method:ident, $interner_method:ident, $doc:literal) ),+ $(,)?) => {
+        $(
+            #[doc = $doc]
+            fn $method(&mut self, inner: TypeId) -> TypeId {
+                let folded = self.fold(inner);
+                self.interner().$interner_method(folded)
+            }
+        )+
+    };
+    (visit: $( ($method:ident, $interner_method:ident, $doc:literal) ),+ $(,)?) => {
+        $(
+            #[doc = $doc]
+            fn $method(&mut self, inner: TypeId) {
+                self.visit(inner);
+            }
+        )+
+    };
+}
+
 /// Trait for transforming types via structural recursion.
 ///
 /// Implement this trait to create type transformations. Override specific
@@ -57,18 +138,7 @@ pub trait TypeFolder {
                 trait_name,
                 assoc_name,
             } => self.fold_projection(base, *trait_name, *assoc_name),
-            // Leaf types - return as-is
-            Type::Int
-            | Type::Float
-            | Type::Bool
-            | Type::Str
-            | Type::Char
-            | Type::Byte
-            | Type::Unit
-            | Type::Never
-            | Type::Duration
-            | Type::Size
-            | Type::Error => ty.clone(),
+            type_leaf_pattern!() => ty.clone(),
         }
     }
 
@@ -95,15 +165,13 @@ pub trait TypeFolder {
         Type::Tuple(types.iter().map(|t| self.fold(t)).collect())
     }
 
-    /// Fold a list type. Default folds inner type.
-    fn fold_list(&mut self, inner: &Type) -> Type {
-        Type::List(Box::new(self.fold(inner)))
-    }
-
-    /// Fold an option type. Default folds inner type.
-    fn fold_option(&mut self, inner: &Type) -> Type {
-        Type::Option(Box::new(self.fold(inner)))
-    }
+    impl_single_inner_type_methods!(fold:
+        (fold_list, List, "Fold a list type. Default folds inner type."),
+        (fold_option, Option, "Fold an option type. Default folds inner type."),
+        (fold_set, Set, "Fold a set type. Default folds inner type."),
+        (fold_range, Range, "Fold a range type. Default folds inner type."),
+        (fold_channel, Channel, "Fold a channel type. Default folds inner type."),
+    );
 
     /// Fold a result type. Default folds ok and err types.
     fn fold_result(&mut self, ok: &Type, err: &Type) -> Type {
@@ -119,21 +187,6 @@ pub trait TypeFolder {
             key: Box::new(self.fold(key)),
             value: Box::new(self.fold(value)),
         }
-    }
-
-    /// Fold a set type. Default folds inner type.
-    fn fold_set(&mut self, inner: &Type) -> Type {
-        Type::Set(Box::new(self.fold(inner)))
-    }
-
-    /// Fold a range type. Default folds inner type.
-    fn fold_range(&mut self, inner: &Type) -> Type {
-        Type::Range(Box::new(self.fold(inner)))
-    }
-
-    /// Fold a channel type. Default folds inner type.
-    fn fold_channel(&mut self, inner: &Type) -> Type {
-        Type::Channel(Box::new(self.fold(inner)))
     }
 
     /// Fold an applied generic type. Default folds args.
@@ -196,18 +249,7 @@ pub trait TypeVisitor {
             } => {
                 self.visit_projection(base, *trait_name, *assoc_name);
             }
-            // Leaf types - no-op by default
-            Type::Int
-            | Type::Float
-            | Type::Bool
-            | Type::Str
-            | Type::Char
-            | Type::Byte
-            | Type::Unit
-            | Type::Never
-            | Type::Duration
-            | Type::Size
-            | Type::Error => {}
+            type_leaf_pattern!() => {}
         }
     }
 
@@ -232,15 +274,13 @@ pub trait TypeVisitor {
         }
     }
 
-    /// Visit a list type. Default visits inner type.
-    fn visit_list(&mut self, inner: &Type) {
-        self.visit(inner);
-    }
-
-    /// Visit an option type. Default visits inner type.
-    fn visit_option(&mut self, inner: &Type) {
-        self.visit(inner);
-    }
+    impl_single_inner_type_methods!(visit:
+        (visit_list, List, "Visit a list type. Default visits inner type."),
+        (visit_option, Option, "Visit an option type. Default visits inner type."),
+        (visit_set, Set, "Visit a set type. Default visits inner type."),
+        (visit_range, Range, "Visit a range type. Default visits inner type."),
+        (visit_channel, Channel, "Visit a channel type. Default visits inner type."),
+    );
 
     /// Visit a result type. Default visits ok and err types.
     fn visit_result(&mut self, ok: &Type, err: &Type) {
@@ -252,21 +292,6 @@ pub trait TypeVisitor {
     fn visit_map(&mut self, key: &Type, value: &Type) {
         self.visit(key);
         self.visit(value);
-    }
-
-    /// Visit a set type. Default visits inner type.
-    fn visit_set(&mut self, inner: &Type) {
-        self.visit(inner);
-    }
-
-    /// Visit a range type. Default visits inner type.
-    fn visit_range(&mut self, inner: &Type) {
-        self.visit(inner);
-    }
-
-    /// Visit a channel type. Default visits inner type.
-    fn visit_channel(&mut self, inner: &Type) {
-        self.visit(inner);
     }
 
     /// Visit an applied generic type. Default visits args.
@@ -332,18 +357,7 @@ pub trait TypeIdFolder {
                 trait_name,
                 assoc_name,
             } => self.fold_projection(base, trait_name, assoc_name),
-            // Leaf types - return as-is
-            TypeData::Int
-            | TypeData::Float
-            | TypeData::Bool
-            | TypeData::Str
-            | TypeData::Char
-            | TypeData::Byte
-            | TypeData::Unit
-            | TypeData::Never
-            | TypeData::Duration
-            | TypeData::Size
-            | TypeData::Error => id,
+            type_data_leaf_pattern!() => id,
         }
     }
 
@@ -370,17 +384,13 @@ pub trait TypeIdFolder {
         self.interner().tuple(folded)
     }
 
-    /// Fold a list type. Default folds inner type.
-    fn fold_list(&mut self, inner: TypeId) -> TypeId {
-        let folded = self.fold(inner);
-        self.interner().list(folded)
-    }
-
-    /// Fold an option type. Default folds inner type.
-    fn fold_option(&mut self, inner: TypeId) -> TypeId {
-        let folded = self.fold(inner);
-        self.interner().option(folded)
-    }
+    impl_single_inner_type_id_methods!(fold:
+        (fold_list, list, "Fold a list type. Default folds inner type."),
+        (fold_option, option, "Fold an option type. Default folds inner type."),
+        (fold_set, set, "Fold a set type. Default folds inner type."),
+        (fold_range, range, "Fold a range type. Default folds inner type."),
+        (fold_channel, channel, "Fold a channel type. Default folds inner type."),
+    );
 
     /// Fold a result type. Default folds ok and err types.
     fn fold_result(&mut self, ok: TypeId, err: TypeId) -> TypeId {
@@ -394,24 +404,6 @@ pub trait TypeIdFolder {
         let folded_key = self.fold(key);
         let folded_value = self.fold(value);
         self.interner().map(folded_key, folded_value)
-    }
-
-    /// Fold a set type. Default folds inner type.
-    fn fold_set(&mut self, inner: TypeId) -> TypeId {
-        let folded = self.fold(inner);
-        self.interner().set(folded)
-    }
-
-    /// Fold a range type. Default folds inner type.
-    fn fold_range(&mut self, inner: TypeId) -> TypeId {
-        let folded = self.fold(inner);
-        self.interner().range(folded)
-    }
-
-    /// Fold a channel type. Default folds inner type.
-    fn fold_channel(&mut self, inner: TypeId) -> TypeId {
-        let folded = self.fold(inner);
-        self.interner().channel(folded)
     }
 
     /// Fold an applied generic type. Default folds args.
@@ -477,18 +469,7 @@ pub trait TypeIdVisitor {
             } => {
                 self.visit_projection(base, trait_name, assoc_name);
             }
-            // Leaf types - no-op by default
-            TypeData::Int
-            | TypeData::Float
-            | TypeData::Bool
-            | TypeData::Str
-            | TypeData::Char
-            | TypeData::Byte
-            | TypeData::Unit
-            | TypeData::Never
-            | TypeData::Duration
-            | TypeData::Size
-            | TypeData::Error => {}
+            type_data_leaf_pattern!() => {}
         }
     }
 
@@ -513,15 +494,13 @@ pub trait TypeIdVisitor {
         }
     }
 
-    /// Visit a list type. Default visits inner type.
-    fn visit_list(&mut self, inner: TypeId) {
-        self.visit(inner);
-    }
-
-    /// Visit an option type. Default visits inner type.
-    fn visit_option(&mut self, inner: TypeId) {
-        self.visit(inner);
-    }
+    impl_single_inner_type_id_methods!(visit:
+        (visit_list, list, "Visit a list type. Default visits inner type."),
+        (visit_option, option, "Visit an option type. Default visits inner type."),
+        (visit_set, set, "Visit a set type. Default visits inner type."),
+        (visit_range, range, "Visit a range type. Default visits inner type."),
+        (visit_channel, channel, "Visit a channel type. Default visits inner type."),
+    );
 
     /// Visit a result type. Default visits ok and err types.
     fn visit_result(&mut self, ok: TypeId, err: TypeId) {
@@ -533,21 +512,6 @@ pub trait TypeIdVisitor {
     fn visit_map(&mut self, key: TypeId, value: TypeId) {
         self.visit(key);
         self.visit(value);
-    }
-
-    /// Visit a set type. Default visits inner type.
-    fn visit_set(&mut self, inner: TypeId) {
-        self.visit(inner);
-    }
-
-    /// Visit a range type. Default visits inner type.
-    fn visit_range(&mut self, inner: TypeId) {
-        self.visit(inner);
-    }
-
-    /// Visit a channel type. Default visits inner type.
-    fn visit_channel(&mut self, inner: TypeId) {
-        self.visit(inner);
     }
 
     /// Visit an applied generic type. Default visits args.

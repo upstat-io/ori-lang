@@ -48,8 +48,6 @@ pub use checker::{
     GenericBound,
     InferenceState,
     Registries,
-    SavedCapabilityContext,
-    SavedImplContext,
     ScopeContext,
     TypeCheckError,
     TypeChecker,

@@ -48,6 +48,47 @@ fn len_to_value(len: usize, collection_type: &str) -> EvalResult {
         .map_err(|_| EvalError::new(format!("{collection_type} too large")))
 }
 
+/// All built-in methods registered in the evaluator's direct dispatch.
+///
+/// Used by cross-crate consistency tests to verify the evaluator and type
+/// checker agree on which methods exist. Each entry is `(type_name, method_name)`.
+/// Sorted by type then method for deterministic comparison.
+pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
+    // list
+    ("list", "contains"),
+    ("list", "first"),
+    ("list", "is_empty"),
+    ("list", "last"),
+    ("list", "len"),
+    // map
+    ("map", "contains_key"),
+    ("map", "is_empty"),
+    ("map", "keys"),
+    ("map", "len"),
+    ("map", "values"),
+    // option
+    ("option", "is_none"),
+    ("option", "is_some"),
+    ("option", "unwrap"),
+    ("option", "unwrap_or"),
+    // range
+    ("range", "contains"),
+    ("range", "len"),
+    // result
+    ("result", "is_err"),
+    ("result", "is_ok"),
+    ("result", "unwrap"),
+    // str
+    ("str", "contains"),
+    ("str", "ends_with"),
+    ("str", "is_empty"),
+    ("str", "len"),
+    ("str", "starts_with"),
+    ("str", "to_lowercase"),
+    ("str", "to_uppercase"),
+    ("str", "trim"),
+];
+
 // Direct Dispatch Function
 
 /// Dispatch a built-in method call using direct pattern matching.

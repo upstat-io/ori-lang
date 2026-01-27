@@ -22,6 +22,87 @@ pub use option::OptionMethodHandler;
 pub use result::ResultMethodHandler;
 pub use string::StringMethodHandler;
 
+/// All built-in methods registered in the type checker's handlers.
+///
+/// Used by cross-crate consistency tests to verify the evaluator and type
+/// checker agree on which methods exist. Each entry is `(type_name, method_name)`.
+/// Sorted by type then method for deterministic comparison.
+pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
+    // bool
+    ("bool", "to_string"),
+    // float
+    ("float", "abs"),
+    ("float", "ceil"),
+    ("float", "compare"),
+    ("float", "floor"),
+    ("float", "max"),
+    ("float", "min"),
+    ("float", "round"),
+    ("float", "sqrt"),
+    ("float", "to_string"),
+    // int
+    ("int", "abs"),
+    ("int", "compare"),
+    ("int", "max"),
+    ("int", "min"),
+    ("int", "to_string"),
+    // list
+    ("list", "contains"),
+    ("list", "filter"),
+    ("list", "find"),
+    ("list", "first"),
+    ("list", "fold"),
+    ("list", "is_empty"),
+    ("list", "last"),
+    ("list", "len"),
+    ("list", "map"),
+    ("list", "pop"),
+    ("list", "push"),
+    ("list", "reverse"),
+    ("list", "sort"),
+    // map
+    ("map", "contains_key"),
+    ("map", "get"),
+    ("map", "insert"),
+    ("map", "is_empty"),
+    ("map", "keys"),
+    ("map", "len"),
+    ("map", "remove"),
+    ("map", "values"),
+    // option
+    ("option", "and_then"),
+    ("option", "filter"),
+    ("option", "is_none"),
+    ("option", "is_some"),
+    ("option", "map"),
+    ("option", "ok_or"),
+    ("option", "unwrap"),
+    ("option", "unwrap_or"),
+    // result
+    ("result", "and_then"),
+    ("result", "err"),
+    ("result", "is_err"),
+    ("result", "is_ok"),
+    ("result", "map"),
+    ("result", "map_err"),
+    ("result", "ok"),
+    ("result", "unwrap"),
+    ("result", "unwrap_err"),
+    ("result", "unwrap_or"),
+    // str
+    ("str", "bytes"),
+    ("str", "chars"),
+    ("str", "contains"),
+    ("str", "ends_with"),
+    ("str", "is_empty"),
+    ("str", "len"),
+    ("str", "split"),
+    ("str", "starts_with"),
+    ("str", "to_lowercase"),
+    ("str", "to_uppercase"),
+    ("str", "trim"),
+];
+
 /// Result of type checking a method call.
 pub enum MethodTypeResult {
     /// Successfully type checked, returning the result type.

@@ -132,77 +132,25 @@ impl<'ctx> LLVMCodegen<'ctx> {
                 }
             }
 
-            BinaryOp::Lt => {
-                if is_struct {
-                    None
-                } else if is_float {
-                    let l = lhs.into_float_value();
-                    let r = rhs.into_float_value();
-                    Some(self.builder.build_float_compare(
-                        inkwell::FloatPredicate::OLT, l, r, "flt"
-                    ).ok()?.into())
-                } else {
-                    let l = lhs.into_int_value();
-                    let r = rhs.into_int_value();
-                    Some(self.builder.build_int_compare(
-                        inkwell::IntPredicate::SLT, l, r, "ilt"
-                    ).ok()?.into())
-                }
-            }
+            BinaryOp::Lt => self.compile_comparison(
+                inkwell::FloatPredicate::OLT, inkwell::IntPredicate::SLT,
+                "flt", "ilt", is_struct, is_float, lhs, rhs,
+            ),
 
-            BinaryOp::LtEq => {
-                if is_struct {
-                    None
-                } else if is_float {
-                    let l = lhs.into_float_value();
-                    let r = rhs.into_float_value();
-                    Some(self.builder.build_float_compare(
-                        inkwell::FloatPredicate::OLE, l, r, "fle"
-                    ).ok()?.into())
-                } else {
-                    let l = lhs.into_int_value();
-                    let r = rhs.into_int_value();
-                    Some(self.builder.build_int_compare(
-                        inkwell::IntPredicate::SLE, l, r, "ile"
-                    ).ok()?.into())
-                }
-            }
+            BinaryOp::LtEq => self.compile_comparison(
+                inkwell::FloatPredicate::OLE, inkwell::IntPredicate::SLE,
+                "fle", "ile", is_struct, is_float, lhs, rhs,
+            ),
 
-            BinaryOp::Gt => {
-                if is_struct {
-                    None
-                } else if is_float {
-                    let l = lhs.into_float_value();
-                    let r = rhs.into_float_value();
-                    Some(self.builder.build_float_compare(
-                        inkwell::FloatPredicate::OGT, l, r, "fgt"
-                    ).ok()?.into())
-                } else {
-                    let l = lhs.into_int_value();
-                    let r = rhs.into_int_value();
-                    Some(self.builder.build_int_compare(
-                        inkwell::IntPredicate::SGT, l, r, "igt"
-                    ).ok()?.into())
-                }
-            }
+            BinaryOp::Gt => self.compile_comparison(
+                inkwell::FloatPredicate::OGT, inkwell::IntPredicate::SGT,
+                "fgt", "igt", is_struct, is_float, lhs, rhs,
+            ),
 
-            BinaryOp::GtEq => {
-                if is_struct {
-                    None
-                } else if is_float {
-                    let l = lhs.into_float_value();
-                    let r = rhs.into_float_value();
-                    Some(self.builder.build_float_compare(
-                        inkwell::FloatPredicate::OGE, l, r, "fge"
-                    ).ok()?.into())
-                } else {
-                    let l = lhs.into_int_value();
-                    let r = rhs.into_int_value();
-                    Some(self.builder.build_int_compare(
-                        inkwell::IntPredicate::SGE, l, r, "ige"
-                    ).ok()?.into())
-                }
-            }
+            BinaryOp::GtEq => self.compile_comparison(
+                inkwell::FloatPredicate::OGE, inkwell::IntPredicate::SGE,
+                "fge", "ige", is_struct, is_float, lhs, rhs,
+            ),
 
             // Logical
             BinaryOp::And => {
@@ -253,13 +201,19 @@ impl<'ctx> LLVMCodegen<'ctx> {
         }
     }
 
-    /// Compile string concatenation by calling runtime function.
-    fn compile_str_concat(
+    /// Call a binary string runtime function by name.
+    ///
+    /// Shared helper for `compile_str_concat`, `compile_str_eq`, `compile_str_ne`.
+    /// Allocates temporaries for the two string struct values, stores them,
+    /// and calls the named runtime function.
+    fn call_binary_string_op(
         &self,
+        fn_name: &str,
+        label: &str,
         lhs: BasicValueEnum<'ctx>,
         rhs: BasicValueEnum<'ctx>,
     ) -> Option<BasicValueEnum<'ctx>> {
-        let str_concat = self.module.get_function("ori_str_concat")?;
+        let func = self.module.get_function(fn_name)?;
 
         let i64_type = self.context.i64_type();
         let ptr_type = self.context.ptr_type(inkwell::AddressSpace::default());
@@ -272,12 +226,21 @@ impl<'ctx> LLVMCodegen<'ctx> {
         self.builder.build_store(rhs_ptr, rhs.into_struct_value()).ok()?;
 
         let result = self.builder.build_call(
-            str_concat,
+            func,
             &[lhs_ptr.into(), rhs_ptr.into()],
-            "str_concat_result"
+            label,
         ).ok()?;
 
         result.try_as_basic_value().basic()
+    }
+
+    /// Compile string concatenation by calling runtime function.
+    fn compile_str_concat(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+    ) -> Option<BasicValueEnum<'ctx>> {
+        self.call_binary_string_op("ori_str_concat", "str_concat_result", lhs, rhs)
     }
 
     /// Compile string equality by calling runtime function.
@@ -286,25 +249,7 @@ impl<'ctx> LLVMCodegen<'ctx> {
         lhs: BasicValueEnum<'ctx>,
         rhs: BasicValueEnum<'ctx>,
     ) -> Option<BasicValueEnum<'ctx>> {
-        let str_eq = self.module.get_function("ori_str_eq")?;
-
-        let i64_type = self.context.i64_type();
-        let ptr_type = self.context.ptr_type(inkwell::AddressSpace::default());
-        let str_type = self.context.struct_type(&[i64_type.into(), ptr_type.into()], false);
-
-        let lhs_ptr = self.builder.build_alloca(str_type, "lhs_str").ok()?;
-        let rhs_ptr = self.builder.build_alloca(str_type, "rhs_str").ok()?;
-
-        self.builder.build_store(lhs_ptr, lhs.into_struct_value()).ok()?;
-        self.builder.build_store(rhs_ptr, rhs.into_struct_value()).ok()?;
-
-        let result = self.builder.build_call(
-            str_eq,
-            &[lhs_ptr.into(), rhs_ptr.into()],
-            "str_eq_result"
-        ).ok()?;
-
-        result.try_as_basic_value().basic()
+        self.call_binary_string_op("ori_str_eq", "str_eq_result", lhs, rhs)
     }
 
     /// Compile string inequality by calling runtime function.
@@ -313,25 +258,35 @@ impl<'ctx> LLVMCodegen<'ctx> {
         lhs: BasicValueEnum<'ctx>,
         rhs: BasicValueEnum<'ctx>,
     ) -> Option<BasicValueEnum<'ctx>> {
-        let str_ne = self.module.get_function("ori_str_ne")?;
+        self.call_binary_string_op("ori_str_ne", "str_ne_result", lhs, rhs)
+    }
 
-        let i64_type = self.context.i64_type();
-        let ptr_type = self.context.ptr_type(inkwell::AddressSpace::default());
-        let str_type = self.context.struct_type(&[i64_type.into(), ptr_type.into()], false);
-
-        let lhs_ptr = self.builder.build_alloca(str_type, "lhs_str").ok()?;
-        let rhs_ptr = self.builder.build_alloca(str_type, "rhs_str").ok()?;
-
-        self.builder.build_store(lhs_ptr, lhs.into_struct_value()).ok()?;
-        self.builder.build_store(rhs_ptr, rhs.into_struct_value()).ok()?;
-
-        let result = self.builder.build_call(
-            str_ne,
-            &[lhs_ptr.into(), rhs_ptr.into()],
-            "str_ne_result"
-        ).ok()?;
-
-        result.try_as_basic_value().basic()
+    /// Compile a numeric comparison (float or integer).
+    ///
+    /// Shared helper for Lt, LtEq, Gt, GtEq operators. Returns `None` for
+    /// struct types (not supported).
+    fn compile_comparison(
+        &self,
+        float_pred: inkwell::FloatPredicate,
+        int_pred: inkwell::IntPredicate,
+        float_label: &str,
+        int_label: &str,
+        is_struct: bool,
+        is_float: bool,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+    ) -> Option<BasicValueEnum<'ctx>> {
+        if is_struct {
+            None
+        } else if is_float {
+            let l = lhs.into_float_value();
+            let r = rhs.into_float_value();
+            Some(self.builder.build_float_compare(float_pred, l, r, float_label).ok()?.into())
+        } else {
+            let l = lhs.into_int_value();
+            let r = rhs.into_int_value();
+            Some(self.builder.build_int_compare(int_pred, l, r, int_label).ok()?.into())
+        }
     }
 
     /// Compile a unary operation.

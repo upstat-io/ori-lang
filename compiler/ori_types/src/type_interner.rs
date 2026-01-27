@@ -194,9 +194,21 @@ impl TypeInterner {
 
     /// Convert a `TypeId` back to a boxed Type.
     ///
-    /// This enables migration from `TypeId` to `Type` by providing
-    /// bidirectional conversion. Useful for interoperating with code
-    /// that still uses the boxed `Type` representation.
+    /// This is the reverse direction of the bidirectional Type<->TypeId conversion.
+    /// The forward operation is [`Type::to_type_id`], which interns a `Type`
+    /// into a compact `TypeId`. Together they satisfy:
+    ///
+    /// ```text
+    /// interner.to_type(ty.to_type_id(&interner)) == ty   // roundtrip
+    /// ```
+    ///
+    /// Each match arm here reconstructs the boxed representation from interned
+    /// `TypeData`. This is intentionally symmetric with `Type::to_type_id` —
+    /// both traverse the same set of type variants but in opposite directions
+    /// (interning vs reconstructing).
+    ///
+    /// See also: `Type::to_type_id` for the forward direction, and
+    /// `test_type_to_type_id_roundtrip` and related tests for roundtrip verification.
     pub fn to_type(&self, id: TypeId) -> Type {
         match self.lookup(id) {
             // Primitives

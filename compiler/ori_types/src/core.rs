@@ -124,9 +124,19 @@ impl Type {
 
     /// Convert this boxed Type to an interned `TypeId`.
     ///
-    /// This enables migration from `Type` to `TypeId` by providing
-    /// bidirectional conversion. The interner ensures that equivalent
+    /// This is the forward direction of the bidirectional Type<->TypeId conversion.
+    /// The inverse operation is [`TypeInterner::to_type`], which reconstructs a
+    /// `Type` from a `TypeId`. Together they satisfy:
+    ///
+    /// ```text
+    /// interner.to_type(ty.to_type_id(&interner)) == ty   // roundtrip
+    /// ```
+    ///
+    /// Each match arm here interns (compresses) the boxed representation into
+    /// a compact `TypeId`. The interner ensures that structurally equivalent
     /// types get the same `TypeId` for O(1) equality comparisons.
+    ///
+    /// See also: `TypeInterner::to_type` for the inverse direction.
     pub fn to_type_id(&self, interner: &TypeInterner) -> TypeId {
         match self {
             // Primitives map to pre-interned constants

@@ -255,82 +255,35 @@ impl<'ctx> ModuleCompiler<'ctx> {
     fn add_runtime_mappings(&self, ee: &inkwell::execution_engine::ExecutionEngine<'ctx>) {
         use crate::runtime;
 
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_print").unwrap_or_else(|| panic!("ori_print not declared")),
-            runtime::ori_print as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_print_int").unwrap_or_else(|| panic!("ori_print_int not declared")),
-            runtime::ori_print_int as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_print_float").unwrap_or_else(|| panic!("ori_print_float not declared")),
-            runtime::ori_print_float as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_print_bool").unwrap_or_else(|| panic!("ori_print_bool not declared")),
-            runtime::ori_print_bool as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_panic").unwrap_or_else(|| panic!("ori_panic not declared")),
-            runtime::ori_panic as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_panic_cstr").unwrap_or_else(|| panic!("ori_panic_cstr not declared")),
-            runtime::ori_panic_cstr as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_assert").unwrap_or_else(|| panic!("ori_assert not declared")),
-            runtime::ori_assert as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_assert_eq_int").unwrap_or_else(|| panic!("ori_assert_eq_int not declared")),
-            runtime::ori_assert_eq_int as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_assert_eq_bool").unwrap_or_else(|| panic!("ori_assert_eq_bool not declared")),
-            runtime::ori_assert_eq_bool as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_list_new").unwrap_or_else(|| panic!("ori_list_new not declared")),
-            runtime::ori_list_new as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_list_free").unwrap_or_else(|| panic!("ori_list_free not declared")),
-            runtime::ori_list_free as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_list_len").unwrap_or_else(|| panic!("ori_list_len not declared")),
-            runtime::ori_list_len as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_compare_int").unwrap_or_else(|| panic!("ori_compare_int not declared")),
-            runtime::ori_compare_int as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_min_int").unwrap_or_else(|| panic!("ori_min_int not declared")),
-            runtime::ori_min_int as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_max_int").unwrap_or_else(|| panic!("ori_max_int not declared")),
-            runtime::ori_max_int as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_str_concat").unwrap_or_else(|| panic!("ori_str_concat not declared")),
-            runtime::ori_str_concat as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_str_eq").unwrap_or_else(|| panic!("ori_str_eq not declared")),
-            runtime::ori_str_eq as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_str_ne").unwrap_or_else(|| panic!("ori_str_ne not declared")),
-            runtime::ori_str_ne as usize,
-        );
-        ee.add_global_mapping(
-            &self.codegen.module().get_function("ori_assert_eq_str").unwrap_or_else(|| panic!("ori_assert_eq_str not declared")),
-            runtime::ori_assert_eq_str as usize,
-        );
+        let mappings: &[(&str, usize)] = &[
+            ("ori_print", runtime::ori_print as usize),
+            ("ori_print_int", runtime::ori_print_int as usize),
+            ("ori_print_float", runtime::ori_print_float as usize),
+            ("ori_print_bool", runtime::ori_print_bool as usize),
+            ("ori_panic", runtime::ori_panic as usize),
+            ("ori_panic_cstr", runtime::ori_panic_cstr as usize),
+            ("ori_assert", runtime::ori_assert as usize),
+            ("ori_assert_eq_int", runtime::ori_assert_eq_int as usize),
+            ("ori_assert_eq_bool", runtime::ori_assert_eq_bool as usize),
+            ("ori_list_new", runtime::ori_list_new as usize),
+            ("ori_list_free", runtime::ori_list_free as usize),
+            ("ori_list_len", runtime::ori_list_len as usize),
+            ("ori_compare_int", runtime::ori_compare_int as usize),
+            ("ori_min_int", runtime::ori_min_int as usize),
+            ("ori_max_int", runtime::ori_max_int as usize),
+            ("ori_str_concat", runtime::ori_str_concat as usize),
+            ("ori_str_eq", runtime::ori_str_eq as usize),
+            ("ori_str_ne", runtime::ori_str_ne as usize),
+            ("ori_assert_eq_str", runtime::ori_assert_eq_str as usize),
+        ];
+
+        let module = self.codegen.module();
+        for &(name, addr) in mappings {
+            let func = module
+                .get_function(name)
+                .unwrap_or_else(|| panic!("{name} not declared"));
+            ee.add_global_mapping(&func, addr);
+        }
     }
 }
 
