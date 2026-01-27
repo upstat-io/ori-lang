@@ -1,3 +1,10 @@
+---
+title: "Recursive Descent Parsing"
+description: "Ori Compiler Design — Recursive Descent Parsing"
+order: 403
+section: "Parser"
+---
+
 # Recursive Descent Parsing
 
 The Ori parser uses recursive descent, a top-down parsing technique where each grammar rule becomes a function.

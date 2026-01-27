@@ -1,3 +1,10 @@
+---
+title: "Lexer Overview"
+description: "Ori Compiler Design — Lexer Overview"
+order: 300
+section: "Lexer"
+---
+
 # Lexer Overview
 
 The Ori lexer converts source text into a stream of tokens. It's implemented using the [logos](https://github.com/maciejhirsz/logos) crate for DFA-based tokenization.

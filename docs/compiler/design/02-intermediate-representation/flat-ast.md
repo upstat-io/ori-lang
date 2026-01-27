@@ -1,3 +1,10 @@
+---
+title: "Flat AST Design"
+description: "Ori Compiler Design — Flat AST Design"
+order: 202
+section: "Intermediate Representation"
+---
+
 # Flat AST Design
 
 The Ori compiler uses a "flat" AST where expressions are stored in an arena and referenced by ID, rather than using traditional heap-allocated tree structures.

@@ -1,3 +1,9 @@
+---
+title: "Control Flow"
+description: "Ori Language Specification — Control Flow"
+order: 19
+---
+
 # Control Flow
 
 Control flow determines the order of expression evaluation and how execution transfers between expressions.

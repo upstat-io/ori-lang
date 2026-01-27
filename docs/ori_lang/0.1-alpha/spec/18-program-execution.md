@@ -1,3 +1,9 @@
+---
+title: "Program Execution"
+description: "Ori Language Specification — Program Execution"
+order: 18
+---
+
 # Program Execution
 
 A _program_ is a complete, executable Ori application.
@@ -6,7 +12,7 @@ A _program_ is a complete, executable Ori application.
 
 Every executable program must have exactly one `@main` function.
 
-```
+```ebnf
 main_function = "@main" "(" [ "args" ":" "[" "str" "]" ] ")" "->" ( "void" | "int" ) "=" expression .
 ```
 

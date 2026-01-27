@@ -6,7 +6,7 @@
 
 A statically-typed, expression-based language with mandatory testing, causality tracking, and explicit effects.
 
-[Getting Started](#quick-start) | [Specification](docs/ori_lang/0.1-alpha/spec/) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
+[Website](https://ori-lang.com) | [Playground](https://ori-lang.com/playground) | [Getting Started](#quick-start) | [Specification](https://ori-lang.com/docs/spec/01-notation) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -226,7 +226,11 @@ Requires Rust 1.70+ and a C compiler (for native compilation).
 
 ## Documentation
 
-- [Language Specification](docs/ori_lang/0.1-alpha/spec/) — Formal language definition
+- [Website](https://ori-lang.com) — Official website with guides and documentation
+- [Playground](https://ori-lang.com/playground) — Try Ori in your browser
+- [Language Specification](https://ori-lang.com/docs/spec/01-notation) — Formal language definition
+- [Compiler Design](https://ori-lang.com/docs/compiler-design/01-architecture) — Compiler architecture and internals
+- [Roadmap](https://ori-lang.com/roadmap) — Development roadmap and progress
 - [Proposals](docs/ori_lang/proposals/) — Design decisions and rationale
 
 ## Design Philosophy
@@ -257,6 +261,7 @@ Capabilities make mocking easy
 
 ## Getting Help
 
+- **Website:** [ori-lang.com](https://ori-lang.com)
 - **Bug reports & feature requests:** [GitHub Issues](https://github.com/upstat-io/ori-lang/issues)
 - **Discussions:** [GitHub Discussions](https://github.com/upstat-io/ori-lang/discussions)
 

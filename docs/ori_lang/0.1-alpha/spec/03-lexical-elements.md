@@ -1,12 +1,18 @@
+---
+title: "Lexical Elements"
+description: "Ori Language Specification — Lexical Elements"
+order: 3
+---
+
 # Lexical Elements
 
-```
+```ebnf
 token = identifier | keyword | literal | operator | delimiter .
 ```
 
 ## Comments
 
-```
+```ebnf
 comment      = "//" { unicode_char - newline } newline .
 ```
 
@@ -21,7 +27,7 @@ Comments start with `//` and extend to end of line. Inline comments are not perm
 
 ### Doc Comments
 
-```
+```ebnf
 doc_comment = "//" doc_marker { unicode_char - newline } newline .
 doc_marker  = "#" | "@param" | "@field" | "!" | ">" .
 ```
@@ -36,7 +42,7 @@ doc_marker  = "#" | "@param" | "@field" | "!" | ">" .
 
 ## Identifiers
 
-```
+```ebnf
 identifier = ( letter | "_" ) { letter | digit | "_" } .
 ```
 
@@ -77,7 +83,7 @@ max      print    panic
 
 ## Operators
 
-```
+```ebnf
 arith_op  = "+" | "-" | "*" | "/" | "%" | "div" .
 comp_op   = "==" | "!=" | "<" | ">" | "<=" | ">=" .
 logic_op  = "&&" | "||" | "!" .
@@ -106,7 +112,7 @@ other_op  = ".." | "..=" | "??" | "?" | "->" | "=>" .
 
 ## Delimiters
 
-```
+```ebnf
 delimiter = "(" | ")" | "[" | "]" | "{" | "}"
           | "," | ":" | "." | "@" | "$" .
 ```
@@ -115,7 +121,7 @@ delimiter = "(" | ")" | "[" | "]" | "{" | "}"
 
 ### Integer
 
-```
+```ebnf
 int_literal = decimal_lit | hex_lit .
 decimal_lit = digit { digit | "_" } .
 hex_lit     = "0x" hex_digit { hex_digit | "_" } .
@@ -129,7 +135,7 @@ hex_lit     = "0x" hex_digit { hex_digit | "_" } .
 
 ### Float
 
-```
+```ebnf
 float_literal = decimal_lit "." decimal_lit [ exponent ] .
 exponent      = ( "e" | "E" ) [ "+" | "-" ] decimal_lit .
 ```
@@ -141,7 +147,7 @@ exponent      = ( "e" | "E" ) [ "+" | "-" ] decimal_lit .
 
 ### String
 
-```
+```ebnf
 string_literal = '"' { string_char } '"' .
 string_char    = unicode_char - ( '"' | '\' | newline ) | escape .
 escape         = '\' ( '"' | '\' | 'n' | 't' | 'r' ) .
@@ -154,7 +160,7 @@ escape         = '\' ( '"' | '\' | 'n' | 't' | 'r' ) .
 
 ### Character
 
-```
+```ebnf
 char_literal = "'" char_char "'" .
 char_char    = unicode_char - ( "'" | '\' | newline ) | char_escape .
 char_escape  = '\' ( "'" | '\' | 'n' | 't' | 'r' | '0' ) .
@@ -167,13 +173,13 @@ char_escape  = '\' ( "'" | '\' | 'n' | 't' | 'r' | '0' ) .
 
 ### Boolean
 
-```
+```ebnf
 bool_literal = "true" | "false" .
 ```
 
 ### Duration
 
-```
+```ebnf
 duration_literal = int_literal duration_unit .
 duration_unit    = "ms" | "s" | "m" | "h" .
 ```
@@ -185,7 +191,7 @@ duration_unit    = "ms" | "s" | "m" | "h" .
 
 ### Size
 
-```
+```ebnf
 size_literal = int_literal size_unit .
 size_unit    = "b" | "kb" | "mb" | "gb" .
 ```

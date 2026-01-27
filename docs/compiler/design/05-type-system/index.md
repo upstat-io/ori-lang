@@ -1,3 +1,10 @@
+---
+title: "Type System Overview"
+description: "Ori Compiler Design — Type System Overview"
+order: 500
+section: "Type System"
+---
+
 # Type System Overview
 
 The Ori type system provides strict static typing with Hindley-Milner type inference. The type checker validates programs and infers types for expressions.

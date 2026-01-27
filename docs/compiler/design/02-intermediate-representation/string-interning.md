@@ -1,3 +1,10 @@
+---
+title: "String Interning"
+description: "Ori Compiler Design — String Interning"
+order: 203
+section: "Intermediate Representation"
+---
+
 # String Interning
 
 The Ori compiler interns all identifiers to enable O(1) comparison and reduce memory usage.

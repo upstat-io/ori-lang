@@ -1,3 +1,10 @@
+---
+title: "Adding New Patterns"
+description: "Ori Compiler Design — Adding New Patterns"
+order: 601
+section: "Pattern System"
+---
+
 # Adding New Patterns
 
 This guide explains how to add new patterns to the Ori compiler.

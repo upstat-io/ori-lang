@@ -1,10 +1,16 @@
+---
+title: "Variables"
+description: "Ori Language Specification — Variables"
+order: 5
+---
+
 # Variables
 
 Variables are storage locations identified by name.
 
 ## Bindings
 
-```
+```ebnf
 binding    = "let" [ "mut" ] pattern [ ":" type ] "=" expression .
 assignment = identifier "=" expression .
 ```
@@ -63,7 +69,7 @@ run(
 
 ## Destructuring
 
-```
+```ebnf
 pattern = identifier
         | "_"
         | "{" field_pattern { "," field_pattern } "}"

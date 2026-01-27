@@ -1,3 +1,10 @@
+---
+title: "Environment"
+description: "Ori Compiler Design — Environment"
+order: 701
+section: "Evaluator"
+---
+
 # Environment
 
 The Environment manages variable bindings during evaluation. It uses a stack of scopes for lexical scoping.

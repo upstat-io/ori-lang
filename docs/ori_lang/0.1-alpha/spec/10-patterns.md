@@ -1,3 +1,9 @@
+---
+title: "Patterns"
+description: "Ori Language Specification — Patterns"
+order: 10
+---
+
 # Patterns
 
 Compiler-level control flow and concurrency constructs.
@@ -14,7 +20,7 @@ Compiler-level control flow and concurrency constructs.
 
 ## Grammar
 
-```
+```ebnf
 pattern_expr   = function_seq | function_exp | function_val .
 function_seq   = run_expr | try_expr | match_expr | for_pattern .
 function_exp   = pattern_name "(" named_arg { "," named_arg } ")" .
@@ -27,7 +33,7 @@ pattern_name   = "recurse" | "parallel" | "spawn" | "timeout" | "cache" | "with"
 
 ### run
 
-```
+```ebnf
 run_expr = "run" "(" { binding "," } expression ")" .
 ```
 
@@ -53,7 +59,7 @@ try(
 
 ### match
 
-```
+```ebnf
 match_expr = "match" "(" expression "," match_arm { "," match_arm } ")" .
 match_arm  = pattern [ guard ] "->" expression .
 guard      = ".match" "(" expression ")" .
@@ -70,7 +76,7 @@ match(status,
 
 Match patterns:
 
-```
+```ebnf
 pattern = literal | identifier | "_"
         | type_path [ "(" pattern { "," pattern } ")" ]
         | "{" [ field_pattern { "," field_pattern } ] [ ".." ] "}"

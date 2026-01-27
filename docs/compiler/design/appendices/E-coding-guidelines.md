@@ -1,3 +1,10 @@
+---
+title: "Appendix E: Coding Guidelines"
+description: "Ori Compiler Design — Appendix E: Coding Guidelines"
+order: 1005
+section: "Appendices"
+---
+
 # Appendix E: Coding Guidelines
 
 Coding standards and best practices for the Ori compiler codebase.

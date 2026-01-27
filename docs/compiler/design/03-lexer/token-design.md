@@ -1,3 +1,10 @@
+---
+title: "Token Design"
+description: "Ori Compiler Design — Token Design"
+order: 301
+section: "Lexer"
+---
+
 # Token Design
 
 This document describes the design of tokens in the Ori lexer.

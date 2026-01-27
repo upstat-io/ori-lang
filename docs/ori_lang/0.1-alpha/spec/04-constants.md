@@ -1,10 +1,16 @@
+---
+title: "Constants"
+description: "Ori Language Specification — Constants"
+order: 4
+---
+
 # Constants
 
 Constant expressions are evaluated at compile time.
 
 ## Constant Expressions
 
-```
+```ebnf
 const_expr = literal
            | const_expr binary_op const_expr
            | unary_op const_expr
@@ -27,7 +33,7 @@ Non-constant expressions:
 
 ## Config Variables
 
-```
+```ebnf
 config_decl = [ "pub" ] "$" identifier "=" literal .
 ```
 

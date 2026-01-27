@@ -1,3 +1,10 @@
+---
+title: "Emitters"
+description: "Ori Compiler Design — Emitters"
+order: 802
+section: "Diagnostics"
+---
+
 # Emitters
 
 Emitters format diagnostics for different output targets: terminal, JSON, and SARIF.

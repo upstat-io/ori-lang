@@ -4,7 +4,7 @@ One-line definition of what this section covers.
 
 ## Subsection
 
-```
+```ebnf
 production_name = expression .
 ```
 

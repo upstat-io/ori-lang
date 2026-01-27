@@ -1,3 +1,10 @@
+---
+title: "Type Registry"
+description: "Ori Compiler Design — Type Registry"
+order: 503
+section: "Type System"
+---
+
 # Type Registry
 
 The TypeRegistry stores user-defined types (structs, enums, type aliases). It enables looking up type definitions by name.

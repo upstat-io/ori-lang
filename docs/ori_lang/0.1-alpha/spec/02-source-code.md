@@ -1,10 +1,16 @@
+---
+title: "Source Code Representation"
+description: "Ori Language Specification — Source Code Representation"
+order: 2
+---
+
 # Source Code Representation
 
 Source code is Unicode text encoded in UTF-8.
 
 ## Characters
 
-```
+```ebnf
 unicode_char  = /* any Unicode code point except NUL (U+0000) */ .
 letter        = 'A' … 'Z' | 'a' … 'z' .
 digit         = '0' … '9' .
@@ -16,7 +22,7 @@ Carriage return (U+000D) followed by newline is normalized to newline. A lone ca
 
 ## Source Files
 
-```
+```ebnf
 source_file = { import } { declaration } .
 ```
 

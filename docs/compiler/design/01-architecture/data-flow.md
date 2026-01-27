@@ -1,33 +1,30 @@
+---
+title: "Data Flow"
+description: "Ori Compiler Design — Data Flow"
+order: 101
+section: "Architecture"
+---
+
 # Data Flow
 
 This document describes how data flows through the Ori compiler, from source text to execution result.
 
 ## Overview
 
-```
-┌─────────────┐
-│ Source Text │
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐    ┌──────────┐
-│   Lexer     │───▶│ TokenList │
-└──────┬──────┘    └──────────┘
-       │
-       ▼
-┌─────────────┐    ┌────────────────────────┐
-│   Parser    │───▶│ Module + ExprArena     │
-└──────┬──────┘    └────────────────────────┘
-       │
-       ▼
-┌─────────────┐    ┌──────────────────────────┐
-│ Type Checker│───▶│ TypedModule (expr_types) │
-└──────┬──────┘    └──────────────────────────┘
-       │
-       ▼
-┌─────────────┐    ┌───────────────────────────┐
-│  Evaluator  │───▶│ ModuleEvalResult (Value)  │
-└─────────────┘    └───────────────────────────┘
+```mermaid
+flowchart TB
+    A["Source Text"] --> B["Lexer"]
+    B --> C["TokenList"]
+    C --> D["Parser"]
+    D --> E["Module + ExprArena"]
+    E --> F["Type Checker"]
+    F --> G["TypedModule (expr_types)"]
+    G --> H["Evaluator"]
+    H --> I["ModuleEvalResult (Value)"]
+    G -.->|"(pending)"| J["LLVM Codegen"]
+    J -.-> K["Native Binary"]
+    style J stroke-dasharray: 5 5
+    style K stroke-dasharray: 5 5
 ```
 
 ## Stage 1: Lexing
@@ -259,25 +256,13 @@ All errors carry spans for accurate reporting.
 
 ## Memory Flow
 
-```
-Source Text (owned String)
-    │
-    ├─▶ Interned (shared via Interner)
-    │
-    ▼
-TokenList (owns Vec<Token>)
-    │
-    │   (tokens consumed by parser)
-    ▼
-Module + ExprArena (owns AST nodes)
-    │
-    │   (borrowed by type checker)
-    ▼
-TypedModule (owns Vec<Type>)
-    │
-    │   (all borrowed by evaluator)
-    ▼
-Value (owns runtime data via Arc)
+```mermaid
+flowchart TB
+    A["Source Text (owned String)"] --> B["Interned (shared via Interner)"]
+    A --> C["TokenList (owns Vec&lt;Token&gt;)"]
+    C -->|"tokens consumed by parser"| D["Module + ExprArena (owns AST nodes)"]
+    D -->|"borrowed by type checker"| E["TypedModule (owns Vec&lt;Type&gt;)"]
+    E -->|"all borrowed by evaluator"| F["Value (owns runtime data via Arc)"]
 ```
 
 Key points:

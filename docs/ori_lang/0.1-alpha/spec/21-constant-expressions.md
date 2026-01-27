@@ -1,3 +1,9 @@
+---
+title: "Constant Expressions"
+description: "Ori Language Specification — Constant Expressions"
+order: 21
+---
+
 # Constant Expressions
 
 A _constant expression_ is an expression that can be fully evaluated at compile time.
@@ -74,7 +80,7 @@ $factorial_10 = $factorial(n: 10)
 
 A _const function_ can be evaluated at compile time. Const functions use the `$` ori:
 
-```
+```ebnf
 const_function = "$" identifier signature "=" expression .
 ```
 

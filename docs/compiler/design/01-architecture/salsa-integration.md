@@ -1,3 +1,10 @@
+---
+title: "Salsa Integration"
+description: "Ori Compiler Design — Salsa Integration"
+order: 103
+section: "Architecture"
+---
+
 # Salsa Integration
 
 The Ori compiler uses [Salsa](https://github.com/salsa-rs/salsa), a framework for on-demand, incremental computation. This document explains how Salsa is integrated.

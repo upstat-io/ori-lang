@@ -1,10 +1,16 @@
+---
+title: "Expressions"
+description: "Ori Language Specification — Expressions"
+order: 9
+---
+
 # Expressions
 
 Expressions compute values.
 
 ## Syntax
 
-```
+```ebnf
 expression    = with_expr | let_expr | if_expr | for_expr | loop_expr | lambda | binary_expr .
 primary       = literal | identifier | "self" | "Self"
               | "(" expression ")" | list_literal | map_literal | struct_literal .
@@ -17,7 +23,7 @@ field_init    = identifier [ ":" expression ] .
 
 ## Postfix Expressions
 
-```
+```ebnf
 postfix_expr  = primary { postfix_op } .
 postfix_op    = "." identifier [ call_args ]
               | "[" expression "]"
@@ -88,7 +94,7 @@ value?         // returns Err early if Err
 
 ## Unary Expressions
 
-```
+```ebnf
 unary_expr = [ "!" | "-" | "~" ] postfix_expr .
 ```
 
@@ -96,7 +102,7 @@ unary_expr = [ "!" | "-" | "~" ] postfix_expr .
 
 ## Binary Expressions
 
-```
+```ebnf
 binary_expr   = or_expr .
 or_expr       = and_expr { "||" and_expr } .
 and_expr      = bit_or_expr { "&&" bit_or_expr } .
@@ -201,7 +207,7 @@ NaN != NaN   // true
 
 ## With Expression
 
-```
+```ebnf
 with_expr = "with" identifier "=" expression "in" expression .
 ```
 
@@ -211,7 +217,7 @@ with Http = MockHttp { ... } in fetch("/data")
 
 ## Let Binding
 
-```
+```ebnf
 let_expr = "let" [ "mut" ] pattern [ ":" type ] "=" expression .
 ```
 
@@ -223,7 +229,7 @@ let { x, y } = point
 
 ## Conditional
 
-```
+```ebnf
 if_expr = "if" expression "then" expression
           { "else" "if" expression "then" expression }
           [ "else" expression ] .
@@ -250,7 +256,7 @@ if x > 0 then "positive"  // error: non-void then-branch requires else
 
 ## For Expression
 
-```
+```ebnf
 for_expr   = "for" identifier "in" expression [ "if" expression ] ( "do" | "yield" ) expression .
 ```
 
@@ -263,7 +269,7 @@ for n in numbers if n > 0 yield n * n
 
 ## Loop Expression
 
-```
+```ebnf
 loop_expr = "loop" "(" expression ")" .
 ```
 
@@ -280,7 +286,7 @@ loop(
 
 ## Lambda
 
-```
+```ebnf
 lambda        = simple_lambda | typed_lambda .
 simple_lambda = lambda_params "->" expression .
 typed_lambda  = "(" [ typed_param { "," typed_param } ] ")" "->" type "=" expression .

@@ -1,10 +1,16 @@
+---
+title: "Capabilities"
+description: "Ori Language Specification — Capabilities"
+order: 14
+---
+
 # Capabilities
 
 Capabilities are traits representing effects or suspension.
 
 ## Declaration
 
-```
+```ebnf
 uses_clause = "uses" identifier { "," identifier } .
 ```
 
@@ -59,7 +65,7 @@ parallel(tasks: [fetch(a), fetch(b)], max_concurrent: 10)
 
 ## Providing Capabilities
 
-```
+```ebnf
 with_expr = "with" identifier "=" expression "in" expression .
 ```
 

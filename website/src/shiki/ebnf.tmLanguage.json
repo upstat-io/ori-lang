@@ -1,0 +1,59 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "EBNF",
+  "scopeName": "source.ebnf",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#string" },
+    { "include": "#production" },
+    { "include": "#operator" },
+    { "include": "#grouping" },
+    { "include": "#nonterminal" }
+  ],
+  "repository": {
+    "comment": {
+      "patterns": [
+        {
+          "name": "comment.block.ebnf",
+          "begin": "\\(\\*",
+          "end": "\\*\\)"
+        },
+        {
+          "name": "comment.line.ebnf",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "string": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.ebnf",
+          "match": "\"[^\"]*\""
+        },
+        {
+          "name": "string.quoted.single.ebnf",
+          "match": "'[^']*'"
+        }
+      ]
+    },
+    "production": {
+      "match": "^\\s*([a-z_][a-z0-9_]*)\\s*(=)",
+      "captures": {
+        "1": { "name": "entity.name.function.ebnf" },
+        "2": { "name": "keyword.operator.assignment.ebnf" }
+      }
+    },
+    "operator": {
+      "name": "keyword.operator.ebnf",
+      "match": "\\||\\.\\.\\.|\\.\\.|\\.|-|,|;|="
+    },
+    "grouping": {
+      "name": "punctuation.bracket.ebnf",
+      "match": "[\\[\\]\\{\\}\\(\\)]"
+    },
+    "nonterminal": {
+      "name": "variable.other.ebnf",
+      "match": "\\b[a-z_][a-z0-9_]*\\b"
+    }
+  }
+}

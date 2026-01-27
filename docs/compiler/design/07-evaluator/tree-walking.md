@@ -1,3 +1,10 @@
+---
+title: "Tree Walking Interpretation"
+description: "Ori Compiler Design — Tree Walking Interpretation"
+order: 703
+section: "Evaluator"
+---
+
 # Tree Walking Interpretation
 
 The Ori evaluator uses tree-walking interpretation, where the AST is traversed and evaluated directly without compilation to bytecode.

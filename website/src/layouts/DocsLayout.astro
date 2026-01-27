@@ -91,4 +91,79 @@ const { title, description } = Astro.props;
       padding: var(--space-4, 1rem);
     }
   }
+
+  /* Mermaid diagram styles */
+  .docs-article :global(.mermaid) {
+    background: var(--color-bg-secondary, #1a1b26);
+    border-radius: var(--radius-md, 8px);
+    padding: var(--space-4, 1rem);
+    margin-bottom: var(--space-4, 1rem);
+    overflow-x: auto;
+    text-align: center;
+  }
+
+  .docs-article :global(.mermaid svg) {
+    max-width: 100%;
+    height: auto;
+    display: inline-block;
+  }
 </style>
+
+<script>
+  import mermaid from 'mermaid';
+  import elkLayouts from '@mermaid-js/layout-elk';
+
+  await mermaid.registerLayoutLoaders(elkLayouts);
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'dark',
+    themeVariables: {
+      primaryColor: '#3b82f6',
+      primaryTextColor: '#e4e4e7',
+      primaryBorderColor: '#3b82f6',
+      lineColor: '#71717a',
+      secondaryColor: '#27272a',
+      tertiaryColor: '#18181b',
+      background: '#1a1b26',
+      mainBkg: '#27272a',
+      nodeBorder: '#3b82f6',
+      clusterBkg: '#18181b',
+      clusterBorder: '#3b82f6',
+      titleColor: '#e4e4e7',
+      edgeLabelBackground: '#27272a',
+    },
+    flowchart: {
+      defaultRenderer: 'elk',
+      curve: 'linear',
+    },
+    layout: 'elk',
+    elk: {
+      'elk.algorithm': 'layered',
+      'elk.edgeRouting': 'ORTHOGONAL',
+      'elk.layered.edgeRouting.splines.mode': 'CONSERVATIVE',
+    },
+  });
+
+  // Find all mermaid code blocks and render them
+  document.addEventListener('DOMContentLoaded', async () => {
+    const codeBlocks = document.querySelectorAll('pre[data-language="mermaid"]');
+
+    for (const pre of codeBlocks) {
+      const codeElement = pre.querySelector('code');
+      if (!codeElement) continue;
+
+      const code = codeElement.textContent || '';
+      const container = document.createElement('div');
+      container.className = 'mermaid';
+
+      try {
+        const { svg } = await mermaid.render(`mermaid-${Math.random().toString(36).slice(2)}`, code);
+        container.innerHTML = svg;
+        pre.replaceWith(container);
+      } catch (e) {
+        console.error('Mermaid render error:', e);
+      }
+    }
+  });
+</script>

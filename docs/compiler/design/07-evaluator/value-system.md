@@ -1,3 +1,10 @@
+---
+title: "Value System"
+description: "Ori Compiler Design — Value System"
+order: 704
+section: "Evaluator"
+---
+
 # Value System
 
 The Value enum represents runtime values in the Ori evaluator.

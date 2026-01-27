@@ -1,3 +1,10 @@
+---
+title: "Appendix C: Error Codes"
+description: "Ori Compiler Design — Appendix C: Error Codes"
+order: 1003
+section: "Appendices"
+---
+
 # Appendix C: Error Codes
 
 Complete reference of Ori compiler error codes.

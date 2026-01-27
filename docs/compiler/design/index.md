@@ -1,4 +1,10 @@
-# Ori Compiler Design Documentation
+---
+title: "Overview"
+description: "Ori Compiler Design — Ori Compiler Design Documentation"
+order: 0
+---
+
+# Overview
 
 This documentation describes the architecture and design decisions of the Ori compiler.
 
@@ -51,24 +57,14 @@ The compiler features:
 
 ## Compilation Pipeline
 
-```
-SourceFile (Salsa input)
-    |
-    | tokens() query
-    v
-TokenList
-    |
-    | parsed() query
-    v
-ParseResult { Module, ExprArena, errors }
-    |
-    | typed() query
-    v
-TypedModule { expr_types, errors }
-    |
-    | evaluated() query
-    v
-ModuleEvalResult { Value, EvalOutput }
+```mermaid
+flowchart TB
+    A["SourceFile (Salsa input)"] -->|"tokens() query"| B["TokenList"]
+    B -->|"parsed() query"| C["ParseResult { Module, ExprArena, errors }"]
+    C -->|"typed() query"| D["TypedModule { expr_types, errors }"]
+    D -->|"evaluated() query"| E["ModuleEvalResult { Value, EvalOutput }"]
+    D -.->|"codegen() query (pending)"| F["LLVM IR → Native Binary"]
+    style F stroke-dasharray: 5 5
 ```
 
 Each step is a Salsa query with automatic caching. If the input doesn't change, the cached output is returned immediately.

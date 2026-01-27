@@ -1,3 +1,10 @@
+---
+title: "Evaluator Overview"
+description: "Ori Compiler Design — Evaluator Overview"
+order: 700
+section: "Evaluator"
+---
+
 # Evaluator Overview
 
 The Ori evaluator is a tree-walking interpreter that executes typed ASTs. It handles expression evaluation, function calls, pattern execution, and module loading.
@@ -257,19 +264,17 @@ fn load_module(&mut self, path: &Path) -> Result<ModuleEvalResult, EvalError> {
 
 The evaluator uses a Chain of Responsibility pattern for method resolution:
 
-```
-receiver.method(args)
-    │
-    ▼
-MethodDispatcher.resolve(receiver, type_name, method_name)
-    │
-    ├─► UserRegistryResolver      → User + derived methods (impl blocks, #[derive])
-    │       │
-    │       ▼
-    ├─► CollectionMethodResolver  → Collection methods (map, filter, fold)
-    │       │
-    │       ▼
-    └─► BuiltinMethodResolver     → Built-in methods (len, push, etc.)
+```mermaid
+flowchart TB
+    A["receiver.method(args)"] --> B["MethodDispatcher.resolve()"]
+    B --> C["UserRegistryResolver"]
+    C -->|"User + derived methods"| D{"Found?"}
+    D -->|No| E["CollectionMethodResolver"]
+    E -->|"map, filter, fold"| F{"Found?"}
+    F -->|No| G["BuiltinMethodResolver"]
+    G -->|"len, push, etc."| H["Return method"]
+    D -->|Yes| H
+    F -->|Yes| H
 ```
 
 The `UserRegistryResolver` is a unified resolver that checks both user-defined methods

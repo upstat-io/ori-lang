@@ -1,3 +1,10 @@
+---
+title: "Type Environment"
+description: "Ori Compiler Design — Type Environment"
+order: 501
+section: "Type System"
+---
+
 # Type Environment
 
 The type environment tracks variable bindings during type checking. It uses a stack of scopes for lexical scoping.

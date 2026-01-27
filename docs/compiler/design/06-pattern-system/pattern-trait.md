@@ -1,3 +1,10 @@
+---
+title: "Pattern Trait"
+description: "Ori Compiler Design — Pattern Trait"
+order: 604
+section: "Pattern System"
+---
+
 # Pattern Trait
 
 The `PatternDefinition` trait defines the interface for all patterns in Ori.

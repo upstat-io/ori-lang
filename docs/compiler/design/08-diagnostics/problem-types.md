@@ -1,3 +1,10 @@
+---
+title: "Problem Types"
+description: "Ori Compiler Design — Problem Types"
+order: 803
+section: "Diagnostics"
+---
+
 # Problem Types
 
 Problems are categorized by compiler phase and converted to diagnostics for display.
