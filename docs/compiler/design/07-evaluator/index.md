@@ -9,41 +9,66 @@ section: "Evaluator"
 
 The Ori evaluator is a tree-walking interpreter that executes typed ASTs. It handles expression evaluation, function calls, pattern execution, and module loading.
 
+## Architecture
+
+The evaluator is split between two crates:
+
+- **`ori_eval`** - Core interpreter logic (reusable, no Salsa dependency)
+- **`oric/src/eval/`** - High-level orchestration (module loading, prelude, Salsa integration)
+
 ## Location
+
+### Core Interpreter (`ori_eval`)
+
+```
+compiler/ori_eval/src/
+├── lib.rs                    # Module exports, re-exports from ori_patterns
+├── environment.rs            # Environment, Scope, LocalScope
+├── errors.rs                 # EvalError factory functions
+├── operators.rs              # Binary operator dispatch
+├── unary_operators.rs        # Unary operator dispatch
+├── methods.rs                # Built-in method dispatch (dispatch_builtin_method)
+├── function_val.rs           # Type conversions (int, float, str, byte)
+├── user_methods.rs           # UserMethodRegistry for user-defined methods
+├── print_handler.rs          # Print output capture (stdout/buffer handlers)
+├── shared.rs                 # SharedRegistry, SharedMutableRegistry
+├── stack.rs                  # Stack safety (stacker integration)
+├── method_key.rs             # MethodKey newtype
+├── exec/                     # Expression execution
+│   ├── mod.rs                    # Module exports
+│   ├── expr.rs                   # Expression evaluation
+│   ├── call.rs                   # Function call evaluation
+│   ├── control.rs                # Control flow (if, for, loop)
+│   └── pattern.rs                # Pattern matching
+└── interpreter/              # Core interpreter
+    ├── mod.rs                    # Interpreter struct, main eval dispatch
+    ├── builder.rs                # InterpreterBuilder
+    ├── scope_guard.rs            # RAII scope management
+    ├── function_call.rs          # User function calls
+    ├── function_seq.rs           # run/try/match evaluation
+    ├── method_dispatch.rs        # Method resolution, iterator helpers
+    ├── derived_methods.rs        # Derived trait method evaluation
+    └── resolvers/                # Method resolution chain
+        ├── mod.rs                    # MethodDispatcher, MethodResolver trait
+        ├── user_registry.rs          # UserRegistryResolver (user + derived)
+        ├── collection.rs             # CollectionMethodResolver (map, filter, fold)
+        └── builtin.rs                # BuiltinMethodResolver
+```
+
+### High-Level Evaluator (`oric/src/eval/`)
 
 ```
 compiler/oric/src/eval/
-├── mod.rs                    # Module exports
-├── evaluator/                # Main evaluator
-│   ├── mod.rs                    # Evaluator struct, eval dispatch, arena threading
-│   ├── builder.rs                # EvaluatorBuilder with MethodDispatcher construction
-│   ├── scope_guard.rs            # RAII scope management (with_env_scope, with_bindings)
+├── mod.rs                    # Re-exports, value module alias
+├── output.rs                 # EvalOutput, ModuleEvalResult
+├── evaluator/                # Evaluator wrapper
+│   ├── mod.rs                    # Evaluator struct (wraps Interpreter)
+│   ├── builder.rs                # EvaluatorBuilder
 │   ├── module_loading.rs         # load_module, load_prelude, method collection
-│   ├── function_call.rs          # eval_call, eval_call_named
-│   ├── method_dispatch.rs        # Method dispatch, iterator helpers, type resolution
-│   ├── derived_methods.rs        # Derived method evaluation (Eq, Clone, Hash, etc.)
-│   ├── function_seq.rs           # eval_function_seq (run, try, match)
-│   ├── resolvers/                # Method resolution chain (Chain of Responsibility)
-│   │   ├── mod.rs                    # MethodDispatcher, MethodResolver trait
-│   │   ├── user_registry.rs          # UserRegistryResolver (user + derived methods)
-│   │   ├── collection.rs             # CollectionMethodResolver (list/range methods)
-│   │   └── builtin.rs                # BuiltinMethodResolver (built-in methods)
 │   └── tests.rs                  # Unit tests
-├── environment.rs            # Variable scoping (~408 lines)
-├── operators.rs              # Binary operations (~486 lines)
-├── methods.rs                # Method dispatch (~377 lines)
-├── function_val.rs           # Type conversions (~104 lines)
-├── output.rs                 # Output types
-├── value/
-│   └── mod.rs                # Value type (~566 lines)
-├── exec/
-│   ├── mod.rs                # Execution modules
-│   ├── expr.rs               # Expression evaluation (~295 lines)
-│   ├── call.rs               # Call evaluation (~163 lines)
-│   ├── control.rs            # Control flow (~584 lines)
-│   └── pattern.rs            # Pattern evaluation (~202 lines)
-└── module/
-    └── import.rs             # Module loading (~240 lines)
+└── module/                   # Import resolution
+    ├── mod.rs                    # Module exports
+    └── import.rs                 # Module import handling
 ```
 
 ## Design Goals
@@ -77,45 +102,53 @@ ModuleEvalResult {
 
 ## Core Components
 
-### Evaluator
+### Interpreter (core, `ori_eval`)
+
+The core tree-walking interpreter, portable and reusable without Salsa:
 
 ```rust
-pub struct Evaluator<'a> {
-    /// String interner for Name lookups
-    interner: &'a StringInterner,
-
-    /// Expression arena (from parser)
-    arena: &'a ExprArena,
-
-    /// Variable environment
-    env: Environment,
-
-    /// User method registry with interior mutability
-    /// Uses SharedMutableRegistry to allow method registration after
-    /// MethodDispatcher construction (needed for load_module)
-    user_method_registry: SharedMutableRegistry<UserMethodRegistry>,
-
-    /// Cached method dispatcher (Chain of Responsibility pattern)
-    /// Built once in EvaluatorBuilder, resolves methods via 3 resolvers:
-    /// UserRegistryResolver → CollectionMethodResolver → BuiltinMethodResolver
-    method_dispatcher: MethodDispatcher,
-
-    /// Arena for imported functions (keeps them alive during evaluation)
-    imported_arena: Option<SharedArena>,
-
-    /// Whether prelude has been loaded
-    prelude_loaded: bool,
-
-    /// Captured output
-    output: EvalOutput,
+pub struct Interpreter<'a> {
+    /// String interner for name lookup
+    pub interner: &'a StringInterner,
+    /// Expression arena
+    pub arena: &'a ExprArena,
+    /// Current environment
+    pub env: Environment,
+    /// Pattern registry for `function_exp` evaluation
+    pub registry: SharedRegistry<PatternRegistry>,
+    /// User-defined method registry for impl block methods
+    pub user_method_registry: SharedMutableRegistry<UserMethodRegistry>,
+    /// Cached method dispatcher for efficient method resolution
+    pub method_dispatcher: resolvers::MethodDispatcher,
+    /// Arena reference for imported functions
+    pub imported_arena: Option<SharedArena>,
+    /// Whether the prelude has been auto-loaded
+    pub prelude_loaded: bool,
+    /// Print handler for output capture
+    pub print_handler: SharedPrintHandler,
 }
 ```
 
-#### Why `SharedMutableRegistry`?
+### Evaluator (high-level, `oric`)
 
-The `MethodDispatcher` is constructed once in `EvaluatorBuilder` with references to
+The high-level evaluator wraps `Interpreter` and adds module loading and Salsa integration:
+
+```rust
+pub struct Evaluator<'a> {
+    /// Core interpreter
+    pub interpreter: Interpreter<'a>,
+    /// Captured output (stdout/stderr)
+    pub output: EvalOutput,
+    /// Module cache for import resolution
+    module_cache: HashMap<PathBuf, ModuleEvalResult>,
+}
+```
+
+### Why `SharedMutableRegistry`?
+
+The `MethodDispatcher` is constructed once in `InterpreterBuilder` with references to
 the `UserMethodRegistry`. However, `load_module()` needs to register new methods
-(from impl blocks, extends, and derives) after the Evaluator is created.
+(from impl blocks, extends, and derives) after the Interpreter is created.
 
 Using `SharedMutableRegistry<T>` (which wraps `Arc<RwLock<T>>`) allows:
 1. The cached `MethodDispatcher` to see newly registered methods
@@ -124,7 +157,7 @@ Using `SharedMutableRegistry<T>` (which wraps `Arc<RwLock<T>>`) allows:
 
 ```rust
 // In load_module():
-self.user_method_registry.write().merge(new_methods);
+self.interpreter.user_method_registry.write().merge(new_methods);
 
 // In method resolution (via MethodDispatcher):
 if let Some(method) = self.registry.read().lookup(type_name, method_name) { ... }
@@ -316,16 +349,29 @@ pub(super) fn get_value_type_name(&self, value: &Value) -> String {
 This handles struct type names (which require interner lookup) while delegating
 to `Value::type_name()` for primitives and built-in types.
 
-## EvaluatorBuilder
+## Builder Pattern
 
-The evaluator uses a builder pattern for construction. This replaces ad-hoc constructors (`with_context`, `with_registry`, `with_env`, etc.) with a single, flexible entry point:
+Both `Interpreter` and `Evaluator` use the builder pattern for construction.
+
+### InterpreterBuilder (core, `ori_eval`)
 
 ```rust
-let evaluator = EvaluatorBuilder::new(interner, arena)
+let interpreter = InterpreterBuilder::new(interner, arena)
     .env(call_env)                          // Optional: custom environment
     .imported_arena(shared_arena)           // Optional: cross-module arena
     .user_method_registry(registry)         // Optional: user methods
+    .print_handler(handler)                 // Optional: output handler
     .build();
+```
+
+### EvaluatorBuilder (high-level, `oric`)
+
+```rust
+let evaluator = EvaluatorBuilder::new(interner, arena)
+    .env(call_env)
+    .imported_arena(shared_arena)
+    .user_method_registry(registry)
+    .build();  // Creates Evaluator wrapping Interpreter
 ```
 
 Benefits:
@@ -336,26 +382,26 @@ Benefits:
 
 ## Arena Threading Pattern
 
-When evaluating functions or methods from different modules, the evaluator must
-use the correct arena for expression lookups. The `create_function_evaluator`
+When evaluating functions or methods from different modules, the interpreter must
+use the correct arena for expression lookups. The `create_function_interpreter`
 helper ensures this:
 
 ```rust
-/// Create a new evaluator for function/method evaluation with the correct arena.
+/// Create a new interpreter for function/method evaluation with the correct arena.
 ///
 /// This is critical for cross-module calls: functions from imported modules
 /// carry their own SharedArena, and we must use that arena when evaluating
 /// their body expressions.
-pub(super) fn create_function_evaluator<'b>(
+pub(super) fn create_function_interpreter<'b>(
     &self,
     func_arena: &'b ExprArena,
     call_env: Environment,
-) -> Evaluator<'b>
+) -> Interpreter<'b>
 where
     'a: 'b,
 {
     let imported_arena = SharedArena::new(func_arena.clone());
-    EvaluatorBuilder::new(self.interner, func_arena)
+    InterpreterBuilder::new(self.interner, func_arena)
         .env(call_env)
         .imported_arena(imported_arena)
         .user_method_registry(self.user_method_registry.clone())
@@ -363,7 +409,7 @@ where
 }
 ```
 
-This pattern appears in:
+This pattern appears in `ori_eval/src/interpreter/`:
 - `function_call.rs` - calling user functions
 - `method_dispatch.rs` - calling user methods
 

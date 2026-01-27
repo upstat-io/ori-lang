@@ -255,15 +255,6 @@ impl InferenceContext {
         resolver.fold(id)
     }
 
-    /// Check if a type variable occurs in a type (for occurs check).
-    ///
-    /// This is the public API that accepts `Type`.
-    #[allow(dead_code)]
-    fn occurs(&self, var: TypeVar, ty: &Type) -> bool {
-        let id = ty.to_type_id(&self.interner);
-        self.occurs_id(var, id)
-    }
-
     /// Check if a type variable occurs in a `TypeId` (for occurs check).
     ///
     /// This is the internal implementation using interned types.
@@ -516,6 +507,17 @@ pub struct TypeContext {
 }
 
 impl TypeContext {
+    // Built-in type origin IDs for deduplication cache keys.
+    const LIST_ORIGIN: u32 = 0;
+    const OPTION_ORIGIN: u32 = 1;
+    const RESULT_ORIGIN: u32 = 2;
+    const MAP_ORIGIN: u32 = 3;
+    const SET_ORIGIN: u32 = 4;
+    const RANGE_ORIGIN: u32 = 5;
+    const CHANNEL_ORIGIN: u32 = 6;
+    const TUPLE_ORIGIN: u32 = 7;
+    const FUNCTION_ORIGIN: u32 = 8;
+
     /// Create a new empty type context.
     pub fn new() -> Self {
         TypeContext::default()
@@ -576,131 +578,83 @@ impl TypeContext {
         instance
     }
 
-    /// Get or create a List<elem> type.
-    pub fn list_type(&mut self, elem: Type) -> Type {
-        // Use a synthetic origin scheme for built-in List
-        let origin = TypeScheme::mono(Type::Named(Name::new(0, 0))); // placeholder
-        let targs = vec![elem.clone()];
-
+    /// Deduplicate a type instantiation. Returns the existing instance if one
+    /// matches, otherwise creates and caches a new one via `make_type`.
+    fn deduplicate_type(
+        &mut self,
+        origin_id: u32,
+        targs: Vec<Type>,
+        make_type: impl FnOnce() -> Type,
+    ) -> Type {
+        let origin = TypeScheme::mono(Type::Named(Name::new(0, origin_id)));
         if let Some(existing) = self.lookup(&origin, &targs) {
             return existing.clone();
         }
-
-        let instance = Type::List(Box::new(elem));
+        let instance = make_type();
         self.insert(origin, targs, instance)
+    }
+
+    /// Get or create a List<elem> type.
+    pub fn list_type(&mut self, elem: Type) -> Type {
+        let targs = vec![elem.clone()];
+        self.deduplicate_type(Self::LIST_ORIGIN, targs, || Type::List(Box::new(elem)))
     }
 
     /// Get or create an Option<inner> type.
     pub fn option_type(&mut self, inner: Type) -> Type {
-        let origin = TypeScheme::mono(Type::Named(Name::new(0, 1))); // placeholder
         let targs = vec![inner.clone()];
-
-        if let Some(existing) = self.lookup(&origin, &targs) {
-            return existing.clone();
-        }
-
-        let instance = Type::Option(Box::new(inner));
-        self.insert(origin, targs, instance)
+        self.deduplicate_type(Self::OPTION_ORIGIN, targs, || Type::Option(Box::new(inner)))
     }
 
     /// Get or create a Result<ok, err> type.
     pub fn result_type(&mut self, ok: Type, err: Type) -> Type {
-        let origin = TypeScheme::mono(Type::Named(Name::new(0, 2))); // placeholder
         let targs = vec![ok.clone(), err.clone()];
-
-        if let Some(existing) = self.lookup(&origin, &targs) {
-            return existing.clone();
-        }
-
-        let instance = Type::Result {
+        self.deduplicate_type(Self::RESULT_ORIGIN, targs, || Type::Result {
             ok: Box::new(ok),
             err: Box::new(err),
-        };
-        self.insert(origin, targs, instance)
+        })
     }
 
     /// Get or create a Map<key, value> type.
     pub fn map_type(&mut self, key: Type, value: Type) -> Type {
-        let origin = TypeScheme::mono(Type::Named(Name::new(0, 3))); // placeholder
         let targs = vec![key.clone(), value.clone()];
-
-        if let Some(existing) = self.lookup(&origin, &targs) {
-            return existing.clone();
-        }
-
-        let instance = Type::Map {
+        self.deduplicate_type(Self::MAP_ORIGIN, targs, || Type::Map {
             key: Box::new(key),
             value: Box::new(value),
-        };
-        self.insert(origin, targs, instance)
+        })
     }
 
     /// Get or create a Set<elem> type.
     pub fn set_type(&mut self, elem: Type) -> Type {
-        let origin = TypeScheme::mono(Type::Named(Name::new(0, 4))); // placeholder
         let targs = vec![elem.clone()];
-
-        if let Some(existing) = self.lookup(&origin, &targs) {
-            return existing.clone();
-        }
-
-        let instance = Type::Set(Box::new(elem));
-        self.insert(origin, targs, instance)
+        self.deduplicate_type(Self::SET_ORIGIN, targs, || Type::Set(Box::new(elem)))
     }
 
     /// Get or create a Range<elem> type.
     pub fn range_type(&mut self, elem: Type) -> Type {
-        let origin = TypeScheme::mono(Type::Named(Name::new(0, 5))); // placeholder
         let targs = vec![elem.clone()];
-
-        if let Some(existing) = self.lookup(&origin, &targs) {
-            return existing.clone();
-        }
-
-        let instance = Type::Range(Box::new(elem));
-        self.insert(origin, targs, instance)
+        self.deduplicate_type(Self::RANGE_ORIGIN, targs, || Type::Range(Box::new(elem)))
     }
 
     /// Get or create a Channel<elem> type.
     pub fn channel_type(&mut self, elem: Type) -> Type {
-        let origin = TypeScheme::mono(Type::Named(Name::new(0, 6))); // placeholder
         let targs = vec![elem.clone()];
-
-        if let Some(existing) = self.lookup(&origin, &targs) {
-            return existing.clone();
-        }
-
-        let instance = Type::Channel(Box::new(elem));
-        self.insert(origin, targs, instance)
+        self.deduplicate_type(Self::CHANNEL_ORIGIN, targs, || Type::Channel(Box::new(elem)))
     }
 
     /// Get or create a Tuple type.
     pub fn tuple_type(&mut self, types: Vec<Type>) -> Type {
-        let origin = TypeScheme::mono(Type::Named(Name::new(0, 7))); // placeholder
         let targs = types.clone();
-
-        if let Some(existing) = self.lookup(&origin, &targs) {
-            return existing.clone();
-        }
-
-        let instance = Type::Tuple(types);
-        self.insert(origin, targs, instance)
+        self.deduplicate_type(Self::TUPLE_ORIGIN, targs, || Type::Tuple(types))
     }
 
     /// Get or create a Function type.
     pub fn function_type(&mut self, params: Vec<Type>, ret: Type) -> Type {
-        let origin = TypeScheme::mono(Type::Named(Name::new(0, 8))); // placeholder
         let mut targs = params.clone();
         targs.push(ret.clone());
-
-        if let Some(existing) = self.lookup(&origin, &targs) {
-            return existing.clone();
-        }
-
-        let instance = Type::Function {
+        self.deduplicate_type(Self::FUNCTION_ORIGIN, targs, || Type::Function {
             params,
             ret: Box::new(ret),
-        };
-        self.insert(origin, targs, instance)
+        })
     }
 }

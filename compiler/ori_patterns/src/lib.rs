@@ -47,7 +47,7 @@ use ori_ir::{ExprArena, ExprId, NamedExpr, StringInterner};
 use ori_types::{InferenceContext, Type};
 
 pub use errors::{EvalError, EvalResult};
-pub use fusion::{ChainLink, FusedPattern, FusionAnalyzer, FusionHints, PatternChain};
+pub use fusion::{ChainLink, FusedPattern, FusionHints, PatternChain};
 pub use method_key::{MethodKey, MethodKeyDisplay};
 pub use registry::{PatternRegistry, SharedPattern};
 pub use signature::{DefaultValue, FunctionSignature, OptionalArg, PatternSignature};
@@ -301,53 +301,36 @@ impl Iterable {
         }
     }
 
+    /// Iterate over the values in this iterable.
+    ///
+    /// Returns owned `Value`s: cloned from List elements or created from Range integers.
+    fn iter_values(&self) -> Box<dyn Iterator<Item = Value> + '_> {
+        match self {
+            Iterable::List(list) => Box::new(list.iter().cloned()),
+            Iterable::Range(range) => Box::new(range.iter().map(Value::int)),
+        }
+    }
+
     /// Apply a mapping function to each element and collect results into a list.
     pub fn map_values(&self, func: &Value, exec: &mut dyn PatternExecutor) -> EvalResult {
-        match self {
-            Iterable::List(list) => {
-                let mut results = Vec::with_capacity(list.len());
-                for item in list.iter() {
-                    let result = exec.call(func.clone(), vec![item.clone()])?;
-                    results.push(result);
-                }
-                Ok(Value::list(results))
-            }
-            Iterable::Range(range) => {
-                let mut results = Vec::new();
-                for i in range.iter() {
-                    let result = exec.call(func.clone(), vec![Value::int(i)])?;
-                    results.push(result);
-                }
-                Ok(Value::list(results))
-            }
+        let mut results = Vec::new();
+        for item in self.iter_values() {
+            let result = exec.call(func.clone(), vec![item])?;
+            results.push(result);
         }
+        Ok(Value::list(results))
     }
 
     /// Filter elements using a predicate function and collect results into a list.
     pub fn filter_values(&self, func: &Value, exec: &mut dyn PatternExecutor) -> EvalResult {
-        match self {
-            Iterable::List(list) => {
-                let mut results = Vec::new();
-                for item in list.iter() {
-                    let keep = exec.call(func.clone(), vec![item.clone()])?;
-                    if keep.is_truthy() {
-                        results.push(item.clone());
-                    }
-                }
-                Ok(Value::list(results))
-            }
-            Iterable::Range(range) => {
-                let mut results = Vec::new();
-                for i in range.iter() {
-                    let val = Value::int(i);
-                    let keep = exec.call(func.clone(), vec![val.clone()])?;
-                    if keep.is_truthy() {
-                        results.push(val);
-                    }
-                }
-                Ok(Value::list(results))
+        let mut results = Vec::new();
+        for item in self.iter_values() {
+            let keep = exec.call(func.clone(), vec![item.clone()])?;
+            if keep.is_truthy() {
+                results.push(item);
             }
         }
+        Ok(Value::list(results))
     }
 
     /// Reduce the iterable to a single value using an accumulator function.
@@ -357,20 +340,10 @@ impl Iterable {
         func: &Value,
         exec: &mut dyn PatternExecutor,
     ) -> EvalResult {
-        match self {
-            Iterable::List(list) => {
-                for item in list.iter() {
-                    acc = exec.call(func.clone(), vec![acc, item.clone()])?;
-                }
-                Ok(acc)
-            }
-            Iterable::Range(range) => {
-                for i in range.iter() {
-                    acc = exec.call(func.clone(), vec![acc, Value::int(i)])?;
-                }
-                Ok(acc)
-            }
+        for item in self.iter_values() {
+            acc = exec.call(func.clone(), vec![acc, item])?;
         }
+        Ok(acc)
     }
 
     /// Find the first element matching a predicate.
@@ -381,27 +354,13 @@ impl Iterable {
         func: &Value,
         exec: &mut dyn PatternExecutor,
     ) -> Result<Option<Value>, EvalError> {
-        match self {
-            Iterable::List(list) => {
-                for item in list.iter() {
-                    let matches = exec.call(func.clone(), vec![item.clone()])?;
-                    if matches.is_truthy() {
-                        return Ok(Some(item.clone()));
-                    }
-                }
-                Ok(None)
-            }
-            Iterable::Range(range) => {
-                for i in range.iter() {
-                    let val = Value::int(i);
-                    let matches = exec.call(func.clone(), vec![val.clone()])?;
-                    if matches.is_truthy() {
-                        return Ok(Some(val));
-                    }
-                }
-                Ok(None)
+        for item in self.iter_values() {
+            let matches = exec.call(func.clone(), vec![item.clone()])?;
+            if matches.is_truthy() {
+                return Ok(Some(item));
             }
         }
+        Ok(None)
     }
 }
 

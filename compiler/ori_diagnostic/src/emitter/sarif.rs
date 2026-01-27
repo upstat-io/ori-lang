@@ -10,9 +10,12 @@
 //!
 //! See: <https://sarifweb.azurewebsites.net>/
 
-use super::{escape_json, DiagnosticEmitter};
-use crate::{Diagnostic, Severity};
+use std::collections::BTreeSet;
 use std::io::Write;
+
+use crate::{Diagnostic, Severity};
+
+use super::{escape_json, trailing_comma, DiagnosticEmitter};
 
 /// SARIF emitter for Static Analysis Results Interchange Format.
 pub struct SarifEmitter<W: Write> {
@@ -128,14 +131,12 @@ impl<W: Write> SarifEmitter<W> {
             escape_json(&self.tool_version)
         );
 
-        // Collect unique rules
-        let mut rules: Vec<&str> = self.results.iter().map(|r| r.rule_id.as_str()).collect();
-        rules.sort_unstable();
-        rules.dedup();
+        // Collect unique rules (BTreeSet gives deterministic order without sort+dedup)
+        let rules: BTreeSet<&str> = self.results.iter().map(|r| r.rule_id.as_str()).collect();
 
         let _ = writeln!(self.writer, "        \"rules\": [");
         for (i, rule_id) in rules.iter().enumerate() {
-            let comma = if i + 1 < rules.len() { "," } else { "" };
+            let comma = trailing_comma(i, rules.len());
             let _ = writeln!(self.writer, "          {{");
             let _ = writeln!(self.writer, "            \"id\": \"{rule_id}\"");
             let _ = writeln!(self.writer, "          }}{comma}");
@@ -151,7 +152,7 @@ impl<W: Write> SarifEmitter<W> {
 
         let _ = writeln!(self.writer, "    \"results\": [");
         for (i, result) in results.iter().enumerate() {
-            let comma = if i + 1 < results_len { "," } else { "" };
+            let comma = trailing_comma(i, results_len);
             self.write_result(result);
             let _ = write!(self.writer, "{comma}");
             let _ = writeln!(self.writer);
@@ -180,11 +181,7 @@ impl<W: Write> SarifEmitter<W> {
         // Primary locations
         let _ = writeln!(self.writer, "        \"locations\": [");
         for (i, loc) in result.locations.iter().enumerate() {
-            let comma = if i + 1 < result.locations.len() {
-                ","
-            } else {
-                ""
-            };
+            let comma = trailing_comma(i, result.locations.len());
             self.write_location(loc, false);
             let _ = writeln!(self.writer, "{comma}");
         }
@@ -195,11 +192,7 @@ impl<W: Write> SarifEmitter<W> {
             let _ = writeln!(self.writer, ",");
             let _ = writeln!(self.writer, "        \"relatedLocations\": [");
             for (i, loc) in result.related_locations.iter().enumerate() {
-                let comma = if i + 1 < result.related_locations.len() {
-                    ","
-                } else {
-                    ""
-                };
+                let comma = trailing_comma(i, result.related_locations.len());
                 self.write_location(loc, true);
                 let _ = writeln!(self.writer, "{comma}");
             }

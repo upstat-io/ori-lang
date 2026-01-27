@@ -21,6 +21,50 @@ use crate::stack::ensure_sufficient_stack;
 use crate::{ParseError, Parser};
 use ori_ir::{BinaryOp, Expr, ExprId, ExprKind, TokenKind, UnaryOp};
 
+/// Generate a binary operator precedence level parsing function.
+///
+/// Two forms:
+/// - `(fn_name, next, token: tok, op: op)` — single-token operator levels
+/// - `(fn_name, next, matcher)` — multi-token levels using a matcher method
+macro_rules! parse_binary_level {
+    // Single-token operator level: check for one specific token, use fixed op
+    ($(#[doc = $doc:literal])* $fn_name:ident, $next:ident, token: $tok:expr, op: $op:expr) => {
+        $(#[doc = $doc])*
+        fn $fn_name(&mut self) -> Result<ExprId, ParseError> {
+            let mut left = self.$next()?;
+            while self.check(&$tok) {
+                self.advance();
+                let right = self.$next()?;
+                let span = self.arena.get_expr(left).span
+                    .merge(self.arena.get_expr(right).span);
+                left = self.arena.alloc_expr(Expr::new(
+                    ExprKind::Binary { op: $op, left, right },
+                    span,
+                ));
+            }
+            Ok(left)
+        }
+    };
+    // Multi-token operator level: use a matcher method that returns Option<BinaryOp>
+    ($(#[doc = $doc:literal])* $fn_name:ident, $next:ident, $matcher:ident) => {
+        $(#[doc = $doc])*
+        fn $fn_name(&mut self) -> Result<ExprId, ParseError> {
+            let mut left = self.$next()?;
+            while let Some(op) = self.$matcher() {
+                self.advance();
+                let right = self.$next()?;
+                let span = self.arena.get_expr(left).span
+                    .merge(self.arena.get_expr(right).span);
+                left = self.arena.alloc_expr(Expr::new(
+                    ExprKind::Binary { op, left, right },
+                    span,
+                ));
+            }
+            Ok(left)
+        }
+    };
+}
+
 impl Parser<'_> {
     /// Parse an expression.
     /// Handles assignment at the top level: `identifier = expression`
@@ -54,177 +98,47 @@ impl Parser<'_> {
         Ok(left)
     }
 
-    /// Parse || (lowest precedence binary).
-    fn parse_binary_or(&mut self) -> Result<ExprId, ParseError> {
-        let mut left = self.parse_binary_and()?;
-
-        while self.check(&TokenKind::PipePipe) {
-            self.advance();
-            let right = self.parse_binary_and()?;
-
-            let span = self
-                .arena
-                .get_expr(left)
-                .span
-                .merge(self.arena.get_expr(right).span);
-            left = self.arena.alloc_expr(Expr::new(
-                ExprKind::Binary {
-                    op: BinaryOp::Or,
-                    left,
-                    right,
-                },
-                span,
-            ));
-        }
-
-        Ok(left)
+    parse_binary_level! {
+        /// Parse || (lowest precedence binary).
+        parse_binary_or, parse_binary_and,
+        token: TokenKind::PipePipe, op: BinaryOp::Or
     }
 
-    /// Parse && (logical and)
-    fn parse_binary_and(&mut self) -> Result<ExprId, ParseError> {
-        let mut left = self.parse_bitwise_or()?;
-
-        while self.check(&TokenKind::AmpAmp) {
-            self.advance();
-            let right = self.parse_bitwise_or()?;
-
-            let span = self
-                .arena
-                .get_expr(left)
-                .span
-                .merge(self.arena.get_expr(right).span);
-            left = self.arena.alloc_expr(Expr::new(
-                ExprKind::Binary {
-                    op: BinaryOp::And,
-                    left,
-                    right,
-                },
-                span,
-            ));
-        }
-
-        Ok(left)
+    parse_binary_level! {
+        /// Parse && (logical and).
+        parse_binary_and, parse_bitwise_or,
+        token: TokenKind::AmpAmp, op: BinaryOp::And
     }
 
-    /// Parse | (bitwise or)
-    fn parse_bitwise_or(&mut self) -> Result<ExprId, ParseError> {
-        let mut left = self.parse_bitwise_xor()?;
-
-        while self.check(&TokenKind::Pipe) {
-            self.advance();
-            let right = self.parse_bitwise_xor()?;
-
-            let span = self
-                .arena
-                .get_expr(left)
-                .span
-                .merge(self.arena.get_expr(right).span);
-            left = self.arena.alloc_expr(Expr::new(
-                ExprKind::Binary {
-                    op: BinaryOp::BitOr,
-                    left,
-                    right,
-                },
-                span,
-            ));
-        }
-
-        Ok(left)
+    parse_binary_level! {
+        /// Parse | (bitwise or).
+        parse_bitwise_or, parse_bitwise_xor,
+        token: TokenKind::Pipe, op: BinaryOp::BitOr
     }
 
-    /// Parse ^ (bitwise xor)
-    fn parse_bitwise_xor(&mut self) -> Result<ExprId, ParseError> {
-        let mut left = self.parse_bitwise_and()?;
-
-        while self.check(&TokenKind::Caret) {
-            self.advance();
-            let right = self.parse_bitwise_and()?;
-
-            let span = self
-                .arena
-                .get_expr(left)
-                .span
-                .merge(self.arena.get_expr(right).span);
-            left = self.arena.alloc_expr(Expr::new(
-                ExprKind::Binary {
-                    op: BinaryOp::BitXor,
-                    left,
-                    right,
-                },
-                span,
-            ));
-        }
-
-        Ok(left)
+    parse_binary_level! {
+        /// Parse ^ (bitwise xor).
+        parse_bitwise_xor, parse_bitwise_and,
+        token: TokenKind::Caret, op: BinaryOp::BitXor
     }
 
-    /// Parse & (bitwise and)
-    fn parse_bitwise_and(&mut self) -> Result<ExprId, ParseError> {
-        let mut left = self.parse_equality()?;
-
-        while self.check(&TokenKind::Amp) {
-            self.advance();
-            let right = self.parse_equality()?;
-
-            let span = self
-                .arena
-                .get_expr(left)
-                .span
-                .merge(self.arena.get_expr(right).span);
-            left = self.arena.alloc_expr(Expr::new(
-                ExprKind::Binary {
-                    op: BinaryOp::BitAnd,
-                    left,
-                    right,
-                },
-                span,
-            ));
-        }
-
-        Ok(left)
+    parse_binary_level! {
+        /// Parse & (bitwise and).
+        parse_bitwise_and, parse_equality,
+        token: TokenKind::Amp, op: BinaryOp::BitAnd
     }
 
-    /// Parse == and != (equality)
-    fn parse_equality(&mut self) -> Result<ExprId, ParseError> {
-        let mut left = self.parse_comparison()?;
-
-        while let Some(op) = self.match_equality_op() {
-            self.advance();
-            let right = self.parse_comparison()?;
-
-            let span = self
-                .arena
-                .get_expr(left)
-                .span
-                .merge(self.arena.get_expr(right).span);
-            left = self
-                .arena
-                .alloc_expr(Expr::new(ExprKind::Binary { op, left, right }, span));
-        }
-
-        Ok(left)
+    parse_binary_level! {
+        /// Parse == and != (equality).
+        parse_equality, parse_comparison, match_equality_op
     }
 
-    /// Parse comparison operators (<, >, <=, >=).
-    fn parse_comparison(&mut self) -> Result<ExprId, ParseError> {
-        let mut left = self.parse_range()?;
-
-        while let Some(op) = self.match_comparison_op() {
-            self.advance();
-            let right = self.parse_range()?;
-
-            let span = self
-                .arena
-                .get_expr(left)
-                .span
-                .merge(self.arena.get_expr(right).span);
-            left = self
-                .arena
-                .alloc_expr(Expr::new(ExprKind::Binary { op, left, right }, span));
-        }
-
-        Ok(left)
+    parse_binary_level! {
+        /// Parse comparison operators (<, >, <=, >=).
+        parse_comparison, parse_range, match_comparison_op
     }
+
+    // parse_range stays hand-written (unique range logic)
 
     /// Parse range operators (.. and ..=).
     fn parse_range(&mut self) -> Result<ExprId, ParseError> {
@@ -266,67 +180,19 @@ impl Parser<'_> {
         Ok(left)
     }
 
-    /// Parse << and >> (shift operators).
-    fn parse_shift(&mut self) -> Result<ExprId, ParseError> {
-        let mut left = self.parse_additive()?;
-
-        while let Some(op) = self.match_shift_op() {
-            self.advance();
-            let right = self.parse_additive()?;
-
-            let span = self
-                .arena
-                .get_expr(left)
-                .span
-                .merge(self.arena.get_expr(right).span);
-            left = self
-                .arena
-                .alloc_expr(Expr::new(ExprKind::Binary { op, left, right }, span));
-        }
-
-        Ok(left)
+    parse_binary_level! {
+        /// Parse << and >> (shift operators).
+        parse_shift, parse_additive, match_shift_op
     }
 
-    /// Parse + and -.
-    fn parse_additive(&mut self) -> Result<ExprId, ParseError> {
-        let mut left = self.parse_multiplicative()?;
-
-        while let Some(op) = self.match_additive_op() {
-            self.advance();
-            let right = self.parse_multiplicative()?;
-
-            let span = self
-                .arena
-                .get_expr(left)
-                .span
-                .merge(self.arena.get_expr(right).span);
-            left = self
-                .arena
-                .alloc_expr(Expr::new(ExprKind::Binary { op, left, right }, span));
-        }
-
-        Ok(left)
+    parse_binary_level! {
+        /// Parse + and -.
+        parse_additive, parse_multiplicative, match_additive_op
     }
 
-    /// Parse *, /, %.
-    fn parse_multiplicative(&mut self) -> Result<ExprId, ParseError> {
-        let mut left = self.parse_unary()?;
-
-        while let Some(op) = self.match_multiplicative_op() {
-            self.advance();
-            let right = self.parse_unary()?;
-
-            let span = self
-                .arena
-                .get_expr(left)
-                .span
-                .merge(self.arena.get_expr(right).span);
-            left = self
-                .arena
-                .alloc_expr(Expr::new(ExprKind::Binary { op, left, right }, span));
-        }
-
-        Ok(left)
+    parse_binary_level! {
+        /// Parse *, /, %.
+        parse_multiplicative, parse_unary, match_multiplicative_op
     }
 
     /// Parse unary operators.

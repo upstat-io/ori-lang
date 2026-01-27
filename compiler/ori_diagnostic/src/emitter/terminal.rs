@@ -2,9 +2,11 @@
 //!
 //! Human-readable diagnostic output with optional ANSI color support.
 
-use super::{atty_check, DiagnosticEmitter};
-use crate::{Diagnostic, Severity};
 use std::io::{self, Write};
+
+use crate::{Diagnostic, Severity};
+
+use super::{atty_check, DiagnosticEmitter};
 
 /// ANSI color codes for terminal output.
 mod colors {

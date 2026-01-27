@@ -501,6 +501,22 @@ fn convert_token(raw: RawToken, slice: &str, interner: &StringInterner) -> Token
     }
 }
 
+/// Resolve a single escape character to its replacement.
+///
+/// Returns `Some(char)` for recognized escapes, `None` for unrecognized ones.
+fn resolve_escape(c: char) -> Option<char> {
+    match c {
+        'n' => Some('\n'),
+        'r' => Some('\r'),
+        't' => Some('\t'),
+        '\\' => Some('\\'),
+        '"' => Some('"'),
+        '\'' => Some('\''),
+        '0' => Some('\0'),
+        _ => None,
+    }
+}
+
 /// Process string escape sequences.
 fn unescape_string(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
@@ -509,16 +525,14 @@ fn unescape_string(s: &str) -> String {
     while let Some(c) = chars.next() {
         if c == '\\' {
             match chars.next() {
-                Some('n') => result.push('\n'),
-                Some('r') => result.push('\r'),
-                Some('t') => result.push('\t'),
-                Some('\\') | None => result.push('\\'),
-                Some('"') => result.push('"'),
-                Some('0') => result.push('\0'),
-                Some(c) => {
-                    result.push('\\');
-                    result.push(c);
-                }
+                Some(esc) => match resolve_escape(esc) {
+                    Some(resolved) => result.push(resolved),
+                    None => {
+                        result.push('\\');
+                        result.push(esc);
+                    }
+                },
+                None => result.push('\\'),
             }
         } else {
             result.push(c);
@@ -533,13 +547,8 @@ fn unescape_char(s: &str) -> char {
     let mut chars = s.chars();
     match chars.next() {
         Some('\\') => match chars.next() {
-            Some('n') => '\n',
-            Some('r') => '\r',
-            Some('t') => '\t',
-            Some('\\') | None => '\\',
-            Some('\'') => '\'',
-            Some('0') => '\0',
-            Some(c) => c,
+            Some(esc) => resolve_escape(esc).unwrap_or(esc),
+            None => '\\',
         },
         Some(c) => c,
         None => '\0',

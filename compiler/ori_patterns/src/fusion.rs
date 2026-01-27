@@ -344,63 +344,9 @@ impl FusionHints {
     }
 }
 
-/// Analyzer for detecting fusible pattern chains.
-pub struct FusionAnalyzer;
-
-impl FusionAnalyzer {
-    /// Check if two pattern kinds can be fused.
-    pub fn can_fuse(_first: FunctionExpKind, _second: FunctionExpKind) -> bool {
-        false
-    }
-
-    /// Check if three pattern kinds can be fused.
-    pub fn can_fuse_three(
-        _first: FunctionExpKind,
-        _second: FunctionExpKind,
-        _third: FunctionExpKind,
-    ) -> bool {
-        // No function_exp patterns currently support fusion
-        false
-    }
-
-    /// Get fusion hints for a pattern combination.
-    pub fn get_hints(_patterns: &[FunctionExpKind]) -> FusionHints {
-        // No fusion hints since no patterns support fusion
-        FusionHints::default()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_no_patterns_can_fuse() {
-        // After moving map/filter/fold to methods, no function_exp patterns support fusion
-        assert!(!FusionAnalyzer::can_fuse(
-            FunctionExpKind::Recurse,
-            FunctionExpKind::Parallel
-        ));
-        assert!(!FusionAnalyzer::can_fuse(
-            FunctionExpKind::Print,
-            FunctionExpKind::Panic
-        ));
-    }
-
-    #[test]
-    fn test_no_three_pattern_fusion() {
-        assert!(!FusionAnalyzer::can_fuse_three(
-            FunctionExpKind::Recurse,
-            FunctionExpKind::Parallel,
-            FunctionExpKind::Spawn
-        ));
-    }
-
-    #[test]
-    fn test_fusion_hints_default() {
-        let hints = FusionAnalyzer::get_hints(&[FunctionExpKind::Recurse]);
-        assert_eq!(hints.allocations_avoided, 0);
-    }
 
     #[test]
     fn test_fusion_hints_constructors() {

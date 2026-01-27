@@ -20,6 +20,17 @@ use std::fmt::Write;
 
 use crate::Diagnostic;
 
+/// Returns a trailing comma for JSON/SARIF list serialization.
+///
+/// Returns `","` when `index` is not the last element, `""` otherwise.
+pub(crate) fn trailing_comma(index: usize, total: usize) -> &'static str {
+    if index + 1 < total {
+        ","
+    } else {
+        ""
+    }
+}
+
 /// Trait for emitting diagnostics in various formats.
 pub trait DiagnosticEmitter {
     /// Emit a single diagnostic.

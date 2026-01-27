@@ -33,8 +33,9 @@ mod registry;
 
 pub use registry::FixRegistry;
 
-use crate::{Diagnostic, ErrorCode};
 use ori_ir::Span;
+
+use crate::{Diagnostic, ErrorCode};
 
 /// A text edit that modifies source code.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]

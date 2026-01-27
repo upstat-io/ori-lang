@@ -8,10 +8,12 @@
     reason = "Box/Arc needed for trait object storage"
 )]
 
-use super::{CodeAction, CodeFix, FixContext};
-use crate::ErrorCode;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+use crate::ErrorCode;
+
+use super::{CodeAction, CodeFix, FixContext};
 
 /// Registry for code fixes.
 ///

@@ -11,17 +11,17 @@ use ori_types::Type;
 use super::TypeChecker;
 
 /// Saved capability context for restoration.
-pub struct SavedCapabilityContext {
+struct SavedCapabilityContext {
     /// The old capabilities to restore.
-    pub old_caps: HashSet<Name>,
+    old_caps: HashSet<Name>,
     /// The old provided capabilities to restore.
-    pub old_provided: HashSet<Name>,
+    old_provided: HashSet<Name>,
 }
 
 /// Saved impl context for restoration.
-pub struct SavedImplContext {
+struct SavedImplContext {
     /// The previous Self type to restore.
-    pub prev_self: Option<Type>,
+    prev_self: Option<Type>,
 }
 
 impl TypeChecker<'_> {

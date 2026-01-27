@@ -14,6 +14,7 @@
 
 use ori_ir::{Name, Span, TypeId};
 use ori_types::{SharedTypeInterner, Type, TypeInterner};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 /// Method signature in a trait definition.
@@ -134,6 +135,12 @@ pub struct TraitRegistry {
     inherent_impls: HashMap<Type, ImplEntry>,
     /// Type interner for Type↔TypeId conversions.
     interner: SharedTypeInterner,
+    /// Lazily-populated method lookup cache: `(self_type, method_name)` -> cached result.
+    ///
+    /// Uses `RefCell` for interior mutability so `lookup_method` can remain `&self`.
+    /// Cache entries store `Option<MethodLookup>`: `None` means the method was looked up
+    /// but not found. The cache is invalidated (cleared) whenever traits or impls are registered.
+    method_cache: RefCell<HashMap<(Type, Name), Option<MethodLookup>>>,
 }
 
 impl PartialEq for TraitRegistry {
@@ -141,7 +148,7 @@ impl PartialEq for TraitRegistry {
         self.traits == other.traits
             && self.trait_impls == other.trait_impls
             && self.inherent_impls == other.inherent_impls
-        // Interner is not compared - two registries with the same data are equal
+        // Interner and method_cache are not compared - they are derived state
     }
 }
 
@@ -154,6 +161,7 @@ impl Default for TraitRegistry {
             trait_impls: HashMap::new(),
             inherent_impls: HashMap::new(),
             interner: SharedTypeInterner::new(),
+            method_cache: RefCell::new(HashMap::new()),
         }
     }
 }
@@ -173,6 +181,7 @@ impl TraitRegistry {
             trait_impls: HashMap::new(),
             inherent_impls: HashMap::new(),
             interner,
+            method_cache: RefCell::new(HashMap::new()),
         }
     }
 
@@ -182,8 +191,11 @@ impl TraitRegistry {
     }
 
     /// Register a trait definition.
+    ///
+    /// Invalidates the method cache since new default methods may affect lookups.
     pub fn register_trait(&mut self, entry: TraitEntry) {
         self.traits.insert(entry.name, entry);
+        self.method_cache.borrow_mut().clear();
     }
 
     /// Get a trait definition by name.
@@ -199,6 +211,7 @@ impl TraitRegistry {
     /// Register a trait implementation.
     ///
     /// Returns an error if there's already an impl for the same trait/type combination.
+    /// Invalidates the method cache on success since new methods affect lookups.
     pub fn register_impl(&mut self, entry: ImplEntry) -> Result<(), CoherenceError> {
         let type_key = entry.self_ty.clone();
 
@@ -241,6 +254,7 @@ impl TraitRegistry {
                 self.inherent_impls.insert(type_key, entry);
             }
         }
+        self.method_cache.borrow_mut().clear();
         Ok(())
     }
 

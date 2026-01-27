@@ -29,8 +29,6 @@ pub use ori_typeck::{
     ImportedGeneric,
     InferenceState,
     Registries,
-    SavedCapabilityContext,
-    SavedImplContext,
     ScopeContext,
     SharedRegistry,
     TypeCheckError,

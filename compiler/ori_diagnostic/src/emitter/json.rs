@@ -2,9 +2,11 @@
 //!
 //! Machine-readable diagnostic output in JSON format.
 
-use super::{escape_json, DiagnosticEmitter};
-use crate::Diagnostic;
 use std::io::Write;
+
+use crate::Diagnostic;
+
+use super::{escape_json, trailing_comma, DiagnosticEmitter};
 
 /// JSON emitter for machine-readable output.
 pub struct JsonEmitter<W: Write> {
@@ -60,11 +62,7 @@ impl<W: Write> DiagnosticEmitter for JsonEmitter<W> {
         // Labels
         let _ = writeln!(self.writer, "    \"labels\": [");
         for (i, label) in diagnostic.labels.iter().enumerate() {
-            let comma = if i + 1 < diagnostic.labels.len() {
-                ","
-            } else {
-                ""
-            };
+            let comma = trailing_comma(i, diagnostic.labels.len());
             let _ = writeln!(self.writer, "      {{");
             let _ = writeln!(self.writer, "        \"start\": {},", label.span.start);
             let _ = writeln!(self.writer, "        \"end\": {},", label.span.end);
@@ -81,11 +79,7 @@ impl<W: Write> DiagnosticEmitter for JsonEmitter<W> {
         // Notes
         let _ = writeln!(self.writer, "    \"notes\": [");
         for (i, note) in diagnostic.notes.iter().enumerate() {
-            let comma = if i + 1 < diagnostic.notes.len() {
-                ","
-            } else {
-                ""
-            };
+            let comma = trailing_comma(i, diagnostic.notes.len());
             let _ = writeln!(self.writer, "      \"{}\"{}", escape_json(note), comma);
         }
         let _ = writeln!(self.writer, "    ],");
@@ -93,11 +87,7 @@ impl<W: Write> DiagnosticEmitter for JsonEmitter<W> {
         // Suggestions
         let _ = writeln!(self.writer, "    \"suggestions\": [");
         for (i, suggestion) in diagnostic.suggestions.iter().enumerate() {
-            let comma = if i + 1 < diagnostic.suggestions.len() {
-                ","
-            } else {
-                ""
-            };
+            let comma = trailing_comma(i, diagnostic.suggestions.len());
             let _ = writeln!(
                 self.writer,
                 "      \"{}\"{}",

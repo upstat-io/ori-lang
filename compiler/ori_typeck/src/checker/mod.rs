@@ -19,18 +19,19 @@ pub mod bound_checking;
 mod builder;
 pub mod components;
 mod cycle_detection;
+mod function_checking;
 pub mod imports;
 mod pattern_binding;
 mod scope_guards;
 mod signatures;
 mod trait_registration;
 mod type_registration;
+mod type_resolution;
 pub mod types;
 
 pub use builder::TypeCheckerBuilder;
 pub use components::{CheckContext, DiagnosticState, InferenceState, Registries, ScopeContext};
 pub use cycle_detection::add_pattern_bindings;
-pub use scope_guards::{SavedCapabilityContext, SavedImplContext};
 pub use types::{FunctionType, GenericBound, TypeCheckError, TypedModule, WhereConstraint};
 
 use ori_diagnostic::queue::DiagnosticConfig;

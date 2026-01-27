@@ -61,11 +61,37 @@ compiler/
 │       ├── value/            # Value types, Heap, FunctionValue
 │       ├── errors.rs         # EvalError, EvalResult
 │       └── *.rs              # Pattern implementations
-├── ori_eval/                 # Core evaluator components
+├── ori_eval/                 # Core interpreter (tree-walking evaluator)
 │   └── src/
-│       ├── lib.rs            # Re-exports
+│       ├── lib.rs            # Module exports, re-exports from ori_patterns
 │       ├── environment.rs    # Environment, Scope, LocalScope
-│       └── operators.rs      # BinaryOperator, OperatorRegistry
+│       ├── errors.rs         # EvalError factories
+│       ├── operators.rs      # Binary operator dispatch
+│       ├── unary_operators.rs # Unary operator dispatch
+│       ├── methods.rs        # Built-in method dispatch
+│       ├── function_val.rs   # Type conversion functions (int, float, str, byte)
+│       ├── user_methods.rs   # UserMethodRegistry
+│       ├── print_handler.rs  # Print output capture
+│       ├── shared.rs         # SharedRegistry, SharedMutableRegistry
+│       ├── stack.rs          # Stack safety (stacker)
+│       ├── exec/             # Expression execution
+│       │   ├── expr.rs       # Expression evaluation
+│       │   ├── call.rs       # Function call evaluation
+│       │   ├── control.rs    # Control flow (if, for, loop)
+│       │   └── pattern.rs    # Pattern matching
+│       └── interpreter/      # Core interpreter
+│           ├── mod.rs        # Interpreter struct
+│           ├── builder.rs    # InterpreterBuilder
+│           ├── scope_guard.rs # RAII scope management
+│           ├── function_call.rs # User function calls
+│           ├── function_seq.rs  # run/try/match evaluation
+│           ├── method_dispatch.rs # Method resolution
+│           ├── derived_methods.rs # Derived trait methods
+│           └── resolvers/    # Method resolution chain
+│               ├── mod.rs    # MethodDispatcher, MethodResolver trait
+│               ├── user_registry.rs  # User methods
+│               ├── collection.rs     # List/range methods
+│               └── builtin.rs        # Built-in methods
 ├── ori-macros/               # Proc-macro crate
 │   └── src/
 │       ├── lib.rs            # Diagnostic/Subdiagnostic derives
@@ -78,7 +104,15 @@ compiler/
         ├── db.rs             # Salsa database definition
         ├── query/            # Salsa query definitions
         ├── typeck/           # Type checking and inference
-        ├── eval/             # Tree-walking interpreter
+        ├── eval/             # High-level evaluator (wraps ori_eval)
+        │   ├── mod.rs        # Re-exports, value module
+        │   ├── output.rs     # EvalOutput, ModuleEvalResult
+        │   ├── evaluator/    # Evaluator wrapper
+        │   │   ├── mod.rs    # Evaluator struct
+        │   │   ├── builder.rs # EvaluatorBuilder
+        │   │   └── module_loading.rs # Module loading, prelude
+        │   └── module/       # Import resolution
+        │       └── import.rs # Module import handling
         ├── test/             # Test runner
         └── debug.rs          # Debug flags
 ```
@@ -101,8 +135,8 @@ ori_ir (base)
 **Layered architecture:**
 - `ori_ir`: Core IR types (no dependencies)
 - `ori_patterns`: Pattern definitions, Value types, EvalError (single source of truth)
-- `ori_eval`: Core evaluator components (Environment, operators)
-- `oric`: CLI orchestrator with Salsa queries, type checker, evaluator
+- `ori_eval`: Core tree-walking interpreter (Interpreter, Environment, exec, method dispatch)
+- `oric`: CLI orchestrator with Salsa queries, type checker, high-level Evaluator wrapper
 
 Pure functions live in library crates; Salsa queries live in `oric`.
 
@@ -196,7 +230,10 @@ impl PatternRegistry {
 | `Type` | `ori_types` | External type representation (uses Box) |
 | `TypeData` | `ori_types` | Internal type representation (uses TypeId) |
 | `TypeInterner` | `ori_types` | Sharded type interning for O(1) equality |
-| `Value` | `oric` | Runtime values |
+| `Value` | `ori_patterns` | Runtime values (re-exported via `ori_eval`) |
+| `Interpreter` | `ori_eval` | Core tree-walking interpreter |
+| `Environment` | `ori_eval` | Variable scoping (scope stack) |
+| `Evaluator` | `oric` | High-level evaluator (module loading, prelude) |
 | `Diagnostic` | `ori_diagnostic` | Rich error with suggestions |
 | `ErrorGuaranteed` | `ori_diagnostic` | Proof that an error was emitted |
 | `Applicability` | `ori_diagnostic` | Fix confidence level |
@@ -211,8 +248,10 @@ impl PatternRegistry {
 | `ori_lexer` | Tokenization via logos |
 | `ori_types` | Type system: Type/TypeData, TypeInterner, InferenceContext, TypeIdFolder |
 | `ori_parse` | Recursive descent parser |
+| `ori_patterns` | Pattern definitions, Value types, EvalError (single source of truth) |
+| `ori_eval` | Core tree-walking interpreter: Interpreter, Environment, exec, method dispatch |
 | `ori-macros` | Proc-macros (`#[derive(Diagnostic)]`, etc.) |
-| `oric` | CLI orchestrator, Salsa queries, typeck, eval, patterns |
+| `oric` | CLI orchestrator, Salsa queries, typeck, high-level Evaluator, patterns |
 
 ### DRY Re-exports
 
