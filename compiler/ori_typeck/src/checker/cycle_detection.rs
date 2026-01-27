@@ -8,6 +8,7 @@ use super::TypeChecker;
 use crate::infer;
 
 /// Add bindings from a pattern to the bound set.
+#[expect(clippy::implicit_hasher, reason = "Standard HashSet sufficient here")]
 pub fn add_pattern_bindings(pattern: &BindingPattern, bound: &mut HashSet<Name>) {
     match pattern {
         BindingPattern::Name(name) => {

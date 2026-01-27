@@ -218,8 +218,7 @@ fn resolve_module_import_tracked(
     }
 
     Err(ImportError::new(format!(
-        "module '{}' not found. Searched: ORI_STDLIB, ./library/, standard locations",
-        module_name
+        "module '{module_name}' not found. Searched: ORI_STDLIB, ./library/, standard locations"
     )))
 }
 
@@ -277,7 +276,7 @@ fn generate_module_candidates(components: &[&str], current_file: &Path) -> Vec<P
     candidates
 }
 
-/// Resolve a relative import path to a PathBuf.
+/// Resolve a relative import path to a `PathBuf`.
 ///
 /// Helper function for path computation without file access.
 fn resolve_relative_path_to_pathbuf(name: Name, current_file: &Path, interner: &StringInterner) -> PathBuf {
@@ -473,7 +472,7 @@ pub fn register_imports(
 
 /// Register all functions from a module into the environment.
 ///
-/// IMPORTANT: All functions carry a SharedArena reference to ensure correct
+/// IMPORTANT: All functions carry a `SharedArena` reference to ensure correct
 /// evaluation when called from different contexts (e.g., from within a prelude
 /// function or other imported code).
 pub fn register_module_functions(
@@ -547,7 +546,7 @@ mod tests {
     #[test]
     fn test_import_error_display() {
         let err = ImportError::new("test error");
-        assert_eq!(format!("{}", err), "test error");
+        assert_eq!(format!("{err}"), "test error");
     }
 
     #[test]

@@ -97,7 +97,7 @@ use std.testing { assert, assert_eq, assert_ne }
         actual: -7 / 3,
         expected: -2,
     ),
-    // TODO: div operator not yet implemented in sigilc-v3 parser
+    // TODO: div operator not yet implemented in oric-v3 parser
     // assert_eq(
     //     actual: -7 div 3,
     //     expected: -3,

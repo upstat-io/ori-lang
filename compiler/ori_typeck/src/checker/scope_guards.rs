@@ -1,4 +1,4 @@
-//! RAII-style scope guards for TypeChecker context management.
+//! RAII-style scope guards for `TypeChecker` context management.
 //!
 //! These helpers ensure context (capabilities, impl Self type) is properly
 //! restored even on early returns, preventing bugs from forgotten restores.
@@ -72,7 +72,7 @@ impl TypeChecker<'_> {
     {
         // Save current state
         let saved = SavedImplContext {
-            prev_self: std::mem::replace(&mut self.scope.current_impl_self, Some(self_ty)),
+            prev_self: self.scope.current_impl_self.replace(self_ty),
         };
 
         // Execute closure

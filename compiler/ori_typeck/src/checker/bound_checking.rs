@@ -35,9 +35,8 @@ pub fn primitive_implements_trait(ty: &Type, trait_name: &str) -> bool {
         Type::Unit => UNIT_TRAITS,
         Type::Duration | Type::Size => DURATION_SIZE_TRAITS,
         Type::Option(_) => WRAPPER_TRAITS,
-        Type::Result { .. } => RESULT_TRAITS,
+        Type::Result { .. } | Type::Tuple(_) => RESULT_TRAITS,
         Type::List(_) | Type::Map { .. } | Type::Set(_) => COLLECTION_TRAITS,
-        Type::Tuple(_) => RESULT_TRAITS, // Clone, Eq
         Type::Range(_) => &["Len"],
         _ => return false,
     };
@@ -85,9 +84,8 @@ impl TypeChecker<'_> {
             None => return, // Not a known function (might be a closure or imported)
         };
 
-        let resolved_params = match resolved_params {
-            Some(params) => params,
-            None => return, // No params to check
+        let Some(resolved_params) = resolved_params else {
+            return; // No params to check
         };
 
         // Build a mapping from generic param name to its resolved type.
@@ -237,8 +235,7 @@ impl TypeChecker<'_> {
     fn resolve_associated_type(&self, base_ty: &Type, assoc_name: Name) -> Option<Type> {
         // Get the type name from the base type
         let type_name = match base_ty {
-            Type::Named(name) => *name,
-            Type::Applied { name, .. } => *name,
+            Type::Named(name) | Type::Applied { name, .. } => *name,
             _ => return None,
         };
 

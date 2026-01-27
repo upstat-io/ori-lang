@@ -15,29 +15,29 @@ mod int_conversion {
     #[test]
     fn int_from_float_basic() {
         // Basic truncation
-        assert_eq!(function_val_int(&[Value::Float(3.7)]).unwrap(), Value::Int(3));
-        assert_eq!(function_val_int(&[Value::Float(3.2)]).unwrap(), Value::Int(3));
-        assert_eq!(function_val_int(&[Value::Float(-3.7)]).unwrap(), Value::Int(-3));
-        assert_eq!(function_val_int(&[Value::Float(-3.2)]).unwrap(), Value::Int(-3));
+        assert_eq!(function_val_int(&[Value::Float(3.7)]).unwrap(), Value::int(3));
+        assert_eq!(function_val_int(&[Value::Float(3.2)]).unwrap(), Value::int(3));
+        assert_eq!(function_val_int(&[Value::Float(-3.7)]).unwrap(), Value::int(-3));
+        assert_eq!(function_val_int(&[Value::Float(-3.2)]).unwrap(), Value::int(-3));
     }
 
     #[test]
     fn int_from_float_whole_numbers() {
-        assert_eq!(function_val_int(&[Value::Float(0.0)]).unwrap(), Value::Int(0));
-        assert_eq!(function_val_int(&[Value::Float(-0.0)]).unwrap(), Value::Int(0));
-        assert_eq!(function_val_int(&[Value::Float(1.0)]).unwrap(), Value::Int(1));
-        assert_eq!(function_val_int(&[Value::Float(-1.0)]).unwrap(), Value::Int(-1));
-        assert_eq!(function_val_int(&[Value::Float(42.0)]).unwrap(), Value::Int(42));
+        assert_eq!(function_val_int(&[Value::Float(0.0)]).unwrap(), Value::int(0));
+        assert_eq!(function_val_int(&[Value::Float(-0.0)]).unwrap(), Value::int(0));
+        assert_eq!(function_val_int(&[Value::Float(1.0)]).unwrap(), Value::int(1));
+        assert_eq!(function_val_int(&[Value::Float(-1.0)]).unwrap(), Value::int(-1));
+        assert_eq!(function_val_int(&[Value::Float(42.0)]).unwrap(), Value::int(42));
     }
 
     #[test]
     fn int_from_float_near_zero() {
-        assert_eq!(function_val_int(&[Value::Float(0.1)]).unwrap(), Value::Int(0));
-        assert_eq!(function_val_int(&[Value::Float(0.9)]).unwrap(), Value::Int(0));
-        assert_eq!(function_val_int(&[Value::Float(-0.1)]).unwrap(), Value::Int(0));
-        assert_eq!(function_val_int(&[Value::Float(-0.9)]).unwrap(), Value::Int(0));
-        assert_eq!(function_val_int(&[Value::Float(0.5)]).unwrap(), Value::Int(0));
-        assert_eq!(function_val_int(&[Value::Float(-0.5)]).unwrap(), Value::Int(0));
+        assert_eq!(function_val_int(&[Value::Float(0.1)]).unwrap(), Value::int(0));
+        assert_eq!(function_val_int(&[Value::Float(0.9)]).unwrap(), Value::int(0));
+        assert_eq!(function_val_int(&[Value::Float(-0.1)]).unwrap(), Value::int(0));
+        assert_eq!(function_val_int(&[Value::Float(-0.9)]).unwrap(), Value::int(0));
+        assert_eq!(function_val_int(&[Value::Float(0.5)]).unwrap(), Value::int(0));
+        assert_eq!(function_val_int(&[Value::Float(-0.5)]).unwrap(), Value::int(0));
     }
 
     #[test]
@@ -45,26 +45,26 @@ mod int_conversion {
         // Values that fit in i64 (within f64 precision)
         assert_eq!(
             function_val_int(&[Value::Float(1e15)]).unwrap(),
-            Value::Int(1_000_000_000_000_000)
+            Value::int(1_000_000_000_000_000)
         );
         assert_eq!(
             function_val_int(&[Value::Float(-1e15)]).unwrap(),
-            Value::Int(-1_000_000_000_000_000)
+            Value::int(-1_000_000_000_000_000)
         );
     }
 
     #[test]
     fn int_from_float_boundary_i32() {
         // i32 boundaries (exact in f64)
-        let i32_max = i32::MAX as f64;
-        let i32_min = i32::MIN as f64;
+        let i32_max = f64::from(i32::MAX);
+        let i32_min = f64::from(i32::MIN);
         assert_eq!(
             function_val_int(&[Value::Float(i32_max)]).unwrap(),
-            Value::Int(i32::MAX as i64)
+            Value::int(i64::from(i32::MAX))
         );
         assert_eq!(
             function_val_int(&[Value::Float(i32_min)]).unwrap(),
-            Value::Int(i32::MIN as i64)
+            Value::int(i64::from(i32::MIN))
         );
     }
 
@@ -100,11 +100,11 @@ mod int_conversion {
 
     #[test]
     fn int_from_string_basic() {
-        assert_eq!(function_val_int(&[Value::string("0")]).unwrap(), Value::Int(0));
-        assert_eq!(function_val_int(&[Value::string("1")]).unwrap(), Value::Int(1));
-        assert_eq!(function_val_int(&[Value::string("-1")]).unwrap(), Value::Int(-1));
-        assert_eq!(function_val_int(&[Value::string("12345")]).unwrap(), Value::Int(12345));
-        assert_eq!(function_val_int(&[Value::string("-12345")]).unwrap(), Value::Int(-12345));
+        assert_eq!(function_val_int(&[Value::string("0")]).unwrap(), Value::int(0));
+        assert_eq!(function_val_int(&[Value::string("1")]).unwrap(), Value::int(1));
+        assert_eq!(function_val_int(&[Value::string("-1")]).unwrap(), Value::int(-1));
+        assert_eq!(function_val_int(&[Value::string("12345")]).unwrap(), Value::int(12345));
+        assert_eq!(function_val_int(&[Value::string("-12345")]).unwrap(), Value::int(-12345));
     }
 
     #[test]
@@ -112,11 +112,11 @@ mod int_conversion {
         // i64 boundaries
         assert_eq!(
             function_val_int(&[Value::string("9223372036854775807")]).unwrap(),
-            Value::Int(i64::MAX)
+            Value::int(i64::MAX)
         );
         assert_eq!(
             function_val_int(&[Value::string("-9223372036854775808")]).unwrap(),
-            Value::Int(i64::MIN)
+            Value::int(i64::MIN)
         );
     }
 
@@ -150,23 +150,23 @@ mod int_conversion {
 
     #[test]
     fn int_from_bool() {
-        assert_eq!(function_val_int(&[Value::Bool(true)]).unwrap(), Value::Int(1));
-        assert_eq!(function_val_int(&[Value::Bool(false)]).unwrap(), Value::Int(0));
+        assert_eq!(function_val_int(&[Value::Bool(true)]).unwrap(), Value::int(1));
+        assert_eq!(function_val_int(&[Value::Bool(false)]).unwrap(), Value::int(0));
     }
 
     #[test]
     fn int_from_int_identity() {
-        assert_eq!(function_val_int(&[Value::Int(0)]).unwrap(), Value::Int(0));
-        assert_eq!(function_val_int(&[Value::Int(42)]).unwrap(), Value::Int(42));
-        assert_eq!(function_val_int(&[Value::Int(-42)]).unwrap(), Value::Int(-42));
-        assert_eq!(function_val_int(&[Value::Int(i64::MAX)]).unwrap(), Value::Int(i64::MAX));
-        assert_eq!(function_val_int(&[Value::Int(i64::MIN)]).unwrap(), Value::Int(i64::MIN));
+        assert_eq!(function_val_int(&[Value::int(0)]).unwrap(), Value::int(0));
+        assert_eq!(function_val_int(&[Value::int(42)]).unwrap(), Value::int(42));
+        assert_eq!(function_val_int(&[Value::int(-42)]).unwrap(), Value::int(-42));
+        assert_eq!(function_val_int(&[Value::int(i64::MAX)]).unwrap(), Value::int(i64::MAX));
+        assert_eq!(function_val_int(&[Value::int(i64::MIN)]).unwrap(), Value::int(i64::MIN));
     }
 
     #[test]
     fn int_wrong_arg_count() {
         assert!(function_val_int(&[]).is_err());
-        assert!(function_val_int(&[Value::Int(1), Value::Int(2)]).is_err());
+        assert!(function_val_int(&[Value::int(1), Value::int(2)]).is_err());
     }
 
     #[test]
@@ -183,35 +183,35 @@ mod float_conversion {
 
     #[test]
     fn float_from_int_basic() {
-        assert_eq!(function_val_float(&[Value::Int(0)]).unwrap(), Value::Float(0.0));
-        assert_eq!(function_val_float(&[Value::Int(1)]).unwrap(), Value::Float(1.0));
-        assert_eq!(function_val_float(&[Value::Int(-1)]).unwrap(), Value::Float(-1.0));
-        assert_eq!(function_val_float(&[Value::Int(42)]).unwrap(), Value::Float(42.0));
-        assert_eq!(function_val_float(&[Value::Int(-42)]).unwrap(), Value::Float(-42.0));
+        assert_eq!(function_val_float(&[Value::int(0)]).unwrap(), Value::Float(0.0));
+        assert_eq!(function_val_float(&[Value::int(1)]).unwrap(), Value::Float(1.0));
+        assert_eq!(function_val_float(&[Value::int(-1)]).unwrap(), Value::Float(-1.0));
+        assert_eq!(function_val_float(&[Value::int(42)]).unwrap(), Value::Float(42.0));
+        assert_eq!(function_val_float(&[Value::int(-42)]).unwrap(), Value::Float(-42.0));
     }
 
     #[test]
     fn float_from_int_exact_range() {
         // Values that convert exactly to f64 (within 2^53)
         assert_eq!(
-            function_val_float(&[Value::Int(9007199254740992)]).unwrap(), // 2^53
-            Value::Float(9007199254740992.0)
+            function_val_float(&[Value::int(9_007_199_254_740_992)]).unwrap(), // 2^53
+            Value::Float(9_007_199_254_740_992.0)
         );
         assert_eq!(
-            function_val_float(&[Value::Int(-9007199254740992)]).unwrap(),
-            Value::Float(-9007199254740992.0)
+            function_val_float(&[Value::int(-9_007_199_254_740_992)]).unwrap(),
+            Value::Float(-9_007_199_254_740_992.0)
         );
     }
 
     #[test]
     fn float_from_int_i32_boundaries() {
         assert_eq!(
-            function_val_float(&[Value::Int(i32::MAX as i64)]).unwrap(),
-            Value::Float(i32::MAX as f64)
+            function_val_float(&[Value::int(i64::from(i32::MAX))]).unwrap(),
+            Value::Float(f64::from(i32::MAX))
         );
         assert_eq!(
-            function_val_float(&[Value::Int(i32::MIN as i64)]).unwrap(),
-            Value::Float(i32::MIN as f64)
+            function_val_float(&[Value::int(i64::from(i32::MIN))]).unwrap(),
+            Value::Float(f64::from(i32::MIN))
         );
     }
 
@@ -219,7 +219,7 @@ mod float_conversion {
     fn float_from_int_large_values() {
         // Large values may lose precision but should still convert
         let large = i64::MAX;
-        let result = function_val_float(&[Value::Int(large)]).unwrap();
+        let result = function_val_float(&[Value::int(large)]).unwrap();
         if let Value::Float(f) = result {
             // The value should be close to i64::MAX (precision loss expected)
             assert!(f > 9e18);
@@ -302,6 +302,7 @@ mod float_conversion {
     }
 
     #[test]
+    #[expect(clippy::approx_constant, reason = "testing float identity conversion, not using pi")]
     fn float_from_float_identity() {
         assert_eq!(function_val_float(&[Value::Float(0.0)]).unwrap(), Value::Float(0.0));
         assert_eq!(function_val_float(&[Value::Float(3.14)]).unwrap(), Value::Float(3.14));
@@ -319,7 +320,7 @@ mod float_conversion {
     #[test]
     fn float_wrong_arg_count() {
         assert!(function_val_float(&[]).is_err());
-        assert!(function_val_float(&[Value::Int(1), Value::Int(2)]).is_err());
+        assert!(function_val_float(&[Value::int(1), Value::int(2)]).is_err());
     }
 
     #[test]
@@ -336,15 +337,16 @@ mod str_conversion {
 
     #[test]
     fn str_from_int() {
-        assert_eq!(function_val_str(&[Value::Int(0)]).unwrap(), Value::string("0"));
-        assert_eq!(function_val_str(&[Value::Int(1)]).unwrap(), Value::string("1"));
-        assert_eq!(function_val_str(&[Value::Int(-1)]).unwrap(), Value::string("-1"));
-        assert_eq!(function_val_str(&[Value::Int(42)]).unwrap(), Value::string("42"));
-        assert_eq!(function_val_str(&[Value::Int(i64::MAX)]).unwrap(), Value::string("9223372036854775807"));
-        assert_eq!(function_val_str(&[Value::Int(i64::MIN)]).unwrap(), Value::string("-9223372036854775808"));
+        assert_eq!(function_val_str(&[Value::int(0)]).unwrap(), Value::string("0"));
+        assert_eq!(function_val_str(&[Value::int(1)]).unwrap(), Value::string("1"));
+        assert_eq!(function_val_str(&[Value::int(-1)]).unwrap(), Value::string("-1"));
+        assert_eq!(function_val_str(&[Value::int(42)]).unwrap(), Value::string("42"));
+        assert_eq!(function_val_str(&[Value::int(i64::MAX)]).unwrap(), Value::string("9223372036854775807"));
+        assert_eq!(function_val_str(&[Value::int(i64::MIN)]).unwrap(), Value::string("-9223372036854775808"));
     }
 
     #[test]
+    #[expect(clippy::approx_constant, reason = "testing float-to-string conversion, not using pi")]
     fn str_from_float() {
         assert_eq!(function_val_str(&[Value::Float(0.0)]).unwrap(), Value::string("0"));
         assert_eq!(function_val_str(&[Value::Float(3.14)]).unwrap(), Value::string("3.14"));
@@ -377,7 +379,7 @@ mod str_conversion {
     #[test]
     fn str_wrong_arg_count() {
         assert!(function_val_str(&[]).is_err());
-        assert!(function_val_str(&[Value::Int(1), Value::Int(2)]).is_err());
+        assert!(function_val_str(&[Value::int(1), Value::int(2)]).is_err());
     }
 }
 
@@ -388,22 +390,22 @@ mod byte_conversion {
 
     #[test]
     fn byte_from_int_valid_range() {
-        assert_eq!(function_val_byte(&[Value::Int(0)]).unwrap(), Value::Byte(0));
-        assert_eq!(function_val_byte(&[Value::Int(1)]).unwrap(), Value::Byte(1));
-        assert_eq!(function_val_byte(&[Value::Int(127)]).unwrap(), Value::Byte(127));
-        assert_eq!(function_val_byte(&[Value::Int(128)]).unwrap(), Value::Byte(128));
-        assert_eq!(function_val_byte(&[Value::Int(255)]).unwrap(), Value::Byte(255));
+        assert_eq!(function_val_byte(&[Value::int(0)]).unwrap(), Value::Byte(0));
+        assert_eq!(function_val_byte(&[Value::int(1)]).unwrap(), Value::Byte(1));
+        assert_eq!(function_val_byte(&[Value::int(127)]).unwrap(), Value::Byte(127));
+        assert_eq!(function_val_byte(&[Value::int(128)]).unwrap(), Value::Byte(128));
+        assert_eq!(function_val_byte(&[Value::int(255)]).unwrap(), Value::Byte(255));
     }
 
     #[test]
     fn byte_from_int_out_of_range() {
         // Negative values
-        assert!(function_val_byte(&[Value::Int(-1)]).is_err());
-        assert!(function_val_byte(&[Value::Int(-128)]).is_err());
+        assert!(function_val_byte(&[Value::int(-1)]).is_err());
+        assert!(function_val_byte(&[Value::int(-128)]).is_err());
 
         // Values > 255
-        assert!(function_val_byte(&[Value::Int(256)]).is_err());
-        assert!(function_val_byte(&[Value::Int(1000)]).is_err());
+        assert!(function_val_byte(&[Value::int(256)]).is_err());
+        assert!(function_val_byte(&[Value::int(1000)]).is_err());
     }
 
     #[test]
@@ -432,7 +434,7 @@ mod byte_conversion {
     #[test]
     fn byte_wrong_arg_count() {
         assert!(function_val_byte(&[]).is_err());
-        assert!(function_val_byte(&[Value::Int(1), Value::Int(2)]).is_err());
+        assert!(function_val_byte(&[Value::int(1), Value::int(2)]).is_err());
     }
 
     #[test]
@@ -451,10 +453,11 @@ mod edge_cases {
     #[test]
     fn int_from_float_exactly_representable() {
         // All integers up to 2^53 are exactly representable in f64
+        #[expect(clippy::cast_precision_loss, reason = "2^53 is exactly representable in f64")]
         let exact_max = (1_i64 << 53) as f64;
         assert_eq!(
             function_val_int(&[Value::Float(exact_max)]).unwrap(),
-            Value::Int(1_i64 << 53)
+            Value::int(1_i64 << 53)
         );
     }
 
@@ -462,10 +465,10 @@ mod edge_cases {
     fn float_from_int_round_trip_small() {
         // Small integers should round-trip exactly
         for i in -1000..=1000 {
-            let as_float = function_val_float(&[Value::Int(i)]).unwrap();
+            let as_float = function_val_float(&[Value::int(i)]).unwrap();
             if let Value::Float(f) = as_float {
                 let back = function_val_int(&[Value::Float(f)]).unwrap();
-                assert_eq!(back, Value::Int(i), "Round-trip failed for {i}");
+                assert_eq!(back, Value::int(i), "Round-trip failed for {i}");
             }
         }
     }

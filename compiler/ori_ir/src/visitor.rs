@@ -549,8 +549,6 @@ pub fn walk_function_exp<'ast, V: Visitor<'ast> + ?Sized>(
 }
 
 #[cfg(test)]
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{Span, ast::ExprKind};
@@ -568,6 +566,7 @@ mod tests {
     }
 
     /// Visitor that counts literals.
+    #[expect(clippy::struct_field_names, reason = "fields represent distinct literal type counts, _count suffix is intentional")]
     struct LiteralCounter {
         int_count: usize,
         bool_count: usize,

@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn test_suggest_similar_exact() {
-        let candidates = vec!["foo", "bar", "baz"];
+        let candidates = ["foo", "bar", "baz"];
         // Exact match should not be suggested (edit distance 0)
         let result = suggest_similar("foo", candidates.iter().copied());
         assert_eq!(result, Some("foo"));
@@ -274,35 +274,35 @@ mod tests {
 
     #[test]
     fn test_suggest_similar_typo() {
-        let candidates = vec!["length", "height", "width"];
+        let candidates = ["length", "height", "width"];
         let result = suggest_similar("lenght", candidates.iter().copied());
         assert_eq!(result, Some("length"));
     }
 
     #[test]
     fn test_suggest_similar_no_match() {
-        let candidates = vec!["alpha", "beta", "gamma"];
+        let candidates = ["alpha", "beta", "gamma"];
         let result = suggest_similar("xyz", candidates.iter().copied());
         assert_eq!(result, None);
     }
 
     #[test]
     fn test_suggest_similar_empty_input() {
-        let candidates = vec!["foo", "bar"];
+        let candidates = ["foo", "bar"];
         let result = suggest_similar("", candidates.iter().copied());
         assert_eq!(result, None);
     }
 
     #[test]
     fn test_suggest_similar_empty_candidates() {
-        let candidates: Vec<&str> = vec![];
+        let candidates: &[&str] = &[];
         let result = suggest_similar("foo", candidates.iter().copied());
         assert_eq!(result, None);
     }
 
     #[test]
     fn test_suggest_similar_best_match() {
-        let candidates = vec!["for", "foo", "four"];
+        let candidates = ["for", "foo", "four"];
         let result = suggest_similar("fo", candidates.iter().copied());
         // "fo" -> "for" or "foo" both have distance 1, should pick alphabetically first
         assert!(result == Some("foo") || result == Some("for"));
@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn test_suggest_similar_case_sensitive() {
-        let candidates = vec!["Hello", "hello", "HELLO"];
+        let candidates = ["Hello", "hello", "HELLO"];
         let result = suggest_similar("helo", candidates.iter().copied());
         // Should suggest "hello" (distance 1)
         assert_eq!(result, Some("hello"));
@@ -318,7 +318,7 @@ mod tests {
 
     #[test]
     fn test_find_similar_multiple() {
-        let candidates = vec!["length", "lenght", "lengthy", "strength"];
+        let candidates = ["length", "lenght", "lengthy", "strength"];
         let results = find_similar("length", candidates.iter().copied(), 2, 3);
 
         assert!(results.contains(&"length"));
@@ -328,7 +328,7 @@ mod tests {
 
     #[test]
     fn test_find_similar_sorted() {
-        let candidates = vec!["abc", "ab", "abcd"];
+        let candidates = ["abc", "ab", "abcd"];
         let results = find_similar("abc", candidates.iter().copied(), 2, 3);
 
         // Results should be sorted by distance
@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn test_find_similar_max_results() {
-        let candidates = vec!["a", "ab", "abc", "abcd", "abcde"];
+        let candidates = ["a", "ab", "abc", "abcd", "abcde"];
         let results = find_similar("abc", candidates.iter().copied(), 3, 2);
 
         assert_eq!(results.len(), 2);
@@ -374,7 +374,7 @@ mod tests {
 
     #[test]
     fn test_suggest_with_threshold() {
-        let candidates = vec!["abc", "abcd", "abcde"];
+        let candidates = ["abc", "abcd", "abcde"];
 
         // With threshold 1
         let result = suggest_similar_with_threshold("abc", candidates.iter().copied(), 1);
@@ -394,7 +394,7 @@ mod tests {
     #[test]
     fn test_ori_identifiers() {
         // Test with typical Ori identifier patterns
-        let candidates = vec![
+        let candidates = [
             "filter",
             "map",
             "fold",

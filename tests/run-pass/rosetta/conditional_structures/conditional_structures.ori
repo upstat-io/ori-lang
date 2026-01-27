@@ -1,6 +1,6 @@
 // Rosetta Code: Conditional structures
 // Task: Demonstrate conditional expressions
-// Sigil uses if/then/else for conditionals
+// Ori uses if/then/else for conditionals
 
 // Simple if/then/else
 @abs (n: int) -> int = if n < 0 then -n else n

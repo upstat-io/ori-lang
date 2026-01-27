@@ -38,7 +38,7 @@ mod arg_count {
         let interner = SharedInterner::default();
         let x = interner.intern("x");
         let func = test_func(vec![x], ExprId::new(0));
-        let args = vec![Value::Int(1)];
+        let args = vec![Value::int(1)];
         assert!(check_arg_count(&func, &args).is_ok());
     }
 
@@ -53,7 +53,7 @@ mod arg_count {
             ],
             ExprId::new(0),
         );
-        let args = vec![Value::Int(1), Value::Int(2), Value::Int(3)];
+        let args = vec![Value::int(1), Value::int(2), Value::int(3)];
         assert!(check_arg_count(&func, &args).is_ok());
     }
 
@@ -64,7 +64,7 @@ mod arg_count {
             vec![interner.intern("a"), interner.intern("b")],
             ExprId::new(0),
         );
-        let args = vec![Value::Int(1)];
+        let args = vec![Value::int(1)];
         let result = check_arg_count(&func, &args);
         assert!(result.is_err());
     }
@@ -73,7 +73,7 @@ mod arg_count {
     fn too_many_args() {
         let interner = SharedInterner::default();
         let func = test_func(vec![interner.intern("x")], ExprId::new(0));
-        let args = vec![Value::Int(1), Value::Int(2)];
+        let args = vec![Value::int(1), Value::int(2)];
         let result = check_arg_count(&func, &args);
         assert!(result.is_err());
     }
@@ -81,7 +81,7 @@ mod arg_count {
     #[test]
     fn zero_params_with_args() {
         let func = test_func(vec![], ExprId::new(0));
-        let args = vec![Value::Int(1)];
+        let args = vec![Value::int(1)];
         let result = check_arg_count(&func, &args);
         assert!(result.is_err());
     }
@@ -97,13 +97,13 @@ mod parameter_binding {
         let interner = SharedInterner::default();
         let x = interner.intern("x");
         let func = test_func(vec![x], ExprId::new(0));
-        let args = vec![Value::Int(42)];
+        let args = vec![Value::int(42)];
 
         let mut env = Environment::new();
         env.push_scope();
         bind_parameters(&mut env, &func, &args);
 
-        assert_eq!(env.lookup(x), Some(Value::Int(42)));
+        assert_eq!(env.lookup(x), Some(Value::int(42)));
     }
 
     #[test]
@@ -113,15 +113,15 @@ mod parameter_binding {
         let y = interner.intern("y");
         let z = interner.intern("z");
         let func = test_func(vec![x, y, z], ExprId::new(0));
-        let args = vec![Value::Int(1), Value::Int(2), Value::Int(3)];
+        let args = vec![Value::int(1), Value::int(2), Value::int(3)];
 
         let mut env = Environment::new();
         env.push_scope();
         bind_parameters(&mut env, &func, &args);
 
-        assert_eq!(env.lookup(x), Some(Value::Int(1)));
-        assert_eq!(env.lookup(y), Some(Value::Int(2)));
-        assert_eq!(env.lookup(z), Some(Value::Int(3)));
+        assert_eq!(env.lookup(x), Some(Value::int(1)));
+        assert_eq!(env.lookup(y), Some(Value::int(2)));
+        assert_eq!(env.lookup(z), Some(Value::int(3)));
     }
 
     #[test]
@@ -132,7 +132,7 @@ mod parameter_binding {
         let b = interner.intern("b");
         let func = test_func(vec![i, s, b], ExprId::new(0));
         let args = vec![
-            Value::Int(42),
+            Value::int(42),
             Value::string("hello"),
             Value::Bool(true),
         ];
@@ -141,7 +141,7 @@ mod parameter_binding {
         env.push_scope();
         bind_parameters(&mut env, &func, &args);
 
-        assert_eq!(env.lookup(i), Some(Value::Int(42)));
+        assert_eq!(env.lookup(i), Some(Value::int(42)));
         assert_eq!(env.lookup(s), Some(Value::string("hello")));
         assert_eq!(env.lookup(b), Some(Value::Bool(true)));
     }
@@ -151,14 +151,14 @@ mod parameter_binding {
         let interner = SharedInterner::default();
         let x = interner.intern("x");
         let func = test_func(vec![x], ExprId::new(0));
-        let args = vec![Value::Int(42)];
+        let args = vec![Value::int(42)];
 
         let mut env = Environment::new();
         env.push_scope();
         bind_parameters(&mut env, &func, &args);
 
         // Parameters are bound as immutable
-        assert!(env.assign(x, Value::Int(100)).is_err());
+        assert!(env.assign(x, Value::int(100)).is_err());
     }
 }
 
@@ -210,14 +210,14 @@ mod function_val_call {
     fn success() {
         fn add_one(args: &[Value]) -> Result<Value, String> {
             if let Value::Int(n) = &args[0] {
-                Ok(Value::Int(n + 1))
+                Ok(Value::int(n.raw() + 1))
             } else {
                 Err("expected int".to_string())
             }
         }
 
-        let result = eval_function_val_call(add_one, &[Value::Int(5)]);
-        assert_eq!(result.unwrap(), Value::Int(6));
+        let result = eval_function_val_call(add_one, &[Value::int(5)]);
+        assert_eq!(result.unwrap(), Value::int(6));
     }
 
     #[test]
@@ -237,38 +237,40 @@ mod function_val_call {
             let mut total = 0;
             for arg in args {
                 if let Value::Int(n) = arg {
-                    total += n;
+                    total += n.raw();
                 } else {
                     return Err("expected int".to_string());
                 }
             }
-            Ok(Value::Int(total))
+            Ok(Value::int(total))
         }
 
         let result = eval_function_val_call(
             sum,
-            &[Value::Int(1), Value::Int(2), Value::Int(3)],
+            &[Value::int(1), Value::int(2), Value::int(3)],
         );
-        assert_eq!(result.unwrap(), Value::Int(6));
+        assert_eq!(result.unwrap(), Value::int(6));
     }
 
     #[test]
     fn no_args() {
+        #[expect(clippy::unnecessary_wraps, reason = "function signature required by eval_function_val_call")]
         fn constant(_args: &[Value]) -> Result<Value, String> {
-            Ok(Value::Int(42))
+            Ok(Value::int(42))
         }
 
         let result = eval_function_val_call(constant, &[]);
-        assert_eq!(result.unwrap(), Value::Int(42));
+        assert_eq!(result.unwrap(), Value::int(42));
     }
 
     #[test]
     fn returns_different_types() {
+        #[expect(clippy::unnecessary_wraps, reason = "function signature required by eval_function_val_call")]
         fn to_string(args: &[Value]) -> Result<Value, String> {
             Ok(Value::string(format!("{}", args[0])))
         }
 
-        let result = eval_function_val_call(to_string, &[Value::Int(42)]);
+        let result = eval_function_val_call(to_string, &[Value::int(42)]);
         assert!(matches!(result.unwrap(), Value::Str(_)));
     }
 
@@ -289,13 +291,14 @@ mod edge_cases {
     use super::*;
 
     #[test]
+    #[expect(clippy::cast_possible_wrap, reason = "i < 100 so cast is safe")]
     fn many_parameters() {
         let interner = SharedInterner::default();
         let params: Vec<_> = (0..100)
-            .map(|i| interner.intern(&format!("p{}", i)))
+            .map(|i| interner.intern(&format!("p{i}")))
             .collect();
         let func = test_func(params.clone(), ExprId::new(0));
-        let args: Vec<_> = (0..100).map(Value::Int).collect();
+        let args: Vec<_> = (0..100).map(Value::int).collect();
 
         let mut env = Environment::new();
         env.push_scope();
@@ -303,7 +306,7 @@ mod edge_cases {
 
         // Verify all parameters are bound
         for (i, param) in params.iter().enumerate() {
-            assert_eq!(env.lookup(*param), Some(Value::Int(i as i64)));
+            assert_eq!(env.lookup(*param), Some(Value::int(i as i64)));
         }
     }
 
@@ -327,7 +330,7 @@ mod edge_cases {
         let t = interner.intern("t");
         let func = test_func(vec![l, t], ExprId::new(0));
 
-        let list = Value::list(vec![Value::Int(1), Value::Int(2)]);
+        let list = Value::list(vec![Value::int(1), Value::int(2)]);
         let tuple = Value::tuple(vec![Value::string("a"), Value::Bool(true)]);
         let args = vec![list.clone(), tuple.clone()];
 

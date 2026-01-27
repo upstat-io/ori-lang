@@ -18,38 +18,39 @@ mod literals {
         let interner = SharedInterner::default();
         let result = eval_literal(&ExprKind::Int(42), &interner);
         assert!(result.is_some());
-        assert_eq!(result.unwrap().unwrap(), Value::Int(42));
+        assert_eq!(result.unwrap().unwrap(), Value::int(42));
     }
 
     #[test]
     fn int_zero() {
         let interner = SharedInterner::default();
         let result = eval_literal(&ExprKind::Int(0), &interner);
-        assert_eq!(result.unwrap().unwrap(), Value::Int(0));
+        assert_eq!(result.unwrap().unwrap(), Value::int(0));
     }
 
     #[test]
     fn int_negative() {
         let interner = SharedInterner::default();
         let result = eval_literal(&ExprKind::Int(-42), &interner);
-        assert_eq!(result.unwrap().unwrap(), Value::Int(-42));
+        assert_eq!(result.unwrap().unwrap(), Value::int(-42));
     }
 
     #[test]
     fn int_max() {
         let interner = SharedInterner::default();
         let result = eval_literal(&ExprKind::Int(i64::MAX), &interner);
-        assert_eq!(result.unwrap().unwrap(), Value::Int(i64::MAX));
+        assert_eq!(result.unwrap().unwrap(), Value::int(i64::MAX));
     }
 
     #[test]
     fn int_min() {
         let interner = SharedInterner::default();
         let result = eval_literal(&ExprKind::Int(i64::MIN), &interner);
-        assert_eq!(result.unwrap().unwrap(), Value::Int(i64::MIN));
+        assert_eq!(result.unwrap().unwrap(), Value::int(i64::MIN));
     }
 
     #[test]
+    #[expect(clippy::approx_constant, reason = "testing float literal evaluation, not using pi")]
     fn float() {
         let interner = SharedInterner::default();
         let bits = 3.14_f64.to_bits();
@@ -122,46 +123,47 @@ mod binary_values {
 
     #[test]
     fn add() {
-        let result = eval_binary_values(Value::Int(2), BinaryOp::Add, Value::Int(3));
-        assert_eq!(result.unwrap(), Value::Int(5));
+        let result = eval_binary_values(Value::int(2), BinaryOp::Add, Value::int(3));
+        assert_eq!(result.unwrap(), Value::int(5));
     }
 
     #[test]
     fn sub() {
-        let result = eval_binary_values(Value::Int(5), BinaryOp::Sub, Value::Int(3));
-        assert_eq!(result.unwrap(), Value::Int(2));
+        let result = eval_binary_values(Value::int(5), BinaryOp::Sub, Value::int(3));
+        assert_eq!(result.unwrap(), Value::int(2));
     }
 
     #[test]
     fn mul() {
-        let result = eval_binary_values(Value::Int(4), BinaryOp::Mul, Value::Int(3));
-        assert_eq!(result.unwrap(), Value::Int(12));
+        let result = eval_binary_values(Value::int(4), BinaryOp::Mul, Value::int(3));
+        assert_eq!(result.unwrap(), Value::int(12));
     }
 
     #[test]
     fn div() {
-        let result = eval_binary_values(Value::Int(10), BinaryOp::Div, Value::Int(3));
-        assert_eq!(result.unwrap(), Value::Int(3));
+        let result = eval_binary_values(Value::int(10), BinaryOp::Div, Value::int(3));
+        assert_eq!(result.unwrap(), Value::int(3));
     }
 
     #[test]
     fn div_by_zero_error() {
-        let result = eval_binary_values(Value::Int(10), BinaryOp::Div, Value::Int(0));
+        let result = eval_binary_values(Value::int(10), BinaryOp::Div, Value::int(0));
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("division by zero"));
     }
 
     #[test]
-    fn unsupported_op_error() {
-        let result = eval_binary_values(Value::Int(1), BinaryOp::Eq, Value::Int(1));
-        assert!(result.is_err());
+    fn eq_supported_after_delegation() {
+        // eval_binary_values now delegates to evaluate_binary, which supports all ops
+        let result = eval_binary_values(Value::int(1), BinaryOp::Eq, Value::int(1));
+        assert_eq!(result.unwrap(), Value::Bool(true));
     }
 
     #[test]
-    fn non_integer_error() {
+    fn float_supported_after_delegation() {
+        // eval_binary_values now delegates to evaluate_binary, which supports floats
         let result = eval_binary_values(Value::Float(1.0), BinaryOp::Add, Value::Float(2.0));
-        assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("non-integer"));
+        assert_eq!(result.unwrap(), Value::Float(3.0));
     }
 }
 
@@ -178,7 +180,7 @@ mod collection_length {
 
     #[test]
     fn list_with_items() {
-        let list = Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+        let list = Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]);
         assert_eq!(get_collection_length(&list).unwrap(), 3);
     }
 
@@ -217,7 +219,7 @@ mod collection_length {
 
     #[test]
     fn tuple_with_items() {
-        let t = Value::tuple(vec![Value::Int(1), Value::Int(2)]);
+        let t = Value::tuple(vec![Value::int(1), Value::int(2)]);
         assert_eq!(get_collection_length(&t).unwrap(), 2);
     }
 
@@ -230,15 +232,15 @@ mod collection_length {
     #[test]
     fn map_with_items() {
         let mut map = std::collections::HashMap::new();
-        map.insert("a".to_string(), Value::Int(1));
-        map.insert("b".to_string(), Value::Int(2));
+        map.insert("a".to_string(), Value::int(1));
+        map.insert("b".to_string(), Value::int(2));
         let m = Value::map(map);
         assert_eq!(get_collection_length(&m).unwrap(), 2);
     }
 
     #[test]
     fn int_error() {
-        let result = get_collection_length(&Value::Int(42));
+        let result = get_collection_length(&Value::int(42));
         assert!(result.is_err());
     }
 }
@@ -253,66 +255,66 @@ mod index_access {
 
         #[test]
         fn first_element() {
-            let list = Value::list(vec![Value::Int(10), Value::Int(20), Value::Int(30)]);
-            assert_eq!(eval_index(list, Value::Int(0)).unwrap(), Value::Int(10));
+            let list = Value::list(vec![Value::int(10), Value::int(20), Value::int(30)]);
+            assert_eq!(eval_index(list, Value::int(0)).unwrap(), Value::int(10));
         }
 
         #[test]
         fn middle_element() {
-            let list = Value::list(vec![Value::Int(10), Value::Int(20), Value::Int(30)]);
-            assert_eq!(eval_index(list, Value::Int(1)).unwrap(), Value::Int(20));
+            let list = Value::list(vec![Value::int(10), Value::int(20), Value::int(30)]);
+            assert_eq!(eval_index(list, Value::int(1)).unwrap(), Value::int(20));
         }
 
         #[test]
         fn last_element() {
-            let list = Value::list(vec![Value::Int(10), Value::Int(20), Value::Int(30)]);
-            assert_eq!(eval_index(list, Value::Int(2)).unwrap(), Value::Int(30));
+            let list = Value::list(vec![Value::int(10), Value::int(20), Value::int(30)]);
+            assert_eq!(eval_index(list, Value::int(2)).unwrap(), Value::int(30));
         }
 
         #[test]
         fn negative_index_last() {
-            let list = Value::list(vec![Value::Int(10), Value::Int(20), Value::Int(30)]);
-            assert_eq!(eval_index(list, Value::Int(-1)).unwrap(), Value::Int(30));
+            let list = Value::list(vec![Value::int(10), Value::int(20), Value::int(30)]);
+            assert_eq!(eval_index(list, Value::int(-1)).unwrap(), Value::int(30));
         }
 
         #[test]
         fn negative_index_first() {
-            let list = Value::list(vec![Value::Int(10), Value::Int(20), Value::Int(30)]);
-            assert_eq!(eval_index(list, Value::Int(-3)).unwrap(), Value::Int(10));
+            let list = Value::list(vec![Value::int(10), Value::int(20), Value::int(30)]);
+            assert_eq!(eval_index(list, Value::int(-3)).unwrap(), Value::int(10));
         }
 
         #[test]
         fn negative_index_middle() {
-            let list = Value::list(vec![Value::Int(10), Value::Int(20), Value::Int(30)]);
-            assert_eq!(eval_index(list, Value::Int(-2)).unwrap(), Value::Int(20));
+            let list = Value::list(vec![Value::int(10), Value::int(20), Value::int(30)]);
+            assert_eq!(eval_index(list, Value::int(-2)).unwrap(), Value::int(20));
         }
 
         #[test]
         fn out_of_bounds_positive() {
-            let list = Value::list(vec![Value::Int(1)]);
-            let result = eval_index(list, Value::Int(5));
+            let list = Value::list(vec![Value::int(1)]);
+            let result = eval_index(list, Value::int(5));
             assert!(result.is_err());
         }
 
         #[test]
         fn out_of_bounds_negative() {
-            let list = Value::list(vec![Value::Int(1)]);
-            let result = eval_index(list, Value::Int(-5));
+            let list = Value::list(vec![Value::int(1)]);
+            let result = eval_index(list, Value::int(-5));
             assert!(result.is_err());
         }
 
         #[test]
         fn empty_list() {
             let list = Value::list(vec![]);
-            let result = eval_index(list, Value::Int(0));
+            let result = eval_index(list, Value::int(0));
             assert!(result.is_err());
         }
 
         #[test]
         fn single_element() {
-            let list = Value::list(vec![Value::Int(42)]);
-            assert_eq!(eval_index(list.clone(), Value::Int(0)).unwrap(), Value::Int(42));
-            assert_eq!(eval_index(list, Value::Int(-1)).unwrap(), Value::Int(42));
+            let list = Value::list(vec![Value::int(42)]);
+            assert_eq!(eval_index(list.clone(), Value::int(0)).unwrap(), Value::int(42));
+            assert_eq!(eval_index(list, Value::int(-1)).unwrap(), Value::int(42));
         }
     }
 
@@ -322,46 +324,46 @@ mod index_access {
         #[test]
         fn first_char() {
             let s = Value::string("hello");
-            assert_eq!(eval_index(s, Value::Int(0)).unwrap(), Value::Char('h'));
+            assert_eq!(eval_index(s, Value::int(0)).unwrap(), Value::Char('h'));
         }
 
         #[test]
         fn last_char() {
             let s = Value::string("hello");
-            assert_eq!(eval_index(s, Value::Int(4)).unwrap(), Value::Char('o'));
+            assert_eq!(eval_index(s, Value::int(4)).unwrap(), Value::Char('o'));
         }
 
         #[test]
         fn negative_index() {
             let s = Value::string("hello");
-            assert_eq!(eval_index(s, Value::Int(-1)).unwrap(), Value::Char('o'));
+            assert_eq!(eval_index(s, Value::int(-1)).unwrap(), Value::Char('o'));
         }
 
         #[test]
         fn unicode_char() {
             let s = Value::string("héllo");
-            assert_eq!(eval_index(s, Value::Int(1)).unwrap(), Value::Char('é'));
+            assert_eq!(eval_index(s, Value::int(1)).unwrap(), Value::Char('é'));
         }
 
         #[test]
         fn emoji() {
             let s = Value::string("a😀b");
-            assert_eq!(eval_index(s.clone(), Value::Int(0)).unwrap(), Value::Char('a'));
-            assert_eq!(eval_index(s.clone(), Value::Int(1)).unwrap(), Value::Char('😀'));
-            assert_eq!(eval_index(s, Value::Int(2)).unwrap(), Value::Char('b'));
+            assert_eq!(eval_index(s.clone(), Value::int(0)).unwrap(), Value::Char('a'));
+            assert_eq!(eval_index(s.clone(), Value::int(1)).unwrap(), Value::Char('😀'));
+            assert_eq!(eval_index(s, Value::int(2)).unwrap(), Value::Char('b'));
         }
 
         #[test]
         fn out_of_bounds() {
             let s = Value::string("hi");
-            let result = eval_index(s, Value::Int(10));
+            let result = eval_index(s, Value::int(10));
             assert!(result.is_err());
         }
 
         #[test]
         fn empty_string() {
             let s = Value::string("");
-            let result = eval_index(s, Value::Int(0));
+            let result = eval_index(s, Value::int(0));
             assert!(result.is_err());
         }
     }
@@ -372,9 +374,9 @@ mod index_access {
         #[test]
         fn existing_key() {
             let mut map = std::collections::HashMap::new();
-            map.insert("key".to_string(), Value::Int(42));
+            map.insert("key".to_string(), Value::int(42));
             let m = Value::map(map);
-            assert_eq!(eval_index(m, Value::string("key")).unwrap(), Value::Int(42));
+            assert_eq!(eval_index(m, Value::string("key")).unwrap(), Value::int(42));
         }
 
         #[test]
@@ -388,9 +390,9 @@ mod index_access {
         #[test]
         fn empty_string_key() {
             let mut map = std::collections::HashMap::new();
-            map.insert("".to_string(), Value::Int(1));
+            map.insert(String::new(), Value::int(1));
             let m = Value::map(map);
-            assert_eq!(eval_index(m, Value::string("")).unwrap(), Value::Int(1));
+            assert_eq!(eval_index(m, Value::string("")).unwrap(), Value::int(1));
         }
     }
 
@@ -399,19 +401,19 @@ mod index_access {
 
         #[test]
         fn int_not_indexable() {
-            let result = eval_index(Value::Int(42), Value::Int(0));
+            let result = eval_index(Value::int(42), Value::int(0));
             assert!(result.is_err());
         }
 
         #[test]
         fn bool_not_indexable() {
-            let result = eval_index(Value::Bool(true), Value::Int(0));
+            let result = eval_index(Value::Bool(true), Value::int(0));
             assert!(result.is_err());
         }
 
         #[test]
         fn list_with_string_index() {
-            let list = Value::list(vec![Value::Int(1)]);
+            let list = Value::list(vec![Value::int(1)]);
             let result = eval_index(list, Value::string("0"));
             assert!(result.is_err());
         }
@@ -432,39 +434,39 @@ mod boundaries {
 
     #[test]
     fn large_list_first() {
-        let items: Vec<Value> = (0..10000).map(Value::Int).collect();
+        let items: Vec<Value> = (0..10000).map(Value::int).collect();
         let list = Value::list(items);
-        assert_eq!(eval_index(list, Value::Int(0)).unwrap(), Value::Int(0));
+        assert_eq!(eval_index(list, Value::int(0)).unwrap(), Value::int(0));
     }
 
     #[test]
     fn large_list_last() {
-        let items: Vec<Value> = (0..10000).map(Value::Int).collect();
+        let items: Vec<Value> = (0..10000).map(Value::int).collect();
         let list = Value::list(items);
-        assert_eq!(eval_index(list.clone(), Value::Int(9999)).unwrap(), Value::Int(9999));
-        assert_eq!(eval_index(list, Value::Int(-1)).unwrap(), Value::Int(9999));
+        assert_eq!(eval_index(list.clone(), Value::int(9999)).unwrap(), Value::int(9999));
+        assert_eq!(eval_index(list, Value::int(-1)).unwrap(), Value::int(9999));
     }
 
     #[test]
     fn long_string_first() {
-        let s = Value::string(&"a".repeat(10000));
-        assert_eq!(eval_index(s, Value::Int(0)).unwrap(), Value::Char('a'));
+        let s = Value::string("a".repeat(10000));
+        assert_eq!(eval_index(s, Value::int(0)).unwrap(), Value::Char('a'));
     }
 
     #[test]
     fn long_string_last() {
-        let s = Value::string(&"a".repeat(10000));
-        assert_eq!(eval_index(s.clone(), Value::Int(9999)).unwrap(), Value::Char('a'));
-        assert_eq!(eval_index(s, Value::Int(-1)).unwrap(), Value::Char('a'));
+        let s = Value::string("a".repeat(10000));
+        assert_eq!(eval_index(s.clone(), Value::int(9999)).unwrap(), Value::Char('a'));
+        assert_eq!(eval_index(s, Value::int(-1)).unwrap(), Value::Char('a'));
     }
 
     #[test]
     fn index_at_boundary() {
-        let list = Value::list(vec![Value::Int(0), Value::Int(1)]);
+        let list = Value::list(vec![Value::int(0), Value::int(1)]);
         // Boundary checks
-        assert!(eval_index(list.clone(), Value::Int(1)).is_ok());
-        assert!(eval_index(list.clone(), Value::Int(2)).is_err());
-        assert!(eval_index(list.clone(), Value::Int(-2)).is_ok());
-        assert!(eval_index(list, Value::Int(-3)).is_err());
+        assert!(eval_index(list.clone(), Value::int(1)).is_ok());
+        assert!(eval_index(list.clone(), Value::int(2)).is_err());
+        assert!(eval_index(list.clone(), Value::int(-2)).is_ok());
+        assert!(eval_index(list, Value::int(-3)).is_err());
     }
 }

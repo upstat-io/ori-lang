@@ -1,7 +1,8 @@
-//! Method dispatch methods for the Evaluator.
+//! Method dispatch methods for the Interpreter.
 
-use crate::ir::{ExprArena, Name};
-use ori_eval::{
+use ori_ir::{ExprArena, Name};
+use crate::{
+    Value, EvalResult, EvalError,
     UserMethod, dispatch_builtin_method,
     // Error factories for collection methods
     all_requires_list, any_requires_list, collect_requires_range,
@@ -10,19 +11,18 @@ use ori_eval::{
     map_entries_requires_map, map_requires_collection,
     wrong_arg_count, wrong_function_args,
 };
-use super::{Evaluator, EvalResult};
-use super::super::value::Value;
+use super::Interpreter;
 use super::resolvers::{MethodResolution, CollectionMethod};
 
-impl Evaluator<'_> {
+impl Interpreter<'_> {
     /// Evaluate a method call using the Chain of Responsibility pattern.
     ///
     /// Methods are resolved in priority order:
     /// 1. User-defined methods from impl blocks (priority 0)
     /// 2. Derived methods from `#[derive(...)]` (priority 1)
-    /// 3. Collection methods requiring evaluator (priority 2)
+    /// 3. Collection methods requiring interpreter (priority 2)
     /// 4. Built-in methods in `MethodRegistry` (priority 3)
-    pub(super) fn eval_method_call(&mut self, receiver: Value, method: Name, args: Vec<Value>) -> EvalResult {
+    pub fn eval_method_call(&mut self, receiver: Value, method: Name, args: Vec<Value>) -> EvalResult {
         let type_name = self.get_value_type_name(&receiver);
 
         // Resolve the method using the resolver chain
@@ -62,7 +62,7 @@ impl Evaluator<'_> {
         self.method_dispatcher.resolve(receiver, type_name, method_name)
     }
 
-    /// Evaluate a collection method that requires evaluator access.
+    /// Evaluate a collection method that requires interpreter access.
     fn eval_collection_method(
         &mut self,
         receiver: Value,
@@ -136,7 +136,7 @@ impl Evaluator<'_> {
     ) -> EvalResult {
         let mut result = Vec::new();
         for item in iter {
-            let keep = self.eval_call(predicate.clone(), &[item.clone()])?;
+            let keep = self.eval_call(predicate.clone(), std::slice::from_ref(&item))?;
             if keep.is_truthy() {
                 result.push(item);
             }
@@ -164,7 +164,7 @@ impl Evaluator<'_> {
         predicate: &Value,
     ) -> EvalResult {
         for item in iter {
-            let found = self.eval_call(predicate.clone(), &[item.clone()])?;
+            let found = self.eval_call(predicate.clone(), std::slice::from_ref(&item))?;
             if found.is_truthy() {
                 return Ok(Value::some(item));
             }
@@ -204,11 +204,11 @@ impl Evaluator<'_> {
 
     /// Validate that the expected number of arguments was provided.
     #[inline]
-    fn expect_arg_count(method_name: &str, expected: usize, args: &[Value]) -> Result<(), ori_eval::EvalError> {
-        if args.len() != expected {
-            Err(wrong_arg_count(method_name, expected, args.len()))
-        } else {
+    fn expect_arg_count(method_name: &str, expected: usize, args: &[Value]) -> Result<(), EvalError> {
+        if args.len() == expected {
             Ok(())
+        } else {
+            Err(wrong_arg_count(method_name, expected, args.len()))
         }
     }
 
@@ -242,30 +242,31 @@ impl Evaluator<'_> {
         self.all_in_iterator(items.iter().cloned(), &args[0])
     }
 
-    fn eval_range_collect(&mut self, range: &ori_patterns::RangeValue, args: &[Value]) -> EvalResult {
+    #[expect(clippy::unused_self, reason = "Consistent method signature with other eval_range_* methods that do use self")]
+    fn eval_range_collect(&mut self, range: &crate::RangeValue, args: &[Value]) -> EvalResult {
         Self::expect_arg_count("collect", 0, args)?;
-        let result: Vec<Value> = range.iter().map(Value::Int).collect();
+        let result: Vec<Value> = range.iter().map(Value::int).collect();
         Ok(Value::list(result))
     }
 
-    fn eval_range_map(&mut self, range: &ori_patterns::RangeValue, args: &[Value]) -> EvalResult {
+    fn eval_range_map(&mut self, range: &crate::RangeValue, args: &[Value]) -> EvalResult {
         Self::expect_arg_count("map", 1, args)?;
-        self.map_iterator(range.iter().map(Value::Int), &args[0])
+        self.map_iterator(range.iter().map(Value::int), &args[0])
     }
 
-    fn eval_range_filter(&mut self, range: &ori_patterns::RangeValue, args: &[Value]) -> EvalResult {
+    fn eval_range_filter(&mut self, range: &crate::RangeValue, args: &[Value]) -> EvalResult {
         Self::expect_arg_count("filter", 1, args)?;
-        self.filter_iterator(range.iter().map(Value::Int), &args[0])
+        self.filter_iterator(range.iter().map(Value::int), &args[0])
     }
 
-    fn eval_range_fold(&mut self, range: &ori_patterns::RangeValue, args: &[Value]) -> EvalResult {
+    fn eval_range_fold(&mut self, range: &crate::RangeValue, args: &[Value]) -> EvalResult {
         Self::expect_arg_count("fold", 2, args)?;
-        self.fold_iterator(range.iter().map(Value::Int), args[0].clone(), &args[1])
+        self.fold_iterator(range.iter().map(Value::int), args[0].clone(), &args[1])
     }
 
     /// Get the concrete type name for a value as an interned Name.
     ///
-    /// For struct values, returns the struct's type_name directly.
+    /// For struct values, returns the struct's `type_name` directly.
     /// For other values, interns the static type name string.
     ///
     /// This avoids String allocation during method dispatch by using
@@ -288,13 +289,14 @@ impl Evaluator<'_> {
             Value::Tuple(_) => self.interner.intern("tuple"),
             Value::Some(_) | Value::None => self.interner.intern("Option"),
             Value::Ok(_) | Value::Err(_) => self.interner.intern("Result"),
-            Value::Function(_) => self.interner.intern("function"),
+            Value::Function(_) | Value::MemoizedFunction(_) => self.interner.intern("function"),
             Value::FunctionVal(_, _) => self.interner.intern("function_val"),
             Value::Error(_) => self.interner.intern("error"),
         }
     }
 
     /// Evaluate a user-defined method from an impl block.
+    #[expect(clippy::arithmetic_side_effects, reason = "method params always include self, so len >= 1")]
     pub(super) fn eval_user_method(&mut self, receiver: Value, method: &UserMethod, args: &[Value]) -> EvalResult {
         // Method params include 'self' as first parameter
         if method.params.len() != args.len() + 1 {
@@ -322,9 +324,9 @@ impl Evaluator<'_> {
 
         // Evaluate method body using the method's arena (arena threading pattern).
         let func_arena: &ExprArena = &method.arena;
-        let mut call_evaluator = self.create_function_evaluator(func_arena, call_env);
-        let result = call_evaluator.eval(method.body);
-        call_evaluator.env.pop_scope();
+        let mut call_interpreter = self.create_function_interpreter(func_arena, call_env);
+        let result = call_interpreter.eval(method.body);
+        call_interpreter.env.pop_scope();
         result
     }
 

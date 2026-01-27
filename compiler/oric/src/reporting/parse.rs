@@ -1,6 +1,6 @@
 //! Parse problem rendering.
 //!
-//! Renders ParseProblem variants into user-facing Diagnostic messages.
+//! Renders `ParseProblem` variants into user-facing Diagnostic messages.
 
 use crate::diagnostic::{Diagnostic, ErrorCode};
 use crate::problem::ParseProblem;

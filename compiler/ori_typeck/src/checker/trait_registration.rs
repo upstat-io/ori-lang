@@ -206,10 +206,10 @@ impl TypeChecker<'_> {
             .collect()
     }
 
-    /// Convert a parameter range to a vector of TypeIds.
+    /// Convert a parameter range to a vector of `TypeIds`.
     ///
     /// This is used when registering trait/impl methods where we want to
-    /// store types as interned TypeIds for efficient equality comparisons.
+    /// store types as interned `TypeIds` for efficient equality comparisons.
     pub(crate) fn params_to_type_ids(&mut self, params: ParamRange) -> Vec<TypeId> {
         // First collect all types (requires mutable self for fresh_var)
         let types = self.params_to_types(params);

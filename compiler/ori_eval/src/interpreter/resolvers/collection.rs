@@ -126,7 +126,7 @@ mod tests {
     fn test_list_map_resolves() {
         let interner = StringInterner::new();
         let resolver = CollectionMethodResolver::new(&interner);
-        let list = Value::list(vec![Value::Int(1), Value::Int(2)]);
+        let list = Value::list(vec![Value::int(1), Value::int(2)]);
 
         let list_type = interner.intern("[int]");
         let map_method = interner.intern("map");
@@ -138,7 +138,7 @@ mod tests {
     fn test_list_filter_resolves() {
         let interner = StringInterner::new();
         let resolver = CollectionMethodResolver::new(&interner);
-        let list = Value::list(vec![Value::Int(1), Value::Int(2)]);
+        let list = Value::list(vec![Value::int(1), Value::int(2)]);
 
         let list_type = interner.intern("[int]");
         let filter_method = interner.intern("filter");
@@ -150,7 +150,7 @@ mod tests {
     fn test_list_unknown_not_found() {
         let interner = StringInterner::new();
         let resolver = CollectionMethodResolver::new(&interner);
-        let list = Value::list(vec![Value::Int(1)]);
+        let list = Value::list(vec![Value::int(1)]);
 
         let list_type = interner.intern("[int]");
         let unknown = interner.intern("unknown");
@@ -165,7 +165,7 @@ mod tests {
 
         let int_type = interner.intern("int");
         let map_method = interner.intern("map");
-        let result = resolver.resolve(&Value::Int(42), int_type, map_method);
+        let result = resolver.resolve(&Value::int(42), int_type, map_method);
         assert!(matches!(result, MethodResolution::NotFound));
     }
 }

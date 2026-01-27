@@ -1,7 +1,7 @@
 //! Sharded type interner for efficient type storage.
 //!
-//! Provides O(1) type interning, lookup, and equality comparison via TypeId.
-//! Follows the same pattern as `StringInterner` in ori_ir.
+//! Provides O(1) type interning, lookup, and equality comparison via `TypeId`.
+//! Follows the same pattern as `StringInterner` in `ori_ir`.
 
 // Arc is needed here for SharedTypeInterner - the interner must be shared across
 // threads for concurrent compilation and query execution.
@@ -53,6 +53,7 @@ impl TypeShard {
         ];
 
         for (idx, data) in primitives.into_iter().enumerate() {
+            #[expect(clippy::cast_possible_truncation, reason = "primitives count is fixed and small")]
             let idx_u32 = idx as u32;
             shard.map.insert(data.clone(), idx_u32);
             shard.types.push(data);
@@ -74,7 +75,7 @@ const NUM_SHARDS: usize = 16;
 /// Can be wrapped in Arc for sharing across threads via `SharedTypeInterner`.
 ///
 /// # Pre-interned Types
-/// Primitive types are pre-interned with fixed TypeId values matching
+/// Primitive types are pre-interned with fixed `TypeId` values matching
 /// the constants in `TypeId` (INT, FLOAT, BOOL, etc.).
 pub struct TypeInterner {
     /// Sharded storage for concurrent access.
@@ -105,20 +106,23 @@ impl TypeInterner {
     fn shard_for(data: &TypeData) -> usize {
         let mut hasher = rustc_hash::FxHasher::default();
         data.hash(&mut hasher);
-        (hasher.finish() as usize) % NUM_SHARDS
+        #[expect(clippy::cast_possible_truncation, reason = "truncation is fine for hash-based shard selection")]
+        let hash_usize = hasher.finish() as usize;
+        hash_usize % NUM_SHARDS
     }
 
-    /// Intern a type, returning its TypeId.
+    /// Intern a type, returning its `TypeId`.
     ///
-    /// If the type is already interned, returns the existing TypeId.
-    /// Otherwise, creates a new entry and returns a fresh TypeId.
+    /// If the type is already interned, returns the existing `TypeId`.
+    /// Otherwise, creates a new entry and returns a fresh `TypeId`.
     ///
     /// # Pre-interned Primitives
-    /// Primitive types return fixed TypeId constants (INT, FLOAT, etc.)
+    /// Primitive types return fixed `TypeId` constants (INT, FLOAT, etc.)
     /// for compatibility with code that depends on these constants.
     ///
     /// # Panics
     /// Panics if a shard exceeds capacity (over 268 million types per shard).
+    #[expect(clippy::cast_possible_truncation, reason = "shard_idx is bounded by NUM_SHARDS (16)")]
     pub fn intern(&self, data: TypeData) -> TypeId {
         // Fast path for primitives: return fixed TypeId constants
         match &data {
@@ -165,10 +169,10 @@ impl TypeInterner {
         TypeId::from_shard_local(shard_idx as u32, local)
     }
 
-    /// Look up the type data for a TypeId.
+    /// Look up the type data for a `TypeId`.
     ///
     /// # Panics
-    /// Panics if the TypeId is invalid (was not created by this interner).
+    /// Panics if the `TypeId` is invalid (was not created by this interner).
     pub fn lookup(&self, id: TypeId) -> TypeData {
         let shard_idx = id.shard();
         let local = id.local();
@@ -177,7 +181,7 @@ impl TypeInterner {
         guard.types[local].clone()
     }
 
-    /// Convert a TypeId back to a boxed Type.
+    /// Convert a `TypeId` back to a boxed Type.
     ///
     /// This enables migration from `TypeId` to `Type` by providing
     /// bidirectional conversion. Useful for interoperating with code
@@ -401,7 +405,7 @@ impl std::ops::Deref for SharedTypeInterner {
 /// methods that accept any `TypeLookup` implementor without depending directly
 /// on `TypeInterner`.
 pub trait TypeLookup {
-    /// Look up the type data for a TypeId.
+    /// Look up the type data for a `TypeId`.
     fn lookup(&self, id: TypeId) -> TypeData;
 }
 

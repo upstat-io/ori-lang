@@ -62,6 +62,12 @@ pub fn modulo_by_zero() -> EvalError {
     EvalError::new("modulo by zero")
 }
 
+/// Integer overflow error.
+#[cold]
+pub fn integer_overflow(operation: &str) -> EvalError {
+    EvalError::new(format!("integer overflow in {operation}"))
+}
+
 // Method Call Errors
 
 /// No such method on a type.

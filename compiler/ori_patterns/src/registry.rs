@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use ori_ir::FunctionExpKind;
 
-use crate::builtins::{PanicPattern, PrintPattern};
+use crate::builtins::{CatchPattern, PanicPattern, PrintPattern};
 use crate::cache::CachePattern;
 use crate::parallel::ParallelPattern;
 use crate::recurse::RecursePattern;
@@ -84,9 +84,10 @@ impl PatternRegistry {
         patterns.insert(FunctionExpKind::Cache, SharedPattern::new(CachePattern));
         patterns.insert(FunctionExpKind::With, SharedPattern::new(WithPattern));
 
-        // Fundamental built-ins (I/O and control flow only)
+        // Fundamental built-ins (I/O, control flow, error recovery)
         patterns.insert(FunctionExpKind::Print, SharedPattern::new(PrintPattern));
         patterns.insert(FunctionExpKind::Panic, SharedPattern::new(PanicPattern));
+        patterns.insert(FunctionExpKind::Catch, SharedPattern::new(CatchPattern));
 
         PatternRegistry { patterns }
     }
@@ -133,7 +134,7 @@ mod tests {
     #[test]
     fn test_registry_has_all_patterns() {
         let registry = PatternRegistry::new();
-        assert_eq!(registry.len(), 8);
+        assert_eq!(registry.len(), 9);
 
         // Verify each pattern is registered
         assert!(registry.get(FunctionExpKind::Recurse).is_some());
@@ -144,6 +145,7 @@ mod tests {
         assert!(registry.get(FunctionExpKind::With).is_some());
         assert!(registry.get(FunctionExpKind::Print).is_some());
         assert!(registry.get(FunctionExpKind::Panic).is_some());
+        assert!(registry.get(FunctionExpKind::Catch).is_some());
     }
 
     #[test]

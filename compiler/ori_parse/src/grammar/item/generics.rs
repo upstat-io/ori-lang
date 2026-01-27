@@ -102,7 +102,7 @@ impl Parser<'_> {
 
     /// Parse a type for impl blocks: `Name` or `Name<T, U>`.
     ///
-    /// Returns (path, ParsedType) where path is the type name(s) for registration.
+    /// Returns (path, `ParsedType`) where path is the type name(s) for registration.
     pub(crate) fn parse_impl_type(&mut self) -> Result<(Vec<Name>, ParsedType), ParseError> {
         let path = self.parse_type_path()?;
         let name = *path.last().ok_or_else(|| {
@@ -137,7 +137,7 @@ impl Parser<'_> {
         Ok((path, ty))
     }
 
-    /// Parse uses clause: uses Http, FileSystem, Async
+    /// Parse uses clause: uses Http, `FileSystem`, Async
     pub(crate) fn parse_uses_clause(&mut self) -> Result<Vec<CapabilityRef>, ParseError> {
         self.expect(&TokenKind::Uses)?;
 

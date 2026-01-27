@@ -471,7 +471,6 @@ impl Parser<'_> {
 #[cfg(test)]
 mod tests {
     use ori_ir::StringInterner;
-    use ori_lexer;
     use crate::parse;
 
     fn parse_with_errors(source: &str) -> (crate::ParseResult, StringInterner) {
@@ -545,10 +544,10 @@ mod tests {
 
     #[test]
     fn test_parse_attribute_missing_paren() {
-        let (result, _interner) = parse_with_errors(r#"
+        let (result, _interner) = parse_with_errors(r"
 #[skip]
 @test_bad () -> void = assert(cond: true)
-"#);
+");
 
         // Should have an error for missing (
         assert!(result.has_errors());
@@ -556,10 +555,10 @@ mod tests {
 
     #[test]
     fn test_parse_attribute_missing_string() {
-        let (result, _interner) = parse_with_errors(r#"
+        let (result, _interner) = parse_with_errors(r"
 #[skip()]
 @test_bad () -> void = assert(cond: true)
-"#);
+");
 
         // Should have an error for missing string argument
         assert!(result.has_errors());

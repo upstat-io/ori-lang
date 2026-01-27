@@ -105,33 +105,26 @@ impl<'a> OwnershipAnalysis<'a> {
 
             // Str might need ARC (depends on SSO at runtime)
             // We conservatively mark as needing ARC, but SSO handles it at runtime
-            TypeData::Str => true,
+            // Container, function, user, type variable, and projection types
+            // conservatively need ARC
+            TypeData::Str
+            | TypeData::List(_)
+            | TypeData::Map { .. }
+            | TypeData::Set(_)
+            | TypeData::Channel(_)
+            | TypeData::Function { .. }
+            | TypeData::Named(_)
+            | TypeData::Applied { .. }
+            | TypeData::Var(_)
+            | TypeData::Projection { .. } => true,
 
             // Option and Result of primitives are unboxed (no ARC)
             TypeData::Option(inner) | TypeData::Range(inner) => self.needs_arc(inner),
 
             TypeData::Result { ok, err } => self.needs_arc(ok) || self.needs_arc(err),
 
-            // Container types always need ARC
-            TypeData::List(_)
-            | TypeData::Map { .. }
-            | TypeData::Set(_)
-            | TypeData::Channel(_) => true,
-
-            // Function types need ARC (closures have captured environment)
-            TypeData::Function { .. } => true,
-
             // Tuples: need ARC if any element needs ARC
             TypeData::Tuple(elems) => elems.iter().any(|&e| self.needs_arc(e)),
-
-            // User types conservatively need ARC
-            TypeData::Named(_) | TypeData::Applied { .. } => true,
-
-            // Type variables need ARC (conservative)
-            TypeData::Var(_) => true,
-
-            // Projections need ARC (conservative)
-            TypeData::Projection { .. } => true,
         }
     }
 
@@ -165,18 +158,10 @@ impl<'a> OwnershipAnalysis<'a> {
             | ExprKind::Duration { .. }
             | ExprKind::Size { .. }
             | ExprKind::Unit
-            | ExprKind::HashLength => {
-                self.info.elide_arc.insert(id);
-            }
-
-            // Strings: handled by SSO at runtime
-            ExprKind::String(_) => {
-                // SSO handles this - mark as elided, runtime will check length
-                self.info.elide_arc.insert(id);
-            }
-
-            // None is a primitive (no allocation)
-            ExprKind::None => {
+            | ExprKind::HashLength
+            | ExprKind::String(_)
+            | ExprKind::None => {
+                // Primitives, SSO strings, and None need no ARC
                 self.info.elide_arc.insert(id);
             }
 
@@ -394,14 +379,13 @@ impl<'a> OwnershipAnalysis<'a> {
                 }
             }
 
-            // Config/FunctionRef/SelfRef don't need ARC analysis
-            ExprKind::Config(_) | ExprKind::FunctionRef(_) | ExprKind::SelfRef => {}
-
-            // Continue has no value
-            ExprKind::Continue => {}
-
-            // Error placeholder
-            ExprKind::Error => {}
+            // Config/FunctionRef/SelfRef don't need ARC analysis,
+            // Continue has no value, Error is a placeholder
+            ExprKind::Config(_)
+            | ExprKind::FunctionRef(_)
+            | ExprKind::SelfRef
+            | ExprKind::Continue
+            | ExprKind::Error => {}
         }
     }
 

@@ -1,6 +1,6 @@
 // Rosetta Code: Function definition
 // Task: Demonstrate how to define functions
-// Sigil uses @name (params) -> return_type = expression
+// Ori uses @name (params) -> return_type = expression
 
 // Simple function with no parameters
 @greeting () -> str = "Hello, World!"

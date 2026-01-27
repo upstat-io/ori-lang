@@ -210,7 +210,7 @@ impl TypeRegistry {
     pub fn register_alias(
         &mut self,
         name: Name,
-        target: Type,
+        target: &Type,
         span: Span,
         type_params: Vec<Name>,
     ) -> TypeId {
@@ -251,7 +251,7 @@ impl TypeRegistry {
     /// Convert a registered type to the type checker's Type representation.
     ///
     /// For struct and enum types, returns `Type::Named(name)`.
-    /// For aliases, returns the target type directly (converted from TypeId).
+    /// For aliases, returns the target type directly (converted from `TypeId`).
     pub fn to_type(&self, type_id: TypeId) -> Option<Type> {
         self.get_by_id(type_id).map(|entry| {
             match &entry.kind {
@@ -265,7 +265,7 @@ impl TypeRegistry {
 
     /// Get field types for a struct type.
     ///
-    /// Returns the fields as (Name, Type) pairs by converting from TypeId.
+    /// Returns the fields as (Name, Type) pairs by converting from `TypeId`.
     pub fn get_struct_fields(&self, type_id: TypeId) -> Option<Vec<(Name, Type)>> {
         self.get_by_id(type_id).and_then(|entry| {
             match &entry.kind {
@@ -281,7 +281,7 @@ impl TypeRegistry {
 
     /// Get field types for an enum variant.
     ///
-    /// Returns the fields as (Name, Type) pairs by converting from TypeId.
+    /// Returns the fields as (Name, Type) pairs by converting from `TypeId`.
     pub fn get_variant_fields(&self, type_id: TypeId, variant_name: Name) -> Option<Vec<(Name, Type)>> {
         self.get_by_id(type_id).and_then(|entry| {
             match &entry.kind {
@@ -386,7 +386,7 @@ mod tests {
         let mut registry = TypeRegistry::new();
 
         let id_name = interner.intern("UserId");
-        let type_id = registry.register_alias(id_name, Type::Int, make_span(), vec![]);
+        let type_id = registry.register_alias(id_name, &Type::Int, make_span(), vec![]);
 
         assert!(!type_id.is_primitive());
 
@@ -410,7 +410,7 @@ mod tests {
 
         let id1 = registry.register_struct(name1, vec![], make_span(), vec![]);
         let id2 = registry.register_enum(name2, vec![], make_span(), vec![]);
-        let id3 = registry.register_alias(name3, Type::Int, make_span(), vec![]);
+        let id3 = registry.register_alias(name3, &Type::Int, make_span(), vec![]);
 
         assert_ne!(id1, id2);
         assert_ne!(id2, id3);
@@ -435,7 +435,7 @@ mod tests {
         let mut registry = TypeRegistry::new();
 
         let id_name = interner.intern("UserId");
-        let type_id = registry.register_alias(id_name, Type::Int, make_span(), vec![]);
+        let type_id = registry.register_alias(id_name, &Type::Int, make_span(), vec![]);
 
         let typ = registry.to_type(type_id).unwrap();
         assert_eq!(typ, Type::Int);

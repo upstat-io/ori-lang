@@ -21,11 +21,10 @@ pub fn infer_function_seq(
                 let seq_bindings = checker.context.arena.get_seq_bindings(*bindings);
                 for binding in seq_bindings {
                     match binding {
-                        SeqBinding::Let { pattern, value, span: binding_span, .. } => {
-                            checker.check_closure_self_capture(pattern, *value, *binding_span);
-
-                            let init_ty = infer_expr(checker, *value);
-                            checker.bind_pattern(pattern, init_ty);
+                        SeqBinding::Let { pattern, ty, value, span: binding_span, .. } => {
+                            let init_ty = super::infer_let_init(checker, pattern, *value, *binding_span);
+                            let final_ty = super::check_type_annotation(checker, ty.as_ref(), init_ty, *value);
+                            checker.bind_pattern(pattern, final_ty);
                         }
                         SeqBinding::Stmt { expr, .. } => {
                             infer_expr(checker, *expr);
@@ -42,16 +41,16 @@ pub fn infer_function_seq(
                 let seq_bindings = checker.context.arena.get_seq_bindings(*bindings);
                 for binding in seq_bindings {
                     match binding {
-                        SeqBinding::Let { pattern, value, span: binding_span, .. } => {
-                            checker.check_closure_self_capture(pattern, *value, *binding_span);
-
-                            let init_ty = infer_expr(checker, *value);
+                        SeqBinding::Let { pattern, ty, value, span: binding_span, .. } => {
+                            let init_ty = super::infer_let_init(checker, pattern, *value, *binding_span);
+                            // Unwrap Result/Option for try bindings
                             let unwrapped = match &init_ty {
                                 Type::Result { ok, .. } => (**ok).clone(),
                                 Type::Option(some_ty) => (**some_ty).clone(),
                                 other => other.clone(),
                             };
-                            checker.bind_pattern(pattern, unwrapped);
+                            let final_ty = super::check_type_annotation(checker, ty.as_ref(), unwrapped, *value);
+                            checker.bind_pattern(pattern, final_ty);
                         }
                         SeqBinding::Stmt { expr, .. } => {
                             infer_expr(checker, *expr);
@@ -230,6 +229,12 @@ fn infer_function_exp_with_scoped_bindings(
                                 params: vec![],
                                 ret: Box::new(ret_type),
                             }
+                        }
+                        ScopedBindingType::EnclosingFunction => {
+                            // Use the enclosing function's type for recursive patterns like `recurse`
+                            checker.scope.current_function_type
+                                .clone()
+                                .unwrap_or_else(|| checker.inference.ctx.fresh_var())
                         }
                     };
                     (binding_name, binding_type)

@@ -2699,9 +2699,9 @@ impl<'ctx> LLVMCodegen<'ctx> {
                 None
             }
 
-            FunctionExpKind::Parallel | FunctionExpKind::Spawn | FunctionExpKind::Timeout |
-            FunctionExpKind::Cache | FunctionExpKind::With => {
-                // These require runtime support - return default for now
+            _ => {
+                // Patterns without custom LLVM codegen — return default for now.
+                // Avoids coupling: new FunctionExpKind variants don't require changes here.
                 if result_type == TypeId::VOID {
                     None
                 } else {

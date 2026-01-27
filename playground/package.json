@@ -1,0 +1,10 @@
+{
+  "name": "ori-playground",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run server.ts",
+    "build:wasm": "cd wasm && wasm-pack build --target web --out-dir ../pkg",
+    "build": "bun run build:wasm"
+  }
+}

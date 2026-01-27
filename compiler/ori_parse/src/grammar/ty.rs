@@ -199,14 +199,13 @@ impl Parser<'_> {
 #[cfg(test)]
 mod tests {
     use ori_ir::{ParsedType, StringInterner, TypeId};
-    use ori_lexer;
 
     use crate::Parser;
 
     fn parse_type_from_source(source: &str) -> Option<ParsedType> {
         let interner = StringInterner::new();
         // Wrap in a function to get proper context for type parsing
-        let full_source = format!("@test () -> {} = 0", source);
+        let full_source = format!("@test () -> {source} = 0");
         let tokens = ori_lexer::lex(&full_source, &interner);
         let mut parser = Parser::new(&tokens, &interner);
 
@@ -410,7 +409,7 @@ mod tests {
                 // Note: assoc_name is a Name, we just verify it was parsed
                 let _ = assoc_name;
             }
-            _ => panic!("expected AssociatedType, got {:?}", ty),
+            _ => panic!("expected AssociatedType, got {ty:?}"),
         }
     }
 
@@ -428,7 +427,7 @@ mod tests {
                 }
                 let _ = assoc_name;
             }
-            _ => panic!("expected AssociatedType, got {:?}", ty),
+            _ => panic!("expected AssociatedType, got {ty:?}"),
         }
     }
 

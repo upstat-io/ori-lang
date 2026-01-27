@@ -6,7 +6,7 @@
 //! # Main Entry Points
 //!
 //! - [`TypeChecker`]: The main type checker struct
-//! - [`TypeCheckerBuilder`]: Builder for creating TypeChecker instances
+//! - [`TypeCheckerBuilder`]: Builder for creating `TypeChecker` instances
 //!
 //! # Module Organization
 //!
@@ -50,6 +50,9 @@ pub use checker::{
     // Convenience functions
     type_check, type_check_with_source, type_check_with_config,
 };
+
+// Re-export import support types
+pub use checker::imports::{ImportedFunction, ImportedGeneric};
 
 // Re-export bound checking function
 pub use checker::bound_checking::primitive_implements_trait;

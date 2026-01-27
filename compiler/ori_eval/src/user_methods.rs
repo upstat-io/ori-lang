@@ -223,22 +223,22 @@ mod tests {
     }
 
     #[test]
-    fn test_derived_trait_from_str() {
-        assert_eq!(DerivedTrait::from_str("Eq"), Some(DerivedTrait::Eq));
-        assert_eq!(DerivedTrait::from_str("Clone"), Some(DerivedTrait::Clone));
+    fn test_derived_trait_from_name() {
+        assert_eq!(DerivedTrait::from_name("Eq"), Some(DerivedTrait::Eq));
+        assert_eq!(DerivedTrait::from_name("Clone"), Some(DerivedTrait::Clone));
         assert_eq!(
-            DerivedTrait::from_str("Hashable"),
+            DerivedTrait::from_name("Hashable"),
             Some(DerivedTrait::Hashable)
         );
         assert_eq!(
-            DerivedTrait::from_str("Printable"),
+            DerivedTrait::from_name("Printable"),
             Some(DerivedTrait::Printable)
         );
         assert_eq!(
-            DerivedTrait::from_str("Default"),
+            DerivedTrait::from_name("Default"),
             Some(DerivedTrait::Default)
         );
-        assert_eq!(DerivedTrait::from_str("Unknown"), None);
+        assert_eq!(DerivedTrait::from_name("Unknown"), None);
     }
 
     #[test]

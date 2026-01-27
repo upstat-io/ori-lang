@@ -1,14 +1,13 @@
-//! RAII-style scope guards for Evaluator environment management.
+//! RAII-style scope guards for Interpreter environment management.
 //!
 //! These methods provide safe scope management that guarantees cleanup
 //! even on early returns or errors.
 
-use crate::ir::Name;
-use super::Evaluator;
-use super::super::value::Value;
-use ori_patterns::EvalResult;
+use ori_ir::Name;
+use crate::{Value, EvalResult};
+use super::Interpreter;
 
-impl Evaluator<'_> {
+impl Interpreter<'_> {
     /// Execute evaluation within a new environment scope.
     ///
     /// The scope is automatically popped when the closure returns,
@@ -106,91 +105,5 @@ impl Evaluator<'_> {
         let result = f(self);
         self.env.pop_scope();
         result
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use super::super::EvaluatorBuilder;
-    use crate::db::CompilerDb;
-    use crate::ir::{ExprArena, StringInterner};
-
-    #[test]
-    fn test_with_env_scope_basic() {
-        let interner = StringInterner::new();
-        let arena = ExprArena::new();
-        let db = CompilerDb::new();
-        let mut eval = EvaluatorBuilder::new(&interner, &arena, &db).build();
-
-        let x_name = interner.intern("x");
-        eval.env.define(x_name, Value::Int(1), false);
-
-        let result = eval.with_env_scope(|e| {
-            e.env.define(x_name, Value::Int(2), false);
-            // Use match to safely extract value without unwrap
-            match e.env.lookup(x_name) {
-                Some(v) => v,
-                None => Value::Void, // Unreachable in this test
-            }
-        });
-
-        assert_eq!(result, Value::Int(2));
-        // After scope exits, x should be back to 1
-        assert_eq!(eval.env.lookup(x_name), Some(Value::Int(1)));
-    }
-
-    #[test]
-    fn test_with_binding() {
-        let interner = StringInterner::new();
-        let arena = ExprArena::new();
-        let db = CompilerDb::new();
-        let mut eval = EvaluatorBuilder::new(&interner, &arena, &db).build();
-
-        let x_name = interner.intern("x");
-
-        let result = eval.with_binding(x_name, Value::Int(42), false, |e| {
-            match e.env.lookup(x_name) {
-                Some(v) => v,
-                None => Value::Void,
-            }
-        });
-
-        assert_eq!(result, Value::Int(42));
-        // After scope exits, x should not exist
-        assert!(eval.env.lookup(x_name).is_none());
-    }
-
-    #[test]
-    fn test_with_match_bindings() {
-        let interner = StringInterner::new();
-        let arena = ExprArena::new();
-        let db = CompilerDb::new();
-        let mut eval = EvaluatorBuilder::new(&interner, &arena, &db).build();
-
-        let a_name = interner.intern("a");
-        let b_name = interner.intern("b");
-
-        let bindings = vec![
-            (a_name, Value::Int(1)),
-            (b_name, Value::Int(2)),
-        ];
-
-        let result = eval.with_match_bindings(bindings, |e| {
-            let a = match e.env.lookup(a_name) {
-                Some(Value::Int(n)) => n,
-                _ => 0,
-            };
-            let b = match e.env.lookup(b_name) {
-                Some(Value::Int(n)) => n,
-                _ => 0,
-            };
-            Value::Int(a + b)
-        });
-
-        assert_eq!(result, Value::Int(3));
-        // After scope exits, bindings should not exist
-        assert!(eval.env.lookup(a_name).is_none());
-        assert!(eval.env.lookup(b_name).is_none());
     }
 }

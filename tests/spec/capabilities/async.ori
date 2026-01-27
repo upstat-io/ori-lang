@@ -111,13 +111,13 @@ impl Http for MockHttp {
 // =============================================================================
 //
 // 1. No `async` type modifier:
-//    Sigil does not have `async fn` or an `async` keyword for function types.
+//    Ori does not have `async fn` or an `async` keyword for function types.
 //    Instead, the `uses Async` capability explicitly declares suspension.
 //    This keeps the type system simpler - return types are always the final
 //    value type, not `Future<T>` or `Promise<T>`.
 //
 // 2. No `.await` expression:
-//    Sigil does not have `.await` syntax. Functions that `uses Async` may
+//    Ori does not have `.await` syntax. Functions that `uses Async` may
 //    suspend, but suspension is implicit. The caller declares `uses Async`
 //    to indicate they also may suspend, propagating the capability.
 //

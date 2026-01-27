@@ -14,11 +14,11 @@ use crate::type_interner::{SharedTypeInterner, TypeInterner};
 /// Internally uses `TypeSchemeId` for O(1) type equality comparisons.
 #[derive(Clone, Debug)]
 pub struct TypeEnv {
-    /// Variable bindings: name -> type scheme (stored as TypeSchemeId for efficiency)
+    /// Variable bindings: name -> type scheme (stored as `TypeSchemeId` for efficiency)
     bindings: HashMap<Name, TypeSchemeId>,
     /// Parent scope (for nested scopes)
     parent: Option<Box<TypeEnv>>,
-    /// Type interner for converting between Type and TypeId
+    /// Type interner for converting between Type and `TypeId`
     interner: SharedTypeInterner,
 }
 
@@ -64,23 +64,25 @@ impl TypeEnv {
     }
 
     /// Bind a name to a monomorphic type in the current scope.
+    #[expect(clippy::needless_pass_by_value, reason = "callers often construct Type inline; changing to &Type would add .clone() noise")]
     pub fn bind(&mut self, name: Name, ty: Type) {
         let ty_id = ty.to_type_id(&self.interner);
         self.bindings.insert(name, TypeSchemeId::mono(ty_id));
     }
 
-    /// Bind a name to a monomorphic TypeId in the current scope.
+    /// Bind a name to a monomorphic `TypeId` in the current scope.
     pub fn bind_id(&mut self, name: Name, ty: TypeId) {
         self.bindings.insert(name, TypeSchemeId::mono(ty));
     }
 
     /// Bind a name to a polymorphic type scheme in the current scope.
+    #[expect(clippy::needless_pass_by_value, reason = "callers often construct TypeScheme inline; changing to &TypeScheme would add .clone() noise")]
     pub fn bind_scheme(&mut self, name: Name, scheme: TypeScheme) {
         let scheme_id = scheme.to_scheme_id(&self.interner);
         self.bindings.insert(name, scheme_id);
     }
 
-    /// Bind a name to a polymorphic TypeSchemeId in the current scope.
+    /// Bind a name to a polymorphic `TypeSchemeId` in the current scope.
     pub fn bind_scheme_id(&mut self, name: Name, scheme: TypeSchemeId) {
         self.bindings.insert(name, scheme);
     }
@@ -88,14 +90,14 @@ impl TypeEnv {
     /// Look up a name, searching parent scopes.
     /// Returns the type scheme (use instantiate to get a concrete type).
     ///
-    /// Note: This converts from internal TypeSchemeId. For high-performance
+    /// Note: This converts from internal `TypeSchemeId`. For high-performance
     /// code, use `lookup_scheme_id` instead.
     pub fn lookup_scheme(&self, name: Name) -> Option<TypeScheme> {
         self.lookup_scheme_id(name).map(|s| s.to_scheme(&self.interner))
     }
 
     /// Look up a name, searching parent scopes.
-    /// Returns the TypeSchemeId (internal representation).
+    /// Returns the `TypeSchemeId` (internal representation).
     pub fn lookup_scheme_id(&self, name: Name) -> Option<&TypeSchemeId> {
         self.bindings.get(&name).or_else(|| {
             self.parent.as_ref().and_then(|p| p.lookup_scheme_id(name))
@@ -105,13 +107,13 @@ impl TypeEnv {
     /// Look up a name and return just the type (for monomorphic lookups).
     /// For polymorphic types, returns the uninstantiated type.
     ///
-    /// Note: This converts from internal TypeId. For high-performance
+    /// Note: This converts from internal `TypeId`. For high-performance
     /// code, use `lookup_id` instead.
     pub fn lookup(&self, name: Name) -> Option<Type> {
         self.lookup_id(name).map(|id| self.interner.to_type(id))
     }
 
-    /// Look up a name and return just the TypeId (for monomorphic lookups).
+    /// Look up a name and return just the `TypeId` (for monomorphic lookups).
     /// For polymorphic types, returns the uninstantiated type.
     pub fn lookup_id(&self, name: Name) -> Option<TypeId> {
         self.lookup_scheme_id(name).map(|s| s.ty)

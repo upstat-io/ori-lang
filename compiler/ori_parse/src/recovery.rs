@@ -93,7 +93,6 @@ pub fn synchronize(cursor: &mut Cursor<'_>, recovery: RecoverySet) -> bool {
 mod tests {
     use super::*;
     use ori_ir::StringInterner;
-    use ori_lexer;
 
     fn make_cursor(source: &str) -> (Cursor<'static>, StringInterner) {
         let interner = StringInterner::new();

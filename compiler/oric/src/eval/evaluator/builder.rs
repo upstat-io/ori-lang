@@ -2,13 +2,12 @@
 
 use crate::db::Db;
 use crate::ir::{StringInterner, ExprArena, SharedArena};
-use ori_patterns::PatternRegistry;
-use ori_eval::UserMethodRegistry;
-use crate::context::{CompilerContext, SharedRegistry, SharedMutableRegistry};
-use super::{Evaluator, Environment};
-use super::resolvers::{
-    MethodDispatcher, UserRegistryResolver, CollectionMethodResolver, BuiltinMethodResolver,
+use crate::context::CompilerContext;
+use ori_eval::{
+    InterpreterBuilder, Environment, UserMethodRegistry,
+    SharedRegistry, SharedMutableRegistry, PatternRegistry,
 };
+use super::Evaluator;
 
 /// Builder for creating Evaluator instances with various configurations.
 ///
@@ -26,54 +25,83 @@ pub struct EvaluatorBuilder<'a> {
 
 impl<'a> EvaluatorBuilder<'a> {
     /// Create a new builder with required database.
-    ///
-    /// The database is required for proper Salsa-tracked import resolution.
-    /// All file access goes through `db.load_file()`.
     pub fn new(interner: &'a StringInterner, arena: &'a ExprArena, db: &'a dyn Db) -> Self {
         Self {
-            interner, arena, db, env: None, registry: None, context: None,
-            imported_arena: None, user_method_registry: None,
+            interner,
+            arena,
+            db,
+            env: None,
+            registry: None,
+            context: None,
+            imported_arena: None,
+            user_method_registry: None,
         }
     }
 
+    /// Set the initial environment.
     #[must_use]
-    pub fn env(mut self, env: Environment) -> Self { self.env = Some(env); self }
-    #[must_use]
-    pub fn registry(mut self, r: PatternRegistry) -> Self { self.registry = Some(SharedRegistry::new(r)); self }
-    #[must_use]
-    pub fn context(mut self, c: &'a CompilerContext) -> Self { self.context = Some(c); self }
-    #[must_use]
-    pub fn imported_arena(mut self, a: SharedArena) -> Self { self.imported_arena = Some(a); self }
-    #[must_use]
-    pub fn user_method_registry(mut self, r: SharedMutableRegistry<UserMethodRegistry>) -> Self { self.user_method_registry = Some(r); self }
+    pub fn env(mut self, env: Environment) -> Self {
+        self.env = Some(env);
+        self
+    }
 
+    /// Set the pattern registry.
+    #[must_use]
+    pub fn registry(mut self, r: PatternRegistry) -> Self {
+        self.registry = Some(SharedRegistry::new(r));
+        self
+    }
+
+    /// Set the compiler context.
+    #[must_use]
+    pub fn context(mut self, c: &'a CompilerContext) -> Self {
+        self.context = Some(c);
+        self
+    }
+
+    /// Set the imported arena reference.
+    #[must_use]
+    pub fn imported_arena(mut self, a: SharedArena) -> Self {
+        self.imported_arena = Some(a);
+        self
+    }
+
+    /// Set the user method registry.
+    #[must_use]
+    pub fn user_method_registry(mut self, r: SharedMutableRegistry<UserMethodRegistry>) -> Self {
+        self.user_method_registry = Some(r);
+        self
+    }
+
+    /// Build the evaluator.
     pub fn build(self) -> Evaluator<'a> {
-        let pat_reg = if let Some(ctx) = self.context {
-            ctx.pattern_registry.clone()
-        } else {
-            self.registry.unwrap_or_else(|| SharedRegistry::new(PatternRegistry::new()))
-        };
+        // Build the underlying interpreter
+        let mut interpreter_builder = InterpreterBuilder::new(self.interner, self.arena);
 
-        let user_meth_reg = self.user_method_registry
-            .unwrap_or_else(|| SharedMutableRegistry::new(UserMethodRegistry::new()));
+        if let Some(env) = self.env {
+            interpreter_builder = interpreter_builder.env(env);
+        }
 
-        // Build method dispatcher once. Because user_method_registry uses interior
-        // mutability (RwLock), the dispatcher will see methods registered later.
-        // Uses unified UserRegistryResolver for both user-defined and derived methods.
-        let method_dispatcher = MethodDispatcher::new(vec![
-            Box::new(UserRegistryResolver::new(user_meth_reg.clone())),
-            Box::new(CollectionMethodResolver::new(self.interner)),
-            Box::new(BuiltinMethodResolver::new()),
-        ]);
+        // Use pattern registry from context if provided
+        if let Some(_ctx) = self.context {
+            // TODO: Extract pattern registry from context
+            interpreter_builder = interpreter_builder.registry(PatternRegistry::new());
+        } else if let Some(_registry) = self.registry {
+            // TODO: Extract inner PatternRegistry from SharedRegistry
+            interpreter_builder = interpreter_builder.registry(PatternRegistry::new());
+        }
+
+        if let Some(arena) = self.imported_arena {
+            interpreter_builder = interpreter_builder.imported_arena(arena);
+        }
+
+        if let Some(registry) = self.user_method_registry {
+            interpreter_builder = interpreter_builder.user_method_registry(registry);
+        }
 
         Evaluator {
-            interner: self.interner, arena: self.arena,
+            interpreter: interpreter_builder.build(),
             db: self.db,
-            env: self.env.unwrap_or_default(),
-            registry: pat_reg,
-            user_method_registry: user_meth_reg,
-            method_dispatcher,
-            imported_arena: self.imported_arena,
             prelude_loaded: false,
         }
     }

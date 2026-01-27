@@ -15,9 +15,8 @@
 //! These are evaluated via the `PatternRegistry` which implements
 //! the Open/Closed principle for extensibility.
 
-use crate::ir::{ExprId, BindingPattern, FunctionSeq, SeqBinding, SeqBindingRange, ExprArena};
-use crate::eval::{Value, EvalResult, EvalError};
-use ori_eval::Environment;
+use ori_ir::{ExprId, BindingPattern, FunctionSeq, SeqBinding, SeqBindingRange, ExprArena, ArmRange};
+use crate::{Value, EvalResult, EvalError, Environment};
 
 /// Evaluate a run pattern (sequential evaluation).
 ///
@@ -122,7 +121,7 @@ pub fn eval_function_seq<F, G, M>(
 where
     F: FnMut(ExprId) -> EvalResult + Clone,
     G: FnMut(&BindingPattern, Value, bool, &mut Environment) -> EvalResult + Clone,
-    M: FnOnce(Value, crate::ir::ArmRange) -> EvalResult,
+    M: FnOnce(Value, ArmRange) -> EvalResult,
 {
     match func_seq {
         FunctionSeq::Run { bindings, result, .. } => {
@@ -165,9 +164,9 @@ mod tests {
 
     #[test]
     fn test_eval_try_expr_ok() {
-        let value = Value::ok(Value::Int(42));
-        let result = eval_try_expr(value, |_| "".to_string());
-        assert_eq!(result.unwrap(), Value::Int(42));
+        let value = Value::ok(Value::int(42));
+        let result = eval_try_expr(value, |_| String::new());
+        assert_eq!(result.unwrap(), Value::int(42));
     }
 
     #[test]
@@ -181,15 +180,15 @@ mod tests {
 
     #[test]
     fn test_eval_try_expr_some() {
-        let value = Value::some(Value::Int(42));
-        let result = eval_try_expr(value, |_| "".to_string());
-        assert_eq!(result.unwrap(), Value::Int(42));
+        let value = Value::some(Value::int(42));
+        let result = eval_try_expr(value, |_| String::new());
+        assert_eq!(result.unwrap(), Value::int(42));
     }
 
     #[test]
     fn test_eval_try_expr_none() {
         let value = Value::None;
-        let result = eval_try_expr(value, |_| "".to_string());
+        let result = eval_try_expr(value, |_| String::new());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.propagated_value.is_some());
@@ -198,8 +197,8 @@ mod tests {
 
     #[test]
     fn test_eval_try_expr_passthrough() {
-        let value = Value::Int(42);
-        let result = eval_try_expr(value, |_| "".to_string());
-        assert_eq!(result.unwrap(), Value::Int(42));
+        let value = Value::int(42);
+        let result = eval_try_expr(value, |_| String::new());
+        assert_eq!(result.unwrap(), Value::int(42));
     }
 }

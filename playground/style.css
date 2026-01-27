@@ -175,6 +175,20 @@ main {
     color: var(--text-primary);
 }
 
+.timing-line {
+    margin-top: 1rem;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.timing-duration {
+    color: var(--success);
+}
+
+.timing-label {
+    color: var(--text-secondary);
+}
+
 .status {
     font-size: 0.75rem;
     padding: 0.125rem 0.5rem;

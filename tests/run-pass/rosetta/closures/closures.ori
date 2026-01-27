@@ -1,6 +1,6 @@
 // Rosetta Code: Closures/Value capture
 // Task: Demonstrate closures capturing values from enclosing scope
-// Sigil uses lambda expressions: x -> expr
+// Ori uses lambda expressions: x -> expr
 
 // Create an adder function that captures a value
 @make_adder (n: int) -> (int) -> int = x -> x + n

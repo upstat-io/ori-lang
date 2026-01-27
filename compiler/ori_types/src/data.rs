@@ -5,7 +5,7 @@
 
 use ori_ir::{Name, TypeId};
 
-/// Type variable for inference (also stored in TypeData).
+/// Type variable for inference (also stored in `TypeData`).
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct TypeVar(pub u32);
 
@@ -23,8 +23,8 @@ impl TypeVar {
 ///
 /// # Design
 ///
-/// - Primitives are pre-interned with fixed TypeId values
-/// - Compound types store TypeId children, not Box<Type>
+/// - Primitives are pre-interned with fixed `TypeId` values
+/// - Compound types store `TypeId` children, not Box<Type>
 /// - Type variables use TypeVar(u32) for inference
 /// - Error is a special sentinel for error recovery
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]

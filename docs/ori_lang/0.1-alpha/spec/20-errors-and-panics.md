@@ -33,6 +33,7 @@ The following operations cause implicit panics:
 | `.unwrap()` | Called on `None` | "called unwrap on None" |
 | `.unwrap()` | Called on `Err(e)` | "called unwrap on Err: {e}" |
 | Division | Divisor is zero | "division by zero" |
+| Integer arithmetic | Result overflows `int` range | "integer overflow in {operation}" |
 
 ### Explicit Panic
 
@@ -59,53 +60,44 @@ When a panic occurs:
 
 ## Integer Overflow
 
-Integer arithmetic wraps on overflow:
+Integer arithmetic panics on overflow:
 
 ```ori
 let max: int = 9223372036854775807  // max signed 64-bit
-let wrapped = max + 1               // wraps to -9223372036854775808
+let result = catch(expr: max + 1)   // Err("integer overflow")
 ```
 
-Overflow does not panic. Programs requiring overflow detection should use checked methods from the standard library.
+Addition, subtraction, multiplication, and negation all panic on overflow. Programs requiring wrapping or saturating arithmetic should use methods from `std.math`.
 
 ## Catching Panics
 
-The `catch` pattern captures panics and converts them to `Result`:
+The `catch` pattern captures panics and converts them to `Result<T, str>`:
 
 ```
-catch_expr = "catch" "(" expression ")" .
+catch_expr = "catch" "(" "expr" ":" expression ")" .
 ```
 
 ```ori
-let result = catch(dangerous_operation())
-// result: Result<T, PanicInfo>
+let result = catch(expr: dangerous_operation())
+// result: Result<T, str>
 
 match(result,
     Ok(value) -> use(value),
-    Err(info) -> handle_panic(info),
+    Err(msg) -> handle_error(msg),
 )
 ```
 
-### PanicInfo
-
-`PanicInfo` contains information about the caught panic:
-
-```ori
-type PanicInfo = {
-    message: str,    // panic message
-    location: str,   // source location "file:line"
-}
-```
+If the expression evaluates successfully, `catch` returns `Ok(value)`. If the expression panics, `catch` returns `Err(message)` where `message` is the panic message string.
 
 ### Nested Catch
 
 `catch` expressions may be nested. A panic propagates to the innermost enclosing `catch`:
 
 ```ori
-catch(
-    let x = catch(may_panic())?,  // inner catch
-    process(x),                    // may also panic
-)
+catch(expr: run(
+    let x = catch(expr: may_panic())?,  // inner catch
+    process(x),                          // may also panic
+))
 // outer catch handles panics from process()
 ```
 
@@ -117,6 +109,26 @@ catch(
 - Stack overflow
 
 These conditions terminate the program immediately.
+
+## Panic Assertions
+
+The prelude provides two functions for testing panic behavior:
+
+### `assert_panics`
+
+```ori
+assert_panics(f: () -> void) -> void
+```
+
+`assert_panics` evaluates the thunk `f`. If `f` panics, the assertion succeeds. If `f` returns normally, `assert_panics` itself panics with the message `"assertion failed: expected panic but succeeded"`.
+
+### `assert_panics_with`
+
+```ori
+assert_panics_with(f: () -> void, msg: str) -> void
+```
+
+`assert_panics_with` evaluates the thunk `f`. If `f` panics with a message equal to `msg`, the assertion succeeds. If `f` panics with a different message or returns normally, `assert_panics_with` panics.
 
 ## Error Conventions
 

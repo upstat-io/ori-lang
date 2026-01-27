@@ -1,6 +1,6 @@
 // Rosetta Code: Loops/While
 // Task: Demonstrate a while-loop
-// In Sigil, while loops are expressed using the recurse pattern
+// In Ori, while loops are expressed using the recurse pattern
 
 // Count down from n to 0 (while n > 0)
 @countdown (n: int) -> [int] = recurse(

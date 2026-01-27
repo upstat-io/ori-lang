@@ -127,11 +127,11 @@ impl Type {
         }
     }
 
-    /// Convert this boxed Type to an interned TypeId.
+    /// Convert this boxed Type to an interned `TypeId`.
     ///
     /// This enables migration from `Type` to `TypeId` by providing
     /// bidirectional conversion. The interner ensures that equivalent
-    /// types get the same TypeId for O(1) equality comparisons.
+    /// types get the same `TypeId` for O(1) equality comparisons.
     pub fn to_type_id(&self, interner: &TypeInterner) -> TypeId {
         match self {
             // Primitives map to pre-interned constants
@@ -306,7 +306,7 @@ impl TypeScheme {
         self.vars.is_empty()
     }
 
-    /// Convert this TypeScheme to a TypeSchemeId using the given interner.
+    /// Convert this `TypeScheme` to a `TypeSchemeId` using the given interner.
     pub fn to_scheme_id(&self, interner: &TypeInterner) -> TypeSchemeId {
         TypeSchemeId {
             vars: self.vars.clone(),
@@ -315,7 +315,7 @@ impl TypeScheme {
     }
 }
 
-/// A type scheme with interned TypeId instead of boxed Type.
+/// A type scheme with interned `TypeId` instead of boxed Type.
 ///
 /// This is the TypeId-based equivalent of `TypeScheme`, enabling O(1)
 /// type comparisons within type schemes.
@@ -327,7 +327,7 @@ impl TypeScheme {
 pub struct TypeSchemeId {
     /// Quantified type variables (∀ these variables)
     pub vars: Vec<TypeVar>,
-    /// The type as an interned TypeId
+    /// The type as an interned `TypeId`
     pub ty: TypeId,
 }
 
@@ -350,7 +350,7 @@ impl TypeSchemeId {
         self.vars.is_empty()
     }
 
-    /// Convert this TypeSchemeId back to a boxed TypeScheme.
+    /// Convert this `TypeSchemeId` back to a boxed `TypeScheme`.
     pub fn to_scheme(&self, interner: &TypeInterner) -> TypeScheme {
         TypeScheme {
             vars: self.vars.clone(),

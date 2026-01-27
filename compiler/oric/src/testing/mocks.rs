@@ -9,7 +9,7 @@ use crate::eval::Value;
 
 /// Create a simple test value for use in tests.
 pub fn test_int(n: i64) -> Value {
-    Value::Int(n)
+    Value::int(n)
 }
 
 /// Create a simple test float value.
@@ -71,7 +71,7 @@ pub fn test_void() -> Value {
 
 /// Check if a value is an integer with the expected value.
 pub fn is_int(value: &Value, expected: i64) -> bool {
-    matches!(value, Value::Int(n) if *n == expected)
+    matches!(value, Value::Int(n) if n.raw() == expected)
 }
 
 /// Check if a value is a float within epsilon of expected.
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn test_int_constructor() {
-        assert_eq!(test_int(42), Value::Int(42));
+        assert_eq!(test_int(42), Value::int(42));
     }
 
     #[test]
@@ -138,21 +138,21 @@ mod tests {
 
     #[test]
     fn test_option_constructors() {
-        assert_eq!(test_some(test_int(1)), Value::some(Value::Int(1)));
+        assert_eq!(test_some(test_int(1)), Value::some(Value::int(1)));
         assert_eq!(test_none(), Value::None);
     }
 
     #[test]
     fn test_result_constructors() {
-        assert_eq!(test_ok(test_int(1)), Value::ok(Value::Int(1)));
+        assert_eq!(test_ok(test_int(1)), Value::ok(Value::int(1)));
         let err_val = test_err(test_str("error"));
         assert!(matches!(err_val, Value::Err(_)));
     }
 
     #[test]
     fn test_is_int() {
-        assert!(is_int(&Value::Int(42), 42));
-        assert!(!is_int(&Value::Int(42), 43));
+        assert!(is_int(&Value::int(42), 42));
+        assert!(!is_int(&Value::int(42), 43));
         assert!(!is_int(&Value::Bool(true), 42));
     }
 
@@ -165,6 +165,6 @@ mod tests {
     #[test]
     fn test_is_none() {
         assert!(is_none(&Value::None));
-        assert!(!is_none(&Value::some(Value::Int(1))));
+        assert!(!is_none(&Value::some(Value::int(1))));
     }
 }

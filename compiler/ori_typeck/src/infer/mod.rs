@@ -263,13 +263,14 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
     };
 
     // Store the type
-    checker.store_type(expr_id, ty.clone());
+    checker.store_type(expr_id, &ty);
     ty
 }
 
 /// Collect free variables from an expression (inner recursive helper).
 ///
 /// This is used for closure self-capture detection.
+#[expect(clippy::implicit_hasher, reason = "Standard HashMap/HashSet sufficient here")]
 pub fn collect_free_vars_inner(
     checker: &TypeChecker<'_>,
     expr_id: ExprId,
@@ -577,6 +578,7 @@ fn collect_free_vars_function_seq(
 }
 
 /// Add bindings from a pattern to a set of bound names.
+#[expect(clippy::implicit_hasher, reason = "Standard HashSet sufficient here")]
 pub fn add_pattern_bindings(pattern: &ori_ir::BindingPattern, bound: &mut HashSet<Name>) {
     match pattern {
         ori_ir::BindingPattern::Name(name) => {
@@ -604,5 +606,68 @@ pub fn add_pattern_bindings(pattern: &ori_ir::BindingPattern, bound: &mut HashSe
             }
         }
         ori_ir::BindingPattern::Wildcard => {}
+    }
+}
+
+/// Infer a let binding's initializer type with closure self-capture check.
+///
+/// This is the first step of let binding type checking:
+/// 1. Checks for closure self-capture
+/// 2. Infers and returns the initializer type
+///
+/// Use `check_type_annotation` afterwards to check against type annotations.
+pub fn infer_let_init(
+    checker: &mut TypeChecker<'_>,
+    pattern: &ori_ir::BindingPattern,
+    value: ori_ir::ExprId,
+    span: ori_ir::Span,
+) -> Type {
+    checker.check_closure_self_capture(pattern, value, span);
+    infer_expr(checker, value)
+}
+
+/// Check an optional type annotation (`ParsedType`) against a binding type.
+///
+/// If a type annotation is present, unifies it with `binding_ty` and
+/// returns the declared type. Otherwise returns `binding_ty` unchanged.
+///
+/// This is the second step of let binding type checking, after `infer_let_init`.
+/// For `run` patterns, `binding_ty` is the init type.
+/// For `try` patterns, `binding_ty` is the unwrapped type (Result/Option inner type).
+pub fn check_type_annotation(
+    checker: &mut TypeChecker<'_>,
+    ty: Option<&ori_ir::ParsedType>,
+    binding_ty: Type,
+    value: ori_ir::ExprId,
+) -> Type {
+    if let Some(parsed_ty) = ty {
+        let declared_ty = checker.parsed_type_to_type(parsed_ty);
+        if let Err(e) = checker.inference.ctx.unify(&declared_ty, &binding_ty) {
+            checker.report_type_error(&e, checker.context.arena.get_expr(value).span);
+        }
+        declared_ty
+    } else {
+        binding_ty
+    }
+}
+
+/// Check an optional type annotation (`TypeId`) against a binding type.
+///
+/// Same as `check_type_annotation` but takes a `TypeId` instead of `ParsedType`.
+/// Used for block statements where the type is already resolved.
+pub fn check_type_annotation_id(
+    checker: &mut TypeChecker<'_>,
+    ty: Option<ori_ir::TypeId>,
+    binding_ty: Type,
+    value: ori_ir::ExprId,
+) -> Type {
+    if let Some(type_id) = ty {
+        let declared_ty = checker.type_id_to_type(type_id);
+        if let Err(e) = checker.inference.ctx.unify(&declared_ty, &binding_ty) {
+            checker.report_type_error(&e, checker.context.arena.get_expr(value).span);
+        }
+        declared_ty
+    } else {
+        binding_ty
     }
 }

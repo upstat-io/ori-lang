@@ -27,8 +27,7 @@ pub use collection::CollectionMethodResolver;
 pub use builtin::BuiltinMethodResolver;
 
 use ori_ir::Name;
-use ori_eval::{DerivedMethodInfo, UserMethod};
-use super::super::value::Value;
+use crate::{DerivedMethodInfo, UserMethod, Value};
 
 /// Result of method resolution - identifies what kind of method was found.
 #[derive(Clone, Debug)]
@@ -39,7 +38,7 @@ pub enum MethodResolution {
     Derived(DerivedMethodInfo),
     /// Collection method that needs evaluator access (map, filter, fold, etc.).
     Collection(CollectionMethod),
-    /// Built-in method handled by MethodRegistry.
+    /// Built-in method handled by `MethodRegistry`.
     Builtin,
     /// Method not found by this resolver.
     NotFound,
@@ -56,7 +55,7 @@ pub enum CollectionMethod {
     Fold,
     /// [T].find(predicate: T -> bool) -> Option<T>
     Find,
-    /// Range<T>.collect() -> [T]
+    /// Range<T>.`collect()` -> [T]
     Collect,
     /// {K: V}.map(transform: (K, V) -> (K2, V2)) -> {K2: V2}
     MapEntries,
@@ -72,7 +71,7 @@ impl CollectionMethod {
     /// Try to identify a collection method by name.
     ///
     /// Returns Some(method) if the name matches a known collection method.
-    /// Currently used primarily for testing; the CollectionMethodResolver
+    /// Currently used primarily for testing; the `CollectionMethodResolver`
     /// performs matching directly.
     #[cfg(test)]
     pub fn from_name(name: &str) -> Option<Self> {

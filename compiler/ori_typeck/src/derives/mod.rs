@@ -57,7 +57,7 @@ fn process_type_derives(
     for derive_name in &type_decl.derives {
         let trait_name_str = interner.lookup(*derive_name);
 
-        if let Some(trait_kind) = DerivedTrait::from_str(trait_name_str) {
+        if let Some(trait_kind) = DerivedTrait::from_name(trait_name_str) {
             let method_name = interner.intern(trait_kind.method_name());
             let info = DerivedMethodInfo::new(trait_kind, field_names.clone());
 
@@ -97,7 +97,7 @@ fn register_type_derived_impls(
     for derive_name in &type_decl.derives {
         let trait_name_str = interner.lookup(*derive_name);
 
-        if let Some(trait_kind) = DerivedTrait::from_str(trait_name_str) {
+        if let Some(trait_kind) = DerivedTrait::from_name(trait_name_str) {
             let method_name = interner.intern(trait_kind.method_name());
             let method_def = create_derived_method_def(trait_kind, method_name, &self_ty, type_interner);
             methods.push(method_def);
@@ -122,7 +122,7 @@ fn register_type_derived_impls(
 
 /// Create a method definition for a derived trait.
 ///
-/// Parameter and return types are converted to TypeId using the provided interner.
+/// Parameter and return types are converted to `TypeId` using the provided interner.
 fn create_derived_method_def(
     trait_kind: DerivedTrait,
     method_name: Name,

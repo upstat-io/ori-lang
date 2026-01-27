@@ -37,6 +37,7 @@ impl Evaluator<'_> {
     /// This is called automatically by `load_module` to make prelude functions
     /// available without explicit import. All file access goes through
     /// `db.load_file()` for proper Salsa tracking.
+    #[expect(clippy::unnecessary_wraps, reason = "Result return type maintained for API consistency with load_module")]
     pub(super) fn load_prelude(&mut self, current_file: &Path) -> Result<(), String> {
         // Don't load prelude if we're already loading it (avoid infinite recursion)
         if Self::is_prelude_file(current_file) {
@@ -65,7 +66,7 @@ impl Evaluator<'_> {
         for func in &prelude_result.module.functions {
             if func.is_public {
                 if let Some(value) = module_functions.get(&func.name) {
-                    self.env.define_global(func.name, value.clone());
+                    self.env_mut().define_global(func.name, value.clone());
                 }
             }
         }
@@ -86,6 +87,10 @@ impl Evaluator<'_> {
     ///
     /// After calling this, all functions from the module (and its imports)
     /// are available in the environment for evaluation.
+    ///
+    /// Note: Type checking should be done by the caller before calling this method.
+    /// The type checker doesn't resolve imports, so it must be called on the resolved
+    /// module context, not on individual files in isolation.
     pub fn load_module(
         &mut self,
         parse_result: &ParseResult,
@@ -105,18 +110,20 @@ impl Evaluator<'_> {
             let imported_arena = SharedArena::new(imported_result.arena.clone());
             let imported_module = import::ImportedModule::new(&imported_result, &imported_arena);
 
+            // Access interner directly from interpreter to avoid borrow conflict
+            let interner = self.interpreter.interner;
             import::register_imports(
                 imp,
                 &imported_module,
-                &mut self.env,
-                self.interner,
+                &mut self.interpreter.env,
+                interner,
                 &resolved.path,
                 file_path,
             ).map_err(|e| e.message)?;
         }
 
         // Then register all local functions
-        import::register_module_functions(parse_result, &mut self.env);
+        import::register_module_functions(parse_result, self.env_mut());
 
         // Create a shared arena for all methods in this module
         // This ensures methods carry their arena reference for correct evaluation
@@ -132,19 +139,19 @@ impl Evaluator<'_> {
         // Note: We use an empty TypeRegistry here since derive processing doesn't need it
         // (field information comes from the AST, not the type registry)
         let type_registry = TypeRegistry::new();
-        process_derives(&parse_result.module, &type_registry, &mut user_methods, self.interner);
+        process_derives(&parse_result.module, &type_registry, &mut user_methods, self.interner());
 
         // Merge the collected methods into the existing registry.
         // Using merge() instead of replacing allows the cached MethodDispatcher
         // to see the new methods (since SharedMutableRegistry provides interior mutability).
-        self.user_method_registry.write().merge(user_methods);
+        self.user_method_registry().write().merge(user_methods);
 
         Ok(())
     }
 
     /// Collect methods from impl blocks into a registry.
     ///
-    /// Takes a SharedArena so that methods carry their arena reference for
+    /// Takes a `SharedArena` so that methods carry their arena reference for
     /// correct evaluation when called from different contexts.
     pub(super) fn collect_impl_methods(&self, module: &crate::ir::Module, arena: &SharedArena, registry: &mut UserMethodRegistry) {
         // First, build a map of trait names to their definitions for default method lookup
@@ -155,10 +162,8 @@ impl Evaluator<'_> {
 
         for impl_def in &module.impls {
             // Get the type name from self_path (e.g., "Point" for `impl Point { ... }`)
-            let type_name = match impl_def.self_path.last() {
-                // Use the last segment of the path as the type name
-                Some(&name) => name,
-                None => continue, // Skip if no type path
+            let Some(&type_name) = impl_def.self_path.last() else {
+                continue; // Skip if no type path
             };
 
             // Collect names of methods explicitly defined in this impl
@@ -175,7 +180,7 @@ impl Evaluator<'_> {
                 let user_method = UserMethod::new(
                     params,
                     method.body,
-                    self.env.capture(),
+                    self.env().capture(),
                     arena.clone(),
                 );
 
@@ -195,7 +200,7 @@ impl Evaluator<'_> {
                                     let user_method = UserMethod::new(
                                         params,
                                         default_method.body,
-                                        self.env.capture(),
+                                        self.env().capture(),
                                         arena.clone(),
                                     );
 
@@ -211,7 +216,7 @@ impl Evaluator<'_> {
 
     /// Collect methods from extend blocks into a registry.
     ///
-    /// Takes a SharedArena so that methods carry their arena reference for
+    /// Takes a `SharedArena` so that methods carry their arena reference for
     /// correct evaluation when called from different contexts.
     pub(super) fn collect_extend_methods(&self, module: &crate::ir::Module, arena: &SharedArena, registry: &mut UserMethodRegistry) {
         for extend_def in &module.extends {
@@ -227,7 +232,7 @@ impl Evaluator<'_> {
                 let user_method = UserMethod::new(
                     params,
                     method.body,
-                    self.env.capture(),
+                    self.env().capture(),
                     arena.clone(),
                 );
 

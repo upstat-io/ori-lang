@@ -238,22 +238,22 @@ enum RawToken {
     // Hex integer
     #[regex(r"0x[0-9a-fA-F][0-9a-fA-F_]*", |lex| {
         let s = lex.slice();
-        i64::from_str_radix(&s[2..].replace('_', ""), 16).ok()
+        u64::from_str_radix(&s[2..].replace('_', ""), 16).ok()
     })]
-    HexInt(i64),
+    HexInt(u64),
 
     // Binary integer
     #[regex(r"0b[01][01_]*", |lex| {
         let s = lex.slice();
-        i64::from_str_radix(&s[2..].replace('_', ""), 2).ok()
+        u64::from_str_radix(&s[2..].replace('_', ""), 2).ok()
     })]
-    BinInt(i64),
+    BinInt(u64),
 
     // Integer
     #[regex(r"[0-9][0-9_]*", |lex| {
-        lex.slice().replace('_', "").parse::<i64>().ok()
+        lex.slice().replace('_', "").parse::<u64>().ok()
     })]
-    Int(i64),
+    Int(u64),
 
     // Float
     #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?", |lex| {
@@ -311,12 +311,12 @@ enum RawToken {
     })]
     SizeGb((u64, SizeUnit)),
 
-    // String literal
-    #[regex(r#""([^"\\]|\\.)*""#)]
+    // String literal (no unescaped newlines allowed)
+    #[regex(r#""([^"\\\n\r]|\\.)*""#)]
     String,
 
-    // Char literal
-    #[regex(r"'([^'\\]|\\.)'")]
+    // Char literal (no unescaped newlines allowed)
+    #[regex(r"'([^'\\\n\r]|\\.)'")]
     Char,
 
     // Identifier

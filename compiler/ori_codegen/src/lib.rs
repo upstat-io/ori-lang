@@ -29,7 +29,7 @@ pub use context::CodegenContext;
 ///
 /// # Salsa Compatibility
 ///
-/// Has all required traits: Clone, Eq, PartialEq, Hash, Debug
+/// Has all required traits: Clone, Eq, `PartialEq`, Hash, Debug
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct CodegenResult {
     /// Generated C code (empty if errors occurred).
@@ -71,7 +71,7 @@ impl CodegenResult {
 ///
 /// # Salsa Compatibility
 ///
-/// Has all required traits: Clone, Eq, PartialEq, Hash, Debug
+/// Has all required traits: Clone, Eq, `PartialEq`, Hash, Debug
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CodegenError {
     pub message: String,

@@ -62,7 +62,7 @@ mod tests {
             })
         }
 
-        assert_eq!(factorial(10), 3628800);
+        assert_eq!(factorial(10), 3_628_800);
     }
 
     #[test]

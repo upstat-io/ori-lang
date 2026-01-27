@@ -41,7 +41,6 @@ impl<'a> Parser<'a> {
     }
 
     /// Cursor delegation methods - delegate to the underlying Cursor for token navigation.
-
     #[inline]
     fn current(&self) -> &Token {
         self.cursor.current()
@@ -80,6 +79,11 @@ impl<'a> Parser<'a> {
     #[inline]
     fn check_type_keyword(&self) -> bool {
         self.cursor.check_type_keyword()
+    }
+
+    #[inline]
+    fn peek_next_kind(&self) -> TokenKind {
+        self.cursor.peek_next_kind()
     }
 
     #[inline]
@@ -343,7 +347,6 @@ pub fn parse(tokens: &TokenList, interner: &StringInterner) -> ParseResult {
 mod tests {
     use super::*;
     use ori_ir::{BinaryOp, BindingPattern, ExprKind, FunctionExpKind, FunctionSeq};
-    use ori_lexer;
 
     fn parse_source(source: &str) -> ParseResult {
         let interner = StringInterner::new();
@@ -557,7 +560,7 @@ mod tests {
         )"#);
 
         for err in &result.errors {
-            eprintln!("Parse error: {:?}", err);
+            eprintln!("Parse error: {err:?}");
         }
         assert!(result.errors.is_empty(), "Unexpected parse errors: {:?}", result.errors);
     }
@@ -576,7 +579,7 @@ mod tests {
 "#);
 
         for err in &result.errors {
-            eprintln!("Parse error: {:?}", err);
+            eprintln!("Parse error: {err:?}");
         }
         assert!(result.errors.is_empty(), "Unexpected parse errors: {:?}", result.errors);
         assert_eq!(result.module.functions.len(), 1, "Expected 1 function");
@@ -587,22 +590,22 @@ mod tests {
     fn test_at_in_expression_is_error() {
         // @ is only for function definitions, not calls
         // Using @name(...) in an expression should be a syntax error
-        let result = parse_source(r#"
+        let result = parse_source(r"
 @add (a: int, b: int) -> int = a + b
 
 @test_add tests @add () -> void = run(
     @add(a: 1, b: 2)
 )
-"#);
+");
 
         assert!(result.has_errors(), "Expected parse error for @add in expression");
     }
 
     #[test]
     fn test_uses_clause_single_capability() {
-        let result = parse_source(r#"
+        let result = parse_source(r"
 @fetch (url: str) -> str uses Http = Http.get(url: url)
-"#);
+");
 
         assert!(!result.has_errors(), "Expected no parse errors");
         assert_eq!(result.module.functions.len(), 1);
@@ -627,9 +630,9 @@ mod tests {
     #[test]
     fn test_uses_clause_with_where() {
         // uses clause must come before where clause
-        let result = parse_source(r#"
+        let result = parse_source(r"
 @process<T> (data: T) -> T uses Logger where T: Clone = data
-"#);
+");
 
         assert!(!result.has_errors(), "Expected no parse errors");
         assert_eq!(result.module.functions.len(), 1);
@@ -642,9 +645,9 @@ mod tests {
     #[test]
     fn test_no_uses_clause() {
         // Pure function - no uses clause
-        let result = parse_source(r#"
+        let result = parse_source(r"
 @add (a: int, b: int) -> int = a + b
-"#);
+");
 
         assert!(!result.has_errors(), "Expected no parse errors");
         assert_eq!(result.module.functions.len(), 1);
@@ -656,11 +659,11 @@ mod tests {
     #[test]
     fn test_with_capability_expression() {
         // with Capability = Provider in body
-        let result = parse_source(r#"
+        let result = parse_source(r"
 @example () -> int =
     with Http = MockHttp in
         42
-"#);
+");
 
         assert!(!result.has_errors(), "Expected no parse errors: {:?}", result.errors);
         assert_eq!(result.module.functions.len(), 1);
@@ -690,12 +693,12 @@ mod tests {
     #[test]
     fn test_with_capability_nested() {
         // Nested capability provisions
-        let result = parse_source(r#"
+        let result = parse_source(r"
 @example () -> int =
     with Http = MockHttp in
         with Cache = MockCache in
             42
-"#);
+");
 
         assert!(!result.has_errors(), "Expected no parse errors: {:?}", result.errors);
     }
@@ -705,9 +708,9 @@ mod tests {
         // Ori does not support `async` as a type modifier.
         // Instead, use `uses Async` capability.
         // The `async` keyword is reserved but should cause a parse error when used as type.
-        let result = parse_source(r#"
+        let result = parse_source(r"
 @example () -> async int = 42
-"#);
+");
 
         // Should have parse error - async is not a valid type modifier
         assert!(result.has_errors(), "async type modifier should not be supported");
@@ -716,12 +719,12 @@ mod tests {
     #[test]
     fn test_async_keyword_reserved() {
         // The async keyword is reserved and cannot be used as an identifier
-        let result = parse_source(r#"
+        let result = parse_source(r"
 @test () -> int = run(
     let async = 42,
     async,
 )
-"#);
+");
 
         // Should have parse error - async is a reserved keyword
         assert!(result.has_errors(), "async should be a reserved keyword");
@@ -730,11 +733,11 @@ mod tests {
     #[test]
     fn test_uses_async_capability_parses() {
         // The correct way to declare async behavior: uses Async capability
-        let result = parse_source(r#"
+        let result = parse_source(r"
 trait Async {}
 
 @async_op () -> int uses Async = 42
-"#);
+");
 
         assert!(!result.has_errors(), "uses Async should parse correctly: {:?}", result.errors);
 

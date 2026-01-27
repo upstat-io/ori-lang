@@ -14,7 +14,7 @@ use ori_types::{TypeData, TypeInterner};
 pub struct CTypeMapper;
 
 impl CTypeMapper {
-    /// Map a TypeId to a C type string.
+    /// Map a `TypeId` to a C type string.
     pub fn map_type_id(type_id: TypeId, interner: &TypeInterner) -> String {
         // Handle pre-interned primitives directly
         match type_id {
@@ -24,10 +24,8 @@ impl CTypeMapper {
             TypeId::STR => return "ori_string_t".to_string(),
             TypeId::CHAR => return "uint32_t".to_string(), // Unicode codepoint
             TypeId::BYTE => return "uint8_t".to_string(),
-            TypeId::VOID => return "void".to_string(),
-            TypeId::NEVER => return "void".to_string(), // Never returns
-            TypeId::INFER => return "void*".to_string(), // Placeholder
-            TypeId::SELF_TYPE => return "void*".to_string(), // Placeholder
+            TypeId::VOID | TypeId::NEVER => return "void".to_string(),
+            TypeId::INFER | TypeId::SELF_TYPE => return "void*".to_string(),
             _ => {}
         }
 
@@ -36,21 +34,19 @@ impl CTypeMapper {
         Self::map_type_data(&data, interner)
     }
 
-    /// Map TypeData to a C type string.
+    /// Map `TypeData` to a C type string.
     fn map_type_data(data: &TypeData, interner: &TypeInterner) -> String {
         match data {
             // Primitives (shouldn't reach here due to early return above)
-            TypeData::Int => "int64_t".to_string(),
+            TypeData::Int | TypeData::Duration => "int64_t".to_string(),
             TypeData::Float => "double".to_string(),
             TypeData::Bool => "bool".to_string(),
             TypeData::Str => "ori_string_t".to_string(),
             TypeData::Char => "uint32_t".to_string(),
             TypeData::Byte => "uint8_t".to_string(),
-            TypeData::Unit => "void".to_string(),
-            TypeData::Never => "void".to_string(),
-            TypeData::Duration => "int64_t".to_string(), // Nanoseconds
+            TypeData::Unit | TypeData::Never => "void".to_string(),
             TypeData::Size => "uint64_t".to_string(), // Bytes
-            TypeData::Error => "void*".to_string(),
+            TypeData::Error | TypeData::Var(_) | TypeData::Projection { .. } => "void*".to_string(),
 
             // Option types - use unboxed version for primitives
             TypeData::Option(inner) => Self::map_option(*inner, interner),
@@ -61,11 +57,8 @@ impl CTypeMapper {
             // List type
             TypeData::List(_) => "ori_list_t".to_string(),
 
-            // Map type
-            TypeData::Map { .. } => "ori_map_t".to_string(),
-
-            // Set type (implemented as map with void values)
-            TypeData::Set(_) => "ori_map_t".to_string(),
+            // Map and Set types (Set is implemented as map with void values)
+            TypeData::Map { .. } | TypeData::Set(_) => "ori_map_t".to_string(),
 
             // Range type (start, end, step)
             TypeData::Range(elem) => {
@@ -124,11 +117,7 @@ impl CTypeMapper {
                 format!("struct ori_{}_{}_s*", name.raw(), suffix)
             }
 
-            // Type variable - use void* as placeholder
-            TypeData::Var(_) => "void*".to_string(),
-
-            // Projection - use void* as placeholder
-            TypeData::Projection { .. } => "void*".to_string(),
+            // Note: Var(_), Projection { .. }, and Error are handled above
         }
     }
 
@@ -211,8 +200,7 @@ impl CTypeMapper {
                     TypeId::STR => "ori_string_t".to_string(),
                     TypeId::CHAR => "uint32_t".to_string(),
                     TypeId::BYTE => "uint8_t".to_string(),
-                    TypeId::VOID => "void".to_string(),
-                    TypeId::NEVER => "void".to_string(),
+                    TypeId::VOID | TypeId::NEVER => "void".to_string(),
                     _ => "void*".to_string(),
                 }
             }
@@ -222,15 +210,13 @@ impl CTypeMapper {
                 if type_args.is_empty() {
                     // Non-generic named type
                     match name_str {
-                        "int" => "int64_t".to_string(),
+                        "int" | "Duration" => "int64_t".to_string(),
                         "float" => "double".to_string(),
                         "bool" => "bool".to_string(),
                         "str" => "ori_string_t".to_string(),
                         "char" => "uint32_t".to_string(),
                         "byte" => "uint8_t".to_string(),
-                        "void" => "void".to_string(),
-                        "Never" => "void".to_string(),
-                        "Duration" => "int64_t".to_string(),
+                        "void" | "Never" => "void".to_string(),
                         "Size" => "uint64_t".to_string(),
                         _ => format!("struct ori_{name_str}_s*"),
                     }
@@ -244,8 +230,7 @@ impl CTypeMapper {
                             Self::map_result_parsed(&type_args[0], &type_args[1], interner)
                         }
                         "List" => "ori_list_t".to_string(),
-                        "Map" => "ori_map_t".to_string(),
-                        "Set" => "ori_map_t".to_string(),
+                        "Map" | "Set" => "ori_map_t".to_string(),
                         "Channel" => "ori_channel_t*".to_string(),
                         "Range" => {
                             if let Some(elem) = type_args.first() {
@@ -299,11 +284,9 @@ impl CTypeMapper {
                 "ori_map_t".to_string()
             }
 
-            ParsedType::SelfType => "void*".to_string(),
-
-            ParsedType::Infer => "void*".to_string(),
-
-            ParsedType::AssociatedType { .. } => "void*".to_string(),
+            ParsedType::SelfType | ParsedType::Infer | ParsedType::AssociatedType { .. } => {
+                "void*".to_string()
+            }
         }
     }
 

@@ -2,17 +2,16 @@
 name = "ori-playground-wasm"
 version = "0.1.0"
 edition = "2021"
-description = "WASI binary for the Ori language playground"
+description = "WebAssembly bindings for the Ori language playground"
 
 # Standalone package (not part of main workspace)
 [workspace]
 
-[[bin]]
-name = "ori-playground"
-path = "src/main.rs"
+[lib]
+crate-type = ["cdylib"]
 
 [dependencies]
-# Only the crates needed for interpretation (no LLVM)
+# Ori crates for interpretation (no LLVM, no Salsa)
 ori_ir = { path = "../../compiler/ori_ir" }
 ori_lexer = { path = "../../compiler/ori_lexer" }
 ori_parse = { path = "../../compiler/ori_parse" }
@@ -20,6 +19,13 @@ ori_types = { path = "../../compiler/ori_types" }
 ori_typeck = { path = "../../compiler/ori_typeck" }
 ori_eval = { path = "../../compiler/ori_eval" }
 ori_patterns = { path = "../../compiler/ori_patterns" }
+
+# WASM bindings
+wasm-bindgen = "0.2"
+
+# JSON serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 [profile.release]
 opt-level = "s"

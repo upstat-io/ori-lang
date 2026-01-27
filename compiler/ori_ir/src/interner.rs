@@ -132,7 +132,7 @@ impl StringInterner {
             "then", "trait", "true", "type", "use", "uses", "void", "where",
             "with", "yield",
             // Pattern keywords
-            "cache", "collect", "filter", "find", "fold", "map", "parallel",
+            "cache", "catch", "collect", "filter", "find", "fold", "map", "parallel",
             "recurse", "retry", "run", "timeout", "try", "validate",
             // Primitive types
             "int", "float", "bool", "str", "char", "byte", "Never",

@@ -34,9 +34,10 @@ pub enum FunctionExpKind {
     Timeout,
     Cache,
     With,
-    // Fundamental built-ins (I/O and control flow)
+    // Fundamental built-ins (I/O, control flow, error recovery)
     Print,
     Panic,
+    Catch,
 }
 
 impl FunctionExpKind {
@@ -50,6 +51,7 @@ impl FunctionExpKind {
             FunctionExpKind::With => "with",
             FunctionExpKind::Print => "print",
             FunctionExpKind::Panic => "panic",
+            FunctionExpKind::Catch => "catch",
         }
     }
 }

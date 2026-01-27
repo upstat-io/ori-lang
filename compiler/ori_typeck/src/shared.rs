@@ -81,7 +81,7 @@ mod tests {
     #[test]
     fn test_shared_registry_debug() {
         let registry = SharedRegistry::new(TypeRegistry::new());
-        let debug_str = format!("{:?}", registry);
+        let debug_str = format!("{registry:?}");
         assert!(debug_str.contains("SharedRegistry"));
     }
 }

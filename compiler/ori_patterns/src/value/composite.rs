@@ -4,11 +4,13 @@
 //! their own internal structure.
 
 // Arc is used for immutable sharing of captures between function values
-#![expect(clippy::disallowed_types, reason = "Arc for immutable HashMap sharing in FunctionValue")]
+// RwLock is used for memoization cache in MemoizedFunctionValue
+#![expect(clippy::disallowed_types, reason = "Arc for immutable HashMap sharing, RwLock for memoization cache")]
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
+use std::hash::{Hash, Hasher};
+use std::sync::{Arc, RwLock};
 
 use ori_ir::{ExprArena, ExprId, Name, SharedArena};
 
@@ -219,6 +221,84 @@ impl fmt::Debug for FunctionValue {
     }
 }
 
+// MemoizedFunctionValue
+
+/// A wrapper around a cache key for memoization.
+///
+/// Uses a vector of values as the key, with custom Hash implementation
+/// that hashes each element.
+#[derive(Clone, PartialEq, Eq)]
+pub struct MemoKey(pub Vec<Value>);
+
+impl Hash for MemoKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for v in &self.0 {
+            v.hash(state);
+        }
+    }
+}
+
+/// Memoized function value.
+///
+/// Wraps a `FunctionValue` with a shared cache that stores computed results.
+/// This enables efficient recursive algorithms by avoiding redundant computation.
+///
+/// # Thread Safety
+/// The cache uses `RwLock` for thread-safe access. Multiple threads can read
+/// cached values concurrently, and writes are synchronized.
+#[derive(Clone)]
+pub struct MemoizedFunctionValue {
+    /// The underlying function to memoize.
+    pub func: FunctionValue,
+    /// Shared cache mapping arguments to results.
+    ///
+    /// The cache is shared across all clones of this memoized function,
+    /// enabling recursive calls to benefit from cached results.
+    cache: Arc<RwLock<HashMap<MemoKey, Value>>>,
+}
+
+impl MemoizedFunctionValue {
+    /// Create a new memoized function wrapper.
+    pub fn new(func: FunctionValue) -> Self {
+        MemoizedFunctionValue {
+            func,
+            cache: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// Look up a cached result for the given arguments.
+    ///
+    /// Returns `Some(value)` if the result is cached, `None` otherwise.
+    pub fn get_cached(&self, args: &[Value]) -> Option<Value> {
+        let key = MemoKey(args.to_vec());
+        self.cache.read().ok()?.get(&key).cloned()
+    }
+
+    /// Store a result in the cache.
+    pub fn cache_result(&self, args: &[Value], result: Value) {
+        let key = MemoKey(args.to_vec());
+        if let Ok(mut cache) = self.cache.write() {
+            cache.insert(key, result);
+        }
+    }
+
+    /// Get the number of cached entries.
+    #[cfg(test)]
+    pub fn cache_size(&self) -> usize {
+        self.cache.read().map(|c| c.len()).unwrap_or(0)
+    }
+}
+
+impl fmt::Debug for MemoizedFunctionValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let cache_size = self.cache.read().map(|c| c.len()).unwrap_or(0);
+        f.debug_struct("MemoizedFunctionValue")
+            .field("func", &self.func)
+            .field("cache_entries", &cache_size)
+            .finish()
+    }
+}
+
 // RangeValue
 
 /// Range value.
@@ -252,12 +332,14 @@ impl RangeValue {
     }
 
     /// Iterate over the range values.
+    #[expect(clippy::arithmetic_side_effects, reason = "range bound arithmetic on user-provided i64 values")]
     pub fn iter(&self) -> impl Iterator<Item = i64> {
         let end = if self.inclusive { self.end + 1 } else { self.end };
         self.start..end
     }
 
     /// Get the length of the range.
+    #[expect(clippy::arithmetic_side_effects, reason = "range bound arithmetic on user-provided i64 values")]
     pub fn len(&self) -> usize {
         let end = if self.inclusive { self.end + 1 } else { self.end };
         let diff = (end - self.start).max(0);
@@ -318,9 +400,9 @@ mod tests {
     #[test]
     fn test_function_value_with_captures() {
         let mut captures = HashMap::new();
-        captures.insert(Name::new(0, 1), Value::Int(42));
+        captures.insert(Name::new(0, 1), Value::int(42));
         let func = FunctionValue::new(vec![], ExprId::new(0), captures, dummy_arena());
         assert!(func.has_captures());
-        assert_eq!(func.get_capture(Name::new(0, 1)), Some(&Value::Int(42)));
+        assert_eq!(func.get_capture(Name::new(0, 1)), Some(&Value::int(42)));
     }
 }

@@ -1,4 +1,4 @@
-# Sigil rustfmt configuration
+# Ori rustfmt configuration
 # Uses only stable rustfmt options
 
 edition = "2021"

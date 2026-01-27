@@ -1,7 +1,7 @@
 {
     "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-    "name": "Sigil",
-    "scopeName": "source.sigil",
+    "name": "Ori",
+    "scopeName": "source.ori",
     "patterns": [
         { "include": "#comment" },
         { "include": "#string" },
@@ -19,46 +19,46 @@
     ],
     "repository": {
         "comment": {
-            "name": "comment.line.double-slash.sigil",
+            "name": "comment.line.double-slash.ori",
             "match": "//.*$"
         },
         "string": {
             "patterns": [
                 {
-                    "name": "string.quoted.double.sigil",
+                    "name": "string.quoted.double.ori",
                     "begin": "\"",
                     "end": "\"",
                     "patterns": [
-                        { "name": "constant.character.escape.sigil", "match": "\\\\." }
+                        { "name": "constant.character.escape.ori", "match": "\\\\." }
                     ]
                 },
                 {
-                    "name": "string.quoted.single.sigil",
+                    "name": "string.quoted.single.ori",
                     "begin": "'",
                     "end": "'",
                     "patterns": [
-                        { "name": "constant.character.escape.sigil", "match": "\\\\." }
+                        { "name": "constant.character.escape.ori", "match": "\\\\." }
                     ]
                 }
             ]
         },
         "number": {
-            "name": "constant.numeric.sigil",
+            "name": "constant.numeric.ori",
             "match": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?(ms|[hms]|[kmgt]?b)?\\b"
         },
         "attribute": {
-            "name": "meta.attribute.sigil",
+            "name": "meta.attribute.ori",
             "begin": "#\\[",
             "end": "\\]",
             "beginCaptures": {
-                "0": { "name": "punctuation.definition.attribute.sigil" }
+                "0": { "name": "punctuation.definition.attribute.ori" }
             },
             "endCaptures": {
-                "0": { "name": "punctuation.definition.attribute.sigil" }
+                "0": { "name": "punctuation.definition.attribute.ori" }
             },
             "patterns": [
                 { "include": "#string" },
-                { "name": "entity.other.attribute-name.sigil", "match": "[a-zA-Z_][a-zA-Z0-9_]*" }
+                { "name": "entity.other.attribute-name.ori", "match": "[a-zA-Z_][a-zA-Z0-9_]*" }
             ]
         },
         "function-declaration": {
@@ -68,16 +68,16 @@
         "config-var": {
             "match": "(\\$)([_a-zA-Z][_a-zA-Z0-9]*)",
             "captures": {
-                "1": { "name": "punctuation.definition.variable.sigil" },
-                "2": { "name": "variable.other.constant.sigil" }
+                "1": { "name": "punctuation.definition.variable.ori" },
+                "2": { "name": "variable.other.constant.ori" }
             }
         },
         "keyword": {
-            "name": "keyword.control.sigil",
+            "name": "keyword.control.ori",
             "match": "\\b(if|then|else|match|for|in|do|yield|loop|break|continue|return|async|await|let|mut|use|pub|type|trait|impl|where|self|Self|tests|uses|with|dyn)\\b"
         },
         "constant": {
-            "name": "constant.language.sigil",
+            "name": "constant.language.ori",
             "match": "\\b(true|false|nil|Ok|Err|Some|None|Less|Equal|Greater)\\b"
         },
         "type": {
@@ -100,26 +100,26 @@
             "match": "(run|map|filter|fold|find|collect|recurse|parallel|timeout|retry|try|validate|cache|count|iterate|transform|print|println|len|compare|panic|assert|assert_eq|assert_err)(\\()",
             "captures": {
                 "1": { "name": "entity.name.function meta.function-call.generic support.function" },
-                "2": { "name": "punctuation.brackets.round.sigil" }
+                "2": { "name": "punctuation.brackets.round.ori" }
             }
         },
         "function-call": {
             "match": "([_a-z][_a-zA-Z0-9]*)(\\()",
             "captures": {
                 "1": { "name": "entity.name.function meta.function-call.generic" },
-                "2": { "name": "punctuation.brackets.round.sigil" }
+                "2": { "name": "punctuation.brackets.round.ori" }
             }
         },
         "named-arg": {
             "match": "(\\.)([:a-zA-Z_][a-zA-Z0-9_]*)(:)",
             "captures": {
-                "1": { "name": "punctuation.accessor.sigil" },
-                "2": { "name": "variable.parameter.sigil" },
-                "3": { "name": "punctuation.separator.sigil" }
+                "1": { "name": "punctuation.accessor.ori" },
+                "2": { "name": "variable.parameter.ori" },
+                "3": { "name": "punctuation.separator.ori" }
             }
         },
         "operator": {
-            "name": "keyword.operator.sigil",
+            "name": "keyword.operator.ori",
             "match": "->|=>|==|!=|<=|>=|<|>|&&|\\|\\||[+\\-*/%=]|\\.\\.|\\|>|\\?\\?|\\?"
         }
     }

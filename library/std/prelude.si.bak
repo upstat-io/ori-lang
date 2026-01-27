@@ -1,5 +1,5 @@
-// Sigil Standard Library - Prelude
-// These items are automatically available in all Sigil programs without import.
+// Ori Standard Library - Prelude
+// These items are automatically available in all Ori programs without import.
 //
 // Primitive types (int, float, bool, str, char, byte, void, Never, Duration, Size)
 // and collection syntax ([T], {K: V}) are built into the compiler.

@@ -1,4 +1,4 @@
-//! Builder pattern for TypeChecker construction.
+//! Builder pattern for `TypeChecker` construction.
 //!
 //! Eliminates constructor duplication by centralizing field initialization
 //! in a single `build()` method.
@@ -14,7 +14,7 @@ use super::components::{
 use super::TypeChecker;
 use crate::shared::SharedRegistry;
 
-/// Builder for creating TypeChecker instances with various configurations.
+/// Builder for creating `TypeChecker` instances with various configurations.
 pub struct TypeCheckerBuilder<'a> {
     arena: &'a ExprArena,
     interner: &'a StringInterner,
@@ -60,17 +60,17 @@ impl<'a> TypeCheckerBuilder<'a> {
         self
     }
 
-    /// Set a shared type interner for TypeId interning.
+    /// Set a shared type interner for `TypeId` interning.
     ///
     /// Use this when you need to share the type interner with other code
-    /// (e.g., for tests that need to verify TypeId values).
+    /// (e.g., for tests that need to verify `TypeId` values).
     #[must_use]
     pub fn with_type_interner(mut self, interner: SharedTypeInterner) -> Self {
         self.type_interner = Some(interner);
         self
     }
 
-    /// Build the TypeChecker with the configured options.
+    /// Build the `TypeChecker` with the configured options.
     pub fn build(self) -> TypeChecker<'a> {
         // Build context component
         let context = CheckContext::new(self.arena, self.interner);

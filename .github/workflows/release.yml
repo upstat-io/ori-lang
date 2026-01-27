@@ -57,21 +57,21 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czvf ../../../sigil-${{ github.ref_name }}-${{ matrix.name }}.tar.gz sigil
+          tar -czvf ../../../ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz ori
           cd ../../..
 
       - name: Package (Windows)
         if: matrix.os == 'windows-latest'
         run: |
           cd target/${{ matrix.target }}/release
-          7z a ../../../sigil-${{ github.ref_name }}-${{ matrix.name }}.zip sigil.exe
+          7z a ../../../ori-${{ github.ref_name }}-${{ matrix.name }}.zip ori.exe
           cd ../../..
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sigil-${{ matrix.name }}
-          path: sigil-${{ github.ref_name }}-${{ matrix.name }}.*
+          name: ori-${{ matrix.name }}
+          path: ori-${{ github.ref_name }}-${{ matrix.name }}.*
 
   release:
     name: Create Release
@@ -93,7 +93,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          sha256sum sigil-* > checksums-sha256.txt
+          sha256sum ori-* > checksums-sha256.txt
           cat checksums-sha256.txt
 
       - name: Determine release type

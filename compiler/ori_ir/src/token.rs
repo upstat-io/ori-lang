@@ -44,8 +44,8 @@ impl fmt::Debug for Token {
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub enum TokenKind {
     // === Literals ===
-    /// Integer literal: 42, `1_000`
-    Int(i64),
+    /// Integer literal: 42, `1_000` (stored as u64; negation folded in parser)
+    Int(u64),
     /// Float literal: 3.14, 2.5e-8 (stored as bits for Eq/Hash)
     Float(u64),
     /// String literal (interned): "hello"
@@ -542,7 +542,7 @@ mod size_asserts {
     // Token is frequently allocated in TokenList, keep it compact.
     // Contains: TokenKind (16 bytes) + Span (8 bytes) = 24 bytes
     crate::static_assert_size!(Token, 24);
-    // TokenKind largest variant: Duration(u64, DurationUnit) or Int(i64)
+    // TokenKind largest variant: Duration(u64, DurationUnit) or Int(u64)
     // 8 bytes payload + 8 bytes discriminant/padding = 16 bytes
     crate::static_assert_size!(TokenKind, 16);
     // Compact unit types
@@ -610,6 +610,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::approx_constant, reason = "testing float literal parsing, not using PI")]
     fn test_float_bits_hash() {
         use std::collections::HashSet;
         let mut set = HashSet::new();

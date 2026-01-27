@@ -2,7 +2,7 @@
 //!
 //! Tests cover:
 //! - Basic parallel execution
-//! - max_concurrent limiting
+//! - `max_concurrent` limiting
 //! - timeout handling
 //! - Error capture (all-settled semantics)
 //! - Edge cases (empty, single task, non-callable)
@@ -10,6 +10,7 @@
 //! - Thread safety
 
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+#![expect(clippy::disallowed_types, reason = "Tests use Arc/Mutex directly for thread-safety assertions")]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -129,9 +130,9 @@ mod value_helpers {
 
     #[test]
     fn ok_value_creation() {
-        let v = Value::ok(Value::Int(42));
+        let v = Value::ok(Value::int(42));
         match v {
-            Value::Ok(inner) => assert_eq!(*inner, Value::Int(42)),
+            Value::Ok(inner) => assert_eq!(*inner, Value::int(42)),
             _ => panic!("expected Ok variant"),
         }
     }
@@ -153,14 +154,14 @@ mod value_helpers {
 
     #[test]
     fn list_value_creation() {
-        let items = vec![Value::Int(1), Value::Int(2), Value::Int(3)];
+        let items = vec![Value::int(1), Value::int(2), Value::int(3)];
         let v = Value::list(items);
         match v {
             Value::List(list) => {
                 assert_eq!(list.len(), 3);
-                assert_eq!(list[0], Value::Int(1));
-                assert_eq!(list[1], Value::Int(2));
-                assert_eq!(list[2], Value::Int(3));
+                assert_eq!(list[0], Value::int(1));
+                assert_eq!(list[1], Value::int(2));
+                assert_eq!(list[2], Value::int(3));
             }
             _ => panic!("expected List variant"),
         }
@@ -175,18 +176,18 @@ mod execute_task_tests {
 
     #[test]
     fn wraps_ok_value() {
-        let result = execute_task(Value::Int(42));
+        let result = execute_task(Value::int(42));
         match result {
-            Value::Ok(inner) => assert_eq!(*inner, Value::Int(42)),
+            Value::Ok(inner) => assert_eq!(*inner, Value::int(42)),
             _ => panic!("expected Ok variant"),
         }
     }
 
     #[test]
     fn preserves_ok_variant() {
-        let result = execute_task(Value::ok(Value::Int(42)));
+        let result = execute_task(Value::ok(Value::int(42)));
         match result {
-            Value::Ok(inner) => assert_eq!(*inner, Value::Int(42)),
+            Value::Ok(inner) => assert_eq!(*inner, Value::int(42)),
             _ => panic!("expected Ok variant"),
         }
     }
@@ -228,7 +229,7 @@ mod execute_task_tests {
 
     #[test]
     fn wraps_list_value() {
-        let list = Value::list(vec![Value::Int(1), Value::Int(2)]);
+        let list = Value::list(vec![Value::int(1), Value::int(2)]);
         let result = execute_task(list);
         match result {
             Value::Ok(inner) => {
@@ -260,18 +261,18 @@ mod wrap_in_result_tests {
 
     #[test]
     fn wraps_int() {
-        let result = wrap_in_result(Value::Int(42));
+        let result = wrap_in_result(Value::int(42));
         match result {
-            Value::Ok(inner) => assert_eq!(*inner, Value::Int(42)),
+            Value::Ok(inner) => assert_eq!(*inner, Value::int(42)),
             _ => panic!("expected Ok"),
         }
     }
 
     #[test]
     fn passes_through_ok() {
-        let result = wrap_in_result(Value::ok(Value::Int(99)));
+        let result = wrap_in_result(Value::ok(Value::int(99)));
         match result {
-            Value::Ok(inner) => assert_eq!(*inner, Value::Int(99)),
+            Value::Ok(inner) => assert_eq!(*inner, Value::int(99)),
             _ => panic!("expected Ok"),
         }
     }
@@ -348,8 +349,7 @@ mod concurrency_verification {
         // Running concurrently should take ~50ms (+ overhead)
         assert!(
             elapsed < Duration::from_millis(150),
-            "tasks should run concurrently, took {:?}",
-            elapsed
+            "tasks should run concurrently, took {elapsed:?}"
         );
     }
 
@@ -376,9 +376,8 @@ mod concurrency_verification {
         // Should have multiple unique thread IDs (at least 2, likely 4)
         assert!(
             unique_ids.len() > 1,
-            "expected multiple threads, got {} unique thread IDs: {:?}",
-            unique_ids.len(),
-            ids
+            "expected multiple threads, got {} unique thread IDs: {ids:?}",
+            unique_ids.len()
         );
     }
 
@@ -418,8 +417,7 @@ mod concurrency_verification {
         // With 4 concurrent tasks, we should have multiple overlapping pairs
         assert!(
             overlaps_found >= 3,
-            "expected overlapping execution windows, found {} overlaps",
-            overlaps_found
+            "expected overlapping execution windows, found {overlaps_found} overlaps"
         );
     }
 
@@ -461,14 +459,13 @@ mod concurrency_verification {
         // On a multi-core system, we should see multiple threads active simultaneously
         assert!(
             max >= 2,
-            "expected at least 2 simultaneous threads, got {}",
-            max
+            "expected at least 2 simultaneous threads, got {max}"
         );
 
         // Verify we actually used multiple OS threads
         let unique_peak_ids: HashSet<_> = peak_ids.iter().collect();
         assert!(
-            unique_peak_ids.len() >= 1,
+            !unique_peak_ids.is_empty(),
             "should have recorded thread IDs at peak"
         );
     }
@@ -497,7 +494,7 @@ mod concurrency_verification {
         }
     }
 
-    /// Verify max_concurrent actually limits parallelism.
+    /// Verify `max_concurrent` actually limits parallelism.
     #[test]
     fn max_concurrent_limits_parallelism() {
         let sem = Arc::new(Semaphore::new(2));
@@ -527,11 +524,10 @@ mod concurrency_verification {
 
         // With max_concurrent=2 and 6 tasks of 50ms each:
         // Should take ~150ms (3 batches of 2)
-        assert!(max <= 2, "max concurrent should be 2, was {}", max);
+        assert!(max <= 2, "max concurrent should be 2, was {max}");
         assert!(
             elapsed >= Duration::from_millis(140),
-            "should take ~150ms with limited concurrency, took {:?}",
-            elapsed
+            "should take ~150ms with limited concurrency, took {elapsed:?}"
         );
     }
 
@@ -553,7 +549,7 @@ mod concurrency_verification {
 
         let results = results.lock().unwrap();
         for (i, r) in results.iter().enumerate() {
-            assert_eq!(*r, Some(i), "result at index {} should be {}", i, i);
+            assert_eq!(*r, Some(i), "result at index {i} should be {i}");
         }
     }
 }
@@ -623,9 +619,9 @@ mod all_settled {
     fn errors_captured_as_err_values() {
         // Simulate error capture behavior
         let results: Vec<Value> = vec![
-            Value::ok(Value::Int(1)),
+            Value::ok(Value::int(1)),
             Value::err(Value::string("task 2 failed")),
-            Value::ok(Value::Int(3)),
+            Value::ok(Value::int(3)),
         ];
 
         assert_eq!(results.len(), 3);
@@ -648,9 +644,9 @@ mod all_settled {
         let results: Vec<Value> = (0..5)
             .map(|i| {
                 if i % 2 == 0 {
-                    Value::ok(Value::Int(i))
+                    Value::ok(Value::int(i))
                 } else {
-                    Value::err(Value::string(&format!("error at {}", i)))
+                    Value::err(Value::string(format!("error at {i}")))
                 }
             })
             .collect();
@@ -703,7 +699,7 @@ mod edge_cases {
 
     #[test]
     fn single_task() {
-        let results = vec![Value::ok(Value::Int(42))];
+        let results = [Value::ok(Value::int(42))];
         assert_eq!(results.len(), 1);
     }
 
@@ -761,9 +757,9 @@ mod edge_cases {
                 let sequence = Arc::clone(&sequence);
                 s.spawn(move || {
                     sem.acquire();
-                    sequence.lock().unwrap().push(format!("start_{}", i));
+                    sequence.lock().unwrap().push(format!("start_{i}"));
                     thread::sleep(Duration::from_millis(10));
-                    sequence.lock().unwrap().push(format!("end_{}", i));
+                    sequence.lock().unwrap().push(format!("end_{i}"));
                     sem.release();
                 });
             }
@@ -773,8 +769,8 @@ mod edge_cases {
         // With max_concurrent=1, operations should not interleave
         // Each start should be followed by its end before next start
         for i in 0..3 {
-            let start_idx = seq.iter().position(|s| s == &format!("start_{}", i));
-            let end_idx = seq.iter().position(|s| s == &format!("end_{}", i));
+            let start_idx = seq.iter().position(|s| s == &format!("start_{i}"));
+            let end_idx = seq.iter().position(|s| s == &format!("end_{i}"));
             if let (Some(s), Some(e)) = (start_idx, end_idx) {
                 assert!(e == s + 1, "start and end should be consecutive with max_concurrent=1");
             }
@@ -802,6 +798,7 @@ mod thread_safety {
     use std::sync::Mutex;
 
     #[test]
+    #[expect(clippy::cast_possible_wrap, reason = "test indices are small")]
     fn concurrent_result_writes() {
         let results = Arc::new(Mutex::new(vec![None; 10]));
 
@@ -809,7 +806,7 @@ mod thread_safety {
             for i in 0..10 {
                 let results = Arc::clone(&results);
                 s.spawn(move || {
-                    let value = Value::Int(i as i64);
+                    let value = Value::int(i as i64);
                     results.lock().unwrap()[i] = Some(value);
                 });
             }
@@ -817,9 +814,9 @@ mod thread_safety {
 
         let results = results.lock().unwrap();
         for (i, r) in results.iter().enumerate() {
-            assert!(r.is_some(), "result at {} should be Some", i);
+            assert!(r.is_some(), "result at {i} should be Some");
             match r {
-                Some(Value::Int(n)) => assert_eq!(*n, i as i64),
+                Some(Value::Int(n)) => assert_eq!(n.raw(), i as i64),
                 _ => panic!("expected Int"),
             }
         }
@@ -881,7 +878,7 @@ mod integration {
                 s.spawn(move || {
                     // Simulate network latency
                     thread::sleep(Duration::from_millis(20 + (i as u64 * 5)));
-                    let response = format!("response_{}", i);
+                    let response = format!("response_{i}");
                     responses.lock().unwrap()[i] = Some(Value::string(&response));
                 });
             }
@@ -893,7 +890,7 @@ mod integration {
 
         let responses = responses.lock().unwrap();
         for (i, r) in responses.iter().enumerate() {
-            assert!(r.is_some(), "response {} should be present", i);
+            assert!(r.is_some(), "response {i} should be present");
         }
     }
 
@@ -931,6 +928,7 @@ mod integration {
     }
 
     #[test]
+    #[expect(clippy::cast_possible_wrap, reason = "test indices are small")]
     fn simulate_parallel_with_mixed_results() {
         // Simulate a parallel operation where some tasks succeed and some fail
         let results = Arc::new(Mutex::new(vec![None; 6]));
@@ -942,9 +940,9 @@ mod integration {
                     thread::sleep(Duration::from_millis(10));
                     let result = if i % 3 == 0 {
                         // Every 3rd task "fails"
-                        Value::err(Value::string(&format!("task {} failed", i)))
+                        Value::err(Value::string(format!("task {i} failed")))
                     } else {
-                        Value::ok(Value::Int(i as i64 * 10))
+                        Value::ok(Value::int(i as i64 * 10))
                     };
                     results.lock().unwrap()[i] = Some(result);
                 });

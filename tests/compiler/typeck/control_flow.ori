@@ -1,0 +1,234 @@
+// Type checking tests for control flow expressions
+// Spec: 09-expressions.md § If Expression
+// Spec: 11-patterns.md § Match Expression
+//
+// Control flow expressions have type constraints on conditions and branches.
+// Note: loop/break/continue are Phase 10 (not yet implemented)
+
+use std.testing { assert, assert_eq, assert_ne }
+
+// =============================================================================
+// If expressions - condition type
+// =============================================================================
+
+// Valid: boolean condition
+@test_if_bool_condition () -> void = run(
+    let result = if true then 1 else 0,
+    assert_eq(actual: result, expected: 1),
+)
+
+// Valid: comparison as condition
+@test_if_comparison_condition () -> void = run(
+    let x = 5,
+    let result = if x > 3 then "big" else "small",
+    assert_eq(actual: result, expected: "big"),
+)
+
+// Invalid: int condition
+#[compile_fail("type mismatch")]
+@test_if_int_condition () -> void = run(
+    let result = if 1 then "yes" else "no",
+    (),
+)
+
+// Invalid: string condition
+#[compile_fail("type mismatch")]
+@test_if_str_condition () -> void = run(
+    let result = if "true" then 1 else 0,
+    (),
+)
+
+// =============================================================================
+// If expressions - branch types
+// =============================================================================
+
+// Valid: same type branches
+@test_if_same_branch_types () -> void = run(
+    let result: int = if true then 1 else 2,
+    assert_eq(actual: result, expected: 1),
+)
+
+// Invalid: mismatched branch types
+#[compile_fail("type mismatch")]
+@test_if_mismatched_branches () -> void = run(
+    let result = if true then 1 else "two",
+    (),
+)
+
+// Invalid: mismatched branch types (int vs float)
+#[compile_fail("type mismatch")]
+@test_if_int_float_branches () -> void = run(
+    let result = if true then 1 else 2.0,
+    (),
+)
+
+// Valid: nested if with consistent types
+@test_nested_if_consistent () -> void = run(
+    let x = 10,
+    let result: str = if x < 5 then "small" else if x < 15 then "medium" else "large",
+    assert_eq(actual: result, expected: "medium"),
+)
+
+// Invalid: nested if with inconsistent types
+#[compile_fail("type mismatch")]
+@test_nested_if_inconsistent () -> void = run(
+    let x = 10,
+    let result = if x < 5 then 1 else if x < 15 then "medium" else 100,
+    (),
+)
+
+// =============================================================================
+// Match expressions - exhaustiveness and types
+// =============================================================================
+
+// Valid: match with same branch types
+@test_match_same_types () -> void = run(
+    let opt = Some(42),
+    let result: int = match(opt,
+        Some(x) -> x,
+        None -> 0,
+    ),
+    assert_eq(actual: result, expected: 42),
+)
+
+// Invalid: match with mismatched branch types
+#[compile_fail("type mismatch")]
+@test_match_mismatched_types () -> void = run(
+    let opt = Some(42),
+    let result = match(opt,
+        Some(x) -> x,
+        None -> "zero",
+    ),
+    (),
+)
+
+// Valid: match on Result
+@test_match_result () -> void = run(
+    let res = Ok(42),
+    let result: int = match(res,
+        Ok(x) -> x,
+        Err(e) -> 0,
+    ),
+    assert_eq(actual: result, expected: 42),
+)
+
+// Invalid: match Result with wrong branch types
+#[compile_fail("type mismatch")]
+@test_match_result_mismatched () -> void = run(
+    let res = Ok(42),
+    let result = match(res,
+        Ok(x) -> x,
+        Err(e) -> e,
+    ),
+    (),
+)
+
+// Valid: match on literals
+@test_match_literal () -> void = run(
+    let x = 2,
+    let result: str = match(x,
+        1 -> "one",
+        2 -> "two",
+        _ -> "other",
+    ),
+    assert_eq(actual: result, expected: "two"),
+)
+
+// Invalid: match literal with mismatched pattern type
+#[compile_fail("type mismatch")]
+@test_match_literal_wrong_pattern () -> void = run(
+    let x = 2,
+    let result = match(x,
+        "one" -> 1,
+        "two" -> 2,
+        _ -> 0,
+    ),
+    (),
+)
+
+// =============================================================================
+// run pattern type checking
+// =============================================================================
+
+// Valid: run returns last expression type
+@test_run_return_type () -> void = run(
+    let result: int = run(
+        let a = 1,
+        let b = 2,
+        a + b,
+    ),
+    assert_eq(actual: result, expected: 3),
+)
+
+// Invalid: run return type mismatch with context
+#[compile_fail("type mismatch")]
+@test_run_context_mismatch () -> void = run(
+    let result: str = run(
+        let x = 42,
+        x,
+    ),
+    (),
+)
+
+// =============================================================================
+// try pattern type checking
+// =============================================================================
+
+// Helper that returns Result
+@succeed (x: int) = Ok(x)
+
+// Valid: try returns Result with correct types
+@test_try_result_type () -> void = run(
+    let result = try(
+        let x = succeed(21),
+        Ok(x * 2),
+    ),
+    assert(cond: is_ok(result: result)),
+)
+
+// Valid: try with Option
+@test_try_option () -> void = run(
+    let opt = Some(42),
+    let result = try(
+        let x = opt,
+        Ok(x),
+    ),
+    assert(cond: is_ok(result: result)),
+)
+
+// =============================================================================
+// Conditional expressions with void
+// =============================================================================
+
+// Valid: if with unit expressions
+@test_if_unit () -> void = run(
+    let x = true,
+    if x then () else (),
+)
+
+// =============================================================================
+// recurse pattern type checking
+// =============================================================================
+
+// Valid: recurse returns correct type
+@countdown (n: int) -> [int] = recurse(
+    condition: n <= 0,
+    base: [],
+    step: [n] + self(n - 1),
+)
+
+@test_recurse_type tests @countdown () -> void = run(
+    let result = countdown(3),
+    assert_eq(actual: result, expected: [3, 2, 1]),
+)
+
+// Valid: recurse with int return
+@sum_to_n (n: int) -> int = recurse(
+    condition: n <= 0,
+    base: 0,
+    step: n + self(n - 1),
+)
+
+@test_recurse_int tests @sum_to_n () -> void = run(
+    assert_eq(actual: sum_to_n(5), expected: 15),
+)

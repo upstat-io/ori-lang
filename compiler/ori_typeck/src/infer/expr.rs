@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 /// Substitute type parameter names with their corresponding type variables.
 ///
-/// Uses TypeFolder to recursively transform Named types to their replacements.
+/// Uses `TypeFolder` to recursively transform Named types to their replacements.
 fn substitute_type_params(ty: &Type, params: &HashMap<Name, Type>) -> Type {
     struct ParamSubstitutor<'a> {
         params: &'a HashMap<Name, Type>,
@@ -147,7 +147,7 @@ pub fn infer_ident(checker: &mut TypeChecker<'_>, name: Name, span: Span) -> Typ
     }
 }
 
-/// Create a conversion function type: (T) -> ReturnType
+/// Create a conversion function type: (T) -> `ReturnType`
 ///
 /// Used for built-in conversion functions like `int(x)`, `float(x)`, etc.
 #[inline]
@@ -159,7 +159,7 @@ fn make_conversion_type(checker: &mut TypeChecker<'_>, ret: Type) -> Type {
     }
 }
 
-/// Get the type for a built-in function (function_val).
+/// Get the type for a built-in function (`function_val`).
 fn builtin_function_type(checker: &mut TypeChecker<'_>, name: &str) -> Option<Type> {
     match name {
         "str" => Some(make_conversion_type(checker, Type::Str)),
