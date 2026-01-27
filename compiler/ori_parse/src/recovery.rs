@@ -2,8 +2,8 @@
 //!
 //! Provides recovery sets and synchronization for continuing parsing after errors.
 
-use ori_ir::TokenKind;
 use super::cursor::Cursor;
+use ori_ir::TokenKind;
 
 /// A set of tokens to synchronize to during error recovery.
 ///
@@ -22,8 +22,8 @@ impl RecoverySet {
     /// Used to skip to the next function definition or import.
     pub const STMT_BOUNDARY: Self = Self {
         tokens: &[
-            TokenKind::At,      // Function/test definition
-            TokenKind::Use,     // Import statement
+            TokenKind::At,  // Function/test definition
+            TokenKind::Use, // Import statement
         ],
     };
 
@@ -31,7 +31,7 @@ impl RecoverySet {
     /// Used when recovering inside a function definition.
     pub const FUNCTION_BOUNDARY: Self = Self {
         tokens: &[
-            TokenKind::At,      // Next function/test
+            TokenKind::At, // Next function/test
         ],
     };
 
@@ -51,18 +51,18 @@ impl RecoverySet {
     /// Used when recovering inside blocks.
     pub const BLOCK_BOUNDARY: Self = Self {
         tokens: &[
-            TokenKind::RBrace,   // End of block
-            TokenKind::At,       // Next function
+            TokenKind::RBrace, // End of block
+            TokenKind::At,     // Next function
         ],
     };
 
     /// Recovery set for import statement recovery.
     pub const IMPORT_FOLLOW: Self = Self {
         tokens: &[
-            TokenKind::RBrace,   // End of import items
-            TokenKind::Comma,    // Next import item
-            TokenKind::At,       // Next statement
-            TokenKind::Use,      // Next import
+            TokenKind::RBrace, // End of import items
+            TokenKind::Comma,  // Next import item
+            TokenKind::At,     // Next statement
+            TokenKind::Use,    // Next import
         ],
     };
 
@@ -71,7 +71,9 @@ impl RecoverySet {
     pub fn contains(&self, kind: &TokenKind) -> bool {
         // Use discriminant comparison for efficiency
         let kind_disc = std::mem::discriminant(kind);
-        self.tokens.iter().any(|t| std::mem::discriminant(t) == kind_disc)
+        self.tokens
+            .iter()
+            .any(|t| std::mem::discriminant(t) == kind_disc)
     }
 }
 
@@ -87,7 +89,6 @@ pub fn synchronize(cursor: &mut Cursor<'_>, recovery: RecoverySet) -> bool {
     }
     false
 }
-
 
 #[cfg(test)]
 mod tests {

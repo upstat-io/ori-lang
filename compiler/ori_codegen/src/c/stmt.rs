@@ -7,32 +7,29 @@ use ori_ir::{
     ExprArena, ExprId, StmtRange, TypeId,
 };
 
-use crate::context::CodegenContext;
 use super::expr::emit_expr;
 use super::types::CTypeMapper;
+use crate::context::CodegenContext;
 
 /// Emit C code for a statement range.
-pub fn emit_stmts(
-    ctx: &mut CodegenContext<'_>,
-    arena: &ExprArena,
-    range: StmtRange,
-) {
+pub fn emit_stmts(ctx: &mut CodegenContext<'_>, arena: &ExprArena, range: StmtRange) {
     for stmt in arena.get_stmt_range(range) {
         emit_stmt(ctx, arena, stmt);
     }
 }
 
 /// Emit C code for a single statement.
-pub fn emit_stmt(
-    ctx: &mut CodegenContext<'_>,
-    arena: &ExprArena,
-    stmt: &Stmt,
-) {
+pub fn emit_stmt(ctx: &mut CodegenContext<'_>, arena: &ExprArena, stmt: &Stmt) {
     match &stmt.kind {
         StmtKind::Expr(expr_id) => {
             emit_expr_stmt(ctx, arena, *expr_id);
         }
-        StmtKind::Let { pattern, ty, init, mutable: _ } => {
+        StmtKind::Let {
+            pattern,
+            ty,
+            init,
+            mutable: _,
+        } => {
             emit_let_binding_from_stmt(ctx, arena, pattern, *ty, *init);
         }
     }
@@ -129,21 +126,26 @@ fn emit_let_binding_from_stmt(
 }
 
 /// Emit an expression as a statement.
-pub fn emit_expr_stmt(
-    ctx: &mut CodegenContext<'_>,
-    arena: &ExprArena,
-    id: ExprId,
-) {
+pub fn emit_expr_stmt(ctx: &mut CodegenContext<'_>, arena: &ExprArena, id: ExprId) {
     let expr = arena.get_expr(id);
 
     match &expr.kind {
         // Let binding (expression form)
-        ExprKind::Let { pattern, ty, init, mutable: _ } => {
+        ExprKind::Let {
+            pattern,
+            ty,
+            init,
+            mutable: _,
+        } => {
             emit_let_binding(ctx, arena, pattern, ty.as_ref(), *init);
         }
 
         // If statement (without else, or void result)
-        ExprKind::If { cond, then_branch, else_branch } => {
+        ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             emit_if_stmt(ctx, arena, *cond, *then_branch, *else_branch);
         }
 
@@ -153,7 +155,13 @@ pub fn emit_expr_stmt(
         }
 
         // For loop
-        ExprKind::For { binding, iter, guard, body, is_yield } => {
+        ExprKind::For {
+            binding,
+            iter,
+            guard,
+            body,
+            is_yield,
+        } => {
             emit_for_stmt(ctx, arena, *binding, *iter, *guard, *body, *is_yield);
         }
 
@@ -321,7 +329,12 @@ fn emit_if_stmt(
     if let Some(else_id) = else_branch {
         // Check if else is another if (else if chain)
         let else_expr = arena.get_expr(else_id);
-        if let ExprKind::If { cond: else_cond, then_branch: else_then, else_branch: else_else } = &else_expr.kind {
+        if let ExprKind::If {
+            cond: else_cond,
+            then_branch: else_then,
+            else_branch: else_else,
+        } = &else_expr.kind
+        {
             ctx.writeln("} else");
             emit_if_stmt(ctx, arena, *else_cond, *else_then, *else_else);
             return;
@@ -397,9 +410,13 @@ fn emit_for_stmt(
 
     // For now, assume iterating over a list
     ctx.writeln(&format!("ori_list_t {iter_tmp} = {iter_expr};"));
-    ctx.writeln(&format!("for (uint64_t {idx_tmp} = 0; {idx_tmp} < {iter_tmp}.len; {idx_tmp}++) {{"));
+    ctx.writeln(&format!(
+        "for (uint64_t {idx_tmp} = 0; {idx_tmp} < {iter_tmp}.len; {idx_tmp}++) {{"
+    ));
     ctx.indent();
-    ctx.writeln(&format!("__auto_type {var_name} = ori_list_get({iter_tmp}, {idx_tmp});"));
+    ctx.writeln(&format!(
+        "__auto_type {var_name} = ori_list_get({iter_tmp}, {idx_tmp});"
+    ));
 
     if let Some(guard_id) = guard {
         let guard_expr = emit_expr(ctx, arena, guard_id);
@@ -418,11 +435,7 @@ fn emit_for_stmt(
 }
 
 /// Emit a loop statement.
-fn emit_loop_stmt(
-    ctx: &mut CodegenContext<'_>,
-    arena: &ExprArena,
-    body: ExprId,
-) {
+fn emit_loop_stmt(ctx: &mut CodegenContext<'_>, arena: &ExprArena, body: ExprId) {
     ctx.writeln("while (true) {");
     ctx.indent();
     emit_expr_stmt(ctx, arena, body);
@@ -457,11 +470,17 @@ fn emit_function_seq(
     seq: &ori_ir::ast::FunctionSeq,
 ) {
     match seq {
-        ori_ir::ast::FunctionSeq::Run { bindings, result, .. }
-        | ori_ir::ast::FunctionSeq::Try { bindings, result, .. } => {
+        ori_ir::ast::FunctionSeq::Run {
+            bindings, result, ..
+        }
+        | ori_ir::ast::FunctionSeq::Try {
+            bindings, result, ..
+        } => {
             for binding in arena.get_seq_bindings(*bindings) {
                 match binding {
-                    SeqBinding::Let { pattern, ty, value, .. } => {
+                    SeqBinding::Let {
+                        pattern, ty, value, ..
+                    } => {
                         let init_expr = emit_expr(ctx, arena, *value);
                         if let BindingPattern::Name(name) = pattern {
                             let var_name = ctx.mangle(*name);
@@ -482,10 +501,14 @@ fn emit_function_seq(
             // Emit result expression
             emit_expr_stmt(ctx, arena, *result);
         }
-        ori_ir::ast::FunctionSeq::Match { scrutinee, arms, .. } => {
+        ori_ir::ast::FunctionSeq::Match {
+            scrutinee, arms, ..
+        } => {
             emit_match_stmt(ctx, arena, *scrutinee, *arms);
         }
-        ori_ir::ast::FunctionSeq::ForPattern { over, arm, default, .. } => {
+        ori_ir::ast::FunctionSeq::ForPattern {
+            over, arm, default, ..
+        } => {
             // Simplified for-pattern
             let _ = emit_expr(ctx, arena, *over);
             emit_expr_stmt(ctx, arena, arm.body);

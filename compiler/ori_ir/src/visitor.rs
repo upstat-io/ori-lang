@@ -365,11 +365,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         }
 
         // Capability provision
-        ExprKind::WithCapability {
-            provider,
-            body,
-            ..
-        } => {
+        ExprKind::WithCapability { provider, body, .. } => {
             visitor.visit_expr_id(*provider, arena);
             visitor.visit_expr_id(*body, arena);
         }
@@ -495,9 +491,7 @@ pub fn walk_seq_binding<'ast, V: Visitor<'ast> + ?Sized>(
     arena: &'ast ExprArena,
 ) {
     match binding {
-        SeqBinding::Let {
-            pattern, value, ..
-        } => {
+        SeqBinding::Let { pattern, value, .. } => {
             visitor.visit_binding_pattern(pattern);
             visitor.visit_expr_id(*value, arena);
         }
@@ -514,19 +508,32 @@ pub fn walk_function_seq<'ast, V: Visitor<'ast> + ?Sized>(
     arena: &'ast ExprArena,
 ) {
     match seq {
-        FunctionSeq::Run { bindings, result, .. } | FunctionSeq::Try { bindings, result, .. } => {
+        FunctionSeq::Run {
+            bindings, result, ..
+        }
+        | FunctionSeq::Try {
+            bindings, result, ..
+        } => {
             for binding in arena.get_seq_bindings(*bindings) {
                 visitor.visit_seq_binding(binding, arena);
             }
             visitor.visit_expr_id(*result, arena);
         }
-        FunctionSeq::Match { scrutinee, arms, .. } => {
+        FunctionSeq::Match {
+            scrutinee, arms, ..
+        } => {
             visitor.visit_expr_id(*scrutinee, arena);
             for arm in arena.get_arms(*arms) {
                 visitor.visit_match_arm(arm, arena);
             }
         }
-        FunctionSeq::ForPattern { over, map, arm, default, .. } => {
+        FunctionSeq::ForPattern {
+            over,
+            map,
+            arm,
+            default,
+            ..
+        } => {
             visitor.visit_expr_id(*over, arena);
             if let Some(map_expr) = map {
                 visitor.visit_expr_id(*map_expr, arena);
@@ -551,7 +558,7 @@ pub fn walk_function_exp<'ast, V: Visitor<'ast> + ?Sized>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Span, ast::ExprKind};
+    use crate::{ast::ExprKind, Span};
 
     /// Visitor that counts expressions.
     struct ExprCounter {
@@ -566,7 +573,10 @@ mod tests {
     }
 
     /// Visitor that counts literals.
-    #[expect(clippy::struct_field_names, reason = "fields represent distinct literal type counts, _count suffix is intentional")]
+    #[expect(
+        clippy::struct_field_names,
+        reason = "fields represent distinct literal type counts, _count suffix is intentional"
+    )]
     struct LiteralCounter {
         int_count: usize,
         bool_count: usize,
@@ -625,10 +635,7 @@ mod tests {
         let int2 = arena.alloc_expr(Expr::new(ExprKind::Int(2), Span::new(3, 4)));
         let bool1 = arena.alloc_expr(Expr::new(ExprKind::Bool(true), Span::new(6, 10)));
         let list_range = arena.alloc_expr_list([int1, int2, bool1]);
-        let list = arena.alloc_expr(Expr::new(
-            ExprKind::List(list_range),
-            Span::new(0, 11),
-        ));
+        let list = arena.alloc_expr(Expr::new(ExprKind::List(list_range), Span::new(0, 11)));
 
         let mut counter = LiteralCounter {
             int_count: 0,

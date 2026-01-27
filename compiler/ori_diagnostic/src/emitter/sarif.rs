@@ -180,7 +180,11 @@ impl<W: Write> SarifEmitter<W> {
         // Primary locations
         let _ = writeln!(self.writer, "        \"locations\": [");
         for (i, loc) in result.locations.iter().enumerate() {
-            let comma = if i + 1 < result.locations.len() { "," } else { "" };
+            let comma = if i + 1 < result.locations.len() {
+                ","
+            } else {
+                ""
+            };
             self.write_location(loc, false);
             let _ = writeln!(self.writer, "{comma}");
         }
@@ -217,15 +221,35 @@ impl<W: Write> SarifEmitter<W> {
 
         if let Some(uri) = &self.artifact_uri {
             let _ = writeln!(self.writer, "              \"artifactLocation\": {{");
-            let _ = writeln!(self.writer, "                \"uri\": \"{}\"", escape_json(uri));
+            let _ = writeln!(
+                self.writer,
+                "                \"uri\": \"{}\"",
+                escape_json(uri)
+            );
             let _ = writeln!(self.writer, "              }},");
         }
 
         let _ = writeln!(self.writer, "              \"region\": {{");
-        let _ = writeln!(self.writer, "                \"startLine\": {},", loc.start_line);
-        let _ = writeln!(self.writer, "                \"startColumn\": {},", loc.start_column);
-        let _ = writeln!(self.writer, "                \"endLine\": {},", loc.end_line);
-        let _ = writeln!(self.writer, "                \"endColumn\": {}", loc.end_column);
+        let _ = writeln!(
+            self.writer,
+            "                \"startLine\": {},",
+            loc.start_line
+        );
+        let _ = writeln!(
+            self.writer,
+            "                \"startColumn\": {},",
+            loc.start_column
+        );
+        let _ = writeln!(
+            self.writer,
+            "                \"endLine\": {},",
+            loc.end_line
+        );
+        let _ = writeln!(
+            self.writer,
+            "                \"endColumn\": {}",
+            loc.end_column
+        );
         let _ = writeln!(self.writer, "              }}");
         let _ = writeln!(self.writer, "            }}");
 
@@ -439,8 +463,8 @@ mod tests {
         let mut output = Vec::new();
         let mut emitter = SarifEmitter::new(&mut output, "oric", "0.1.0");
 
-        let diag = Diagnostic::error(ErrorCode::E1001)
-            .with_message("error with \"quotes\" and\nnewline");
+        let diag =
+            Diagnostic::error(ErrorCode::E1001).with_message("error with \"quotes\" and\nnewline");
 
         emitter.emit(&diag);
         emitter.finish();

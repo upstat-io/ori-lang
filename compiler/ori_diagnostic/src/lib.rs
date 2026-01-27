@@ -130,7 +130,6 @@ impl std::error::Error for ErrorGuaranteed {}
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum ErrorCode {
     // Lexer Errors (E0xxx)
-
     /// Unterminated string literal
     E0001,
     /// Invalid character in source
@@ -143,7 +142,6 @@ pub enum ErrorCode {
     E0005,
 
     // Parser Errors (E1xxx)
-
     /// Unexpected token
     E1001,
     /// Expected expression
@@ -174,7 +172,6 @@ pub enum ErrorCode {
     E1014,
 
     // Type Errors (E2xxx)
-
     /// Type mismatch
     E2001,
     /// Unknown type
@@ -205,7 +202,6 @@ pub enum ErrorCode {
     E2014,
 
     // Pattern Errors (E3xxx)
-
     /// Unknown pattern
     E3001,
     /// Invalid pattern arguments
@@ -214,7 +210,6 @@ pub enum ErrorCode {
     E3003,
 
     // Internal Errors (E9xxx)
-
     /// Internal compiler error
     E9001,
     /// Too many errors
@@ -547,7 +542,8 @@ impl Diagnostic {
         span: Span,
         snippet: impl Into<String>,
     ) -> Self {
-        self.structured_suggestions.push(Suggestion::machine_applicable(message, span, snippet));
+        self.structured_suggestions
+            .push(Suggestion::machine_applicable(message, span, snippet));
         self
     }
 
@@ -562,7 +558,8 @@ impl Diagnostic {
         span: Span,
         snippet: impl Into<String>,
     ) -> Self {
-        self.structured_suggestions.push(Suggestion::maybe_incorrect(message, span, snippet));
+        self.structured_suggestions
+            .push(Suggestion::maybe_incorrect(message, span, snippet));
         self
     }
 
@@ -578,35 +575,34 @@ impl Diagnostic {
 
     /// Check if this diagnostic has any machine-applicable fixes.
     pub fn has_machine_applicable_fix(&self) -> bool {
-        self.structured_suggestions.iter().any(|s| s.applicability.is_machine_applicable())
+        self.structured_suggestions
+            .iter()
+            .any(|s| s.applicability.is_machine_applicable())
     }
 
     /// Get all machine-applicable suggestions.
     pub fn machine_applicable_fixes(&self) -> impl Iterator<Item = &Suggestion> {
-        self.structured_suggestions.iter().filter(|s| s.applicability.is_machine_applicable())
+        self.structured_suggestions
+            .iter()
+            .filter(|s| s.applicability.is_machine_applicable())
     }
 }
 
 /// Create a "type mismatch" diagnostic.
-pub fn type_mismatch(
-    span: Span,
-    expected: &str,
-    found: &str,
-    context: &str,
-) -> Diagnostic {
+pub fn type_mismatch(span: Span, expected: &str, found: &str, context: &str) -> Diagnostic {
     Diagnostic::error(ErrorCode::E2001)
-        .with_message(format!("type mismatch: expected `{expected}`, found `{found}`"))
+        .with_message(format!(
+            "type mismatch: expected `{expected}`, found `{found}`"
+        ))
         .with_label(span, context)
 }
 
 /// Create an "unexpected token" diagnostic.
-pub fn unexpected_token(
-    span: Span,
-    expected: &str,
-    found: &str,
-) -> Diagnostic {
+pub fn unexpected_token(span: Span, expected: &str, found: &str) -> Diagnostic {
     Diagnostic::error(ErrorCode::E1001)
-        .with_message(format!("unexpected token: expected {expected}, found `{found}`"))
+        .with_message(format!(
+            "unexpected token: expected {expected}, found `{found}`"
+        ))
         .with_label(span, format!("expected {expected}"))
 }
 
@@ -618,11 +614,7 @@ pub fn expected_expression(span: Span, found: &str) -> Diagnostic {
 }
 
 /// Create an "unclosed delimiter" diagnostic.
-pub fn unclosed_delimiter(
-    open_span: Span,
-    close_span: Span,
-    delimiter: char,
-) -> Diagnostic {
+pub fn unclosed_delimiter(open_span: Span, close_span: Span, delimiter: char) -> Diagnostic {
     let expected = match delimiter {
         '(' => ')',
         '[' => ']',
@@ -645,7 +637,9 @@ pub fn unknown_identifier(span: Span, name: &str) -> Diagnostic {
 /// Create a "missing pattern argument" diagnostic.
 pub fn missing_pattern_arg(span: Span, pattern: &str, arg: &str) -> Diagnostic {
     Diagnostic::error(ErrorCode::E1009)
-        .with_message(format!("missing required argument `.{arg}:` in `{pattern}` pattern"))
+        .with_message(format!(
+            "missing required argument `.{arg}:` in `{pattern}` pattern"
+        ))
         .with_label(span, format!("missing `.{arg}:`"))
         .with_suggestion(format!("add `.{arg}: <value>` to the pattern arguments"))
 }
@@ -709,12 +703,7 @@ mod tests {
 
     #[test]
     fn test_type_mismatch_helper() {
-        let diag = type_mismatch(
-            Span::new(10, 15),
-            "int",
-            "str",
-            "return value",
-        );
+        let diag = type_mismatch(Span::new(10, 15), "int", "str", "return value");
 
         assert_eq!(diag.code, ErrorCode::E2001);
         assert!(diag.message.contains("int"));
@@ -724,11 +713,7 @@ mod tests {
 
     #[test]
     fn test_unclosed_delimiter() {
-        let diag = unclosed_delimiter(
-            Span::new(0, 1),
-            Span::new(10, 10),
-            '(',
-        );
+        let diag = unclosed_delimiter(Span::new(0, 1), Span::new(10, 10), '(');
 
         assert_eq!(diag.code, ErrorCode::E1003);
         assert_eq!(diag.labels.len(), 2);
@@ -738,11 +723,7 @@ mod tests {
 
     #[test]
     fn test_missing_pattern_arg() {
-        let diag = missing_pattern_arg(
-            Span::new(0, 10),
-            "map",
-            "over",
-        );
+        let diag = missing_pattern_arg(Span::new(0, 10), "map", "over");
 
         assert_eq!(diag.code, ErrorCode::E1009);
         assert!(diag.message.contains("over"));

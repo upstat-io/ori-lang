@@ -2,8 +2,8 @@
 //!
 //! Parses call, method call, field access, index expressions, and struct literals.
 
-use ori_ir::{CallArg, Expr, ExprId, ExprKind, FieldInit, Param, TokenKind};
 use crate::{ParseError, Parser};
+use ori_ir::{CallArg, Expr, ExprId, ExprKind, FieldInit, Param, TokenKind};
 
 impl Parser<'_> {
     /// Parse function calls and field access.
@@ -27,14 +27,20 @@ impl Parser<'_> {
                 if has_named {
                     let args_range = self.arena.alloc_call_args(call_args);
                     expr = self.arena.alloc_expr(Expr::new(
-                        ExprKind::CallNamed { func: expr, args: args_range },
+                        ExprKind::CallNamed {
+                            func: expr,
+                            args: args_range,
+                        },
                         call_span,
                     ));
                 } else {
                     let args: Vec<ExprId> = call_args.into_iter().map(|a| a.value).collect();
                     let args_range = self.arena.alloc_expr_list(args);
                     expr = self.arena.alloc_expr(Expr::new(
-                        ExprKind::Call { func: expr, args: args_range },
+                        ExprKind::Call {
+                            func: expr,
+                            args: args_range,
+                        },
                         call_span,
                     ));
                 }
@@ -56,7 +62,11 @@ impl Parser<'_> {
                         // Use MethodCallNamed for named arguments
                         let args_range = self.arena.alloc_call_args(call_args);
                         expr = self.arena.alloc_expr(Expr::new(
-                            ExprKind::MethodCallNamed { receiver: expr, method: field, args: args_range },
+                            ExprKind::MethodCallNamed {
+                                receiver: expr,
+                                method: field,
+                                args: args_range,
+                            },
                             span,
                         ));
                     } else {
@@ -64,14 +74,21 @@ impl Parser<'_> {
                         let args: Vec<ExprId> = call_args.into_iter().map(|a| a.value).collect();
                         let args_range = self.arena.alloc_expr_list(args);
                         expr = self.arena.alloc_expr(Expr::new(
-                            ExprKind::MethodCall { receiver: expr, method: field, args: args_range },
+                            ExprKind::MethodCall {
+                                receiver: expr,
+                                method: field,
+                                args: args_range,
+                            },
                             span,
                         ));
                     }
                 } else {
                     let span = self.arena.get_expr(expr).span.merge(self.previous_span());
                     expr = self.arena.alloc_expr(Expr::new(
-                        ExprKind::Field { receiver: expr, field },
+                        ExprKind::Field {
+                            receiver: expr,
+                            field,
+                        },
                         span,
                     ));
                 }
@@ -83,7 +100,10 @@ impl Parser<'_> {
 
                 let span = self.arena.get_expr(expr).span.merge(self.previous_span());
                 expr = self.arena.alloc_expr(Expr::new(
-                    ExprKind::Index { receiver: expr, index },
+                    ExprKind::Index {
+                        receiver: expr,
+                        index,
+                    },
                     span,
                 ));
             } else if self.check(&TokenKind::LBrace) {
@@ -136,7 +156,10 @@ impl Parser<'_> {
                     let fields_range = self.arena.alloc_field_inits(fields);
 
                     expr = self.arena.alloc_expr(Expr::new(
-                        ExprKind::Struct { name: struct_name, fields: fields_range },
+                        ExprKind::Struct {
+                            name: struct_name,
+                            fields: fields_range,
+                        },
                         start_span.merge(end_span),
                     ));
                 } else {
@@ -158,7 +181,11 @@ impl Parser<'_> {
                         span: param_span,
                     }]);
                     expr = self.arena.alloc_expr(Expr::new(
-                        ExprKind::Lambda { params, ret_ty: None, body },
+                        ExprKind::Lambda {
+                            params,
+                            ret_ty: None,
+                            body,
+                        },
                         param_span.merge(end_span),
                     ));
                 }

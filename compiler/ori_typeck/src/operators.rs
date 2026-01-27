@@ -5,7 +5,7 @@
 
 use ori_diagnostic::ErrorCode;
 use ori_ir::{BinaryOp, Span, StringInterner};
-use ori_types::{Type, InferenceContext};
+use ori_types::{InferenceContext, Type};
 
 /// Result of type checking a binary operation.
 pub enum TypeOpResult {
@@ -44,8 +44,12 @@ pub fn check_binary_operation(
 ) -> TypeOpResult {
     match op {
         // Arithmetic: +, -, *, /, %, div
-        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul
-        | BinaryOp::Div | BinaryOp::Mod | BinaryOp::FloorDiv => {
+        BinaryOp::Add
+        | BinaryOp::Sub
+        | BinaryOp::Mul
+        | BinaryOp::Div
+        | BinaryOp::Mod
+        | BinaryOp::FloorDiv => {
             if let Err(e) = ctx.unify(left, right) {
                 return TypeOpResult::Err(TypeOpError::new(
                     format!("type mismatch in arithmetic operation: {e:?}"),
@@ -80,9 +84,12 @@ pub fn check_binary_operation(
         }
 
         // Comparison: ==, !=, <, <=, >, >=
-        BinaryOp::Eq | BinaryOp::NotEq
-        | BinaryOp::Lt | BinaryOp::LtEq
-        | BinaryOp::Gt | BinaryOp::GtEq => {
+        BinaryOp::Eq
+        | BinaryOp::NotEq
+        | BinaryOp::Lt
+        | BinaryOp::LtEq
+        | BinaryOp::Gt
+        | BinaryOp::GtEq => {
             if let Err(e) = ctx.unify(left, right) {
                 return TypeOpResult::Err(TypeOpError::new(
                     format!("type mismatch in comparison: {e:?}"),
@@ -110,8 +117,7 @@ pub fn check_binary_operation(
         }
 
         // Bitwise: &, |, ^, <<, >>
-        BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor
-        | BinaryOp::Shl | BinaryOp::Shr => {
+        BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor | BinaryOp::Shl | BinaryOp::Shr => {
             if let Err(e) = ctx.unify(left, &Type::Int) {
                 return TypeOpResult::Err(TypeOpError::new(
                     format!("left operand of bitwise operator must be int: {e:?}"),
@@ -172,7 +178,14 @@ mod tests {
         let interner = SharedInterner::default();
         let span = Span::default();
 
-        match check_binary_operation(&mut ctx, &interner, BinaryOp::Add, &Type::Int, &Type::Int, span) {
+        match check_binary_operation(
+            &mut ctx,
+            &interner,
+            BinaryOp::Add,
+            &Type::Int,
+            &Type::Int,
+            span,
+        ) {
             TypeOpResult::Ok(ty) => assert_eq!(ty, Type::Int),
             TypeOpResult::Err(e) => panic!("unexpected error: {e:?}"),
         }
@@ -184,7 +197,14 @@ mod tests {
         let interner = SharedInterner::default();
         let span = Span::default();
 
-        match check_binary_operation(&mut ctx, &interner, BinaryOp::Mul, &Type::Float, &Type::Float, span) {
+        match check_binary_operation(
+            &mut ctx,
+            &interner,
+            BinaryOp::Mul,
+            &Type::Float,
+            &Type::Float,
+            span,
+        ) {
             TypeOpResult::Ok(ty) => assert_eq!(ty, Type::Float),
             TypeOpResult::Err(e) => panic!("unexpected error: {e:?}"),
         }
@@ -196,7 +216,14 @@ mod tests {
         let interner = SharedInterner::default();
         let span = Span::default();
 
-        match check_binary_operation(&mut ctx, &interner, BinaryOp::Add, &Type::Str, &Type::Str, span) {
+        match check_binary_operation(
+            &mut ctx,
+            &interner,
+            BinaryOp::Add,
+            &Type::Str,
+            &Type::Str,
+            span,
+        ) {
             TypeOpResult::Ok(ty) => assert_eq!(ty, Type::Str),
             TypeOpResult::Err(e) => panic!("unexpected error: {e:?}"),
         }
@@ -208,7 +235,14 @@ mod tests {
         let interner = SharedInterner::default();
         let span = Span::default();
 
-        match check_binary_operation(&mut ctx, &interner, BinaryOp::Eq, &Type::Int, &Type::Int, span) {
+        match check_binary_operation(
+            &mut ctx,
+            &interner,
+            BinaryOp::Eq,
+            &Type::Int,
+            &Type::Int,
+            span,
+        ) {
             TypeOpResult::Ok(ty) => assert_eq!(ty, Type::Bool),
             TypeOpResult::Err(e) => panic!("unexpected error: {e:?}"),
         }
@@ -220,7 +254,14 @@ mod tests {
         let interner = SharedInterner::default();
         let span = Span::default();
 
-        match check_binary_operation(&mut ctx, &interner, BinaryOp::And, &Type::Bool, &Type::Bool, span) {
+        match check_binary_operation(
+            &mut ctx,
+            &interner,
+            BinaryOp::And,
+            &Type::Bool,
+            &Type::Bool,
+            span,
+        ) {
             TypeOpResult::Ok(ty) => assert_eq!(ty, Type::Bool),
             TypeOpResult::Err(e) => panic!("unexpected error: {e:?}"),
         }
@@ -232,7 +273,14 @@ mod tests {
         let interner = SharedInterner::default();
         let span = Span::default();
 
-        match check_binary_operation(&mut ctx, &interner, BinaryOp::BitAnd, &Type::Int, &Type::Int, span) {
+        match check_binary_operation(
+            &mut ctx,
+            &interner,
+            BinaryOp::BitAnd,
+            &Type::Int,
+            &Type::Int,
+            span,
+        ) {
             TypeOpResult::Ok(ty) => assert_eq!(ty, Type::Int),
             TypeOpResult::Err(e) => panic!("unexpected error: {e:?}"),
         }
@@ -244,7 +292,14 @@ mod tests {
         let interner = SharedInterner::default();
         let span = Span::default();
 
-        match check_binary_operation(&mut ctx, &interner, BinaryOp::Range, &Type::Int, &Type::Int, span) {
+        match check_binary_operation(
+            &mut ctx,
+            &interner,
+            BinaryOp::Range,
+            &Type::Int,
+            &Type::Int,
+            span,
+        ) {
             TypeOpResult::Ok(ty) => assert_eq!(ty, Type::Range(Box::new(Type::Int))),
             TypeOpResult::Err(e) => panic!("unexpected error: {e:?}"),
         }
@@ -257,7 +312,14 @@ mod tests {
         let span = Span::default();
 
         let option_int = Type::Option(Box::new(Type::Int));
-        match check_binary_operation(&mut ctx, &interner, BinaryOp::Coalesce, &option_int, &Type::Int, span) {
+        match check_binary_operation(
+            &mut ctx,
+            &interner,
+            BinaryOp::Coalesce,
+            &option_int,
+            &Type::Int,
+            span,
+        ) {
             TypeOpResult::Ok(ty) => assert_eq!(ty, Type::Int),
             TypeOpResult::Err(e) => panic!("unexpected error: {e:?}"),
         }
@@ -269,7 +331,14 @@ mod tests {
         let interner = SharedInterner::default();
         let span = Span::default();
 
-        match check_binary_operation(&mut ctx, &interner, BinaryOp::Add, &Type::Int, &Type::Str, span) {
+        match check_binary_operation(
+            &mut ctx,
+            &interner,
+            BinaryOp::Add,
+            &Type::Int,
+            &Type::Str,
+            span,
+        ) {
             TypeOpResult::Ok(_) => panic!("expected error"),
             TypeOpResult::Err(_) => {}
         }
@@ -281,7 +350,14 @@ mod tests {
         let interner = SharedInterner::default();
         let span = Span::default();
 
-        match check_binary_operation(&mut ctx, &interner, BinaryOp::Sub, &Type::Bool, &Type::Bool, span) {
+        match check_binary_operation(
+            &mut ctx,
+            &interner,
+            BinaryOp::Sub,
+            &Type::Bool,
+            &Type::Bool,
+            span,
+        ) {
             TypeOpResult::Ok(_) => panic!("expected error"),
             TypeOpResult::Err(_) => {}
         }

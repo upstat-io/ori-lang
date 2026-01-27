@@ -133,10 +133,7 @@ impl FusedPattern {
                         let mut results = Vec::new();
                         for item in list.iter() {
                             // Apply filter first
-                            if exec
-                                .call(filter_f.clone(), vec![item.clone()])?
-                                .is_truthy()
-                            {
+                            if exec.call(filter_f.clone(), vec![item.clone()])?.is_truthy() {
                                 // Then map
                                 let mapped = exec.call(map_f.clone(), vec![item.clone()])?;
                                 results.push(mapped);
@@ -187,10 +184,7 @@ impl FusedPattern {
                     Value::List(list) => {
                         for item in list.iter() {
                             // Only fold items that pass filter
-                            if exec
-                                .call(filter_f.clone(), vec![item.clone()])?
-                                .is_truthy()
-                            {
+                            if exec.call(filter_f.clone(), vec![item.clone()])?.is_truthy() {
                                 acc = exec.call(fold_f.clone(), vec![acc, item.clone()])?;
                             }
                         }
@@ -244,10 +238,7 @@ impl FusedPattern {
                     Value::List(list) => {
                         for item in list.iter() {
                             let mapped = exec.call(map_f.clone(), vec![item.clone()])?;
-                            if exec
-                                .call(find_f.clone(), vec![mapped.clone()])?
-                                .is_truthy()
-                            {
+                            if exec.call(find_f.clone(), vec![mapped.clone()])?.is_truthy() {
                                 return Ok(Value::some(mapped));
                             }
                         }
@@ -270,9 +261,7 @@ impl FusedPattern {
                     Value::List(list) => {
                         for item in list.iter() {
                             // Both predicates must pass
-                            if exec
-                                .call(filter_f.clone(), vec![item.clone()])?
-                                .is_truthy()
+                            if exec.call(filter_f.clone(), vec![item.clone()])?.is_truthy()
                                 && exec.call(find_f.clone(), vec![item.clone()])?.is_truthy()
                             {
                                 return Ok(Value::some(item.clone()));

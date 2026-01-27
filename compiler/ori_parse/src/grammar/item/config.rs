@@ -1,7 +1,7 @@
 //! Config variable parsing.
 
-use ori_ir::{ConfigDef, Expr, ExprKind, TokenKind};
 use crate::{ParseError, Parser};
+use ori_ir::{ConfigDef, Expr, ExprKind, TokenKind};
 
 impl Parser<'_> {
     /// Parse a config variable declaration.

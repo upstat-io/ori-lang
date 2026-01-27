@@ -3,9 +3,9 @@
 //! Salsa-first incremental compiler.
 
 use ori_diagnostic::{ErrorCode, ErrorDocs};
-use oric::{CompilerDb, SourceFile, Db};
-use oric::query::{tokens, parsed, typed, evaluated, codegen_c};
+use oric::query::{codegen_c, evaluated, parsed, tokens, typed};
 use oric::test::{TestRunner, TestRunnerConfig, TestSummary};
+use oric::{CompilerDb, Db, SourceFile};
 use std::path::{Path, PathBuf};
 
 fn main() {
@@ -71,9 +71,7 @@ fn main() {
             } else {
                 // Default: replace .ori with .c
                 let path = Path::new(input_file);
-                path.with_extension("c")
-                    .to_string_lossy()
-                    .to_string()
+                path.with_extension("c").to_string_lossy().to_string()
             };
             compile_file(input_file, &output_file);
         }
@@ -332,7 +330,8 @@ fn check_file(path: &str) {
     let main_name = interner.intern("main");
 
     // Collect all tested function names
-    let mut tested_functions: std::collections::HashSet<oric::Name> = std::collections::HashSet::new();
+    let mut tested_functions: std::collections::HashSet<oric::Name> =
+        std::collections::HashSet::new();
     for test in &parse_result.module.tests {
         for target in &test.targets {
             tested_functions.insert(*target);
@@ -355,7 +354,10 @@ fn check_file(path: &str) {
         }
         eprintln!();
         eprintln!("  Every function (except @main) requires at least one test.");
-        eprintln!("  Add tests using: @test_name tests @{} () -> void = ...", untested[0]);
+        eprintln!(
+            "  Add tests using: @test_name tests @{} () -> void = ...",
+            untested[0]
+        );
         std::process::exit(1);
     }
 
@@ -382,7 +384,8 @@ fn parse_file(path: &str) {
         for func in &parse_result.module.functions {
             let name = db.interner().lookup(func.name);
             let params = parse_result.arena.get_params(func.params);
-            let param_names: Vec<_> = params.iter()
+            let param_names: Vec<_> = params
+                .iter()
                 .map(|p| db.interner().lookup(p.name))
                 .collect();
             println!("  @{} ({})", name, param_names.join(", "));
@@ -469,8 +472,12 @@ fn print_coverage_report(report: &oric::test::CoverageReport) {
     }
 
     // Print summary
-    println!("Summary: {}/{} functions covered ({:.1}%)",
-        report.covered, report.total, report.percentage());
+    println!(
+        "Summary: {}/{} functions covered ({:.1}%)",
+        report.covered,
+        report.total,
+        report.percentage()
+    );
 
     if report.is_complete() {
         println!("\nOK");
@@ -528,7 +535,10 @@ fn print_test_summary(summary: &TestSummary, verbose: bool) {
     println!("Test Summary:");
     println!(
         "  {} passed, {} failed, {} skipped ({} total)",
-        summary.passed, summary.failed, summary.skipped, summary.total()
+        summary.passed,
+        summary.failed,
+        summary.skipped,
+        summary.total()
     );
     println!("  Completed in {:.2?}", summary.duration);
 

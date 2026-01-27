@@ -38,7 +38,10 @@ impl Parser<'_> {
                         return Some(ParsedType::SelfType);
                     };
                     self.advance();
-                    Some(ParsedType::associated_type(ParsedType::SelfType, assoc_name))
+                    Some(ParsedType::associated_type(
+                        ParsedType::SelfType,
+                        assoc_name,
+                    ))
                 } else {
                     Some(ParsedType::SelfType)
                 }
@@ -152,7 +155,7 @@ impl Parser<'_> {
         // Empty parens: () unit or () -> T function type
         if self.check(&TokenKind::RParen) {
             self.advance(); // )
-            // Check for -> (function type: () -> T)
+                            // Check for -> (function type: () -> T)
             if self.check(&TokenKind::Arrow) {
                 self.advance();
                 let ret = self.parse_type()?;

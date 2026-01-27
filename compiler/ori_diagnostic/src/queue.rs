@@ -167,7 +167,8 @@ impl DiagnosticQueue {
         }
 
         // Add to queue
-        self.diagnostics.push(QueuedDiagnostic::new(diag, line, column, soft));
+        self.diagnostics
+            .push(QueuedDiagnostic::new(diag, line, column, soft));
 
         if is_error {
             self.error_count += 1;
@@ -277,9 +278,7 @@ impl DiagnosticQueue {
         }
 
         let msg = diag.message.to_lowercase();
-        msg.contains("invalid operand")
-            || msg.contains("invalid type")
-            || msg.contains("<error>")
+        msg.contains("invalid operand") || msg.contains("invalid type") || msg.contains("<error>")
     }
 
     /// Check if a diagnostic is a duplicate of a recent one.
@@ -388,11 +387,20 @@ mod tests {
         let mut queue = DiagnosticQueue::new();
 
         // First error
-        queue.add(make_error(ErrorCode::E2001, "type mismatch", 0), 1, 1, false);
+        queue.add(
+            make_error(ErrorCode::E2001, "type mismatch", 0),
+            1,
+            1,
+            false,
+        );
 
         // Follow-on error should be filtered
         assert!(!queue.add(
-            make_error(ErrorCode::E2001, "invalid operand due to previous error", 10),
+            make_error(
+                ErrorCode::E2001,
+                "invalid operand due to previous error",
+                10
+            ),
             2,
             1,
             false
@@ -407,7 +415,12 @@ mod tests {
         let mut queue = DiagnosticQueue::new();
 
         // First syntax error on line 1
-        queue.add(make_error(ErrorCode::E1001, "unexpected token", 0), 1, 1, false);
+        queue.add(
+            make_error(ErrorCode::E1001, "unexpected token", 0),
+            1,
+            1,
+            false,
+        );
 
         // Second syntax error on same line should be deduped
         assert!(!queue.add(
@@ -435,13 +448,21 @@ mod tests {
 
         // Same message on same line
         queue.add(
-            make_error(ErrorCode::E2001, "type mismatch: expected int, found str", 0),
+            make_error(
+                ErrorCode::E2001,
+                "type mismatch: expected int, found str",
+                0,
+            ),
             1,
             1,
             false,
         );
         assert!(!queue.add(
-            make_error(ErrorCode::E2001, "type mismatch: expected int, found str", 5),
+            make_error(
+                ErrorCode::E2001,
+                "type mismatch: expected int, found str",
+                5
+            ),
             1,
             5,
             false
@@ -464,9 +485,24 @@ mod tests {
         let mut queue = DiagnosticQueue::with_config(DiagnosticConfig::unlimited());
 
         // Add out of order
-        queue.add(make_error(ErrorCode::E2001, "error on line 3", 40), 3, 1, false);
-        queue.add(make_error(ErrorCode::E2001, "error on line 1", 0), 1, 1, false);
-        queue.add(make_error(ErrorCode::E2001, "error on line 2", 20), 2, 1, false);
+        queue.add(
+            make_error(ErrorCode::E2001, "error on line 3", 40),
+            3,
+            1,
+            false,
+        );
+        queue.add(
+            make_error(ErrorCode::E2001, "error on line 1", 0),
+            1,
+            1,
+            false,
+        );
+        queue.add(
+            make_error(ErrorCode::E2001, "error on line 2", 20),
+            2,
+            1,
+            false,
+        );
 
         let errors = queue.flush();
         assert_eq!(errors.len(), 3);
@@ -480,9 +516,24 @@ mod tests {
         let mut queue = DiagnosticQueue::with_config(DiagnosticConfig::unlimited());
 
         // Add errors on same line, out of order by column
-        queue.add(make_error(ErrorCode::E2001, "error at col 10", 10), 1, 10, false);
-        queue.add(make_error(ErrorCode::E2001, "error at col 1", 0), 1, 1, false);
-        queue.add(make_error(ErrorCode::E2001, "error at col 5", 5), 1, 5, false);
+        queue.add(
+            make_error(ErrorCode::E2001, "error at col 10", 10),
+            1,
+            10,
+            false,
+        );
+        queue.add(
+            make_error(ErrorCode::E2001, "error at col 1", 0),
+            1,
+            1,
+            false,
+        );
+        queue.add(
+            make_error(ErrorCode::E2001, "error at col 5", 5),
+            1,
+            5,
+            false,
+        );
 
         let errors = queue.flush();
         assert_eq!(errors.len(), 3);

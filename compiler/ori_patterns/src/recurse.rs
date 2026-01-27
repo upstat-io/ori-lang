@@ -34,30 +34,26 @@ impl PatternDefinition for RecursePattern {
 
     fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
         // recurse(cond: bool, base: T, step: T) -> T
-        
+
         ctx.get_prop_type("base").unwrap_or_else(|| ctx.fresh_var())
     }
 
     fn optional_args(&self) -> &'static [OptionalArg] {
-        static OPTIONAL: [OptionalArg; 1] = [
-            OptionalArg {
-                name: "memo",
-                default: DefaultValue::Bool(false),
-            },
-        ];
+        static OPTIONAL: [OptionalArg; 1] = [OptionalArg {
+            name: "memo",
+            default: DefaultValue::Bool(false),
+        }];
         &OPTIONAL
     }
 
     fn scoped_bindings(&self) -> &'static [ScopedBinding] {
         // `self` is a function with the same signature as the enclosing function.
         // This enables recursive calls like `self(n - 1)` in the `step` property.
-        static BINDINGS: [ScopedBinding; 1] = [
-            ScopedBinding {
-                name: "self",
-                for_props: &["step"],
-                type_from: ScopedBindingType::EnclosingFunction,
-            },
-        ];
+        static BINDINGS: [ScopedBinding; 1] = [ScopedBinding {
+            name: "self",
+            for_props: &["step"],
+            type_from: ScopedBindingType::EnclosingFunction,
+        }];
         &BINDINGS
     }
 

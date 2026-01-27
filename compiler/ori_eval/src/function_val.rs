@@ -264,14 +264,8 @@ mod tests {
 
         #[test]
         fn int_from_int_identity() {
-            assert_eq!(
-                function_val_int(&[Value::int(0)]).unwrap(),
-                Value::int(0)
-            );
-            assert_eq!(
-                function_val_int(&[Value::int(42)]).unwrap(),
-                Value::int(42)
-            );
+            assert_eq!(function_val_int(&[Value::int(0)]).unwrap(), Value::int(0));
+            assert_eq!(function_val_int(&[Value::int(42)]).unwrap(), Value::int(42));
             assert_eq!(
                 function_val_int(&[Value::int(i64::MAX)]).unwrap(),
                 Value::int(i64::MAX)
@@ -370,7 +364,10 @@ mod tests {
         }
 
         #[test]
-        #[expect(clippy::approx_constant, reason = "Testing float operations, not using PI")]
+        #[expect(
+            clippy::approx_constant,
+            reason = "Testing float operations, not using PI"
+        )]
         fn float_from_float_identity() {
             assert_eq!(
                 function_val_float(&[Value::Float(0.0)]).unwrap(),
@@ -419,7 +416,10 @@ mod tests {
         }
 
         #[test]
-        #[expect(clippy::approx_constant, reason = "Testing float operations, not using PI")]
+        #[expect(
+            clippy::approx_constant,
+            reason = "Testing float operations, not using PI"
+        )]
         fn str_from_float() {
             assert_eq!(
                 function_val_str(&[Value::Float(0.0)]).unwrap(),
@@ -455,14 +455,8 @@ mod tests {
 
         #[test]
         fn byte_from_int_valid_range() {
-            assert_eq!(
-                function_val_byte(&[Value::int(0)]).unwrap(),
-                Value::Byte(0)
-            );
-            assert_eq!(
-                function_val_byte(&[Value::int(1)]).unwrap(),
-                Value::Byte(1)
-            );
+            assert_eq!(function_val_byte(&[Value::int(0)]).unwrap(), Value::Byte(0));
+            assert_eq!(function_val_byte(&[Value::int(1)]).unwrap(), Value::Byte(1));
             assert_eq!(
                 function_val_byte(&[Value::int(127)]).unwrap(),
                 Value::Byte(127)

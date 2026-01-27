@@ -123,7 +123,12 @@ impl ExprRange {
 
 impl fmt::Debug for ExprRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ExprRange({}..{})", self.start, self.start + u32::from(self.len))
+        write!(
+            f,
+            "ExprRange({}..{})",
+            self.start,
+            self.start + u32::from(self.len)
+        )
     }
 }
 
@@ -204,7 +209,12 @@ impl StmtRange {
 
 impl fmt::Debug for StmtRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "StmtRange({}..{})", self.start, self.start + u32::from(self.len))
+        write!(
+            f,
+            "StmtRange({}..{})",
+            self.start,
+            self.start + u32::from(self.len)
+        )
     }
 }
 

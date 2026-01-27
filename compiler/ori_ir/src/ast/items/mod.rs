@@ -7,11 +7,10 @@ mod imports;
 mod traits;
 mod types;
 
-pub use function::{Function, TestDef, Param, Module, ExpectedError, ConfigDef, CapabilityRef};
-pub use imports::{UseDef, UseItem, ImportPath};
+pub use function::{CapabilityRef, ConfigDef, ExpectedError, Function, Module, Param, TestDef};
+pub use imports::{ImportPath, UseDef, UseItem};
 pub use traits::{
-    GenericParam, TraitBound, WhereClause,
-    TraitDef, TraitItem, TraitMethodSig, TraitDefaultMethod, TraitAssocType,
-    ImplDef, ImplMethod, ImplAssocType, ExtendDef,
+    ExtendDef, GenericParam, ImplAssocType, ImplDef, ImplMethod, TraitAssocType, TraitBound,
+    TraitDef, TraitDefaultMethod, TraitItem, TraitMethodSig, WhereClause,
 };
-pub use types::{TypeDecl, TypeDeclKind, StructField, Variant, VariantField};
+pub use types::{StructField, TypeDecl, TypeDeclKind, Variant, VariantField};

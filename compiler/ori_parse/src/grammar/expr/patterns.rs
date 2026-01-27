@@ -2,11 +2,11 @@
 //!
 //! Parses run, try, match, for patterns, and `function_exp` constructs.
 
-use ori_ir::{
-    Expr, ExprId, ExprKind, FunctionExp, FunctionExpKind, FunctionSeq,
-    MatchArm, MatchPattern, NamedExpr, SeqBinding, TokenKind,
-};
 use crate::{ParseError, Parser};
+use ori_ir::{
+    Expr, ExprId, ExprKind, FunctionExp, FunctionExpKind, FunctionSeq, MatchArm, MatchPattern,
+    NamedExpr, SeqBinding, TokenKind,
+};
 
 impl Parser<'_> {
     /// Parse `function_seq`: run or try with sequential bindings and statements.
@@ -91,7 +91,10 @@ impl Parser<'_> {
         let result = result_expr.ok_or_else(|| {
             ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
-                format!("{} requires a result expression", if is_try { "try" } else { "run" }),
+                format!(
+                    "{} requires a result expression",
+                    if is_try { "try" } else { "run" }
+                ),
                 end_span,
             )
         })?;
@@ -99,15 +102,22 @@ impl Parser<'_> {
         let bindings_range = self.arena.alloc_seq_bindings(bindings);
         let span = start_span.merge(end_span);
         let func_seq = if is_try {
-            FunctionSeq::Try { bindings: bindings_range, result, span }
+            FunctionSeq::Try {
+                bindings: bindings_range,
+                result,
+                span,
+            }
         } else {
-            FunctionSeq::Run { bindings: bindings_range, result, span }
+            FunctionSeq::Run {
+                bindings: bindings_range,
+                result,
+                span,
+            }
         };
 
-        Ok(self.arena.alloc_expr(Expr::new(
-            ExprKind::FunctionSeq(func_seq),
-            span,
-        )))
+        Ok(self
+            .arena
+            .alloc_expr(Expr::new(ExprKind::FunctionSeq(func_seq), span)))
     }
 
     /// Parse match as `function_seq`: match(scrutinee, Pattern -> expr, ...)
@@ -162,12 +172,15 @@ impl Parser<'_> {
 
         let arms_range = self.arena.alloc_arms(arms);
         let span = start_span.merge(end_span);
-        let func_seq = FunctionSeq::Match { scrutinee, arms: arms_range, span };
-
-        Ok(self.arena.alloc_expr(Expr::new(
-            ExprKind::FunctionSeq(func_seq),
+        let func_seq = FunctionSeq::Match {
+            scrutinee,
+            arms: arms_range,
             span,
-        )))
+        };
+
+        Ok(self
+            .arena
+            .alloc_expr(Expr::new(ExprKind::FunctionSeq(func_seq), span)))
     }
 
     /// Parse for pattern: for(over: items, [map: transform,] match: Pattern -> expr, default: value)
@@ -262,12 +275,17 @@ impl Parser<'_> {
             )
         })?;
 
-        let func_seq = FunctionSeq::ForPattern { over, map, arm, default, span };
-
-        Ok(self.arena.alloc_expr(Expr::new(
-            ExprKind::FunctionSeq(func_seq),
+        let func_seq = FunctionSeq::ForPattern {
+            over,
+            map,
+            arm,
+            default,
             span,
-        )))
+        };
+
+        Ok(self
+            .arena
+            .alloc_expr(Expr::new(ExprKind::FunctionSeq(func_seq), span)))
     }
 
     /// Parse a match pattern (for match arms).
@@ -394,7 +412,10 @@ impl Parser<'_> {
     }
 
     /// Parse `function_exp`: map, filter, fold, etc. with named properties.
-    pub(crate) fn parse_function_exp(&mut self, kind: FunctionExpKind) -> Result<ExprId, ParseError> {
+    pub(crate) fn parse_function_exp(
+        &mut self,
+        kind: FunctionExpKind,
+    ) -> Result<ExprId, ParseError> {
         let start_span = self.previous_span();
         self.expect(&TokenKind::LParen)?;
         self.skip_newlines();

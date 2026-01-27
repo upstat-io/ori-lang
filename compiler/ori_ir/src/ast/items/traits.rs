@@ -5,8 +5,8 @@
 //! # Salsa Compatibility
 //! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
-use crate::{Name, Span, ParsedType, ExprId, Spanned};
-use super::super::ranges::{ParamRange, GenericParamRange};
+use super::super::ranges::{GenericParamRange, ParamRange};
+use crate::{ExprId, Name, ParsedType, Span, Spanned};
 
 /// Generic parameter: `T` or `T: Bound` or `T: A + B`.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]

@@ -1,26 +1,17 @@
 //! Type errors and diagnostics.
 
-use ori_ir::{Name, Span, StringInterner};
 use crate::core::Type;
+use ori_ir::{Name, Span, StringInterner};
 
 /// Type error.
 #[derive(Clone, Debug)]
 pub enum TypeError {
     /// Type mismatch.
-    TypeMismatch {
-        expected: Type,
-        found: Type,
-    },
+    TypeMismatch { expected: Type, found: Type },
     /// Argument count mismatch.
-    ArgCountMismatch {
-        expected: usize,
-        found: usize,
-    },
+    ArgCountMismatch { expected: usize, found: usize },
     /// Tuple length mismatch.
-    TupleLengthMismatch {
-        expected: usize,
-        found: usize,
-    },
+    TupleLengthMismatch { expected: usize, found: usize },
     /// Infinite type (occurs check failure).
     InfiniteType,
     /// Unknown identifier.
@@ -51,18 +42,16 @@ impl TypeError {
 
                 // Add helpful suggestions for common mistakes
                 diag = match (expected, found) {
-                    (Type::Bool, Type::Int) => {
-                        diag.with_suggestion("use a comparison operator (e.g., `x != 0`) to convert int to bool")
-                    }
+                    (Type::Bool, Type::Int) => diag.with_suggestion(
+                        "use a comparison operator (e.g., `x != 0`) to convert int to bool",
+                    ),
                     (Type::Int, Type::Float) => {
                         diag.with_suggestion("use `int(x)` to convert float to int")
                     }
                     (Type::Float, Type::Int) => {
                         diag.with_suggestion("use `float(x)` to convert int to float")
                     }
-                    (Type::Str, _) => {
-                        diag.with_suggestion("use `str(x)` to convert to string")
-                    }
+                    (Type::Str, _) => diag.with_suggestion("use `str(x)` to convert to string"),
                     (Type::List(_), t) if !matches!(t, Type::List(_)) => {
                         diag.with_suggestion("wrap the value in a list: `[x]`")
                     }
@@ -94,12 +83,10 @@ impl TypeError {
                     ))
                     .with_label(span, format!("expected {expected} elements"))
             }
-            TypeError::InfiniteType => {
-                Diagnostic::error(ErrorCode::E2005)
-                    .with_message("cannot construct infinite type (occurs check failed)")
-                    .with_label(span, "this creates a self-referential type")
-                    .with_suggestion("break the cycle by introducing an intermediate type")
-            }
+            TypeError::InfiniteType => Diagnostic::error(ErrorCode::E2005)
+                .with_message("cannot construct infinite type (occurs check failed)")
+                .with_label(span, "this creates a self-referential type")
+                .with_suggestion("break the cycle by introducing an intermediate type"),
             TypeError::UnknownIdent(name) => {
                 let name_str = interner.lookup(*name);
                 Diagnostic::error(ErrorCode::E2003)
@@ -109,12 +96,10 @@ impl TypeError {
                         "check spelling, or add a definition for `{name_str}`"
                     ))
             }
-            TypeError::CannotInfer => {
-                Diagnostic::error(ErrorCode::E2005)
-                    .with_message("cannot infer type: insufficient context")
-                    .with_label(span, "type annotation needed here")
-                    .with_suggestion("add an explicit type annotation like `: int` or `: str`")
-            }
+            TypeError::CannotInfer => Diagnostic::error(ErrorCode::E2005)
+                .with_message("cannot infer type: insufficient context")
+                .with_label(span, "type annotation needed here")
+                .with_suggestion("add an explicit type annotation like `: int` or `: str`"),
         }
     }
 }

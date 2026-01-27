@@ -3,7 +3,10 @@
 //! Uses a scope stack (not cloning) for efficient scope management.
 
 // Rc is the intentional implementation detail of LocalScope<T>
-#![expect(clippy::disallowed_types, reason = "Rc is the implementation of LocalScope<T>")]
+#![expect(
+    clippy::disallowed_types,
+    reason = "Rc is the implementation of LocalScope<T>"
+)]
 
 use std::cell::RefCell;
 use std::collections::HashMap;

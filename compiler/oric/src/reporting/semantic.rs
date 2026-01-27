@@ -2,9 +2,9 @@
 //!
 //! Renders `SemanticProblem` variants into user-facing Diagnostic messages.
 
+use super::Render;
 use crate::diagnostic::{Diagnostic, ErrorCode};
 use crate::problem::SemanticProblem;
-use super::Render;
 
 impl Render for SemanticProblem {
     fn render(&self) -> Diagnostic {
@@ -51,21 +51,21 @@ impl Render for SemanticProblem {
                 .with_label(*span, "duplicate definition")
                 .with_secondary_label(*first_span, "first definition here"),
 
-            SemanticProblem::PrivateAccess { span, name, kind } => Diagnostic::error(ErrorCode::E2003)
-                .with_message(format!("{kind} `{name}` is private"))
-                .with_label(*span, "private, cannot access"),
+            SemanticProblem::PrivateAccess { span, name, kind } => {
+                Diagnostic::error(ErrorCode::E2003)
+                    .with_message(format!("{kind} `{name}` is private"))
+                    .with_label(*span, "private, cannot access")
+            }
 
             SemanticProblem::ImportNotFound { span, path } => Diagnostic::error(ErrorCode::E2003)
                 .with_message(format!("cannot find module `{path}`"))
                 .with_label(*span, "module not found"),
 
-            SemanticProblem::ImportedItemNotFound {
-                span,
-                item,
-                module,
-            } => Diagnostic::error(ErrorCode::E2003)
-                .with_message(format!("cannot find `{item}` in module `{module}`"))
-                .with_label(*span, "not found in module"),
+            SemanticProblem::ImportedItemNotFound { span, item, module } => {
+                Diagnostic::error(ErrorCode::E2003)
+                    .with_message(format!("cannot find `{item}` in module `{module}`"))
+                    .with_label(*span, "not found in module")
+            }
 
             SemanticProblem::ImmutableMutation {
                 span,
@@ -114,9 +114,7 @@ impl Render for SemanticProblem {
 
             SemanticProblem::InfiniteRecursion { span, func_name } => {
                 Diagnostic::warning(ErrorCode::E3003)
-                    .with_message(format!(
-                        "function `@{func_name}` may recurse infinitely"
-                    ))
+                    .with_message(format!("function `@{func_name}` may recurse infinitely"))
                     .with_label(*span, "unconditional recursion")
                     .with_suggestion("add a base case to stop recursion")
             }
@@ -131,11 +129,9 @@ impl Render for SemanticProblem {
                 diag
             }
 
-            SemanticProblem::UnusedFunction { span, name } => {
-                Diagnostic::warning(ErrorCode::E3003)
-                    .with_message(format!("unused function `@{name}`"))
-                    .with_label(*span, "never called")
-            }
+            SemanticProblem::UnusedFunction { span, name } => Diagnostic::warning(ErrorCode::E3003)
+                .with_message(format!("unused function `@{name}`"))
+                .with_label(*span, "never called"),
 
             SemanticProblem::UnreachableCode { span } => Diagnostic::warning(ErrorCode::E3003)
                 .with_message("unreachable code")

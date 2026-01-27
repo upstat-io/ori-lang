@@ -50,7 +50,6 @@ pub type FunctionValFn = fn(&[Value]) -> Result<Value, String>;
 #[derive(Clone)]
 pub enum Value {
     // Primitives (inline, no heap allocation)
-
     /// Integer value (uses `ScalarInt` to prevent unchecked arithmetic).
     Int(ScalarInt),
     /// Floating-point value.
@@ -69,7 +68,6 @@ pub enum Value {
     Size(u64),
 
     // Heap Types (use Heap<T> for enforced Arc usage)
-
     /// String value.
     Str(Heap<String>),
     /// List of values.
@@ -80,7 +78,6 @@ pub enum Value {
     Tuple(Heap<Vec<Value>>),
 
     // Algebraic Types (use Heap<T> for consistency)
-
     /// Option: Some(value).
     Some(Heap<Value>),
     /// Option: None.
@@ -91,7 +88,6 @@ pub enum Value {
     Err(Heap<Value>),
 
     // Composite Types
-
     /// Struct instance.
     Struct(StructValue),
     /// Function value (closure).
@@ -108,7 +104,6 @@ pub enum Value {
     Range(RangeValue),
 
     // Error Recovery
-
     /// Error value for error recovery.
     Error(String),
 }
@@ -501,11 +496,13 @@ impl PartialEq for Value {
             (Value::MemoizedFunction(a), Value::MemoizedFunction(b)) => a.func.body == b.func.body,
             (Value::Struct(a), Value::Struct(b)) => {
                 a.type_name == b.type_name
-                    && a.fields.iter().zip(b.fields.iter()).all(|(av, bv)| av == bv)
+                    && a.fields
+                        .iter()
+                        .zip(b.fields.iter())
+                        .all(|(av, bv)| av == bv)
             }
             (Value::Map(a), Value::Map(b)) => {
-                a.len() == b.len()
-                    && a.iter().all(|(k, v)| b.get(k).is_some_and(|bv| v == bv))
+                a.len() == b.len() && a.iter().all(|(k, v)| b.get(k).is_some_and(|bv| v == bv))
             }
             _ => false,
         }
@@ -675,7 +672,10 @@ mod tests {
 
         // Equal values must have equal hashes
         assert_eq!(hash_value(&Value::int(42)), hash_value(&Value::int(42)));
-        assert_eq!(hash_value(&Value::Bool(true)), hash_value(&Value::Bool(true)));
+        assert_eq!(
+            hash_value(&Value::Bool(true)),
+            hash_value(&Value::Bool(true))
+        );
         assert_eq!(hash_value(&Value::Void), hash_value(&Value::Void));
         assert_eq!(hash_value(&Value::None), hash_value(&Value::None));
 
@@ -696,7 +696,10 @@ mod tests {
     }
 
     #[test]
-    #[expect(clippy::mutable_key_type, reason = "Value hash is based on immutable content")]
+    #[expect(
+        clippy::mutable_key_type,
+        reason = "Value hash is based on immutable content"
+    )]
     fn test_value_in_hashset() {
         use std::collections::HashSet;
 
@@ -712,7 +715,10 @@ mod tests {
     }
 
     #[test]
-    #[expect(clippy::mutable_key_type, reason = "Value hash is based on immutable content")]
+    #[expect(
+        clippy::mutable_key_type,
+        reason = "Value hash is based on immutable content"
+    )]
     fn test_value_as_hashmap_key() {
         use std::collections::HashMap;
 
@@ -744,6 +750,9 @@ mod tests {
 
         // At least some should differ (collision is possible but unlikely)
         let all_same = int_hash == bool_hash && bool_hash == str_hash;
-        assert!(!all_same, "Different types should generally have different hashes");
+        assert!(
+            !all_same,
+            "Different types should generally have different hashes"
+        );
     }
 }

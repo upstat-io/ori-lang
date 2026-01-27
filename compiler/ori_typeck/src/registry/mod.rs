@@ -17,8 +17,8 @@ use ori_types::{SharedTypeInterner, Type, TypeInterner};
 use std::collections::HashMap;
 
 pub use trait_registry::{
-    TraitRegistry, TraitEntry, TraitMethodDef, TraitAssocTypeDef,
-    ImplEntry, ImplMethodDef, ImplAssocTypeDef, MethodLookup, CoherenceError,
+    CoherenceError, ImplAssocTypeDef, ImplEntry, ImplMethodDef, MethodLookup, TraitAssocTypeDef,
+    TraitEntry, TraitMethodDef, TraitRegistry,
 };
 
 /// Kind of user-defined type.
@@ -27,17 +27,11 @@ pub use trait_registry::{
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum TypeKind {
     /// Struct type with named fields.
-    Struct {
-        fields: Vec<(Name, TypeId)>,
-    },
+    Struct { fields: Vec<(Name, TypeId)> },
     /// Sum type (enum) with variants.
-    Enum {
-        variants: Vec<VariantDef>,
-    },
+    Enum { variants: Vec<VariantDef> },
     /// Type alias (newtype).
-    Alias {
-        target: TypeId,
-    },
+    Alias { target: TypeId },
 }
 
 /// Variant definition for enum types.
@@ -155,7 +149,13 @@ impl TypeRegistry {
         type_params: Vec<Name>,
     ) -> TypeId {
         let type_id = self.next_id();
-        let entry = TypeEntry { name, type_id, kind, span, type_params };
+        let entry = TypeEntry {
+            name,
+            type_id,
+            kind,
+            span,
+            type_params,
+        };
         self.types_by_name.insert(name, entry.clone());
         self.types_by_id.insert(type_id, entry);
         type_id
@@ -176,7 +176,12 @@ impl TypeRegistry {
             .into_iter()
             .map(|(name, ty)| (name, ty.to_type_id(&self.interner)))
             .collect();
-        self.register_entry(name, TypeKind::Struct { fields: field_ids }, span, type_params)
+        self.register_entry(
+            name,
+            TypeKind::Struct { fields: field_ids },
+            span,
+            type_params,
+        )
     }
 
     /// Register an enum type.
@@ -197,10 +202,20 @@ impl TypeRegistry {
                     .into_iter()
                     .map(|(fname, ty)| (fname, ty.to_type_id(&self.interner)))
                     .collect();
-                VariantDef { name: vname, fields: field_ids }
+                VariantDef {
+                    name: vname,
+                    fields: field_ids,
+                }
             })
             .collect();
-        self.register_entry(name, TypeKind::Enum { variants: variant_defs }, span, type_params)
+        self.register_entry(
+            name,
+            TypeKind::Enum {
+                variants: variant_defs,
+            },
+            span,
+            type_params,
+        )
     }
 
     /// Register a type alias.
@@ -215,7 +230,12 @@ impl TypeRegistry {
         type_params: Vec<Name>,
     ) -> TypeId {
         let target_id = target.to_type_id(&self.interner);
-        self.register_entry(name, TypeKind::Alias { target: target_id }, span, type_params)
+        self.register_entry(
+            name,
+            TypeKind::Alias { target: target_id },
+            span,
+            type_params,
+        )
     }
 
     /// Look up a type entry by name.
@@ -253,13 +273,9 @@ impl TypeRegistry {
     /// For struct and enum types, returns `Type::Named(name)`.
     /// For aliases, returns the target type directly (converted from `TypeId`).
     pub fn to_type(&self, type_id: TypeId) -> Option<Type> {
-        self.get_by_id(type_id).map(|entry| {
-            match &entry.kind {
-                TypeKind::Struct { .. } | TypeKind::Enum { .. } => {
-                    Type::Named(entry.name)
-                }
-                TypeKind::Alias { target } => self.interner.to_type(*target),
-            }
+        self.get_by_id(type_id).map(|entry| match &entry.kind {
+            TypeKind::Struct { .. } | TypeKind::Enum { .. } => Type::Named(entry.name),
+            TypeKind::Alias { target } => self.interner.to_type(*target),
         })
     }
 
@@ -267,35 +283,35 @@ impl TypeRegistry {
     ///
     /// Returns the fields as (Name, Type) pairs by converting from `TypeId`.
     pub fn get_struct_fields(&self, type_id: TypeId) -> Option<Vec<(Name, Type)>> {
-        self.get_by_id(type_id).and_then(|entry| {
-            match &entry.kind {
-                TypeKind::Struct { fields } => {
-                    Some(fields.iter()
-                        .map(|(name, ty_id)| (*name, self.interner.to_type(*ty_id)))
-                        .collect())
-                }
-                _ => None,
-            }
+        self.get_by_id(type_id).and_then(|entry| match &entry.kind {
+            TypeKind::Struct { fields } => Some(
+                fields
+                    .iter()
+                    .map(|(name, ty_id)| (*name, self.interner.to_type(*ty_id)))
+                    .collect(),
+            ),
+            _ => None,
         })
     }
 
     /// Get field types for an enum variant.
     ///
     /// Returns the fields as (Name, Type) pairs by converting from `TypeId`.
-    pub fn get_variant_fields(&self, type_id: TypeId, variant_name: Name) -> Option<Vec<(Name, Type)>> {
-        self.get_by_id(type_id).and_then(|entry| {
-            match &entry.kind {
-                TypeKind::Enum { variants } => {
-                    variants.iter()
-                        .find(|v| v.name == variant_name)
-                        .map(|v| {
-                            v.fields.iter()
-                                .map(|(name, ty_id)| (*name, self.interner.to_type(*ty_id)))
-                                .collect()
-                        })
-                }
-                _ => None,
+    pub fn get_variant_fields(
+        &self,
+        type_id: TypeId,
+        variant_name: Name,
+    ) -> Option<Vec<(Name, Type)>> {
+        self.get_by_id(type_id).and_then(|entry| match &entry.kind {
+            TypeKind::Enum { variants } => {
+                variants.iter().find(|v| v.name == variant_name).map(|v| {
+                    v.fields
+                        .iter()
+                        .map(|(name, ty_id)| (*name, self.interner.to_type(*ty_id)))
+                        .collect()
+                })
             }
+            _ => None,
         })
     }
 }
@@ -326,10 +342,7 @@ mod tests {
         let x_name = interner.intern("x");
         let y_name = interner.intern("y");
 
-        let fields = vec![
-            (x_name, Type::Int),
-            (y_name, Type::Int),
-        ];
+        let fields = vec![(x_name, Type::Int), (y_name, Type::Int)];
 
         let type_id = registry.register_struct(point_name, fields.clone(), make_span(), vec![]);
 
@@ -340,7 +353,10 @@ mod tests {
         assert_eq!(entry.name, point_name);
         assert_eq!(entry.type_id, type_id);
 
-        if let TypeKind::Struct { fields: entry_fields } = &entry.kind {
+        if let TypeKind::Struct {
+            fields: entry_fields,
+        } = &entry.kind
+        {
             assert_eq!(entry_fields.len(), 2);
             assert_eq!(entry_fields[0].0, x_name);
             // Fields are now stored as TypeId
@@ -372,7 +388,10 @@ mod tests {
         assert!(registry.contains(result_name));
 
         let entry = registry.get_by_id(type_id).unwrap();
-        if let TypeKind::Enum { variants: entry_variants } = &entry.kind {
+        if let TypeKind::Enum {
+            variants: entry_variants,
+        } = &entry.kind
+        {
             assert_eq!(entry_variants.len(), 2);
             assert_eq!(entry_variants[0].name, ok_name);
         } else {
@@ -449,12 +468,7 @@ mod tests {
         let container_name = interner.intern("Container");
         let t_name = interner.intern("T");
 
-        let type_id = registry.register_struct(
-            container_name,
-            vec![],
-            make_span(),
-            vec![t_name],
-        );
+        let type_id = registry.register_struct(container_name, vec![], make_span(), vec![t_name]);
 
         let entry = registry.get_by_id(type_id).unwrap();
         assert_eq!(entry.type_params.len(), 1);

@@ -7,10 +7,10 @@
 
 use std::fmt;
 
-use crate::{Name, Span, ExprId, Spanned, ParsedType};
-use super::super::ranges::{ParamRange, GenericParamRange};
-use super::traits::WhereClause;
+use super::super::ranges::{GenericParamRange, ParamRange};
 use super::imports::UseDef;
+use super::traits::WhereClause;
+use crate::{ExprId, Name, ParsedType, Span, Spanned};
 
 /// Parameter in a function or lambda.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
@@ -105,8 +105,10 @@ impl ExpectedError {
 
     /// Check if this specification is empty (no requirements).
     pub fn is_empty(&self) -> bool {
-        self.message.is_none() && self.code.is_none()
-            && self.line.is_none() && self.column.is_none()
+        self.message.is_none()
+            && self.code.is_none()
+            && self.line.is_none()
+            && self.column.is_none()
     }
 }
 
@@ -142,8 +144,11 @@ impl fmt::Debug for TestDef {
         write!(
             f,
             "TestDef {{ name: {:?}, targets: {:?}, skip: {:?}, expected_errors: {}, fail: {:?} }}",
-            self.name, self.targets, self.skip_reason,
-            self.expected_errors.len(), self.fail_expected
+            self.name,
+            self.targets,
+            self.skip_reason,
+            self.expected_errors.len(),
+            self.fail_expected
         )
     }
 }

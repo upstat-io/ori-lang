@@ -2,9 +2,9 @@
 //!
 //! Measures type inference and checking performance.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use oric::{CompilerDb, SourceFile};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use oric::query::typed;
+use oric::{CompilerDb, SourceFile};
 use std::path::PathBuf;
 
 /// Simple function with type annotations
@@ -46,9 +46,7 @@ const LIST_OPERATIONS: &str = r"
 /// Nested let bindings
 #[allow(dead_code)]
 fn generate_let_chain(n: usize) -> String {
-    let lets: Vec<String> = (0..n)
-        .map(|i| format!("let x{i}: int = {i}"))
-        .collect();
+    let lets: Vec<String> = (0..n).map(|i| format!("let x{i}: int = {i}")).collect();
     let final_expr = format!("x{}", n - 1);
     format!(
         "@chain () -> int = run({})",
@@ -64,7 +62,8 @@ fn bench_typeck_annotated(c: &mut Criterion) {
 
     c.bench_function("typeck/annotated_function", |b| {
         b.iter(|| {
-            let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), TYPED_FUNCTION.to_string());
+            let file =
+                SourceFile::new(&db, PathBuf::from("/bench.ori"), TYPED_FUNCTION.to_string());
             black_box(typed(&db, file));
         });
     });
@@ -75,7 +74,11 @@ fn bench_typeck_inferred(c: &mut Criterion) {
 
     c.bench_function("typeck/inferred_function", |b| {
         b.iter(|| {
-            let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), INFERRED_FUNCTION.to_string());
+            let file = SourceFile::new(
+                &db,
+                PathBuf::from("/bench.ori"),
+                INFERRED_FUNCTION.to_string(),
+            );
             black_box(typed(&db, file));
         });
     });
@@ -86,7 +89,8 @@ fn bench_typeck_mixed(c: &mut Criterion) {
 
     c.bench_function("typeck/mixed_annotations", |b| {
         b.iter(|| {
-            let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), MIXED_FUNCTION.to_string());
+            let file =
+                SourceFile::new(&db, PathBuf::from("/bench.ori"), MIXED_FUNCTION.to_string());
             black_box(typed(&db, file));
         });
     });
@@ -97,7 +101,11 @@ fn bench_typeck_complex(c: &mut Criterion) {
 
     c.bench_function("typeck/complex_inference", |b| {
         b.iter(|| {
-            let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), COMPLEX_INFERENCE.to_string());
+            let file = SourceFile::new(
+                &db,
+                PathBuf::from("/bench.ori"),
+                COMPLEX_INFERENCE.to_string(),
+            );
             black_box(typed(&db, file));
         });
     });
@@ -108,7 +116,11 @@ fn bench_typeck_list(c: &mut Criterion) {
 
     c.bench_function("typeck/list_operations", |b| {
         b.iter(|| {
-            let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), LIST_OPERATIONS.to_string());
+            let file = SourceFile::new(
+                &db,
+                PathBuf::from("/bench.ori"),
+                LIST_OPERATIONS.to_string(),
+            );
             black_box(typed(&db, file));
         });
     });

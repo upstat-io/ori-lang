@@ -154,7 +154,7 @@ pub fn format_actual(actual: &TypeCheckError, source: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::{Span, SharedInterner};
+    use crate::ir::{SharedInterner, Span};
     use ori_diagnostic::ErrorCode;
 
     fn make_error(code: ErrorCode, message: &str, offset: u32) -> TypeCheckError {

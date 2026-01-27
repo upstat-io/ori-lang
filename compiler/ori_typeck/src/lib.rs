@@ -15,36 +15,47 @@
 //! - `registry`: Type and trait registries
 //! - `operators`: Binary operator type checking
 
-mod stack;
-mod shared;
 pub mod checker;
 pub mod derives;
 pub mod infer;
 pub mod operators;
 pub mod registry;
+mod shared;
+mod stack;
 
-pub use stack::ensure_sufficient_stack;
 pub use shared::SharedRegistry;
+pub use stack::ensure_sufficient_stack;
 
 // Re-export registry types
 pub use registry::{
-    TypeRegistry, TypeEntry, TypeKind, VariantDef,
-    TraitRegistry, TraitEntry, TraitMethodDef, TraitAssocTypeDef,
-    ImplEntry, ImplMethodDef, ImplAssocTypeDef, MethodLookup, CoherenceError,
+    CoherenceError, ImplAssocTypeDef, ImplEntry, ImplMethodDef, MethodLookup, TraitAssocTypeDef,
+    TraitEntry, TraitMethodDef, TraitRegistry, TypeEntry, TypeKind, TypeRegistry, VariantDef,
 };
 
 // Re-export operator types
-pub use operators::{TypeOpResult, TypeOpError, check_binary_operation};
+pub use operators::{check_binary_operation, TypeOpError, TypeOpResult};
 
 // Re-export checker types
 pub use checker::{
-    TypeChecker, TypeCheckerBuilder,
-    CheckContext, InferenceState, Registries, DiagnosticState, ScopeContext,
-    SavedCapabilityContext, SavedImplContext,
-    TypedModule, FunctionType, GenericBound, WhereConstraint, TypeCheckError,
     add_pattern_bindings,
     // Convenience functions
-    type_check, type_check_with_source, type_check_with_config,
+    type_check,
+    type_check_with_config,
+    type_check_with_source,
+    CheckContext,
+    DiagnosticState,
+    FunctionType,
+    GenericBound,
+    InferenceState,
+    Registries,
+    SavedCapabilityContext,
+    SavedImplContext,
+    ScopeContext,
+    TypeCheckError,
+    TypeChecker,
+    TypeCheckerBuilder,
+    TypedModule,
+    WhereConstraint,
 };
 
 // Re-export import support types

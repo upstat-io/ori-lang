@@ -7,17 +7,13 @@ use ori_ir::{
     ExprArena, ExprId,
 };
 
-use crate::context::CodegenContext;
 use super::types::CTypeMapper;
+use crate::context::CodegenContext;
 
 /// Generate C code for an expression.
 ///
 /// Returns the C expression string that can be used in assignments, etc.
-pub fn emit_expr(
-    ctx: &mut CodegenContext<'_>,
-    arena: &ExprArena,
-    id: ExprId,
-) -> String {
+pub fn emit_expr(ctx: &mut CodegenContext<'_>, arena: &ExprArena, id: ExprId) -> String {
     let expr = arena.get_expr(id);
 
     match &expr.kind {
@@ -28,7 +24,12 @@ pub fn emit_expr(
             if f.is_nan() {
                 "NAN".to_string()
             } else if f.is_infinite() {
-                if f.is_sign_positive() { "INFINITY" } else { "-INFINITY" }.to_string()
+                if f.is_sign_positive() {
+                    "INFINITY"
+                } else {
+                    "-INFINITY"
+                }
+                .to_string()
             } else {
                 format!("{f:?}") // Use debug format to preserve precision
             }
@@ -122,7 +123,11 @@ pub fn emit_expr(
         }
 
         // Method calls
-        ExprKind::MethodCall { receiver, method, args } => {
+        ExprKind::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
             let method_name = ctx.resolve_name(*method).to_string();
             let recv_expr = emit_expr(ctx, arena, *receiver);
             let args_list: Vec<ExprId> = arena.get_expr_list(*args).to_vec();
@@ -140,7 +145,11 @@ pub fn emit_expr(
             format!("ori_{method_name}({all_args})")
         }
 
-        ExprKind::MethodCallNamed { receiver, method, args } => {
+        ExprKind::MethodCallNamed {
+            receiver,
+            method,
+            args,
+        } => {
             let method_name = ctx.resolve_name(*method).to_string();
             let recv_expr = emit_expr(ctx, arena, *receiver);
             let args_list: Vec<_> = arena.get_call_args(*args).iter().map(|a| a.value).collect();
@@ -173,7 +182,11 @@ pub fn emit_expr(
         }
 
         // Conditionals
-        ExprKind::If { cond, then_branch, else_branch } => {
+        ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             let cond_expr = emit_expr(ctx, arena, *cond);
             let then_expr = emit_expr(ctx, arena, *then_branch);
 
@@ -337,7 +350,11 @@ pub fn emit_expr(
         }
 
         // Range expression
-        ExprKind::Range { start, end, inclusive } => {
+        ExprKind::Range {
+            start,
+            end,
+            inclusive,
+        } => {
             let start_expr = start
                 .map(|s| emit_expr(ctx, arena, s))
                 .unwrap_or_else(|| "0".to_string());
@@ -451,17 +468,19 @@ pub fn emit_expr(
         ExprKind::FunctionSeq(seq) => {
             // Generate as statement expression
             match seq {
-                ori_ir::ast::FunctionSeq::Run { bindings, result, .. }
-                | ori_ir::ast::FunctionSeq::Try { bindings, result, .. } => {
+                ori_ir::ast::FunctionSeq::Run {
+                    bindings, result, ..
+                }
+                | ori_ir::ast::FunctionSeq::Try {
+                    bindings, result, ..
+                } => {
                     let _ = arena.get_seq_bindings(*bindings);
                     emit_expr(ctx, arena, *result)
                 }
                 ori_ir::ast::FunctionSeq::Match { scrutinee, .. } => {
                     emit_expr(ctx, arena, *scrutinee)
                 }
-                ori_ir::ast::FunctionSeq::ForPattern { over, .. } => {
-                    emit_expr(ctx, arena, *over)
-                }
+                ori_ir::ast::FunctionSeq::ForPattern { over, .. } => emit_expr(ctx, arena, *over),
             }
         }
 
@@ -480,11 +499,7 @@ pub fn emit_expr(
 ///
 /// This is separate from `emit_expr` because callees don't need ARC -
 /// function references are just pointers that don't need retain/release.
-fn emit_callee(
-    ctx: &mut CodegenContext<'_>,
-    arena: &ExprArena,
-    id: ExprId,
-) -> String {
+fn emit_callee(ctx: &mut CodegenContext<'_>, arena: &ExprArena, id: ExprId) -> String {
     let expr = arena.get_expr(id);
 
     match &expr.kind {
@@ -601,7 +616,13 @@ mod tests {
 
     #[test]
     fn test_string_literal() {
-        assert_eq!(emit_string_literal("hello"), "ori_string_from_cstr(\"hello\")");
-        assert_eq!(emit_string_literal("line\nbreak"), "ori_string_from_cstr(\"line\\nbreak\")");
+        assert_eq!(
+            emit_string_literal("hello"),
+            "ori_string_from_cstr(\"hello\")"
+        );
+        assert_eq!(
+            emit_string_literal("line\nbreak"),
+            "ori_string_from_cstr(\"line\\nbreak\")"
+        );
     }
 }

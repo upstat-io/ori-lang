@@ -23,7 +23,11 @@ impl BuiltinMethodHandler for ResultMethodHandler {
         _args: &[Type],
         _span: Span,
     ) -> MethodTypeResult {
-        let Type::Result { ok: ok_ty, err: err_ty } = receiver_ty else {
+        let Type::Result {
+            ok: ok_ty,
+            err: err_ty,
+        } = receiver_ty
+        else {
             unreachable!("handles() verified type is Result");
         };
 

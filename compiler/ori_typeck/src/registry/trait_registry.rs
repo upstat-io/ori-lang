@@ -207,7 +207,8 @@ impl TraitRegistry {
             let key = (trait_name, type_key);
             if let Some(existing) = self.trait_impls.get(&key) {
                 return Err(CoherenceError {
-                    message: "conflicting implementation: trait already implemented for this type".to_string(),
+                    message: "conflicting implementation: trait already implemented for this type"
+                        .to_string(),
                     span: entry.span,
                     existing_span: existing.span,
                 });
@@ -223,7 +224,9 @@ impl TraitRegistry {
                 for new_method in &entry.methods {
                     if existing_names.contains(&new_method.name) {
                         return Err(CoherenceError {
-                            message: "conflicting implementation: method already defined for this type".to_string(),
+                            message:
+                                "conflicting implementation: method already defined for this type"
+                                    .to_string(),
                             span: entry.span,
                             existing_span: existing.span,
                         });
@@ -266,7 +269,11 @@ impl TraitRegistry {
                 return Some(MethodLookup {
                     trait_name: None,
                     method_name,
-                    params: method.params.iter().map(|id| self.interner.to_type(*id)).collect(),
+                    params: method
+                        .params
+                        .iter()
+                        .map(|id| self.interner.to_type(*id))
+                        .collect(),
                     return_ty: self.interner.to_type(method.return_ty),
                 });
             }
@@ -279,7 +286,11 @@ impl TraitRegistry {
                     return Some(MethodLookup {
                         trait_name: Some(*trait_name),
                         method_name,
-                        params: method.params.iter().map(|id| self.interner.to_type(*id)).collect(),
+                        params: method
+                            .params
+                            .iter()
+                            .map(|id| self.interner.to_type(*id))
+                            .collect(),
                         return_ty: self.interner.to_type(method.return_ty),
                     });
                 }
@@ -293,7 +304,11 @@ impl TraitRegistry {
                     return Some(MethodLookup {
                         trait_name: Some(*trait_name),
                         method_name,
-                        params: method.params.iter().map(|id| self.interner.to_type(*id)).collect(),
+                        params: method
+                            .params
+                            .iter()
+                            .map(|id| self.interner.to_type(*id))
+                            .collect(),
                         return_ty: self.interner.to_type(method.return_ty),
                     });
                 }
@@ -333,7 +348,8 @@ impl TraitRegistry {
         let impl_entry = self.get_trait_impl(trait_name, self_ty)?;
 
         // Find the associated type definition and convert TypeId to Type
-        impl_entry.assoc_types
+        impl_entry
+            .assoc_types
             .iter()
             .find(|at| at.name == assoc_name)
             .map(|at| self.interner.to_type(at.ty))
@@ -346,18 +362,18 @@ impl TraitRegistry {
     ///
     /// This is used when we don't know which trait defines the associated type,
     /// such as when resolving `T.Item` from a where clause.
-    pub fn lookup_assoc_type_by_name(
-        &self,
-        type_name: Name,
-        assoc_name: Name,
-    ) -> Option<Type> {
+    pub fn lookup_assoc_type_by_name(&self, type_name: Name, assoc_name: Name) -> Option<Type> {
         let target_type = Type::Named(type_name);
 
         // Search all trait impls for this type
         for ((_, impl_type), impl_entry) in &self.trait_impls {
             if impl_type == &target_type {
                 // Check if this impl has the associated type we're looking for
-                if let Some(assoc_def) = impl_entry.assoc_types.iter().find(|at| at.name == assoc_name) {
+                if let Some(assoc_def) = impl_entry
+                    .assoc_types
+                    .iter()
+                    .find(|at| at.name == assoc_name)
+                {
                     return Some(self.interner.to_type(assoc_def.ty));
                 }
             }
@@ -534,7 +550,9 @@ mod tests {
         registry.register_impl(inherent_entry).unwrap();
 
         // Lookup should find inherent method (no trait)
-        let lookup = registry.lookup_method(&Type::Named(point), describe).unwrap();
+        let lookup = registry
+            .lookup_method(&Type::Named(point), describe)
+            .unwrap();
         assert!(lookup.trait_name.is_none());
     }
 
@@ -674,7 +692,11 @@ mod tests {
         assert!(registry.register_impl(impl2).is_ok());
 
         // Both methods should be accessible
-        assert!(registry.lookup_method(&Type::Named(point), method1).is_some());
-        assert!(registry.lookup_method(&Type::Named(point), method2).is_some());
+        assert!(registry
+            .lookup_method(&Type::Named(point), method1)
+            .is_some());
+        assert!(registry
+            .lookup_method(&Type::Named(point), method2)
+            .is_some());
     }
 }

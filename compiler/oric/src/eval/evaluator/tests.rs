@@ -4,12 +4,12 @@
 
 use super::{Evaluator, EvaluatorBuilder};
 use crate::db::CompilerDb;
-use crate::ir::{Span, SharedArena, SharedInterner, BinaryOp, ExprArena};
+use crate::eval::{EvalError, StructValue, Value};
 use crate::ir::ast::{Expr, ExprKind};
+use crate::ir::{BinaryOp, ExprArena, SharedArena, SharedInterner, Span};
 use ori_eval::SharedMutableRegistry;
-use crate::eval::{Value, StructValue, EvalError};
-use std::collections::HashMap;
 use ori_eval::{UserMethod, UserMethodRegistry};
+use std::collections::HashMap;
 
 #[test]
 fn test_eval_error() {
@@ -38,14 +38,21 @@ fn test_user_method_dispatch() {
     let self_ref = arena.alloc_expr(Expr::new(ExprKind::Ident(self_name), Span::new(0, 4)));
     // Build: self.x
     let self_x = arena.alloc_expr(Expr::new(
-        ExprKind::Field { receiver: self_ref, field: x_name },
+        ExprKind::Field {
+            receiver: self_ref,
+            field: x_name,
+        },
         Span::new(0, 6),
     ));
     // Build: 2
     let two = arena.alloc_expr(Expr::new(ExprKind::Int(2), Span::new(9, 10)));
     // Build: self.x * 2
     let body = arena.alloc_expr(Expr::new(
-        ExprKind::Binary { left: self_x, op: BinaryOp::Mul, right: two },
+        ExprKind::Binary {
+            left: self_x,
+            op: BinaryOp::Mul,
+            right: two,
+        },
         Span::new(0, 10),
     ));
 
@@ -88,7 +95,10 @@ fn test_user_method_with_self_access() {
     let self_ref = arena.alloc_expr(Expr::new(ExprKind::Ident(self_name), Span::new(0, 4)));
     // Build: self.x
     let body = arena.alloc_expr(Expr::new(
-        ExprKind::Field { receiver: self_ref, field: x_name },
+        ExprKind::Field {
+            receiver: self_ref,
+            field: x_name,
+        },
         Span::new(0, 6),
     ));
 
@@ -132,14 +142,21 @@ fn test_user_method_with_args() {
     let self_ref = arena.alloc_expr(Expr::new(ExprKind::Ident(self_name), Span::new(0, 4)));
     // Build: self.x
     let self_x = arena.alloc_expr(Expr::new(
-        ExprKind::Field { receiver: self_ref, field: x_name },
+        ExprKind::Field {
+            receiver: self_ref,
+            field: x_name,
+        },
         Span::new(0, 6),
     ));
     // Build: n
     let n_ref = arena.alloc_expr(Expr::new(ExprKind::Ident(n_name), Span::new(7, 8)));
     // Build: self.x + n
     let body = arena.alloc_expr(Expr::new(
-        ExprKind::Binary { left: self_x, op: BinaryOp::Add, right: n_ref },
+        ExprKind::Binary {
+            left: self_x,
+            op: BinaryOp::Add,
+            right: n_ref,
+        },
         Span::new(0, 10),
     ));
 

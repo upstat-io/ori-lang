@@ -1,10 +1,10 @@
 //! Generic parameters, bounds, and where clause parsing.
 
+use crate::{ParseError, Parser};
 use ori_ir::{
     CapabilityRef, GenericParam, GenericParamRange, Name, ParsedType, TokenKind, TraitBound,
     WhereClause,
 };
-use crate::{ParseError, Parser};
 
 impl Parser<'_> {
     /// Parse a type, accepting all type forms (primitives, named, compounds).

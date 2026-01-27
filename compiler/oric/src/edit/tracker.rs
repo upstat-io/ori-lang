@@ -194,7 +194,10 @@ impl ChangeTracker {
         let mut sorted = self.edits.clone();
         sorted.sort_by(|a, b| {
             // Sort by start position descending, then end position descending
-            b.span.start.cmp(&a.span.start).then(b.span.end.cmp(&a.span.end))
+            b.span
+                .start
+                .cmp(&a.span.start)
+                .then(b.span.end.cmp(&a.span.end))
         });
 
         let mut result = source.to_string();

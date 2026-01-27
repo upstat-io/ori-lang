@@ -5,10 +5,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{
-    parse_macro_input, DeriveInput, Data, Fields, Field, Ident,
-    LitStr,
-};
+use syn::{parse_macro_input, Data, DeriveInput, Field, Fields, Ident, LitStr};
 
 /// Main entry point for the Diagnostic derive macro.
 pub fn derive_diagnostic(input: TokenStream) -> TokenStream {
@@ -30,15 +27,19 @@ fn derive_diagnostic_impl(input: &DeriveInput) -> syn::Result<TokenStream2> {
     let fields = match &input.data {
         Data::Struct(data) => match &data.fields {
             Fields::Named(fields) => &fields.named,
-            _ => return Err(syn::Error::new_spanned(
-                input,
-                "Diagnostic derive only supports structs with named fields"
-            )),
+            _ => {
+                return Err(syn::Error::new_spanned(
+                    input,
+                    "Diagnostic derive only supports structs with named fields",
+                ))
+            }
         },
-        _ => return Err(syn::Error::new_spanned(
-            input,
-            "Diagnostic derive only supports structs"
-        )),
+        _ => {
+            return Err(syn::Error::new_spanned(
+                input,
+                "Diagnostic derive only supports structs",
+            ))
+        }
     };
 
     // Find primary span field
@@ -107,7 +108,7 @@ fn parse_diag_attribute(input: &DeriveInput) -> syn::Result<(Ident, LitStr)> {
 
     Err(syn::Error::new_spanned(
         input,
-        "missing #[diag(CODE, \"message\")] attribute"
+        "missing #[diag(CODE, \"message\")] attribute",
     ))
 }
 
@@ -118,7 +119,9 @@ fn find_primary_span_field<'a>(
     for field in fields {
         for attr in &field.attrs {
             if attr.path().is_ident("primary_span") {
-                let field_name = field.ident.as_ref()
+                let field_name = field
+                    .ident
+                    .as_ref()
                     .ok_or_else(|| syn::Error::new_spanned(field, "expected named field"))?;
 
                 // Check if there's also a label on this field
@@ -139,7 +142,7 @@ fn find_primary_span_field<'a>(
 
     Err(syn::Error::new(
         proc_macro2::Span::call_site(),
-        "no field marked with #[primary_span]"
+        "no field marked with #[primary_span]",
     ))
 }
 
@@ -162,14 +165,19 @@ fn generate_label_additions<'a>(
 
     for field in fields {
         // Skip primary_span fields (already handled)
-        let is_primary = field.attrs.iter().any(|a| a.path().is_ident("primary_span"));
+        let is_primary = field
+            .attrs
+            .iter()
+            .any(|a| a.path().is_ident("primary_span"));
         if is_primary {
             continue;
         }
 
         for attr in &field.attrs {
             if attr.path().is_ident("label") {
-                let field_name = field.ident.as_ref()
+                let field_name = field
+                    .ident
+                    .as_ref()
                     .ok_or_else(|| syn::Error::new_spanned(field, "expected named field"))?;
                 let msg: LitStr = attr.parse_args()?;
 
@@ -212,7 +220,9 @@ fn generate_suggestion_additions<'a>(
     for field in fields {
         for attr in &field.attrs {
             if attr.path().is_ident("suggestion") {
-                let field_name = field.ident.as_ref()
+                let field_name = field
+                    .ident
+                    .as_ref()
                     .ok_or_else(|| syn::Error::new_spanned(field, "expected named field"))?;
 
                 // Parse suggestion attributes
@@ -286,7 +296,8 @@ fn parse_suggestion_attr(attr: &syn::Attribute) -> SuggestionParsed {
             // First argument is the message
             Err(meta.error("unknown suggestion attribute"))
         }
-    }).ok();
+    })
+    .ok();
 
     // Try parsing as just a string (the message)
     if let Ok(msg) = attr.parse_args::<LitStr>() {

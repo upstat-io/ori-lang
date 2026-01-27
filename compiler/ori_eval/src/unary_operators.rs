@@ -14,7 +14,10 @@ use ori_patterns::{integer_overflow, EvalError, EvalResult, Value};
 pub fn evaluate_unary(value: Value, op: UnaryOp) -> EvalResult {
     match (&value, op) {
         // Numeric negation
-        (Value::Int(n), UnaryOp::Neg) => n.checked_neg().map(Value::Int).ok_or_else(|| integer_overflow("negation")),
+        (Value::Int(n), UnaryOp::Neg) => n
+            .checked_neg()
+            .map(Value::Int)
+            .ok_or_else(|| integer_overflow("negation")),
         (Value::Float(f), UnaryOp::Neg) => Ok(Value::Float(-f)),
 
         // Logical not
@@ -102,7 +105,10 @@ mod tests {
         }
 
         #[test]
-        #[expect(clippy::approx_constant, reason = "Testing float operations, not using PI")]
+        #[expect(
+            clippy::approx_constant,
+            reason = "Testing float operations, not using PI"
+        )]
         fn float_positive() {
             assert_eq!(
                 evaluate_unary(Value::Float(3.14), UnaryOp::Neg).unwrap(),
@@ -111,7 +117,10 @@ mod tests {
         }
 
         #[test]
-        #[expect(clippy::approx_constant, reason = "Testing float operations, not using PI")]
+        #[expect(
+            clippy::approx_constant,
+            reason = "Testing float operations, not using PI"
+        )]
         fn float_negative() {
             assert_eq!(
                 evaluate_unary(Value::Float(-3.14), UnaryOp::Neg).unwrap(),
@@ -481,7 +490,10 @@ mod tests {
         }
 
         #[test]
-        #[expect(clippy::approx_constant, reason = "Testing float operations, not using PI")]
+        #[expect(
+            clippy::approx_constant,
+            reason = "Testing float operations, not using PI"
+        )]
         fn bitwise_not_float_fails() {
             let result = evaluate_unary(Value::Float(3.14), UnaryOp::BitNot);
             assert!(result.is_err());

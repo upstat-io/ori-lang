@@ -11,11 +11,11 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use crate::{Name, Span, ExprId, ExprRange, StmtRange, Spanned, ParsedType};
-use crate::token::{DurationUnit, SizeUnit};
 use super::operators::{BinaryOp, UnaryOp};
-use super::ranges::{ArmRange, MapEntryRange, FieldInitRange, CallArgRange};
-use super::patterns::{BindingPattern, FunctionSeq, FunctionExp};
+use super::patterns::{BindingPattern, FunctionExp, FunctionSeq};
+use super::ranges::{ArmRange, CallArgRange, FieldInitRange, MapEntryRange};
+use crate::token::{DurationUnit, SizeUnit};
+use crate::{ExprId, ExprRange, Name, ParsedType, Span, Spanned, StmtRange};
 
 /// Expression node.
 ///
@@ -77,16 +77,10 @@ pub enum ExprKind {
     Char(char),
 
     /// Duration: 100ms, 5s, 2h
-    Duration {
-        value: u64,
-        unit: DurationUnit,
-    },
+    Duration { value: u64, unit: DurationUnit },
 
     /// Size: 4kb, 10mb
-    Size {
-        value: u64,
-        unit: SizeUnit,
-    },
+    Size { value: u64, unit: SizeUnit },
 
     /// Unit: ()
     Unit,
@@ -114,24 +108,15 @@ pub enum ExprKind {
     },
 
     /// Unary operation: op operand
-    Unary {
-        op: UnaryOp,
-        operand: ExprId,
-    },
+    Unary { op: UnaryOp, operand: ExprId },
 
     /// Function call with positional args: func(arg)
     /// Only valid for single-param functions.
-    Call {
-        func: ExprId,
-        args: ExprRange,
-    },
+    Call { func: ExprId, args: ExprRange },
 
     /// Function call with named args: func(a: 1, b: 2)
     /// Required for multi-param functions.
-    CallNamed {
-        func: ExprId,
-        args: CallArgRange,
-    },
+    CallNamed { func: ExprId, args: CallArgRange },
 
     /// Method call: receiver.method(args...)
     MethodCall {
@@ -148,16 +133,10 @@ pub enum ExprKind {
     },
 
     /// Field access: receiver.field
-    Field {
-        receiver: ExprId,
-        field: Name,
-    },
+    Field { receiver: ExprId, field: Name },
 
     /// Index access: receiver[index]
-    Index {
-        receiver: ExprId,
-        index: ExprId,
-    },
+    Index { receiver: ExprId, index: ExprId },
 
     /// Conditional: if cond then t else e
     If {
@@ -167,10 +146,7 @@ pub enum ExprKind {
     },
 
     /// Match expression (statement form): match value { arms }
-    Match {
-        scrutinee: ExprId,
-        arms: ArmRange,
-    },
+    Match { scrutinee: ExprId, arms: ArmRange },
 
     /// For loop: for x in iter do/yield body
     For {
@@ -182,9 +158,7 @@ pub enum ExprKind {
     },
 
     /// Loop: loop(body)
-    Loop {
-        body: ExprId,
-    },
+    Loop { body: ExprId },
 
     /// Block: { stmts; result }
     Block {
@@ -216,10 +190,7 @@ pub enum ExprKind {
     Map(MapEntryRange),
 
     /// Struct literal: Point { x: 0, y: 0 }
-    Struct {
-        name: Name,
-        fields: FieldInitRange,
-    },
+    Struct { name: Name, fields: FieldInitRange },
 
     /// Tuple: (a, b, c)
     Tuple(ExprRange),
@@ -259,10 +230,7 @@ pub enum ExprKind {
     Try(ExprId),
 
     /// Assignment: target = value
-    Assign {
-        target: ExprId,
-        value: ExprId,
-    },
+    Assign { target: ExprId, value: ExprId },
 
     /// Capability provision: with Http = `RealHttp` { ... } in body
     WithCapability {
@@ -312,10 +280,18 @@ impl fmt::Debug for ExprKind {
             ExprKind::Unary { op, operand } => write!(f, "Unary({op:?}, {operand:?})"),
             ExprKind::Call { func, args } => write!(f, "Call({func:?}, {args:?})"),
             ExprKind::CallNamed { func, args } => write!(f, "CallNamed({func:?}, {args:?})"),
-            ExprKind::MethodCall { receiver, method, args } => {
+            ExprKind::MethodCall {
+                receiver,
+                method,
+                args,
+            } => {
                 write!(f, "MethodCall({receiver:?}, {method:?}, {args:?})")
             }
-            ExprKind::MethodCallNamed { receiver, method, args } => {
+            ExprKind::MethodCallNamed {
+                receiver,
+                method,
+                args,
+            } => {
                 write!(f, "MethodCallNamed({receiver:?}, {method:?}, {args:?})")
             }
             ExprKind::Field { receiver, field } => {
@@ -324,28 +300,54 @@ impl fmt::Debug for ExprKind {
             ExprKind::Index { receiver, index } => {
                 write!(f, "Index({receiver:?}, {index:?})")
             }
-            ExprKind::If { cond, then_branch, else_branch } => {
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
                 write!(f, "If({cond:?}, {then_branch:?}, {else_branch:?})")
             }
             ExprKind::Match { scrutinee, arms } => {
                 write!(f, "Match({scrutinee:?}, {arms:?})")
             }
-            ExprKind::For { binding, iter, guard, body, is_yield } => {
-                write!(f, "For({binding:?}, {iter:?}, {guard:?}, {body:?}, yield={is_yield})")
+            ExprKind::For {
+                binding,
+                iter,
+                guard,
+                body,
+                is_yield,
+            } => {
+                write!(
+                    f,
+                    "For({binding:?}, {iter:?}, {guard:?}, {body:?}, yield={is_yield})"
+                )
             }
             ExprKind::Loop { body } => write!(f, "Loop({body:?})"),
             ExprKind::Block { stmts, result } => write!(f, "Block({stmts:?}, {result:?})"),
-            ExprKind::Let { pattern, ty, init, mutable } => {
+            ExprKind::Let {
+                pattern,
+                ty,
+                init,
+                mutable,
+            } => {
                 write!(f, "Let({pattern:?}, {ty:?}, {init:?}, mutable={mutable})")
             }
-            ExprKind::Lambda { params, ret_ty, body } => {
+            ExprKind::Lambda {
+                params,
+                ret_ty,
+                body,
+            } => {
                 write!(f, "Lambda({params:?}, {ret_ty:?}, {body:?})")
             }
             ExprKind::List(exprs) => write!(f, "List({exprs:?})"),
             ExprKind::Map(entries) => write!(f, "Map({entries:?})"),
             ExprKind::Struct { name, fields } => write!(f, "Struct({name:?}, {fields:?})"),
             ExprKind::Tuple(exprs) => write!(f, "Tuple({exprs:?})"),
-            ExprKind::Range { start, end, inclusive } => {
+            ExprKind::Range {
+                start,
+                end,
+                inclusive,
+            } => {
                 write!(f, "Range({start:?}, {end:?}, inclusive={inclusive})")
             }
             ExprKind::Ok(inner) => write!(f, "Ok({inner:?})"),
@@ -358,7 +360,11 @@ impl fmt::Debug for ExprKind {
             ExprKind::Await(inner) => write!(f, "Await({inner:?})"),
             ExprKind::Try(inner) => write!(f, "Try({inner:?})"),
             ExprKind::Assign { target, value } => write!(f, "Assign({target:?}, {value:?})"),
-            ExprKind::WithCapability { capability, provider, body } => {
+            ExprKind::WithCapability {
+                capability,
+                provider,
+                body,
+            } => {
                 write!(f, "WithCapability({capability:?}, {provider:?}, {body:?})")
             }
             ExprKind::FunctionSeq(seq) => write!(f, "FunctionSeq({seq:?})"),

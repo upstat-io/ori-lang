@@ -4,9 +4,9 @@
 
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 
-use ori_eval::{Environment, Scope, LocalScope};
 use crate::eval::Value;
 use crate::ir::SharedInterner;
+use ori_eval::{Environment, LocalScope, Scope};
 
 // Scope Tests
 
@@ -360,8 +360,14 @@ mod edge_cases {
     }
 
     #[test]
-    #[expect(clippy::many_single_char_names, reason = "single-char names mirror the variable names being interned")]
-    #[expect(clippy::approx_constant, reason = "testing float binding, not using pi")]
+    #[expect(
+        clippy::many_single_char_names,
+        reason = "single-char names mirror the variable names being interned"
+    )]
+    #[expect(
+        clippy::approx_constant,
+        reason = "testing float binding, not using pi"
+    )]
     fn different_value_types() {
         let interner = SharedInterner::default();
 

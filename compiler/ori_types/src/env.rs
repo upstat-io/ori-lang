@@ -3,9 +3,9 @@
 use ori_ir::{Name, TypeId};
 use std::collections::HashMap;
 
+use crate::context::InferenceContext;
 use crate::core::{Type, TypeScheme, TypeSchemeId};
 use crate::data::TypeVar;
-use crate::context::InferenceContext;
 use crate::type_interner::{SharedTypeInterner, TypeInterner};
 
 /// Type environment for name resolution and scoping.
@@ -64,7 +64,10 @@ impl TypeEnv {
     }
 
     /// Bind a name to a monomorphic type in the current scope.
-    #[expect(clippy::needless_pass_by_value, reason = "callers often construct Type inline; changing to &Type would add .clone() noise")]
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "callers often construct Type inline; changing to &Type would add .clone() noise"
+    )]
     pub fn bind(&mut self, name: Name, ty: Type) {
         let ty_id = ty.to_type_id(&self.interner);
         self.bindings.insert(name, TypeSchemeId::mono(ty_id));
@@ -76,7 +79,10 @@ impl TypeEnv {
     }
 
     /// Bind a name to a polymorphic type scheme in the current scope.
-    #[expect(clippy::needless_pass_by_value, reason = "callers often construct TypeScheme inline; changing to &TypeScheme would add .clone() noise")]
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "callers often construct TypeScheme inline; changing to &TypeScheme would add .clone() noise"
+    )]
     pub fn bind_scheme(&mut self, name: Name, scheme: TypeScheme) {
         let scheme_id = scheme.to_scheme_id(&self.interner);
         self.bindings.insert(name, scheme_id);
@@ -93,15 +99,16 @@ impl TypeEnv {
     /// Note: This converts from internal `TypeSchemeId`. For high-performance
     /// code, use `lookup_scheme_id` instead.
     pub fn lookup_scheme(&self, name: Name) -> Option<TypeScheme> {
-        self.lookup_scheme_id(name).map(|s| s.to_scheme(&self.interner))
+        self.lookup_scheme_id(name)
+            .map(|s| s.to_scheme(&self.interner))
     }
 
     /// Look up a name, searching parent scopes.
     /// Returns the `TypeSchemeId` (internal representation).
     pub fn lookup_scheme_id(&self, name: Name) -> Option<&TypeSchemeId> {
-        self.bindings.get(&name).or_else(|| {
-            self.parent.as_ref().and_then(|p| p.lookup_scheme_id(name))
-        })
+        self.bindings
+            .get(&name)
+            .or_else(|| self.parent.as_ref().and_then(|p| p.lookup_scheme_id(name)))
     }
 
     /// Look up a name and return just the type (for monomorphic lookups).

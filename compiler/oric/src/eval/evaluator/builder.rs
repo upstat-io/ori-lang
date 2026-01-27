@@ -1,13 +1,13 @@
 //! `EvaluatorBuilder` for creating Evaluator instances with various configurations.
 
-use crate::db::Db;
-use crate::ir::{StringInterner, ExprArena, SharedArena};
-use crate::context::CompilerContext;
-use ori_eval::{
-    InterpreterBuilder, Environment, UserMethodRegistry,
-    SharedRegistry, SharedMutableRegistry, PatternRegistry,
-};
 use super::Evaluator;
+use crate::context::CompilerContext;
+use crate::db::Db;
+use crate::ir::{ExprArena, SharedArena, StringInterner};
+use ori_eval::{
+    Environment, InterpreterBuilder, PatternRegistry, SharedMutableRegistry, SharedRegistry,
+    UserMethodRegistry,
+};
 
 /// Builder for creating Evaluator instances with various configurations.
 ///

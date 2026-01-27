@@ -13,11 +13,11 @@
 //! - `control_tests.rs` - Control flow (if/else, loops, patterns)
 //! - `call_tests.rs` - Function and method calls
 
-mod function_val_tests;
-mod operators_tests;
-mod methods_tests;
-mod unary_operators_tests;
+mod call_tests;
+mod control_tests;
 mod environment_tests;
 mod expr_tests;
-mod control_tests;
-mod call_tests;
+mod function_val_tests;
+mod methods_tests;
+mod operators_tests;
+mod unary_operators_tests;

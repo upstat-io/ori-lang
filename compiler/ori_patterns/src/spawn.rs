@@ -9,8 +9,7 @@ use std::thread;
 use ori_types::Type;
 
 use crate::{
-    EvalContext, EvalError, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext,
-    Value,
+    EvalContext, EvalError, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext, Value,
 };
 
 /// The `spawn` pattern executes tasks concurrently without waiting for results.

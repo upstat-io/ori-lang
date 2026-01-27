@@ -3,8 +3,8 @@
 //! Resolves methods on collections (list, map, range) that require
 //! evaluator access to call function arguments.
 
-use ori_ir::{Name, StringInterner};
 use super::{CollectionMethod, MethodResolution, MethodResolver, Value};
+use ori_ir::{Name, StringInterner};
 
 /// Pre-interned method names for efficient comparison.
 struct MethodNames {
@@ -131,7 +131,10 @@ mod tests {
         let list_type = interner.intern("[int]");
         let map_method = interner.intern("map");
         let result = resolver.resolve(&list, list_type, map_method);
-        assert!(matches!(result, MethodResolution::Collection(CollectionMethod::Map)));
+        assert!(matches!(
+            result,
+            MethodResolution::Collection(CollectionMethod::Map)
+        ));
     }
 
     #[test]
@@ -143,7 +146,10 @@ mod tests {
         let list_type = interner.intern("[int]");
         let filter_method = interner.intern("filter");
         let result = resolver.resolve(&list, list_type, filter_method);
-        assert!(matches!(result, MethodResolution::Collection(CollectionMethod::Filter)));
+        assert!(matches!(
+            result,
+            MethodResolution::Collection(CollectionMethod::Filter)
+        ));
     }
 
     #[test]

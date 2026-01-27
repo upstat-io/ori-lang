@@ -3,8 +3,8 @@
 //! Finds all test files in a given directory tree.
 //! Convention: All .ori files can contain tests (functions with `tests` keyword).
 
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 /// A discovered test file.
 #[derive(Clone, Debug)]

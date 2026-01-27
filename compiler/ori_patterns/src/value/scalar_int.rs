@@ -369,18 +369,12 @@ mod tests {
 
     #[test]
     fn checked_floor_div_by_zero() {
-        assert_eq!(
-            ScalarInt::new(7).checked_floor_div(ScalarInt::ZERO),
-            None
-        );
+        assert_eq!(ScalarInt::new(7).checked_floor_div(ScalarInt::ZERO), None);
     }
 
     #[test]
     fn checked_floor_div_min_neg_one() {
-        assert_eq!(
-            ScalarInt::MIN.checked_floor_div(ScalarInt::new(-1)),
-            None
-        );
+        assert_eq!(ScalarInt::MIN.checked_floor_div(ScalarInt::new(-1)), None);
     }
 
     #[test]
@@ -492,10 +486,7 @@ mod tests {
 
     #[test]
     fn memory_size() {
-        assert_eq!(
-            std::mem::size_of::<ScalarInt>(),
-            std::mem::size_of::<i64>()
-        );
+        assert_eq!(std::mem::size_of::<ScalarInt>(), std::mem::size_of::<i64>());
     }
 
     #[test]
@@ -922,14 +913,20 @@ mod tests {
     }
 
     #[test]
-    #[expect(clippy::unwrap_used, reason = "test verifies double negation roundtrip")]
+    #[expect(
+        clippy::unwrap_used,
+        reason = "test verifies double negation roundtrip"
+    )]
     fn checked_neg_double_negation() {
         let n = ScalarInt::new(42);
         assert_eq!(n.checked_neg().unwrap().checked_neg(), Some(n));
     }
 
     #[test]
-    #[expect(clippy::unwrap_used, reason = "test verifies double negation roundtrip at MAX")]
+    #[expect(
+        clippy::unwrap_used,
+        reason = "test verifies double negation roundtrip at MAX"
+    )]
     fn checked_neg_double_negation_at_max() {
         assert_eq!(
             ScalarInt::MAX.checked_neg().unwrap().checked_neg(),
@@ -942,50 +939,70 @@ mod tests {
     fn add_sub_inverse() {
         let a = ScalarInt::new(100);
         let b = ScalarInt::new(50);
-        assert_eq!(
-            a.checked_add(b).unwrap().checked_sub(b),
-            Some(a)
-        );
+        assert_eq!(a.checked_add(b).unwrap().checked_sub(b), Some(a));
     }
 
     #[test]
-    #[expect(clippy::unwrap_used, reason = "test verifies mul/div inverse property (a == q*b + r)")]
+    #[expect(
+        clippy::unwrap_used,
+        reason = "test verifies mul/div inverse property (a == q*b + r)"
+    )]
     fn mul_div_inverse() {
         let a = ScalarInt::new(100);
         let b = ScalarInt::new(7);
         let q = a.checked_div(b).unwrap();
         let r = a.checked_rem(b).unwrap();
         // a == q*b + r
-        assert_eq!(
-            q.checked_mul(b).unwrap().checked_add(r),
-            Some(a)
-        );
+        assert_eq!(q.checked_mul(b).unwrap().checked_add(r), Some(a));
     }
 
     #[test]
     fn zero_identity_add() {
-        for val in [ScalarInt::MIN, ScalarInt::new(-1), ScalarInt::ZERO, ScalarInt::ONE, ScalarInt::MAX] {
+        for val in [
+            ScalarInt::MIN,
+            ScalarInt::new(-1),
+            ScalarInt::ZERO,
+            ScalarInt::ONE,
+            ScalarInt::MAX,
+        ] {
             assert_eq!(val.checked_add(ScalarInt::ZERO), Some(val));
         }
     }
 
     #[test]
     fn one_identity_mul() {
-        for val in [ScalarInt::MIN, ScalarInt::new(-1), ScalarInt::ZERO, ScalarInt::ONE, ScalarInt::MAX] {
+        for val in [
+            ScalarInt::MIN,
+            ScalarInt::new(-1),
+            ScalarInt::ZERO,
+            ScalarInt::ONE,
+            ScalarInt::MAX,
+        ] {
             assert_eq!(val.checked_mul(ScalarInt::ONE), Some(val));
         }
     }
 
     #[test]
     fn multiply_by_zero() {
-        for val in [ScalarInt::MIN, ScalarInt::new(-1), ScalarInt::ONE, ScalarInt::MAX] {
+        for val in [
+            ScalarInt::MIN,
+            ScalarInt::new(-1),
+            ScalarInt::ONE,
+            ScalarInt::MAX,
+        ] {
             assert_eq!(val.checked_mul(ScalarInt::ZERO), Some(ScalarInt::ZERO));
         }
     }
 
     #[test]
     fn self_subtraction() {
-        for val in [ScalarInt::MIN, ScalarInt::new(-1), ScalarInt::ZERO, ScalarInt::ONE, ScalarInt::MAX] {
+        for val in [
+            ScalarInt::MIN,
+            ScalarInt::new(-1),
+            ScalarInt::ZERO,
+            ScalarInt::ONE,
+            ScalarInt::MAX,
+        ] {
             assert_eq!(val.checked_sub(val), Some(ScalarInt::ZERO));
         }
     }

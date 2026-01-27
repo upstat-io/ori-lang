@@ -9,10 +9,10 @@
 //! The `TypeId` variants should be preferred for new code as they enable
 //! O(1) equality comparisons and better cache locality.
 
-use ori_ir::{Name, TypeId};
 use crate::core::Type;
 use crate::data::{TypeData, TypeVar};
 use crate::type_interner::TypeInterner;
+use ori_ir::{Name, TypeId};
 
 /// Trait for transforming types via structural recursion.
 ///
@@ -52,13 +52,23 @@ pub trait TypeFolder {
             Type::Range(inner) => self.fold_range(inner),
             Type::Channel(inner) => self.fold_channel(inner),
             Type::Applied { name, args } => self.fold_applied(*name, args),
-            Type::Projection { base, trait_name, assoc_name } => {
-                self.fold_projection(base, *trait_name, *assoc_name)
-            }
+            Type::Projection {
+                base,
+                trait_name,
+                assoc_name,
+            } => self.fold_projection(base, *trait_name, *assoc_name),
             // Leaf types - return as-is
-            Type::Int | Type::Float | Type::Bool | Type::Str | Type::Char |
-            Type::Byte | Type::Unit | Type::Never | Type::Duration | Type::Size |
-            Type::Error => ty.clone(),
+            Type::Int
+            | Type::Float
+            | Type::Bool
+            | Type::Str
+            | Type::Char
+            | Type::Byte
+            | Type::Unit
+            | Type::Never
+            | Type::Duration
+            | Type::Size
+            | Type::Error => ty.clone(),
         }
     }
 
@@ -179,13 +189,25 @@ pub trait TypeVisitor {
             Type::Range(inner) => self.visit_range(inner),
             Type::Channel(inner) => self.visit_channel(inner),
             Type::Applied { name, args } => self.visit_applied(*name, args),
-            Type::Projection { base, trait_name, assoc_name } => {
+            Type::Projection {
+                base,
+                trait_name,
+                assoc_name,
+            } => {
                 self.visit_projection(base, *trait_name, *assoc_name);
             }
             // Leaf types - no-op by default
-            Type::Int | Type::Float | Type::Bool | Type::Str | Type::Char |
-            Type::Byte | Type::Unit | Type::Never | Type::Duration | Type::Size |
-            Type::Error => {}
+            Type::Int
+            | Type::Float
+            | Type::Bool
+            | Type::Str
+            | Type::Char
+            | Type::Byte
+            | Type::Unit
+            | Type::Never
+            | Type::Duration
+            | Type::Size
+            | Type::Error => {}
         }
     }
 
@@ -305,13 +327,23 @@ pub trait TypeIdFolder {
             TypeData::Range(inner) => self.fold_range(inner),
             TypeData::Channel(inner) => self.fold_channel(inner),
             TypeData::Applied { name, args } => self.fold_applied(name, &args),
-            TypeData::Projection { base, trait_name, assoc_name } => {
-                self.fold_projection(base, trait_name, assoc_name)
-            }
+            TypeData::Projection {
+                base,
+                trait_name,
+                assoc_name,
+            } => self.fold_projection(base, trait_name, assoc_name),
             // Leaf types - return as-is
-            TypeData::Int | TypeData::Float | TypeData::Bool | TypeData::Str |
-            TypeData::Char | TypeData::Byte | TypeData::Unit | TypeData::Never |
-            TypeData::Duration | TypeData::Size | TypeData::Error => id,
+            TypeData::Int
+            | TypeData::Float
+            | TypeData::Bool
+            | TypeData::Str
+            | TypeData::Char
+            | TypeData::Byte
+            | TypeData::Unit
+            | TypeData::Never
+            | TypeData::Duration
+            | TypeData::Size
+            | TypeData::Error => id,
         }
     }
 
@@ -391,7 +423,8 @@ pub trait TypeIdFolder {
     /// Fold a projection type. Default folds base type.
     fn fold_projection(&mut self, base: TypeId, trait_name: Name, assoc_name: Name) -> TypeId {
         let folded_base = self.fold(base);
-        self.interner().projection(folded_base, trait_name, assoc_name)
+        self.interner()
+            .projection(folded_base, trait_name, assoc_name)
     }
 }
 
@@ -437,13 +470,25 @@ pub trait TypeIdVisitor {
             TypeData::Range(inner) => self.visit_range(inner),
             TypeData::Channel(inner) => self.visit_channel(inner),
             TypeData::Applied { name, args } => self.visit_applied(name, &args),
-            TypeData::Projection { base, trait_name, assoc_name } => {
+            TypeData::Projection {
+                base,
+                trait_name,
+                assoc_name,
+            } => {
                 self.visit_projection(base, trait_name, assoc_name);
             }
             // Leaf types - no-op by default
-            TypeData::Int | TypeData::Float | TypeData::Bool | TypeData::Str |
-            TypeData::Char | TypeData::Byte | TypeData::Unit | TypeData::Never |
-            TypeData::Duration | TypeData::Size | TypeData::Error => {}
+            TypeData::Int
+            | TypeData::Float
+            | TypeData::Bool
+            | TypeData::Str
+            | TypeData::Char
+            | TypeData::Byte
+            | TypeData::Unit
+            | TypeData::Never
+            | TypeData::Duration
+            | TypeData::Size
+            | TypeData::Error => {}
         }
     }
 

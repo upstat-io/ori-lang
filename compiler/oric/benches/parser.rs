@@ -2,9 +2,9 @@
 //!
 //! Measures parsing performance for various AST structures.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use oric::{CompilerDb, SourceFile};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use oric::query::parsed;
+use oric::{CompilerDb, SourceFile};
 use std::path::PathBuf;
 
 /// Simple function
@@ -65,7 +65,11 @@ fn bench_parser_simple(c: &mut Criterion) {
 
     c.bench_function("parser/simple_function", |b| {
         b.iter(|| {
-            let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), SIMPLE_FUNCTION.to_string());
+            let file = SourceFile::new(
+                &db,
+                PathBuf::from("/bench.ori"),
+                SIMPLE_FUNCTION.to_string(),
+            );
             black_box(parsed(&db, file));
         });
     });
@@ -76,7 +80,11 @@ fn bench_parser_nested_arithmetic(c: &mut Criterion) {
 
     c.bench_function("parser/nested_arithmetic", |b| {
         b.iter(|| {
-            let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), NESTED_ARITHMETIC.to_string());
+            let file = SourceFile::new(
+                &db,
+                PathBuf::from("/bench.ori"),
+                NESTED_ARITHMETIC.to_string(),
+            );
             black_box(parsed(&db, file));
         });
     });
@@ -148,12 +156,16 @@ fn bench_parser_nesting(c: &mut Criterion) {
 
     for depth in &[5, 10, 20, 50] {
         let source = generate_nested_conditionals(*depth);
-        group.bench_with_input(BenchmarkId::new("conditionals", depth), &source, |b, src| {
-            b.iter(|| {
-                let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), src.clone());
-                black_box(parsed(&db, file));
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::new("conditionals", depth),
+            &source,
+            |b, src| {
+                b.iter(|| {
+                    let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), src.clone());
+                    black_box(parsed(&db, file));
+                });
+            },
+        );
     }
 
     group.finish();

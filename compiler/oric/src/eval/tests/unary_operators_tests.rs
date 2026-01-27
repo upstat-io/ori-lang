@@ -4,8 +4,8 @@
 
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 
-use ori_eval::evaluate_unary;
 use crate::eval::Value;
+use ori_eval::evaluate_unary;
 use ori_ir::UnaryOp;
 
 // Negation Tests
@@ -53,7 +53,10 @@ mod negation {
     }
 
     #[test]
-    #[expect(clippy::approx_constant, reason = "testing float negation, not using pi")]
+    #[expect(
+        clippy::approx_constant,
+        reason = "testing float negation, not using pi"
+    )]
     fn float_positive() {
         assert_eq!(
             evaluate_unary(Value::Float(3.14), UnaryOp::Neg).unwrap(),
@@ -62,7 +65,10 @@ mod negation {
     }
 
     #[test]
-    #[expect(clippy::approx_constant, reason = "testing float negation, not using pi")]
+    #[expect(
+        clippy::approx_constant,
+        reason = "testing float negation, not using pi"
+    )]
     fn float_negative() {
         assert_eq!(
             evaluate_unary(Value::Float(-3.14), UnaryOp::Neg).unwrap(),

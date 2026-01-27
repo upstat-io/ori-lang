@@ -8,9 +8,7 @@ use ori_ir::{ExprArena, StringInterner};
 use ori_patterns::PatternRegistry;
 use ori_types::SharedTypeInterner;
 
-use super::components::{
-    CheckContext, DiagnosticState, InferenceState, Registries, ScopeContext,
-};
+use super::components::{CheckContext, DiagnosticState, InferenceState, Registries, ScopeContext};
 use super::TypeChecker;
 use crate::shared::SharedRegistry;
 

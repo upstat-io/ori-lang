@@ -3,10 +3,8 @@
 //! Parses literals, identifiers, variant constructors, parenthesized expressions,
 //! lists, if expressions, and let expressions.
 
-use ori_ir::{
-    BindingPattern, Expr, ExprId, ExprKind, ExprRange, Param, ParamRange, TokenKind,
-};
 use crate::{ParseError, Parser};
+use ori_ir::{BindingPattern, Expr, ExprId, ExprKind, ExprRange, Param, ParamRange, TokenKind};
 
 impl Parser<'_> {
     /// Parse primary expressions.
@@ -57,7 +55,9 @@ impl Parser<'_> {
             }
             TokenKind::Float(bits) => {
                 self.advance();
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Float(bits), span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Float(bits), span)))
             }
             TokenKind::True => {
                 self.advance();
@@ -65,11 +65,15 @@ impl Parser<'_> {
             }
             TokenKind::False => {
                 self.advance();
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Bool(false), span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Bool(false), span)))
             }
             TokenKind::String(name) => {
                 self.advance();
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::String(name), span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::String(name), span)))
             }
             TokenKind::Char(c) => {
                 self.advance();
@@ -77,11 +81,15 @@ impl Parser<'_> {
             }
             TokenKind::Duration(value, unit) => {
                 self.advance();
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Duration { value, unit }, span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Duration { value, unit }, span)))
             }
             TokenKind::Size(value, unit) => {
                 self.advance();
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Size { value, unit }, span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Size { value, unit }, span)))
             }
 
             // Config reference: $name
@@ -89,69 +97,93 @@ impl Parser<'_> {
                 self.advance();
                 let name = self.expect_ident()?;
                 let full_span = span.merge(self.previous_span());
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Config(name), full_span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Config(name), full_span)))
             }
 
             // Identifier
             TokenKind::Ident(name) => {
                 self.advance();
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
             }
 
             // Built-in I/O primitives as soft keywords
             TokenKind::Print => {
                 let name = self.interner().intern("print");
                 self.advance();
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
             }
             TokenKind::Panic => {
                 let name = self.interner().intern("panic");
                 self.advance();
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
             }
             TokenKind::Catch => {
                 let name = self.interner().intern("catch");
                 self.advance();
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
             }
 
             // self
             TokenKind::SelfLower => {
                 self.advance();
                 let name = self.interner().intern("self");
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
             }
 
             // Type conversion functions
             TokenKind::IntType => {
                 self.advance();
                 let name = self.interner().intern("int");
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
             }
             TokenKind::FloatType => {
                 self.advance();
                 let name = self.interner().intern("float");
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
             }
             TokenKind::StrType => {
                 self.advance();
                 let name = self.interner().intern("str");
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
             }
             TokenKind::BoolType => {
                 self.advance();
                 let name = self.interner().intern("bool");
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
             }
             TokenKind::CharType => {
                 self.advance();
                 let name = self.interner().intern("char");
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
             }
             TokenKind::ByteType => {
                 self.advance();
                 let name = self.interner().intern("byte");
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
             }
 
             // Variant constructors
@@ -161,10 +193,9 @@ impl Parser<'_> {
                 let inner = self.parse_expr()?;
                 let end_span = self.current_span();
                 self.expect(&TokenKind::RParen)?;
-                Ok(self.arena.alloc_expr(Expr::new(
-                    ExprKind::Some(inner),
-                    span.merge(end_span),
-                )))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Some(inner), span.merge(end_span))))
             }
             TokenKind::None => {
                 self.advance();
@@ -181,10 +212,9 @@ impl Parser<'_> {
                     None
                 };
                 let end_span = self.previous_span();
-                Ok(self.arena.alloc_expr(Expr::new(
-                    ExprKind::Ok(inner),
-                    span.merge(end_span),
-                )))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ok(inner), span.merge(end_span))))
             }
             TokenKind::Err => {
                 self.advance();
@@ -197,10 +227,9 @@ impl Parser<'_> {
                     None
                 };
                 let end_span = self.previous_span();
-                Ok(self.arena.alloc_expr(Expr::new(
-                    ExprKind::Err(inner),
-                    span.merge(end_span),
-                )))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Err(inner), span.merge(end_span))))
             }
 
             // Parenthesized expression, tuple, or lambda
@@ -250,7 +279,7 @@ impl Parser<'_> {
                     ExprKind::Lambda {
                         params: ParamRange::EMPTY,
                         ret_ty,
-                        body
+                        body,
                     },
                     span.merge(end_span),
                 )));
@@ -280,7 +309,11 @@ impl Parser<'_> {
             let body = self.parse_expr()?;
             let end_span = self.arena.get_expr(body).span;
             return Ok(self.arena.alloc_expr(Expr::new(
-                ExprKind::Lambda { params, ret_ty, body },
+                ExprKind::Lambda {
+                    params,
+                    ret_ty,
+                    body,
+                },
                 span.merge(end_span),
             )));
         }
@@ -305,17 +338,20 @@ impl Parser<'_> {
                 let body = self.parse_expr()?;
                 let end_span = self.arena.get_expr(body).span;
                 return Ok(self.arena.alloc_expr(Expr::new(
-                    ExprKind::Lambda { params, ret_ty: None, body },
+                    ExprKind::Lambda {
+                        params,
+                        ret_ty: None,
+                        body,
+                    },
                     span.merge(end_span),
                 )));
             }
 
             let end_span = self.previous_span();
             let range = self.arena.alloc_expr_list(exprs);
-            return Ok(self.arena.alloc_expr(Expr::new(
-                ExprKind::Tuple(range),
-                span.merge(end_span),
-            )));
+            return Ok(self
+                .arena
+                .alloc_expr(Expr::new(ExprKind::Tuple(range), span.merge(end_span))));
         }
 
         self.expect(&TokenKind::RParen)?;
@@ -326,7 +362,11 @@ impl Parser<'_> {
             let body = self.parse_expr()?;
             let end_span = self.arena.get_expr(body).span;
             return Ok(self.arena.alloc_expr(Expr::new(
-                ExprKind::Lambda { params, ret_ty: None, body },
+                ExprKind::Lambda {
+                    params,
+                    ret_ty: None,
+                    body,
+                },
                 span.merge(end_span),
             )));
         }
@@ -350,10 +390,9 @@ impl Parser<'_> {
         self.expect(&TokenKind::RBracket)?;
         let end_span = self.previous_span();
         let range = self.arena.alloc_expr_list(exprs);
-        Ok(self.arena.alloc_expr(Expr::new(
-            ExprKind::List(range),
-            span.merge(end_span),
-        )))
+        Ok(self
+            .arena
+            .alloc_expr(Expr::new(ExprKind::List(range), span.merge(end_span))))
     }
 
     /// Parse map literal: `{ key: value, ... }` or `{}`.
@@ -391,10 +430,9 @@ impl Parser<'_> {
         self.expect(&TokenKind::RBrace)?;
         let end_span = self.previous_span();
         let range = self.arena.alloc_map_entries(entries);
-        Ok(self.arena.alloc_expr(Expr::new(
-            ExprKind::Map(range),
-            span.merge(end_span),
-        )))
+        Ok(self
+            .arena
+            .alloc_expr(Expr::new(ExprKind::Map(range), span.merge(end_span))))
     }
 
     /// Parse if expression.
@@ -423,7 +461,11 @@ impl Parser<'_> {
         };
 
         Ok(self.arena.alloc_expr(Expr::new(
-            ExprKind::If { cond, then_branch, else_branch },
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            },
             span.merge(end_span),
         )))
     }
@@ -454,7 +496,12 @@ impl Parser<'_> {
 
         let end_span = self.arena.get_expr(init).span;
         Ok(self.arena.alloc_expr(Expr::new(
-            ExprKind::Let { pattern, ty, init, mutable },
+            ExprKind::Let {
+                pattern,
+                ty,
+                init,
+                mutable,
+            },
             span.merge(end_span),
         )))
     }

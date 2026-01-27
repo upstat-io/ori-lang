@@ -3,9 +3,9 @@
 //! These methods provide safe scope management that guarantees cleanup
 //! even on early returns or errors.
 
-use ori_ir::Name;
-use crate::{Value, EvalResult};
 use super::Interpreter;
+use crate::{EvalResult, Value};
+use ori_ir::Name;
 
 impl Interpreter<'_> {
     /// Execute evaluation within a new environment scope.

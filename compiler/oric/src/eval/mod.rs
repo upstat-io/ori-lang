@@ -15,8 +15,8 @@
 //! methods on `Value`. See `ori_patterns::value` for details.
 
 mod evaluator;
-mod output;
 pub mod module;
+mod output;
 
 // Re-export exec module from ori_eval
 pub use ori_eval::exec;
@@ -27,19 +27,18 @@ pub use ori_eval::exec;
 /// `super::value::Value` instead of changing all imports.
 pub mod value {
     pub use ori_patterns::{
-        Value, FunctionValue, RangeValue, StructValue, StructLayout, Heap, FunctionValFn,
+        FunctionValFn, FunctionValue, Heap, RangeValue, StructLayout, StructValue, Value,
     };
 }
 
-pub use value::{Value, FunctionValue, RangeValue, StructValue, StructLayout, Heap, FunctionValFn};
+pub use evaluator::{Evaluator, EvaluatorBuilder};
 pub use ori_eval::{
-    Environment, LocalScope, Scope,
-    evaluate_binary, evaluate_unary, dispatch_builtin_method,
+    dispatch_builtin_method, evaluate_binary, evaluate_unary, Environment, LocalScope, Scope,
     UserMethod, UserMethodRegistry,
 };
-pub use evaluator::{Evaluator, EvaluatorBuilder};
-pub use ori_patterns::{EvalResult, EvalError};
+pub use ori_patterns::{EvalError, EvalResult};
 pub use output::{EvalOutput, ModuleEvalResult};
+pub use value::{FunctionValFn, FunctionValue, Heap, RangeValue, StructLayout, StructValue, Value};
 
 #[cfg(test)]
 mod tests;

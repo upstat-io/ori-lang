@@ -1,10 +1,10 @@
 //! Trait definition parsing.
 
+use crate::{ParseError, Parser};
 use ori_ir::{
     GenericParamRange, TokenKind, TraitAssocType, TraitDef, TraitDefaultMethod, TraitItem,
     TraitMethodSig,
 };
-use crate::{ParseError, Parser};
 
 impl Parser<'_> {
     /// Parse a trait definition.
@@ -109,7 +109,10 @@ impl Parser<'_> {
         } else {
             Err(ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
-                format!("expected trait item (method or associated type), found {:?}", self.current_kind()),
+                format!(
+                    "expected trait item (method or associated type), found {:?}",
+                    self.current_kind()
+                ),
                 self.current_span(),
             ))
         }

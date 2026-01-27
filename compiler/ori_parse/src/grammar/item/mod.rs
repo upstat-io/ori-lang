@@ -15,11 +15,11 @@
 //! - `extend.rs`: Extend block parsing
 //! - `generics.rs`: Generic parameters, bounds, where clauses
 
-mod use_def;
 mod config;
-mod function;
-mod trait_def;
-mod impl_def;
-mod type_decl;
 mod extend;
+mod function;
 mod generics;
+mod impl_def;
+mod trait_def;
+mod type_decl;
+mod use_def;

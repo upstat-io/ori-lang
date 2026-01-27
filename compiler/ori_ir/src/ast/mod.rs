@@ -15,13 +15,13 @@
 //! - `patterns/`: Binding patterns, match patterns, `FunctionSeq`, `FunctionExp`
 //! - `items/`: Module-level items (Function, `TestDef`, imports, traits)
 
-mod expr;
-mod operators;
-mod stmt;
-mod ranges;
 mod collections;
-pub mod patterns;
+mod expr;
 pub mod items;
+mod operators;
+pub mod patterns;
+mod ranges;
+mod stmt;
 
 // Re-export core expression types
 pub use expr::{Expr, ExprKind};
@@ -30,29 +30,25 @@ pub use stmt::{Stmt, StmtKind};
 
 // Re-export all range types
 pub use ranges::{
-    ParamRange, GenericParamRange, ArmRange, MapEntryRange,
-    FieldInitRange, SeqBindingRange, NamedExprRange, CallArgRange,
+    ArmRange, CallArgRange, FieldInitRange, GenericParamRange, MapEntryRange, NamedExprRange,
+    ParamRange, SeqBindingRange,
 };
 
 // Re-export collection types
-pub use collections::{MapEntry, FieldInit, CallArg};
+pub use collections::{CallArg, FieldInit, MapEntry};
 
 // Re-export pattern types
 pub use patterns::{
-    BindingPattern, MatchPattern, MatchArm,
-    SeqBinding, FunctionSeq,
-    NamedExpr, FunctionExpKind, FunctionExp,
+    BindingPattern, FunctionExp, FunctionExpKind, FunctionSeq, MatchArm, MatchPattern, NamedExpr,
+    SeqBinding,
 };
 
 // Re-export item types
 pub use items::{
-    Param, Function, TestDef, Module, ExpectedError, ConfigDef,
-    UseDef, UseItem, ImportPath,
-    GenericParam, TraitBound, WhereClause,
-    TraitDef, TraitItem, TraitMethodSig, TraitDefaultMethod, TraitAssocType,
-    ImplDef, ImplMethod, ImplAssocType, ExtendDef,
-    TypeDecl, TypeDeclKind, StructField, Variant, VariantField,
-    CapabilityRef,
+    CapabilityRef, ConfigDef, ExpectedError, ExtendDef, Function, GenericParam, ImplAssocType,
+    ImplDef, ImplMethod, ImportPath, Module, Param, StructField, TestDef, TraitAssocType,
+    TraitBound, TraitDef, TraitDefaultMethod, TraitItem, TraitMethodSig, TypeDecl, TypeDeclKind,
+    UseDef, UseItem, Variant, VariantField, WhereClause,
 };
 
 #[cfg(test)]

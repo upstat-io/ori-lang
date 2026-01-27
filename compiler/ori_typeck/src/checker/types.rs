@@ -166,8 +166,6 @@ impl TypeCheckError {
     /// they're a consequence of earlier type errors.
     pub fn is_follow_on(&self) -> bool {
         let msg = self.message.to_lowercase();
-        msg.contains("<error>")
-            || msg.contains("invalid operand")
-            || msg.contains("invalid type")
+        msg.contains("<error>") || msg.contains("invalid operand") || msg.contains("invalid type")
     }
 }

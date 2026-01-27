@@ -3,15 +3,15 @@
 //! Provides Salsa-integrated module loading with proper dependency tracking.
 //! All file access goes through `db.load_file()`.
 
-use std::path::{Path, PathBuf};
+use super::super::module::import;
+use super::Evaluator;
 use crate::ir::{Name, SharedArena};
 use crate::parser::ParseResult;
 use crate::query::parsed;
 use crate::typeck::derives::process_derives;
 use crate::typeck::type_registry::TypeRegistry;
 use ori_eval::{UserMethod, UserMethodRegistry};
-use super::Evaluator;
-use super::super::module::import;
+use std::path::{Path, PathBuf};
 
 impl Evaluator<'_> {
     /// Generate candidate paths for the prelude.
@@ -37,7 +37,10 @@ impl Evaluator<'_> {
     /// This is called automatically by `load_module` to make prelude functions
     /// available without explicit import. All file access goes through
     /// `db.load_file()` for proper Salsa tracking.
-    #[expect(clippy::unnecessary_wraps, reason = "Result return type maintained for API consistency with load_module")]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "Result return type maintained for API consistency with load_module"
+    )]
     pub(super) fn load_prelude(&mut self, current_file: &Path) -> Result<(), String> {
         // Don't load prelude if we're already loading it (avoid infinite recursion)
         if Self::is_prelude_file(current_file) {
@@ -103,8 +106,8 @@ impl Evaluator<'_> {
 
         // Resolve and load imports via Salsa-tracked resolution
         for imp in &parse_result.module.imports {
-            let resolved = import::resolve_import(self.db, &imp.path, file_path)
-                .map_err(|e| e.message)?;
+            let resolved =
+                import::resolve_import(self.db, &imp.path, file_path).map_err(|e| e.message)?;
             let imported_result = parsed(self.db, resolved.file);
 
             let imported_arena = SharedArena::new(imported_result.arena.clone());
@@ -119,7 +122,8 @@ impl Evaluator<'_> {
                 interner,
                 &resolved.path,
                 file_path,
-            ).map_err(|e| e.message)?;
+            )
+            .map_err(|e| e.message)?;
         }
 
         // Then register all local functions
@@ -139,7 +143,12 @@ impl Evaluator<'_> {
         // Note: We use an empty TypeRegistry here since derive processing doesn't need it
         // (field information comes from the AST, not the type registry)
         let type_registry = TypeRegistry::new();
-        process_derives(&parse_result.module, &type_registry, &mut user_methods, self.interner());
+        process_derives(
+            &parse_result.module,
+            &type_registry,
+            &mut user_methods,
+            self.interner(),
+        );
 
         // Merge the collected methods into the existing registry.
         // Using merge() instead of replacing allows the cached MethodDispatcher
@@ -153,9 +162,15 @@ impl Evaluator<'_> {
     ///
     /// Takes a `SharedArena` so that methods carry their arena reference for
     /// correct evaluation when called from different contexts.
-    pub(super) fn collect_impl_methods(&self, module: &crate::ir::Module, arena: &SharedArena, registry: &mut UserMethodRegistry) {
+    pub(super) fn collect_impl_methods(
+        &self,
+        module: &crate::ir::Module,
+        arena: &SharedArena,
+        registry: &mut UserMethodRegistry,
+    ) {
         // First, build a map of trait names to their definitions for default method lookup
-        let mut trait_map: std::collections::HashMap<Name, &crate::ir::TraitDef> = std::collections::HashMap::new();
+        let mut trait_map: std::collections::HashMap<Name, &crate::ir::TraitDef> =
+            std::collections::HashMap::new();
         for trait_def in &module.traits {
             trait_map.insert(trait_def.name, trait_def);
         }
@@ -167,7 +182,8 @@ impl Evaluator<'_> {
             };
 
             // Collect names of methods explicitly defined in this impl
-            let mut overridden_methods: std::collections::HashSet<Name> = std::collections::HashSet::new();
+            let mut overridden_methods: std::collections::HashSet<Name> =
+                std::collections::HashSet::new();
 
             // Register each explicitly defined method
             for method in &impl_def.methods {
@@ -177,12 +193,8 @@ impl Evaluator<'_> {
                 let params = arena.get_param_names(method.params);
 
                 // Create user method with captures and arena
-                let user_method = UserMethod::new(
-                    params,
-                    method.body,
-                    self.env().capture(),
-                    arena.clone(),
-                );
+                let user_method =
+                    UserMethod::new(params, method.body, self.env().capture(), arena.clone());
 
                 registry.register(type_name, method.name, user_method);
             }
@@ -218,7 +230,12 @@ impl Evaluator<'_> {
     ///
     /// Takes a `SharedArena` so that methods carry their arena reference for
     /// correct evaluation when called from different contexts.
-    pub(super) fn collect_extend_methods(&self, module: &crate::ir::Module, arena: &SharedArena, registry: &mut UserMethodRegistry) {
+    pub(super) fn collect_extend_methods(
+        &self,
+        module: &crate::ir::Module,
+        arena: &SharedArena,
+        registry: &mut UserMethodRegistry,
+    ) {
         for extend_def in &module.extends {
             // Get the target type name (e.g., "list" for `extend [T] { ... }`)
             let type_name = extend_def.target_type_name;
@@ -229,12 +246,8 @@ impl Evaluator<'_> {
                 let params = arena.get_param_names(method.params);
 
                 // Create user method with captures and arena
-                let user_method = UserMethod::new(
-                    params,
-                    method.body,
-                    self.env().capture(),
-                    arena.clone(),
-                );
+                let user_method =
+                    UserMethod::new(params, method.body, self.env().capture(), arena.clone());
 
                 registry.register(type_name, method.name, user_method);
             }

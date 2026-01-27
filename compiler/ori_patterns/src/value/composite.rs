@@ -5,7 +5,10 @@
 
 // Arc is used for immutable sharing of captures between function values
 // RwLock is used for memoization cache in MemoizedFunctionValue
-#![expect(clippy::disallowed_types, reason = "Arc for immutable HashMap sharing, RwLock for memoization cache")]
+#![expect(
+    clippy::disallowed_types,
+    reason = "Arc for immutable HashMap sharing, RwLock for memoization cache"
+)]
 
 use std::collections::HashMap;
 use std::fmt;
@@ -332,16 +335,30 @@ impl RangeValue {
     }
 
     /// Iterate over the range values.
-    #[expect(clippy::arithmetic_side_effects, reason = "range bound arithmetic on user-provided i64 values")]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "range bound arithmetic on user-provided i64 values"
+    )]
     pub fn iter(&self) -> impl Iterator<Item = i64> {
-        let end = if self.inclusive { self.end + 1 } else { self.end };
+        let end = if self.inclusive {
+            self.end + 1
+        } else {
+            self.end
+        };
         self.start..end
     }
 
     /// Get the length of the range.
-    #[expect(clippy::arithmetic_side_effects, reason = "range bound arithmetic on user-provided i64 values")]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "range bound arithmetic on user-provided i64 values"
+    )]
     pub fn len(&self) -> usize {
-        let end = if self.inclusive { self.end + 1 } else { self.end };
+        let end = if self.inclusive {
+            self.end + 1
+        } else {
+            self.end
+        };
         let diff = (end - self.start).max(0);
         usize::try_from(diff).unwrap_or(usize::MAX)
     }

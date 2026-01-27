@@ -2,17 +2,33 @@
 //!
 //! Verifies that types satisfy trait bounds at call sites.
 
-use std::collections::HashMap;
+use super::{FunctionType, TypeChecker};
 use ori_diagnostic::ErrorCode;
 use ori_ir::{Name, Span};
 use ori_types::{Type, TypeData};
-use super::{TypeChecker, FunctionType};
+use std::collections::HashMap;
 
 /// Trait sets for primitive types (reduces duplication).
-const INT_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Default", "Printable"];
+const INT_TRAITS: &[&str] = &[
+    "Eq",
+    "Comparable",
+    "Clone",
+    "Hashable",
+    "Default",
+    "Printable",
+];
 const FLOAT_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Default", "Printable"];
 const BOOL_TRAITS: &[&str] = &["Eq", "Clone", "Hashable", "Default", "Printable"];
-const STR_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Default", "Printable", "Len", "IsEmpty"];
+const STR_TRAITS: &[&str] = &[
+    "Eq",
+    "Comparable",
+    "Clone",
+    "Hashable",
+    "Default",
+    "Printable",
+    "Len",
+    "IsEmpty",
+];
 const CHAR_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Printable"];
 const BYTE_TRAITS: &[&str] = &["Eq", "Clone", "Hashable", "Printable"];
 const UNIT_TRAITS: &[&str] = &["Eq", "Clone", "Default"];
@@ -113,7 +129,8 @@ impl TypeChecker<'_> {
             // Check each bound for this generic parameter
             for bound_path in &generic.bounds {
                 if !self.type_satisfies_bound(&resolved_type, bound_path) {
-                    let bound_name = bound_path.iter()
+                    let bound_name = bound_path
+                        .iter()
                         .map(|n| self.context.interner.lookup(*n).to_string())
                         .collect::<Vec<_>>()
                         .join(".");
@@ -162,7 +179,8 @@ impl TypeChecker<'_> {
             // Check each bound
             for bound_path in &constraint.bounds {
                 if !self.type_satisfies_bound(&type_to_check, bound_path) {
-                    let bound_name = bound_path.iter()
+                    let bound_name = bound_path
+                        .iter()
                         .map(|n| self.context.interner.lookup(*n).to_string())
                         .collect::<Vec<_>>()
                         .join(".");
@@ -240,6 +258,8 @@ impl TypeChecker<'_> {
         };
 
         // Look up the associated type in the trait registry
-        self.registries.traits.lookup_assoc_type_by_name(type_name, assoc_name)
+        self.registries
+            .traits
+            .lookup_assoc_type_by_name(type_name, assoc_name)
     }
 }

@@ -4,13 +4,16 @@
 //! Everything else is built on top of this.
 
 // Arc and Mutex are required for Salsa database and thread-safe logging
-#![expect(clippy::disallowed_types, reason = "Arc/Mutex required for Salsa database")]
+#![expect(
+    clippy::disallowed_types,
+    reason = "Arc/Mutex required for Salsa database"
+)]
 
+use crate::input::SourceFile;
+use crate::ir::{SharedInterner, StringInterner};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use crate::ir::{StringInterner, SharedInterner};
-use crate::input::SourceFile;
 
 /// Main database trait that extends Salsa's Database.
 ///
@@ -108,7 +111,10 @@ impl Db for CompilerDb {
 
         // Check cache first
         {
-            let cache = self.file_cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let cache = self
+                .file_cache
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(&file) = cache.get(&canonical) {
                 return Some(file);
             }
@@ -120,7 +126,10 @@ impl Db for CompilerDb {
 
         // Cache it
         {
-            let mut cache = self.file_cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut cache = self
+                .file_cache
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             cache.insert(canonical, file);
         }
 
@@ -136,7 +145,11 @@ impl Db for CompilerDb {
 impl salsa::Database for CompilerDb {
     fn salsa_event(&self, event: &dyn Fn() -> salsa::Event) {
         // Log events if logging is enabled
-        if let Some(logs) = &mut *self.logs.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
+        if let Some(logs) = &mut *self
+            .logs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        {
             let event = event();
             // Only log execution events (most interesting for debugging)
             if let salsa::EventKind::WillExecute { .. } = event.kind {

@@ -8,10 +8,10 @@ use std::io::{self, Write};
 
 /// ANSI color codes for terminal output.
 mod colors {
-    pub const ERROR: &str = "\x1b[1;31m";   // Bold red
+    pub const ERROR: &str = "\x1b[1;31m"; // Bold red
     pub const WARNING: &str = "\x1b[1;33m"; // Bold yellow
-    pub const NOTE: &str = "\x1b[1;36m";    // Bold cyan
-    pub const HELP: &str = "\x1b[1;32m";    // Bold green
+    pub const NOTE: &str = "\x1b[1;36m"; // Bold cyan
+    pub const HELP: &str = "\x1b[1;32m"; // Bold green
     pub const BOLD: &str = "\x1b[1m";
     pub const SECONDARY: &str = "\x1b[1;34m"; // Bold blue
     pub const RESET: &str = "\x1b[0m";
@@ -20,7 +20,11 @@ mod colors {
 /// Returns "s" for plural counts, "" for singular.
 #[inline]
 fn plural_s(count: usize) -> &'static str {
-    if count == 1 { "" } else { "s" }
+    if count == 1 {
+        ""
+    } else {
+        "s"
+    }
 }
 
 /// Terminal emitter with optional color support.

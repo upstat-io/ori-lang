@@ -5,8 +5,8 @@
 
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 
-use ori_eval::evaluate_binary;
 use crate::eval::Value;
+use ori_eval::evaluate_binary;
 use ori_ir::BinaryOp;
 
 // Integer operations
@@ -145,7 +145,8 @@ mod int_ops {
             panic!("Expected Range");
         }
 
-        let result = evaluate_binary(Value::int(1), Value::int(5), BinaryOp::RangeInclusive).unwrap();
+        let result =
+            evaluate_binary(Value::int(1), Value::int(5), BinaryOp::RangeInclusive).unwrap();
         if let Value::Range(r) = result {
             assert!(r.inclusive);
         } else {
@@ -199,7 +200,12 @@ mod float_ops {
             Value::Bool(false)
         );
         assert_eq!(
-            evaluate_binary(Value::Float(f64::NAN), Value::Float(f64::NAN), BinaryOp::NotEq).unwrap(),
+            evaluate_binary(
+                Value::Float(f64::NAN),
+                Value::Float(f64::NAN),
+                BinaryOp::NotEq
+            )
+            .unwrap(),
             Value::Bool(true)
         );
         // NaN comparisons are all false
@@ -225,7 +231,12 @@ mod float_ops {
     #[test]
     fn infinity() {
         assert_eq!(
-            evaluate_binary(Value::Float(f64::INFINITY), Value::Float(f64::INFINITY), BinaryOp::Eq).unwrap(),
+            evaluate_binary(
+                Value::Float(f64::INFINITY),
+                Value::Float(f64::INFINITY),
+                BinaryOp::Eq
+            )
+            .unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
@@ -243,7 +254,12 @@ mod string_ops {
     #[test]
     fn concat() {
         assert_eq!(
-            evaluate_binary(Value::string("hello"), Value::string(" world"), BinaryOp::Add).unwrap(),
+            evaluate_binary(
+                Value::string("hello"),
+                Value::string(" world"),
+                BinaryOp::Add
+            )
+            .unwrap(),
             Value::string("hello world")
         );
         assert_eq!(
@@ -298,9 +314,18 @@ mod list_ops {
             Value::list(vec![Value::int(1), Value::int(2)]),
             Value::list(vec![Value::int(3), Value::int(4)]),
             BinaryOp::Add,
-        ).unwrap();
+        )
+        .unwrap();
 
-        assert_eq!(result, Value::list(vec![Value::int(1), Value::int(2), Value::int(3), Value::int(4)]));
+        assert_eq!(
+            result,
+            Value::list(vec![
+                Value::int(1),
+                Value::int(2),
+                Value::int(3),
+                Value::int(4)
+            ])
+        );
     }
 
     #[test]
@@ -310,7 +335,8 @@ mod list_ops {
                 Value::list(vec![Value::int(1), Value::int(2)]),
                 Value::list(vec![Value::int(1), Value::int(2)]),
                 BinaryOp::Eq
-            ).unwrap(),
+            )
+            .unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
@@ -318,7 +344,8 @@ mod list_ops {
                 Value::list(vec![Value::int(1)]),
                 Value::list(vec![Value::int(2)]),
                 BinaryOp::Eq
-            ).unwrap(),
+            )
+            .unwrap(),
             Value::Bool(false)
         );
     }
@@ -359,7 +386,12 @@ mod option_result_ops {
     #[test]
     fn option_equality() {
         assert_eq!(
-            evaluate_binary(Value::some(Value::int(1)), Value::some(Value::int(1)), BinaryOp::Eq).unwrap(),
+            evaluate_binary(
+                Value::some(Value::int(1)),
+                Value::some(Value::int(1)),
+                BinaryOp::Eq
+            )
+            .unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
@@ -375,15 +407,30 @@ mod option_result_ops {
     #[test]
     fn result_equality() {
         assert_eq!(
-            evaluate_binary(Value::ok(Value::int(1)), Value::ok(Value::int(1)), BinaryOp::Eq).unwrap(),
+            evaluate_binary(
+                Value::ok(Value::int(1)),
+                Value::ok(Value::int(1)),
+                BinaryOp::Eq
+            )
+            .unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            evaluate_binary(Value::err(Value::string("e")), Value::err(Value::string("e")), BinaryOp::Eq).unwrap(),
+            evaluate_binary(
+                Value::err(Value::string("e")),
+                Value::err(Value::string("e")),
+                BinaryOp::Eq
+            )
+            .unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            evaluate_binary(Value::ok(Value::int(1)), Value::err(Value::string("e")), BinaryOp::Eq).unwrap(),
+            evaluate_binary(
+                Value::ok(Value::int(1)),
+                Value::err(Value::string("e")),
+                BinaryOp::Eq
+            )
+            .unwrap(),
             Value::Bool(false)
         );
     }

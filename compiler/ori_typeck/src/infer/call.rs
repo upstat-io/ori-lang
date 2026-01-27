@@ -2,11 +2,11 @@
 //!
 //! Handles function calls, method calls, and named argument calls.
 
-use ori_ir::{Name, Span, ExprId, ExprRange, CallArgRange, ExprKind};
-use ori_types::Type;
-use crate::checker::TypeChecker;
 use super::builtin_methods::{BuiltinMethodRegistry, MethodTypeResult};
 use super::infer_expr;
+use crate::checker::TypeChecker;
+use ori_ir::{CallArgRange, ExprId, ExprKind, ExprRange, Name, Span};
+use ori_types::Type;
 
 /// Infer type for a function call (positional arguments).
 pub fn infer_call(
@@ -40,20 +40,13 @@ pub fn infer_call(
     }
 
     let func_ty = infer_expr(checker, func);
-    let arg_types: Vec<Type> = arg_ids.iter()
-        .map(|id| infer_expr(checker, *id))
-        .collect();
+    let arg_types: Vec<Type> = arg_ids.iter().map(|id| infer_expr(checker, *id)).collect();
 
     check_call(checker, &func_ty, &arg_types, span)
 }
 
 /// Check a function call.
-fn check_call(
-    checker: &mut TypeChecker<'_>,
-    func: &Type,
-    args: &[Type],
-    span: Span,
-) -> Type {
+fn check_call(checker: &mut TypeChecker<'_>, func: &Type, args: &[Type], span: Span) -> Type {
     let result = checker.inference.ctx.fresh_var();
     let expected = Type::Function {
         params: args.to_vec(),
@@ -86,7 +79,8 @@ pub fn infer_call_named(
     let func_ty = infer_expr(checker, func);
     let call_args = checker.context.arena.get_call_args(args);
 
-    let arg_types: Vec<Type> = call_args.iter()
+    let arg_types: Vec<Type> = call_args
+        .iter()
         .map(|arg| infer_expr(checker, arg.value))
         .collect();
 
@@ -94,7 +88,11 @@ pub fn infer_call_named(
         Type::Function { params, ret } => {
             if params.len() != arg_types.len() {
                 checker.push_error(
-                    format!("expected {} arguments, found {}", params.len(), arg_types.len()),
+                    format!(
+                        "expected {} arguments, found {}",
+                        params.len(),
+                        arg_types.len()
+                    ),
                     span,
                     ori_diagnostic::ErrorCode::E2004,
                 );
@@ -108,7 +106,8 @@ pub fn infer_call_named(
                 }
             }
 
-            let resolved: Vec<Type> = params.iter()
+            let resolved: Vec<Type> = params
+                .iter()
                 .map(|p| checker.inference.ctx.resolve(p))
                 .collect();
 
@@ -144,11 +143,7 @@ fn check_generic_bounds(
 }
 
 /// Check capability propagation for a function call.
-fn check_capability_propagation(
-    checker: &mut TypeChecker<'_>,
-    func_name: Name,
-    span: Span,
-) {
+fn check_capability_propagation(checker: &mut TypeChecker<'_>, func_name: Name, span: Span) {
     let Some(func_sig) = checker.scope.function_sigs.get(&func_name) else {
         return;
     };
@@ -193,11 +188,13 @@ pub fn infer_method_call(
     let receiver_ty = infer_expr(checker, receiver);
     let resolved_receiver = checker.inference.ctx.resolve(&receiver_ty);
 
-    let arg_types: Vec<Type> = arg_ids.iter()
-        .map(|id| infer_expr(checker, *id))
-        .collect();
+    let arg_types: Vec<Type> = arg_ids.iter().map(|id| infer_expr(checker, *id)).collect();
 
-    if let Some(method_lookup) = checker.registries.traits.lookup_method(&resolved_receiver, method) {
+    if let Some(method_lookup) = checker
+        .registries
+        .traits
+        .lookup_method(&resolved_receiver, method)
+    {
         let expected_arg_count = if method_lookup.params.is_empty() {
             0
         } else {
@@ -248,11 +245,16 @@ pub fn infer_method_call_named(
     let resolved_receiver = checker.inference.ctx.resolve(&receiver_ty);
 
     let call_args = checker.context.arena.get_call_args(args);
-    let arg_types: Vec<Type> = call_args.iter()
+    let arg_types: Vec<Type> = call_args
+        .iter()
         .map(|arg| infer_expr(checker, arg.value))
         .collect();
 
-    if let Some(method_lookup) = checker.registries.traits.lookup_method(&resolved_receiver, method) {
+    if let Some(method_lookup) = checker
+        .registries
+        .traits
+        .lookup_method(&resolved_receiver, method)
+    {
         let expected_arg_count = if method_lookup.params.is_empty() {
             0
         } else {

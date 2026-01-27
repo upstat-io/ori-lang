@@ -4,23 +4,23 @@
 //! following the Open/Closed Principle. Each type has its own handler
 //! that implements the `BuiltinMethodHandler` trait.
 
-mod string;
 mod list;
 mod map;
+mod numeric;
 mod option;
 mod result;
-mod numeric;
+mod string;
 
 use ori_diagnostic::ErrorCode;
 use ori_ir::{Span, StringInterner};
 use ori_types::{InferenceContext, Type};
 
-pub use string::StringMethodHandler;
 pub use list::ListMethodHandler;
 pub use map::MapMethodHandler;
+pub use numeric::NumericMethodHandler;
 pub use option::OptionMethodHandler;
 pub use result::ResultMethodHandler;
-pub use numeric::NumericMethodHandler;
+pub use string::StringMethodHandler;
 
 /// Result of type checking a method call.
 pub enum MethodTypeResult {

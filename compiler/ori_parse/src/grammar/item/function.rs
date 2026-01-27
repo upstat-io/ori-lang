@@ -1,7 +1,7 @@
 //! Function and test definition parsing.
 
+use crate::{FunctionOrTest, ParseError, ParsedAttrs, Parser};
 use ori_ir::{Function, GenericParamRange, Param, ParamRange, TestDef, TokenKind};
-use crate::{FunctionOrTest, ParsedAttrs, ParseError, Parser};
 
 impl Parser<'_> {
     /// Parse a function or test definition with attributes.
@@ -9,7 +9,11 @@ impl Parser<'_> {
     /// Function: @name (params) -> Type = body
     /// Targeted test: @name tests @target1 tests @target2 (params) -> Type = body
     /// Free-floating test: @`test_name` (params) -> void = body
-    pub(crate) fn parse_function_or_test_with_attrs(&mut self, attrs: ParsedAttrs, is_public: bool) -> Result<FunctionOrTest, ParseError> {
+    pub(crate) fn parse_function_or_test_with_attrs(
+        &mut self,
+        attrs: ParsedAttrs,
+        is_public: bool,
+    ) -> Result<FunctionOrTest, ParseError> {
         let start_span = self.current_span();
 
         // @
@@ -179,7 +183,11 @@ impl Parser<'_> {
                 None
             };
 
-            params.push(Param { name, ty, span: param_span });
+            params.push(Param {
+                name,
+                ty,
+                span: param_span,
+            });
 
             if !self.check(&TokenKind::RParen) {
                 self.expect(&TokenKind::Comma)?;

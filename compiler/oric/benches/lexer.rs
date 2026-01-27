@@ -2,9 +2,9 @@
 //!
 //! Measures tokenization performance across different input sizes and complexity.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use oric::{CompilerDb, SourceFile};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use oric::query::tokens;
+use oric::{CompilerDb, SourceFile};
 use std::path::PathBuf;
 
 /// Simple function: @add (a: int, b: int) -> int = a + b
@@ -37,7 +37,11 @@ fn bench_lexer_simple(c: &mut Criterion) {
 
     c.bench_function("lexer/simple_function", |b| {
         b.iter(|| {
-            let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), SIMPLE_FUNCTION.to_string());
+            let file = SourceFile::new(
+                &db,
+                PathBuf::from("/bench.ori"),
+                SIMPLE_FUNCTION.to_string(),
+            );
             black_box(tokens(&db, file));
         });
     });
@@ -48,7 +52,11 @@ fn bench_lexer_arithmetic(c: &mut Criterion) {
 
     c.bench_function("lexer/arithmetic_function", |b| {
         b.iter(|| {
-            let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), ARITHMETIC_FUNCTION.to_string());
+            let file = SourceFile::new(
+                &db,
+                PathBuf::from("/bench.ori"),
+                ARITHMETIC_FUNCTION.to_string(),
+            );
             black_box(tokens(&db, file));
         });
     });
@@ -59,7 +67,11 @@ fn bench_lexer_pattern(c: &mut Criterion) {
 
     c.bench_function("lexer/pattern_function", |b| {
         b.iter(|| {
-            let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), PATTERN_FUNCTION.to_string());
+            let file = SourceFile::new(
+                &db,
+                PathBuf::from("/bench.ori"),
+                PATTERN_FUNCTION.to_string(),
+            );
             black_box(tokens(&db, file));
         });
     });

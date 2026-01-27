@@ -4,10 +4,10 @@
 //! including expression evaluation helpers and test macros.
 
 use crate::db::{CompilerDb, Db};
-use crate::eval::{Evaluator, Value, EvalResult, EvalError};
+use crate::eval::{EvalError, EvalResult, Evaluator, Value};
 use crate::ir::SharedInterner;
 use crate::parser::{self, ParseResult};
-use crate::typeck::{TypedModule, type_check};
+use crate::typeck::{type_check, TypedModule};
 
 // Expression Evaluation Helpers
 
@@ -30,10 +30,7 @@ pub fn eval_expr(source: &str) -> EvalResult {
     let parsed = parser::parse(&tokens, interner);
 
     if parsed.has_errors() {
-        return Err(EvalError::new(format!(
-            "parse errors: {:?}",
-            parsed.errors
-        )));
+        return Err(EvalError::new(format!("parse errors: {:?}", parsed.errors)));
     }
 
     let mut evaluator = Evaluator::new(interner, &parsed.arena, &db);
@@ -60,10 +57,7 @@ pub fn eval_source(source: &str) -> EvalResult {
     let parsed = parser::parse(&tokens, interner);
 
     if parsed.has_errors() {
-        return Err(EvalError::new(format!(
-            "parse errors: {:?}",
-            parsed.errors
-        )));
+        return Err(EvalError::new(format!("parse errors: {:?}", parsed.errors)));
     }
 
     let mut evaluator = Evaluator::new(interner, &parsed.arena, &db);

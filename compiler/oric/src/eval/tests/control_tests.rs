@@ -2,11 +2,9 @@
 
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 
-use crate::eval::exec::control::{
-    eval_if, bind_pattern, parse_loop_control, LoopAction,
-};
-use crate::eval::{Value, Environment};
-use crate::ir::{ExprId, BindingPattern, SharedInterner};
+use crate::eval::exec::control::{bind_pattern, eval_if, parse_loop_control, LoopAction};
+use crate::eval::{Environment, Value};
+use crate::ir::{BindingPattern, ExprId, SharedInterner};
 
 // If/Else Tests
 
@@ -16,68 +14,50 @@ mod if_else {
     #[test]
     fn true_branch() {
         let mut call_count = 0;
-        let result = eval_if(
-            ExprId::new(0),
-            ExprId::new(1),
-            None,
-            |_| {
-                call_count += 1;
-                if call_count == 1 {
-                    Ok(Value::Bool(true)) // condition
-                } else {
-                    Ok(Value::int(42)) // then branch
-                }
-            },
-        );
+        let result = eval_if(ExprId::new(0), ExprId::new(1), None, |_| {
+            call_count += 1;
+            if call_count == 1 {
+                Ok(Value::Bool(true)) // condition
+            } else {
+                Ok(Value::int(42)) // then branch
+            }
+        });
         assert_eq!(result.unwrap(), Value::int(42));
     }
 
     #[test]
     fn false_no_else() {
-        let result = eval_if(
-            ExprId::new(0),
-            ExprId::new(1),
-            None,
-            |_| Ok(Value::Bool(false)),
-        );
+        let result = eval_if(ExprId::new(0), ExprId::new(1), None, |_| {
+            Ok(Value::Bool(false))
+        });
         assert_eq!(result.unwrap(), Value::Void);
     }
 
     #[test]
     fn false_with_else() {
         let mut call_count = 0;
-        let result = eval_if(
-            ExprId::new(0),
-            ExprId::new(1),
-            Some(ExprId::new(2)),
-            |id| {
-                call_count += 1;
-                match id.raw() {
-                    0 => Ok(Value::Bool(false)), // condition
-                    2 => Ok(Value::int(99)),     // else branch
-                    _ => Ok(Value::Void),
-                }
-            },
-        );
+        let result = eval_if(ExprId::new(0), ExprId::new(1), Some(ExprId::new(2)), |id| {
+            call_count += 1;
+            match id.raw() {
+                0 => Ok(Value::Bool(false)), // condition
+                2 => Ok(Value::int(99)),     // else branch
+                _ => Ok(Value::Void),
+            }
+        });
         assert_eq!(result.unwrap(), Value::int(99));
     }
 
     #[test]
     fn truthy_int_nonzero() {
         let mut call_count = 0;
-        let result = eval_if(
-            ExprId::new(0),
-            ExprId::new(1),
-            None,
-            |_| {
-                call_count += 1;
-                if call_count == 1 {
-                    Ok(Value::int(1)) // truthy: nonzero
-                } else {
-                    Ok(Value::int(42))
-                }
-            },
-        );
+        let result = eval_if(ExprId::new(0), ExprId::new(1), None, |_| {
+            call_count += 1;
+            if call_count == 1 {
+                Ok(Value::int(1)) // truthy: nonzero
+            } else {
+                Ok(Value::int(42))
+            }
+        });
         assert_eq!(result.unwrap(), Value::int(42));
     }
 
@@ -94,12 +74,9 @@ mod if_else {
 
     #[test]
     fn condition_error_propagates() {
-        let result = eval_if(
-            ExprId::new(0),
-            ExprId::new(1),
-            None,
-            |_| Err(crate::eval::EvalError::new("condition error")),
-        );
+        let result = eval_if(ExprId::new(0), ExprId::new(1), None, |_| {
+            Err(crate::eval::EvalError::new("condition error"))
+        });
         assert!(result.is_err());
     }
 }
@@ -171,10 +148,8 @@ mod pattern_binding {
             let interner = SharedInterner::default();
             let a = interner.intern("a");
             let b = interner.intern("b");
-            let pattern = BindingPattern::Tuple(vec![
-                BindingPattern::Name(a),
-                BindingPattern::Name(b),
-            ]);
+            let pattern =
+                BindingPattern::Tuple(vec![BindingPattern::Name(a), BindingPattern::Name(b)]);
 
             let mut env = Environment::new();
             let value = Value::tuple(vec![Value::int(1), Value::int(2)]);
@@ -192,10 +167,7 @@ mod pattern_binding {
             let c = interner.intern("c");
             let pattern = BindingPattern::Tuple(vec![
                 BindingPattern::Name(a),
-                BindingPattern::Tuple(vec![
-                    BindingPattern::Name(b),
-                    BindingPattern::Name(c),
-                ]),
+                BindingPattern::Tuple(vec![BindingPattern::Name(b), BindingPattern::Name(c)]),
             ]);
 
             let mut env = Environment::new();
@@ -214,10 +186,8 @@ mod pattern_binding {
         fn with_wildcard() {
             let interner = SharedInterner::default();
             let a = interner.intern("a");
-            let pattern = BindingPattern::Tuple(vec![
-                BindingPattern::Name(a),
-                BindingPattern::Wildcard,
-            ]);
+            let pattern =
+                BindingPattern::Tuple(vec![BindingPattern::Name(a), BindingPattern::Wildcard]);
 
             let mut env = Environment::new();
             let value = Value::tuple(vec![Value::int(1), Value::int(2)]);
@@ -230,9 +200,7 @@ mod pattern_binding {
         fn length_mismatch_error() {
             let interner = SharedInterner::default();
             let a = interner.intern("a");
-            let pattern = BindingPattern::Tuple(vec![
-                BindingPattern::Name(a),
-            ]);
+            let pattern = BindingPattern::Tuple(vec![BindingPattern::Name(a)]);
 
             let mut env = Environment::new();
             let value = Value::tuple(vec![Value::int(1), Value::int(2)]);
@@ -244,9 +212,7 @@ mod pattern_binding {
         fn not_tuple_error() {
             let interner = SharedInterner::default();
             let a = interner.intern("a");
-            let pattern = BindingPattern::Tuple(vec![
-                BindingPattern::Name(a),
-            ]);
+            let pattern = BindingPattern::Tuple(vec![BindingPattern::Name(a)]);
 
             let mut env = Environment::new();
             let result = bind_pattern(&pattern, Value::int(42), false, &mut env);
@@ -299,7 +265,10 @@ mod pattern_binding {
             bind_pattern(&pattern, value, false, &mut env).unwrap();
 
             assert_eq!(env.lookup(head), Some(Value::int(1)));
-            assert_eq!(env.lookup(tail), Some(Value::list(vec![Value::int(2), Value::int(3)])));
+            assert_eq!(
+                env.lookup(tail),
+                Some(Value::list(vec![Value::int(2), Value::int(3)]))
+            );
         }
 
         #[test]
@@ -409,25 +378,14 @@ mod edge_cases {
         let x = interner.intern("x");
 
         // ((((x))))
-        let pattern = BindingPattern::Tuple(vec![
-            BindingPattern::Tuple(vec![
-                BindingPattern::Tuple(vec![
-                    BindingPattern::Tuple(vec![
-                        BindingPattern::Name(x),
-                    ]),
-                ]),
-            ]),
-        ]);
+        let pattern =
+            BindingPattern::Tuple(vec![BindingPattern::Tuple(vec![BindingPattern::Tuple(
+                vec![BindingPattern::Tuple(vec![BindingPattern::Name(x)])],
+            )])]);
 
-        let value = Value::tuple(vec![
-            Value::tuple(vec![
-                Value::tuple(vec![
-                    Value::tuple(vec![
-                        Value::int(42),
-                    ]),
-                ]),
-            ]),
-        ]);
+        let value = Value::tuple(vec![Value::tuple(vec![Value::tuple(vec![Value::tuple(
+            vec![Value::int(42)],
+        )])])]);
 
         let mut env = Environment::new();
         bind_pattern(&pattern, value, false, &mut env).unwrap();

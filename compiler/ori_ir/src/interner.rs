@@ -5,7 +5,10 @@
 
 // Arc is needed here for SharedInterner - the interner must be shared across
 // threads for concurrent compilation and query execution.
-#![expect(clippy::disallowed_types, reason = "Arc required for SharedInterner thread-safety")]
+#![expect(
+    clippy::disallowed_types,
+    reason = "Arc required for SharedInterner thread-safety"
+)]
 
 use super::Name;
 use parking_lot::RwLock;
@@ -83,7 +86,11 @@ impl StringInterner {
         let shard_idx = Self::shard_for(s);
         // shard_idx is always < NUM_SHARDS (16) due to modulo, guaranteed to fit in u32
         let shard_idx_u32 = u32::try_from(shard_idx).unwrap_or_else(|_| {
-            unreachable!("shard_idx {} from modulo {} cannot exceed u32", shard_idx, Name::NUM_SHARDS)
+            unreachable!(
+                "shard_idx {} from modulo {} cannot exceed u32",
+                shard_idx,
+                Name::NUM_SHARDS
+            )
         });
         let shard = &self.shards[shard_idx];
 
@@ -107,9 +114,8 @@ impl StringInterner {
         let owned: String = s.to_owned();
         let leaked: &'static str = Box::leak(owned.into_boxed_str());
 
-        let local = u32::try_from(guard.strings.len()).unwrap_or_else(|_| {
-            panic!("interner shard {shard_idx} exceeded u32::MAX strings")
-        });
+        let local = u32::try_from(guard.strings.len())
+            .unwrap_or_else(|_| panic!("interner shard {shard_idx} exceeded u32::MAX strings"));
         guard.strings.push(leaked);
         guard.map.insert(leaked, local);
 
@@ -127,19 +133,72 @@ impl StringInterner {
     fn pre_intern_keywords(&self) {
         const KEYWORDS: &[&str] = &[
             // Reserved keywords
-            "async", "break", "continue", "do", "else", "false", "for", "if",
-            "impl", "in", "let", "loop", "match", "mut", "pub", "self", "Self",
-            "then", "trait", "true", "type", "use", "uses", "void", "where",
-            "with", "yield",
+            "async",
+            "break",
+            "continue",
+            "do",
+            "else",
+            "false",
+            "for",
+            "if",
+            "impl",
+            "in",
+            "let",
+            "loop",
+            "match",
+            "mut",
+            "pub",
+            "self",
+            "Self",
+            "then",
+            "trait",
+            "true",
+            "type",
+            "use",
+            "uses",
+            "void",
+            "where",
+            "with",
+            "yield",
             // Pattern keywords
-            "cache", "catch", "collect", "filter", "find", "fold", "map", "parallel",
-            "recurse", "retry", "run", "timeout", "try", "validate",
+            "cache",
+            "catch",
+            "collect",
+            "filter",
+            "find",
+            "fold",
+            "map",
+            "parallel",
+            "recurse",
+            "retry",
+            "run",
+            "timeout",
+            "try",
+            "validate",
             // Primitive types
-            "int", "float", "bool", "str", "char", "byte", "Never",
+            "int",
+            "float",
+            "bool",
+            "str",
+            "char",
+            "byte",
+            "Never",
             // Common types
-            "Option", "Result", "Some", "None", "Ok", "Err", "Error",
+            "Option",
+            "Result",
+            "Some",
+            "None",
+            "Ok",
+            "Err",
+            "Error",
             // Common functions
-            "main", "print", "len", "compare", "panic", "assert", "assert_eq",
+            "main",
+            "print",
+            "len",
+            "compare",
+            "panic",
+            "assert",
+            "assert_eq",
         ];
 
         for kw in KEYWORDS {

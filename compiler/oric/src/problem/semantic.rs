@@ -28,10 +28,7 @@ pub enum SemanticProblem {
     },
 
     /// Unknown config variable.
-    UnknownConfig {
-        span: Span,
-        name: String,
-    },
+    UnknownConfig { span: Span, name: String },
 
     /// Duplicate definition.
     DuplicateDefinition {
@@ -49,10 +46,7 @@ pub enum SemanticProblem {
     },
 
     /// Import not found.
-    ImportNotFound {
-        span: Span,
-        path: String,
-    },
+    ImportNotFound { span: Span, path: String },
 
     /// Imported item not found in module.
     ImportedItemNotFound {
@@ -69,16 +63,10 @@ pub enum SemanticProblem {
     },
 
     /// Using uninitialized variable.
-    UseBeforeInit {
-        span: Span,
-        name: String,
-    },
+    UseBeforeInit { span: Span, name: String },
 
     /// Function missing required test.
-    MissingTest {
-        span: Span,
-        func_name: String,
-    },
+    MissingTest { span: Span, func_name: String },
 
     /// Test targets unknown function.
     TestTargetNotFound {
@@ -88,47 +76,28 @@ pub enum SemanticProblem {
     },
 
     /// Break outside loop.
-    BreakOutsideLoop {
-        span: Span,
-    },
+    BreakOutsideLoop { span: Span },
 
     /// Continue outside loop.
-    ContinueOutsideLoop {
-        span: Span,
-    },
+    ContinueOutsideLoop { span: Span },
 
     /// Return outside function.
-    ReturnOutsideFunction {
-        span: Span,
-    },
+    ReturnOutsideFunction { span: Span },
 
     /// Self reference outside method.
-    SelfOutsideMethod {
-        span: Span,
-    },
+    SelfOutsideMethod { span: Span },
 
     /// Recursive function without base case.
-    InfiniteRecursion {
-        span: Span,
-        func_name: String,
-    },
+    InfiniteRecursion { span: Span, func_name: String },
 
     /// Unused variable warning.
-    UnusedVariable {
-        span: Span,
-        name: String,
-    },
+    UnusedVariable { span: Span, name: String },
 
     /// Unused function warning.
-    UnusedFunction {
-        span: Span,
-        name: String,
-    },
+    UnusedFunction { span: Span, name: String },
 
     /// Unreachable code warning.
-    UnreachableCode {
-        span: Span,
-    },
+    UnreachableCode { span: Span },
 
     /// Pattern matching is not exhaustive.
     NonExhaustiveMatch {
@@ -137,16 +106,10 @@ pub enum SemanticProblem {
     },
 
     /// Redundant pattern arm (already covered).
-    RedundantPattern {
-        span: Span,
-        covered_by_span: Span,
-    },
+    RedundantPattern { span: Span, covered_by_span: Span },
 
     /// Capability not provided.
-    MissingCapability {
-        span: Span,
-        capability: String,
-    },
+    MissingCapability { span: Span, capability: String },
 
     /// Capability already provided.
     DuplicateCapability {

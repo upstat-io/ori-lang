@@ -2,8 +2,8 @@
 //!
 //! Helper methods for matching binary and unary operators during parsing.
 
-use ori_ir::{BinaryOp, FunctionExpKind, TokenKind, UnaryOp};
 use crate::Parser;
+use ori_ir::{BinaryOp, FunctionExpKind, TokenKind, UnaryOp};
 
 impl Parser<'_> {
     pub(crate) fn match_equality_op(&self) -> Option<BinaryOp> {

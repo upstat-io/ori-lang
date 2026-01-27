@@ -15,8 +15,10 @@
 //! These are evaluated via the `PatternRegistry` which implements
 //! the Open/Closed principle for extensibility.
 
-use ori_ir::{ExprId, BindingPattern, FunctionSeq, SeqBinding, SeqBindingRange, ExprArena, ArmRange};
-use crate::{Value, EvalResult, EvalError, Environment};
+use crate::{Environment, EvalError, EvalResult, Value};
+use ori_ir::{
+    ArmRange, BindingPattern, ExprArena, ExprId, FunctionSeq, SeqBinding, SeqBindingRange,
+};
 
 /// Evaluate a run pattern (sequential evaluation).
 ///
@@ -36,7 +38,12 @@ where
     let seq_bindings = arena.get_seq_bindings(bindings);
     for binding in seq_bindings {
         match binding {
-            SeqBinding::Let { pattern, value, mutable, .. } => {
+            SeqBinding::Let {
+                pattern,
+                value,
+                mutable,
+                ..
+            } => {
                 let val = eval_fn(*value)?;
                 bind_fn(pattern, val, *mutable, env)?;
             }
@@ -69,7 +76,12 @@ where
     let seq_bindings = arena.get_seq_bindings(bindings);
     for binding in seq_bindings {
         match binding {
-            SeqBinding::Let { pattern, value, mutable, .. } => {
+            SeqBinding::Let {
+                pattern,
+                value,
+                mutable,
+                ..
+            } => {
                 match eval_fn(*value) {
                     Ok(value) => {
                         // Unwrap Result/Option types per spec:
@@ -124,13 +136,15 @@ where
     M: FnOnce(Value, ArmRange) -> EvalResult,
 {
     match func_seq {
-        FunctionSeq::Run { bindings, result, .. } => {
-            eval_run(*bindings, *result, arena, env, eval_fn, bind_fn)
-        }
-        FunctionSeq::Try { bindings, result, .. } => {
-            eval_try(*bindings, *result, arena, env, eval_fn, bind_fn)
-        }
-        FunctionSeq::Match { scrutinee, arms, .. } => {
+        FunctionSeq::Run {
+            bindings, result, ..
+        } => eval_run(*bindings, *result, arena, env, eval_fn, bind_fn),
+        FunctionSeq::Try {
+            bindings, result, ..
+        } => eval_try(*bindings, *result, arena, env, eval_fn, bind_fn),
+        FunctionSeq::Match {
+            scrutinee, arms, ..
+        } => {
             let mut eval = eval_fn.clone();
             let value = eval(*scrutinee)?;
             match_fn(value, *arms)
@@ -150,7 +164,7 @@ pub fn eval_try_expr(value: Value, value_to_string: impl Fn(&Value) -> String) -
         Value::Ok(v) | Value::Some(v) => Ok((*v).clone()),
         Value::Err(e) => Err(EvalError::propagate(
             Value::Err(e.clone()),
-            format!("propagated error: {}", value_to_string(&e))
+            format!("propagated error: {}", value_to_string(&e)),
         )),
         Value::None => Err(EvalError::propagate(Value::None, "propagated None")),
         other => Ok(other),

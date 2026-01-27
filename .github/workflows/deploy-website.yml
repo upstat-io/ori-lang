@@ -29,14 +29,17 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Install wasm-pack
-        run: cargo install wasm-pack
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: playground/wasm
+          workspaces: playground/wasm -> playground/wasm/target
+          cache-on-failure: true
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
 
       - name: Build WASM
         run: |
@@ -47,19 +50,16 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - name: Install website dependencies
-        run: |
-          cd website
-          bun install
+        run: bun install
+        working-directory: website
 
       - name: Copy WASM to website
-        run: |
-          cd website
-          bash scripts/copy-wasm.sh
+        run: bash scripts/copy-wasm.sh
+        working-directory: website
 
       - name: Build website
-        run: |
-          cd website
-          bun run build
+        run: bun run build
+        working-directory: website
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

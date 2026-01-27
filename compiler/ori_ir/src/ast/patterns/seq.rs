@@ -5,9 +5,9 @@
 //! # Salsa Compatibility
 //! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
-use crate::{Span, ParsedType, ExprId, Spanned};
+use super::super::ranges::{ArmRange, SeqBindingRange};
 use super::binding::{BindingPattern, MatchArm};
-use super::super::ranges::{SeqBindingRange, ArmRange};
+use crate::{ExprId, ParsedType, Span, Spanned};
 
 /// Element within a `function_seq` (run/try).
 ///
@@ -24,10 +24,7 @@ pub enum SeqBinding {
         span: Span,
     },
     /// Statement expression (evaluated for side effects, e.g., assignment)
-    Stmt {
-        expr: ExprId,
-        span: Span,
-    },
+    Stmt { expr: ExprId, span: Span },
 }
 
 impl Spanned for SeqBinding {

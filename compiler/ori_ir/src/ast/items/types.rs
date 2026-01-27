@@ -5,9 +5,9 @@
 //! # Salsa Compatibility
 //! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
-use crate::{Name, Span, ParsedType, Spanned};
 use super::super::ranges::GenericParamRange;
 use super::traits::WhereClause;
+use crate::{Name, ParsedType, Span, Spanned};
 
 /// A user-defined type declaration.
 ///

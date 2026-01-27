@@ -9,12 +9,15 @@
 //! - Future extensibility without changing component signatures
 
 // Arc is the implementation of SharedMutableRegistry - all usage goes through the newtype
-#![expect(clippy::disallowed_types, reason = "Arc is the implementation of SharedMutableRegistry")]
+#![expect(
+    clippy::disallowed_types,
+    reason = "Arc is the implementation of SharedMutableRegistry"
+)]
 
-use std::sync::Arc;
-use std::fmt;
 use ori_patterns::PatternRegistry;
 use ori_types::SharedTypeInterner;
+use std::fmt;
+use std::sync::Arc;
 
 // Re-export SharedRegistry from ori_typeck so we have a single source of truth
 pub use ori_typeck::SharedRegistry;
@@ -173,8 +176,7 @@ mod tests {
     #[test]
     fn test_context_builder() {
         let custom_pattern_registry = PatternRegistry::new();
-        let ctx = CompilerContext::new()
-            .with_pattern_registry(custom_pattern_registry);
+        let ctx = CompilerContext::new().with_pattern_registry(custom_pattern_registry);
 
         let _ = &ctx.pattern_registry;
     }

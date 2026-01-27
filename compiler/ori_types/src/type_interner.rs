@@ -5,11 +5,14 @@
 
 // Arc is needed here for SharedTypeInterner - the interner must be shared across
 // threads for concurrent compilation and query execution.
-#![expect(clippy::disallowed_types, reason = "Arc required for SharedTypeInterner thread-safety")]
+#![expect(
+    clippy::disallowed_types,
+    reason = "Arc required for SharedTypeInterner thread-safety"
+)]
 
+use ori_ir::{Name, TypeId};
 use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
-use ori_ir::{Name, TypeId};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -53,7 +56,10 @@ impl TypeShard {
         ];
 
         for (idx, data) in primitives.into_iter().enumerate() {
-            #[expect(clippy::cast_possible_truncation, reason = "primitives count is fixed and small")]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "primitives count is fixed and small"
+            )]
             let idx_u32 = idx as u32;
             shard.map.insert(data.clone(), idx_u32);
             shard.types.push(data);
@@ -106,7 +112,10 @@ impl TypeInterner {
     fn shard_for(data: &TypeData) -> usize {
         let mut hasher = rustc_hash::FxHasher::default();
         data.hash(&mut hasher);
-        #[expect(clippy::cast_possible_truncation, reason = "truncation is fine for hash-based shard selection")]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "truncation is fine for hash-based shard selection"
+        )]
         let hash_usize = hasher.finish() as usize;
         hash_usize % NUM_SHARDS
     }
@@ -122,7 +131,10 @@ impl TypeInterner {
     ///
     /// # Panics
     /// Panics if a shard exceeds capacity (over 268 million types per shard).
-    #[expect(clippy::cast_possible_truncation, reason = "shard_idx is bounded by NUM_SHARDS (16)")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "shard_idx is bounded by NUM_SHARDS (16)"
+    )]
     pub fn intern(&self, data: TypeData) -> TypeId {
         // Fast path for primitives: return fixed TypeId constants
         match &data {
@@ -159,9 +171,8 @@ impl TypeInterner {
             return TypeId::from_shard_local(shard_idx as u32, local);
         }
 
-        let local = u32::try_from(guard.types.len()).unwrap_or_else(|_| {
-            panic!("type interner shard {shard_idx} exceeded u32::MAX types")
-        });
+        let local = u32::try_from(guard.types.len())
+            .unwrap_or_else(|_| panic!("type interner shard {shard_idx} exceeded u32::MAX types"));
 
         guard.types.push(data.clone());
         guard.map.insert(data, local);
@@ -219,9 +230,7 @@ impl TypeInterner {
             },
 
             // Compound types
-            TypeData::Tuple(types) => {
-                Type::Tuple(types.iter().map(|&t| self.to_type(t)).collect())
-            }
+            TypeData::Tuple(types) => Type::Tuple(types.iter().map(|&t| self.to_type(t)).collect()),
             TypeData::Function { params, ret } => Type::Function {
                 params: params.iter().map(|&p| self.to_type(p)).collect(),
                 ret: Box::new(self.to_type(ret)),
@@ -238,7 +247,11 @@ impl TypeInterner {
             TypeData::Var(var) => Type::Var(var),
 
             // Projections
-            TypeData::Projection { base, trait_name, assoc_name } => Type::Projection {
+            TypeData::Projection {
+                base,
+                trait_name,
+                assoc_name,
+            } => Type::Projection {
                 base: Box::new(self.to_type(base)),
                 trait_name,
                 assoc_name,
@@ -586,7 +599,10 @@ mod tests {
 
         // Test Type -> TypeId -> Type roundtrip for primitives
         assert_eq!(interner.to_type(Type::Int.to_type_id(&interner)), Type::Int);
-        assert_eq!(interner.to_type(Type::Float.to_type_id(&interner)), Type::Float);
+        assert_eq!(
+            interner.to_type(Type::Float.to_type_id(&interner)),
+            Type::Float
+        );
     }
 
     #[test]

@@ -11,9 +11,12 @@
 //! 4. **Return values** - Caller takes ownership
 //! 5. **Temporaries** - Consumed immediately, no intermediate retain
 
-use rustc_hash::FxHashSet;
-use ori_ir::{ast::{ExprKind, FunctionSeq, SeqBinding}, ExprArena, ExprId, Name, TypeId};
+use ori_ir::{
+    ast::{ExprKind, FunctionSeq, SeqBinding},
+    ExprArena, ExprId, Name, TypeId,
+};
 use ori_types::{TypeData, TypeInterner};
+use rustc_hash::FxHashSet;
 
 /// Ownership status of a value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -130,7 +133,11 @@ impl<'a> OwnershipAnalysis<'a> {
 
     /// Visit an expression and determine ownership requirements.
     fn visit_expr(&mut self, id: ExprId, context: Ownership) {
-        let type_id = self.expr_types.get(id.index()).copied().unwrap_or(TypeId::INFER);
+        let type_id = self
+            .expr_types
+            .get(id.index())
+            .copied()
+            .unwrap_or(TypeId::INFER);
 
         // Fast path: primitives never need ARC
         if !self.needs_arc(type_id) {
@@ -167,7 +174,11 @@ impl<'a> OwnershipAnalysis<'a> {
 
             // Some: depends on inner type
             ExprKind::Some(inner) => {
-                let inner_type = self.expr_types.get(inner.index()).copied().unwrap_or(TypeId::INFER);
+                let inner_type = self
+                    .expr_types
+                    .get(inner.index())
+                    .copied()
+                    .unwrap_or(TypeId::INFER);
                 if !self.needs_arc(inner_type) {
                     // Unboxed Option - no ARC needed
                     self.info.elide_arc.insert(id);
@@ -178,7 +189,11 @@ impl<'a> OwnershipAnalysis<'a> {
             // Ok/Err: depends on inner type
             ExprKind::Ok(inner) | ExprKind::Err(inner) => {
                 if let Some(inner_id) = inner {
-                    let inner_type = self.expr_types.get(inner_id.index()).copied().unwrap_or(TypeId::INFER);
+                    let inner_type = self
+                        .expr_types
+                        .get(inner_id.index())
+                        .copied()
+                        .unwrap_or(TypeId::INFER);
                     if !self.needs_arc(inner_type) {
                         self.info.elide_arc.insert(id);
                     }
@@ -240,7 +255,11 @@ impl<'a> OwnershipAnalysis<'a> {
             }
 
             // If expressions: both branches have same ownership as result
-            ExprKind::If { cond, then_branch, else_branch } => {
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
                 self.visit_expr(*cond, Ownership::Borrowed);
                 self.visit_expr(*then_branch, context);
                 if let Some(else_id) = else_branch {
@@ -257,7 +276,9 @@ impl<'a> OwnershipAnalysis<'a> {
             }
 
             // For: iter is borrowed, body depends on yield
-            ExprKind::For { iter, body, guard, .. } => {
+            ExprKind::For {
+                iter, body, guard, ..
+            } => {
                 self.visit_expr(*iter, Ownership::Borrowed);
                 if let Some(g) = guard {
                     self.visit_expr(*g, Ownership::Borrowed);
@@ -357,10 +378,10 @@ impl<'a> OwnershipAnalysis<'a> {
             // FunctionSeq/FunctionExp: visit all contained expressions
             ExprKind::FunctionSeq(seq) => {
                 let bindings_range = match seq {
-                    FunctionSeq::Run { bindings, .. }
-                    | FunctionSeq::Try { bindings, .. } => Some(*bindings),
-                    FunctionSeq::Match { .. }
-                    | FunctionSeq::ForPattern { .. } => None,
+                    FunctionSeq::Run { bindings, .. } | FunctionSeq::Try { bindings, .. } => {
+                        Some(*bindings)
+                    }
+                    FunctionSeq::Match { .. } | FunctionSeq::ForPattern { .. } => None,
                 };
                 if let Some(range) = bindings_range {
                     for binding in self.arena.get_seq_bindings(range) {
@@ -400,7 +421,11 @@ impl<'a> OwnershipAnalysis<'a> {
             ExprKind::Unary { operand, .. } => {
                 self.visit_expr(*operand, Ownership::Borrowed);
             }
-            ExprKind::If { cond, then_branch, else_branch } => {
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
                 self.visit_expr(*cond, Ownership::Borrowed);
                 self.visit_expr(*then_branch, Ownership::Owned);
                 if let Some(e) = else_branch {

@@ -1,7 +1,7 @@
 //! Extend block parsing.
 
-use ori_ir::{ExtendDef, GenericParamRange, ParsedType, TokenKind, TypeId};
 use crate::{ParseError, Parser};
+use ori_ir::{ExtendDef, GenericParamRange, ParsedType, TokenKind, TypeId};
 
 impl Parser<'_> {
     /// Parse an extend block.
@@ -26,7 +26,7 @@ impl Parser<'_> {
         // Handle [T] for list types
         let (target_ty, target_type_name) = if self.check(&TokenKind::LBracket) {
             self.advance(); // [
-            // Parse element type (optional, default to infer)
+                            // Parse element type (optional, default to infer)
             let elem_ty = if self.check(&TokenKind::RBracket) {
                 ParsedType::Infer
             } else {
@@ -34,7 +34,10 @@ impl Parser<'_> {
             };
             self.expect(&TokenKind::RBracket)?;
             // List type - method dispatch uses "list"
-            (ParsedType::List(Box::new(elem_ty)), self.interner().intern("list"))
+            (
+                ParsedType::List(Box::new(elem_ty)),
+                self.interner().intern("list"),
+            )
         } else if self.check_type_keyword() {
             // Primitive type keywords: str, int, float, bool, etc.
             let (ty, type_name_str) = match self.current_kind() {
@@ -70,7 +73,13 @@ impl Parser<'_> {
             } else {
                 Vec::new()
             };
-            (ParsedType::Named { name: type_name, type_args }, type_name)
+            (
+                ParsedType::Named {
+                    name: type_name,
+                    type_args,
+                },
+                type_name,
+            )
         };
 
         // Optional where clause

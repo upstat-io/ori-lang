@@ -13,24 +13,24 @@
 //!
 //! Use `TypeInterner` to intern types and get `TypeId` handles.
 
-mod core;
-mod env;
-mod traverse;
 mod context;
-mod error;
+mod core;
 mod data;
+mod env;
+mod error;
+mod traverse;
 mod type_interner;
 
 // Re-export all public types
+pub use context::{InferenceContext, TypeContext};
 pub use core::{Type, TypeScheme, TypeSchemeId};
 pub use env::TypeEnv;
-pub use traverse::{TypeFolder, TypeIdFolder, TypeIdVisitor, TypeVisitor};
-pub use context::{InferenceContext, TypeContext};
 pub use error::TypeError;
+pub use traverse::{TypeFolder, TypeIdFolder, TypeIdVisitor, TypeVisitor};
 
 // Type interning exports
 pub use data::{TypeData, TypeVar};
-pub use type_interner::{TypeInterner, SharedTypeInterner, TypeLookup};
+pub use type_interner::{SharedTypeInterner, TypeInterner, TypeLookup};
 
 // Size assertions to prevent accidental regressions.
 // Type is used throughout type checking and stored in query results.
@@ -68,7 +68,8 @@ mod tests {
             Type::Function {
                 params: vec![Type::Int, Type::Bool],
                 ret: Box::new(Type::Str),
-            }.display(&interner),
+            }
+            .display(&interner),
             "(int, bool) -> str"
         );
     }
@@ -323,8 +324,14 @@ mod tests {
 
         // They should have different type variables
         if let (
-            Type::Function { params: p1, ret: r1 },
-            Type::Function { params: p2, ret: r2 },
+            Type::Function {
+                params: p1,
+                ret: r1,
+            },
+            Type::Function {
+                params: p2,
+                ret: r2,
+            },
         ) = (ty1, ty2)
         {
             // Each instantiation gets fresh variables

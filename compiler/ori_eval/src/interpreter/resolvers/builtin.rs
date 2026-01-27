@@ -2,8 +2,8 @@
 //!
 //! Resolves methods from the `MethodRegistry` (built-in methods on primitive types).
 
-use ori_ir::Name;
 use super::{MethodResolution, MethodResolver, Value};
+use ori_ir::Name;
 
 /// Resolver for built-in methods from `MethodRegistry`.
 ///

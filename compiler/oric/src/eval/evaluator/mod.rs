@@ -13,12 +13,9 @@ mod module_loading;
 pub use builder::EvaluatorBuilder;
 
 use crate::db::Db;
-use crate::ir::{StringInterner, ExprArena, Name};
+use crate::ir::{ExprArena, Name, StringInterner};
 use ori_eval::{
-    Interpreter,
-    Environment, UserMethodRegistry,
-    SharedMutableRegistry,
-    EvalResult, Value,
+    Environment, EvalResult, Interpreter, SharedMutableRegistry, UserMethodRegistry, Value,
 };
 
 /// Salsa-integrated evaluator for Ori expressions.
@@ -43,7 +40,11 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Create an evaluator builder for more configuration options.
-    pub fn builder(interner: &'a StringInterner, arena: &'a ExprArena, db: &'a dyn Db) -> EvaluatorBuilder<'a> {
+    pub fn builder(
+        interner: &'a StringInterner,
+        arena: &'a ExprArena,
+        db: &'a dyn Db,
+    ) -> EvaluatorBuilder<'a> {
         EvaluatorBuilder::new(interner, arena, db)
     }
 
@@ -83,7 +84,12 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Evaluate a method call.
-    pub fn eval_method_call(&mut self, receiver: Value, method: Name, args: Vec<Value>) -> EvalResult {
+    pub fn eval_method_call(
+        &mut self,
+        receiver: Value,
+        method: Name,
+        args: Vec<Value>,
+    ) -> EvalResult {
         self.interpreter.eval_method_call(receiver, method, args)
     }
 

@@ -15,8 +15,8 @@
 //! - `bound_checking`: Trait bound verification
 //! - `builder`: `TypeChecker` builder pattern
 
-mod builder;
 pub mod bound_checking;
+mod builder;
 pub mod components;
 mod cycle_detection;
 pub mod imports;
@@ -28,15 +28,15 @@ mod type_registration;
 pub mod types;
 
 pub use builder::TypeCheckerBuilder;
-pub use components::{
-    CheckContext, DiagnosticState, InferenceState, Registries, ScopeContext,
-};
+pub use components::{CheckContext, DiagnosticState, InferenceState, Registries, ScopeContext};
 pub use cycle_detection::add_pattern_bindings;
 pub use scope_guards::{SavedCapabilityContext, SavedImplContext};
 pub use types::{FunctionType, GenericBound, TypeCheckError, TypedModule, WhereConstraint};
 
 use ori_diagnostic::queue::DiagnosticConfig;
-use ori_ir::{ExprArena, ExprId, Module, Function, Name, ParsedType, Span, StringInterner, TestDef, TypeId};
+use ori_ir::{
+    ExprArena, ExprId, Function, Module, Name, ParsedType, Span, StringInterner, TestDef, TypeId,
+};
 use ori_types::{Type, TypeData, TypeError, TypeScheme};
 use std::collections::HashMap;
 
@@ -107,7 +107,11 @@ impl<'a> TypeChecker<'a> {
         // Pass 0c: Register derived trait implementations
         // Must be done after register_types so we know the type structure,
         // but after register_impls so explicit impls take precedence.
-        crate::derives::register_derived_impls(module, &mut self.registries.traits, self.context.interner);
+        crate::derives::register_derived_impls(
+            module,
+            &mut self.registries.traits,
+            self.context.interner,
+        );
 
         // Pass 0d: Register config variables
         self.register_configs(module);
@@ -121,19 +125,27 @@ impl<'a> TypeChecker<'a> {
             self.validate_capabilities(func);
 
             // Store signature for constraint checking during calls
-            self.scope.function_sigs.insert(func.name, func_type.clone());
+            self.scope
+                .function_sigs
+                .insert(func.name, func_type.clone());
 
             // Bind function name to its type
             // For generic functions, create a polymorphic type scheme
             // so each call site gets fresh type variables
             let interner = self.inference.env.interner();
             let fn_type = Type::Function {
-                params: func_type.params.iter().map(|&id| interner.to_type(id)).collect(),
+                params: func_type
+                    .params
+                    .iter()
+                    .map(|&id| interner.to_type(id))
+                    .collect(),
                 ret: Box::new(interner.to_type(func_type.return_type)),
             };
 
             // Extract type vars from generic parameters
-            let type_vars: Vec<_> = func_type.generics.iter()
+            let type_vars: Vec<_> = func_type
+                .generics
+                .iter()
                 .filter_map(|g| {
                     if let TypeData::Var(tv) = interner.lookup(g.type_var) {
                         Some(tv)
@@ -172,7 +184,10 @@ impl<'a> TypeChecker<'a> {
 
         // Build expression types vector with resolved types
         // expr_types already stores TypeId, just need to resolve type variables
-        let interner = self.inference.base_env.as_ref().map_or_else(|| self.inference.env.interner(), ori_types::TypeEnv::interner);
+        let interner = self.inference.base_env.as_ref().map_or_else(
+            || self.inference.env.interner(),
+            ori_types::TypeEnv::interner,
+        );
         let max_expr = self.inference.expr_types.keys().max().copied().unwrap_or(0);
         let mut expr_types = vec![interner.error(); max_expr + 1];
         for (id, type_id) in self.inference.expr_types {
@@ -184,7 +199,9 @@ impl<'a> TypeChecker<'a> {
             .into_iter()
             .map(|ft| {
                 // Resolve each param TypeId through the inference context
-                let resolved_params: Vec<TypeId> = ft.params.iter()
+                let resolved_params: Vec<TypeId> = ft
+                    .params
+                    .iter()
                     .map(|&type_id| {
                         let ty = interner.to_type(type_id);
                         let resolved = self.inference.ctx.resolve(&ty);
@@ -355,7 +372,10 @@ impl<'a> TypeChecker<'a> {
                         self.resolve_parsed_type_internal(&type_args[1], generic_type_vars),
                     )
                 } else {
-                    (self.inference.ctx.fresh_var(), self.inference.ctx.fresh_var())
+                    (
+                        self.inference.ctx.fresh_var(),
+                        self.inference.ctx.fresh_var(),
+                    )
                 };
                 Type::Result {
                     ok: Box::new(ok),
@@ -444,7 +464,9 @@ impl<'a> TypeChecker<'a> {
         let return_type = interner.to_type(func_type.return_type);
 
         // Build the current function type for patterns like `recurse` that need `self`
-        let param_types: Vec<Type> = func_type.params.iter()
+        let param_types: Vec<Type> = func_type
+            .params
+            .iter()
             .map(|&id| interner.to_type(id))
             .collect();
         let current_fn_type = Type::Function {
@@ -477,13 +499,14 @@ impl<'a> TypeChecker<'a> {
     /// Type check a test body.
     fn check_test(&mut self, test: &TestDef) {
         // Infer parameter types
-        let params: Vec<Type> = self.context.arena.get_params(test.params)
+        let params: Vec<Type> = self
+            .context
+            .arena
+            .get_params(test.params)
             .iter()
-            .map(|p| {
-                match &p.ty {
-                    Some(parsed_ty) => self.parsed_type_to_type(parsed_ty),
-                    None => self.inference.ctx.fresh_var(),
-                }
+            .map(|p| match &p.ty {
+                Some(parsed_ty) => self.parsed_type_to_type(parsed_ty),
+                None => self.inference.ctx.fresh_var(),
             })
             .collect();
 
@@ -636,7 +659,9 @@ impl<'a> TypeChecker<'a> {
         };
 
         // If we have a diagnostic queue, use it for deduplication/limits
-        if let (Some(ref mut queue), Some(ref source)) = (&mut self.diagnostics.queue, &self.diagnostics.source) {
+        if let (Some(ref mut queue), Some(ref source)) =
+            (&mut self.diagnostics.queue, &self.diagnostics.source)
+        {
             let is_soft = error.is_soft();
             // Add to queue - it will handle deduplication and limits
             if queue.add_with_source(diag, source, is_soft) {
@@ -653,7 +678,10 @@ impl<'a> TypeChecker<'a> {
     /// When source is provided, the diagnostic queue tracks error limits.
     /// Returns false if no source/queue is configured.
     pub fn limit_reached(&self) -> bool {
-        self.diagnostics.queue.as_ref().is_some_and(ori_diagnostic::queue::DiagnosticQueue::limit_reached)
+        self.diagnostics
+            .queue
+            .as_ref()
+            .is_some_and(ori_diagnostic::queue::DiagnosticQueue::limit_reached)
     }
 
     /// Store the type for an expression.
@@ -669,7 +697,12 @@ impl<'a> TypeChecker<'a> {
     /// This is a convenience method for the common pattern of creating
     /// and pushing a `TypeCheckError` to the diagnostics list.
     #[inline]
-    pub(crate) fn push_error(&mut self, msg: impl Into<String>, span: Span, code: ori_diagnostic::ErrorCode) {
+    pub(crate) fn push_error(
+        &mut self,
+        msg: impl Into<String>,
+        span: Span,
+        code: ori_diagnostic::ErrorCode,
+    ) {
         self.diagnostics.errors.push(TypeCheckError {
             message: msg.into(),
             span,
@@ -679,10 +712,7 @@ impl<'a> TypeChecker<'a> {
 }
 
 /// Type check a parsed module.
-pub fn type_check(
-    parse_result: &ori_parse::ParseResult,
-    interner: &StringInterner,
-) -> TypedModule {
+pub fn type_check(parse_result: &ori_parse::ParseResult, interner: &StringInterner) -> TypedModule {
     let checker = TypeChecker::new(&parse_result.arena, interner);
     checker.check_module(&parse_result.module)
 }
@@ -706,7 +736,8 @@ pub fn type_check_with_config(
     source: String,
     config: DiagnosticConfig,
 ) -> TypedModule {
-    let checker = TypeChecker::with_source_and_config(&parse_result.arena, interner, source, config);
+    let checker =
+        TypeChecker::with_source_and_config(&parse_result.arena, interner, source, config);
     checker.check_module(&parse_result.module)
 }
 
@@ -739,7 +770,11 @@ mod tests {
             .with_type_interner(type_interner.clone())
             .build();
         let typed = checker.check_module(&parsed.module);
-        CheckResult { parsed, typed, type_interner }
+        CheckResult {
+            parsed,
+            typed,
+            type_interner,
+        }
     }
 
     #[test]
@@ -812,8 +847,10 @@ mod tests {
         let (_, typed) = check_source("@test () -> int = if 42 then 1 else 2");
 
         assert!(typed.has_errors());
-        assert!(typed.errors[0].message.contains("type mismatch") ||
-                typed.errors[0].message.contains("expected"));
+        assert!(
+            typed.errors[0].message.contains("type mismatch")
+                || typed.errors[0].message.contains("expected")
+        );
     }
 
     #[test]
@@ -824,7 +861,10 @@ mod tests {
 
         eprintln!("Parse errors: {:?}", parsed.errors);
         eprintln!("Type errors: {:?}", typed.errors);
-        assert!(typed.has_errors(), "Should have type error for let x: int = \"hello\"");
+        assert!(
+            typed.has_errors(),
+            "Should have type error for let x: int = \"hello\""
+        );
     }
 
     #[test]
@@ -836,10 +876,14 @@ mod tests {
         eprintln!("Parse errors: {:?}", parsed.errors);
         eprintln!("Type errors: {:?}", typed.errors);
         // Should catch the int/str mismatch, not just return type
-        let has_int_str_error = typed.errors.iter().any(|e|
-            e.message.contains("int") && e.message.contains("str")
+        let has_int_str_error = typed
+            .errors
+            .iter()
+            .any(|e| e.message.contains("int") && e.message.contains("str"));
+        assert!(
+            has_int_str_error,
+            "Should have type error for let x: int = \"hello\" inside run"
         );
-        assert!(has_int_str_error, "Should have type error for let x: int = \"hello\" inside run");
     }
 
     #[test]
@@ -917,131 +961,155 @@ mod tests {
 
     #[test]
     fn test_nested_if_type() {
-        let (_, typed) = check_source(r"
+        let (_, typed) = check_source(
+            r"
             @test (x: int) -> int =
                 if x > 0 then
                     if x > 10 then 100 else 10
                 else
                     0
-        ");
+        ",
+        );
 
         assert!(!typed.has_errors());
     }
 
     #[test]
     fn test_run_pattern_type() {
-        let (_, typed) = check_source(r"
+        let (_, typed) = check_source(
+            r"
             @test () -> int = run(
                 let x: int = 1,
                 let y: int = 2,
                 x + y
             )
-        ");
+        ",
+        );
 
         assert!(!typed.has_errors());
     }
 
     #[test]
     fn test_closure_self_capture_direct() {
-        let (_, typed) = check_source(r"
+        let (_, typed) = check_source(
+            r"
             @test () -> int = run(
                 let f = () -> f,
                 0
             )
-        ");
+        ",
+        );
 
         assert!(typed.has_errors());
-        assert!(typed.errors.iter().any(|e|
-            e.message.contains("closure cannot capture itself") &&
-            e.code == ori_diagnostic::ErrorCode::E2007
-        ));
+        assert!(typed
+            .errors
+            .iter()
+            .any(|e| e.message.contains("closure cannot capture itself")
+                && e.code == ori_diagnostic::ErrorCode::E2007));
     }
 
     #[test]
     fn test_closure_self_capture_call() {
-        let (_, typed) = check_source(r"
+        let (_, typed) = check_source(
+            r"
             @test () -> int = run(
                 let f = (x: int) -> f(x + 1),
                 0
             )
-        ");
+        ",
+        );
 
         assert!(typed.has_errors());
-        assert!(typed.errors.iter().any(|e|
-            e.message.contains("closure cannot capture itself")
-        ));
+        assert!(typed
+            .errors
+            .iter()
+            .any(|e| e.message.contains("closure cannot capture itself")));
     }
 
     #[test]
     fn test_no_self_capture_uses_outer_binding() {
-        let (_, typed) = check_source(r"
+        let (_, typed) = check_source(
+            r"
             @test () -> int = run(
                 let f = 42,
                 let g = () -> f,
                 g()
             )
-        ");
+        ",
+        );
 
-        assert!(!typed.errors.iter().any(|e|
-            e.code == ori_diagnostic::ErrorCode::E2007
-        ));
+        assert!(!typed
+            .errors
+            .iter()
+            .any(|e| e.code == ori_diagnostic::ErrorCode::E2007));
     }
 
     #[test]
     fn test_no_self_capture_non_lambda() {
-        let (_, typed) = check_source(r"
+        let (_, typed) = check_source(
+            r"
             @test () -> int = run(
                 let x = 1 + 2,
                 x
             )
-        ");
+        ",
+        );
 
         assert!(!typed.has_errors());
     }
 
     #[test]
     fn test_closure_self_capture_in_run() {
-        let (_, typed) = check_source(r"
+        let (_, typed) = check_source(
+            r"
             @test () -> int = run(
                 let f = () -> f,
                 0
             )
-        ");
+        ",
+        );
 
         assert!(typed.has_errors());
-        assert!(typed.errors.iter().any(|e|
-            e.message.contains("closure cannot capture itself")
-        ));
+        assert!(typed
+            .errors
+            .iter()
+            .any(|e| e.message.contains("closure cannot capture itself")));
     }
 
     #[test]
     fn test_closure_self_capture_nested_expression() {
-        let (_, typed) = check_source(r"
+        let (_, typed) = check_source(
+            r"
             @test () -> int = run(
                 let f = () -> if true then f else f,
                 0
             )
-        ");
+        ",
+        );
 
         assert!(typed.has_errors());
-        assert!(typed.errors.iter().any(|e|
-            e.message.contains("closure cannot capture itself")
-        ));
+        assert!(typed
+            .errors
+            .iter()
+            .any(|e| e.message.contains("closure cannot capture itself")));
     }
 
     #[test]
     fn test_valid_mutual_recursion_via_outer_scope() {
-        let (_, typed) = check_source(r"
+        let (_, typed) = check_source(
+            r"
             @f (x: int) -> int = x
             @test () -> int = run(
                 let g = (x: int) -> @f(x),
                 g(1)
             )
-        ");
+        ",
+        );
 
-        assert!(!typed.errors.iter().any(|e|
-            e.code == ori_diagnostic::ErrorCode::E2007
-        ));
+        assert!(!typed
+            .errors
+            .iter()
+            .any(|e| e.code == ori_diagnostic::ErrorCode::E2007));
     }
 
     #[test]

@@ -69,7 +69,10 @@ use proc_macro::TokenStream;
 /// };
 /// let diagnostic = err.into_diagnostic();
 /// ```
-#[proc_macro_derive(Diagnostic, attributes(diag, primary_span, label, note, suggestion, help))]
+#[proc_macro_derive(
+    Diagnostic,
+    attributes(diag, primary_span, label, note, suggestion, help)
+)]
 pub fn derive_diagnostic(input: TokenStream) -> TokenStream {
     diagnostic::derive_diagnostic(input)
 }

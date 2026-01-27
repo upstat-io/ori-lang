@@ -4,4 +4,4 @@
 
 mod tracker;
 
-pub use tracker::{ChangeTracker, TextEdit, EditConflict};
+pub use tracker::{ChangeTracker, EditConflict, TextEdit};

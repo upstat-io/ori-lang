@@ -2,9 +2,9 @@
 //!
 //! Registers struct, sum type (enum), and newtype declarations from modules.
 
+use super::TypeChecker;
 use ori_ir::{Module, TypeDecl, TypeDeclKind};
 use ori_types::Type;
-use super::TypeChecker;
 
 impl TypeChecker<'_> {
     /// Register all user-defined type declarations from a module.
@@ -20,7 +20,9 @@ impl TypeChecker<'_> {
     /// Register a single type declaration.
     fn register_type_decl(&mut self, type_decl: &TypeDecl) {
         // Convert generic params to names
-        let type_params: Vec<ori_ir::Name> = self.context.arena
+        let type_params: Vec<ori_ir::Name> = self
+            .context
+            .arena
             .get_generic_params(type_decl.generics)
             .iter()
             .map(|gp| gp.name)
@@ -50,7 +52,8 @@ impl TypeChecker<'_> {
                 let variant_inputs: Vec<(ori_ir::Name, Vec<(ori_ir::Name, Type)>)> = variants
                     .iter()
                     .map(|v| {
-                        let fields: Vec<(ori_ir::Name, Type)> = v.fields
+                        let fields: Vec<(ori_ir::Name, Type)> = v
+                            .fields
                             .iter()
                             .map(|f| {
                                 let ty = self.parsed_type_to_type(&f.ty);

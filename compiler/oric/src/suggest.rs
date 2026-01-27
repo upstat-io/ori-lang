@@ -394,14 +394,7 @@ mod tests {
     #[test]
     fn test_ori_identifiers() {
         // Test with typical Ori identifier patterns
-        let candidates = [
-            "filter",
-            "map",
-            "fold",
-            "find",
-            "collect",
-            "foreach",
-        ];
+        let candidates = ["filter", "map", "fold", "find", "collect", "foreach"];
 
         assert_eq!(
             suggest_similar("fiter", candidates.iter().copied()),

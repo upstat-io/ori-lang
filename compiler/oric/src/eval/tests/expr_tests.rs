@@ -3,10 +3,10 @@
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 
 use crate::eval::exec::expr::{
-    eval_literal, eval_binary_values, get_collection_length, eval_index,
+    eval_binary_values, eval_index, eval_literal, get_collection_length,
 };
 use crate::eval::Value;
-use crate::ir::{ExprKind, BinaryOp, SharedInterner};
+use crate::ir::{BinaryOp, ExprKind, SharedInterner};
 
 // Literal Evaluation Tests
 
@@ -50,7 +50,10 @@ mod literals {
     }
 
     #[test]
-    #[expect(clippy::approx_constant, reason = "testing float literal evaluation, not using pi")]
+    #[expect(
+        clippy::approx_constant,
+        reason = "testing float literal evaluation, not using pi"
+    )]
     fn float() {
         let interner = SharedInterner::default();
         let bits = 3.14_f64.to_bits();
@@ -313,7 +316,10 @@ mod index_access {
         #[test]
         fn single_element() {
             let list = Value::list(vec![Value::int(42)]);
-            assert_eq!(eval_index(list.clone(), Value::int(0)).unwrap(), Value::int(42));
+            assert_eq!(
+                eval_index(list.clone(), Value::int(0)).unwrap(),
+                Value::int(42)
+            );
             assert_eq!(eval_index(list, Value::int(-1)).unwrap(), Value::int(42));
         }
     }
@@ -348,8 +354,14 @@ mod index_access {
         #[test]
         fn emoji() {
             let s = Value::string("a😀b");
-            assert_eq!(eval_index(s.clone(), Value::int(0)).unwrap(), Value::Char('a'));
-            assert_eq!(eval_index(s.clone(), Value::int(1)).unwrap(), Value::Char('😀'));
+            assert_eq!(
+                eval_index(s.clone(), Value::int(0)).unwrap(),
+                Value::Char('a')
+            );
+            assert_eq!(
+                eval_index(s.clone(), Value::int(1)).unwrap(),
+                Value::Char('😀')
+            );
             assert_eq!(eval_index(s, Value::int(2)).unwrap(), Value::Char('b'));
         }
 
@@ -443,7 +455,10 @@ mod boundaries {
     fn large_list_last() {
         let items: Vec<Value> = (0..10000).map(Value::int).collect();
         let list = Value::list(items);
-        assert_eq!(eval_index(list.clone(), Value::int(9999)).unwrap(), Value::int(9999));
+        assert_eq!(
+            eval_index(list.clone(), Value::int(9999)).unwrap(),
+            Value::int(9999)
+        );
         assert_eq!(eval_index(list, Value::int(-1)).unwrap(), Value::int(9999));
     }
 
@@ -456,7 +471,10 @@ mod boundaries {
     #[test]
     fn long_string_last() {
         let s = Value::string("a".repeat(10000));
-        assert_eq!(eval_index(s.clone(), Value::int(9999)).unwrap(), Value::Char('a'));
+        assert_eq!(
+            eval_index(s.clone(), Value::int(9999)).unwrap(),
+            Value::Char('a')
+        );
         assert_eq!(eval_index(s, Value::int(-1)).unwrap(), Value::Char('a'));
     }
 

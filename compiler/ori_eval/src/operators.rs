@@ -16,7 +16,10 @@ use ori_patterns::{
 ///
 /// This is the preferred entry point for binary operations. It uses
 /// enum-based dispatch which is faster than trait objects for fixed type sets.
-#[expect(clippy::needless_pass_by_value, reason = "Public API consumed by callers passing owned Values; references would force cloning at call sites")]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Public API consumed by callers passing owned Values; references would force cloning at call sites"
+)]
 pub fn evaluate_binary(left: Value, right: Value, op: BinaryOp) -> EvalResult {
     match (&left, &right) {
         (Value::Int(a), Value::Int(b)) => eval_int_binary(*a, *b, op),
@@ -45,28 +48,43 @@ pub fn evaluate_binary(left: Value, right: Value, op: BinaryOp) -> EvalResult {
 /// `Sub`, `Mul`, `Div`, `Rem`, or `Neg`.
 fn eval_int_binary(a: ScalarInt, b: ScalarInt, op: BinaryOp) -> EvalResult {
     match op {
-        BinaryOp::Add => a.checked_add(b).map(Value::Int).ok_or_else(|| integer_overflow("addition")),
-        BinaryOp::Sub => a.checked_sub(b).map(Value::Int).ok_or_else(|| integer_overflow("subtraction")),
-        BinaryOp::Mul => a.checked_mul(b).map(Value::Int).ok_or_else(|| integer_overflow("multiplication")),
+        BinaryOp::Add => a
+            .checked_add(b)
+            .map(Value::Int)
+            .ok_or_else(|| integer_overflow("addition")),
+        BinaryOp::Sub => a
+            .checked_sub(b)
+            .map(Value::Int)
+            .ok_or_else(|| integer_overflow("subtraction")),
+        BinaryOp::Mul => a
+            .checked_mul(b)
+            .map(Value::Int)
+            .ok_or_else(|| integer_overflow("multiplication")),
         BinaryOp::Div => {
             if b.is_zero() {
                 Err(division_by_zero())
             } else {
-                a.checked_div(b).map(Value::Int).ok_or_else(|| integer_overflow("division"))
+                a.checked_div(b)
+                    .map(Value::Int)
+                    .ok_or_else(|| integer_overflow("division"))
             }
         }
         BinaryOp::Mod => {
             if b.is_zero() {
                 Err(modulo_by_zero())
             } else {
-                a.checked_rem(b).map(Value::Int).ok_or_else(|| integer_overflow("remainder"))
+                a.checked_rem(b)
+                    .map(Value::Int)
+                    .ok_or_else(|| integer_overflow("remainder"))
             }
         }
         BinaryOp::FloorDiv => {
             if b.is_zero() {
                 Err(division_by_zero())
             } else {
-                a.checked_floor_div(b).map(Value::Int).ok_or_else(|| integer_overflow("floor division"))
+                a.checked_floor_div(b)
+                    .map(Value::Int)
+                    .ok_or_else(|| integer_overflow("floor division"))
             }
         }
         BinaryOp::Eq => Ok(Value::Bool(a == b)),
@@ -78,12 +96,14 @@ fn eval_int_binary(a: ScalarInt, b: ScalarInt, op: BinaryOp) -> EvalResult {
         BinaryOp::BitAnd => Ok(Value::Int(a & b)),
         BinaryOp::BitOr => Ok(Value::Int(a | b)),
         BinaryOp::BitXor => Ok(Value::Int(a ^ b)),
-        BinaryOp::Shl => a.checked_shl(b).map(Value::Int).ok_or_else(|| {
-            EvalError::new(format!("shift amount {} out of range (0-63)", b.raw()))
-        }),
-        BinaryOp::Shr => a.checked_shr(b).map(Value::Int).ok_or_else(|| {
-            EvalError::new(format!("shift amount {} out of range (0-63)", b.raw()))
-        }),
+        BinaryOp::Shl => a
+            .checked_shl(b)
+            .map(Value::Int)
+            .ok_or_else(|| EvalError::new(format!("shift amount {} out of range (0-63)", b.raw()))),
+        BinaryOp::Shr => a
+            .checked_shr(b)
+            .map(Value::Int)
+            .ok_or_else(|| EvalError::new(format!("shift amount {} out of range (0-63)", b.raw()))),
         BinaryOp::Range => Ok(Value::Range(RangeValue::exclusive(a.raw(), b.raw()))),
         BinaryOp::RangeInclusive => Ok(Value::Range(RangeValue::inclusive(a.raw(), b.raw()))),
         _ => Err(invalid_binary_op("integers")),
@@ -350,8 +370,12 @@ mod tests {
     #[test]
     fn test_option_equality() {
         assert_eq!(
-            evaluate_binary(Value::some(Value::int(1)), Value::some(Value::int(1)), BinaryOp::Eq)
-                .unwrap(),
+            evaluate_binary(
+                Value::some(Value::int(1)),
+                Value::some(Value::int(1)),
+                BinaryOp::Eq
+            )
+            .unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
@@ -367,8 +391,12 @@ mod tests {
     #[test]
     fn test_result_equality() {
         assert_eq!(
-            evaluate_binary(Value::ok(Value::int(1)), Value::ok(Value::int(1)), BinaryOp::Eq)
-                .unwrap(),
+            evaluate_binary(
+                Value::ok(Value::int(1)),
+                Value::ok(Value::int(1)),
+                BinaryOp::Eq
+            )
+            .unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
@@ -384,7 +412,10 @@ mod tests {
 
     fn assert_overflow(left: i64, right: i64, op: BinaryOp) {
         let result = evaluate_binary(Value::int(left), Value::int(right), op);
-        assert!(result.is_err(), "expected overflow for {left} {op:?} {right}");
+        assert!(
+            result.is_err(),
+            "expected overflow for {left} {op:?} {right}"
+        );
         assert!(
             result.unwrap_err().message.contains("integer overflow"),
             "expected 'integer overflow' message"

@@ -1,12 +1,12 @@
 //! Function call evaluation methods for the Interpreter.
 
-use ori_ir::CallArgRange;
-use crate::{Value, EvalResult, not_callable};
-use crate::exec::call::{
-    check_arg_count, bind_captures, bind_parameters, bind_self,
-    eval_function_val_call, extract_named_args,
-};
 use super::Interpreter;
+use crate::exec::call::{
+    bind_captures, bind_parameters, bind_self, check_arg_count, eval_function_val_call,
+    extract_named_args,
+};
+use crate::{not_callable, EvalResult, Value};
+use ori_ir::CallArgRange;
 
 impl Interpreter<'_> {
     /// Evaluate a function call.
@@ -90,9 +90,7 @@ impl Interpreter<'_> {
 
                 result
             }
-            Value::FunctionVal(func_ptr, _name) => {
-                eval_function_val_call(func_ptr, args)
-            }
+            Value::FunctionVal(func_ptr, _name) => eval_function_val_call(func_ptr, args),
             _ => Err(not_callable(func.type_name())),
         }
     }

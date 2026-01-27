@@ -14,9 +14,13 @@ pub struct CRuntime;
 impl CRuntime {
     /// Emit runtime type definitions.
     pub fn emit_types(ctx: &mut CodegenContext<'_>) {
-        ctx.writeln("// ============================================================================");
+        ctx.writeln(
+            "// ============================================================================",
+        );
         ctx.writeln("// Ori Runtime Types");
-        ctx.writeln("// ============================================================================");
+        ctx.writeln(
+            "// ============================================================================",
+        );
         ctx.newline();
 
         // ARC header for heap-allocated values
@@ -40,9 +44,13 @@ impl CRuntime {
 
     /// Emit runtime function declarations.
     pub fn emit_functions(ctx: &mut CodegenContext<'_>) {
-        ctx.writeln("// ============================================================================");
+        ctx.writeln(
+            "// ============================================================================",
+        );
         ctx.writeln("// Ori Runtime Functions");
-        ctx.writeln("// ============================================================================");
+        ctx.writeln(
+            "// ============================================================================",
+        );
         ctx.newline();
 
         // Runtime init/cleanup
@@ -121,8 +129,12 @@ impl CRuntime {
         ctx.newline();
 
         ctx.writeln("#define ORI_STRING_IS_LARGE(s) ((s).large.is_large & 0x80)");
-        ctx.writeln("#define ORI_STRING_LEN(s) (ORI_STRING_IS_LARGE(s) ? (s).large.len : (s).small.len)");
-        ctx.writeln("#define ORI_STRING_DATA(s) (ORI_STRING_IS_LARGE(s) ? (s).large.data : (s).small.data)");
+        ctx.writeln(
+            "#define ORI_STRING_LEN(s) (ORI_STRING_IS_LARGE(s) ? (s).large.len : (s).small.len)",
+        );
+        ctx.writeln(
+            "#define ORI_STRING_DATA(s) (ORI_STRING_IS_LARGE(s) ? (s).large.data : (s).small.data)",
+        );
         ctx.newline();
     }
 

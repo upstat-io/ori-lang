@@ -5,7 +5,7 @@
 //! # Salsa Compatibility
 //! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
-use crate::{Name, Span, ExprId, Spanned};
+use crate::{ExprId, Name, Span, Spanned};
 
 /// Binding pattern for let expressions.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]

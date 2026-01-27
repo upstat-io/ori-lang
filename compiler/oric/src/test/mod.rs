@@ -12,6 +12,8 @@ mod result;
 mod runner;
 
 pub use discovery::{discover_tests, TestFile};
-pub use error_matching::{match_errors, matches_expected, format_expected, format_actual, MatchResult};
-pub use result::{TestResult, TestSummary, TestOutcome, CoverageReport, FunctionCoverage};
-pub use runner::{run_tests, run_test_file, TestRunner, TestRunnerConfig, Backend};
+pub use error_matching::{
+    format_actual, format_expected, match_errors, matches_expected, MatchResult,
+};
+pub use result::{CoverageReport, FunctionCoverage, TestOutcome, TestResult, TestSummary};
+pub use runner::{run_test_file, run_tests, Backend, TestRunner, TestRunnerConfig};

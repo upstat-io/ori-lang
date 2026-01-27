@@ -1,16 +1,15 @@
 //! `InterpreterBuilder` for creating Interpreter instances with various configurations.
 
-use ori_ir::{StringInterner, ExprArena, SharedArena};
-use ori_patterns::PatternRegistry;
-use crate::{
-    Environment, UserMethodRegistry,
-    SharedRegistry, SharedMutableRegistry,
-    SharedPrintHandler, stdout_handler,
+use super::resolvers::{
+    BuiltinMethodResolver, CollectionMethodResolver, MethodDispatcher, UserRegistryResolver,
 };
 use super::{Interpreter, ModuleLoader};
-use super::resolvers::{
-    MethodDispatcher, UserRegistryResolver, CollectionMethodResolver, BuiltinMethodResolver,
+use crate::{
+    stdout_handler, Environment, SharedMutableRegistry, SharedPrintHandler, SharedRegistry,
+    UserMethodRegistry,
 };
+use ori_ir::{ExprArena, SharedArena, StringInterner};
+use ori_patterns::PatternRegistry;
 
 /// Builder for creating Interpreter instances with various configurations.
 pub struct InterpreterBuilder<'a> {
@@ -86,10 +85,12 @@ impl<'a> InterpreterBuilder<'a> {
 
     /// Build the interpreter.
     pub fn build(self) -> Interpreter<'a> {
-        let pat_reg = self.registry
+        let pat_reg = self
+            .registry
             .unwrap_or_else(|| SharedRegistry::new(PatternRegistry::new()));
 
-        let user_meth_reg = self.user_method_registry
+        let user_meth_reg = self
+            .user_method_registry
             .unwrap_or_else(|| SharedMutableRegistry::new(UserMethodRegistry::new()));
 
         // Build method dispatcher once. Because user_method_registry uses interior

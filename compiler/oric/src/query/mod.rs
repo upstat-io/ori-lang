@@ -3,15 +3,15 @@
 //! Queries are functions that compute values from inputs or other queries.
 //! Salsa automatically caches results and invalidates when dependencies change.
 
-use std::path::Path;
 use crate::db::Db;
+use crate::eval::{EvalOutput, Evaluator, ModuleEvalResult};
 use crate::input::SourceFile;
 use crate::ir::TokenList;
 use crate::parser::{self, ParseResult};
 use crate::typeck::{self, TypedModule};
-use crate::eval::{Evaluator, ModuleEvalResult, EvalOutput};
 use ori_codegen::{CCodegen, CodegenResult};
 use ori_types::TypeInterner;
+use std::path::Path;
 
 #[cfg(test)]
 mod tests;
@@ -137,8 +137,7 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
     let interner = db.interner();
 
     // Create evaluator with database for Salsa-tracked import loading
-    let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db)
-        .build();
+    let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db).build();
     evaluator.register_prelude();
 
     let file_path = file.path(db);
@@ -161,7 +160,9 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
             if params.is_empty() {
                 // Zero-argument function - safe to call
                 match evaluator.eval(func.body) {
-                    Ok(value) => ModuleEvalResult::success(EvalOutput::from_value(&value, interner)),
+                    Ok(value) => {
+                        ModuleEvalResult::success(EvalOutput::from_value(&value, interner))
+                    }
                     Err(e) => ModuleEvalResult::failure(e.message),
                 }
             } else {
