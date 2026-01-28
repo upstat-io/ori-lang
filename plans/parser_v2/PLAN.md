@@ -800,7 +800,7 @@ fn test_error_message_for_nested_generic() {
 - [x] Implemented `parse_for_loop()` for `for x in items do/yield body`
 - [x] Removed `// TODO: PARSER BUG:` from test
 
-#### 3.9 `#` Length Symbol (✅ Complete)
+#### 3.9 `#` Length Symbol (✅ Parser/Interpreter Complete)
 - [x] `#` in index brackets (e.g., `list[# - 1]`) — parser change only needed
 - [x] **Roadmap**: `plans/roadmap/phase-10-control-flow.md` § 10.8 Index Expressions
 - [x] **Spec**: `docs/ori_lang/0.1-alpha/spec/09-expressions.md` § Index Access
@@ -808,6 +808,7 @@ fn test_error_message_for_nested_generic() {
 - [x] Added `IN_INDEX` context flag to `ParseContext`
 - [x] Parser recognizes `#` as `ExprKind::HashLength` inside `[...]`
 - [x] Type checker and evaluator already had full support
+- [ ] LLVM codegen pending (placeholder exists)
 
 **Implementation Notes:**
 - AST already had all pattern types defined - only parser was missing

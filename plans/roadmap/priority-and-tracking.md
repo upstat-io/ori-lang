@@ -268,7 +268,7 @@ cargo st tests/spec/patterns/     # Tier 3
 
 **Rust unit tests:** 1006 passed, 0 failed
 
-**Ori spec tests:** 697 passed, 0 failed, 19 skipped (716 total)
+**Ori spec tests:** 901 passed, 0 failed, 19 skipped (920 total)
 
 | Category | Passed | Skipped | Notes |
 |----------|--------|---------|-------|
