@@ -138,6 +138,31 @@ Derivable: `Eq`, `Hashable`, `Comparable`, `Printable`, `Clone`, `Default`, `Ser
 
 User-defined types are nominally typed. Identical structure does not imply same type.
 
+## Trait Objects
+
+A trait name used as a type represents "any value implementing this trait":
+
+```ori
+@display (item: Printable) -> void = print(item.to_str())
+
+let items: [Printable] = [point, user, "hello"]
+```
+
+The compiler determines the dispatch mechanism. Users specify *what* (any Printable), not *how* (vtable vs monomorphization).
+
+### Trait Object vs Generic Bound
+
+| Syntax | Meaning |
+|--------|---------|
+| `item: Printable` | Any Printable value (trait object) |
+| `<T: Printable> item: T` | Generic over Printable types |
+
+Use trait objects for heterogeneous collections. Use generics when all elements share a concrete type.
+
+### Object Safety
+
+Not all traits can be used as types. Traits with methods that return `Self` or have generic parameters may not be object-safe. The compiler enforces these constraints with clear error messages.
+
 ## Type Inference
 
 Types inferred where possible. Required annotations:

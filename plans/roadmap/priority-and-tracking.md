@@ -144,6 +144,13 @@
 - Module-level bindings require `$` prefix; `$` is modifier, not part of name
 - Blocked on: None (can be implemented independently)
 
+**Remove `dyn` Keyword for Trait Objects** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/remove-dyn-keyword-proposal.md`
+- Implementation: Phase 15.12
+- Trait names used directly as types mean "any value implementing this trait"
+- Removes Rust jargon (`dyn`); follows Go/TypeScript/Java pattern
+- Blocked on: None (grammar change only)
+
 ---
 
 ## Milestones

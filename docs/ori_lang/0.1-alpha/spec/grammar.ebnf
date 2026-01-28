@@ -210,8 +210,7 @@ constant_decl = [ "pub" ] "let" "$" identifier [ ":" type ] "=" expression .
 // ============================================================================
 
 type          = type_path [ type_args ]
-              | list_type | map_type | tuple_type | function_type
-              | "dyn" type .
+              | list_type | map_type | tuple_type | function_type .
 type_path     = identifier { "." identifier } .
 type_args     = "<" type { "," type } ">" .
 list_type     = "[" type "]" .
