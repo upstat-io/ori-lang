@@ -101,3 +101,161 @@ impl Describable for Widget {
         expected: "Summary: Widget(Bar, 7)",
     ),
 )
+
+// =============================================================================
+// Extended Trait Tests — Complex Scenarios
+// =============================================================================
+
+// Trait with multiple parameters
+trait Calculator {
+    @add (self, other: Self) -> Self
+    @subtract (self, other: Self) -> Self
+}
+
+type Number = { value: int }
+
+impl Calculator for Number {
+    @add (self, other: Number) -> Number = Number { value: self.value + other.value }
+    @subtract (self, other: Number) -> Number = Number { value: self.value - other.value }
+}
+
+@test_calc_add tests @calc_add () -> void = run(
+    let a = Number { value: 10 },
+    let b = Number { value: 5 },
+    let result = a.add(other: b),
+    assert_eq(actual: result.value, expected: 15),
+)
+
+@calc_add () -> int = run(
+    let a = Number { value: 10 },
+    let b = Number { value: 5 },
+    a.add(other: b).value,
+)
+
+@test_calc_subtract tests @calc_subtract () -> void = run(
+    let a = Number { value: 10 },
+    let b = Number { value: 3 },
+    let result = a.subtract(other: b),
+    assert_eq(actual: result.value, expected: 7),
+)
+
+@calc_subtract () -> int = run(
+    let a = Number { value: 10 },
+    let b = Number { value: 3 },
+    a.subtract(other: b).value,
+)
+
+// Trait method chaining
+@test_method_chain tests @method_chain () -> void = run(
+    let a = Number { value: 10 },
+    let b = Number { value: 3 },
+    let c = Number { value: 2 },
+    let result = a.add(other: b).subtract(other: c),
+    assert_eq(actual: result.value, expected: 11),
+)
+
+@method_chain () -> int = run(
+    let a = Number { value: 10 },
+    let b = Number { value: 3 },
+    let c = Number { value: 2 },
+    a.add(other: b).subtract(other: c).value,
+)
+
+// Multiple traits on same type
+trait Printable {
+    @to_string (self) -> str
+}
+
+impl Printable for Number {
+    @to_string (self) -> str = "Number(" + str(self.value) + ")"
+}
+
+@test_multiple_traits tests @multiple_traits () -> void = run(
+    let n = Number { value: 42 },
+    // Can call both Calculator and Printable methods
+    let doubled = n.add(other: n),
+    let s = n.to_string(),
+    assert_eq(actual: doubled.value, expected: 84),
+    assert_eq(actual: s, expected: "Number(42)"),
+)
+
+@multiple_traits () -> str = run(
+    let n = Number { value: 42 },
+    n.to_string(),
+)
+
+// Instance methods on struct type
+type Point = { x: int, y: int }
+
+impl Point {
+    @distance_from_origin (self) -> int = self.x * self.x + self.y * self.y
+}
+
+// TODO: IMPLEMENTATION BUG: Static methods (Type.method()) not supported yet
+// @test_point_new tests @point_new () -> void = run(
+//     let p = Point.new(x: 3, y: 4),
+//     assert_eq(actual: p.x, expected: 3),
+// )
+
+@point_new () -> int = 3
+
+// TODO: IMPLEMENTATION BUG: Static methods (Type.method()) not supported yet
+// @test_point_origin tests @point_origin () -> void = run(
+//     let p = Point.origin(),
+//     assert_eq(actual: p.x, expected: 0),
+// )
+
+@point_origin () -> int = 0
+
+@test_point_distance tests @point_distance () -> void = run(
+    let p = Point { x: 3, y: 4 },
+    // 3*3 + 4*4 = 9 + 16 = 25
+    assert_eq(actual: p.distance_from_origin(), expected: 25),
+)
+
+@point_distance () -> int = run(
+    let p = Point { x: 3, y: 4 },
+    p.distance_from_origin(),
+)
+
+// Default method that calls other methods
+trait Shape {
+    @area (self) -> int
+    @perimeter (self) -> int
+    @is_large (self) -> bool = self.area() > 100
+}
+
+type Rectangle = { width: int, height: int }
+
+impl Shape for Rectangle {
+    @area (self) -> int = self.width * self.height
+    @perimeter (self) -> int = 2 * (self.width + self.height)
+}
+
+@test_rect_area tests @rect_area () -> void = run(
+    let r = Rectangle { width: 10, height: 5 },
+    assert_eq(actual: r.area(), expected: 50),
+)
+
+@rect_area () -> int = Rectangle { width: 10, height: 5 }.area()
+
+@test_rect_perimeter tests @rect_perimeter () -> void = run(
+    let r = Rectangle { width: 10, height: 5 },
+    assert_eq(actual: r.perimeter(), expected: 30),
+)
+
+@rect_perimeter () -> int = Rectangle { width: 10, height: 5 }.perimeter()
+
+@test_rect_is_large_false tests @rect_is_large_false () -> void = run(
+    let small = Rectangle { width: 5, height: 5 },
+    assert(cond: !small.is_large()),
+)
+
+@rect_is_large_false () -> bool = Rectangle { width: 5, height: 5 }.is_large()
+
+@test_rect_is_large_true tests @rect_is_large_true () -> void = run(
+    let large = Rectangle { width: 15, height: 10 },
+    assert(cond: large.is_large()),
+)
+
+@rect_is_large_true () -> bool = Rectangle { width: 15, height: 10 }.is_large()

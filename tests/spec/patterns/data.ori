@@ -202,3 +202,182 @@ use std.testing { assert, assert_eq, assert_ne }
 )
 
 @collect_inclusive () = []
+
+// =============================================================================
+// Extended Collection Method Tests
+// =============================================================================
+
+// map with identity function
+@test_map_identity tests @map_identity () -> void = run(
+    let nums = [1, 2, 3],
+    let same = nums.map(transform: x -> x),
+    assert_eq(actual: same[0], expected: 1),
+    assert_eq(actual: same[1], expected: 2),
+    assert_eq(actual: same[2], expected: 3),
+)
+
+@map_identity () -> int = 0
+
+// map on empty list
+@test_map_empty tests @map_empty () -> void = run(
+    let empty: [int] = [],
+    let result = empty.map(transform: x -> x * 2),
+    assert_eq(actual: len(collection: result), expected: 0),
+)
+
+@map_empty () -> int = 0
+
+// map with constant function
+@test_map_constant tests @map_constant () -> void = run(
+    let nums = [1, 2, 3, 4],
+    let ones = nums.map(transform: x -> 1),
+    assert_eq(actual: ones[0], expected: 1),
+    assert_eq(actual: ones[3], expected: 1),
+)
+
+@map_constant () -> int = 0
+
+// filter keeping all
+@test_filter_all tests @filter_all () -> void = run(
+    let nums = [1, 2, 3],
+    let all = nums.filter(predicate: x -> true),
+    assert_eq(actual: len(collection: all), expected: 3),
+)
+
+@filter_all () -> int = 0
+
+// filter keeping none
+@test_filter_none tests @filter_none () -> void = run(
+    let nums = [1, 2, 3],
+    let none = nums.filter(predicate: x -> false),
+    assert_eq(actual: len(collection: none), expected: 0),
+)
+
+@filter_none () -> int = 0
+
+// filter empty list
+@test_filter_empty tests @filter_empty () -> void = run(
+    let empty: [int] = [],
+    let result = empty.filter(predicate: x -> x > 0),
+    assert_eq(actual: len(collection: result), expected: 0),
+)
+
+@filter_empty () -> int = 0
+
+// fold with empty list
+@test_fold_empty tests @fold_empty () -> void = run(
+    let empty: [int] = [],
+    let result = empty.fold(initial: 42, op: (acc, x) -> acc + x),
+    assert_eq(actual: result, expected: 42),
+)
+
+@fold_empty () -> int = 0
+
+// fold building string
+@test_fold_string tests @fold_string () -> void = run(
+    let nums = [1, 2, 3],
+    let result = nums.fold(initial: "", op: (acc, x) -> acc + str(x)),
+    assert_eq(actual: result, expected: "123"),
+)
+
+@fold_string () -> str = ""
+
+// fold counting elements
+@test_fold_count tests @fold_count () -> void = run(
+    let items = ["a", "b", "c", "d"],
+    let count = items.fold(initial: 0, op: (acc, x) -> acc + 1),
+    assert_eq(actual: count, expected: 4),
+)
+
+@fold_count () -> int = 0
+
+// find returns first match
+@test_find_first tests @find_first () -> void = run(
+    let nums = [10, 20, 30],
+    let found = nums.find(where: x -> x >= 15),
+    let value = found.unwrap_or(default: 0),
+    assert_eq(actual: value, expected: 20),
+)
+
+@find_first () = None
+
+// find in empty list
+@test_find_empty tests @find_empty () -> void = run(
+    let empty: [int] = [],
+    let found = empty.find(where: x -> x > 0),
+    assert(cond: is_none(opt: found)),
+)
+
+@find_empty () = None
+
+// collect empty range
+@test_collect_empty_range tests @collect_empty_range () -> void = run(
+    let result = (5..5).collect(),
+    assert_eq(actual: len(collection: result), expected: 0),
+)
+
+@collect_empty_range () = []
+
+// collect single element range
+@test_collect_single tests @collect_single () -> void = run(
+    let result = (42..43).collect(),
+    assert_eq(actual: len(collection: result), expected: 1),
+    assert_eq(actual: result[0], expected: 42),
+)
+
+@collect_single () = []
+
+// Method chaining: map then find
+@test_map_then_find tests @map_then_find () -> void = run(
+    let nums = [1, 2, 3, 4, 5],
+    let doubled = nums.map(transform: x -> x * 2),
+    let found = doubled.find(where: x -> x > 5),
+    let value = found.unwrap_or(default: 0),
+    assert_eq(actual: value, expected: 6),
+)
+
+@map_then_find () = None
+
+// Method chaining: filter then fold
+@test_filter_then_fold tests @filter_then_fold () -> void = run(
+    let nums = [1, 2, 3, 4, 5],
+    let even = nums.filter(predicate: x -> x % 2 == 0),
+    let sum = even.fold(initial: 0, op: (acc, x) -> acc + x),
+    assert_eq(actual: sum, expected: 6),
+)
+
+@filter_then_fold () -> int = 0
+
+// Triple chain: filter -> map -> fold
+@test_triple_chain tests @triple_chain () -> void = run(
+    let nums = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    let filtered = nums.filter(predicate: x -> x % 2 == 0),
+    let mapped = filtered.map(transform: x -> x * x),
+    let result = mapped.fold(initial: 0, op: (acc, x) -> acc + x),
+    // 2^2 + 4^2 + 6^2 + 8^2 + 10^2 = 4 + 16 + 36 + 64 + 100 = 220
+    assert_eq(actual: result, expected: 220),
+)
+
+@triple_chain () -> int = 0
+
+// map with closure capturing outer variable
+@test_map_with_capture tests @map_with_capture () -> void = run(
+    let multiplier = 3,
+    let nums = [1, 2, 3],
+    let result = nums.map(transform: x -> x * multiplier),
+    assert_eq(actual: result[0], expected: 3),
+    assert_eq(actual: result[1], expected: 6),
+    assert_eq(actual: result[2], expected: 9),
+)
+
+@map_with_capture () -> int = 0
+
+// filter with closure capturing outer variable
+@test_filter_with_capture tests @filter_with_capture () -> void = run(
+    let threshold = 3,
+    let nums = [1, 2, 3, 4, 5],
+    let result = nums.filter(predicate: x -> x > threshold),
+    assert_eq(actual: len(collection: result), expected: 2),
+)
+
+@filter_with_capture () -> int = 0

@@ -98,3 +98,129 @@ type Empty = { }
 @main () -> void = run(
     print(msg: "All derive trait tests passed")
 )
+
+// =============================================================================
+// Extended Derive Tests
+// =============================================================================
+
+// Struct with different field types
+#[derive(Eq, Clone)]
+type Person = { name: str, age: int, active: bool }
+
+@test_person_eq tests @person_eq () -> void = run(
+    let p1 = Person { name: "Alice", age: 30, active: true },
+    let p2 = Person { name: "Alice", age: 30, active: true },
+    let p3 = Person { name: "Bob", age: 30, active: true },
+    let p4 = Person { name: "Alice", age: 25, active: true },
+    let p5 = Person { name: "Alice", age: 30, active: false },
+
+    // All fields must match for equality
+    assert(cond: p1.eq(other: p2)),
+    assert(cond: !p1.eq(other: p3)),
+    assert(cond: !p1.eq(other: p4)),
+    assert(cond: !p1.eq(other: p5)),
+)
+
+@person_eq () -> bool = run(
+    let p1 = Person { name: "Alice", age: 30, active: true },
+    let p2 = Person { name: "Alice", age: 30, active: true },
+    p1.eq(other: p2),
+)
+
+@test_person_clone tests @person_clone () -> void = run(
+    let p1 = Person { name: "Alice", age: 30, active: true },
+    let p2 = p1.clone(),
+    assert(cond: p1.eq(other: p2)),
+)
+
+@person_clone () -> bool = run(
+    let p1 = Person { name: "Alice", age: 30, active: true },
+    let p2 = p1.clone(),
+    p1.eq(other: p2),
+)
+
+// Struct with nested struct
+#[derive(Eq, Clone)]
+type Line = { start: Point, end: Point }
+
+@test_nested_eq tests @nested_eq () -> void = run(
+    let l1 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } },
+    let l2 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } },
+    let l3 = Line { start: Point { x: 1, y: 0 }, end: Point { x: 10, y: 10 } },
+
+    assert(cond: l1.eq(other: l2)),
+    assert(cond: !l1.eq(other: l3)),
+)
+
+@nested_eq () -> bool = run(
+    let l1 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } },
+    let l2 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } },
+    l1.eq(other: l2),
+)
+
+@test_nested_clone tests @nested_clone () -> void = run(
+    let l1 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } },
+    let l2 = l1.clone(),
+    assert(cond: l1.eq(other: l2)),
+)
+
+@nested_clone () -> bool = run(
+    let l1 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } },
+    let l2 = l1.clone(),
+    l1.eq(other: l2),
+)
+
+// Single field struct
+#[derive(Eq, Clone)]
+type Wrapper = { value: int }
+
+@test_single_field_eq tests @single_field_eq () -> void = run(
+    let w1 = Wrapper { value: 42 },
+    let w2 = Wrapper { value: 42 },
+    let w3 = Wrapper { value: 100 },
+    assert(cond: w1.eq(other: w2)),
+    assert(cond: !w1.eq(other: w3)),
+)
+
+@single_field_eq () -> bool = run(
+    let w1 = Wrapper { value: 42 },
+    let w2 = Wrapper { value: 42 },
+    w1.eq(other: w2),
+)
+
+// Many fields struct
+#[derive(Eq)]
+type Config = {
+    name: str,
+    port: int,
+    debug: bool,
+    host: str,
+    max_wait: int
+}
+
+@test_many_fields_eq tests @many_fields_eq () -> void = run(
+    let c1 = Config { name: "app", port: 8080, debug: true, host: "localhost", max_wait: 30 },
+    let c2 = Config { name: "app", port: 8080, debug: true, host: "localhost", max_wait: 30 },
+    let c3 = Config { name: "app", port: 8080, debug: false, host: "localhost", max_wait: 30 },
+    assert(cond: c1.eq(other: c2)),
+    assert(cond: !c1.eq(other: c3)),
+)
+
+@many_fields_eq () -> bool = run(
+    let c1 = Config { name: "app", port: 8080, debug: true, host: "localhost", max_wait: 30 },
+    let c2 = Config { name: "app", port: 8080, debug: true, host: "localhost", max_wait: 30 },
+    c1.eq(other: c2),
+)
+
+// Hash consistency - same value should always hash to same value
+@test_hash_consistency tests @hash_consistency () -> void = run(
+    let p = Point { x: 42, y: 99 },
+    let h1 = p.hash(),
+    let h2 = p.hash(),
+    assert_eq(actual: h1, expected: h2),
+)
+
+@hash_consistency () -> bool = run(
+    let p = Point { x: 42, y: 99 },
+    p.hash() == p.hash(),
+)

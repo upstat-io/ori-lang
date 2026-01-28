@@ -85,3 +85,86 @@ type MockHttp = { base_url: str }
         expected: 30,
     ),
 )
+
+// =============================================================================
+// Extended Capability Tests
+// =============================================================================
+
+// Test capability with different types
+@test_int_capability () -> void = run(
+    let result = with Counter = 42 in Counter + 1,
+    assert_eq(actual: result, expected: 43),
+)
+
+@test_bool_capability () -> void = run(
+    let result = with Debug = true in if Debug then "on" else "off",
+    assert_eq(actual: result, expected: "on"),
+)
+
+// Test capability with list value
+type MockDataStore = { data: [int] }
+
+@test_list_capability () -> void = run(
+    let store = MockDataStore { data: [1, 2, 3] },
+    let result = with DataStore = store in DataStore.data[0],
+    assert_eq(actual: result, expected: 1),
+)
+
+// Test capability used in conditional
+@test_capability_in_conditional () -> void = run(
+    let result = with Debug = true in
+        if Debug then "debug mode" else "release mode",
+    assert_eq(actual: result, expected: "debug mode"),
+)
+
+// Test capability with multiple uses in body
+@test_multiple_uses () -> void = run(
+    let result = with Value = 10 in Value + Value + Value,
+    assert_eq(actual: result, expected: 30),
+)
+
+// Test deeply nested capabilities (three levels)
+@test_three_level_nesting () -> void = run(
+    let result = with A = 1 in
+        with B = 2 in
+            with C = 3 in
+                A + B + C,
+    assert_eq(actual: result, expected: 6),
+)
+
+// Test capability with closure that doesn't capture it
+@test_capability_not_in_closure () -> void = run(
+    let f = (x: int) -> x * 2,
+    let result = with Logger = "log" in f(5),
+    assert_eq(actual: result, expected: 10),
+)
+
+// Test capability visible in let binding
+@test_capability_in_let () -> void = run(
+    let result = with X = 100 in run(
+        let y = X / 10,
+        y,
+    ),
+    assert_eq(actual: result, expected: 10),
+)
+
+// Test capability with struct method access
+type Config = { name: str, port: int }
+
+impl Config {
+    @get_address (self) -> str = self.name + ":" + str(self.port)
+}
+
+@test_capability_method_call () -> void = run(
+    let cfg = Config { name: "localhost", port: 8080 },
+    let result = with Cfg = cfg in Cfg.get_address(),
+    assert_eq(actual: result, expected: "localhost:8080"),
+)
+
+// Test capability preserves through function call
+@uses_cap () -> int uses Value = Value
+
+@test_capability_through_function () -> void = run(
+    let result = with Value = 42 in uses_cap(),
+    assert_eq(actual: result, expected: 42),
+)
