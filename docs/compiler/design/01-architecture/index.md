@@ -295,7 +295,9 @@ To maintain code quality, files follow size limits:
 
 When files exceed limits, extract submodules:
 - `evaluator.rs` -> `eval/exec/expr.rs`, `eval/exec/call.rs`, etc.
-- `types.rs` -> `typeck/infer/expr.rs`, `typeck/infer/call.rs`, etc.
+- `infer/expr.rs` -> `infer/expressions/` subdirectory with focused modules
+- `checker/mod.rs` -> `checker/api.rs`, `checker/orchestration.rs`, `checker/utilities.rs`
+- `registry/trait_registry.rs` -> `registry/trait_types.rs`, `registry/impl_types.rs`, etc.
 
 ## Related Documents
 

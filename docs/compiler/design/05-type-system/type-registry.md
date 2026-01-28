@@ -12,7 +12,16 @@ The TypeRegistry stores user-defined types (structs, enums, type aliases). It en
 ## Location
 
 ```
-compiler/oric/src/typeck/type_registry.rs (~432 lines)
+compiler/ori_typeck/src/registry/
+├── mod.rs                    # TypeRegistry struct, re-exports
+├── trait_registry.rs         # TraitRegistry core (method_cache)
+├── trait_types.rs            # TraitMethodDef, TraitAssocTypeDef, TraitEntry
+├── impl_types.rs             # ImplMethodDef, ImplAssocTypeDef, ImplEntry, CoherenceError
+├── method_lookup.rs          # MethodLookup result type
+└── tests/                    # Test modules
+    ├── mod.rs
+    ├── trait_registry_tests.rs
+    └── type_registry_tests.rs
 ```
 
 ## Structure

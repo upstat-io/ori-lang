@@ -338,7 +338,7 @@ send(from: "alice", to: "bob", body: "hello")
 
 - `compiler/ori_ir/src/ast/items/functions.rs` — Add `anonymous: bool` to `Param`
 - `compiler/ori_parse/src/grammar/item.rs` — Parse `_ name: type`
-- `compiler/oric/src/typeck/infer/call.rs` — Check anonymous params
+- `compiler/ori_typeck/src/infer/call.rs` — Check anonymous params
 - `docs/ori_lang/0.1-alpha/spec/08-declarations.md` — Document syntax
 - `CLAUDE.md` — Update quick reference
 
