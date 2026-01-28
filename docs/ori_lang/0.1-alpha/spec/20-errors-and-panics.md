@@ -8,6 +8,8 @@ order: 20
 
 Ori distinguishes between recoverable errors and unrecoverable panics.
 
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § PATTERNS (catch_expr)
+
 ## Recoverable Errors
 
 Recoverable errors use `Result<T, E>` and `Option<T>` types. See [Types](06-types.md) for type definitions and methods.
@@ -78,10 +80,6 @@ Addition, subtraction, multiplication, and negation all panic on overflow. Progr
 ## Catching Panics
 
 The `catch` pattern captures panics and converts them to `Result<T, str>`:
-
-```ebnf
-catch_expr = "catch" "(" "expr" ":" expression ")" .
-```
 
 ```ori
 let result = catch(expr: dangerous_operation())

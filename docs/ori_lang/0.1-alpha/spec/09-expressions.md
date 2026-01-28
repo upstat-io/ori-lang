@@ -8,32 +8,9 @@ order: 9
 
 Expressions compute values.
 
-## Syntax
-
-```ebnf
-expression    = with_expr | let_expr | if_expr | for_expr | loop_expr | lambda | binary_expr .
-primary       = literal | identifier | "self" | "Self"
-              | "(" expression ")" | list_literal | map_literal | struct_literal .
-list_literal  = "[" [ expression { "," expression } ] "]" .
-map_literal   = "{" [ map_entry { "," map_entry } ] "}" .
-map_entry     = expression ":" expression .
-struct_literal = type_path "{" [ field_init { "," field_init } ] "}" .
-field_init    = identifier [ ":" expression ] .
-```
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § EXPRESSIONS
 
 ## Postfix Expressions
-
-```ebnf
-postfix_expr  = primary { postfix_op } .
-postfix_op    = "." identifier [ call_args ]
-              | "[" expression "]"
-              | call_args
-              | "?" .
-call_args     = "(" [ call_arg { "," call_arg } ] ")" .
-call_arg      = named_arg | positional_arg .
-named_arg     = identifier ":" expression .
-positional_arg = expression .
-```
 
 ### Field and Method Access
 
@@ -94,28 +71,9 @@ value?         // returns Err early if Err
 
 ## Unary Expressions
 
-```ebnf
-unary_expr = [ "!" | "-" | "~" ] postfix_expr .
-```
-
 `!` logical not, `-` negation, `~` bitwise not.
 
 ## Binary Expressions
-
-```ebnf
-binary_expr   = or_expr .
-or_expr       = and_expr { "||" and_expr } .
-and_expr      = bit_or_expr { "&&" bit_or_expr } .
-bit_or_expr   = bit_xor_expr { "|" bit_xor_expr } .
-bit_xor_expr  = bit_and_expr { "^" bit_and_expr } .
-bit_and_expr  = eq_expr { "&" eq_expr } .
-eq_expr       = cmp_expr { ( "==" | "!=" ) cmp_expr } .
-cmp_expr      = range_expr { ( "<" | ">" | "<=" | ">=" ) range_expr } .
-range_expr    = shift_expr [ ( ".." | "..=" ) shift_expr ] .
-shift_expr    = add_expr { ( "<<" | ">>" ) add_expr } .
-add_expr      = mul_expr { ( "+" | "-" ) mul_expr } .
-mul_expr      = unary_expr { ( "*" | "/" | "%" | "div" ) unary_expr } .
-```
 
 | Operator | Operation |
 |----------|-----------|
@@ -207,19 +165,11 @@ NaN != NaN   // true
 
 ## With Expression
 
-```ebnf
-with_expr = "with" identifier "=" expression "in" expression .
-```
-
 ```ori
 with Http = MockHttp { ... } in fetch("/data")
 ```
 
 ## Let Binding
-
-```ebnf
-let_expr = "let" [ "mut" ] pattern [ ":" type ] "=" expression .
-```
 
 ```ori
 let x = 5
@@ -228,12 +178,6 @@ let { x, y } = point
 ```
 
 ## Conditional
-
-```ebnf
-if_expr = "if" expression "then" expression
-          { "else" "if" expression "then" expression }
-          [ "else" expression ] .
-```
 
 ```ori
 if x > 0 then "positive" else "non-positive"
@@ -256,10 +200,6 @@ if x > 0 then "positive"  // error: non-void then-branch requires else
 
 ## For Expression
 
-```ebnf
-for_expr   = "for" identifier "in" expression [ "if" expression ] ( "do" | "yield" ) expression .
-```
-
 ```ori
 for item in items do print(item)
 for n in numbers if n > 0 yield n * n
@@ -268,10 +208,6 @@ for n in numbers if n > 0 yield n * n
 `do` returns `void`; `yield` collects results.
 
 ## Loop Expression
-
-```ebnf
-loop_expr = "loop" "(" expression ")" .
-```
 
 ```ori
 loop(
@@ -285,13 +221,6 @@ loop(
 `break` exits; `continue` skips to next iteration.
 
 ## Lambda
-
-```ebnf
-lambda        = simple_lambda | typed_lambda .
-simple_lambda = lambda_params "->" expression .
-typed_lambda  = "(" [ typed_param { "," typed_param } ] ")" "->" type "=" expression .
-lambda_params = identifier | "(" [ identifier { "," identifier } ] ")" .
-```
 
 ```ori
 x -> x * 2

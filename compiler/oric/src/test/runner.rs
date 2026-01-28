@@ -251,7 +251,7 @@ impl TestRunner {
     fn run_file_llvm(
         &self,
         summary: &mut FileSummary,
-        parse_result: &ori_parse::ParseResult,
+        parse_result: &ori_parse::ParseOutput,
         typed_module: &crate::typeck::TypedModule,
         source: &str,
         interner: &crate::ir::StringInterner,

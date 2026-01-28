@@ -1,0 +1,431 @@
+// ============================================================================
+// Ori Language Grammar
+// Version: 0.1-alpha
+//
+// This is the unified formal grammar for the Ori programming language.
+// All productions are authoritative and take precedence over prose descriptions.
+//
+// Notation:
+//   production = expression .     Production definition
+//   "keyword"                     Literal token
+//   |                             Alternation
+//   [ ]                           Optional (0 or 1)
+//   { }                           Repetition (0 or more)
+//   ( )                           Grouping
+//   /* comment */                 Informative note
+//
+// Cross-references to detailed explanations are provided in comments.
+// ============================================================================
+
+
+// ============================================================================
+// LEXICAL GRAMMAR
+// See: 02-source-code.md, 03-lexical-elements.md
+// ============================================================================
+
+// --- Characters ---
+
+unicode_char  = /* any Unicode code point except NUL (U+0000) */ .
+letter        = 'A' … 'Z' | 'a' … 'z' .
+digit         = '0' … '9' .
+hex_digit     = digit | 'A' … 'F' | 'a' … 'f' .
+newline       = /* U+000A */ .
+whitespace    = ' ' | '\t' | '\r' | newline .
+
+// --- Tokens ---
+
+token = identifier | keyword | literal | operator | delimiter .
+
+// --- Comments ---
+// See: 03-lexical-elements.md § Comments
+
+comment      = "//" { unicode_char - newline } newline .
+doc_comment  = "//" doc_marker { unicode_char - newline } newline .
+doc_marker   = "#" | "@param" | "@field" | "!" | ">" .
+
+// --- Identifiers ---
+// See: 03-lexical-elements.md § Identifiers
+
+identifier = ( letter | "_" ) { letter | digit | "_" } .
+
+// --- Keywords ---
+// See: 03-lexical-elements.md § Keywords
+// Reserved: async, break, continue, do, else, false, for, if, impl, in, let,
+//           loop, match, mut, pub, self, Self, then, trait, true, type, use,
+//           uses, void, where, with, yield
+// Context-sensitive (patterns): cache, catch, collect, filter, find, fold,
+//           map, parallel, recurse, retry, run, timeout, try, validate
+
+// --- Operators ---
+// See: 03-lexical-elements.md § Operators
+
+arith_op  = "+" | "-" | "*" | "/" | "%" | "div" .
+comp_op   = "==" | "!=" | "<" | ">" | "<=" | ">=" .
+logic_op  = "&&" | "||" | "!" .
+bit_op    = "&" | "|" | "^" | "~" | "<<" | ">>" .
+unary_op  = "!" | "-" | "~" .
+other_op  = ".." | "..=" | "??" | "?" | "->" | "=>" .
+
+// --- Delimiters ---
+
+delimiter = "(" | ")" | "[" | "]" | "{" | "}"
+          | "," | ":" | "." | "@" | "$" .
+
+// --- Literals ---
+// See: 03-lexical-elements.md § Literals
+
+literal = int_literal | float_literal | string_literal | char_literal
+        | bool_literal | duration_literal | size_literal .
+
+// Integer literals
+int_literal = decimal_lit | hex_lit .
+decimal_lit = digit { digit | "_" } .
+hex_lit     = "0x" hex_digit { hex_digit | "_" } .
+
+// Float literals
+float_literal = decimal_lit "." decimal_lit [ exponent ] .
+exponent      = ( "e" | "E" ) [ "+" | "-" ] decimal_lit .
+
+// String literals
+string_literal = '"' { string_char } '"' .
+string_char    = unicode_char - ( '"' | '\' | newline ) | escape .
+escape         = '\' ( '"' | '\' | 'n' | 't' | 'r' ) .
+
+// Character literals
+char_literal = "'" char_char "'" .
+char_char    = unicode_char - ( "'" | '\' | newline ) | char_escape .
+char_escape  = '\' ( "'" | '\' | 'n' | 't' | 'r' | '0' ) .
+
+// Boolean literals
+bool_literal = "true" | "false" .
+
+// Duration literals
+duration_literal = int_literal duration_unit .
+duration_unit    = "ms" | "s" | "m" | "h" .
+
+// Size literals
+size_literal = int_literal size_unit .
+size_unit    = "b" | "kb" | "mb" | "gb" .
+
+
+// ============================================================================
+// SOURCE STRUCTURE
+// See: 02-source-code.md, 12-modules.md
+// ============================================================================
+
+source_file = { import } { declaration } .
+
+// --- Imports ---
+// See: 12-modules.md § Imports
+
+import      = "use" import_path [ import_list | "as" identifier ] .
+import_path = string_literal | identifier { "." identifier } .
+import_list = "{" import_item { "," import_item } "}" .
+import_item = [ "::" ] identifier [ "as" identifier ] | "$" identifier .
+
+// --- Re-exports ---
+
+reexport = "pub" "use" import_path import_list .
+
+// --- Extensions ---
+// See: 12-modules.md § Extensions
+
+extension_def    = "extend" identifier [ where_clause ] "{" { method } "}" .
+extension_import = "extension" import_path "{" extension_item { "," extension_item } "}" .
+extension_item   = identifier "." identifier .
+
+
+// ============================================================================
+// DECLARATIONS
+// See: 08-declarations.md
+// ============================================================================
+
+declaration = function | type_def | trait_def | impl_block | test | config_decl | const_function .
+
+// --- Functions ---
+// See: 08-declarations.md § Functions
+
+function      = [ "pub" ] "@" identifier [ generics ] params "->" type [ uses_clause ] [ where_clause ] "=" expression .
+params        = "(" [ param { "," param } ] ")" .
+param         = identifier ":" type .
+
+// --- Generics ---
+
+generics      = "<" generic_param { "," generic_param } ">" .
+generic_param = identifier [ ":" bounds ] .
+bounds        = type_path { "+" type_path } .
+where_clause  = "where" constraint { "," constraint } .
+constraint    = identifier ":" bounds .
+
+// --- Capabilities ---
+// See: 14-capabilities.md
+
+uses_clause = "uses" identifier { "," identifier } .
+
+// --- Type Definitions ---
+// See: 08-declarations.md § Types, 06-types.md § User-Defined Types
+
+type_def    = [ "pub" ] [ derive ] "type" identifier [ generics ] [ where_clause ] "=" type_body .
+derive      = "#[derive(" identifier { "," identifier } ")]" .
+type_body   = struct_body | sum_body | type .
+struct_body = "{" [ field { "," field } ] "}" .
+sum_body    = variant { "|" variant } .
+variant     = identifier [ "(" [ field { "," field } ] ")" ] .
+field       = identifier ":" type .
+
+// --- Traits ---
+// See: 08-declarations.md § Traits
+
+trait_def      = [ "pub" ] "trait" identifier [ generics ] [ ":" bounds ] "{" { trait_item } "}" .
+trait_item     = method_sig | default_method | assoc_type .
+method_sig     = "@" identifier params "->" type .
+default_method = method_sig "=" expression .
+assoc_type     = "type" identifier .
+
+// --- Implementations ---
+// See: 08-declarations.md § Implementations
+
+impl_block    = inherent_impl | trait_impl .
+inherent_impl = "impl" [ generics ] type_path [ where_clause ] "{" { method } "}" .
+trait_impl    = "impl" [ generics ] type_path "for" type [ where_clause ] "{" { method } "}" .
+method        = "@" identifier params "->" type [ uses_clause ] "=" expression .
+
+// --- Tests ---
+// See: 13-testing.md
+
+test       = [ attribute ] "@" identifier [ "tests" target { "tests" target } ] "()" "->" "void" "=" expression .
+target     = "@" identifier .
+attribute  = "#" ( "skip" | "compile_fail" | "fail" ) "(" string_literal ")" .
+
+// --- Config Variables ---
+// See: 04-constants.md § Config Variables
+
+config_decl = [ "pub" ] "$" identifier "=" literal .
+
+// --- Const Functions ---
+// See: 21-constant-expressions.md § Const Functions
+
+const_function = "$" identifier [ generics ] params "->" type "=" expression .
+
+
+// ============================================================================
+// TYPES
+// See: 06-types.md
+// ============================================================================
+
+type          = type_path [ type_args ]
+              | list_type | map_type | tuple_type | function_type
+              | "dyn" type .
+type_path     = identifier { "." identifier } .
+type_args     = "<" type { "," type } ">" .
+list_type     = "[" type "]" .
+map_type      = "{" type ":" type "}" .
+tuple_type    = "(" type { "," type } ")" | "()" .
+function_type = "(" [ type { "," type } ] ")" "->" type .
+
+
+// ============================================================================
+// EXPRESSIONS
+// See: 09-expressions.md
+// ============================================================================
+
+expression = with_expr | let_expr | if_expr | for_expr | loop_expr | lambda | binary_expr .
+
+// --- Primary Expressions ---
+
+primary       = literal | identifier | "self" | "Self"
+              | "(" expression ")"
+              | "#"                                   /* length in index context */
+              | list_literal | map_literal | struct_literal .
+list_literal  = "[" [ expression { "," expression } ] "]" .
+map_literal   = "{" [ map_entry { "," map_entry } ] "}" .
+map_entry     = expression ":" expression .
+struct_literal = type_path "{" [ field_init { "," field_init } ] "}" .
+field_init    = identifier [ ":" expression ] .
+
+// --- Postfix Expressions ---
+// See: 09-expressions.md § Postfix Expressions
+
+postfix_expr   = primary { postfix_op } .
+postfix_op     = "." identifier [ call_args ]        /* field/method access */
+               | "[" expression "]"                  /* index access */
+               | call_args                           /* function call */
+               | "?" .                               /* error propagation */
+call_args      = "(" [ call_arg { "," call_arg } ] ")" .
+call_arg       = named_arg | positional_arg .
+named_arg      = identifier ":" expression .
+positional_arg = expression .
+
+// --- Unary Expressions ---
+// See: 09-expressions.md § Unary Expressions
+
+unary_expr = [ "!" | "-" | "~" ] postfix_expr .
+
+// --- Binary Expressions ---
+// See: 09-expressions.md § Binary Expressions
+// Precedence (lowest to highest): ||, &&, |, ^, &, ==, cmp, range, shift, add, mul
+
+binary_expr   = coalesce_expr .
+coalesce_expr = or_expr { "??" or_expr } .
+or_expr       = and_expr { "||" and_expr } .
+and_expr      = bit_or_expr { "&&" bit_or_expr } .
+bit_or_expr   = bit_xor_expr { "|" bit_xor_expr } .
+bit_xor_expr  = bit_and_expr { "^" bit_and_expr } .
+bit_and_expr  = eq_expr { "&" eq_expr } .
+eq_expr       = cmp_expr { ( "==" | "!=" ) cmp_expr } .
+cmp_expr      = range_expr { ( "<" | ">" | "<=" | ">=" ) range_expr } .
+range_expr    = shift_expr [ ( ".." | "..=" ) shift_expr ] .
+shift_expr    = add_expr { ( "<<" | ">>" ) add_expr } .
+add_expr      = mul_expr { ( "+" | "-" ) mul_expr } .
+mul_expr      = unary_expr { ( "*" | "/" | "%" | "div" ) unary_expr } .
+
+// --- With Expression ---
+// See: 09-expressions.md § With Expression, 14-capabilities.md § Providing Capabilities
+
+with_expr = "with" identifier "=" expression "in" expression .
+
+// --- Let Binding ---
+// See: 09-expressions.md § Let Binding, 05-variables.md
+
+let_expr = "let" [ "mut" ] binding_pattern [ ":" type ] "=" expression .
+binding  = let_expr .
+
+// --- Assignment ---
+// See: 05-variables.md § Assignment
+
+assignment = identifier "=" expression .
+
+// --- Conditional ---
+// See: 09-expressions.md § Conditional
+
+if_expr = "if" expression "then" expression
+          { "else" "if" expression "then" expression }
+          [ "else" expression ] .
+
+// --- For Expression ---
+// See: 09-expressions.md § For Expression
+
+for_expr = "for" [ ":" identifier ] identifier "in" expression [ "if" expression ] ( "do" | "yield" ) expression .
+
+// --- Loop Expression ---
+// See: 09-expressions.md § Loop Expression
+
+loop_expr = "loop" [ ":" identifier ] "(" expression ")" .
+
+// --- Lambda ---
+// See: 09-expressions.md § Lambda
+
+lambda        = simple_lambda | typed_lambda .
+simple_lambda = lambda_params "->" expression .
+typed_lambda  = "(" [ typed_param { "," typed_param } ] ")" "->" type "=" expression .
+lambda_params = identifier | "(" [ identifier { "," identifier } ] ")" .
+typed_param   = identifier ":" type .
+
+// --- Control Flow ---
+// See: 19-control-flow.md
+
+break_expr    = "break" [ ":" identifier ] [ expression ] .
+continue_expr = "continue" [ ":" identifier ] [ expression ] .
+
+
+// ============================================================================
+// PATTERNS (COMPILER CONSTRUCTS)
+// See: 10-patterns.md
+// ============================================================================
+
+// --- Pattern Categories ---
+
+pattern_expr = function_seq | function_exp | function_val .
+function_seq = run_expr | try_expr | match_expr | for_pattern | catch_expr .
+function_exp = pattern_name "(" pattern_arg { "," pattern_arg } ")" .
+function_val = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
+pattern_name = "recurse" | "parallel" | "spawn" | "timeout" | "cache" | "with" .
+pattern_arg  = identifier ":" expression .
+
+// --- Sequential Patterns ---
+
+// run: Sequential expressions
+run_expr = "run" "(" { binding "," } expression ")" .
+
+// try: Error-propagating sequence (returns early on Err)
+try_expr = "try" "(" { binding "," } expression ")" .
+
+// match: Pattern matching
+match_expr = "match" "(" expression "," match_arm { "," match_arm } ")" .
+match_arm  = match_pattern [ guard ] "->" expression .
+guard      = ".match" "(" expression ")" .
+
+// for pattern: First-match iteration
+for_pattern = "for" "(" for_pattern_args ")" .
+for_pattern_args = "over" ":" expression "," "match" ":" match_pattern "->" expression "," "default" ":" expression
+                 | "over" ":" expression "," "map" ":" expression "," "match" ":" match_pattern "->" expression "," "default" ":" expression .
+
+// catch: Panic recovery
+// See: 20-errors-and-panics.md § Catching Panics
+catch_expr = "catch" "(" "expr" ":" expression ")" .
+
+// --- Match Patterns ---
+// See: 10-patterns.md § Match Patterns
+
+match_pattern = literal_pattern
+              | identifier_pattern
+              | wildcard_pattern
+              | variant_pattern
+              | struct_pattern
+              | tuple_pattern
+              | list_pattern
+              | range_pattern
+              | or_pattern
+              | at_pattern .
+
+literal_pattern     = [ "-" ] ( int_literal | float_literal ) | string_literal | char_literal | bool_literal .
+identifier_pattern  = identifier .
+wildcard_pattern    = "_" .
+variant_pattern     = type_path [ "(" [ match_pattern { "," match_pattern } ] ")" ] .
+struct_pattern      = [ type_path ] "{" [ field_pattern { "," field_pattern } ] [ ".." ] "}" .
+field_pattern       = identifier [ ":" match_pattern ] .
+tuple_pattern       = "(" [ match_pattern { "," match_pattern } ] ")" .
+list_pattern        = "[" [ list_pattern_elems ] "]" .
+list_pattern_elems  = match_pattern { "," match_pattern } [ "," ".." [ identifier ] ]
+                    | ".." [ identifier ] .
+range_pattern       = literal_pattern ( ".." | "..=" ) literal_pattern .
+or_pattern          = match_pattern "|" match_pattern .
+at_pattern          = identifier "@" match_pattern .
+
+// --- Binding Patterns ---
+// See: 05-variables.md § Destructuring
+
+binding_pattern = identifier
+                | "_"
+                | "{" [ field_binding { "," field_binding } ] "}"
+                | "(" [ binding_pattern { "," binding_pattern } ] ")"
+                | "[" [ binding_pattern { "," binding_pattern } [ ".." identifier ] ] "]" .
+field_binding   = identifier [ ":" binding_pattern ] .
+
+
+// ============================================================================
+// CONSTANT EXPRESSIONS
+// See: 04-constants.md, 21-constant-expressions.md
+// ============================================================================
+
+const_expr = literal
+           | const_expr arith_op const_expr
+           | const_expr comp_op const_expr
+           | const_expr logic_op const_expr
+           | unary_op const_expr
+           | "(" const_expr ")" .
+
+
+// ============================================================================
+// PROGRAM ENTRY
+// See: 18-program-execution.md
+// ============================================================================
+
+main_function = "@main" main_params "->" main_return "=" expression .
+main_params   = "()" | "(" "args" ":" "[" "str" "]" ")" .
+main_return   = "void" | "int" .
+
+
+// ============================================================================
+// END OF GRAMMAR
+// ============================================================================

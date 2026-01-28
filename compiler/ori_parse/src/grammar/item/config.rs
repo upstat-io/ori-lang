@@ -1,9 +1,14 @@
 //! Config variable parsing.
 
-use crate::{ParseError, Parser};
+use crate::{ParseError, ParseResult, Parser};
 use ori_ir::{ConfigDef, Expr, ExprKind, TokenKind};
 
 impl Parser<'_> {
+    /// Parse a config variable with progress tracking.
+    pub(crate) fn parse_config_with_progress(&mut self, is_public: bool) -> ParseResult<ConfigDef> {
+        self.with_progress(|p| p.parse_config(is_public))
+    }
+
     /// Parse a config variable declaration.
     ///
     /// Syntax: `[pub] $name = literal`

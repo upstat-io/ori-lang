@@ -7,7 +7,7 @@ section: "Parser"
 
 # Grammar Modules
 
-The Ori parser organizes grammar rules into separate modules for maintainability.
+The Ori parser organizes grammar rules into separate modules for maintainability. The authoritative grammar is in [Parser Overview § Formal Grammar](index.md#formal-grammar). Each production maps to parsing functions in the modules below.
 
 ## Module Structure
 

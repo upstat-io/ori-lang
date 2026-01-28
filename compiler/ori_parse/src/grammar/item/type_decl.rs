@@ -1,12 +1,21 @@
 //! Type declaration parsing (struct, enum, newtype).
 
-use crate::{ParseError, ParsedAttrs, Parser};
+use crate::{ParseError, ParseResult, ParsedAttrs, Parser};
 use ori_ir::{
     GenericParamRange, Name, ParsedType, Span, StructField, TokenKind, TypeDecl, TypeDeclKind,
     Variant, VariantField,
 };
 
 impl Parser<'_> {
+    /// Parse a type declaration with progress tracking.
+    pub(crate) fn parse_type_decl_with_progress(
+        &mut self,
+        attrs: ParsedAttrs,
+        is_public: bool,
+    ) -> ParseResult<TypeDecl> {
+        self.with_progress(|p| p.parse_type_decl(attrs, is_public))
+    }
+
     /// Parse a type declaration.
     ///
     /// Syntax:

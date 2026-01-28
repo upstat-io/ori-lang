@@ -2,11 +2,9 @@
 
 One-line definition of what this section covers.
 
-## Subsection
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § SECTION_NAME
 
-```ebnf
-production_name = expression .
-```
+## Subsection
 
 Brief description. Technical terms in _italics_ on first use. Syntax in `backticks`.
 

@@ -8,12 +8,9 @@ order: 13
 
 Every function must have at least one test. Compile-time error otherwise.
 
-## Test Declaration
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § DECLARATIONS (test, attribute)
 
-```ebnf
-test   = [ attribute ] "@" identifier [ "tests" target { "tests" target } ] "()" "->" "void" "=" expression .
-target = "@" identifier .
-```
+## Test Declaration
 
 ### Targeted Test
 
@@ -46,10 +43,6 @@ Does not satisfy coverage; used for integration tests.
 - Trait definitions
 
 ## Attributes
-
-```ebnf
-attribute = "#" ( "skip" | "compile_fail" | "fail" ) "(" string_literal ")" .
-```
 
 ### skip
 

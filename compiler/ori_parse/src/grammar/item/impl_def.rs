@@ -1,9 +1,14 @@
 //! Impl block parsing.
 
-use crate::{ParseError, Parser};
+use crate::{ParseError, ParseResult, Parser};
 use ori_ir::{GenericParamRange, ImplAssocType, ImplDef, ImplMethod, TokenKind};
 
 impl Parser<'_> {
+    /// Parse an impl block with progress tracking.
+    pub(crate) fn parse_impl_with_progress(&mut self) -> ParseResult<ImplDef> {
+        self.with_progress(|p| p.parse_impl())
+    }
+
     /// Parse an impl block.
     /// Syntax: impl [<T>] Type { methods } or impl [<T>] Trait for Type { methods }
     pub(crate) fn parse_impl(&mut self) -> Result<ImplDef, ParseError> {

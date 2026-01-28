@@ -321,7 +321,10 @@ fn infer_builtin_method(
     // Handle newtype methods (unwrap)
     if let Type::Named(name) = receiver_ty {
         if let Some(entry) = checker.registries.types.get_by_name(*name) {
-            if let Some(underlying) = checker.registries.types.get_newtype_underlying(entry.type_id)
+            if let Some(underlying) = checker
+                .registries
+                .types
+                .get_newtype_underlying(entry.type_id)
             {
                 if method_name == "unwrap" {
                     if !arg_types.is_empty() {

@@ -8,6 +8,8 @@ order: 12
 
 Every source file defines one module.
 
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § SOURCE STRUCTURE (import, extension_def, extension_import)
+
 ## Module Names
 
 | File Path | Module Name |
@@ -18,13 +20,6 @@ Every source file defines one module.
 | `src/http/mod.ori` | `http` |
 
 ## Imports
-
-```ebnf
-import      = "use" import_path [ import_list | "as" identifier ] .
-import_path = string_literal | identifier { "." identifier } .
-import_list = "{" import_item { "," import_item } "}" .
-import_item = [ "::" ] identifier [ "as" identifier ] | "$" identifier .
-```
 
 ### Relative (Local Files)
 
@@ -77,10 +72,6 @@ pub use './client' { get, post }
 
 ### Definition
 
-```ebnf
-extension_def = "extend" identifier [ where ] "{" { method } "}" .
-```
-
 ```ori
 extend Iterator {
     @count (self) -> int = ...
@@ -92,10 +83,6 @@ extend Iterator where Self.Item: Add {
 ```
 
 ### Import
-
-```ebnf
-extension_import = "extension" import_path "{" trait "." method { "," trait "." method } "}" .
-```
 
 ```ori
 extension std.iter.extensions { Iterator.count, Iterator.last }

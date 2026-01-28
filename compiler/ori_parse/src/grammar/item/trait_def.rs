@@ -1,12 +1,17 @@
 //! Trait definition parsing.
 
-use crate::{ParseError, Parser};
+use crate::{ParseError, ParseResult, Parser};
 use ori_ir::{
     GenericParamRange, TokenKind, TraitAssocType, TraitDef, TraitDefaultMethod, TraitItem,
     TraitMethodSig,
 };
 
 impl Parser<'_> {
+    /// Parse a trait definition with progress tracking.
+    pub(crate) fn parse_trait_with_progress(&mut self, is_public: bool) -> ParseResult<TraitDef> {
+        self.with_progress(|p| p.parse_trait(is_public))
+    }
+
     /// Parse a trait definition.
     /// Syntax: [pub] trait Name [<T>] [: Super] { items }
     pub(crate) fn parse_trait(&mut self, is_public: bool) -> Result<TraitDef, ParseError> {

@@ -8,6 +8,8 @@ order: 10
 
 Compiler-level control flow and concurrency constructs.
 
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § PATTERNS
+
 ## Categories
 
 | Category | Patterns | Purpose |
@@ -18,24 +20,9 @@ Compiler-level control flow and concurrency constructs.
 
 > **Note:** Data transformation (`map`, `filter`, `fold`, `find`, `collect`) and resilience (`retry`, `validate`) are stdlib methods, not compiler patterns. See [Built-in Functions](11-built-in-functions.md).
 
-## Grammar
-
-```ebnf
-pattern_expr   = function_seq | function_exp | function_val .
-function_seq   = run_expr | try_expr | match_expr | for_pattern .
-function_exp   = pattern_name "(" named_arg { "," named_arg } ")" .
-function_val   = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
-named_arg      = identifier ":" expression .
-pattern_name   = "recurse" | "parallel" | "spawn" | "timeout" | "cache" | "with" | "catch" .
-```
-
 ## Sequential (function_seq)
 
 ### run
-
-```ebnf
-run_expr = "run" "(" { binding "," } expression ")" .
-```
 
 ```ori
 run(
@@ -59,12 +46,6 @@ try(
 
 ### match
 
-```ebnf
-match_expr = "match" "(" expression "," match_arm { "," match_arm } ")" .
-match_arm  = pattern [ guard ] "->" expression .
-guard      = ".match" "(" expression ")" .
-```
-
 ```ori
 match(status,
     Pending -> "waiting",
@@ -74,17 +55,7 @@ match(status,
 )
 ```
 
-Match patterns:
-
-```ebnf
-pattern = literal | identifier | "_"
-        | type_path [ "(" pattern { "," pattern } ")" ]
-        | "{" [ field_pattern { "," field_pattern } ] [ ".." ] "}"
-        | "[" [ pattern { "," pattern } [ ".." identifier ] ] "]"
-        | pattern "|" pattern
-        | identifier "@" pattern
-        | literal ".." [ "=" ] literal .
-```
+Match patterns include: literals, identifiers, wildcards (`_`), variant patterns, struct patterns, list patterns with rest (`..`), or-patterns (`|`), at-patterns (`@`), and range patterns.
 
 Match must be exhaustive.
 

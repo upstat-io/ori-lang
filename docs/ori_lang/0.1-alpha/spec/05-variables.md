@@ -8,12 +8,9 @@ order: 5
 
 Variables are storage locations identified by name.
 
-## Bindings
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § EXPRESSIONS (let_expr, assignment, binding_pattern)
 
-```ebnf
-binding    = "let" [ "mut" ] pattern [ ":" type ] "=" expression .
-assignment = identifier "=" expression .
-```
+## Bindings
 
 A `let` binding introduces an identifier into the current scope. Bindings are immutable by default.
 
@@ -68,14 +65,6 @@ run(
 ```
 
 ## Destructuring
-
-```ebnf
-pattern = identifier
-        | "_"
-        | "{" field_pattern { "," field_pattern } "}"
-        | "(" pattern { "," pattern } ")"
-        | "[" pattern { "," pattern } [ ".." identifier ] "]" .
-```
 
 Patterns destructure composite values:
 

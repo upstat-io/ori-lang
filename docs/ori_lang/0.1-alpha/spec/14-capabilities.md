@@ -8,11 +8,9 @@ order: 14
 
 Capabilities are traits representing effects or suspension.
 
-## Declaration
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § DECLARATIONS (uses_clause), EXPRESSIONS (with_expr)
 
-```ebnf
-uses_clause = "uses" identifier { "," identifier } .
-```
+## Declaration
 
 ```ori
 @fetch (url: str) -> Result<Response, Error> uses Http = Http.get(url)
@@ -64,10 +62,6 @@ parallel(tasks: [fetch(a), fetch(b)], max_concurrent: 10)
 ```
 
 ## Providing Capabilities
-
-```ebnf
-with_expr = "with" identifier "=" expression "in" expression .
-```
 
 ```ori
 with Http = RealHttp { base_url: "https://api.example.com" } in

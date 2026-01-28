@@ -221,8 +221,17 @@ pub fn parsed(db: &dyn Db, file: SourceFile) -> ParseResult {
 }
 ```
 
+## Formal Grammar
+
+The authoritative grammar is defined in EBNF notation. Each production maps to parsing functions in `compiler/ori_parse/src/grammar/`.
+
+```ebnf
+{{#include ../../../ori_lang/0.1-alpha/spec/grammar.ebnf}}
+```
+
 ## Related Documents
 
 - [Recursive Descent](recursive-descent.md) - Parsing approach
 - [Error Recovery](error-recovery.md) - Handling syntax errors
 - [Grammar Modules](grammar-modules.md) - Module organization
+- [Language Spec: Grammar](../../../ori_lang/0.1-alpha/spec/grammar.ebnf) - Formal EBNF grammar

@@ -40,4 +40,3 @@ impl ParseError {
             .with_label(self.span, self.context.as_deref().unwrap_or("here"))
     }
 }
-

@@ -74,7 +74,7 @@ use crate::context::CompilerContext;
 use crate::db::Db;
 use crate::eval::module::import::{resolve_import, ImportError};
 use crate::ir::{Name, StringInterner};
-use crate::parser::ParseResult;
+use crate::parser::ParseOutput;
 use crate::query::parsed;
 
 /// Type check a parsed module with a custom compiler context.
@@ -82,7 +82,7 @@ use crate::query::parsed;
 /// This allows dependency injection of custom registries for testing.
 /// This function is specific to oric since it uses `CompilerContext`.
 pub fn type_check_with_context(
-    parse_result: &ParseResult,
+    parse_result: &ParseOutput,
     interner: &StringInterner,
     context: &CompilerContext,
 ) -> TypedModule {
@@ -105,7 +105,7 @@ pub fn type_check_with_context(
 /// or an error if any import fails to resolve.
 pub fn resolve_imports_for_type_checking(
     db: &dyn Db,
-    parse_result: &ParseResult,
+    parse_result: &ParseOutput,
     current_file: &Path,
 ) -> Result<Vec<ImportedFunction>, ImportError> {
     let mut imported_functions = Vec::new();
@@ -313,7 +313,7 @@ fn create_imported_function(
 /// A `TypedModule` with type information, or errors if type checking fails.
 pub fn type_check_with_imports(
     db: &dyn Db,
-    parse_result: &ParseResult,
+    parse_result: &ParseOutput,
     current_file: &Path,
 ) -> TypedModule {
     let interner = db.interner();
@@ -351,7 +351,7 @@ pub fn type_check_with_imports(
 /// error messages with deduplication and limits.
 pub fn type_check_with_imports_and_source(
     db: &dyn Db,
-    parse_result: &ParseResult,
+    parse_result: &ParseOutput,
     current_file: &Path,
     source: String,
 ) -> TypedModule {
