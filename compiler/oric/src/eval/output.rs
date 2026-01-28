@@ -136,6 +136,16 @@ impl EvalOutput {
                     "<{type_str}::{variant_str} constructor ({field_count} fields)>"
                 ))
             }
+            Value::Newtype { type_name, inner } => {
+                // Display newtype by showing the wrapped value
+                let type_str = interner.lookup(*type_name);
+                let inner_output = Self::from_value(inner, interner);
+                EvalOutput::Struct(format!("{type_str}({inner_output:?})"))
+            }
+            Value::NewtypeConstructor { type_name } => {
+                let type_str = interner.lookup(*type_name);
+                EvalOutput::Function(format!("<{type_str} constructor>"))
+            }
             Value::Map(map) => {
                 let entries: Vec<_> = map
                     .iter()

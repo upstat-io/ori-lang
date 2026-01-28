@@ -22,6 +22,11 @@ pub fn infer_ident(checker: &mut TypeChecker<'_>, name: Name, span: Span) -> Typ
         return variant_constructor_type(checker, &info);
     }
 
+    // Check for newtype constructors (e.g., `UserId` for `type UserId = str`)
+    if let Some(info) = checker.registries.types.lookup_newtype_constructor(name) {
+        return newtype_constructor_type(&info);
+    }
+
     checker.push_error(
         format!(
             "unknown identifier `{}`",
@@ -52,6 +57,18 @@ fn variant_constructor_type(
             params: info.field_types.clone(),
             ret: Box::new(enum_type),
         }
+    }
+}
+
+/// Get the type for a newtype constructor.
+///
+/// Newtypes always take one argument (the underlying value) and return the newtype.
+/// Returns a function type: `(underlying_type) -> NewtypeName`
+fn newtype_constructor_type(info: &crate::registry::NewtypeConstructorInfo) -> Type {
+    let newtype = Type::Named(info.newtype_name);
+    Type::Function {
+        params: vec![info.underlying_type.clone()],
+        ret: Box::new(newtype),
     }
 }
 

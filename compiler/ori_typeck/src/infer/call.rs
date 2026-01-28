@@ -318,6 +318,36 @@ fn infer_builtin_method(
         _ => {}
     }
 
+    // Handle newtype methods (unwrap)
+    if let Type::Named(name) = receiver_ty {
+        if let Some(entry) = checker.registries.types.get_by_name(*name) {
+            if let Some(underlying) = checker.registries.types.get_newtype_underlying(entry.type_id)
+            {
+                if method_name == "unwrap" {
+                    if !arg_types.is_empty() {
+                        checker.push_error(
+                            format!("`unwrap` takes no arguments, found {}", arg_types.len()),
+                            span,
+                            ori_diagnostic::ErrorCode::E2004,
+                        );
+                    }
+                    return underlying;
+                }
+                // Unknown method on newtype
+                checker.push_error(
+                    format!(
+                        "newtype `{}` has no method `{}`; use `.unwrap()` to access the underlying value",
+                        checker.context.interner.lookup(*name),
+                        method_name
+                    ),
+                    span,
+                    ori_diagnostic::ErrorCode::E2002,
+                );
+                return Type::Error;
+            }
+        }
+    }
+
     // Use the registry to check the method
     let registry = BuiltinMethodRegistry::new();
     if let Some(result) = registry.check(

@@ -7,13 +7,13 @@ section: "Type System"
 
 # Type Registry
 
-The TypeRegistry stores user-defined types (structs, enums, type aliases). It enables looking up type definitions by name.
+The TypeRegistry stores user-defined types (structs, enums, newtypes). It enables looking up type definitions by name or `TypeId`.
 
 ## Location
 
 ```
 compiler/ori_typeck/src/registry/
-├── mod.rs                    # TypeRegistry struct, re-exports
+├── mod.rs                    # TypeRegistry struct, TypeKind, TypeEntry, re-exports
 ├── trait_registry.rs         # TraitRegistry core (method_cache)
 ├── trait_types.rs            # TraitMethodDef, TraitAssocTypeDef, TraitEntry
 ├── impl_types.rs             # ImplMethodDef, ImplAssocTypeDef, ImplEntry, CoherenceError
@@ -27,66 +27,94 @@ compiler/ori_typeck/src/registry/
 ## Structure
 
 ```rust
+/// Registry for user-defined types.
 pub struct TypeRegistry {
-    /// Type name -> Definition
-    types: HashMap<Name, TypeDef>,
-
-    /// Trait name -> Definition
-    traits: HashMap<Name, TraitDef>,
-
-    /// Type -> Trait implementations
-    impls: HashMap<Type, Vec<ImplDef>>,
+    /// Types indexed by name.
+    types_by_name: HashMap<Name, TypeEntry>,
+    /// Types indexed by TypeId.
+    types_by_id: HashMap<TypeId, TypeEntry>,
+    /// Next available TypeId for compound types.
+    next_type_id: u32,
+    /// Type interner for Type↔TypeId conversions.
+    interner: SharedTypeInterner,
 }
 
-pub enum TypeDef {
-    Struct(StructDef),
-    Enum(EnumDef),
-    Alias(Type),
-}
-
-pub struct StructDef {
+/// Entry for a user-defined type.
+pub struct TypeEntry {
     pub name: Name,
-    pub generics: Vec<Name>,
-    pub fields: Vec<Field>,
+    pub type_id: TypeId,
+    pub kind: TypeKind,
+    pub span: Span,
+    pub type_params: Vec<Name>,
 }
 
-pub struct EnumDef {
+/// Kind of user-defined type.
+pub enum TypeKind {
+    /// Struct type with named fields.
+    Struct { fields: Vec<(Name, TypeId)> },
+    /// Sum type (enum) with variants.
+    Enum { variants: Vec<VariantDef> },
+    /// Newtype: nominally distinct wrapper around an existing type.
+    Newtype { underlying: TypeId },
+}
+
+/// Variant definition for enum types.
+pub struct VariantDef {
     pub name: Name,
-    pub generics: Vec<Name>,
-    pub variants: Vec<Variant>,
+    /// Variant fields (empty for unit variants, multiple for multi-field variants).
+    pub fields: Vec<(Name, TypeId)>,
 }
 ```
 
 ## Registration
 
-Types are registered during an initial pass:
+Types are registered via specific methods that generate unique `TypeId`s:
 
 ```rust
 impl TypeRegistry {
-    pub fn register_types(&mut self, module: &Module) {
-        for type_def in &module.types {
-            match type_def {
-                TypeDecl::Struct { name, generics, fields } => {
-                    self.types.insert(*name, TypeDef::Struct(StructDef {
-                        name: *name,
-                        generics: generics.clone(),
-                        fields: fields.clone(),
-                    }));
-                }
+    /// Register a struct type.
+    pub fn register_struct(
+        &mut self,
+        name: Name,
+        fields: Vec<(Name, Type)>,
+        span: Span,
+        type_params: Vec<Name>,
+    ) -> TypeId {
+        let field_ids = fields.into_iter()
+            .map(|(name, ty)| (name, ty.to_type_id(&self.interner)))
+            .collect();
+        self.register_entry(name, TypeKind::Struct { fields: field_ids }, span, type_params)
+    }
 
-                TypeDecl::Enum { name, generics, variants } => {
-                    self.types.insert(*name, TypeDef::Enum(EnumDef {
-                        name: *name,
-                        generics: generics.clone(),
-                        variants: variants.clone(),
-                    }));
-                }
+    /// Register an enum type.
+    pub fn register_enum(
+        &mut self,
+        name: Name,
+        variants: Vec<(Name, Vec<(Name, Type)>)>,
+        span: Span,
+        type_params: Vec<Name>,
+    ) -> TypeId {
+        let variant_defs = variants.into_iter()
+            .map(|(vname, vfields)| {
+                let field_ids = vfields.into_iter()
+                    .map(|(fname, ty)| (fname, ty.to_type_id(&self.interner)))
+                    .collect();
+                VariantDef { name: vname, fields: field_ids }
+            })
+            .collect();
+        self.register_entry(name, TypeKind::Enum { variants: variant_defs }, span, type_params)
+    }
 
-                TypeDecl::Alias { name, ty } => {
-                    self.types.insert(*name, TypeDef::Alias(ty.clone()));
-                }
-            }
-        }
+    /// Register a newtype (nominally distinct type wrapper).
+    pub fn register_newtype(
+        &mut self,
+        name: Name,
+        underlying: &Type,
+        span: Span,
+        type_params: Vec<Name>,
+    ) -> TypeId {
+        let underlying_id = underlying.to_type_id(&self.interner);
+        self.register_entry(name, TypeKind::Newtype { underlying: underlying_id }, span, type_params)
     }
 }
 ```
@@ -97,22 +125,19 @@ impl TypeRegistry {
 
 ```rust
 impl TypeRegistry {
-    pub fn get(&self, name: Name) -> Option<&TypeDef> {
-        self.types.get(&name)
+    /// Look up a type entry by name.
+    pub fn get_by_name(&self, name: Name) -> Option<&TypeEntry> {
+        self.types_by_name.get(&name)
     }
 
-    pub fn get_struct(&self, name: Name) -> Option<&StructDef> {
-        match self.types.get(&name)? {
-            TypeDef::Struct(s) => Some(s),
-            _ => None,
-        }
+    /// Look up a type entry by TypeId.
+    pub fn get_by_id(&self, type_id: TypeId) -> Option<&TypeEntry> {
+        self.types_by_id.get(&type_id)
     }
 
-    pub fn get_enum(&self, name: Name) -> Option<&EnumDef> {
-        match self.types.get(&name)? {
-            TypeDef::Enum(e) => Some(e),
-            _ => None,
-        }
+    /// Check if a type name is already registered.
+    pub fn contains(&self, name: Name) -> bool {
+        self.types_by_name.contains_key(&name)
     }
 }
 ```
@@ -121,100 +146,137 @@ impl TypeRegistry {
 
 ```rust
 impl TypeRegistry {
-    pub fn field_type(&self, ty: &Type, field: Name) -> Option<Type> {
-        match ty {
-            Type::Named(name) => {
-                let struct_def = self.get_struct(*name)?;
-                struct_def.fields
-                    .iter()
-                    .find(|f| f.name == field)
-                    .map(|f| f.ty.clone())
-            }
-
-            Type::Generic { base, args } => {
-                // Substitute generic arguments
-                let struct_def = match base.as_ref() {
-                    Type::Named(name) => self.get_struct(*name)?,
-                    _ => return None,
-                };
-
-                let field_ty = struct_def.fields
-                    .iter()
-                    .find(|f| f.name == field)?
-                    .ty.clone();
-
-                // Build substitution from generic params to args
-                let subst: HashMap<Name, Type> = struct_def.generics
-                    .iter()
-                    .zip(args.iter())
-                    .map(|(p, a)| (*p, a.clone()))
-                    .collect();
-
-                Some(field_ty.substitute(&subst))
-            }
-
+    /// Get field types for a struct type.
+    /// Returns the fields as (Name, Type) pairs by converting from TypeId.
+    pub fn get_struct_fields(&self, type_id: TypeId) -> Option<Vec<(Name, Type)>> {
+        self.get_by_id(type_id).and_then(|entry| match &entry.kind {
+            TypeKind::Struct { fields } => Some(
+                fields.iter()
+                    .map(|(name, ty_id)| (*name, self.interner.to_type(*ty_id)))
+                    .collect(),
+            ),
             _ => None,
-        }
+        })
     }
-}
-```
 
-### Variant Lookup
-
-```rust
-impl TypeRegistry {
-    pub fn variant_type(&self, ty: &Type, variant: Name) -> Option<VariantType> {
-        match ty {
-            Type::Named(name) => {
-                let enum_def = self.get_enum(*name)?;
-                enum_def.variants
-                    .iter()
-                    .find(|v| v.name() == variant)
-                    .map(|v| v.to_type())
-            }
-
-            Type::Generic { base, args } => {
-                // Similar substitution logic...
-            }
-
-            _ => None,
-        }
-    }
-}
-```
-
-## Generic Instantiation
-
-```rust
-impl TypeRegistry {
-    pub fn instantiate(&self, name: Name, args: &[Type]) -> Result<Type, TypeError> {
-        let def = self.get(name).ok_or(TypeError::UndefinedType(name))?;
-
-        match def {
-            TypeDef::Struct(s) => {
-                if args.len() != s.generics.len() {
-                    return Err(TypeError::WrongGenericArgCount {
-                        expected: s.generics.len(),
-                        found: args.len(),
-                    });
-                }
-
-                Ok(Type::Generic {
-                    base: Box::new(Type::Named(name)),
-                    args: args.to_vec(),
+    /// Get field types for an enum variant.
+    pub fn get_variant_fields(
+        &self,
+        type_id: TypeId,
+        variant_name: Name,
+    ) -> Option<Vec<(Name, Type)>> {
+        self.get_by_id(type_id).and_then(|entry| match &entry.kind {
+            TypeKind::Enum { variants } => {
+                variants.iter().find(|v| v.name == variant_name).map(|v| {
+                    v.fields.iter()
+                        .map(|(name, ty_id)| (*name, self.interner.to_type(*ty_id)))
+                        .collect()
                 })
             }
-
-            TypeDef::Alias(ty) => {
-                // Expand alias and substitute
-                Ok(ty.clone())
-            }
-
-            _ => todo!(),
-        }
+            _ => None,
+        })
     }
 }
 ```
+
+### Variant Constructor Lookup
+
+```rust
+/// Information about a variant constructor.
+pub struct VariantConstructorInfo {
+    pub enum_name: Name,
+    pub variant_name: Name,
+    pub field_types: Vec<Type>,
+    pub type_params: Vec<Name>,
+}
+
+impl TypeRegistry {
+    /// Look up a variant constructor by name.
+    /// Searches all registered enum types for a variant with the given name.
+    pub fn lookup_variant_constructor(&self, variant_name: Name) -> Option<VariantConstructorInfo> {
+        for entry in self.types_by_name.values() {
+            if let TypeKind::Enum { variants } = &entry.kind {
+                for variant in variants {
+                    if variant.name == variant_name {
+                        let field_types = variant.fields.iter()
+                            .map(|(_, ty_id)| self.interner.to_type(*ty_id))
+                            .collect();
+                        return Some(VariantConstructorInfo {
+                            enum_name: entry.name,
+                            variant_name,
+                            field_types,
+                            type_params: entry.type_params.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+```
+
+### Newtype Lookup
+
+```rust
+/// Information about a newtype constructor.
+pub struct NewtypeConstructorInfo {
+    pub newtype_name: Name,
+    pub underlying_type: Type,
+    pub type_params: Vec<Name>,
+}
+
+impl TypeRegistry {
+    /// Look up a newtype constructor by name.
+    pub fn lookup_newtype_constructor(&self, name: Name) -> Option<NewtypeConstructorInfo> {
+        self.types_by_name.get(&name).and_then(|entry| {
+            if let TypeKind::Newtype { underlying } = &entry.kind {
+                Some(NewtypeConstructorInfo {
+                    newtype_name: entry.name,
+                    underlying_type: self.interner.to_type(*underlying),
+                    type_params: entry.type_params.clone(),
+                })
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Get the underlying type for a newtype.
+    pub fn get_newtype_underlying(&self, type_id: TypeId) -> Option<Type> {
+        self.get_by_id(type_id).and_then(|entry| match &entry.kind {
+            TypeKind::Newtype { underlying } => Some(self.interner.to_type(*underlying)),
+            _ => None,
+        })
+    }
+}
+```
+
+## Type Identity
+
+### Nominal vs Structural Types
+
+Newtypes have **nominal identity** — they are distinct from their underlying type even if the representation is identical:
+
+```rust
+impl TypeRegistry {
+    /// Convert a registered type to the type checker's Type representation.
+    /// For all user-defined types (struct, enum, newtype), returns Type::Named(name).
+    /// Newtypes are nominally distinct from their underlying type.
+    pub fn to_type(&self, type_id: TypeId) -> Option<Type> {
+        self.get_by_id(type_id).map(|entry| match &entry.kind {
+            TypeKind::Struct { .. } | TypeKind::Enum { .. } | TypeKind::Newtype { .. } => {
+                Type::Named(entry.name)
+            }
+        })
+    }
+}
+```
+
+This means:
+- `type UserId = str` creates a distinct type `UserId`
+- `UserId` is NOT equal to `str` in the type system
+- To access the inner value, use `.unwrap()` method
 
 ## Trait Registry
 

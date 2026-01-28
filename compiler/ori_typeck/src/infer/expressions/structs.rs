@@ -13,12 +13,10 @@ use std::collections::{HashMap, HashSet};
 pub(super) enum FieldLookupResult {
     /// Field found with resolved type.
     Found(Type),
-    /// Type is not a struct (is an enum).
+    /// Type is not a struct (is an enum or newtype).
     NotStruct,
     /// Field not found in struct.
     NoSuchField,
-    /// Type alias (should have been resolved).
-    Alias,
 }
 
 /// Look up a field in a struct type, optionally substituting type parameters.
@@ -53,8 +51,7 @@ pub(super) fn lookup_struct_field_in_entry(
             }
             FieldLookupResult::NoSuchField
         }
-        TypeKind::Enum { .. } => FieldLookupResult::NotStruct,
-        TypeKind::Alias { .. } => FieldLookupResult::Alias,
+        TypeKind::Enum { .. } | TypeKind::Newtype { .. } => FieldLookupResult::NotStruct,
     }
 }
 
@@ -96,7 +93,7 @@ pub(super) fn handle_struct_field_access(
         FieldLookupResult::NotStruct => {
             checker.push_error(
                 format!(
-                    "cannot access field `{}` on enum type `{}`",
+                    "cannot access field `{}` on non-struct type `{}`",
                     checker.context.interner.lookup(field),
                     checker.context.interner.lookup(type_name)
                 ),
@@ -105,7 +102,6 @@ pub(super) fn handle_struct_field_access(
             );
             Type::Error
         }
-        FieldLookupResult::Alias => Type::Error,
     }
 }
 

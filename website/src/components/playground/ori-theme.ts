@@ -12,10 +12,17 @@ export const oriDarkTheme: Monaco.editor.IStandaloneThemeData = {
     { token: 'keyword', foreground: '569cd6' },
     // Types - success teal
     { token: 'type', foreground: '4ec9b0' },
+    // Identifiers - primary text
+    { token: 'identifier', foreground: 'e2e4e9' },
     // Strings - warm muted orange
     { token: 'string', foreground: 'd4976c' },
+    { token: 'string.quote', foreground: 'd4976c' },
+    { token: 'string.escape', foreground: 'ce9178' },
+    { token: 'string.invalid', foreground: 'f14c4c' },
     // Numbers - soft purple (complement to teal)
     { token: 'number', foreground: 'b4a7d6' },
+    { token: 'number.float', foreground: 'b4a7d6' },
+    { token: 'number.hex', foreground: 'b4a7d6' },
     // Comments - muted
     { token: 'comment', foreground: '636874' },
     // Operators - primary text
@@ -37,6 +44,16 @@ export const oriDarkTheme: Monaco.editor.IStandaloneThemeData = {
     'editorCursor.foreground': '#569cd6',
     'editor.selectionBackground': 'rgba(86, 156, 214, 0.3)',
     'editor.inactiveSelectionBackground': 'rgba(86, 156, 214, 0.15)',
+    'editor.selectionHighlightBackground': 'rgba(86, 156, 214, 0.15)',
+    'editor.selectionHighlightBorder': 'transparent',
+    'editor.wordHighlightBackground': 'rgba(86, 156, 214, 0.2)',
+    'editor.wordHighlightBorder': 'transparent',
+    'editor.wordHighlightStrongBackground': 'rgba(86, 156, 214, 0.3)',
+    'editor.wordHighlightStrongBorder': 'transparent',
+    'editor.findMatchBackground': 'rgba(86, 156, 214, 0.4)',
+    'editor.findMatchHighlightBackground': 'rgba(86, 156, 214, 0.2)',
+    'editor.findMatchBorder': 'transparent',
+    'editor.findMatchHighlightBorder': 'transparent',
     'editor.lineHighlightBackground': '#1a1b23',
     'editor.lineHighlightBorder': '#2a2b35',
     // Scrollbar

@@ -394,7 +394,7 @@ fn test_type_registry_in_checker() {
 }
 
 #[test]
-fn test_type_id_to_type_with_registry() {
+fn test_type_id_to_type_with_newtype() {
     let interner = SharedInterner::default();
     let tokens = ori_lexer::lex("@main () -> int = 42", &interner);
     let parsed = ori_parse::parse(&tokens, &interner);
@@ -402,15 +402,16 @@ fn test_type_id_to_type_with_registry() {
     let mut checker = TypeChecker::new(&parsed.arena, &interner);
 
     let id_name = interner.intern("UserId");
-    let type_id = checker.registries.types.register_alias(
+    let type_id = checker.registries.types.register_newtype(
         id_name,
         &Type::Int,
         ori_ir::Span::new(0, 0),
         vec![],
     );
 
+    // Newtypes are nominally distinct - they resolve to Type::Named, not the underlying type
     let resolved = checker.type_id_to_type(type_id);
-    assert_eq!(resolved, Type::Int);
+    assert_eq!(resolved, Type::Named(id_name));
 }
 
 #[test]

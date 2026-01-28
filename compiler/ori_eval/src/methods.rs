@@ -103,11 +103,33 @@ pub fn dispatch_builtin_method(receiver: Value, method: &str, args: Vec<Value>) 
         Value::Range(_) => dispatch_range_method(receiver, method, args),
         Value::Some(_) | Value::None => dispatch_option_method(receiver, method, args),
         Value::Ok(_) | Value::Err(_) => dispatch_result_method(receiver, method, args),
+        Value::Newtype { .. } => dispatch_newtype_method(receiver, method, args),
         _ => Err(no_such_method(method, receiver.type_name())),
     }
 }
 
 // Type-Specific Dispatch Functions
+
+/// Dispatch methods on newtype values.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
+fn dispatch_newtype_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+    let Value::Newtype { inner, .. } = receiver else {
+        unreachable!("dispatch_newtype_method called with non-newtype value");
+    };
+
+    match method {
+        "unwrap" => {
+            if !args.is_empty() {
+                return Err(wrong_arg_count("unwrap", 0, args.len()));
+            }
+            Ok((*inner).clone())
+        }
+        _ => Err(no_such_method(method, "newtype")),
+    }
+}
 
 /// Dispatch methods on list values.
 #[expect(
