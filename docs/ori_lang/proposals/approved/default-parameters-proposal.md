@@ -1,8 +1,9 @@
 # Proposal: Default Parameter Values
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric
 **Created:** 2026-01-25
+**Approved:** 2026-01-28
 
 ---
 
@@ -85,11 +86,13 @@ Named arguments mean any defaulted parameter can be omitted, not just trailing o
 
 ### Syntax
 
-```
-param = identifier ":" type [ "=" expression ] .
+The `param` production in `grammar.ebnf` is extended:
+
+```ebnf
+param         = identifier ":" type [ "=" expression ] .
 ```
 
-Parameters may have a default value expression after their type.
+Parameters may have a default value expression after their type. The default expression follows the same precedence rules as any other expression.
 
 ### Basic Usage
 
@@ -168,6 +171,25 @@ log()  // Uses new current time
 ```
 
 This matches Python/JavaScript behavior and is usually what users expect.
+
+### Evaluation Order
+
+When a function is called:
+
+1. Explicitly provided arguments are evaluated in **written order** (left-to-right as they appear at the call site)
+2. Default expressions for omitted parameters are evaluated in **parameter declaration order**
+3. The function body then executes
+
+```ori
+@f (a: int = default_a(), b: int, c: int = default_c()) -> int
+
+// Call: f(c: expr_c(), b: expr_b())
+// Evaluation order:
+//   1. expr_c()      (first written argument)
+//   2. expr_b()      (second written argument)
+//   3. default_a()   (first parameter with default, was omitted)
+// Note: default_c() is NOT evaluated because c was provided
+```
 
 ### Required After Default
 
@@ -398,14 +420,79 @@ Defaults can use capabilities if the function declares them:
 // Clock capability required because default uses it
 ```
 
+**Important**: The function must declare all capabilities used by any default expression, even if the caller provides that argument explicitly. The capability requirement is determined statically from the function signature, not dynamically per call site.
+
+```ori
+@fetch (url: str, timestamp: Time = Clock.now()) -> Response uses Http, Clock
+
+// Both calls require Clock capability to be available, even though
+// the second call doesn't actually use the default:
+fetch(url: "/api")                              // uses Clock.now()
+fetch(url: "/api", timestamp: fixed_time)       // still requires Clock
+```
+
+This keeps capability checking simple and predictable.
+
+### Async in Defaults
+
+Default expressions may use `Async` operations if the function declares `uses Async`:
+
+```ori
+@process (config: Config = load_config()?) -> Result<Output, Error> uses Async, FileSystem
+
+// load_config() may suspend; function must declare `uses Async`
+```
+
+The same static requirement rule applies: the function must declare `uses Async` if any default expression may suspend, regardless of whether that default is used at a particular call site.
+
 ### Generic Functions
 
 Defaults work with generics:
 
 ```ori
-@get_or<T> (opt: Option<T>, default: T = Default.default()) -> T
+@get_or<T> (opt: Option<T>, default: T = T.default()) -> T
     where T: Default =
     opt.unwrap_or(default: default)
+```
+
+The default expression `T.default()` calls the `default` method on the type parameter's `Default` trait implementation.
+
+### Trait Method Defaults
+
+Default parameter values are allowed in trait method signatures:
+
+```ori
+trait Configurable {
+    @configure (self, options: Options = Options.default()) -> void
+}
+```
+
+**Rules:**
+
+1. Implementations may keep the same default, provide a different default, or remove the default (making the parameter required)
+2. If an implementation removes the default, callers through that concrete type must provide the argument
+3. Callers through trait objects (`dyn Trait`) use the trait's declared default
+
+```ori
+impl Configurable for Widget {
+    // Override with different default
+    @configure (self, options: Options = widget_defaults()) -> void = ...
+}
+
+impl Configurable for Button {
+    // Remove default — callers must provide options
+    @configure (self, options: Options) -> void = ...
+}
+
+let w: Widget = ...
+w.configure()                    // uses widget_defaults()
+
+let b: Button = ...
+b.configure()                    // Error: missing argument 'options'
+b.configure(options: opts)       // OK
+
+let d: dyn Configurable = ...
+d.configure()                    // uses Options.default() (trait default)
 ```
 
 ---
