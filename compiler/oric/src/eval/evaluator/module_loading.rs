@@ -6,7 +6,7 @@
 use super::super::module::import;
 use super::Evaluator;
 use crate::ir::SharedArena;
-use crate::parser::ParseResult;
+use crate::parser::ParseOutput;
 use crate::query::parsed;
 use crate::typeck::derives::process_derives;
 use crate::typeck::type_registry::TypeRegistry;
@@ -99,7 +99,7 @@ impl Evaluator<'_> {
     /// module context, not on individual files in isolation.
     pub fn load_module(
         &mut self,
-        parse_result: &ParseResult,
+        parse_result: &ParseOutput,
         file_path: &Path,
     ) -> Result<(), String> {
         // Auto-load prelude if not already loaded and this isn't the prelude itself
@@ -146,8 +146,18 @@ impl Evaluator<'_> {
         // Build up user method registry from impl and extend blocks
         let mut user_methods = UserMethodRegistry::new();
         let captures = self.env().capture();
-        collect_impl_methods(&parse_result.module, &shared_arena, &captures, &mut user_methods);
-        collect_extend_methods(&parse_result.module, &shared_arena, &captures, &mut user_methods);
+        collect_impl_methods(
+            &parse_result.module,
+            &shared_arena,
+            &captures,
+            &mut user_methods,
+        );
+        collect_extend_methods(
+            &parse_result.module,
+            &shared_arena,
+            &captures,
+            &mut user_methods,
+        );
 
         // Process derived traits (Eq, Clone, Hashable, Printable, Default)
         // Note: We use an empty TypeRegistry here since derive processing doesn't need it

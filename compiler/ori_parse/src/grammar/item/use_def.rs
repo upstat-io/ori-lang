@@ -1,9 +1,14 @@
 //! Import/use statement parsing.
 
-use crate::{ParseError, Parser};
+use crate::{ParseError, ParseResult, Parser};
 use ori_ir::{ImportPath, TokenKind, UseDef, UseItem};
 
 impl Parser<'_> {
+    /// Parse a use/import statement with progress tracking.
+    pub(crate) fn parse_use_with_progress(&mut self) -> ParseResult<UseDef> {
+        self.with_progress(|p| p.parse_use())
+    }
+
     /// Parse a use/import statement.
     /// Syntax: use './path' { item1, item2 as alias } or use std.math { sqrt }
     pub(crate) fn parse_use(&mut self) -> Result<UseDef, ParseError> {

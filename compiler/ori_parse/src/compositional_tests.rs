@@ -6,10 +6,10 @@
 
 #[cfg(test)]
 mod type_matrix {
-    use crate::{parse, ParseResult};
+    use crate::{parse, ParseOutput};
     use ori_ir::StringInterner;
 
-    fn parse_source(source: &str) -> ParseResult {
+    fn parse_source(source: &str) -> ParseOutput {
         let interner = StringInterner::new();
         let tokens = ori_lexer::lex(source, &interner);
         parse(&tokens, &interner)
@@ -57,7 +57,6 @@ mod type_matrix {
         "Option<[int]>",
         "Result<[int], str>",
     ];
-
 
     #[test]
     fn test_all_types_in_variable_annotation() {
@@ -156,7 +155,10 @@ mod type_matrix {
             ("@test () -> bool = 5 >= 3", "greater-equal"),
             ("@test () -> int = 1 << 4", "left shift"),
             ("@test () -> bool = 3 <= 5", "less-equal"),
-            ("@test () -> int = run(let x: Result<Result<int, str>, str> = Ok(Ok(1)), 8 >> 2)", "nested generic + shift"),
+            (
+                "@test () -> int = run(let x: Result<Result<int, str>, str> = Ok(Ok(1)), 8 >> 2)",
+                "nested generic + shift",
+            ),
         ];
 
         for (source, desc) in cases {
@@ -173,10 +175,10 @@ mod type_matrix {
 
 #[cfg(test)]
 mod pattern_matrix {
-    use crate::{parse, ParseResult};
+    use crate::{parse, ParseOutput};
     use ori_ir::StringInterner;
 
-    fn parse_source(source: &str) -> ParseResult {
+    fn parse_source(source: &str) -> ParseOutput {
         let interner = StringInterner::new();
         let tokens = ori_lexer::lex(source, &interner);
         parse(&tokens, &interner)
@@ -226,10 +228,7 @@ mod pattern_matrix {
     #[test]
     fn test_all_patterns_in_match() {
         for pat in PATTERNS {
-            let source = format!(
-                r#"@test () -> int = match(value, {} -> 1, _ -> 0)"#,
-                pat
-            );
+            let source = format!(r#"@test () -> int = match(value, {} -> 1, _ -> 0)"#, pat);
             let result = parse_source(&source);
             assert!(
                 !result.has_errors(),
@@ -249,10 +248,7 @@ mod pattern_matrix {
         ];
 
         for pat in patterns_with_guards {
-            let source = format!(
-                r#"@test () -> int = match(value, {} -> 1, _ -> 0)"#,
-                pat
-            );
+            let source = format!(r#"@test () -> int = match(value, {} -> 1, _ -> 0)"#, pat);
             let result = parse_source(&source);
             assert!(
                 !result.has_errors(),
@@ -275,10 +271,7 @@ mod pattern_matrix {
         ];
 
         for pat in nested {
-            let source = format!(
-                r#"@test () -> int = match(value, {} -> 1, _ -> 0)"#,
-                pat
-            );
+            let source = format!(r#"@test () -> int = match(value, {} -> 1, _ -> 0)"#, pat);
             let result = parse_source(&source);
             assert!(
                 !result.has_errors(),
@@ -299,10 +292,7 @@ mod pattern_matrix {
         ];
 
         for pat in or_patterns {
-            let source = format!(
-                r#"@test () -> int = match(value, {} -> 1, _ -> 0)"#,
-                pat
-            );
+            let source = format!(r#"@test () -> int = match(value, {} -> 1, _ -> 0)"#, pat);
             let result = parse_source(&source);
             assert!(
                 !result.has_errors(),
@@ -316,10 +306,10 @@ mod pattern_matrix {
 
 #[cfg(test)]
 mod expression_context {
-    use crate::{parse, ParseResult};
+    use crate::{parse, ParseOutput};
     use ori_ir::StringInterner;
 
-    fn parse_source(source: &str) -> ParseResult {
+    fn parse_source(source: &str) -> ParseOutput {
         let interner = StringInterner::new();
         let tokens = ori_lexer::lex(source, &interner);
         parse(&tokens, &interner)
@@ -332,12 +322,18 @@ mod expression_context {
         assert!(!result.has_errors(), "Struct literal in expression failed");
 
         // Struct literal allowed in if body
-        let result = parse_source("type P = { x: int }\n@test () -> int = if true then P { x: 1 }.x else 0");
+        let result =
+            parse_source("type P = { x: int }\n@test () -> int = if true then P { x: 1 }.x else 0");
         assert!(!result.has_errors(), "Struct literal in if body failed");
 
         // Struct literal NOT allowed in if condition (ambiguous with block)
-        let result = parse_source("type P = { x: int }\n@test () -> int = if P { x: 1 }.x > 0 then 1 else 0");
-        assert!(result.has_errors(), "Struct literal in if condition should fail");
+        let result = parse_source(
+            "type P = { x: int }\n@test () -> int = if P { x: 1 }.x > 0 then 1 else 0",
+        );
+        assert!(
+            result.has_errors(),
+            "Struct literal in if condition should fail"
+        );
     }
 
     #[test]

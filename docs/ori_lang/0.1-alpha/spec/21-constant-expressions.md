@@ -8,6 +8,8 @@ order: 21
 
 A _constant expression_ is an expression that can be fully evaluated at compile time.
 
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § CONSTANT EXPRESSIONS, DECLARATIONS (const_function)
+
 ## Constant Contexts
 
 Constant expressions are required in:
@@ -78,11 +80,7 @@ $factorial_10 = $factorial(n: 10)
 
 ## Const Functions
 
-A _const function_ can be evaluated at compile time. Const functions use the `$` ori:
-
-```ebnf
-const_function = "$" identifier signature "=" expression .
-```
+A _const function_ can be evaluated at compile time. Const functions use the `$` sigil:
 
 ```ori
 $square (x: int) -> int = x * x
@@ -94,7 +92,7 @@ $max (a: int, b: int) -> int =
     if a > b then a else b
 ```
 
-The `$` ori indicates compile-time evaluation, consistent with config variables.
+The `$` sigil indicates compile-time evaluation, consistent with config variables.
 
 ### Restrictions
 

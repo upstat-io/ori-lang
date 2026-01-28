@@ -7,12 +7,12 @@ use ori_types::{SharedTypeInterner, Type};
 
 /// Result of `check_source` including the type interner for verifying compound types.
 struct CheckResult {
-    parsed: ori_parse::ParseResult,
+    parsed: ori_parse::ParseOutput,
     typed: TypedModule,
     type_interner: SharedTypeInterner,
 }
 
-fn check_source(source: &str) -> (ori_parse::ParseResult, TypedModule) {
+fn check_source(source: &str) -> (ori_parse::ParseOutput, TypedModule) {
     let result = check_source_with_interner(source);
     (result.parsed, result.typed)
 }

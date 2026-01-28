@@ -29,7 +29,7 @@ use crate::db::Db;
 use crate::eval::{Environment, FunctionValue, Value};
 use crate::input::SourceFile;
 use crate::ir::{ImportPath, Name, SharedArena, StringInterner};
-use crate::parser::ParseResult;
+use crate::parser::ParseOutput;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -353,7 +353,7 @@ impl LoadingContext {
 /// to reduce parameter count in `register_imports`.
 pub struct ImportedModule<'a> {
     /// The parse result containing the module's AST.
-    pub result: &'a ParseResult,
+    pub result: &'a ParseOutput,
     /// The expression arena for the imported module.
     pub arena: &'a SharedArena,
     /// Pre-built map of all functions in the module.
@@ -364,7 +364,7 @@ impl<'a> ImportedModule<'a> {
     /// Create a new imported module from parse result and arena.
     ///
     /// Builds the function map automatically.
-    pub fn new(result: &'a ParseResult, arena: &'a SharedArena) -> Self {
+    pub fn new(result: &'a ParseOutput, arena: &'a SharedArena) -> Self {
         let functions = Self::build_functions(result, arena);
         ImportedModule {
             result,
@@ -377,7 +377,7 @@ impl<'a> ImportedModule<'a> {
     ///
     /// This allows imported functions to call other functions from their module.
     fn build_functions(
-        parse_result: &ParseResult,
+        parse_result: &ParseOutput,
         imported_arena: &SharedArena,
     ) -> HashMap<Name, Value> {
         let mut module_functions: HashMap<Name, Value> = HashMap::new();
@@ -404,7 +404,7 @@ impl<'a> ImportedModule<'a> {
 ///
 /// This allows imported functions to call other functions from their module.
 pub fn build_module_functions(
-    parse_result: &ParseResult,
+    parse_result: &ParseOutput,
     imported_arena: &SharedArena,
 ) -> HashMap<Name, Value> {
     ImportedModule::build_functions(parse_result, imported_arena)

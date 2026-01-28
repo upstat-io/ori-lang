@@ -8,13 +8,11 @@ order: 18
 
 A _program_ is a complete, executable Ori application.
 
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § PROGRAM ENTRY (main_function)
+
 ## Entry Point
 
 Every executable program must have exactly one `@main` function.
-
-```ebnf
-main_function = "@main" "(" [ "args" ":" "[" "str" "]" ] ")" "->" ( "void" | "int" ) "=" expression .
-```
 
 Valid signatures:
 

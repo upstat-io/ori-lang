@@ -6,15 +6,11 @@ order: 3
 
 # Lexical Elements
 
-```ebnf
-token = identifier | keyword | literal | operator | delimiter .
-```
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § LEXICAL GRAMMAR
+
+A _token_ is an identifier, keyword, literal, operator, or delimiter.
 
 ## Comments
-
-```ebnf
-comment      = "//" { unicode_char - newline } newline .
-```
 
 Comments start with `//` and extend to end of line. Inline comments are not permitted.
 
@@ -27,10 +23,7 @@ Comments start with `//` and extend to end of line. Inline comments are not perm
 
 ### Doc Comments
 
-```ebnf
-doc_comment = "//" doc_marker { unicode_char - newline } newline .
-doc_marker  = "#" | "@param" | "@field" | "!" | ">" .
-```
+Doc comments use special markers:
 
 | Marker | Purpose |
 |--------|---------|
@@ -41,10 +34,6 @@ doc_marker  = "#" | "@param" | "@field" | "!" | ">" .
 | `>` | Example |
 
 ## Identifiers
-
-```ebnf
-identifier = ( letter | "_" ) { letter | digit | "_" } .
-```
 
 Identifiers are case-sensitive. Must not start with digit or be a reserved keyword.
 
@@ -83,14 +72,6 @@ max      print    panic
 
 ## Operators
 
-```ebnf
-arith_op  = "+" | "-" | "*" | "/" | "%" | "div" .
-comp_op   = "==" | "!=" | "<" | ">" | "<=" | ">=" .
-logic_op  = "&&" | "||" | "!" .
-bit_op    = "&" | "|" | "^" | "~" | "<<" | ">>" .
-other_op  = ".." | "..=" | "??" | "?" | "->" | "=>" .
-```
-
 ### Precedence
 
 | Prec | Operators | Assoc |
@@ -112,20 +93,11 @@ other_op  = ".." | "..=" | "??" | "?" | "->" | "=>" .
 
 ## Delimiters
 
-```ebnf
-delimiter = "(" | ")" | "[" | "]" | "{" | "}"
-          | "," | ":" | "." | "@" | "$" .
-```
+Delimiters include parentheses, brackets, braces, comma, colon, dot, and sigils (`@`, `$`).
 
 ## Literals
 
 ### Integer
-
-```ebnf
-int_literal = decimal_lit | hex_lit .
-decimal_lit = digit { digit | "_" } .
-hex_lit     = "0x" hex_digit { hex_digit | "_" } .
-```
 
 ```ori
 42
@@ -135,23 +107,12 @@ hex_lit     = "0x" hex_digit { hex_digit | "_" } .
 
 ### Float
 
-```ebnf
-float_literal = decimal_lit "." decimal_lit [ exponent ] .
-exponent      = ( "e" | "E" ) [ "+" | "-" ] decimal_lit .
-```
-
 ```ori
 3.14
 2.5e-8
 ```
 
 ### String
-
-```ebnf
-string_literal = '"' { string_char } '"' .
-string_char    = unicode_char - ( '"' | '\' | newline ) | escape .
-escape         = '\' ( '"' | '\' | 'n' | 't' | 'r' ) .
-```
 
 ```ori
 "hello"
@@ -160,12 +121,6 @@ escape         = '\' ( '"' | '\' | 'n' | 't' | 'r' ) .
 
 ### Character
 
-```ebnf
-char_literal = "'" char_char "'" .
-char_char    = unicode_char - ( "'" | '\' | newline ) | char_escape .
-char_escape  = '\' ( "'" | '\' | 'n' | 't' | 'r' | '0' ) .
-```
-
 ```ori
 'a'
 '\n'
@@ -173,16 +128,9 @@ char_escape  = '\' ( "'" | '\' | 'n' | 't' | 'r' | '0' ) .
 
 ### Boolean
 
-```ebnf
-bool_literal = "true" | "false" .
-```
+Boolean literals are `true` and `false`.
 
 ### Duration
-
-```ebnf
-duration_literal = int_literal duration_unit .
-duration_unit    = "ms" | "s" | "m" | "h" .
-```
 
 ```ori
 100ms
@@ -190,11 +138,6 @@ duration_unit    = "ms" | "s" | "m" | "h" .
 ```
 
 ### Size
-
-```ebnf
-size_literal = int_literal size_unit .
-size_unit    = "b" | "kb" | "mb" | "gb" .
-```
 
 ```ori
 4kb

@@ -112,10 +112,7 @@ pub enum Value {
     ///
     /// Newtypes are nominally distinct wrappers around an existing type.
     /// For example, `type UserId = str` creates a `UserId` newtype.
-    Newtype {
-        type_name: Name,
-        inner: Heap<Value>,
-    },
+    Newtype { type_name: Name, inner: Heap<Value> },
     /// Newtype constructor.
     ///
     /// When called with one argument, constructs a `Value::Newtype`.

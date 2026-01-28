@@ -7,7 +7,7 @@ use crate::db::Db;
 use crate::eval::{EvalOutput, Evaluator, ModuleEvalResult};
 use crate::input::SourceFile;
 use crate::ir::TokenList;
-use crate::parser::{self, ParseResult};
+use crate::parser::{self, ParseOutput};
 use crate::typeck::{self, TypedModule};
 use std::path::Path;
 
@@ -20,7 +20,7 @@ mod tests;
 /// input if needed, ensuring that changes to the file are tracked by Salsa.
 ///
 /// Returns None if the file cannot be read or has parse errors.
-pub fn parsed_path(db: &dyn Db, path: &Path) -> Option<ParseResult> {
+pub fn parsed_path(db: &dyn Db, path: &Path) -> Option<ParseOutput> {
     let file = db.load_file(path)?;
     let result = parsed(db, file);
     if result.has_errors() {
@@ -56,14 +56,14 @@ pub fn tokens(db: &dyn Db, file: SourceFile) -> TokenList {
 /// This query demonstrates incremental parsing with early cutoff:
 /// - Depends on `tokens` query (not source text directly)
 /// - If tokens are unchanged (same hash), parsing is skipped
-/// - `ParseResult` includes Module, `ExprArena`, and errors
+/// - `ParseOutput` includes Module, `ExprArena`, and errors
 ///
 /// # Early Cutoff
 ///
 /// Even if source text changes (e.g., adding whitespace), if the
 /// resulting tokens are identical, this query returns cached result.
 #[salsa::tracked]
-pub fn parsed(db: &dyn Db, file: SourceFile) -> ParseResult {
+pub fn parsed(db: &dyn Db, file: SourceFile) -> ParseOutput {
     let toks = tokens(db, file);
     parser::parse(&toks, db.interner())
 }

@@ -8,14 +8,9 @@ order: 4
 
 Constant expressions are evaluated at compile time.
 
-## Constant Expressions
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § CONSTANT EXPRESSIONS, DECLARATIONS
 
-```ebnf
-const_expr = literal
-           | const_expr binary_op const_expr
-           | unary_op const_expr
-           | "(" const_expr ")" .
-```
+## Constant Expressions
 
 Literals are constant. Arithmetic, comparison, logical, and string concatenation operations are constant if all operands are constant.
 
@@ -32,10 +27,6 @@ Non-constant expressions:
 - Expressions using capabilities
 
 ## Config Variables
-
-```ebnf
-config_decl = [ "pub" ] "$" identifier "=" literal .
-```
 
 Config variables are module-level compile-time constants declared with `$` prefix.
 

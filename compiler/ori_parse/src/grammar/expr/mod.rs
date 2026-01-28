@@ -18,7 +18,7 @@ mod postfix;
 mod primary;
 
 use crate::stack::ensure_sufficient_stack;
-use crate::{ParseError, Parser};
+use crate::{ParseError, ParseResult, Parser};
 use ori_ir::{BinaryOp, Expr, ExprId, ExprKind, TokenKind, UnaryOp};
 
 /// Generate a binary operator precedence level parsing function.
@@ -69,6 +69,15 @@ macro_rules! parse_binary_level {
 }
 
 impl Parser<'_> {
+    /// Parse an expression with progress tracking.
+    ///
+    /// Returns `Progress::None` if no tokens were consumed (not a valid expression start).
+    /// Returns `Progress::Made` if tokens were consumed (success or error after consuming).
+    #[allow(dead_code)] // Available for expression-level error recovery
+    pub(crate) fn parse_expr_with_progress(&mut self) -> ParseResult<ExprId> {
+        self.with_progress(|p| p.parse_expr())
+    }
+
     /// Parse an expression.
     /// Handles assignment at the top level: `identifier = expression`
     ///

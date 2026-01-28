@@ -8,19 +8,7 @@ order: 6
 
 Every value has a type determined at compile time.
 
-## Type Syntax
-
-```ebnf
-type          = type_path [ type_args ]
-              | list_type | map_type | tuple_type | function_type
-              | "dyn" type .
-type_path     = identifier { "." identifier } .
-type_args     = "<" type { "," type } ">" .
-list_type     = "[" type "]" .
-map_type      = "{" type ":" type "}" .
-tuple_type    = "(" type { "," type } ")" | "()" .
-function_type = "(" [ type { "," type } ] ")" "->" type .
-```
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § TYPES
 
 ## Primitive Types
 
@@ -115,18 +103,7 @@ type Channel<T>   // bounded async channel
 
 ## User-Defined Types
 
-```ebnf
-type_def      = [ "pub" ] [ derive ] "type" identifier [ generics ] [ where ] "=" type_body .
-derive        = "#[derive(" identifier { "," identifier } ")]" .
-generics      = "<" generic_param { "," generic_param } ">" .
-generic_param = identifier [ ":" bounds ] .
-bounds        = type_path { "+" type_path } .
-type_body     = struct_type | sum_type | type .
-struct_type   = "{" [ field { "," field } ] "}" .
-sum_type      = variant { "|" variant } .
-variant       = identifier [ "(" [ field { "," field } ] ")" ] .
-field         = identifier ":" type .
-```
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § DECLARATIONS (type_def)
 
 ### Struct
 

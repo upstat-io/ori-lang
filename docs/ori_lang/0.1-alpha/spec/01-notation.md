@@ -8,13 +8,15 @@ order: 1
 
 The syntax is specified using Extended Backus-Naur Form (EBNF).
 
+> **Grammar:** The complete formal grammar is in [grammar.ebnf](grammar.ebnf).
+
 ## Productions
 
-```ebnf
+Productions are expressions terminated by `.`:
+
+```
 production_name = expression .
 ```
-
-Productions are expressions terminated by `.`.
 
 ## Operators
 

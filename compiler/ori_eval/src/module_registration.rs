@@ -54,7 +54,10 @@ pub fn register_module_functions(module: &Module, arena: &SharedArena, env: &mut
 /// * `arena` - Shared arena for expression lookup
 /// * `captures` - Variable captures from the current environment
 /// * `registry` - Registry to store collected methods
-#[expect(clippy::implicit_hasher, reason = "captures use default hasher throughout codebase")]
+#[expect(
+    clippy::implicit_hasher,
+    reason = "captures use default hasher throughout codebase"
+)]
 pub fn collect_impl_methods(
     module: &Module,
     arena: &SharedArena,
@@ -84,8 +87,7 @@ pub fn collect_impl_methods(
             let params = arena.get_param_names(method.params);
 
             // Create user method with captures and arena
-            let user_method =
-                UserMethod::new(params, method.body, captures.clone(), arena.clone());
+            let user_method = UserMethod::new(params, method.body, captures.clone(), arena.clone());
 
             registry.register(type_name, method.name, user_method);
         }
@@ -128,7 +130,10 @@ pub fn collect_impl_methods(
 /// * `arena` - Shared arena for expression lookup
 /// * `captures` - Variable captures from the current environment
 /// * `registry` - Registry to store collected methods
-#[expect(clippy::implicit_hasher, reason = "captures use default hasher throughout codebase")]
+#[expect(
+    clippy::implicit_hasher,
+    reason = "captures use default hasher throughout codebase"
+)]
 pub fn collect_extend_methods(
     module: &Module,
     arena: &SharedArena,
@@ -145,8 +150,7 @@ pub fn collect_extend_methods(
             let params = arena.get_param_names(method.params);
 
             // Create user method with captures and arena
-            let user_method =
-                UserMethod::new(params, method.body, captures.clone(), arena.clone());
+            let user_method = UserMethod::new(params, method.body, captures.clone(), arena.clone());
 
             registry.register(type_name, method.name, user_method);
         }
@@ -210,9 +214,9 @@ mod tests {
     use super::*;
     use ori_ir::SharedInterner;
     use ori_lexer::lex;
-    use ori_parse::{parse, ParseResult};
+    use ori_parse::{parse, ParseOutput};
 
-    fn parse_source(source: &str) -> (ParseResult, SharedInterner) {
+    fn parse_source(source: &str) -> (ParseOutput, SharedInterner) {
         let interner = SharedInterner::default();
         let tokens = lex(source, &interner);
         let result = parse(&tokens, &interner);

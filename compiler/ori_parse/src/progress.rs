@@ -181,6 +181,7 @@ impl<T> ParseResult<T> {
 
     /// Unwraps the result, panicking if it's an error.
     #[track_caller]
+    #[allow(clippy::unwrap_used)] // Intentional panic for test assertions
     pub fn unwrap(self) -> T {
         self.result.unwrap()
     }
@@ -245,8 +246,76 @@ impl<T> WithProgress<T> for Result<T, ParseError> {
     }
 
     fn with_progress(self, progress: Progress) -> ParseResult<T> {
-        ParseResult { progress, result: self }
+        ParseResult {
+            progress,
+            result: self,
+        }
     }
+}
+
+/// Macro to extract value from ParseResult, propagating errors with progress.
+///
+/// Works like `?` but for `ParseResult`. If the result is an error, returns
+/// early with the error and accumulated progress.
+///
+/// Usage:
+/// ```ignore
+/// // In a function returning ParseResult<T>
+/// let value = try_parse!(some_parse_operation(), progress);
+/// ```
+///
+/// The `progress` variable must be a mutable `Progress` that tracks accumulated progress.
+#[macro_export]
+macro_rules! try_parse {
+    ($expr:expr, $progress:ident) => {
+        match $expr {
+            $crate::ParseResult {
+                progress: p,
+                result: Ok(v),
+            } => {
+                $progress = $progress.or(p);
+                v
+            }
+            $crate::ParseResult {
+                progress: p,
+                result: Err(e),
+            } => {
+                return $crate::ParseResult {
+                    progress: $progress.or(p),
+                    result: Err(e),
+                };
+            }
+        }
+    };
+}
+
+/// Macro to extract value from Result, converting to ParseResult with progress.
+///
+/// Used when calling methods that still return `Result<T, ParseError>`.
+/// Converts the result to ParseResult, accumulating progress based on
+/// whether the parser position changed.
+///
+/// Usage:
+/// ```ignore
+/// // In a function returning ParseResult<T>
+/// let value = try_result!(some_legacy_operation(), progress);
+/// ```
+#[macro_export]
+macro_rules! try_result {
+    ($expr:expr, $progress:ident) => {
+        match $expr {
+            Ok(v) => {
+                $progress = $crate::Progress::Made;
+                v
+            }
+            Err(e) => {
+                return $crate::ParseResult {
+                    progress: $progress,
+                    result: Err(e),
+                };
+            }
+        }
+    };
 }
 
 #[cfg(test)]
@@ -302,40 +371,35 @@ mod tests {
 
     #[test]
     fn test_and_then_success() {
-        let result = ParseResult::ok(42)
-            .and_then(|x| ParseResult::ok(x * 2));
+        let result = ParseResult::ok(42).and_then(|x| ParseResult::ok(x * 2));
         assert!(result.made_progress());
         assert_eq!(result.unwrap(), 84);
     }
 
     #[test]
     fn test_and_then_combines_progress() {
-        let result = ParseResult::ok_with(42, Progress::None)
-            .and_then(|x| ParseResult::ok(x * 2));
+        let result = ParseResult::ok_with(42, Progress::None).and_then(|x| ParseResult::ok(x * 2));
         // Progress::None.or(Progress::Made) = Progress::Made
         assert!(result.made_progress());
     }
 
     #[test]
     fn test_or_else_on_success() {
-        let result = ParseResult::ok(42)
-            .or_else(|| ParseResult::ok(0));
+        let result = ParseResult::ok(42).or_else(|| ParseResult::ok(0));
         assert_eq!(result.unwrap(), 42);
     }
 
     #[test]
     fn test_or_else_on_err_made() {
         // Error with progress - stays committed
-        let result = ParseResult::<i32>::err_made(make_error())
-            .or_else(|| ParseResult::ok(0));
+        let result = ParseResult::<i32>::err_made(make_error()).or_else(|| ParseResult::ok(0));
         assert!(result.is_err());
     }
 
     #[test]
     fn test_or_else_on_err_none() {
         // Error without progress - tries alternative
-        let result = ParseResult::<i32>::err_none(make_error())
-            .or_else(|| ParseResult::ok(0));
+        let result = ParseResult::<i32>::err_none(make_error()).or_else(|| ParseResult::ok(0));
         assert_eq!(result.unwrap(), 0);
     }
 

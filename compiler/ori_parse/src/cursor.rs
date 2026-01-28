@@ -31,6 +31,14 @@ impl<'a> Cursor<'a> {
         self.interner
     }
 
+    /// Get the current position in the token stream.
+    ///
+    /// Used for progress tracking - compare positions before and after
+    /// parsing to determine if tokens were consumed.
+    pub fn position(&self) -> usize {
+        self.pos
+    }
+
     /// Get the current token.
     pub fn current(&self) -> &Token {
         self.tokens

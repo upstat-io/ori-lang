@@ -8,23 +8,13 @@ order: 2
 
 Source code is Unicode text encoded in UTF-8.
 
-## Characters
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § LEXICAL GRAMMAR, SOURCE STRUCTURE
 
-```ebnf
-unicode_char  = /* any Unicode code point except NUL (U+0000) */ .
-letter        = 'A' … 'Z' | 'a' … 'z' .
-digit         = '0' … '9' .
-newline       = /* U+000A */ .
-whitespace    = ' ' | '\t' | '\r' | newline .
-```
+## Characters
 
 Carriage return (U+000D) followed by newline is normalized to newline. A lone carriage return is treated as newline.
 
 ## Source Files
-
-```ebnf
-source_file = { import } { declaration } .
-```
 
 Source files use `.ori` extension. Test files use `.test.ori` extension.
 

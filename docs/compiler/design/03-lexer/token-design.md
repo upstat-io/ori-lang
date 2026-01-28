@@ -7,7 +7,7 @@ section: "Lexer"
 
 # Token Design
 
-This document describes the design of tokens in the Ori lexer.
+This document describes the design of tokens in the Ori lexer. The lexical grammar is formally defined in [Parser Overview § Formal Grammar](../04-parser/index.md#formal-grammar) (see the "LEXICAL GRAMMAR" section).
 
 ## Token Categories
 

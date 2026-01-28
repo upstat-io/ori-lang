@@ -336,7 +336,8 @@ impl Parser<'_> {
                     })?;
                     let span = start_span.merge(self.previous_span());
                     Ok(MatchPattern::Literal(
-                        self.arena.alloc_expr(Expr::new(ExprKind::Int(-value), span)),
+                        self.arena
+                            .alloc_expr(Expr::new(ExprKind::Int(-value), span)),
                     ))
                 } else {
                     Err(ParseError::new(
@@ -363,7 +364,9 @@ impl Parser<'_> {
                 if self.check(&TokenKind::DotDot) || self.check(&TokenKind::DotDotEq) {
                     let inclusive = self.check(&TokenKind::DotDotEq);
                     self.advance();
-                    let start_expr = self.arena.alloc_expr(Expr::new(ExprKind::Int(value), pat_span));
+                    let start_expr = self
+                        .arena
+                        .alloc_expr(Expr::new(ExprKind::Int(value), pat_span));
 
                     // Parse end of range (optional for open-ended ranges, but typically present)
                     let end = if self.is_range_bound_start() {
@@ -702,7 +705,9 @@ impl Parser<'_> {
                     )
                 })?;
                 let span = start_span.merge(self.previous_span());
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Int(-value), span)))
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Int(-value), span)))
             } else {
                 Err(ParseError::new(
                     ori_diagnostic::ErrorCode::E1002,

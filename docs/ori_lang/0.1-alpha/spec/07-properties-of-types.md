@@ -8,6 +8,8 @@ order: 7
 
 Type identity, assignability, and constraints.
 
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § DECLARATIONS (generics, where_clause)
+
 ## Type Identity
 
 Two types are identical if they have the same definition.
@@ -55,12 +57,6 @@ let x: float = float(42) // OK
 Generics are invariant. `Container<T>` is only compatible with `Container<T>`.
 
 ## Type Constraints
-
-```ebnf
-constraint   = identifier ":" bounds .
-bounds       = type_path { "+" type_path } .
-where_clause = "where" constraint { "," constraint } .
-```
 
 ```ori
 @sort<T: Comparable> (items: [T]) -> [T] = ...

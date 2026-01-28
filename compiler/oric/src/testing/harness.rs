@@ -6,7 +6,7 @@
 use crate::db::{CompilerDb, Db};
 use crate::eval::{EvalError, EvalResult, Evaluator, Value};
 use crate::ir::SharedInterner;
-use crate::parser::{self, ParseResult};
+use crate::parser::{self, ParseOutput};
 use crate::typeck::{type_check, TypedModule};
 
 // Expression Evaluation Helpers
@@ -77,7 +77,7 @@ pub fn eval_source(source: &str) -> EvalResult {
 // Parse Helpers
 
 /// Parse source code and return the parse result.
-pub fn parse_source(source: &str) -> (ParseResult, SharedInterner) {
+pub fn parse_source(source: &str) -> (ParseOutput, SharedInterner) {
     let interner = SharedInterner::default();
     let tokens = ori_lexer::lex(source, &interner);
     let parsed = parser::parse(&tokens, &interner);
@@ -85,7 +85,7 @@ pub fn parse_source(source: &str) -> (ParseResult, SharedInterner) {
 }
 
 /// Parse and type check source code.
-pub fn type_check_source(source: &str) -> (ParseResult, TypedModule, SharedInterner) {
+pub fn type_check_source(source: &str) -> (ParseOutput, TypedModule, SharedInterner) {
     let interner = SharedInterner::default();
     let tokens = ori_lexer::lex(source, &interner);
     let parsed = parser::parse(&tokens, &interner);

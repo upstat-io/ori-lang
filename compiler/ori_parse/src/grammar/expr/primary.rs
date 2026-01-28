@@ -3,10 +3,19 @@
 //! Parses literals, identifiers, variant constructors, parenthesized expressions,
 //! lists, if expressions, and let expressions.
 
-use crate::{ParseError, Parser};
+use crate::{ParseError, ParseResult, Parser};
 use ori_ir::{BindingPattern, Expr, ExprId, ExprKind, ExprRange, Param, ParamRange, TokenKind};
 
 impl Parser<'_> {
+    /// Parse primary expressions with progress tracking.
+    ///
+    /// Returns `Progress::None` if the current token is not a valid expression start.
+    /// Returns `Progress::Made` if tokens were consumed (success or error after consuming).
+    #[allow(dead_code)] // Available for expression-level error recovery
+    pub(crate) fn parse_primary_with_progress(&mut self) -> ParseResult<ExprId> {
+        self.with_progress(|p| p.parse_primary())
+    }
+
     /// Parse primary expressions.
     pub(crate) fn parse_primary(&mut self) -> Result<ExprId, ParseError> {
         let span = self.current_span();
@@ -111,9 +120,7 @@ impl Parser<'_> {
             TokenKind::Hash => {
                 if self.context.in_index() {
                     self.advance();
-                    Ok(self
-                        .arena
-                        .alloc_expr(Expr::new(ExprKind::HashLength, span)))
+                    Ok(self.arena.alloc_expr(Expr::new(ExprKind::HashLength, span)))
                 } else {
                     Err(ParseError::new(
                         ori_diagnostic::ErrorCode::E1002,

@@ -472,7 +472,7 @@ mod tests {
     use crate::parse;
     use ori_ir::StringInterner;
 
-    fn parse_with_errors(source: &str) -> (crate::ParseResult, StringInterner) {
+    fn parse_with_errors(source: &str) -> (crate::ParseOutput, StringInterner) {
         let interner = StringInterner::new();
         let tokens = ori_lexer::lex(source, &interner);
         let result = parse(&tokens, &interner);

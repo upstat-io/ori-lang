@@ -1,9 +1,18 @@
 //! Function and test definition parsing.
 
-use crate::{FunctionOrTest, ParseError, ParsedAttrs, Parser};
+use crate::{FunctionOrTest, ParseError, ParseResult, ParsedAttrs, Parser};
 use ori_ir::{Function, GenericParamRange, Param, ParamRange, TestDef, TokenKind};
 
 impl Parser<'_> {
+    /// Parse a function or test definition with progress tracking.
+    pub(crate) fn parse_function_or_test_with_progress(
+        &mut self,
+        attrs: ParsedAttrs,
+        is_public: bool,
+    ) -> ParseResult<FunctionOrTest> {
+        self.with_progress(|p| p.parse_function_or_test_with_attrs(attrs, is_public))
+    }
+
     /// Parse a function or test definition with attributes.
     ///
     /// Function: @name (params) -> Type = body
