@@ -135,6 +135,11 @@ pub struct TraitRegistry {
     inherent_impls: HashMap<Type, ImplEntry>,
     /// Type interner for Type↔TypeId conversions.
     interner: SharedTypeInterner,
+    /// Secondary index: type -> traits it implements.
+    ///
+    /// Enables O(1) lookup of which traits a type implements, avoiding O(n) scan
+    /// of all `trait_impls` entries. Updated when implementations are registered.
+    traits_by_type: HashMap<Type, Vec<Name>>,
     /// Lazily-populated method lookup cache: `(self_type, method_name)` -> cached result.
     ///
     /// Uses `RefCell` for interior mutability so `lookup_method` can remain `&self`.
@@ -148,7 +153,7 @@ impl PartialEq for TraitRegistry {
         self.traits == other.traits
             && self.trait_impls == other.trait_impls
             && self.inherent_impls == other.inherent_impls
-        // Interner and method_cache are not compared - they are derived state
+        // Interner, traits_by_type, and method_cache are not compared - they are derived state
     }
 }
 
@@ -161,6 +166,7 @@ impl Default for TraitRegistry {
             trait_impls: HashMap::new(),
             inherent_impls: HashMap::new(),
             interner: SharedTypeInterner::new(),
+            traits_by_type: HashMap::new(),
             method_cache: RefCell::new(HashMap::new()),
         }
     }
@@ -181,6 +187,7 @@ impl TraitRegistry {
             trait_impls: HashMap::new(),
             inherent_impls: HashMap::new(),
             interner,
+            traits_by_type: HashMap::new(),
             method_cache: RefCell::new(HashMap::new()),
         }
     }
@@ -217,7 +224,7 @@ impl TraitRegistry {
 
         if let Some(trait_name) = entry.trait_name {
             // Trait implementation - check for duplicate
-            let key = (trait_name, type_key);
+            let key = (trait_name, type_key.clone());
             if let Some(existing) = self.trait_impls.get(&key) {
                 return Err(CoherenceError {
                     message: "conflicting implementation: trait already implemented for this type"
@@ -226,6 +233,11 @@ impl TraitRegistry {
                     existing_span: existing.span,
                 });
             }
+            // Update secondary index: type -> traits it implements
+            self.traits_by_type
+                .entry(type_key)
+                .or_default()
+                .push(trait_name);
             self.trait_impls.insert(key, entry);
         } else {
             // Inherent implementation - check for duplicate methods
@@ -303,11 +315,7 @@ impl TraitRegistry {
     /// Perform method lookup without consulting the cache.
     ///
     /// Checks inherent impls first, then trait impls, then default methods.
-    fn lookup_method_uncached(
-        &self,
-        self_ty: &Type,
-        method_name: Name,
-    ) -> Option<MethodLookup> {
+    fn lookup_method_uncached(&self, self_ty: &Type, method_name: Name) -> Option<MethodLookup> {
         // First check inherent impls
         if let Some(impl_entry) = self.get_inherent_impl(self_ty) {
             if let Some(method) = impl_entry.methods.iter().find(|m| m.name == method_name) {
@@ -324,20 +332,23 @@ impl TraitRegistry {
             }
         }
 
-        // Then check all trait impls for this type
-        for ((trait_name, impl_type), impl_entry) in &self.trait_impls {
-            if impl_type == self_ty {
-                if let Some(method) = impl_entry.methods.iter().find(|m| m.name == method_name) {
-                    return Some(MethodLookup {
-                        trait_name: Some(*trait_name),
-                        method_name,
-                        params: method
-                            .params
-                            .iter()
-                            .map(|id| self.interner.to_type(*id))
-                            .collect(),
-                        return_ty: self.interner.to_type(method.return_ty),
-                    });
+        // Then check trait impls for this type using secondary index (O(k) where k = traits for type)
+        if let Some(trait_names) = self.traits_by_type.get(self_ty) {
+            for trait_name in trait_names {
+                if let Some(impl_entry) = self.trait_impls.get(&(*trait_name, self_ty.clone())) {
+                    if let Some(method) = impl_entry.methods.iter().find(|m| m.name == method_name)
+                    {
+                        return Some(MethodLookup {
+                            trait_name: Some(*trait_name),
+                            method_name,
+                            params: method
+                                .params
+                                .iter()
+                                .map(|id| self.interner.to_type(*id))
+                                .collect(),
+                            return_ty: self.interner.to_type(method.return_ty),
+                        });
+                    }
                 }
             }
         }

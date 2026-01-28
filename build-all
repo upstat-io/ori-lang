@@ -1,0 +1,15 @@
+#!/bin/bash
+# Build ALL Rust code: workspace and LLVM crate
+# Usage: ./build-all
+
+set -e
+
+echo "=== Building workspace ==="
+cargo b
+
+echo ""
+echo "=== Building LLVM crate (Docker) ==="
+./llvm-build
+
+echo ""
+echo "=== All builds complete ==="

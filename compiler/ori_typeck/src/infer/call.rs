@@ -148,22 +148,30 @@ fn check_capability_propagation(checker: &mut TypeChecker<'_>, func_name: Name, 
         return;
     };
 
-    for required_cap in &func_sig.capabilities.clone() {
-        let is_declared = checker.scope.current_function_caps.contains(required_cap);
-        let is_provided = checker.scope.provided_caps.contains(required_cap);
+    // Collect missing capabilities first to avoid borrow conflict
+    // (iterating over func_sig while calling checker.push_error)
+    let missing_caps: Vec<_> = func_sig
+        .capabilities
+        .iter()
+        .filter(|cap| {
+            !checker.scope.current_function_caps.contains(cap)
+                && !checker.scope.provided_caps.contains(cap)
+        })
+        .copied()
+        .collect();
 
-        if !is_declared && !is_provided {
-            let func_name_str = checker.context.interner.lookup(func_name);
-            let cap_name_str = checker.context.interner.lookup(*required_cap);
-            checker.push_error(
-                format!(
-                    "function `{func_name_str}` uses `{cap_name_str}` capability, \
-                     but caller does not declare or provide it"
-                ),
-                span,
-                ori_diagnostic::ErrorCode::E2014,
-            );
-        }
+    // Now push errors for each missing capability
+    for required_cap in missing_caps {
+        let func_name_str = checker.context.interner.lookup(func_name);
+        let cap_name_str = checker.context.interner.lookup(required_cap);
+        checker.push_error(
+            format!(
+                "function `{func_name_str}` uses `{cap_name_str}` capability, \
+                 but caller does not declare or provide it"
+            ),
+            span,
+            ori_diagnostic::ErrorCode::E2014,
+        );
     }
 }
 

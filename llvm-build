@@ -1,0 +1,4 @@
+#!/bin/bash
+# Build LLVM crate in Docker container
+# Usage: ./llvm-build [additional args...]
+exec ./docker/llvm/run.sh cargo build "$@"

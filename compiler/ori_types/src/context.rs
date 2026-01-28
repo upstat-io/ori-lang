@@ -639,7 +639,9 @@ impl TypeContext {
     /// Get or create a Channel<elem> type.
     pub fn channel_type(&mut self, elem: Type) -> Type {
         let targs = vec![elem.clone()];
-        self.deduplicate_type(Self::CHANNEL_ORIGIN, targs, || Type::Channel(Box::new(elem)))
+        self.deduplicate_type(Self::CHANNEL_ORIGIN, targs, || {
+            Type::Channel(Box::new(elem))
+        })
     }
 
     /// Get or create a Tuple type.

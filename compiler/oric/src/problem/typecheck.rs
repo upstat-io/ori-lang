@@ -68,6 +68,8 @@ pub enum TypeProblem {
         span: Span,
         type_name: String,
         method_name: String,
+        /// Available methods on this type (for "did you mean?" suggestions).
+        available_methods: Vec<String>,
     },
 
     /// Binary operation not supported for types.

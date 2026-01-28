@@ -222,7 +222,7 @@ impl Hash for EvalOutput {
             EvalOutput::Byte(b) => b.hash(state),
             // u64 types
             EvalOutput::Float(bits) | EvalOutput::Duration(bits) | EvalOutput::Size(bits) => {
-                bits.hash(state)
+                bits.hash(state);
             }
             // String types
             EvalOutput::Str(s)

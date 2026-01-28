@@ -245,6 +245,76 @@ impl Environment {
         }
     }
 
+    /// Execute a closure within a new scope, automatically popping when done.
+    ///
+    /// This is an RAII-style guard that ensures the scope is popped even if
+    /// the closure returns early or panics.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// env.with_scope(|env| {
+    ///     env.define(name, value, false);
+    ///     // ... use the binding ...
+    /// }) // scope is automatically popped here
+    /// ```
+    pub fn with_scope<T, F>(&mut self, f: F) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        self.push_scope();
+        let result = f(self);
+        self.pop_scope();
+        result
+    }
+
+    /// Execute a closure with a single binding in a new scope.
+    ///
+    /// This is a convenience method for common cases like loop variables.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // for x in items do body
+    /// env.with_binding(x_name, item_value, false, |env| {
+    ///     eval_body(body, env)
+    /// })
+    /// ```
+    pub fn with_binding<T, F>(&mut self, name: Name, value: Value, mutable: bool, f: F) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        self.with_scope(|env| {
+            env.define(name, value, mutable);
+            f(env)
+        })
+    }
+
+    /// Execute a closure with multiple bindings in a new scope.
+    ///
+    /// Each binding is a tuple of (name, value).
+    /// All bindings are immutable (for match bindings).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let bindings = try_match(&pattern, value, arena, interner)?;
+    /// env.with_match_bindings(bindings, |env| {
+    ///     eval_body(body, env)
+    /// })
+    /// ```
+    pub fn with_match_bindings<T, F>(&mut self, bindings: Vec<(Name, Value)>, f: F) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        self.with_scope(|env| {
+            for (name, value) in bindings {
+                env.define(name, value, false);
+            }
+            f(env)
+        })
+    }
+
     /// Capture the current scope for closures.
     ///
     /// Returns a map of all visible bindings that can be used

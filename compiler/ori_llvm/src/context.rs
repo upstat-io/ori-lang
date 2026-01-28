@@ -31,8 +31,10 @@ pub struct TypeCache<'ll> {
     pub scalars: HashMap<TypeId, BasicTypeEnum<'ll>>,
     /// Cache for complex types (structs, arrays, etc.)
     pub complex: HashMap<TypeId, BasicTypeEnum<'ll>>,
-    /// Named struct types for forward references
-    pub named_structs: HashMap<String, StructType<'ll>>,
+    /// Named struct types for forward references.
+    ///
+    /// Uses interned `Name` as key for O(1) lookup without string hashing.
+    pub named_structs: HashMap<Name, StructType<'ll>>,
 }
 
 impl<'ll> TypeCache<'ll> {
@@ -60,16 +62,21 @@ impl<'ll> TypeCache<'ll> {
     }
 
     /// Get or create a named struct type for forward references.
+    ///
+    /// Takes both the interned `Name` (for caching) and the string representation
+    /// (for LLVM's opaque_struct_type call). Call from CodegenCx which has
+    /// access to the interner.
     pub fn get_or_create_named_struct(
         &mut self,
         context: &'ll Context,
-        name: &str,
+        name: Name,
+        name_str: &str,
     ) -> StructType<'ll> {
-        if let Some(&ty) = self.named_structs.get(name) {
+        if let Some(&ty) = self.named_structs.get(&name) {
             ty
         } else {
-            let ty = context.opaque_struct_type(name);
-            self.named_structs.insert(name.to_string(), ty);
+            let ty = context.opaque_struct_type(name_str);
+            self.named_structs.insert(name, ty);
             ty
         }
     }
@@ -332,6 +339,16 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
             ],
             false,
         )
+    }
+
+    /// Get or create a named struct type for forward references.
+    ///
+    /// Uses interned `Name` for O(1) cache lookup without string hashing.
+    pub fn get_or_create_named_struct(&self, name: Name) -> StructType<'ll> {
+        let name_str = self.interner.lookup(name);
+        self.type_cache
+            .borrow_mut()
+            .get_or_create_named_struct(self.llcx(), name, name_str)
     }
 
     // -- Function instance management --

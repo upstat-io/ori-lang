@@ -1,0 +1,4 @@
+#!/bin/bash
+# Run LLVM tests in Docker container
+# Usage: ./llvm-test [additional args...]
+exec ./docker/llvm/run.sh cargo test "$@"

@@ -59,7 +59,21 @@ pub struct GenericBound {
     pub type_var: TypeId,
 }
 
-// Manual Eq/PartialEq/Hash that ignores type_var (which contains fresh vars)
+// Manual Eq/PartialEq/Hash implementations that exclude `type_var`.
+//
+// **Why this is necessary for Salsa compliance:**
+//
+// The `type_var` field contains a fresh type variable ID created during
+// type checking. These IDs are unique per type-check invocation, meaning
+// two equivalent generic bounds would have different `type_var` values.
+//
+// If we derived Eq/Hash including type_var, Salsa would see "different"
+// function types across invocations, causing unnecessary cache misses
+// and recomputation. By excluding type_var from equality, we ensure
+// that logically equivalent generic bounds are treated as equal.
+//
+// The type_var is only used for resolving constraints at call sites
+// and doesn't affect the semantic identity of the bound.
 impl PartialEq for GenericBound {
     fn eq(&self, other: &Self) -> bool {
         self.param == other.param && self.bounds == other.bounds
@@ -92,7 +106,8 @@ pub struct WhereConstraint {
     pub type_var: TypeId,
 }
 
-// Manual Eq/PartialEq/Hash that ignores type_var
+// Manual Eq/PartialEq/Hash that ignores type_var.
+// See GenericBound above for rationale (Salsa cache coherence).
 impl PartialEq for WhereConstraint {
     fn eq(&self, other: &Self) -> bool {
         self.param == other.param
