@@ -63,7 +63,7 @@ Formalize the distinction between sequential patterns and named-expression patte
 **function_exp** (named args): `recurse`, `parallel`, `spawn`, `timeout`, `cache`, `with`, `for`
 ~~**function_val** (positional): `int`, `float`, `str`, `byte`~~ — **REMOVED** by `as` proposal
 
-> **NOTE**: The `as` conversion proposal (`proposals/drafts/as-conversion-proposal.md`)
+> **NOTE**: The `as` conversion proposal (`proposals/approved/as-conversion-proposal.md`)
 > removes `function_val` entirely. Type conversions now use `x as T` / `x as? T` syntax,
 > eliminating the special case for positional arguments.
 
@@ -282,9 +282,9 @@ print(`Hello, {name}! You are {age} years old.`)
 
 ## 15.7 `as` Conversion Syntax
 
-**Proposal**: `proposals/drafts/as-conversion-proposal.md`
+**Proposal**: `proposals/approved/as-conversion-proposal.md`
 
-Replace `int()`, `float()`, `str()`, `byte()` with `as`/`as?` keyword syntax.
+Replace `int()`, `float()`, `str()`, `byte()` with `as`/`as?` keyword syntax backed by `As<T>` and `TryAs<T>` traits.
 
 ```ori
 // Before (special-cased positional args)

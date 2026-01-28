@@ -111,6 +111,14 @@
 - `any`, `all` on lists
 - Rosetta code examples updated (2026-01-28)
 
+### Approved Proposals
+
+**`as` Conversion Syntax** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/as-conversion-proposal.md`
+- Implementation: Phase 15.7
+- Adds `As<T>`, `TryAs<T>` traits; removes `int()`, `float()`, `str()`, `byte()` special cases
+- Blocked on: Phase 3 (needs `As<T>` and `TryAs<T>` traits in prelude)
+
 ---
 
 ## Milestones
