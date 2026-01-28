@@ -188,6 +188,17 @@
 - Check modes (enforce/observe/ignore) deferred to future proposal
 - Blocked on: None (can be implemented independently)
 
+**Error Return Traces** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/error-return-traces-proposal.md`
+- Implementation: Phase 10.4
+- Automatic trace collection at `?` propagation points (Zig-inspired)
+- New prelude types: `TraceEntry` (function, file, line, column)
+- New prelude traits: `Into<T>` (conversion), `Traceable` (optional for custom errors)
+- Error methods: `.trace()`, `.trace_entries()`, `.has_trace()`
+- Result method: `.context(msg)` for adding context while preserving trace
+- Traces always collected (all builds), not build-mode dependent
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones

@@ -1,9 +1,9 @@
 # Proposal: Error Return Traces
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric
 **Created:** 2026-01-22
-**Approved:** 2026-01-25
+**Approved:** 2026-01-28
 **Inspired by:** Zig's error return traces
 
 ---
@@ -65,7 +65,7 @@ Ori's `Error` type supports manual chaining:
 ```ori
 type Error = {
     message: str,
-    source: Option<Error>,  // Manual chaining
+    source: Option<Error>,
 }
 ```
 
@@ -120,18 +120,38 @@ When `?` propagates an error, the current source location is automatically recor
 
 No syntax changes required. The `?` operator handles trace collection internally.
 
-### Error Type Enhancement
+Traces are collected unconditionally in all builds (debug and release). This ensures consistent behavior and enables debugging of production errors.
 
-The `Error` type gains an internal trace field (not directly accessible):
+### Error Type Model
+
+Ori distinguishes between the `Error` struct (a concrete prelude type) and the `Error` trait (an interface):
 
 ```ori
-// Conceptual representation (actual implementation is internal)
+// The prelude Error struct
 type Error = {
     message: str,
     source: Option<Error>,
-    trace: [TraceEntry],  // Internal, collected automatically
+    // trace: [TraceEntry]  — internal, not directly accessible
 }
 
+// Error trait interface (separate from struct)
+trait Error {
+    @message (self) -> str
+}
+
+// The prelude Error struct implements the Error trait
+impl Error for Error {
+    @message (self) -> str = self.message
+}
+```
+
+The `trace` field is internal to the struct implementation and not directly accessible as a field. Access is through the methods described below.
+
+### Trace Entry Type
+
+The `TraceEntry` type represents a single location in the error propagation path:
+
+```ori
 type TraceEntry = {
     function: str,
     file: str,
@@ -139,6 +159,8 @@ type TraceEntry = {
     column: int,
 }
 ```
+
+`TraceEntry` is added to the prelude (auto-imported).
 
 ### Accessing Traces
 
@@ -156,6 +178,25 @@ impl Error {
     @has_trace (self) -> bool
 }
 ```
+
+### Trace Format
+
+The `.trace()` method returns a string with the following format:
+
+```
+<function_name> at <file_path>:<line>:<column>
+```
+
+One entry per line, most recent propagation point first. Function names are left-padded with spaces to align the "at" column.
+
+Example:
+```
+read_file at std/fs.ori:142:8
+load      at src/loader.ori:15:20
+main      at src/main.ori:8:16
+```
+
+If no trace is available, `.trace()` returns an empty string and `.trace_entries()` returns an empty list.
 
 ### Printing Errors with Traces
 
@@ -178,21 +219,61 @@ Trace:
   main      at src/main.ori:8:16
 ```
 
-### Custom Error Types
+### Custom Error Types and Traceable
 
-User-defined error types can opt into trace collection by implementing a trait:
+The `Traceable` trait allows custom error types to carry their own traces:
 
 ```ori
 trait Traceable {
     @with_trace (self, trace: [TraceEntry]) -> Self
-    @get_trace (self) -> [TraceEntry]
+    @trace (self) -> [TraceEntry]
 }
-
-// Automatic for types containing Error
-type MyError = NotFound | InvalidFormat(Error) | NetworkError(Error)
 ```
 
-For simple sum types without an `Error` field, traces attach to the propagation chain rather than the error value itself.
+`Traceable` is added to the prelude (auto-imported).
+
+**Traceable is optional.** For error types that don't implement `Traceable`:
+- Traces are stored in the `Result` wrapper during propagation, not in the error value itself
+- Use `.context()` to convert to `Error` and transfer the accumulated trace
+
+Example with non-Traceable custom error:
+
+```ori
+type MyError = NotFound | InvalidFormat | NetworkError
+
+@load (path: str) -> Result<Data, MyError> = try(
+    let content = read_file(path)
+        .map_err(e -> NotFound)?,  // MyError doesn't carry trace
+    Ok(parse(content)),
+)
+
+// To get traces, convert at the boundary:
+@main () -> Result<void, Error> = try(
+    let data = load("data.json")
+        .context("failed to load data")?,  // Converts to Error, preserves trace
+    Ok(()),
+)
+```
+
+### Conversion Traits
+
+The `Into<T>` trait enables type conversions:
+
+```ori
+trait Into<T> {
+    @into (self) -> T
+}
+```
+
+`Into<T>` is added to the prelude (auto-imported).
+
+Standard implementations:
+
+```ori
+impl Into<Error> for str {
+    @into (self) -> Error = Error { message: self, source: None }
+}
+```
 
 ### Result Methods
 
@@ -228,6 +309,31 @@ Trace:
   load_config at src/config.ori:18:16
   main        at src/main.ori:5:20
 ```
+
+### Relationship to Panic Traces
+
+Error return traces and panic stack traces serve different purposes:
+
+| Aspect | Error Return Trace | Panic Stack Trace |
+|--------|-------------------|-------------------|
+| Trigger | `?` propagation | `panic()` or implicit panic |
+| Contents | Only `?` propagation points | Full call stack |
+| Recovery | Via `Result` handling | Via `catch(...)` |
+| Format | Function names + source locations | Full stack frames |
+
+The two trace types may intersect. If an error is eventually converted to a panic (e.g., via `.unwrap()`), the panic trace includes the unwrap location, while the error's return trace shows how the error arrived there.
+
+---
+
+## Prelude Additions
+
+This proposal adds the following to the prelude:
+
+| Item | Kind | Description |
+|------|------|-------------|
+| `TraceEntry` | Type | Struct with function, file, line, column |
+| `Traceable` | Trait | Optional trait for custom errors to carry traces |
+| `Into<T>` | Trait | Conversion trait for type transformations |
 
 ---
 
@@ -345,6 +451,16 @@ Making traces internal (not a public field) allows:
 
 The `trace()` and `trace_entries()` methods provide access without exposing internals.
 
+### Why Always Collect?
+
+Ori emphasizes consistent, predictable behavior. Traces are collected unconditionally in all builds:
+- Consistent behavior (Ori principle)
+- Production errors need debugging too
+- Overhead is only on error paths
+- Error paths should be rare in well-designed programs
+
+If performance is critical, a future `#[no_trace]` attribute could opt out specific functions.
+
 ---
 
 ## Implementation Notes
@@ -378,15 +494,6 @@ Options for storing trace entries:
 - Trace collection only happens on error paths
 - Error paths should be rare in well-designed programs
 - Small overhead is acceptable for debugging benefits
-
-### Debug vs Release
-
-Unlike Zig, Ori should collect traces in all builds:
-- Consistent behavior (Ori principle)
-- Production errors need debugging too
-- Overhead is only on error paths
-
-If performance is critical, a future `#[no_trace]` attribute could opt out specific functions.
 
 ---
 

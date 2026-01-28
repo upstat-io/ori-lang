@@ -105,11 +105,11 @@ Circular dependencies prohibited.
 
 Available without import:
 
-**Types**: `int`, `float`, `bool`, `str`, `char`, `byte`, `void`, `Never`, `Duration`, `Size`, `Option<T>`, `Result<T, E>`, `Ordering`, `Error`, `Range<T>`, `Set<T>`, `Channel<T>`, `[T]`, `{K: V}`
+**Types**: `int`, `float`, `bool`, `str`, `char`, `byte`, `void`, `Never`, `Duration`, `Size`, `Option<T>`, `Result<T, E>`, `Ordering`, `Error`, `TraceEntry`, `Range<T>`, `Set<T>`, `Channel<T>`, `[T]`, `{K: V}`
 
 **Functions**: `print`, `len`, `is_empty`, `is_some`, `is_none`, `is_ok`, `is_err`, `int`, `float`, `str`, `byte`, `compare`, `min`, `max`, `panic`, all assertions
 
-**Traits**: `Eq`, `Comparable`, `Hashable`, `Printable`, `Clone`, `Default`, `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`
+**Traits**: `Eq`, `Comparable`, `Hashable`, `Printable`, `Clone`, `Default`, `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`, `Into`, `Traceable`
 
 | Trait | Method | Description |
 |-------|--------|-------------|
@@ -123,6 +123,8 @@ Available without import:
 | `DoubleEndedIterator` | `.next_back()` | Iterate both directions |
 | `Iterable` | `.iter()` | Produce an iterator |
 | `Collect` | `.from_iter()` | Build from iterator |
+| `Into` | `.into()` | Type conversion |
+| `Traceable` | `.with_trace()`, `.trace()` | Error trace propagation |
 
 **Functions**: `repeat`
 
