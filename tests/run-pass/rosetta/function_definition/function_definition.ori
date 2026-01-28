@@ -17,10 +17,7 @@
     else s + repeat_string(s: s, n: n - 1)
 
 // Function returning a list
-@range_list (start: int, end: int) -> [int] = collect(
-    range: start..end,
-    transform: x -> x,
-)
+@range_list (start: int, end: int) -> [int] = (start..end).collect()
 
 // Function with boolean return
 @is_even (n: int) -> bool = n % 2 == 0

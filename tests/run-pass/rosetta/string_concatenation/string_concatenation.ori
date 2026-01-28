@@ -7,9 +7,8 @@
 // Concatenate with separator
 @join (a: str, b: str, sep: str) -> str = a + sep + b
 
-// Concatenate multiple strings (using fold pattern)
-@concat_all (strings: [str]) -> str = fold(
-    over: strings,
-    init: "",
+// Concatenate multiple strings (using fold method)
+@concat_all (strings: [str]) -> str = strings.fold(
+    initial: "",
     op: (acc, s) -> acc + s,
 )

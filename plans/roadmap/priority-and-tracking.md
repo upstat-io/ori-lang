@@ -68,14 +68,14 @@
 
 ## Immediate Priority
 
-**Current Focus: Stdlib utilities & Pattern fixes (Tier 2-3)**
+**Current Focus: Stdlib utilities & Type declarations (Tier 2-3)**
 
 ```
 Phase 6 (Capabilities) ← ✅ COMPLETE (27/27 tests pass)
     ↓
 Phase 7 (Stdlib) ← Collection methods DONE; retry, validate PENDING
     ↓
-Phase 8 (Patterns) ← Fix timeout, cache, recurse patterns
+Phase 5.2 (Sum Types) ← Variant constructors, pattern matching PENDING
 ```
 
 ### Phase 6 (Capabilities) — COMPLETED 2026-01-25
@@ -86,12 +86,13 @@ Phase 8 (Patterns) ← Fix timeout, cache, recurse patterns
 - [x] Compile-time enforcement (E2014 propagation errors)
 - [x] 27/27 capability tests pass
 
-### Phase 7 (Stdlib) — COMPLETED 2026-01-25 (Collection Methods)
+### Phase 7 (Stdlib) — Collection Methods DONE (2026-01-25)
 
 - [x] Collection methods: `map`, `filter`, `fold`, `find` on lists
 - [x] Range methods: `collect`, `map`, `filter`, `fold`
 - [x] Map methods: `len`, `is_empty`
 - [x] List helper methods: `any`, `all`
+- [x] Rosetta code examples updated to method syntax (2026-01-28)
 - [ ] `retry` function (in std.resilience) — 1 test blocked
 - [ ] `validate` function (in std.validate) — 4 tests blocked
 
@@ -254,7 +255,7 @@ cargo st tests/spec/patterns/     # Tier 3
 
 **Rust unit tests:** 1006 passed, 0 failed
 
-**Ori spec tests:** 662 passed, 0 failed, 34 skipped (696 total)
+**Ori spec tests:** 677 passed, 0 failed, 19 skipped (696 total)
 
 | Category | Passed | Skipped | Notes |
 |----------|--------|---------|-------|
@@ -266,11 +267,15 @@ cargo st tests/spec/patterns/     # Tier 3
 | Extensions | 4/4 | 0 | ✅ Complete |
 | Capabilities | 27/27 | 0 | ✅ Complete |
 | Traits | 119/119 | 0 | ✅ Complete (including map methods) |
-| Patterns | 66/71 | 5 | Collection methods done; retry, validate blocked |
+| Patterns | 71/76 | 5 | Collection methods done; retry, validate blocked |
+| Rosetta | 96/110 | 14 | Stack/queue/string-slice blocked |
 
-**Skipped tests (5 remaining):**
+**Skipped tests (19 remaining):**
 - `retry` function (1): in std.resilience, not implemented
 - `validate` function (4): in std.validate, not implemented
+- Stack methods (6): push, pop, peek, is_empty, size, clear
+- Queue methods (6): enqueue, dequeue, peek, is_empty, size, clear
+- String slice (2): string slicing syntax not implemented
 
 **Known issue:** Parallel test runner has a thread-safety panic (index out of bounds on ExprArena). Individual test directories pass; full test run may show panic but still completes.
 
@@ -300,7 +305,7 @@ New prelude enhancements from Rust prelude comparison. See `plan.md` for details
 
 | Test Suite | Passed | Failed | Skipped | Total |
 |------------|--------|--------|---------|-------|
-| All Ori tests | 719 | 0 | 34 | 753 |
+| All Ori tests | 734 | 0 | 19 | 753 |
 | Rust unit tests | 204 | 0 | 0 | 204 |
 
 ### Architecture (Reorganized)
