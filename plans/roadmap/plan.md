@@ -54,12 +54,12 @@ New proposals from Rust prelude comparison (2026-01-27). These enhance Ori's pre
 
 ### Syntax Changes
 
-- [ ] **`as` Conversion Syntax** — Replace `int()`, `float()`, `str()`, `byte()` with `as`/`as?`
-  - Proposal: `proposals/drafts/as-conversion-proposal.md`
+- [x] **`as` Conversion Syntax** — APPROVED → See Phase 15.7
+  - Proposal: `proposals/approved/as-conversion-proposal.md`
   - Removes special-case positional argument exception
   - Adds `As<T>`, `TryAs<T>` traits to prelude
   - Strict: `as` only for infallible, `as?` for fallible, explicit methods for lossy
-  - **Affects**: Phase 7 (Stdlib), Phase 15 (Syntax)
+  - **Affects**: Phase 3 (Traits), Phase 15 (Syntax)
 
 ### New Prelude Traits
 

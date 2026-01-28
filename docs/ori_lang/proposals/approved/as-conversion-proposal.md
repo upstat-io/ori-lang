@@ -1,8 +1,9 @@
 # Proposal: `as` Conversion Syntax
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with Claude)
 **Created:** 2026-01-27
+**Approved:** 2026-01-28
 
 ---
 
@@ -14,11 +15,13 @@ Replace the special-cased `int()`, `float()`, `str()`, `byte()` type conversion 
 // Infallible conversions
 42 as float           // 42.0
 42 as str             // "42"
-'A' as byte           // 65
+'A' as int            // 65 (codepoint)
 
 // Fallible conversions
 "42" as? int          // Some(42)
 "hello" as? int       // None
+'A' as? byte          // Some(65)
+'λ' as? byte          // None (non-ASCII)
 ```
 
 This removes the only exception to Ori's named-argument rule and provides cleaner, more readable conversion syntax.
@@ -107,13 +110,13 @@ The compiler enforces that `as` is only used for conversions that cannot fail:
 42 as float         // int -> float always succeeds
 42 as str           // int -> str always succeeds
 true as str         // bool -> str always succeeds
-'A' as byte         // char -> byte always succeeds (ASCII)
 'A' as int          // char -> int always succeeds (codepoint)
 
 // These are compile errors — must use as?
 "42" as int         // ERROR: str -> int can fail, use `as?`
 3.14 as int         // ERROR: float -> int is lossy, use explicit method
 256 as byte         // ERROR: int -> byte can overflow, use `as?`
+'λ' as byte         // ERROR: char -> byte can fail for non-ASCII, use `as?`
 ```
 
 ```ori
@@ -121,6 +124,8 @@ true as str         // bool -> str always succeeds
 "42" as? int        // Some(42)
 "hello" as? int     // None
 256 as? byte        // None (overflow)
+'A' as? byte        // Some(65)
+'λ' as? byte        // None (non-ASCII)
 ```
 
 ### Lossy Conversions Require Explicit Methods
@@ -155,9 +160,8 @@ impl As<str> for bool    { @as (self) -> str = /* intrinsic */ }
 impl As<str> for char    { @as (self) -> str = /* intrinsic */ }
 impl As<str> for byte    { @as (self) -> str = /* intrinsic */ }
 
-// Char conversions
+// Char to int (codepoint, always succeeds)
 impl As<int> for char    { @as (self) -> int = /* codepoint */ }
-impl As<byte> for char   { @as (self) -> byte = /* ASCII, panics if > 127 */ }
 ```
 
 #### Fallible Conversions (TryAs trait)
@@ -168,8 +172,9 @@ impl TryAs<int> for str   { @try_as (self) -> Option<int> = /* parse */ }
 impl TryAs<float> for str { @try_as (self) -> Option<float> = /* parse */ }
 impl TryAs<bool> for str  { @try_as (self) -> Option<bool> = /* "true"/"false" */ }
 
-// Narrowing numeric conversions (can overflow)
-impl TryAs<byte> for int  { @try_as (self) -> Option<byte> = /* range check */ }
+// Narrowing numeric conversions (can overflow or fail)
+impl TryAs<byte> for int  { @try_as (self) -> Option<byte> = /* 0-255 range check */ }
+impl TryAs<byte> for char { @try_as (self) -> Option<byte> = /* 0-127 ASCII check */ }
 impl TryAs<char> for int  { @try_as (self) -> Option<char> = /* valid codepoint? */ }
 ```
 
@@ -209,15 +214,18 @@ let invalid = "" as? Username        // None
 
 ### Precedence
 
-`as` and `as?` have the same precedence as other postfix operators (`.`, `[]`, `()`):
+`as` and `as?` are **postfix operators**, chaining naturally with `.`, `[]`, `()`, and `?`. They bind to the immediately preceding expression:
 
 ```ori
-// These are equivalent
-input.trim() as? int
-(input.trim()) as? int
+// Postfix chaining — as applies after other postfix operators
+input.trim() as? int      // (input.trim()) as? int
+items[0] as str           // (items[0]) as str
+get_value()? as float     // (get_value()?) as float
 
-// as binds tighter than binary operators
-a + b as str        // a + (b as str)
+// Tighter than all binary operators
+a + b as str              // a + (b as str)
+x == y as int             // x == (y as int)
+value ?? fallback as str  // value ?? (fallback as str)
 ```
 
 ---
@@ -337,28 +345,39 @@ Traits enable:
 
 ## Spec Changes Required
 
+### `grammar.ebnf`
+
+Add `as` and `as?` as postfix operators:
+
+```ebnf
+postfix_op     = "." identifier [ call_args ]        /* field/method access */
+               | "[" expression "]"                  /* index access */
+               | call_args                           /* function call */
+               | "?"                                 /* error propagation */
+               | "as" type                           /* infallible conversion */
+               | "as?" type .                        /* fallible conversion */
+```
+
 ### `03-lexical-elements.md`
 
 Add `as` to reserved keywords (if not already present).
 
-### `05-expressions.md`
+### `09-expressions.md`
 
-Add conversion expression:
+Add conversion expressions to the postfix expressions section:
 
 ```markdown
 ### Conversion Expressions
 
-```ebnf
-conversion_expr = expression "as" type
-                | expression "as?" type
-```
-
 The `as` operator converts a value to another type using the `As<T>` trait.
 The `as?` operator attempts conversion using the `TryAs<T>` trait, returning `Option<T>`.
 
+Both are postfix operators that chain with other postfix operators:
+
 ```ori
-42 as float       // 42.0
-"42" as? int      // Some(42)
+42 as float           // 42.0
+"42" as? int          // Some(42)
+input.trim() as? int  // postfix chaining
 ```
 ```
 
@@ -402,6 +421,7 @@ Update Quick Reference:
 | Aspect | Decision |
 |--------|----------|
 | Syntax | `x as T` (infallible), `x as? T` (fallible) |
+| Grammar | Postfix operators (same level as `.`, `[]`, `()`, `?`) |
 | Backing traits | `As<T>`, `TryAs<T>` in prelude |
 | Compile-time safety | `as` only allowed for infallible conversions |
 | Lossy conversions | Explicit methods (`truncate`, `round`, etc.) |
