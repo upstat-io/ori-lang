@@ -1,9 +1,9 @@
 # Proposal: Incremental Test Execution and Explicit Free-Floating Tests
 
-**Status:** Approved
+**Status:** Draft
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-23
-**Approved:** 2026-01-25
+**Draft:** 2026-01-25
 **Affects:** Language design, compiler, test runner
 
 ---

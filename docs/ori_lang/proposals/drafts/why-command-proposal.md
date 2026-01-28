@@ -1,9 +1,9 @@
 # Proposal: Causality Tracking (`ori impact` and `ori why`)
 
-**Status:** Approved
+**Status:** Draft
 **Author:** Eric (with Claude)
 **Created:** 2026-01-24
-**Approved:** 2026-01-25
+**Draft:** 2026-01-25
 
 ---
 

@@ -1,9 +1,9 @@
 # Proposal: Structured Diagnostics and Auto-Fix
 
-**Status:** Approved
+**Status:** Draft
 **Author:** Claude
 **Created:** 2026-01-23
-**Approved:** 2026-01-25
+**Draft:** 2026-01-25
 **Affects:** `compiler/oric/src/diagnostic.rs`, `main.rs`, CLI interface
 
 ## Summary
