@@ -1,5 +1,8 @@
 //! Option and Result wrapper compilation (Some, None, Ok, Err).
 
+// Some functions have unused type_id params for API consistency with the trait
+#![allow(clippy::used_underscore_binding)]
+
 use std::collections::HashMap;
 
 use inkwell::values::{BasicValueEnum, FunctionValue};

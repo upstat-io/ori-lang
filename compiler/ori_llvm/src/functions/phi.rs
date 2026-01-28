@@ -90,12 +90,10 @@ impl<'ll> Builder<'_, 'll, '_> {
             let val_width = val_int_ty.get_bit_width();
             let target_width = target_int_ty.get_bit_width();
 
-            return if val_width < target_width {
-                self.zext(val_int, target_int_ty, "coerce").into()
-            } else if val_width > target_width {
-                self.trunc(val_int, target_int_ty, "coerce").into()
-            } else {
-                val
+            return match val_width.cmp(&target_width) {
+                std::cmp::Ordering::Less => self.zext(val_int, target_int_ty, "coerce").into(),
+                std::cmp::Ordering::Greater => self.trunc(val_int, target_int_ty, "coerce").into(),
+                std::cmp::Ordering::Equal => val,
             };
         }
 

@@ -41,11 +41,10 @@ impl<'ll> Builder<'_, 'll, '_> {
         let fn_ret_type = function.get_type().get_return_type();
 
         // Return
-        if return_type == TypeId::VOID || fn_ret_type.is_none() {
+        if return_type == TypeId::VOID {
             self.ret_void();
-        } else if let Some(val) = result {
+        } else if let (Some(val), Some(expected_type)) = (result, fn_ret_type) {
             // Check if the result type matches the declared return type
-            let expected_type = fn_ret_type.unwrap();
             let actual_type = val.get_type();
 
             if actual_type == expected_type {
@@ -98,12 +97,14 @@ impl<'ll> Builder<'_, 'll, '_> {
                     if let BasicValueEnum::IntValue(iv) = payload {
                         let payload_width = iv.get_type().get_bit_width();
                         let target_width = target_int.get_bit_width();
-                        return if payload_width < target_width {
-                            self.zext(iv, target_int, "ret_zext").into()
-                        } else if payload_width > target_width {
-                            self.trunc(iv, target_int, "ret_trunc").into()
-                        } else {
-                            payload
+                        return match payload_width.cmp(&target_width) {
+                            std::cmp::Ordering::Less => {
+                                self.zext(iv, target_int, "ret_zext").into()
+                            }
+                            std::cmp::Ordering::Greater => {
+                                self.trunc(iv, target_int, "ret_trunc").into()
+                            }
+                            std::cmp::Ordering::Equal => payload,
                         };
                     }
                 }
@@ -116,12 +117,10 @@ impl<'ll> Builder<'_, 'll, '_> {
         {
             let val_width = iv.get_type().get_bit_width();
             let target_width = target_int.get_bit_width();
-            return if val_width < target_width {
-                self.zext(iv, target_int, "ret_zext").into()
-            } else if val_width > target_width {
-                self.trunc(iv, target_int, "ret_trunc").into()
-            } else {
-                val
+            return match val_width.cmp(&target_width) {
+                std::cmp::Ordering::Less => self.zext(iv, target_int, "ret_zext").into(),
+                std::cmp::Ordering::Greater => self.trunc(iv, target_int, "ret_trunc").into(),
+                std::cmp::Ordering::Equal => val,
             };
         }
 

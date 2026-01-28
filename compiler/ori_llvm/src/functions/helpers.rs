@@ -10,6 +10,7 @@ use crate::builder::Builder;
 impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a config variable reference.
     /// Config variables are compile-time constants stored in locals.
+    #[expect(clippy::unused_self, reason = "consistent method signature pattern")]
     pub(crate) fn compile_config(
         &self,
         name: Name,

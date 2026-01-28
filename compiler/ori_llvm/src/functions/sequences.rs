@@ -301,6 +301,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     }
 
     /// Map field name to index using the same heuristic as field access.
+    #[expect(clippy::unused_self, reason = "consistent method signature pattern")]
     fn field_name_to_index(&self, name: &str) -> u32 {
         match name {
             "x" | "first" | "0" | "a" => 0,

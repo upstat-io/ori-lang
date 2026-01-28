@@ -7,8 +7,14 @@
 //!
 //! This module uses `#[no_mangle]` for FFI compatibility with LLVM JIT.
 //! All functions are safe Rust but need stable symbol names.
+//!
+//! Functions that take raw pointers are called from LLVM-generated code which
+//! guarantees valid pointers. They're not marked `unsafe` because they're
+//! extern "C" FFI entry points, not Rust API functions.
 
 #![allow(unsafe_code)]
+// FFI functions dereference pointers from LLVM-generated code (always valid)
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 use std::ffi::CStr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -168,7 +174,7 @@ pub fn reset_panic_state() {
 #[no_mangle]
 pub extern "C" fn ori_assert(condition: bool) {
     if !condition {
-        ori_panic_cstr(b"assertion failed\0".as_ptr().cast());
+        ori_panic_cstr(c"assertion failed".as_ptr());
     }
 }
 

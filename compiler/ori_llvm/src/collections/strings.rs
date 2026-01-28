@@ -11,10 +11,11 @@ impl<'ll> Builder<'_, 'll, '_> {
     /// Creates a global constant string and returns a pointer to it.
     /// Strings are represented as { i64 len, i8* data } structs.
     pub(crate) fn compile_string(&self, name: Name) -> Option<BasicValueEnum<'ll>> {
+        use std::hash::{Hash, Hasher};
+
         let string_content = self.cx().interner.lookup(name);
 
         // Create a unique global name for this string based on a hash
-        use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         string_content.hash(&mut hasher);
         let global_name = format!(".str.{:x}", hasher.finish());

@@ -102,7 +102,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         let loop_ctx = LoopContext {
             header: header_bb,
             exit: exit_bb,
-            _break_phi: None, // TODO: set up in exit block for break-with-value
+            break_phi: None, // TODO: set up in exit block for break-with-value
         };
 
         // Compile loop body
