@@ -59,6 +59,6 @@
 - [ ] All items above have all three checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
 - [ ] 80+% test coverage
-- [ ] Run full test suite: `cargo test && ori test tests/spec/`
+- [ ] Run full test suite: `./test-all`
 
 **Exit Criteria**: Native binaries run correctly

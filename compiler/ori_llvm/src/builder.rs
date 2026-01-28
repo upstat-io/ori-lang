@@ -11,6 +11,22 @@
 //! - Instructions are generated in the builder's current position
 //! - Clean separation between type-level operations (CodegenCx) and
 //!   instruction generation (Builder)
+//!
+//! # Code Organization
+//!
+//! Code is organized by concern, not by syntax element:
+//!
+//! | Concern | Location |
+//! |---------|----------|
+//! | Low-level LLVM ops | `builder.rs` (this file) |
+//! | Pattern binding (`bind_pattern`) | `functions/sequences.rs` |
+//! | Match expressions | `matching.rs` |
+//! | Struct/tuple/list creation | `collections/*.rs` |
+//! | Function codegen | `functions/*.rs` |
+//!
+//! **Important**: `bind_pattern()` lives in `sequences.rs`, not here.
+//! The `compile_let()` method in this file calls `self.bind_pattern()`
+//! which resolves to the implementation in `sequences.rs`.
 
 use std::collections::HashMap;
 
@@ -908,18 +924,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         // Compile the initializer
         let value = self.compile_expr(init, arena, expr_types, locals, function, loop_ctx)?;
 
-        // Bind the value based on the pattern
-        match pattern {
-            BindingPattern::Name(name) => {
-                locals.insert(*name, value);
-            }
-            BindingPattern::Wildcard => {
-                // Discard the value
-            }
-            _ => {
-                // TODO: destructuring patterns
-            }
-        }
+        // Bind the value based on the pattern (implementation in sequences.rs)
+        self.bind_pattern(pattern, value, locals);
 
         // Let bindings produce the bound value
         Some(value)

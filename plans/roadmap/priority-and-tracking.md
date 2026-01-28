@@ -10,7 +10,7 @@
 | 2 | Type Inference | ✅ Complete | All tests pass |
 | 3 | Traits | ✅ Complete | All tests pass including map.len(), map.is_empty() |
 | 4 | Modules | 🔶 Core complete | 16/16 tests pass; remaining: module alias, re-exports, qualified access |
-| 5 | Type Declarations | 🔶 Partial | Structs work; remaining: destructuring, sum type constructors/matching |
+| 5 | Type Declarations | 🔶 Partial | Structs + destructuring work; remaining: sum type constructors/matching, newtypes |
 
 ### Tier 2: Capabilities & Stdlib
 
@@ -61,7 +61,7 @@
 | Phase | Name | Status | Notes |
 |-------|------|--------|-------|
 | 20 | Reflection | ⏳ Not started | |
-| 21 | LLVM Backend | 🔶 Partial | JIT working; 711/745 tests pass (34 skipped); AOT pending |
+| 21 | LLVM Backend | 🔶 Partial | JIT working; 719/753 tests pass (34 skipped); destructuring support added; AOT pending |
 | 22 | Tooling | ⏳ Not started | |
 
 ---
@@ -232,28 +232,29 @@ Reorganized compiler tests following Go-style test scenarios:
 ## Test Commands
 
 ```bash
-# Quick check
-cargo test
+# Run ALL tests (Rust + Ori interpreter + LLVM backend)
+./test-all
 
-# Full spec tests
-ori test tests/spec/
+# Individual test suites
+cargo t                               # Rust unit tests
+cargo st                              # Ori language tests (interpreter)
+./llvm-test                           # LLVM Rust unit tests
+./docker/llvm/run.sh ori test tests/  # Ori language tests (LLVM)
 
-# By tier
-ori test tests/spec/types/        # Tier 1
-ori test tests/spec/traits/       # Tier 1
-ori test tests/spec/capabilities/ # Tier 2
-ori test tests/spec/patterns/     # Tier 3
-ori test tests/spec/ffi/          # Tier 4
-ori test tests/spec/async/        # Tier 6
+# By category
+cargo st tests/spec/types/        # Tier 1
+cargo st tests/spec/traits/       # Tier 1
+cargo st tests/spec/capabilities/ # Tier 2
+cargo st tests/spec/patterns/     # Tier 3
 ```
 
 ---
 
-## Current Test Results (2026-01-25)
+## Current Test Results (2026-01-28)
 
 **Rust unit tests:** 1006 passed, 0 failed
 
-**Ori spec tests:** 335 passed, 0 failed, 5 skipped (340 total)
+**Ori spec tests:** 662 passed, 0 failed, 34 skipped (696 total)
 
 | Category | Passed | Skipped | Notes |
 |----------|--------|---------|-------|
@@ -299,8 +300,7 @@ New prelude enhancements from Rust prelude comparison. See `plan.md` for details
 
 | Test Suite | Passed | Failed | Skipped | Total |
 |------------|--------|--------|---------|-------|
-| All Ori tests | 711 | 0 | 34 | 745 |
-| Spec tests | 416 | 0 | 5 | 421 |
+| All Ori tests | 719 | 0 | 34 | 753 |
 | Rust unit tests | 204 | 0 | 0 | 204 |
 
 ### Architecture (Reorganized)

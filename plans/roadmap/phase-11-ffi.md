@@ -109,6 +109,9 @@ extern "C" {
   - [ ] Handle calling convention
   - [ ] Link external symbols
 
+- [ ] **LLVM Support**: LLVM codegen for extern blocks
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — extern blocks codegen
+
 - [ ] **Test**: `tests/spec/ffi/extern_blocks.ori`
   - [ ] Basic extern function declaration
   - [ ] Multiple functions in one block
@@ -172,6 +175,9 @@ type Point = {
   - [ ] Warn on non-FFI-safe types
   - [ ] Validate `#repr(C)` structs
 
+- [ ] **LLVM Support**: LLVM codegen for C ABI types
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — C ABI types codegen
+
 - [ ] **Test**: `tests/spec/ffi/c_types.ori`
   - [ ] All primitive C types
   - [ ] Pointer operations
@@ -220,6 +226,9 @@ Inside `unsafe`:
 - [ ] **Evaluator**: Execute unsafe operations
   - [ ] Pointer dereference
   - [ ] Raw memory access
+
+- [ ] **LLVM Support**: LLVM codegen for unsafe blocks
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — unsafe blocks codegen
 
 - [ ] **Test**: `tests/spec/ffi/unsafe_blocks.ori`
   - [ ] Basic unsafe block
@@ -276,6 +285,9 @@ let opt = ptr.as_option()              // *T -> Option<&T>
   - [ ] Address-of `raw_ptr(x)`
   - [ ] Offset `.offset(n)`
 
+- [ ] **LLVM Support**: LLVM codegen for raw pointers
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — raw pointers codegen
+
 - [ ] **Test**: `tests/spec/ffi/raw_pointers.ori`
   - [ ] Pointer creation
   - [ ] Null checks
@@ -328,6 +340,9 @@ type DenyUnsafe impl Unsafe = {}  // Compile error if used
   - [ ] Require `uses Unsafe` for extern calls
   - [ ] Require `uses Unsafe` for unsafe blocks
 
+- [ ] **LLVM Support**: LLVM codegen for Unsafe capability
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — Unsafe capability codegen
+
 - [ ] **Test**: `tests/spec/ffi/unsafe_capability.ori`
   - [ ] Function requiring Unsafe
   - [ ] Providing Unsafe in tests
@@ -367,6 +382,9 @@ extern "C" {
 - [ ] **Build system**: Handle native dependencies
   - [ ] `ori.toml` native deps section
   - [ ] pkg-config integration
+
+- [ ] **LLVM Support**: LLVM codegen for link directives
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — linking codegen
 
 - [ ] **Test**: `tests/spec/ffi/linking.ori`
   - [ ] Link to libc
@@ -425,6 +443,9 @@ qsort(base: arr_ptr, nmemb: len, size: 4, compar: callback)
   - [ ] Trampoline functions
   - [ ] ABI adaptation
 
+- [ ] **LLVM Support**: LLVM codegen for callbacks
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — callbacks codegen
+
 - [ ] **Test**: `tests/spec/ffi/callbacks.ori`
   - [ ] Simple callback
   - [ ] qsort example
@@ -440,7 +461,7 @@ qsort(base: arr_ptr, nmemb: len, size: 4, compar: callback)
 - [ ] Can call libc functions (strlen, malloc, free)
 - [ ] Can call libm functions (sin, cos, sqrt)
 - [ ] Can create and use SQLite binding
-- [ ] All tests pass: `cargo test && ori test tests/spec/ffi/`
+- [ ] All tests pass: `./test-all`
 - [ ] `uses Unsafe` properly enforced
 
 **Exit Criteria**: Can write a program that opens and queries a SQLite database

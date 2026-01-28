@@ -147,7 +147,7 @@ const tiers: Tier[] = [
         num: 5,
         name: "Type Declarations",
         status: "partial",
-        note: "Structs work; destructuring, sum type matching pending",
+        note: "Structs + destructuring work; sum type matching, newtypes pending",
         goal: "User-defined types: structs, enums, newtypes",
         spec: "spec/06-types.md, spec/08-declarations.md",
         sections: [
@@ -167,9 +167,10 @@ const tiers: Tier[] = [
             { name: "Newtype wrapper", done: false },
           ]},
           { name: "Destructuring", tasks: [
-            { name: "Struct destructuring", done: false },
+            { name: "Struct destructuring", done: true },
             { name: "Tuple destructuring", done: true },
-            { name: "Nested destructuring", done: false },
+            { name: "List destructuring", done: true },
+            { name: "Nested destructuring", done: true },
           ]},
         ],
       },
@@ -615,7 +616,7 @@ const tiers: Tier[] = [
         num: 21,
         name: "LLVM Backend",
         status: "partial",
-        note: "JIT working; 711/745 tests pass; AOT pending",
+        note: "JIT working; 719/753 tests pass; destructuring added; AOT pending",
         goal: "Compile to native code via LLVM",
         spec: "Implementation-specific",
         sections: [
@@ -892,12 +893,12 @@ Branches:
           <span class="result-status success">All Passing</span>
         </div>
         <div class="result-card">
-          <span class="result-value">335</span>
+          <span class="result-value">662</span>
           <span class="result-label">Ori Spec Tests</span>
           <span class="result-status success">Passing</span>
         </div>
         <div class="result-card">
-          <span class="result-value">711</span>
+          <span class="result-value">719</span>
           <span class="result-label">LLVM Backend Tests</span>
           <span class="result-status success">Passing</span>
         </div>
@@ -907,7 +908,7 @@ Branches:
           <span class="result-status success">All Passing</span>
         </div>
         <div class="result-card">
-          <span class="result-value">5</span>
+          <span class="result-value">34</span>
           <span class="result-label">Skipped</span>
           <span class="result-status muted">Pending Features</span>
         </div>

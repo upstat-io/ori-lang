@@ -68,21 +68,29 @@ ConstType     = 'int' | 'bool' ;
   - [ ] `const N: int` in type parameters
   - [ ] Allowed const types
   - [ ] Scope rules
+  - [ ] **LLVM Support**: LLVM codegen for const parameter syntax
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const parameter syntax codegen
 
 - [ ] **Parser**: Parse const parameters
   - [ ] `const` keyword in generics
   - [ ] Type annotation required
   - [ ] Position (can mix with type params)
+  - [ ] **LLVM Support**: LLVM codegen for parsed const parameters
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const parameter parsing codegen
 
 - [ ] **Type checker**: Const parameter validation
   - [ ] Track const vs type parameters
   - [ ] Validate const type (int, bool)
   - [ ] Unification with const values
+  - [ ] **LLVM Support**: LLVM codegen for const parameter validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const parameter validation codegen
 
 - [ ] **Test**: `tests/spec/types/const_generics.ori`
   - [ ] Basic const parameter
   - [ ] Multiple const parameters
   - [ ] Mixed type and const
+  - [ ] **LLVM Support**: LLVM codegen for const generic tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const generic tests codegen
 
 ---
 
@@ -122,24 +130,34 @@ let slice: [int] = arr.as_slice()
   - [ ] Syntax `[T; N]`
   - [ ] Relationship to dynamic `[T]`
   - [ ] Operations
+  - [ ] **LLVM Support**: LLVM codegen for fixed-size array type
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — fixed-size array type codegen
 
 - [ ] **Types**: Array type with const
   - [ ] `Type::Array(elem, ConstValue)`
   - [ ] Distinct from `Type::List(elem)`
+  - [ ] **LLVM Support**: LLVM codegen for array type with const
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — array type with const codegen
 
 - [ ] **Parser**: Parse array types
   - [ ] `[T; expr]` syntax
   - [ ] Const expression for size
+  - [ ] **LLVM Support**: LLVM codegen for parsed array types
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — array type parsing codegen
 
 - [ ] **Type checker**: Array type checking
   - [ ] Validate size is const
   - [ ] Literal inference
   - [ ] Bounds check optimization
+  - [ ] **LLVM Support**: LLVM codegen for array type checking
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — array type checking codegen
 
 - [ ] **Test**: `tests/spec/types/fixed_arrays.ori`
   - [ ] Array declaration
   - [ ] Array literal with inferred size
   - [ ] Slice conversion
+  - [ ] **LLVM Support**: LLVM codegen for fixed array tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — fixed array tests codegen
 
 ---
 
@@ -183,20 +201,28 @@ type Buffer<const SIZE: int> = {
   - [ ] Allowed operations
   - [ ] Evaluation timing
   - [ ] Error handling
+  - [ ] **LLVM Support**: LLVM codegen for const expression rules
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const expression rules codegen
 
 - [ ] **Const evaluator**: Evaluate const expressions
   - [ ] At type checking time
   - [ ] Cache results
   - [ ] Error on non-const
+  - [ ] **LLVM Support**: LLVM codegen for const expression evaluation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const expression evaluation codegen
 
 - [ ] **Type checker**: Validate const expressions
   - [ ] All operands must be const
   - [ ] Result must be correct type
+  - [ ] **LLVM Support**: LLVM codegen for const expression validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const expression validation codegen
 
 - [ ] **Test**: `tests/spec/types/const_expressions.ori`
   - [ ] Arithmetic in types
   - [ ] Const functions in types
   - [ ] Conditional const
+  - [ ] **LLVM Support**: LLVM codegen for const expression tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const expression tests codegen
 
 ---
 
@@ -230,19 +256,27 @@ type Buffer<const SIZE: int> = {
   - [ ] Where clause for const
   - [ ] Comparison operators
   - [ ] Equality constraints
+  - [ ] **LLVM Support**: LLVM codegen for const bounds syntax
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const bounds syntax codegen
 
 - [ ] **Parser**: Parse const bounds
   - [ ] In where clauses
   - [ ] Comparison expressions
+  - [ ] **LLVM Support**: LLVM codegen for parsed const bounds
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const bounds parsing codegen
 
 - [ ] **Type checker**: Validate const bounds
   - [ ] Check at instantiation
   - [ ] Error messages
+  - [ ] **LLVM Support**: LLVM codegen for const bounds validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const bounds validation codegen
 
 - [ ] **Test**: `tests/spec/types/const_bounds.ori`
   - [ ] Positive size constraint
   - [ ] Equality constraint
   - [ ] Bound violation error
+  - [ ] **LLVM Support**: LLVM codegen for const bounds tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const bounds tests codegen
 
 ---
 
@@ -275,19 +309,27 @@ let custom_buf = create_buffer<8192>()    // 8192
   - [ ] Syntax in declaration
   - [ ] Resolution at use site
   - [ ] Interaction with inference
+  - [ ] **LLVM Support**: LLVM codegen for default const values
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — default const values codegen
 
 - [ ] **Parser**: Parse default const
   - [ ] `= value` after const param
   - [ ] Must be const expression
+  - [ ] **LLVM Support**: LLVM codegen for parsed default const
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — default const parsing codegen
 
 - [ ] **Type checker**: Apply defaults
   - [ ] When not specified
   - [ ] Before other inference
+  - [ ] **LLVM Support**: LLVM codegen for applying const defaults
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const defaults application codegen
 
 - [ ] **Test**: `tests/spec/types/const_defaults.ori`
   - [ ] Type with default
   - [ ] Function with default
   - [ ] Override default
+  - [ ] **LLVM Support**: LLVM codegen for const defaults tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const defaults tests codegen
 
 ---
 
@@ -321,16 +363,22 @@ impl FixedSize for [int; 5] {
 - [ ] **Spec**: Const in traits
   - [ ] Associated consts
   - [ ] Const bounds on traits
+  - [ ] **LLVM Support**: LLVM codegen for const in traits
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const in traits codegen
 
 - [ ] **Trait system**: Const associated items
   - [ ] Parse `const` in trait
   - [ ] Require in impl
   - [ ] Access via type
+  - [ ] **LLVM Support**: LLVM codegen for const associated items
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const associated items codegen
 
 - [ ] **Test**: `tests/spec/traits/const_associated.ori`
   - [ ] Trait with const
   - [ ] Impl with const
   - [ ] Use in generic context
+  - [ ] **LLVM Support**: LLVM codegen for const associated tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const associated tests codegen
 
 ---
 
@@ -343,7 +391,7 @@ impl FixedSize for [int; 5] {
 - [ ] Const parameters in types work
 - [ ] Const expressions in type positions work
 - [ ] Const bounds work
-- [ ] All tests pass: `cargo test && ori test tests/spec/types/`
+- [ ] All tests pass: `./test-all`
 
 **Exit Criteria**: Can implement a matrix library with compile-time dimension checking
 

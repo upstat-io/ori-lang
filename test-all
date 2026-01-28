@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run ALL tests: Rust unit tests, Ori spec tests, and LLVM tests
+# Run ALL tests: Rust unit tests, Ori language tests, and LLVM backend tests
 # Usage: ./test-all
 
 set -e
@@ -8,12 +8,16 @@ echo "=== Running Rust unit tests ==="
 cargo t
 
 echo ""
-echo "=== Running Ori spec tests ==="
-cargo st
+echo "=== Running Ori language tests (interpreter) ==="
+cargo run -p oric --bin ori -- test tests/
 
 echo ""
-echo "=== Running LLVM tests (Docker) ==="
+echo "=== Running LLVM Rust unit tests (Docker) ==="
 ./llvm-test
+
+echo ""
+echo "=== Running Ori language tests (LLVM backend) ==="
+./docker/llvm/run.sh ori test tests/
 
 echo ""
 echo "=== All tests passed ==="

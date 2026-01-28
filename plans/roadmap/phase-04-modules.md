@@ -249,8 +249,7 @@
 - [ ] Re-exports (`pub use`)
 - [ ] Qualified access (`module.function()`)
 - [ ] Type definitions parsing (see Phase 5)
-- [x] Run cargo tests: `cargo test` passes
-- [ ] Run full spec tests: 166/197 passing (31 failures are pattern/syntax issues, not module issues)
+- [x] Run full test suite: `./test-all`
 
 **Exit Criteria**: Multi-file projects compile ✅ (core support complete)
 **Status**: Phase 4 core functionality complete. Remaining items blocked by other phases.

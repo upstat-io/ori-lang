@@ -65,21 +65,29 @@ for x in iter do print(str(x))  // Works via Iterator trait
   - [ ] `impl Trait` in return position
   - [ ] Multiple bounds with `+`
   - [ ] Associated type constraints
+  - [ ] **LLVM Support**: LLVM codegen for existential type syntax
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — existential type syntax codegen
 
 - [ ] **Parser**: Parse impl Trait
   - [ ] In return type position
   - [ ] Trait bounds parsing
   - [ ] Associated types
+  - [ ] **LLVM Support**: LLVM codegen for parsed impl Trait
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — impl Trait parsing codegen
 
 - [ ] **Type checker**: Existential type handling
   - [ ] Infer concrete type from body
   - [ ] Verify all returns same type
   - [ ] Check trait bounds satisfied
+  - [ ] **LLVM Support**: LLVM codegen for existential type handling
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — existential type handling codegen
 
 - [ ] **Test**: `tests/spec/types/impl_trait.ori`
   - [ ] Basic impl Trait return
   - [ ] Multiple bounds
   - [ ] Associated type constraints
+  - [ ] **LLVM Support**: LLVM codegen for impl Trait tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — impl Trait tests codegen
 
 ---
 
@@ -119,19 +127,27 @@ for x in iter do print(str(x))  // Works via Iterator trait
   - [ ] Single concrete type requirement
   - [ ] Branch unification
   - [ ] Error messages
+  - [ ] **LLVM Support**: LLVM codegen for impl Trait inference rules
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — inference rules codegen
 
 - [ ] **Type checker**: Unify return types
   - [ ] Track expected opaque type
   - [ ] Unify concrete returns
   - [ ] Clear error on mismatch
+  - [ ] **LLVM Support**: LLVM codegen for return type unification
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — return type unification codegen
 
 - [ ] **Diagnostics**: Helpful errors
   - [ ] Show both concrete types
   - [ ] Suggest Box<dyn Trait>
+  - [ ] **LLVM Support**: LLVM codegen for impl Trait diagnostics
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — diagnostics codegen
 
 - [ ] **Test**: `tests/spec/types/impl_trait_inference.ori`
   - [ ] Multiple return paths same type
   - [ ] Error on different types
+  - [ ] **LLVM Support**: LLVM codegen for impl Trait inference tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — impl Trait inference tests codegen
 
 ---
 
@@ -163,14 +179,20 @@ trait Mapping {
 - [ ] **Spec**: Associated type syntax
   - [ ] `<Assoc = Type>` constraint
   - [ ] Multiple constraints
+  - [ ] **LLVM Support**: LLVM codegen for associated type syntax
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — associated type syntax codegen
 
 - [ ] **Type checker**: Validate associated types
   - [ ] Match concrete type's assoc types
   - [ ] Error on mismatch
+  - [ ] **LLVM Support**: LLVM codegen for associated type validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — associated type validation codegen
 
 - [ ] **Test**: `tests/spec/types/impl_trait_assoc.ori`
   - [ ] Iterator with Item
   - [ ] Custom trait with assoc types
+  - [ ] **LLVM Support**: LLVM codegen for associated type tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — associated type tests codegen
 
 ---
 
@@ -224,20 +246,28 @@ error: `impl Trait` is only allowed in return position
   - [ ] Return position only
   - [ ] Not in structs
   - [ ] Not in traits
+  - [ ] **LLVM Support**: LLVM codegen for impl Trait limitations
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — limitations codegen
 
 - [ ] **Type checker**: Reject invalid positions
   - [ ] Error on arg position
   - [ ] Error in struct fields
   - [ ] Error in trait methods
+  - [ ] **LLVM Support**: LLVM codegen for invalid position rejection
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — invalid position rejection codegen
 
 - [ ] **Diagnostics**: Suggest alternatives
   - [ ] Generic parameter
   - [ ] Associated type
+  - [ ] **LLVM Support**: LLVM codegen for alternative suggestions
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — alternative suggestions codegen
 
 - [ ] **Test**: `tests/compile-fail/types/impl_trait_position.ori`
   - [ ] Arg position error
   - [ ] Struct field error
   - [ ] Trait method error
+  - [ ] **LLVM Support**: LLVM codegen for position error tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — position error tests codegen
 
 ---
 
@@ -276,15 +306,21 @@ error: `impl Trait` is only allowed in return position
   - [ ] Use cases
   - [ ] Performance implications
   - [ ] When each is appropriate
+  - [ ] **LLVM Support**: LLVM codegen for impl vs dyn comparison
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — impl vs dyn comparison codegen
 
 - [ ] **Documentation**: Best practices guide
   - [ ] Decision flowchart
   - [ ] Common patterns
+  - [ ] **LLVM Support**: LLVM codegen for best practices examples
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — best practices examples codegen
 
 - [ ] **Test**: `tests/spec/types/impl_vs_dyn.ori`
   - [ ] impl Trait usage
   - [ ] dyn Trait usage
   - [ ] Conversion between them
+  - [ ] **LLVM Support**: LLVM codegen for impl vs dyn tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — impl vs dyn tests codegen
 
 ---
 
@@ -297,7 +333,7 @@ error: `impl Trait` is only allowed in return position
 - [ ] Type inference correct
 - [ ] Associated type constraints work
 - [ ] Clear errors for invalid positions
-- [ ] All tests pass: `cargo test && ori test tests/spec/types/`
+- [ ] All tests pass: `./test-all`
 
 **Exit Criteria**: Can write iterator-returning functions with clean APIs
 

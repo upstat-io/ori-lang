@@ -77,19 +77,27 @@ for i in 0..person.field_count() do run(
   - [ ] Reflect trait definition
   - [ ] TypeInfo type
   - [ ] Operations available
+  - [ ] **LLVM Support**: LLVM codegen for Reflect trait spec
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — Reflect trait spec codegen
 
 - [ ] **Stdlib**: Reflect trait
   - [ ] Define in std.reflect
   - [ ] TypeInfo struct
+  - [ ] **LLVM Support**: LLVM codegen for Reflect trait stdlib
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — Reflect trait stdlib codegen
 
 - [ ] **Derive**: Reflect derive macro
   - [ ] Generate field metadata
   - [ ] Generate accessors
+  - [ ] **LLVM Support**: LLVM codegen for Reflect derive macro
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — Reflect derive macro codegen
 
 - [ ] **Test**: `tests/spec/reflect/basic.ori`
   - [ ] Derive Reflect
   - [ ] Access type info
   - [ ] Iterate fields
+  - [ ] **LLVM Support**: LLVM codegen for basic reflection tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — basic reflection tests codegen
 
 ---
 
@@ -128,19 +136,27 @@ type VariantInfo = {
   - [ ] All fields defined
   - [ ] TypeKind variants
   - [ ] FieldInfo, VariantInfo
+  - [ ] **LLVM Support**: LLVM codegen for TypeInfo structure
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — TypeInfo structure codegen
 
 - [ ] **Stdlib**: TypeInfo types
   - [ ] In std.reflect
   - [ ] Read-only accessors
+  - [ ] **LLVM Support**: LLVM codegen for TypeInfo types
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — TypeInfo types codegen
 
 - [ ] **Codegen**: Generate type metadata
   - [ ] Emit TypeInfo at compile time
   - [ ] Optimize for space
+  - [ ] **LLVM Support**: LLVM codegen for type metadata generation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — type metadata generation codegen
 
 - [ ] **Test**: `tests/spec/reflect/type_info.ori`
   - [ ] Struct TypeInfo
   - [ ] Enum TypeInfo
   - [ ] Nested types
+  - [ ] **LLVM Support**: LLVM codegen for TypeInfo tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — TypeInfo tests codegen
 
 ---
 
@@ -179,20 +195,28 @@ if any.is<int>() then
   - [ ] Boxing
   - [ ] Type checking
   - [ ] Downcasting
+  - [ ] **LLVM Support**: LLVM codegen for Any type semantics
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — Any type semantics codegen
 
 - [ ] **Stdlib**: Any type
   - [ ] Generic new
   - [ ] Type checking
   - [ ] Safe downcast
+  - [ ] **LLVM Support**: LLVM codegen for Any type stdlib
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — Any type stdlib codegen
 
 - [ ] **Codegen**: Type ID generation
   - [ ] Unique ID per type
   - [ ] Runtime comparison
+  - [ ] **LLVM Support**: LLVM codegen for type ID generation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — type ID generation codegen
 
 - [ ] **Test**: `tests/spec/reflect/any.ori`
   - [ ] Create Any
   - [ ] Type checking
   - [ ] Downcast success/failure
+  - [ ] **LLVM Support**: LLVM codegen for Any type tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — Any type tests codegen
 
 ---
 
@@ -224,15 +248,21 @@ let missing = get_field(obj: person, name: "email")  // None
   - [ ] By index
   - [ ] By name
   - [ ] Error handling
+  - [ ] **LLVM Support**: LLVM codegen for dynamic access semantics
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — dynamic access semantics codegen
 
 - [ ] **Stdlib**: Access helpers
   - [ ] get_field function
   - [ ] Field iteration
+  - [ ] **LLVM Support**: LLVM codegen for access helpers
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — access helpers codegen
 
 - [ ] **Test**: `tests/spec/reflect/dynamic_access.ori`
   - [ ] Get by name
   - [ ] Get by index
   - [ ] Missing field
+  - [ ] **LLVM Support**: LLVM codegen for dynamic access tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — dynamic access tests codegen
 
 ---
 
@@ -293,15 +323,21 @@ let json = to_json(value: user)
 - [ ] **Stdlib**: JSON serialization
   - [ ] Generic to_json
   - [ ] Generic from_json
+  - [ ] **LLVM Support**: LLVM codegen for JSON serialization
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — JSON serialization codegen
 
 - [ ] **Documentation**: Serialization guide
   - [ ] Custom serializers
   - [ ] Performance considerations
+  - [ ] **LLVM Support**: LLVM codegen for serialization examples
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — serialization examples codegen
 
 - [ ] **Test**: `tests/spec/reflect/serialization.ori`
   - [ ] Struct to JSON
   - [ ] JSON to struct
   - [ ] Nested types
+  - [ ] **LLVM Support**: LLVM codegen for serialization tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — serialization tests codegen
 
 ---
 
@@ -338,15 +374,21 @@ let info = value.type_info()  // Fast: returns pointer to static data
   - [ ] Static TypeInfo tables
   - [ ] No per-instance cost
   - [ ] Lazy initialization
+  - [ ] **LLVM Support**: LLVM codegen for minimized overhead
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — minimized overhead codegen
 
 - [ ] **Documentation**: Performance guide
   - [ ] When to use reflection
   - [ ] Alternatives for hot paths
+  - [ ] **LLVM Support**: LLVM codegen for performance guide examples
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — performance guide examples codegen
 
 - [ ] **Benchmarks**: Reflection performance
   - [ ] Type info access
   - [ ] Field iteration
   - [ ] Serialization
+  - [ ] **LLVM Support**: LLVM codegen for reflection benchmarks
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — reflection benchmarks codegen
 
 ---
 
@@ -384,9 +426,13 @@ let info = value.type_info()  // Fast: returns pointer to static data
   - [ ] What's not supported
   - [ ] Rationale
   - [ ] Future possibilities
+  - [ ] **LLVM Support**: LLVM codegen for limitations documentation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — limitations codegen
 
 - [ ] **Diagnostics**: Clear errors
   - [ ] When attempting unsupported operations
+  - [ ] **LLVM Support**: LLVM codegen for reflection diagnostics
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — reflection diagnostics codegen
 
 ---
 
@@ -400,7 +446,7 @@ let info = value.type_info()  // Fast: returns pointer to static data
 - [ ] Any type works
 - [ ] Dynamic field access works
 - [ ] JSON serialization example works
-- [ ] All tests pass: `cargo test && ori test tests/spec/reflect/`
+- [ ] All tests pass: `./test-all`
 
 **Exit Criteria**: Can implement generic JSON serialization/deserialization
 
