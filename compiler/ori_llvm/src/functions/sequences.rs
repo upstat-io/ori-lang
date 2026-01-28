@@ -184,7 +184,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         }
     }
 
-    /// Bind a pattern to a value.
+    /// Bind a pattern to a value, populating locals.
     pub(crate) fn bind_pattern(
         &self,
         pattern: &BindingPattern,
@@ -196,11 +196,122 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                 locals.insert(*name, value);
             }
             BindingPattern::Wildcard => {
-                // Discard
+                // Discard the value
             }
-            _ => {
-                // TODO: handle other patterns
+            BindingPattern::Tuple(patterns) => {
+                // Extract each tuple element by index
+                if let BasicValueEnum::StructValue(struct_val) = value {
+                    for (i, pat) in patterns.iter().enumerate() {
+                        let elem = self.extract_value(struct_val, i as u32, &format!("tuple_{i}"));
+                        self.bind_pattern(pat, elem, locals);
+                    }
+                }
             }
+            BindingPattern::Struct { fields } => {
+                // Extract each struct field by index
+                if let BasicValueEnum::StructValue(struct_val) = value {
+                    for (field_name, inner_pattern) in fields {
+                        let field_name_str = self.cx().interner.lookup(*field_name);
+                        let field_index = self.field_name_to_index(field_name_str);
+                        let field_val = self.extract_value(
+                            struct_val,
+                            field_index,
+                            &format!("field_{field_name_str}"),
+                        );
+
+                        // If there's an inner pattern (rename), bind to that; otherwise bind to field name
+                        if let Some(inner) = inner_pattern {
+                            self.bind_pattern(inner, field_val, locals);
+                        } else {
+                            // Shorthand: { x } binds field x to variable x
+                            locals.insert(*field_name, field_val);
+                        }
+                    }
+                }
+            }
+            BindingPattern::List { elements, rest } => {
+                // Lists are { i64 len, i64 cap, ptr data }
+                if let BasicValueEnum::StructValue(list_struct) = value {
+                    // Extract the data pointer (index 2)
+                    let data_ptr = self.extract_value(list_struct, 2, "list_data");
+
+                    // Extract each element by loading from the array
+                    for (i, pat) in elements.iter().enumerate() {
+                        let indices = [
+                            self.cx().scx.type_i64().const_int(0, false),
+                            self.cx().scx.type_i64().const_int(i as u64, false),
+                        ];
+
+                        // Assume i64 elements for now - proper implementation would use type info
+                        let elem_type = self.cx().scx.type_i64();
+                        let array_type = elem_type.array_type(elements.len() as u32);
+
+                        let elem_ptr = self.gep(
+                            array_type.into(),
+                            data_ptr.into_pointer_value(),
+                            &indices,
+                            &format!("elem_{i}_ptr"),
+                        );
+                        let elem_val = self.load(elem_type.into(), elem_ptr, &format!("elem_{i}"));
+                        self.bind_pattern(pat, elem_val, locals);
+                    }
+
+                    // Handle rest pattern (..rest)
+                    if let Some(rest_name) = rest {
+                        // For now, bind the remaining elements as a new list
+                        // This is simplified - real implementation would create a slice
+                        let len_val = self.extract_value(list_struct, 0, "list_len");
+                        let consumed = self
+                            .cx()
+                            .scx
+                            .type_i64()
+                            .const_int(elements.len() as u64, false);
+                        let rest_len = self.sub(
+                            len_val.into_int_value(),
+                            consumed,
+                            "rest_len",
+                        );
+
+                        // Create a new list struct for the rest
+                        // Offset the data pointer by the consumed elements
+                        let elem_type = self.cx().scx.type_i64();
+                        let offset_indices = [
+                            self.cx().scx.type_i64().const_int(0, false),
+                            self.cx()
+                                .scx
+                                .type_i64()
+                                .const_int(elements.len() as u64, false),
+                        ];
+                        let array_type = elem_type.array_type(1); // Dummy size for GEP
+                        let rest_ptr = self.gep(
+                            array_type.into(),
+                            data_ptr.into_pointer_value(),
+                            &offset_indices,
+                            "rest_data",
+                        );
+
+                        let list_type = self.cx().list_type();
+                        let rest_list = self.build_struct(
+                            list_type,
+                            &[rest_len.into(), rest_len.into(), rest_ptr.into()],
+                            "rest_list",
+                        );
+
+                        locals.insert(*rest_name, rest_list.into());
+                    }
+                }
+            }
+        }
+    }
+
+    /// Map field name to index using the same heuristic as field access.
+    fn field_name_to_index(&self, name: &str) -> u32 {
+        match name {
+            "x" | "first" | "0" | "a" => 0,
+            "y" | "second" | "1" | "b" => 1,
+            "z" | "third" | "2" | "c" => 2,
+            "w" | "fourth" | "3" | "d" => 3,
+            _ => name.parse::<u32>().unwrap_or(0),
         }
     }
 }

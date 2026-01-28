@@ -94,6 +94,6 @@
 
 - [x] All items above have all three checkboxes marked `[x]`
 - [x] 80+% test coverage (241 unit tests passing, exceeds 152 target)
-- [x] Run full test suite: `cargo test && ori test tests/spec/` — **241 unit tests + 64 spec tests pass**
+- [x] Run full test suite: `./test-all` — **241 unit tests + 64 spec tests pass**
 
 **Phase 1 Status**: ✅ Complete

@@ -19,10 +19,14 @@
 - [ ] **Implement**: Every function must have tests — spec/13-testing.md § Test Requirements, design/11-testing/01-mandatory-tests.md
   - [ ] **Rust Tests**: `oric/src/typeck/checker/test_coverage.rs` — mandatory test enforcement
   - [ ] **Ori Tests**: `tests/spec/testing/mandatory.ori`
+  - [ ] **LLVM Support**: LLVM codegen for mandatory test enforcement
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — mandatory test enforcement codegen
 
 - [ ] **Implement**: Exemptions (`@main`, private helpers) — spec/13-testing.md § Exemptions
   - [ ] **Rust Tests**: `oric/src/typeck/checker/test_coverage.rs` — exemption rules
   - [ ] **Ori Tests**: `tests/spec/testing/exemptions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for test exemptions
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test exemptions codegen
 
 ---
 
@@ -31,20 +35,28 @@
 - [ ] **Implement**: Syntax `@test_name tests @target () -> void = ...` — spec/13-testing.md § Test Declaration, design/11-testing/02-test-syntax.md
   - [ ] **Rust Tests**: `ori_parse/src/grammar/function.rs` — test declaration parsing
   - [ ] **Ori Tests**: `tests/spec/testing/declaration.ori`
+  - [ ] **LLVM Support**: LLVM codegen for test declaration syntax
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test declaration codegen
 
 - [ ] **Implement**: Semantics — spec/13-testing.md § Test Declaration
   - [ ] **Rust Tests**: `oric/src/eval/testing.rs` — test semantics
   - [ ] **Ori Tests**: `tests/spec/testing/declaration.ori`
+  - [ ] **LLVM Support**: LLVM codegen for test semantics
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test semantics codegen
 
 - [ ] **Implement**: Multiple targets `@test tests @a tests @b` — spec/13-testing.md § Multiple Targets
   - [ ] **Rust Tests**: `ori_parse/src/grammar/function.rs` — multiple targets parsing
   - [ ] **Ori Tests**: `tests/spec/testing/multiple_targets.ori`
+  - [ ] **LLVM Support**: LLVM codegen for multiple test targets
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — multiple targets codegen
 
 - [ ] **Implement**: Explicit free-floating tests `tests _` — proposals/approved/incremental-test-execution-proposal.md
   - [ ] Parser accepts `_` as target in `tests _`
   - [ ] AST distinguishes `Targeted(Vec<Name>)` vs `FreeFloating`
   - [ ] **Rust Tests**: `ori_parse/src/grammar/function.rs` — free-floating test parsing
   - [ ] **Ori Tests**: `tests/spec/testing/free_floating.ori`
+  - [ ] **LLVM Support**: LLVM codegen for free-floating tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — free-floating tests codegen
 
 ---
 
@@ -53,18 +65,26 @@
 - [ ] **Implement**: Syntax `#[attribute]` — spec/13-testing.md § Test Attributes
   - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — attribute parsing
   - [ ] **Ori Tests**: `tests/spec/testing/attributes.ori`
+  - [ ] **LLVM Support**: LLVM codegen for test attribute syntax
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test attribute syntax codegen
 
 - [ ] **Implement**: `#[skip("reason")]` — spec/13-testing.md § Skip Attribute
   - [ ] **Rust Tests**: `oric/src/eval/testing.rs` — skip attribute handling
   - [ ] **Ori Tests**: `tests/spec/testing/skip.ori`
+  - [ ] **LLVM Support**: LLVM codegen for skip attribute
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — skip attribute codegen
 
 - [ ] **Implement**: Constraints — spec/13-testing.md § Test Attributes
   - [ ] **Rust Tests**: `oric/src/typeck/checker/test_attributes.rs` — constraint validation
   - [ ] **Ori Tests**: `tests/spec/testing/attributes.ori`
+  - [ ] **LLVM Support**: LLVM codegen for test constraints
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test constraints codegen
 
 - [ ] **Implement**: Semantics — spec/13-testing.md § Test Attributes
   - [ ] **Rust Tests**: `oric/src/eval/testing.rs` — attribute semantics
   - [ ] **Ori Tests**: `tests/spec/testing/attributes.ori`
+  - [ ] **LLVM Support**: LLVM codegen for test attribute semantics
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test attribute semantics codegen
 
 ---
 
@@ -73,10 +93,14 @@
 - [ ] **Implement**: Naming convention — spec/13-testing.md § Test Functions
   - [ ] **Rust Tests**: `oric/src/typeck/checker/test_functions.rs` — naming validation
   - [ ] **Ori Tests**: `tests/spec/testing/naming.ori`
+  - [ ] **LLVM Support**: LLVM codegen for test naming convention
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test naming codegen
 
 - [ ] **Implement**: Test body structure — spec/13-testing.md § Test Functions
   - [ ] **Rust Tests**: `oric/src/typeck/infer/function.rs` — test body type checking
   - [ ] **Ori Tests**: `tests/spec/testing/body.ori`
+  - [ ] **LLVM Support**: LLVM codegen for test body structure
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test body codegen
 
 ---
 
@@ -96,14 +120,20 @@
 - [ ] **Implement**: Inline tests — spec/13-testing.md § Test Organization
   - [ ] **Rust Tests**: `oric/src/eval/testing.rs` — inline test discovery
   - [ ] **Ori Tests**: `tests/spec/testing/inline.ori`
+  - [ ] **LLVM Support**: LLVM codegen for inline tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — inline tests codegen
 
 - [ ] **Implement**: Test files `_test/` — spec/13-testing.md § Test Files, design/11-testing/index.md
   - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — _test/ directory handling
   - [ ] **Ori Tests**: `tests/spec/testing/test_files.ori`
+  - [ ] **LLVM Support**: LLVM codegen for test files
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test files codegen
 
 - [ ] **Implement**: Testing private items — spec/13-testing.md § Private Items
   - [ ] **Rust Tests**: `oric/src/eval/module/visibility.rs` — test private access
   - [ ] **Ori Tests**: `tests/spec/testing/private.ori`
+  - [ ] **LLVM Support**: LLVM codegen for testing private items
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — private items codegen
 
 ---
 
@@ -112,14 +142,20 @@
 - [ ] **Implement**: Running tests — spec/13-testing.md § Test Execution
   - [ ] **Rust Tests**: `oric/src/cli/test.rs` — test runner
   - [ ] **Ori Tests**: `tests/spec/testing/execution.ori`
+  - [ ] **LLVM Support**: LLVM codegen for test execution
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test execution codegen
 
 - [ ] **Implement**: Test isolation and parallelization — spec/13-testing.md § Test Isolation
   - [ ] **Rust Tests**: `oric/src/cli/test.rs` — isolation and parallelization
   - [ ] **Ori Tests**: `tests/spec/testing/isolation.ori`
+  - [ ] **LLVM Support**: LLVM codegen for test isolation and parallelization
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test isolation codegen
 
 - [ ] **Implement**: Coverage enforcement — spec/13-testing.md § Coverage Enforcement
   - [ ] **Rust Tests**: `oric/src/typeck/checker/test_coverage.rs` — coverage enforcement
   - [ ] **Ori Tests**: `tests/spec/testing/coverage.ori`
+  - [ ] **LLVM Support**: LLVM codegen for coverage enforcement
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — coverage enforcement codegen
 
 ---
 
@@ -128,6 +164,8 @@
 - [ ] **Implement**: Compile-fail tests — spec/13-testing.md § Compile-Fail Tests, design/11-testing/03-compile-fail-tests.md
   - [ ] **Rust Tests**: `oric/src/cli/test.rs` — compile-fail harness
   - [ ] **Ori Tests**: `tests/spec/testing/compile_fail.ori`
+  - [ ] **LLVM Support**: LLVM codegen for compile-fail tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — compile-fail tests codegen
 
 ---
 
@@ -150,48 +188,68 @@ When a function changes, run tests for that function AND tests for all functions
 - [ ] **Implement**: Reverse dependency lookup (function → callers)
   - [ ] **Rust Tests**: `oric/src/analysis/dependency_graph.rs` — reverse lookup
   - [ ] **Ori Tests**: `tests/spec/testing/dependency_graph.ori`
+  - [ ] **LLVM Support**: LLVM codegen for reverse dependency lookup
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — reverse dependency lookup codegen
 
 - [ ] **Implement**: Test registry (function → tests that target it)
   - [ ] **Rust Tests**: `oric/src/analysis/test_registry.rs` — test registry
   - [ ] **Ori Tests**: `tests/spec/testing/test_registry.ori`
+  - [ ] **LLVM Support**: LLVM codegen for test registry
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test registry codegen
 
 ### 14.9.2 Reverse Closure Computation
 
 - [ ] **Implement**: Compute reverse transitive closure of changed functions
   - [ ] **Rust Tests**: `oric/src/analysis/closure.rs` — reverse closure
   - [ ] **Ori Tests**: `tests/spec/testing/reverse_closure.ori`
+  - [ ] **LLVM Support**: LLVM codegen for reverse transitive closure
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — reverse closure codegen
 
 - [ ] **Implement**: Filter closure to functions with bound tests
   - [ ] **Rust Tests**: `oric/src/analysis/closure.rs` — closure filtering
   - [ ] **Ori Tests**: `tests/spec/testing/closure_filter.ori`
+  - [ ] **LLVM Support**: LLVM codegen for closure filtering
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — closure filtering codegen
 
 ### 14.9.3 Execution Modes
 
 - [ ] **Implement**: `--direct` mode (direct tests only)
   - [ ] **Rust Tests**: `oric/src/cli/test.rs` — direct mode
   - [ ] **Ori Tests**: `tests/spec/testing/mode_direct.ori`
+  - [ ] **LLVM Support**: LLVM codegen for direct mode
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — direct mode codegen
 
 - [ ] **Implement**: `--closure` mode (default, changed + callers)
   - [ ] **Rust Tests**: `oric/src/cli/test.rs` — closure mode
   - [ ] **Ori Tests**: `tests/spec/testing/mode_closure.ori`
+  - [ ] **LLVM Support**: LLVM codegen for closure mode
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — closure mode codegen
 
 - [ ] **Implement**: `--full` mode (all tests)
   - [ ] **Rust Tests**: `oric/src/cli/test.rs` — full mode
   - [ ] **Ori Tests**: `tests/spec/testing/mode_full.ori`
+  - [ ] **LLVM Support**: LLVM codegen for full mode
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — full mode codegen
 
 ### 14.9.4 Change Detection
 
 - [ ] **Implement**: Detect changed functions from source diff
   - [ ] **Rust Tests**: `oric/src/analysis/change_detection.rs` — diff detection
   - [ ] **Ori Tests**: `tests/spec/testing/change_detection.ori`
+  - [ ] **LLVM Support**: LLVM codegen for change detection
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — change detection codegen
 
 - [ ] **Implement**: `--changed=@func1,@func2` explicit change specification
   - [ ] **Rust Tests**: `oric/src/cli/test.rs` — explicit changes
   - [ ] **Ori Tests**: `tests/spec/testing/explicit_changes.ori`
+  - [ ] **LLVM Support**: LLVM codegen for explicit change specification
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — explicit changes codegen
 
 - [ ] **Implement**: `--dry-run` show what would run without running
   - [ ] **Rust Tests**: `oric/src/cli/test.rs` — dry run
   - [ ] **Ori Tests**: `tests/spec/testing/dry_run.ori`
+  - [ ] **LLVM Support**: LLVM codegen for dry run
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — dry run codegen
 
 ### 14.9.5 Integration Test Handling
 
@@ -202,10 +260,14 @@ Free-floating tests (without `tests @target`) are integration tests:
 - [ ] **Implement**: Distinguish bound tests from free-floating tests
   - [ ] **Rust Tests**: `oric/src/analysis/test_registry.rs` — test type detection
   - [ ] **Ori Tests**: `tests/spec/testing/test_types.ori`
+  - [ ] **LLVM Support**: LLVM codegen for test type distinction
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test type distinction codegen
 
 - [ ] **Implement**: Free-floating tests skip closure mode
   - [ ] **Rust Tests**: `oric/src/cli/test.rs` — integration test handling
   - [ ] **Ori Tests**: `tests/spec/testing/integration_tests.ori`
+  - [ ] **LLVM Support**: LLVM codegen for free-floating test handling
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — free-floating test handling codegen
 
 ---
 
@@ -220,6 +282,8 @@ Go provides `t.TempDir()` for test isolation. Ori should have similar support.
 - [ ] **Implement**: `test_tempdir()` — returns isolated temporary directory, auto-cleaned
   - [ ] **Rust Tests**: `library/std/testing.rs` — tempdir utility
   - [ ] **Ori Tests**: `tests/spec/testing/tempdir.ori`
+  - [ ] **LLVM Support**: LLVM codegen for test_tempdir
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test_tempdir codegen
 
 ### 14.10.2 Environment Test Support
 
@@ -228,6 +292,8 @@ Go provides `t.Setenv()` for test-scoped environment variables. Ori should suppo
 - [ ] **Implement**: `test_setenv(name: str, value: str)` — scoped env var, auto-restored
   - [ ] **Rust Tests**: `library/std/testing.rs` — setenv utility
   - [ ] **Ori Tests**: `tests/spec/testing/setenv.ori`
+  - [ ] **LLVM Support**: LLVM codegen for test_setenv
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test_setenv codegen
 
 ### 14.10.3 Test Cleanup Hooks
 
@@ -236,6 +302,8 @@ Go provides `t.Cleanup()` for registering cleanup functions. Ori can leverage ca
 - [ ] **Design**: Cleanup hooks via `with` pattern or explicit registration
   - [ ] **Rust Tests**: `library/std/testing.rs` — cleanup hooks
   - [ ] **Ori Tests**: `tests/spec/testing/cleanup.ori`
+  - [ ] **LLVM Support**: LLVM codegen for cleanup hooks
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — cleanup hooks codegen
 
 ### 14.10.4 Helper Function Support
 
@@ -244,6 +312,8 @@ Go provides `t.Helper()` to mark functions as test helpers (improves stack trace
 - [ ] **Implement**: `#test_helper` attribute for better failure reporting
   - [ ] **Rust Tests**: `oric/src/eval/testing.rs` — helper attribute
   - [ ] **Ori Tests**: `tests/spec/testing/helper.ori`
+  - [ ] **LLVM Support**: LLVM codegen for test_helper attribute
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test_helper attribute codegen
 
 ---
 
@@ -261,12 +331,16 @@ During compilation, targeted tests whose targets (or transitive dependencies) ha
   - [ ] Execute targeted tests whose targets changed
   - [ ] **Rust Tests**: `oric/src/cli/check.rs` — incremental test integration
   - [ ] **Ori Tests**: `tests/spec/testing/incremental_basic.ori`
+  - [ ] **LLVM Support**: LLVM codegen for incremental test execution
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — incremental test execution codegen
 
 - [ ] **Implement**: Non-blocking test failures (default)
   - [ ] Test failures reported but don't block compilation
   - [ ] "Build succeeded with N test failures" output
   - [ ] **Rust Tests**: `oric/src/cli/check.rs` — non-blocking mode
   - [ ] **Ori Tests**: `tests/spec/testing/non_blocking.ori`
+  - [ ] **LLVM Support**: LLVM codegen for non-blocking test failures
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — non-blocking test failures codegen
 
 ### 14.11.2 CLI Integration
 
@@ -281,18 +355,26 @@ During compilation, targeted tests whose targets (or transitive dependencies) ha
 - [ ] **Implement**: `ori check` runs affected targeted tests
   - [ ] **Rust Tests**: `oric/src/cli/check.rs` — check command tests
   - [ ] **Ori Tests**: `tests/spec/testing/cli_check.ori`
+  - [ ] **LLVM Support**: LLVM codegen for ori check command
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — ori check codegen
 
 - [ ] **Implement**: `--no-test` flag skips test execution
   - [ ] **Rust Tests**: `oric/src/cli/check.rs` — no-test flag
   - [ ] **Ori Tests**: `tests/spec/testing/cli_no_test.ori`
+  - [ ] **LLVM Support**: LLVM codegen for --no-test flag
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — no-test flag codegen
 
 - [ ] **Implement**: `--strict` flag fails build on test failure
   - [ ] **Rust Tests**: `oric/src/cli/check.rs` — strict flag
   - [ ] **Ori Tests**: `tests/spec/testing/cli_strict.ori`
+  - [ ] **LLVM Support**: LLVM codegen for --strict flag
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — strict flag codegen
 
 - [ ] **Implement**: `--only-targeted` flag for `ori test`
   - [ ] **Rust Tests**: `oric/src/cli/test.rs` — only-targeted flag
   - [ ] **Ori Tests**: `tests/spec/testing/cli_only_targeted.ori`
+  - [ ] **LLVM Support**: LLVM codegen for --only-targeted flag
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — only-targeted flag codegen
 
 ### 14.11.3 Test Result Caching
 
@@ -302,6 +384,8 @@ During compilation, targeted tests whose targets (or transitive dependencies) ha
   - [ ] Skip tests when inputs unchanged
   - [ ] **Rust Tests**: `oric/src/analysis/test_cache.rs` — caching tests
   - [ ] **Ori Tests**: `tests/spec/testing/result_caching.ori`
+  - [ ] **LLVM Support**: LLVM codegen for hash-based test caching
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test caching codegen
 
 ### 14.11.4 Performance Warnings
 
@@ -310,6 +394,8 @@ During compilation, targeted tests whose targets (or transitive dependencies) ha
   - [ ] Warning suggests `tests _` for slow tests
   - [ ] **Rust Tests**: `oric/src/cli/test.rs` — slow test warning
   - [ ] **Ori Tests**: `tests/spec/testing/slow_warning.ori`
+  - [ ] **LLVM Support**: LLVM codegen for slow test warning
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — slow test warning codegen
 
 Example warning:
 ```
@@ -331,6 +417,6 @@ warning: targeted test @test_parse took 250ms
 - [ ] CLAUDE.md updated if syntax/behavior changed
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
 - [ ] 80+% test coverage, tests against spec/design
-- [ ] Run full test suite: `cargo test && ori test tests/spec/`
+- [ ] Run full test suite: `./test-all`
 
 **Exit Criteria**: Tests are mandatory, dependency-aware, and run correctly

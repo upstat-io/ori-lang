@@ -146,9 +146,13 @@ The spec formalizes two distinct pattern categories:
 - [ ] **Implement**: Optional `.ttl:` with Duration — spec/10-patterns.md § cache
   - [ ] **Rust Tests**: `oric/src/patterns/cache.rs` — TTL tests
   - [ ] **Ori Tests**: `tests/spec/patterns/cache_ttl.ori`
+  - [ ] **LLVM Support**: LLVM codegen for cache TTL
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — cache TTL codegen
 - [ ] **Implement**: Requires `Cache` capability — spec/10-patterns.md § cache — **Blocked on Phase 6 (Capabilities)**
   - [ ] **Rust Tests**: `oric/src/typeck/checker/capabilities.rs` — cache capability tests
   - [ ] **Ori Tests**: `tests/spec/capabilities/cache.ori`
+  - [ ] **LLVM Support**: LLVM codegen for cache capability
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — cache capability codegen
 - [x] **Implement**: Stub — Execute `.operation` without caching
 
 ---
@@ -217,6 +221,6 @@ The spec formalizes two distinct pattern categories:
 - [x] All compiler patterns implemented
 - [x] Data transformation patterns moved to stdlib
 - [x] Resilience patterns moved to stdlib
-- [x] Run full test suite: `cargo test --package oric`
+- [x] Run full test suite: `./test-all`
 
 **Exit Criteria**: All compiler patterns evaluate correctly

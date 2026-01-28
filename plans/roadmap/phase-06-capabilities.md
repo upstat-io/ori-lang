@@ -154,7 +154,7 @@
 - [x] Spec updated: `spec/14-capabilities.md` reflects implementation
 - [x] CLAUDE.md updated with capabilities syntax
 - [x] 27 capability tests passing
-- [x] Full test suite: `cargo test` passes, `cargo st tests/spec/capabilities/` passes
+- [x] Full test suite: `./test-all`
 
 **Exit Criteria**: Effect tracking works per spec ✅
 

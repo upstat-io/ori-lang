@@ -107,6 +107,9 @@ SpreadExpr       = '...' Expression ;
   - [ ] Handle spread expansion
   - [ ] Mixed literal and spread
 
+- [ ] **LLVM Support**: LLVM codegen for homogeneous variadics
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/variadic_tests.rs` — homogeneous variadics codegen
+
 - [ ] **Test**: `tests/spec/functions/variadic.ori`
   - [ ] Basic variadic function
   - [ ] With required parameters
@@ -150,6 +153,9 @@ max()          // Error: max requires at least 1 argument
   - [ ] "expected at least N arguments, got M"
   - [ ] Show required vs optional
 
+- [ ] **LLVM Support**: LLVM codegen for minimum argument validation
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/variadic_tests.rs` — minimum argument count codegen
+
 - [ ] **Test**: `tests/spec/functions/variadic_min.ori`
   - [ ] Minimum 1 with required param
   - [ ] Minimum 0 (variadic only)
@@ -192,6 +198,9 @@ print_any(1, "hello", true)     // OK: all Printable
   - [ ] All args satisfy bound
   - [ ] Infer common type
   - [ ] Trait object boxing
+
+- [ ] **LLVM Support**: LLVM codegen for trait bounds on variadics
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/variadic_tests.rs` — variadic trait bounds codegen
 
 - [ ] **Test**: `tests/spec/functions/variadic_bounds.ori`
   - [ ] Generic variadic
@@ -246,6 +255,9 @@ unsafe {
   - [ ] Platform-specific ABI
   - [ ] Argument passing conventions
 
+- [ ] **LLVM Support**: LLVM codegen for C variadic interop
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/variadic_tests.rs` — C variadic interop codegen
+
 - [ ] **Test**: `tests/spec/ffi/c_variadics.ori`
   - [ ] printf call
   - [ ] Mixed argument types
@@ -283,7 +295,7 @@ Defer to future consideration. Current phase focuses on function parameters only
 - [ ] Homogeneous variadics work
 - [ ] Spread operator works
 - [ ] C variadic interop works (after Phase 11)
-- [ ] All tests pass: `cargo test && ori test tests/spec/functions/`
+- [ ] All tests pass: `./test-all`
 
 **Exit Criteria**: Can implement `format()` and call C's `printf()`
 

@@ -7,7 +7,7 @@
 Before starting:
 1. Familiarize yourself with `CLAUDE.md` (language quick reference)
 2. Familiarize yourself with `docs/ori_lang/0.1-alpha/spec/` (authoritative spec)
-3. Ensure `cargo test` passes
+3. Ensure `./test-all` passes (runs Rust tests, Ori interpreter tests, and LLVM tests)
 
 ### Execution Rules
 
@@ -164,18 +164,21 @@ New proposals from Rust prelude comparison (2026-01-27). These enhance Ori's pre
 ## Running Tests
 
 ```bash
-# Rust unit tests
-cargo test
+# Run ALL tests (Rust + Ori interpreter + LLVM backend)
+./test-all
 
-# All spec tests
-ori test tests/spec/
+# Individual test suites:
+cargo t                          # Rust unit tests only
+cargo st                         # Ori language tests (interpreter)
+./llvm-test                      # LLVM Rust unit tests
+./docker/llvm/run.sh ori test tests/  # Ori language tests (LLVM)
 
 # Specific category
-ori test tests/spec/types/
-ori test tests/spec/traits/
+cargo st tests/spec/types/
+cargo st tests/spec/traits/
 
 # Single file
-ori test tests/spec/types/primitives.ori
+cargo st tests/spec/types/primitives.ori
 ```
 
 ---

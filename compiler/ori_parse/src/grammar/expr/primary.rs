@@ -535,6 +535,50 @@ impl Parser<'_> {
                 self.expect(&TokenKind::RParen)?;
                 Ok(BindingPattern::Tuple(patterns))
             }
+            TokenKind::LBrace => {
+                self.advance();
+                let mut fields = Vec::new();
+                while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
+                    let field_name = self.expect_ident()?;
+
+                    let binding = if self.check(&TokenKind::Colon) {
+                        self.advance();
+                        Some(self.parse_binding_pattern()?)
+                    } else {
+                        None // Shorthand: { x } binds field x to variable x
+                    };
+
+                    fields.push((field_name, binding));
+
+                    if !self.check(&TokenKind::RBrace) {
+                        self.expect(&TokenKind::Comma)?;
+                    }
+                }
+                self.expect(&TokenKind::RBrace)?;
+                Ok(BindingPattern::Struct { fields })
+            }
+            TokenKind::LBracket => {
+                self.advance();
+                let mut elements = Vec::new();
+                let mut rest = None;
+
+                while !self.check(&TokenKind::RBracket) && !self.is_at_end() {
+                    if self.check(&TokenKind::DotDot) {
+                        self.advance();
+                        if let TokenKind::Ident(name) = self.current_kind() {
+                            rest = Some(name);
+                            self.advance();
+                        }
+                        break;
+                    }
+                    elements.push(self.parse_binding_pattern()?);
+                    if !self.check(&TokenKind::RBracket) && !self.check(&TokenKind::DotDot) {
+                        self.expect(&TokenKind::Comma)?;
+                    }
+                }
+                self.expect(&TokenKind::RBracket)?;
+                Ok(BindingPattern::List { elements, rest })
+            }
             _ => Err(ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
                 format!("expected binding pattern, found {:?}", self.current_kind()),

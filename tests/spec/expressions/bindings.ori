@@ -130,3 +130,130 @@ use std.testing { assert, assert_eq, assert_ne }
     let x = str(x),
     x,
 )
+
+// =============================================================================
+// Struct Destructuring
+// =============================================================================
+
+type Point = { x: int, y: int }
+
+@test_struct_destructure_shorthand tests @struct_destructure_shorthand () -> void = run(
+    let p = Point { x: 10, y: 20 },
+    let { x, y } = p,
+    assert_eq(actual: x, expected: 10),
+    assert_eq(actual: y, expected: 20),
+)
+
+@struct_destructure_shorthand () -> int = run(
+    let p = Point { x: 10, y: 20 },
+    let { x, y } = p,
+    x + y,
+)
+
+@test_struct_destructure_rename tests @struct_destructure_rename () -> void = run(
+    let p = Point { x: 5, y: 15 },
+    let { x: px, y: py } = p,
+    assert_eq(actual: px, expected: 5),
+    assert_eq(actual: py, expected: 15),
+)
+
+@struct_destructure_rename () -> int = run(
+    let p = Point { x: 5, y: 15 },
+    let { x: px, y: py } = p,
+    px * py,
+)
+
+@test_struct_destructure_partial tests @struct_destructure_partial () -> void = run(
+    let p = Point { x: 100, y: 200 },
+    let { x } = p,
+    assert_eq(actual: x, expected: 100),
+)
+
+@struct_destructure_partial () -> int = run(
+    let p = Point { x: 100, y: 200 },
+    let { x } = p,
+    x,
+)
+
+type Rectangle = { top_left: Point, bottom_right: Point }
+
+@test_struct_destructure_nested tests @struct_destructure_nested () -> void = run(
+    let rect = Rectangle {
+        top_left: Point { x: 0, y: 0 },
+        bottom_right: Point { x: 100, y: 50 },
+    },
+    let { top_left: { x: x1, y: y1 }, bottom_right: { x: x2, y: y2 } } = rect,
+    assert_eq(actual: x1, expected: 0),
+    assert_eq(actual: y1, expected: 0),
+    assert_eq(actual: x2, expected: 100),
+    assert_eq(actual: y2, expected: 50),
+)
+
+@struct_destructure_nested () -> int = run(
+    let rect = Rectangle {
+        top_left: Point { x: 0, y: 0 },
+        bottom_right: Point { x: 100, y: 50 },
+    },
+    let { top_left: { x: x1, y: y1 }, bottom_right: { x: x2, y: y2 } } = rect,
+    (x2 - x1) * (y2 - y1),
+)
+
+// =============================================================================
+// List Destructuring
+// =============================================================================
+
+@test_list_destructure_basic tests @list_destructure_basic () -> void = run(
+    let items = [1, 2, 3],
+    let [a, b, c] = items,
+    assert_eq(actual: a, expected: 1),
+    assert_eq(actual: b, expected: 2),
+    assert_eq(actual: c, expected: 3),
+)
+
+@list_destructure_basic () -> int = run(
+    let items = [1, 2, 3],
+    let [a, b, c] = items,
+    a + b + c,
+)
+
+@test_list_destructure_head tests @list_destructure_head () -> void = run(
+    let items = [10, 20, 30],
+    let [head, ..] = items,
+    assert_eq(actual: head, expected: 10),
+)
+
+@list_destructure_head () -> int = run(
+    let items = [10, 20, 30],
+    let [head, ..] = items,
+    head,
+)
+
+@test_list_destructure_with_rest tests @list_destructure_with_rest () -> void = run(
+    let items = [1, 2, 3, 4, 5],
+    let [first, ..rest] = items,
+    assert_eq(actual: first, expected: 1),
+    assert_eq(actual: len(collection: rest), expected: 4),
+)
+
+@list_destructure_with_rest () -> int = run(
+    let items = [1, 2, 3, 4, 5],
+    let [first, ..rest] = items,
+    first + len(collection: rest),
+)
+
+// =============================================================================
+// Tuple Destructuring
+// =============================================================================
+
+@test_tuple_destructure tests @tuple_destructure () -> void = run(
+    let pair = (42, "hello"),
+    let (n, s) = pair,
+    assert_eq(actual: n, expected: 42),
+    assert_eq(actual: s, expected: "hello"),
+)
+
+@tuple_destructure () -> int = run(
+    let pair = (42, "hello"),
+    let (n, _) = pair,
+    n,
+)

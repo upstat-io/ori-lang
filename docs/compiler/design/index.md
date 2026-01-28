@@ -150,9 +150,7 @@ The LLVM backend (`ori_llvm` crate) provides JIT compilation and execution:
   - `Option<T>` / `Result<T, E>` → `{ i8 tag, T payload }`
   - Lists → `{ i64 len, i64 cap, ptr data }`
 
-- **Status**: JIT working (711/745 tests pass), AOT pending
-
-See `compiler/ori_llvm/REORGANIZATION.md` for detailed architecture.
+- **Status**: JIT working (424/429 spec tests pass), AOT pending
 
 ### Appendices
 

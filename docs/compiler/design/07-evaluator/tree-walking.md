@@ -136,6 +136,74 @@ fn call_function(
 }
 ```
 
+### Let Bindings and Pattern Destructuring
+
+Let bindings support destructuring patterns:
+
+```rust
+fn eval_let(
+    &mut self,
+    pattern: &BindingPattern,
+    init: ExprId,
+) -> Result<Value, EvalError> {
+    let value = self.eval_expr(init)?;
+    self.bind_pattern(pattern, &value)?;
+    Ok(value)
+}
+
+fn bind_pattern(
+    &mut self,
+    pattern: &BindingPattern,
+    value: &Value,
+) -> Result<(), EvalError> {
+    match pattern {
+        // Simple binding: let x = value
+        BindingPattern::Name(name) => {
+            self.env.bind(*name, value.clone());
+        }
+
+        // Wildcard: let _ = value (discard)
+        BindingPattern::Wildcard => {}
+
+        // Tuple: let (a, b) = pair
+        BindingPattern::Tuple(patterns) => {
+            let values = value.as_tuple()?;
+            for (pat, val) in patterns.iter().zip(values) {
+                self.bind_pattern(pat, val)?;
+            }
+        }
+
+        // Struct: let { x, y } = point
+        BindingPattern::Struct { fields } => {
+            let struct_val = value.as_struct()?;
+            for (field_name, inner_pattern) in fields {
+                let field_val = struct_val.get(field_name)?;
+                if let Some(inner) = inner_pattern {
+                    // Rename: let { x: px } = point
+                    self.bind_pattern(inner, field_val)?;
+                } else {
+                    // Shorthand: let { x } = point
+                    self.env.bind(*field_name, field_val.clone());
+                }
+            }
+        }
+
+        // List: let [a, b, ..rest] = items
+        BindingPattern::List { elements, rest } => {
+            let list = value.as_list()?;
+            for (i, pat) in elements.iter().enumerate() {
+                self.bind_pattern(pat, &list[i])?;
+            }
+            if let Some(rest_name) = rest {
+                let rest_list = list[elements.len()..].to_vec();
+                self.env.bind(*rest_name, Value::List(Arc::new(rest_list)));
+            }
+        }
+    }
+    Ok(())
+}
+```
+
 ### Control Flow
 
 ```rust

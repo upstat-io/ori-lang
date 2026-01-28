@@ -26,10 +26,16 @@ trait Sendable {
 - [ ] **Implement**: Add `Sendable` marker trait
   - [ ] **Rust Tests**: `oric/src/typeck/traits/sendable.rs` — sendable trait
   - [ ] **Ori Tests**: `tests/spec/concurrency/sendable.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Sendable marker trait
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sendable_tests.rs` — Sendable trait codegen
 
 - [ ] **Implement**: Auto-derive for primitives and immutable collections
+  - [ ] **LLVM Support**: LLVM codegen for Sendable auto-derive
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sendable_tests.rs` — Sendable auto-derive codegen
 
 - [ ] **Implement**: Channel constraint: `T: Sendable`
+  - [ ] **LLVM Support**: LLVM codegen for channel Sendable constraint
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sendable_tests.rs` — channel Sendable constraint codegen
 
 ---
 
@@ -53,16 +59,26 @@ let value = recv(rx)
 - [ ] **Implement**: Split `Channel<T>` into `Producer<T>` and `Consumer<T>`
   - [ ] **Rust Tests**: `oric/src/eval/channel.rs` — role-based channels
   - [ ] **Ori Tests**: `tests/spec/concurrency/channels.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Producer/Consumer channel types
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — role-based channels codegen
 
 - [ ] **Implement**: Add `Sharing` enum: `Exclusive | Producers | Consumers | Both`
+  - [ ] **LLVM Support**: LLVM codegen for Sharing enum
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — Sharing enum codegen
 
 - [ ] **Implement**: Update `channel()` to return `ChannelPair<T>`
+  - [ ] **LLVM Support**: LLVM codegen for channel() returning ChannelPair
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — ChannelPair codegen
 
 - [ ] **Implement**: Enforce clonability based on sharing mode
+  - [ ] **LLVM Support**: LLVM codegen for clonability based on sharing mode
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — sharing mode clonability codegen
 
 - [ ] **Implement**: Ownership transfer on send (value consumed)
   - [ ] **Rust Tests**: `oric/src/typeck/checker/ownership.rs` — channel ownership
   - [ ] **Ori Tests**: `tests/compile-fail/channel_ownership.ori`
+  - [ ] **LLVM Support**: LLVM codegen for ownership transfer on channel send
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — ownership transfer codegen
 
 ---
 
@@ -83,32 +99,48 @@ let result = select(
 - [ ] **Implement**: `select` expression parsing
   - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — select parsing
   - [ ] **Ori Tests**: `tests/spec/concurrency/select_basic.ori`
+  - [ ] **LLVM Support**: LLVM codegen for select expression
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/select_tests.rs` — select expression codegen
 
 - [ ] **Implement**: `recv(channel) -> pattern: expr` arm
+  - [ ] **LLVM Support**: LLVM codegen for recv arm in select
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/select_tests.rs` — recv arm codegen
 
 - [ ] **Implement**: `send(channel, value) -> void: expr` arm
+  - [ ] **LLVM Support**: LLVM codegen for send arm in select
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/select_tests.rs` — send arm codegen
 
 - [ ] **Implement**: Type checking (all arms same return type)
+  - [ ] **LLVM Support**: LLVM codegen for select type unification
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/select_tests.rs` — select type unification codegen
 
 - [ ] **Implement**: Runtime select with fairness (pseudo-random when multiple ready)
+  - [ ] **LLVM Support**: LLVM codegen for runtime select with fairness
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/select_tests.rs` — runtime select fairness codegen
 
 ### Default Case
 
 - [ ] **Implement**: `else: expr` for non-blocking select
   - [ ] **Rust Tests**: `oric/src/eval/exec/select.rs` — default case
   - [ ] **Ori Tests**: `tests/spec/concurrency/select_default.ori`
+  - [ ] **LLVM Support**: LLVM codegen for non-blocking select default case
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/select_tests.rs` — non-blocking select codegen
 
 ### Timeout Integration
 
 - [ ] **Implement**: `after(duration): expr` for timed select
   - [ ] **Rust Tests**: `oric/src/eval/exec/select.rs` — timeout arm
   - [ ] **Ori Tests**: `tests/spec/concurrency/select_timeout.ori`
+  - [ ] **LLVM Support**: LLVM codegen for timed select with after
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/select_tests.rs` — timed select codegen
 
 ### Closed Channel Handling
 
 - [ ] **Implement**: `recv` returns `Option<T>` (None when closed)
   - [ ] **Rust Tests**: `oric/src/eval/channel.rs` — closed channel handling
   - [ ] **Ori Tests**: `tests/spec/concurrency/select_closed.ori`
+  - [ ] **LLVM Support**: LLVM codegen for recv returning Option on closed channel
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — closed channel recv codegen
 
 ---
 
@@ -141,14 +173,24 @@ select(
 - [ ] **Implement**: `CancellationToken` type in stdlib
   - [ ] **Rust Tests**: `library/std/cancellation.rs` — cancellation token
   - [ ] **Ori Tests**: `tests/spec/concurrency/cancellation_tokens.ori`
+  - [ ] **LLVM Support**: LLVM codegen for CancellationToken type
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — CancellationToken codegen
 
 - [ ] **Implement**: `new()`, `child()`, `cancel()`, `is_cancelled()`
+  - [ ] **LLVM Support**: LLVM codegen for CancellationToken methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — CancellationToken methods codegen
 
 - [ ] **Implement**: `wait()` - blocks until cancelled
+  - [ ] **LLVM Support**: LLVM codegen for CancellationToken wait()
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — wait() codegen
 
 - [ ] **Implement**: `channel()` - returns channel for select
+  - [ ] **LLVM Support**: LLVM codegen for CancellationToken channel()
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — channel() for select codegen
 
 - [ ] **Implement**: Parent-child propagation (cancel parent → cancel children)
+  - [ ] **LLVM Support**: LLVM codegen for parent-child cancellation propagation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — propagation codegen
 
 ---
 
@@ -175,8 +217,12 @@ Cooperative cancellation in async code.
 - [ ] **Implement**: `CancelledError` type in stdlib
   - [ ] **Rust Tests**: `library/std/error.rs` — cancelled error type
   - [ ] **Ori Tests**: `tests/spec/concurrency/cancellable_ops.ori`
+  - [ ] **LLVM Support**: LLVM codegen for CancelledError type
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — CancelledError codegen
 
 - [ ] **Implement**: Document cooperative checking patterns
+  - [ ] **LLVM Support**: LLVM codegen for cooperative cancellation checking
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — cooperative checking codegen
 
 ---
 
@@ -196,10 +242,16 @@ parallel(
 - [ ] **Implement**: Add `cancel:` parameter to `parallel` pattern
   - [ ] **Rust Tests**: `oric/src/patterns/parallel.rs` — cancel parameter
   - [ ] **Ori Tests**: `tests/spec/concurrency/propagation.ori`
+  - [ ] **LLVM Support**: LLVM codegen for parallel cancel parameter
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — parallel cancel codegen
 
 - [ ] **Implement**: Add `cancel:` parameter to `spawn` pattern
+  - [ ] **LLVM Support**: LLVM codegen for spawn cancel parameter
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — spawn cancel codegen
 
 - [ ] **Implement**: Propagate cancellation to child tasks
+  - [ ] **LLVM Support**: LLVM codegen for child task cancellation propagation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — child task propagation codegen
 
 ---
 
@@ -220,8 +272,12 @@ with(
 - [ ] **Implement**: `with` release runs on cancellation
   - [ ] **Rust Tests**: `oric/src/patterns/with.rs` — cancellation cleanup
   - [ ] **Ori Tests**: `tests/spec/concurrency/cleanup.ori`
+  - [ ] **LLVM Support**: LLVM codegen for with pattern cancellation cleanup
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — with cleanup codegen
 
 - [ ] **Implement**: Document cleanup patterns
+  - [ ] **LLVM Support**: LLVM codegen for cleanup pattern documentation examples
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — cleanup patterns codegen
 
 ---
 
@@ -237,8 +293,12 @@ fetch_data(url: url, cancel: token)
 - [ ] **Implement**: `CancellationToken.with_timeout(duration:)`
   - [ ] **Rust Tests**: `library/std/cancellation.rs` — timeout-based cancel
   - [ ] **Ori Tests**: `tests/spec/concurrency/timeout_cancel.ori`
+  - [ ] **LLVM Support**: LLVM codegen for CancellationToken.with_timeout
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — with_timeout codegen
 
 - [ ] **Implement**: Auto-cancel on timeout expiry
+  - [ ] **LLVM Support**: LLVM codegen for auto-cancel on timeout
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — auto-cancel timeout codegen
 
 ---
 
@@ -259,8 +319,12 @@ fetch_data(url: url, cancel: token)
 - [ ] **Implement**: `on_signal` in stdlib
   - [ ] **Rust Tests**: `library/std/signal.rs` — signal handling
   - [ ] **Ori Tests**: `tests/spec/concurrency/graceful_shutdown.ori`
+  - [ ] **LLVM Support**: LLVM codegen for on_signal
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — on_signal codegen
 
 - [ ] **Implement**: SIGINT, SIGTERM support
+  - [ ] **LLVM Support**: LLVM codegen for SIGINT/SIGTERM handling
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — signal handling codegen
 
 ---
 
@@ -274,7 +338,7 @@ fetch_data(url: url, cancel: token)
 - [ ] Select expression working
 - [ ] Cancellation tokens working
 - [ ] Propagation working
-- [ ] All tests pass: `cargo test && ori test tests/spec/concurrency/`
+- [ ] All tests pass: `./test-all`
 
 **Exit Criteria**: Can write a server with graceful shutdown on SIGINT
 

@@ -132,9 +132,9 @@ parse_generic_args()  // <T, U>
 parse_type_bounds()   // T: Eq + Clone
 ```
 
-### pattern.rs
+### pattern.rs (Match Patterns)
 
-Handles destructuring patterns:
+Handles match arm patterns in `expr/patterns.rs`:
 
 ```rust
 // Literal patterns
@@ -154,6 +154,38 @@ parse_variant_pattern()  // Some(x), None
 
 // Guards
 parse_guard()            // x.match(x > 0)
+```
+
+### Binding Patterns (in primary.rs)
+
+Handles let binding patterns in `expr/primary.rs`:
+
+```rust
+// parse_binding_pattern() handles:
+parse_binding_pattern()  // Entry point
+
+// Name binding
+// let x = value
+BindingPattern::Name(name)
+
+// Wildcard
+// let _ = value
+BindingPattern::Wildcard
+
+// Tuple destructuring
+// let (a, b) = pair
+BindingPattern::Tuple(patterns)
+
+// Struct destructuring
+// let { x, y } = point
+// let { x: px, y: py } = point  (rename)
+// let { position: { x, y } } = entity  (nested)
+BindingPattern::Struct { fields }
+
+// List destructuring
+// let [a, b, c] = items
+// let [head, ..rest] = items
+BindingPattern::List { elements, rest }
 ```
 
 ### stmt.rs

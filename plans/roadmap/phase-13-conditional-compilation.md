@@ -95,6 +95,9 @@ CfgNot       = 'not' '(' CfgPredicate ')' ;
   - [ ] Prune false branches
   - [ ] Track for error messages
 
+- [ ] **LLVM Support**: LLVM codegen for cfg attribute
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/cfg_tests.rs` — cfg attribute codegen
+
 - [ ] **Test**: `tests/spec/cfg/basic.ori`
   - [ ] Simple cfg
   - [ ] Nested predicates
@@ -157,6 +160,9 @@ CfgNot       = 'not' '(' CfgPredicate ')' ;
   - [ ] `std.env.TARGET_ARCH`
   - [ ] Runtime equivalents (for dynamic checks)
 
+- [ ] **LLVM Support**: LLVM codegen for platform predicates
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/cfg_tests.rs` — platform predicates codegen
+
 - [ ] **Test**: `tests/spec/cfg/platform.ori`
   - [ ] OS-specific code
   - [ ] Arch-specific code
@@ -206,6 +212,9 @@ use std.metrics { Counter, Gauge }
   - [ ] `--features` flag
   - [ ] `--no-default-features` flag
   - [ ] `--all-features` flag
+
+- [ ] **LLVM Support**: LLVM codegen for feature flags
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/cfg_tests.rs` — feature flags codegen
 
 - [ ] **Test**: `tests/spec/cfg/features.ori`
   - [ ] Basic feature gating
@@ -257,6 +266,9 @@ use std.metrics { Counter, Gauge }
 - [ ] **Evaluator**: Evaluate compound predicates
   - [ ] Boolean logic
   - [ ] Short-circuit for efficiency
+
+- [ ] **LLVM Support**: LLVM codegen for compound predicates
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/cfg_tests.rs` — compound predicates codegen
 
 - [ ] **Test**: `tests/spec/cfg/compound.ori`
   - [ ] all() combinations
@@ -315,6 +327,9 @@ let debug_mode = cfg!(debug_assertions)
 - [ ] **Type checker**: Cfg expression types
   - [ ] All branches same type
   - [ ] Dead branch elimination
+
+- [ ] **LLVM Support**: LLVM codegen for cfg expressions
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/cfg_tests.rs` — cfg expressions codegen
 
 - [ ] **Test**: `tests/spec/cfg/expressions.ori`
   - [ ] cfg_match
@@ -388,6 +403,9 @@ ori build --target aarch64-unknown-linux-gnu
   - [ ] Environment-based cfg
   - [ ] Target specification
 
+- [ ] **LLVM Support**: LLVM codegen for build configuration
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/cfg_tests.rs` — build configuration codegen
+
 - [ ] **Test**: Integration tests
   - [ ] Build with features
   - [ ] Cross-compilation cfg
@@ -439,6 +457,9 @@ ori build --target aarch64-unknown-linux-gnu
   - [ ] Warn on redundant cfg
   - [ ] Warn on unknown cfg keys
 
+- [ ] **LLVM Support**: LLVM codegen for cfg diagnostics
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/cfg_tests.rs` — cfg diagnostics codegen
+
 - [ ] **Test**: `tests/compile-fail/cfg/`
   - [ ] Platform mismatch errors
   - [ ] Invalid cfg syntax
@@ -456,7 +477,7 @@ ori build --target aarch64-unknown-linux-gnu
 - [ ] Feature flags work
 - [ ] `cfg_match` expression works
 - [ ] Build system integration complete
-- [ ] All tests pass: `cargo test && ori test tests/spec/cfg/`
+- [ ] All tests pass: `./test-all`
 
 **Exit Criteria**: Can build a cross-platform CLI tool with platform-specific implementations
 
