@@ -1,8 +1,9 @@
 # Proposal: Range with Step
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric
 **Created:** 2026-01-25
+**Approved:** 2026-01-28
 
 ---
 
@@ -71,13 +72,11 @@ Kotlin's `step` keyword is clean but conflicts with potential variable names. Us
 
 ### Syntax
 
-```
-range_expr = range_expr "by" expression .
-range_expr = expression ".." expression
-           | expression "..=" expression .
-```
+The `by` keyword specifies the step value following a range expression:
 
-The `by` keyword specifies the step value.
+```
+range_expr = shift_expr [ ( ".." | "..=" ) shift_expr [ "by" shift_expr ] ] .
+```
 
 ### Basic Usage
 
@@ -102,13 +101,13 @@ let step = 5
 
 ```ori
 // Every other index
-for i in 0..len(items) by 2 do
+for i in 0..len(collection: items) by 2 do
     process(items[i])
 
 // Countdown
 for i in 10..=1 by -1 do
-    print(`{i}...`)
-print("Liftoff!")
+    print(msg: `{i}...`)
+print(msg: "Liftoff!")
 
 // Pagination
 for offset in 0..total by page_size do
@@ -132,7 +131,7 @@ let countdown = for i in 5..=1 by -1 yield i
 
 **Step of zero:**
 ```ori
-0..10 by 0  // Error: step cannot be zero
+0..10 by 0  // panic: step cannot be zero
 ```
 
 **Mismatched direction:**
@@ -141,17 +140,22 @@ let countdown = for i in 5..=1 by -1 yield i
 10..0 by 1    // Empty range (can't go from 10 to 0 with positive step)
 ```
 
-**Float ranges:**
-```ori
-0.0..1.0 by 0.1  // 0.0, 0.1, 0.2, ..., 0.9
-// Note: Float precision issues apply
-```
-
 ### Type Constraints
 
-- Start, end, and step must have compatible numeric types
+- Range with step is supported only for `int` ranges
+- Start, end, and step must all be `int`
 - Step must be non-zero (runtime panic if zero)
-- For float ranges, standard IEEE 754 precision applies
+- It is a compile-time error to use `by` with non-integer ranges
+
+### Keywords
+
+`by` is added as a context-sensitive keyword. It is only recognized following a range expression.
+
+Variable names `by` remain valid:
+```ori
+let by = 2
+let range = 0..10 by by  // Valid: second `by` is the keyword, third is the variable
+```
 
 ---
 
@@ -174,20 +178,6 @@ let countdown = for i in 5..=1 by -1 yield i
 
 let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 sample(items: data, every: 3)  // [1, 4, 7, 10]
-```
-
-### Time Intervals
-
-```ori
-@schedule_reminders (start: Time, end: Time, interval: Duration) -> [Time] =
-    for t in start..end by interval yield t
-
-let reminders = schedule_reminders(
-    start: 9:00,
-    end: 17:00,
-    interval: 1h,
-)
-// [9:00, 10:00, 11:00, 12:00, 13:00, 14:00, 15:00, 16:00]
 ```
 
 ### Batch Processing
@@ -264,46 +254,34 @@ This matches the principle of least surprise:
 
 Alternative (panic) was rejected as too strict for dynamic step values.
 
+### Why Integer-Only?
+
+Float iteration is inherently error-prone due to IEEE 754 precision. For example, `0.0..1.0 by 0.1` may or may not include values near 0.9 depending on accumulated floating-point error.
+
+Users can iterate with `int` and convert:
+```ori
+for i in 0..10 yield float(i) * 0.1
+```
+
+This keeps the feature simple and avoids a class of subtle bugs.
+
 ---
 
 ## Implementation Notes
 
+The `by` clause extends range expressions. Implementation details:
+
+- `by` becomes a contextual keyword following range expressions
+- The Range type gains an optional step field (defaults to 1)
+- Iterator implementation handles ascending/descending based on step sign
+- Zero step is a runtime panic
+
 ### Parser Changes
 
-Add `by` as a contextual keyword following range expressions.
+Add `by` as a contextual keyword following range expressions. Update the grammar:
 
 ```
-range_expr = additive_expr [ ( ".." | "..=" ) additive_expr [ "by" additive_expr ] ] .
-```
-
-### Range Type
-
-Extend the `Range<T>` type:
-
-```ori
-type Range<T> = {
-    start: T,
-    end: T,
-    inclusive: bool,
-    step: T,  // New field, defaults to 1
-}
-```
-
-### Iterator Implementation
-
-```ori
-impl Iterator for Range<int> {
-    type Item = int
-
-    @next (self) -> Option<int> = run(
-        if self.step > 0 then
-            if self.current < self.end then Some(self.current)
-            else None
-        else
-            if self.current > self.end then Some(self.current)
-            else None,
-    )
-}
+range_expr = shift_expr [ ( ".." | "..=" ) shift_expr [ "by" shift_expr ] ] .
 ```
 
 ---

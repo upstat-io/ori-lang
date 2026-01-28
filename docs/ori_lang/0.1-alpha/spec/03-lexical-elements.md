@@ -218,7 +218,15 @@ recurse  run      spawn    timeout  try
 with
 ```
 
-Outside this context, they may be used as variable names.
+The identifier `by` is a keyword only when it follows a range expression (`..` or `..=`):
+
+```ori
+0..10 by 2          // by is a keyword (range step)
+let by = 2
+0..10 by by         // first by is keyword, second is variable
+```
+
+Outside these contexts, soft keywords may be used as variable names.
 
 ### Parenthesized Expressions
 

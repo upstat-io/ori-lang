@@ -151,6 +151,13 @@
 - Removes Rust jargon (`dyn`); follows Go/TypeScript/Java pattern
 - Blocked on: None (grammar change only)
 
+**Range with Step** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/range-step-proposal.md`
+- Implementation: Phase 15.13
+- Adds `by` keyword for range step: `0..10 by 2`, `10..0 by -1`
+- Integer-only; zero step panics; mismatched direction produces empty range
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones

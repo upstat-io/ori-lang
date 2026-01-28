@@ -85,6 +85,7 @@ value?         // returns Err early if Err
 | `&` `\|` `^` `~` | Bitwise |
 | `<<` `>>` | Shift |
 | `..` `..=` | Range |
+| `by` | Range step |
 | `??` | Coalesce (None/Err → default) |
 
 ### Operator Type Constraints
@@ -162,6 +163,45 @@ NaN != NaN   // true
 
 ```ori
 0.1 + 0.2 == 0.3  // false (floating-point representation)
+
+## Range Expressions
+
+Range expressions produce `Range<T>` values.
+
+```ori
+0..10       // 0, 1, 2, ..., 9 (exclusive)
+0..=10      // 0, 1, 2, ..., 10 (inclusive)
+```
+
+### Range with Step
+
+The `by` keyword specifies a step value for non-unit increments:
+
+```ori
+0..10 by 2      // 0, 2, 4, 6, 8
+0..=10 by 2     // 0, 2, 4, 6, 8, 10
+10..0 by -1     // 10, 9, 8, 7, 6, 5, 4, 3, 2, 1
+10..=0 by -2    // 10, 8, 6, 4, 2, 0
+```
+
+`by` is a context-sensitive keyword recognized only following a range expression.
+
+**Type constraints:**
+
+- Range with step is supported only for `int` ranges
+- Start, end, and step must all be `int`
+- It is a compile-time error to use `by` with non-integer ranges
+
+**Runtime behavior:**
+
+- Step of zero causes a panic
+- Mismatched direction produces an empty range (no panic)
+
+```ori
+0..10 by 0      // panic: step cannot be zero
+0..10 by -1     // empty range (can't go from 0 to 10 with negative step)
+10..0 by 1      // empty range (can't go from 10 to 0 with positive step)
+```
 
 ## With Expression
 
