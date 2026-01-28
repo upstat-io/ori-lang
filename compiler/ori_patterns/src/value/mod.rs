@@ -359,9 +359,7 @@ impl Value {
     pub fn type_name_with_interner<I: StringLookup>(&self, interner: &I) -> Cow<'static, str> {
         match self {
             Value::Struct(s) => Cow::Owned(interner.lookup(s.type_name).to_string()),
-            Value::Variant { type_name, .. } => {
-                Cow::Owned(interner.lookup(*type_name).to_string())
-            }
+            Value::Variant { type_name, .. } => Cow::Owned(interner.lookup(*type_name).to_string()),
             // Range uses lowercase for method dispatch (distinct from type_name()'s "Range")
             Value::Range(_) => Cow::Borrowed("range"),
             _ => Cow::Borrowed(self.type_name()),
@@ -575,7 +573,11 @@ impl fmt::Display for Value {
                 variant_name,
                 ..
             } => {
-                write!(f, "<variant_constructor {:?}::{:?}>", type_name, variant_name)
+                write!(
+                    f,
+                    "<variant_constructor {:?}::{:?}>",
+                    type_name, variant_name
+                )
             }
             Value::Struct(s) => write!(f, "<struct {:?}>", s.type_name),
             Value::Function(_) | Value::MemoizedFunction(_) => write!(f, "<function>"),

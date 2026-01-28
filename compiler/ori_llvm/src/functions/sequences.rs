@@ -266,11 +266,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                             .scx
                             .type_i64()
                             .const_int(elements.len() as u64, false);
-                        let rest_len = self.sub(
-                            len_val.into_int_value(),
-                            consumed,
-                            "rest_len",
-                        );
+                        let rest_len = self.sub(len_val.into_int_value(), consumed, "rest_len");
 
                         // Create a new list struct for the rest
                         // Offset the data pointer by the consumed elements

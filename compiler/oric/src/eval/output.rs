@@ -120,7 +120,10 @@ impl EvalOutput {
             } => EvalOutput::Variant {
                 type_name: interner.lookup(*type_name).to_string(),
                 variant_name: interner.lookup(*variant_name).to_string(),
-                fields: fields.iter().map(|v| Self::from_value(v, interner)).collect(),
+                fields: fields
+                    .iter()
+                    .map(|v| Self::from_value(v, interner))
+                    .collect(),
             },
             Value::VariantConstructor {
                 type_name,
