@@ -55,3 +55,58 @@ pub @calculate (a: int, b: int, c: int) -> int = a + b * c
 @test_calculate tests @calculate () -> void = run(
     assert_eq(actual: calculate(a: 1, b: 2, c: 3), expected: 7)
 )
+
+// =============================================================================
+// Extended Module Tests
+// =============================================================================
+
+// Public type
+pub type Point = { x: int, y: int }
+
+// Private type
+type InternalPoint = { a: int, b: int }
+
+// Public function returning public type
+pub @make_point (x: int, y: int) -> Point = Point { x, y }
+
+// Public function using private type internally
+pub @point_sum (x: int, y: int) -> int = run(
+    let internal = InternalPoint { a: x, b: y },
+    internal.a + internal.b,
+)
+
+// Function with optional-looking parameters (all required in Ori)
+pub @format_value (value: int, prefix: str, suffix: str) -> str =
+    prefix + str(value) + suffix
+
+// Higher-order function
+pub @apply_twice (f: (int) -> int, x: int) -> int = f(f(x))
+
+// Nested closure
+pub @make_adder_chain (a: int, b: int) -> (int) -> int =
+    x -> x + a + b
+
+// Tests for extended functions
+@test_make_point tests @make_point () -> void = run(
+    let p = make_point(x: 3, y: 4),
+    assert_eq(actual: p.x, expected: 3),
+    assert_eq(actual: p.y, expected: 4),
+)
+
+@test_point_sum tests @point_sum () -> void = run(
+    assert_eq(actual: point_sum(x: 10, y: 20), expected: 30),
+)
+
+@test_format_value tests @format_value () -> void = run(
+    assert_eq(actual: format_value(value: 42, prefix: "[", suffix: "]"), expected: "[42]"),
+)
+
+@test_apply_twice tests @apply_twice () -> void = run(
+    let inc = (x: int) -> x + 1,
+    assert_eq(actual: apply_twice(f: inc, x: 5), expected: 7),
+)
+
+@test_make_adder_chain tests @make_adder_chain () -> void = run(
+    let add_15 = make_adder_chain(a: 5, b: 10),
+    assert_eq(actual: add_15(0), expected: 15),
+)

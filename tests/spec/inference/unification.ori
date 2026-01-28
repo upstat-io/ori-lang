@@ -182,3 +182,178 @@ use std.testing { assert, assert_eq, assert_ne }
     let res = Err("error"),
     is_err(result: res),
 )
+
+// =============================================================================
+// Extended Unification Tests — Complex Scenarios
+// =============================================================================
+
+@test_unify_through_assignment tests @unify_through_assignment () -> void = run(
+    // Types propagate through multiple assignments
+    let a = 42,
+    let b = a,
+    let c = b,
+    let d: int = c,
+    assert_eq(actual: d, expected: 42),
+)
+
+@unify_through_assignment () -> int = run(
+    let a = 42,
+    let b = a,
+    let c = b,
+    c,
+)
+
+@test_unify_conditional_branches tests @unify_conditional_branches () -> void = run(
+    // Both branches must unify to the same type
+    let x = if true then 1 else 2,
+    let y = if false then 10 else 20,
+    assert_eq(actual: x + y, expected: 21),
+)
+
+@unify_conditional_branches () -> int = if true then 1 else 2
+
+@test_unify_complex_conditional tests @unify_complex_conditional () -> void = run(
+    // Nested conditionals require unification
+    let result = if true then (if false then 1 else 2) else 3,
+    assert_eq(actual: result, expected: 2),
+)
+
+@unify_complex_conditional () -> int = if true then (if false then 1 else 2) else 3
+
+@test_unify_option_branches tests @unify_option_branches () -> void = run(
+    // Option in conditional branches
+    let opt = if true then Some(1) else None,
+    assert(cond: is_some(opt: opt)),
+)
+
+@unify_option_branches () -> bool = run(
+    let opt = if true then Some(1) else None,
+    is_some(opt: opt),
+)
+
+@test_unify_result_branches tests @unify_result_branches () -> void = run(
+    // Result in conditional branches
+    let res = if true then Ok(1) else Err("fail"),
+    assert(cond: is_ok(result: res)),
+)
+
+@unify_result_branches () -> bool = run(
+    let res = if true then Ok(1) else Err("fail"),
+    is_ok(result: res),
+)
+
+@test_unify_list_element_assignment tests @unify_list_element_assignment () -> void = run(
+    // List element type unified through assignment
+    let xs = [1, 2, 3],
+    let elem = xs[0],
+    let doubled: int = elem * 2,
+    assert_eq(actual: doubled, expected: 2),
+)
+
+@unify_list_element_assignment () -> int = run(
+    let xs = [1, 2, 3],
+    xs[0] * 2,
+)
+
+@test_unify_tuple_element_assignment tests @unify_tuple_element_assignment () -> void = run(
+    // Tuple element types through destructuring
+    let pair = (42, "hello"),
+    let (num, text) = pair,
+    let result: int = num,
+    assert_eq(actual: result, expected: 42),
+)
+
+@unify_tuple_element_assignment () -> int = run(
+    let pair = (42, "hello"),
+    let (num, text) = pair,
+    num,
+)
+
+@test_unify_function_call_chain tests @unify_function_call_chain () -> void = run(
+    // Types unified through function call chain
+    let f = (x: int) -> x + 1,
+    let g = (x: int) -> x * 2,
+    let result = g(g(f(5))),
+    assert_eq(actual: result, expected: 24),
+)
+
+@unify_function_call_chain () -> int = run(
+    let f = (x: int) -> x + 1,
+    let g = (x: int) -> x * 2,
+    g(g(f(5))),
+)
+
+@test_unify_closure_capture tests @unify_closure_capture () -> void = run(
+    // Captured variable type unified with closure body
+    let x = 10,
+    let f = () -> x + 5,
+    let result = f(),
+    assert_eq(actual: result, expected: 15),
+)
+
+@unify_closure_capture () -> int = run(
+    let x = 10,
+    let f = () -> x + 5,
+    f(),
+)
+
+@test_unify_arithmetic_result tests @unify_arithmetic_result () -> void = run(
+    // Arithmetic operations unify operands and result
+    let a = 10,
+    let b = 20,
+    let sum = a + b,
+    let product = a * b,
+    let diff = b - a,
+    assert_eq(actual: sum, expected: 30),
+    assert_eq(actual: product, expected: 200),
+    assert_eq(actual: diff, expected: 10),
+)
+
+@unify_arithmetic_result () -> int = 10 + 20
+
+@test_unify_comparison_result tests @unify_comparison_result () -> void = run(
+    // Comparison operations produce bool
+    let a = 10,
+    let b = 20,
+    let less = a < b,
+    let equal = a == a,
+    assert(cond: less),
+    assert(cond: equal),
+)
+
+@unify_comparison_result () -> bool = 10 < 20
+
+@test_unify_logical_result tests @unify_logical_result () -> void = run(
+    // Logical operations on bools
+    let a = true,
+    let b = false,
+    let and_result = a && b,
+    let or_result = a || b,
+    assert(cond: !and_result),
+    assert(cond: or_result),
+)
+
+@unify_logical_result () -> bool = true && false
+
+@test_unify_string_concat tests @unify_string_concat () -> void = run(
+    // String concatenation unifies to str
+    let a = "hello",
+    let b = " world",
+    let combined = a + b,
+    assert_eq(actual: combined, expected: "hello world"),
+)
+
+@unify_string_concat () -> str = "hello" + " world"
+
+@test_unify_map_lookup tests @unify_map_lookup () -> void = run(
+    // Map lookup type inference
+    let m = {"key": 42},
+    let value = m["key"],
+    let result: int = value,
+    assert_eq(actual: result, expected: 42),
+)
+
+@unify_map_lookup () -> int = run(
+    let m = {"key": 42},
+    m["key"],
+)
