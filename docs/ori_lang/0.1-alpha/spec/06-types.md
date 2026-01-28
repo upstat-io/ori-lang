@@ -97,7 +97,8 @@ type Pair<T> = { first: T, second: T }
 type Option<T> = Some(T) | None
 type Result<T, E> = Ok(T) | Err(E)
 type Ordering = Less | Equal | Greater
-type Error = { message: str, source: Option<Error> }
+type Error = { message: str, source: Option<Error> }  // trace field internal
+type TraceEntry = { function: str, file: str, line: int, column: int }
 type Channel<T>   // bounded async channel
 ```
 

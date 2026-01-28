@@ -156,3 +156,85 @@ impl Error for ParseError {
 ```
 
 Functions returning `Result` conventionally use `E: Error`, but any type may be used as the error type.
+
+## Error Return Traces
+
+When the `?` operator propagates an error, the source location is automatically recorded. This builds an _error return trace_ showing the propagation path.
+
+### Automatic Collection
+
+```ori
+@load (path: str) -> Result<Data, Error> = try(
+    let content = read_file(path)?,  // location recorded if Err
+    let parsed = parse(content)?,     // location recorded if Err
+    Ok(parsed),
+)
+```
+
+Traces are collected unconditionally in all builds. No syntax changes required.
+
+### TraceEntry Type
+
+```ori
+type TraceEntry = {
+    function: str,
+    file: str,
+    line: int,
+    column: int,
+}
+```
+
+### Accessing Traces
+
+The `Error` type provides trace access methods:
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `.trace()` | `str` | Formatted trace string |
+| `.trace_entries()` | `[TraceEntry]` | Programmatic access |
+| `.has_trace()` | `bool` | Check if trace available |
+
+### Trace Format
+
+The `.trace()` method returns:
+
+```
+<function_name> at <file_path>:<line>:<column>
+```
+
+One entry per line, most recent propagation point first. Function names are left-padded to align the "at" column.
+
+### Context Method
+
+`Result` provides a `.context()` method to add context while preserving traces:
+
+```ori
+@load_config () -> Result<Config, Error> = try(
+    let content = read_file("config.json")
+        .context("failed to load config")?,
+    Ok(parse(content)),
+)
+```
+
+### Traceable Trait
+
+Custom error types may implement `Traceable` to carry their own traces:
+
+```ori
+trait Traceable {
+    @with_trace (self, trace: [TraceEntry]) -> Self
+    @trace (self) -> [TraceEntry]
+}
+```
+
+`Traceable` is optional. For non-implementing error types, traces attach to the `Result` wrapper during propagation.
+
+### Relationship to Panic Traces
+
+| Aspect | Error Return Trace | Panic Stack Trace |
+|--------|-------------------|-------------------|
+| Trigger | `?` propagation | `panic()` or implicit panic |
+| Contents | Only `?` propagation points | Full call stack |
+| Recovery | Via `Result` handling | Via `catch(...)` |
+
+The two trace types may intersect. If an error is converted to a panic (e.g., via `.unwrap()`), the panic trace includes the unwrap location, while the error's return trace shows how the error arrived there.
