@@ -1,0 +1,914 @@
+//! LLVM Instruction Builder
+//!
+//! Follows Rust's `Builder` pattern from `rustc_codegen_llvm/src/builder.rs`.
+//!
+//! The Builder wraps an LLVM `IRBuilder` and provides methods for generating
+//! LLVM IR instructions. It is scoped to a single basic block and provides
+//! a clean API for code generation.
+//!
+//! Key differences from having methods on CodegenCx:
+//! - Builder is scoped to a basic block (position tracking)
+//! - Instructions are generated in the builder's current position
+//! - Clean separation between type-level operations (CodegenCx) and
+//!   instruction generation (Builder)
+
+use std::collections::HashMap;
+
+use inkwell::basic_block::BasicBlock;
+use inkwell::builder::Builder as LLVMBuilder;
+use inkwell::types::BasicTypeEnum;
+use inkwell::values::{
+    BasicValue, BasicValueEnum, FunctionValue, IntValue, PhiValue, PointerValue, StructValue,
+};
+use inkwell::IntPredicate;
+use tracing::instrument;
+
+use ori_ir::ast::patterns::BindingPattern;
+use ori_ir::ast::ExprKind;
+use ori_ir::{ExprArena, ExprId, Name, TypeId};
+
+use crate::context::CodegenCx;
+use crate::LoopContext;
+
+/// LLVM instruction builder.
+///
+/// Wraps an LLVM `IRBuilder` and provides methods for generating instructions.
+/// The builder maintains a current insertion point (basic block) and all
+/// instruction generation methods insert at that point.
+pub struct Builder<'a, 'll, 'tcx> {
+    /// The underlying LLVM builder.
+    llbuilder: LLVMBuilder<'ll>,
+    /// Reference to the codegen context.
+    cx: &'a CodegenCx<'ll, 'tcx>,
+}
+
+impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+    /// Create a new builder positioned at the end of the given basic block.
+    pub fn build(cx: &'a CodegenCx<'ll, 'tcx>, bb: BasicBlock<'ll>) -> Self {
+        let llbuilder = cx.llcx().create_builder();
+        llbuilder.position_at_end(bb);
+        Self { llbuilder, cx }
+    }
+
+    /// Get the codegen context.
+    #[inline]
+    pub fn cx(&self) -> &'a CodegenCx<'ll, 'tcx> {
+        self.cx
+    }
+
+    /// Get the current basic block.
+    pub fn current_block(&self) -> Option<BasicBlock<'ll>> {
+        self.llbuilder.get_insert_block()
+    }
+
+    /// Position at the end of a basic block.
+    pub fn position_at_end(&self, bb: BasicBlock<'ll>) {
+        self.llbuilder.position_at_end(bb);
+    }
+
+    /// Append a new basic block to the given function.
+    pub fn append_block(&self, function: FunctionValue<'ll>, name: &str) -> BasicBlock<'ll> {
+        self.cx.llcx().append_basic_block(function, name)
+    }
+
+    // -- Terminators --
+
+    /// Build a return with no value (void return).
+    pub fn ret_void(&self) {
+        self.llbuilder.build_return(None).expect("build_return");
+    }
+
+    /// Build a return with a value.
+    pub fn ret(&self, val: BasicValueEnum<'ll>) {
+        self.llbuilder
+            .build_return(Some(&val))
+            .expect("build_return");
+    }
+
+    /// Build an unconditional branch.
+    pub fn br(&self, dest: BasicBlock<'ll>) {
+        self.llbuilder
+            .build_unconditional_branch(dest)
+            .expect("build_br");
+    }
+
+    /// Build a conditional branch.
+    pub fn cond_br(&self, cond: IntValue<'ll>, then_bb: BasicBlock<'ll>, else_bb: BasicBlock<'ll>) {
+        self.llbuilder
+            .build_conditional_branch(cond, then_bb, else_bb)
+            .expect("build_cond_br");
+    }
+
+    /// Build an unreachable terminator.
+    pub fn unreachable(&self) {
+        self.llbuilder.build_unreachable().expect("build_unreachable");
+    }
+
+    // -- Arithmetic --
+
+    /// Build integer addition.
+    pub fn add(&self, lhs: IntValue<'ll>, rhs: IntValue<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder.build_int_add(lhs, rhs, name).expect("add")
+    }
+
+    /// Build integer subtraction.
+    pub fn sub(&self, lhs: IntValue<'ll>, rhs: IntValue<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder.build_int_sub(lhs, rhs, name).expect("sub")
+    }
+
+    /// Build integer multiplication.
+    pub fn mul(&self, lhs: IntValue<'ll>, rhs: IntValue<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder.build_int_mul(lhs, rhs, name).expect("mul")
+    }
+
+    /// Build signed integer division.
+    pub fn sdiv(&self, lhs: IntValue<'ll>, rhs: IntValue<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder
+            .build_int_signed_div(lhs, rhs, name)
+            .expect("sdiv")
+    }
+
+    /// Build unsigned integer division.
+    pub fn udiv(&self, lhs: IntValue<'ll>, rhs: IntValue<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder
+            .build_int_unsigned_div(lhs, rhs, name)
+            .expect("udiv")
+    }
+
+    /// Build signed integer remainder.
+    pub fn srem(&self, lhs: IntValue<'ll>, rhs: IntValue<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder
+            .build_int_signed_rem(lhs, rhs, name)
+            .expect("srem")
+    }
+
+    /// Build unsigned integer remainder.
+    pub fn urem(&self, lhs: IntValue<'ll>, rhs: IntValue<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder
+            .build_int_unsigned_rem(lhs, rhs, name)
+            .expect("urem")
+    }
+
+    /// Build integer negation.
+    pub fn neg(&self, val: IntValue<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder.build_int_neg(val, name).expect("neg")
+    }
+
+    /// Build integer NOT (bitwise complement).
+    pub fn not(&self, val: IntValue<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder.build_not(val, name).expect("not")
+    }
+
+    // -- Floating point arithmetic --
+
+    /// Build floating-point addition.
+    pub fn fadd(
+        &self,
+        lhs: inkwell::values::FloatValue<'ll>,
+        rhs: inkwell::values::FloatValue<'ll>,
+        name: &str,
+    ) -> inkwell::values::FloatValue<'ll> {
+        self.llbuilder.build_float_add(lhs, rhs, name).expect("fadd")
+    }
+
+    /// Build floating-point subtraction.
+    pub fn fsub(
+        &self,
+        lhs: inkwell::values::FloatValue<'ll>,
+        rhs: inkwell::values::FloatValue<'ll>,
+        name: &str,
+    ) -> inkwell::values::FloatValue<'ll> {
+        self.llbuilder.build_float_sub(lhs, rhs, name).expect("fsub")
+    }
+
+    /// Build floating-point multiplication.
+    pub fn fmul(
+        &self,
+        lhs: inkwell::values::FloatValue<'ll>,
+        rhs: inkwell::values::FloatValue<'ll>,
+        name: &str,
+    ) -> inkwell::values::FloatValue<'ll> {
+        self.llbuilder.build_float_mul(lhs, rhs, name).expect("fmul")
+    }
+
+    /// Build floating-point division.
+    pub fn fdiv(
+        &self,
+        lhs: inkwell::values::FloatValue<'ll>,
+        rhs: inkwell::values::FloatValue<'ll>,
+        name: &str,
+    ) -> inkwell::values::FloatValue<'ll> {
+        self.llbuilder.build_float_div(lhs, rhs, name).expect("fdiv")
+    }
+
+    /// Build floating-point remainder.
+    pub fn frem(
+        &self,
+        lhs: inkwell::values::FloatValue<'ll>,
+        rhs: inkwell::values::FloatValue<'ll>,
+        name: &str,
+    ) -> inkwell::values::FloatValue<'ll> {
+        self.llbuilder.build_float_rem(lhs, rhs, name).expect("frem")
+    }
+
+    /// Build floating-point negation.
+    pub fn fneg(
+        &self,
+        val: inkwell::values::FloatValue<'ll>,
+        name: &str,
+    ) -> inkwell::values::FloatValue<'ll> {
+        self.llbuilder.build_float_neg(val, name).expect("fneg")
+    }
+
+    // -- Bitwise operations --
+
+    /// Build bitwise AND.
+    pub fn and(&self, lhs: IntValue<'ll>, rhs: IntValue<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder.build_and(lhs, rhs, name).expect("and")
+    }
+
+    /// Build bitwise OR.
+    pub fn or(&self, lhs: IntValue<'ll>, rhs: IntValue<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder.build_or(lhs, rhs, name).expect("or")
+    }
+
+    /// Build bitwise XOR.
+    pub fn xor(&self, lhs: IntValue<'ll>, rhs: IntValue<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder.build_xor(lhs, rhs, name).expect("xor")
+    }
+
+    /// Build left shift.
+    pub fn shl(&self, lhs: IntValue<'ll>, rhs: IntValue<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder
+            .build_left_shift(lhs, rhs, name)
+            .expect("shl")
+    }
+
+    /// Build arithmetic right shift (sign-extending).
+    pub fn ashr(&self, lhs: IntValue<'ll>, rhs: IntValue<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder
+            .build_right_shift(lhs, rhs, true, name)
+            .expect("ashr")
+    }
+
+    /// Build logical right shift (zero-extending).
+    pub fn lshr(&self, lhs: IntValue<'ll>, rhs: IntValue<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder
+            .build_right_shift(lhs, rhs, false, name)
+            .expect("lshr")
+    }
+
+    // -- Comparisons --
+
+    /// Build integer comparison.
+    pub fn icmp(
+        &self,
+        pred: IntPredicate,
+        lhs: IntValue<'ll>,
+        rhs: IntValue<'ll>,
+        name: &str,
+    ) -> IntValue<'ll> {
+        self.llbuilder
+            .build_int_compare(pred, lhs, rhs, name)
+            .expect("icmp")
+    }
+
+    /// Build floating-point comparison.
+    pub fn fcmp(
+        &self,
+        pred: inkwell::FloatPredicate,
+        lhs: inkwell::values::FloatValue<'ll>,
+        rhs: inkwell::values::FloatValue<'ll>,
+        name: &str,
+    ) -> IntValue<'ll> {
+        self.llbuilder
+            .build_float_compare(pred, lhs, rhs, name)
+            .expect("fcmp")
+    }
+
+    // -- Memory operations --
+
+    /// Build alloca (stack allocation).
+    pub fn alloca(&self, ty: BasicTypeEnum<'ll>, name: &str) -> PointerValue<'ll> {
+        self.llbuilder.build_alloca(ty, name).expect("alloca")
+    }
+
+    /// Build load from pointer.
+    pub fn load(&self, ty: BasicTypeEnum<'ll>, ptr: PointerValue<'ll>, name: &str) -> BasicValueEnum<'ll> {
+        self.llbuilder.build_load(ty, ptr, name).expect("load")
+    }
+
+    /// Build store to pointer.
+    pub fn store(&self, val: BasicValueEnum<'ll>, ptr: PointerValue<'ll>) {
+        self.llbuilder.build_store(ptr, val).expect("store");
+    }
+
+    // -- Aggregate operations --
+
+    /// Build extract value from aggregate (struct, array).
+    pub fn extract_value(&self, agg: StructValue<'ll>, index: u32, name: &str) -> BasicValueEnum<'ll> {
+        self.llbuilder
+            .build_extract_value(agg, index, name)
+            .expect("extract_value")
+    }
+
+    /// Build insert value into aggregate.
+    pub fn insert_value(
+        &self,
+        agg: StructValue<'ll>,
+        val: BasicValueEnum<'ll>,
+        index: u32,
+        name: &str,
+    ) -> StructValue<'ll> {
+        self.llbuilder
+            .build_insert_value(agg, val, index, name)
+            .expect("insert_value")
+            .into_struct_value()
+    }
+
+    /// Build struct from values.
+    pub fn build_struct(
+        &self,
+        ty: inkwell::types::StructType<'ll>,
+        values: &[BasicValueEnum<'ll>],
+        name: &str,
+    ) -> StructValue<'ll> {
+        let mut result = ty.get_undef();
+        for (i, val) in values.iter().enumerate() {
+            result = self.insert_value(result, *val, i as u32, &format!("{name}.{i}"));
+        }
+        result
+    }
+
+    // -- Casts --
+
+    /// Build truncate (to smaller integer).
+    pub fn trunc(&self, val: IntValue<'ll>, ty: inkwell::types::IntType<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder.build_int_truncate(val, ty, name).expect("trunc")
+    }
+
+    /// Build zero-extend (to larger integer).
+    pub fn zext(&self, val: IntValue<'ll>, ty: inkwell::types::IntType<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder.build_int_z_extend(val, ty, name).expect("zext")
+    }
+
+    /// Build sign-extend (to larger integer).
+    pub fn sext(&self, val: IntValue<'ll>, ty: inkwell::types::IntType<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder.build_int_s_extend(val, ty, name).expect("sext")
+    }
+
+    /// Build signed int to float.
+    pub fn sitofp(
+        &self,
+        val: IntValue<'ll>,
+        ty: inkwell::types::FloatType<'ll>,
+        name: &str,
+    ) -> inkwell::values::FloatValue<'ll> {
+        self.llbuilder
+            .build_signed_int_to_float(val, ty, name)
+            .expect("sitofp")
+    }
+
+    /// Build unsigned int to float.
+    pub fn uitofp(
+        &self,
+        val: IntValue<'ll>,
+        ty: inkwell::types::FloatType<'ll>,
+        name: &str,
+    ) -> inkwell::values::FloatValue<'ll> {
+        self.llbuilder
+            .build_unsigned_int_to_float(val, ty, name)
+            .expect("uitofp")
+    }
+
+    /// Build float to signed int.
+    pub fn fptosi(
+        &self,
+        val: inkwell::values::FloatValue<'ll>,
+        ty: inkwell::types::IntType<'ll>,
+        name: &str,
+    ) -> IntValue<'ll> {
+        self.llbuilder
+            .build_float_to_signed_int(val, ty, name)
+            .expect("fptosi")
+    }
+
+    /// Build float to unsigned int.
+    pub fn fptoui(
+        &self,
+        val: inkwell::values::FloatValue<'ll>,
+        ty: inkwell::types::IntType<'ll>,
+        name: &str,
+    ) -> IntValue<'ll> {
+        self.llbuilder
+            .build_float_to_unsigned_int(val, ty, name)
+            .expect("fptoui")
+    }
+
+    /// Build bitcast.
+    pub fn bitcast(&self, val: BasicValueEnum<'ll>, ty: BasicTypeEnum<'ll>, name: &str) -> BasicValueEnum<'ll> {
+        self.llbuilder.build_bit_cast(val, ty, name).expect("bitcast")
+    }
+
+    /// Build pointer to int conversion.
+    pub fn ptr_to_int(&self, ptr: PointerValue<'ll>, ty: inkwell::types::IntType<'ll>, name: &str) -> IntValue<'ll> {
+        self.llbuilder.build_ptr_to_int(ptr, ty, name).expect("ptr_to_int")
+    }
+
+    /// Build int to pointer conversion.
+    pub fn int_to_ptr(&self, val: IntValue<'ll>, ty: inkwell::types::PointerType<'ll>, name: &str) -> PointerValue<'ll> {
+        self.llbuilder.build_int_to_ptr(val, ty, name).expect("int_to_ptr")
+    }
+
+    // -- Calls --
+
+    /// Build a function call.
+    pub fn call(
+        &self,
+        callee: FunctionValue<'ll>,
+        args: &[BasicValueEnum<'ll>],
+        name: &str,
+    ) -> Option<BasicValueEnum<'ll>> {
+        let args_meta: Vec<inkwell::values::BasicMetadataValueEnum> =
+            args.iter().map(|v| (*v).into()).collect();
+
+        let call_val = self
+            .llbuilder
+            .build_call(callee, &args_meta, name)
+            .expect("call");
+
+        call_val.try_as_basic_value().basic()
+    }
+
+    /// Build an indirect call through a function pointer.
+    pub fn call_indirect(
+        &self,
+        fn_type: inkwell::types::FunctionType<'ll>,
+        fn_ptr: PointerValue<'ll>,
+        args: &[BasicValueEnum<'ll>],
+        name: &str,
+    ) -> Option<BasicValueEnum<'ll>> {
+        let args_meta: Vec<inkwell::values::BasicMetadataValueEnum> =
+            args.iter().map(|v| (*v).into()).collect();
+
+        let call_val = self
+            .llbuilder
+            .build_indirect_call(fn_type, fn_ptr, &args_meta, name)
+            .expect("call_indirect");
+
+        call_val.try_as_basic_value().basic()
+    }
+
+    // -- Phi nodes --
+
+    /// Build a phi node.
+    pub fn phi(&self, ty: BasicTypeEnum<'ll>, name: &str) -> PhiValue<'ll> {
+        self.llbuilder.build_phi(ty, name).expect("phi")
+    }
+
+    /// Add incoming values to a phi node.
+    pub fn add_incoming(&self, phi: PhiValue<'ll>, incoming: &[(&dyn BasicValue<'ll>, BasicBlock<'ll>)]) {
+        phi.add_incoming(incoming);
+    }
+
+    // -- Select --
+
+    /// Build a select (ternary) instruction.
+    pub fn select(
+        &self,
+        cond: IntValue<'ll>,
+        then_val: BasicValueEnum<'ll>,
+        else_val: BasicValueEnum<'ll>,
+        name: &str,
+    ) -> BasicValueEnum<'ll> {
+        self.llbuilder
+            .build_select(cond, then_val, else_val, name)
+            .expect("select")
+    }
+
+    // -- GEP (GetElementPtr) --
+
+    /// Build a struct GEP (field access).
+    pub fn struct_gep(
+        &self,
+        ty: inkwell::types::StructType<'ll>,
+        ptr: PointerValue<'ll>,
+        index: u32,
+        name: &str,
+    ) -> PointerValue<'ll> {
+        self.llbuilder
+            .build_struct_gep(ty, ptr, index, name)
+            .expect("struct_gep")
+    }
+
+    /// Build an in-bounds GEP.
+    ///
+    /// # Safety
+    /// The caller must ensure that the indices are valid for the given type
+    /// and that the resulting pointer is within bounds.
+    #[allow(unsafe_code)]
+    pub fn gep(
+        &self,
+        ty: BasicTypeEnum<'ll>,
+        ptr: PointerValue<'ll>,
+        indices: &[IntValue<'ll>],
+        name: &str,
+    ) -> PointerValue<'ll> {
+        // SAFETY: The GEP operation requires that indices are valid for the type.
+        // This is ensured by the caller who constructs valid indices based on type layout.
+        unsafe {
+            self.llbuilder
+                .build_in_bounds_gep(ty, ptr, indices, name)
+                .expect("gep")
+        }
+    }
+
+    // -- Raw builder access for complex operations --
+
+    /// Get the raw LLVM builder for complex operations.
+    ///
+    /// Use this sparingly - prefer the typed methods above.
+    pub(crate) fn raw_builder(&self) -> &LLVMBuilder<'ll> {
+        &self.llbuilder
+    }
+
+    // -- Expression Compilation --
+
+    /// Compile an expression, dispatching to the appropriate helper method.
+    ///
+    /// This is the main entry point for expression compilation in the LLVM backend.
+    #[instrument(skip(self, arena, expr_types, locals, function, loop_ctx), level = "trace")]
+    pub fn compile_expr(
+        &self,
+        id: ExprId,
+        arena: &ExprArena,
+        expr_types: &[TypeId],
+        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        function: FunctionValue<'ll>,
+        loop_ctx: Option<&LoopContext<'ll>>,
+    ) -> Option<BasicValueEnum<'ll>> {
+        let expr = arena.get_expr(id);
+        let type_id = expr_types.get(id.index()).copied().unwrap_or(TypeId::INFER);
+
+        match &expr.kind {
+            // Literals
+            ExprKind::Int(n) => {
+                Some(self.cx().scx.type_i64().const_int(*n as u64, true).into())
+            }
+
+            ExprKind::Float(bits) => {
+                Some(self.cx().scx.type_f64().const_float(f64::from_bits(*bits)).into())
+            }
+
+            ExprKind::Bool(b) => {
+                Some(self.cx().scx.type_i1().const_int(u64::from(*b), false).into())
+            }
+
+            ExprKind::Char(c) => {
+                Some(self.cx().scx.type_i32().const_int(u64::from(*c), false).into())
+            }
+
+            // String literal
+            ExprKind::String(name) => {
+                self.compile_string(*name)
+            }
+
+            // Variables
+            ExprKind::Ident(name) => {
+                locals.get(name).copied()
+            }
+
+            // Binary operations
+            ExprKind::Binary { op, left, right } => {
+                let lhs = self.compile_expr(*left, arena, expr_types, locals, function, loop_ctx)?;
+                let rhs = self.compile_expr(*right, arena, expr_types, locals, function, loop_ctx)?;
+                self.compile_binary_op(*op, lhs, rhs, type_id)
+            }
+
+            // Unary operations
+            ExprKind::Unary { op, operand } => {
+                let val = self.compile_expr(*operand, arena, expr_types, locals, function, loop_ctx)?;
+                self.compile_unary_op(*op, val, type_id)
+            }
+
+            // Let binding
+            ExprKind::Let { pattern, init, .. } => {
+                self.compile_let(pattern, *init, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // If/else expression
+            ExprKind::If { cond, then_branch, else_branch } => {
+                self.compile_if(
+                    *cond,
+                    *then_branch,
+                    *else_branch,
+                    type_id,
+                    arena,
+                    expr_types,
+                    locals,
+                    function,
+                    loop_ctx,
+                )
+            }
+
+            // Loop
+            ExprKind::Loop { body } => {
+                self.compile_loop(*body, type_id, arena, expr_types, locals, function)
+            }
+
+            // Break
+            ExprKind::Break(value) => {
+                self.compile_break(*value, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Continue
+            ExprKind::Continue => {
+                self.compile_continue(loop_ctx)
+            }
+
+            // Tuple
+            ExprKind::Tuple(range) => {
+                self.compile_tuple(*range, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Struct literal
+            ExprKind::Struct { name, fields } => {
+                self.compile_struct(*name, *fields, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Field access
+            ExprKind::Field { receiver, field } => {
+                self.compile_field_access(*receiver, *field, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Option type constructors
+            ExprKind::Some(inner) => {
+                self.compile_some(*inner, type_id, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            ExprKind::None => {
+                self.compile_none(type_id)
+            }
+
+            // Result type constructors
+            ExprKind::Ok(inner) => {
+                self.compile_ok(*inner, type_id, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            ExprKind::Err(inner) => {
+                self.compile_err(*inner, type_id, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Match expression
+            ExprKind::Match { scrutinee, arms } => {
+                self.compile_match(*scrutinee, *arms, type_id, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Function call (positional args)
+            ExprKind::Call { func, args } => {
+                self.compile_call(*func, *args, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Function call (named args)
+            ExprKind::CallNamed { func, args } => {
+                self.compile_call_named(*func, *args, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Unit
+            ExprKind::Unit => None,
+
+            // Config variable (compile-time constant)
+            ExprKind::Config(name) => {
+                self.compile_config(*name, locals)
+            }
+
+            // Self reference (for recursion)
+            ExprKind::SelfRef => {
+                // Return pointer to current function
+                Some(function.as_global_value().as_pointer_value().into())
+            }
+
+            // Function reference: @name
+            ExprKind::FunctionRef(name) => {
+                self.compile_function_ref(*name)
+            }
+
+            // Hash length: # (refers to length in index context)
+            ExprKind::HashLength => {
+                // This should be resolved during evaluation to the actual length
+                // For now, return 0 as placeholder (context-dependent)
+                Some(self.cx().scx.type_i64().const_int(0, false).into())
+            }
+
+            // Duration literal: 100ms, 5s
+            ExprKind::Duration { value, unit } => {
+                self.compile_duration(*value, *unit)
+            }
+
+            // Size literal: 4kb, 10mb
+            ExprKind::Size { value, unit } => {
+                self.compile_size(*value, *unit)
+            }
+
+            // Block: { stmts; result }
+            ExprKind::Block { stmts, result } => {
+                self.compile_block(*stmts, *result, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Return from function
+            ExprKind::Return(value) => {
+                self.compile_return(*value, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Assignment: target = value
+            ExprKind::Assign { target, value } => {
+                self.compile_assign(*target, *value, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // List literal: [a, b, c]
+            ExprKind::List(range) => {
+                self.compile_list(*range, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Map literal: {k: v, ...}
+            ExprKind::Map(entries) => {
+                self.compile_map(*entries, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Range: start..end
+            ExprKind::Range { start, end, inclusive } => {
+                self.compile_range(*start, *end, *inclusive, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Index access: receiver[index]
+            ExprKind::Index { receiver, index } => {
+                self.compile_index(*receiver, *index, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Method call: receiver.method(args)
+            ExprKind::MethodCall { receiver, method, args } => {
+                self.compile_method_call(*receiver, *method, *args, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Method call with named args
+            ExprKind::MethodCallNamed { receiver, method, args } => {
+                self.compile_method_call_named(*receiver, *method, *args, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Lambda: params -> body
+            ExprKind::Lambda { params, ret_ty: _, body } => {
+                self.compile_lambda(*params, *body, arena, expr_types, locals, function)
+            }
+
+            // For loop: for x in iter do/yield body
+            ExprKind::For { binding, iter, guard, body, is_yield } => {
+                self.compile_for(*binding, *iter, *guard, *body, *is_yield, type_id, arena, expr_types, locals, function)
+            }
+
+            // Await (no-op for sync runtime)
+            ExprKind::Await(inner) => {
+                // Just compile the inner expression - no async support yet
+                self.compile_expr(*inner, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Try expression: expr?
+            ExprKind::Try(inner) => {
+                self.compile_try(*inner, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // With capability provision
+            ExprKind::WithCapability { capability: _, provider: _, body } => {
+                // For now, just compile the body (capability system not yet implemented)
+                self.compile_expr(*body, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Sequential expression patterns (run, try, match)
+            ExprKind::FunctionSeq(seq) => {
+                self.compile_function_seq(seq, type_id, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Named expression patterns (recurse, parallel, etc.)
+            ExprKind::FunctionExp(exp) => {
+                self.compile_function_exp(exp, type_id, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Error placeholder - should not be reached at runtime
+            ExprKind::Error => None,
+        }
+    }
+
+    /// Compile a let binding.
+    #[instrument(skip(self, pattern, arena, expr_types, locals, function, loop_ctx), level = "debug")]
+    pub(crate) fn compile_let(
+        &self,
+        pattern: &BindingPattern,
+        init: ExprId,
+        arena: &ExprArena,
+        expr_types: &[TypeId],
+        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        function: FunctionValue<'ll>,
+        loop_ctx: Option<&LoopContext<'ll>>,
+    ) -> Option<BasicValueEnum<'ll>> {
+        // Compile the initializer
+        let value = self.compile_expr(init, arena, expr_types, locals, function, loop_ctx)?;
+
+        // Bind the value based on the pattern
+        match pattern {
+            BindingPattern::Name(name) => {
+                locals.insert(*name, value);
+            }
+            BindingPattern::Wildcard => {
+                // Discard the value
+            }
+            _ => {
+                // TODO: destructuring patterns
+            }
+        }
+
+        // Let bindings produce the bound value
+        Some(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use inkwell::context::Context;
+    use ori_ir::StringInterner;
+
+    #[test]
+    fn test_builder_arithmetic() {
+        let context = Context::create();
+        let interner = StringInterner::new();
+        let cx = CodegenCx::new(&context, &interner, "test");
+
+        // Create a simple function to have a basic block
+        let fn_type = cx.scx.type_i64().fn_type(&[], false);
+        let function = cx.llmod().add_function("test_fn", fn_type, None);
+        let entry = cx.llcx().append_basic_block(function, "entry");
+
+        let bx = Builder::build(&cx, entry);
+
+        let a = cx.scx.type_i64().const_int(5, false);
+        let b = cx.scx.type_i64().const_int(3, false);
+
+        let sum = bx.add(a, b, "sum");
+        let diff = bx.sub(a, b, "diff");
+        let prod = bx.mul(a, b, "prod");
+
+        // Verify instructions were created
+        assert!(sum.is_const());
+        assert!(diff.is_const());
+        assert!(prod.is_const());
+    }
+
+    #[test]
+    fn test_builder_control_flow() {
+        let context = Context::create();
+        let interner = StringInterner::new();
+        let cx = CodegenCx::new(&context, &interner, "test");
+
+        let fn_type = cx.scx.type_i64().fn_type(&[], false);
+        let function = cx.llmod().add_function("test_fn", fn_type, None);
+        let entry = cx.llcx().append_basic_block(function, "entry");
+        let then_bb = cx.llcx().append_basic_block(function, "then");
+        let else_bb = cx.llcx().append_basic_block(function, "else");
+
+        let bx = Builder::build(&cx, entry);
+
+        let cond = cx.scx.type_i1().const_int(1, false);
+        bx.cond_br(cond, then_bb, else_bb);
+
+        // Verify branching instruction exists
+        assert!(entry.get_terminator().is_some());
+    }
+
+    #[test]
+    fn test_builder_struct_operations() {
+        let context = Context::create();
+        let interner = StringInterner::new();
+        let cx = CodegenCx::new(&context, &interner, "test");
+
+        let fn_type = cx.scx.type_void().fn_type(&[], false);
+        let function = cx.llmod().add_function("test_fn", fn_type, None);
+        let entry = cx.llcx().append_basic_block(function, "entry");
+
+        let bx = Builder::build(&cx, entry);
+
+        // Create a struct type
+        let struct_ty = cx.scx.type_struct(
+            &[cx.scx.type_i64().into(), cx.scx.type_i64().into()],
+            false,
+        );
+
+        // Build a struct value
+        let val1 = cx.scx.type_i64().const_int(1, false).into();
+        let val2 = cx.scx.type_i64().const_int(2, false).into();
+        let struct_val = bx.build_struct(struct_ty, &[val1, val2], "pair");
+
+        // Extract values
+        let _extracted = bx.extract_value(struct_val, 0, "first");
+
+        bx.ret_void();
+    }
+}

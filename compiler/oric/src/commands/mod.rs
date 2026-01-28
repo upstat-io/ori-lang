@@ -4,14 +4,12 @@
 //! Shared utilities like `read_file` live here in the module root.
 
 mod check;
-mod compile;
 mod debug;
 mod explain;
 mod run;
 mod test;
 
 pub(crate) use check::check_file;
-pub(crate) use compile::compile_file;
 pub(crate) use debug::{lex_file, parse_file};
 pub(crate) use explain::explain_error;
 pub(crate) use run::run_file;

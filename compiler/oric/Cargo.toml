@@ -18,7 +18,7 @@ path = "src/main.rs"
 
 [features]
 default = []
-llvm = []  # Requires LLVM installed (add ori_llvm dependency when enabled)
+llvm = ["dep:ori_llvm"]  # Requires LLVM installed - build in container only
 
 [dependencies]
 # Incremental compilation - THE FOUNDATION
@@ -33,10 +33,10 @@ ori_parse.workspace = true
 ori_patterns.workspace = true
 ori_eval.workspace = true
 ori_typeck.workspace = true
-ori_codegen.workspace = true
 
 # Optional LLVM backend (requires LLVM installed)
-# ori_llvm = { workspace = true, optional = true }
+# Path dependency since ori_llvm is excluded from workspace
+ori_llvm = { path = "../ori_llvm", optional = true }
 
 # Lexing
 logos.workspace = true

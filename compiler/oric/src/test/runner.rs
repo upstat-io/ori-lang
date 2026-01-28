@@ -257,6 +257,7 @@ impl TestRunner {
         interner: &crate::ir::StringInterner,
     ) {
         use ori_llvm::evaluator::OwnedLLVMEvaluator;
+        use ori_llvm::FunctionSig;
 
         // Create LLVM evaluator (owns its context)
         let mut llvm_eval = OwnedLLVMEvaluator::new();
@@ -266,6 +267,16 @@ impl TestRunner {
             summary.add_error(e);
             return;
         }
+
+        // Convert function types from typeck to LLVM format
+        let function_sigs: Vec<FunctionSig> = typed_module
+            .function_types
+            .iter()
+            .map(|ft| FunctionSig {
+                params: ft.params.clone(),
+                return_type: ft.return_type,
+            })
+            .collect();
 
         // Run each test
         for test in &parse_result.module.tests {
@@ -288,6 +299,8 @@ impl TestRunner {
                     &parse_result.arena,
                     &parse_result.module,
                     interner,
+                    &typed_module.expr_types,
+                    &function_sigs,
                 )
             };
 
@@ -310,6 +323,8 @@ impl TestRunner {
         arena: &crate::ir::ExprArena,
         module: &crate::ir::Module,
         interner: &crate::ir::StringInterner,
+        expr_types: &[crate::ir::TypeId],
+        function_sigs: &[ori_llvm::FunctionSig],
     ) -> TestResult {
         let test_name = interner.lookup(test.name).to_string();
         let targets: Vec<String> = test
@@ -328,7 +343,15 @@ impl TestRunner {
         let start = Instant::now();
 
         // Evaluate the test body using LLVM JIT
-        match llvm_eval.eval_test(test.name, test.body, arena, module, interner) {
+        match llvm_eval.eval_test(
+            test.name,
+            test.body,
+            arena,
+            module,
+            interner,
+            expr_types,
+            function_sigs,
+        ) {
             Ok(_) => TestResult::passed(test_name, targets, start.elapsed()),
             Err(e) => TestResult::failed(test_name, targets, e.message, start.elapsed()),
         }

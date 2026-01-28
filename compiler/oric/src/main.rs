@@ -5,7 +5,7 @@
 use oric::test::TestRunnerConfig;
 
 mod commands;
-use commands::{check_file, compile_file, explain_error, lex_file, parse_file, run_file, run_tests};
+use commands::{check_file, explain_error, lex_file, parse_file, run_file, run_tests};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -59,21 +59,6 @@ fn main() {
             }
             check_file(&args[2]);
         }
-        "compile" => {
-            if args.len() < 3 {
-                eprintln!("Usage: ori compile <file.ori> [-o output.c]");
-                std::process::exit(1);
-            }
-            let input_file = &args[2];
-            let output_file = if args.len() >= 5 && args[3] == "-o" {
-                args[4].clone()
-            } else {
-                // Default: replace .ori with .c
-                let path = std::path::Path::new(input_file);
-                path.with_extension("c").to_string_lossy().to_string()
-            };
-            compile_file(input_file, &output_file);
-        }
         "parse" => {
             if args.len() < 3 {
                 eprintln!("Usage: ori parse <file.ori>");
@@ -126,15 +111,14 @@ fn print_usage() {
     println!("Usage: ori <command> [options]");
     println!();
     println!("Commands:");
-    println!("  run <file.ori>       Run/evaluate a Ori program");
-    println!("  test [path]         Run tests (default: current directory)");
+    println!("  run <file.ori>       Run/evaluate an Ori program");
+    println!("  test [path]          Run tests (default: current directory)");
     println!("  check <file.ori>     Type check a file (no execution)");
-    println!("  compile <file.ori>   Generate C code (-o output.c)");
     println!("  parse <file.ori>     Parse and display AST info");
     println!("  lex <file.ori>       Tokenize and display tokens");
-    println!("  --explain <code>    Explain an error code (e.g., E2001)");
-    println!("  help                Show this help message");
-    println!("  version             Show version information");
+    println!("  --explain <code>     Explain an error code (e.g., E2001)");
+    println!("  help                 Show this help message");
+    println!("  version              Show version information");
     println!();
     println!("Test options:");
     println!("  --filter=<pattern>  Only run tests matching pattern");
@@ -148,7 +132,6 @@ fn print_usage() {
     println!("  ori test tests/spec/patterns/");
     println!("  ori test --filter=map");
     println!("  ori check lib.ori");
-    println!("  ori compile main.ori -o out.c");
     println!("  ori --explain E2001         # Explain type mismatch");
-    println!("  ori main.ori       (shorthand for 'run')");
+    println!("  ori main.ori                # Shorthand for 'run'");
 }

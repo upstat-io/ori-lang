@@ -9,8 +9,6 @@ use crate::input::SourceFile;
 use crate::ir::TokenList;
 use crate::parser::{self, ParseResult};
 use crate::typeck::{self, TypedModule};
-use ori_codegen::{CCodegen, CodegenResult};
-use ori_types::TypeInterner;
 use std::path::Path;
 
 #[cfg(test)]
@@ -209,50 +207,4 @@ pub fn non_empty_line_count(db: &dyn Db, file: SourceFile) -> usize {
 pub fn first_line(db: &dyn Db, file: SourceFile) -> String {
     let text = file.text(db);
     text.lines().next().unwrap_or("").to_string()
-}
-
-/// Generate C code for a source file.
-///
-/// This query generates optimized C code from a typed Ori module with:
-/// - Unboxed enums for `Option<primitive>` and `Result<primitive, E>`
-/// - Small String Optimization (SSO) for strings ≤23 bytes
-/// - ARC elision based on ownership analysis
-///
-/// # Caching Behavior
-///
-/// - First call: generates C code, caches result
-/// - Subsequent calls (same input): returns cached `CodegenResult`
-/// - After source changes: re-generates only if typed result changed
-#[salsa::tracked]
-pub fn codegen_c(db: &dyn Db, file: SourceFile) -> CodegenResult {
-    let typed_module = typed(db, file);
-
-    // Check for type errors
-    if typed_module.error_guarantee.is_some() {
-        let error_count = typed_module.errors.len();
-        return CodegenResult::error(format!(
-            "{error_count} type error{} - cannot generate code",
-            if error_count == 1 { "" } else { "s" }
-        ));
-    }
-
-    let parse_result = parsed(db, file);
-    if parse_result.has_errors() {
-        return CodegenResult::error("parse errors".to_string());
-    }
-
-    let interner = db.interner();
-    // Create a type interner for type mapping
-    // TODO: Share type interner with type checker for consistency
-    let type_interner = TypeInterner::new();
-
-    // Create codegen with the typed expression types
-    let codegen = CCodegen::new(
-        &parse_result.arena,
-        interner,
-        &type_interner,
-        &typed_module.expr_types,
-    );
-
-    codegen.generate(&parse_result.module)
 }

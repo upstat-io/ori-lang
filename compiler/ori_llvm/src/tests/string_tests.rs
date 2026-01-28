@@ -2,13 +2,13 @@ use inkwell::context::Context;
 use ori_ir::ast::{Expr, ExprKind};
 use ori_ir::{ExprArena, StringInterner, TypeId};
 
-use crate::LLVMCodegen;
+use super::helper::TestCodegen;
 
 #[test]
 fn test_string_literal() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> str { "hello" }
     let mut arena = ExprArena::new();
@@ -46,7 +46,7 @@ fn test_string_literal() {
 fn test_string_multiple() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create two functions that use the same string literal
     // Should reuse the global constant
@@ -92,7 +92,7 @@ fn test_string_multiple() {
     let ir = codegen.print_to_string();
     // Count the actual global declarations (lines starting with @.str)
     let global_count = ir.lines()
-        .filter(|line| line.trim_start().starts_with("@.str."))
+        .filter(|line: &&str| line.trim_start().starts_with("@.str."))
         .count();
     // Should have exactly 1 global string (reused between functions)
     assert_eq!(global_count, 1, "Expected 1 global string constant, found {global_count}");
@@ -102,7 +102,7 @@ fn test_string_multiple() {
 fn test_string_empty() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> str { "" }
     let mut arena = ExprArena::new();

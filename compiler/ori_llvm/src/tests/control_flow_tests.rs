@@ -3,13 +3,13 @@ use ori_ir::ast::patterns::BindingPattern;
 use ori_ir::ast::{BinaryOp, Expr, ExprKind};
 use ori_ir::{ExprArena, StringInterner, TypeId};
 
-use crate::LLVMCodegen;
+use super::helper::TestCodegen;
 
 #[test]
 fn test_let_binding() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> int { let x = 10; let y = 20; x + y }
     let mut arena = ExprArena::new();
@@ -111,7 +111,7 @@ fn test_let_binding() {
 fn test_if_else() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> int { if true then 10 else 20 }
     let mut arena = ExprArena::new();
@@ -161,7 +161,7 @@ fn test_if_else() {
 fn test_if_else_false() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> int { if false then 10 else 20 }
     let mut arena = ExprArena::new();
@@ -209,7 +209,7 @@ fn test_if_else_false() {
 fn test_loop_with_break() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     let mut arena = ExprArena::new();
 
@@ -251,7 +251,7 @@ fn test_loop_with_break() {
 fn test_loop_ir_structure() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     let mut arena = ExprArena::new();
 
@@ -316,7 +316,7 @@ fn test_loop_ir_structure() {
 fn test_assign() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> int { let mut x = 10; x = 20; x }
     // Simplified: let x = 10, then return 10 (since let returns the value)
@@ -357,4 +357,112 @@ fn test_assign() {
     // JIT execute - should return 10
     let result = codegen.jit_execute_i64("test_assign").expect("JIT failed");
     assert_eq!(result, 10);
+}
+
+#[test]
+fn test_break_with_value() {
+    let context = Context::create();
+    let interner = StringInterner::new();
+    let codegen = TestCodegen::new(&context, &interner, "test");
+
+    let mut arena = ExprArena::new();
+
+    // Value to break with
+    let break_val = arena.alloc_expr(Expr {
+        kind: ExprKind::Int(42),
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    // break 42
+    let break_expr = arena.alloc_expr(Expr {
+        kind: ExprKind::Break(Some(break_val)),
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    // loop { break 42 }
+    let loop_expr = arena.alloc_expr(Expr {
+        kind: ExprKind::Loop { body: break_expr },
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    let fn_name = interner.intern("test_break_val");
+    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+
+    codegen.compile_function(
+        fn_name,
+        &[],
+        &[],
+        TypeId::INT,
+        loop_expr,
+        &arena,
+        &expr_types,
+    );
+
+    println!("Break with Value IR:\n{}", codegen.print_to_string());
+
+    // Verify IR contains break structure
+    let ir = codegen.print_to_string();
+    assert!(ir.contains("loop_exit"));
+}
+
+#[test]
+fn test_continue() {
+    let context = Context::create();
+    let interner = StringInterner::new();
+    let codegen = TestCodegen::new(&context, &interner, "test");
+
+    let mut arena = ExprArena::new();
+
+    // Condition to eventually break
+    let cond = arena.alloc_expr(Expr {
+        kind: ExprKind::Bool(true),
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    // continue
+    let cont_expr = arena.alloc_expr(Expr {
+        kind: ExprKind::Continue,
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    // break
+    let break_expr = arena.alloc_expr(Expr {
+        kind: ExprKind::Break(None),
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    // if true then break else continue
+    let if_expr = arena.alloc_expr(Expr {
+        kind: ExprKind::If {
+            cond,
+            then_branch: break_expr,
+            else_branch: Some(cont_expr),
+        },
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    // loop { if true then break else continue }
+    let loop_expr = arena.alloc_expr(Expr {
+        kind: ExprKind::Loop { body: if_expr },
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    let fn_name = interner.intern("test_continue");
+    let expr_types = vec![TypeId::BOOL, TypeId::VOID, TypeId::VOID, TypeId::VOID, TypeId::VOID];
+
+    codegen.compile_function(
+        fn_name,
+        &[],
+        &[],
+        TypeId::VOID,
+        loop_expr,
+        &arena,
+        &expr_types,
+    );
+
+    println!("Continue IR:\n{}", codegen.print_to_string());
+
+    // Verify IR contains loop structure
+    let ir = codegen.print_to_string();
+    assert!(ir.contains("loop_header"));
 }

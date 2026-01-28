@@ -1,19 +1,37 @@
 [package]
 name = "ori_llvm"
-version.workspace = true
-edition.workspace = true
+version = "0.1.0-alpha.1"
+edition = "2021"
 description = "LLVM backend for the Ori compiler"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/anthropics/ori-lang"
+
+# This crate is EXCLUDED from the main workspace because it requires LLVM.
+# Build only in container: ./docker/llvm/run.sh cargo build -p ori_llvm
 
 [dependencies]
 # LLVM bindings
 inkwell = { version = "0.8", features = ["llvm17-0-force-dynamic"] }
 
-# Ori crates
-ori_ir.workspace = true
-ori_types.workspace = true
+# Ori crates (relative paths since excluded from workspace)
+ori_ir = { path = "../ori_ir" }
+ori_types = { path = "../ori_types" }
+
+# Debug instrumentation
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
-pretty_assertions.workspace = true
+pretty_assertions = "1.4"
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Allow for LLVM FFI work
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"

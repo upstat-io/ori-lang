@@ -359,6 +359,41 @@ pub extern "C" fn ori_assert_eq_str(actual: *const OriStr, expected: *const OriS
     }
 }
 
+// -- Type Conversion Functions --
+
+/// Convert an integer to a string.
+///
+/// Returns an OriStr with the string representation.
+#[no_mangle]
+pub extern "C" fn ori_str_from_int(n: i64) -> OriStr {
+    let result = n.to_string();
+    let len = result.len() as i64;
+    let data = result.into_boxed_str();
+    let ptr = Box::into_raw(data) as *const u8;
+    OriStr { len, data: ptr }
+}
+
+/// Convert a boolean to a string.
+#[no_mangle]
+pub extern "C" fn ori_str_from_bool(b: bool) -> OriStr {
+    let result = if b { "true" } else { "false" };
+    // Use static string - no allocation needed
+    OriStr {
+        len: result.len() as i64,
+        data: result.as_ptr(),
+    }
+}
+
+/// Convert a float to a string.
+#[no_mangle]
+pub extern "C" fn ori_str_from_float(f: f64) -> OriStr {
+    let result = f.to_string();
+    let len = result.len() as i64;
+    let data = result.into_boxed_str();
+    let ptr = Box::into_raw(data) as *const u8;
+    OriStr { len, data: ptr }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
