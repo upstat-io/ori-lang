@@ -33,7 +33,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         let mut types: Vec<BasicTypeEnum<'ll>> = Vec::new();
 
         for &elem_id in element_ids {
-            if let Some(val) = self.compile_expr(elem_id, arena, expr_types, locals, function, loop_ctx) {
+            if let Some(val) =
+                self.compile_expr(elem_id, arena, expr_types, locals, function, loop_ctx)
+            {
                 types.push(val.get_type());
                 values.push(val);
             } else {

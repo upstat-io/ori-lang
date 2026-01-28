@@ -45,7 +45,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                 panic!("Struct shorthand not yet supported in LLVM backend")
             });
 
-            if let Some(val) = self.compile_expr(value_id, arena, expr_types, locals, function, loop_ctx) {
+            if let Some(val) =
+                self.compile_expr(value_id, arena, expr_types, locals, function, loop_ctx)
+            {
                 types.push(val.get_type());
                 values.push(val);
             } else {
@@ -77,7 +79,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
         // Compile the receiver (the struct value)
-        let struct_val = self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx)?;
+        let struct_val =
+            self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx)?;
 
         // Get as struct value
         let struct_val = struct_val.into_struct_value();

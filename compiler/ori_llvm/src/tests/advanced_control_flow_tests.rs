@@ -152,7 +152,10 @@ fn test_break_without_loop_context() {
         None, // No loop context
     );
 
-    assert!(result.is_none(), "Break without loop context should return None");
+    assert!(
+        result.is_none(),
+        "Break without loop context should return None"
+    );
 }
 
 #[test]
@@ -167,7 +170,10 @@ fn test_continue_without_loop_context() {
     // Continue without loop context should return None
     let result = builder.compile_continue(None);
 
-    assert!(result.is_none(), "Continue without loop context should return None");
+    assert!(
+        result.is_none(),
+        "Continue without loop context should return None"
+    );
 }
 
 #[test]
@@ -283,7 +289,10 @@ fn test_block_with_empty_statements() {
         None,
     );
 
-    assert!(result.is_some(), "Block with no statements should return result");
+    assert!(
+        result.is_some(),
+        "Block with no statements should return result"
+    );
 }
 
 #[test]
@@ -328,7 +337,10 @@ fn test_block_with_statement_expr() {
         None,
     );
 
-    assert!(result.is_some(), "Block with expr statement should return result");
+    assert!(
+        result.is_some(),
+        "Block with expr statement should return result"
+    );
 }
 
 #[test]
@@ -425,20 +437,16 @@ fn test_return_void() {
     let expr_types = vec![];
     let mut locals = HashMap::new();
 
-    let result = builder.compile_return(
-        None,
-        &arena,
-        &expr_types,
-        &mut locals,
-        function,
-        None,
-    );
+    let result = builder.compile_return(None, &arena, &expr_types, &mut locals, function, None);
 
     assert!(result.is_none(), "Void return doesn't produce a value");
 
     // Verify IR contains void ret
     let ir = cx.llmod().print_to_string().to_string();
-    assert!(ir.contains("ret void"), "Should have void return instruction");
+    assert!(
+        ir.contains("ret void"),
+        "Should have void return instruction"
+    );
 }
 
 #[test]
@@ -478,7 +486,10 @@ fn test_assign_to_variable() {
     );
 
     assert!(result.is_some(), "Assignment should produce the value");
-    assert!(locals.contains_key(&x_name), "x should be in locals after assignment");
+    assert!(
+        locals.contains_key(&x_name),
+        "x should be in locals after assignment"
+    );
 }
 
 #[test]
@@ -516,7 +527,10 @@ fn test_assign_non_ident_target() {
         None,
     );
 
-    assert!(result.is_none(), "Assignment to non-ident should return None");
+    assert!(
+        result.is_none(),
+        "Assignment to non-ident should return None"
+    );
 }
 
 #[test]
@@ -561,7 +575,14 @@ fn test_nested_if_else() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::BOOL, TypeId::INT, TypeId::INT, TypeId::INT, TypeId::BOOL, TypeId::INT];
+    let expr_types = vec![
+        TypeId::BOOL,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::BOOL,
+        TypeId::INT,
+    ];
     let mut locals = HashMap::new();
 
     let result = builder.compile_if(

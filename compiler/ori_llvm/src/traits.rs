@@ -96,12 +96,19 @@ pub trait BuilderMethods<'a>: BackendTypes {
     // -- Comparisons --
 
     /// Integer comparison.
-    fn icmp(&self, pred: IntPredicate, lhs: Self::Value, rhs: Self::Value, name: &str) -> Self::Value;
+    fn icmp(
+        &self,
+        pred: IntPredicate,
+        lhs: Self::Value,
+        rhs: Self::Value,
+        name: &str,
+    ) -> Self::Value;
 
     // -- Calls --
 
     /// Function call.
-    fn call(&self, callee: Self::Function, args: &[Self::Value], name: &str) -> Option<Self::Value>;
+    fn call(&self, callee: Self::Function, args: &[Self::Value], name: &str)
+        -> Option<Self::Value>;
 
     // -- Phi nodes --
 
@@ -114,7 +121,8 @@ pub trait BuilderMethods<'a>: BackendTypes {
 /// High-level operations on the codegen context.
 pub trait CodegenMethods<'tcx>: TypeMethods {
     /// Declare a function.
-    fn declare_fn(&self, name: &str, param_types: &[TypeId], return_type: TypeId) -> Self::Function;
+    fn declare_fn(&self, name: &str, param_types: &[TypeId], return_type: TypeId)
+        -> Self::Function;
 
     /// Get a declared function by name.
     fn get_fn(&self, name: &str) -> Option<Self::Function>;
@@ -205,11 +213,23 @@ impl<'a, 'll, 'tcx> BuilderMethods<'a> for crate::builder::Builder<'a, 'll, 'tcx
         crate::builder::Builder::sdiv(self, lhs.into_int_value(), rhs.into_int_value(), name).into()
     }
 
-    fn icmp(&self, pred: IntPredicate, lhs: Self::Value, rhs: Self::Value, name: &str) -> Self::Value {
-        crate::builder::Builder::icmp(self, pred, lhs.into_int_value(), rhs.into_int_value(), name).into()
+    fn icmp(
+        &self,
+        pred: IntPredicate,
+        lhs: Self::Value,
+        rhs: Self::Value,
+        name: &str,
+    ) -> Self::Value {
+        crate::builder::Builder::icmp(self, pred, lhs.into_int_value(), rhs.into_int_value(), name)
+            .into()
     }
 
-    fn call(&self, callee: Self::Function, args: &[Self::Value], name: &str) -> Option<Self::Value> {
+    fn call(
+        &self,
+        callee: Self::Function,
+        args: &[Self::Value],
+        name: &str,
+    ) -> Option<Self::Value> {
         crate::builder::Builder::call(self, callee, args, name)
     }
 
@@ -220,7 +240,12 @@ impl<'a, 'll, 'tcx> BuilderMethods<'a> for crate::builder::Builder<'a, 'll, 'tcx
 
 /// LLVM codegen methods.
 impl<'ll, 'tcx> CodegenMethods<'tcx> for crate::context::CodegenCx<'ll, 'tcx> {
-    fn declare_fn(&self, name: &str, param_types: &[TypeId], return_type: TypeId) -> Self::Function {
+    fn declare_fn(
+        &self,
+        name: &str,
+        param_types: &[TypeId],
+        return_type: TypeId,
+    ) -> Self::Function {
         let fn_name = self.interner.intern(name);
         crate::context::CodegenCx::declare_fn(self, fn_name, param_types, return_type)
     }

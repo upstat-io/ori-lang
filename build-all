@@ -8,7 +8,7 @@ echo "=== Building workspace ==="
 cargo b
 
 echo ""
-echo "=== Building LLVM crate (Docker) ==="
+echo "=== Building LLVM crate ==="
 ./llvm-build
 
 echo ""

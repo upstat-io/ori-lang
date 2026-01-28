@@ -1,4 +1,4 @@
 #!/bin/bash
-# Run clippy on LLVM crate in Docker container
+# Run clippy on LLVM crate
 # Usage: ./llvm-clippy [additional args...]
-exec ./docker/llvm/run.sh cargo clippy "$@"
+exec cargo clippy --manifest-path compiler/ori_llvm/Cargo.toml "$@"

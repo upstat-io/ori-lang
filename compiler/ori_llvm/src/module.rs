@@ -53,12 +53,7 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
     }
 
     /// Compile a function definition (legacy - uses hardcoded INT types).
-    pub fn compile_function(
-        &self,
-        func: &Function,
-        arena: &ExprArena,
-        expr_types: &[TypeId],
-    ) {
+    pub fn compile_function(&self, func: &Function, arena: &ExprArena, expr_types: &[TypeId]) {
         self.compile_function_with_sig(func, arena, expr_types, None);
     }
 
@@ -107,12 +102,7 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
     /// Compile a test definition.
     ///
     /// Tests are compiled as void functions that call assertions.
-    pub fn compile_test(
-        &self,
-        test: &TestDef,
-        arena: &ExprArena,
-        expr_types: &[TypeId],
-    ) {
+    pub fn compile_test(&self, test: &TestDef, arena: &ExprArena, expr_types: &[TypeId]) {
         // Tests are void -> void functions
         // Phase 1: Declare
         let llvm_func = self.cx.declare_fn(test.name, &[], TypeId::VOID);
@@ -124,14 +114,7 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
         let entry_bb = self.cx.llcx().append_basic_block(llvm_func, "entry");
         let builder = Builder::build(&self.cx, entry_bb);
 
-        builder.compile_function_body(
-            &[],
-            TypeId::VOID,
-            test.body,
-            arena,
-            expr_types,
-            llvm_func,
-        );
+        builder.compile_function_body(&[], TypeId::VOID, test.body, arena, expr_types, llvm_func);
     }
 
     /// Get a compiled function by name.
@@ -172,7 +155,9 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
         }
 
         // Create JIT execution engine
-        let ee = self.cx.llmod()
+        let ee = self
+            .cx
+            .llmod()
             .create_jit_execution_engine(OptimizationLevel::None)
             .map_err(|e| e.to_string())?;
 
@@ -193,8 +178,8 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
 
         // Check if panic occurred
         if crate::runtime::did_panic() {
-            let msg = crate::runtime::get_panic_message()
-                .unwrap_or_else(|| "unknown panic".to_string());
+            let msg =
+                crate::runtime::get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
             Err(msg)
         } else {
             Ok(())
@@ -244,7 +229,7 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ori_ir::ast::{Expr, ExprKind, BinaryOp};
+    use ori_ir::ast::{BinaryOp, Expr, ExprKind};
     use ori_ir::{GenericParamRange, Param};
 
     #[test]

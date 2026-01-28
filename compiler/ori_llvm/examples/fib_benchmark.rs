@@ -44,8 +44,12 @@ fn create_fib_benchmark() {
     builder.position_at_end(entry);
     let one = i64_type.const_int(1, false);
     let zero = i64_type.const_int(0, false);
-    let cond = builder.build_int_compare(IntPredicate::SLE, n, one, "n_le_1").unwrap();
-    builder.build_conditional_branch(cond, exit, loop_header).unwrap();
+    let cond = builder
+        .build_int_compare(IntPredicate::SLE, n, one, "n_le_1")
+        .unwrap();
+    builder
+        .build_conditional_branch(cond, exit, loop_header)
+        .unwrap();
 
     // Loop header: phi nodes for a, b, i
     builder.position_at_end(loop_header);
@@ -77,14 +81,25 @@ fn create_fib_benchmark() {
     i_phi.add_incoming(&[(&two, entry), (&new_i, loop_body)]);
 
     // Check loop condition: i <= n
-    let loop_cond = builder.build_int_compare(IntPredicate::SLE, i_phi.as_basic_value().into_int_value(), n, "i_le_n").unwrap();
-    builder.build_conditional_branch(loop_cond, loop_body, exit).unwrap();
+    let loop_cond = builder
+        .build_int_compare(
+            IntPredicate::SLE,
+            i_phi.as_basic_value().into_int_value(),
+            n,
+            "i_le_n",
+        )
+        .unwrap();
+    builder
+        .build_conditional_branch(loop_cond, loop_body, exit)
+        .unwrap();
 
     // Exit: return b (or n if n <= 1)
     builder.position_at_end(exit);
     let result_phi = builder.build_phi(i64_type, "result").unwrap();
     result_phi.add_incoming(&[(&n, entry), (&b_phi.as_basic_value(), loop_header)]);
-    builder.build_return(Some(&result_phi.as_basic_value())).unwrap();
+    builder
+        .build_return(Some(&result_phi.as_basic_value()))
+        .unwrap();
 
     // Print the IR
     println!("Generated LLVM IR:");
@@ -221,7 +236,13 @@ int main(int argc, char **argv) {
     // Compile
     println!("\nCompiling...");
     let output = std::process::Command::new("cc")
-        .args(["-O2", "-o", "/tmp/fib_bench", "/tmp/fib_bench_main.c", "/tmp/fib_bench.o"])
+        .args([
+            "-O2",
+            "-o",
+            "/tmp/fib_bench",
+            "/tmp/fib_bench_main.c",
+            "/tmp/fib_bench.o",
+        ])
         .output()
         .unwrap();
 

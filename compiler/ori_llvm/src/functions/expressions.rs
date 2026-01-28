@@ -44,7 +44,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
 
                 // Implement as a simple conditional for now
                 if let (Some(cond), Some(base_expr), Some(_step_expr)) = (condition, base, step) {
-                    let cond_val = self.compile_expr(cond, arena, expr_types, locals, function, loop_ctx)?;
+                    let cond_val =
+                        self.compile_expr(cond, arena, expr_types, locals, function, loop_ctx)?;
                     let cond_bool = cond_val.into_int_value();
 
                     let then_bb = self.append_block(function, "recurse_base");
@@ -54,7 +55,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                     self.cond_br(cond_bool, then_bb, else_bb);
 
                     self.position_at_end(then_bb);
-                    let base_val = self.compile_expr(base_expr, arena, expr_types, locals, function, loop_ctx);
+                    let base_val =
+                        self.compile_expr(base_expr, arena, expr_types, locals, function, loop_ctx);
                     let then_exit = self.current_block()?;
                     self.br(merge_bb);
 
@@ -72,7 +74,10 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                     self.position_at_end(merge_bb);
 
                     if let Some(bv) = base_val {
-                        self.build_phi_from_incoming(result_type, &[(bv, then_exit), (step_val, else_exit)])
+                        self.build_phi_from_incoming(
+                            result_type,
+                            &[(bv, then_exit), (step_val, else_exit)],
+                        )
                     } else {
                         Some(step_val)
                     }
@@ -87,7 +92,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                     let name = self.cx().interner.lookup(ne.name);
                     if name == "msg" {
                         // Compile the message (but we don't have a runtime print yet)
-                        let _msg = self.compile_expr(ne.value, arena, expr_types, locals, function, loop_ctx);
+                        let _msg = self
+                            .compile_expr(ne.value, arena, expr_types, locals, function, loop_ctx);
                         // Would call runtime print function here
                     }
                 }

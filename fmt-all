@@ -5,11 +5,11 @@
 set -e
 
 echo "=== Formatting workspace ==="
-cargo fmt
+cargo fmt --all
 
 echo ""
-echo "=== Formatting LLVM crate (Docker) ==="
-./docker/llvm/run.sh cargo fmt
+echo "=== Formatting LLVM crate ==="
+cargo fmt --manifest-path compiler/ori_llvm/Cargo.toml
 
 echo ""
 echo "=== All formatting complete ==="

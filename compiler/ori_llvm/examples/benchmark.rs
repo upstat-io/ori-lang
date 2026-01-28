@@ -5,7 +5,9 @@
 use std::time::Instant;
 
 use inkwell::context::Context;
-use inkwell::targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine};
+use inkwell::targets::{
+    CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
+};
 use inkwell::OptimizationLevel;
 
 use ori_ir::{
@@ -168,7 +170,8 @@ fn benchmark_fib() {
 /// JIT execute a function that returns i64.
 #[allow(unsafe_code)]
 fn jit_execute_i64(compiler: &ModuleCompiler<'_, '_>, fn_name: &str) -> Result<i64, String> {
-    let ee = compiler.module()
+    let ee = compiler
+        .module()
         .create_jit_execution_engine(OptimizationLevel::None)
         .map_err(|e| e.to_string())?;
 
@@ -241,18 +244,20 @@ fn create_standalone_benchmark() {
 
     let fn_name = interner.intern("ori_compute");
     let expr_types = vec![
-        TypeId::INT, TypeId::INT, TypeId::INT, // mul
-        TypeId::INT, TypeId::INT, TypeId::INT, // div
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT, // mul
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT, // div
         TypeId::INT, // add
     ];
 
-    let params = arena.alloc_params([
-        Param {
-            name: n_name,
-            ty: None,
-            span: ori_ir::Span::new(0, 1),
-        },
-    ]);
+    let params = arena.alloc_params([Param {
+        name: n_name,
+        ty: None,
+        span: ori_ir::Span::new(0, 1),
+    }]);
 
     let func = Function {
         name: fn_name,
@@ -273,7 +278,10 @@ fn create_standalone_benchmark() {
     let obj_path = std::path::Path::new("/tmp/ori_bench.o");
 
     // Write LLVM IR
-    compiler.module().print_to_file(ir_path).expect("Failed to write IR");
+    compiler
+        .module()
+        .print_to_file(ir_path)
+        .expect("Failed to write IR");
     println!("  Wrote IR to: {}", ir_path.display());
 
     // Write object file using target machine

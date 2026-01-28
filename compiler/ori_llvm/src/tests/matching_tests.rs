@@ -63,7 +63,13 @@ fn test_match_literal() {
     });
 
     let fn_name = interner.intern("test_match_lit");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+    ];
 
     codegen.compile_function(
         fn_name,
@@ -78,7 +84,9 @@ fn test_match_literal() {
     println!("Match Literal IR:\n{}", codegen.print_to_string());
 
     // JIT execute - should return 100 (matches first arm)
-    let result = codegen.jit_execute_i64("test_match_lit").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_match_lit")
+        .expect("JIT failed");
     assert_eq!(result, 100);
 }
 
@@ -140,7 +148,13 @@ fn test_match_wildcard() {
     });
 
     let fn_name = interner.intern("test_match_wild");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+    ];
 
     codegen.compile_function(
         fn_name,
@@ -155,7 +169,9 @@ fn test_match_wildcard() {
     println!("Match Wildcard IR:\n{}", codegen.print_to_string());
 
     // JIT execute - should return 200 (matches wildcard)
-    let result = codegen.jit_execute_i64("test_match_wild").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_match_wild")
+        .expect("JIT failed");
     assert_eq!(result, 200);
 }
 
@@ -198,14 +214,12 @@ fn test_match_binding() {
         span: ori_ir::Span::new(0, 1),
     });
 
-    let arms = arena.alloc_arms([
-        MatchArm {
-            pattern: MatchPattern::Binding(x_name),
-            guard: None,
-            body,
-            span: ori_ir::Span::new(0, 1),
-        },
-    ]);
+    let arms = arena.alloc_arms([MatchArm {
+        pattern: MatchPattern::Binding(x_name),
+        guard: None,
+        body,
+        span: ori_ir::Span::new(0, 1),
+    }]);
 
     // Match expression
     let match_expr = arena.alloc_expr(Expr {
@@ -229,7 +243,9 @@ fn test_match_binding() {
     println!("Match Binding IR:\n{}", codegen.print_to_string());
 
     // JIT execute - should return 43 (42 + 1)
-    let result = codegen.jit_execute_i64("test_match_bind").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_match_bind")
+        .expect("JIT failed");
     assert_eq!(result, 43);
 }
 
@@ -321,7 +337,9 @@ fn test_match_with_guard_pass() {
     println!("Match Guard Pass IR:\n{}", codegen.print_to_string());
 
     // JIT execute - should return 100 (guard passes: 10 > 5)
-    let result = codegen.jit_execute_i64("test_guard_pass").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_guard_pass")
+        .expect("JIT failed");
     assert_eq!(result, 100);
 }
 
@@ -413,7 +431,9 @@ fn test_match_with_guard_fail() {
     println!("Match Guard Fail IR:\n{}", codegen.print_to_string());
 
     // JIT execute - should return 200 (guard fails: 3 > 5 is false)
-    let result = codegen.jit_execute_i64("test_guard_fail").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_guard_fail")
+        .expect("JIT failed");
     assert_eq!(result, 200);
 }
 
@@ -454,7 +474,9 @@ fn test_match_empty() {
     println!("Match Empty IR:\n{}", codegen.print_to_string());
 
     // JIT execute - should return default (0)
-    let result = codegen.jit_execute_i64("test_match_empty").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_match_empty")
+        .expect("JIT failed");
     assert_eq!(result, 0);
 }
 
@@ -557,6 +579,8 @@ fn test_match_multiple_literals() {
     println!("Match Multiple Literals IR:\n{}", codegen.print_to_string());
 
     // JIT execute - should return 300 (matches third arm)
-    let result = codegen.jit_execute_i64("test_multi_lit").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_multi_lit")
+        .expect("JIT failed");
     assert_eq!(result, 300);
 }

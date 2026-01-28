@@ -11,7 +11,10 @@ use crate::LoopContext;
 
 impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     /// Compile a function call with positional arguments.
-    #[instrument(skip(self, arena, expr_types, locals, function, loop_ctx), level = "debug")]
+    #[instrument(
+        skip(self, arena, expr_types, locals, function, loop_ctx),
+        level = "debug"
+    )]
     pub(crate) fn compile_call(
         &self,
         func: ExprId,
@@ -42,25 +45,29 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         match fn_name {
             "str" => {
                 if arg_ids.len() == 1 {
-                    let arg_val = self.compile_expr(arg_ids[0], arena, expr_types, locals, function, loop_ctx)?;
+                    let arg_val = self
+                        .compile_expr(arg_ids[0], arena, expr_types, locals, function, loop_ctx)?;
                     return self.compile_builtin_str(arg_val);
                 }
             }
             "int" => {
                 if arg_ids.len() == 1 {
-                    let arg_val = self.compile_expr(arg_ids[0], arena, expr_types, locals, function, loop_ctx)?;
+                    let arg_val = self
+                        .compile_expr(arg_ids[0], arena, expr_types, locals, function, loop_ctx)?;
                     return self.compile_builtin_int(arg_val);
                 }
             }
             "float" => {
                 if arg_ids.len() == 1 {
-                    let arg_val = self.compile_expr(arg_ids[0], arena, expr_types, locals, function, loop_ctx)?;
+                    let arg_val = self
+                        .compile_expr(arg_ids[0], arena, expr_types, locals, function, loop_ctx)?;
                     return self.compile_builtin_float(arg_val);
                 }
             }
             "byte" => {
                 if arg_ids.len() == 1 {
-                    let arg_val = self.compile_expr(arg_ids[0], arena, expr_types, locals, function, loop_ctx)?;
+                    let arg_val = self
+                        .compile_expr(arg_ids[0], arena, expr_types, locals, function, loop_ctx)?;
                     return self.compile_builtin_byte(arg_val);
                 }
             }
@@ -69,7 +76,15 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
 
         // Check if this is a closure call (variable holding a function value)
         if let Some(closure_val) = locals.get(&func_name) {
-            return self.compile_closure_call(*closure_val, arg_ids, arena, expr_types, locals, function, loop_ctx);
+            return self.compile_closure_call(
+                *closure_val,
+                arg_ids,
+                arena,
+                expr_types,
+                locals,
+                function,
+                loop_ctx,
+            );
         }
 
         // Look up the function in the module
@@ -79,7 +94,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         let mut compiled_args: Vec<BasicValueEnum<'ll>> = Vec::with_capacity(arg_ids.len());
 
         for &arg_id in arg_ids {
-            let arg_val = self.compile_expr(arg_id, arena, expr_types, locals, function, loop_ctx)?;
+            let arg_val =
+                self.compile_expr(arg_id, arena, expr_types, locals, function, loop_ctx)?;
             compiled_args.push(arg_val);
         }
 
@@ -105,7 +121,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         // Compile regular arguments first
         let mut compiled_args: Vec<BasicValueEnum<'ll>> = Vec::with_capacity(arg_ids.len());
         for &arg_id in arg_ids {
-            let arg_val = self.compile_expr(arg_id, arena, expr_types, locals, function, loop_ctx)?;
+            let arg_val =
+                self.compile_expr(arg_id, arena, expr_types, locals, function, loop_ctx)?;
             compiled_args.push(arg_val);
         }
 
@@ -113,12 +130,15 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         let fn_ptr = match closure_val {
             BasicValueEnum::StructValue(closure_struct) => {
                 // Closure with captures: { i8 tag, i64 fn_ptr, capture0, ... }
-                let fn_ptr_int = self.extract_value(closure_struct, 1, "fn_ptr_int").into_int_value();
+                let fn_ptr_int = self
+                    .extract_value(closure_struct, 1, "fn_ptr_int")
+                    .into_int_value();
 
                 // Extract captured values (fields 2+) and append them to arguments
                 let num_fields = closure_struct.get_type().count_fields();
                 for i in 2..num_fields {
-                    let captured = self.extract_value(closure_struct, i, &format!("capture_{}", i - 2));
+                    let captured =
+                        self.extract_value(closure_struct, i, &format!("capture_{}", i - 2));
                     compiled_args.push(captured);
                 }
 
@@ -182,7 +202,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         let mut compiled_args: Vec<BasicValueEnum<'ll>> = Vec::with_capacity(call_args.len());
 
         for arg in call_args {
-            let arg_val = self.compile_expr(arg.value, arena, expr_types, locals, function, loop_ctx)?;
+            let arg_val =
+                self.compile_expr(arg.value, arena, expr_types, locals, function, loop_ctx)?;
             compiled_args.push(arg_val);
         }
 
@@ -203,14 +224,17 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
         // Compile receiver
-        let recv_val = self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx)?;
+        let recv_val =
+            self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx)?;
 
         // Compile arguments
         let arg_ids = arena.get_expr_list(args);
         let mut compiled_args: Vec<BasicValueEnum<'ll>> = vec![recv_val]; // receiver is first arg
 
         for &arg_id in arg_ids {
-            if let Some(arg_val) = self.compile_expr(arg_id, arena, expr_types, locals, function, loop_ctx) {
+            if let Some(arg_val) =
+                self.compile_expr(arg_id, arena, expr_types, locals, function, loop_ctx)
+            {
                 compiled_args.push(arg_val);
             }
         }
@@ -237,14 +261,17 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
         // Compile receiver
-        let recv_val = self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx)?;
+        let recv_val =
+            self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx)?;
 
         // Compile arguments (receiver first)
         let call_args = arena.get_call_args(args);
         let mut compiled_args: Vec<BasicValueEnum<'ll>> = vec![recv_val];
 
         for arg in call_args {
-            if let Some(arg_val) = self.compile_expr(arg.value, arena, expr_types, locals, function, loop_ctx) {
+            if let Some(arg_val) =
+                self.compile_expr(arg.value, arena, expr_types, locals, function, loop_ctx)
+            {
                 compiled_args.push(arg_val);
             }
         }

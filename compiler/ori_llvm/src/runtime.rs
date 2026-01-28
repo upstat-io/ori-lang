@@ -354,7 +354,9 @@ pub extern "C" fn ori_assert_eq_str(actual: *const OriStr, expected: *const OriS
         eprintln!("assertion failed: \"{actual_str}\" != \"{expected_str}\"");
         PANIC_OCCURRED.store(true, Ordering::SeqCst);
         unsafe {
-            PANIC_MESSAGE = Some(format!("assertion failed: \"{actual_str}\" != \"{expected_str}\""));
+            PANIC_MESSAGE = Some(format!(
+                "assertion failed: \"{actual_str}\" != \"{expected_str}\""
+            ));
         }
     }
 }

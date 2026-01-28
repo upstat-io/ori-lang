@@ -36,7 +36,11 @@ pub mod helper {
     }
 
     impl<'ll, 'tcx> TestCodegen<'ll, 'tcx> {
-        pub fn new(context: &'ll Context, interner: &'tcx StringInterner, module_name: &str) -> Self {
+        pub fn new(
+            context: &'ll Context,
+            interner: &'tcx StringInterner,
+            module_name: &str,
+        ) -> Self {
             let cx = CodegenCx::new(context, interner, module_name);
             cx.declare_runtime_functions();
             Self { cx }
@@ -92,7 +96,9 @@ pub mod helper {
         /// JIT execute a function that returns i64.
         #[allow(unsafe_code)]
         pub fn jit_execute_i64(&self, fn_name: &str) -> Result<i64, String> {
-            let ee = self.cx.llmod()
+            let ee = self
+                .cx
+                .llmod()
                 .create_jit_execution_engine(OptimizationLevel::None)
                 .map_err(|e| e.to_string())?;
 
@@ -110,7 +116,9 @@ pub mod helper {
         /// JIT execute a function that returns bool.
         #[allow(unsafe_code)]
         pub fn jit_execute_bool(&self, fn_name: &str) -> Result<bool, String> {
-            let ee = self.cx.llmod()
+            let ee = self
+                .cx
+                .llmod()
                 .create_jit_execution_engine(OptimizationLevel::None)
                 .map_err(|e| e.to_string())?;
 

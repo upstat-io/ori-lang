@@ -57,13 +57,28 @@ fn test_nested_if() {
 
     let fn_name = interner.intern("test_nested_if");
     let expr_types = vec![
-        TypeId::BOOL, TypeId::INT, TypeId::INT, TypeId::INT,
-        TypeId::BOOL, TypeId::INT, TypeId::INT,
+        TypeId::BOOL,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::BOOL,
+        TypeId::INT,
+        TypeId::INT,
     ];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, outer_if, &arena, &expr_types);
+    codegen.compile_function(
+        fn_name,
+        &[],
+        &[],
+        TypeId::INT,
+        outer_if,
+        &arena,
+        &expr_types,
+    );
 
-    let result = codegen.jit_execute_i64("test_nested_if").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_nested_if")
+        .expect("JIT failed");
     assert_eq!(result, 2);
 }
 
@@ -112,7 +127,14 @@ fn test_if_with_comparison() {
     });
 
     let fn_name = interner.intern("test_if_cmp");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::BOOL, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::BOOL,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+    ];
 
     codegen.compile_function(fn_name, &[], &[], TypeId::INT, if_expr, &arena, &expr_types);
 
@@ -152,7 +174,9 @@ fn test_if_without_else() {
 
     codegen.compile_function(fn_name, &[], &[], TypeId::INT, if_expr, &arena, &expr_types);
 
-    let result = codegen.jit_execute_i64("test_if_no_else").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_if_no_else")
+        .expect("JIT failed");
     assert_eq!(result, 42);
 }
 
@@ -206,13 +230,28 @@ fn test_if_chain() {
 
     let fn_name = interner.intern("test_if_chain");
     let expr_types = vec![
-        TypeId::BOOL, TypeId::BOOL, TypeId::INT, TypeId::INT, TypeId::INT,
-        TypeId::INT, TypeId::INT,
+        TypeId::BOOL,
+        TypeId::BOOL,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
     ];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, outer_if, &arena, &expr_types);
+    codegen.compile_function(
+        fn_name,
+        &[],
+        &[],
+        TypeId::INT,
+        outer_if,
+        &arena,
+        &expr_types,
+    );
 
-    let result = codegen.jit_execute_i64("test_if_chain").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_if_chain")
+        .expect("JIT failed");
     assert_eq!(result, 3);
 }
 
@@ -289,11 +328,20 @@ fn test_multiple_let_bindings() {
     });
 
     let fn_name = interner.intern("test_multi_let");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+    ];
 
     codegen.compile_function(fn_name, &[], &[], TypeId::INT, block, &arena, &expr_types);
 
-    let result = codegen.jit_execute_i64("test_multi_let").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_multi_let")
+        .expect("JIT failed");
     assert_eq!(result, 30);
 }
 

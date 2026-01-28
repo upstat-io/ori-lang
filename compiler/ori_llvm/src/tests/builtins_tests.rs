@@ -28,14 +28,25 @@ fn test_builtin_int_from_int() {
 
     let args = arena.alloc_expr_list([arg]);
     let call_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Call { func: func_ident, args },
+        kind: ExprKind::Call {
+            func: func_ident,
+            args,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
     let fn_name = interner.intern("test_int");
     let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, call_expr, &arena, &expr_types);
+    codegen.compile_function(
+        fn_name,
+        &[],
+        &[],
+        TypeId::INT,
+        call_expr,
+        &arena,
+        &expr_types,
+    );
 
     let result = codegen.jit_execute_i64("test_int").expect("JIT failed");
     assert_eq!(result, 42);
@@ -63,16 +74,29 @@ fn test_builtin_int_from_bool_true() {
 
     let args = arena.alloc_expr_list([arg]);
     let call_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Call { func: func_ident, args },
+        kind: ExprKind::Call {
+            func: func_ident,
+            args,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
     let fn_name = interner.intern("test_int_bool");
     let expr_types = vec![TypeId::BOOL, TypeId::INT, TypeId::INT, TypeId::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, call_expr, &arena, &expr_types);
+    codegen.compile_function(
+        fn_name,
+        &[],
+        &[],
+        TypeId::INT,
+        call_expr,
+        &arena,
+        &expr_types,
+    );
 
-    let result = codegen.jit_execute_i64("test_int_bool").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_int_bool")
+        .expect("JIT failed");
     assert_eq!(result, 1);
 }
 
@@ -98,16 +122,29 @@ fn test_builtin_int_from_bool_false() {
 
     let args = arena.alloc_expr_list([arg]);
     let call_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Call { func: func_ident, args },
+        kind: ExprKind::Call {
+            func: func_ident,
+            args,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
     let fn_name = interner.intern("test_int_bool_false");
     let expr_types = vec![TypeId::BOOL, TypeId::INT, TypeId::INT, TypeId::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, call_expr, &arena, &expr_types);
+    codegen.compile_function(
+        fn_name,
+        &[],
+        &[],
+        TypeId::INT,
+        call_expr,
+        &arena,
+        &expr_types,
+    );
 
-    let result = codegen.jit_execute_i64("test_int_bool_false").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_int_bool_false")
+        .expect("JIT failed");
     assert_eq!(result, 0);
 }
 
@@ -133,16 +170,29 @@ fn test_builtin_int_from_float() {
 
     let args = arena.alloc_expr_list([arg]);
     let call_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Call { func: func_ident, args },
+        kind: ExprKind::Call {
+            func: func_ident,
+            args,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
     let fn_name = interner.intern("test_int_float");
     let expr_types = vec![TypeId::FLOAT, TypeId::INT, TypeId::INT, TypeId::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, call_expr, &arena, &expr_types);
+    codegen.compile_function(
+        fn_name,
+        &[],
+        &[],
+        TypeId::INT,
+        call_expr,
+        &arena,
+        &expr_types,
+    );
 
-    let result = codegen.jit_execute_i64("test_int_float").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_int_float")
+        .expect("JIT failed");
     assert_eq!(result, 3);
 }
 
@@ -168,14 +218,25 @@ fn test_builtin_byte_from_int() {
 
     let args = arena.alloc_expr_list([arg]);
     let call_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Call { func: func_ident, args },
+        kind: ExprKind::Call {
+            func: func_ident,
+            args,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
     let fn_name = interner.intern("test_byte");
     let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::BYTE];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, call_expr, &arena, &expr_types);
+    codegen.compile_function(
+        fn_name,
+        &[],
+        &[],
+        TypeId::INT,
+        call_expr,
+        &arena,
+        &expr_types,
+    );
 
     // Note: byte gets zero-extended to i64 for the return
     let result = codegen.jit_execute_i64("test_byte").expect("JIT failed");
@@ -204,15 +265,28 @@ fn test_builtin_byte_truncation() {
 
     let args = arena.alloc_expr_list([arg]);
     let call_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Call { func: func_ident, args },
+        kind: ExprKind::Call {
+            func: func_ident,
+            args,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
     let fn_name = interner.intern("test_byte_trunc");
     let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::BYTE];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, call_expr, &arena, &expr_types);
+    codegen.compile_function(
+        fn_name,
+        &[],
+        &[],
+        TypeId::INT,
+        call_expr,
+        &arena,
+        &expr_types,
+    );
 
-    let result = codegen.jit_execute_i64("test_byte_trunc").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_byte_trunc")
+        .expect("JIT failed");
     assert_eq!(result & 0xFF, 0);
 }

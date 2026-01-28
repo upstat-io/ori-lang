@@ -85,7 +85,9 @@ fn test_duration_literal() {
     println!("Duration IR:\n{}", codegen.print_to_string());
 
     // JIT execute - should return 5000 (5 seconds in milliseconds)
-    let result = codegen.jit_execute_i64("test_duration").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_duration")
+        .expect("JIT failed");
     assert_eq!(result, 5000);
 }
 

@@ -8,7 +8,7 @@ echo "=== Running clippy on workspace ==="
 cargo cl
 
 echo ""
-echo "=== Running clippy on LLVM crate (Docker) ==="
+echo "=== Running clippy on LLVM crate ==="
 ./llvm-clippy
 
 echo ""

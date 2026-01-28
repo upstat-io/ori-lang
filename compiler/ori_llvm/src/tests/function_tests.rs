@@ -204,7 +204,10 @@ fn test_function_call_nested() {
         span: ori_ir::Span::new(0, 1),
     });
     let inner_call = arena2.alloc_expr(Expr {
-        kind: ExprKind::Call { func: double_ref_inner, args: inner_args },
+        kind: ExprKind::Call {
+            func: double_ref_inner,
+            args: inner_args,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -215,7 +218,10 @@ fn test_function_call_nested() {
         span: ori_ir::Span::new(0, 1),
     });
     let outer_call = arena2.alloc_expr(Expr {
-        kind: ExprKind::Call { func: double_ref_outer, args: outer_args },
+        kind: ExprKind::Call {
+            func: double_ref_outer,
+            args: outer_args,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -305,7 +311,10 @@ fn test_recursive_function() {
         span: ori_ir::Span::new(0, 1),
     });
     let rec_call = arena.alloc_expr(Expr {
-        kind: ExprKind::Call { func: factorial_ref, args: rec_args },
+        kind: ExprKind::Call {
+            func: factorial_ref,
+            args: rec_args,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -358,7 +367,10 @@ fn test_recursive_function() {
         span: ori_ir::Span::new(0, 1),
     });
     let call = arena2.alloc_expr(Expr {
-        kind: ExprKind::Call { func: factorial_ref_main, args },
+        kind: ExprKind::Call {
+            func: factorial_ref_main,
+            args,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -399,15 +411,7 @@ fn test_function_ref() {
     let helper_name = interner.intern("helper");
     let expr_types = vec![TypeId::INT];
 
-    codegen.compile_function(
-        helper_name,
-        &[],
-        &[],
-        TypeId::INT,
-        x,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(helper_name, &[], &[], TypeId::INT, x, &arena, &expr_types);
 
     // Now test FunctionRef
     let mut arena2 = ExprArena::new();
@@ -449,13 +453,11 @@ fn test_lambda_simple() {
     let x_name = interner.intern("x");
 
     // Parameter list with one param
-    let params = arena.alloc_params([
-        ori_ir::ast::Param {
-            name: x_name,
-            ty: None,
-            span: ori_ir::Span::new(0, 1),
-        },
-    ]);
+    let params = arena.alloc_params([ori_ir::ast::Param {
+        name: x_name,
+        ty: None,
+        span: ori_ir::Span::new(0, 1),
+    }]);
 
     // Body: x + 1
     let x_ref = arena.alloc_expr(Expr {

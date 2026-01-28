@@ -40,7 +40,11 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
 
         // Create range struct
         let range_type = self.cx().range_type();
-        let inclusive_val = self.cx().scx.type_i1().const_int(u64::from(inclusive), false);
+        let inclusive_val = self
+            .cx()
+            .scx
+            .type_i1()
+            .const_int(u64::from(inclusive), false);
 
         let range_val = self.build_struct(
             range_type,

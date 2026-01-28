@@ -91,11 +91,15 @@ fn test_string_multiple() {
     // Verify only one global string constant declaration
     let ir = codegen.print_to_string();
     // Count the actual global declarations (lines starting with @.str)
-    let global_count = ir.lines()
+    let global_count = ir
+        .lines()
         .filter(|line: &&str| line.trim_start().starts_with("@.str."))
         .count();
     // Should have exactly 1 global string (reused between functions)
-    assert_eq!(global_count, 1, "Expected 1 global string constant, found {global_count}");
+    assert_eq!(
+        global_count, 1,
+        "Expected 1 global string constant, found {global_count}"
+    );
 }
 
 #[test]

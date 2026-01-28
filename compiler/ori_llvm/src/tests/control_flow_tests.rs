@@ -86,8 +86,16 @@ fn test_let_binding() {
     // The let binding returns the value, so the body is just the let
     // which should return 42
     let expr_types = vec![
-        TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT,
-        TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
     ];
 
     codegen.compile_function(
@@ -140,15 +148,7 @@ fn test_if_else() {
     let fn_name = interner.intern("test_if_true");
     let expr_types = vec![TypeId::BOOL, TypeId::INT, TypeId::INT, TypeId::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        if_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], TypeId::INT, if_expr, &arena, &expr_types);
 
     println!("If/Else IR:\n{}", codegen.print_to_string());
 
@@ -190,18 +190,12 @@ fn test_if_else_false() {
     let fn_name = interner.intern("test_if_false");
     let expr_types = vec![TypeId::BOOL, TypeId::INT, TypeId::INT, TypeId::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        if_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], TypeId::INT, if_expr, &arena, &expr_types);
 
     // JIT execute - if false then 10 else 20 = 20
-    let result = codegen.jit_execute_i64("test_if_false").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_if_false")
+        .expect("JIT failed");
     assert_eq!(result, 20);
 }
 
@@ -291,7 +285,11 @@ fn test_loop_ir_structure() {
 
     let fn_name = interner.intern("test_loop_cond");
     let expr_types = vec![
-        TypeId::BOOL, TypeId::VOID, TypeId::VOID, TypeId::VOID, TypeId::VOID,
+        TypeId::BOOL,
+        TypeId::VOID,
+        TypeId::VOID,
+        TypeId::VOID,
+        TypeId::VOID,
     ];
 
     codegen.compile_function(
@@ -342,15 +340,7 @@ fn test_assign() {
     let fn_name = interner.intern("test_assign");
     let expr_types = vec![TypeId::INT, TypeId::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        let_x,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], TypeId::INT, let_x, &arena, &expr_types);
 
     println!("Assign IR:\n{}", codegen.print_to_string());
 
@@ -448,7 +438,13 @@ fn test_continue() {
     });
 
     let fn_name = interner.intern("test_continue");
-    let expr_types = vec![TypeId::BOOL, TypeId::VOID, TypeId::VOID, TypeId::VOID, TypeId::VOID];
+    let expr_types = vec![
+        TypeId::BOOL,
+        TypeId::VOID,
+        TypeId::VOID,
+        TypeId::VOID,
+        TypeId::VOID,
+    ];
 
     codegen.compile_function(
         fn_name,

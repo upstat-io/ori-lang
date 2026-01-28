@@ -107,9 +107,18 @@ fn test_function_exp_recurse_with_condition() {
 
     // Verify IR was generated
     let ir = cx.llmod().print_to_string().to_string();
-    assert!(ir.contains("recurse_base"), "Should have recurse_base block");
-    assert!(ir.contains("recurse_step"), "Should have recurse_step block");
-    assert!(ir.contains("recurse_merge"), "Should have recurse_merge block");
+    assert!(
+        ir.contains("recurse_base"),
+        "Should have recurse_base block"
+    );
+    assert!(
+        ir.contains("recurse_step"),
+        "Should have recurse_step block"
+    );
+    assert!(
+        ir.contains("recurse_merge"),
+        "Should have recurse_merge block"
+    );
 }
 
 #[test]
@@ -243,7 +252,10 @@ fn test_function_exp_panic() {
 
     // Check that unreachable was generated
     let ir = cx.llmod().print_to_string().to_string();
-    assert!(ir.contains("unreachable"), "Panic should generate unreachable");
+    assert!(
+        ir.contains("unreachable"),
+        "Panic should generate unreachable"
+    );
 }
 
 #[test]
@@ -313,7 +325,10 @@ fn test_function_exp_default_fallback_int() {
         None,
     );
 
-    assert!(result.is_some(), "Int result type should return Some(default)");
+    assert!(
+        result.is_some(),
+        "Int result type should return Some(default)"
+    );
 }
 
 #[test]
@@ -347,5 +362,8 @@ fn test_function_exp_timeout() {
         None,
     );
 
-    assert!(result.is_some(), "Bool result type should return Some(default)");
+    assert!(
+        result.is_some(),
+        "Bool result type should return Some(default)"
+    );
 }

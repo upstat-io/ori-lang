@@ -457,7 +457,10 @@ fn test_function_seq_for_pattern_with_map() {
         None,
     );
 
-    assert!(result.is_some(), "ForPattern with map should return a value");
+    assert!(
+        result.is_some(),
+        "ForPattern with map should return a value"
+    );
 }
 
 #[test]
@@ -478,7 +481,11 @@ fn test_bind_pattern_name() {
 
     assert!(locals.contains_key(&x_name), "x should be bound");
     assert_eq!(
-        locals.get(&x_name).unwrap().into_int_value().get_zero_extended_constant(),
+        locals
+            .get(&x_name)
+            .unwrap()
+            .into_int_value()
+            .get_zero_extended_constant(),
         Some(42),
         "x should be 42"
     );
