@@ -158,6 +158,16 @@
 - Integer-only; zero step panics; mismatched direction produces empty range
 - Blocked on: None (can be implemented independently)
 
+**Iterator Traits** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/iterator-traits-proposal.md`
+- Implementation: Phase 3.7
+- Four core traits: `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`
+- Functional `next()` returning `(Option<Item>, Self)`; fused guarantee
+- Default methods: map, filter, fold, find, collect, rev, last, cycle, etc.
+- Infinite iterators: `repeat(value)` function, `Iterator.cycle()` method
+- Added to prelude: `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`, `repeat`
+- Blocked on: None (builds on existing Phase 3 infrastructure)
+
 ---
 
 ## Milestones
@@ -347,10 +357,12 @@ New prelude enhancements from Rust prelude comparison. See `plan.md` for details
 
 | Proposal | File | Affects Phases |
 |----------|------|----------------|
-| `as` Conversion Syntax | `proposals/drafts/as-conversion-proposal.md` | 7, 15 |
-| Iterator Traits | `proposals/drafts/iterator-traits-proposal.md` | 3, 7 |
 | Debug Trait | `proposals/drafts/debug-trait-proposal.md` | 3, 7 |
 | Developer Functions | `proposals/drafts/developer-functions-proposal.md` | 7 |
+
+**Recently Approved:**
+- `as` Conversion Syntax — approved 2026-01-28
+- Iterator Traits — approved 2026-01-28
 
 **Decisions made (no proposal needed):**
 - NaN comparisons panic (Phase 7.18)

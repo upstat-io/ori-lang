@@ -154,3 +154,41 @@ for(over: items, map: parse, match: Ok(v) -> v, default: fallback)
 ```
 
 Returns first match or default.
+
+## For Loop Desugaring
+
+The `for` loop desugars to use the `Iterable` and `Iterator` traits:
+
+```ori
+// This:
+for x in items do
+    process(x: x)
+
+// Desugars to:
+run(
+    let iter = items.iter(),
+    loop(
+        match(
+            iter.next(),
+            (Some(x), next_iter) -> run(
+                process(x: x),
+                iter = next_iter,
+                continue,
+            ),
+            (None, _) -> break,
+        ),
+    ),
+)
+```
+
+For `for...yield`:
+
+```ori
+// This:
+for x in items yield x * 2
+
+// Desugars to:
+items.iter().map(transform: x -> x * 2).collect()
+```
+
+See [Types § Iterator Traits](06-types.md#iterator-traits) for trait definitions.

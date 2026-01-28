@@ -163,6 +163,47 @@ Use trait objects for heterogeneous collections. Use generics when all elements 
 
 Not all traits can be used as types. Traits with methods that return `Self` or have generic parameters may not be object-safe. The compiler enforces these constraints with clear error messages.
 
+## Iterator Traits
+
+Four traits formalize iteration:
+
+```ori
+trait Iterator {
+    type Item
+    @next (self) -> (Option<Self.Item>, Self)
+}
+
+trait DoubleEndedIterator: Iterator {
+    @next_back (self) -> (Option<Self.Item>, Self)
+}
+
+trait Iterable {
+    type Item
+    @iter (self) -> impl Iterator where Item == Self.Item
+}
+
+trait Collect<T> {
+    @from_iter (iter: impl Iterator where Item == T) -> Self
+}
+```
+
+`Iterator.next()` returns a tuple of the optional value and the updated iterator. This functional approach fits Ori's immutable parameter semantics.
+
+**Fused Guarantee:** Once `next()` returns `(None, iter)`, all subsequent calls must return `(None, _)`.
+
+`Range<float>` does not implement `Iterable` due to floating-point precision ambiguity.
+
+### Standard Implementations
+
+| Type | Implements |
+|------|------------|
+| `[T]` | `Iterable`, `DoubleEndedIterator`, `Collect` |
+| `{K: V}` | `Iterable` (not double-ended) |
+| `Set<T>` | `Iterable`, `Collect` (not double-ended) |
+| `str` | `Iterable`, `DoubleEndedIterator` |
+| `Range<int>` | `Iterable`, `DoubleEndedIterator` |
+| `Option<T>` | `Iterable` |
+
 ## Type Inference
 
 Types inferred where possible. Required annotations:

@@ -109,7 +109,9 @@ Available without import:
 
 **Functions**: `print`, `len`, `is_empty`, `is_some`, `is_none`, `is_ok`, `is_err`, `int`, `float`, `str`, `byte`, `compare`, `min`, `max`, `panic`, all assertions
 
-**Traits**: `Eq`, `Comparable`, `Hashable`, `Printable`, `Clone`, `Default`
+**Traits**: `Eq`, `Comparable`, `Hashable`, `Printable`, `Clone`, `Default`, `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`
+
+**Functions**: `repeat`
 
 ## Standard Library
 

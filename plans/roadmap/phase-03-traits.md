@@ -311,3 +311,101 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
 **Exit Criteria**: Trait-based code compiles and runs ✅
 
 **Phase 3 Complete** (2026-01-25)
+
+---
+
+## 3.7 Iterator Traits
+
+**Proposal**: `proposals/approved/iterator-traits-proposal.md`
+
+Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `Iterable`, and `Collect`. Enables generic programming over any iterable, user types participating in `for` loops, and transformation methods.
+
+### Implementation
+
+- [ ] **Implement**: `Iterator` trait with functional `next()` returning `(Option<Self.Item>, Self)`
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — iterator trait parsing/bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/iterator/iterator.ori`
+  - [ ] **LLVM Support**: LLVM codegen for iterator trait methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+
+- [ ] **Implement**: `DoubleEndedIterator` trait with `next_back()` method
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — double-ended iterator bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/iterator/double_ended.ori`
+  - [ ] **LLVM Support**: LLVM codegen for double-ended iterator methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+
+- [ ] **Implement**: `Iterable` trait with `iter()` method
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — iterable trait bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/iterator/iterable.ori`
+  - [ ] **LLVM Support**: LLVM codegen for iterable trait
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+
+- [ ] **Implement**: `Collect` trait with `from_iter()` method
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — collect trait bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/iterator/collect.ori`
+  - [ ] **LLVM Support**: LLVM codegen for collect trait
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+
+- [ ] **Implement**: Iterator default methods (map, filter, fold, find, collect, count, any, all, take, skip, enumerate, zip, chain, flatten, flat_map, cycle)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — default method type inference
+  - [ ] **Ori Tests**: `tests/spec/traits/iterator/methods.ori`
+  - [ ] **LLVM Support**: LLVM codegen for all iterator methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+
+- [ ] **Implement**: DoubleEndedIterator default methods (rev, last, rfind, rfold)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — double-ended method type inference
+  - [ ] **Ori Tests**: `tests/spec/traits/iterator/double_ended_methods.ori`
+  - [ ] **LLVM Support**: LLVM codegen for double-ended methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+
+- [ ] **Implement**: `repeat(value)` function for infinite iterators
+  - [ ] **Rust Tests**: `oric/src/eval/tests/` — repeat function evaluation
+  - [ ] **Ori Tests**: `tests/spec/traits/iterator/infinite.ori`
+  - [ ] **LLVM Support**: LLVM codegen for repeat
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+
+- [ ] **Implement**: Standard implementations for built-in types
+  - [ ] `[T]` implements `Iterable`, `DoubleEndedIterator`, `Collect`
+  - [ ] `{K: V}` implements `Iterable` (NOT double-ended — unordered)
+  - [ ] `Set<T>` implements `Iterable`, `Collect` (NOT double-ended — unordered)
+  - [ ] `str` implements `Iterable`, `DoubleEndedIterator`
+  - [ ] `Range<int>` implements `Iterable`, `DoubleEndedIterator`
+  - [ ] `Option<T>` implements `Iterable`
+  - [ ] **Note**: `Range<float>` does NOT implement `Iterable` (precision issues)
+  - [ ] **Ori Tests**: `tests/spec/traits/iterator/builtin_impls.ori`
+  - [ ] **LLVM Support**: LLVM codegen for all builtin iterator impls
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+
+- [ ] **Implement**: Helper iterator types (ListIterator, RangeIterator, MapIterator, FilterIterator, RevIterator, CycleIterator, etc.)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — helper type inference
+  - [ ] **Ori Tests**: `tests/spec/traits/iterator/helper_types.ori`
+  - [ ] **LLVM Support**: LLVM codegen for all helper iterator types
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+
+- [ ] **Implement**: Fused iterator guarantee (once None, always None)
+  - [ ] **Rust Tests**: `oric/src/eval/tests/` — fused behavior tests
+  - [ ] **Ori Tests**: `tests/spec/traits/iterator/fused.ori`
+  - [ ] **LLVM Support**: LLVM codegen respects fused guarantee
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+
+- [ ] **Implement**: `for` loop desugaring to `Iterable.iter()` and functional `next()`
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — for loop type checking
+  - [ ] **Ori Tests**: `tests/spec/traits/iterator/for_loop.ori`
+  - [ ] **LLVM Support**: LLVM codegen for desugared for loops
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+
+- [ ] **Implement**: `for...yield` desugaring to `.iter().map().collect()`
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — for yield type checking
+  - [ ] **Ori Tests**: `tests/spec/traits/iterator/for_yield.ori`
+  - [ ] **LLVM Support**: LLVM codegen for desugared for yield
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+
+- [ ] **Implement**: Add traits and `repeat` to prelude
+  - [ ] `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect` traits in prelude
+  - [ ] `repeat` function in prelude
+  - [ ] **Ori Tests**: `tests/spec/traits/iterator/prelude.ori`
+
+- [ ] **Update Spec**: `06-types.md` — add Iterator traits section
+- [ ] **Update Spec**: `10-patterns.md` — document for loop desugaring
+- [ ] **Update Spec**: `12-modules.md` — add to prelude
+- [ ] **Update**: `CLAUDE.md` — add iterator documentation to quick reference
