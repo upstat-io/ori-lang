@@ -24,6 +24,8 @@ Compiler-level control flow and concurrency constructs.
 
 ### run
 
+Sequential expressions with optional pre/post checks.
+
 ```ori
 run(
     let x = compute(),
@@ -31,6 +33,50 @@ run(
     x + y,
 )
 ```
+
+#### Pre/Post Checks
+
+The `run` pattern supports `pre_check:` and `post_check:` properties for contract-style defensive programming:
+
+```ori
+@divide (a: int, b: int) -> int = run(
+    pre_check: b != 0,
+    a div b,
+    post_check: r -> r * b <= a
+)
+
+// Multiple conditions via multiple properties
+@transfer (from: Account, to: Account, amount: int) -> (Account, Account) = run(
+    pre_check: amount > 0 | "amount must be positive",
+    pre_check: from.balance >= amount | "insufficient funds",
+    let new_from = Account { balance: from.balance - amount, ..from },
+    let new_to = Account { balance: to.balance + amount, ..to },
+    (new_from, new_to),
+    post_check: (f, t) -> f.balance + t.balance == from.balance + to.balance,
+)
+```
+
+**Positional constraints** (parser-enforced):
+- `pre_check:` must appear before any body bindings or expressions
+- `post_check:` must appear after the final body expression
+
+**Semantics**:
+1. Evaluate all `pre_check:` conditions in order; panic on failure
+2. Execute body statements and final expression
+3. Bind result to each `post_check:` lambda parameter
+4. Evaluate all `post_check:` conditions in order; panic on failure
+5. Return result
+
+**Scope constraints**:
+- `pre_check:` may only reference bindings visible in the enclosing scope
+- `post_check:` may reference the result, enclosing scope bindings, and body bindings
+
+**Type constraints**:
+- `pre_check:` condition must have type `bool`
+- `post_check:` must be a lambda from result type to `bool`
+- It is a compile-time error to use `post_check:` when the body evaluates to `void`
+
+**Custom messages**: Use `condition | "message"` to provide a custom panic message. Without a message, the compiler embeds the condition's source text.
 
 ### try
 

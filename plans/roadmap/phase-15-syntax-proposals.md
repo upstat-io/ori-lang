@@ -164,7 +164,7 @@ let y = 42  // SYNTAX ERROR
 
 **Proposal**: `proposals/approved/checks-proposal.md`
 
-Extend `run` pattern with `pre_check:` and `post_check:` properties.
+Extend `run` pattern with `pre_check:` and `post_check:` properties for contract-style defensive programming.
 
 ```ori
 @divide (a: int, b: int) -> int = run(
@@ -172,7 +172,24 @@ Extend `run` pattern with `pre_check:` and `post_check:` properties.
     a div b,
     post_check: r -> r * b <= a,
 )
+
+// Multiple conditions via multiple properties
+@transfer (from: Account, to: Account, amount: int) -> (Account, Account) = run(
+    pre_check: amount > 0 | "amount must be positive",
+    pre_check: from.balance >= amount | "insufficient funds",
+    // ... body ...,
+    post_check: (f, t) -> f.balance == from.balance - amount,
+    post_check: (f, t) -> t.balance == to.balance + amount,
+)
 ```
+
+### Key Design Decisions
+
+- **Multiple properties, not list syntax**: Use multiple `pre_check:` / `post_check:` properties instead of `[cond1, cond2]` lists
+- **`|` for messages**: Custom messages use `condition | "message"` syntax (parser disambiguates by context)
+- **Scope constraints**: `pre_check:` can only access outer scope; `post_check:` can access body bindings
+- **Void body**: Compile error if `post_check:` used with void body
+- **Check modes deferred**: `check_mode:` (enforce/observe/ignore) deferred to future proposal
 
 ### Implementation
 
@@ -183,32 +200,52 @@ Extend `run` pattern with `pre_check:` and `post_check:` properties.
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre_check/post_check parsing codegen
 
 - [ ] **Implement**: Parser: Enforce position (pre_check first, post_check last)
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — position enforcement
+  - [ ] **Ori Tests**: `tests/compile-fail/checks/mispositioned_checks.ori`
   - [ ] **LLVM Support**: LLVM codegen for check position enforcement
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — check position enforcement codegen
 
-- [ ] **Implement**: Type checker: Validate pre_check is `bool` or `[bool]`
-  - [ ] **LLVM Support**: LLVM codegen for pre_check type validation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre_check type validation codegen
-
-- [ ] **Implement**: Type checker: Validate post_check is `T -> bool` or `T -> [bool]`
-  - [ ] **LLVM Support**: LLVM codegen for post_check type validation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — post_check type validation codegen
-
-- [ ] **Implement**: Support custom messages with `| "message"` syntax
+- [ ] **Implement**: Parser: Support `| "message"` custom message syntax
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — message parsing
+  - [ ] **Ori Tests**: `tests/spec/patterns/check_messages.ori`
   - [ ] **LLVM Support**: LLVM codegen for custom check messages
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — custom check messages codegen
 
-- [ ] **Implement**: Support list of conditions `[cond1, cond2]`
-  - [ ] **LLVM Support**: LLVM codegen for list of conditions
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — list of conditions codegen
+- [ ] **Implement**: Type checker: Validate pre_check is `bool`
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/pattern.rs` — pre_check type validation
+  - [ ] **Ori Tests**: `tests/compile-fail/checks/pre_check_not_bool.ori`
+  - [ ] **LLVM Support**: LLVM codegen for pre_check type validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre_check type validation codegen
 
-- [ ] **Implement**: Desugar to conditional checks and panics
+- [ ] **Implement**: Type checker: Validate post_check is `T -> bool` lambda
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/pattern.rs` — post_check type validation
+  - [ ] **Ori Tests**: `tests/compile-fail/checks/post_check_not_lambda.ori`
+  - [ ] **LLVM Support**: LLVM codegen for post_check type validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — post_check type validation codegen
+
+- [ ] **Implement**: Type checker: Error when post_check used with void body
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/pattern.rs` — void body error
+  - [ ] **Ori Tests**: `tests/compile-fail/checks/post_check_void_body.ori`
+  - [ ] **LLVM Support**: LLVM codegen for void body error
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — void body error codegen
+
+- [ ] **Implement**: Scope checker: pre_check can only access outer scope
+  - [ ] **Rust Tests**: `oric/src/resolve/scope.rs` — pre_check scope validation
+  - [ ] **Ori Tests**: `tests/compile-fail/checks/pre_check_scope.ori`
+  - [ ] **LLVM Support**: LLVM codegen for pre_check scope validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre_check scope validation codegen
+
+- [ ] **Implement**: Codegen: Desugar to conditional checks and panics
+  - [ ] **Rust Tests**: `oric/src/desugar/checks.rs` — check desugaring
+  - [ ] **Ori Tests**: `tests/spec/patterns/checks_desugaring.ori`
   - [ ] **LLVM Support**: LLVM codegen for check desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — check desugaring codegen
 
-- [ ] **Implement**: Add `$check_mode` global config (enforce/observe/ignore)
-  - [ ] **LLVM Support**: LLVM codegen for check_mode global config
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — check_mode global config codegen
+- [ ] **Implement**: Codegen: Embed source text for default error messages
+  - [ ] **Rust Tests**: `oric/src/desugar/checks.rs` — source text embedding
+  - [ ] **Ori Tests**: `tests/spec/patterns/checks_error_messages.ori`
+  - [ ] **LLVM Support**: LLVM codegen for source text embedding
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — source text embedding codegen
 
 ---
 

@@ -1,8 +1,9 @@
 # Proposal: Pre/Post Checks for the `run` Pattern
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric
 **Created:** 2026-01-21
+**Approved:** 2026-01-28
 
 ---
 
@@ -34,9 +35,9 @@ Currently in Ori, these checks are ad-hoc:
 ```ori
 // Current approach: manual, verbose, inconsistent
 @divide (a: int, b: int) -> int = run(
-    if b == 0 then panic("divisor must be non-zero"),
+    if b == 0 then panic(msg: "divisor must be non-zero"),
     let result = a div b,
-    if !(result * b <= a) then panic("postcondition failed"),
+    if !(result * b <= a) then panic(msg: "postcondition failed"),
     result
 )
 ```
@@ -87,7 +88,7 @@ Adding `pre_check:` and `post_check:` as optional properties requires zero new c
 run(
     pre_check: condition,                    // Optional: checked before body
     pre_check: condition | "message",        // Optional: with custom message
-    pre_check: [cond1, cond2, ...],          // Optional: multiple conditions
+    pre_check: another_condition,            // Optional: multiple checks allowed
 
     // ... body statements and expressions ...,
 
@@ -95,8 +96,17 @@ run(
 
     post_check: result -> condition,         // Optional: checked after body
     post_check: result -> condition | "msg", // Optional: with custom message
-    post_check: result -> [cond1, cond2]     // Optional: multiple conditions
 )
+```
+
+### Grammar
+
+```ebnf
+run_expr        = "run" "(" [ run_prechecks ] { binding "," } expression [ run_postchecks ] ")" .
+run_prechecks   = { "pre_check" ":" check_expr "," } .
+run_postchecks  = { "," "post_check" ":" postcheck_expr } .
+check_expr      = expression [ "|" string_literal ] .
+postcheck_expr  = lambda_params "->" check_expr .
 ```
 
 ### Positional Constraints (Parser-Enforced)
@@ -127,26 +137,15 @@ Valid ordering:
 run(
     pre_check: a > 0,           // First: all pre_checks
     pre_check: b > 0,           // (can have multiple)
-    let x = a + b,               // Then: body
+    let x = a + b,              // Then: body
     let y = x * 2,
-    y,                           // Last expression before post_check
-    post_check: r -> r > 0      // Last: all post_checks
+    y,                          // Last expression before post_check
+    post_check: r -> r > 0,     // Last: all post_checks
+    post_check: r -> r < 1000,
 )
 ```
 
 This constraint ensures the semantics are unambiguous: pre_checks run before any body code, post_checks run after all body code.
-
-#### Why Enforce in Parser?
-
-Alternatives considered:
-
-| Approach | Problem |
-|----------|---------|
-| Convention only | Easy to misplace, ambiguous semantics |
-| Compiler hoisting | Implicit behavior, violates "explicit over implicit" |
-| Separate `body:` property | Adds nesting, changes `run` significantly |
-| **Parser enforcement** | Clear, explicit, matches execution order |
-```
 
 ### Semantics
 
@@ -155,10 +154,22 @@ Alternatives considered:
 1. Evaluate all `pre_check:` conditions in order
 2. If any `pre_check:` fails, panic with message
 3. Execute body statements and final expression
-4. Bind result to `post_check:` parameter
+4. Bind result to each `post_check:` lambda parameter
 5. Evaluate all `post_check:` conditions in order
 6. If any `post_check:` fails, panic with message
 7. Return result
+
+#### Scope Constraints
+
+- `pre_check:` expressions may only reference bindings visible in the enclosing scope (function parameters, module-level constants, and bindings from outer `run` blocks). Bindings created within the same `run` body are not visible to `pre_check:`.
+- `post_check:` lambdas may reference the result (via the lambda parameter) plus all bindings visible to `pre_check:` plus bindings created in the `run` body.
+
+#### Type Constraints
+
+- `pre_check:` condition must have type `bool`
+- `post_check:` must be a lambda from the result type to `bool`
+- It is a compile-time error to use `post_check:` when the `run` body evaluates to `void`
+- Message expressions (after `|`) must have type `str`
 
 #### Desugaring
 
@@ -171,31 +182,16 @@ run(
 
 // Desugars to:
 run(
-    if !P then panic("pre_check failed: " + stringify(P)),
+    if !P then panic(msg: "pre_check failed: P"),  // "P" is source text
     let __result = body,
-    if !Q(__result) then panic("post_check failed: " + stringify(Q)),
+    if !Q(__result) then panic(msg: "post_check failed: Q"),  // "Q" is source text
     __result
 )
 ```
 
-#### Multiple Conditions
+The compiler embeds the condition's source text as a string literal for default messages.
 
-```ori
-run(
-    pre_check: [A, B, C],
-    body
-)
-
-// Desugars to:
-run(
-    if !A then panic("pre_check failed: " + stringify(A)),
-    if !B then panic("pre_check failed: " + stringify(B)),
-    if !C then panic("pre_check failed: " + stringify(C)),
-    body
-)
-```
-
-#### With Messages
+#### With Custom Messages
 
 ```ori
 run(
@@ -205,32 +201,30 @@ run(
 
 // Desugars to:
 run(
-    if !(x > 0) then panic("x must be positive"),
+    if !(x > 0) then panic(msg: "x must be positive"),
     body
 )
 ```
 
-### Check Mode Configuration
-
-Global configuration controls check behavior:
+#### Multiple Checks
 
 ```ori
-$check_mode = enforce  // Default
-```
+run(
+    pre_check: A | "first check",
+    pre_check: B,
+    body,
+    post_check: r -> C,
+    post_check: r -> D | "fourth check",
+)
 
-| Mode | Behavior |
-|------|----------|
-| `enforce` | Check condition, panic on failure |
-| `observe` | Check condition, log warning on failure, continue |
-| `ignore` | Skip all checks (production performance) |
-
-#### Per-Function Override
-
-```ori
-@hot_path (x: int) -> int = run(
-    pre_check: x > 0,
-    check_mode: ignore,  // Override for this function
-    x * 2
+// Desugars to:
+run(
+    if !A then panic(msg: "first check"),
+    if !B then panic(msg: "pre_check failed: B"),
+    let __result = body,
+    if !C(__result) then panic(msg: "post_check failed: C"),
+    if !D(__result) then panic(msg: "fourth check"),
+    __result
 )
 ```
 
@@ -248,12 +242,12 @@ $check_mode = enforce  // Default
 
 @sqrt (x: float) -> float = run(
     pre_check: x >= 0.0,
-    newton_raphson(x),
+    newton_raphson(x: x),
     post_check: r -> r >= 0.0
 )
 
-@get (items: [T], index: int) -> T = run(
-    pre_check: index >= 0 && index < len(items),
+@get<T> (items: [T], index: int) -> T = run(
+    pre_check: index >= 0 && index < len(collection: items),
     items[index]
 )
 ```
@@ -261,15 +255,13 @@ $check_mode = enforce  // Default
 ### Multiple Conditions
 
 ```ori
-@binary_search (items: [T], target: T) -> Option<int> = run(
-    pre_check: [
-        len(items) > 0 | "items must not be empty",
-        is_sorted(items) | "items must be sorted"
-    ],
-    binary_search_impl(items, target, 0, len(items)),
+@binary_search<T: Comparable> (items: [T], target: T) -> Option<int> = run(
+    pre_check: len(collection: items) > 0 | "items must not be empty",
+    pre_check: is_sorted(items: items) | "items must be sorted",
+    binary_search_impl(items: items, target: target, lo: 0, hi: len(collection: items)),
     post_check: r -> match(r,
         Some(i) -> items[i] == target,
-        None -> !items.contains(target)
+        None -> !items.contains(value: target)
     )
 )
 ```
@@ -278,19 +270,15 @@ $check_mode = enforce  // Default
 
 ```ori
 @transfer (from: Account, to: Account, amount: int) -> (Account, Account) = run(
-    pre_check: [
-        amount > 0 | "transfer amount must be positive",
-        from.balance >= amount | "insufficient funds",
-        from.id != to.id | "cannot transfer to same account"
-    ],
+    pre_check: amount > 0 | "transfer amount must be positive",
+    pre_check: from.balance >= amount | "insufficient funds",
+    pre_check: from.id != to.id | "cannot transfer to same account",
     let new_from = Account { id: from.id, balance: from.balance - amount },
     let new_to = Account { id: to.id, balance: to.balance + amount },
     (new_from, new_to),
-    post_check: (f, t) -> [
-        f.balance == from.balance - amount,
-        t.balance == to.balance + amount,
-        f.balance + t.balance == from.balance + to.balance  // Conservation
-    ]
+    post_check: (f, t) -> f.balance == from.balance - amount,
+    post_check: (f, t) -> t.balance == to.balance + amount,
+    post_check: (f, t) -> f.balance + t.balance == from.balance + to.balance,
 )
 ```
 
@@ -299,12 +287,11 @@ $check_mode = enforce  // Default
 ```ori
 // check + try
 @safe_divide (a: int, b: int) -> Result<int, MathError> = run(
-    pre_check: true,  // No precondition needed
     try(
         if b == 0 then Err(MathError.DivideByZero),
         Ok(a div b)
     ),
-    post_check: r -> is_ok(r) || b == 0
+    post_check: r -> is_ok(result: r) || b == 0
 )
 
 // check + validate
@@ -312,7 +299,7 @@ $check_mode = enforce  // Default
     pre_check: input.source == "trusted",
     validate(
         rules: [
-            len(input.name) > 0 | "name required",
+            len(collection: input.name) > 0 | "name required",
             input.age >= 0 | "invalid age"
         ],
         then: User { name: input.name, age: input.age },
@@ -325,20 +312,20 @@ $check_mode = enforce  // Default
 ```ori
 @test_divide tests @divide () -> void = run(
     // Normal cases
-    assert_eq(divide(10, 2), 5),
-    assert_eq(divide(7, 3), 2),
+    assert_eq(actual: divide(a: 10, b: 2), expected: 5),
+    assert_eq(actual: divide(a: 7, b: 3), expected: 2),
 
     // Pre-check violations
-    assert_panics(divide(10, 0))
+    assert_panics(f: () -> divide(a: 10, b: 0))
 )
 
 @test_sqrt tests @sqrt () -> void = run(
     // Normal cases
-    assert_eq(sqrt(4.0), 2.0),
-    assert_eq(sqrt(0.0), 0.0),
+    assert_eq(actual: sqrt(x: 4.0), expected: 2.0),
+    assert_eq(actual: sqrt(x: 0.0), expected: 0.0),
 
     // Pre-check violations
-    assert_panics(sqrt(-1.0))
+    assert_panics(f: () -> sqrt(x: -1.0))
 )
 ```
 
@@ -349,29 +336,28 @@ $check_mode = enforce  // Default
 ### vs. C++26 Contracts
 
 | Aspect | C++26 | Ori |
-|--------|-------|-------|
+|--------|-------|-----|
 | New keywords | Yes (`pre`, `post`, `contract_assert`) | No |
-| New grammar | Yes | No |
+| New grammar | Yes | Minimal extension to `run` |
 | Learning curve | Moderate | Zero (if you know `run`) |
 | Visible in signature | Yes | No (in body) |
 | Incremental adoption | Requires refactoring | Add properties to existing `run` |
-| Evaluation modes | 4 (ignore, observe, enforce, quick-enforce) | 3 (ignore, observe, enforce) |
 
 ### vs. Manual Checks
 
 ```ori
 // Before: manual, verbose
 @sqrt (x: float) -> float = run(
-    if x < 0.0 then panic("x must be non-negative"),
-    let result = newton_raphson(x),
-    if result < 0.0 then panic("result must be non-negative"),
+    if x < 0.0 then panic(msg: "x must be non-negative"),
+    let result = newton_raphson(x: x),
+    if result < 0.0 then panic(msg: "result must be non-negative"),
     result
 )
 
 // After: declarative, clear
 @sqrt (x: float) -> float = run(
     pre_check: x >= 0.0,
-    newton_raphson(x),
+    newton_raphson(x: x),
     post_check: r -> r >= 0.0
 )
 ```
@@ -383,7 +369,7 @@ A dedicated `check` pattern was considered:
 ```ori
 @sqrt (x: float) -> float = check(
     pre: x >= 0.0,
-    body: newton_raphson(x),
+    body: newton_raphson(x: x),
     post: r -> r >= 0.0,
 )
 ```
@@ -403,8 +389,8 @@ Rejected because:
 Ori patterns use named properties (`over:`, `transform:`, `predicate:`). This is consistent:
 
 ```ori
-map(over: items, transform: x -> x * 2)
-filter(over: items, predicate: x -> x > 0)
+for(over: items, match: Some(x) -> x, default: 0)
+recurse(condition: n <= 1, base: n, step: self(n - 1))
 run(pre_check: x > 0, body, post_check: r -> r > x)
 ```
 
@@ -418,6 +404,19 @@ Alternatives considered:
 | `requires:` / `ensures:` | Longer, less obvious |
 | `precondition:` / `postcondition:` | Too verbose |
 | `pre_check:` / `post_check:` | Clear, explicit, action-oriented |
+
+### Why `|` for Messages?
+
+The `|` operator is already used for:
+- Bitwise or (`a | b`)
+- Or-patterns in match (`A | B`)
+- Sum type variants
+
+However, in the context of `pre_check:` and `post_check:`, `|` unambiguously introduces a message string because:
+- It appears after a boolean condition
+- It's followed by a string literal
+
+The parser can disambiguate based on context, similar to how `..` is both range syntax and rest pattern syntax.
 
 ### Why Not in the Signature?
 
@@ -439,7 +438,7 @@ Ori puts them in the body:
 Tradeoffs:
 
 | Signature (C++26) | Body (Ori) |
-|-------------------|--------------|
+|-------------------|------------|
 | Visible without reading body | Requires looking at implementation |
 | Clutters function signature | Keeps signature clean |
 | Requires new syntax | Uses existing pattern syntax |
@@ -458,17 +457,20 @@ Ori's choice is consistent with its philosophy:
 
 ### Parser Changes
 
-Minimal. The `run` pattern parser accepts named properties. Add `pre_check:` and `post_check:` to recognized properties.
+Extend the `run` pattern parser to recognize `pre_check:` and `post_check:` properties. Enforce positional constraints:
+- `pre_check:` must appear before any body bindings/expressions
+- `post_check:` must appear after the final body expression
 
 ### Type Checking
 
-- `pre_check:` expression must have type `bool` or `[bool]`
-- `post_check:` must be a function from result type to `bool` or `[bool]`
+- `pre_check:` expression must have type `bool`
+- `post_check:` must be a lambda from result type to `bool`
+- Compile error if `post_check:` used with void body
 - Message expressions (after `|`) must have type `str`
 
 ### Code Generation
 
-Desugar to explicit conditional checks and panics during AST lowering.
+Desugar to explicit conditional checks and panics during AST lowering. The compiler embeds the source text of conditions for default error messages.
 
 ### Error Messages
 
@@ -487,6 +489,21 @@ PANIC at src/math.ori:12:5
 
 ## Future Extensions
 
+### Check Modes
+
+A future proposal may introduce configurable check behavior:
+
+```ori
+$check_mode = enforce  // Default
+
+// Possible modes:
+// - enforce: Check condition, panic on failure
+// - observe: Check condition, log warning on failure, continue
+// - ignore: Skip all checks (production performance)
+```
+
+This is deferred to allow the core pre_check/post_check mechanism to be established first.
+
 ### Invariant Checks
 
 For types with invariants:
@@ -498,18 +515,6 @@ type BankAccount = { id: str, balance: int }
 // All functions returning BankAccount automatically check invariant
 ```
 
-### Check Inheritance
-
-When a function calls another:
-
-```ori
-@wrapper (x: int) -> int = run(
-    pre_check: x > 0,
-    inner(x),  // inner's pre_checks also apply
-    post_check: r -> r > 0
-)
-```
-
 ### Static Analysis
 
 Tooling could verify that callers satisfy callees' preconditions:
@@ -517,7 +522,7 @@ Tooling could verify that callers satisfy callees' preconditions:
 ```ori
 @caller () -> int = run(
     let x = -5,
-    sqrt(float(x))  // Warning: sqrt pre_check (x >= 0.0) may fail
+    sqrt(x: float(x))  // Warning: sqrt pre_check (x >= 0.0) may fail
 )
 ```
 
@@ -527,10 +532,10 @@ Tooling could verify that callers satisfy callees' preconditions:
 
 The `pre_check:` and `post_check:` properties for `run` provide contract-style defensive programming that:
 
-1. **Requires zero new syntax** - Just named properties on existing pattern
-2. **Has zero learning curve** - If you know `run`, you know this
-3. **Enables incremental adoption** - Add checks to existing code without refactoring
-4. **Is purely Ori** - Patterns + named properties, nothing foreign
-5. **Solves real problems** - Clear preconditions, postconditions, better error messages
+1. **Requires minimal new syntax** — Named properties on existing pattern
+2. **Has zero learning curve** — If you know `run`, you know this
+3. **Enables incremental adoption** — Add checks to existing code without refactoring
+4. **Is purely Ori** — Patterns + named properties, nothing foreign
+5. **Solves real problems** — Clear preconditions, postconditions, better error messages
 
 The design prioritizes consistency with Ori's existing patterns over visibility in function signatures, a tradeoff appropriate for a language with mandatory testing and short function bodies.
