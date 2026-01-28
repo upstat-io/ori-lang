@@ -314,7 +314,41 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
 
 ---
 
-## 3.7 Iterator Traits
+## 3.7 Clone Trait Formal Definition
+
+**Proposal**: `proposals/approved/clone-trait-proposal.md`
+
+Formalizes the `Clone` trait that enables explicit value duplication. The trait is already recognized in trait bounds and derivable, but this proposal adds the formal definition and comprehensive prelude implementations.
+
+### Implementation
+
+- [ ] **Implement**: Formal `Clone` trait definition in type system
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — clone trait parsing
+  - [ ] **Ori Tests**: `tests/spec/traits/clone/definition.ori`
+
+- [ ] **Implement**: Clone implementations for all primitives (int, float, bool, str, char, byte, Duration, Size)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — primitive clone bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/clone/primitives.ori`
+
+- [ ] **Implement**: Clone implementations for collections ([T], {K: V}, Set<T>) with element-wise cloning
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — collection clone bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/clone/collections.ori`
+
+- [ ] **Implement**: Clone implementations for Option<T> and Result<T, E>
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — option/result clone
+  - [ ] **Ori Tests**: `tests/spec/traits/clone/wrappers.ori`
+
+- [ ] **Implement**: Clone implementations for tuples (all arities)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — tuple clone bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/clone/tuples.ori`
+
+- [ ] **Update Spec**: `06-types.md` — add Clone trait section
+- [ ] **Update Spec**: `12-modules.md` — update prelude traits description
+- [ ] **Update**: `CLAUDE.md` — add Clone documentation to quick reference
+
+---
+
+## 3.8 Iterator Traits
 
 **Proposal**: `proposals/approved/iterator-traits-proposal.md`
 

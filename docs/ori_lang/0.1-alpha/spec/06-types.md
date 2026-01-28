@@ -163,6 +163,60 @@ Use trait objects for heterogeneous collections. Use generics when all elements 
 
 Not all traits can be used as types. Traits with methods that return `Self` or have generic parameters may not be object-safe. The compiler enforces these constraints with clear error messages.
 
+## Clone Trait
+
+The `Clone` trait enables explicit value duplication:
+
+```ori
+trait Clone {
+    @clone (self) -> Self
+}
+```
+
+`Clone` creates an independent copy of a value. The clone operation:
+- For value types: returns a copy of the value
+- For reference types: allocates new memory with refcount 1
+- Element-wise recursive: cloning a container clones each element via `.clone()`
+
+After cloning, original and clone have independent reference counts. Modifying the clone does not affect the original.
+
+### Standard Implementations
+
+All primitive types implement `Clone`:
+
+| Type | Implementation |
+|------|----------------|
+| `int`, `float`, `bool`, `str`, `char`, `byte` | Returns copy of self |
+| `Duration`, `Size` | Returns copy of self |
+
+Collections implement `Clone` when their element types implement `Clone`:
+
+| Type | Constraint |
+|------|------------|
+| `[T]` | `T: Clone` |
+| `{K: V}` | `K: Clone, V: Clone` |
+| `Set<T>` | `T: Clone` |
+| `Option<T>` | `T: Clone` |
+| `Result<T, E>` | `T: Clone, E: Clone` |
+| `(A, B, ...)` | All element types: Clone |
+
+### Derivable
+
+`Clone` is derivable for user-defined types when all fields implement `Clone`:
+
+```ori
+#[derive(Clone)]
+type Point = { x: int, y: int }
+```
+
+Derived implementation clones each field.
+
+### Non-Cloneable Types
+
+Some types do not implement `Clone`:
+- Unique resources (file handles, network connections)
+- Types with identity where duplicates would be semantically wrong
+
 ## Iterator Traits
 
 Four traits formalize iteration:

@@ -160,13 +160,22 @@
 
 **Iterator Traits** — ✅ APPROVED 2026-01-28
 - Proposal: `proposals/approved/iterator-traits-proposal.md`
-- Implementation: Phase 3.7
+- Implementation: Phase 3.8
 - Four core traits: `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`
 - Functional `next()` returning `(Option<Item>, Self)`; fused guarantee
 - Default methods: map, filter, fold, find, collect, rev, last, cycle, etc.
 - Infinite iterators: `repeat(value)` function, `Iterator.cycle()` method
 - Added to prelude: `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`, `repeat`
 - Blocked on: None (builds on existing Phase 3 infrastructure)
+
+**Clone Trait** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/clone-trait-proposal.md`
+- Implementation: Phase 3.7
+- Formal definition for `Clone` trait with `@clone (self) -> Self` method
+- Implementations for all primitives including Duration and Size
+- Element-wise recursive cloning for collections
+- Channel integration deferred to parallel-concurrency-proposal
+- Blocked on: None (fills spec gap)
 
 **Pre/Post Checks** — ✅ APPROVED 2026-01-28
 - Proposal: `proposals/approved/checks-proposal.md`

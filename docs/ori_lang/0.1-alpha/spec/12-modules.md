@@ -111,6 +111,19 @@ Available without import:
 
 **Traits**: `Eq`, `Comparable`, `Hashable`, `Printable`, `Clone`, `Default`, `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`
 
+| Trait | Method | Description |
+|-------|--------|-------------|
+| `Eq` | `==`, `!=` | Equality comparison |
+| `Comparable` | `.compare()` | Ordering comparison |
+| `Hashable` | `.hash()` | Hash value for map keys |
+| `Printable` | `.to_str()` | String representation |
+| `Clone` | `.clone()` | Explicit value duplication |
+| `Default` | `.default()` | Default value construction |
+| `Iterator` | `.next()` | Iterate forward |
+| `DoubleEndedIterator` | `.next_back()` | Iterate both directions |
+| `Iterable` | `.iter()` | Produce an iterator |
+| `Collect` | `.from_iter()` | Build from iterator |
+
 **Functions**: `repeat`
 
 ## Standard Library
