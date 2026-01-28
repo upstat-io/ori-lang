@@ -1,6 +1,6 @@
 # Proposal: Clone Trait
 
-**Status:** Approved
+**Status:** Draft
 **Author:** Eric (with Claude)
 **Created:** 2026-01-26
 
