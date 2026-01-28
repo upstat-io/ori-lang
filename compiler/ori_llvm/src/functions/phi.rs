@@ -19,7 +19,10 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         _type_id: TypeId,
         incoming: &[(BasicValueEnum<'ll>, inkwell::basic_block::BasicBlock<'ll>)],
     ) -> Option<BasicValueEnum<'ll>> {
-        trace!("build_phi_from_incoming: {} incoming values", incoming.len());
+        trace!(
+            "build_phi_from_incoming: {} incoming values",
+            incoming.len()
+        );
 
         if incoming.is_empty() {
             trace!("  -> empty incoming, returning None");

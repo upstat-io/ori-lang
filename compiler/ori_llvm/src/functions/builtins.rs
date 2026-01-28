@@ -6,7 +6,10 @@ use crate::builder::Builder;
 
 impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     /// Compile str(x) - convert a value to string.
-    pub(crate) fn compile_builtin_str(&self, val: BasicValueEnum<'ll>) -> Option<BasicValueEnum<'ll>> {
+    pub(crate) fn compile_builtin_str(
+        &self,
+        val: BasicValueEnum<'ll>,
+    ) -> Option<BasicValueEnum<'ll>> {
         match val.get_type() {
             inkwell::types::BasicTypeEnum::IntType(int_ty) => {
                 let bit_width = int_ty.get_bit_width();
@@ -42,7 +45,10 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     }
 
     /// Compile int(x) - convert a value to int.
-    pub(crate) fn compile_builtin_int(&self, val: BasicValueEnum<'ll>) -> Option<BasicValueEnum<'ll>> {
+    pub(crate) fn compile_builtin_int(
+        &self,
+        val: BasicValueEnum<'ll>,
+    ) -> Option<BasicValueEnum<'ll>> {
         match val.get_type() {
             inkwell::types::BasicTypeEnum::IntType(int_ty) => {
                 let bit_width = int_ty.get_bit_width();
@@ -51,15 +57,32 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                     Some(val)
                 } else if bit_width == 1 {
                     // bool -> i64 (0 or 1)
-                    Some(self.zext(val.into_int_value(), self.cx().scx.type_i64(), "bool_to_int").into())
+                    Some(
+                        self.zext(
+                            val.into_int_value(),
+                            self.cx().scx.type_i64(),
+                            "bool_to_int",
+                        )
+                        .into(),
+                    )
                 } else {
                     // Other int types - sign extend to i64
-                    Some(self.sext(val.into_int_value(), self.cx().scx.type_i64(), "int_ext").into())
+                    Some(
+                        self.sext(val.into_int_value(), self.cx().scx.type_i64(), "int_ext")
+                            .into(),
+                    )
                 }
             }
             inkwell::types::BasicTypeEnum::FloatType(_) => {
                 // float -> int (truncate)
-                Some(self.fptosi(val.into_float_value(), self.cx().scx.type_i64(), "float_to_int").into())
+                Some(
+                    self.fptosi(
+                        val.into_float_value(),
+                        self.cx().scx.type_i64(),
+                        "float_to_int",
+                    )
+                    .into(),
+                )
             }
             _ => {
                 // Unknown type - return 0
@@ -69,17 +92,30 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     }
 
     /// Compile float(x) - convert a value to float.
-    pub(crate) fn compile_builtin_float(&self, val: BasicValueEnum<'ll>) -> Option<BasicValueEnum<'ll>> {
+    pub(crate) fn compile_builtin_float(
+        &self,
+        val: BasicValueEnum<'ll>,
+    ) -> Option<BasicValueEnum<'ll>> {
         match val.get_type() {
             inkwell::types::BasicTypeEnum::IntType(int_ty) => {
                 let bit_width = int_ty.get_bit_width();
                 if bit_width == 1 {
                     // bool -> float (0.0 or 1.0)
                     let ext = self.zext(val.into_int_value(), self.cx().scx.type_i64(), "bool_ext");
-                    Some(self.sitofp(ext, self.cx().scx.type_f64(), "bool_to_float").into())
+                    Some(
+                        self.sitofp(ext, self.cx().scx.type_f64(), "bool_to_float")
+                            .into(),
+                    )
                 } else {
                     // int -> float
-                    Some(self.sitofp(val.into_int_value(), self.cx().scx.type_f64(), "int_to_float").into())
+                    Some(
+                        self.sitofp(
+                            val.into_int_value(),
+                            self.cx().scx.type_f64(),
+                            "int_to_float",
+                        )
+                        .into(),
+                    )
                 }
             }
             inkwell::types::BasicTypeEnum::FloatType(_) => {
@@ -94,7 +130,10 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     }
 
     /// Compile byte(x) - convert a value to byte.
-    pub(crate) fn compile_builtin_byte(&self, val: BasicValueEnum<'ll>) -> Option<BasicValueEnum<'ll>> {
+    pub(crate) fn compile_builtin_byte(
+        &self,
+        val: BasicValueEnum<'ll>,
+    ) -> Option<BasicValueEnum<'ll>> {
         match val.get_type() {
             inkwell::types::BasicTypeEnum::IntType(int_ty) => {
                 let bit_width = int_ty.get_bit_width();
@@ -103,7 +142,10 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                     Some(val)
                 } else {
                     // Truncate to i8
-                    Some(self.trunc(val.into_int_value(), self.cx().scx.type_i8(), "to_byte").into())
+                    Some(
+                        self.trunc(val.into_int_value(), self.cx().scx.type_i8(), "to_byte")
+                            .into(),
+                    )
                 }
             }
             _ => {

@@ -168,7 +168,12 @@ impl<'ll> SimpleCx<'ll> {
     }
 
     /// Set the body of a named struct type.
-    pub fn set_struct_body(&self, ty: StructType<'ll>, fields: &[BasicTypeEnum<'ll>], packed: bool) {
+    pub fn set_struct_body(
+        &self,
+        ty: StructType<'ll>,
+        fields: &[BasicTypeEnum<'ll>],
+        packed: bool,
+    ) {
         ty.set_body(fields, packed);
     }
 
@@ -295,13 +300,15 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     /// Create an Option type: { i8 tag, T payload }
     /// tag = 0: None, tag = 1: Some
     pub fn option_type(&self, payload: BasicTypeEnum<'ll>) -> StructType<'ll> {
-        self.scx.type_struct(&[self.scx.type_i8().into(), payload], false)
+        self.scx
+            .type_struct(&[self.scx.type_i8().into(), payload], false)
     }
 
     /// Create a Result type: { i8 tag, T payload }
     /// tag = 0: Ok, tag = 1: Err
     pub fn result_type(&self, payload: BasicTypeEnum<'ll>) -> StructType<'ll> {
-        self.scx.type_struct(&[self.scx.type_i8().into(), payload], false)
+        self.scx
+            .type_struct(&[self.scx.type_i8().into(), payload], false)
     }
 
     /// Get the list type: { i64 len, i64 cap, ptr data }
@@ -400,7 +407,10 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     }
 
     /// Get a default value for an LLVM type.
-    pub fn default_value_for_type(&self, ty: BasicTypeEnum<'ll>) -> inkwell::values::BasicValueEnum<'ll> {
+    pub fn default_value_for_type(
+        &self,
+        ty: BasicTypeEnum<'ll>,
+    ) -> inkwell::values::BasicValueEnum<'ll> {
         match ty {
             BasicTypeEnum::IntType(t) => t.const_int(0, false).into(),
             BasicTypeEnum::FloatType(t) => t.const_float(0.0).into(),

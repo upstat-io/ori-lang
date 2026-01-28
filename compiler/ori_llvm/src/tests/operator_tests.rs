@@ -26,7 +26,11 @@ fn test_subtract() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::Sub, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::Sub,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -57,7 +61,11 @@ fn test_multiply() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::Mul, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::Mul,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -88,7 +96,11 @@ fn test_divide() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::Div, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::Div,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -119,7 +131,11 @@ fn test_modulo() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::Mod, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::Mod,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -152,7 +168,11 @@ fn test_less_than_true() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::Lt, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::Lt,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -183,7 +203,11 @@ fn test_less_than_false() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::Lt, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::Lt,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -192,7 +216,9 @@ fn test_less_than_false() {
 
     codegen.compile_function(fn_name, &[], &[], TypeId::BOOL, expr, &arena, &expr_types);
 
-    let result = codegen.jit_execute_bool("test_lt_false").expect("JIT failed");
+    let result = codegen
+        .jit_execute_bool("test_lt_false")
+        .expect("JIT failed");
     assert!(!result);
 }
 
@@ -214,7 +240,11 @@ fn test_greater_than() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::Gt, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::Gt,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -245,7 +275,11 @@ fn test_less_than_or_equal() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::LtEq, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::LtEq,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -276,7 +310,11 @@ fn test_greater_than_or_equal() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::GtEq, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::GtEq,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -307,7 +345,11 @@ fn test_equal() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::Eq, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::Eq,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -338,7 +380,11 @@ fn test_not_equal() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::NotEq, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::NotEq,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -371,7 +417,11 @@ fn test_logical_and_true() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::And, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::And,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -402,7 +452,11 @@ fn test_logical_and_false() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::And, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::And,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -411,7 +465,9 @@ fn test_logical_and_false() {
 
     codegen.compile_function(fn_name, &[], &[], TypeId::BOOL, expr, &arena, &expr_types);
 
-    let result = codegen.jit_execute_bool("test_and_false").expect("JIT failed");
+    let result = codegen
+        .jit_execute_bool("test_and_false")
+        .expect("JIT failed");
     assert!(!result);
 }
 
@@ -433,7 +489,11 @@ fn test_logical_or_true() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::Or, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::Or,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -464,7 +524,11 @@ fn test_logical_or_false() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::Or, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::Or,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -473,7 +537,9 @@ fn test_logical_or_false() {
 
     codegen.compile_function(fn_name, &[], &[], TypeId::BOOL, expr, &arena, &expr_types);
 
-    let result = codegen.jit_execute_bool("test_or_false").expect("JIT failed");
+    let result = codegen
+        .jit_execute_bool("test_or_false")
+        .expect("JIT failed");
     assert!(!result);
 }
 
@@ -493,7 +559,10 @@ fn test_unary_negate() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Unary { op: UnaryOp::Neg, operand },
+        kind: ExprKind::Unary {
+            op: UnaryOp::Neg,
+            operand,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -520,7 +589,10 @@ fn test_unary_not() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Unary { op: UnaryOp::Not, operand },
+        kind: ExprKind::Unary {
+            op: UnaryOp::Not,
+            operand,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -547,7 +619,10 @@ fn test_unary_not_false() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Unary { op: UnaryOp::Not, operand },
+        kind: ExprKind::Unary {
+            op: UnaryOp::Not,
+            operand,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -556,7 +631,9 @@ fn test_unary_not_false() {
 
     codegen.compile_function(fn_name, &[], &[], TypeId::BOOL, expr, &arena, &expr_types);
 
-    let result = codegen.jit_execute_bool("test_not_false").expect("JIT failed");
+    let result = codegen
+        .jit_execute_bool("test_not_false")
+        .expect("JIT failed");
     assert!(result);
 }
 
@@ -580,7 +657,11 @@ fn test_bitwise_and() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::BitAnd, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::BitAnd,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -611,7 +692,11 @@ fn test_bitwise_or() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::BitOr, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::BitOr,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -642,7 +727,11 @@ fn test_bitwise_xor() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::BitXor, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::BitXor,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -673,7 +762,11 @@ fn test_shift_left() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::Shl, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::Shl,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -704,7 +797,11 @@ fn test_shift_right() {
         span: ori_ir::Span::new(0, 1),
     });
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::Shr, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::Shr,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -737,7 +834,11 @@ fn test_float_add() {
         span: ori_ir::Span::new(0, 1),
     });
     let float_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::Add, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::Add,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -749,16 +850,36 @@ fn test_float_add() {
     });
     let args = arena.alloc_expr_list([float_expr]);
     let call_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Call { func: func_ident, args },
+        kind: ExprKind::Call {
+            func: func_ident,
+            args,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
     let fn_name = interner.intern("test_float_add");
-    let expr_types = vec![TypeId::FLOAT, TypeId::FLOAT, TypeId::FLOAT, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![
+        TypeId::FLOAT,
+        TypeId::FLOAT,
+        TypeId::FLOAT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+    ];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, call_expr, &arena, &expr_types);
+    codegen.compile_function(
+        fn_name,
+        &[],
+        &[],
+        TypeId::INT,
+        call_expr,
+        &arena,
+        &expr_types,
+    );
 
-    let result = codegen.jit_execute_i64("test_float_add").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_float_add")
+        .expect("JIT failed");
     assert_eq!(result, 4);
 }
 
@@ -780,7 +901,11 @@ fn test_float_mul() {
         span: ori_ir::Span::new(0, 1),
     });
     let float_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary { op: BinaryOp::Mul, left, right },
+        kind: ExprKind::Binary {
+            op: BinaryOp::Mul,
+            left,
+            right,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -792,15 +917,35 @@ fn test_float_mul() {
     });
     let args = arena.alloc_expr_list([float_expr]);
     let call_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Call { func: func_ident, args },
+        kind: ExprKind::Call {
+            func: func_ident,
+            args,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
     let fn_name = interner.intern("test_float_mul");
-    let expr_types = vec![TypeId::FLOAT, TypeId::FLOAT, TypeId::FLOAT, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![
+        TypeId::FLOAT,
+        TypeId::FLOAT,
+        TypeId::FLOAT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+    ];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, call_expr, &arena, &expr_types);
+    codegen.compile_function(
+        fn_name,
+        &[],
+        &[],
+        TypeId::INT,
+        call_expr,
+        &arena,
+        &expr_types,
+    );
 
-    let result = codegen.jit_execute_i64("test_float_mul").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_float_mul")
+        .expect("JIT failed");
     assert_eq!(result, 6);
 }

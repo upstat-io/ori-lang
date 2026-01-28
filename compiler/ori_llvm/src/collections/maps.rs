@@ -41,8 +41,12 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         let mut vals: Vec<BasicValueEnum<'ll>> = Vec::new();
 
         for entry in map_entries {
-            if let Some(key) = self.compile_expr(entry.key, arena, expr_types, locals, function, loop_ctx) {
-                if let Some(val) = self.compile_expr(entry.value, arena, expr_types, locals, function, loop_ctx) {
+            if let Some(key) =
+                self.compile_expr(entry.key, arena, expr_types, locals, function, loop_ctx)
+            {
+                if let Some(val) =
+                    self.compile_expr(entry.value, arena, expr_types, locals, function, loop_ctx)
+                {
                     keys.push(key);
                     vals.push(val);
                 }
@@ -63,7 +67,12 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
 
         let map_val = self.build_struct(
             map_type,
-            &[len_val.into(), len_val.into(), null_ptr.into(), null_ptr.into()],
+            &[
+                len_val.into(),
+                len_val.into(),
+                null_ptr.into(),
+                null_ptr.into(),
+            ],
             "map",
         );
 

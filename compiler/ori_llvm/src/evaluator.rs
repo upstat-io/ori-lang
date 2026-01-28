@@ -7,8 +7,8 @@ use std::collections::HashMap;
 
 use inkwell::context::Context;
 
-use ori_ir::{ExprArena, ExprId, Name, StringInterner, TypeId};
 use ori_ir::ast::Module;
+use ori_ir::{ExprArena, ExprId, Name, StringInterner, TypeId};
 
 use crate::module::ModuleCompiler;
 use crate::runtime;
@@ -321,7 +321,7 @@ impl Default for OwnedLLVMEvaluator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ori_ir::ast::{Expr, ExprKind, BinaryOp};
+    use ori_ir::ast::{BinaryOp, Expr, ExprKind};
 
     #[test]
     fn test_llvm_evaluator_simple() {

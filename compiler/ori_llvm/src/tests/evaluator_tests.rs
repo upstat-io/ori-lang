@@ -226,7 +226,10 @@ fn test_function_sig_debug() {
 
     let debug_str = format!("{:?}", sig);
     assert!(debug_str.contains("params"), "Debug should show params");
-    assert!(debug_str.contains("return_type"), "Debug should show return_type");
+    assert!(
+        debug_str.contains("return_type"),
+        "Debug should show return_type"
+    );
 }
 
 #[test]

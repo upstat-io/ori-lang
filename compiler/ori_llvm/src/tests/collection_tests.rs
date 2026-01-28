@@ -273,7 +273,7 @@ fn test_none() {
     // Note: LLVM optimizes { i8 0, i64 0 } to zeroinitializer
     let ir = codegen.print_to_string();
     assert!(ir.contains("{ i8, i64 }")); // Tag + payload struct
-    // None produces zeroinitializer (tag=0, value=0)
+                                         // None produces zeroinitializer (tag=0, value=0)
     assert!(ir.contains("zeroinitializer") || ir.contains("i8 0"));
 }
 
@@ -576,7 +576,13 @@ fn test_map_with_entries() {
     });
 
     let fn_name = interner.intern("test_map_entries");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+    ];
 
     codegen.compile_function(
         fn_name,
@@ -637,7 +643,13 @@ fn test_tuple_index() {
     });
 
     let fn_name = interner.intern("test_tuple_idx");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+    ];
 
     codegen.compile_function(
         fn_name,
@@ -652,7 +664,9 @@ fn test_tuple_index() {
     println!("Tuple Index IR:\n{}", codegen.print_to_string());
 
     // JIT execute - should return 10 (first element)
-    let result = codegen.jit_execute_i64("test_tuple_idx").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_tuple_idx")
+        .expect("JIT failed");
     assert_eq!(result, 10);
 }
 
@@ -697,7 +711,13 @@ fn test_tuple_index_second() {
     });
 
     let fn_name = interner.intern("test_tuple_idx2");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+        TypeId::INT,
+    ];
 
     codegen.compile_function(
         fn_name,
@@ -712,6 +732,8 @@ fn test_tuple_index_second() {
     println!("Tuple Index Second IR:\n{}", codegen.print_to_string());
 
     // JIT execute - should return 20 (second element)
-    let result = codegen.jit_execute_i64("test_tuple_idx2").expect("JIT failed");
+    let result = codegen
+        .jit_execute_i64("test_tuple_idx2")
+        .expect("JIT failed");
     assert_eq!(result, 20);
 }

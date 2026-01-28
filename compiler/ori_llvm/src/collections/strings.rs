@@ -25,14 +25,14 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             let ptr = global.as_pointer_value();
 
             // Create string struct { len, data_ptr }
-            let len = self.cx().scx.type_i64().const_int(string_content.len() as u64, false);
+            let len = self
+                .cx()
+                .scx
+                .type_i64()
+                .const_int(string_content.len() as u64, false);
             let string_struct = self.cx().string_type();
 
-            let struct_val = self.build_struct(
-                string_struct,
-                &[len.into(), ptr.into()],
-                "str",
-            );
+            let struct_val = self.build_struct(string_struct, &[len.into(), ptr.into()], "str");
 
             return Some(struct_val.into());
         }
@@ -42,7 +42,10 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         let string_const = self.cx().llcx().const_string(&string_bytes, false);
 
         // Create global variable for the string data
-        let global = self.cx().llmod().add_global(string_const.get_type(), None, &global_name);
+        let global = self
+            .cx()
+            .llmod()
+            .add_global(string_const.get_type(), None, &global_name);
         global.set_linkage(inkwell::module::Linkage::Private);
         global.set_constant(true);
         global.set_initializer(&string_const);
@@ -51,14 +54,14 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         let ptr = global.as_pointer_value();
 
         // Create string struct { len, data_ptr }
-        let len = self.cx().scx.type_i64().const_int(string_content.len() as u64, false);
+        let len = self
+            .cx()
+            .scx
+            .type_i64()
+            .const_int(string_content.len() as u64, false);
         let string_struct = self.cx().string_type();
 
-        let struct_val = self.build_struct(
-            string_struct,
-            &[len.into(), ptr.into()],
-            "str",
-        );
+        let struct_val = self.build_struct(string_struct, &[len.into(), ptr.into()], "str");
 
         Some(struct_val.into())
     }

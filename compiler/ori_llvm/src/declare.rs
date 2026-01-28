@@ -49,7 +49,8 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
         let fn_type = if return_type == TypeId::VOID {
             self.scx.type_void_func(&param_llvm_types)
         } else {
-            self.scx.type_func(&param_llvm_types, self.llvm_type(return_type))
+            self.scx
+                .type_func(&param_llvm_types, self.llvm_type(return_type))
         };
 
         // Add function to module
@@ -137,21 +138,37 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
         // Assertion functions
         self.declare_extern_fn("ori_assert", &[bool_ty.into()], void);
         self.declare_extern_fn("ori_assert_eq_int", &[i64_ty.into(), i64_ty.into()], void);
-        self.declare_extern_fn("ori_assert_eq_bool", &[bool_ty.into(), bool_ty.into()], void);
+        self.declare_extern_fn(
+            "ori_assert_eq_bool",
+            &[bool_ty.into(), bool_ty.into()],
+            void,
+        );
         self.declare_extern_fn("ori_assert_eq_str", &[ptr_ty.into(), ptr_ty.into()], void);
 
         // List functions
-        self.declare_extern_fn("ori_list_new", &[i64_ty.into(), i64_ty.into()], Some(ptr_ty));
+        self.declare_extern_fn(
+            "ori_list_new",
+            &[i64_ty.into(), i64_ty.into()],
+            Some(ptr_ty),
+        );
         self.declare_extern_fn("ori_list_free", &[ptr_ty.into(), i64_ty.into()], void);
         self.declare_extern_fn("ori_list_len", &[ptr_ty.into()], Some(i64_ty));
 
         // Comparison functions
-        self.declare_extern_fn("ori_compare_int", &[i64_ty.into(), i64_ty.into()], Some(i32_ty));
+        self.declare_extern_fn(
+            "ori_compare_int",
+            &[i64_ty.into(), i64_ty.into()],
+            Some(i32_ty),
+        );
         self.declare_extern_fn("ori_min_int", &[i64_ty.into(), i64_ty.into()], Some(i64_ty));
         self.declare_extern_fn("ori_max_int", &[i64_ty.into(), i64_ty.into()], Some(i64_ty));
 
         // String functions
-        self.declare_extern_fn("ori_str_concat", &[ptr_ty.into(), ptr_ty.into()], Some(str_ty));
+        self.declare_extern_fn(
+            "ori_str_concat",
+            &[ptr_ty.into(), ptr_ty.into()],
+            Some(str_ty),
+        );
         self.declare_extern_fn("ori_str_eq", &[ptr_ty.into(), ptr_ty.into()], Some(bool_ty));
         self.declare_extern_fn("ori_str_ne", &[ptr_ty.into(), ptr_ty.into()], Some(bool_ty));
 
@@ -198,7 +215,11 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     ///
     /// Returns a pointer to the string data. The string is stored as a
     /// null-terminated constant in the data section.
-    pub fn declare_global_string(&self, value: &str, name: &str) -> inkwell::values::GlobalValue<'ll> {
+    pub fn declare_global_string(
+        &self,
+        value: &str,
+        name: &str,
+    ) -> inkwell::values::GlobalValue<'ll> {
         let bytes = value.as_bytes();
         let array_type = self.scx.type_i8().array_type((bytes.len() + 1) as u32);
 

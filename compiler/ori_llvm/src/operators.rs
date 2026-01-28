@@ -125,23 +125,47 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             }
 
             BinaryOp::Lt => self.compile_comparison(
-                inkwell::FloatPredicate::OLT, inkwell::IntPredicate::SLT,
-                "flt", "ilt", is_struct, is_float, lhs, rhs,
+                inkwell::FloatPredicate::OLT,
+                inkwell::IntPredicate::SLT,
+                "flt",
+                "ilt",
+                is_struct,
+                is_float,
+                lhs,
+                rhs,
             ),
 
             BinaryOp::LtEq => self.compile_comparison(
-                inkwell::FloatPredicate::OLE, inkwell::IntPredicate::SLE,
-                "fle", "ile", is_struct, is_float, lhs, rhs,
+                inkwell::FloatPredicate::OLE,
+                inkwell::IntPredicate::SLE,
+                "fle",
+                "ile",
+                is_struct,
+                is_float,
+                lhs,
+                rhs,
             ),
 
             BinaryOp::Gt => self.compile_comparison(
-                inkwell::FloatPredicate::OGT, inkwell::IntPredicate::SGT,
-                "fgt", "igt", is_struct, is_float, lhs, rhs,
+                inkwell::FloatPredicate::OGT,
+                inkwell::IntPredicate::SGT,
+                "fgt",
+                "igt",
+                is_struct,
+                is_float,
+                lhs,
+                rhs,
             ),
 
             BinaryOp::GtEq => self.compile_comparison(
-                inkwell::FloatPredicate::OGE, inkwell::IntPredicate::SGE,
-                "fge", "ige", is_struct, is_float, lhs, rhs,
+                inkwell::FloatPredicate::OGE,
+                inkwell::IntPredicate::SGE,
+                "fge",
+                "ige",
+                is_struct,
+                is_float,
+                lhs,
+                rhs,
             ),
 
             // Logical
@@ -281,17 +305,11 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         _result_type: TypeId,
     ) -> Option<BasicValueEnum<'ll>> {
         match op {
-            UnaryOp::Neg => {
-                match val {
-                    BasicValueEnum::IntValue(i) => {
-                        Some(self.neg(i, "neg").into())
-                    }
-                    BasicValueEnum::FloatValue(f) => {
-                        Some(self.fneg(f, "fneg").into())
-                    }
-                    _ => None,
-                }
-            }
+            UnaryOp::Neg => match val {
+                BasicValueEnum::IntValue(i) => Some(self.neg(i, "neg").into()),
+                BasicValueEnum::FloatValue(f) => Some(self.fneg(f, "fneg").into()),
+                _ => None,
+            },
 
             UnaryOp::Not => {
                 let i = val.into_int_value();

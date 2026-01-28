@@ -11,7 +11,10 @@ use crate::LoopContext;
 
 impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     /// Compile an if/else expression.
-    #[instrument(skip(self, arena, expr_types, locals, function, loop_ctx), level = "debug")]
+    #[instrument(
+        skip(self, arena, expr_types, locals, function, loop_ctx),
+        level = "debug"
+    )]
     pub(crate) fn compile_if(
         &self,
         cond: ExprId,
@@ -38,7 +41,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
 
         // Compile then branch
         self.position_at_end(then_bb);
-        let then_val = self.compile_expr(then_branch, arena, expr_types, locals, function, loop_ctx);
+        let then_val =
+            self.compile_expr(then_branch, arena, expr_types, locals, function, loop_ctx);
         let then_exit_bb = self.current_block()?;
         self.br(merge_bb);
 
@@ -63,10 +67,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         // If both branches produce values, create a phi node
         match (then_val, else_val) {
             (Some(t), Some(e)) => {
-                self.build_phi_from_incoming(result_type, &[
-                    (t, then_exit_bb),
-                    (e, else_exit_bb),
-                ])
+                self.build_phi_from_incoming(result_type, &[(t, then_exit_bb), (e, else_exit_bb)])
             }
             _ => None,
         }
@@ -105,7 +106,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         };
 
         // Compile loop body
-        let _body_val = self.compile_expr(body, arena, expr_types, locals, function, Some(&loop_ctx));
+        let _body_val =
+            self.compile_expr(body, arena, expr_types, locals, function, Some(&loop_ctx));
 
         // If we haven't branched away (no break/continue), loop back
         if self.current_block()?.get_terminator().is_none() {
@@ -164,7 +166,10 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     }
 
     /// Compile a for loop.
-    #[expect(clippy::too_many_arguments, reason = "for-loop compilation requires loop context, arena, and type state")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "for-loop compilation requires loop context, arena, and type state"
+    )]
     pub(crate) fn compile_for(
         &self,
         binding: Name,
@@ -184,7 +189,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         // For simplicity, assume iter_val is a list struct { len, cap, data }
         // Extract length and data pointer
         let iter_struct = iter_val.into_struct_value();
-        let len = self.extract_value(iter_struct, 0, "iter_len").into_int_value();
+        let len = self
+            .extract_value(iter_struct, 0, "iter_len")
+            .into_int_value();
         let _data_ptr = self.extract_value(iter_struct, 2, "iter_data");
 
         // Create loop blocks
@@ -201,7 +208,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
 
         // Header: check if index < len
         self.position_at_end(header_bb);
-        let idx = self.load(self.cx().scx.type_i64().into(), idx_ptr, "idx").into_int_value();
+        let idx = self
+            .load(self.cx().scx.type_i64().into(), idx_ptr, "idx")
+            .into_int_value();
         let cond = self.icmp(inkwell::IntPredicate::SLT, idx, len, "for_cond");
         self.cond_br(cond, body_bb, exit_bb);
 
@@ -213,7 +222,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
 
         // Handle guard if present
         if let Some(guard_id) = guard {
-            let guard_val = self.compile_expr(guard_id, arena, expr_types, locals, function, None)?;
+            let guard_val =
+                self.compile_expr(guard_id, arena, expr_types, locals, function, None)?;
             let guard_bool = guard_val.into_int_value();
 
             let guard_pass_bb = self.append_block(function, "guard_pass");
@@ -223,7 +233,11 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
 
             // Guard fail: increment and continue
             self.position_at_end(guard_fail_bb);
-            let next_idx = self.add(idx, self.cx().scx.type_i64().const_int(1, false), "next_idx");
+            let next_idx = self.add(
+                idx,
+                self.cx().scx.type_i64().const_int(1, false),
+                "next_idx",
+            );
             self.store(next_idx.into(), idx_ptr);
             self.br(header_bb);
 
@@ -234,8 +248,14 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         let _body_val = self.compile_expr(body, arena, expr_types, locals, function, None);
 
         // Increment index
-        let current_idx = self.load(self.cx().scx.type_i64().into(), idx_ptr, "cur_idx").into_int_value();
-        let next_idx = self.add(current_idx, self.cx().scx.type_i64().const_int(1, false), "next_idx");
+        let current_idx = self
+            .load(self.cx().scx.type_i64().into(), idx_ptr, "cur_idx")
+            .into_int_value();
+        let next_idx = self.add(
+            current_idx,
+            self.cx().scx.type_i64().const_int(1, false),
+            "next_idx",
+        );
         self.store(next_idx.into(), idx_ptr);
 
         // Loop back
@@ -268,7 +288,10 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     }
 
     /// Compile a try expression (error propagation).
-    #[instrument(skip(self, arena, expr_types, locals, function, loop_ctx), level = "debug")]
+    #[instrument(
+        skip(self, arena, expr_types, locals, function, loop_ctx),
+        level = "debug"
+    )]
     pub(crate) fn compile_try(
         &self,
         inner: ExprId,
@@ -285,7 +308,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         let result_struct = result_val.into_struct_value();
 
         // Extract tag
-        let tag = self.extract_value(result_struct, 0, "try_tag").into_int_value();
+        let tag = self
+            .extract_value(result_struct, 0, "try_tag")
+            .into_int_value();
 
         // Check if Ok (tag == 0)
         let is_ok = self.icmp(
@@ -340,9 +365,16 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                     // Evaluate for side effects
                     self.compile_expr(*expr_id, arena, expr_types, locals, function, loop_ctx);
                 }
-                StmtKind::Let { pattern, ty: _, init, mutable: _ } => {
+                StmtKind::Let {
+                    pattern,
+                    ty: _,
+                    init,
+                    mutable: _,
+                } => {
                     // Compile the let binding
-                    self.compile_let(pattern, *init, arena, expr_types, locals, function, loop_ctx);
+                    self.compile_let(
+                        pattern, *init, arena, expr_types, locals, function, loop_ctx,
+                    );
                 }
             }
         }

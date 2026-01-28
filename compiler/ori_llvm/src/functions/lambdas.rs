@@ -87,7 +87,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         }
 
         // Compile lambda body
-        let result = self.compile_expr(body, arena, expr_types, &mut lambda_locals, lambda_fn, None);
+        let result =
+            self.compile_expr(body, arena, expr_types, &mut lambda_locals, lambda_fn, None);
 
         // Return result
         if let Some(val) = result {
@@ -126,11 +127,12 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         for (_, capture_val) in &captures {
             field_types.push(self.cx().scx.type_i64().into());
             // Coerce captured value to i64
-            let coerced: BasicValueEnum<'ll> = if let Some(int_val) = self.coerce_to_i64(*capture_val) {
-                int_val.into()
-            } else {
-                *capture_val
-            };
+            let coerced: BasicValueEnum<'ll> =
+                if let Some(int_val) = self.coerce_to_i64(*capture_val) {
+                    int_val.into()
+                } else {
+                    *capture_val
+                };
             field_values.push(coerced);
         }
 
@@ -207,7 +209,11 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                 }
             }
 
-            ExprKind::If { cond, then_branch, else_branch } => {
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
                 self.collect_free_vars(*cond, arena, bound, locals, captures, seen);
                 self.collect_free_vars(*then_branch, arena, bound, locals, captures, seen);
                 if let Some(else_id) = else_branch {

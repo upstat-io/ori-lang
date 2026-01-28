@@ -13,7 +13,10 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     /// Compile Some(value).
     ///
     /// Uses standardized { i8 tag, i64 payload } layout to match function signatures.
-    #[instrument(skip(self, arena, expr_types, locals, function, loop_ctx), level = "debug")]
+    #[instrument(
+        skip(self, arena, expr_types, locals, function, loop_ctx),
+        level = "debug"
+    )]
     pub(crate) fn compile_some(
         &self,
         inner: ExprId,
@@ -36,11 +39,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         // Build the struct: { tag = 1, value = payload }
         let tag = self.cx().scx.type_i8().const_int(1, false); // 1 = Some
 
-        let struct_val = self.build_struct(
-            opt_type,
-            &[tag.into(), payload.into()],
-            "some",
-        );
+        let struct_val = self.build_struct(opt_type, &[tag.into(), payload.into()], "some");
 
         Some(struct_val.into())
     }
@@ -64,11 +63,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         let tag = self.cx().scx.type_i8().const_int(0, false); // 0 = None
         let default_val = self.cx().default_value_for_type(payload_type);
 
-        let struct_val = self.build_struct(
-            opt_type,
-            &[tag.into(), default_val],
-            "none",
-        );
+        let struct_val = self.build_struct(opt_type, &[tag.into(), default_val], "none");
 
         Some(struct_val.into())
     }
@@ -76,7 +71,10 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     /// Compile Ok(value).
     ///
     /// Uses standardized { i8 tag, i64 payload } layout to match function signatures.
-    #[instrument(skip(self, arena, expr_types, locals, function, loop_ctx), level = "debug")]
+    #[instrument(
+        skip(self, arena, expr_types, locals, function, loop_ctx),
+        level = "debug"
+    )]
     pub(crate) fn compile_ok(
         &self,
         inner: Option<ExprId>,
@@ -104,11 +102,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         // Build the struct: { tag = 0, value = payload }
         let tag = self.cx().scx.type_i8().const_int(0, false); // 0 = Ok
 
-        let struct_val = self.build_struct(
-            result_type,
-            &[tag.into(), payload.into()],
-            "ok",
-        );
+        let struct_val = self.build_struct(result_type, &[tag.into(), payload.into()], "ok");
 
         Some(struct_val.into())
     }
@@ -116,7 +110,10 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     /// Compile Err(value).
     ///
     /// Uses standardized { i8 tag, i64 payload } layout to match function signatures.
-    #[instrument(skip(self, arena, expr_types, locals, function, loop_ctx), level = "debug")]
+    #[instrument(
+        skip(self, arena, expr_types, locals, function, loop_ctx),
+        level = "debug"
+    )]
     pub(crate) fn compile_err(
         &self,
         inner: Option<ExprId>,
@@ -144,11 +141,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         // Build the struct: { tag = 1, value = payload }
         let tag = self.cx().scx.type_i8().const_int(1, false); // 1 = Err
 
-        let struct_val = self.build_struct(
-            result_type,
-            &[tag.into(), payload.into()],
-            "err",
-        );
+        let struct_val = self.build_struct(result_type, &[tag.into(), payload.into()], "err");
 
         Some(struct_val.into())
     }

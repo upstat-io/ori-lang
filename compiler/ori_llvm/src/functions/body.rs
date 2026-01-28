@@ -27,9 +27,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         let mut locals: HashMap<Name, BasicValueEnum<'ll>> = HashMap::new();
 
         for (i, &param_name) in param_names.iter().enumerate() {
-            let param_value = function.get_nth_param(i as u32).unwrap_or_else(|| {
-                panic!("Missing parameter {i}")
-            });
+            let param_value = function
+                .get_nth_param(i as u32)
+                .unwrap_or_else(|| panic!("Missing parameter {i}"));
             param_value.set_name(self.cx().interner.lookup(param_name));
             locals.insert(param_name, param_value);
         }
@@ -111,7 +111,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         }
 
         // Int to int coercion
-        if let (BasicValueEnum::IntValue(iv), BasicTypeEnum::IntType(target_int)) = (val, target_type) {
+        if let (BasicValueEnum::IntValue(iv), BasicTypeEnum::IntType(target_int)) =
+            (val, target_type)
+        {
             let val_width = iv.get_type().get_bit_width();
             let target_width = target_int.get_bit_width();
             return if val_width < target_width {

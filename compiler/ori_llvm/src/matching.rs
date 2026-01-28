@@ -18,7 +18,10 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     /// 1. Evaluate scrutinee
     /// 2. For each arm: check pattern, if match execute body, else try next arm
     /// 3. Use phi node to merge results from all arms
-    #[instrument(skip(self, arena, expr_types, locals, function, loop_ctx), level = "debug")]
+    #[instrument(
+        skip(self, arena, expr_types, locals, function, loop_ctx),
+        level = "debug"
+    )]
     pub(crate) fn compile_match(
         &self,
         scrutinee: ExprId,
@@ -31,7 +34,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
         // Compile the scrutinee
-        let scrutinee_val = self.compile_expr(scrutinee, arena, expr_types, locals, function, loop_ctx)?;
+        let scrutinee_val =
+            self.compile_expr(scrutinee, arena, expr_types, locals, function, loop_ctx)?;
 
         // Get the arms
         let arms = arena.get_arms(arms);
@@ -52,7 +56,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         let unreachable_bb = self.append_block(function, "match_unreachable");
 
         // Track incoming values for the phi node
-        let mut incoming: Vec<(BasicValueEnum<'ll>, inkwell::basic_block::BasicBlock<'ll>)> = Vec::new();
+        let mut incoming: Vec<(BasicValueEnum<'ll>, inkwell::basic_block::BasicBlock<'ll>)> =
+            Vec::new();
 
         // Process each arm
         for (i, arm) in arms.iter().enumerate() {
@@ -69,7 +74,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             };
 
             // Check the pattern
-            let matches = self.compile_pattern_check(&arm.pattern, scrutinee_val, arena, expr_types);
+            let matches =
+                self.compile_pattern_check(&arm.pattern, scrutinee_val, arena, expr_types);
 
             if let Some(cond) = matches {
                 // Conditional branch based on pattern match
@@ -87,7 +93,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
 
             // Compile guard if present
             if let Some(guard) = arm.guard {
-                let guard_val = self.compile_expr(guard, arena, expr_types, locals, function, loop_ctx)?;
+                let guard_val =
+                    self.compile_expr(guard, arena, expr_types, locals, function, loop_ctx)?;
                 let guard_bool = guard_val.into_int_value();
 
                 // If guard fails, go to next arm
@@ -97,7 +104,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             }
 
             // Compile arm body
-            let body_val = self.compile_expr(arm.body, arena, expr_types, locals, function, loop_ctx);
+            let body_val =
+                self.compile_expr(arm.body, arena, expr_types, locals, function, loop_ctx);
 
             // Jump to merge block
             let arm_exit_bb = self.current_block()?;
@@ -151,22 +159,12 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                     ExprKind::Int(n) => {
                         let expected = self.cx().scx.type_i64().const_int(*n as u64, true);
                         let actual = scrutinee.into_int_value();
-                        Some(self.icmp(
-                            inkwell::IntPredicate::EQ,
-                            actual,
-                            expected,
-                            "lit_match",
-                        ))
+                        Some(self.icmp(inkwell::IntPredicate::EQ, actual, expected, "lit_match"))
                     }
                     ExprKind::Bool(b) => {
                         let expected = self.cx().scx.type_i1().const_int(u64::from(*b), false);
                         let actual = scrutinee.into_int_value();
-                        Some(self.icmp(
-                            inkwell::IntPredicate::EQ,
-                            actual,
-                            expected,
-                            "bool_match",
-                        ))
+                        Some(self.icmp(inkwell::IntPredicate::EQ, actual, expected, "bool_match"))
                     }
                     _ => {
                         // Unsupported literal type - treat as always match for now

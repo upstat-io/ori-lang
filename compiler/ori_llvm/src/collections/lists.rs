@@ -41,7 +41,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         // Compile each element
         let mut values: Vec<BasicValueEnum<'ll>> = Vec::new();
         for &elem_id in elements {
-            if let Some(val) = self.compile_expr(elem_id, arena, expr_types, locals, function, loop_ctx) {
+            if let Some(val) =
+                self.compile_expr(elem_id, arena, expr_types, locals, function, loop_ctx)
+            {
                 values.push(val);
             }
         }

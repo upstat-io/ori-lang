@@ -28,7 +28,11 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
 
     /// Compile a duration literal.
     /// Durations are stored as i64 milliseconds.
-    pub(crate) fn compile_duration(&self, value: u64, unit: DurationUnit) -> Option<BasicValueEnum<'ll>> {
+    pub(crate) fn compile_duration(
+        &self,
+        value: u64,
+        unit: DurationUnit,
+    ) -> Option<BasicValueEnum<'ll>> {
         let millis = unit.to_millis(value);
         Some(self.cx().scx.type_i64().const_int(millis, false).into())
     }

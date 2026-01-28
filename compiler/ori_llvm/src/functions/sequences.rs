@@ -23,34 +23,60 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
         match seq {
-            FunctionSeq::Run { bindings, result, .. } => {
+            FunctionSeq::Run {
+                bindings, result, ..
+            } => {
                 // Execute bindings sequentially
                 let seq_bindings = arena.get_seq_bindings(*bindings);
                 for binding in seq_bindings {
-                    self.compile_seq_binding(binding, arena, expr_types, locals, function, loop_ctx);
+                    self.compile_seq_binding(
+                        binding, arena, expr_types, locals, function, loop_ctx,
+                    );
                 }
                 // Return result
                 self.compile_expr(*result, arena, expr_types, locals, function, loop_ctx)
             }
 
-            FunctionSeq::Try { bindings, result, .. } => {
+            FunctionSeq::Try {
+                bindings, result, ..
+            } => {
                 // Execute bindings with error propagation
                 let seq_bindings = arena.get_seq_bindings(*bindings);
                 for binding in seq_bindings {
                     // Compile binding with try semantics (unwrap Result, propagate errors)
-                    self.compile_try_binding(binding, arena, expr_types, locals, function, loop_ctx)?;
+                    self.compile_try_binding(
+                        binding, arena, expr_types, locals, function, loop_ctx,
+                    )?;
                 }
                 self.compile_expr(*result, arena, expr_types, locals, function, loop_ctx)
             }
 
-            FunctionSeq::Match { scrutinee, arms, .. } => {
+            FunctionSeq::Match {
+                scrutinee, arms, ..
+            } => {
                 // Delegate to existing match compilation
-                self.compile_match(*scrutinee, *arms, result_type, arena, expr_types, locals, function, loop_ctx)
+                self.compile_match(
+                    *scrutinee,
+                    *arms,
+                    result_type,
+                    arena,
+                    expr_types,
+                    locals,
+                    function,
+                    loop_ctx,
+                )
             }
 
-            FunctionSeq::ForPattern { over, map, arm: _, default, .. } => {
+            FunctionSeq::ForPattern {
+                over,
+                map,
+                arm: _,
+                default,
+                ..
+            } => {
                 // Compile the for pattern
-                let iter_val = self.compile_expr(*over, arena, expr_types, locals, function, loop_ctx)?;
+                let iter_val =
+                    self.compile_expr(*over, arena, expr_types, locals, function, loop_ctx)?;
 
                 // Apply map if present
                 let _mapped = if let Some(map_fn) = map {
@@ -76,9 +102,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
         match binding {
-            SeqBinding::Let { pattern, value, .. } => {
-                self.compile_let(pattern, *value, arena, expr_types, locals, function, loop_ctx)
-            }
+            SeqBinding::Let { pattern, value, .. } => self.compile_let(
+                pattern, *value, arena, expr_types, locals, function, loop_ctx,
+            ),
             SeqBinding::Stmt { expr, .. } => {
                 self.compile_expr(*expr, arena, expr_types, locals, function, loop_ctx)
             }
@@ -101,7 +127,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         match binding {
             SeqBinding::Let { pattern, value, .. } => {
                 // Compile the value expression
-                let result_val = self.compile_expr(*value, arena, expr_types, locals, function, loop_ctx)?;
+                let result_val =
+                    self.compile_expr(*value, arena, expr_types, locals, function, loop_ctx)?;
 
                 // Check if the value is a struct (Result/Option type)
                 if let BasicValueEnum::StructValue(struct_val) = result_val {
@@ -109,7 +136,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                     // We assume Result structs have { i8 tag, T value } layout
                     if struct_val.get_type().count_fields() == 2 {
                         // Extract tag to check if Ok or Err
-                        let tag = self.extract_value(struct_val, 0, "try_tag").into_int_value();
+                        let tag = self
+                            .extract_value(struct_val, 0, "try_tag")
+                            .into_int_value();
 
                         // Check if Ok (tag == 0)
                         let is_ok = self.icmp(

@@ -101,7 +101,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
 
     /// Build an unreachable terminator.
     pub fn unreachable(&self) {
-        self.llbuilder.build_unreachable().expect("build_unreachable");
+        self.llbuilder
+            .build_unreachable()
+            .expect("build_unreachable");
     }
 
     // -- Arithmetic --
@@ -168,7 +170,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         rhs: inkwell::values::FloatValue<'ll>,
         name: &str,
     ) -> inkwell::values::FloatValue<'ll> {
-        self.llbuilder.build_float_add(lhs, rhs, name).expect("fadd")
+        self.llbuilder
+            .build_float_add(lhs, rhs, name)
+            .expect("fadd")
     }
 
     /// Build floating-point subtraction.
@@ -178,7 +182,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         rhs: inkwell::values::FloatValue<'ll>,
         name: &str,
     ) -> inkwell::values::FloatValue<'ll> {
-        self.llbuilder.build_float_sub(lhs, rhs, name).expect("fsub")
+        self.llbuilder
+            .build_float_sub(lhs, rhs, name)
+            .expect("fsub")
     }
 
     /// Build floating-point multiplication.
@@ -188,7 +194,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         rhs: inkwell::values::FloatValue<'ll>,
         name: &str,
     ) -> inkwell::values::FloatValue<'ll> {
-        self.llbuilder.build_float_mul(lhs, rhs, name).expect("fmul")
+        self.llbuilder
+            .build_float_mul(lhs, rhs, name)
+            .expect("fmul")
     }
 
     /// Build floating-point division.
@@ -198,7 +206,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         rhs: inkwell::values::FloatValue<'ll>,
         name: &str,
     ) -> inkwell::values::FloatValue<'ll> {
-        self.llbuilder.build_float_div(lhs, rhs, name).expect("fdiv")
+        self.llbuilder
+            .build_float_div(lhs, rhs, name)
+            .expect("fdiv")
     }
 
     /// Build floating-point remainder.
@@ -208,7 +218,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         rhs: inkwell::values::FloatValue<'ll>,
         name: &str,
     ) -> inkwell::values::FloatValue<'ll> {
-        self.llbuilder.build_float_rem(lhs, rhs, name).expect("frem")
+        self.llbuilder
+            .build_float_rem(lhs, rhs, name)
+            .expect("frem")
     }
 
     /// Build floating-point negation.
@@ -294,7 +306,12 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     }
 
     /// Build load from pointer.
-    pub fn load(&self, ty: BasicTypeEnum<'ll>, ptr: PointerValue<'ll>, name: &str) -> BasicValueEnum<'ll> {
+    pub fn load(
+        &self,
+        ty: BasicTypeEnum<'ll>,
+        ptr: PointerValue<'ll>,
+        name: &str,
+    ) -> BasicValueEnum<'ll> {
         self.llbuilder.build_load(ty, ptr, name).expect("load")
     }
 
@@ -306,7 +323,12 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     // -- Aggregate operations --
 
     /// Build extract value from aggregate (struct, array).
-    pub fn extract_value(&self, agg: StructValue<'ll>, index: u32, name: &str) -> BasicValueEnum<'ll> {
+    pub fn extract_value(
+        &self,
+        agg: StructValue<'ll>,
+        index: u32,
+        name: &str,
+    ) -> BasicValueEnum<'ll> {
         self.llbuilder
             .build_extract_value(agg, index, name)
             .expect("extract_value")
@@ -343,18 +365,39 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     // -- Casts --
 
     /// Build truncate (to smaller integer).
-    pub fn trunc(&self, val: IntValue<'ll>, ty: inkwell::types::IntType<'ll>, name: &str) -> IntValue<'ll> {
-        self.llbuilder.build_int_truncate(val, ty, name).expect("trunc")
+    pub fn trunc(
+        &self,
+        val: IntValue<'ll>,
+        ty: inkwell::types::IntType<'ll>,
+        name: &str,
+    ) -> IntValue<'ll> {
+        self.llbuilder
+            .build_int_truncate(val, ty, name)
+            .expect("trunc")
     }
 
     /// Build zero-extend (to larger integer).
-    pub fn zext(&self, val: IntValue<'ll>, ty: inkwell::types::IntType<'ll>, name: &str) -> IntValue<'ll> {
-        self.llbuilder.build_int_z_extend(val, ty, name).expect("zext")
+    pub fn zext(
+        &self,
+        val: IntValue<'ll>,
+        ty: inkwell::types::IntType<'ll>,
+        name: &str,
+    ) -> IntValue<'ll> {
+        self.llbuilder
+            .build_int_z_extend(val, ty, name)
+            .expect("zext")
     }
 
     /// Build sign-extend (to larger integer).
-    pub fn sext(&self, val: IntValue<'ll>, ty: inkwell::types::IntType<'ll>, name: &str) -> IntValue<'ll> {
-        self.llbuilder.build_int_s_extend(val, ty, name).expect("sext")
+    pub fn sext(
+        &self,
+        val: IntValue<'ll>,
+        ty: inkwell::types::IntType<'ll>,
+        name: &str,
+    ) -> IntValue<'ll> {
+        self.llbuilder
+            .build_int_s_extend(val, ty, name)
+            .expect("sext")
     }
 
     /// Build signed int to float.
@@ -406,18 +449,39 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     }
 
     /// Build bitcast.
-    pub fn bitcast(&self, val: BasicValueEnum<'ll>, ty: BasicTypeEnum<'ll>, name: &str) -> BasicValueEnum<'ll> {
-        self.llbuilder.build_bit_cast(val, ty, name).expect("bitcast")
+    pub fn bitcast(
+        &self,
+        val: BasicValueEnum<'ll>,
+        ty: BasicTypeEnum<'ll>,
+        name: &str,
+    ) -> BasicValueEnum<'ll> {
+        self.llbuilder
+            .build_bit_cast(val, ty, name)
+            .expect("bitcast")
     }
 
     /// Build pointer to int conversion.
-    pub fn ptr_to_int(&self, ptr: PointerValue<'ll>, ty: inkwell::types::IntType<'ll>, name: &str) -> IntValue<'ll> {
-        self.llbuilder.build_ptr_to_int(ptr, ty, name).expect("ptr_to_int")
+    pub fn ptr_to_int(
+        &self,
+        ptr: PointerValue<'ll>,
+        ty: inkwell::types::IntType<'ll>,
+        name: &str,
+    ) -> IntValue<'ll> {
+        self.llbuilder
+            .build_ptr_to_int(ptr, ty, name)
+            .expect("ptr_to_int")
     }
 
     /// Build int to pointer conversion.
-    pub fn int_to_ptr(&self, val: IntValue<'ll>, ty: inkwell::types::PointerType<'ll>, name: &str) -> PointerValue<'ll> {
-        self.llbuilder.build_int_to_ptr(val, ty, name).expect("int_to_ptr")
+    pub fn int_to_ptr(
+        &self,
+        val: IntValue<'ll>,
+        ty: inkwell::types::PointerType<'ll>,
+        name: &str,
+    ) -> PointerValue<'ll> {
+        self.llbuilder
+            .build_int_to_ptr(val, ty, name)
+            .expect("int_to_ptr")
     }
 
     // -- Calls --
@@ -467,7 +531,11 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     }
 
     /// Add incoming values to a phi node.
-    pub fn add_incoming(&self, phi: PhiValue<'ll>, incoming: &[(&dyn BasicValue<'ll>, BasicBlock<'ll>)]) {
+    pub fn add_incoming(
+        &self,
+        phi: PhiValue<'ll>,
+        incoming: &[(&dyn BasicValue<'ll>, BasicBlock<'ll>)],
+    ) {
         phi.add_incoming(incoming);
     }
 
@@ -537,7 +605,10 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     /// Compile an expression, dispatching to the appropriate helper method.
     ///
     /// This is the main entry point for expression compilation in the LLVM backend.
-    #[instrument(skip(self, arena, expr_types, locals, function, loop_ctx), level = "trace")]
+    #[instrument(
+        skip(self, arena, expr_types, locals, function, loop_ctx),
+        level = "trace"
+    )]
     pub fn compile_expr(
         &self,
         id: ExprId,
@@ -552,64 +623,75 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
 
         match &expr.kind {
             // Literals
-            ExprKind::Int(n) => {
-                Some(self.cx().scx.type_i64().const_int(*n as u64, true).into())
-            }
+            ExprKind::Int(n) => Some(self.cx().scx.type_i64().const_int(*n as u64, true).into()),
 
-            ExprKind::Float(bits) => {
-                Some(self.cx().scx.type_f64().const_float(f64::from_bits(*bits)).into())
-            }
+            ExprKind::Float(bits) => Some(
+                self.cx()
+                    .scx
+                    .type_f64()
+                    .const_float(f64::from_bits(*bits))
+                    .into(),
+            ),
 
-            ExprKind::Bool(b) => {
-                Some(self.cx().scx.type_i1().const_int(u64::from(*b), false).into())
-            }
+            ExprKind::Bool(b) => Some(
+                self.cx()
+                    .scx
+                    .type_i1()
+                    .const_int(u64::from(*b), false)
+                    .into(),
+            ),
 
-            ExprKind::Char(c) => {
-                Some(self.cx().scx.type_i32().const_int(u64::from(*c), false).into())
-            }
+            ExprKind::Char(c) => Some(
+                self.cx()
+                    .scx
+                    .type_i32()
+                    .const_int(u64::from(*c), false)
+                    .into(),
+            ),
 
             // String literal
-            ExprKind::String(name) => {
-                self.compile_string(*name)
-            }
+            ExprKind::String(name) => self.compile_string(*name),
 
             // Variables
-            ExprKind::Ident(name) => {
-                locals.get(name).copied()
-            }
+            ExprKind::Ident(name) => locals.get(name).copied(),
 
             // Binary operations
             ExprKind::Binary { op, left, right } => {
-                let lhs = self.compile_expr(*left, arena, expr_types, locals, function, loop_ctx)?;
-                let rhs = self.compile_expr(*right, arena, expr_types, locals, function, loop_ctx)?;
+                let lhs =
+                    self.compile_expr(*left, arena, expr_types, locals, function, loop_ctx)?;
+                let rhs =
+                    self.compile_expr(*right, arena, expr_types, locals, function, loop_ctx)?;
                 self.compile_binary_op(*op, lhs, rhs, type_id)
             }
 
             // Unary operations
             ExprKind::Unary { op, operand } => {
-                let val = self.compile_expr(*operand, arena, expr_types, locals, function, loop_ctx)?;
+                let val =
+                    self.compile_expr(*operand, arena, expr_types, locals, function, loop_ctx)?;
                 self.compile_unary_op(*op, val, type_id)
             }
 
             // Let binding
-            ExprKind::Let { pattern, init, .. } => {
-                self.compile_let(pattern, *init, arena, expr_types, locals, function, loop_ctx)
-            }
+            ExprKind::Let { pattern, init, .. } => self.compile_let(
+                pattern, *init, arena, expr_types, locals, function, loop_ctx,
+            ),
 
             // If/else expression
-            ExprKind::If { cond, then_branch, else_branch } => {
-                self.compile_if(
-                    *cond,
-                    *then_branch,
-                    *else_branch,
-                    type_id,
-                    arena,
-                    expr_types,
-                    locals,
-                    function,
-                    loop_ctx,
-                )
-            }
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => self.compile_if(
+                *cond,
+                *then_branch,
+                *else_branch,
+                type_id,
+                arena,
+                expr_types,
+                locals,
+                function,
+                loop_ctx,
+            ),
 
             // Loop
             ExprKind::Loop { body } => {
@@ -622,9 +704,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             }
 
             // Continue
-            ExprKind::Continue => {
-                self.compile_continue(loop_ctx)
-            }
+            ExprKind::Continue => self.compile_continue(loop_ctx),
 
             // Tuple
             ExprKind::Tuple(range) => {
@@ -632,37 +712,35 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             }
 
             // Struct literal
-            ExprKind::Struct { name, fields } => {
-                self.compile_struct(*name, *fields, arena, expr_types, locals, function, loop_ctx)
-            }
+            ExprKind::Struct { name, fields } => self.compile_struct(
+                *name, *fields, arena, expr_types, locals, function, loop_ctx,
+            ),
 
             // Field access
-            ExprKind::Field { receiver, field } => {
-                self.compile_field_access(*receiver, *field, arena, expr_types, locals, function, loop_ctx)
-            }
+            ExprKind::Field { receiver, field } => self.compile_field_access(
+                *receiver, *field, arena, expr_types, locals, function, loop_ctx,
+            ),
 
             // Option type constructors
-            ExprKind::Some(inner) => {
-                self.compile_some(*inner, type_id, arena, expr_types, locals, function, loop_ctx)
-            }
+            ExprKind::Some(inner) => self.compile_some(
+                *inner, type_id, arena, expr_types, locals, function, loop_ctx,
+            ),
 
-            ExprKind::None => {
-                self.compile_none(type_id)
-            }
+            ExprKind::None => self.compile_none(type_id),
 
             // Result type constructors
-            ExprKind::Ok(inner) => {
-                self.compile_ok(*inner, type_id, arena, expr_types, locals, function, loop_ctx)
-            }
+            ExprKind::Ok(inner) => self.compile_ok(
+                *inner, type_id, arena, expr_types, locals, function, loop_ctx,
+            ),
 
-            ExprKind::Err(inner) => {
-                self.compile_err(*inner, type_id, arena, expr_types, locals, function, loop_ctx)
-            }
+            ExprKind::Err(inner) => self.compile_err(
+                *inner, type_id, arena, expr_types, locals, function, loop_ctx,
+            ),
 
             // Match expression
-            ExprKind::Match { scrutinee, arms } => {
-                self.compile_match(*scrutinee, *arms, type_id, arena, expr_types, locals, function, loop_ctx)
-            }
+            ExprKind::Match { scrutinee, arms } => self.compile_match(
+                *scrutinee, *arms, type_id, arena, expr_types, locals, function, loop_ctx,
+            ),
 
             // Function call (positional args)
             ExprKind::Call { func, args } => {
@@ -678,9 +756,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             ExprKind::Unit => None,
 
             // Config variable (compile-time constant)
-            ExprKind::Config(name) => {
-                self.compile_config(*name, locals)
-            }
+            ExprKind::Config(name) => self.compile_config(*name, locals),
 
             // Self reference (for recursion)
             ExprKind::SelfRef => {
@@ -689,9 +765,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             }
 
             // Function reference: @name
-            ExprKind::FunctionRef(name) => {
-                self.compile_function_ref(*name)
-            }
+            ExprKind::FunctionRef(name) => self.compile_function_ref(*name),
 
             // Hash length: # (refers to length in index context)
             ExprKind::HashLength => {
@@ -701,19 +775,15 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             }
 
             // Duration literal: 100ms, 5s
-            ExprKind::Duration { value, unit } => {
-                self.compile_duration(*value, *unit)
-            }
+            ExprKind::Duration { value, unit } => self.compile_duration(*value, *unit),
 
             // Size literal: 4kb, 10mb
-            ExprKind::Size { value, unit } => {
-                self.compile_size(*value, *unit)
-            }
+            ExprKind::Size { value, unit } => self.compile_size(*value, *unit),
 
             // Block: { stmts; result }
-            ExprKind::Block { stmts, result } => {
-                self.compile_block(*stmts, *result, arena, expr_types, locals, function, loop_ctx)
-            }
+            ExprKind::Block { stmts, result } => self.compile_block(
+                *stmts, *result, arena, expr_types, locals, function, loop_ctx,
+            ),
 
             // Return from function
             ExprKind::Return(value) => {
@@ -721,9 +791,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             }
 
             // Assignment: target = value
-            ExprKind::Assign { target, value } => {
-                self.compile_assign(*target, *value, arena, expr_types, locals, function, loop_ctx)
-            }
+            ExprKind::Assign { target, value } => self.compile_assign(
+                *target, *value, arena, expr_types, locals, function, loop_ctx,
+            ),
 
             // List literal: [a, b, c]
             ExprKind::List(range) => {
@@ -736,34 +806,55 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             }
 
             // Range: start..end
-            ExprKind::Range { start, end, inclusive } => {
-                self.compile_range(*start, *end, *inclusive, arena, expr_types, locals, function, loop_ctx)
-            }
+            ExprKind::Range {
+                start,
+                end,
+                inclusive,
+            } => self.compile_range(
+                *start, *end, *inclusive, arena, expr_types, locals, function, loop_ctx,
+            ),
 
             // Index access: receiver[index]
-            ExprKind::Index { receiver, index } => {
-                self.compile_index(*receiver, *index, arena, expr_types, locals, function, loop_ctx)
-            }
+            ExprKind::Index { receiver, index } => self.compile_index(
+                *receiver, *index, arena, expr_types, locals, function, loop_ctx,
+            ),
 
             // Method call: receiver.method(args)
-            ExprKind::MethodCall { receiver, method, args } => {
-                self.compile_method_call(*receiver, *method, *args, arena, expr_types, locals, function, loop_ctx)
-            }
+            ExprKind::MethodCall {
+                receiver,
+                method,
+                args,
+            } => self.compile_method_call(
+                *receiver, *method, *args, arena, expr_types, locals, function, loop_ctx,
+            ),
 
             // Method call with named args
-            ExprKind::MethodCallNamed { receiver, method, args } => {
-                self.compile_method_call_named(*receiver, *method, *args, arena, expr_types, locals, function, loop_ctx)
-            }
+            ExprKind::MethodCallNamed {
+                receiver,
+                method,
+                args,
+            } => self.compile_method_call_named(
+                *receiver, *method, *args, arena, expr_types, locals, function, loop_ctx,
+            ),
 
             // Lambda: params -> body
-            ExprKind::Lambda { params, ret_ty: _, body } => {
-                self.compile_lambda(*params, *body, arena, expr_types, locals, function)
-            }
+            ExprKind::Lambda {
+                params,
+                ret_ty: _,
+                body,
+            } => self.compile_lambda(*params, *body, arena, expr_types, locals, function),
 
             // For loop: for x in iter do/yield body
-            ExprKind::For { binding, iter, guard, body, is_yield } => {
-                self.compile_for(*binding, *iter, *guard, *body, *is_yield, type_id, arena, expr_types, locals, function)
-            }
+            ExprKind::For {
+                binding,
+                iter,
+                guard,
+                body,
+                is_yield,
+            } => self.compile_for(
+                *binding, *iter, *guard, *body, *is_yield, type_id, arena, expr_types, locals,
+                function,
+            ),
 
             // Await (no-op for sync runtime)
             ExprKind::Await(inner) => {
@@ -777,20 +868,22 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             }
 
             // With capability provision
-            ExprKind::WithCapability { capability: _, provider: _, body } => {
+            ExprKind::WithCapability {
+                capability: _,
+                provider: _,
+                body,
+            } => {
                 // For now, just compile the body (capability system not yet implemented)
                 self.compile_expr(*body, arena, expr_types, locals, function, loop_ctx)
             }
 
             // Sequential expression patterns (run, try, match)
-            ExprKind::FunctionSeq(seq) => {
-                self.compile_function_seq(seq, type_id, arena, expr_types, locals, function, loop_ctx)
-            }
+            ExprKind::FunctionSeq(seq) => self
+                .compile_function_seq(seq, type_id, arena, expr_types, locals, function, loop_ctx),
 
             // Named expression patterns (recurse, parallel, etc.)
-            ExprKind::FunctionExp(exp) => {
-                self.compile_function_exp(exp, type_id, arena, expr_types, locals, function, loop_ctx)
-            }
+            ExprKind::FunctionExp(exp) => self
+                .compile_function_exp(exp, type_id, arena, expr_types, locals, function, loop_ctx),
 
             // Error placeholder - should not be reached at runtime
             ExprKind::Error => None,
@@ -798,7 +891,10 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     }
 
     /// Compile a let binding.
-    #[instrument(skip(self, pattern, arena, expr_types, locals, function, loop_ctx), level = "debug")]
+    #[instrument(
+        skip(self, pattern, arena, expr_types, locals, function, loop_ctx),
+        level = "debug"
+    )]
     pub(crate) fn compile_let(
         &self,
         pattern: &BindingPattern,
@@ -896,10 +992,9 @@ mod tests {
         let bx = Builder::build(&cx, entry);
 
         // Create a struct type
-        let struct_ty = cx.scx.type_struct(
-            &[cx.scx.type_i64().into(), cx.scx.type_i64().into()],
-            false,
-        );
+        let struct_ty = cx
+            .scx
+            .type_struct(&[cx.scx.type_i64().into(), cx.scx.type_i64().into()], false);
 
         // Build a struct value
         let val1 = cx.scx.type_i64().const_int(1, false).into();

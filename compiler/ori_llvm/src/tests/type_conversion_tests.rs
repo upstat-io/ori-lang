@@ -12,7 +12,11 @@ use crate::context::CodegenCx;
 fn setup_builder<'ll, 'tcx>(
     context: &'ll Context,
     interner: &'tcx StringInterner,
-) -> (CodegenCx<'ll, 'tcx>, inkwell::values::FunctionValue<'ll>, inkwell::basic_block::BasicBlock<'ll>) {
+) -> (
+    CodegenCx<'ll, 'tcx>,
+    inkwell::values::FunctionValue<'ll>,
+    inkwell::basic_block::BasicBlock<'ll>,
+) {
     let cx = CodegenCx::new(context, interner, "test");
     cx.declare_runtime_functions();
 
@@ -63,7 +67,10 @@ fn test_builtin_str_from_other_int() {
     let i32_val = cx.scx.type_i32().const_int(42, false);
     let result = builder.compile_builtin_str(i32_val.into());
 
-    assert!(result.is_some(), "str(i32) should produce a value after extension");
+    assert!(
+        result.is_some(),
+        "str(i32) should produce a value after extension"
+    );
 }
 
 #[test]
@@ -89,10 +96,9 @@ fn test_builtin_str_from_struct() {
     let builder = Builder::build(&cx, entry_bb);
 
     // Create a struct value (representing a string)
-    let struct_type = cx.llcx().struct_type(&[
-        cx.scx.type_i64().into(),
-        cx.scx.type_ptr().into(),
-    ], false);
+    let struct_type = cx
+        .llcx()
+        .struct_type(&[cx.scx.type_i64().into(), cx.scx.type_ptr().into()], false);
     let struct_val = struct_type.const_zero();
     let result = builder.compile_builtin_str(struct_val.into());
 
@@ -112,7 +118,10 @@ fn test_builtin_int_already_i64() {
 
     assert!(result.is_some(), "int(i64) should return the value");
     assert_eq!(
-        result.unwrap().into_int_value().get_zero_extended_constant(),
+        result
+            .unwrap()
+            .into_int_value()
+            .get_zero_extended_constant(),
         Some(42)
     );
 }
@@ -143,7 +152,10 @@ fn test_builtin_int_from_smaller_int() {
     let i32_val = cx.scx.type_i32().const_int(42, false);
     let result = builder.compile_builtin_int(i32_val.into());
 
-    assert!(result.is_some(), "int(i32) should produce a value after extension");
+    assert!(
+        result.is_some(),
+        "int(i32) should produce a value after extension"
+    );
 }
 
 #[test]
@@ -244,7 +256,10 @@ fn test_builtin_byte_already_byte() {
 
     assert!(result.is_some(), "byte(i8) should return the value");
     assert_eq!(
-        result.unwrap().into_int_value().get_zero_extended_constant(),
+        result
+            .unwrap()
+            .into_int_value()
+            .get_zero_extended_constant(),
         Some(42)
     );
 }

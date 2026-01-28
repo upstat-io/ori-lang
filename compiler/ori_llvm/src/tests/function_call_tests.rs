@@ -249,7 +249,10 @@ fn test_call_unknown_function_returns_none() {
         None,
     );
 
-    assert!(result.is_none(), "Calling unknown function should return None");
+    assert!(
+        result.is_none(),
+        "Calling unknown function should return None"
+    );
 }
 
 #[test]
@@ -332,7 +335,10 @@ fn test_call_closure_as_pointer() {
         None,
     );
 
-    assert!(result.is_some(), "Pointer closure call should produce a value");
+    assert!(
+        result.is_some(),
+        "Pointer closure call should produce a value"
+    );
 }
 
 #[test]
@@ -378,5 +384,8 @@ fn test_call_closure_as_struct_with_captures() {
         None,
     );
 
-    assert!(result.is_some(), "Struct closure call should produce a value");
+    assert!(
+        result.is_some(),
+        "Struct closure call should produce a value"
+    );
 }

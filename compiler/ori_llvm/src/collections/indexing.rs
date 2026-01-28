@@ -20,7 +20,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
-        let recv_val = self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx)?;
+        let recv_val =
+            self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx)?;
         let idx_val = self.compile_expr(index, arena, expr_types, locals, function, loop_ctx)?;
 
         // Handle different receiver types
