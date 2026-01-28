@@ -328,14 +328,14 @@
 
 ---
 
-## 10.8 Index Expressions — ✅ COMPLETED 2026-01-28
+## 10.8 Index Expressions — 🟡 Interpreter Complete
 
 - [x] **Implement**: `#` length symbol in index brackets (`list[# - 1]`) — spec/09-expressions.md § Index Access
   - [x] **Parser**: Parse `#` as `ExprKind::HashLength` inside `[...]` — `ori_parse/src/grammar/expr/postfix.rs`
-  - [x] **Type Checker**: Resolve `HashLength` to receiver's length type (`int`) — `ori_typeck/src/infer/mod.rs` (already implemented)
-  - [x] **Evaluator**: Evaluate `HashLength` as `len(receiver)` in index context — `ori_eval/src/interpreter/mod.rs` (already implemented)
+  - [x] **Type Checker**: Resolve `HashLength` to receiver's length type (`int`) — `ori_typeck/src/infer/mod.rs`
+  - [x] **Evaluator**: Evaluate `HashLength` as `len(receiver)` in index context — `ori_eval/src/interpreter/mod.rs`
   - [x] **Ori Tests**: `tests/spec/types/collections.ori` — `test_list_index_last`
-  - [ ] **LLVM Support**: LLVM codegen for hash length in index
+  - [ ] **LLVM Support**: LLVM codegen for hash length in index (placeholder exists, needs real impl)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — hash length codegen
 
 **Implementation Notes (2026-01-28):**
@@ -343,6 +343,7 @@
 - Parser recognizes `#` (TokenKind::Hash) as `ExprKind::HashLength` only inside index brackets
 - Type checker and evaluator already had full support for `HashLength`
 - 901 tests pass (up from 900)
+- LLVM has placeholder (returns 0), needs proper implementation later
 
 ---
 
