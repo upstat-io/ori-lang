@@ -97,6 +97,57 @@ impl<'a> Cursor<'a> {
         }
     }
 
+    /// Peek at the next token (one-token lookahead).
+    /// Returns the EOF token if at the end of the stream.
+    pub fn peek_next_token(&self) -> &Token {
+        self.tokens
+            .get(self.pos + 1)
+            .unwrap_or(&self.tokens[self.tokens.len() - 1])
+    }
+
+    /// Get the next token's span.
+    pub fn peek_next_span(&self) -> Span {
+        self.peek_next_token().span
+    }
+
+    /// Check if two spans are adjacent (no whitespace between them).
+    /// Returns true if span1.end == span2.start.
+    pub fn spans_adjacent(&self, span1: Span, span2: Span) -> bool {
+        span1.end == span2.start
+    }
+
+    /// Check if current token and next token are adjacent (no whitespace).
+    pub fn current_and_next_adjacent(&self) -> bool {
+        self.spans_adjacent(self.current_span(), self.peek_next_span())
+    }
+
+    /// Check if looking at `>` followed immediately by `>` (no whitespace).
+    /// Used for detecting `>>` shift operator in expression context.
+    pub fn is_shift_right(&self) -> bool {
+        self.check(&TokenKind::Gt)
+            && matches!(self.peek_next_kind(), TokenKind::Gt)
+            && self.current_and_next_adjacent()
+    }
+
+    /// Check if looking at `>` followed immediately by `=` (no whitespace).
+    /// Used for detecting `>=` comparison operator in expression context.
+    pub fn is_greater_equal(&self) -> bool {
+        self.check(&TokenKind::Gt)
+            && matches!(self.peek_next_kind(), TokenKind::Eq)
+            && self.current_and_next_adjacent()
+    }
+
+    /// Consume two adjacent tokens as a compound operator.
+    /// Returns the combined span.
+    /// Panics if not at the expected tokens.
+    pub fn consume_compound(&mut self) -> Span {
+        let start = self.current_span();
+        self.advance();
+        let end = self.current_span();
+        self.advance();
+        start.merge(end)
+    }
+
     /// Check if the next token (lookahead) is a left paren.
     pub fn next_is_lparen(&self) -> bool {
         self.pos + 1 < self.tokens.len()

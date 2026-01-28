@@ -382,6 +382,66 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_double_nested_generic_type() {
+        // Double nested generics: Result<Result<T, E>, E>
+        // This was previously broken because >> was lexed as a single Shr token.
+        // Now the lexer produces individual > tokens, enabling correct parsing.
+        let ty = parse_type_from_source("Result<Result<int, str>, str>");
+        match ty {
+            Some(ParsedType::Named { type_args, .. }) => {
+                assert_eq!(type_args.len(), 2, "Expected 2 type args for outer Result");
+                // First arg should be Result<int, str>
+                match &type_args[0] {
+                    ParsedType::Named {
+                        type_args: inner, ..
+                    } => {
+                        assert_eq!(inner.len(), 2, "Expected 2 type args for inner Result");
+                        assert_eq!(inner[0], ParsedType::primitive(TypeId::INT));
+                        assert_eq!(inner[1], ParsedType::primitive(TypeId::STR));
+                    }
+                    _ => panic!("expected inner Named (Result<int, str>)"),
+                }
+                // Second arg should be str
+                assert_eq!(type_args[1], ParsedType::primitive(TypeId::STR));
+            }
+            _ => panic!("expected Named"),
+        }
+    }
+
+    #[test]
+    fn test_parse_triple_nested_generic_type() {
+        // Triple nested: Option<Result<Result<int, str>, str>>
+        let ty = parse_type_from_source("Option<Result<Result<int, str>, str>>");
+        match ty {
+            Some(ParsedType::Named { type_args, .. }) => {
+                assert_eq!(type_args.len(), 1, "Expected 1 type arg for Option");
+                match &type_args[0] {
+                    ParsedType::Named {
+                        type_args: inner, ..
+                    } => {
+                        assert_eq!(inner.len(), 2, "Expected 2 type args for outer Result");
+                        // First arg should be Result<int, str>
+                        match &inner[0] {
+                            ParsedType::Named {
+                                type_args: deepest, ..
+                            } => {
+                                assert_eq!(
+                                    deepest.len(),
+                                    2,
+                                    "Expected 2 type args for inner Result"
+                                );
+                            }
+                            _ => panic!("expected innermost Named"),
+                        }
+                    }
+                    _ => panic!("expected inner Named (Result<...>)"),
+                }
+            }
+            _ => panic!("expected Named"),
+        }
+    }
+
+    #[test]
     fn test_parse_self_type() {
         let ty = parse_type_from_source("Self");
         assert_eq!(ty, Some(ParsedType::SelfType));

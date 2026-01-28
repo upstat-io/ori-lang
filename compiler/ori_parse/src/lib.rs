@@ -110,6 +110,20 @@ impl<'a> Parser<'a> {
         self.cursor.soft_keyword_to_name()
     }
 
+    /// Check if looking at `>` followed immediately by `>` (no whitespace).
+    /// Used for detecting `>>` shift operator in expression context.
+    #[inline]
+    fn is_shift_right(&self) -> bool {
+        self.cursor.is_shift_right()
+    }
+
+    /// Check if looking at `>` followed immediately by `=` (no whitespace).
+    /// Used for detecting `>=` comparison operator in expression context.
+    #[inline]
+    fn is_greater_equal(&self) -> bool {
+        self.cursor.is_greater_equal()
+    }
+
     #[inline]
     fn advance(&mut self) -> &Token {
         self.cursor.advance()
@@ -837,5 +851,144 @@ trait Async {}
         // Verify the function has the Async capability
         let func = &result.module.functions[0];
         assert_eq!(func.capabilities.len(), 1);
+    }
+
+    #[test]
+    fn test_shift_right_operator() {
+        // >> is detected as two adjacent > tokens in expression context
+        let result = parse_source("@test () -> int = 8 >> 2");
+
+        assert!(
+            !result.has_errors(),
+            "Expected no parse errors: {:?}",
+            result.errors
+        );
+
+        let func = &result.module.functions[0];
+        let body = result.arena.get_expr(func.body);
+
+        if let ExprKind::Binary {
+            op: BinaryOp::Shr, ..
+        } = &body.kind
+        {
+            // Success
+        } else {
+            panic!("Expected right shift (>>) binary expression, got {:?}", body.kind);
+        }
+    }
+
+    #[test]
+    fn test_greater_equal_operator() {
+        // >= is detected as adjacent > and = tokens in expression context
+        let result = parse_source("@test () -> bool = 5 >= 3");
+
+        assert!(
+            !result.has_errors(),
+            "Expected no parse errors: {:?}",
+            result.errors
+        );
+
+        let func = &result.module.functions[0];
+        let body = result.arena.get_expr(func.body);
+
+        if let ExprKind::Binary {
+            op: BinaryOp::GtEq, ..
+        } = &body.kind
+        {
+            // Success
+        } else {
+            panic!("Expected greater-equal (>=) binary expression, got {:?}", body.kind);
+        }
+    }
+
+    #[test]
+    fn test_shift_left_operator() {
+        // << should still work (single token from lexer)
+        let result = parse_source("@test () -> int = 2 << 3");
+
+        assert!(
+            !result.has_errors(),
+            "Expected no parse errors: {:?}",
+            result.errors
+        );
+
+        let func = &result.module.functions[0];
+        let body = result.arena.get_expr(func.body);
+
+        if let ExprKind::Binary {
+            op: BinaryOp::Shl, ..
+        } = &body.kind
+        {
+            // Success
+        } else {
+            panic!("Expected left shift (<<) binary expression, got {:?}", body.kind);
+        }
+    }
+
+    #[test]
+    fn test_greater_than_operator() {
+        // Single > should still work
+        let result = parse_source("@test () -> bool = 5 > 3");
+
+        assert!(
+            !result.has_errors(),
+            "Expected no parse errors: {:?}",
+            result.errors
+        );
+
+        let func = &result.module.functions[0];
+        let body = result.arena.get_expr(func.body);
+
+        if let ExprKind::Binary {
+            op: BinaryOp::Gt, ..
+        } = &body.kind
+        {
+            // Success
+        } else {
+            panic!("Expected greater-than (>) binary expression, got {:?}", body.kind);
+        }
+    }
+
+    #[test]
+    fn test_shift_right_with_space() {
+        // > > with space should NOT be treated as >>
+        let result = parse_source("@test () -> int = 8 > > 2");
+
+        // This should have errors because `> > 2` is invalid syntax
+        // (comparison followed by another >)
+        assert!(
+            result.has_errors(),
+            "Expected parse errors for `> > 2` with space"
+        );
+    }
+
+    #[test]
+    fn test_greater_equal_with_space() {
+        // > = with space should NOT be treated as >=
+        let result = parse_source("@test () -> bool = 5 > = 3");
+
+        // This should have errors because `> = 3` is invalid syntax
+        assert!(
+            result.has_errors(),
+            "Expected parse errors for `> = 3` with space"
+        );
+    }
+
+    #[test]
+    fn test_nested_generic_and_shift() {
+        // Test that nested generics work in a type annotation and >> works in expression
+        let result = parse_source(
+            r"
+@test () -> Result<Result<int, str>, str> = run(
+    let x = 8 >> 2,
+    Ok(Ok(x))
+)",
+        );
+
+        assert!(
+            !result.has_errors(),
+            "Expected no parse errors for nested generics and >> operator: {:?}",
+            result.errors
+        );
     }
 }

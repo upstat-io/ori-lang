@@ -45,13 +45,16 @@ macro_rules! parse_binary_level {
             Ok(left)
         }
     };
-    // Multi-token operator level: use a matcher method that returns Option<BinaryOp>
+    // Multi-token operator level: use a matcher method that returns Option<(BinaryOp, usize)>
+    // where the usize is the number of tokens to consume (1 for single-token ops, 2 for compound ops like >> or >=)
     ($(#[doc = $doc:literal])* $fn_name:ident, $next:ident, $matcher:ident) => {
         $(#[doc = $doc])*
         fn $fn_name(&mut self) -> Result<ExprId, ParseError> {
             let mut left = self.$next()?;
-            while let Some(op) = self.$matcher() {
-                self.advance();
+            while let Some((op, token_count)) = self.$matcher() {
+                for _ in 0..token_count {
+                    self.advance();
+                }
                 let right = self.$next()?;
                 let span = self.arena.get_expr(left).span
                     .merge(self.arena.get_expr(right).span);

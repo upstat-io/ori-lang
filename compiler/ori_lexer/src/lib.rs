@@ -192,10 +192,12 @@ enum RawToken {
     LtEq,
     #[token("<")]
     Lt,
-    #[token(">>")]
-    Shr,
-    #[token(">=")]
-    GtEq,
+    // Note: `>>` and `>=` are NOT lexed as single tokens.
+    // The lexer always produces individual `>` tokens.
+    // The parser combines adjacent `>` tokens into `>>` or `>=` operators
+    // in expression context. This enables parsing nested generics like
+    // `Result<Result<T, E>, E>` where the `>>` at the end should be two
+    // separate `>` tokens closing the generic parameter lists.
     #[token(">")]
     Gt,
     #[token("+")]
@@ -479,8 +481,8 @@ fn convert_token(raw: RawToken, slice: &str, interner: &StringInterner) -> Token
         RawToken::LtEq => TokenKind::LtEq,
         RawToken::Shl => TokenKind::Shl,
         RawToken::Gt => TokenKind::Gt,
-        RawToken::GtEq => TokenKind::GtEq,
-        RawToken::Shr => TokenKind::Shr,
+        // Note: GtEq (>=) and Shr (>>) are synthesized by the parser from
+        // adjacent Gt tokens. The lexer only produces individual Gt tokens.
         RawToken::Plus => TokenKind::Plus,
         RawToken::Minus => TokenKind::Minus,
         RawToken::Star => TokenKind::Star,

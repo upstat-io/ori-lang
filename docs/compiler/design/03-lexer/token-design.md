@@ -64,7 +64,7 @@ Pipe,    // |
 Caret,   // ^
 Tilde,   // ~
 LtLt,    // <<
-GtGt,    // >>
+// Note: >> and >= are NOT lexed as single tokens (see below)
 
 // Special
 Arrow,       // ->
@@ -360,3 +360,42 @@ Await,   // Reserved for future async features
 ```
 
 These lex as keywords to prevent their use as identifiers.
+
+## Lexer-Parser Token Boundary
+
+### `>` Token Design
+
+The lexer produces individual `>` tokens, never `>>` (right shift) or `>=` (greater-equal) as single tokens. The parser synthesizes compound operators from adjacent tokens in expression context.
+
+This separation allows the type parser to handle nested generics:
+
+```ori
+type MyResult = Result<Result<int, str>, str>
+//                                    ^^-- Two > tokens closing two generic lists
+
+let x = 8 >> 2  // Shift right (synthesized from adjacent > >)
+let y = x >= 0  // Greater-equal (synthesized from adjacent > =)
+```
+
+### Token Production
+
+| Operator | Lexer Output | Parser Handling |
+|----------|--------------|-----------------|
+| `>` | Single `Gt` token | Used as-is |
+| `>>` | Two adjacent `Gt` tokens | Synthesized in expression context |
+| `>=` | Adjacent `Gt` + `Eq` tokens | Synthesized in expression context |
+| `<` | Single `Lt` token | Used as-is |
+| `<<` | Single `Shl` token | Used as-is |
+| `<=` | Single `LtEq` token | Used as-is |
+
+### Whitespace Sensitivity
+
+Compound operator synthesis requires adjacent tokens (no whitespace):
+
+```ori
+8 >> 2   // Valid: >> from adjacent > >
+8 > > 2  // Invalid: two separate > operators
+
+5 >= 3   // Valid: >= from adjacent > =
+5 > = 3  // Invalid: > followed by =
+```

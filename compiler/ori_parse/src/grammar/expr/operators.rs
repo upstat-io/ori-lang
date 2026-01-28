@@ -1,50 +1,89 @@
 //! Operator Matching Helpers
 //!
 //! Helper methods for matching binary and unary operators during parsing.
+//!
+//! ## Compound Operators
+//!
+//! The lexer produces individual `>` tokens to enable parsing nested generics
+//! like `Result<Result<T, E>, E>`. In expression context, the parser combines
+//! adjacent `>` tokens into compound operators:
+//!
+//! - `>` followed by `>` (no whitespace) → `>>` (right shift)
+//! - `>` followed by `=` (no whitespace) → `>=` (greater-equal)
+//!
+//! The match functions return `(BinaryOp, usize)` where usize is the number
+//! of tokens to consume (1 for single-token ops, 2 for compound ops).
 
 use crate::Parser;
 use ori_ir::{BinaryOp, FunctionExpKind, TokenKind, UnaryOp};
 
 impl Parser<'_> {
-    pub(crate) fn match_equality_op(&self) -> Option<BinaryOp> {
+    /// Match equality operators: `==`, `!=`
+    /// Returns (op, token_count) where token_count is always 1.
+    pub(crate) fn match_equality_op(&self) -> Option<(BinaryOp, usize)> {
         match self.current_kind() {
-            TokenKind::EqEq => Some(BinaryOp::Eq),
-            TokenKind::NotEq => Some(BinaryOp::NotEq),
+            TokenKind::EqEq => Some((BinaryOp::Eq, 1)),
+            TokenKind::NotEq => Some((BinaryOp::NotEq, 1)),
             _ => None,
         }
     }
 
-    pub(crate) fn match_comparison_op(&self) -> Option<BinaryOp> {
+    /// Match comparison operators: `<`, `<=`, `>`, `>=`
+    ///
+    /// Note: `>=` is detected as adjacent `>` and `=` tokens (2 tokens).
+    /// Returns (op, token_count).
+    pub(crate) fn match_comparison_op(&self) -> Option<(BinaryOp, usize)> {
         match self.current_kind() {
-            TokenKind::Lt => Some(BinaryOp::Lt),
-            TokenKind::LtEq => Some(BinaryOp::LtEq),
-            TokenKind::Gt => Some(BinaryOp::Gt),
-            TokenKind::GtEq => Some(BinaryOp::GtEq),
+            TokenKind::Lt => Some((BinaryOp::Lt, 1)),
+            TokenKind::LtEq => Some((BinaryOp::LtEq, 1)),
+            TokenKind::Gt => {
+                // Check for compound >= (adjacent > and =)
+                if self.is_greater_equal() {
+                    Some((BinaryOp::GtEq, 2))
+                } else {
+                    Some((BinaryOp::Gt, 1))
+                }
+            }
             _ => None,
         }
     }
 
-    pub(crate) fn match_shift_op(&self) -> Option<BinaryOp> {
+    /// Match shift operators: `<<`, `>>`
+    ///
+    /// Note: `>>` is detected as adjacent `>` and `>` tokens (2 tokens).
+    /// Returns (op, token_count).
+    pub(crate) fn match_shift_op(&self) -> Option<(BinaryOp, usize)> {
         match self.current_kind() {
-            TokenKind::Shl => Some(BinaryOp::Shl),
-            TokenKind::Shr => Some(BinaryOp::Shr),
+            TokenKind::Shl => Some((BinaryOp::Shl, 1)),
+            TokenKind::Gt => {
+                // Check for compound >> (adjacent > and >)
+                if self.is_shift_right() {
+                    Some((BinaryOp::Shr, 2))
+                } else {
+                    None
+                }
+            }
             _ => None,
         }
     }
 
-    pub(crate) fn match_additive_op(&self) -> Option<BinaryOp> {
+    /// Match additive operators: `+`, `-`
+    /// Returns (op, token_count) where token_count is always 1.
+    pub(crate) fn match_additive_op(&self) -> Option<(BinaryOp, usize)> {
         match self.current_kind() {
-            TokenKind::Plus => Some(BinaryOp::Add),
-            TokenKind::Minus => Some(BinaryOp::Sub),
+            TokenKind::Plus => Some((BinaryOp::Add, 1)),
+            TokenKind::Minus => Some((BinaryOp::Sub, 1)),
             _ => None,
         }
     }
 
-    pub(crate) fn match_multiplicative_op(&self) -> Option<BinaryOp> {
+    /// Match multiplicative operators: `*`, `/`, `%`
+    /// Returns (op, token_count) where token_count is always 1.
+    pub(crate) fn match_multiplicative_op(&self) -> Option<(BinaryOp, usize)> {
         match self.current_kind() {
-            TokenKind::Star => Some(BinaryOp::Mul),
-            TokenKind::Slash => Some(BinaryOp::Div),
-            TokenKind::Percent => Some(BinaryOp::Mod),
+            TokenKind::Star => Some((BinaryOp::Mul, 1)),
+            TokenKind::Slash => Some((BinaryOp::Div, 1)),
+            TokenKind::Percent => Some((BinaryOp::Mod, 1)),
             _ => None,
         }
     }
