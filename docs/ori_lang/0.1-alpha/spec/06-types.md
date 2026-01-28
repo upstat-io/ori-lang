@@ -133,7 +133,7 @@ Creates distinct nominal type.
 type Point = { x: int, y: int }
 ```
 
-Derivable: `Eq`, `Hashable`, `Comparable`, `Printable`, `Clone`, `Default`, `Serialize`, `Deserialize`.
+Derivable: `Eq`, `Hashable`, `Comparable`, `Printable`, `Debug`, `Clone`, `Default`, `Serialize`, `Deserialize`.
 
 ## Nominal Typing
 
@@ -217,6 +217,73 @@ Derived implementation clones each field.
 Some types do not implement `Clone`:
 - Unique resources (file handles, network connections)
 - Types with identity where duplicates would be semantically wrong
+
+## Debug Trait
+
+The `Debug` trait provides developer-facing string representation:
+
+```ori
+trait Debug {
+    @debug (self) -> str
+}
+```
+
+Unlike `Printable`, which is for user-facing display, `Debug` shows the complete internal structure and is always derivable.
+
+```ori
+#[derive(Debug)]
+type Point = { x: int, y: int }
+
+Point { x: 1, y: 2 }.debug()  // "Point { x: 1, y: 2 }"
+```
+
+### Standard Implementations
+
+All primitive types implement `Debug`:
+
+| Type | Output Format |
+|------|---------------|
+| `int`, `float`, `byte` | Numeric string |
+| `bool` | `"true"` or `"false"` |
+| `str` | Quoted with escapes: `"\"hello\""` |
+| `char` | Quoted with escapes: `"'\\n'"` |
+| `void` | `"()"` |
+| `Duration`, `Size` | Human-readable format |
+
+Collections implement `Debug` when their element types implement `Debug`:
+
+| Type | Output Format |
+|------|---------------|
+| `[T]` | `"[1, 2, 3]"` |
+| `{K: V}` | `"{\"a\": 1, \"b\": 2}"` |
+| `Set<T>` | `"Set {1, 2, 3}"` |
+| `Option<T>` | `"Some(42)"` or `"None"` |
+| `Result<T, E>` | `"Ok(42)"` or `"Err(\"message\")"` |
+| `(A, B, ...)` | `"(1, \"hello\")"` |
+
+### Derivable
+
+`Debug` is derivable for user-defined types when all fields implement `Debug`:
+
+```ori
+#[derive(Debug)]
+type Config = { host: str, port: int }
+
+Config { host: "localhost", port: 8080 }.debug()
+// "Config { host: \"localhost\", port: 8080 }"
+```
+
+### Manual Implementation
+
+Types may implement `Debug` manually for custom formatting:
+
+```ori
+type SecretKey = { value: [byte] }
+
+impl Debug for SecretKey {
+    @debug (self) -> str = "SecretKey { value: [REDACTED] }"
+}
+```
 
 ## Iterator Traits
 

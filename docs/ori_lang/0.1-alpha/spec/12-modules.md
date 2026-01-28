@@ -109,7 +109,7 @@ Available without import:
 
 **Functions**: `print`, `len`, `is_empty`, `is_some`, `is_none`, `is_ok`, `is_err`, `int`, `float`, `str`, `byte`, `compare`, `min`, `max`, `panic`, all assertions
 
-**Traits**: `Eq`, `Comparable`, `Hashable`, `Printable`, `Clone`, `Default`, `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`, `Into`, `Traceable`
+**Traits**: `Eq`, `Comparable`, `Hashable`, `Printable`, `Debug`, `Clone`, `Default`, `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`, `Into`, `Traceable`
 
 | Trait | Method | Description |
 |-------|--------|-------------|
@@ -117,6 +117,7 @@ Available without import:
 | `Comparable` | `.compare()` | Ordering comparison |
 | `Hashable` | `.hash()` | Hash value for map keys |
 | `Printable` | `.to_str()` | String representation |
+| `Debug` | `.debug()` | Developer-facing representation |
 | `Clone` | `.clone()` | Explicit value duplication |
 | `Default` | `.default()` | Default value construction |
 | `Iterator` | `.next()` | Iterate forward |

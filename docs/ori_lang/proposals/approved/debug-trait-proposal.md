@@ -1,8 +1,9 @@
 # Proposal: Debug Trait
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with Claude)
 **Created:** 2026-01-27
+**Approved:** 2026-01-28
 
 ---
 
@@ -330,6 +331,16 @@ Alternatives considered:
 
 ---
 
+## Dependencies
+
+This proposal depends on:
+
+- **`as` conversion syntax** (`as-conversion-proposal.md`) — Used for `self as str` type conversions
+- **`str.escape()` method** — Stdlib method for escaping special characters in strings (newline -> `\n`, etc.)
+- **`Iterator.join()` method** — Stdlib method for joining iterator elements with a separator
+
+---
+
 ## Spec Changes Required
 
 ### `06-types.md`
@@ -366,6 +377,16 @@ Add `Debug` to prelude traits.
 ### `/CLAUDE.md`
 
 Add `Debug` to prelude traits list.
+
+---
+
+## Spec Cleanup Note
+
+The `Printable` trait method name is inconsistent in the spec:
+- `08-declarations.md` uses `@to_string`
+- `12-modules.md` uses `.to_str()`
+
+The canonical name should be `to_str()` (matching the prelude table in `12-modules.md`). This cleanup should be done separately.
 
 ---
 
