@@ -349,8 +349,13 @@ pattern_arg  = identifier ":" expression .
 
 // --- Sequential Patterns ---
 
-// run: Sequential expressions
-run_expr = "run" "(" { binding "," } expression ")" .
+// run: Sequential expressions with optional pre/post checks
+// See: 10-patterns.md § run
+run_expr        = "run" "(" [ run_prechecks ] { binding "," } expression [ run_postchecks ] ")" .
+run_prechecks   = { "pre_check" ":" check_expr "," } .
+run_postchecks  = { "," "post_check" ":" postcheck_expr } .
+check_expr      = expression [ "|" string_literal ] .
+postcheck_expr  = lambda_params "->" check_expr .
 
 // try: Error-propagating sequence (returns early on Err)
 try_expr = "try" "(" { binding "," } expression ")" .

@@ -168,6 +168,17 @@
 - Added to prelude: `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`, `repeat`
 - Blocked on: None (builds on existing Phase 3 infrastructure)
 
+**Pre/Post Checks** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/checks-proposal.md`
+- Implementation: Phase 15.5
+- Extends `run` with `pre_check:` and `post_check:` properties for contract-style checks
+- Multiple conditions via multiple properties (not list syntax)
+- Custom messages with `| "message"` syntax
+- Scope: pre_check can only access outer scope; post_check can access body bindings
+- Compile error if post_check used with void body
+- Check modes (enforce/observe/ignore) deferred to future proposal
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones
