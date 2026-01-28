@@ -208,3 +208,77 @@ Not required. Newlines terminate statements. Commas separate elements within del
 ## Trailing Commas
 
 Permitted in all comma-separated lists. Required by formatter in multi-line constructs.
+
+## Lexer-Parser Contract
+
+The lexer produces _minimal tokens_. The parser combines adjacent tokens based on context.
+
+### Greater-Than Sequences
+
+The lexer produces individual `>` tokens. It never produces `>>`, `>=`, or `>>=` as single tokens.
+
+In _expression context_, adjacent tokens form compound operators:
+- `>` followed immediately by `>` (no whitespace) → right shift `>>`
+- `>` followed immediately by `=` (no whitespace) → greater-equal `>=`
+
+In _type context_, `>` closes a generic parameter list.
+
+```ori
+// Parses correctly: each > is a separate token
+let x: Result<Result<int, str>, str> = Ok(Ok(1))
+
+// In expressions, >> is right shift
+let y = 8 >> 2  // y = 2
+```
+
+This enables nested generic types while preserving shift operators in expressions.
+
+## Disambiguation
+
+### Struct Literals
+
+An uppercase identifier followed by `{` is interpreted as:
+- A struct literal in expression context
+- NOT a struct literal in `if` condition context
+
+```ori
+// Struct literal in expression
+let p = Point { x: 1, y: 2 }
+
+// In if condition, struct literal not allowed
+// (the { would start a block in languages without `then`)
+if condition then Point { x: 1, y: 2 } else default  // OK: in then branch
+
+// Error: struct literal in condition
+if Point { x: 1, y: 2 }.valid then ...  // must use parentheses
+if (Point { x: 1, y: 2 }).valid then ...  // OK
+```
+
+### Soft Keywords
+
+The following identifiers are keywords only when followed by `(` in expression position:
+
+```
+cache    catch    for      match    parallel
+recurse  run      spawn    timeout  try
+with
+```
+
+Outside this context, they may be used as variable names.
+
+### Parenthesized Expressions
+
+A parenthesized expression `(...)` is interpreted as:
+
+1. Lambda parameters if followed by `->` and contents match parameter syntax
+2. Tuple if it contains a comma: `(a, b)`
+3. Unit if empty: `()`
+4. Grouped expression otherwise
+
+```ori
+(x) -> x + 1          // lambda with one parameter
+(x, y) -> x + y       // lambda with two parameters
+(a, b)                // tuple
+()                    // unit
+(a + b) * c           // grouped expression
+```

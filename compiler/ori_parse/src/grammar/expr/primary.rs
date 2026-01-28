@@ -29,6 +29,11 @@ impl Parser<'_> {
             return self.parse_for_pattern();
         }
 
+        // for loop: for x in items do body  OR  for x in items yield body
+        if self.check(&TokenKind::For) {
+            return self.parse_for_loop();
+        }
+
         // Capability provision: with Capability = Provider in body
         if self.check(&TokenKind::With) && self.is_with_capability_syntax() {
             return self.parse_with_capability();
@@ -100,6 +105,22 @@ impl Parser<'_> {
                 Ok(self
                     .arena
                     .alloc_expr(Expr::new(ExprKind::Config(name), full_span)))
+            }
+
+            // Hash length symbol: # (only valid inside index brackets)
+            TokenKind::Hash => {
+                if self.context.in_index() {
+                    self.advance();
+                    Ok(self
+                        .arena
+                        .alloc_expr(Expr::new(ExprKind::HashLength, span)))
+                } else {
+                    Err(ParseError::new(
+                        ori_diagnostic::ErrorCode::E1002,
+                        "`#` length symbol is only valid inside index brackets".to_string(),
+                        span,
+                    ))
+                }
             }
 
             // Identifier
@@ -437,9 +458,16 @@ impl Parser<'_> {
 
     /// Parse if expression.
     fn parse_if_expr(&mut self) -> Result<ExprId, ParseError> {
+        use crate::ParseContext;
+
         let span = self.current_span();
         self.advance();
-        let cond = self.parse_expr()?;
+
+        // Parse condition without struct literals (for consistency and future safety).
+        // While Ori uses `then` instead of `{` after conditions, disallowing struct
+        // literals in conditions is a common pattern that prevents potential ambiguities.
+        let cond = self.with_context(ParseContext::NO_STRUCT_LIT, |p| p.parse_expr())?;
+
         self.expect(&TokenKind::Then)?;
         self.skip_newlines();
         let then_branch = self.parse_expr()?;
@@ -613,6 +641,63 @@ impl Parser<'_> {
                 capability,
                 provider,
                 body,
+            },
+            span.merge(end_span),
+        )))
+    }
+
+    /// Parse for loop: `for x in items do body` or `for x in items yield body`
+    ///
+    /// Also supports optional guard: `for x in items if condition do body`
+    fn parse_for_loop(&mut self) -> Result<ExprId, ParseError> {
+        let span = self.current_span();
+        self.expect(&TokenKind::For)?;
+
+        // Parse binding name
+        let binding = self.expect_ident()?;
+
+        // Expect `in` keyword
+        self.expect(&TokenKind::In)?;
+
+        // Parse iterator expression
+        let iter = self.parse_expr()?;
+
+        // Check for optional guard: `if condition`
+        let guard = if self.check(&TokenKind::If) {
+            self.advance();
+            Some(self.parse_expr()?)
+        } else {
+            None
+        };
+
+        // Expect `do` or `yield`
+        let is_yield = if self.check(&TokenKind::Do) {
+            self.advance();
+            false
+        } else if self.check(&TokenKind::Yield) {
+            self.advance();
+            true
+        } else {
+            return Err(ParseError::new(
+                ori_diagnostic::ErrorCode::E1002,
+                "expected `do` or `yield` after for loop iterator".to_string(),
+                self.current_span(),
+            ));
+        };
+
+        self.skip_newlines();
+
+        // Parse body expression
+        let body = self.parse_expr()?;
+
+        let end_span = self.arena.get_expr(body).span;
+        Ok(self.arena.alloc_expr(Expr::new(
+            ExprKind::For {
+                binding,
+                iter,
+                guard,
+                body,
+                is_yield,
             },
             span.merge(end_span),
         )))
