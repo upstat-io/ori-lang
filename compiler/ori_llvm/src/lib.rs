@@ -53,26 +53,24 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use ori_llvm::{CodegenCx, Builder};
-//! use inkwell::context::Context;
+//!     use ori_llvm::{CodegenCx, Builder};
+//!     use inkwell::context::Context;
 //!
-//! let context = Context::create();
-//! let interner = StringInterner::new();
-//! let cx = CodegenCx::new(&context, &interner, "my_module");
+//!     let context = Context::create();
+//!     let interner = StringInterner::new();
+//!     let cx = CodegenCx::new(&context, &interner, "my_module");
 //!
-//! // Declare runtime functions
-//! cx.declare_runtime_functions();
+//!     // Declare runtime functions
+//!     cx.declare_runtime_functions();
 //!
-//! // Declare a function
-//! let func = cx.declare_fn(name, &[TypeId::INT], TypeId::INT);
-//! let entry = cx.llcx().append_basic_block(func, "entry");
+//!     // Declare a function
+//!     let func = cx.declare_fn(name, &[TypeId::INT], TypeId::INT);
+//!     let entry = cx.llcx().append_basic_block(func, "entry");
 //!
-//! // Build instructions and compile expressions
-//! let bx = Builder::build(&cx, entry);
-//! let result = bx.compile_expr(body, arena, expr_types, &mut locals, func, None);
-//! bx.ret(result.unwrap());
-//! ```
+//!     // Build instructions and compile expressions
+//!     let bx = Builder::build(&cx, entry);
+//!     let result = bx.compile_expr(body, arena, expr_types, &mut locals, func, None);
+//!     bx.ret(result.unwrap());
 
 // -- Public modules (new architecture) --
 pub mod builder;

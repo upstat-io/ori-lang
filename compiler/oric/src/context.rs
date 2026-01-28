@@ -35,7 +35,8 @@ pub use ori_typeck::SharedRegistry;
 /// Uses `Arc<RwLock<T>>` internally for thread-safe mutable access.
 ///
 /// # Usage
-/// ```ignore
+///
+/// ```text
 /// let registry = SharedMutableRegistry::new(UserMethodRegistry::new());
 /// // Read access
 /// registry.read().lookup("Point", "distance");
@@ -89,7 +90,8 @@ impl<T: fmt::Debug> fmt::Debug for SharedMutableRegistry<T> {
 /// # Testing
 ///
 /// Create a custom context with mock registries:
-/// ```ignore
+///
+/// ```text
 /// let ctx = CompilerContext::new()
 ///     .with_pattern_registry(mock_pattern_registry);
 /// let checker = TypeChecker::with_context(&arena, &interner, &ctx);

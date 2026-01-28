@@ -15,7 +15,7 @@ impl Interpreter<'_> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```text
     /// self.with_env_scope(|eval| {
     ///     eval.env.define(name, value, mutable);
     ///     eval.eval(body)
@@ -37,7 +37,7 @@ impl Interpreter<'_> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```text
     /// let bindings = vec![(param_name, arg_value, false)];
     /// self.with_bindings(bindings, |eval| eval.eval(body))
     /// ```
@@ -61,7 +61,7 @@ impl Interpreter<'_> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```text
     /// let bindings = extract_pattern_bindings(pattern, value)?;
     /// self.with_match_bindings(bindings, |eval| eval.eval(arm_body))
     /// ```
@@ -79,7 +79,7 @@ impl Interpreter<'_> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```text
     /// // for x in items do body
     /// self.with_binding(x_name, item_value, false, |eval| eval.eval(body))
     /// ```

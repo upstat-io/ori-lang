@@ -102,7 +102,8 @@ macro_rules! impl_single_inner_type_id_methods {
 /// The default `fold` method dispatches to variant-specific methods.
 ///
 /// # Example
-/// ```ignore
+///
+/// ```text
 /// struct Resolver<'a> {
 ///     substitutions: &'a HashMap<TypeVar, Type>,
 /// }
@@ -213,7 +214,8 @@ pub trait TypeFolder {
 /// Override specific `visit_*` methods to customize behavior.
 ///
 /// # Example
-/// ```ignore
+///
+/// ```text
 /// struct FreeVarCollector {
 ///     vars: Vec<TypeVar>,
 /// }
@@ -314,7 +316,8 @@ pub trait TypeVisitor {
 /// and interning new types.
 ///
 /// # Example
-/// ```ignore
+///
+/// ```text
 /// struct TypeIdResolver<'a> {
 ///     interner: &'a TypeInterner,
 ///     substitutions: &'a HashMap<TypeVar, TypeId>,
@@ -426,7 +429,8 @@ pub trait TypeIdFolder {
 /// Requires access to a `TypeInterner` for looking up type data.
 ///
 /// # Example
-/// ```ignore
+///
+/// ```text
 /// struct FreeVarCollector<'a> {
 ///     interner: &'a TypeInterner,
 ///     vars: Vec<TypeVar>,

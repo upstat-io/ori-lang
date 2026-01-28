@@ -39,7 +39,7 @@ impl OriStr {
     /// # Safety
     /// Caller must ensure data pointer is valid and len is correct.
     #[allow(unsafe_code)]
-    #[must_use] 
+    #[must_use]
     pub unsafe fn as_str(&self) -> &str {
         if self.data.is_null() || self.len <= 0 {
             return "";
@@ -338,8 +338,9 @@ pub extern "C" fn ori_assert_eq_str(actual: *const OriStr, expected: *const OriS
     if actual_str != expected_str {
         eprintln!("assertion failed: \"{actual_str}\" != \"{expected_str}\"");
         PANIC_OCCURRED.store(true, Ordering::SeqCst);
-        *PANIC_MESSAGE.lock().unwrap() =
-            Some(format!("assertion failed: \"{actual_str}\" != \"{expected_str}\""));
+        *PANIC_MESSAGE.lock().unwrap() = Some(format!(
+            "assertion failed: \"{actual_str}\" != \"{expected_str}\""
+        ));
     }
 }
 

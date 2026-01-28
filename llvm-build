@@ -1,4 +1,4 @@
 #!/bin/bash
-# Build LLVM crate
+# Build LLVM crate in Docker container
 # Usage: ./llvm-build [additional args...]
-exec cargo build --manifest-path compiler/ori_llvm/Cargo.toml "$@"
+exec ./docker/llvm/run.sh cargo build "$@"

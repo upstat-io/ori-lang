@@ -6,9 +6,7 @@
 //!
 //! # Usage
 //!
-//! ```ignore
-//! use ori_eval::errors::{undefined_variable, division_by_zero};
-//! ```
+//!     use ori_eval::errors::{undefined_variable, division_by_zero};
 
 // Re-export EvalError and EvalResult types
 pub use ori_patterns::{EvalError, EvalResult};

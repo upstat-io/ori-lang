@@ -21,7 +21,8 @@ use std::sync::Arc;
 /// Uses `Arc` internally for thread-safe reference counting.
 ///
 /// # Usage
-/// ```ignore
+///
+/// ```text
 /// let registry = SharedRegistry::new(PatternRegistry::new());
 /// // Access via Deref
 /// let pattern = registry.get("map");

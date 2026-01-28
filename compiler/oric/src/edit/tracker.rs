@@ -9,7 +9,7 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```text
 //! let mut tracker = ChangeTracker::new();
 //! tracker.insert_before(Span::new(10, 10), "// comment\n");
 //! tracker.replace(Span::new(20, 25), "newValue");

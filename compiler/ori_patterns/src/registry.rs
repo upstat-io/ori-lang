@@ -34,7 +34,8 @@ use crate::PatternDefinition;
 /// Uses `Arc` internally for thread-safe reference counting.
 ///
 /// # Usage
-/// ```ignore
+///
+/// ```text
 /// let pattern = SharedPattern::new(MapPattern);
 /// registry.register(FunctionExpKind::Map, pattern);
 /// ```

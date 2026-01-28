@@ -13,7 +13,7 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```text
 //! struct CountLiterals {
 //!     count: usize,
 //! }

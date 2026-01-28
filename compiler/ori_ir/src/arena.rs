@@ -452,7 +452,8 @@ use std::sync::Arc;
 /// Uses `Arc` internally for thread-safe reference counting.
 ///
 /// # Usage
-/// ```ignore
+///
+/// ```text
 /// let arena = SharedArena::new(parse_result.arena);
 /// let func = FunctionValue::new(params, body, captures, arena);
 /// ```

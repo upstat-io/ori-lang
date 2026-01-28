@@ -39,13 +39,13 @@ pub struct TypeCache<'ll> {
 
 impl<'ll> TypeCache<'ll> {
     /// Create a new empty type cache.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Look up a cached type.
-    #[must_use] 
+    #[must_use]
     pub fn get(&self, type_id: TypeId) -> Option<BasicTypeEnum<'ll>> {
         self.scalars
             .get(&type_id)
@@ -102,7 +102,7 @@ pub struct SimpleCx<'ll> {
 
 impl<'ll> SimpleCx<'ll> {
     /// Create a new simple context.
-    #[must_use] 
+    #[must_use]
     pub fn new(context: &'ll Context, module_name: &str) -> Self {
         let llmod = context.create_module(module_name);
         let ptr_type = context.ptr_type(AddressSpace::default());

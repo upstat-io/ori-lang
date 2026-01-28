@@ -12,7 +12,7 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```text
 //! let candidates = vec!["length", "height", "width"];
 //! let suggestion = suggest_similar("lenght", candidates.iter().copied());
 //! assert_eq!(suggestion, Some("length"));
@@ -25,7 +25,7 @@
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// assert_eq!(edit_distance("kitten", "sitting"), 3);
 /// assert_eq!(edit_distance("hello", "hello"), 0);
 /// assert_eq!(edit_distance("abc", ""), 3);
@@ -96,7 +96,7 @@ fn default_threshold(name_len: usize) -> usize {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// let candidates = vec!["length", "height", "width"];
 /// let suggestion = suggest_similar("lenght", candidates.iter().copied());
 /// assert_eq!(suggestion, Some("length"));

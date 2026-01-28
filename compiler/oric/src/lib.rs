@@ -27,7 +27,7 @@
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// static_assert_size!(Span, 8);
 /// static_assert_size!(Token, 16);
 /// ```

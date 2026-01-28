@@ -252,7 +252,7 @@ impl Environment {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```text
     /// env.with_scope(|env| {
     ///     env.define(name, value, false);
     ///     // ... use the binding ...
@@ -274,7 +274,7 @@ impl Environment {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```text
     /// // for x in items do body
     /// env.with_binding(x_name, item_value, false, |env| {
     ///     eval_body(body, env)
@@ -297,7 +297,7 @@ impl Environment {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```text
     /// let bindings = try_match(&pattern, value, arena, interner)?;
     /// env.with_match_bindings(bindings, |env| {
     ///     eval_body(body, env)

@@ -71,7 +71,7 @@ impl QueuedDiagnostic {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// let mut queue = DiagnosticQueue::new();
 /// queue.add(diagnostic, line, column, is_soft);
 /// // ... add more diagnostics
