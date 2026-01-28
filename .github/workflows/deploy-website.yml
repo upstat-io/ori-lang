@@ -44,7 +44,7 @@ jobs:
       - name: Build WASM
         run: |
           cd playground/wasm
-          wasm-pack build --target web --out-dir ../pkg --release
+          wasm-pack build --target web --out-dir pkg --release
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
