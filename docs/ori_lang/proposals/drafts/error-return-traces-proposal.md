@@ -1,6 +1,6 @@
 # Proposal: Error Return Traces
 
-**Status:** Approved
+**Status:** Draft
 **Author:** Eric
 **Created:** 2026-01-22
 **Approved:** 2026-01-25
