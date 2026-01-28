@@ -1,8 +1,9 @@
 # Proposal: Spread Operator
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric
 **Created:** 2026-01-25
+**Approved:** 2026-01-28
 
 ---
 
@@ -163,6 +164,15 @@ let patch = Config { a: 10, b: 20, c: 30 }
 
 Config { ...base, ...patch }  // patch wins: { a: 10, b: 20, c: 30 }
 Config { ...base, b: 100 }    // { a: 1, b: 100, c: 3 }
+```
+
+**Combining with shorthand syntax:**
+```ori
+let x = 10
+let y = 20
+
+Point { ...original, x }      // x from local variable, y and z from original
+Point { x, y, ...defaults }   // x and y from locals, defaults provides rest
 ```
 
 ### Type Constraints
@@ -354,6 +364,27 @@ Point { x: 1, ...rest, z: 3 }      // Valid
 
 This provides maximum flexibility for composition.
 
+### Why No Set Spread?
+
+Set literals (`{a, b, c}` syntax) do not exist in Ori — sets use `Set<T>` and constructor methods. When Set literals are added to the language, Set spread semantics can be defined. This proposal does not cover Set spread.
+
+### Evaluation Order
+
+Spread expressions evaluate left-to-right, consistent with Ori's general evaluation order:
+
+```ori
+[first(), ...middle(), last()]
+// Order: first(), middle() (returns list), last()
+
+{...defaults(), "key": computed(), ...overrides()}
+// Order: defaults(), computed(), overrides()
+
+Point { ...source(), x: compute_x() }
+// Order: source(), compute_x()
+```
+
+Each spread expression is fully evaluated before proceeding to the next element.
+
 ---
 
 ## Edge Cases
@@ -402,14 +433,24 @@ This maintains Ori's explicit named-argument philosophy.
 
 ## Implementation Notes
 
-### Parser Changes
+### Grammar Changes
 
-Add `...` as a prefix operator in list, map, and struct literal contexts:
+Update `grammar.ebnf` with formal productions for spread syntax:
 
-```
-list_element = "..." expression | expression .
-map_entry = "..." expression | expression ":" expression .
-struct_field = "..." expression | identifier ":" expression | identifier .
+```ebnf
+// Update list_literal to support spread
+list_literal   = "[" [ list_element { "," list_element } ] "]" .
+list_element   = "..." expression | expression .
+
+// Update map_literal to support spread
+map_literal    = "{" [ map_element { "," map_element } ] "}" .
+map_element    = "..." expression | map_entry .
+map_entry      = expression ":" expression .
+
+// Update struct_literal to support spread
+struct_literal = type_path "{" [ struct_element { "," struct_element } ] "}" .
+struct_element = "..." expression | field_init .
+field_init     = identifier [ ":" expression ] .
 ```
 
 ### Type Checking

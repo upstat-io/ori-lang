@@ -595,7 +595,113 @@ Allow functions to be defined with multiple clauses that pattern match on argume
 
 ---
 
-## 15.10 Phase Completion Checklist
+## 15.10 Spread Operator
+
+**Proposal**: `proposals/approved/spread-operator-proposal.md`
+
+Add a spread operator `...` for expanding collections and structs in literal contexts.
+
+```ori
+let combined = [...list1, ...list2]
+let merged = {...defaults, ...overrides}
+let updated = Point { ...original, x: 10 }
+```
+
+### Lexer
+
+- [ ] **Implement**: Add `...` as a token (Ellipsis)
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — ellipsis token tests
+  - [ ] **Ori Tests**: `tests/spec/lexical/spread_token.ori`
+  - [ ] **LLVM Support**: LLVM codegen for ellipsis token
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — ellipsis token codegen
+
+### Parser
+
+- [ ] **Implement**: Parse `...expression` in list literals
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — list spread parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/list_spread.ori`
+  - [ ] **LLVM Support**: LLVM codegen for list spread
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — list spread codegen
+
+- [ ] **Implement**: Parse `...expression` in map literals
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — map spread parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/map_spread.ori`
+  - [ ] **LLVM Support**: LLVM codegen for map spread
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — map spread codegen
+
+- [ ] **Implement**: Parse `...expression` in struct literals
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — struct spread parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/struct_spread.ori`
+  - [ ] **LLVM Support**: LLVM codegen for struct spread
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — struct spread codegen
+
+### Type Checker
+
+- [ ] **Implement**: Verify list spread expression is `[T]` matching container
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/spread.rs` — list spread type checking
+  - [ ] **Ori Tests**: `tests/compile-fail/list_spread_type_mismatch.ori`
+  - [ ] **LLVM Support**: LLVM codegen for list spread type checking
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — list spread type checking codegen
+
+- [ ] **Implement**: Verify map spread expression is `{K: V}` matching container
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/spread.rs` — map spread type checking
+  - [ ] **Ori Tests**: `tests/compile-fail/map_spread_type_mismatch.ori`
+  - [ ] **LLVM Support**: LLVM codegen for map spread type checking
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — map spread type checking codegen
+
+- [ ] **Implement**: Verify struct spread is same struct type (no subset/superset)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/spread.rs` — struct spread type checking
+  - [ ] **Ori Tests**: `tests/compile-fail/struct_spread_wrong_type.ori`
+  - [ ] **LLVM Support**: LLVM codegen for struct spread type checking
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — struct spread type checking codegen
+
+- [ ] **Implement**: Track struct field coverage (spread + explicit must cover all fields)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/struct_lit.rs` — field coverage tracking
+  - [ ] **Ori Tests**: `tests/compile-fail/struct_spread_missing_fields.ori`
+  - [ ] **LLVM Support**: LLVM codegen for field coverage tracking
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — field coverage tracking codegen
+
+### Code Generation
+
+- [ ] **Implement**: Desugar list spread to concatenation (`[a] + b + [c]`)
+  - [ ] **Rust Tests**: `oric/src/codegen/spread.rs` — list spread desugaring
+  - [ ] **Ori Tests**: `tests/spec/expressions/list_spread_desugar.ori`
+  - [ ] **LLVM Support**: LLVM codegen for list spread desugaring
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — list spread desugaring codegen
+
+- [ ] **Implement**: Desugar map spread to merge calls
+  - [ ] **Rust Tests**: `oric/src/codegen/spread.rs` — map spread desugaring
+  - [ ] **Ori Tests**: `tests/spec/expressions/map_spread_desugar.ori`
+  - [ ] **LLVM Support**: LLVM codegen for map spread desugaring
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — map spread desugaring codegen
+
+- [ ] **Implement**: Desugar struct spread to explicit field assignments
+  - [ ] **Rust Tests**: `oric/src/codegen/spread.rs` — struct spread desugaring
+  - [ ] **Ori Tests**: `tests/spec/expressions/struct_spread_desugar.ori`
+  - [ ] **LLVM Support**: LLVM codegen for struct spread desugaring
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — struct spread desugaring codegen
+
+### Edge Cases
+
+- [ ] **Implement**: Empty spread produces nothing (valid)
+  - [ ] **Ori Tests**: `tests/spec/expressions/spread_empty.ori`
+  - [ ] **LLVM Support**: LLVM codegen for empty spread
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — empty spread codegen
+
+- [ ] **Implement**: Spread preserves evaluation order (left-to-right)
+  - [ ] **Ori Tests**: `tests/spec/expressions/spread_eval_order.ori`
+  - [ ] **LLVM Support**: LLVM codegen for spread evaluation order
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — spread evaluation order codegen
+
+- [ ] **Implement**: Error for spread in function call arguments
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/call.rs` — spread in call error
+  - [ ] **Ori Tests**: `tests/compile-fail/spread_in_function_call.ori`
+  - [ ] **LLVM Support**: LLVM codegen for spread in call error
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — spread in call error codegen
+
+---
+
+## 15.11 Phase Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[x]`
 - [ ] All spec docs updated
