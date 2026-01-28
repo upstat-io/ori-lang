@@ -7,7 +7,7 @@
 //!
 //! The `Diagnostic` derive macro generates diagnostic creation code:
 //!
-//! ```ignore
+//! ```text
 //! #[derive(Diagnostic)]
 //! #[diag(E2001, "type mismatch: expected `{expected}`, found `{found}`")]
 //! pub struct TypeMismatch {
@@ -50,7 +50,7 @@ use proc_macro::TokenStream;
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// #[derive(Diagnostic)]
 /// #[diag(E1001, "unexpected token")]
 /// pub struct UnexpectedToken {
@@ -84,7 +84,7 @@ pub fn derive_diagnostic(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// #[derive(Subdiagnostic)]
 /// #[label("this type was expected")]
 /// pub struct ExpectedTypeLabel {

@@ -230,7 +230,8 @@ impl Default for StringInterner {
 /// on `StringInterner`.
 ///
 /// # Example
-/// ```ignore
+///
+/// ```text
 /// fn display_type_name<I: StringLookup>(value: &Value, interner: &I) -> String {
 ///     value.type_name_with_interner(interner).into_owned()
 /// }
@@ -262,7 +263,8 @@ impl StringLookup for StringInterner {
 /// `StringInterner` uses per-shard `RwLocks` for concurrent access.
 ///
 /// # Usage
-/// ```ignore
+///
+/// ```text
 /// let interner = SharedInterner::new();
 /// let name = interner.intern("my_function");
 /// let lookup = interner.resolve(name);

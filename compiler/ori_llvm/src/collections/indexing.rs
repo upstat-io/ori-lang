@@ -29,7 +29,8 @@ impl<'ll> Builder<'_, 'll, '_> {
             BasicValueEnum::StructValue(struct_val) => {
                 // Could be a tuple - use index as field number
                 let idx = idx_val.into_int_value();
-                idx.get_zero_extended_constant().map(|const_idx| self.extract_value(struct_val, const_idx as u32, "index"))
+                idx.get_zero_extended_constant()
+                    .map(|const_idx| self.extract_value(struct_val, const_idx as u32, "index"))
             }
             _ => {
                 // For lists/arrays, would need GEP or runtime call

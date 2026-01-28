@@ -33,7 +33,8 @@ pub struct ImportedGeneric {
 /// # Creating `ImportedFunction`
 ///
 /// Convert from a typed module's `FunctionType`:
-/// ```ignore
+///
+/// ```text
 /// let imported = ImportedFunction::from_function_type(&func_type, interner);
 /// ```
 #[derive(Clone, Debug)]
@@ -101,7 +102,7 @@ impl TypeChecker<'_> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```text
     /// let checker = TypeChecker::new(arena, interner);
     /// checker.register_imported_functions(&imported_functions);
     /// let typed = checker.check_module(&module);

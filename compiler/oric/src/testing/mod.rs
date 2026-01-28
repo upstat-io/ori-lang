@@ -7,7 +7,7 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```text
 //! use oric::testing::harness::{eval_source, assert_eval_int};
 //!
 //! // Test basic arithmetic

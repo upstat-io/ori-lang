@@ -13,7 +13,7 @@
 //! error was emitted. This prevents "forgotten" error conditions where code
 //! fails silently without reporting an error.
 //!
-//! ```ignore
+//! ```text
 //! // Can only get ErrorGuaranteed by emitting an error
 //! let guarantee = queue.emit_error(diagnostic);
 //!

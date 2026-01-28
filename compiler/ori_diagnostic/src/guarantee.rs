@@ -18,7 +18,7 @@ use std::fmt;
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// fn type_check(&mut self) -> Result<TypedModule, ErrorGuaranteed> {
 ///     if let Some(error) = self.check_for_errors() {
 ///         // Can only get ErrorGuaranteed by actually emitting
@@ -52,7 +52,7 @@ impl ErrorGuaranteed {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```text
     /// let error_guarantee = ErrorGuaranteed::from_error_count(self.errors.len());
     /// ```
     #[inline]

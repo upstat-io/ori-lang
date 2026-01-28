@@ -135,24 +135,54 @@ pub mod helper {
         fn add_runtime_mappings(&self, ee: &inkwell::execution_engine::ExecutionEngine<'ll>) {
             let mappings: &[(&str, usize)] = &[
                 ("ori_print", runtime::ori_print as *const () as usize),
-                ("ori_print_int", runtime::ori_print_int as *const () as usize),
-                ("ori_print_float", runtime::ori_print_float as *const () as usize),
-                ("ori_print_bool", runtime::ori_print_bool as *const () as usize),
+                (
+                    "ori_print_int",
+                    runtime::ori_print_int as *const () as usize,
+                ),
+                (
+                    "ori_print_float",
+                    runtime::ori_print_float as *const () as usize,
+                ),
+                (
+                    "ori_print_bool",
+                    runtime::ori_print_bool as *const () as usize,
+                ),
                 ("ori_panic", runtime::ori_panic as *const () as usize),
-                ("ori_panic_cstr", runtime::ori_panic_cstr as *const () as usize),
+                (
+                    "ori_panic_cstr",
+                    runtime::ori_panic_cstr as *const () as usize,
+                ),
                 ("ori_assert", runtime::ori_assert as *const () as usize),
-                ("ori_assert_eq_int", runtime::ori_assert_eq_int as *const () as usize),
-                ("ori_assert_eq_bool", runtime::ori_assert_eq_bool as *const () as usize),
+                (
+                    "ori_assert_eq_int",
+                    runtime::ori_assert_eq_int as *const () as usize,
+                ),
+                (
+                    "ori_assert_eq_bool",
+                    runtime::ori_assert_eq_bool as *const () as usize,
+                ),
                 ("ori_list_new", runtime::ori_list_new as *const () as usize),
-                ("ori_list_free", runtime::ori_list_free as *const () as usize),
+                (
+                    "ori_list_free",
+                    runtime::ori_list_free as *const () as usize,
+                ),
                 ("ori_list_len", runtime::ori_list_len as *const () as usize),
-                ("ori_compare_int", runtime::ori_compare_int as *const () as usize),
+                (
+                    "ori_compare_int",
+                    runtime::ori_compare_int as *const () as usize,
+                ),
                 ("ori_min_int", runtime::ori_min_int as *const () as usize),
                 ("ori_max_int", runtime::ori_max_int as *const () as usize),
-                ("ori_str_concat", runtime::ori_str_concat as *const () as usize),
+                (
+                    "ori_str_concat",
+                    runtime::ori_str_concat as *const () as usize,
+                ),
                 ("ori_str_eq", runtime::ori_str_eq as *const () as usize),
                 ("ori_str_ne", runtime::ori_str_ne as *const () as usize),
-                ("ori_assert_eq_str", runtime::ori_assert_eq_str as *const () as usize),
+                (
+                    "ori_assert_eq_str",
+                    runtime::ori_assert_eq_str as *const () as usize,
+                ),
             ];
 
             let module = self.cx.llmod();

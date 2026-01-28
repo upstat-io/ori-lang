@@ -217,7 +217,7 @@ pub struct OwnedLLVMEvaluator {
 
 impl OwnedLLVMEvaluator {
     /// Create a new owned LLVM evaluator.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         OwnedLLVMEvaluator {
             context: Context::create(),

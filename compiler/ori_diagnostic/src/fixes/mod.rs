@@ -11,7 +11,7 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```text
 //! struct AddTypeAnnotation;
 //!
 //! impl CodeFix for AddTypeAnnotation {

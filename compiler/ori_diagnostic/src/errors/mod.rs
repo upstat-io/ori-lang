@@ -25,7 +25,7 @@ impl ErrorDocs {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```text
     /// if let Some(doc) = ErrorDocs::get(ErrorCode::E2001) {
     ///     println!("{}", doc);
     /// }

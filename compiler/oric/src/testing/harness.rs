@@ -17,7 +17,8 @@ use crate::typeck::{type_check, TypedModule};
 /// boilerplate of lexing, parsing, and evaluating.
 ///
 /// # Example
-/// ```ignore
+///
+/// ```text
 /// use oric::testing::harness::eval_expr;
 ///
 /// let result = eval_expr("1 + 2").unwrap();

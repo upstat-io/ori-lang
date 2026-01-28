@@ -7,7 +7,7 @@
 //!
 //! Wrap recursive calls that could overflow with `ensure_sufficient_stack`:
 //!
-//! ```ignore
+//! ```text
 //! fn parse_expr(&mut self) -> Result<ExprId, ParseError> {
 //!     ensure_sufficient_stack(|| {
 //!         // ... recursive parsing logic ...
@@ -33,7 +33,7 @@ const STACK_PER_RECURSION: usize = 1024 * 1024;
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// fn recursive_operation(&mut self, depth: usize) -> Result<Value, Error> {
 ///     ensure_sufficient_stack(|| {
 ///         if depth == 0 {

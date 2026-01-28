@@ -7,14 +7,16 @@
 //! external code cannot create heap values directly.
 //!
 //! ## Correct Usage
-//! ```ignore
+//!
+//! ```text
 //! let s = Value::string("hello");        // OK
 //! let list = Value::list(vec![]);        // OK
 //! let opt = Value::some(Value::int(42)); // OK
 //! ```
 //!
 //! ## Prevented (Won't Compile)
-//! ```ignore
+//!
+//! ```text
 //! let s = Value::Str(Heap::new(...));    // ERROR: Heap::new is pub(super)
 //! let list = Value::List(Arc::new(...)); // ERROR: Expected Heap, got Arc
 //! ```
@@ -142,7 +144,8 @@ impl Value {
     /// Create a string value.
     ///
     /// # Example
-    /// ```ignore
+    ///
+    /// ```text
     /// let s = Value::string("hello");
     /// let s2 = Value::string(format!("value: {}", x));
     /// ```
@@ -154,7 +157,8 @@ impl Value {
     /// Create a list value.
     ///
     /// # Example
-    /// ```ignore
+    ///
+    /// ```text
     /// let empty = Value::list(vec![]);
     /// let nums = Value::list(vec![Value::int(1), Value::int(2)]);
     /// ```
@@ -166,7 +170,8 @@ impl Value {
     /// Create a map value with String keys.
     ///
     /// # Example
-    /// ```ignore
+    ///
+    /// ```text
     /// let empty = Value::map(HashMap::new());
     /// ```
     #[inline]
@@ -177,7 +182,8 @@ impl Value {
     /// Create a tuple value.
     ///
     /// # Example
-    /// ```ignore
+    ///
+    /// ```text
     /// let pair = Value::tuple(vec![Value::int(1), Value::Bool(true)]);
     /// ```
     #[inline]
@@ -188,7 +194,8 @@ impl Value {
     /// Create a Some value.
     ///
     /// # Example
-    /// ```ignore
+    ///
+    /// ```text
     /// let some = Value::some(Value::int(42));
     /// ```
     #[inline]
@@ -199,7 +206,8 @@ impl Value {
     /// Create an Ok value.
     ///
     /// # Example
-    /// ```ignore
+    ///
+    /// ```text
     /// let ok = Value::ok(Value::int(42));
     /// let ok_void = Value::ok(Value::Void);
     /// ```
@@ -211,7 +219,8 @@ impl Value {
     /// Create an Err value.
     ///
     /// # Example
-    /// ```ignore
+    ///
+    /// ```text
     /// let err = Value::err(Value::string("something went wrong"));
     /// ```
     #[inline]
@@ -222,7 +231,8 @@ impl Value {
     /// Create a user-defined variant value.
     ///
     /// # Example
-    /// ```ignore
+    ///
+    /// ```text
     /// // Unit variant: Status::Running
     /// let running = Value::variant(status_name, running_name, vec![]);
     ///
@@ -241,7 +251,8 @@ impl Value {
     /// Create a variant constructor for sum types with fields.
     ///
     /// # Example
-    /// ```ignore
+    ///
+    /// ```text
     /// // Constructor for Done(reason: str) variant
     /// let done_ctor = Value::variant_constructor(status_name, done_name, 1);
     /// ```

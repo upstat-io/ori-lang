@@ -21,7 +21,7 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```text
 //! use problem::{Problem, ParseProblem};
 //!
 //! let problem = Problem::Parse(ParseProblem::UnexpectedToken {
@@ -55,7 +55,7 @@ pub trait HasSpan {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// impl_has_span! {
 ///     ParseProblem {
 ///         found_span: [UnclosedDelimiter],  // Exception case
