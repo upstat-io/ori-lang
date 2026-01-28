@@ -525,12 +525,14 @@ fn unescape_string(s: &str) -> String {
     while let Some(c) = chars.next() {
         if c == '\\' {
             match chars.next() {
-                Some(esc) => if let Some(resolved) = resolve_escape(esc) {
-                    result.push(resolved);
-                } else {
-                    result.push('\\');
-                    result.push(esc);
-                },
+                Some(esc) => {
+                    if let Some(resolved) = resolve_escape(esc) {
+                        result.push(resolved);
+                    } else {
+                        result.push('\\');
+                        result.push(esc);
+                    }
+                }
                 None => result.push('\\'),
             }
         } else {

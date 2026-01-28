@@ -1,0 +1,15 @@
+#!/bin/bash
+# Format ALL Rust code: workspace and LLVM crate
+# Usage: ./fmt-all
+
+set -e
+
+echo "=== Formatting workspace ==="
+cargo fmt
+
+echo ""
+echo "=== Formatting LLVM crate (Docker) ==="
+./docker/llvm/run.sh cargo fmt
+
+echo ""
+echo "=== All formatting complete ==="

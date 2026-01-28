@@ -740,10 +740,7 @@ mod consistency {
 
     /// Methods implemented in the evaluator that intentionally lack type
     /// checker handlers (e.g., range has no typeck handler yet).
-    const KNOWN_EVAL_ONLY: &[(&str, &str)] = &[
-        ("range", "contains"),
-        ("range", "len"),
-    ];
+    const KNOWN_EVAL_ONLY: &[(&str, &str)] = &[("range", "contains"), ("range", "len")];
 
     /// Every method the evaluator implements must have a type signature in the
     /// type checker (unless it's in the known-eval-only list). This test catches

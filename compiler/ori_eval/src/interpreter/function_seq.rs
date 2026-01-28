@@ -122,14 +122,8 @@ impl Interpreter<'_> {
                         self.arena,
                         self.interner,
                     )? {
-                        // Pattern matched - bind variables and evaluate body
-                        self.env.push_scope();
-                        for (name, value) in bindings {
-                            self.env.define(name, value, false);
-                        }
-                        let result = self.eval(arm.body);
-                        self.env.pop_scope();
-                        return result;
+                        // Pattern matched - use RAII guard for scope safety
+                        return self.with_match_bindings(bindings, |eval| eval.eval(arm.body));
                     }
                 }
 

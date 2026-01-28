@@ -45,9 +45,7 @@ pub fn invalid_binary_op(type_name: &str) -> EvalError {
 /// Type mismatch in binary operation.
 #[cold]
 pub fn binary_type_mismatch(left: &str, right: &str) -> EvalError {
-    EvalError::new(format!(
-        "type mismatch in binary operation: {left} and {right}"
-    ))
+    EvalError::new(format!("cannot apply operator to `{left}` and `{right}`"))
 }
 
 /// Division by zero error.

@@ -21,22 +21,22 @@
 //! fn type_check() -> Result<TypedModule, ErrorGuaranteed> { ... }
 //! ```
 
-pub mod emitter;
 mod diagnostic;
+pub mod emitter;
 mod error_code;
-mod guarantee;
 pub mod errors;
 pub mod fixes;
+mod guarantee;
 pub mod queue;
 pub mod span_utils;
 
 pub use errors::ErrorDocs;
 
 // Re-export all public types at crate root for backwards compatibility
-pub use error_code::ErrorCode;
 pub use diagnostic::{
-    Applicability, Diagnostic, Label, Severity, Substitution, Suggestion,
-    type_mismatch, unexpected_token, expected_expression, unclosed_delimiter,
-    unknown_identifier, missing_pattern_arg, unknown_pattern_arg,
+    expected_expression, missing_pattern_arg, type_mismatch, unclosed_delimiter, unexpected_token,
+    unknown_identifier, unknown_pattern_arg, Applicability, Diagnostic, Label, Severity,
+    Substitution, Suggestion,
 };
+pub use error_code::ErrorCode;
 pub use guarantee::ErrorGuaranteed;

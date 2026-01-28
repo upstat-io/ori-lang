@@ -457,8 +457,11 @@ pub fn register_imports(
             let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
 
             // Captures include: current environment + all module functions
+            // Iterate instead of cloning the entire HashMap to avoid intermediate allocation
             let mut captures = env.capture();
-            captures.extend(imported.functions.clone());
+            for (name, value) in &imported.functions {
+                captures.insert(*name, value.clone());
+            }
 
             let func_value = FunctionValue::with_capabilities(
                 params,

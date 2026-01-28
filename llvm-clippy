@@ -1,0 +1,4 @@
+#!/bin/bash
+# Run clippy on LLVM crate in Docker container
+# Usage: ./llvm-clippy [additional args...]
+exec ./docker/llvm/run.sh cargo clippy "$@"

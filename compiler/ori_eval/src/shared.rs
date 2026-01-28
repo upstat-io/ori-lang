@@ -48,6 +48,27 @@ impl<T: fmt::Debug> fmt::Debug for SharedRegistry<T> {
 ///
 /// Uses `Arc<RwLock<T>>` internally for interior mutability.
 /// Needed when methods must be added after the registry is cached.
+///
+/// # Salsa Compliance Note
+///
+/// This type uses `Arc<RwLock<T>>` which technically violates Salsa's
+/// preference for immutable query results. We use this pattern for
+/// registries that:
+///
+/// 1. Are built incrementally during evaluation (e.g., user method registry)
+/// 2. Must be accessible from multiple interpreter contexts
+/// 3. Cannot be fully built before caching (methods discovered during eval)
+///
+/// The trade-off: we sacrifice Salsa's automatic invalidation tracking
+/// for the ability to add entries after initial construction. This is
+/// acceptable because:
+///
+/// - User methods don't change during a single evaluation run
+/// - The registry is rebuilt from scratch when the source changes
+/// - We manually ensure no stale data persists across queries
+///
+/// A future improvement could split this into an immutable base registry
+/// (populated during type checking) and a runtime method cache.
 pub struct SharedMutableRegistry<T>(Arc<parking_lot::RwLock<T>>);
 
 impl<T> SharedMutableRegistry<T> {

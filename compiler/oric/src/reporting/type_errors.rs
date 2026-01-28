@@ -99,9 +99,19 @@ impl Render for TypeProblem {
                 span,
                 type_name,
                 method_name,
-            } => Diagnostic::error(ErrorCode::E2003)
-                .with_message(format!("no method `{method_name}` on type `{type_name}`"))
-                .with_label(*span, "method not found"),
+                available_methods,
+            } => {
+                let mut diag = Diagnostic::error(ErrorCode::E2003)
+                    .with_message(format!("no method `{method_name}` on type `{type_name}`"))
+                    .with_label(*span, "method not found");
+                if !available_methods.is_empty() {
+                    diag = diag.with_note(format!(
+                        "available methods: {}",
+                        available_methods.join(", ")
+                    ));
+                }
+                diag
+            }
 
             TypeProblem::InvalidBinaryOp {
                 span,

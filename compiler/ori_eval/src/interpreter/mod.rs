@@ -580,7 +580,7 @@ impl<'a> Interpreter<'a> {
         let pattern = self
             .registry
             .get(func_exp.kind)
-            .ok_or_else(|| unknown_pattern(&format!("{:?}", func_exp.kind)))?;
+            .ok_or_else(|| unknown_pattern(func_exp.kind.name()))?;
 
         // Create evaluation context
         let ctx = EvalContext::new(self.interner, self.arena, props);
@@ -591,6 +591,8 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Evaluate a match expression.
+    ///
+    /// Uses RAII scope guard to ensure scope is popped even on panic.
     pub(super) fn eval_match(&mut self, value: &Value, arms: ArmRange) -> EvalResult {
         use crate::exec::control::try_match;
 
@@ -599,25 +601,25 @@ impl<'a> Interpreter<'a> {
         for arm in arm_list {
             // Try to match the pattern using the exec module
             if let Some(bindings) = try_match(&arm.pattern, value, self.arena, self.interner)? {
-                // Push scope with bindings
-                self.env.push_scope();
-                for (name, val) in bindings {
-                    self.env.define(name, val, false);
-                }
-
-                // Check if guard passes (if present) - bindings are now available
-                if let Some(guard) = arm.guard {
-                    let guard_result = self.eval(guard)?;
-                    if !guard_result.is_truthy() {
-                        self.env.pop_scope();
-                        continue;
+                // Use RAII guard for scope safety - scope is popped even on panic
+                // Returns Option<EvalResult>: None = guard failed, Some = result
+                let result: Option<EvalResult> = self.with_match_bindings(bindings, |eval| {
+                    // Check if guard passes (if present) - bindings are now available
+                    if let Some(guard) = arm.guard {
+                        match eval.eval(guard) {
+                            Ok(v) if !v.is_truthy() => return None, // Guard failed
+                            Err(e) => return Some(Err(e)),          // Propagate error
+                            Ok(_) => {}                             // Guard passed
+                        }
                     }
-                }
+                    // Evaluate body
+                    Some(eval.eval(arm.body))
+                });
 
-                // Evaluate body
-                let result = self.eval(arm.body);
-                self.env.pop_scope();
-                return result;
+                if let Some(r) = result {
+                    return r; // Either Ok(value) or Err(e)
+                }
+                // Guard failed, try next arm
             }
         }
 
@@ -625,6 +627,8 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Evaluate a for loop using `exec::control` helpers.
+    ///
+    /// Uses RAII scope guard to ensure scope is popped even on panic.
     fn eval_for(
         &mut self,
         binding: Name,
@@ -635,6 +639,14 @@ impl<'a> Interpreter<'a> {
     ) -> EvalResult {
         use crate::exec::control::{parse_loop_control, LoopAction};
 
+        /// Result of a single loop iteration with RAII guard.
+        enum IterResult {
+            Continue,         // Normal continue or guard failed
+            Yield(Value),     // Yield mode: value to collect
+            Break(Value),     // Break with value
+            Error(EvalError), // Propagate error
+        }
+
         let items = match iter {
             Value::List(list) => list.iter().cloned().collect::<Vec<_>>(),
             Value::Range(range) => range.iter().map(Value::int).collect(),
@@ -644,43 +656,60 @@ impl<'a> Interpreter<'a> {
         if is_yield {
             let mut results = Vec::new();
             for item in items {
-                self.env.push_scope();
-                self.env.define(binding, item, false);
-                if let Some(g) = guard {
-                    if !self.eval(g)?.is_truthy() {
-                        self.env.pop_scope();
-                        continue;
+                // Use RAII guard for scope safety
+                let iter_result = self.with_binding(binding, item, false, |eval| {
+                    // Check guard
+                    if let Some(g) = guard {
+                        match eval.eval(g) {
+                            Ok(v) if !v.is_truthy() => return IterResult::Continue,
+                            Err(e) => return IterResult::Error(e),
+                            Ok(_) => {}
+                        }
                     }
+                    // Evaluate body
+                    match eval.eval(body) {
+                        Ok(v) => IterResult::Yield(v),
+                        Err(e) => IterResult::Error(e),
+                    }
+                });
+
+                match iter_result {
+                    IterResult::Continue => {}
+                    IterResult::Yield(v) => results.push(v),
+                    IterResult::Break(v) => return Ok(v),
+                    IterResult::Error(e) => return Err(e),
                 }
-                results.push(self.eval(body)?);
-                self.env.pop_scope();
             }
             Ok(Value::list(results))
         } else {
             for item in items {
-                self.env.push_scope();
-                self.env.define(binding, item, false);
-                if let Some(g) = guard {
-                    if !self.eval(g)?.is_truthy() {
-                        self.env.pop_scope();
-                        continue;
+                // Use RAII guard for scope safety
+                let iter_result = self.with_binding(binding, item, false, |eval| {
+                    // Check guard
+                    if let Some(g) = guard {
+                        match eval.eval(g) {
+                            Ok(v) if !v.is_truthy() => return IterResult::Continue,
+                            Err(e) => return IterResult::Error(e),
+                            Ok(_) => {}
+                        }
                     }
+                    // Evaluate body and handle loop control
+                    match eval.eval(body) {
+                        Ok(_) => IterResult::Continue,
+                        Err(e) => match parse_loop_control(&e.message) {
+                            LoopAction::Continue => IterResult::Continue,
+                            LoopAction::Break(v) => IterResult::Break(v),
+                            LoopAction::Error(_) => IterResult::Error(e),
+                        },
+                    }
+                });
+
+                match iter_result {
+                    IterResult::Continue => {}
+                    IterResult::Yield(_) => unreachable!("Yield only in yield mode"),
+                    IterResult::Break(v) => return Ok(v),
+                    IterResult::Error(e) => return Err(e),
                 }
-                match self.eval(body) {
-                    Ok(_) => {}
-                    Err(e) => match parse_loop_control(&e.message) {
-                        LoopAction::Continue => {}
-                        LoopAction::Break(v) => {
-                            self.env.pop_scope();
-                            return Ok(v);
-                        }
-                        LoopAction::Error(_) => {
-                            self.env.pop_scope();
-                            return Err(e);
-                        }
-                    },
-                }
-                self.env.pop_scope();
             }
             Ok(Value::Void)
         }
