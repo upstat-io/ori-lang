@@ -546,15 +546,14 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @int_left_shift () -> int = 1 << 4
 
-// TODO: PARSER BUG: >> (right shift operator) is tokenized as a single token
-// The parser doesn't split >> into two > tokens when needed for expressions
-// This is the same issue as with nested generics like Option<Option<int>>
-// @test_int_right_shift tests @int_right_shift () -> void = run(
-//     assert_eq(actual: 16 >> 4, expected: 1),
-//     assert_eq(actual: 12 >> 2, expected: 3),
-// )
+// Right shift operator now works after lexer boundary fix.
+// The lexer produces single `>` tokens, parser combines adjacent `>` tokens as `>>` in expressions.
+@test_int_right_shift tests @int_right_shift () -> void = run(
+    assert_eq(actual: 16 >> 4, expected: 1),
+    assert_eq(actual: 12 >> 2, expected: 3),
+)
 
-@int_right_shift () -> int = 1
+@int_right_shift () -> int = 16 >> 4
 
 @test_int_modulo_negative tests @int_modulo_negative () -> void = run(
     assert_eq(actual: 7 % 3, expected: 1),

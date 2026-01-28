@@ -186,17 +186,16 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @list_single_element () -> int = [42][0]
 
-// TODO: PARSER BUG: # symbol for length in index expressions not implemented
-// Expected: nums[# - 1] to return the last element (# = length)
-// Error: expected expression, found #
-// @test_list_index_last tests @list_index_last () -> void = run(
-//     let nums = [10, 20, 30, 40, 50],
-//     // # represents length inside brackets
-//     assert_eq(actual: nums[# - 1], expected: 50),
-//     assert_eq(actual: nums[# - 2], expected: 40),
-// )
+// Spec: 09-expressions.md § Index Access
+// # symbol represents length inside index brackets
+@test_list_index_last tests @list_index_last () -> void = run(
+    let nums = [10, 20, 30, 40, 50],
+    // # represents length inside brackets
+    assert_eq(actual: nums[# - 1], expected: 50),
+    assert_eq(actual: nums[# - 2], expected: 40),
+)
 
-@list_index_last () -> int = [1, 2, 3][2]
+@list_index_last () -> int = [1, 2, 3][# - 1]
 
 @test_list_length_comparison tests @list_length_comparison () -> void = run(
     let a = [1, 2, 3],

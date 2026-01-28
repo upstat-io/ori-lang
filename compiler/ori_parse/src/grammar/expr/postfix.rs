@@ -95,7 +95,8 @@ impl Parser<'_> {
             } else if self.check(&TokenKind::LBracket) {
                 // Index access
                 self.advance();
-                let index = self.parse_expr()?;
+                // Parse index expression, with # representing length of receiver
+                let index = self.parse_index_expr()?;
                 self.expect(&TokenKind::RBracket)?;
 
                 let span = self.arena.get_expr(expr).span.merge(self.previous_span());
@@ -106,9 +107,10 @@ impl Parser<'_> {
                     },
                     span,
                 ));
-            } else if self.check(&TokenKind::LBrace) {
+            } else if self.check(&TokenKind::LBrace) && self.allows_struct_lit() {
                 // Struct literal: Name { field: value, ... }
-                // Only valid if expr is an identifier
+                // Only valid if expr is an identifier and struct literals are allowed
+                // (not allowed in if conditions to avoid ambiguity)
                 let expr_data = self.arena.get_expr(expr);
                 if let ExprKind::Ident(name) = &expr_data.kind {
                     let struct_name = *name;
@@ -244,5 +246,14 @@ impl Parser<'_> {
         self.skip_newlines();
 
         Ok((args, has_positional, has_named))
+    }
+
+    /// Parse an index expression, where `#` represents the length of the receiver.
+    ///
+    /// Inside `[...]`, the `#` symbol is parsed as `ExprKind::HashLength`,
+    /// which is resolved to the receiver's length during evaluation.
+    fn parse_index_expr(&mut self) -> Result<ExprId, ParseError> {
+        use crate::context::ParseContext;
+        self.with_context(ParseContext::IN_INDEX, |p| p.parse_expr())
     }
 }

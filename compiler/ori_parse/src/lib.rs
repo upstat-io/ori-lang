@@ -2,12 +2,21 @@
 //!
 //! Produces flat AST using `ExprArena`.
 
+mod context;
 mod cursor;
+mod error;
 mod grammar;
+mod progress;
 mod recovery;
 mod stack;
 
+#[cfg(test)]
+mod compositional_tests;
+
+pub use context::ParseContext;
 pub use cursor::Cursor;
+pub use error::ParseError;
+pub use progress::{ParseResult as ProgressResult, Progress, WithProgress};
 pub use recovery::{synchronize, RecoverySet};
 
 use ori_ir::{
@@ -28,6 +37,8 @@ pub(crate) use grammar::ParsedAttrs;
 pub struct Parser<'a> {
     cursor: Cursor<'a>,
     arena: ExprArena,
+    /// Current parsing context flags.
+    pub(crate) context: ParseContext,
 }
 
 impl<'a> Parser<'a> {
@@ -36,7 +47,80 @@ impl<'a> Parser<'a> {
         Parser {
             cursor: Cursor::new(tokens, interner),
             arena: ExprArena::new(),
+            context: ParseContext::new(),
         }
+    }
+
+    // =========================================================================
+    // Context Management
+    // =========================================================================
+    //
+    // These methods support context-sensitive parsing. Some are not yet used
+    // internally but are part of the public API for parser extensions and testing.
+
+    /// Get the current parsing context.
+    #[inline]
+    #[allow(dead_code)] // Used in tests and future parser extensions
+    pub(crate) fn context(&self) -> ParseContext {
+        self.context
+    }
+
+    /// Execute a closure with additional context flags, then restore the original context.
+    ///
+    /// This is the primary way to temporarily modify parsing context.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Parse condition without allowing struct literals
+    /// let cond = self.with_context(ParseContext::NO_STRUCT_LIT, |p| {
+    ///     p.parse_expr()
+    /// })?;
+    /// ```
+    #[inline]
+    pub(crate) fn with_context<T, F>(&mut self, add: ParseContext, f: F) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        let old = self.context;
+        self.context = self.context.with(add);
+        let result = f(self);
+        self.context = old;
+        result
+    }
+
+    /// Execute a closure with context flags removed, then restore the original context.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Parse body allowing struct literals again
+    /// let body = self.without_context(ParseContext::NO_STRUCT_LIT, |p| {
+    ///     p.parse_expr()
+    /// })?;
+    /// ```
+    #[inline]
+    #[allow(dead_code)] // Used in tests and future parser extensions
+    pub(crate) fn without_context<T, F>(&mut self, remove: ParseContext, f: F) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        let old = self.context;
+        self.context = self.context.without(remove);
+        let result = f(self);
+        self.context = old;
+        result
+    }
+
+    /// Check if a context flag is set.
+    #[inline]
+    #[allow(dead_code)] // Used in tests and future parser extensions
+    pub(crate) fn has_context(&self, flag: ParseContext) -> bool {
+        self.context.has(flag)
+    }
+
+    /// Check if struct literals are allowed in the current context.
+    #[inline]
+    pub(crate) fn allows_struct_lit(&self) -> bool {
+        self.context.allows_struct_lit()
     }
 
     /// Cursor delegation methods - delegate to the underlying Cursor for token navigation.
@@ -316,44 +400,6 @@ impl ParseResult {
     }
 }
 
-/// Parse error with error code for rich diagnostics.
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub struct ParseError {
-    /// Error code for searchability.
-    pub code: ori_diagnostic::ErrorCode,
-    /// Human-readable message.
-    pub message: String,
-    /// Location of the error.
-    pub span: Span,
-    /// Optional context for suggestions.
-    pub context: Option<String>,
-}
-
-impl ParseError {
-    /// Create a new parse error.
-    pub fn new(code: ori_diagnostic::ErrorCode, message: impl Into<String>, span: Span) -> Self {
-        ParseError {
-            code,
-            message: message.into(),
-            span,
-            context: None,
-        }
-    }
-
-    /// Add context for better error messages.
-    #[must_use]
-    pub fn with_context(mut self, context: impl Into<String>) -> Self {
-        self.context = Some(context.into());
-        self
-    }
-
-    /// Convert to a full Diagnostic for rich error reporting.
-    pub fn to_diagnostic(&self) -> ori_diagnostic::Diagnostic {
-        ori_diagnostic::Diagnostic::error(self.code)
-            .with_message(&self.message)
-            .with_label(self.span, self.context.as_deref().unwrap_or("here"))
-    }
-}
 
 /// Parse tokens into a module.
 pub fn parse(tokens: &TokenList, interner: &StringInterner) -> ParseResult {
@@ -990,5 +1036,98 @@ trait Async {}
             "Expected no parse errors for nested generics and >> operator: {:?}",
             result.errors
         );
+    }
+
+    // =========================================================================
+    // Context Management Tests
+    // =========================================================================
+
+    #[test]
+    fn test_struct_literal_in_expression() {
+        // Struct literals work normally in expressions
+        let result = parse_source(
+            r"
+type Point = { x: int, y: int }
+
+@test () -> int = Point { x: 1, y: 2 }.x
+",
+        );
+
+        assert!(
+            !result.has_errors(),
+            "Struct literal should parse in normal expression: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_struct_literal_in_if_then_body() {
+        // Struct literals work in the then body of an if expression
+        let result = parse_source(
+            r"
+type Point = { x: int, y: int }
+
+@test () -> int = if true then Point { x: 1, y: 2 }.x else 0
+",
+        );
+
+        assert!(
+            !result.has_errors(),
+            "Struct literal should parse in if body: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_if_condition_disallows_struct_literal() {
+        // Struct literals are NOT allowed directly in if conditions
+        // This is a common pattern in many languages to prevent ambiguity
+        // Note: In Ori with `then` keyword, this is mostly for consistency,
+        // but it helps prevent confusing code like `if Point { ... }.valid then`
+        let result = parse_source(
+            r"
+type Point = { x: int, y: int }
+
+@test () -> int = if Point { x: 1, y: 2 }.x > 0 then 1 else 0
+",
+        );
+
+        // This should fail because struct literal is not allowed in if condition
+        assert!(
+            result.has_errors(),
+            "Struct literal should NOT be allowed in if condition"
+        );
+    }
+
+    #[test]
+    fn test_context_methods() {
+        // Exercise the context API to ensure it compiles and works
+        let interner = StringInterner::new();
+        let tokens = ori_lexer::lex("@test () = 42", &interner);
+        let mut parser = Parser::new(&tokens, &interner);
+
+        // Test context() getter
+        let ctx = parser.context();
+        assert_eq!(ctx, ParseContext::NONE);
+
+        // Test has_context()
+        assert!(!parser.has_context(ParseContext::IN_LOOP));
+
+        // Test with_context()
+        let result = parser.with_context(ParseContext::IN_LOOP, |p| {
+            assert!(p.has_context(ParseContext::IN_LOOP));
+            42
+        });
+        assert_eq!(result, 42);
+        assert!(!parser.has_context(ParseContext::IN_LOOP)); // restored
+
+        // Test without_context() - first add a context, then remove it
+        parser.context = ParseContext::IN_LOOP;
+        let result = parser.without_context(ParseContext::IN_LOOP, |p| {
+            assert!(!p.has_context(ParseContext::IN_LOOP));
+            43
+        });
+        assert_eq!(result, 43);
+        assert!(parser.has_context(ParseContext::IN_LOOP)); // restored
     }
 }

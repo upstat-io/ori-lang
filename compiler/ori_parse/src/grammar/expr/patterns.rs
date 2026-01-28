@@ -139,13 +139,16 @@ impl Parser<'_> {
             let arm_span = self.current_span();
             let pattern = self.parse_match_pattern()?;
 
+            // Check for guard: pattern.match(condition)
+            let guard = self.parse_pattern_guard()?;
+
             self.expect(&TokenKind::Arrow)?;
             let body = self.parse_expr()?;
             let end_span = self.arena.get_expr(body).span;
 
             arms.push(MatchArm {
                 pattern,
-                guard: None,
+                guard,
                 body,
                 span: arm_span.merge(end_span),
             });
@@ -219,12 +222,13 @@ impl Parser<'_> {
                 "match" => {
                     let arm_span = self.current_span();
                     let pattern = self.parse_match_pattern()?;
+                    let guard = self.parse_pattern_guard()?;
                     self.expect(&TokenKind::Arrow)?;
                     let body = self.parse_expr()?;
                     let end_span = self.arena.get_expr(body).span;
                     match_arm = Some(MatchArm {
                         pattern,
-                        guard: None,
+                        guard,
                         body,
                         span: arm_span.merge(end_span),
                     });
@@ -289,12 +293,61 @@ impl Parser<'_> {
     }
 
     /// Parse a match pattern (for match arms).
+    ///
+    /// Supports: wildcard, literals (including negative), bindings, variants,
+    /// tuples, structs, lists, ranges, or-patterns, at-patterns, and guards.
     pub(crate) fn parse_match_pattern(&mut self) -> Result<MatchPattern, ParseError> {
+        // Parse the base pattern first
+        let base = self.parse_match_pattern_base()?;
+
+        // Check for or-pattern continuation: pattern | pattern | ...
+        if self.check(&TokenKind::Pipe) {
+            let mut alternatives = vec![base];
+            while self.check(&TokenKind::Pipe) {
+                self.advance();
+                alternatives.push(self.parse_match_pattern_base()?);
+            }
+            return Ok(MatchPattern::Or(alternatives));
+        }
+
+        Ok(base)
+    }
+
+    /// Parse a base match pattern (without or-pattern handling).
+    fn parse_match_pattern_base(&mut self) -> Result<MatchPattern, ParseError> {
         match self.current_kind() {
             TokenKind::Underscore => {
                 self.advance();
                 Ok(MatchPattern::Wildcard)
             }
+
+            // Negative integer literal: -42
+            TokenKind::Minus => {
+                let start_span = self.current_span();
+                self.advance();
+                if let TokenKind::Int(n) = self.current_kind() {
+                    self.advance();
+                    let value = i64::try_from(n).map_err(|_| {
+                        ParseError::new(
+                            ori_diagnostic::ErrorCode::E1002,
+                            "integer literal too large".to_string(),
+                            start_span,
+                        )
+                    })?;
+                    let span = start_span.merge(self.previous_span());
+                    Ok(MatchPattern::Literal(
+                        self.arena.alloc_expr(Expr::new(ExprKind::Int(-value), span)),
+                    ))
+                } else {
+                    Err(ParseError::new(
+                        ori_diagnostic::ErrorCode::E1002,
+                        "expected integer after `-` in pattern".to_string(),
+                        self.current_span(),
+                    ))
+                }
+            }
+
+            // Positive integer literal: 42
             TokenKind::Int(n) => {
                 let pat_span = self.current_span();
                 self.advance();
@@ -305,6 +358,27 @@ impl Parser<'_> {
                         pat_span,
                     )
                 })?;
+
+                // Check for range pattern: 1..10 or 1..=10
+                if self.check(&TokenKind::DotDot) || self.check(&TokenKind::DotDotEq) {
+                    let inclusive = self.check(&TokenKind::DotDotEq);
+                    self.advance();
+                    let start_expr = self.arena.alloc_expr(Expr::new(ExprKind::Int(value), pat_span));
+
+                    // Parse end of range (optional for open-ended ranges, but typically present)
+                    let end = if self.is_range_bound_start() {
+                        Some(self.parse_range_bound()?)
+                    } else {
+                        None
+                    };
+
+                    return Ok(MatchPattern::Range {
+                        start: Some(start_expr),
+                        end,
+                        inclusive,
+                    });
+                }
+
                 Ok(MatchPattern::Literal(self.arena.alloc_expr(Expr::new(
                     ExprKind::Int(value),
                     self.previous_span(),
@@ -333,14 +407,62 @@ impl Parser<'_> {
             }
             TokenKind::Ident(name) => {
                 self.advance();
+
+                // Check for at-pattern: x @ pattern
+                if self.check(&TokenKind::At) {
+                    self.advance();
+                    let pattern = self.parse_match_pattern_base()?;
+                    return Ok(MatchPattern::At {
+                        name,
+                        pattern: Box::new(pattern),
+                    });
+                }
+
+                // Check for variant pattern: Some(x) or struct literal: Point { x, y }
                 if self.check(&TokenKind::LParen) {
                     self.advance();
                     let inner = self.parse_variant_inner_patterns()?;
                     self.expect(&TokenKind::RParen)?;
                     Ok(MatchPattern::Variant { name, inner })
+                } else if self.check(&TokenKind::LBrace) {
+                    // Named struct pattern: Point { x, y }
+                    self.parse_struct_pattern_fields()
                 } else {
                     Ok(MatchPattern::Binding(name))
                 }
+            }
+
+            // Anonymous struct pattern: { x, y }
+            TokenKind::LBrace => self.parse_struct_pattern_fields(),
+
+            // List pattern: [a, b, ..rest]
+            TokenKind::LBracket => {
+                self.advance();
+                let mut elements = Vec::new();
+                let mut rest = None;
+
+                while !self.check(&TokenKind::RBracket) && !self.is_at_end() {
+                    // Check for rest pattern: ..rest or ..
+                    if self.check(&TokenKind::DotDot) {
+                        self.advance();
+                        // Optional name after ..
+                        if let TokenKind::Ident(name) = self.current_kind() {
+                            rest = Some(name);
+                            self.advance();
+                        }
+                        // Rest must be last
+                        break;
+                    }
+
+                    elements.push(self.parse_match_pattern()?);
+
+                    if !self.check(&TokenKind::RBracket) && !self.check(&TokenKind::DotDot) {
+                        self.expect(&TokenKind::Comma)?;
+                    }
+                }
+
+                self.expect(&TokenKind::RBracket)?;
+                Ok(MatchPattern::List { elements, rest })
             }
             TokenKind::Some => {
                 let name = self.interner().intern("Some");
@@ -479,5 +601,133 @@ impl Parser<'_> {
         }
 
         Ok(patterns)
+    }
+
+    /// Parse struct pattern fields: `{ x, y: pattern, ... }`
+    fn parse_struct_pattern_fields(&mut self) -> Result<MatchPattern, ParseError> {
+        self.advance(); // consume {
+        self.skip_newlines();
+
+        let mut fields = Vec::new();
+
+        while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
+            self.skip_newlines();
+
+            let field_name = self.expect_ident()?;
+
+            // Check for pattern binding: { x: pattern } vs shorthand { x }
+            let pattern = if self.check(&TokenKind::Colon) {
+                self.advance();
+                Some(self.parse_match_pattern()?)
+            } else {
+                None // Shorthand: field name is also the binding
+            };
+
+            fields.push((field_name, pattern));
+
+            self.skip_newlines();
+            if !self.check(&TokenKind::RBrace) {
+                self.expect(&TokenKind::Comma)?;
+                self.skip_newlines();
+            }
+        }
+
+        self.expect(&TokenKind::RBrace)?;
+        Ok(MatchPattern::Struct { fields })
+    }
+
+    /// Check if current token can start a range bound (integer or minus).
+    fn is_range_bound_start(&self) -> bool {
+        matches!(self.current_kind(), TokenKind::Int(_) | TokenKind::Minus)
+    }
+
+    /// Parse an optional pattern guard: `.match(condition)`
+    ///
+    /// Returns Some(expr_id) if a guard is present, None otherwise.
+    fn parse_pattern_guard(&mut self) -> Result<Option<ExprId>, ParseError> {
+        // Check for .match(condition) syntax
+        if !self.check(&TokenKind::Dot) {
+            return Ok(None);
+        }
+
+        // Peek ahead to see if it's .match specifically
+        if !self.is_guard_syntax() {
+            return Ok(None);
+        }
+
+        // Consume the `.`
+        self.advance();
+
+        // Expect `match` identifier
+        if !self.check(&TokenKind::Match) {
+            // Not a guard, could be a field access (but that's not valid here)
+            return Err(ParseError::new(
+                ori_diagnostic::ErrorCode::E1002,
+                "expected `match` after `.` in pattern guard".to_string(),
+                self.current_span(),
+            ));
+        }
+        self.advance();
+
+        // Expect (condition)
+        self.expect(&TokenKind::LParen)?;
+        let condition = self.parse_expr()?;
+        self.expect(&TokenKind::RParen)?;
+
+        Ok(Some(condition))
+    }
+
+    /// Check if the current position has `.match(` syntax (guard syntax).
+    fn is_guard_syntax(&self) -> bool {
+        if !self.check(&TokenKind::Dot) {
+            return false;
+        }
+        // Look ahead: . match (
+        matches!(self.cursor.peek_next_kind(), TokenKind::Match)
+    }
+
+    /// Parse a range bound (integer, possibly negative).
+    fn parse_range_bound(&mut self) -> Result<ExprId, ParseError> {
+        let start_span = self.current_span();
+
+        if self.check(&TokenKind::Minus) {
+            self.advance();
+            if let TokenKind::Int(n) = self.current_kind() {
+                self.advance();
+                let value = i64::try_from(n).map_err(|_| {
+                    ParseError::new(
+                        ori_diagnostic::ErrorCode::E1002,
+                        "integer literal too large".to_string(),
+                        start_span,
+                    )
+                })?;
+                let span = start_span.merge(self.previous_span());
+                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Int(-value), span)))
+            } else {
+                Err(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1002,
+                    "expected integer after `-` in range pattern".to_string(),
+                    self.current_span(),
+                ))
+            }
+        } else if let TokenKind::Int(n) = self.current_kind() {
+            self.advance();
+            let value = i64::try_from(n).map_err(|_| {
+                ParseError::new(
+                    ori_diagnostic::ErrorCode::E1002,
+                    "integer literal too large".to_string(),
+                    start_span,
+                )
+            })?;
+            Ok(self
+                .arena
+                .alloc_expr(Expr::new(ExprKind::Int(value), self.previous_span())))
+        } else {
+            Err(ParseError::new(
+                ori_diagnostic::ErrorCode::E1002,
+                "expected integer in range pattern".to_string(),
+                self.current_span(),
+            ))
+        }
     }
 }
