@@ -9,7 +9,7 @@ use ori_ir::{ExprArena, ExprRange, Name, TypeId};
 use crate::builder::Builder;
 use crate::LoopContext;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a tuple expression.
     pub(crate) fn compile_tuple(
         &self,

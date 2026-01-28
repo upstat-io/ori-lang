@@ -6,10 +6,10 @@
 //! LLVM IR instructions. It is scoped to a single basic block and provides
 //! a clean API for code generation.
 //!
-//! Key differences from having methods on CodegenCx:
+//! Key differences from having methods on `CodegenCx`:
 //! - Builder is scoped to a basic block (position tracking)
 //! - Instructions are generated in the builder's current position
-//! - Clean separation between type-level operations (CodegenCx) and
+//! - Clean separation between type-level operations (`CodegenCx`) and
 //!   instruction generation (Builder)
 //!
 //! # Code Organization

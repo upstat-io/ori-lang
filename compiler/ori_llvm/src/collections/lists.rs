@@ -9,7 +9,7 @@ use ori_ir::{ExprArena, ExprRange, Name, TypeId};
 use crate::builder::Builder;
 use crate::LoopContext;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a list literal.
     /// Lists are represented as { i64 len, i64 cap, ptr data }.
     pub(crate) fn compile_list(

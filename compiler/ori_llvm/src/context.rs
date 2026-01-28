@@ -39,11 +39,13 @@ pub struct TypeCache<'ll> {
 
 impl<'ll> TypeCache<'ll> {
     /// Create a new empty type cache.
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Look up a cached type.
+    #[must_use] 
     pub fn get(&self, type_id: TypeId) -> Option<BasicTypeEnum<'ll>> {
         self.scalars
             .get(&type_id)
@@ -64,7 +66,7 @@ impl<'ll> TypeCache<'ll> {
     /// Get or create a named struct type for forward references.
     ///
     /// Takes both the interned `Name` (for caching) and the string representation
-    /// (for LLVM's opaque_struct_type call). Call from CodegenCx which has
+    /// (for LLVM's `opaque_struct_type` call). Call from `CodegenCx` which has
     /// access to the interner.
     pub fn get_or_create_named_struct(
         &mut self,
@@ -100,6 +102,7 @@ pub struct SimpleCx<'ll> {
 
 impl<'ll> SimpleCx<'ll> {
     /// Create a new simple context.
+    #[must_use] 
     pub fn new(context: &'ll Context, module_name: &str) -> Self {
         let llmod = context.create_module(module_name);
         let ptr_type = context.ptr_type(AddressSpace::default());
@@ -245,7 +248,7 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
 
     // -- Type methods (with caching) --
 
-    /// Get the LLVM type for an Ori TypeId.
+    /// Get the LLVM type for an Ori `TypeId`.
     ///
     /// Uses two-level cache: scalars first, then complex types.
     pub fn llvm_type(&self, type_id: TypeId) -> BasicTypeEnum<'ll> {
@@ -268,7 +271,7 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
         ty
     }
 
-    /// Compute the LLVM type for a TypeId (uncached).
+    /// Compute the LLVM type for a `TypeId` (uncached).
     fn compute_llvm_type(&self, type_id: TypeId) -> BasicTypeEnum<'ll> {
         match type_id {
             TypeId::INT => self.scx.type_i64().into(),
@@ -423,7 +426,7 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     }
 }
 
-/// Extension trait adding `is_primitive` method to TypeId.
+/// Extension trait adding `is_primitive` method to `TypeId`.
 #[allow(dead_code)]
 trait TypeIdExt {
     fn is_primitive(&self) -> bool;

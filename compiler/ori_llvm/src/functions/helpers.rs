@@ -7,7 +7,7 @@ use ori_ir::{DurationUnit, Name, SizeUnit};
 
 use crate::builder::Builder;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a config variable reference.
     /// Config variables are compile-time constants stored in locals.
     pub(crate) fn compile_config(

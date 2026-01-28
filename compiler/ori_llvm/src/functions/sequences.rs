@@ -10,8 +10,8 @@ use ori_ir::{ExprArena, Name, TypeId};
 use crate::builder::Builder;
 use crate::LoopContext;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
-    /// Compile a FunctionSeq (run, try, match).
+impl<'ll> Builder<'_, 'll, '_> {
+    /// Compile a `FunctionSeq` (run, try, match).
     pub(crate) fn compile_function_seq(
         &self,
         seq: &FunctionSeq,
@@ -91,7 +91,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         }
     }
 
-    /// Compile a SeqBinding (let or stmt).
+    /// Compile a `SeqBinding` (let or stmt).
     fn compile_seq_binding(
         &self,
         binding: &SeqBinding,
@@ -111,7 +111,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         }
     }
 
-    /// Compile a SeqBinding in a try context.
+    /// Compile a `SeqBinding` in a try context.
     ///
     /// For let bindings, if the value is a Result, unwrap it and propagate errors.
     /// For statements, just evaluate and check for errors if it's a Result.

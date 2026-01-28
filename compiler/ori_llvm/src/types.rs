@@ -7,14 +7,14 @@ use ori_ir::TypeId;
 use crate::builder::Builder;
 use crate::context::CodegenCx;
 
-impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
-    /// Map a Ori TypeId to an LLVM metadata type (for function params).
+impl<'ll> CodegenCx<'ll, '_> {
+    /// Map a Ori `TypeId` to an LLVM metadata type (for function params).
     pub fn llvm_metadata_type(&self, type_id: TypeId) -> BasicMetadataTypeEnum<'ll> {
         self.llvm_type(type_id).into()
     }
 }
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+impl<'ll> Builder<'_, 'll, '_> {
     /// Coerce a value to i64 for storage in tagged unions.
     ///
     /// This is used for Option/Result payloads which use a standardized
@@ -26,22 +26,24 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         match val {
             BasicValueEnum::IntValue(i) => {
                 let bit_width = i.get_type().get_bit_width();
-                if bit_width == 64 {
-                    Some(i)
-                } else if bit_width < 64 {
-                    // Zero-extend smaller integers
-                    Some(
-                        self.raw_builder()
-                            .build_int_z_extend(i, self.cx().scx.type_i64(), "coerce_zext")
-                            .ok()?,
-                    )
-                } else {
-                    // Truncate larger integers (shouldn't happen with our types)
-                    Some(
-                        self.raw_builder()
-                            .build_int_truncate(i, self.cx().scx.type_i64(), "coerce_trunc")
-                            .ok()?,
-                    )
+                match bit_width.cmp(&64) {
+                    std::cmp::Ordering::Equal => Some(i),
+                    std::cmp::Ordering::Less => {
+                        // Zero-extend smaller integers
+                        Some(
+                            self.raw_builder()
+                                .build_int_z_extend(i, self.cx().scx.type_i64(), "coerce_zext")
+                                .ok()?,
+                        )
+                    }
+                    std::cmp::Ordering::Greater => {
+                        // Truncate larger integers (shouldn't happen with our types)
+                        Some(
+                            self.raw_builder()
+                                .build_int_truncate(i, self.cx().scx.type_i64(), "coerce_trunc")
+                                .ok()?,
+                        )
+                    }
                 }
             }
             BasicValueEnum::FloatValue(f) => {

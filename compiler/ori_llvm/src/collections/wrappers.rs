@@ -9,7 +9,7 @@ use tracing::instrument;
 use crate::builder::Builder;
 use crate::LoopContext;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+impl<'ll> Builder<'_, 'll, '_> {
     /// Compile Some(value).
     ///
     /// Uses standardized { i8 tag, i64 payload } layout to match function signatures.

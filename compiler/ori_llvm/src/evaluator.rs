@@ -131,7 +131,7 @@ impl<'ctx> LLVMEvaluator<'ctx> {
         runtime::reset_panic_state();
 
         // Create a fresh module compiler for this test
-        let mut compiler = ModuleCompiler::new(self.context, self.interner, "test_module");
+        let compiler = ModuleCompiler::new(self.context, self.interner, "test_module");
         compiler.declare_runtime();
 
         // Compile all functions the test might call
@@ -171,7 +171,7 @@ impl<'ctx> LLVMEvaluator<'ctx> {
     pub fn eval(&self, expr: ExprId, arena: &ExprArena) -> LLVMEvalResult {
         runtime::reset_panic_state();
 
-        let mut compiler = ModuleCompiler::new(self.context, self.interner, "eval_module");
+        let compiler = ModuleCompiler::new(self.context, self.interner, "eval_module");
         compiler.declare_runtime();
 
         // Create a wrapper function for the expression
@@ -217,6 +217,7 @@ pub struct OwnedLLVMEvaluator {
 
 impl OwnedLLVMEvaluator {
     /// Create a new owned LLVM evaluator.
+    #[must_use] 
     pub fn new() -> Self {
         OwnedLLVMEvaluator {
             context: Context::create(),
@@ -256,7 +257,7 @@ impl OwnedLLVMEvaluator {
     /// - `arena`: Expression arena
     /// - `module`: The module containing functions the test may call
     /// - `interner`: String interner
-    /// - `expr_types`: Type of each expression (indexed by ExprId)
+    /// - `expr_types`: Type of each expression (indexed by `ExprId`)
     /// - `function_sigs`: Signature of each function (indexed same as module.functions)
     pub fn eval_test(
         &self,
@@ -272,7 +273,7 @@ impl OwnedLLVMEvaluator {
         runtime::reset_panic_state();
 
         // Create a fresh module compiler for this test
-        let mut compiler = ModuleCompiler::new(&self.context, interner, "test_module");
+        let compiler = ModuleCompiler::new(&self.context, interner, "test_module");
         compiler.declare_runtime();
 
         // Compile all functions the test might call

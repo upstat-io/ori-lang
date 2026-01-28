@@ -5,7 +5,7 @@ use ori_ir::Name;
 
 use crate::builder::Builder;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a string literal.
     ///
     /// Creates a global constant string and returns a pointer to it.

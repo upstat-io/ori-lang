@@ -8,7 +8,7 @@ use ori_ir::{ExprArena, ExprId, Name, TypeId};
 use crate::builder::Builder;
 use crate::LoopContext;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a range expression.
     /// Ranges are represented as { i64 start, i64 end, i1 inclusive }.
     pub(crate) fn compile_range(

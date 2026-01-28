@@ -8,7 +8,7 @@ use ori_ir::{ExprArena, ExprId, Name, TypeId};
 use crate::builder::Builder;
 use crate::LoopContext;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+impl<'ll> Builder<'_, 'll, '_> {
     /// Compile an index expression: receiver[index]
     pub(crate) fn compile_index(
         &self,
@@ -29,12 +29,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             BasicValueEnum::StructValue(struct_val) => {
                 // Could be a tuple - use index as field number
                 let idx = idx_val.into_int_value();
-                if let Some(const_idx) = idx.get_zero_extended_constant() {
-                    Some(self.extract_value(struct_val, const_idx as u32, "index"))
-                } else {
-                    // Dynamic index not supported for tuples
-                    None
-                }
+                idx.get_zero_extended_constant().map(|const_idx| self.extract_value(struct_val, const_idx as u32, "index"))
             }
             _ => {
                 // For lists/arrays, would need GEP or runtime call

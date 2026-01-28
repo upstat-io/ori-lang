@@ -9,7 +9,7 @@ use ori_ir::{ExprArena, ExprId, Name, TypeId};
 use crate::builder::Builder;
 use crate::LoopContext;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a struct literal.
     ///
     /// For now, structs are represented as LLVM struct types with fields

@@ -3,7 +3,7 @@
 //! Closures in Ori capture variables from their enclosing scope.
 //! We compile them as:
 //! 1. A lambda function with captured variables as extra parameters
-//! 2. A closure struct: { i8 tag, i64 fn_ptr, capture0, capture1, ... }
+//! 2. A closure struct: { i8 tag, i64 `fn_ptr`, capture0, capture1, ... }
 //!
 //! When calling a closure, we extract the function pointer and captured
 //! values, then call the function with both regular args and captures.
@@ -18,7 +18,7 @@ use ori_ir::{ExprArena, ExprId, Name, TypeId};
 
 use crate::builder::Builder;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a lambda expression.
     ///
     /// Lambdas are compiled as closures with captured variables passed as

@@ -149,7 +149,7 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
 
         // Debug: print IR before JIT compilation if ORI_DEBUG_LLVM is set
         if std::env::var("ORI_DEBUG_LLVM").is_ok() {
-            eprintln!("=== LLVM IR for {} ===", test_name);
+            eprintln!("=== LLVM IR for {test_name} ===");
             eprintln!("{}", self.cx.llmod().print_to_string().to_string());
             eprintln!("=== END IR ===");
         }
@@ -191,29 +191,29 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
         use crate::runtime;
 
         let mappings: &[(&str, usize)] = &[
-            ("ori_print", runtime::ori_print as usize),
-            ("ori_print_int", runtime::ori_print_int as usize),
-            ("ori_print_float", runtime::ori_print_float as usize),
-            ("ori_print_bool", runtime::ori_print_bool as usize),
-            ("ori_panic", runtime::ori_panic as usize),
-            ("ori_panic_cstr", runtime::ori_panic_cstr as usize),
-            ("ori_assert", runtime::ori_assert as usize),
-            ("ori_assert_eq_int", runtime::ori_assert_eq_int as usize),
-            ("ori_assert_eq_bool", runtime::ori_assert_eq_bool as usize),
-            ("ori_list_new", runtime::ori_list_new as usize),
-            ("ori_list_free", runtime::ori_list_free as usize),
-            ("ori_list_len", runtime::ori_list_len as usize),
-            ("ori_compare_int", runtime::ori_compare_int as usize),
-            ("ori_min_int", runtime::ori_min_int as usize),
-            ("ori_max_int", runtime::ori_max_int as usize),
-            ("ori_str_concat", runtime::ori_str_concat as usize),
-            ("ori_str_eq", runtime::ori_str_eq as usize),
-            ("ori_str_ne", runtime::ori_str_ne as usize),
-            ("ori_assert_eq_str", runtime::ori_assert_eq_str as usize),
+            ("ori_print", runtime::ori_print as *const () as usize),
+            ("ori_print_int", runtime::ori_print_int as *const () as usize),
+            ("ori_print_float", runtime::ori_print_float as *const () as usize),
+            ("ori_print_bool", runtime::ori_print_bool as *const () as usize),
+            ("ori_panic", runtime::ori_panic as *const () as usize),
+            ("ori_panic_cstr", runtime::ori_panic_cstr as *const () as usize),
+            ("ori_assert", runtime::ori_assert as *const () as usize),
+            ("ori_assert_eq_int", runtime::ori_assert_eq_int as *const () as usize),
+            ("ori_assert_eq_bool", runtime::ori_assert_eq_bool as *const () as usize),
+            ("ori_list_new", runtime::ori_list_new as *const () as usize),
+            ("ori_list_free", runtime::ori_list_free as *const () as usize),
+            ("ori_list_len", runtime::ori_list_len as *const () as usize),
+            ("ori_compare_int", runtime::ori_compare_int as *const () as usize),
+            ("ori_min_int", runtime::ori_min_int as *const () as usize),
+            ("ori_max_int", runtime::ori_max_int as *const () as usize),
+            ("ori_str_concat", runtime::ori_str_concat as *const () as usize),
+            ("ori_str_eq", runtime::ori_str_eq as *const () as usize),
+            ("ori_str_ne", runtime::ori_str_ne as *const () as usize),
+            ("ori_assert_eq_str", runtime::ori_assert_eq_str as *const () as usize),
             // Type conversion functions
-            ("ori_str_from_int", runtime::ori_str_from_int as usize),
-            ("ori_str_from_bool", runtime::ori_str_from_bool as usize),
-            ("ori_str_from_float", runtime::ori_str_from_float as usize),
+            ("ori_str_from_int", runtime::ori_str_from_int as *const () as usize),
+            ("ori_str_from_bool", runtime::ori_str_from_bool as *const () as usize),
+            ("ori_str_from_float", runtime::ori_str_from_float as *const () as usize),
         ];
 
         let module = self.cx.llmod();

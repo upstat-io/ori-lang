@@ -8,7 +8,7 @@ use tracing::instrument;
 
 use crate::builder::Builder;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a function body after declaration.
     ///
     /// This assumes the function has already been declared and we just need to
