@@ -137,6 +137,13 @@
 - `...` operator for lists (`[...a, ...b]`), maps (`{...a, ...b}`), and structs (`T { ...s, x: v }`)
 - Blocked on: None (can be implemented independently)
 
+**Simplified Bindings with `$` for Immutability** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/simplified-bindings-proposal.md`
+- Implementation: Phase 15.11
+- `let x` is mutable, `let $x` is immutable; removes `mut` keyword
+- Module-level bindings require `$` prefix; `$` is modifier, not part of name
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones

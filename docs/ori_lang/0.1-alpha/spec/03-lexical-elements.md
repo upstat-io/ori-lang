@@ -44,7 +44,7 @@ Identifiers are case-sensitive. Must not start with digit or be a reserved keywo
 ```
 async    break    continue  do       else     false
 for      if       impl      in       let      loop
-match    mut      pub       self     Self     then
+match    pub      self      Self     then
 trait    true     type      use      uses     void
 where    with     yield
 ```
@@ -94,6 +94,17 @@ max      print    panic
 ## Delimiters
 
 Delimiters include parentheses, brackets, braces, comma, colon, dot, and sigils (`@`, `$`).
+
+## Sigils
+
+Sigils are single-character prefixes with specific meanings:
+
+| Sigil | Purpose | Example |
+|-------|---------|---------|
+| `@` | Function declaration | `@main ()` |
+| `$` | Immutable binding | `let $timeout = 30s` |
+
+The `$` sigil marks a binding as immutable. It appears at definition, import, and usage sites. See [Variables](05-variables.md) for details.
 
 ## Literals
 
