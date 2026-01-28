@@ -216,7 +216,7 @@ const tiers: Tier[] = [
         num: 7,
         name: "Standard Library",
         status: "partial",
-        note: "Collection methods done; retry, validate, new prelude additions pending",
+        note: "Collection methods done; retry, validate pending",
         goal: "Core standard library modules",
         spec: "library/std/",
         sections: [
@@ -225,6 +225,7 @@ const tiers: Tier[] = [
             { name: "List: any, all", done: true },
             { name: "Range: collect, map, filter, fold", done: true },
             { name: "Map: len, is_empty", done: true },
+            { name: "Rosetta examples updated to method syntax", done: true },
           ]},
           { name: "Type Conversions (as/as? syntax)", tasks: [
             { name: "As<T> trait for infallible conversions", done: false },
@@ -616,7 +617,7 @@ const tiers: Tier[] = [
         num: 21,
         name: "LLVM Backend",
         status: "partial",
-        note: "JIT working; 719/753 tests pass; destructuring added; AOT pending",
+        note: "JIT working; 734/753 tests pass; AOT pending",
         goal: "Compile to native code via LLVM",
         spec: "Implementation-specific",
         sections: [
@@ -630,6 +631,7 @@ const tiers: Tier[] = [
             { name: "Expression codegen", done: true },
             { name: "Function codegen", done: true },
             { name: "Control flow graphs", done: true },
+            { name: "Destructuring support", done: true },
           ]},
           { name: "Optimization", tasks: [
             { name: "O0-O3 optimization levels", done: false },
@@ -744,11 +746,11 @@ function countTasks(sections: Section[]): { done: number; total: number } {
       </p>
       <div class="stats">
         <div class="stat">
-          <span class="stat-value">4</span>
+          <span class="stat-value">5</span>
           <span class="stat-label">Completed</span>
         </div>
         <div class="stat">
-          <span class="stat-value">6</span>
+          <span class="stat-value">5</span>
           <span class="stat-label">In Progress</span>
         </div>
         <div class="stat">
@@ -893,12 +895,12 @@ Branches:
           <span class="result-status success">All Passing</span>
         </div>
         <div class="result-card">
-          <span class="result-value">662</span>
+          <span class="result-value">677</span>
           <span class="result-label">Ori Spec Tests</span>
           <span class="result-status success">Passing</span>
         </div>
         <div class="result-card">
-          <span class="result-value">719</span>
+          <span class="result-value">734</span>
           <span class="result-label">LLVM Backend Tests</span>
           <span class="result-status success">Passing</span>
         </div>
@@ -908,7 +910,7 @@ Branches:
           <span class="result-status success">All Passing</span>
         </div>
         <div class="result-card">
-          <span class="result-value">34</span>
+          <span class="result-value">19</span>
           <span class="result-label">Skipped</span>
           <span class="result-status muted">Pending Features</span>
         </div>

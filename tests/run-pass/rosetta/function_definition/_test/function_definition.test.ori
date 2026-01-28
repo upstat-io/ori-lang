@@ -36,10 +36,9 @@ use "../function_definition" {
     assert_eq(actual: repeat_string(s: "x", n: 0), expected: "")
 )
 
-#[skip("collect not implemented - awaiting stdlib")]
 @test_range tests @range_list () -> void = run(
     assert_eq(actual: range_list(start: 1, end: 5), expected: [1, 2, 3, 4]),
-    assert_eq(actual: range_list(start: 0, end: 3), expected: [0, 1, 2])
+    assert_eq(actual: range_list(start: 0, end: 3), expected: [0, 1, 2]),
 )
 
 @test_is_even tests @is_even () -> void = run(

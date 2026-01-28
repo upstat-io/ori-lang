@@ -1,5 +1,5 @@
 // Tests for Higher-order functions
-// BLOCKED: map, filter, fold not implemented
+// Uses map, filter, fold methods from stdlib
 
 use std.testing { assert, assert_eq, assert_ne }
 use "../higher_order_functions" {
@@ -11,44 +11,38 @@ use "../higher_order_functions" {
     product,
 }
 
-#[skip("map not implemented - awaiting stdlib")]
 @test_double_all tests @double_all () -> void = run(
-    assert(cond: double_all([]) == []),
-    assert(cond: double_all([1]) == [2]),
-    assert(cond: double_all([1, 2, 3]) == [2, 4, 6])
+    assert(cond: double_all(arr: []) == []),
+    assert(cond: double_all(arr: [1]) == [2]),
+    assert(cond: double_all(arr: [1, 2, 3]) == [2, 4, 6]),
 )
 
-#[skip("map not implemented - awaiting stdlib")]
 @test_square_all tests @square_all () -> void = run(
-    assert(cond: square_all([]) == []),
-    assert(cond: square_all([1, 2, 3]) == [1, 4, 9]),
-    assert(cond: square_all([4, 5]) == [16, 25])
+    assert(cond: square_all(arr: []) == []),
+    assert(cond: square_all(arr: [1, 2, 3]) == [1, 4, 9]),
+    assert(cond: square_all(arr: [4, 5]) == [16, 25]),
 )
 
-#[skip("filter not implemented - awaiting stdlib")]
 @test_filter_positive tests @filter_positive () -> void = run(
-    assert(cond: filter_positive([]) == []),
-    assert(cond: filter_positive([1, 2, 3]) == [1, 2, 3]),
-    assert(cond: filter_positive([-1, 0, 1, 2]) == [1, 2])
+    assert(cond: filter_positive(arr: []) == []),
+    assert(cond: filter_positive(arr: [1, 2, 3]) == [1, 2, 3]),
+    assert(cond: filter_positive(arr: [-1, 0, 1, 2]) == [1, 2]),
 )
 
-#[skip("filter not implemented - awaiting stdlib")]
 @test_filter_even tests @filter_even () -> void = run(
-    assert(cond: filter_even([]) == []),
-    assert(cond: filter_even([1, 2, 3, 4]) == [2, 4]),
-    assert(cond: filter_even([1, 3, 5]) == [])
+    assert(cond: filter_even(arr: []) == []),
+    assert(cond: filter_even(arr: [1, 2, 3, 4]) == [2, 4]),
+    assert(cond: filter_even(arr: [1, 3, 5]) == []),
 )
 
-#[skip("fold not implemented - awaiting stdlib")]
 @test_sum tests @sum () -> void = run(
-    assert(cond: sum([]) == 0),
-    assert(cond: sum([1]) == 1),
-    assert(cond: sum([1, 2, 3, 4, 5]) == 15)
+    assert(cond: sum(arr: []) == 0),
+    assert(cond: sum(arr: [1]) == 1),
+    assert(cond: sum(arr: [1, 2, 3, 4, 5]) == 15),
 )
 
-#[skip("fold not implemented - awaiting stdlib")]
 @test_product tests @product () -> void = run(
-    assert(cond: product([]) == 1),
-    assert(cond: product([5]) == 5),
-    assert(cond: product([1, 2, 3, 4]) == 24)
+    assert(cond: product(arr: []) == 1),
+    assert(cond: product(arr: [5]) == 5),
+    assert(cond: product(arr: [1, 2, 3, 4]) == 24),
 )
