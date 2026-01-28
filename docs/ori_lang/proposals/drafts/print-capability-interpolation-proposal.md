@@ -3,7 +3,7 @@
 **Status:** Draft
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-26
-**Depends on:** String Interpolation Proposal (approved)
+**Depends on:** String Interpolation Proposal (Draft)
 **Affects:** Capabilities, interpreter, WASM support
 
 ---

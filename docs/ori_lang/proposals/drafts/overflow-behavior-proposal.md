@@ -1,9 +1,9 @@
 # Proposal: Integer Overflow Behavior
 
-**Status:** Approved
+**Status:** Draft
 **Author:** Eric
 **Created:** 2026-01-22
-**Approved:** 2026-01-25
+**Draft:** 2026-01-25
 
 ---
 
