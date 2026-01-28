@@ -29,7 +29,8 @@ pub use stack::ensure_sufficient_stack;
 // Re-export registry types
 pub use registry::{
     CoherenceError, ImplAssocTypeDef, ImplEntry, ImplMethodDef, MethodLookup, TraitAssocTypeDef,
-    TraitEntry, TraitMethodDef, TraitRegistry, TypeEntry, TypeKind, TypeRegistry, VariantDef,
+    TraitEntry, TraitMethodDef, TraitRegistry, TypeEntry, TypeKind, TypeRegistry, VariantConstructorInfo,
+    VariantDef,
 };
 
 // Re-export operator types

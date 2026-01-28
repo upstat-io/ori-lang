@@ -422,7 +422,7 @@ pub fn walk_match_pattern<'ast, V: Visitor<'ast> + ?Sized>(
             visitor.visit_expr_id(*expr_id, arena);
         }
         MatchPattern::Variant { inner, .. } => {
-            if let Some(inner_pattern) = inner {
+            for inner_pattern in inner {
                 visitor.visit_match_pattern(inner_pattern, arena);
             }
         }

@@ -149,12 +149,40 @@ parse_struct_pattern()   // { x, y }
 // List patterns
 parse_list_pattern()     // [head, ..tail]
 
-// Variant patterns
-parse_variant_pattern()  // Some(x), None
+// Variant patterns (single and multi-field)
+parse_variant_pattern()       // Some(x), None, Click(x, y)
+parse_variant_inner_patterns() // Helper for comma-separated patterns
 
 // Guards
 parse_guard()            // x.match(x > 0)
 ```
+
+#### Multi-Field Variant Patterns
+
+Variant patterns support multiple fields via `parse_variant_inner_patterns()`:
+
+```rust
+// Grammar: type_path [ "(" pattern { "," pattern } ")" ]
+fn parse_variant_inner_patterns(&mut self) -> Result<Vec<MatchPattern>, ParseError> {
+    let mut patterns = Vec::new();
+    if self.check(&TokenKind::RParen) {
+        return Ok(patterns);  // Unit variant: None, Quit
+    }
+    patterns.push(self.parse_match_pattern()?);
+    while self.check(&TokenKind::Comma) {
+        self.advance();
+        if self.check(&TokenKind::RParen) { break; }  // Trailing comma
+        patterns.push(self.parse_match_pattern()?);
+    }
+    Ok(patterns)
+}
+```
+
+Examples:
+- Unit variant: `None` → `inner: []`
+- Single-field: `Some(x)` → `inner: [Binding("x")]`
+- Multi-field: `Click(x, y)` → `inner: [Binding("x"), Binding("y")]`
+- Nested: `Event(Click(x, _))` → `inner: [Variant { name: "Click", inner: [...] }]`
 
 ### Binding Patterns (in primary.rs)
 

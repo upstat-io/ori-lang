@@ -56,6 +56,12 @@ pub enum EvalOutput {
     Function(String),
     /// Struct (stored as description).
     Struct(String),
+    /// User-defined variant.
+    Variant {
+        type_name: String,
+        variant_name: String,
+        fields: Vec<EvalOutput>,
+    },
     /// Map (stored as key-value pairs).
     Map(Vec<(String, EvalOutput)>),
     /// Error during evaluation.
@@ -107,6 +113,26 @@ impl EvalOutput {
             Value::Struct(s) => {
                 EvalOutput::Struct(format!("<struct {}>", interner.lookup(s.name())))
             }
+            Value::Variant {
+                type_name,
+                variant_name,
+                fields,
+            } => EvalOutput::Variant {
+                type_name: interner.lookup(*type_name).to_string(),
+                variant_name: interner.lookup(*variant_name).to_string(),
+                fields: fields.iter().map(|v| Self::from_value(v, interner)).collect(),
+            },
+            Value::VariantConstructor {
+                type_name,
+                variant_name,
+                field_count,
+            } => {
+                let type_str = interner.lookup(*type_name);
+                let variant_str = interner.lookup(*variant_name);
+                EvalOutput::Function(format!(
+                    "<{type_str}::{variant_str} constructor ({field_count} fields)>"
+                ))
+            }
             Value::Map(map) => {
                 let entries: Vec<_> = map
                     .iter()
@@ -154,6 +180,18 @@ impl EvalOutput {
                 }
             }
             EvalOutput::Function(desc) | EvalOutput::Struct(desc) => desc.clone(),
+            EvalOutput::Variant {
+                type_name,
+                variant_name,
+                fields,
+            } => {
+                if fields.is_empty() {
+                    format!("{type_name}::{variant_name}")
+                } else {
+                    let inner: Vec<_> = fields.iter().map(EvalOutput::display).collect();
+                    format!("{type_name}::{variant_name}({})", inner.join(", "))
+                }
+            }
             EvalOutput::Map(entries) => {
                 let inner: Vec<_> = entries
                     .iter()
@@ -205,6 +243,19 @@ impl PartialEq for EvalOutput {
                     inclusive: i2,
                 },
             ) => s1 == s2 && e1 == e2 && i1 == i2,
+            // Variant with type, variant name, and fields
+            (
+                EvalOutput::Variant {
+                    type_name: t1,
+                    variant_name: v1,
+                    fields: f1,
+                },
+                EvalOutput::Variant {
+                    type_name: t2,
+                    variant_name: v2,
+                    fields: f2,
+                },
+            ) => t1 == t2 && v1 == v2 && f1 == f2,
             _ => false,
         }
     }
@@ -244,6 +295,15 @@ impl Hash for EvalOutput {
                 start.hash(state);
                 end.hash(state);
                 inclusive.hash(state);
+            }
+            EvalOutput::Variant {
+                type_name,
+                variant_name,
+                fields,
+            } => {
+                type_name.hash(state);
+                variant_name.hash(state);
+                fields.hash(state);
             }
         }
     }

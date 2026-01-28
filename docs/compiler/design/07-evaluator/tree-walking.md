@@ -293,6 +293,52 @@ fn eval_match(
 }
 ```
 
+### Pattern Matching for Variants
+
+The `try_match` function handles variant patterns with any number of fields:
+
+```rust
+fn try_match(
+    pattern: &MatchPattern,
+    value: &Value,
+) -> Result<Option<Vec<(Name, Value)>>, EvalError> {
+    match (pattern, value) {
+        // Unit variant: pattern matches if names match and no inner patterns
+        (MatchPattern::Variant { name, inner }, Value::Variant { name: vn, fields })
+            if name == vn && inner.is_empty() && fields.is_empty() =>
+        {
+            Ok(Some(vec![]))
+        }
+
+        // Multi-field variant: match each inner pattern against corresponding field
+        (MatchPattern::Variant { name, inner }, Value::Variant { name: vn, fields })
+            if name == vn && inner.len() == fields.len() =>
+        {
+            let mut all_bindings = Vec::new();
+            for (pat, val) in inner.iter().zip(fields.iter()) {
+                match try_match(pat, val)? {
+                    Some(bindings) => all_bindings.extend(bindings),
+                    None => return Ok(None),
+                }
+            }
+            Ok(Some(all_bindings))
+        }
+
+        // ... other pattern cases
+    }
+}
+```
+
+**Key Design Decision:** The AST uses `Vec<MatchPattern>` for variant inner patterns (not `Option<Box<MatchPattern>>`), enabling:
+- Unit variants: `None` → `inner: []`
+- Single-field: `Some(x)` → `inner: [Binding("x")]`
+- Multi-field: `Click(x, y)` → `inner: [Binding("x"), Binding("y")]`
+
+**Variant vs Binding Disambiguation:** Uppercase pattern names are treated as variant constructors, lowercase as bindings:
+- `Some` → variant pattern (matches `Value::Variant { name: "Some", ... }`)
+- `x` → binding pattern (binds value to `x`)
+```
+
 ## Advantages of Tree-Walking
 
 1. **Simple implementation** - Direct mapping from AST to execution

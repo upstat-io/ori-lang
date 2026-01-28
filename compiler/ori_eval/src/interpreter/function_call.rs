@@ -91,6 +91,22 @@ impl Interpreter<'_> {
                 result
             }
             Value::FunctionVal(func_ptr, _name) => eval_function_val_call(func_ptr, args),
+            Value::VariantConstructor {
+                type_name,
+                variant_name,
+                field_count,
+            } => {
+                // Check argument count matches field count
+                if args.len() != field_count {
+                    return Err(crate::wrong_arg_count(
+                        self.interner.lookup(variant_name),
+                        field_count,
+                        args.len(),
+                    ));
+                }
+                // Construct the variant with the provided arguments
+                Ok(Value::variant(type_name, variant_name, args.to_vec()))
+            }
             _ => Err(not_callable(func.type_name())),
         }
     }

@@ -320,4 +320,47 @@ impl TypeRegistry {
             _ => None,
         })
     }
+
+    /// Look up a variant constructor by name.
+    ///
+    /// Searches all registered enum types for a variant with the given name.
+    /// Returns the enum type name and variant definition if found.
+    ///
+    /// This is used for resolving variant constructors like `Running` or `Done`
+    /// when they appear as identifiers or function calls.
+    pub fn lookup_variant_constructor(&self, variant_name: Name) -> Option<VariantConstructorInfo> {
+        for entry in self.types_by_name.values() {
+            if let TypeKind::Enum { variants } = &entry.kind {
+                for variant in variants {
+                    if variant.name == variant_name {
+                        let field_types: Vec<Type> = variant
+                            .fields
+                            .iter()
+                            .map(|(_, ty_id)| self.interner.to_type(*ty_id))
+                            .collect();
+                        return Some(VariantConstructorInfo {
+                            enum_name: entry.name,
+                            variant_name,
+                            field_types,
+                            type_params: entry.type_params.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+/// Information about a variant constructor.
+#[derive(Clone, Debug)]
+pub struct VariantConstructorInfo {
+    /// The enum type name (e.g., "Status").
+    pub enum_name: Name,
+    /// The variant name (e.g., "Running").
+    pub variant_name: Name,
+    /// Types of the variant fields (empty for unit variants).
+    pub field_types: Vec<Type>,
+    /// Generic type parameters of the enum (if any).
+    pub type_params: Vec<Name>,
 }

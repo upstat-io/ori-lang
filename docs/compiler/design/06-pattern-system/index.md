@@ -151,6 +151,46 @@ let positives = items.filter(predicate: x -> x > 0)
 let sum = items.fold(initial: 0, op: (acc, x) -> acc + x)
 ```
 
+## Match Pattern Representation
+
+The `MatchPattern` enum represents patterns used in `match` expressions. Variant patterns use `Vec<MatchPattern>` for inner patterns, enabling unit, single-field, and multi-field variants with a uniform representation.
+
+### Variant Pattern AST
+
+```rust
+pub enum MatchPattern {
+    Variant {
+        name: Name,
+        inner: Vec<MatchPattern>,  // Not Option<Box<MatchPattern>>
+    },
+    // ... other patterns
+}
+```
+
+**Key Design Decision:** Using `Vec<MatchPattern>` instead of `Option<Box<MatchPattern>>` enables:
+- Unit variants: `None` → `inner: []`
+- Single-field: `Some(x)` → `inner: [Binding("x")]`
+- Multi-field: `Click(x, y)` → `inner: [Binding("x"), Binding("y")]`
+- Nested: `Event(Click(x, _))` → `inner: [Variant { name: "Click", inner: [...] }]`
+
+**Variant vs Binding Disambiguation:** Uppercase pattern names are treated as variant constructors, lowercase as bindings:
+- `Some` → variant pattern (matches `Value::Variant { name: "Some", ... }`)
+- `x` → binding pattern (binds value to `x`)
+
+### Type Checking Variant Patterns
+
+The type checker uses `get_variant_field_types()` in `pattern_types.rs` to extract expected field types:
+
+```rust
+fn get_variant_field_types(
+    type_registry: &TypeRegistry,
+    sum_type: &Type,
+    variant_name: Name,
+) -> Vec<Type>
+```
+
+This returns a `Vec<Type>` matching the variant's fields, enabling correct unification of each inner pattern with its corresponding field type.
+
 ## Related Documents
 
 - [Pattern Trait](pattern-trait.md) - PatternDefinition interface

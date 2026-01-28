@@ -3,7 +3,7 @@
 //! Extracts variable bindings from match patterns and unifies pattern structure
 //! with scrutinee types.
 
-use super::pattern_types::{get_struct_field_types, get_variant_inner_type};
+use super::pattern_types::{get_struct_field_types, get_variant_field_types};
 use crate::checker::TypeChecker;
 use ori_ir::{MatchPattern, Name};
 use ori_types::Type;
@@ -28,13 +28,19 @@ pub fn extract_match_pattern_bindings(
         }
 
         MatchPattern::Variant { name, inner } => {
-            let inner_ty = get_variant_inner_type(checker, &resolved_ty, *name);
+            let field_types = get_variant_field_types(checker, &resolved_ty, *name);
 
-            if let Some(inner_pattern) = inner {
-                extract_match_pattern_bindings(checker, inner_pattern, &inner_ty)
-            } else {
-                vec![]
+            // Handle multiple inner patterns for multi-field variants
+            let mut bindings = Vec::new();
+            for (pattern, field_ty) in inner.iter().zip(field_types.iter()) {
+                bindings.extend(extract_match_pattern_bindings(checker, pattern, field_ty));
             }
+            // If fewer field types than patterns, use fresh vars
+            for pattern in inner.iter().skip(field_types.len()) {
+                let fresh = checker.inference.ctx.fresh_var();
+                bindings.extend(extract_match_pattern_bindings(checker, pattern, &fresh));
+            }
+            bindings
         }
 
         MatchPattern::Struct { fields } => {
@@ -126,7 +132,7 @@ fn collect_match_pattern_names_inner(pattern: &MatchPattern, names: &mut HashSet
         }
 
         MatchPattern::Variant { inner, .. } => {
-            if let Some(inner_pattern) = inner {
+            for inner_pattern in inner {
                 collect_match_pattern_names_inner(inner_pattern, names);
             }
         }

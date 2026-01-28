@@ -34,7 +34,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 // Re-export StringLookup from ori_ir for convenience
-pub use ori_ir::StringLookup;
+pub use ori_ir::{Name, StringLookup};
 
 pub use composite::{FunctionValue, MemoizedFunctionValue, RangeValue, StructLayout, StructValue};
 pub use heap::Heap;
@@ -86,6 +86,25 @@ pub enum Value {
     Ok(Heap<Value>),
     /// Result: Err(error).
     Err(Heap<Value>),
+    /// User-defined sum type variant.
+    ///
+    /// Stores the type name (e.g., "Status"), variant name (e.g., "Running"),
+    /// and variant fields (may be empty for unit variants).
+    Variant {
+        type_name: Name,
+        variant_name: Name,
+        fields: Heap<Vec<Value>>,
+    },
+    /// Variant constructor for sum types with fields.
+    ///
+    /// When called with arguments, constructs a `Value::Variant`.
+    /// Used for variants like `Done(reason: str)` where the variant
+    /// has fields that need to be provided.
+    VariantConstructor {
+        type_name: Name,
+        variant_name: Name,
+        field_count: usize,
+    },
 
     // Composite Types
     /// Struct instance.
@@ -199,6 +218,41 @@ impl Value {
     pub fn err(v: Value) -> Self {
         Value::Err(Heap::new(v))
     }
+
+    /// Create a user-defined variant value.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Unit variant: Status::Running
+    /// let running = Value::variant(status_name, running_name, vec![]);
+    ///
+    /// // Variant with fields: Result::Success(value: 42)
+    /// let success = Value::variant(result_name, success_name, vec![Value::int(42)]);
+    /// ```
+    #[inline]
+    pub fn variant(type_name: Name, variant_name: Name, fields: Vec<Value>) -> Self {
+        Value::Variant {
+            type_name,
+            variant_name,
+            fields: Heap::new(fields),
+        }
+    }
+
+    /// Create a variant constructor for sum types with fields.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Constructor for Done(reason: str) variant
+    /// let done_ctor = Value::variant_constructor(status_name, done_name, 1);
+    /// ```
+    #[inline]
+    pub fn variant_constructor(type_name: Name, variant_name: Name, field_count: usize) -> Self {
+        Value::VariantConstructor {
+            type_name,
+            variant_name,
+            field_count,
+        }
+    }
 }
 
 // Value Methods
@@ -281,6 +335,8 @@ impl Value {
             Value::Tuple(_) => "tuple",
             Value::Some(_) | Value::None => "Option",
             Value::Ok(_) | Value::Err(_) => "Result",
+            Value::Variant { .. } => "variant",
+            Value::VariantConstructor { .. } => "variant_constructor",
             Value::Struct(_) => "struct",
             Value::Function(_) | Value::MemoizedFunction(_) => "function",
             Value::FunctionVal(_, _) => "function_val",
@@ -294,6 +350,7 @@ impl Value {
     /// Get the concrete type name, resolving struct names via the interner.
     ///
     /// For struct values, this returns the actual struct name (e.g., "Point").
+    /// For variant values, this returns the enum type name (e.g., "Status").
     /// For Range values, returns "range" (lowercase) for method dispatch consistency.
     /// For all other types, delegates to `type_name()`.
     ///
@@ -302,6 +359,9 @@ impl Value {
     pub fn type_name_with_interner<I: StringLookup>(&self, interner: &I) -> Cow<'static, str> {
         match self {
             Value::Struct(s) => Cow::Owned(interner.lookup(s.type_name).to_string()),
+            Value::Variant { type_name, .. } => {
+                Cow::Owned(interner.lookup(*type_name).to_string())
+            }
             // Range uses lowercase for method dispatch (distinct from type_name()'s "Range")
             Value::Range(_) => Cow::Borrowed("range"),
             _ => Cow::Borrowed(self.type_name()),
@@ -337,6 +397,15 @@ impl Value {
             Value::None => "None".to_string(),
             Value::Ok(v) => format!("Ok({})", v.display_value()),
             Value::Err(v) => format!("Err({})", v.display_value()),
+            Value::Variant { fields, .. } => {
+                if fields.is_empty() {
+                    "<variant>".to_string()
+                } else {
+                    let inner: Vec<_> = fields.iter().map(Value::display_value).collect();
+                    format!("<variant>({})", inner.join(", "))
+                }
+            }
+            Value::VariantConstructor { .. } => "<variant_constructor>".to_string(),
             Value::Struct(s) => format!("{s:?}"),
             Value::Function(_) | Value::MemoizedFunction(_) => "<function>".to_string(),
             Value::FunctionVal(_, name) => format!("<function_val {name}>"),
@@ -364,6 +433,23 @@ impl Value {
                 a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.equals(y))
             }
             (Value::Duration(a), Value::Duration(b)) | (Value::Size(a), Value::Size(b)) => a == b,
+            (
+                Value::Variant {
+                    type_name: t1,
+                    variant_name: v1,
+                    fields: f1,
+                },
+                Value::Variant {
+                    type_name: t2,
+                    variant_name: v2,
+                    fields: f2,
+                },
+            ) => {
+                t1 == t2
+                    && v1 == v2
+                    && f1.len() == f2.len()
+                    && f1.iter().zip(f2.iter()).all(|(x, y)| x.equals(y))
+            }
             _ => false,
         }
     }
@@ -388,6 +474,28 @@ impl fmt::Debug for Value {
             Value::None => write!(f, "None"),
             Value::Ok(v) => write!(f, "Ok({:?})", &**v),
             Value::Err(v) => write!(f, "Err({:?})", &**v),
+            Value::Variant {
+                type_name,
+                variant_name,
+                fields,
+            } => {
+                write!(
+                    f,
+                    "Variant({:?}::{:?}, {:?})",
+                    type_name, variant_name, &**fields
+                )
+            }
+            Value::VariantConstructor {
+                type_name,
+                variant_name,
+                field_count,
+            } => {
+                write!(
+                    f,
+                    "VariantConstructor({:?}::{:?}, {field_count} fields)",
+                    type_name, variant_name
+                )
+            }
             Value::Struct(s) => write!(f, "Struct({s:?})"),
             Value::Function(func) => write!(f, "Function({func:?})"),
             Value::MemoizedFunction(mf) => write!(f, "MemoizedFunction({mf:?})"),
@@ -444,6 +552,31 @@ impl fmt::Display for Value {
             Value::None => write!(f, "None"),
             Value::Ok(v) => write!(f, "Ok({})", &**v),
             Value::Err(e) => write!(f, "Err({})", &**e),
+            Value::Variant {
+                type_name,
+                variant_name,
+                fields,
+            } => {
+                if fields.is_empty() {
+                    write!(f, "<variant {:?}::{:?}>", type_name, variant_name)
+                } else {
+                    write!(f, "<variant {:?}::{:?}(", type_name, variant_name)?;
+                    for (i, field) in fields.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{field}")?;
+                    }
+                    write!(f, ")>")
+                }
+            }
+            Value::VariantConstructor {
+                type_name,
+                variant_name,
+                ..
+            } => {
+                write!(f, "<variant_constructor {:?}::{:?}>", type_name, variant_name)
+            }
             Value::Struct(s) => write!(f, "<struct {:?}>", s.type_name),
             Value::Function(_) | Value::MemoizedFunction(_) => write!(f, "<function>"),
             Value::FunctionVal(_, name) => write!(f, "<function_val {name}>"),
@@ -501,6 +634,30 @@ impl PartialEq for Value {
                         .zip(b.fields.iter())
                         .all(|(av, bv)| av == bv)
             }
+            (
+                Value::Variant {
+                    type_name: t1,
+                    variant_name: v1,
+                    fields: f1,
+                },
+                Value::Variant {
+                    type_name: t2,
+                    variant_name: v2,
+                    fields: f2,
+                },
+            ) => t1 == t2 && v1 == v2 && f1 == f2,
+            (
+                Value::VariantConstructor {
+                    type_name: t1,
+                    variant_name: v1,
+                    field_count: c1,
+                },
+                Value::VariantConstructor {
+                    type_name: t2,
+                    variant_name: v2,
+                    field_count: c2,
+                },
+            ) => t1 == t2 && v1 == v2 && c1 == c2,
             (Value::Map(a), Value::Map(b)) => {
                 a.len() == b.len() && a.iter().all(|(k, v)| b.get(k).is_some_and(|bv| v == bv))
             }
@@ -548,6 +705,26 @@ impl std::hash::Hash for Value {
                 for v in s.fields.iter() {
                     v.hash(state);
                 }
+            }
+            Value::Variant {
+                type_name,
+                variant_name,
+                fields,
+            } => {
+                type_name.hash(state);
+                variant_name.hash(state);
+                for v in fields.iter() {
+                    v.hash(state);
+                }
+            }
+            Value::VariantConstructor {
+                type_name,
+                variant_name,
+                field_count,
+            } => {
+                type_name.hash(state);
+                variant_name.hash(state);
+                field_count.hash(state);
             }
             Value::Function(f) => {
                 // Hash by function identity (body expression ID)

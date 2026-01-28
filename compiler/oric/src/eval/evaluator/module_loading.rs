@@ -5,12 +5,12 @@
 
 use super::super::module::import;
 use super::Evaluator;
-use crate::ir::{Name, SharedArena};
+use crate::ir::{Name, SharedArena, TypeDeclKind};
 use crate::parser::ParseResult;
 use crate::query::parsed;
 use crate::typeck::derives::process_derives;
 use crate::typeck::type_registry::TypeRegistry;
-use ori_eval::{UserMethod, UserMethodRegistry};
+use ori_eval::{UserMethod, UserMethodRegistry, Value};
 use std::path::{Path, PathBuf};
 
 impl Evaluator<'_> {
@@ -128,6 +128,9 @@ impl Evaluator<'_> {
 
         // Then register all local functions
         import::register_module_functions(parse_result, self.env_mut());
+
+        // Register variant constructors from type declarations
+        self.register_variant_constructors(&parse_result.module);
 
         // Create a shared arena for all methods in this module
         // This ensures methods carry their arena reference for correct evaluation
@@ -250,6 +253,37 @@ impl Evaluator<'_> {
                     UserMethod::new(params, method.body, self.env().capture(), arena.clone());
 
                 registry.register(type_name, method.name, user_method);
+            }
+        }
+    }
+
+    /// Register variant constructors from sum type declarations.
+    ///
+    /// For each sum type (enum), registers each variant as a constructor:
+    /// - Unit variants (no fields) are bound directly as `Value::Variant`
+    /// - Variants with fields are bound as constructor functions
+    fn register_variant_constructors(&mut self, module: &crate::ir::Module) {
+        for type_decl in &module.types {
+            if let TypeDeclKind::Sum(variants) = &type_decl.kind {
+                let type_name = type_decl.name;
+
+                for variant in variants {
+                    if variant.fields.is_empty() {
+                        // Unit variant: bind directly as Value::Variant
+                        let value = Value::variant(type_name, variant.name, vec![]);
+                        self.env_mut().define_global(variant.name, value);
+                    } else {
+                        // Variant with fields: create a constructor function
+                        // For now, we'll use a special VariantConstructor value type
+                        // that the evaluator recognizes during function calls
+                        let value = Value::variant_constructor(
+                            type_name,
+                            variant.name,
+                            variant.fields.len(),
+                        );
+                        self.env_mut().define_global(variant.name, value);
+                    }
+                }
             }
         }
     }

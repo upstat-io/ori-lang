@@ -36,10 +36,14 @@ pub enum MatchPattern {
     Binding(Name),
     /// Literal: 42, "hello", true
     Literal(ExprId),
-    /// Variant: Some(x), Ok(value)
+    /// Variant: Some(x), Ok(value), Click(x, y)
+    ///
+    /// For unit variants, `inner` is empty.
+    /// For single-field variants, `inner` has one element.
+    /// For multi-field variants, `inner` has multiple elements.
     Variant {
         name: Name,
-        inner: Option<Box<MatchPattern>>,
+        inner: Vec<MatchPattern>,
     },
     /// Struct: { x, y }
     Struct {

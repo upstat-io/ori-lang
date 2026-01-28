@@ -1,7 +1,7 @@
 //! Pattern unification with scrutinee types.
 
 use super::infer_expr;
-use super::pattern_types::{get_struct_field_types, get_variant_inner_type};
+use super::pattern_types::{get_struct_field_types, get_variant_field_types};
 use crate::checker::TypeChecker;
 use crate::registry::TypeKind;
 use ori_ir::{MatchPattern, Span};
@@ -61,9 +61,15 @@ pub fn unify_pattern_with_scrutinee(
                 );
             }
 
-            if let Some(inner_pattern) = inner {
-                let inner_ty = get_variant_inner_type(checker, &resolved_ty, *name);
-                unify_pattern_with_scrutinee(checker, inner_pattern, &inner_ty, span);
+            // Unify inner patterns with variant field types
+            let field_types = get_variant_field_types(checker, &resolved_ty, *name);
+            for (inner_pattern, field_ty) in inner.iter().zip(field_types.iter()) {
+                unify_pattern_with_scrutinee(checker, inner_pattern, field_ty, span);
+            }
+            // Extra patterns get fresh type variables
+            for inner_pattern in inner.iter().skip(field_types.len()) {
+                let fresh = checker.inference.ctx.fresh_var();
+                unify_pattern_with_scrutinee(checker, inner_pattern, &fresh, span);
             }
         }
 

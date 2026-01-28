@@ -213,3 +213,155 @@ fn test_type_entry_hash() {
     set.insert(entry2); // duplicate
     assert_eq!(set.len(), 1);
 }
+
+// =============================================================================
+// Variant Constructor Tests (Phase 5.2)
+// =============================================================================
+
+#[test]
+fn test_lookup_variant_constructor_unit_variant() {
+    let interner = SharedInterner::default();
+    let mut registry = TypeRegistry::new();
+
+    let status_name = interner.intern("Status");
+    let pending_name = interner.intern("Pending");
+    let running_name = interner.intern("Running");
+    let completed_name = interner.intern("Completed");
+
+    // Register enum with unit variants
+    let variants = vec![
+        (pending_name, vec![]),
+        (running_name, vec![]),
+        (completed_name, vec![]),
+    ];
+    registry.register_enum(status_name, variants, make_span(), vec![]);
+
+    // Look up unit variant
+    let info = registry.lookup_variant_constructor(pending_name);
+    assert!(info.is_some());
+    let info = info.unwrap();
+    assert_eq!(info.enum_name, status_name);
+    assert_eq!(info.variant_name, pending_name);
+    assert!(info.field_types.is_empty());
+    assert!(info.type_params.is_empty());
+
+    // Look up another unit variant
+    let info = registry.lookup_variant_constructor(running_name);
+    assert!(info.is_some());
+    let info = info.unwrap();
+    assert_eq!(info.enum_name, status_name);
+    assert_eq!(info.variant_name, running_name);
+}
+
+#[test]
+fn test_lookup_variant_constructor_with_fields() {
+    let interner = SharedInterner::default();
+    let mut registry = TypeRegistry::new();
+
+    let message_name = interner.intern("Message");
+    let text_name = interner.intern("Text");
+    let empty_name = interner.intern("Empty");
+    let content_name = interner.intern("content");
+
+    // Register enum with variant that has fields
+    let variants = vec![
+        (text_name, vec![(content_name, Type::Str)]),
+        (empty_name, vec![]),
+    ];
+    registry.register_enum(message_name, variants, make_span(), vec![]);
+
+    // Look up variant with field
+    let info = registry.lookup_variant_constructor(text_name);
+    assert!(info.is_some());
+    let info = info.unwrap();
+    assert_eq!(info.enum_name, message_name);
+    assert_eq!(info.variant_name, text_name);
+    assert_eq!(info.field_types.len(), 1);
+    assert_eq!(info.field_types[0], Type::Str);
+
+    // Look up unit variant
+    let info = registry.lookup_variant_constructor(empty_name);
+    assert!(info.is_some());
+    let info = info.unwrap();
+    assert!(info.field_types.is_empty());
+}
+
+#[test]
+fn test_lookup_variant_constructor_multiple_fields() {
+    let interner = SharedInterner::default();
+    let mut registry = TypeRegistry::new();
+
+    let result_name = interner.intern("Result2");
+    let success_name = interner.intern("Success");
+    let failure_name = interner.intern("Failure");
+    let value_name = interner.intern("value");
+    let code_name = interner.intern("code");
+    let msg_name = interner.intern("msg");
+
+    // Register enum with variants that have multiple fields
+    let variants = vec![
+        (success_name, vec![(value_name, Type::Int)]),
+        (
+            failure_name,
+            vec![(code_name, Type::Int), (msg_name, Type::Str)],
+        ),
+    ];
+    registry.register_enum(result_name, variants, make_span(), vec![]);
+
+    // Look up variant with multiple fields
+    let info = registry.lookup_variant_constructor(failure_name);
+    assert!(info.is_some());
+    let info = info.unwrap();
+    assert_eq!(info.field_types.len(), 2);
+    assert_eq!(info.field_types[0], Type::Int);
+    assert_eq!(info.field_types[1], Type::Str);
+}
+
+#[test]
+fn test_lookup_variant_constructor_not_found() {
+    let interner = SharedInterner::default();
+    let mut registry = TypeRegistry::new();
+
+    let status_name = interner.intern("Status");
+    let pending_name = interner.intern("Pending");
+    let unknown_name = interner.intern("Unknown");
+
+    // Register enum
+    let variants = vec![(pending_name, vec![])];
+    registry.register_enum(status_name, variants, make_span(), vec![]);
+
+    // Look up non-existent variant
+    let info = registry.lookup_variant_constructor(unknown_name);
+    assert!(info.is_none());
+}
+
+#[test]
+fn test_lookup_variant_constructor_generic_enum() {
+    let interner = SharedInterner::default();
+    let mut registry = TypeRegistry::new();
+
+    let maybe_name = interner.intern("Maybe");
+    let just_name = interner.intern("Just");
+    let nothing_name = interner.intern("Nothing");
+    let value_name = interner.intern("value");
+    let t_name = interner.intern("T");
+
+    // For generic enums, the field type uses the type param name as a placeholder.
+    // In actual use, this would be resolved during type checking.
+    // Here we use a concrete type for simplicity - the important part is testing
+    // that type_params are correctly recorded.
+    let variants = vec![
+        (just_name, vec![(value_name, Type::Int)]), // Simplified for testing
+        (nothing_name, vec![]),
+    ];
+    registry.register_enum(maybe_name, variants, make_span(), vec![t_name]);
+
+    // Look up variant from generic enum
+    let info = registry.lookup_variant_constructor(just_name);
+    assert!(info.is_some());
+    let info = info.unwrap();
+    assert_eq!(info.enum_name, maybe_name);
+    assert_eq!(info.type_params.len(), 1);
+    assert_eq!(info.type_params[0], t_name);
+    assert_eq!(info.field_types.len(), 1);
+}

@@ -127,7 +127,46 @@ pub fn try_match(
     match pattern {
         MatchPattern::Wildcard => Ok(Some(vec![])),
 
-        MatchPattern::Binding(name) => Ok(Some(vec![(*name, value.clone())])),
+        MatchPattern::Binding(name) => {
+            // Check if this might be a unit variant pattern.
+            // The parser can't distinguish `Pending` (variant) from `x` (binding)
+            // without type context, so we check at match time.
+            if let Value::Variant {
+                variant_name: val_variant,
+                fields,
+                ..
+            } = value
+            {
+                let pattern_name = interner.lookup(*name);
+                let value_variant_name = interner.lookup(*val_variant);
+
+                // Check if the pattern name is a known variant name by seeing if
+                // it matches the type's variants. If the pattern name matches any
+                // variant name of this type, treat it as a variant pattern.
+                if pattern_name == value_variant_name {
+                    // Pattern name matches variant name - treat as variant pattern
+                    if fields.is_empty() {
+                        // Unit variant match
+                        return Ok(Some(vec![]));
+                    } else {
+                        // Variant has fields but pattern doesn't - no match
+                        return Ok(None);
+                    }
+                } else {
+                    // Pattern name doesn't match this variant - check if it looks
+                    // like a variant name (starts with uppercase). If so, it's a
+                    // non-matching variant pattern.
+                    let first_char = pattern_name.chars().next().unwrap_or('a');
+                    if first_char.is_uppercase() {
+                        // Likely a variant pattern that doesn't match - no match
+                        return Ok(None);
+                    }
+                    // Lowercase name - treat as a regular binding
+                }
+            }
+            // Regular binding pattern
+            Ok(Some(vec![(*name, value.clone())]))
+        }
 
         MatchPattern::Literal(expr_id) => {
             let lit_val = arena.get_expr(*expr_id);
@@ -148,17 +187,75 @@ pub fn try_match(
 
         MatchPattern::Variant { name, inner } => {
             let variant_name = interner.lookup(*name);
-            match (variant_name, value, inner) {
-                ("Some", Value::Some(v), Some(inner_pat))
-                | ("Ok", Value::Ok(v), Some(inner_pat))
-                | ("Err", Value::Err(v), Some(inner_pat)) => {
-                    try_match(inner_pat, v.as_ref(), arena, interner)
+
+            // Built-in Option/Result variants
+            match (variant_name, value) {
+                ("Some", Value::Some(v)) => {
+                    return match inner.len() {
+                        0 => Ok(Some(vec![])), // Some(_) or Some()
+                        1 => try_match(&inner[0], v.as_ref(), arena, interner),
+                        _ => Ok(None), // Some has only one field
+                    };
                 }
-                ("Some", Value::Some(_), None)
-                | ("Ok", Value::Ok(_), None)
-                | ("Err", Value::Err(_), None)
-                | ("None", Value::None, _) => Ok(Some(vec![])),
-                _ => Ok(None),
+                ("None", Value::None) => {
+                    return if inner.is_empty() {
+                        Ok(Some(vec![]))
+                    } else {
+                        Ok(None)
+                    };
+                }
+                ("Ok", Value::Ok(v)) => {
+                    return match inner.len() {
+                        0 => Ok(Some(vec![])),
+                        1 => try_match(&inner[0], v.as_ref(), arena, interner),
+                        _ => Ok(None),
+                    };
+                }
+                ("Err", Value::Err(v)) => {
+                    return match inner.len() {
+                        0 => Ok(Some(vec![])),
+                        1 => try_match(&inner[0], v.as_ref(), arena, interner),
+                        _ => Ok(None),
+                    };
+                }
+                _ => {}
+            }
+
+            // User-defined variants
+            if let Value::Variant {
+                variant_name: val_variant,
+                fields,
+                ..
+            } = value
+            {
+                // Check if variant name matches
+                if interner.lookup(*val_variant) != variant_name {
+                    return Ok(None);
+                }
+
+                match (inner.len(), fields.len()) {
+                    // Unit variant pattern with unit variant value
+                    (0, 0) => Ok(Some(vec![])),
+                    // Wildcard pattern for variant with fields: match but don't bind
+                    (0, _) => Ok(Some(vec![])),
+                    // Single pattern for single-field variant
+                    (1, 1) => try_match(&inner[0], &fields[0], arena, interner),
+                    // Multiple patterns for multi-field variant
+                    (n, m) if n == m => {
+                        let mut all_bindings = Vec::new();
+                        for (pat, val) in inner.iter().zip(fields.iter()) {
+                            match try_match(pat, val, arena, interner)? {
+                                Some(bindings) => all_bindings.extend(bindings),
+                                None => return Ok(None),
+                            }
+                        }
+                        Ok(Some(all_bindings))
+                    }
+                    // Pattern count doesn't match field count
+                    _ => Ok(None),
+                }
+            } else {
+                Ok(None)
             }
         }
 
