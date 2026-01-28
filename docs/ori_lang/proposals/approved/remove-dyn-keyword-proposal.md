@@ -1,8 +1,9 @@
 # Proposal: Remove `dyn` Keyword for Trait Objects
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric
 **Created:** 2026-01-25
+**Approved:** 2026-01-28
 
 ---
 
@@ -205,8 +206,9 @@ impl EventBus {
 
 | File | Change |
 |------|--------|
-| `06-types.md` | Remove `dyn` from type syntax |
-| `03-lexical-elements.md` | Remove `dyn` from keywords |
+| `06-types.md` | Add section on trait objects (trait name as type) |
+| `03-lexical-elements.md` | No change needed (`dyn` was never listed as keyword) |
+| `grammar.ebnf` | Remove `"dyn" type` production from `type` |
 
 ### Code Migration
 
@@ -251,7 +253,9 @@ Ori's approach is simpler. The compiler figures out boxing/allocation.
 
 ### Object Safety
 
-Rust has complex "object safety" rules determining which traits can be `dyn`. Ori should have similar rules but doesn't need to expose them via a keyword. If a trait isn't usable as a type, that's a compile error with a clear message.
+Not all traits can be used as types. For example, traits with methods that return `Self` or have generic parameters may not be object-safe.
+
+The compiler enforces these constraints and provides clear error messages when a trait cannot be used as a type. The specific rules will be documented in the trait specification when implemented.
 
 ---
 

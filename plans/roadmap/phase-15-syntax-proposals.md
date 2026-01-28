@@ -829,7 +829,55 @@ let $timeout = 30s // module-level constant (let and $ required)
 
 ---
 
-## 15.12 Phase Completion Checklist
+## 15.12 Remove `dyn` Keyword for Trait Objects
+
+**Proposal**: `proposals/approved/remove-dyn-keyword-proposal.md`
+
+Remove the `dyn` keyword for trait objects. Trait names used directly as types mean "any value implementing this trait."
+
+```ori
+// Before
+@process (item: dyn Printable) -> void = ...
+let items: [dyn Serializable] = ...
+
+// After
+@process (item: Printable) -> void = ...
+let items: [Serializable] = ...
+```
+
+### Implementation
+
+- [ ] **Implement**: Remove `"dyn" type` from grammar type production
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/ty.rs` — dyn removal tests
+  - [ ] **Ori Tests**: `tests/spec/types/trait_objects.ori`
+  - [ ] **LLVM Support**: LLVM codegen for trait objects without dyn
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_object_tests.rs`
+
+- [ ] **Implement**: Parser recognizes trait name in type position as trait object
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/ty.rs` — trait-as-type parsing
+  - [ ] **Ori Tests**: `tests/spec/types/trait_objects.ori`
+  - [ ] **LLVM Support**: LLVM codegen for trait-as-type
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_object_tests.rs`
+
+- [ ] **Implement**: Type checker distinguishes `item: Trait` (trait object) vs `<T: Trait>` (generic bound)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/trait_objects.rs`
+  - [ ] **Ori Tests**: `tests/spec/types/trait_vs_bound.ori`
+  - [ ] **LLVM Support**: LLVM codegen for trait object vs bound distinction
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_object_tests.rs`
+
+- [ ] **Implement**: Object safety validation with clear error messages
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/object_safety.rs`
+  - [ ] **Ori Tests**: `tests/compile-fail/non_object_safe_trait.ori`
+  - [ ] **LLVM Support**: LLVM codegen for object safety validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_object_tests.rs`
+
+- [ ] **Implement**: Error if `dyn` keyword is used (helpful migration message)
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/ty.rs` — dyn keyword error
+  - [ ] **Ori Tests**: `tests/compile-fail/dyn_keyword_removed.ori`
+
+---
+
+## 15.13 Phase Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[x]`
 - [ ] All spec docs updated
