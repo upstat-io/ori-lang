@@ -27,7 +27,10 @@ compiler/ori_types/src/
 compiler/ori_typeck/src/
 ├── lib.rs                    # Module exports
 ├── checker/                  # Main type checker
-│   ├── mod.rs                    # TypeChecker struct, check_module entry (~798 lines)
+│   ├── mod.rs                    # TypeChecker struct, constructors
+│   ├── api.rs                    # Public API: type_check, type_check_with_source, type_check_with_config
+│   ├── orchestration.rs          # check_module 4-pass logic
+│   ├── utilities.rs              # validate_capabilities, resolve_through_aliases, report_type_error
 │   ├── builder.rs                # TypeCheckerBuilder pattern
 │   ├── components.rs             # CheckContext, InferenceState, Registries, DiagnosticState, ScopeContext
 │   ├── scope_guards.rs           # RAII scope guards (private fields, pub(super) access)
@@ -39,20 +42,41 @@ compiler/ori_typeck/src/
 │   ├── trait_registration.rs     # register_traits, register_impls
 │   ├── bound_checking.rs         # type_satisfies_bound
 │   ├── type_registration.rs      # register_type_declarations
-│   └── types.rs                  # Helper types (FunctionType, TypeCheckError)
+│   ├── types.rs                  # Helper types (FunctionType, TypeCheckError)
+│   └── tests/                    # Test modules
+│       └── mod.rs                    # TypeChecker unit tests
 ├── operators.rs              # Operator type rules
 ├── derives/                  # Derive macro support
 │   └── mod.rs                    # Derive registration and checking
 ├── registry/                 # User-defined types
-│   ├── mod.rs                    # TypeRegistry struct
-│   └── trait_registry.rs         # TraitRegistry (with method_cache), TraitEntry, ImplEntry
+│   ├── mod.rs                    # TypeRegistry struct, re-exports
+│   ├── trait_registry.rs         # TraitRegistry core (method_cache)
+│   ├── trait_types.rs            # TraitMethodDef, TraitAssocTypeDef, TraitEntry
+│   ├── impl_types.rs             # ImplMethodDef, ImplAssocTypeDef, ImplEntry, CoherenceError
+│   ├── method_lookup.rs          # MethodLookup result type
+│   └── tests/                    # Test modules
+│       ├── mod.rs                    # Test module declarations
+│       ├── trait_registry_tests.rs   # TraitRegistry tests
+│       └── type_registry_tests.rs    # TypeRegistry tests
 └── infer/
-    ├── mod.rs                # Inference dispatcher
-    ├── expr.rs               # Expression inference
+    ├── mod.rs                # Inference dispatcher, re-exports
+    ├── free_vars.rs          # collect_free_vars_inner, add_pattern_bindings
+    ├── type_annotations.rs   # infer_let_init, check_type_annotation
     ├── call.rs               # Call type checking
     ├── control.rs            # Control flow inference
-    ├── match_binding.rs      # Match arm binding inference
+    ├── match_binding.rs      # extract_match_pattern_bindings, collect_match_pattern_names
+    ├── pattern_types.rs      # get_variant_inner_type, get_variant_field_type, get_struct_field_types
+    ├── pattern_unification.rs # unify_pattern_with_scrutinee
     ├── pattern.rs            # Pattern type checking
+    ├── expressions/          # Expression type inference (split from expr.rs)
+    │   ├── mod.rs                # Re-exports, substitute_type_params
+    │   ├── identifiers.rs        # infer_ident, infer_function_ref, builtin_function_type
+    │   ├── operators.rs          # infer_binary, infer_unary, check_binary_op, check_unary_op
+    │   ├── lambdas.rs            # infer_lambda
+    │   ├── collections.rs        # infer_list, infer_tuple, infer_map, infer_range
+    │   ├── structs.rs            # infer_struct, FieldLookupResult, field lookup helpers
+    │   ├── access.rs             # infer_field, infer_index
+    │   └── variants.rs           # infer_ok, infer_err, infer_some, infer_none
     └── builtin_methods/      # Built-in type method handlers
         ├── mod.rs                # BuiltinMethodRegistry, BuiltinMethodHandler trait
         ├── string.rs             # StringMethodHandler
