@@ -238,11 +238,21 @@ primary       = literal | identifier | "self" | "Self"
               | "(" expression ")"
               | "#"                                   /* length in index context */
               | list_literal | map_literal | struct_literal .
-list_literal  = "[" [ expression { "," expression } ] "]" .
-map_literal   = "{" [ map_entry { "," map_entry } ] "}" .
-map_entry     = expression ":" expression .
-struct_literal = type_path "{" [ field_init { "," field_init } ] "}" .
-field_init    = identifier [ ":" expression ] .
+
+// List literals with spread support
+// See: 09-expressions.md § Spread Operator
+list_literal   = "[" [ list_element { "," list_element } ] "]" .
+list_element   = "..." expression | expression .
+
+// Map literals with spread support
+map_literal    = "{" [ map_element { "," map_element } ] "}" .
+map_element    = "..." expression | map_entry .
+map_entry      = expression ":" expression .
+
+// Struct literals with spread support
+struct_literal  = type_path "{" [ struct_element { "," struct_element } ] "}" .
+struct_element  = "..." expression | field_init .
+field_init      = identifier [ ":" expression ] .
 
 // --- Postfix Expressions ---
 // See: 09-expressions.md § Postfix Expressions

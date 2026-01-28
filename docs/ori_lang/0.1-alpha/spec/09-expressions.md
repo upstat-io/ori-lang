@@ -274,6 +274,74 @@ Elements evaluate left-to-right:
 {"a": first(), "b": second()}
 ```
 
+## Spread Operator
+
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § EXPRESSIONS (list_element, map_element, struct_element)
+
+The spread operator `...` expands collections and structs in literal contexts.
+
+### List Spread
+
+Expands list elements into a list literal:
+
+```ori
+let a = [1, 2, 3]
+let b = [4, 5, 6]
+
+[...a, ...b]           // [1, 2, 3, 4, 5, 6]
+[0, ...a, 10]          // [0, 1, 2, 3, 10]
+[first, ...middle, last]
+```
+
+The spread expression must be of type `[T]` where `T` matches the list element type.
+
+### Map Spread
+
+Expands map entries into a map literal:
+
+```ori
+let defaults = {"timeout": 30, "retries": 3}
+let custom = {"retries": 5, "verbose": true}
+
+{...defaults, ...custom}
+// {"timeout": 30, "retries": 5, "verbose": true}
+```
+
+Later entries override earlier ones on key conflicts. The spread expression must be of type `{K: V}` matching the map type.
+
+### Struct Spread
+
+Copies fields from an existing struct:
+
+```ori
+type Point = { x: int, y: int, z: int }
+let original = Point { x: 1, y: 2, z: 3 }
+
+Point { ...original, x: 10 }  // Point { x: 10, y: 2, z: 3 }
+Point { x: 10, ...original }  // Point { x: 1, y: 2, z: 3 }
+```
+
+Order determines precedence: later fields override earlier ones. The spread expression must be of the same struct type.
+
+### Constraints
+
+- Spread is only valid in literal contexts (lists, maps, struct constructors)
+- It is a compile-time error to use spread in function call arguments
+- All spread expressions must have compatible types with the target container
+- Struct spread requires the exact same type (not subtypes or supertypes)
+
+### Evaluation Order
+
+Spread expressions evaluate left-to-right:
+
+```ori
+[first(), ...middle(), last()]
+// Order: first(), middle(), last()
+
+{...defaults(), "key": computed(), ...overrides()}
+// Order: defaults(), computed(), overrides()
+```
+
 ### Assignment
 
 The right side evaluates before assignment:

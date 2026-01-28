@@ -131,6 +131,12 @@
 - Pattern matching in function parameters; `if` guards; first-clause establishes signature
 - Blocked on: Phase 9 (needs exhaustiveness checking from match)
 
+**Spread Operator** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/spread-operator-proposal.md`
+- Implementation: Phase 15.10
+- `...` operator for lists (`[...a, ...b]`), maps (`{...a, ...b}`), and structs (`T { ...s, x: v }`)
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones
