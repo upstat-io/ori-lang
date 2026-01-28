@@ -1,8 +1,33 @@
 # Proposal: Pipe Operator
 
-**Status:** Draft
+**Status:** Rejected
 **Author:** Eric
 **Created:** 2026-01-25
+**Rejected:** 2026-01-28
+
+---
+
+## Rejection Rationale
+
+The pipe operator solves a problem that Ori doesn't have. Ori already provides multiple mechanisms for readable data transformation chains:
+
+1. **Method chaining**: Collections have `.map()`, `.filter()`, `.fold()`, etc. as methods
+2. **Extension methods**: The `extend` keyword allows adding methods to any type
+3. **`run` blocks**: Sequential bindings with explicit intermediate values
+
+Languages like Elixir and F# need pipe operators because they lack methods (Elixir) or rely heavily on curried free functions (F#/OCaml). Ori's object-oriented method syntax combined with extension methods covers these use cases more idiomatically.
+
+**Example — what pipe would enable:**
+```ori
+data |> filter(predicate: x -> x > 0) |> map(transform: x -> x * 2)
+```
+
+**Already works in Ori:**
+```ori
+data.filter(predicate: x -> x > 0).map(transform: x -> x * 2)
+```
+
+Adding the pipe operator would introduce redundant syntax without meaningful benefit.
 
 ---
 
