@@ -701,7 +701,135 @@ let updated = Point { ...original, x: 10 }
 
 ---
 
-## 15.11 Phase Completion Checklist
+## 15.11 Simplified Bindings with `$` for Immutability
+
+**Proposal**: `proposals/approved/simplified-bindings-proposal.md`
+
+Simplify the binding model: `let x` is mutable, `let $x` is immutable. Remove `mut` keyword. Module-level bindings require `$` prefix.
+
+```ori
+// Before
+let x = 5         // immutable
+let mut x = 5     // mutable
+$timeout = 30s    // config variable
+
+// After
+let x = 5         // mutable
+let $x = 5        // immutable
+let $timeout = 30s // module-level constant (let and $ required)
+```
+
+### Lexer
+
+- [ ] **Implement**: Remove `mut` from reserved keywords
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — keyword list update
+  - [ ] **Ori Tests**: `tests/spec/lexical/mut_not_keyword.ori`
+  - [ ] **LLVM Support**: LLVM codegen for mut removal
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — mut removal codegen
+
+### Parser
+
+- [ ] **Implement**: Update `let_expr` to accept `$` prefix in binding pattern
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — immutable binding parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/immutable_bindings.ori`
+  - [ ] **LLVM Support**: LLVM codegen for immutable binding parsing
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — immutable binding parsing codegen
+
+- [ ] **Implement**: Remove `mut` from `let_expr` grammar
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — mut removal
+  - [ ] **Ori Tests**: `tests/compile-fail/let_mut_removed.ori`
+  - [ ] **LLVM Support**: LLVM codegen for mut removal
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — mut removal codegen
+
+- [ ] **Implement**: Update `constant_decl` to require `let $name = expr`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/decl.rs` — constant declaration parsing
+  - [ ] **Ori Tests**: `tests/spec/declarations/constants.ori`
+  - [ ] **LLVM Support**: LLVM codegen for constant declaration
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — constant declaration codegen
+
+- [ ] **Implement**: Remove old const function syntax `$name (params) -> Type`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/decl.rs` — const function removal
+  - [ ] **Ori Tests**: `tests/compile-fail/old_const_function_syntax.ori`
+  - [ ] **LLVM Support**: LLVM codegen for const function removal
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — const function removal codegen
+
+- [ ] **Implement**: Support `$` prefix in destructuring patterns
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — destructure immutable parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/destructure_immutable.ori`
+  - [ ] **LLVM Support**: LLVM codegen for destructure immutable
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — destructure immutable codegen
+
+### Semantic Analysis
+
+- [ ] **Implement**: Track `$` modifier separately from identifier name
+  - [ ] **Rust Tests**: `oric/src/resolve/binding.rs` — binding modifier tracking
+  - [ ] **Ori Tests**: `tests/spec/expressions/binding_modifiers.ori`
+  - [ ] **LLVM Support**: LLVM codegen for binding modifier tracking
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — binding modifier tracking codegen
+
+- [ ] **Implement**: Prevent `$x` and `x` coexisting in same scope
+  - [ ] **Rust Tests**: `oric/src/resolve/binding.rs` — same-name conflict detection
+  - [ ] **Ori Tests**: `tests/compile-fail/dollar_and_non_dollar_conflict.ori`
+  - [ ] **LLVM Support**: LLVM codegen for same-name conflict detection
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — same-name conflict detection codegen
+
+- [ ] **Implement**: Enforce module-level bindings require `$` prefix
+  - [ ] **Rust Tests**: `oric/src/resolve/module.rs` — module binding immutability
+  - [ ] **Ori Tests**: `tests/compile-fail/module_level_mutable.ori`
+  - [ ] **LLVM Support**: LLVM codegen for module binding immutability
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — module binding immutability codegen
+
+- [ ] **Implement**: Enforce `$`-prefixed bindings cannot be reassigned
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/assignment.rs` — immutable assignment error
+  - [ ] **Ori Tests**: `tests/compile-fail/assign_to_immutable.ori`
+  - [ ] **LLVM Support**: LLVM codegen for immutable assignment error
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — immutable assignment error codegen
+
+### Imports
+
+- [ ] **Implement**: Require `$` in import statements for immutable bindings
+  - [ ] **Rust Tests**: `oric/src/resolve/import.rs` — import with dollar
+  - [ ] **Ori Tests**: `tests/spec/modules/import_immutable.ori`
+  - [ ] **LLVM Support**: LLVM codegen for import with dollar
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — import with dollar codegen
+
+- [ ] **Implement**: Error when importing `$x` as `x` or vice versa
+  - [ ] **Rust Tests**: `oric/src/resolve/import.rs` — import modifier mismatch
+  - [ ] **Ori Tests**: `tests/compile-fail/import_dollar_mismatch.ori`
+  - [ ] **LLVM Support**: LLVM codegen for import modifier mismatch
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — import modifier mismatch codegen
+
+### Shadowing
+
+- [ ] **Implement**: Allow shadowing to change mutability
+  - [ ] **Rust Tests**: `oric/src/resolve/binding.rs` — shadowing mutability change
+  - [ ] **Ori Tests**: `tests/spec/expressions/shadow_mutability.ori`
+  - [ ] **LLVM Support**: LLVM codegen for shadowing mutability change
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — shadowing mutability change codegen
+
+### Error Messages
+
+- [ ] **Implement**: Clear error for reassignment to immutable binding
+  - [ ] **Rust Tests**: `ori_diagnostic/src/problem.rs` — immutable reassign error
+  - [ ] **Ori Tests**: `tests/compile-fail/immutable_reassign_message.ori`
+  - [ ] **LLVM Support**: LLVM codegen for immutable reassign error
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — immutable reassign error codegen
+
+- [ ] **Implement**: Clear error for module-level mutable binding
+  - [ ] **Rust Tests**: `ori_diagnostic/src/problem.rs` — module mutable error
+  - [ ] **Ori Tests**: `tests/compile-fail/module_mutable_message.ori`
+  - [ ] **LLVM Support**: LLVM codegen for module mutable error
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — module mutable error codegen
+
+- [ ] **Implement**: Migration hint for old `let mut` syntax
+  - [ ] **Rust Tests**: `ori_diagnostic/src/problem.rs` — let mut migration hint
+  - [ ] **Ori Tests**: `tests/compile-fail/let_mut_migration.ori`
+  - [ ] **LLVM Support**: LLVM codegen for let mut migration hint
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — let mut migration hint codegen
+
+---
+
+## 15.12 Phase Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[x]`
 - [ ] All spec docs updated

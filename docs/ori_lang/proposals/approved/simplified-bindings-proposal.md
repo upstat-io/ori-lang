@@ -1,8 +1,9 @@
 # Proposal: Simplified Bindings with `$` for Immutability
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric
 **Created:** 2026-01-25
+**Approved:** 2026-01-28
 **Supersedes:** mutable-by-default-proposal.md, const-keyword-proposal.md, rename-config-to-constants-proposal.md
 
 ---
@@ -34,7 +35,7 @@ Ori currently has multiple overlapping concepts:
 
 This creates confusion:
 - `mut` is borrowed from Rust but provides no safety benefit without a borrow checker
-- `$x = 5` uses a ori but only at module level
+- `$x = 5` uses a sigil but only at module level
 - The distinction between "immutable binding" and "constant" is unclear to most developers
 
 ### The Solution
@@ -44,7 +45,7 @@ Unify everything under `let` with a simple rule:
 - **`let x`** — mutable (can reassign)
 - **`let $x`** — immutable (cannot reassign)
 
-The `$` prefix becomes part of the identifier and signals immutability. This works at any scope — module-level or local.
+The `$` prefix signals immutability. This works at any scope — module-level or local.
 
 ### Benefits
 
@@ -60,12 +61,36 @@ The `$` prefix becomes part of the identifier and signals immutability. This wor
 
 ### Grammar
 
-```
-binding = "let" pattern [ ":" type ] "=" expression .
-pattern = "$" identifier | identifier | ... .
+```ebnf
+// Module-level constant (immutable required)
+constant_decl = [ "pub" ] "let" "$" identifier [ ":" type ] "=" expression .
+
+// Local binding (mutable or immutable)
+let_expr = "let" binding_pattern [ ":" type ] "=" expression .
+binding_pattern = "$" identifier | identifier | destructure_pattern .
+
+// Destructuring
+destructure_pattern = "{" [ "$" ] field_binding { "," [ "$" ] field_binding } "}"
+                    | "(" [ "$" ] identifier { "," [ "$" ] identifier } ")"
+                    | "[" [ "$" ] identifier { "," [ "$" ] identifier } [ ".." identifier ] "]" .
 ```
 
-The `$` prefix is part of the identifier. An identifier starting with `$` creates an immutable binding.
+### Identifier Rules
+
+The `$` prefix is a modifier, not part of the identifier name. A binding for `$x` and a binding for `x` refer to the same name — they cannot coexist in the same scope.
+
+```ori
+let x = 5
+let $x = 10  // error: 'x' is already defined in this scope
+```
+
+The `$` affects mutability, not the identifier itself. At both definition and usage sites, the prefix must match:
+
+```ori
+let $timeout = 30s
+$timeout       // OK
+timeout        // error: undefined variable 'timeout'
+```
 
 ### Mutable Bindings (Default)
 
@@ -87,14 +112,15 @@ let $name = "Alice"
 $name = "Bob"   // error: cannot assign to immutable binding '$name'
 ```
 
-### Module-Level Constants
+### Module-Level Bindings
+
+All module-level bindings must be immutable (use `$` prefix). Mutable state must be contained within functions or passed as arguments.
 
 ```ori
-let $timeout = 30s
-let $api_base = "https://api.example.com"
-let $max_retries = 3
+let $timeout = 30s      // OK: immutable
+pub let $api_base = "https://api.example.com"  // OK: public, immutable
 
-pub let $default_limit = 100
+let counter = 0         // error: module-level bindings must be immutable
 ```
 
 Usage:
@@ -121,21 +147,31 @@ The `$` appears at both definition and usage sites, providing visual distinction
 
 ### Compile-Time Evaluation
 
-The compiler determines if a `$`-prefixed binding can be evaluated at compile time:
+Any expression can initialize a `$`-prefixed binding. The compiler evaluates expressions at compile time when possible:
 
 ```ori
 let $a = 5                    // compile-time: literal
 let $b = $a * 2               // compile-time: references constant
-let $c = square(n: 10)        // compile-time if square is pure and args are const
+let $c = $square(x: 10)       // compile-time if $square is pure and args are const
 
-let $d = compute()            // runtime: non-const function (still immutable)
+let $d = compute()            // runtime: non-pure function (still immutable)
 ```
 
 Immutability is guaranteed. Compile-time evaluation is an optimization the compiler performs when possible.
 
 ### Const Functions
 
-Pure functions that can be evaluated at compile time:
+The previous syntax `$name (params) -> Type = expr` is replaced by binding a lambda to a `$`-prefixed name:
+
+```ori
+// Old syntax (removed)
+$square (x: int) -> int = x * x
+
+// New syntax
+let $square = (x: int) -> int = x * x
+```
+
+A function bound to a `$` name must be pure (no capabilities, no side effects). The compiler may evaluate calls to such functions at compile time when all arguments are constant:
 
 ```ori
 let $square = (x: int) -> int = x * x
@@ -146,7 +182,7 @@ let $factorial = (n: int) -> int =
 let $fact_10 = $factorial(n: 10)  // 3628800
 ```
 
-A function bound to a `$` name must be pure (no capabilities, no side effects).
+If arguments are not constant, the call is evaluated at runtime but the function remains immutable.
 
 ### What Remains Always Immutable
 
@@ -174,6 +210,38 @@ let { $x, y } = point      // x is immutable, y is mutable
 let ($a, $b) = pair        // both immutable
 let [$head, ..tail] = list // head is immutable, tail is mutable
 ```
+
+### Shadowing
+
+Shadowing follows standard rules — a new binding in an inner scope hides the outer binding. Mutability can differ between shadowed bindings:
+
+```ori
+run(
+    let x = 5,          // mutable
+    run(
+        let $x = x * 2,  // immutable, shadows outer x
+        $x,              // 10
+    ),
+    x,                   // still 5 (outer binding)
+)
+```
+
+The `$` prefix must match between definition and usage within the same binding scope.
+
+### Imports
+
+When importing `$`-prefixed bindings, the `$` must be included:
+
+```ori
+// config.ori
+pub let $timeout = 30s
+
+// client.ori
+use './config' { $timeout }  // OK
+use './config' { timeout }   // error: 'timeout' not found (no such export)
+```
+
+This maintains consistency: the `$` appears at definition, import, and usage sites.
 
 ---
 
@@ -246,6 +314,7 @@ let $golden_ratio = 1.61803398874989
 | `let mut x = 5` | `let x = 5` |
 | `$timeout = 30s` | `let $timeout = 30s` |
 | `pub $timeout = 30s` | `pub let $timeout = 30s` |
+| `$square (x: int) -> int = x * x` | `let $square = (x: int) -> int = x * x` |
 
 ### Keyword Changes
 
@@ -260,9 +329,10 @@ let $golden_ratio = 1.61803398874989
 | File | Change |
 |------|--------|
 | `03-lexical-elements.md` | Remove `mut` from keywords, update `$` description |
-| `04-constants.md` | Rewrite for `let $name` syntax |
+| `04-constants.md` | Rewrite for `let $name` syntax, remove `$name()` const function syntax |
 | `05-variables.md` | Flip default, document `$` prefix for immutability |
 | `09-expressions.md` | Update `let_expr` grammar |
+| `grammar.ebnf` | Update binding and constant productions |
 
 ---
 
@@ -288,6 +358,34 @@ A separate `const` keyword creates two concepts (compile-time constant vs runtim
 ### Why Not `SCREAMING_CASE` Convention?
 
 Conventions are not enforced by the compiler. The `$` prefix is syntactically enforced — you cannot reassign a `$`-prefixed binding.
+
+### Why Module-Level Bindings Must Be Immutable?
+
+Module-level mutable bindings would introduce global mutable state, which conflicts with Ori's philosophy of explicit effects and testability. All mutable state should be contained within functions or passed as arguments.
+
+---
+
+## Implementation
+
+### Compiler Phases Affected
+
+1. **Lexer** — No change (`$` already tokenized)
+2. **Parser** — Update binding grammar, remove `mut` keyword, update constant syntax
+3. **Name Resolution** — Track `$` modifier separately from identifier name
+4. **Type Checker** — Enforce module-level immutability, check const function purity
+5. **Code Generation** — No significant change (mutability is semantic, not runtime)
+
+### Implementation Tasks
+
+- [ ] Remove `mut` keyword from lexer/parser
+- [ ] Update `let` expression parsing for `$` prefix patterns
+- [ ] Update constant declaration parsing (`let $name = expr`)
+- [ ] Remove old const function syntax (`$name (params) -> Type`)
+- [ ] Add semantic check: module-level bindings must have `$` prefix
+- [ ] Add semantic check: `$`-prefixed bindings cannot be reassigned
+- [ ] Add semantic check: `$` and non-`$` same-name conflict detection
+- [ ] Update error messages for immutability violations
+- [ ] Update import/export handling for `$`-prefixed names
 
 ---
 

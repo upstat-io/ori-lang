@@ -172,9 +172,10 @@ with Http = MockHttp { ... } in fetch("/data")
 ## Let Binding
 
 ```ori
-let x = 5
-let mut counter = 0
+let x = 5           // mutable
+let $x = 5          // immutable
 let { x, y } = point
+let { $x, y } = point  // x immutable, y mutable
 ```
 
 ## Conditional

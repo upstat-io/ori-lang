@@ -51,7 +51,7 @@ identifier = ( letter | "_" ) { letter | digit | "_" } .
 // --- Keywords ---
 // See: 03-lexical-elements.md § Keywords
 // Reserved: async, break, continue, do, else, false, for, if, impl, in, let,
-//           loop, match, mut, pub, self, Self, then, trait, true, type, use,
+//           loop, match, pub, self, Self, then, trait, true, type, use,
 //           uses, void, where, with, yield
 // Context-sensitive (patterns): cache, catch, collect, filter, find, fold,
 //           map, parallel, recurse, retry, run, timeout, try, validate
@@ -140,7 +140,7 @@ extension_item   = identifier "." identifier .
 // See: 08-declarations.md
 // ============================================================================
 
-declaration = function | type_def | trait_def | impl_block | test | config_decl | const_function .
+declaration = function | type_def | trait_def | impl_block | test | constant_decl .
 
 // --- Functions ---
 // See: 08-declarations.md § Functions
@@ -198,15 +198,10 @@ test       = [ attribute ] "@" identifier [ "tests" target { "tests" target } ] 
 target     = "@" identifier .
 attribute  = "#" ( "skip" | "compile_fail" | "fail" ) "(" string_literal ")" .
 
-// --- Config Variables ---
-// See: 04-constants.md § Config Variables
+// --- Constants (Immutable Bindings) ---
+// See: 04-constants.md
 
-config_decl = [ "pub" ] "$" identifier "=" literal .
-
-// --- Const Functions ---
-// See: 21-constant-expressions.md § Const Functions
-
-const_function = "$" identifier [ generics ] params "->" type "=" expression .
+constant_decl = [ "pub" ] "let" "$" identifier [ ":" type ] "=" expression .
 
 
 // ============================================================================
@@ -298,7 +293,7 @@ with_expr = "with" identifier "=" expression "in" expression .
 // --- Let Binding ---
 // See: 09-expressions.md § Let Binding, 05-variables.md
 
-let_expr = "let" [ "mut" ] binding_pattern [ ":" type ] "=" expression .
+let_expr = "let" binding_pattern [ ":" type ] "=" expression .
 binding  = let_expr .
 
 // --- Assignment ---
@@ -405,13 +400,14 @@ at_pattern          = identifier "@" match_pattern .
 
 // --- Binding Patterns ---
 // See: 05-variables.md § Destructuring
+// The "$" prefix marks immutable bindings; without "$", bindings are mutable.
 
-binding_pattern = identifier
+binding_pattern = [ "$" ] identifier
                 | "_"
                 | "{" [ field_binding { "," field_binding } ] "}"
                 | "(" [ binding_pattern { "," binding_pattern } ] ")"
                 | "[" [ binding_pattern { "," binding_pattern } [ ".." identifier ] ] "]" .
-field_binding   = identifier [ ":" binding_pattern ] .
+field_binding   = [ "$" ] identifier [ ":" binding_pattern ] .
 
 
 // ============================================================================

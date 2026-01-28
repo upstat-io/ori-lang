@@ -6,9 +6,100 @@ order: 4
 
 # Constants
 
-Constant expressions are evaluated at compile time.
+Constants are immutable bindings declared with the `$` prefix.
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § CONSTANT EXPRESSIONS, DECLARATIONS
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § DECLARATIONS (constant_decl), CONSTANT EXPRESSIONS
+
+## Immutable Bindings
+
+A binding prefixed with `$` is immutable — it cannot be reassigned after initialization.
+
+```ori
+let $timeout = 30s
+let $api_base = "https://api.example.com"
+let $max_retries = 3
+pub let $default_limit = 100
+```
+
+The `$` prefix appears at definition, import, and usage sites:
+
+```ori
+// Definition
+let $timeout = 30s
+
+// Usage
+retry(op: fetch(url), attempts: $max_retries, timeout: $timeout)
+```
+
+## Module-Level Constants
+
+All module-level bindings must be immutable. Mutable state is not permitted at module scope.
+
+```ori
+let $timeout = 30s      // OK: immutable
+pub let $api_base = "https://..."  // OK: public, immutable
+
+let counter = 0         // error: module-level bindings must be immutable
+```
+
+Module-level constants may be initialized with any expression:
+
+```ori
+let $a = 5                    // literal
+let $b = $a * 2               // constant expression
+let $c = $square(x: 10)       // const function call
+```
+
+The compiler evaluates constant expressions at compile time when possible. Expressions that cannot be evaluated at compile time produce runtime immutable bindings.
+
+## Local Immutable Bindings
+
+The `$` prefix may be used in local scope to create immutable local bindings:
+
+```ori
+@process (input: int) -> int = run(
+    let $base = expensive_calculation(input),
+    // ... $base cannot be reassigned ...
+    $base * 2,
+)
+```
+
+## Identifier Rules
+
+The `$` prefix is a modifier on the identifier, not part of the name. A binding for `$x` and a binding for `x` refer to the same name — they cannot coexist in the same scope.
+
+```ori
+let x = 5
+let $x = 10  // error: 'x' is already defined in this scope
+```
+
+The `$` must match between definition and usage:
+
+```ori
+let $timeout = 30s
+$timeout       // OK
+timeout        // error: undefined variable 'timeout'
+```
+
+## Const Functions
+
+A const function is a pure function bound to an immutable name. Const functions may be evaluated at compile time when all arguments are constant.
+
+```ori
+let $square = (x: int) -> int = x * x
+let $factorial = (n: int) -> int =
+    if n <= 1 then 1 else n * $factorial(n: n - 1)
+
+// Evaluated at compile time
+let $fact_10 = $factorial(n: 10)  // 3628800
+```
+
+Const functions must be pure:
+- No capabilities (`uses` clause)
+- No side effects
+- No mutable state access
+
+If called with non-constant arguments, the call is evaluated at runtime.
 
 ## Constant Expressions
 
@@ -21,40 +112,26 @@ Literals are constant. Arithmetic, comparison, logical, and string concatenation
 true && false               // constant
 ```
 
-Non-constant expressions:
-- Function calls (except compile-time built-ins)
-- Variable references
+Non-constant expressions include:
+- Non-pure function calls
+- Mutable variable references
 - Expressions using capabilities
 
-## Config Variables
+## Imports
 
-Config variables are module-level compile-time constants declared with `$` prefix.
-
-```ori
-$max_retries = 3
-$timeout = 30s
-$api_base = "https://api.example.com"
-pub $default_limit = 100
-```
-
-- Must be initialized with a literal value.
-- Cannot be reassigned.
-- Type is inferred from the literal.
-- Private by default; `pub` makes them visible to other modules.
-
-### Usage
-
-Reference with `$` prefix:
+When importing immutable bindings, the `$` must be included:
 
 ```ori
-retry(op: fetch(url), attempts: $max_retries, timeout: $timeout)
+// config.ori
+pub let $timeout = 30s
+
+// client.ori
+use './config' { $timeout }  // OK
+use './config' { timeout }   // error: 'timeout' not found
 ```
 
-### Constraints
+## Constraints
 
-```ori
-// Invalid
-$computed = 1 + f()   // error: must be literal
-$x = 10
-$x = 20               // error: cannot reassign
-```
+- Module-level bindings must use `$` prefix (immutable required)
+- `$`-prefixed bindings cannot be reassigned
+- `$` and non-`$` bindings with the same name cannot coexist in the same scope
