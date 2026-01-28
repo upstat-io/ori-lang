@@ -18,6 +18,8 @@ rayon.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+ori_lexer.workspace = true
+ori_parse.workspace = true
 
 [lints]
 workspace = true

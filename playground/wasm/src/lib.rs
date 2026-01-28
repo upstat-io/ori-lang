@@ -5,8 +5,14 @@
 
 use wasm_bindgen::prelude::*;
 use ori_ir::{SharedArena, SharedInterner};
-use ori_eval::{Environment, FunctionValue, InterpreterBuilder, Value, buffer_handler};
+use ori_eval::{
+    buffer_handler, collect_extend_methods, collect_impl_methods, register_module_functions,
+    register_newtype_constructors, register_variant_constructors, InterpreterBuilder,
+    UserMethodRegistry, Value,
+};
+use ori_typeck::derives::process_derives;
 use ori_typeck::type_check;
+use ori_typeck::TypeRegistry;
 use serde::Serialize;
 
 // Import console.log from JavaScript
@@ -103,8 +109,35 @@ fn run_ori_internal(source: &str) -> RunResult {
     // Register built-in function_val functions (int, str, float, byte)
     interpreter.register_prelude();
 
+    // Create a shared arena for all methods in this module
+    let shared_arena = SharedArena::new(parse_result.arena.clone());
+
+    // Build user method registry from impl and extend blocks
+    let mut user_methods = UserMethodRegistry::new();
+    let captures = interpreter.env().capture();
+    collect_impl_methods(&parse_result.module, &shared_arena, &captures, &mut user_methods);
+    collect_extend_methods(&parse_result.module, &shared_arena, &captures, &mut user_methods);
+
+    // Process derived traits (Eq, Clone, Hashable, Printable, Default)
+    let type_registry = TypeRegistry::new();
+    process_derives(
+        &parse_result.module,
+        &type_registry,
+        &mut user_methods,
+        &interner,
+    );
+
+    // Merge the collected methods into the interpreter's registry
+    interpreter.user_method_registry.write().merge(user_methods);
+
     // Register all functions from the module into the environment
-    register_module_functions(&parse_result, interpreter.env_mut());
+    register_module_functions(&parse_result.module, &shared_arena, interpreter.env_mut());
+
+    // Register variant constructors from sum type declarations
+    register_variant_constructors(&parse_result.module, interpreter.env_mut());
+
+    // Register newtype constructors from type declarations
+    register_newtype_constructors(&parse_result.module, interpreter.env_mut());
 
     // Find @main function and evaluate it
     let main_name = interner.intern("main");
@@ -149,36 +182,6 @@ fn run_ori_internal(source: &str) -> RunResult {
     }
 }
 
-/// Register all functions from a module into the environment.
-///
-/// This is a simplified version of the register_module_functions from oric,
-/// adapted for standalone WASM usage without Salsa dependencies.
-fn register_module_functions(
-    parse_result: &ori_parse::ParseResult,
-    env: &mut Environment,
-) {
-    // Create a shared arena for all functions in this module
-    let shared_arena = SharedArena::new(parse_result.arena.clone());
-
-    for func in &parse_result.module.functions {
-        let params: Vec<_> = parse_result.arena.get_params(func.params)
-            .iter()
-            .map(|p| p.name)
-            .collect();
-        let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
-        let captures = env.capture();
-
-        let func_value = FunctionValue::with_capabilities(
-            params,
-            func.body,
-            captures,
-            shared_arena.clone(),
-            capabilities,
-        );
-        env.define(func.name, Value::Function(func_value), false);
-    }
-}
-
 /// Format a Value for output display.
 fn format_value(value: &Value) -> String {
     match value {
@@ -218,6 +221,21 @@ fn format_value(value: &Value) -> String {
         Value::Duration(ms) => format!("{ms}ms"),
         Value::Size(s) => format!("{}b", s),
         Value::Error(e) => format!("Error({})", e),
+        Value::Variant { variant_name, fields, .. } => {
+            if fields.is_empty() {
+                format!("{variant_name:?}")
+            } else {
+                let formatted: Vec<String> = fields.iter().map(format_value).collect();
+                format!("{:?}({})", variant_name, formatted.join(", "))
+            }
+        }
+        Value::VariantConstructor { variant_name, .. } => {
+            format!("<variant constructor {:?}>", variant_name)
+        }
+        Value::Newtype { inner, .. } => format_value(inner),
+        Value::NewtypeConstructor { type_name } => {
+            format!("<newtype constructor {:?}>", type_name)
+        }
     }
 }
 

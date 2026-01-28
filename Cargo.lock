@@ -599,6 +599,8 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "ori_diagnostic",
  "ori_ir",
+ "ori_lexer",
+ "ori_parse",
  "ori_patterns",
  "ori_types",
  "parking_lot",
