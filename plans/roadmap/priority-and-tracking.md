@@ -177,6 +177,15 @@
 - Channel integration deferred to parallel-concurrency-proposal
 - Blocked on: None (fills spec gap)
 
+**Debug Trait** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/debug-trait-proposal.md`
+- Implementation: Phase 3.9
+- Separate `Debug` trait for developer-facing structural representation
+- Derivable for any type whose fields implement Debug
+- Shows escaped strings (`"\"hello\""`) for clarity
+- Standard implementations for all primitives, collections, Option, Result
+- Blocked on: `as` conversion syntax, `str.escape()`, `Iterator.join()`
+
 **Pre/Post Checks** — ✅ APPROVED 2026-01-28
 - Proposal: `proposals/approved/checks-proposal.md`
 - Implementation: Phase 15.5
@@ -388,10 +397,10 @@ New prelude enhancements from Rust prelude comparison. See `plan.md` for details
 
 | Proposal | File | Affects Phases |
 |----------|------|----------------|
-| Debug Trait | `proposals/drafts/debug-trait-proposal.md` | 3, 7 |
 | Developer Functions | `proposals/drafts/developer-functions-proposal.md` | 7 |
 
 **Recently Approved:**
+- Debug Trait — approved 2026-01-28
 - `as` Conversion Syntax — approved 2026-01-28
 - Iterator Traits — approved 2026-01-28
 

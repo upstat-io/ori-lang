@@ -443,3 +443,76 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
 - [ ] **Update Spec**: `10-patterns.md` — document for loop desugaring
 - [ ] **Update Spec**: `12-modules.md` — add to prelude
 - [ ] **Update**: `CLAUDE.md` — add iterator documentation to quick reference
+
+---
+
+## 3.9 Debug Trait
+
+**Proposal**: `proposals/approved/debug-trait-proposal.md`
+
+Adds a `Debug` trait separate from `Printable` for developer-facing structural representation of values. `Debug` is automatically derivable and shows complete internal structure, while `Printable` remains for intentional user-facing output. Mirrors Rust's `Display` vs `Debug` distinction.
+
+### Dependencies
+
+- `as` conversion syntax (`as-conversion-proposal.md`) — for `self as str` conversions
+- `str.escape()` method — stdlib method for escaping special characters
+- `Iterator.join()` method — stdlib method for joining iterator elements
+
+### Implementation
+
+- [ ] **Implement**: `Debug` trait definition in type system
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — debug trait parsing/bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/debug/definition.ori`
+
+- [ ] **Implement**: Debug implementations for all primitives (int, float, bool, str, char, byte, void)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — primitive debug bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/debug/primitives.ori`
+  - [ ] **LLVM Support**: LLVM codegen for primitive debug methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
+
+- [ ] **Implement**: Debug implementations for Duration and Size
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — duration/size debug bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/debug/special_types.ori`
+  - [ ] **LLVM Support**: LLVM codegen for duration/size debug
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
+
+- [ ] **Implement**: Debug implementations for collections ([T], {K: V}, Set<T>)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — collection debug bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/debug/collections.ori`
+  - [ ] **LLVM Support**: LLVM codegen for collection debug
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
+
+- [ ] **Implement**: Debug implementations for Option<T> and Result<T, E>
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — option/result debug
+  - [ ] **Ori Tests**: `tests/spec/traits/debug/wrappers.ori`
+  - [ ] **LLVM Support**: LLVM codegen for option/result debug
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
+
+- [ ] **Implement**: Debug implementations for tuples (all arities)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — tuple debug bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/debug/tuples.ori`
+  - [ ] **LLVM Support**: LLVM codegen for tuple debug
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
+
+- [ ] **Implement**: `#[derive(Debug)]` macro for user-defined types
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — debug derive tests
+  - [ ] **Ori Tests**: `tests/spec/traits/debug/derive.ori`
+  - [ ] **LLVM Support**: LLVM codegen for derived debug
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
+
+- [ ] **Implement**: `str.escape()` method (dependency)
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — string escape tests
+  - [ ] **Ori Tests**: `tests/spec/traits/debug/escape.ori`
+  - [ ] **LLVM Support**: LLVM codegen for string escape
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
+
+- [ ] **Implement**: `Iterator.join()` method (dependency)
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — iterator join tests
+  - [ ] **Ori Tests**: `tests/spec/traits/debug/join.ori`
+  - [ ] **LLVM Support**: LLVM codegen for iterator join
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
+
+- [ ] **Update Spec**: `06-types.md` — add Debug trait section
+- [ ] **Update Spec**: `08-declarations.md` — add Debug to derivable traits list
+- [ ] **Update Spec**: `12-modules.md` — add Debug to prelude traits
+- [ ] **Update**: `CLAUDE.md` — add Debug to prelude traits list
