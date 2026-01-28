@@ -72,12 +72,12 @@ impl TypeChecker<'_> {
                 );
             }
 
-            TypeDeclKind::Newtype(target_ty) => {
-                // For newtypes, convert the target ParsedType to Type
-                let target = self.parsed_type_to_type(target_ty);
-                self.registries.types.register_alias(
+            TypeDeclKind::Newtype(underlying_ty) => {
+                // For newtypes, convert the underlying ParsedType to Type
+                let underlying = self.parsed_type_to_type(underlying_ty);
+                self.registries.types.register_newtype(
                     type_decl.name,
-                    &target,
+                    &underlying,
                     type_decl.span,
                     type_params,
                 );

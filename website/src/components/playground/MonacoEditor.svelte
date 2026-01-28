@@ -99,4 +99,42 @@
     border: 1px solid rgba(86, 156, 214, 0.6) !important;
     box-sizing: border-box;
   }
+
+  /* Override Monaco's selection colors */
+  .monaco-container :global(.monaco-editor .selected-text),
+  .monaco-container :global(.monaco-editor .selectionHighlight),
+  .monaco-container :global(.monaco-editor .selection),
+  .monaco-container :global(.monaco-editor .focused .selected-text),
+  .monaco-container :global(.monaco-editor .view-overlays .selected-text) {
+    background-color: rgba(86, 156, 214, 0.3) !important;
+  }
+
+  .monaco-container :global(.monaco-editor .wordHighlight),
+  .monaco-container :global(.monaco-editor .wordHighlightStrong),
+  .monaco-container :global(.monaco-editor .wordHighlightText) {
+    background-color: rgba(86, 156, 214, 0.2) !important;
+    border: none !important;
+  }
+
+  .monaco-container :global(.monaco-editor .findMatch),
+  .monaco-container :global(.monaco-editor .currentFindMatch) {
+    background-color: rgba(86, 156, 214, 0.4) !important;
+    border: none !important;
+  }
+
+  /* Selection highlight for matching occurrences */
+  .monaco-container :global(.monaco-editor .selectionHighlight),
+  .monaco-container :global(.monaco-editor .selection-highlight),
+  .monaco-container :global(.monaco-editor .focused .selectionHighlight),
+  .monaco-container :global(.monaco-editor .view-overlays .selectionHighlight) {
+    background-color: rgba(86, 156, 214, 0.15) !important;
+    border: none !important;
+  }
+
+  /* Symbol occurrences highlighting */
+  .monaco-container :global(.monaco-editor .occurrencesHighlight),
+  .monaco-container :global(.monaco-editor .documentHighlight) {
+    background-color: rgba(86, 156, 214, 0.2) !important;
+    border: none !important;
+  }
 </style>

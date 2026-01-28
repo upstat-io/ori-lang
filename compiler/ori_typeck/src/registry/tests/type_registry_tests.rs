@@ -82,21 +82,21 @@ fn test_register_enum() {
 }
 
 #[test]
-fn test_register_alias() {
+fn test_register_newtype() {
     let interner = SharedInterner::default();
     let mut registry = TypeRegistry::new();
 
     let id_name = interner.intern("UserId");
-    let type_id = registry.register_alias(id_name, &Type::Int, make_span(), vec![]);
+    let type_id = registry.register_newtype(id_name, &Type::Int, make_span(), vec![]);
 
     assert!(!type_id.is_primitive());
 
     let entry = registry.get_by_name(id_name).unwrap();
-    if let TypeKind::Alias { target } = &entry.kind {
-        // Target is now stored as TypeId
-        assert_eq!(*target, TypeId::INT);
+    if let TypeKind::Newtype { underlying } = &entry.kind {
+        // Underlying type is now stored as TypeId
+        assert_eq!(*underlying, TypeId::INT);
     } else {
-        panic!("Expected alias type");
+        panic!("Expected newtype");
     }
 }
 
@@ -111,7 +111,7 @@ fn test_unique_type_ids() {
 
     let id1 = registry.register_struct(name1, vec![], make_span(), vec![]);
     let id2 = registry.register_enum(name2, vec![], make_span(), vec![]);
-    let id3 = registry.register_alias(name3, &Type::Int, make_span(), vec![]);
+    let id3 = registry.register_newtype(name3, &Type::Int, make_span(), vec![]);
 
     assert_ne!(id1, id2);
     assert_ne!(id2, id3);
@@ -131,15 +131,29 @@ fn test_to_type_struct() {
 }
 
 #[test]
-fn test_to_type_alias() {
+fn test_to_type_newtype() {
     let interner = SharedInterner::default();
     let mut registry = TypeRegistry::new();
 
     let id_name = interner.intern("UserId");
-    let type_id = registry.register_alias(id_name, &Type::Int, make_span(), vec![]);
+    let type_id = registry.register_newtype(id_name, &Type::Int, make_span(), vec![]);
 
+    // Newtypes are nominally distinct - they return Type::Named, not the underlying type
     let typ = registry.to_type(type_id).unwrap();
-    assert_eq!(typ, Type::Int);
+    assert_eq!(typ, Type::Named(id_name));
+}
+
+#[test]
+fn test_get_newtype_underlying() {
+    let interner = SharedInterner::default();
+    let mut registry = TypeRegistry::new();
+
+    let id_name = interner.intern("UserId");
+    let type_id = registry.register_newtype(id_name, &Type::Int, make_span(), vec![]);
+
+    // Can retrieve the underlying type
+    let underlying = registry.get_newtype_underlying(type_id).unwrap();
+    assert_eq!(underlying, Type::Int);
 }
 
 #[test]

@@ -107,6 +107,18 @@ impl Interpreter<'_> {
                 // Construct the variant with the provided arguments
                 Ok(Value::variant(type_name, variant_name, args.to_vec()))
             }
+            Value::NewtypeConstructor { type_name } => {
+                // Newtypes take exactly one argument (the underlying value)
+                if args.len() != 1 {
+                    return Err(crate::wrong_arg_count(
+                        self.interner.lookup(type_name),
+                        1,
+                        args.len(),
+                    ));
+                }
+                // Construct the newtype wrapping the underlying value
+                Ok(Value::newtype(type_name, args[0].clone()))
+            }
             _ => Err(not_callable(func.type_name())),
         }
     }

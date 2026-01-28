@@ -45,7 +45,7 @@ This design ensures:
 ```rust
 pub enum Value {
     // Primitives (inline, no heap allocation)
-    Int(i64),
+    Int(ScalarInt),  // Uses ScalarInt to prevent unchecked arithmetic
     Float(f64),
     Bool(bool),
     Char(char),
@@ -66,9 +66,29 @@ pub enum Value {
     Ok(Heap<Value>),
     Err(Heap<Value>),
 
+    // User-defined Sum Types (enums)
+    Variant {
+        type_name: Name,
+        variant_name: Name,
+        fields: Heap<Vec<Value>>,  // May be empty for unit variants
+    },
+    VariantConstructor {
+        type_name: Name,
+        variant_name: Name,
+        field_count: usize,
+    },
+
+    // Newtypes (nominally distinct type wrappers)
+    Newtype {
+        type_name: Name,
+        inner: Heap<Value>,
+    },
+    NewtypeConstructor { type_name: Name },
+
     // Composite Types
     Struct(StructValue),
     Function(FunctionValue),
+    MemoizedFunction(MemoizedFunctionValue),  // For recurse with memo: true
     FunctionVal(FunctionValFn, &'static str),  // Type conversions: int(), str()
     Range(RangeValue),
 
@@ -99,6 +119,7 @@ Available factory methods:
 
 | Method | Returns | Description |
 |--------|---------|-------------|
+| `Value::int(n)` | `Value::Int` | Create integer from `i64` (wraps in ScalarInt) |
 | `Value::string(s)` | `Value::Str` | Create string from `impl Into<String>` |
 | `Value::list(vec)` | `Value::List` | Create list from `Vec<Value>` |
 | `Value::map(map)` | `Value::Map` | Create map from `HashMap<String, Value>` |
@@ -106,6 +127,10 @@ Available factory methods:
 | `Value::some(v)` | `Value::Some` | Wrap value in Some |
 | `Value::ok(v)` | `Value::Ok` | Wrap value in Ok |
 | `Value::err(v)` | `Value::Err` | Wrap value in Err |
+| `Value::variant(type_name, variant_name, fields)` | `Value::Variant` | Create sum type variant |
+| `Value::variant_constructor(type_name, variant_name, field_count)` | `Value::VariantConstructor` | Create variant constructor |
+| `Value::newtype(type_name, inner)` | `Value::Newtype` | Create newtype wrapper |
+| `Value::newtype_constructor(type_name)` | `Value::NewtypeConstructor` | Create newtype constructor |
 
 ## Primitives
 
@@ -120,6 +145,102 @@ Value::Byte(0xFF)
 Value::Void
 Value::Duration(5000)  // 5 seconds
 Value::Size(1024)      // 1kb
+```
+
+## User-Defined Sum Types (Variants)
+
+Sum types (enums) are represented with two Value variants:
+
+### Variant Values
+
+```rust
+Value::Variant {
+    type_name: Name,      // The enum type (e.g., "Status")
+    variant_name: Name,   // The variant (e.g., "Running" or "Done")
+    fields: Heap<Vec<Value>>,  // Variant fields (empty for unit variants)
+}
+```
+
+Examples:
+- Unit variant: `Running` → `Variant { type_name: "Status", variant_name: "Running", fields: [] }`
+- Single field: `Some(42)` → `Some(Heap::new(Value::Int(42)))` (built-in Option uses dedicated variant)
+- Multi-field: `Click(x: 10, y: 20)` → `Variant { fields: [Int(10), Int(20)] }`
+
+### Variant Constructors
+
+For variants with fields, a constructor value is registered in the environment:
+
+```rust
+Value::VariantConstructor {
+    type_name: Name,
+    variant_name: Name,
+    field_count: usize,
+}
+```
+
+When called, the constructor creates a `Value::Variant` with the provided arguments:
+
+```rust
+// In evaluator
+Value::VariantConstructor { type_name, variant_name, field_count } => {
+    if args.len() != field_count {
+        return Err(wrong_arg_count(...));
+    }
+    Ok(Value::variant(type_name, variant_name, args.to_vec()))
+}
+```
+
+## Newtypes
+
+Newtypes are nominally distinct wrappers around existing types.
+
+### Newtype Values
+
+```rust
+Value::Newtype {
+    type_name: Name,      // The newtype name (e.g., "UserId")
+    inner: Heap<Value>,   // The wrapped value
+}
+```
+
+### Newtype Constructors
+
+```rust
+Value::NewtypeConstructor { type_name: Name }
+```
+
+When called with one argument, creates a `Value::Newtype`:
+
+```rust
+// In evaluator
+Value::NewtypeConstructor { type_name } => {
+    if args.len() != 1 {
+        return Err(wrong_arg_count(...));
+    }
+    Ok(Value::newtype(type_name, args[0].clone()))
+}
+```
+
+### Newtype Methods
+
+Newtypes support a single built-in method:
+
+- `unwrap()` — Returns the inner value
+
+```rust
+// In method dispatch
+fn dispatch_newtype_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+    let Value::Newtype { inner, .. } = receiver else { unreachable!() };
+    match method {
+        "unwrap" => {
+            if !args.is_empty() {
+                return Err(wrong_arg_count("unwrap", 0, args.len()));
+            }
+            Ok((*inner).clone())
+        }
+        _ => Err(no_such_method(method, "newtype")),
+    }
+}
 ```
 
 ## Function Values

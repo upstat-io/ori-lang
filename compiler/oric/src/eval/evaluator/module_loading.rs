@@ -132,6 +132,9 @@ impl Evaluator<'_> {
         // Register variant constructors from type declarations
         self.register_variant_constructors(&parse_result.module);
 
+        // Register newtype constructors from type declarations
+        self.register_newtype_constructors(&parse_result.module);
+
         // Create a shared arena for all methods in this module
         // This ensures methods carry their arena reference for correct evaluation
         // when called from different contexts (e.g., from within a prelude function)
@@ -284,6 +287,21 @@ impl Evaluator<'_> {
                         self.env_mut().define_global(variant.name, value);
                     }
                 }
+            }
+        }
+    }
+
+    /// Register newtype constructors from type declarations.
+    ///
+    /// For each newtype (e.g., `type UserId = str`), registers the type name
+    /// as a constructor that wraps the underlying value.
+    fn register_newtype_constructors(&mut self, module: &crate::ir::Module) {
+        for type_decl in &module.types {
+            if let TypeDeclKind::Newtype(_) = &type_decl.kind {
+                let type_name = type_decl.name;
+                // Bind the newtype constructor to the type name
+                let value = Value::newtype_constructor(type_name);
+                self.env_mut().define_global(type_name, value);
             }
         }
     }

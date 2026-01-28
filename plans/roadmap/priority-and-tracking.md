@@ -10,7 +10,7 @@
 | 2 | Type Inference | ✅ Complete | All tests pass |
 | 3 | Traits | ✅ Complete | All tests pass including map.len(), map.is_empty() |
 | 4 | Modules | 🔶 Core complete | 16/16 tests pass; remaining: module alias, re-exports, qualified access |
-| 5 | Type Declarations | 🔶 Partial | Structs + destructuring work; sum type constructors/matching work (including multi-field variants); remaining: newtypes |
+| 5 | Type Declarations | ✅ Complete | Structs, sum types (multi-field variants), newtypes all work |
 
 ### Tier 2: Capabilities & Stdlib
 
@@ -61,53 +61,55 @@
 | Phase | Name | Status | Notes |
 |-------|------|--------|-------|
 | 20 | Reflection | ⏳ Not started | |
-| 21 | LLVM Backend | 🔶 Partial | JIT working; 719/753 tests pass (34 skipped); destructuring support added; AOT pending |
+| 21 | LLVM Backend | 🔶 Partial | JIT working; 734/753 tests pass (19 skipped); destructuring support added; AOT pending |
 | 22 | Tooling | ⏳ Not started | |
 
 ---
 
 ## Immediate Priority
 
-**Current Focus: Stdlib utilities & Type declarations (Tier 2-3)**
+**Current Focus: Completing Tier 1-3 partial phases**
 
-```
-Phase 6 (Capabilities) ← ✅ COMPLETE (27/27 tests pass)
-    ↓
-Phase 7 (Stdlib) ← Collection methods DONE; retry, validate PENDING
-    ↓
-Phase 5.2 (Sum Types) ← ✅ COMPLETE (variant constructors, pattern matching, multi-field variants)
-```
+### What's Next (Priority Order)
 
-### Phase 6 (Capabilities) — COMPLETED 2026-01-25
+1. **Phase 4 (Modules)** — Advanced features remaining
+   - Core imports work (relative, module, private, aliases)
+   - Need: module alias (`use std.http as http`), re-exports (`pub use`), qualified access
 
-- [x] Capability declaration, traits, async, providing, propagation
-- [x] Standard capability trait definitions in prelude
-- [x] Testing with capabilities (mocking via trait implementations)
-- [x] Compile-time enforcement (E2014 propagation errors)
-- [x] 27/27 capability tests pass
+2. **Phase 8 (Patterns)** — cache TTL remaining (NOW UNBLOCKED)
+   - All compiler patterns work with stubs
+   - Need: cache TTL with Duration, cache capability enforcement
 
-### Phase 7 (Stdlib) — Collection Methods DONE (2026-01-25)
+3. **Phase 9 (Match)** — Guards and exhaustiveness
+   - Basic pattern matching works
+   - Need: `.match(guard)` syntax, exhaustiveness checking
 
-- [x] Collection methods: `map`, `filter`, `fold`, `find` on lists
-- [x] Range methods: `collect`, `map`, `filter`, `fold`
-- [x] Map methods: `len`, `is_empty`
-- [x] List helper methods: `any`, `all`
-- [x] Rosetta code examples updated to method syntax (2026-01-28)
-- [ ] `retry` function (in std.resilience) — 1 test blocked
-- [ ] `validate` function (in std.validate) — 4 tests blocked
+4. **Phase 7 (Stdlib)** — retry, validate
+   - Collection methods complete (map, filter, fold, find, collect, any, all)
+   - Need: `retry` function, `validate` function
 
-### Phase 3 (Traits) — COMPLETED 2026-01-25
+### Recent Completions
 
-- [x] All trait tests pass including map.len(), map.is_empty()
+**Phase 6 (Capabilities)** — ✅ COMPLETED 2026-01-25
+- 27/27 capability tests pass
 
-### Phase 5.2 (Sum Types) — COMPLETED 2026-01-28
+**Phase 5.2 (Sum Types)** — ✅ COMPLETED 2026-01-28
+- Unit, single-field, and multi-field variants all work
+- Pattern matching on variants works
+- LLVM backend support complete
 
-- [x] Unit variant construction and pattern matching
-- [x] Single-field variant construction and pattern matching
-- [x] Multi-field variant construction and pattern matching (`Click(x, y)`)
-- [x] Type checker support for variant field types
-- [x] LLVM backend support for multi-field variants
-- [x] 11 new Ori tests added in `tests/spec/types/sum_types.ori`
+**Phase 5.3 (Newtypes)** — ✅ COMPLETED 2026-01-28
+- Nominal type identity (newtype != underlying type)
+- Constructor pattern (`UserId("abc")`)
+- `unwrap()` method to extract inner value
+- Runtime transparent (same as underlying at LLVM level)
+
+**Phase 7 (Stdlib Collection Methods)** — ✅ COMPLETED 2026-01-25
+- `map`, `filter`, `fold`, `find` on lists
+- `collect`, `map`, `filter`, `fold` on ranges
+- `len`, `is_empty` on maps
+- `any`, `all` on lists
+- Rosetta code examples updated (2026-01-28)
 
 ---
 
@@ -117,24 +119,26 @@ Phase 5.2 (Sum Types) ← ✅ COMPLETE (variant constructors, pattern matching, 
 
 - [x] Type system foundation
 - [x] Type inference
-- [x] **Traits** — core complete, missing map methods
+- [x] **Traits** — complete including map methods
 - [x] Modules (core)
-- [x] Type declarations (structs work, sum types partial)
+- [x] Type declarations (structs, sum types, newtypes)
 
-**Exit criteria**: Can write programs using traits and modules ✅ (core functionality works)
+**Exit criteria**: Can write programs using traits and modules ✅
 
-### M2: Capabilities & Stdlib (Tier 2) — 🔶 PARTIAL
+### M2: Capabilities & Stdlib (Tier 2) — 🔶 NEAR COMPLETE
 
 - [x] Capabilities ✅ — 27/27 tests pass
-- [ ] Standard library — not started (map, filter, fold, etc. missing)
+- [x] Collection methods ✅ — map, filter, fold, find, collect, any, all
+- [ ] Resilience utilities — retry, validate pending
 
-**Exit criteria**: Capabilities working ✅, stdlib available ❌
+**Exit criteria**: Capabilities working ✅, stdlib collection methods ✅, resilience utilities ❌
 
 ### M3: Core Patterns (Tier 3) — 🔶 PARTIAL
 
-- [ ] Pattern evaluation — 43/74 tests pass (~58%); timeout, cache, recurse failing
-- [ ] Match expressions — partial
-- [ ] Control flow — not started
+- [x] Pattern evaluation — run, try, recurse, parallel, spawn, timeout, with, for all work
+- [ ] Cache pattern — TTL support pending
+- [ ] Match expressions — basic works, guards/exhaustiveness pending
+- [ ] Control flow — for loops work, labeled loops pending
 
 **Exit criteria**: All pattern and control flow constructs working
 
@@ -264,11 +268,11 @@ cargo st tests/spec/patterns/     # Tier 3
 
 **Rust unit tests:** 1006 passed, 0 failed
 
-**Ori spec tests:** 688 passed, 0 failed, 19 skipped (707 total)
+**Ori spec tests:** 697 passed, 0 failed, 19 skipped (716 total)
 
 | Category | Passed | Skipped | Notes |
 |----------|--------|---------|-------|
-| Types | 61/61 | 0 | ✅ Complete (sum types + multi-field variants) |
+| Types | 70/70 | 0 | ✅ Complete (sum types, multi-field variants, newtypes) |
 | Expressions | 17/17 | 0 | ✅ Complete |
 | Inference | 28/28 | 0 | ✅ Complete |
 | Modules | 16/16 | 0 | ✅ Complete |
@@ -308,7 +312,7 @@ New prelude enhancements from Rust prelude comparison. See `plan.md` for details
 
 ---
 
-## LLVM Backend Status (Phase 21) — Updated 2026-01-27
+## LLVM Backend Status (Phase 21) — Updated 2026-01-28
 
 ### Test Results
 

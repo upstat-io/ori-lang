@@ -2,7 +2,6 @@
 
 use super::types::TypeCheckError;
 use super::TypeChecker;
-use crate::registry::TypeKind;
 use ori_ir::{ExprId, Function, Span};
 use ori_types::{Type, TypeError};
 
@@ -24,23 +23,18 @@ impl TypeChecker<'_> {
         }
     }
 
-    /// Resolve a type through any alias chain.
+    /// Resolve a type, returning it unchanged.
     ///
-    /// If the type is a named type that refers to an alias, returns the
-    /// underlying type. Otherwise returns the type unchanged.
+    /// Note: Ori uses newtypes (nominally distinct types), not transparent type aliases.
+    /// This function exists for API compatibility but does not resolve through newtypes
+    /// since they maintain their own type identity.
+    #[expect(
+        clippy::unused_self,
+        reason = "Maintains API compatibility; self may be needed for future resolution logic"
+    )]
     pub(crate) fn resolve_through_aliases(&self, ty: &Type) -> Type {
-        match ty {
-            Type::Named(name) => {
-                if let Some(entry) = self.registries.types.get_by_name(*name) {
-                    if let TypeKind::Alias { target } = &entry.kind {
-                        let target_type = self.registries.types.interner().to_type(*target);
-                        return self.resolve_through_aliases(&target_type);
-                    }
-                }
-                ty.clone()
-            }
-            _ => ty.clone(),
-        }
+        // Newtypes are nominally distinct - they don't resolve through to their underlying type
+        ty.clone()
     }
 
     /// Report a type error.

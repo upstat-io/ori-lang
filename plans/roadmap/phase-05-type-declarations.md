@@ -39,7 +39,7 @@
 
 ---
 
-## 5.2 Sum Types (Enums)
+## 5.2 Sum Types (Enums) — COMPLETED 2026-01-28
 
 - [x] **Implement**: Parse `type Name = Variant1 | Variant2(Type)` — spec/06-types.md § Sum Types, spec/08-declarations.md § Type Declarations
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_sum_type`
@@ -47,49 +47,55 @@
 
 - [x] **Implement**: Unit variants — spec/06-types.md § Sum Types
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — included in `test_parse_sum_type`
-  - [x] **Ori Tests**: N/A (parser tested via Rust unit tests)
+  - [x] **Ori Tests**: `tests/spec/types/sum_types.ori` — unit variant tests
 
-- [ ] **Implement**: Tuple variants — spec/06-types.md § Sum Types
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — tuple variant parsing
-  - [ ] **Ori Tests**: `tests/spec/types/sum.ori`
-  - [ ] **LLVM Support**: LLVM codegen for tuple variants
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` — tuple variant codegen
+- [x] **Implement**: Single-field variants `Variant(Type)` — spec/06-types.md § Sum Types
+  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — single-field variant parsing
+  - [x] **Ori Tests**: `tests/spec/types/sum_types.ori` — single-field variant tests
+  - [x] **LLVM Support**: LLVM codegen for single-field variants
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` — single-field variant codegen
+
+- [x] **Implement**: Multi-field variants `Variant(x: Type, y: Type)` — spec/06-types.md § Sum Types
+  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — multi-field variant parsing
+  - [x] **Ori Tests**: `tests/spec/types/sum_types.ori` — multi-field variant tests (`Click(x, y)`)
+  - [x] **LLVM Support**: LLVM codegen for multi-field variants
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` — multi-field variant codegen
 
 - [x] **Implement**: Struct variants — spec/06-types.md § Sum Types
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — struct variant parsing (named fields)
   - [x] **Ori Tests**: N/A (parser tested via Rust unit tests)
 
-- [ ] **Implement**: Variant constructors — spec/06-types.md § Sum Types
-  - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — variant constructor type checking
-  - [ ] **Ori Tests**: `tests/spec/types/sum.ori`
-  - [ ] **LLVM Support**: LLVM codegen for variant constructors
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` — variant constructor codegen
+- [x] **Implement**: Variant constructors — spec/06-types.md § Sum Types
+  - [x] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — variant constructor type checking
+  - [x] **Ori Tests**: `tests/spec/types/sum_types.ori` — 11 tests for variant construction
+  - [x] **LLVM Support**: LLVM codegen for variant constructors
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` — variant constructor codegen
 
-- [ ] **Implement**: Pattern matching on variants — spec/10-patterns.md § Pattern Types
-  - [ ] **Rust Tests**: `oric/src/typeck/infer/pattern.rs` — variant pattern matching
-  - [ ] **Ori Tests**: `tests/spec/types/sum.ori`
-  - [ ] **LLVM Support**: LLVM codegen for variant pattern matching
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — variant pattern codegen
+- [x] **Implement**: Pattern matching on variants — spec/10-patterns.md § Pattern Types
+  - [x] **Rust Tests**: `oric/src/typeck/infer/pattern.rs` — variant pattern matching
+  - [x] **Ori Tests**: `tests/spec/types/sum_types.ori` — variant pattern matching tests
+  - [x] **LLVM Support**: LLVM codegen for variant pattern matching
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — variant pattern codegen
 
 ---
 
-## 5.3 Newtypes
+## 5.3 Newtypes — COMPLETED 2026-01-28
 
 - [x] **Implement**: Parse `type Name = ExistingType` — spec/06-types.md § Newtypes, spec/08-declarations.md § Type Declarations
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_newtype`
   - [x] **Ori Tests**: N/A (parser tested via Rust unit tests)
 
-- [ ] **Implement**: Distinct type identity (nominal) — spec/07-properties-of-types.md § Type Equivalence
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/type_registry.rs` — nominal type identity
-  - [ ] **Ori Tests**: `tests/spec/types/newtype.ori`
-  - [ ] **LLVM Support**: LLVM codegen for newtype identity
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/type_tests.rs` — newtype codegen
+- [x] **Implement**: Distinct type identity (nominal) — spec/07-properties-of-types.md § Type Equivalence
+  - [x] **Rust Tests**: `ori_typeck/src/registry/tests/type_registry_tests.rs` — nominal type identity
+  - [x] **Ori Tests**: `tests/spec/types/newtypes.ori`
+  - [x] **LLVM Support**: Transparent at runtime (same as underlying type)
+  - [x] **Note**: `TypeKind::Newtype` returns `Type::Named(name)`, not the underlying type
 
-- [ ] **Implement**: Wrapping/unwrapping — spec/06-types.md § Newtypes
-  - [ ] **Rust Tests**: `oric/src/eval/exec/expr.rs` — newtype construction/extraction
-  - [ ] **Ori Tests**: `tests/spec/types/newtype.ori`
-  - [ ] **LLVM Support**: LLVM codegen for newtype wrapping/unwrapping
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/type_tests.rs` — newtype wrap/unwrap codegen
+- [x] **Implement**: Wrapping/unwrapping — spec/06-types.md § Newtypes
+  - [x] **Rust Tests**: `ori_eval/src/methods.rs` — newtype unwrap method
+  - [x] **Ori Tests**: `tests/spec/types/newtypes.ori` — 9 tests
+  - [x] **LLVM Support**: Transparent at runtime (newtype constructor just stores underlying value)
+  - [x] **Implementation**: `UserId(value)` wraps, `user_id.unwrap()` unwraps
 
 ---
 

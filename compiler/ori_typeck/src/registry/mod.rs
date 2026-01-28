@@ -36,8 +36,9 @@ pub enum TypeKind {
     Struct { fields: Vec<(Name, TypeId)> },
     /// Sum type (enum) with variants.
     Enum { variants: Vec<VariantDef> },
-    /// Type alias (newtype).
-    Alias { target: TypeId },
+    /// Newtype: nominally distinct wrapper around an existing type.
+    /// Unlike transparent aliases, newtypes have their own type identity.
+    Newtype { underlying: TypeId },
 }
 
 /// Variant definition for enum types.
@@ -59,7 +60,7 @@ pub struct TypeEntry {
     pub name: Name,
     /// The assigned `TypeId` for this type.
     pub type_id: TypeId,
-    /// Kind of type (struct, enum, alias).
+    /// Kind of type (struct, enum, newtype).
     pub kind: TypeKind,
     /// Source location of the type definition.
     pub span: Span,
@@ -224,21 +225,23 @@ impl TypeRegistry {
         )
     }
 
-    /// Register a type alias.
+    /// Register a newtype (nominally distinct type wrapper).
     ///
-    /// Target type is converted to `TypeId` using the registry's interner.
+    /// Underlying type is converted to `TypeId` using the registry's interner.
     /// Returns the assigned `TypeId`.
-    pub fn register_alias(
+    pub fn register_newtype(
         &mut self,
         name: Name,
-        target: &Type,
+        underlying: &Type,
         span: Span,
         type_params: Vec<Name>,
     ) -> TypeId {
-        let target_id = target.to_type_id(&self.interner);
+        let underlying_id = underlying.to_type_id(&self.interner);
         self.register_entry(
             name,
-            TypeKind::Alias { target: target_id },
+            TypeKind::Newtype {
+                underlying: underlying_id,
+            },
             span,
             type_params,
         )
@@ -276,12 +279,23 @@ impl TypeRegistry {
 
     /// Convert a registered type to the type checker's Type representation.
     ///
-    /// For struct and enum types, returns `Type::Named(name)`.
-    /// For aliases, returns the target type directly (converted from `TypeId`).
+    /// For all user-defined types (struct, enum, newtype), returns `Type::Named(name)`.
+    /// Newtypes are nominally distinct from their underlying type.
     pub fn to_type(&self, type_id: TypeId) -> Option<Type> {
         self.get_by_id(type_id).map(|entry| match &entry.kind {
-            TypeKind::Struct { .. } | TypeKind::Enum { .. } => Type::Named(entry.name),
-            TypeKind::Alias { target } => self.interner.to_type(*target),
+            TypeKind::Struct { .. } | TypeKind::Enum { .. } | TypeKind::Newtype { .. } => {
+                Type::Named(entry.name)
+            }
+        })
+    }
+
+    /// Get the underlying type for a newtype.
+    ///
+    /// Returns `None` if the type is not a newtype.
+    pub fn get_newtype_underlying(&self, type_id: TypeId) -> Option<Type> {
+        self.get_by_id(type_id).and_then(|entry| match &entry.kind {
+            TypeKind::Newtype { underlying } => Some(self.interner.to_type(*underlying)),
+            _ => None,
         })
     }
 
@@ -350,6 +364,27 @@ impl TypeRegistry {
         }
         None
     }
+
+    /// Look up a newtype constructor by name.
+    ///
+    /// Searches all registered newtype types for one with the given name.
+    /// Returns the newtype info if found.
+    ///
+    /// This is used for resolving newtype constructors like `UserId("abc")`
+    /// when they appear as function calls.
+    pub fn lookup_newtype_constructor(&self, name: Name) -> Option<NewtypeConstructorInfo> {
+        self.types_by_name.get(&name).and_then(|entry| {
+            if let TypeKind::Newtype { underlying } = &entry.kind {
+                Some(NewtypeConstructorInfo {
+                    newtype_name: entry.name,
+                    underlying_type: self.interner.to_type(*underlying),
+                    type_params: entry.type_params.clone(),
+                })
+            } else {
+                None
+            }
+        })
+    }
 }
 
 /// Information about a variant constructor.
@@ -362,5 +397,16 @@ pub struct VariantConstructorInfo {
     /// Types of the variant fields (empty for unit variants).
     pub field_types: Vec<Type>,
     /// Generic type parameters of the enum (if any).
+    pub type_params: Vec<Name>,
+}
+
+/// Information about a newtype constructor.
+#[derive(Clone, Debug)]
+pub struct NewtypeConstructorInfo {
+    /// The newtype name (e.g., `UserId`).
+    pub newtype_name: Name,
+    /// The underlying type (e.g., `str` for `type UserId = str`).
+    pub underlying_type: Type,
+    /// Generic type parameters of the newtype (if any).
     pub type_params: Vec<Name>,
 }

@@ -2,12 +2,11 @@
 
 **Status:** 🔶 Partial — JIT working, AOT pending
 
-## Current Test Results (2026-01-27)
+## Current Test Results (2026-01-28)
 
 | Test Suite | Passed | Failed | Skipped | Total |
 |------------|--------|--------|---------|-------|
-| All Ori tests | 711 | 0 | 34 | 745 |
-| Spec tests | 416 | 0 | 5 | 421 |
+| All Ori tests | 734 | 0 | 19 | 753 |
 | Rust unit tests | 204 | 0 | 0 | 204 |
 
 ---
@@ -196,8 +195,7 @@ ori_llvm/src/
 ## 21.7 Phase Completion Checklist
 
 - [x] JIT compilation working
-- [x] All spec tests pass (416/416)
-- [x] All Ori tests pass (711/711, 34 skipped)
+- [x] All Ori tests pass (734/734, 19 skipped)
 - [x] All Rust unit tests pass (204/204)
 - [x] Architecture follows Rust patterns
 - [ ] AOT compilation (object files)

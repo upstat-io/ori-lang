@@ -108,6 +108,20 @@ pub enum Value {
         field_count: usize,
     },
 
+    /// Newtype wrapper value.
+    ///
+    /// Newtypes are nominally distinct wrappers around an existing type.
+    /// For example, `type UserId = str` creates a `UserId` newtype.
+    Newtype {
+        type_name: Name,
+        inner: Heap<Value>,
+    },
+    /// Newtype constructor.
+    ///
+    /// When called with one argument, constructs a `Value::Newtype`.
+    /// Used for newtypes like `UserId("abc")`.
+    NewtypeConstructor { type_name: Name },
+
     // Composite Types
     /// Struct instance.
     Struct(StructValue),
@@ -264,6 +278,35 @@ impl Value {
             field_count,
         }
     }
+
+    /// Create a newtype value.
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// // Create a UserId newtype wrapping a string
+    /// let user_id = Value::newtype(user_id_name, Value::string("user-123"));
+    /// ```
+    #[inline]
+    pub fn newtype(type_name: Name, inner: Value) -> Self {
+        Value::Newtype {
+            type_name,
+            inner: Heap::new(inner),
+        }
+    }
+
+    /// Create a newtype constructor.
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// // Constructor for UserId newtype
+    /// let user_id_ctor = Value::newtype_constructor(user_id_name);
+    /// ```
+    #[inline]
+    pub fn newtype_constructor(type_name: Name) -> Self {
+        Value::NewtypeConstructor { type_name }
+    }
 }
 
 // Value Methods
@@ -348,6 +391,8 @@ impl Value {
             Value::Ok(_) | Value::Err(_) => "Result",
             Value::Variant { .. } => "variant",
             Value::VariantConstructor { .. } => "variant_constructor",
+            Value::Newtype { .. } => "newtype",
+            Value::NewtypeConstructor { .. } => "newtype_constructor",
             Value::Struct(_) => "struct",
             Value::Function(_) | Value::MemoizedFunction(_) => "function",
             Value::FunctionVal(_, _) => "function_val",
@@ -370,7 +415,9 @@ impl Value {
     pub fn type_name_with_interner<I: StringLookup>(&self, interner: &I) -> Cow<'static, str> {
         match self {
             Value::Struct(s) => Cow::Owned(interner.lookup(s.type_name).to_string()),
-            Value::Variant { type_name, .. } => Cow::Owned(interner.lookup(*type_name).to_string()),
+            Value::Variant { type_name, .. } | Value::Newtype { type_name, .. } => {
+                Cow::Owned(interner.lookup(*type_name).to_string())
+            }
             // Range uses lowercase for method dispatch (distinct from type_name()'s "Range")
             Value::Range(_) => Cow::Borrowed("range"),
             _ => Cow::Borrowed(self.type_name()),
@@ -415,6 +462,8 @@ impl Value {
                 }
             }
             Value::VariantConstructor { .. } => "<variant_constructor>".to_string(),
+            Value::Newtype { inner, .. } => inner.display_value(),
+            Value::NewtypeConstructor { .. } => "<newtype_constructor>".to_string(),
             Value::Struct(s) => format!("{s:?}"),
             Value::Function(_) | Value::MemoizedFunction(_) => "<function>".to_string(),
             Value::FunctionVal(_, name) => format!("<function_val {name}>"),
@@ -459,6 +508,16 @@ impl Value {
                     && f1.len() == f2.len()
                     && f1.iter().zip(f2.iter()).all(|(x, y)| x.equals(y))
             }
+            (
+                Value::Newtype {
+                    type_name: t1,
+                    inner: i1,
+                },
+                Value::Newtype {
+                    type_name: t2,
+                    inner: i2,
+                },
+            ) => t1 == t2 && i1.equals(i2),
             _ => false,
         }
     }
@@ -503,6 +562,12 @@ impl fmt::Debug for Value {
                     f,
                     "VariantConstructor({type_name:?}::{variant_name:?}, {field_count} fields)"
                 )
+            }
+            Value::Newtype { type_name, inner } => {
+                write!(f, "Newtype({type_name:?}, {:?})", &**inner)
+            }
+            Value::NewtypeConstructor { type_name } => {
+                write!(f, "NewtypeConstructor({type_name:?})")
             }
             Value::Struct(s) => write!(f, "Struct({s:?})"),
             Value::Function(func) => write!(f, "Function({func:?})"),
@@ -585,6 +650,12 @@ impl fmt::Display for Value {
             } => {
                 write!(f, "<variant_constructor {type_name:?}::{variant_name:?}>")
             }
+            Value::Newtype { type_name, inner } => {
+                write!(f, "<newtype {type_name:?}({})>", &**inner)
+            }
+            Value::NewtypeConstructor { type_name } => {
+                write!(f, "<newtype_constructor {type_name:?}>")
+            }
             Value::Struct(s) => write!(f, "<struct {:?}>", s.type_name),
             Value::Function(_) | Value::MemoizedFunction(_) => write!(f, "<function>"),
             Value::FunctionVal(_, name) => write!(f, "<function_val {name}>"),
@@ -666,6 +737,20 @@ impl PartialEq for Value {
                     field_count: c2,
                 },
             ) => t1 == t2 && v1 == v2 && c1 == c2,
+            (
+                Value::Newtype {
+                    type_name: t1,
+                    inner: i1,
+                },
+                Value::Newtype {
+                    type_name: t2,
+                    inner: i2,
+                },
+            ) => t1 == t2 && i1 == i2,
+            (
+                Value::NewtypeConstructor { type_name: t1 },
+                Value::NewtypeConstructor { type_name: t2 },
+            ) => t1 == t2,
             (Value::Map(a), Value::Map(b)) => {
                 a.len() == b.len() && a.iter().all(|(k, v)| b.get(k).is_some_and(|bv| v == bv))
             }
@@ -733,6 +818,13 @@ impl std::hash::Hash for Value {
                 type_name.hash(state);
                 variant_name.hash(state);
                 field_count.hash(state);
+            }
+            Value::Newtype { type_name, inner } => {
+                type_name.hash(state);
+                inner.hash(state);
+            }
+            Value::NewtypeConstructor { type_name } => {
+                type_name.hash(state);
             }
             Value::Function(f) => {
                 // Hash by function identity (body expression ID)

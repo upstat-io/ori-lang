@@ -7,7 +7,7 @@
 
 ---
 
-## Phase Status: 🔶 ~95% Complete (cache TTL and capability blocked on Phase 6)
+## Phase Status: 🔶 ~95% Complete (cache TTL remaining)
 
 **Design Change**: Per "Lean Core, Rich Libraries" principle, data transformation
 patterns (`map`, `filter`, `fold`, `find`, `collect`) and resilience patterns
@@ -148,7 +148,7 @@ The spec formalizes two distinct pattern categories:
   - [ ] **Ori Tests**: `tests/spec/patterns/cache_ttl.ori`
   - [ ] **LLVM Support**: LLVM codegen for cache TTL
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — cache TTL codegen
-- [ ] **Implement**: Requires `Cache` capability — spec/10-patterns.md § cache — **Blocked on Phase 6 (Capabilities)**
+- [ ] **Implement**: Requires `Cache` capability — spec/10-patterns.md § cache
   - [ ] **Rust Tests**: `oric/src/typeck/checker/capabilities.rs` — cache capability tests
   - [ ] **Ori Tests**: `tests/spec/capabilities/cache.ori`
   - [ ] **LLVM Support**: LLVM codegen for cache capability

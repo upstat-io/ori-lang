@@ -26,6 +26,7 @@ mod function_val;
 pub mod interpreter;
 mod method_key;
 mod methods;
+pub mod module_registration;
 mod operators;
 mod print_handler;
 mod shared;
@@ -133,3 +134,9 @@ pub use print_handler::{
 };
 pub use shared::{SharedMutableRegistry, SharedRegistry};
 pub use stack::ensure_sufficient_stack;
+
+// Re-export module registration functions for CLI and Playground
+pub use module_registration::{
+    collect_extend_methods, collect_impl_methods, register_module_functions,
+    register_newtype_constructors, register_variant_constructors,
+};
