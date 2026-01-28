@@ -119,6 +119,12 @@
 - Adds `As<T>`, `TryAs<T>` traits; removes `int()`, `float()`, `str()`, `byte()` special cases
 - Blocked on: Phase 3 (needs `As<T>` and `TryAs<T>` traits in prelude)
 
+**Default Parameter Values** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/default-parameters-proposal.md`
+- Implementation: Phase 15.8
+- Allows `param: Type = default_expr` syntax; call-time evaluation; works with named args
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones

@@ -28,6 +28,30 @@ pub @identity<T> (x: T) -> T = x
 - Private by default; `pub` exports
 - `uses` declares capability dependencies
 
+### Default Parameter Values
+
+Parameters may specify default values:
+
+```ori
+@greet (name: str = "World") -> str = `Hello, {name}!`
+
+@connect (host: str, port: int = 8080, timeout: Duration = 30s) -> Connection
+```
+
+- Callers may omit parameters with defaults
+- Named arguments allow any defaulted parameter to be omitted, not just trailing ones
+- Default expressions are evaluated at call time, not definition time
+- Default expressions must not reference other parameters
+
+```ori
+greet()                        // "Hello, World!"
+greet(name: "Alice")           // "Hello, Alice!"
+connect(host: "localhost")     // uses default port and timeout
+connect(host: "localhost", timeout: 60s)  // override timeout only
+```
+
+See [Expressions § Function Call](09-expressions.md#function-call) for call semantics.
+
 ## Types
 
 ```ori

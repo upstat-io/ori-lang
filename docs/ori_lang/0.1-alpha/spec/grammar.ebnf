@@ -147,7 +147,7 @@ declaration = function | type_def | trait_def | impl_block | test | config_decl 
 
 function      = [ "pub" ] "@" identifier [ generics ] params "->" type [ uses_clause ] [ where_clause ] "=" expression .
 params        = "(" [ param { "," param } ] ")" .
-param         = identifier ":" type .
+param         = identifier ":" type [ "=" expression ] .  /* default value */
 
 // --- Generics ---
 

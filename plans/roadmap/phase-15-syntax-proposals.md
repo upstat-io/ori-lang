@@ -358,7 +358,122 @@ let y = value as float
 
 ---
 
-## 15.8 Phase Completion Checklist
+## 15.8 Default Parameter Values
+
+**Proposal**: `proposals/approved/default-parameters-proposal.md`
+
+Allow function parameters to specify default values, enabling callers to omit arguments.
+
+```ori
+@greet (name: str = "World") -> str = `Hello, {name}!`
+
+greet()               // "Hello, World!"
+greet(name: "Alice")  // "Hello, Alice!"
+```
+
+### Parser
+
+- [ ] **Implement**: Extend `param` production to accept `= expression` after type
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/decl.rs` — default parameter parsing
+  - [ ] **Ori Tests**: `tests/spec/declarations/default_params.ori`
+  - [ ] **LLVM Support**: LLVM codegen for default parameter parsing
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — default parameter parsing codegen
+
+- [ ] **Implement**: Parse default expressions with correct precedence
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/decl.rs` — default expression precedence
+  - [ ] **Ori Tests**: `tests/spec/declarations/default_params_precedence.ori`
+  - [ ] **LLVM Support**: LLVM codegen for default expression precedence
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — default expression precedence codegen
+
+### Type Checker
+
+- [ ] **Implement**: Verify default expression has parameter's type
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/params.rs` — default type checking
+  - [ ] **Ori Tests**: `tests/compile-fail/default_param_type_mismatch.ori`
+  - [ ] **LLVM Support**: LLVM codegen for default type checking
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — default type checking codegen
+
+- [ ] **Implement**: Verify default doesn't reference other parameters
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/params.rs` — default param reference checking
+  - [ ] **Ori Tests**: `tests/compile-fail/default_param_references_other.ori`
+  - [ ] **LLVM Support**: LLVM codegen for default param reference checking
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — default param reference checking codegen
+
+- [ ] **Implement**: Track which parameters have defaults for call validation
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/call.rs` — optional parameter tracking
+  - [ ] **Ori Tests**: `tests/spec/expressions/call_with_defaults.ori`
+  - [ ] **LLVM Support**: LLVM codegen for optional parameter tracking
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — optional parameter tracking codegen
+
+- [ ] **Implement**: Capability checking for default expressions
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/params.rs` — default capability checking
+  - [ ] **Ori Tests**: `tests/spec/capabilities/default_param_capabilities.ori`
+  - [ ] **LLVM Support**: LLVM codegen for default capability checking
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — default capability checking codegen
+
+### Call Site Validation
+
+- [ ] **Implement**: Required parameters (no default) must be provided
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/call.rs` — required param validation
+  - [ ] **Ori Tests**: `tests/compile-fail/missing_required_param.ori`
+  - [ ] **LLVM Support**: LLVM codegen for required param validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — required param validation codegen
+
+- [ ] **Implement**: Allow omitting parameters with defaults
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/call.rs` — optional param omission
+  - [ ] **Ori Tests**: `tests/spec/expressions/omit_default_params.ori`
+  - [ ] **LLVM Support**: LLVM codegen for optional param omission
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — optional param omission codegen
+
+- [ ] **Implement**: Clear error message when required param missing
+  - [ ] **Rust Tests**: `ori_diagnostic/src/problem.rs` — missing param error
+  - [ ] **Ori Tests**: `tests/compile-fail/missing_required_param_message.ori`
+  - [ ] **LLVM Support**: LLVM codegen for missing param error
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — missing param error codegen
+
+### Code Generation
+
+- [ ] **Implement**: Insert default expressions for omitted arguments
+  - [ ] **Rust Tests**: `oric/src/codegen/call.rs` — default insertion
+  - [ ] **Ori Tests**: `tests/spec/expressions/default_insertion.ori`
+  - [ ] **LLVM Support**: LLVM codegen for default insertion
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — default insertion codegen
+
+- [ ] **Implement**: Evaluate defaults at call time (not definition time)
+  - [ ] **Rust Tests**: `oric/src/codegen/call.rs` — call-time evaluation
+  - [ ] **Ori Tests**: `tests/spec/expressions/default_call_time_eval.ori`
+  - [ ] **LLVM Support**: LLVM codegen for call-time evaluation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — call-time evaluation codegen
+
+- [ ] **Implement**: Correct evaluation order (explicit args first, then defaults in param order)
+  - [ ] **Rust Tests**: `oric/src/codegen/call.rs` — evaluation order
+  - [ ] **Ori Tests**: `tests/spec/expressions/default_eval_order.ori`
+  - [ ] **LLVM Support**: LLVM codegen for evaluation order
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — evaluation order codegen
+
+### Trait Method Defaults
+
+- [ ] **Implement**: Allow defaults in trait method signatures
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/trait.rs` — trait method default parsing
+  - [ ] **Ori Tests**: `tests/spec/traits/method_defaults.ori`
+  - [ ] **LLVM Support**: LLVM codegen for trait method defaults
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — trait method defaults codegen
+
+- [ ] **Implement**: Allow implementations to override/remove defaults
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/impl.rs` — impl default override
+  - [ ] **Ori Tests**: `tests/spec/traits/impl_override_defaults.ori`
+  - [ ] **LLVM Support**: LLVM codegen for impl default override
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — impl default override codegen
+
+- [ ] **Implement**: Trait object calls use trait's declared default
+  - [ ] **Rust Tests**: `oric/src/codegen/dyn_dispatch.rs` — dyn default dispatch
+  - [ ] **Ori Tests**: `tests/spec/traits/dyn_trait_defaults.ori`
+  - [ ] **LLVM Support**: LLVM codegen for dyn default dispatch
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — dyn default dispatch codegen
+
+---
+
+## 15.9 Phase Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[x]`
 - [ ] All spec docs updated
