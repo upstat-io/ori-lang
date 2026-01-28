@@ -12,48 +12,60 @@
 
 | Phase | Status | Progress |
 |-------|--------|----------|
-| Phase 1: Lexer Boundary Fix | ⚪ Not Started | 0/17 tasks |
+| Phase 1: Lexer Boundary Fix | ✅ Complete | 17/17 tasks |
 | Phase 2: Context Management | ⚪ Not Started | 0/15 tasks |
 | Phase 3: Pattern Expansion | ⚪ Not Started | 0/34 tasks |
 | Phase 4: Progress Tracking | ⚪ Not Started | 0/13 tasks |
 | Phase 5: Spec Updates | ⚪ Not Started | 0/18 tasks |
 | Phase 6: Compositional Testing | ⚪ Not Started | 0/13 tasks |
 
-### Phase 1: Lexer Boundary Fix (Current)
+### Phase 1: Lexer Boundary Fix (✅ Complete)
 
 #### 1.1 Lexer Changes
-- [ ] Remove `#[token(">>")]` (Shr) from `RawToken` enum
-- [ ] Remove `#[token(">=")]` (GtEq) from `RawToken` enum
-- [ ] Remove `RawToken::Shr` and `RawToken::GtEq` handling in `convert_token`
-- [ ] Add comment explaining why `>` is always a single token
-- [ ] Verify lexer compiles
+- [x] Remove `#[token(">>")]` (Shr) from `RawToken` enum
+- [x] Remove `#[token(">=")]` (GtEq) from `RawToken` enum
+- [x] Remove `RawToken::Shr` and `RawToken::GtEq` handling in `convert_token`
+- [x] Add comment explaining why `>` is always a single token
+- [x] Verify lexer compiles
 
 #### 1.2 Cursor/Parser Infrastructure
-- [ ] Add `peek_next_span()` method to Cursor
-- [ ] Add `are_adjacent(current, next)` helper method
-- [ ] Add `try_consume_compound_gt()` method for `>>` and `>=`
+- [x] Add `peek_next_token()` and `peek_next_span()` methods to Cursor
+- [x] Add `spans_adjacent(span1, span2)` helper method
+- [x] Add `is_shift_right()` and `is_greater_equal()` methods for compound operator detection
+- [x] Add `consume_compound()` method for consuming 2-token operators
 
 #### 1.3 Operator Matching Updates
-- [ ] Update `match_comparison_op()` to detect `>` + `=` as `>=`
-- [ ] Update `match_shift_op()` to detect `>` + `>` as `>>`
-- [ ] Ensure operators consume correct number of tokens
+- [x] Update `match_comparison_op()` to detect `>` + `=` as `>=`
+- [x] Update `match_shift_op()` to detect `>` + `>` as `>>`
+- [x] Update macro to consume correct number of tokens (1 or 2)
+- [x] Update all match functions to return `(BinaryOp, usize)` tuple
 
 #### 1.4 Type Parser Verification
-- [ ] Verify type parser already uses single `>` (should be no changes needed)
-- [ ] Add test for `Result<Result<T, E>, E>` parsing
+- [x] Verify type parser uses single `>` (no changes needed)
+- [x] Add test for `Result<Result<T, E>, E>` parsing (double nested)
+- [x] Add test for `Option<Result<Result<int, str>, str>>` (triple nested)
 
 #### 1.5 Testing
-- [ ] Add unit test for nested generics in type parser
-- [ ] Add test for `>>` shift operator in expressions
-- [ ] Add test for `>=` comparison in expressions
-- [ ] Run full test suite (`./test-all`)
-- [ ] Verify no regressions
+- [x] Add unit test for nested generics in type parser
+- [x] Add test for `>>` shift operator in expressions
+- [x] Add test for `>=` comparison in expressions
+- [x] Add test for `> >` with space NOT being treated as `>>`
+- [x] Add test for `> =` with space NOT being treated as `>=`
+- [x] Run full test suite: 1006+ Rust tests pass, 888 Ori spec tests pass
+- [x] Verify no regressions
+
+**Implementation Notes:**
+- Lexer changes in `compiler/ori_lexer/src/lib.rs`
+- Cursor methods in `compiler/ori_parse/src/cursor.rs`
+- Parser delegation in `compiler/ori_parse/src/lib.rs`
+- Operator matching in `compiler/ori_parse/src/grammar/expr/operators.rs`
+- Macro update in `compiler/ori_parse/src/grammar/expr/mod.rs`
 
 ### Known Bugs Tracking
 
 | Bug | Status | Phase |
 |-----|--------|-------|
-| `>>` tokenization | ⚪ Not Started | 1 |
+| `>>` tokenization | ✅ Fixed | 1 |
 | Negative literals in patterns | ⚪ Not Started | 3 |
 | Struct patterns | ⚪ Not Started | 3 |
 | List patterns | ⚪ Not Started | 3 |
@@ -639,7 +651,7 @@ fn test_error_message_for_nested_generic() {
 
 **Duration:** 1-2 days
 **Blocks:** All nested generic usage
-**Status:** 🟡 In Progress
+**Status:** ✅ Complete (2026-01-28)
 
 **Tasks:**
 
@@ -1017,10 +1029,12 @@ list_pattern_elements = ... | pattern "," ".." identifier "," pattern .
 
 | Metric | Current | Target |
 |--------|---------|--------|
-| Parser bugs in tests | 11 | 0 |
-| Nested generic depth supported | 1 | Unlimited |
+| Parser bugs in tests | 10 | 0 |
+| Nested generic depth supported | Unlimited | Unlimited |
 | Pattern types supported | 4 | 11 |
-| Spec productions with implementations | ~70% | 100% |
+| Spec productions with implementations | ~75% | 100% |
+
+**Phase 1 Progress:** `>>` tokenization bug fixed. Nested generics like `Result<Result<T, E>, E>` now parse correctly.
 
 ---
 

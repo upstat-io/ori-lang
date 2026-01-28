@@ -179,6 +179,8 @@ impl Parser<'_> {
 | 12 | Unary `-` `!` `~` | Right |
 | 13 | `.` `[]` `()` `?` | Left |
 
+**Note:** `>>` and `>=` are synthesized from adjacent `>` tokens. See [Token Design](../03-lexer/token-design.md#lexer-parser-token-boundary).
+
 ## Error Handling
 
 Errors are accumulated, not fatal:

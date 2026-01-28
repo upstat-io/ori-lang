@@ -352,6 +352,92 @@ fn test_parse_new_feature() {
 | ty.rs | 200 | 400 | ~400 |
 | attr.rs | 200 | 400 | ~400 |
 
-Both `expr/` and `item/` have been split into sub-modules for maintainability:
+Both `expr/` and `item/` are split into sub-modules for maintainability:
 - `expr/` → `mod.rs`, `operators.rs`, `primary.rs`, `postfix.rs`, `patterns.rs`
 - `item/` → `mod.rs`, `use_def.rs`, `config.rs`, `function.rs`, `trait_def.rs`, `impl_def.rs`, `type_decl.rs`, `extend.rs`, `generics.rs`
+
+## Compound Operator Synthesis
+
+The lexer produces individual `>` tokens. The parser synthesizes `>>` and `>=` from adjacent tokens in expression context. See [Token Design](../03-lexer/token-design.md#lexer-parser-token-boundary).
+
+### Cursor Methods
+
+The `Cursor` type (`cursor.rs`) detects adjacent tokens:
+
+```rust
+impl Cursor<'_> {
+    fn spans_adjacent(&self, span1: Span, span2: Span) -> bool {
+        span1.end == span2.start
+    }
+
+    fn is_shift_right(&self) -> bool {  // >>
+        self.check(&TokenKind::Gt)
+            && matches!(self.peek_next_kind(), TokenKind::Gt)
+            && self.current_and_next_adjacent()
+    }
+
+    fn is_greater_equal(&self) -> bool {  // >=
+        self.check(&TokenKind::Gt)
+            && matches!(self.peek_next_kind(), TokenKind::Eq)
+            && self.current_and_next_adjacent()
+    }
+}
+```
+
+### Operator Matching
+
+Matcher functions in `operators.rs` return `(BinaryOp, usize)` — the operator and token count to consume:
+
+```rust
+fn match_comparison_op(&self) -> Option<(BinaryOp, usize)> {
+    match self.current_kind() {
+        TokenKind::Lt => Some((BinaryOp::Lt, 1)),
+        TokenKind::LtEq => Some((BinaryOp::LtEq, 1)),
+        TokenKind::Gt => {
+            if self.is_greater_equal() {
+                Some((BinaryOp::GtEq, 2))  // >= consumes 2 tokens
+            } else {
+                Some((BinaryOp::Gt, 1))
+            }
+        }
+        _ => None,
+    }
+}
+
+fn match_shift_op(&self) -> Option<(BinaryOp, usize)> {
+    match self.current_kind() {
+        TokenKind::Shl => Some((BinaryOp::Shl, 1)),
+        TokenKind::Gt if self.is_shift_right() => Some((BinaryOp::Shr, 2)),  // >> consumes 2
+        _ => None,
+    }
+}
+```
+
+### Binary Level Macro
+
+The `parse_binary_level!` macro uses the token count:
+
+```rust
+while let Some((op, token_count)) = self.$matcher() {
+    for _ in 0..token_count { self.advance(); }
+    let right = self.$next()?;
+    // ... build binary expression ...
+}
+```
+
+### Type Parser
+
+The type parser uses single `>` tokens to close generic parameter lists:
+
+```rust
+fn parse_optional_generic_args_full(&mut self) -> Vec<ParsedType> {
+    self.advance(); // <
+    // ... parse type arguments ...
+    if self.check(&TokenKind::Gt) {
+        self.advance(); // > (single token)
+    }
+    args
+}
+```
+
+Nested generics use multiple `>` tokens: `Result<Result<int, str>, str>` has two `>` tokens.
