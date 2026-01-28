@@ -145,9 +145,10 @@ declaration = function | type_def | trait_def | impl_block | test | config_decl 
 // --- Functions ---
 // See: 08-declarations.md § Functions
 
-function      = [ "pub" ] "@" identifier [ generics ] params "->" type [ uses_clause ] [ where_clause ] "=" expression .
-params        = "(" [ param { "," param } ] ")" .
-param         = identifier ":" type [ "=" expression ] .  /* default value */
+function      = [ "pub" ] "@" identifier [ generics ] clause_params "->" type [ uses_clause ] [ where_clause ] [ guard_clause ] "=" expression .
+clause_params = "(" [ clause_param { "," clause_param } ] ")" .
+clause_param  = match_pattern [ ":" type ] [ "=" expression ] .  /* pattern with optional type and default */
+guard_clause  = "if" expression .
 
 // --- Generics ---
 

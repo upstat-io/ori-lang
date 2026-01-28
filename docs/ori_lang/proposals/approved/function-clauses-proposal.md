@@ -1,8 +1,9 @@
 # Proposal: Multiple Function Clauses
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric
 **Created:** 2026-01-25
+**Approved:** 2026-01-28
 
 ---
 
@@ -11,12 +12,12 @@
 Allow functions to be defined with multiple clauses that pattern match on arguments, enabling cleaner recursive and conditional logic.
 
 ```ori
-@factorial (0) -> int = 1
-@factorial (n: int) -> int = n * factorial(n - 1)
+@factorial (0: int) -> int = 1
+@factorial (n) -> int = n * factorial(n - 1)
 
-@fib (0) -> int = 0
+@fib (0: int) -> int = 0
 @fib (1) -> int = 1
-@fib (n: int) -> int = fib(n - 1) + fib(n - 2)
+@fib (n) -> int = fib(n - 1) + fib(n - 2)
 ```
 
 ---
@@ -70,45 +71,76 @@ Multiple clauses with the same function name, each with patterns in parameter po
 
 ### Syntax
 
-```
-function = [ "pub" ] "@" identifier [ generics ] clause_params "->" type [ uses ] [ where ] "=" expression .
+```ebnf
+function      = [ "pub" ] "@" identifier [ generics ] clause_params "->" type
+                [ uses_clause ] [ where_clause ] [ guard_clause ] "=" expression .
 clause_params = "(" [ clause_param { "," clause_param } ] ")" .
-clause_param = pattern [ ":" type ] .
+clause_param  = match_pattern [ ":" type ] .
+guard_clause  = "if" expression .
 ```
 
-A function can have multiple definitions. All must have:
+A function can have multiple definitions (clauses). All clauses share:
 - Same name
 - Same number of parameters
 - Same return type
 - Same capabilities (`uses`)
+- Same generics (declared on first clause only)
+- Same visibility (declared on first clause only)
+
+### First Clause Rules
+
+The first clause establishes the function signature:
+- **Visibility**: `pub` only on first clause; error if repeated
+- **Generics**: Type parameters declared on first clause; in scope for all clauses
+- **Type annotations**: Required on first clause parameters; optional on subsequent clauses
+
+```ori
+// First clause: full signature
+pub @len<T> ([]: [T]) -> int = 0
+// Subsequent: types optional, generics in scope
+@len ([_, ..tail]) -> int = 1 + len(tail)
+```
 
 ### Basic Patterns
 
 **Literal patterns:**
 ```ori
-@factorial (0) -> int = 1
-@factorial (n: int) -> int = n * factorial(n - 1)
+@factorial (0: int) -> int = 1
+@factorial (n) -> int = n * factorial(n - 1)
 ```
 
 **Constructor patterns:**
 ```ori
-@unwrap (Some(x): Option<int>) -> int = x
-@unwrap (None: Option<int>) -> int = 0
+@unwrap<T> (Some(x): Option<T>) -> T = x
+@unwrap (None) -> T = panic("called unwrap on None")
 ```
 
 **List patterns:**
 ```ori
-@head ([first, ..]: [int]) -> int = first
-@head ([]: [int]) -> int = panic("empty list")
+@head<T> ([first, ..]: [T]) -> T = first
+@head ([]) -> T = panic("empty list")
 
-@len ([]: [T]) -> int = 0
-@len ([_, ..tail]: [T]) -> int = 1 + len(tail)
+@sum ([]: [int]) -> int = 0
+@sum ([x, ..xs]) -> int = x + sum(xs)
 ```
 
 **Struct patterns:**
 ```ori
 @origin ({ x: 0, y: 0 }: Point) -> bool = true
-@origin (_: Point) -> bool = false
+@origin (_) -> bool = false
+```
+
+### Guards
+
+Guards use `if` before `=`, consistent with `for x in items if cond` syntax:
+
+```ori
+@classify (n: int) -> str if n < 0 = "negative"
+@classify (0) -> str = "zero"
+@classify (n: int) -> str if n > 0 = "positive"
+
+@abs (n: int) -> int if n < 0 = -n
+@abs (n) -> int = n
 ```
 
 ### Clause Ordering
@@ -117,9 +149,9 @@ Clauses are matched top-to-bottom. More specific patterns should come first:
 
 ```ori
 // Correct: specific before general
-@fib (0) -> int = 0
+@fib (0: int) -> int = 0
 @fib (1) -> int = 1
-@fib (n: int) -> int = fib(n - 1) + fib(n - 2)
+@fib (n) -> int = fib(n - 1) + fib(n - 2)
 
 // Wrong: general catches everything
 @fib (n: int) -> int = fib(n - 1) + fib(n - 2)  // Always matches!
@@ -140,43 +172,44 @@ All clauses together must be exhaustive:
 
 // Complete:
 @describe (Some(x): Option<int>) -> str = str(x)
-@describe (None: Option<int>) -> str = "none"
-```
-
-### Guards
-
-Pattern guards using `.match()`:
-
-```ori
-@classify (n: int).match(n < 0) -> str = "negative"
-@classify (0) -> str = "zero"
-@classify (n: int).match(n > 0) -> str = "positive"
-
-@abs (n: int).match(n < 0) -> int = -n
-@abs (n: int) -> int = n
+@describe (None) -> str = "none"
 ```
 
 ### Multiple Parameters
 
 ```ori
 @gcd (a: int, 0) -> int = a
-@gcd (a: int, b: int) -> int = gcd(b, a % b)
+@gcd (a, b) -> int = gcd(a: b, b: a % b)
 
-@zip ([], _: [U]) -> [(T, U)] = []
-@zip (_: [T], []) -> [(T, U)] = []
-@zip ([x, ..xs]: [T], [y, ..ys]: [U]) -> [(T, U)] = [(x, y)] + zip(xs, ys)
+@zip<T, U> ([]: [T], _: [U]) -> [(T, U)] = []
+@zip (_, []) -> [(T, U)] = []
+@zip ([x, ..xs], [y, ..ys]) -> [(T, U)] = [(x, y)] + zip(xs, ys)
 ```
 
-### With Named Arguments
+### Named Arguments at Call Site
 
-Callers still use named arguments:
+Callers use named arguments. Arguments are reordered to definition order before pattern matching:
 
 ```ori
 @power (base: int, 0) -> int = 1
-@power (base: int, exp: int) -> int = base * power(base: base, exp: exp - 1)
+@power (base, exp: int) -> int = base * power(base: base, exp: exp - 1)
 
-// Call site
-power(base: 2, exp: 10)  // 1024
+// Both equivalent — reordered to definition order before matching:
+power(base: 2, exp: 10)  // (base=2, exp=10)
+power(exp: 10, base: 2)  // reordered to (base=2, exp=10)
+```
+
+### Default Parameters
+
+Default parameter values are filled in before pattern matching:
+
+```ori
+@connect (host: str, 443) -> Connection = secure_connect(host)
+@connect (host, port: int = 80) -> Connection = plain_connect(host, port)
+
+connect(host: "example.com")             // port=80 (default), matches second
+connect(host: "example.com", port: 443)  // matches first (literal 443)
+connect(host: "example.com", port: 8080) // matches second (8080 ≠ 443)
 ```
 
 ---
@@ -187,27 +220,27 @@ power(base: 2, exp: 10)  // 1024
 
 ```ori
 @sum ([]: [int]) -> int = 0
-@sum ([x, ..xs]: [int]) -> int = x + sum(xs)
+@sum ([x, ..xs]) -> int = x + sum(xs)
 
-@reverse ([]: [T]) -> [T] = []
-@reverse ([x, ..xs]: [T]) -> [T] = reverse(xs) + [x]
+@reverse<T> ([]: [T]) -> [T] = []
+@reverse ([x, ..xs]) -> [T] = reverse(xs) + [x]
 
-@take (0, _: [T]) -> [T] = []
-@take (_: int, []: [T]) -> [T] = []
-@take (n: int, [x, ..xs]: [T]) -> [T] = [x] + take(n - 1, xs)
+@take<T> (0: int, _: [T]) -> [T] = []
+@take (_, []) -> [T] = []
+@take (n, [x, ..xs]) -> [T] = [x] + take(n - 1, xs)
 ```
 
 ### Option/Result Handling
 
 ```ori
-@unwrap_or (Some(x): Option<T>, _: T) -> T = x
-@unwrap_or (None: Option<T>, default: T) -> T = default
+@unwrap_or<T> (Some(x): Option<T>, _: T) -> T = x
+@unwrap_or (None, default) -> T = default
 
-@map_option (Some(x): Option<T>, f: (T) -> U) -> Option<U> = Some(f(x))
-@map_option (None: Option<T>, _: (T) -> U) -> Option<U> = None
+@map_option<T, U> (Some(x): Option<T>, f: (T) -> U) -> Option<U> = Some(f(x))
+@map_option (None, _) -> Option<U> = None
 
-@and_then (Ok(x): Result<T, E>, f: (T) -> Result<U, E>) -> Result<U, E> = f(x)
-@and_then (Err(e): Result<T, E>, _: (T) -> Result<U, E>) -> Result<U, E> = Err(e)
+@and_then<T, U, E> (Ok(x): Result<T, E>, f: (T) -> Result<U, E>) -> Result<U, E> = f(x)
+@and_then (Err(e), _) -> Result<U, E> = Err(e)
 ```
 
 ### Tree Traversal
@@ -215,12 +248,12 @@ power(base: 2, exp: 10)  // 1024
 ```ori
 type Tree<T> = Leaf(value: T) | Branch(left: Tree<T>, right: Tree<T>)
 
-@depth (Leaf(_): Tree<T>) -> int = 1
-@depth (Branch(left, right): Tree<T>) -> int =
+@depth<T> (Leaf(_): Tree<T>) -> int = 1
+@depth (Branch(left, right)) -> int =
     1 + max(left: depth(left), right: depth(right))
 
-@flatten (Leaf(v): Tree<T>) -> [T] = [v]
-@flatten (Branch(left, right): Tree<T>) -> [T] =
+@flatten<T> (Leaf(v): Tree<T>) -> [T] = [v]
+@flatten (Branch(left, right)) -> [T] =
     flatten(left) + flatten(right)
 ```
 
@@ -230,22 +263,22 @@ type Tree<T> = Leaf(value: T) | Branch(left: Tree<T>, right: Tree<T>)
 type State = Idle | Running(progress: int) | Done | Error(msg: str)
 
 @transition (Idle, "start": str) -> State = Running(progress: 0)
-@transition (Running(p), "progress": str).match(p < 100) -> State = Running(progress: p + 10)
-@transition (Running(p), "progress": str).match(p >= 100) -> State = Done
-@transition (_, "reset": str) -> State = Idle
-@transition (state: State, _: str) -> State = state  // Unknown command: no change
+@transition (Running(p), "progress") -> State if p < 100 = Running(progress: p + 10)
+@transition (Running(p), "progress") -> State if p >= 100 = Done
+@transition (_, "reset") -> State = Idle
+@transition (state, _) -> State = state  // Unknown command: no change
 ```
 
 ### Mathematical Functions
 
 ```ori
-@sign (n: int).match(n < 0) -> int = -1
+@sign (n: int) -> int if n < 0 = -1
 @sign (0) -> int = 0
-@sign (n: int).match(n > 0) -> int = 1
+@sign (n: int) -> int if n > 0 = 1
 
-@ackermann (0, n: int) -> int = n + 1
-@ackermann (m: int, 0).match(m > 0) -> int = ackermann(m - 1, 1)
-@ackermann (m: int, n: int).match(m > 0 && n > 0) -> int =
+@ackermann (0: int, n: int) -> int = n + 1
+@ackermann (m, 0) -> int if m > 0 = ackermann(m - 1, 1)
+@ackermann (m, n) -> int if m > 0 && n > 0 =
     ackermann(m - 1, ackermann(m, n - 1))
 ```
 
@@ -277,26 +310,34 @@ Partial functions are error-prone. If you want a partial function, use the last 
 
 ```ori
 // Partial (allowed with catch-all)
-@head ([x, ..]: [T]) -> T = x
-@head ([]: [T]) -> T = panic("empty list")
+@head<T> ([x, ..]: [T]) -> T = x
+@head ([]) -> T = panic("empty list")
 
 // Total (returns Option)
-@safe_head ([x, ..]: [T]) -> Option<T> = Some(x)
-@safe_head ([]: [T]) -> Option<T> = None
+@safe_head<T> ([x, ..]: [T]) -> Option<T> = Some(x)
+@safe_head ([]) -> Option<T> = None
 ```
 
-### Why Keep Named Arguments at Call Site?
+### Why `if` for Guards?
 
-Function clauses use positional patterns, but callers still use named arguments:
+The `if` guard syntax mirrors existing `for x in items if cond` syntax in Ori:
 
 ```ori
-@power (base: int, 0) -> int = 1
-@power (base: int, exp: int) -> int = ...
+// for loop with guard
+for x in items if x > 0 yield x * 2
 
-power(base: 2, exp: 10)  // Named at call site
+// function clause with guard
+@abs (n: int) -> int if n < 0 = -n
 ```
 
-This maintains Ori's readability at call sites while allowing concise pattern syntax in definitions.
+Both read naturally: "for x if condition" / "abs of n if condition".
+
+### Why First Clause Establishes Signature?
+
+Reduces repetition while maintaining clarity:
+- Visibility, generics, and types declared once
+- Subsequent clauses focus on patterns
+- Consistent with "define once, use many" principle
 
 ---
 
@@ -308,9 +349,9 @@ This maintains Ori's readability at call sites while allowing concise pattern sy
 
 ```ori
 // Using clauses (no memoization)
-@fib (0) -> int = 0
+@fib (0: int) -> int = 0
 @fib (1) -> int = 1
-@fib (n: int) -> int = fib(n - 1) + fib(n - 2)
+@fib (n) -> int = fib(n - 1) + fib(n - 2)
 
 // Using recurse (with memoization)
 @fib_memo (n: int) -> int = recurse(
@@ -336,11 +377,11 @@ Tests target the function name, covering all clauses:
 
 ### With Capabilities
 
-All clauses must have the same `uses` declaration:
+All clauses must have the same `uses` declaration (on first clause):
 
 ```ori
 @fetch (None: Option<str>) -> str uses Http = Http.get("/default")
-@fetch (Some(url): Option<str>) -> str uses Http = Http.get(url)
+@fetch (Some(url)) -> str = Http.get(url)
 ```
 
 ---
@@ -349,7 +390,10 @@ All clauses must have the same `uses` declaration:
 
 ### Parser Changes
 
-Function declarations allow patterns in parameter position. Multiple declarations with the same name are grouped.
+- Function declarations allow `match_pattern` in parameter position
+- Multiple declarations with same name are grouped into single function
+- First clause parsed with full signature; subsequent validated for consistency
+- `if` guard parsed between `where_clause` and `=`
 
 ### Desugaring
 
@@ -357,13 +401,27 @@ Multiple clauses desugar to a single function with match:
 
 ```ori
 // Source
-@factorial (0) -> int = 1
-@factorial (n: int) -> int = n * factorial(n - 1)
+@factorial (0: int) -> int = 1
+@factorial (n) -> int = n * factorial(n - 1)
 
 // Desugars to
 @factorial (__arg0: int) -> int = match(__arg0,
     0 -> 1,
     n -> n * factorial(n - 1),
+)
+```
+
+With guards:
+
+```ori
+// Source
+@abs (n: int) -> int if n < 0 = -n
+@abs (n) -> int = n
+
+// Desugars to
+@abs (__arg0: int) -> int = match(__arg0,
+    n.match(n < 0) -> -n,
+    n -> n,
 )
 ```
 
@@ -391,10 +449,11 @@ warning: unreachable function clause
 
 | Feature | Syntax |
 |---------|--------|
-| Literal pattern | `@f (0) -> T = ...` |
+| Literal pattern | `@f (0: int) -> T = ...` |
 | Constructor pattern | `@f (Some(x): Option<T>) -> T = ...` |
 | List pattern | `@f ([x, ..xs]: [T]) -> T = ...` |
 | Wildcard | `@f (_: T) -> T = ...` |
-| Guard | `@f (n: int).match(n > 0) -> T = ...` |
+| Guard | `@f (n: int) -> T if n > 0 = ...` |
+| Type inference | `@f (n) -> T = ...` (after first clause) |
 
 Multiple function clauses enable pattern matching directly in function definitions, making recursive functions and conditional logic cleaner and more readable.
