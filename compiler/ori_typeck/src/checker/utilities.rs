@@ -6,7 +6,7 @@ use crate::registry::TypeKind;
 use ori_ir::{ExprId, Function, Span};
 use ori_types::{Type, TypeError};
 
-impl<'a> TypeChecker<'a> {
+impl TypeChecker<'_> {
     /// Validate that capabilities in a function's `uses` clause refer to valid traits.
     ///
     /// For each capability in the `uses` clause, checks that a trait with that name exists
