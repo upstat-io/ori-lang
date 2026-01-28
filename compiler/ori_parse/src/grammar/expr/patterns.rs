@@ -335,12 +335,7 @@ impl Parser<'_> {
                 self.advance();
                 if self.check(&TokenKind::LParen) {
                     self.advance();
-                    let inner = if self.check(&TokenKind::RParen) {
-                        None
-                    } else {
-                        let pat = self.parse_match_pattern()?;
-                        Some(Box::new(pat))
-                    };
+                    let inner = self.parse_variant_inner_patterns()?;
                     self.expect(&TokenKind::RParen)?;
                     Ok(MatchPattern::Variant { name, inner })
                 } else {
@@ -351,30 +346,20 @@ impl Parser<'_> {
                 let name = self.interner().intern("Some");
                 self.advance();
                 self.expect(&TokenKind::LParen)?;
-                let inner = if self.check(&TokenKind::RParen) {
-                    None
-                } else {
-                    let pat = self.parse_match_pattern()?;
-                    Some(Box::new(pat))
-                };
+                let inner = self.parse_variant_inner_patterns()?;
                 self.expect(&TokenKind::RParen)?;
                 Ok(MatchPattern::Variant { name, inner })
             }
             TokenKind::None => {
                 let name = self.interner().intern("None");
                 self.advance();
-                Ok(MatchPattern::Variant { name, inner: None })
+                Ok(MatchPattern::Variant { name, inner: vec![] })
             }
             TokenKind::Ok => {
                 let name = self.interner().intern("Ok");
                 self.advance();
                 self.expect(&TokenKind::LParen)?;
-                let inner = if self.check(&TokenKind::RParen) {
-                    None
-                } else {
-                    let pat = self.parse_match_pattern()?;
-                    Some(Box::new(pat))
-                };
+                let inner = self.parse_variant_inner_patterns()?;
                 self.expect(&TokenKind::RParen)?;
                 Ok(MatchPattern::Variant { name, inner })
             }
@@ -382,12 +367,7 @@ impl Parser<'_> {
                 let name = self.interner().intern("Err");
                 self.advance();
                 self.expect(&TokenKind::LParen)?;
-                let inner = if self.check(&TokenKind::RParen) {
-                    None
-                } else {
-                    let pat = self.parse_match_pattern()?;
-                    Some(Box::new(pat))
-                };
+                let inner = self.parse_variant_inner_patterns()?;
                 self.expect(&TokenKind::RParen)?;
                 Ok(MatchPattern::Variant { name, inner })
             }
@@ -468,5 +448,33 @@ impl Parser<'_> {
             ExprKind::FunctionExp(func_exp),
             start_span.merge(end_span),
         )))
+    }
+
+    /// Parse comma-separated patterns inside a variant pattern.
+    ///
+    /// Returns an empty Vec for unit variants (when immediately followed by `)`),
+    /// or a Vec with one or more patterns for variants with fields.
+    fn parse_variant_inner_patterns(&mut self) -> Result<Vec<MatchPattern>, ParseError> {
+        let mut patterns = Vec::new();
+
+        // Empty case: immediately followed by )
+        if self.check(&TokenKind::RParen) {
+            return Ok(patterns);
+        }
+
+        // Parse first pattern
+        patterns.push(self.parse_match_pattern()?);
+
+        // Parse additional patterns separated by commas
+        while self.check(&TokenKind::Comma) {
+            self.advance();
+            // Allow trailing comma
+            if self.check(&TokenKind::RParen) {
+                break;
+            }
+            patterns.push(self.parse_match_pattern()?);
+        }
+
+        Ok(patterns)
     }
 }

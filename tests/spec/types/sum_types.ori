@@ -1,0 +1,208 @@
+// Spec: 06-types.md § Sum Type
+// Design: 03-type-system/sum-types.md
+
+// =============================================================================
+// Sum Type Tests (Phase 5.2)
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Unit Variant Tests
+// -----------------------------------------------------------------------------
+
+// Unit variant sum type
+type Status = Pending | Running | Completed
+
+// Test unit variant construction
+@test_unit_variant_construction tests @unit_variant () -> void = run(
+    let status = Pending,
+    assert(condition: true),
+)
+
+// Simple test: just check if pattern matches Pending
+@unit_variant (s: Status) -> bool = match(s,
+    Pending -> true,
+    _ -> false,
+)
+
+@test_unit_variant_matching tests @unit_variant () -> void = run(
+    let s = Pending,
+    let result = unit_variant(s: s),
+    assert(condition: result),
+)
+
+// Test multiple unit variant patterns
+@status_name (s: Status) -> str = match(s,
+    Pending -> "pending",
+    Running -> "running",
+    Completed -> "completed",
+)
+
+@test_all_unit_variants tests @status_name () -> void = run(
+    assert_eq(
+        actual: status_name(s: Pending),
+        expected: "pending",
+    ),
+    assert_eq(
+        actual: status_name(s: Running),
+        expected: "running",
+    ),
+    assert_eq(
+        actual: status_name(s: Completed),
+        expected: "completed",
+    ),
+)
+
+// Sum type with single field
+type Message = Text(content: str) | Empty
+
+// Test single-field variant construction
+@test_single_field_construction tests @get_message () -> void = run(
+    let msg = Text("hello"),
+    assert(condition: true),
+)
+
+// Test single-field variant pattern matching
+@get_message (m: Message) -> str = match(m,
+    Text(content) -> content,
+    Empty -> "empty",
+)
+
+@test_single_field_matching tests @get_message () -> void = run(
+    assert_eq(
+        actual: get_message(m: Text("hello")),
+        expected: "hello",
+    ),
+    assert_eq(
+        actual: get_message(m: Empty),
+        expected: "empty",
+    ),
+)
+
+// Test wildcard pattern with variant
+type Result2 = Success(value: int) | Failure(msg: str)
+
+@is_success (r: Result2) -> bool = match(r,
+    Success(_) -> true,
+    _ -> false,
+)
+
+@test_wildcard_variant tests @is_success () -> void = run(
+    assert(condition: is_success(r: Success(42))),
+    assert(condition: !is_success(r: Failure("error"))),
+)
+
+// Test extracting value from variant
+@get_value (r: Result2) -> int = match(r,
+    Success(v) -> v,
+    Failure(_) -> -1,
+)
+
+@test_extract_value tests @get_value () -> void = run(
+    assert_eq(
+        actual: get_value(r: Success(42)),
+        expected: 42,
+    ),
+    assert_eq(
+        actual: get_value(r: Failure("error")),
+        expected: -1,
+    ),
+)
+
+// -----------------------------------------------------------------------------
+// Multiple Field Variant Tests
+// -----------------------------------------------------------------------------
+
+// Sum type with multiple fields per variant
+type Event = Click(x: int, y: int) | Keypress(key: str, shift: bool) | Quit
+
+@describe_event (e: Event) -> str = match(e,
+    Click(x, y) -> "click at " + str(x) + "," + str(y),
+    Keypress(key, _) -> "key: " + key,
+    Quit -> "quit",
+)
+
+@test_multiple_fields tests @describe_event () -> void = run(
+    assert_eq(
+        actual: describe_event(e: Click(x: 10, y: 20)),
+        expected: "click at 10,20",
+    ),
+    assert_eq(
+        actual: describe_event(e: Keypress(key: "a", shift: false)),
+        expected: "key: a",
+    ),
+    assert_eq(
+        actual: describe_event(e: Quit),
+        expected: "quit",
+    ),
+)
+
+// -----------------------------------------------------------------------------
+// Binding Pattern Tests (lowercase names bind the value)
+// -----------------------------------------------------------------------------
+
+@bind_variant (s: Status) -> str = match(s,
+    status -> "bound to variable",
+)
+
+@test_binding_pattern tests @bind_variant () -> void = run(
+    // Lowercase pattern name binds the whole value
+    assert_eq(
+        actual: bind_variant(s: Pending),
+        expected: "bound to variable",
+    ),
+    assert_eq(
+        actual: bind_variant(s: Running),
+        expected: "bound to variable",
+    ),
+)
+
+// -----------------------------------------------------------------------------
+// Mixed Pattern Tests
+// -----------------------------------------------------------------------------
+
+// Match specific variant, then catch-all
+@check_pending (s: Status) -> str = match(s,
+    Pending -> "is pending",
+    other -> "not pending",
+)
+
+@test_mixed_patterns tests @check_pending () -> void = run(
+    assert_eq(
+        actual: check_pending(s: Pending),
+        expected: "is pending",
+    ),
+    assert_eq(
+        actual: check_pending(s: Running),
+        expected: "not pending",
+    ),
+    assert_eq(
+        actual: check_pending(s: Completed),
+        expected: "not pending",
+    ),
+)
+
+// -----------------------------------------------------------------------------
+// Variant Equality Tests
+// -----------------------------------------------------------------------------
+
+@variants_equal (a: Status, b: Status) -> bool = match(a,
+    Pending -> match(b,
+        Pending -> true,
+        _ -> false,
+    ),
+    Running -> match(b,
+        Running -> true,
+        _ -> false,
+    ),
+    Completed -> match(b,
+        Completed -> true,
+        _ -> false,
+    ),
+)
+
+@test_variant_equality tests @variants_equal () -> void = run(
+    assert(condition: variants_equal(a: Pending, b: Pending)),
+    assert(condition: variants_equal(a: Running, b: Running)),
+    assert(condition: !variants_equal(a: Pending, b: Running)),
+    assert(condition: !variants_equal(a: Running, b: Completed)),
+)

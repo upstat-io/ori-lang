@@ -65,7 +65,7 @@ compiler/ori_typeck/src/
     ├── call.rs               # Call type checking
     ├── control.rs            # Control flow inference
     ├── match_binding.rs      # extract_match_pattern_bindings, collect_match_pattern_names
-    ├── pattern_types.rs      # get_variant_inner_type, get_variant_field_type, get_struct_field_types
+    ├── pattern_types.rs      # get_variant_field_types (Vec<Type>), get_struct_field_types
     ├── pattern_unification.rs # unify_pattern_with_scrutinee
     ├── pattern.rs            # Pattern type checking
     ├── expressions/          # Expression type inference (split from expr.rs)

@@ -10,7 +10,7 @@
 | 2 | Type Inference | ✅ Complete | All tests pass |
 | 3 | Traits | ✅ Complete | All tests pass including map.len(), map.is_empty() |
 | 4 | Modules | 🔶 Core complete | 16/16 tests pass; remaining: module alias, re-exports, qualified access |
-| 5 | Type Declarations | 🔶 Partial | Structs + destructuring work; remaining: sum type constructors/matching, newtypes |
+| 5 | Type Declarations | 🔶 Partial | Structs + destructuring work; sum type constructors/matching work (including multi-field variants); remaining: newtypes |
 
 ### Tier 2: Capabilities & Stdlib
 
@@ -75,7 +75,7 @@ Phase 6 (Capabilities) ← ✅ COMPLETE (27/27 tests pass)
     ↓
 Phase 7 (Stdlib) ← Collection methods DONE; retry, validate PENDING
     ↓
-Phase 5.2 (Sum Types) ← Variant constructors, pattern matching PENDING
+Phase 5.2 (Sum Types) ← ✅ COMPLETE (variant constructors, pattern matching, multi-field variants)
 ```
 
 ### Phase 6 (Capabilities) — COMPLETED 2026-01-25
@@ -99,6 +99,15 @@ Phase 5.2 (Sum Types) ← Variant constructors, pattern matching PENDING
 ### Phase 3 (Traits) — COMPLETED 2026-01-25
 
 - [x] All trait tests pass including map.len(), map.is_empty()
+
+### Phase 5.2 (Sum Types) — COMPLETED 2026-01-28
+
+- [x] Unit variant construction and pattern matching
+- [x] Single-field variant construction and pattern matching
+- [x] Multi-field variant construction and pattern matching (`Click(x, y)`)
+- [x] Type checker support for variant field types
+- [x] LLVM backend support for multi-field variants
+- [x] 11 new Ori tests added in `tests/spec/types/sum_types.ori`
 
 ---
 
@@ -255,11 +264,11 @@ cargo st tests/spec/patterns/     # Tier 3
 
 **Rust unit tests:** 1006 passed, 0 failed
 
-**Ori spec tests:** 677 passed, 0 failed, 19 skipped (696 total)
+**Ori spec tests:** 688 passed, 0 failed, 19 skipped (707 total)
 
 | Category | Passed | Skipped | Notes |
 |----------|--------|---------|-------|
-| Types | 50/50 | 0 | ✅ Complete |
+| Types | 61/61 | 0 | ✅ Complete (sum types + multi-field variants) |
 | Expressions | 17/17 | 0 | ✅ Complete |
 | Inference | 28/28 | 0 | ✅ Complete |
 | Modules | 16/16 | 0 | ✅ Complete |

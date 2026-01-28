@@ -223,12 +223,27 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             }
 
             MatchPattern::Variant { name: _, inner } => {
-                // For variants like Some(x), extract the inner value and bind it
-                if let Some(inner_pattern) = inner {
-                    // Extract the payload from the tagged union
+                // For variants like Some(x) or Click(x, y), extract and bind inner values
+                if !inner.is_empty() {
                     if let BasicValueEnum::StructValue(struct_val) = scrutinee {
-                        let payload = self.extract_value(struct_val, 1, "payload");
-                        self.bind_match_pattern_vars(inner_pattern, payload, locals);
+                        if inner.len() == 1 {
+                            // Single field variant: payload is the value directly
+                            let payload = self.extract_value(struct_val, 1, "payload");
+                            self.bind_match_pattern_vars(&inner[0], payload, locals);
+                        } else {
+                            // Multi-field variant: payload is a tuple, extract each element
+                            let payload = self.extract_value(struct_val, 1, "payload");
+                            if let BasicValueEnum::StructValue(tuple_val) = payload {
+                                for (i, inner_pattern) in inner.iter().enumerate() {
+                                    let elem = self.extract_value(
+                                        tuple_val,
+                                        i as u32,
+                                        &format!("variant_field_{i}"),
+                                    );
+                                    self.bind_match_pattern_vars(inner_pattern, elem, locals);
+                                }
+                            }
+                        }
                     }
                 }
             }

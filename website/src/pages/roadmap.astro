@@ -147,7 +147,7 @@ const tiers: Tier[] = [
         num: 5,
         name: "Type Declarations",
         status: "partial",
-        note: "Structs + destructuring work; sum type matching, newtypes pending",
+        note: "Structs + sum types work (including multi-field variants); newtypes pending",
         goal: "User-defined types: structs, enums, newtypes",
         spec: "spec/06-types.md, spec/08-declarations.md",
         sections: [
@@ -159,8 +159,9 @@ const tiers: Tier[] = [
           ]},
           { name: "Sum Types", tasks: [
             { name: "Enum declaration", done: true },
-            { name: "Variant constructors", done: false },
-            { name: "Pattern matching", done: false },
+            { name: "Variant constructors", done: true },
+            { name: "Pattern matching", done: true },
+            { name: "Multi-field variants (e.g. Click(x, y))", done: true },
           ]},
           { name: "Newtypes", tasks: [
             { name: "Type aliases", done: true },
@@ -895,7 +896,7 @@ Branches:
           <span class="result-status success">All Passing</span>
         </div>
         <div class="result-card">
-          <span class="result-value">677</span>
+          <span class="result-value">688</span>
           <span class="result-label">Ori Spec Tests</span>
           <span class="result-status success">Passing</span>
         </div>
