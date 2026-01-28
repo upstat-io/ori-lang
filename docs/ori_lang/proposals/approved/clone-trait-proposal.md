@@ -1,8 +1,9 @@
 # Proposal: Clone Trait
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with Claude)
 **Created:** 2026-01-26
+**Approved:** 2026-01-28
 
 ---
 
@@ -65,12 +66,14 @@ Single method, returns owned copy of `self`.
 All primitive and built-in types implement `Clone`:
 
 ```ori
-impl Clone for int   { @clone (self) -> int = self }
-impl Clone for float { @clone (self) -> float = self }
-impl Clone for bool  { @clone (self) -> bool = self }
-impl Clone for str   { @clone (self) -> str = self }
-impl Clone for char  { @clone (self) -> char = self }
-impl Clone for byte  { @clone (self) -> byte = self }
+impl Clone for int      { @clone (self) -> int = self }
+impl Clone for float    { @clone (self) -> float = self }
+impl Clone for bool     { @clone (self) -> bool = self }
+impl Clone for str      { @clone (self) -> str = self }
+impl Clone for char     { @clone (self) -> char = self }
+impl Clone for byte     { @clone (self) -> byte = self }
+impl Clone for Duration { @clone (self) -> Duration = self }
+impl Clone for Size     { @clone (self) -> Size = self }
 
 impl<T: Clone> Clone for [T] {
     @clone (self) -> [T] = self.map(transform: x -> x.clone())
@@ -160,7 +163,9 @@ type FileHandle = { fd: int }
 
 ---
 
-## Channel Integration
+## Channel Integration (Future)
+
+This section describes how Clone will interact with the channel sharing modes proposed in the parallel-concurrency-proposal. Implementation details are defined in that proposal.
 
 The parallel-concurrency-proposal defines sharing modes for channels:
 
@@ -168,20 +173,15 @@ The parallel-concurrency-proposal defines sharing modes for channels:
 type Sharing = Exclusive | Producers | Consumers | Both
 ```
 
-Channel endpoints implement `Clone` conditionally:
+Channel endpoints will implement `Clone` conditionally based on their sharing mode:
+- `Exclusive` — neither Producer nor Consumer implements Clone
+- `Producers` — Producer implements Clone
+- `Consumers` — Consumer implements Clone
+- `Both` — both implement Clone
 
-```ori
-// Producer<T> implements Clone only when sharing allows
-impl<T: Sendable> Clone for Producer<T>
-    where Self: Shareable  // Marker set by channel() based on Sharing mode
-{
-    @clone (self) -> Producer<T> = ...
-}
+The conditional implementation mechanism is specified in the parallel-concurrency-proposal.
 
-// Similarly for Consumer<T>
-```
-
-**Usage:**
+**Example usage (when both proposals are implemented):**
 
 ```ori
 // Exclusive channel — clone fails at compile time
@@ -210,9 +210,14 @@ let c = a.clone()      // a's refcount still 2, c has refcount 1 (independent)
 ```
 
 The clone operation:
-- Allocates new memory for reference types
-- Deep copies the data
-- Returns value with refcount 1
+- For value types: returns a copy of the value
+- For reference types: allocates new memory with refcount 1
+- Element-wise recursive: cloning a container clones each element via `.clone()`
+
+After cloning:
+- Original and clone have independent reference counts
+- Modifying the clone does not affect the original
+- Cloned elements are themselves clones (no shared mutable references)
 
 ---
 
