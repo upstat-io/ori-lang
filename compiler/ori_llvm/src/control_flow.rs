@@ -9,7 +9,7 @@ use tracing::instrument;
 use crate::builder::Builder;
 use crate::LoopContext;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+impl<'ll> Builder<'_, 'll, '_> {
     /// Compile an if/else expression.
     #[instrument(
         skip(self, arena, expr_types, locals, function, loop_ctx),

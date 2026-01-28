@@ -9,8 +9,8 @@ use ori_ir::{ExprArena, Name, TypeId};
 use crate::builder::Builder;
 use crate::LoopContext;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
-    /// Compile a FunctionExp (recurse, parallel, etc.).
+impl<'ll> Builder<'_, 'll, '_> {
+    /// Compile a `FunctionExp` (recurse, parallel, etc.).
     pub(crate) fn compile_function_exp(
         &self,
         exp: &FunctionExp,

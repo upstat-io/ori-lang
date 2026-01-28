@@ -4,7 +4,7 @@ use inkwell::values::BasicValueEnum;
 
 use crate::builder::Builder;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+impl<'ll> Builder<'_, 'll, '_> {
     /// Compile str(x) - convert a value to string.
     pub(crate) fn compile_builtin_str(
         &self,

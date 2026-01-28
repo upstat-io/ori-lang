@@ -6,7 +6,7 @@ use ori_ir::TypeId;
 
 use crate::builder::Builder;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a binary operation.
     pub(crate) fn compile_binary_op(
         &self,
@@ -271,7 +271,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
 
     /// Compile a numeric comparison (float or integer).
     ///
-    /// Shared helper for Lt, LtEq, Gt, GtEq operators. Returns `None` for
+    /// Shared helper for Lt, `LtEq`, Gt, `GtEq` operators. Returns `None` for
     /// struct types (not supported).
     fn compile_comparison(
         &self,

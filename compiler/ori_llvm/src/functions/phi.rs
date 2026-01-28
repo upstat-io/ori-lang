@@ -6,7 +6,7 @@ use tracing::{debug, trace};
 
 use crate::builder::Builder;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+impl<'ll> Builder<'_, 'll, '_> {
     /// Build a phi node for the given incoming values.
     ///
     /// Uses the actual type from the first incoming value rather than

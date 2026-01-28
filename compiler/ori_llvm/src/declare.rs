@@ -20,7 +20,7 @@ use ori_ir::{Name, TypeId};
 
 use crate::context::CodegenCx;
 
-impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
+impl<'ll> CodegenCx<'ll, '_> {
     /// Declare a function with the given name and signature.
     ///
     /// This creates a function declaration (no body) that can be called

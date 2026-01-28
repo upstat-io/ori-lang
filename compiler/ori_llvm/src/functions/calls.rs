@@ -9,7 +9,7 @@ use tracing::instrument;
 use crate::builder::Builder;
 use crate::LoopContext;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a function call with positional arguments.
     #[instrument(
         skip(self, arena, expr_types, locals, function, loop_ctx),
@@ -106,7 +106,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     /// Compile a closure call.
     ///
     /// Closures can be stored as:
-    /// - A struct: { i8 tag, i64 fn_ptr, capture0, capture1, ... } (closures with captures)
+    /// - A struct: { i8 tag, i64 `fn_ptr`, capture0, capture1, ... } (closures with captures)
     /// - An i64: function pointer (simple function references or closures without captures)
     fn compile_closure_call(
         &self,

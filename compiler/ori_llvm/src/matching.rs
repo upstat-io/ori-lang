@@ -11,7 +11,7 @@ use tracing::instrument;
 use crate::builder::Builder;
 use crate::LoopContext;
 
-impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
+impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a match expression.
     ///
     /// Match expressions are compiled as a series of conditional branches:
@@ -188,10 +188,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                 // Get expected tag based on variant name
                 let variant_name = self.cx().interner.lookup(*name);
                 let expected_tag = match variant_name {
-                    "None" => 0,
-                    "Some" => 1,
-                    "Ok" => 0,
-                    "Err" => 1,
+                    "None" | "Ok" => 0,
+                    "Some" | "Err" => 1,
                     _ => 0, // Unknown variant - assume tag 0
                 };
 
@@ -235,9 +233,14 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                             let payload = self.extract_value(struct_val, 1, "payload");
                             if let BasicValueEnum::StructValue(tuple_val) = payload {
                                 for (i, inner_pattern) in inner.iter().enumerate() {
+                                    #[expect(
+                                        clippy::cast_possible_truncation,
+                                        reason = "variant field count fits in u32"
+                                    )]
+                                    let idx = i as u32;
                                     let elem = self.extract_value(
                                         tuple_val,
-                                        i as u32,
+                                        idx,
                                         &format!("variant_field_{i}"),
                                     );
                                     self.bind_match_pattern_vars(inner_pattern, elem, locals);
@@ -258,7 +261,12 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                 // Bind each tuple element
                 if let BasicValueEnum::StructValue(struct_val) = scrutinee {
                     for (i, pat) in patterns.iter().enumerate() {
-                        let elem = self.extract_value(struct_val, i as u32, &format!("tuple_{i}"));
+                        #[expect(
+                            clippy::cast_possible_truncation,
+                            reason = "tuple element count fits in u32"
+                        )]
+                        let idx = i as u32;
+                        let elem = self.extract_value(struct_val, idx, &format!("tuple_{i}"));
                         self.bind_match_pattern_vars(pat, elem, locals);
                     }
                 }

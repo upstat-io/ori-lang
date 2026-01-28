@@ -12,12 +12,13 @@
 
 use std::ffi::CStr;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 /// Global flag to track if a panic occurred (for test assertions).
 static PANIC_OCCURRED: AtomicBool = AtomicBool::new(false);
 
 /// Global storage for panic message.
-static mut PANIC_MESSAGE: Option<String> = None;
+static PANIC_MESSAGE: Mutex<Option<String>> = Mutex::new(None);
 
 /// Ori string representation: { i64 len, *const u8 data }
 #[repr(C)]
@@ -32,6 +33,7 @@ impl OriStr {
     /// # Safety
     /// Caller must ensure data pointer is valid and len is correct.
     #[allow(unsafe_code)]
+    #[must_use] 
     pub unsafe fn as_str(&self) -> &str {
         if self.data.is_null() || self.len <= 0 {
             return "";
@@ -118,10 +120,7 @@ pub extern "C" fn ori_panic(s: *const OriStr) {
     };
 
     // Store message for later retrieval
-    // SAFETY: Single-threaded test execution
-    unsafe {
-        PANIC_MESSAGE = Some(msg.clone());
-    }
+    *PANIC_MESSAGE.lock().unwrap() = Some(msg.clone());
 
     // Don't actually panic - just set the flag
     // This allows tests to check for expected panics
@@ -144,10 +143,7 @@ pub extern "C" fn ori_panic_cstr(s: *const i8) {
         cstr.to_string_lossy().to_string()
     };
 
-    // SAFETY: Single-threaded test execution
-    unsafe {
-        PANIC_MESSAGE = Some(msg.clone());
-    }
+    *PANIC_MESSAGE.lock().unwrap() = Some(msg.clone());
 
     eprintln!("ori panic: {msg}");
 }
@@ -158,26 +154,14 @@ pub fn did_panic() -> bool {
 }
 
 /// Get the panic message if one occurred.
-///
-/// # Safety
-/// Must be called from the same thread that ran the test.
-
 pub fn get_panic_message() -> Option<String> {
-    // SAFETY: Single-threaded test execution
-    unsafe { PANIC_MESSAGE.clone() }
+    PANIC_MESSAGE.lock().unwrap().clone()
 }
 
 /// Reset panic state (call before each test).
-///
-/// # Safety
-/// Must be called from the same thread that will run the test.
-
 pub fn reset_panic_state() {
     PANIC_OCCURRED.store(false, Ordering::SeqCst);
-    // SAFETY: Single-threaded test execution
-    unsafe {
-        PANIC_MESSAGE = None;
-    }
+    *PANIC_MESSAGE.lock().unwrap() = None;
 }
 
 /// Assert that a condition is true.
@@ -194,10 +178,7 @@ pub extern "C" fn ori_assert_eq_int(actual: i64, expected: i64) {
     if actual != expected {
         eprintln!("assertion failed: {actual} != {expected}");
         PANIC_OCCURRED.store(true, Ordering::SeqCst);
-        // SAFETY: Single-threaded test execution
-        unsafe {
-            PANIC_MESSAGE = Some(format!("assertion failed: {actual} != {expected}"));
-        }
+        *PANIC_MESSAGE.lock().unwrap() = Some(format!("assertion failed: {actual} != {expected}"));
     }
 }
 
@@ -207,9 +188,7 @@ pub extern "C" fn ori_assert_eq_bool(actual: bool, expected: bool) {
     if actual != expected {
         eprintln!("assertion failed: {actual} != {expected}");
         PANIC_OCCURRED.store(true, Ordering::SeqCst);
-        unsafe {
-            PANIC_MESSAGE = Some(format!("assertion failed: {actual} != {expected}"));
-        }
+        *PANIC_MESSAGE.lock().unwrap() = Some(format!("assertion failed: {actual} != {expected}"));
     }
 }
 
@@ -290,7 +269,7 @@ pub extern "C" fn ori_max_int(a: i64, b: i64) -> i64 {
 
 /// Concatenate two strings.
 ///
-/// Returns a new OriStr with the concatenated result.
+/// Returns a new `OriStr` with the concatenated result.
 /// The caller is responsible for freeing the result.
 #[no_mangle]
 pub extern "C" fn ori_str_concat(a: *const OriStr, b: *const OriStr) -> OriStr {
@@ -353,11 +332,8 @@ pub extern "C" fn ori_assert_eq_str(actual: *const OriStr, expected: *const OriS
     if actual_str != expected_str {
         eprintln!("assertion failed: \"{actual_str}\" != \"{expected_str}\"");
         PANIC_OCCURRED.store(true, Ordering::SeqCst);
-        unsafe {
-            PANIC_MESSAGE = Some(format!(
-                "assertion failed: \"{actual_str}\" != \"{expected_str}\""
-            ));
-        }
+        *PANIC_MESSAGE.lock().unwrap() =
+            Some(format!("assertion failed: \"{actual_str}\" != \"{expected_str}\""));
     }
 }
 
@@ -365,7 +341,7 @@ pub extern "C" fn ori_assert_eq_str(actual: *const OriStr, expected: *const OriS
 
 /// Convert an integer to a string.
 ///
-/// Returns an OriStr with the string representation.
+/// Returns an `OriStr` with the string representation.
 #[no_mangle]
 pub extern "C" fn ori_str_from_int(n: i64) -> OriStr {
     let result = n.to_string();

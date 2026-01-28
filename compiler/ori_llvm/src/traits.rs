@@ -24,7 +24,7 @@ use ori_ir::TypeId;
 /// - Value: An SSA value (result of computation)
 /// - Type: A type in the IR
 /// - Function: A function definition
-/// - BasicBlock: A control flow node
+/// - `BasicBlock`: A control flow node
 pub trait BackendTypes {
     type Value: Copy;
     type Type: Copy;
@@ -34,7 +34,7 @@ pub trait BackendTypes {
 
 /// Type construction and lookup methods.
 pub trait TypeMethods: BackendTypes {
-    /// Get the LLVM type for an Ori TypeId.
+    /// Get the LLVM type for an Ori `TypeId`.
     fn llvm_type(&self, type_id: TypeId) -> Self::Type;
 
     /// Get a default value for a type.
@@ -134,7 +134,7 @@ pub trait CodegenMethods<'tcx>: TypeMethods {
 // -- LLVM Implementation --
 
 /// LLVM backend types.
-impl<'ll, 'tcx> BackendTypes for crate::context::CodegenCx<'ll, 'tcx> {
+impl<'ll> BackendTypes for crate::context::CodegenCx<'ll, '_> {
     type Value = BasicValueEnum<'ll>;
     type Type = BasicTypeEnum<'ll>;
     type Function = FunctionValue<'ll>;
@@ -142,7 +142,7 @@ impl<'ll, 'tcx> BackendTypes for crate::context::CodegenCx<'ll, 'tcx> {
 }
 
 /// LLVM type methods.
-impl<'ll, 'tcx> TypeMethods for crate::context::CodegenCx<'ll, 'tcx> {
+impl TypeMethods for crate::context::CodegenCx<'_, '_> {
     fn llvm_type(&self, type_id: TypeId) -> Self::Type {
         // Delegate to CodegenCx method
         crate::context::CodegenCx::llvm_type(self, type_id)
@@ -154,7 +154,7 @@ impl<'ll, 'tcx> TypeMethods for crate::context::CodegenCx<'ll, 'tcx> {
 }
 
 /// LLVM builder methods.
-impl<'a, 'll, 'tcx> BackendTypes for crate::builder::Builder<'a, 'll, 'tcx> {
+impl<'ll> BackendTypes for crate::builder::Builder<'_, 'll, '_> {
     type Value = BasicValueEnum<'ll>;
     type Type = BasicTypeEnum<'ll>;
     type Function = FunctionValue<'ll>;
@@ -239,7 +239,7 @@ impl<'a, 'll, 'tcx> BuilderMethods<'a> for crate::builder::Builder<'a, 'll, 'tcx
 }
 
 /// LLVM codegen methods.
-impl<'ll, 'tcx> CodegenMethods<'tcx> for crate::context::CodegenCx<'ll, 'tcx> {
+impl<'tcx> CodegenMethods<'tcx> for crate::context::CodegenCx<'_, 'tcx> {
     fn declare_fn(
         &self,
         name: &str,
