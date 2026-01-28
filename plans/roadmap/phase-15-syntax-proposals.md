@@ -877,7 +877,77 @@ let items: [Serializable] = ...
 
 ---
 
-## 15.13 Phase Completion Checklist
+## 15.13 Range with Step
+
+**Proposal**: `proposals/approved/range-step-proposal.md`
+
+Add a `by` keyword to range expressions for non-unit step values.
+
+```ori
+0..10 by 2      // 0, 2, 4, 6, 8
+10..0 by -1     // 10, 9, 8, ..., 1
+0..=10 by 2     // 0, 2, 4, 6, 8, 10
+```
+
+### Lexer
+
+- [ ] **Implement**: Add `by` as contextual keyword token following range operators
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — by keyword tokenization
+  - [ ] **Ori Tests**: `tests/spec/lexical/by_keyword.ori`
+  - [ ] **LLVM Support**: LLVM codegen for by keyword
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — by keyword codegen
+
+### Parser
+
+- [ ] **Implement**: Extend `range_expr` to accept `[ "by" shift_expr ]`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — range step parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/range_step.ori`
+  - [ ] **LLVM Support**: LLVM codegen for range step parsing
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — range step parsing codegen
+
+### Type Checker
+
+- [ ] **Implement**: Validate step expression has same type as range bounds
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/range.rs` — step type checking
+  - [ ] **Ori Tests**: `tests/compile-fail/range_step_type_mismatch.ori`
+  - [ ] **LLVM Support**: LLVM codegen for step type checking
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — step type checking codegen
+
+- [ ] **Implement**: Restrict `by` to integer ranges only (compile-time error for float)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/range.rs` — int-only restriction
+  - [ ] **Ori Tests**: `tests/compile-fail/range_step_float.ori`
+  - [ ] **LLVM Support**: LLVM codegen for int-only restriction
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — int-only restriction codegen
+
+### Code Generation / Interpreter
+
+- [ ] **Implement**: Extend Range type with optional step field (default 1)
+  - [ ] **Rust Tests**: `oric/src/ir/types.rs` — Range type extension
+  - [ ] **Ori Tests**: `tests/spec/types/range_with_step.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Range type extension
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — Range type extension codegen
+
+- [ ] **Implement**: Iterator for stepped ranges (ascending and descending)
+  - [ ] **Rust Tests**: `oric/src/eval/iter.rs` — stepped range iteration
+  - [ ] **Ori Tests**: `tests/spec/expressions/range_step_iteration.ori`
+  - [ ] **LLVM Support**: LLVM codegen for stepped range iteration
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — stepped range iteration codegen
+
+- [ ] **Implement**: Runtime panic for zero step
+  - [ ] **Rust Tests**: `oric/src/eval/range.rs` — zero step panic
+  - [ ] **Ori Tests**: `tests/spec/expressions/range_step_zero_panic.ori`
+  - [ ] **LLVM Support**: LLVM codegen for zero step panic
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — zero step panic codegen
+
+- [ ] **Implement**: Empty range for mismatched direction (no panic)
+  - [ ] **Rust Tests**: `oric/src/eval/range.rs` — direction mismatch
+  - [ ] **Ori Tests**: `tests/spec/expressions/range_step_empty.ori`
+  - [ ] **LLVM Support**: LLVM codegen for direction mismatch
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — direction mismatch codegen
+
+---
+
+## 15.14 Phase Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[x]`
 - [ ] All spec docs updated
