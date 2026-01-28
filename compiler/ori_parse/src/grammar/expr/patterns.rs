@@ -353,7 +353,10 @@ impl Parser<'_> {
             TokenKind::None => {
                 let name = self.interner().intern("None");
                 self.advance();
-                Ok(MatchPattern::Variant { name, inner: vec![] })
+                Ok(MatchPattern::Variant {
+                    name,
+                    inner: vec![],
+                })
             }
             TokenKind::Ok => {
                 let name = self.interner().intern("Ok");
