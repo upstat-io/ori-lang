@@ -62,6 +62,27 @@ compiler/
 │       ├── error.rs          # Parse error types
 │       ├── stack.rs          # Stack safety (stacker integration)
 │       └── grammar/          # Grammar modules (expr, item, type, etc.)
+├── ori_typeck/               # Type checking
+│   └── src/
+│       ├── lib.rs            # Module exports
+│       ├── operators.rs      # Operator type rules
+│       ├── checker/          # TypeChecker core
+│       │   ├── mod.rs        # TypeChecker struct
+│       │   ├── api.rs        # Public API functions
+│       │   ├── orchestration.rs # check_module 4-pass logic
+│       │   ├── builder.rs    # TypeCheckerBuilder
+│       │   ├── components.rs # Component structs
+│       │   └── ...           # Other checker modules
+│       ├── infer/            # Type inference
+│       │   ├── mod.rs        # Inference dispatcher
+│       │   ├── expressions/  # Expression inference (8 modules)
+│       │   ├── free_vars.rs  # Free variable collection
+│       │   └── ...           # Other inference modules
+│       ├── registry/         # Type and trait registries
+│       │   ├── mod.rs        # TypeRegistry
+│       │   ├── trait_registry.rs # TraitRegistry
+│       │   └── ...           # Registry types
+│       └── derives/          # Derive macro support
 ├── ori_patterns/             # Pattern system, Value types
 │   └── src/
 │       ├── lib.rs            # PatternDefinition, TypeCheckContext
@@ -105,6 +126,41 @@ compiler/
 │       ├── lib.rs            # Diagnostic/Subdiagnostic derives
 │       ├── diagnostic.rs     # #[derive(Diagnostic)] impl
 │       └── subdiagnostic.rs  # #[derive(Subdiagnostic)] impl
+├── ori_llvm/                 # LLVM backend (excluded from workspace)
+│   └── src/
+│       ├── lib.rs            # Module exports, LlvmBackend trait
+│       ├── builder.rs        # CodeBuilder - main codegen orchestrator
+│       ├── context.rs        # CompilationContext - LLVM context wrapper
+│       ├── module.rs         # ModuleBuilder - LLVM module creation
+│       ├── declare.rs        # Function/type declarations
+│       ├── types.rs          # Type mapping (Ori types → LLVM types)
+│       ├── operators.rs      # Binary/unary operator codegen
+│       ├── control_flow.rs   # If/loop/for codegen
+│       ├── matching.rs       # Pattern match codegen
+│       ├── runtime.rs        # Runtime function declarations
+│       ├── evaluator.rs      # LlvmEvaluator - JIT execution
+│       ├── traits.rs         # Backend trait definitions
+│       ├── functions/        # Function codegen
+│       │   ├── mod.rs        # Function compilation entry
+│       │   ├── body.rs       # Function body codegen
+│       │   ├── calls.rs      # Function call codegen
+│       │   ├── builtins.rs   # Built-in function codegen
+│       │   ├── lambdas.rs    # Lambda/closure codegen
+│       │   ├── sequences.rs  # run/try/match codegen
+│       │   ├── expressions.rs # Expression codegen
+│       │   ├── helpers.rs    # Codegen utilities
+│       │   └── phi.rs        # PHI node helpers
+│       ├── collections/      # Collection type codegen
+│       │   ├── mod.rs        # Collection utilities
+│       │   ├── lists.rs      # List operations
+│       │   ├── maps.rs       # Map operations
+│       │   ├── strings.rs    # String operations
+│       │   ├── tuples.rs     # Tuple operations
+│       │   ├── structs.rs    # Struct operations
+│       │   ├── ranges.rs     # Range operations
+│       │   ├── wrappers.rs   # Option/Result wrappers
+│       │   └── indexing.rs   # Index operations
+│       └── tests/            # Comprehensive test suite
 └── oric/                     # CLI orchestrator + Salsa queries
     └── src/
         ├── lib.rs            # Module organization
@@ -141,11 +197,15 @@ ori_ir (base)
     ├── ori_lexer
     ├── ori_types
     ├── ori_parse
+    ├── ori_typeck ──→ ori_types, ori_parse
     └── ori_patterns ──→ ori_types
             │
             └── ori_eval ──→ ori_patterns
                     │
                     └── oric ──→ ALL (orchestrator)
+
+ori_llvm (separate, excluded from workspace)
+    └── depends on: ori_ir, ori_types, ori_parse, ori_patterns, ori_typeck
 ```
 
 **Layered architecture:**
@@ -153,6 +213,7 @@ ori_ir (base)
 - `ori_patterns`: Pattern definitions, Value types, EvalError (single source of truth)
 - `ori_eval`: Core tree-walking interpreter (Interpreter, Environment, exec, method dispatch)
 - `oric`: CLI orchestrator with Salsa queries, type checker, high-level Evaluator wrapper
+- `ori_llvm`: LLVM backend for native code generation (excluded from main workspace to avoid LLVM linking overhead)
 
 Pure functions live in library crates; Salsa queries live in `oric`.
 
@@ -250,6 +311,8 @@ impl PatternRegistry {
 | `Interpreter` | `ori_eval` | Core tree-walking interpreter |
 | `Environment` | `ori_eval` | Variable scoping (scope stack) |
 | `Evaluator` | `oric` | High-level evaluator (module loading, prelude) |
+| `CodeBuilder` | `ori_llvm` | LLVM codegen orchestrator |
+| `LlvmEvaluator` | `ori_llvm` | JIT execution via LLVM |
 | `Diagnostic` | `ori_diagnostic` | Rich error with suggestions |
 | `ErrorGuaranteed` | `ori_diagnostic` | Proof that an error was emitted |
 | `Applicability` | `ori_diagnostic` | Fix confidence level |
@@ -264,10 +327,12 @@ impl PatternRegistry {
 | `ori_lexer` | Tokenization via logos |
 | `ori_types` | Type system: Type/TypeData, TypeInterner, InferenceContext, TypeIdFolder |
 | `ori_parse` | Recursive descent parser |
+| `ori_typeck` | Type checking: TypeChecker, inference, registries |
 | `ori_patterns` | Pattern definitions, Value types, EvalError (single source of truth) |
 | `ori_eval` | Core tree-walking interpreter: Interpreter, Environment, exec, method dispatch |
 | `ori-macros` | Proc-macros (`#[derive(Diagnostic)]`, etc.) |
-| `oric` | CLI orchestrator, Salsa queries, typeck, high-level Evaluator, patterns |
+| `ori_llvm` | LLVM backend: CodeBuilder, JIT execution, native codegen (excluded from workspace) |
+| `oric` | CLI orchestrator, Salsa queries, high-level Evaluator, patterns |
 
 ### DRY Re-exports
 
@@ -298,6 +363,21 @@ When files exceed limits, extract submodules:
 - `infer/expr.rs` -> `infer/expressions/` subdirectory with focused modules
 - `checker/mod.rs` -> `checker/api.rs`, `checker/orchestration.rs`, `checker/utilities.rs`
 - `registry/trait_registry.rs` -> `registry/trait_types.rs`, `registry/impl_types.rs`, etc.
+
+## LLVM Backend
+
+The `ori_llvm` crate provides native code generation via LLVM 17. It is **excluded from the main workspace** to avoid LLVM linking overhead during normal development.
+
+**Key components:**
+- `CodeBuilder`: Main codegen orchestrator, walks the typed AST
+- `CompilationContext`: Wraps LLVM context, module, and builder
+- `LlvmEvaluator`: JIT execution for running compiled code
+
+**Development workflow:**
+- Unit tests require Docker (LLVM environment): `./llvm-test`
+- Build/clippy/format run directly: `./llvm-build`, `./llvm-clippy`, `cargo fmt --manifest-path compiler/ori_llvm/Cargo.toml`
+
+See `.claude/rules/llvm.md` for development guidelines.
 
 ## Related Documents
 
