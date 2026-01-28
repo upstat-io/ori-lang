@@ -473,7 +473,129 @@ greet(name: "Alice")  // "Hello, Alice!"
 
 ---
 
-## 15.9 Phase Completion Checklist
+## 15.9 Multiple Function Clauses
+
+**Proposal**: `proposals/approved/function-clauses-proposal.md`
+
+Allow functions to be defined with multiple clauses that pattern match on arguments.
+
+```ori
+@factorial (0: int) -> int = 1
+@factorial (n) -> int = n * factorial(n - 1)
+
+@abs (n: int) -> int if n < 0 = -n
+@abs (n) -> int = n
+```
+
+### Parser
+
+- [ ] **Implement**: Allow `match_pattern` in parameter position (`clause_param`)
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/decl.rs` — clause parameter parsing
+  - [ ] **Ori Tests**: `tests/spec/declarations/function_clauses.ori`
+  - [ ] **LLVM Support**: LLVM codegen for clause parameter parsing
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — clause parameter parsing codegen
+
+- [ ] **Implement**: Parse `if` guard clause between `where_clause` and `=`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/decl.rs` — guard clause parsing
+  - [ ] **Ori Tests**: `tests/spec/declarations/function_clause_guards.ori`
+  - [ ] **LLVM Support**: LLVM codegen for guard clause parsing
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — guard clause parsing codegen
+
+- [ ] **Implement**: Group multiple declarations with same name into single function
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/decl.rs` — clause grouping
+  - [ ] **Ori Tests**: `tests/spec/declarations/function_clause_grouping.ori`
+  - [ ] **LLVM Support**: LLVM codegen for clause grouping
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — clause grouping codegen
+
+### Semantic Analysis
+
+- [ ] **Implement**: Validate all clauses have same parameter count
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/clauses.rs` — parameter count validation
+  - [ ] **Ori Tests**: `tests/compile-fail/clause_param_count_mismatch.ori`
+  - [ ] **LLVM Support**: LLVM codegen for parameter count validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — parameter count validation codegen
+
+- [ ] **Implement**: Validate all clauses have same return type
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/clauses.rs` — return type validation
+  - [ ] **Ori Tests**: `tests/compile-fail/clause_return_type_mismatch.ori`
+  - [ ] **LLVM Support**: LLVM codegen for return type validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — return type validation codegen
+
+- [ ] **Implement**: Validate all clauses have same capabilities (`uses`)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/clauses.rs` — capability validation
+  - [ ] **Ori Tests**: `tests/compile-fail/clause_capability_mismatch.ori`
+  - [ ] **LLVM Support**: LLVM codegen for capability validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — capability validation codegen
+
+- [ ] **Implement**: First clause rules (visibility, generics, types)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/clauses.rs` — first clause signature
+  - [ ] **Ori Tests**: `tests/spec/declarations/first_clause_rules.ori`
+  - [ ] **LLVM Support**: LLVM codegen for first clause rules
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — first clause rules codegen
+
+- [ ] **Implement**: Type inference for subsequent clause parameters
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/clauses.rs` — clause type inference
+  - [ ] **Ori Tests**: `tests/spec/declarations/clause_type_inference.ori`
+  - [ ] **LLVM Support**: LLVM codegen for clause type inference
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — clause type inference codegen
+
+- [ ] **Implement**: Error if visibility/generics repeated on subsequent clauses
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/clauses.rs` — duplicate modifier errors
+  - [ ] **Ori Tests**: `tests/compile-fail/clause_duplicate_modifiers.ori`
+  - [ ] **LLVM Support**: LLVM codegen for duplicate modifier errors
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — duplicate modifier errors codegen
+
+### Exhaustiveness & Reachability
+
+- [ ] **Implement**: Exhaustiveness checking across all clauses
+  - [ ] **Rust Tests**: `oric/src/typeck/exhaustiveness.rs` — clause exhaustiveness
+  - [ ] **Ori Tests**: `tests/compile-fail/clause_non_exhaustive.ori`
+  - [ ] **LLVM Support**: LLVM codegen for clause exhaustiveness
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — clause exhaustiveness codegen
+
+- [ ] **Implement**: Unreachable clause detection and warnings
+  - [ ] **Rust Tests**: `oric/src/typeck/exhaustiveness.rs` — unreachable clause warning
+  - [ ] **Ori Tests**: `tests/warnings/unreachable_clause.ori`
+  - [ ] **LLVM Support**: LLVM codegen for unreachable clause warning
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — unreachable clause warning codegen
+
+### Code Generation
+
+- [ ] **Implement**: Desugar clauses to single function with `match`
+  - [ ] **Rust Tests**: `oric/src/codegen/clauses.rs` — clause desugaring
+  - [ ] **Ori Tests**: `tests/spec/declarations/clause_desugaring.ori`
+  - [ ] **LLVM Support**: LLVM codegen for clause desugaring
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — clause desugaring codegen
+
+- [ ] **Implement**: Desugar `if` guards to `.match()` in patterns
+  - [ ] **Rust Tests**: `oric/src/codegen/clauses.rs` — guard desugaring
+  - [ ] **Ori Tests**: `tests/spec/declarations/guard_desugaring.ori`
+  - [ ] **LLVM Support**: LLVM codegen for guard desugaring
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — guard desugaring codegen
+
+### Integration
+
+- [ ] **Implement**: Named argument reordering before pattern matching
+  - [ ] **Rust Tests**: `oric/src/codegen/call.rs` — argument reordering
+  - [ ] **Ori Tests**: `tests/spec/expressions/clause_named_args.ori`
+  - [ ] **LLVM Support**: LLVM codegen for argument reordering
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — argument reordering codegen
+
+- [ ] **Implement**: Default parameter filling before pattern matching
+  - [ ] **Rust Tests**: `oric/src/codegen/call.rs` — default filling with clauses
+  - [ ] **Ori Tests**: `tests/spec/expressions/clause_default_params.ori`
+  - [ ] **LLVM Support**: LLVM codegen for default filling with clauses
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — default filling codegen
+
+- [ ] **Implement**: Tests target function name (cover all clauses)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/test.rs` — clause test targeting
+  - [ ] **Ori Tests**: `tests/spec/testing/clause_tests.ori`
+  - [ ] **LLVM Support**: LLVM codegen for clause test targeting
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — clause test targeting codegen
+
+---
+
+## 15.10 Phase Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[x]`
 - [ ] All spec docs updated

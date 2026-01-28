@@ -125,6 +125,12 @@
 - Allows `param: Type = default_expr` syntax; call-time evaluation; works with named args
 - Blocked on: None (can be implemented independently)
 
+**Multiple Function Clauses** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/function-clauses-proposal.md`
+- Implementation: Phase 15.9
+- Pattern matching in function parameters; `if` guards; first-clause establishes signature
+- Blocked on: Phase 9 (needs exhaustiveness checking from match)
+
 ---
 
 ## Milestones
