@@ -14,7 +14,6 @@
 
 use crate::{Environment, FunctionValue, UserMethod, UserMethodRegistry, Value};
 use ori_ir::{Module, Name, SharedArena, TypeDeclKind};
-use ori_parse::ParseResult;
 use std::collections::{HashMap, HashSet};
 
 /// Register all functions from a module into the environment.
@@ -24,19 +23,12 @@ use std::collections::{HashMap, HashSet};
 ///
 /// # Arguments
 ///
-/// * `parse_result` - The parsed module containing functions to register
+/// * `module` - The module containing functions to register
+/// * `arena` - Shared arena for expression lookup
 /// * `env` - The environment to register functions into
-pub fn register_module_functions(parse_result: &ParseResult, env: &mut Environment) {
-    // Create a shared arena for all functions in this module
-    let shared_arena = SharedArena::new(parse_result.arena.clone());
-
-    for func in &parse_result.module.functions {
-        let params: Vec<_> = parse_result
-            .arena
-            .get_params(func.params)
-            .iter()
-            .map(|p| p.name)
-            .collect();
+pub fn register_module_functions(module: &Module, arena: &SharedArena, env: &mut Environment) {
+    for func in &module.functions {
+        let params = arena.get_param_names(func.params);
         let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
         let captures = env.capture();
 
@@ -44,7 +36,7 @@ pub fn register_module_functions(parse_result: &ParseResult, env: &mut Environme
             params,
             func.body,
             captures,
-            shared_arena.clone(),
+            arena.clone(),
             capabilities,
         );
         env.define(func.name, Value::Function(func_value), false);
@@ -62,10 +54,11 @@ pub fn register_module_functions(parse_result: &ParseResult, env: &mut Environme
 /// * `arena` - Shared arena for expression lookup
 /// * `captures` - Variable captures from the current environment
 /// * `registry` - Registry to store collected methods
+#[expect(clippy::implicit_hasher, reason = "captures use default hasher throughout codebase")]
 pub fn collect_impl_methods(
     module: &Module,
     arena: &SharedArena,
-    captures: HashMap<Name, Value>,
+    captures: &HashMap<Name, Value>,
     registry: &mut UserMethodRegistry,
 ) {
     // First, build a map of trait names to their definitions for default method lookup
@@ -135,10 +128,11 @@ pub fn collect_impl_methods(
 /// * `arena` - Shared arena for expression lookup
 /// * `captures` - Variable captures from the current environment
 /// * `registry` - Registry to store collected methods
+#[expect(clippy::implicit_hasher, reason = "captures use default hasher throughout codebase")]
 pub fn collect_extend_methods(
     module: &Module,
     arena: &SharedArena,
-    captures: HashMap<Name, Value>,
+    captures: &HashMap<Name, Value>,
     registry: &mut UserMethodRegistry,
 ) {
     for extend_def in &module.extends {
@@ -211,14 +205,17 @@ pub fn register_newtype_constructors(module: &Module, env: &mut Environment) {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "tests use unwrap for brevity")]
 mod tests {
     use super::*;
     use ori_ir::SharedInterner;
+    use ori_lexer::lex;
+    use ori_parse::{parse, ParseResult};
 
     fn parse_source(source: &str) -> (ParseResult, SharedInterner) {
         let interner = SharedInterner::default();
-        let tokens = ori_lexer::lex(source, &interner);
-        let result = ori_parse::parse(&tokens, &interner);
+        let tokens = lex(source, &interner);
+        let result = parse(&tokens, &interner);
         (result, interner)
     }
 
@@ -231,14 +228,15 @@ mod tests {
         ",
         );
 
+        let arena = SharedArena::new(result.arena.clone());
         let mut env = Environment::new();
-        register_module_functions(&result, &mut env);
+        register_module_functions(&result.module, &arena, &mut env);
 
         let add_name = interner.intern("add");
         let main_name = interner.intern("main");
 
-        assert!(env.get(add_name).is_some());
-        assert!(env.get(main_name).is_some());
+        assert!(env.lookup(add_name).is_some());
+        assert!(env.lookup(main_name).is_some());
     }
 
     #[test]
@@ -256,12 +254,12 @@ mod tests {
         let done_name = interner.intern("Done");
 
         // Unit variant should be a Value::Variant
-        let running = env.get(running_name);
+        let running = env.lookup(running_name);
         assert!(running.is_some());
         assert!(matches!(running.unwrap(), Value::Variant { .. }));
 
         // Variant with fields should be a constructor
-        let done = env.get(done_name);
+        let done = env.lookup(done_name);
         assert!(done.is_some());
         assert!(matches!(done.unwrap(), Value::VariantConstructor { .. }));
     }
@@ -279,7 +277,7 @@ mod tests {
 
         let userid_name = interner.intern("UserId");
 
-        let constructor = env.get(userid_name);
+        let constructor = env.lookup(userid_name);
         assert!(constructor.is_some());
         assert!(matches!(
             constructor.unwrap(),
@@ -303,12 +301,12 @@ mod tests {
         let mut registry = UserMethodRegistry::new();
         let captures = HashMap::new();
 
-        collect_impl_methods(&result.module, &arena, captures, &mut registry);
+        collect_impl_methods(&result.module, &arena, &captures, &mut registry);
 
         let point_name = interner.intern("Point");
         let sum_name = interner.intern("sum");
 
-        assert!(registry.get(point_name, sum_name).is_some());
+        assert!(registry.lookup(point_name, sum_name).is_some());
     }
 
     #[test]
@@ -325,11 +323,11 @@ mod tests {
         let mut registry = UserMethodRegistry::new();
         let captures = HashMap::new();
 
-        collect_extend_methods(&result.module, &arena, captures, &mut registry);
+        collect_extend_methods(&result.module, &arena, &captures, &mut registry);
 
         let list_name = interner.intern("list");
         let double_name = interner.intern("double");
 
-        assert!(registry.get(list_name, double_name).is_some());
+        assert!(registry.lookup(list_name, double_name).is_some());
     }
 }

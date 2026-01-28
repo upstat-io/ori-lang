@@ -23,6 +23,7 @@ The evaluator is split between two crates:
 ```
 compiler/ori_eval/src/
 ├── lib.rs                    # Module exports, re-exports from ori_patterns
+├── module_registration.rs    # Salsa-free module registration (impl, extend, constructors)
 ├── environment.rs            # Environment, Scope, LocalScope
 ├── errors.rs                 # EvalError factory functions
 ├── operators.rs              # Binary operator dispatch
@@ -421,6 +422,129 @@ where
 This pattern appears in `ori_eval/src/interpreter/`:
 - `function_call.rs` - calling user functions
 - `method_dispatch.rs` - calling user methods
+
+## Module Registration (Salsa-Free)
+
+The `ori_eval` crate provides standalone module registration functions that work without
+Salsa dependencies. This enables any client (CLI, WASM playground, embedded interpreters)
+to use the full Ori interpreter.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     ori_eval                            │
+│  (Salsa-free, fully standalone)                        │
+│                                                         │
+│  module_registration.rs:                               │
+│    - register_module_functions()                        │
+│    - collect_impl_methods()                            │
+│    - collect_extend_methods()                          │
+│    - register_variant_constructors()                   │
+│    - register_newtype_constructors()                   │
+└─────────────────────────────────────────────────────────┘
+              ▲                           ▲
+              │                           │
+    ┌─────────┴─────────┐       ┌────────┴────────┐
+    │       oric        │       │  Any Client     │
+    │  (Salsa queries,  │       │  (WASM, embed,  │
+    │   file loading)   │       │   tests, etc.)  │
+    └───────────────────┘       └─────────────────┘
+```
+
+### Registration Functions
+
+All functions are pure and take explicit parameters (no `&self` from Evaluator):
+
+```rust
+/// Register all functions from a module into the environment.
+pub fn register_module_functions(module: &Module, arena: &SharedArena, env: &mut Environment);
+
+/// Collect methods from impl blocks into a registry.
+pub fn collect_impl_methods(
+    module: &Module,
+    arena: &SharedArena,
+    captures: &HashMap<Name, Value>,
+    registry: &mut UserMethodRegistry,
+);
+
+/// Collect methods from extend blocks into a registry.
+pub fn collect_extend_methods(
+    module: &Module,
+    arena: &SharedArena,
+    captures: &HashMap<Name, Value>,
+    registry: &mut UserMethodRegistry,
+);
+
+/// Register variant constructors from sum type declarations.
+pub fn register_variant_constructors(module: &Module, env: &mut Environment);
+
+/// Register newtype constructors from type declarations.
+pub fn register_newtype_constructors(module: &Module, env: &mut Environment);
+```
+
+### Usage in oric (Salsa-based)
+
+The `oric` crate handles Salsa-tracked file loading and parsing, then delegates
+to these functions:
+
+```rust
+// In oric/src/eval/evaluator/module_loading.rs
+pub fn load_module(&mut self, parse_result: &ParseResult, file_path: &Path) -> Result<(), String> {
+    // ... resolve imports via Salsa ...
+
+    let shared_arena = SharedArena::new(parse_result.arena.clone());
+
+    // Delegate to ori_eval for registration
+    register_module_functions(&parse_result.module, &shared_arena, self.env_mut());
+    register_variant_constructors(&parse_result.module, self.env_mut());
+    register_newtype_constructors(&parse_result.module, self.env_mut());
+
+    // Build user method registry
+    let mut user_methods = UserMethodRegistry::new();
+    let captures = self.env().capture();
+    collect_impl_methods(&parse_result.module, &shared_arena, &captures, &mut user_methods);
+    collect_extend_methods(&parse_result.module, &shared_arena, &captures, &mut user_methods);
+
+    // Process derives and merge
+    process_derives(&parse_result.module, &type_registry, &mut user_methods, self.interner());
+    self.user_method_registry().write().merge(user_methods);
+
+    Ok(())
+}
+```
+
+### Usage in WASM Playground
+
+The WASM playground uses the same functions without any Salsa dependency:
+
+```rust
+// In playground/wasm/src/lib.rs
+fn run_ori_internal(source: &str) -> RunResult {
+    // ... parse and type check ...
+
+    let shared_arena = SharedArena::new(parse_result.arena.clone());
+
+    // Build user method registry
+    let mut user_methods = UserMethodRegistry::new();
+    let captures = interpreter.env().capture();
+    collect_impl_methods(&parse_result.module, &shared_arena, &captures, &mut user_methods);
+    collect_extend_methods(&parse_result.module, &shared_arena, &captures, &mut user_methods);
+
+    // Process derives
+    process_derives(&parse_result.module, &type_registry, &mut user_methods, &interner);
+
+    // Merge into interpreter
+    interpreter.user_method_registry.write().merge(user_methods);
+
+    // Register functions and constructors
+    register_module_functions(&parse_result.module, &shared_arena, interpreter.env_mut());
+    register_variant_constructors(&parse_result.module, interpreter.env_mut());
+    register_newtype_constructors(&parse_result.module, interpreter.env_mut());
+
+    // ... execute @main ...
+}
+```
 
 ## Related Documents
 

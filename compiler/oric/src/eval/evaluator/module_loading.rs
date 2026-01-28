@@ -5,12 +5,15 @@
 
 use super::super::module::import;
 use super::Evaluator;
-use crate::ir::{Name, SharedArena, TypeDeclKind};
+use crate::ir::SharedArena;
 use crate::parser::ParseResult;
 use crate::query::parsed;
 use crate::typeck::derives::process_derives;
 use crate::typeck::type_registry::TypeRegistry;
-use ori_eval::{UserMethod, UserMethodRegistry, Value};
+use ori_eval::{
+    collect_extend_methods, collect_impl_methods, register_module_functions,
+    register_newtype_constructors, register_variant_constructors, UserMethodRegistry,
+};
 use std::path::{Path, PathBuf};
 
 impl Evaluator<'_> {
@@ -126,24 +129,25 @@ impl Evaluator<'_> {
             .map_err(|e| e.message)?;
         }
 
-        // Then register all local functions
-        import::register_module_functions(parse_result, self.env_mut());
-
-        // Register variant constructors from type declarations
-        self.register_variant_constructors(&parse_result.module);
-
-        // Register newtype constructors from type declarations
-        self.register_newtype_constructors(&parse_result.module);
-
         // Create a shared arena for all methods in this module
         // This ensures methods carry their arena reference for correct evaluation
         // when called from different contexts (e.g., from within a prelude function)
         let shared_arena = SharedArena::new(parse_result.arena.clone());
 
+        // Then register all local functions
+        register_module_functions(&parse_result.module, &shared_arena, self.env_mut());
+
+        // Register variant constructors from type declarations
+        register_variant_constructors(&parse_result.module, self.env_mut());
+
+        // Register newtype constructors from type declarations
+        register_newtype_constructors(&parse_result.module, self.env_mut());
+
         // Build up user method registry from impl and extend blocks
         let mut user_methods = UserMethodRegistry::new();
-        self.collect_impl_methods(&parse_result.module, &shared_arena, &mut user_methods);
-        self.collect_extend_methods(&parse_result.module, &shared_arena, &mut user_methods);
+        let captures = self.env().capture();
+        collect_impl_methods(&parse_result.module, &shared_arena, &captures, &mut user_methods);
+        collect_extend_methods(&parse_result.module, &shared_arena, &captures, &mut user_methods);
 
         // Process derived traits (Eq, Clone, Hashable, Printable, Default)
         // Note: We use an empty TypeRegistry here since derive processing doesn't need it
@@ -162,147 +166,5 @@ impl Evaluator<'_> {
         self.user_method_registry().write().merge(user_methods);
 
         Ok(())
-    }
-
-    /// Collect methods from impl blocks into a registry.
-    ///
-    /// Takes a `SharedArena` so that methods carry their arena reference for
-    /// correct evaluation when called from different contexts.
-    pub(super) fn collect_impl_methods(
-        &self,
-        module: &crate::ir::Module,
-        arena: &SharedArena,
-        registry: &mut UserMethodRegistry,
-    ) {
-        // First, build a map of trait names to their definitions for default method lookup
-        let mut trait_map: std::collections::HashMap<Name, &crate::ir::TraitDef> =
-            std::collections::HashMap::new();
-        for trait_def in &module.traits {
-            trait_map.insert(trait_def.name, trait_def);
-        }
-
-        for impl_def in &module.impls {
-            // Get the type name from self_path (e.g., "Point" for `impl Point { ... }`)
-            let Some(&type_name) = impl_def.self_path.last() else {
-                continue; // Skip if no type path
-            };
-
-            // Collect names of methods explicitly defined in this impl
-            let mut overridden_methods: std::collections::HashSet<Name> =
-                std::collections::HashSet::new();
-
-            // Register each explicitly defined method
-            for method in &impl_def.methods {
-                overridden_methods.insert(method.name);
-
-                // Get parameter names
-                let params = arena.get_param_names(method.params);
-
-                // Create user method with captures and arena
-                let user_method =
-                    UserMethod::new(params, method.body, self.env().capture(), arena.clone());
-
-                registry.register(type_name, method.name, user_method);
-            }
-
-            // For trait impls, also register default trait methods that weren't overridden
-            if let Some(trait_path) = &impl_def.trait_path {
-                if let Some(&trait_name) = trait_path.last() {
-                    if let Some(trait_def) = trait_map.get(&trait_name) {
-                        for item in &trait_def.items {
-                            if let crate::ir::TraitItem::DefaultMethod(default_method) = item {
-                                // Only register if not overridden
-                                if !overridden_methods.contains(&default_method.name) {
-                                    let params = arena.get_param_names(default_method.params);
-
-                                    let user_method = UserMethod::new(
-                                        params,
-                                        default_method.body,
-                                        self.env().capture(),
-                                        arena.clone(),
-                                    );
-
-                                    registry.register(type_name, default_method.name, user_method);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Collect methods from extend blocks into a registry.
-    ///
-    /// Takes a `SharedArena` so that methods carry their arena reference for
-    /// correct evaluation when called from different contexts.
-    pub(super) fn collect_extend_methods(
-        &self,
-        module: &crate::ir::Module,
-        arena: &SharedArena,
-        registry: &mut UserMethodRegistry,
-    ) {
-        for extend_def in &module.extends {
-            // Get the target type name (e.g., "list" for `extend [T] { ... }`)
-            let type_name = extend_def.target_type_name;
-
-            // Register each method
-            for method in &extend_def.methods {
-                // Get parameter names
-                let params = arena.get_param_names(method.params);
-
-                // Create user method with captures and arena
-                let user_method =
-                    UserMethod::new(params, method.body, self.env().capture(), arena.clone());
-
-                registry.register(type_name, method.name, user_method);
-            }
-        }
-    }
-
-    /// Register variant constructors from sum type declarations.
-    ///
-    /// For each sum type (enum), registers each variant as a constructor:
-    /// - Unit variants (no fields) are bound directly as `Value::Variant`
-    /// - Variants with fields are bound as constructor functions
-    fn register_variant_constructors(&mut self, module: &crate::ir::Module) {
-        for type_decl in &module.types {
-            if let TypeDeclKind::Sum(variants) = &type_decl.kind {
-                let type_name = type_decl.name;
-
-                for variant in variants {
-                    if variant.fields.is_empty() {
-                        // Unit variant: bind directly as Value::Variant
-                        let value = Value::variant(type_name, variant.name, vec![]);
-                        self.env_mut().define_global(variant.name, value);
-                    } else {
-                        // Variant with fields: create a constructor function
-                        // For now, we'll use a special VariantConstructor value type
-                        // that the evaluator recognizes during function calls
-                        let value = Value::variant_constructor(
-                            type_name,
-                            variant.name,
-                            variant.fields.len(),
-                        );
-                        self.env_mut().define_global(variant.name, value);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Register newtype constructors from type declarations.
-    ///
-    /// For each newtype (e.g., `type UserId = str`), registers the type name
-    /// as a constructor that wraps the underlying value.
-    fn register_newtype_constructors(&mut self, module: &crate::ir::Module) {
-        for type_decl in &module.types {
-            if let TypeDeclKind::Newtype(_) = &type_decl.kind {
-                let type_name = type_decl.name;
-                // Bind the newtype constructor to the type name
-                let value = Value::newtype_constructor(type_name);
-                self.env_mut().define_global(type_name, value);
-            }
-        }
     }
 }

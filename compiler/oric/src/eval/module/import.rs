@@ -486,36 +486,6 @@ pub fn register_imports(
     Ok(())
 }
 
-/// Register all functions from a module into the environment.
-///
-/// IMPORTANT: All functions carry a `SharedArena` reference to ensure correct
-/// evaluation when called from different contexts (e.g., from within a prelude
-/// function or other imported code).
-pub fn register_module_functions(parse_result: &ParseResult, env: &mut Environment) {
-    // Create a shared arena for all functions in this module
-    let shared_arena = SharedArena::new(parse_result.arena.clone());
-
-    for func in &parse_result.module.functions {
-        let params: Vec<_> = parse_result
-            .arena
-            .get_params(func.params)
-            .iter()
-            .map(|p| p.name)
-            .collect();
-        let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
-        let captures = env.capture();
-        // Use from_import_with_capabilities to include the arena reference
-        let func_value = FunctionValue::with_capabilities(
-            params,
-            func.body,
-            captures,
-            shared_arena.clone(),
-            capabilities,
-        );
-        env.define(func.name, Value::Function(func_value), false);
-    }
-}
-
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
