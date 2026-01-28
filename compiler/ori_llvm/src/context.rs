@@ -274,18 +274,13 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     /// Compute the LLVM type for a `TypeId` (uncached).
     fn compute_llvm_type(&self, type_id: TypeId) -> BasicTypeEnum<'ll> {
         match type_id {
-            TypeId::INT => self.scx.type_i64().into(),
             TypeId::FLOAT => self.scx.type_f64().into(),
             TypeId::BOOL => self.scx.type_i1().into(),
             TypeId::CHAR => self.scx.type_i32().into(), // Unicode codepoint
             TypeId::BYTE => self.scx.type_i8().into(),
             TypeId::STR => self.string_type().into(),
-            TypeId::VOID | TypeId::NEVER => {
-                // Void/Never shouldn't be used as values, but return i64 as fallback
-                self.scx.type_i64().into()
-            }
-            // Unknown types (including unresolved type variables) default to i64.
-            // This handles generic functions where T is not yet resolved.
+            // INT, VOID, NEVER, and unknown types (including unresolved type variables)
+            // default to i64. This handles generic functions where T is not yet resolved.
             // Using i64 as the fallback ensures type compatibility with extracted
             // values from Option/Result structs.
             _ => self.scx.type_i64().into(),

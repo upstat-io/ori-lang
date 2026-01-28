@@ -176,9 +176,8 @@ impl<'ll> Builder<'_, 'll, '_> {
             MatchPattern::Variant { name, inner: _ } => {
                 // For Option/Result, check the tag
                 // Scrutinee should be a struct { i8 tag, T value }
-                let struct_val = match scrutinee {
-                    BasicValueEnum::StructValue(sv) => sv,
-                    _ => return None, // Can't match variant on non-struct
+                let BasicValueEnum::StructValue(struct_val) = scrutinee else {
+                    return None; // Can't match variant on non-struct
                 };
 
                 // Extract tag
@@ -188,9 +187,9 @@ impl<'ll> Builder<'_, 'll, '_> {
                 // Get expected tag based on variant name
                 let variant_name = self.cx().interner.lookup(*name);
                 let expected_tag = match variant_name {
-                    "None" | "Ok" => 0,
                     "Some" | "Err" => 1,
-                    _ => 0, // Unknown variant - assume tag 0
+                    // None, Ok, and unknown variants use tag 0
+                    _ => 0,
                 };
 
                 let expected = self.cx().scx.type_i8().const_int(expected_tag, false);

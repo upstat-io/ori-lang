@@ -8,6 +8,10 @@ use crate::builder::Builder;
 
 impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a binary operation.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "large match on BinaryOp - splitting would obscure the operation dispatch"
+    )]
     pub(crate) fn compile_binary_op(
         &self,
         op: BinaryOp,

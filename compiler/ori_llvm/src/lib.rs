@@ -3,6 +3,32 @@
 //! This crate provides native code generation via LLVM, following patterns
 //! from Rust's `rustc_codegen_llvm`.
 //!
+//! # Clippy Configuration
+//!
+//! This crate intentionally allows certain clippy lints that are common in
+//! low-level codegen code:
+//! - Cast warnings: LLVM APIs use specific integer widths (u32 for indices, i64 for values)
+//! - Too many arguments: Codegen functions naturally thread through many context values
+//! - Missing panic docs: Internal panics are invariant violations, not API concerns
+
+// Crate-level lint configuration for codegen-specific patterns
+#![allow(
+    // LLVM uses u32 for struct/array indices, we use usize in Rust
+    clippy::cast_possible_truncation,
+    // Ori uses i64 for integers, conversions to usize are intentional
+    clippy::cast_sign_loss,
+    // usize to i64 is safe on 64-bit (our target), acceptable wrap on 32-bit
+    clippy::cast_possible_wrap,
+    // Codegen functions thread through context, arena, types, locals, etc.
+    clippy::too_many_arguments,
+    // Internal functions - panics are invariant violations
+    clippy::missing_panics_doc,
+    // Most Result returns are for LLVM builder operations
+    clippy::missing_errors_doc,
+    // Compile functions return Option to propagate compilation failures
+    clippy::unnecessary_wraps,
+)]
+//!
 //! # Architecture
 //!
 //! The crate is organized following Rust's two-tier codegen architecture:
@@ -104,11 +130,11 @@ pub fn init_tracing() {
 
 /// Loop context for break/continue.
 #[derive(Clone)]
-pub(crate) struct LoopContext<'ctx> {
+pub struct LoopContext<'ctx> {
     /// Block to jump to on continue.
     pub header: inkwell::basic_block::BasicBlock<'ctx>,
     /// Block to jump to on break.
     pub exit: inkwell::basic_block::BasicBlock<'ctx>,
     /// Phi node for break values (if any). TODO: use for break-with-value.
-    pub _break_phi: Option<PhiValue<'ctx>>,
+    pub break_phi: Option<PhiValue<'ctx>>,
 }

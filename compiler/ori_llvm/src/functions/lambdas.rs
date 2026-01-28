@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use inkwell::types::BasicMetadataTypeEnum;
 use inkwell::values::{BasicValueEnum, FunctionValue};
@@ -17,6 +18,9 @@ use ori_ir::ast::ExprKind;
 use ori_ir::{ExprArena, ExprId, Name, TypeId};
 
 use crate::builder::Builder;
+
+/// Counter for generating unique lambda function names.
+static LAMBDA_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a lambda expression.
@@ -42,8 +46,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         let captures = self.find_captures(body, arena, &param_names, locals);
 
         // Create a unique name for this lambda
-        static LAMBDA_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let lambda_id = LAMBDA_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let lambda_id = LAMBDA_COUNTER.fetch_add(1, Ordering::SeqCst);
         let lambda_name = format!("__lambda_{lambda_id}");
 
         // Build parameter types: regular params + captured values (all as i64)
@@ -164,6 +167,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     }
 
     /// Recursively collect free variables in an expression.
+    #[allow(clippy::self_only_used_in_recursion)]
     fn collect_free_vars(
         &self,
         expr_id: ExprId,

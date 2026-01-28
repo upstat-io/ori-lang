@@ -621,6 +621,10 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     /// Compile an expression, dispatching to the appropriate helper method.
     ///
     /// This is the main entry point for expression compilation in the LLVM backend.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "large match on ExprKind - splitting would obscure the dispatch logic"
+    )]
     #[instrument(
         skip(self, arena, expr_types, locals, function, loop_ctx),
         level = "trace"
@@ -768,8 +772,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                 self.compile_call_named(*func, *args, arena, expr_types, locals, function, loop_ctx)
             }
 
-            // Unit
-            ExprKind::Unit => None,
+            // Unit produces no value; Error is a placeholder that shouldn't be reached
+            ExprKind::Unit | ExprKind::Error => None,
 
             // Config variable (compile-time constant)
             ExprKind::Config(name) => self.compile_config(*name, locals),
@@ -900,9 +904,6 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             // Named expression patterns (recurse, parallel, etc.)
             ExprKind::FunctionExp(exp) => self
                 .compile_function_exp(exp, type_id, arena, expr_types, locals, function, loop_ctx),
-
-            // Error placeholder - should not be reached at runtime
-            ExprKind::Error => None,
         }
     }
 
