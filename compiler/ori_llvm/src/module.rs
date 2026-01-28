@@ -1,214 +1,157 @@
 //! Module-level LLVM compilation.
 //!
 //! Compiles an entire Ori module (all functions, tests) to LLVM IR.
-
-use std::collections::HashMap;
+//!
+//! # Architecture
+//!
+//! This module provides high-level compilation orchestration using
+//! [`CodegenCx`](crate::context::CodegenCx) for context management and
+//! [`Builder`](crate::builder::Builder) for instruction generation.
+//!
+//! Two-phase codegen pattern:
+//! 1. **Predefine**: Declare all symbols (functions, globals) with `declare_fn`
+//! 2. **Define**: Generate function bodies with `Builder`
 
 use inkwell::context::Context;
-use inkwell::module::Linkage;
 use inkwell::values::FunctionValue;
-use inkwell::AddressSpace;
 
 use ori_ir::{ExprArena, Function, Name, StringInterner, TestDef, TypeId};
 
-use crate::LLVMCodegen;
+use crate::builder::Builder;
+use crate::context::CodegenCx;
 
 /// Compiler for a complete Ori module.
-pub struct ModuleCompiler<'ctx> {
-    codegen: LLVMCodegen<'ctx>,
-    /// Map from function names to their LLVM function values.
-    functions: HashMap<Name, FunctionValue<'ctx>>,
-    /// Map from test names to their LLVM function values.
-    tests: HashMap<Name, FunctionValue<'ctx>>,
+///
+/// Wraps `CodegenCx` and provides high-level compilation methods.
+/// Function and test registrations are managed by `CodegenCx` internally.
+pub struct ModuleCompiler<'ll, 'tcx> {
+    /// The codegen context.
+    cx: CodegenCx<'ll, 'tcx>,
 }
 
-impl<'ctx> ModuleCompiler<'ctx> {
+impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
     /// Create a new module compiler.
-    pub fn new(context: &'ctx Context, interner: &'ctx StringInterner, module_name: &str) -> Self {
-        let codegen = LLVMCodegen::new(context, interner, module_name);
+    pub fn new(context: &'ll Context, interner: &'tcx StringInterner, module_name: &str) -> Self {
+        let cx = CodegenCx::new(context, interner, module_name);
 
-        Self {
-            codegen,
-            functions: HashMap::new(),
-            tests: HashMap::new(),
-        }
+        Self { cx }
     }
 
-    /// Get the underlying codegen.
-    pub fn codegen(&self) -> &LLVMCodegen<'ctx> {
-        &self.codegen
+    /// Get the codegen context.
+    pub fn cx(&self) -> &CodegenCx<'ll, 'tcx> {
+        &self.cx
     }
 
     /// Get the LLVM module.
-    pub fn module(&self) -> &inkwell::module::Module<'ctx> {
-        self.codegen.module()
+    pub fn module(&self) -> &inkwell::module::Module<'ll> {
+        self.cx.llmod()
     }
 
     /// Declare runtime functions that Ori code can call.
     pub fn declare_runtime(&self) {
-        let context = self.codegen.context;
-        let module = self.codegen.module();
-
-        let void_type = context.void_type();
-        let i64_type = context.i64_type();
-        let i32_type = context.i32_type();
-        let _i8_type = context.i8_type();
-        let f64_type = context.f64_type();
-        let bool_type = context.bool_type();
-        let ptr_type = context.ptr_type(AddressSpace::default());
-
-        // void ori_print(OriStr*)
-        let print_type = void_type.fn_type(&[ptr_type.into()], false);
-        module.add_function("ori_print", print_type, Some(Linkage::External));
-
-        // void ori_print_int(i64)
-        let print_int_type = void_type.fn_type(&[i64_type.into()], false);
-        module.add_function("ori_print_int", print_int_type, Some(Linkage::External));
-
-        // void ori_print_float(f64)
-        let print_float_type = void_type.fn_type(&[f64_type.into()], false);
-        module.add_function("ori_print_float", print_float_type, Some(Linkage::External));
-
-        // void ori_print_bool(bool)
-        let print_bool_type = void_type.fn_type(&[bool_type.into()], false);
-        module.add_function("ori_print_bool", print_bool_type, Some(Linkage::External));
-
-        // void ori_panic(OriStr*)
-        let panic_type = void_type.fn_type(&[ptr_type.into()], false);
-        module.add_function("ori_panic", panic_type, Some(Linkage::External));
-
-        // void ori_panic_cstr(i8*)
-        let panic_cstr_type = void_type.fn_type(&[ptr_type.into()], false);
-        module.add_function("ori_panic_cstr", panic_cstr_type, Some(Linkage::External));
-
-        // void ori_assert(bool)
-        let assert_type = void_type.fn_type(&[bool_type.into()], false);
-        module.add_function("ori_assert", assert_type, Some(Linkage::External));
-
-        // void ori_assert_eq_int(i64, i64)
-        let assert_eq_int_type = void_type.fn_type(&[i64_type.into(), i64_type.into()], false);
-        module.add_function("ori_assert_eq_int", assert_eq_int_type, Some(Linkage::External));
-
-        // void ori_assert_eq_bool(bool, bool)
-        let assert_eq_bool_type = void_type.fn_type(&[bool_type.into(), bool_type.into()], false);
-        module.add_function("ori_assert_eq_bool", assert_eq_bool_type, Some(Linkage::External));
-
-        // OriList* ori_list_new(i64 capacity, i64 elem_size)
-        let list_new_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into()], false);
-        module.add_function("ori_list_new", list_new_type, Some(Linkage::External));
-
-        // void ori_list_free(OriList*, i64 elem_size)
-        let list_free_type = void_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
-        module.add_function("ori_list_free", list_free_type, Some(Linkage::External));
-
-        // i64 ori_list_len(OriList*)
-        let list_len_type = i64_type.fn_type(&[ptr_type.into()], false);
-        module.add_function("ori_list_len", list_len_type, Some(Linkage::External));
-
-        // i32 ori_compare_int(i64, i64)
-        let compare_type = i32_type.fn_type(&[i64_type.into(), i64_type.into()], false);
-        module.add_function("ori_compare_int", compare_type, Some(Linkage::External));
-
-        // i64 ori_min_int(i64, i64)
-        let min_type = i64_type.fn_type(&[i64_type.into(), i64_type.into()], false);
-        module.add_function("ori_min_int", min_type, Some(Linkage::External));
-
-        // i64 ori_max_int(i64, i64)
-        let max_type = i64_type.fn_type(&[i64_type.into(), i64_type.into()], false);
-        module.add_function("ori_max_int", max_type, Some(Linkage::External));
-
-        // String type is { i64, ptr }
-        let str_type = context.struct_type(&[i64_type.into(), ptr_type.into()], false);
-
-        // OriStr ori_str_concat(OriStr*, OriStr*)
-        let str_concat_type = str_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
-        module.add_function("ori_str_concat", str_concat_type, Some(Linkage::External));
-
-        // bool ori_str_eq(OriStr*, OriStr*)
-        let str_eq_type = bool_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
-        module.add_function("ori_str_eq", str_eq_type, Some(Linkage::External));
-
-        // bool ori_str_ne(OriStr*, OriStr*)
-        let str_ne_type = bool_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
-        module.add_function("ori_str_ne", str_ne_type, Some(Linkage::External));
-
-        // void ori_assert_eq_str(OriStr*, OriStr*)
-        let assert_eq_str_type = void_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
-        module.add_function("ori_assert_eq_str", assert_eq_str_type, Some(Linkage::External));
+        self.cx.declare_runtime_functions();
     }
 
-    /// Compile a function definition.
+    /// Compile a function definition (legacy - uses hardcoded INT types).
     pub fn compile_function(
-        &mut self,
+        &self,
         func: &Function,
         arena: &ExprArena,
         expr_types: &[TypeId],
     ) {
-        // Get parameter names and types
+        self.compile_function_with_sig(func, arena, expr_types, None);
+    }
+
+    /// Compile a function definition with type signature from the type checker.
+    pub fn compile_function_with_sig(
+        &self,
+        func: &Function,
+        arena: &ExprArena,
+        expr_types: &[TypeId],
+        sig: Option<&crate::evaluator::FunctionSig>,
+    ) {
+        // Get parameter names
         let params = arena.get_params(func.params);
         let param_names: Vec<Name> = params.iter().map(|p| p.name).collect();
 
-        // For now, use INT for all types (proper type mapping would come from type checker)
-        let param_types: Vec<TypeId> = params.iter().map(|_| TypeId::INT).collect();
+        // Use signature if provided, otherwise fall back to INT
+        let (param_types, return_type) = if let Some(sig) = sig {
+            (sig.params.clone(), sig.return_type)
+        } else {
+            // Fallback: use INT for all types
+            let param_types: Vec<TypeId> = params.iter().map(|_| TypeId::INT).collect();
+            (param_types, TypeId::INT)
+        };
 
-        // Get return type (default to INT)
-        let return_type = TypeId::INT;
+        // Phase 1: Declare the function
+        let llvm_func = self.cx.declare_fn(func.name, &param_types, return_type);
 
-        // Compile the function
-        let llvm_func = self.codegen.compile_function(
-            func.name,
+        // Phase 2: Define the function body
+        // Create entry block
+        let entry_bb = self.cx.llcx().append_basic_block(llvm_func, "entry");
+
+        // Create builder positioned at entry
+        let builder = Builder::build(&self.cx, entry_bb);
+
+        // Compile the body
+        builder.compile_function_body(
             &param_names,
-            &param_types,
             return_type,
             func.body,
             arena,
             expr_types,
+            llvm_func,
         );
-
-        self.functions.insert(func.name, llvm_func);
     }
 
     /// Compile a test definition.
     ///
     /// Tests are compiled as void functions that call assertions.
     pub fn compile_test(
-        &mut self,
+        &self,
         test: &TestDef,
         arena: &ExprArena,
         expr_types: &[TypeId],
     ) {
         // Tests are void -> void functions
-        let llvm_func = self.codegen.compile_function(
-            test.name,
-            &[],
+        // Phase 1: Declare
+        let llvm_func = self.cx.declare_fn(test.name, &[], TypeId::VOID);
+
+        // Register as test
+        self.cx.register_test(test.name, llvm_func);
+
+        // Phase 2: Define
+        let entry_bb = self.cx.llcx().append_basic_block(llvm_func, "entry");
+        let builder = Builder::build(&self.cx, entry_bb);
+
+        builder.compile_function_body(
             &[],
             TypeId::VOID,
             test.body,
             arena,
             expr_types,
+            llvm_func,
         );
-
-        self.tests.insert(test.name, llvm_func);
     }
 
     /// Get a compiled function by name.
-    pub fn get_function(&self, name: Name) -> Option<FunctionValue<'ctx>> {
-        self.functions.get(&name).copied()
+    pub fn get_function(&self, name: Name) -> Option<FunctionValue<'ll>> {
+        self.cx.get_function(name)
     }
 
     /// Get a compiled test by name.
-    pub fn get_test(&self, name: Name) -> Option<FunctionValue<'ctx>> {
-        self.tests.get(&name).copied()
+    pub fn get_test(&self, name: Name) -> Option<FunctionValue<'ll>> {
+        self.cx.get_test(name)
     }
 
     /// Get all compiled tests.
-    pub fn tests(&self) -> &HashMap<Name, FunctionValue<'ctx>> {
-        &self.tests
+    pub fn tests(&self) -> std::collections::HashMap<Name, FunctionValue<'ll>> {
+        self.cx.all_tests()
     }
 
     /// Print LLVM IR to string.
     pub fn print_to_string(&self) -> String {
-        self.codegen.print_to_string()
+        self.cx.llmod().print_to_string().to_string()
     }
 
     /// Create JIT execution engine and run a test.
@@ -221,8 +164,15 @@ impl<'ctx> ModuleCompiler<'ctx> {
         // Reset panic state before running
         crate::runtime::reset_panic_state();
 
+        // Debug: print IR before JIT compilation if ORI_DEBUG_LLVM is set
+        if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+            eprintln!("=== LLVM IR for {} ===", test_name);
+            eprintln!("{}", self.cx.llmod().print_to_string().to_string());
+            eprintln!("=== END IR ===");
+        }
+
         // Create JIT execution engine
-        let ee = self.codegen.module()
+        let ee = self.cx.llmod()
             .create_jit_execution_engine(OptimizationLevel::None)
             .map_err(|e| e.to_string())?;
 
@@ -252,7 +202,7 @@ impl<'ctx> ModuleCompiler<'ctx> {
     }
 
     /// Add runtime function mappings to the execution engine.
-    fn add_runtime_mappings(&self, ee: &inkwell::execution_engine::ExecutionEngine<'ctx>) {
+    fn add_runtime_mappings(&self, ee: &inkwell::execution_engine::ExecutionEngine<'ll>) {
         use crate::runtime;
 
         let mappings: &[(&str, usize)] = &[
@@ -275,9 +225,13 @@ impl<'ctx> ModuleCompiler<'ctx> {
             ("ori_str_eq", runtime::ori_str_eq as usize),
             ("ori_str_ne", runtime::ori_str_ne as usize),
             ("ori_assert_eq_str", runtime::ori_assert_eq_str as usize),
+            // Type conversion functions
+            ("ori_str_from_int", runtime::ori_str_from_int as usize),
+            ("ori_str_from_bool", runtime::ori_str_from_bool as usize),
+            ("ori_str_from_float", runtime::ori_str_from_float as usize),
         ];
 
-        let module = self.codegen.module();
+        let module = self.cx.llmod();
         for &(name, addr) in mappings {
             let func = module
                 .get_function(name)
@@ -297,7 +251,7 @@ mod tests {
     fn test_module_compiler_basic() {
         let context = Context::create();
         let interner = StringInterner::new();
-        let mut compiler = ModuleCompiler::new(&context, &interner, "test_module");
+        let compiler = ModuleCompiler::new(&context, &interner, "test_module");
 
         // Declare runtime functions
         compiler.declare_runtime();
@@ -364,7 +318,7 @@ mod tests {
     fn test_module_with_test() {
         let context = Context::create();
         let interner = StringInterner::new();
-        let mut compiler = ModuleCompiler::new(&context, &interner, "test_module");
+        let compiler = ModuleCompiler::new(&context, &interner, "test_module");
 
         // Declare runtime functions
         compiler.declare_runtime();

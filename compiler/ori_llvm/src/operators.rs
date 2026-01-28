@@ -4,17 +4,17 @@ use inkwell::values::BasicValueEnum;
 use ori_ir::ast::{BinaryOp, UnaryOp};
 use ori_ir::TypeId;
 
-use crate::LLVMCodegen;
+use crate::builder::Builder;
 
-impl<'ctx> LLVMCodegen<'ctx> {
+impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     /// Compile a binary operation.
     pub(crate) fn compile_binary_op(
         &self,
         op: BinaryOp,
-        lhs: BasicValueEnum<'ctx>,
-        rhs: BasicValueEnum<'ctx>,
+        lhs: BasicValueEnum<'ll>,
+        rhs: BasicValueEnum<'ll>,
         _result_type: TypeId,
-    ) -> Option<BasicValueEnum<'ctx>> {
+    ) -> Option<BasicValueEnum<'ll>> {
         // Determine the operand type - both must be the same type for binary ops
         let lhs_is_struct = matches!(lhs, BasicValueEnum::StructValue(_));
         let rhs_is_struct = matches!(rhs, BasicValueEnum::StructValue(_));
@@ -35,11 +35,11 @@ impl<'ctx> LLVMCodegen<'ctx> {
                 } else if is_float {
                     let l = lhs.into_float_value();
                     let r = rhs.into_float_value();
-                    Some(self.builder.build_float_add(l, r, "fadd").ok()?.into())
+                    Some(self.fadd(l, r, "fadd").into())
                 } else {
                     let l = lhs.into_int_value();
                     let r = rhs.into_int_value();
-                    Some(self.builder.build_int_add(l, r, "iadd").ok()?.into())
+                    Some(self.add(l, r, "iadd").into())
                 }
             }
 
@@ -47,11 +47,11 @@ impl<'ctx> LLVMCodegen<'ctx> {
                 if is_float {
                     let l = lhs.into_float_value();
                     let r = rhs.into_float_value();
-                    Some(self.builder.build_float_sub(l, r, "fsub").ok()?.into())
+                    Some(self.fsub(l, r, "fsub").into())
                 } else {
                     let l = lhs.into_int_value();
                     let r = rhs.into_int_value();
-                    Some(self.builder.build_int_sub(l, r, "isub").ok()?.into())
+                    Some(self.sub(l, r, "isub").into())
                 }
             }
 
@@ -59,11 +59,11 @@ impl<'ctx> LLVMCodegen<'ctx> {
                 if is_float {
                     let l = lhs.into_float_value();
                     let r = rhs.into_float_value();
-                    Some(self.builder.build_float_mul(l, r, "fmul").ok()?.into())
+                    Some(self.fmul(l, r, "fmul").into())
                 } else {
                     let l = lhs.into_int_value();
                     let r = rhs.into_int_value();
-                    Some(self.builder.build_int_mul(l, r, "imul").ok()?.into())
+                    Some(self.mul(l, r, "imul").into())
                 }
             }
 
@@ -71,11 +71,11 @@ impl<'ctx> LLVMCodegen<'ctx> {
                 if is_float {
                     let l = lhs.into_float_value();
                     let r = rhs.into_float_value();
-                    Some(self.builder.build_float_div(l, r, "fdiv").ok()?.into())
+                    Some(self.fdiv(l, r, "fdiv").into())
                 } else {
                     let l = lhs.into_int_value();
                     let r = rhs.into_int_value();
-                    Some(self.builder.build_int_signed_div(l, r, "idiv").ok()?.into())
+                    Some(self.sdiv(l, r, "idiv").into())
                 }
             }
 
@@ -83,11 +83,11 @@ impl<'ctx> LLVMCodegen<'ctx> {
                 if is_float {
                     let l = lhs.into_float_value();
                     let r = rhs.into_float_value();
-                    Some(self.builder.build_float_rem(l, r, "frem").ok()?.into())
+                    Some(self.frem(l, r, "frem").into())
                 } else {
                     let l = lhs.into_int_value();
                     let r = rhs.into_int_value();
-                    Some(self.builder.build_int_signed_rem(l, r, "irem").ok()?.into())
+                    Some(self.srem(l, r, "irem").into())
                 }
             }
 
@@ -100,15 +100,11 @@ impl<'ctx> LLVMCodegen<'ctx> {
                 } else if is_float {
                     let l = lhs.into_float_value();
                     let r = rhs.into_float_value();
-                    Some(self.builder.build_float_compare(
-                        inkwell::FloatPredicate::OEQ, l, r, "feq"
-                    ).ok()?.into())
+                    Some(self.fcmp(inkwell::FloatPredicate::OEQ, l, r, "feq").into())
                 } else {
                     let l = lhs.into_int_value();
                     let r = rhs.into_int_value();
-                    Some(self.builder.build_int_compare(
-                        inkwell::IntPredicate::EQ, l, r, "ieq"
-                    ).ok()?.into())
+                    Some(self.icmp(inkwell::IntPredicate::EQ, l, r, "ieq").into())
                 }
             }
 
@@ -120,15 +116,11 @@ impl<'ctx> LLVMCodegen<'ctx> {
                 } else if is_float {
                     let l = lhs.into_float_value();
                     let r = rhs.into_float_value();
-                    Some(self.builder.build_float_compare(
-                        inkwell::FloatPredicate::ONE, l, r, "fne"
-                    ).ok()?.into())
+                    Some(self.fcmp(inkwell::FloatPredicate::ONE, l, r, "fne").into())
                 } else {
                     let l = lhs.into_int_value();
                     let r = rhs.into_int_value();
-                    Some(self.builder.build_int_compare(
-                        inkwell::IntPredicate::NE, l, r, "ine"
-                    ).ok()?.into())
+                    Some(self.icmp(inkwell::IntPredicate::NE, l, r, "ine").into())
                 }
             }
 
@@ -156,44 +148,44 @@ impl<'ctx> LLVMCodegen<'ctx> {
             BinaryOp::And => {
                 let l = lhs.into_int_value();
                 let r = rhs.into_int_value();
-                Some(self.builder.build_and(l, r, "and").ok()?.into())
+                Some(self.and(l, r, "and").into())
             }
 
             BinaryOp::Or => {
                 let l = lhs.into_int_value();
                 let r = rhs.into_int_value();
-                Some(self.builder.build_or(l, r, "or").ok()?.into())
+                Some(self.or(l, r, "or").into())
             }
 
             // Bitwise
             BinaryOp::BitAnd => {
                 let l = lhs.into_int_value();
                 let r = rhs.into_int_value();
-                Some(self.builder.build_and(l, r, "bitand").ok()?.into())
+                Some(self.and(l, r, "bitand").into())
             }
 
             BinaryOp::BitOr => {
                 let l = lhs.into_int_value();
                 let r = rhs.into_int_value();
-                Some(self.builder.build_or(l, r, "bitor").ok()?.into())
+                Some(self.or(l, r, "bitor").into())
             }
 
             BinaryOp::BitXor => {
                 let l = lhs.into_int_value();
                 let r = rhs.into_int_value();
-                Some(self.builder.build_xor(l, r, "bitxor").ok()?.into())
+                Some(self.xor(l, r, "bitxor").into())
             }
 
             BinaryOp::Shl => {
                 let l = lhs.into_int_value();
                 let r = rhs.into_int_value();
-                Some(self.builder.build_left_shift(l, r, "shl").ok()?.into())
+                Some(self.shl(l, r, "shl").into())
             }
 
             BinaryOp::Shr => {
                 let l = lhs.into_int_value();
                 let r = rhs.into_int_value();
-                Some(self.builder.build_right_shift(l, r, true, "shr").ok()?.into())
+                Some(self.ashr(l, r, "shr").into())
             }
 
             // Not yet implemented
@@ -210,54 +202,46 @@ impl<'ctx> LLVMCodegen<'ctx> {
         &self,
         fn_name: &str,
         label: &str,
-        lhs: BasicValueEnum<'ctx>,
-        rhs: BasicValueEnum<'ctx>,
-    ) -> Option<BasicValueEnum<'ctx>> {
-        let func = self.module.get_function(fn_name)?;
+        lhs: BasicValueEnum<'ll>,
+        rhs: BasicValueEnum<'ll>,
+    ) -> Option<BasicValueEnum<'ll>> {
+        let func = self.cx().llmod().get_function(fn_name)?;
 
-        let i64_type = self.context.i64_type();
-        let ptr_type = self.context.ptr_type(inkwell::AddressSpace::default());
-        let str_type = self.context.struct_type(&[i64_type.into(), ptr_type.into()], false);
+        let str_type = self.cx().string_type();
 
-        let lhs_ptr = self.builder.build_alloca(str_type, "lhs_str").ok()?;
-        let rhs_ptr = self.builder.build_alloca(str_type, "rhs_str").ok()?;
+        let lhs_ptr = self.alloca(str_type.into(), "lhs_str");
+        let rhs_ptr = self.alloca(str_type.into(), "rhs_str");
 
-        self.builder.build_store(lhs_ptr, lhs.into_struct_value()).ok()?;
-        self.builder.build_store(rhs_ptr, rhs.into_struct_value()).ok()?;
+        self.store(lhs, lhs_ptr);
+        self.store(rhs, rhs_ptr);
 
-        let result = self.builder.build_call(
-            func,
-            &[lhs_ptr.into(), rhs_ptr.into()],
-            label,
-        ).ok()?;
-
-        result.try_as_basic_value().basic()
+        self.call(func, &[lhs_ptr.into(), rhs_ptr.into()], label)
     }
 
     /// Compile string concatenation by calling runtime function.
     fn compile_str_concat(
         &self,
-        lhs: BasicValueEnum<'ctx>,
-        rhs: BasicValueEnum<'ctx>,
-    ) -> Option<BasicValueEnum<'ctx>> {
+        lhs: BasicValueEnum<'ll>,
+        rhs: BasicValueEnum<'ll>,
+    ) -> Option<BasicValueEnum<'ll>> {
         self.call_binary_string_op("ori_str_concat", "str_concat_result", lhs, rhs)
     }
 
     /// Compile string equality by calling runtime function.
     fn compile_str_eq(
         &self,
-        lhs: BasicValueEnum<'ctx>,
-        rhs: BasicValueEnum<'ctx>,
-    ) -> Option<BasicValueEnum<'ctx>> {
+        lhs: BasicValueEnum<'ll>,
+        rhs: BasicValueEnum<'ll>,
+    ) -> Option<BasicValueEnum<'ll>> {
         self.call_binary_string_op("ori_str_eq", "str_eq_result", lhs, rhs)
     }
 
     /// Compile string inequality by calling runtime function.
     fn compile_str_ne(
         &self,
-        lhs: BasicValueEnum<'ctx>,
-        rhs: BasicValueEnum<'ctx>,
-    ) -> Option<BasicValueEnum<'ctx>> {
+        lhs: BasicValueEnum<'ll>,
+        rhs: BasicValueEnum<'ll>,
+    ) -> Option<BasicValueEnum<'ll>> {
         self.call_binary_string_op("ori_str_ne", "str_ne_result", lhs, rhs)
     }
 
@@ -273,19 +257,19 @@ impl<'ctx> LLVMCodegen<'ctx> {
         int_label: &str,
         is_struct: bool,
         is_float: bool,
-        lhs: BasicValueEnum<'ctx>,
-        rhs: BasicValueEnum<'ctx>,
-    ) -> Option<BasicValueEnum<'ctx>> {
+        lhs: BasicValueEnum<'ll>,
+        rhs: BasicValueEnum<'ll>,
+    ) -> Option<BasicValueEnum<'ll>> {
         if is_struct {
             None
         } else if is_float {
             let l = lhs.into_float_value();
             let r = rhs.into_float_value();
-            Some(self.builder.build_float_compare(float_pred, l, r, float_label).ok()?.into())
+            Some(self.fcmp(float_pred, l, r, float_label).into())
         } else {
             let l = lhs.into_int_value();
             let r = rhs.into_int_value();
-            Some(self.builder.build_int_compare(int_pred, l, r, int_label).ok()?.into())
+            Some(self.icmp(int_pred, l, r, int_label).into())
         }
     }
 
@@ -293,17 +277,17 @@ impl<'ctx> LLVMCodegen<'ctx> {
     pub(crate) fn compile_unary_op(
         &self,
         op: UnaryOp,
-        val: BasicValueEnum<'ctx>,
+        val: BasicValueEnum<'ll>,
         _result_type: TypeId,
-    ) -> Option<BasicValueEnum<'ctx>> {
+    ) -> Option<BasicValueEnum<'ll>> {
         match op {
             UnaryOp::Neg => {
                 match val {
                     BasicValueEnum::IntValue(i) => {
-                        Some(self.builder.build_int_neg(i, "neg").ok()?.into())
+                        Some(self.neg(i, "neg").into())
                     }
                     BasicValueEnum::FloatValue(f) => {
-                        Some(self.builder.build_float_neg(f, "fneg").ok()?.into())
+                        Some(self.fneg(f, "fneg").into())
                     }
                     _ => None,
                 }
@@ -311,12 +295,12 @@ impl<'ctx> LLVMCodegen<'ctx> {
 
             UnaryOp::Not => {
                 let i = val.into_int_value();
-                Some(self.builder.build_not(i, "not").ok()?.into())
+                Some(self.not(i, "not").into())
             }
 
             UnaryOp::BitNot => {
                 let i = val.into_int_value();
-                Some(self.builder.build_not(i, "bitnot").ok()?.into())
+                Some(self.not(i, "bitnot").into())
             }
 
             UnaryOp::Try => {

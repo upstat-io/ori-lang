@@ -6,16 +6,19 @@ use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::ast::patterns::MatchPattern;
 use ori_ir::ast::ExprKind;
 use ori_ir::{ArmRange, ExprArena, ExprId, Name, TypeId};
+use tracing::instrument;
 
-use crate::{LLVMCodegen, LoopContext};
+use crate::builder::Builder;
+use crate::LoopContext;
 
-impl<'ctx> LLVMCodegen<'ctx> {
+impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     /// Compile a match expression.
     ///
     /// Match expressions are compiled as a series of conditional branches:
     /// 1. Evaluate scrutinee
     /// 2. For each arm: check pattern, if match execute body, else try next arm
     /// 3. Use phi node to merge results from all arms
+    #[instrument(skip(self, arena, expr_types, locals, function, loop_ctx), level = "debug")]
     pub(crate) fn compile_match(
         &self,
         scrutinee: ExprId,
@@ -23,10 +26,10 @@ impl<'ctx> LLVMCodegen<'ctx> {
         result_type: TypeId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut HashMap<Name, BasicValueEnum<'ctx>>,
-        function: FunctionValue<'ctx>,
-        loop_ctx: Option<&LoopContext<'ctx>>,
-    ) -> Option<BasicValueEnum<'ctx>> {
+        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        function: FunctionValue<'ll>,
+        loop_ctx: Option<&LoopContext<'ll>>,
+    ) -> Option<BasicValueEnum<'ll>> {
         // Compile the scrutinee
         let scrutinee_val = self.compile_expr(scrutinee, arena, expr_types, locals, function, loop_ctx)?;
 
@@ -38,26 +41,31 @@ impl<'ctx> LLVMCodegen<'ctx> {
             return if result_type == TypeId::VOID {
                 None
             } else {
-                Some(self.default_value(result_type))
+                Some(self.cx().default_value(result_type))
             };
         }
 
         // Create merge block for all arms
-        let merge_bb = self.context.append_basic_block(function, "match_merge");
+        let merge_bb = self.append_block(function, "match_merge");
+
+        // Create unreachable block for match exhaustiveness (should never be reached)
+        let unreachable_bb = self.append_block(function, "match_unreachable");
 
         // Track incoming values for the phi node
-        let mut incoming: Vec<(BasicValueEnum<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
+        let mut incoming: Vec<(BasicValueEnum<'ll>, inkwell::basic_block::BasicBlock<'ll>)> = Vec::new();
 
         // Process each arm
         for (i, arm) in arms.iter().enumerate() {
             let is_last = i == arms.len() - 1;
 
             // Create blocks for this arm
-            let arm_body_bb = self.context.append_basic_block(function, &format!("match_arm_{i}"));
+            let arm_body_bb = self.append_block(function, &format!("match_arm_{i}"));
+            // For non-last arms, create a next block; for last arm, go to unreachable
+            // (exhaustive matches should never reach this path)
             let next_bb = if is_last {
-                merge_bb // Last arm falls through to merge (or unreachable)
+                unreachable_bb
             } else {
-                self.context.append_basic_block(function, &format!("match_next_{i}"))
+                self.append_block(function, &format!("match_next_{i}"))
             };
 
             // Check the pattern
@@ -65,17 +73,17 @@ impl<'ctx> LLVMCodegen<'ctx> {
 
             if let Some(cond) = matches {
                 // Conditional branch based on pattern match
-                self.builder.build_conditional_branch(cond, arm_body_bb, next_bb).ok()?;
+                self.cond_br(cond, arm_body_bb, next_bb);
             } else {
                 // Pattern always matches (wildcard, binding)
-                self.builder.build_unconditional_branch(arm_body_bb).ok()?;
+                self.br(arm_body_bb);
             }
 
             // Compile arm body
-            self.builder.position_at_end(arm_body_bb);
+            self.position_at_end(arm_body_bb);
 
             // Bind pattern variables
-            self.bind_pattern_vars(&arm.pattern, scrutinee_val, locals);
+            self.bind_match_pattern_vars(&arm.pattern, scrutinee_val, locals);
 
             // Compile guard if present
             if let Some(guard) = arm.guard {
@@ -83,18 +91,18 @@ impl<'ctx> LLVMCodegen<'ctx> {
                 let guard_bool = guard_val.into_int_value();
 
                 // If guard fails, go to next arm
-                let guard_pass_bb = self.context.append_basic_block(function, &format!("guard_pass_{i}"));
-                self.builder.build_conditional_branch(guard_bool, guard_pass_bb, next_bb).ok()?;
-                self.builder.position_at_end(guard_pass_bb);
+                let guard_pass_bb = self.append_block(function, &format!("guard_pass_{i}"));
+                self.cond_br(guard_bool, guard_pass_bb, next_bb);
+                self.position_at_end(guard_pass_bb);
             }
 
             // Compile arm body
             let body_val = self.compile_expr(arm.body, arena, expr_types, locals, function, loop_ctx);
 
             // Jump to merge block
-            let arm_exit_bb = self.builder.get_insert_block()?;
+            let arm_exit_bb = self.current_block()?;
             if arm_exit_bb.get_terminator().is_none() {
-                self.builder.build_unconditional_branch(merge_bb).ok()?;
+                self.br(merge_bb);
             }
 
             // Track incoming value for phi
@@ -104,35 +112,32 @@ impl<'ctx> LLVMCodegen<'ctx> {
 
             // Position at next arm's check block
             if !is_last {
-                self.builder.position_at_end(next_bb);
+                self.position_at_end(next_bb);
             }
         }
 
+        // Build unreachable block (for exhaustiveness - should never be reached)
+        self.position_at_end(unreachable_bb);
+        self.unreachable();
+
         // Build merge block
-        self.builder.position_at_end(merge_bb);
+        self.position_at_end(merge_bb);
 
         // Create phi node if we have values
-        if incoming.is_empty() {
-            None
-        } else if incoming.len() == 1 {
-            // Single arm - just use the value
-            Some(incoming[0].0)
-        } else {
-            // Multiple arms - need phi node
-            let phi = self.build_phi(result_type, &incoming)?;
-            Some(phi.as_basic_value())
-        }
+        // build_phi_from_incoming handles single-value and multi-value cases
+        self.build_phi_from_incoming(result_type, &incoming)
     }
 
     /// Check if a pattern matches the scrutinee.
     /// Returns Some(condition) if a runtime check is needed, None if always matches.
+    #[instrument(skip(self, pattern, scrutinee, arena, _expr_types), level = "trace")]
     fn compile_pattern_check(
         &self,
         pattern: &MatchPattern,
-        scrutinee: BasicValueEnum<'ctx>,
+        scrutinee: BasicValueEnum<'ll>,
         arena: &ExprArena,
         _expr_types: &[TypeId],
-    ) -> Option<inkwell::values::IntValue<'ctx>> {
+    ) -> Option<inkwell::values::IntValue<'ll>> {
         match pattern {
             MatchPattern::Wildcard | MatchPattern::Binding(_) => {
                 // Always matches
@@ -144,24 +149,24 @@ impl<'ctx> LLVMCodegen<'ctx> {
                 let literal_expr = arena.get_expr(*expr_id);
                 match &literal_expr.kind {
                     ExprKind::Int(n) => {
-                        let expected = self.context.i64_type().const_int(*n as u64, true);
+                        let expected = self.cx().scx.type_i64().const_int(*n as u64, true);
                         let actual = scrutinee.into_int_value();
-                        Some(self.builder.build_int_compare(
+                        Some(self.icmp(
                             inkwell::IntPredicate::EQ,
                             actual,
                             expected,
                             "lit_match",
-                        ).ok()?)
+                        ))
                     }
                     ExprKind::Bool(b) => {
-                        let expected = self.context.bool_type().const_int(u64::from(*b), false);
+                        let expected = self.cx().scx.type_i1().const_int(u64::from(*b), false);
                         let actual = scrutinee.into_int_value();
-                        Some(self.builder.build_int_compare(
+                        Some(self.icmp(
                             inkwell::IntPredicate::EQ,
                             actual,
                             expected,
                             "bool_match",
-                        ).ok()?)
+                        ))
                     }
                     _ => {
                         // Unsupported literal type - treat as always match for now
@@ -179,11 +184,11 @@ impl<'ctx> LLVMCodegen<'ctx> {
                 };
 
                 // Extract tag
-                let tag = self.builder.build_extract_value(struct_val, 0, "tag").ok()?;
+                let tag = self.extract_value(struct_val, 0, "tag");
                 let tag_int = tag.into_int_value();
 
                 // Get expected tag based on variant name
-                let variant_name = self.interner.lookup(*name);
+                let variant_name = self.cx().interner.lookup(*name);
                 let expected_tag = match variant_name {
                     "None" => 0,
                     "Some" => 1,
@@ -192,13 +197,13 @@ impl<'ctx> LLVMCodegen<'ctx> {
                     _ => 0, // Unknown variant - assume tag 0
                 };
 
-                let expected = self.context.i8_type().const_int(expected_tag, false);
-                Some(self.builder.build_int_compare(
+                let expected = self.cx().scx.type_i8().const_int(expected_tag, false);
+                Some(self.icmp(
                     inkwell::IntPredicate::EQ,
                     tag_int,
                     expected,
                     "variant_match",
-                ).ok()?)
+                ))
             }
 
             // Other patterns - treat as always match for now
@@ -207,11 +212,12 @@ impl<'ctx> LLVMCodegen<'ctx> {
     }
 
     /// Bind pattern variables to the scrutinee value.
-    fn bind_pattern_vars(
+    #[instrument(skip(self, pattern, scrutinee, locals), level = "trace")]
+    fn bind_match_pattern_vars(
         &self,
         pattern: &MatchPattern,
-        scrutinee: BasicValueEnum<'ctx>,
-        locals: &mut HashMap<Name, BasicValueEnum<'ctx>>,
+        scrutinee: BasicValueEnum<'ll>,
+        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
     ) {
         match pattern {
             MatchPattern::Binding(name) => {
@@ -223,9 +229,8 @@ impl<'ctx> LLVMCodegen<'ctx> {
                 if let Some(inner_pattern) = inner {
                     // Extract the payload from the tagged union
                     if let BasicValueEnum::StructValue(struct_val) = scrutinee {
-                        if let Ok(payload) = self.builder.build_extract_value(struct_val, 1, "payload") {
-                            self.bind_pattern_vars(inner_pattern, payload, locals);
-                        }
+                        let payload = self.extract_value(struct_val, 1, "payload");
+                        self.bind_match_pattern_vars(inner_pattern, payload, locals);
                     }
                 }
             }
@@ -233,16 +238,15 @@ impl<'ctx> LLVMCodegen<'ctx> {
             MatchPattern::At { name, pattern } => {
                 // Bind the whole value to name, then process inner pattern
                 locals.insert(*name, scrutinee);
-                self.bind_pattern_vars(pattern, scrutinee, locals);
+                self.bind_match_pattern_vars(pattern, scrutinee, locals);
             }
 
             MatchPattern::Tuple(patterns) => {
                 // Bind each tuple element
                 if let BasicValueEnum::StructValue(struct_val) = scrutinee {
                     for (i, pat) in patterns.iter().enumerate() {
-                        if let Ok(elem) = self.builder.build_extract_value(struct_val, i as u32, &format!("tuple_{i}")) {
-                            self.bind_pattern_vars(pat, elem, locals);
-                        }
+                        let elem = self.extract_value(struct_val, i as u32, &format!("tuple_{i}"));
+                        self.bind_match_pattern_vars(pat, elem, locals);
                     }
                 }
             }

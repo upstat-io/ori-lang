@@ -9,16 +9,15 @@ members = [
     "compiler/ori_patterns",
     "compiler/ori_typeck",
     "compiler/ori_eval",
-    "compiler/ori_codegen",
-    # "compiler/ori_llvm",  # Temporarily excluded - needs LLVM installed
     "compiler/ori-macros",
     "compiler/oric",
 ]
-# LSP excluded until updated to use new compiler
-# ori_llvm temporarily excluded - needs LLVM installed
+# Excluded crates:
+# - ori_llvm: Requires LLVM - build only in container: ./docker/llvm/run.sh
+# - ori-lsp: Not yet updated to use new compiler
 exclude = [
-    "tools/ori-lsp",
     "compiler/ori_llvm",
+    "tools/ori-lsp",
 ]
 
 [workspace.package]
@@ -49,7 +48,6 @@ ori_parse = { path = "compiler/ori_parse" }
 ori_patterns = { path = "compiler/ori_patterns" }
 ori_typeck = { path = "compiler/ori_typeck" }
 ori_eval = { path = "compiler/ori_eval" }
-ori_codegen = { path = "compiler/ori_codegen" }
 ori_llvm = { path = "compiler/ori_llvm" }
 ori-macros = { path = "compiler/ori-macros" }
 

@@ -61,7 +61,7 @@
 | Phase | Name | Status | Notes |
 |-------|------|--------|-------|
 | 20 | Reflection | ⏳ Not started | |
-| 21 | Code Generation | ⏳ Not started | |
+| 21 | LLVM Backend | 🔶 Partial | JIT working; 711/745 tests pass (34 skipped); AOT pending |
 | 22 | Tooling | ⏳ Not started | |
 
 ---
@@ -290,3 +290,66 @@ New prelude enhancements from Rust prelude comparison. See `plan.md` for details
 - NaN comparisons panic (Phase 7.18)
 - Skip `AsRef`/`AsMut` — Ori's value semantics don't need them
 - Skip `debug_assert*` — same behavior in all builds
+
+---
+
+## LLVM Backend Status (Phase 21) — Updated 2026-01-27
+
+### Test Results
+
+| Test Suite | Passed | Failed | Skipped | Total |
+|------------|--------|--------|---------|-------|
+| All Ori tests | 711 | 0 | 34 | 745 |
+| Spec tests | 416 | 0 | 5 | 421 |
+| Rust unit tests | 204 | 0 | 0 | 204 |
+
+### Architecture (Reorganized)
+
+The LLVM backend follows Rust's `rustc_codegen_llvm` patterns:
+
+| Component | File | Status |
+|-----------|------|--------|
+| SimpleCx | `context.rs` | ✅ Complete |
+| CodegenCx | `context.rs` | ✅ Complete |
+| Builder | `builder.rs` | ✅ Complete |
+| TypeCache | `context.rs` | ✅ Complete |
+| Two-phase codegen | `module.rs` | ✅ Complete |
+| Trait abstraction | `traits.rs` | ✅ Complete |
+
+### Completed Features
+
+- [x] Context hierarchy (SimpleCx → CodegenCx)
+- [x] Separate Builder type for instruction generation
+- [x] Two-phase codegen (declare then define)
+- [x] Type caching (scalars + complex types)
+- [x] Trait-based abstraction (BackendTypes, BuilderMethods)
+- [x] JIT execution via inkwell
+- [x] Runtime functions (print, panic, assert, collections)
+- [x] Expression codegen (literals, binary ops, unary ops)
+- [x] Function codegen (signatures, locals, returns)
+- [x] Control flow (if/else, loops, break/continue)
+- [x] Pattern matching (match expressions, guards)
+- [x] Collections (lists, tuples, structs, Option, Result)
+- [x] Generic function support (type variable resolution)
+
+### Pending Features
+
+- [ ] AOT compilation (object file generation)
+- [ ] Optimization passes (O1, O2, O3)
+- [ ] Debug info (DWARF)
+- [ ] Executable linking
+
+### Running LLVM Tests
+
+```bash
+# All Ori tests via LLVM backend
+./docker/llvm/run.sh ori test
+
+# Spec tests only
+./docker/llvm/run.sh ori test tests/spec
+
+# Rust unit tests
+./docker/llvm/run.sh cargo test -p ori_llvm --lib
+```
+
+**Note:** LLVM development requires Docker. See `.claude/rules/llvm.md` for details.

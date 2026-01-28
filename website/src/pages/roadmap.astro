@@ -614,21 +614,21 @@ const tiers: Tier[] = [
       {
         num: 21,
         name: "LLVM Backend",
-        status: "not-started",
-        note: "Native compilation via LLVM",
+        status: "partial",
+        note: "JIT working; 711/745 tests pass; AOT pending",
         goal: "Compile to native code via LLVM",
         spec: "Implementation-specific",
         sections: [
           { name: "LLVM Setup", tasks: [
-            { name: "LLVM 17+ integration", done: false },
-            { name: "inkwell/llvm-sys bindings", done: false },
-            { name: "Target configuration", done: false },
+            { name: "LLVM 17+ integration", done: true },
+            { name: "inkwell/llvm-sys bindings", done: true },
+            { name: "Target configuration (JIT)", done: true },
           ]},
           { name: "IR Generation", tasks: [
-            { name: "Type lowering (Ori -> LLVM)", done: false },
-            { name: "Expression codegen", done: false },
-            { name: "Function codegen", done: false },
-            { name: "Control flow graphs", done: false },
+            { name: "Type lowering (Ori -> LLVM)", done: true },
+            { name: "Expression codegen", done: true },
+            { name: "Function codegen", done: true },
+            { name: "Control flow graphs", done: true },
           ]},
           { name: "Optimization", tasks: [
             { name: "O0-O3 optimization levels", done: false },
@@ -637,11 +637,11 @@ const tiers: Tier[] = [
           { name: "Output", tasks: [
             { name: "Object file emission", done: false },
             { name: "Executable linking", done: false },
-            { name: "JIT compilation (optional)", done: false },
+            { name: "JIT compilation", done: true },
           ]},
           { name: "Runtime", tasks: [
             { name: "ARC memory management", done: false },
-            { name: "Runtime support functions", done: false },
+            { name: "Runtime support functions", done: true },
             { name: "FFI runtime support", done: false },
           ]},
         ],
@@ -690,12 +690,19 @@ const statusLabels: Record<string, string> = {
   "near-complete": "Near Complete",
 };
 
-// Extract completed phases for the completed section
+// Extract phases by status for the collapsible sections
 const completedPhases: Phase[] = [];
+const inProgressPhases: Phase[] = [];
+const plannedPhases: Phase[] = [];
+
 for (const tier of tiers) {
   for (const phase of tier.phases) {
     if (phase.status === "complete") {
       completedPhases.push(phase);
+    } else if (phase.status === "partial") {
+      inProgressPhases.push(phase);
+    } else {
+      plannedPhases.push(phase);
     }
   }
 }
@@ -740,25 +747,97 @@ function countTasks(sections: Section[]): { done: number; total: number } {
           <span class="stat-label">Completed</span>
         </div>
         <div class="stat">
-          <span class="stat-value">5</span>
+          <span class="stat-value">6</span>
           <span class="stat-label">In Progress</span>
         </div>
         <div class="stat">
-          <span class="stat-value">13</span>
+          <span class="stat-value">12</span>
           <span class="stat-label">Planned</span>
         </div>
       </div>
     </section>
 
-    <section class="completed-section">
-      <details>
-        <summary class="completed-header">
-          <span class="completed-icon">✓</span>
-          <h2>Completed</h2>
-          <span class="completed-count">{completedPhases.length} phases</span>
+    <section class="status-section in-progress-section">
+      <details open>
+        <summary class="status-header in-progress">
+          <span class="status-icon">◐</span>
+          <h2>In Progress</h2>
+          <span class="status-count">{inProgressPhases.length} phases</span>
           <span class="expand-icon"></span>
         </summary>
-        <div class="completed-phases">
+        <div class="status-phases">
+          {inProgressPhases.map((phase) => {
+            const { done, total } = countTasks(phase.sections);
+            return (
+              <button
+                class="phase-card partial"
+                data-phase={JSON.stringify(phase)}
+                type="button"
+              >
+                <div class="phase-header">
+                  <span class="phase-num">Phase {phase.num}</span>
+                  <span class="phase-status warning">In Progress</span>
+                </div>
+                <h3>{phase.name}</h3>
+                <p class="phase-note">{phase.note || phase.goal}</p>
+                <div class="phase-progress">
+                  <div class="progress-bar">
+                    <div class="progress-fill" style={`width: ${total > 0 ? (done / total) * 100 : 0}%`}></div>
+                  </div>
+                  <span class="progress-text">{done}/{total} tasks</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </details>
+    </section>
+
+    <section class="status-section planned-section">
+      <details open>
+        <summary class="status-header planned">
+          <span class="status-icon">○</span>
+          <h2>Planned</h2>
+          <span class="status-count">{plannedPhases.length} phases</span>
+          <span class="expand-icon"></span>
+        </summary>
+        <div class="status-phases">
+          {plannedPhases.map((phase) => {
+            const { done, total } = countTasks(phase.sections);
+            return (
+              <button
+                class="phase-card not-started"
+                data-phase={JSON.stringify(phase)}
+                type="button"
+              >
+                <div class="phase-header">
+                  <span class="phase-num">Phase {phase.num}</span>
+                  <span class="phase-status muted">Not Started</span>
+                </div>
+                <h3>{phase.name}</h3>
+                <p class="phase-note">{phase.note || phase.goal}</p>
+                <div class="phase-progress">
+                  <div class="progress-bar">
+                    <div class="progress-fill" style={`width: ${total > 0 ? (done / total) * 100 : 0}%`}></div>
+                  </div>
+                  <span class="progress-text">{done}/{total} tasks</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </details>
+    </section>
+
+    <section class="status-section completed-section">
+      <details>
+        <summary class="status-header completed">
+          <span class="status-icon">✓</span>
+          <h2>Completed</h2>
+          <span class="status-count">{completedPhases.length} phases</span>
+          <span class="expand-icon"></span>
+        </summary>
+        <div class="status-phases">
           {completedPhases.map((phase) => {
             const { done, total } = countTasks(phase.sections);
             return (
@@ -784,59 +863,6 @@ function countTasks(sections: Section[]): { done: number; total: number } {
           })}
         </div>
       </details>
-    </section>
-
-    <section class="roadmap-content">
-      {tiers.map((tier) => (
-        <div class="tier" data-status={tier.status}>
-          <div class="tier-header">
-            <div class="tier-title">
-              <span class="tier-number">Tier {tier.id}</span>
-              <h2>{tier.name}</h2>
-              <span class={`tier-badge ${statusColors[tier.status]}`}>
-                {statusLabels[tier.status]}
-              </span>
-            </div>
-            <p class="tier-description">{tier.description}</p>
-          </div>
-
-          <div class="phases">
-            {tier.phases.filter(p => p.status !== "complete").map((phase) => {
-              const { done, total } = countTasks(phase.sections);
-              return (
-                <button
-                  class={`phase-card ${phase.status}`}
-                  data-phase={JSON.stringify(phase)}
-                  type="button"
-                >
-                  <div class="phase-header">
-                    <span class="phase-num">Phase {phase.num}</span>
-                    <span class={`phase-status ${statusColors[phase.status]}`}>
-                      {statusLabels[phase.status]}
-                    </span>
-                  </div>
-                  <h3>{phase.name}</h3>
-                  <p class="phase-note">{phase.note || phase.goal}</p>
-                  <div class="phase-progress">
-                    <div class="progress-bar">
-                      <div class="progress-fill" style={`width: ${total > 0 ? (done / total) * 100 : 0}%`}></div>
-                    </div>
-                    <span class="progress-text">{done}/{total} tasks</span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          <div class="milestone">
-            <div class="milestone-marker"></div>
-            <div class="milestone-content">
-              <span class="milestone-name">{tier.milestone}</span>
-              <span class="milestone-criteria">{tier.exitCriteria}</span>
-            </div>
-          </div>
-        </div>
-      ))}
     </section>
 
     <section class="dependency-graph">
@@ -869,6 +895,16 @@ Branches:
           <span class="result-value">335</span>
           <span class="result-label">Ori Spec Tests</span>
           <span class="result-status success">Passing</span>
+        </div>
+        <div class="result-card">
+          <span class="result-value">711</span>
+          <span class="result-label">LLVM Backend Tests</span>
+          <span class="result-status success">Passing</span>
+        </div>
+        <div class="result-card">
+          <span class="result-value">204</span>
+          <span class="result-label">LLVM Rust Tests</span>
+          <span class="result-status success">All Passing</span>
         </div>
         <div class="result-card">
           <span class="result-value">5</span>
@@ -1053,23 +1089,83 @@ Branches:
     color: var(--color-text-muted);
   }
 
-  /* Completed Section */
-  .completed-section {
-    margin-bottom: var(--space-8);
+  /* Status Sections (In Progress, Planned, Completed) */
+  .status-section {
+    margin-bottom: var(--space-4);
   }
 
-  .completed-section details {
-    background: rgba(74, 222, 128, 0.05);
-    border: 1px solid rgba(74, 222, 128, 0.2);
+  .status-section details {
     border-radius: var(--radius-lg);
     overflow: hidden;
   }
 
-  .completed-section details[open] {
-    background: rgba(74, 222, 128, 0.08);
+  /* In Progress Section */
+  .in-progress-section details {
+    background: rgba(251, 191, 36, 0.02);
+    border: 1px solid rgba(251, 191, 36, 0.15);
   }
 
-  .completed-header {
+  .in-progress-section details[open] {
+    background: rgba(251, 191, 36, 0.03);
+  }
+
+  .status-header.in-progress h2 {
+    color: var(--color-warning);
+  }
+
+  .status-header.in-progress .status-icon {
+    background: rgba(251, 191, 36, 0.15);
+    color: var(--color-warning);
+  }
+
+  .in-progress-section .progress-fill {
+    background: var(--color-warning);
+  }
+
+  /* Planned Section */
+  .planned-section details {
+    background: rgba(148, 163, 184, 0.02);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+  }
+
+  .planned-section details[open] {
+    background: rgba(148, 163, 184, 0.03);
+  }
+
+  .status-header.planned h2 {
+    color: var(--color-text-secondary);
+  }
+
+  .status-header.planned .status-icon {
+    background: rgba(148, 163, 184, 0.15);
+    color: var(--color-text-secondary);
+  }
+
+  /* Completed Section */
+  .completed-section details {
+    background: rgba(74, 222, 128, 0.02);
+    border: 1px solid rgba(74, 222, 128, 0.15);
+  }
+
+  .completed-section details[open] {
+    background: rgba(74, 222, 128, 0.03);
+  }
+
+  .status-header.completed h2 {
+    color: var(--color-success);
+  }
+
+  .status-header.completed .status-icon {
+    background: rgba(74, 222, 128, 0.15);
+    color: var(--color-success);
+  }
+
+  .completed-section .progress-fill {
+    background: var(--color-success);
+  }
+
+  /* Common Status Header Styles */
+  .status-header {
     display: flex;
     align-items: center;
     gap: var(--space-3);
@@ -1078,32 +1174,29 @@ Branches:
     list-style: none;
   }
 
-  .completed-header::-webkit-details-marker {
+  .status-header::-webkit-details-marker {
     display: none;
   }
 
-  .completed-header h2 {
+  .status-header h2 {
     font-size: var(--text-lg);
     font-weight: var(--weight-semibold);
-    color: var(--color-success);
     margin: 0;
     flex: 1;
   }
 
-  .completed-icon {
+  .status-icon {
     display: flex;
     align-items: center;
     justify-content: center;
     width: 28px;
     height: 28px;
-    background: rgba(74, 222, 128, 0.15);
-    color: var(--color-success);
     border-radius: 50%;
     font-size: var(--text-sm);
     font-weight: var(--weight-bold);
   }
 
-  .completed-count {
+  .status-count {
     font-size: var(--text-sm);
     color: var(--color-text-secondary);
     background: var(--color-bg-tertiary);
@@ -1129,110 +1222,22 @@ Branches:
     transform: rotate(90deg);
   }
 
-  .completed-phases {
+  .status-phases {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
     gap: var(--space-3);
     padding: 0 var(--space-4) var(--space-4);
   }
 
-  .completed-section .phase-card.complete {
-    border-left-color: var(--color-success);
+  .status-section .phase-card {
     background: var(--color-bg-secondary);
   }
 
-  .completed-section .phase-card.complete:hover {
+  .status-section .phase-card:hover {
     background: var(--color-bg-tertiary);
-  }
-
-  .completed-section .progress-fill {
-    background: var(--color-success);
-  }
-
-  /* Tiers */
-  .roadmap-content {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-10);
-  }
-
-  .tier {
-    position: relative;
-    padding-left: var(--space-6);
-    border-left: 3px solid var(--color-border);
-  }
-
-  .tier[data-status="complete"] {
-    border-left-color: var(--color-success);
-  }
-
-  .tier[data-status="partial"],
-  .tier[data-status="in-progress"] {
-    border-left-color: var(--color-accent);
-  }
-
-  .tier-header {
-    margin-bottom: var(--space-4);
-  }
-
-  .tier-title {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    flex-wrap: wrap;
-    margin-bottom: var(--space-1);
-  }
-
-  .tier-number {
-    font-size: var(--text-xs);
-    font-weight: var(--weight-semibold);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--color-text-muted);
-  }
-
-  .tier-title h2 {
-    font-size: var(--text-xl);
-    font-weight: var(--weight-bold);
-    color: var(--color-text-primary);
-    margin: 0;
-  }
-
-  .tier-badge {
-    font-size: var(--text-xs);
-    font-weight: var(--weight-medium);
-    padding: var(--space-1) var(--space-2);
-    border-radius: var(--radius-sm);
-  }
-
-  .tier-badge.success {
-    background: rgba(74, 222, 128, 0.15);
-    color: var(--color-success);
-  }
-
-  .tier-badge.warning {
-    background: rgba(251, 191, 36, 0.15);
-    color: var(--color-warning);
-  }
-
-  .tier-badge.muted {
-    background: var(--color-bg-tertiary);
-    color: var(--color-text-muted);
-  }
-
-  .tier-description {
-    font-size: var(--text-sm);
-    color: var(--color-text-secondary);
   }
 
   /* Phases */
-  .phases {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: var(--space-3);
-    margin-bottom: var(--space-4);
-  }
-
   .phase-card {
     display: flex;
     flex-direction: column;
@@ -1518,40 +1523,6 @@ Branches:
 
   :global(.task-list li.pending) {
     color: var(--color-text-muted);
-  }
-
-  /* Milestone */
-  .milestone {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-3);
-    background: var(--color-bg-tertiary);
-    border-radius: var(--radius-md);
-  }
-
-  .milestone-marker {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--color-accent);
-    flex-shrink: 0;
-  }
-
-  .milestone-content {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .milestone-name {
-    font-size: var(--text-sm);
-    font-weight: var(--weight-semibold);
-    color: var(--color-text-primary);
-  }
-
-  .milestone-criteria {
-    font-size: var(--text-xs);
-    color: var(--color-text-secondary);
   }
 
   /* Dependency Graph */

@@ -2,13 +2,13 @@ use inkwell::context::Context;
 use ori_ir::ast::{BinaryOp, Expr, ExprKind};
 use ori_ir::{ExprArena, StringInterner, TypeId};
 
-use crate::LLVMCodegen;
+use super::helper::TestCodegen;
 
 #[test]
 fn test_simple_add() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create a simple function: fn add() -> i64 { 2 + 3 }
     let mut arena = ExprArena::new();
@@ -56,7 +56,7 @@ fn test_simple_add() {
 fn test_duration_literal() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> int { 5s } -> 5000 (milliseconds)
     let mut arena = ExprArena::new();
@@ -93,7 +93,7 @@ fn test_duration_literal() {
 fn test_size_literal() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> int { 2kb } -> 2048 (bytes)
     let mut arena = ExprArena::new();

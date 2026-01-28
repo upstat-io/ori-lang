@@ -1,14 +1,14 @@
 use inkwell::context::Context;
-use ori_ir::ast::{Expr, ExprKind, FieldInit};
+use ori_ir::ast::{Expr, ExprKind, FieldInit, MapEntry};
 use ori_ir::{ExprArena, StringInterner, TypeId};
 
-use crate::LLVMCodegen;
+use super::helper::TestCodegen;
 
 #[test]
 fn test_tuple_creation() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> (int, int) { (10, 20) }
     let mut arena = ExprArena::new();
@@ -60,7 +60,7 @@ fn test_tuple_creation() {
 fn test_struct_creation() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> { x: int, y: int } { Point { x: 10, y: 20 } }
     let mut arena = ExprArena::new();
@@ -126,7 +126,7 @@ fn test_struct_creation() {
 fn test_field_access() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> int { Point { x: 10, y: 20 }.x }
     let mut arena = ExprArena::new();
@@ -199,7 +199,7 @@ fn test_field_access() {
 fn test_some() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> Option<int> { Some(42) }
     let mut arena = ExprArena::new();
@@ -243,7 +243,7 @@ fn test_some() {
 fn test_none() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> Option<int> { None }
     let mut arena = ExprArena::new();
@@ -281,7 +281,7 @@ fn test_none() {
 fn test_ok() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> Result<int, int> { Ok(100) }
     let mut arena = ExprArena::new();
@@ -325,7 +325,7 @@ fn test_ok() {
 fn test_err() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> Result<int, int> { Err(999) }
     let mut arena = ExprArena::new();
@@ -369,7 +369,7 @@ fn test_err() {
 fn test_range_literal() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> Range { 1..10 }
     let mut arena = ExprArena::new();
@@ -416,7 +416,7 @@ fn test_range_literal() {
 fn test_list_literal_empty() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> List { [] }
     let mut arena = ExprArena::new();
@@ -451,7 +451,7 @@ fn test_list_literal_empty() {
 fn test_list_literal_with_elements() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> List { [1, 2, 3] }
     let mut arena = ExprArena::new();
@@ -494,4 +494,224 @@ fn test_list_literal_with_elements() {
     let ir = codegen.print_to_string();
     assert!(ir.contains("{ i64, i64, ptr }")); // List struct type
     assert!(ir.contains("i64 3")); // Length = 3
+}
+
+#[test]
+fn test_map_empty() {
+    let context = Context::create();
+    let interner = StringInterner::new();
+    let codegen = TestCodegen::new(&context, &interner, "test");
+
+    // Create: fn test() -> Map { {} }
+    let mut arena = ExprArena::new();
+
+    let entries = arena.alloc_map_entries([]);
+    let map_expr = arena.alloc_expr(Expr {
+        kind: ExprKind::Map(entries),
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    let fn_name = interner.intern("test_empty_map");
+    let expr_types = vec![TypeId::INT];
+
+    codegen.compile_function(
+        fn_name,
+        &[],
+        &[],
+        TypeId::INT,
+        map_expr,
+        &arena,
+        &expr_types,
+    );
+
+    println!("Empty Map IR:\n{}", codegen.print_to_string());
+
+    // Verify IR contains map struct type
+    let ir = codegen.print_to_string();
+    assert!(ir.contains("{ i64, i64, ptr, ptr }")); // Map struct type
+}
+
+#[test]
+fn test_map_with_entries() {
+    let context = Context::create();
+    let interner = StringInterner::new();
+    let codegen = TestCodegen::new(&context, &interner, "test");
+
+    // Create: fn test() -> Map { {"a": 1, "b": 2} }
+    let mut arena = ExprArena::new();
+
+    let key1 = arena.alloc_expr(Expr {
+        kind: ExprKind::Int(100),
+        span: ori_ir::Span::new(0, 1),
+    });
+    let val1 = arena.alloc_expr(Expr {
+        kind: ExprKind::Int(1),
+        span: ori_ir::Span::new(0, 1),
+    });
+    let key2 = arena.alloc_expr(Expr {
+        kind: ExprKind::Int(200),
+        span: ori_ir::Span::new(0, 1),
+    });
+    let val2 = arena.alloc_expr(Expr {
+        kind: ExprKind::Int(2),
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    let entries = arena.alloc_map_entries([
+        MapEntry {
+            key: key1,
+            value: val1,
+            span: ori_ir::Span::new(0, 1),
+        },
+        MapEntry {
+            key: key2,
+            value: val2,
+            span: ori_ir::Span::new(0, 1),
+        },
+    ]);
+
+    let map_expr = arena.alloc_expr(Expr {
+        kind: ExprKind::Map(entries),
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    let fn_name = interner.intern("test_map_entries");
+    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT];
+
+    codegen.compile_function(
+        fn_name,
+        &[],
+        &[],
+        TypeId::INT,
+        map_expr,
+        &arena,
+        &expr_types,
+    );
+
+    println!("Map with Entries IR:\n{}", codegen.print_to_string());
+
+    // Verify IR contains map struct type and count
+    let ir = codegen.print_to_string();
+    assert!(ir.contains("{ i64, i64, ptr, ptr }")); // Map struct type
+    assert!(ir.contains("i64 2")); // 2 entries
+}
+
+#[test]
+fn test_tuple_index() {
+    let context = Context::create();
+    let interner = StringInterner::new();
+    let codegen = TestCodegen::new(&context, &interner, "test");
+
+    // Create: fn test() -> int { (10, 20)[0] }
+    let mut arena = ExprArena::new();
+
+    // Tuple elements
+    let elem1 = arena.alloc_expr(Expr {
+        kind: ExprKind::Int(10),
+        span: ori_ir::Span::new(0, 1),
+    });
+    let elem2 = arena.alloc_expr(Expr {
+        kind: ExprKind::Int(20),
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    let range = arena.alloc_expr_list([elem1, elem2]);
+    let tuple_expr = arena.alloc_expr(Expr {
+        kind: ExprKind::Tuple(range),
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    // Index 0
+    let index = arena.alloc_expr(Expr {
+        kind: ExprKind::Int(0),
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    // tuple[0]
+    let index_expr = arena.alloc_expr(Expr {
+        kind: ExprKind::Index {
+            receiver: tuple_expr,
+            index,
+        },
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    let fn_name = interner.intern("test_tuple_idx");
+    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT];
+
+    codegen.compile_function(
+        fn_name,
+        &[],
+        &[],
+        TypeId::INT,
+        index_expr,
+        &arena,
+        &expr_types,
+    );
+
+    println!("Tuple Index IR:\n{}", codegen.print_to_string());
+
+    // JIT execute - should return 10 (first element)
+    let result = codegen.jit_execute_i64("test_tuple_idx").expect("JIT failed");
+    assert_eq!(result, 10);
+}
+
+#[test]
+fn test_tuple_index_second() {
+    let context = Context::create();
+    let interner = StringInterner::new();
+    let codegen = TestCodegen::new(&context, &interner, "test");
+
+    // Create: fn test() -> int { (10, 20)[1] }
+    let mut arena = ExprArena::new();
+
+    // Tuple elements
+    let elem1 = arena.alloc_expr(Expr {
+        kind: ExprKind::Int(10),
+        span: ori_ir::Span::new(0, 1),
+    });
+    let elem2 = arena.alloc_expr(Expr {
+        kind: ExprKind::Int(20),
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    let range = arena.alloc_expr_list([elem1, elem2]);
+    let tuple_expr = arena.alloc_expr(Expr {
+        kind: ExprKind::Tuple(range),
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    // Index 1
+    let index = arena.alloc_expr(Expr {
+        kind: ExprKind::Int(1),
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    // tuple[1]
+    let index_expr = arena.alloc_expr(Expr {
+        kind: ExprKind::Index {
+            receiver: tuple_expr,
+            index,
+        },
+        span: ori_ir::Span::new(0, 1),
+    });
+
+    let fn_name = interner.intern("test_tuple_idx2");
+    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT];
+
+    codegen.compile_function(
+        fn_name,
+        &[],
+        &[],
+        TypeId::INT,
+        index_expr,
+        &arena,
+        &expr_types,
+    );
+
+    println!("Tuple Index Second IR:\n{}", codegen.print_to_string());
+
+    // JIT execute - should return 20 (second element)
+    let result = codegen.jit_execute_i64("test_tuple_idx2").expect("JIT failed");
+    assert_eq!(result, 20);
 }

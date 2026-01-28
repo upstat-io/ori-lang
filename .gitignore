@@ -1,5 +1,6 @@
 # Build artifacts
 /target/
+/target-llvm/
 **/target/
 
 # Cargo lock for libraries (keep for binaries)

@@ -196,6 +196,15 @@ impl<'ctx> LLVMEvaluator<'ctx> {
     }
 }
 
+/// Function type signature for LLVM compilation.
+#[derive(Debug, Clone)]
+pub struct FunctionSig {
+    /// Parameter types
+    pub params: Vec<TypeId>,
+    /// Return type
+    pub return_type: TypeId,
+}
+
 /// LLVM-based evaluator that owns its context.
 ///
 /// This is the recommended evaluator for use in applications that don't
@@ -204,8 +213,6 @@ pub struct OwnedLLVMEvaluator {
     context: Context,
     /// Compiled functions by name
     functions: HashMap<Name, CompiledFunction>,
-    /// Type information for expressions
-    expr_types: Vec<TypeId>,
 }
 
 impl OwnedLLVMEvaluator {
@@ -214,7 +221,6 @@ impl OwnedLLVMEvaluator {
         OwnedLLVMEvaluator {
             context: Context::create(),
             functions: HashMap::new(),
-            expr_types: Vec::new(),
         }
     }
 
@@ -237,15 +243,21 @@ impl OwnedLLVMEvaluator {
             );
         }
 
-        // Initialize expr_types with a reasonable size
-        self.expr_types = vec![TypeId::INT; 1000];
-
         Ok(())
     }
 
     /// Evaluate a test expression.
     ///
     /// This compiles the entire module to LLVM IR and JIT executes the test.
+    ///
+    /// # Arguments
+    /// - `test_name`: Name of the test
+    /// - `test_body`: Expression ID of the test body
+    /// - `arena`: Expression arena
+    /// - `module`: The module containing functions the test may call
+    /// - `interner`: String interner
+    /// - `expr_types`: Type of each expression (indexed by ExprId)
+    /// - `function_sigs`: Signature of each function (indexed same as module.functions)
     pub fn eval_test(
         &self,
         test_name: Name,
@@ -253,6 +265,8 @@ impl OwnedLLVMEvaluator {
         arena: &ExprArena,
         module: &Module,
         interner: &StringInterner,
+        expr_types: &[TypeId],
+        function_sigs: &[FunctionSig],
     ) -> LLVMEvalResult {
         // Reset panic state
         runtime::reset_panic_state();
@@ -262,8 +276,9 @@ impl OwnedLLVMEvaluator {
         compiler.declare_runtime();
 
         // Compile all functions the test might call
-        for func in &module.functions {
-            compiler.compile_function(func, arena, &self.expr_types);
+        for (i, func) in module.functions.iter().enumerate() {
+            let sig = function_sigs.get(i);
+            compiler.compile_function_with_sig(func, arena, expr_types, sig);
         }
 
         // Create a wrapper test function
@@ -283,7 +298,11 @@ impl OwnedLLVMEvaluator {
             span: ori_ir::Span::new(0, 0),
             is_public: false,
         };
-        compiler.compile_function(&test_func, arena, &self.expr_types);
+        let void_sig = FunctionSig {
+            params: vec![],
+            return_type: TypeId::VOID,
+        };
+        compiler.compile_function_with_sig(&test_func, arena, expr_types, Some(&void_sig));
 
         // JIT compile and run
         match compiler.run_test(&wrapper_name) {

@@ -2,13 +2,17 @@
 //!
 //! Run with: cargo run --example benchmark -p ori_llvm
 
+use std::time::Instant;
+
 use inkwell::context::Context;
+use inkwell::targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine};
+use inkwell::OptimizationLevel;
+
 use ori_ir::{
     ast::{BinaryOp, Expr, ExprKind},
-    ExprArena, StringInterner, TypeId,
+    ExprArena, Function, GenericParamRange, Param, StringInterner, TypeId,
 };
-use ori_llvm::LLVMCodegen;
-use std::time::Instant;
+use ori_llvm::module::ModuleCompiler;
 
 fn main() {
     println!("=== Ori LLVM Backend Benchmark ===\n");
@@ -26,7 +30,8 @@ fn benchmark_arithmetic() {
 
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "bench");
+    let compiler = ModuleCompiler::new(&context, &interner, "bench");
+    compiler.declare_runtime();
 
     // Create: fn sum_to_million() -> int {
     //   // We'll compute: 1 + 2 + 3 + ... unrolled as a large expression
@@ -57,18 +62,22 @@ fn benchmark_arithmetic() {
     let fn_name = interner.intern("big_mul");
     let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        mul_expr,
-        &arena,
-        &expr_types,
-    );
+    let func = Function {
+        name: fn_name,
+        generics: GenericParamRange::EMPTY,
+        params: arena.alloc_params([]),
+        return_ty: None,
+        capabilities: vec![],
+        where_clauses: vec![],
+        body: mul_expr,
+        span: ori_ir::Span::new(0, 1),
+        is_public: false,
+    };
 
-    // JIT execution (note: once JIT is created, module is consumed)
-    let result = codegen.jit_execute_i64("big_mul").unwrap();
+    compiler.compile_function(&func, &arena, &expr_types);
+
+    // JIT execution
+    let result = jit_execute_i64(&compiler, "big_mul").unwrap();
     println!("  Result: {}", result);
     println!("  Expected: {}\n", 1_000_000i64 * 500_000i64);
 }
@@ -82,7 +91,8 @@ fn benchmark_fib() {
 
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "bench_fib");
+    let compiler = ModuleCompiler::new(&context, &interner, "bench_fib");
+    compiler.declare_runtime();
 
     let mut arena = ExprArena::new();
 
@@ -116,32 +126,65 @@ fn benchmark_fib() {
     let fn_name = interner.intern("fib_step");
     let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
 
+    let params = arena.alloc_params([
+        Param {
+            name: a_name,
+            ty: None,
+            span: ori_ir::Span::new(0, 1),
+        },
+        Param {
+            name: b_name,
+            ty: None,
+            span: ori_ir::Span::new(0, 1),
+        },
+    ]);
+
+    let func = Function {
+        name: fn_name,
+        generics: GenericParamRange::EMPTY,
+        params,
+        return_ty: None,
+        capabilities: vec![],
+        where_clauses: vec![],
+        body: add_expr,
+        span: ori_ir::Span::new(0, 1),
+        is_public: false,
+    };
+
     // Time compilation
     let compile_start = Instant::now();
-    codegen.compile_function(
-        fn_name,
-        &[a_name, b_name],
-        &[TypeId::INT, TypeId::INT],
-        TypeId::INT,
-        add_expr,
-        &arena,
-        &expr_types,
-    );
+    compiler.compile_function(&func, &arena, &expr_types);
     let compile_time = compile_start.elapsed();
 
     println!("  Compilation time: {:?}", compile_time);
     println!("  Generated IR:");
-    println!("{}", codegen.print_to_string());
+    println!("{}", compiler.print_to_string());
 
     // Now let's create a standalone executable to benchmark
     println!("\nCreating standalone benchmark executable...");
     create_standalone_benchmark();
 }
 
+/// JIT execute a function that returns i64.
+#[allow(unsafe_code)]
+fn jit_execute_i64(compiler: &ModuleCompiler<'_, '_>, fn_name: &str) -> Result<i64, String> {
+    let ee = compiler.module()
+        .create_jit_execution_engine(OptimizationLevel::None)
+        .map_err(|e| e.to_string())?;
+
+    unsafe {
+        let func = ee
+            .get_function::<unsafe extern "C" fn() -> i64>(fn_name)
+            .map_err(|e| format!("Function '{fn_name}' not found: {e}"))?;
+        Ok(func.call())
+    }
+}
+
 fn create_standalone_benchmark() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "ori_bench");
+    let compiler = ModuleCompiler::new(&context, &interner, "ori_bench");
+    compiler.declare_runtime();
 
     let mut arena = ExprArena::new();
 
@@ -203,24 +246,54 @@ fn create_standalone_benchmark() {
         TypeId::INT, // add
     ];
 
-    codegen.compile_function(
-        fn_name,
-        &[n_name],
-        &[TypeId::INT],
-        TypeId::INT,
-        add,
-        &arena,
-        &expr_types,
-    );
+    let params = arena.alloc_params([
+        Param {
+            name: n_name,
+            ty: None,
+            span: ori_ir::Span::new(0, 1),
+        },
+    ]);
 
-    // Write object file
-    let obj_path = std::path::Path::new("/tmp/ori_bench.o");
+    let func = Function {
+        name: fn_name,
+        generics: GenericParamRange::EMPTY,
+        params,
+        return_ty: None,
+        capabilities: vec![],
+        where_clauses: vec![],
+        body: add,
+        span: ori_ir::Span::new(0, 1),
+        is_public: false,
+    };
+
+    compiler.compile_function(&func, &arena, &expr_types);
+
+    // Write IR and object file
     let ir_path = std::path::Path::new("/tmp/ori_bench.ll");
+    let obj_path = std::path::Path::new("/tmp/ori_bench.o");
 
-    codegen.write_ir_to_file(ir_path).expect("Failed to write IR");
+    // Write LLVM IR
+    compiler.module().print_to_file(ir_path).expect("Failed to write IR");
     println!("  Wrote IR to: {}", ir_path.display());
 
-    codegen.write_object_file(obj_path).expect("Failed to write object file");
+    // Write object file using target machine
+    Target::initialize_native(&InitializationConfig::default()).expect("Failed to init target");
+    let target_triple = TargetMachine::get_default_triple();
+    let target = Target::from_triple(&target_triple).expect("Failed to get target");
+    let target_machine = target
+        .create_target_machine(
+            &target_triple,
+            "generic",
+            "",
+            OptimizationLevel::Default,
+            RelocMode::Default,
+            CodeModel::Default,
+        )
+        .expect("Failed to create target machine");
+
+    target_machine
+        .write_to_file(compiler.module(), FileType::Object, obj_path)
+        .expect("Failed to write object file");
     println!("  Wrote object file to: {}", obj_path.display());
 
     // Create a C wrapper
@@ -296,5 +369,5 @@ int main() {
 
     // Show the generated LLVM IR
     println!("\nGenerated LLVM IR:");
-    println!("{}", codegen.print_to_string());
+    println!("{}", compiler.print_to_string());
 }

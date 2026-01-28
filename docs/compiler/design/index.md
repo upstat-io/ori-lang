@@ -63,8 +63,7 @@ flowchart TB
     B -->|"parsed() query"| C["ParseResult { Module, ExprArena, errors }"]
     C -->|"typed() query"| D["TypedModule { expr_types, errors }"]
     D -->|"evaluated() query"| E["ModuleEvalResult { Value, EvalOutput }"]
-    D -.->|"codegen() query (pending)"| F["LLVM IR → Native Binary"]
-    style F stroke-dasharray: 5 5
+    D -->|"LLVM backend"| F["LLVM IR → JIT Execution"]
 ```
 
 Each step is a Salsa query with automatic caching. If the input doesn't change, the cached output is returned immediately.
@@ -135,6 +134,26 @@ Each step is a Salsa query with automatic caching. If the input doesn't change, 
 - [Test Discovery](09-testing/test-discovery.md) - Finding test functions
 - [Test Runner](09-testing/test-runner.md) - Parallel test execution
 
+### LLVM Backend
+
+The LLVM backend (`ori_llvm` crate) provides JIT compilation and execution:
+
+- **Architecture**: Follows Rust's `rustc_codegen_llvm` patterns
+  - `SimpleCx` / `CodegenCx` context hierarchy
+  - Separate `Builder` type for instruction generation
+  - Two-phase codegen (declare then define)
+  - Type caching for efficiency
+
+- **Type Mappings**:
+  - `int` → `i64`, `float` → `f64`, `bool` → `i1`
+  - `str` → `{ i64 len, ptr data }`
+  - `Option<T>` / `Result<T, E>` → `{ i8 tag, T payload }`
+  - Lists → `{ i64 len, i64 cap, ptr data }`
+
+- **Status**: JIT working (711/745 tests pass), AOT pending
+
+See `compiler/ori_llvm/REORGANIZATION.md` for detailed architecture.
+
 ### Appendices
 
 - [Salsa Patterns](appendices/A-salsa-patterns.md) - Common Salsa usage patterns
@@ -157,6 +176,7 @@ The compiler is organized as a multi-crate workspace:
 | `ori_typeck` | `compiler/ori_typeck/src/` | Type checking, inference, BuiltinMethodRegistry |
 | `ori_patterns` | `compiler/ori_patterns/src/` | Pattern definitions, Value types, EvalError, EvalContext |
 | `ori_eval` | `compiler/ori_eval/src/` | Environment, OperatorRegistry (core eval components) |
+| `ori_llvm` | `compiler/ori_llvm/src/` | LLVM backend for JIT/AOT compilation (requires Docker) |
 | `ori-macros` | `compiler/ori-macros/src/` | Diagnostic derive macros |
 | `oric` | `compiler/oric/src/` | CLI, Salsa queries, eval orchestration, reporting |
 

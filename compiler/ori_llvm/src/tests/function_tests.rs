@@ -2,13 +2,13 @@ use inkwell::context::Context;
 use ori_ir::ast::{BinaryOp, Expr, ExprKind};
 use ori_ir::{ExprArena, StringInterner, TypeId};
 
-use crate::LLVMCodegen;
+use super::helper::TestCodegen;
 
 #[test]
 fn test_function_with_params() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn add(a: int, b: int) -> int { a + b }
     let mut arena = ExprArena::new();
@@ -57,7 +57,7 @@ fn test_function_with_params() {
 fn test_function_call_simple() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create:
     //   fn add(a: int, b: int) -> int { a + b }
@@ -149,7 +149,7 @@ fn test_function_call_simple() {
 fn test_function_call_nested() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create:
     //   fn double(x: int) -> int { x + x }
@@ -243,7 +243,7 @@ fn test_function_call_nested() {
 fn test_recursive_function() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create factorial:
     //   fn factorial(n: int) -> int {
@@ -386,7 +386,7 @@ fn test_recursive_function() {
 fn test_function_ref() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create a helper function first
     let mut arena = ExprArena::new();
@@ -424,7 +424,7 @@ fn test_function_ref() {
         fn_name,
         &[],
         &[],
-        TypeId::INT, // Returns pointer, but we test IR generation
+        TypeId::INT, // Returns function pointer
         func_ref_expr,
         &arena2,
         &expr_types2,
@@ -441,7 +441,7 @@ fn test_function_ref() {
 fn test_lambda_simple() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let codegen = LLVMCodegen::new(&context, &interner, "test");
+    let codegen = TestCodegen::new(&context, &interner, "test");
 
     // Create: fn test() -> fn { x -> x + 1 }
     let mut arena = ExprArena::new();
