@@ -208,6 +208,14 @@
 - Traces always collected (all builds), not build-mode dependent
 - Blocked on: None (can be implemented independently)
 
+**No Circular Imports** — ✅ APPROVED 2026-01-25
+- Proposal: `proposals/approved/no-circular-imports-proposal.md`
+- Implementation: Phase 4.4
+- Circular import dependencies are compile-time errors
+- Core cycle detection already implemented
+- Remaining: enhanced error messages, report all cycles, CLI tooling
+- Blocked on: None (core detection complete)
+
 ---
 
 ## Milestones
