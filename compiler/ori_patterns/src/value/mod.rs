@@ -490,8 +490,7 @@ impl fmt::Debug for Value {
             } => {
                 write!(
                     f,
-                    "VariantConstructor({:?}::{:?}, {field_count} fields)",
-                    type_name, variant_name
+                    "VariantConstructor({type_name:?}::{variant_name:?}, {field_count} fields)"
                 )
             }
             Value::Struct(s) => write!(f, "Struct({s:?})"),
@@ -556,9 +555,9 @@ impl fmt::Display for Value {
                 fields,
             } => {
                 if fields.is_empty() {
-                    write!(f, "<variant {:?}::{:?}>", type_name, variant_name)
+                    write!(f, "<variant {type_name:?}::{variant_name:?}>")
                 } else {
-                    write!(f, "<variant {:?}::{:?}(", type_name, variant_name)?;
+                    write!(f, "<variant {type_name:?}::{variant_name:?}(")?;
                     for (i, field) in fields.iter().enumerate() {
                         if i > 0 {
                             write!(f, ", ")?;
@@ -573,11 +572,7 @@ impl fmt::Display for Value {
                 variant_name,
                 ..
             } => {
-                write!(
-                    f,
-                    "<variant_constructor {:?}::{:?}>",
-                    type_name, variant_name
-                )
+                write!(f, "<variant_constructor {type_name:?}::{variant_name:?}>")
             }
             Value::Struct(s) => write!(f, "<struct {:?}>", s.type_name),
             Value::Function(_) | Value::MemoizedFunction(_) => write!(f, "<function>"),

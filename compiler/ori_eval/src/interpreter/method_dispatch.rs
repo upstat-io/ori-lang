@@ -314,8 +314,9 @@ impl Interpreter<'_> {
             Value::Tuple(_) => self.interner.intern("tuple"),
             Value::Some(_) | Value::None => self.interner.intern("Option"),
             Value::Ok(_) | Value::Err(_) => self.interner.intern("Result"),
-            Value::Variant { type_name, .. } => *type_name,
-            Value::VariantConstructor { type_name, .. } => *type_name,
+            Value::Variant { type_name, .. } | Value::VariantConstructor { type_name, .. } => {
+                *type_name
+            }
             Value::Function(_) | Value::MemoizedFunction(_) => self.interner.intern("function"),
             Value::FunctionVal(_, _) => self.interner.intern("function_val"),
             Value::Error(_) => self.interner.intern("error"),

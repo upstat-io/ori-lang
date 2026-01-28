@@ -36,7 +36,7 @@ pub fn infer_ident(checker: &mut TypeChecker<'_>, name: Name, span: Span) -> Typ
 /// Get the type for a variant constructor.
 ///
 /// - Unit variants (no fields) return the enum type directly
-/// - Variants with fields return a function type: (field_types) -> EnumType
+/// - Variants with fields return a function type: `(field_types) -> EnumType`
 fn variant_constructor_type(
     _checker: &mut TypeChecker<'_>,
     info: &crate::registry::VariantConstructorInfo,

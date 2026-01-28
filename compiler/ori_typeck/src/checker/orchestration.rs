@@ -7,7 +7,7 @@ use super::TypeChecker;
 use ori_ir::{Module, TypeId};
 use ori_types::{Type, TypeData, TypeScheme};
 
-impl<'a> TypeChecker<'a> {
+impl TypeChecker<'_> {
     /// Type check a module.
     pub fn check_module(mut self, module: &Module) -> TypedModule {
         let mut function_types = Vec::new();

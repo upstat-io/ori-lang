@@ -148,21 +148,20 @@ pub fn try_match(
                     if fields.is_empty() {
                         // Unit variant match
                         return Ok(Some(vec![]));
-                    } else {
-                        // Variant has fields but pattern doesn't - no match
-                        return Ok(None);
                     }
-                } else {
-                    // Pattern name doesn't match this variant - check if it looks
-                    // like a variant name (starts with uppercase). If so, it's a
-                    // non-matching variant pattern.
-                    let first_char = pattern_name.chars().next().unwrap_or('a');
-                    if first_char.is_uppercase() {
-                        // Likely a variant pattern that doesn't match - no match
-                        return Ok(None);
-                    }
-                    // Lowercase name - treat as a regular binding
+                    // Variant has fields but pattern doesn't - no match
+                    return Ok(None);
                 }
+
+                // Pattern name doesn't match this variant - check if it looks
+                // like a variant name (starts with uppercase). If so, it's a
+                // non-matching variant pattern.
+                let first_char = pattern_name.chars().next().unwrap_or('a');
+                if first_char.is_uppercase() {
+                    // Likely a variant pattern that doesn't match - no match
+                    return Ok(None);
+                }
+                // Lowercase name - treat as a regular binding
             }
             // Regular binding pattern
             Ok(Some(vec![(*name, value.clone())]))
@@ -190,11 +189,11 @@ pub fn try_match(
 
             // Built-in Option/Result variants
             match (variant_name, value) {
-                ("Some", Value::Some(v)) => {
+                ("Some", Value::Some(v)) | ("Ok", Value::Ok(v)) | ("Err", Value::Err(v)) => {
                     return match inner.len() {
-                        0 => Ok(Some(vec![])), // Some(_) or Some()
+                        0 => Ok(Some(vec![])),
                         1 => try_match(&inner[0], v.as_ref(), arena, interner),
-                        _ => Ok(None), // Some has only one field
+                        _ => Ok(None), // These variants have only one field
                     };
                 }
                 ("None", Value::None) => {
@@ -202,20 +201,6 @@ pub fn try_match(
                         Ok(Some(vec![]))
                     } else {
                         Ok(None)
-                    };
-                }
-                ("Ok", Value::Ok(v)) => {
-                    return match inner.len() {
-                        0 => Ok(Some(vec![])),
-                        1 => try_match(&inner[0], v.as_ref(), arena, interner),
-                        _ => Ok(None),
-                    };
-                }
-                ("Err", Value::Err(v)) => {
-                    return match inner.len() {
-                        0 => Ok(Some(vec![])),
-                        1 => try_match(&inner[0], v.as_ref(), arena, interner),
-                        _ => Ok(None),
                     };
                 }
                 _ => {}
@@ -234,9 +219,7 @@ pub fn try_match(
                 }
 
                 match (inner.len(), fields.len()) {
-                    // Unit variant pattern with unit variant value
-                    (0, 0) => Ok(Some(vec![])),
-                    // Wildcard pattern for variant with fields: match but don't bind
+                    // No inner patterns: matches unit variants or acts as wildcard
                     (0, _) => Ok(Some(vec![])),
                     // Single pattern for single-field variant
                     (1, 1) => try_match(&inner[0], &fields[0], arena, interner),
