@@ -148,6 +148,18 @@ impl TypeEnv {
         self.0.bindings.contains_key(&name)
     }
 
+    /// Iterate over all bound names in this environment (current + parent scopes).
+    ///
+    /// Names from inner scopes may shadow names from outer scopes.
+    /// This iterator yields all names, including duplicates from parent scopes.
+    /// Use this for "did you mean?" suggestions.
+    pub fn names(&self) -> impl Iterator<Item = Name> + '_ {
+        NamesIterator {
+            current: Some(self),
+            current_iter: None,
+        }
+    }
+
     /// Collect all free type variables in the environment.
     ///
     /// This is used during generalization to avoid quantifying over
@@ -177,5 +189,31 @@ impl TypeEnv {
 impl Default for TypeEnv {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Iterator over all bound names in a TypeEnv.
+struct NamesIterator<'a> {
+    current: Option<&'a TypeEnv>,
+    current_iter: Option<std::collections::hash_map::Keys<'a, Name, TypeSchemeId>>,
+}
+
+impl<'a> Iterator for NamesIterator<'a> {
+    type Item = Name;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            // Try to get the next item from the current iterator
+            if let Some(ref mut iter) = self.current_iter {
+                if let Some(&name) = iter.next() {
+                    return Some(name);
+                }
+            }
+
+            // Move to the next scope
+            let env = self.current.take()?;
+            self.current_iter = Some(env.0.bindings.keys());
+            self.current = env.0.parent.as_ref();
+        }
     }
 }

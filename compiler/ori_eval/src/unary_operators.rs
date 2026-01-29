@@ -5,7 +5,7 @@
 //! trait objects for better performance and exhaustiveness checking.
 
 use ori_ir::UnaryOp;
-use ori_patterns::{integer_overflow, EvalError, EvalResult, Value};
+use ori_patterns::{integer_overflow, propagated_error_message, EvalError, EvalResult, Value};
 
 /// Evaluate a unary operation using direct pattern matching.
 ///
@@ -44,7 +44,7 @@ fn eval_try(value: Value) -> EvalResult {
         Value::Ok(v) | Value::Some(v) => Ok((*v).clone()),
         Value::Err(e) => Err(EvalError::propagate(
             Value::Err(e.clone()),
-            format!("propagated error: {e:?}"),
+            propagated_error_message(&e),
         )),
         Value::None => Err(EvalError::propagate(Value::None, "propagated None")),
         other => Ok(other),

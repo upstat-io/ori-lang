@@ -8,6 +8,20 @@ use crate::value::Value;
 /// Result of evaluation.
 pub type EvalResult = Result<Value, EvalError>;
 
+/// Control flow signals for break, continue, and return.
+///
+/// These are not errors but signals that need to be propagated up the call stack
+/// to the appropriate handler (loop, function boundary).
+#[derive(Clone, Debug, PartialEq)]
+pub enum ControlFlow {
+    /// Break from a loop, optionally with a value.
+    Break(Value),
+    /// Continue to the next iteration of a loop.
+    Continue,
+    /// Return from a function, optionally with a value.
+    Return(Value),
+}
+
 /// Evaluation error.
 #[derive(Clone, Debug)]
 pub struct EvalError {
@@ -15,6 +29,8 @@ pub struct EvalError {
     pub message: String,
     /// If this error is from `?` propagation, holds the original Err/None value.
     pub propagated_value: Option<Value>,
+    /// If this is a control flow signal (break/continue/return), holds the signal.
+    pub control_flow: Option<ControlFlow>,
 }
 
 impl EvalError {
@@ -22,6 +38,7 @@ impl EvalError {
         EvalError {
             message: message.into(),
             propagated_value: None,
+            control_flow: None,
         }
     }
 
@@ -30,7 +47,41 @@ impl EvalError {
         EvalError {
             message: message.into(),
             propagated_value: Some(value),
+            control_flow: None,
         }
+    }
+
+    /// Create a break signal with a value.
+    pub fn break_with(value: Value) -> Self {
+        EvalError {
+            message: format!("break:{value}"),
+            propagated_value: None,
+            control_flow: Some(ControlFlow::Break(value)),
+        }
+    }
+
+    /// Create a continue signal.
+    pub fn continue_signal() -> Self {
+        EvalError {
+            message: "continue".to_string(),
+            propagated_value: None,
+            control_flow: Some(ControlFlow::Continue),
+        }
+    }
+
+    /// Create a return signal with a value.
+    pub fn return_with(value: Value) -> Self {
+        EvalError {
+            message: format!("return:{value}"),
+            propagated_value: None,
+            control_flow: Some(ControlFlow::Return(value)),
+        }
+    }
+
+    /// Check if this error is a control flow signal.
+    #[inline]
+    pub fn is_control_flow(&self) -> bool {
+        self.control_flow.is_some()
     }
 }
 
@@ -414,6 +465,16 @@ pub fn for_pattern_requires_list(actual: &str) -> EvalError {
     EvalError::new(format!("for pattern requires a list, got {actual}"))
 }
 
+// Propagation Helpers
+
+/// Create a standardized propagated error message.
+///
+/// This ensures consistent formatting of propagated errors across all call sites.
+#[cold]
+pub fn propagated_error_message(value: &Value) -> String {
+    format!("propagated error: {value:?}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,6 +485,7 @@ mod tests {
         let err = EvalError::new("test message");
         assert_eq!(err.message, "test message");
         assert!(err.propagated_value.is_none());
+        assert!(err.control_flow.is_none());
     }
 
     #[test]
@@ -432,6 +494,41 @@ mod tests {
         let err = EvalError::propagate(value.clone(), "propagated error");
         assert_eq!(err.message, "propagated error");
         assert_eq!(err.propagated_value, Some(value));
+        assert!(err.control_flow.is_none());
+    }
+
+    // Test ControlFlow enum
+    #[test]
+    fn test_control_flow_break() {
+        let err = EvalError::break_with(Value::int(42));
+        assert!(err.message.contains("break"));
+        assert!(err.is_control_flow());
+        assert_eq!(err.control_flow, Some(ControlFlow::Break(Value::int(42))));
+    }
+
+    #[test]
+    fn test_control_flow_continue() {
+        let err = EvalError::continue_signal();
+        assert_eq!(err.message, "continue");
+        assert!(err.is_control_flow());
+        assert_eq!(err.control_flow, Some(ControlFlow::Continue));
+    }
+
+    #[test]
+    fn test_control_flow_return() {
+        let err = EvalError::return_with(Value::int(42));
+        assert!(err.message.contains("return"));
+        assert!(err.is_control_flow());
+        assert_eq!(err.control_flow, Some(ControlFlow::Return(Value::int(42))));
+    }
+
+    #[test]
+    fn test_is_control_flow() {
+        let regular_err = EvalError::new("error");
+        assert!(!regular_err.is_control_flow());
+
+        let break_err = EvalError::break_with(Value::Void);
+        assert!(break_err.is_control_flow());
     }
 
     // Binary Operation Errors

@@ -611,6 +611,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ori_fmt"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "ori_ir",
+ "pretty_assertions",
+ "rustc-hash",
+]
+
+[[package]]
 name = "ori_ir"
 version = "0.1.0-alpha.1"
 dependencies = [

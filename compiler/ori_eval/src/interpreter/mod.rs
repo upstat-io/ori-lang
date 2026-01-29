@@ -67,7 +67,9 @@ use ori_ir::{
     ArmRange, BindingPattern, ExprArena, ExprId, ExprKind, Name, SharedArena, StmtKind,
     StringInterner, UnaryOp,
 };
-use ori_patterns::{EvalContext, EvalError, EvalResult, PatternExecutor, PatternRegistry};
+use ori_patterns::{
+    propagated_error_message, EvalContext, EvalError, EvalResult, PatternExecutor, PatternRegistry,
+};
 
 /// Tree-walking interpreter for Ori expressions.
 ///
@@ -100,7 +102,10 @@ pub struct Interpreter<'a> {
     pub imported_arena: Option<SharedArena>,
     /// Whether the prelude has been auto-loaded.
     /// Used by `oric::Evaluator` when module loading is enabled.
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "Used by oric::Evaluator for prelude tracking, not exposed via ori_eval"
+    )]
     pub(crate) prelude_loaded: bool,
     /// Print handler for the Print capability.
     ///
@@ -376,27 +381,13 @@ impl<'a> Interpreter<'a> {
                 args,
             } => {
                 let recv = self.eval(*receiver)?;
-                // For module namespace, look up the function and call it directly
-                if let Value::ModuleNamespace(ns) = &recv {
-                    let arg_vals: Result<Vec<_>, _> = self
-                        .arena
-                        .get_expr_list(*args)
-                        .iter()
-                        .map(|id| self.eval(*id))
-                        .collect();
-                    let func = ns.get(method).cloned().ok_or_else(|| {
-                        let method_name = self.interner.lookup(*method);
-                        no_member_in_module(method_name)
-                    })?;
-                    return self.eval_call(func, &arg_vals?);
-                }
                 let arg_vals: Result<Vec<_>, _> = self
                     .arena
                     .get_expr_list(*args)
                     .iter()
                     .map(|id| self.eval(*id))
                     .collect();
-                self.eval_method_call(recv, *method, arg_vals?)
+                self.dispatch_method_call(recv, *method, arg_vals?)
             }
             ExprKind::MethodCallNamed {
                 receiver,
@@ -404,27 +395,13 @@ impl<'a> Interpreter<'a> {
                 args,
             } => {
                 let recv = self.eval(*receiver)?;
-                // For module namespace, look up the function and call it directly
-                if let Value::ModuleNamespace(ns) = &recv {
-                    let arg_vals: Result<Vec<_>, _> = self
-                        .arena
-                        .get_call_args(*args)
-                        .iter()
-                        .map(|arg| self.eval(arg.value))
-                        .collect();
-                    let func = ns.get(method).cloned().ok_or_else(|| {
-                        let method_name = self.interner.lookup(*method);
-                        no_member_in_module(method_name)
-                    })?;
-                    return self.eval_call(func, &arg_vals?);
-                }
                 let arg_vals: Result<Vec<_>, _> = self
                     .arena
                     .get_call_args(*args)
                     .iter()
                     .map(|arg| self.eval(arg.value))
                     .collect();
-                self.eval_method_call(recv, *method, arg_vals?)
+                self.dispatch_method_call(recv, *method, arg_vals?)
             }
             ExprKind::Match { scrutinee, arms } => {
                 let value = self.eval(*scrutinee)?;
@@ -477,15 +454,15 @@ impl<'a> Interpreter<'a> {
                 Ok(Value::Struct(StructValue::new(*name, field_values)))
             }
 
-            ExprKind::Return(v) => Err(EvalError::new(format!(
-                "return:{}",
-                v.map(|x| self.eval(x)).transpose()?.unwrap_or(Value::Void)
-            ))),
-            ExprKind::Break(v) => Err(EvalError::new(format!(
-                "break:{}",
-                v.map(|x| self.eval(x)).transpose()?.unwrap_or(Value::Void)
-            ))),
-            ExprKind::Continue => Err(EvalError::new("continue")),
+            ExprKind::Return(v) => {
+                let val = v.map(|x| self.eval(x)).transpose()?.unwrap_or(Value::Void);
+                Err(EvalError::return_with(val))
+            }
+            ExprKind::Break(v) => {
+                let val = v.map(|x| self.eval(x)).transpose()?.unwrap_or(Value::Void);
+                Err(EvalError::break_with(val))
+            }
+            ExprKind::Continue => Err(EvalError::continue_signal()),
             ExprKind::Assign { target, value } => {
                 let val = self.eval(*value)?;
                 self.eval_assign(*target, val)
@@ -494,7 +471,7 @@ impl<'a> Interpreter<'a> {
                 Value::Ok(v) | Value::Some(v) => Ok((*v).clone()),
                 Value::Err(e) => Err(EvalError::propagate(
                     Value::Err(e.clone()),
-                    format!("propagated error: {e}"),
+                    propagated_error_message(&e),
                 )),
                 Value::None => Err(EvalError::propagate(Value::None, "propagated None")),
                 other => Ok(other),
@@ -662,14 +639,61 @@ impl<'a> Interpreter<'a> {
             Error(EvalError), // Propagate error
         }
 
+        /// Lazy iterator over for loop items to avoid pre-collecting all elements.
+        enum ForIterator {
+            List {
+                list: crate::Heap<Vec<Value>>,
+                index: usize,
+            },
+            Range {
+                iter: std::ops::Range<i64>,
+            },
+        }
+
+        impl Iterator for ForIterator {
+            type Item = Value;
+
+            fn next(&mut self) -> Option<Value> {
+                match self {
+                    ForIterator::List { list, index } => {
+                        if *index < list.len() {
+                            let item = list[*index].clone();
+                            *index += 1;
+                            Some(item)
+                        } else {
+                            None
+                        }
+                    }
+                    ForIterator::Range { iter } => iter.next().map(Value::int),
+                }
+            }
+
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                match self {
+                    ForIterator::List { list, index } => {
+                        let remaining = list.len().saturating_sub(*index);
+                        (remaining, Some(remaining))
+                    }
+                    ForIterator::Range { iter } => iter.size_hint(),
+                }
+            }
+        }
+
         let items = match iter {
-            Value::List(list) => list.iter().cloned().collect::<Vec<_>>(),
-            Value::Range(range) => range.iter().map(Value::int).collect(),
+            Value::List(list) => ForIterator::List { list, index: 0 },
+            Value::Range(range) => ForIterator::Range {
+                iter: range.start..if range.inclusive {
+                    range.end.saturating_add(1)
+                } else {
+                    range.end
+                },
+            },
             _ => return Err(for_requires_iterable()),
         };
 
         if is_yield {
-            let mut results = Vec::new();
+            let (lower, _) = items.size_hint();
+            let mut results = Vec::with_capacity(lower);
             for item in items {
                 // Use RAII guard for scope safety
                 let iter_result = self.with_binding(binding, item, Mutability::Immutable, |eval| {
@@ -748,6 +772,26 @@ impl<'a> Interpreter<'a> {
     /// Evaluate an assignment using `exec::control` module.
     fn eval_assign(&mut self, target: ExprId, value: Value) -> EvalResult {
         crate::exec::control::eval_assign(target, value, self.arena, self.interner, &mut self.env)
+    }
+
+    /// Dispatch a method call, handling ModuleNamespace specially.
+    ///
+    /// For module namespaces, looks up the function and calls it directly.
+    /// For other receivers, uses `eval_method_call`.
+    fn dispatch_method_call(
+        &mut self,
+        receiver: Value,
+        method: Name,
+        args: Vec<Value>,
+    ) -> EvalResult {
+        if let Value::ModuleNamespace(ns) = &receiver {
+            let func = ns.get(&method).cloned().ok_or_else(|| {
+                no_member_in_module(self.interner.lookup(method))
+            })?;
+            self.eval_call(func, &args)
+        } else {
+            self.eval_method_call(receiver, method, args)
+        }
     }
 
     /// Get a reference to the environment.

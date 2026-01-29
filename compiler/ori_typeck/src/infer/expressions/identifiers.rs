@@ -1,6 +1,7 @@
 //! Identifier and function reference type inference.
 
 use crate::checker::TypeChecker;
+use crate::suggest;
 use ori_ir::{Name, Span};
 use ori_types::Type;
 
@@ -27,14 +28,15 @@ pub fn infer_ident(checker: &mut TypeChecker<'_>, name: Name, span: Span) -> Typ
         return newtype_constructor_type(&info);
     }
 
-    checker.push_error(
-        format!(
-            "unknown identifier `{}`",
-            checker.context.interner.lookup(name)
-        ),
-        span,
-        ori_diagnostic::ErrorCode::E2003,
-    );
+    // Try to suggest a similar name
+    let name_str = checker.context.interner.lookup(name);
+    let message = if let Some(suggestion) = suggest::suggest_identifier(checker, name) {
+        format!("unknown identifier `{name_str}`, did you mean `{suggestion}`?")
+    } else {
+        format!("unknown identifier `{name_str}`")
+    };
+
+    checker.push_error(message, span, ori_diagnostic::ErrorCode::E2003);
     Type::Error
 }
 
@@ -100,14 +102,15 @@ pub fn infer_function_ref(checker: &mut TypeChecker<'_>, name: Name, span: Span)
     if let Some(scheme) = checker.inference.env.lookup_scheme(name) {
         checker.inference.ctx.instantiate(&scheme)
     } else {
-        checker.push_error(
-            format!(
-                "unknown function `@{}`",
-                checker.context.interner.lookup(name)
-            ),
-            span,
-            ori_diagnostic::ErrorCode::E2003,
-        );
+        // Try to suggest a similar function name
+        let name_str = checker.context.interner.lookup(name);
+        let message = if let Some(suggestion) = suggest::suggest_function(checker, name) {
+            format!("unknown function `@{name_str}`, did you mean `@{suggestion}`?")
+        } else {
+            format!("unknown function `@{name_str}`")
+        };
+
+        checker.push_error(message, span, ori_diagnostic::ErrorCode::E2003);
         Type::Error
     }
 }

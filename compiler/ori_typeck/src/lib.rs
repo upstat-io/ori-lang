@@ -22,6 +22,7 @@ pub mod operators;
 pub mod registry;
 mod shared;
 mod stack;
+pub mod suggest;
 
 pub use shared::SharedRegistry;
 pub use stack::ensure_sufficient_stack;

@@ -40,3 +40,4 @@ pub use diagnostic::{
 };
 pub use error_code::ErrorCode;
 pub use guarantee::ErrorGuaranteed;
+pub use queue::DiagnosticSeverity;

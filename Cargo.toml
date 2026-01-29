@@ -9,6 +9,7 @@ members = [
     "compiler/ori_patterns",
     "compiler/ori_typeck",
     "compiler/ori_eval",
+    "compiler/ori_fmt",
     "compiler/ori-macros",
     "compiler/oric",
 ]
@@ -48,6 +49,7 @@ ori_parse = { path = "compiler/ori_parse" }
 ori_patterns = { path = "compiler/ori_patterns" }
 ori_typeck = { path = "compiler/ori_typeck" }
 ori_eval = { path = "compiler/ori_eval" }
+ori_fmt = { path = "compiler/ori_fmt" }
 ori_llvm = { path = "compiler/ori_llvm" }
 ori-macros = { path = "compiler/ori-macros" }
 

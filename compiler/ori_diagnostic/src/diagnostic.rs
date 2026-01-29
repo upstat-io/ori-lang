@@ -192,11 +192,11 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
-    /// Create a new error diagnostic.
-    pub fn error(code: ErrorCode) -> Self {
+    /// Create a new diagnostic with the given severity.
+    fn new_with_severity(code: ErrorCode, severity: Severity) -> Self {
         Diagnostic {
             code,
-            severity: Severity::Error,
+            severity,
             message: String::new(),
             labels: Vec::new(),
             notes: Vec::new(),
@@ -205,17 +205,14 @@ impl Diagnostic {
         }
     }
 
+    /// Create a new error diagnostic.
+    pub fn error(code: ErrorCode) -> Self {
+        Self::new_with_severity(code, Severity::Error)
+    }
+
     /// Create a new warning diagnostic.
     pub fn warning(code: ErrorCode) -> Self {
-        Diagnostic {
-            code,
-            severity: Severity::Warning,
-            message: String::new(),
-            labels: Vec::new(),
-            notes: Vec::new(),
-            suggestions: Vec::new(),
-            structured_suggestions: Vec::new(),
-        }
+        Self::new_with_severity(code, Severity::Warning)
     }
 
     /// Set the main message.
@@ -461,6 +458,24 @@ mod tests {
         assert!(output.contains("error"));
         assert!(output.contains("E1001"));
         assert!(output.contains("test error"));
+    }
+
+    #[test]
+    fn test_diagnostic_display_format() {
+        let diag = Diagnostic::error(ErrorCode::E2001)
+            .with_message("test error")
+            .with_label(Span::new(0, 5), "primary")
+            .with_secondary_label(Span::new(10, 15), "secondary")
+            .with_note("a note")
+            .with_suggestion("a suggestion");
+
+        let output = diag.to_string();
+        assert!(output.contains("error [E2001]: test error"));
+        assert!(output.contains("--> "));
+        assert!(output.contains("primary"));
+        assert!(output.contains("secondary"));
+        assert!(output.contains("= note: a note"));
+        assert!(output.contains("= help: a suggestion"));
     }
 
     #[test]

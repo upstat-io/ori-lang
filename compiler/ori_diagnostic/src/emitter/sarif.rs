@@ -29,7 +29,7 @@ pub struct SarifEmitter<W: Write> {
 
 /// Internal representation of a SARIF result before serialization.
 struct SarifResult {
-    rule_id: String,
+    rule_id: &'static str,
     level: &'static str,
     message: String,
     locations: Vec<SarifLocation>,
@@ -73,10 +73,14 @@ impl<W: Write> SarifEmitter<W> {
     }
 
     /// Convert a byte offset to (line, column) using 1-based indexing.
+    ///
+    /// Without source text, returns (1, 1) as a placeholder. Users should call
+    /// `with_source()` for accurate position information.
     fn offset_to_line_col(&self, offset: u32) -> (usize, usize) {
         let Some(source) = &self.source else {
-            // Without source, use offset as line number (not ideal but functional)
-            return (1, offset as usize + 1);
+            // Without source, we cannot compute accurate positions.
+            // Return (1, 1) as a placeholder.
+            return (1, 1);
         };
 
         let offset = offset as usize;
@@ -132,7 +136,7 @@ impl<W: Write> SarifEmitter<W> {
         );
 
         // Collect unique rules (BTreeSet gives deterministic order without sort+dedup)
-        let rules: BTreeSet<&str> = self.results.iter().map(|r| r.rule_id.as_str()).collect();
+        let rules: BTreeSet<&str> = self.results.iter().map(|r| r.rule_id).collect();
 
         let _ = writeln!(self.writer, "        \"rules\": [");
         for (i, rule_id) in rules.iter().enumerate() {
@@ -303,7 +307,7 @@ impl<W: Write> DiagnosticEmitter for SarifEmitter<W> {
         }
 
         self.results.push(SarifResult {
-            rule_id: diagnostic.code.as_str().to_string(),
+            rule_id: diagnostic.code.as_str(),
             level: Self::severity_to_level(diagnostic.severity),
             message: diagnostic.message.clone(),
             locations,

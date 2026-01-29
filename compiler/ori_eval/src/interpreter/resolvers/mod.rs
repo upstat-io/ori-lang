@@ -112,7 +112,6 @@ pub trait MethodResolver {
 
     /// Get a human-readable name for this resolver (for debugging).
     /// Used in tests and for tracing/logging when debugging method resolution.
-    #[allow(dead_code)]
     fn name(&self) -> &'static str;
 }
 
@@ -157,7 +156,6 @@ impl MethodResolverKind {
     }
 
     /// Get a human-readable name for this resolver (for debugging).
-    #[allow(dead_code)]
     pub fn name(&self) -> &'static str {
         match self {
             Self::UserRegistry(r) => r.name(),

@@ -15,6 +15,20 @@
 use crate::{Environment, FunctionValue, Mutability, UserMethod, UserMethodRegistry, Value};
 use ori_ir::{Module, Name, SharedArena, TypeDeclKind};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+/// Configuration for method collection operations.
+///
+/// Groups the common parameters needed by `collect_impl_methods` and
+/// `collect_extend_methods`, reducing parameter count and improving API clarity.
+pub struct MethodCollectionConfig<'a> {
+    /// The module containing methods to collect.
+    pub module: &'a Module,
+    /// Shared arena for expression lookup.
+    pub arena: &'a SharedArena,
+    /// Variable captures from the current environment.
+    pub captures: &'a HashMap<Name, Value>,
+}
 
 /// Register all functions from a module into the environment.
 ///
@@ -47,6 +61,26 @@ pub fn register_module_functions(module: &Module, arena: &SharedArena, env: &mut
     }
 }
 
+/// Collect methods from impl blocks into a registry using a config struct.
+///
+/// Prefer this over `collect_impl_methods` for new code.
+pub fn collect_impl_methods_with_config(
+    config: &MethodCollectionConfig<'_>,
+    registry: &mut UserMethodRegistry,
+) {
+    collect_impl_methods(config.module, config.arena, config.captures, registry);
+}
+
+/// Collect methods from extend blocks into a registry using a config struct.
+///
+/// Prefer this over `collect_extend_methods` for new code.
+pub fn collect_extend_methods_with_config(
+    config: &MethodCollectionConfig<'_>,
+    registry: &mut UserMethodRegistry,
+) {
+    collect_extend_methods(config.module, config.arena, config.captures, registry);
+}
+
 /// Collect methods from impl blocks into a registry.
 ///
 /// Takes explicit captures instead of borrowing from an interpreter, enabling
@@ -68,6 +102,9 @@ pub fn collect_impl_methods(
     captures: &HashMap<Name, Value>,
     registry: &mut UserMethodRegistry,
 ) {
+    // Wrap captures in Arc once for efficient sharing across all methods
+    let captures = Arc::new(captures.clone());
+
     // First, build a map of trait names to their definitions for default method lookup
     let mut trait_map: HashMap<Name, &ori_ir::TraitDef> = HashMap::new();
     for trait_def in &module.traits {
@@ -90,8 +127,9 @@ pub fn collect_impl_methods(
             // Get parameter names
             let params = arena.get_param_names(method.params);
 
-            // Create user method with captures and arena
-            let user_method = UserMethod::new(params, method.body, captures.clone(), arena.clone());
+            // Create user method with Arc-cloned captures (O(1) instead of O(n))
+            let user_method =
+                UserMethod::new(params, method.body, Arc::clone(&captures), arena.clone());
 
             registry.register(type_name, method.name, user_method);
         }
@@ -109,7 +147,7 @@ pub fn collect_impl_methods(
                                 let user_method = UserMethod::new(
                                     params,
                                     default_method.body,
-                                    captures.clone(),
+                                    Arc::clone(&captures),
                                     arena.clone(),
                                 );
 
@@ -144,6 +182,9 @@ pub fn collect_extend_methods(
     captures: &HashMap<Name, Value>,
     registry: &mut UserMethodRegistry,
 ) {
+    // Wrap captures in Arc once for efficient sharing across all methods
+    let captures = Arc::new(captures.clone());
+
     for extend_def in &module.extends {
         // Get the target type name (e.g., "list" for `extend [T] { ... }`)
         let type_name = extend_def.target_type_name;
@@ -153,8 +194,9 @@ pub fn collect_extend_methods(
             // Get parameter names
             let params = arena.get_param_names(method.params);
 
-            // Create user method with captures and arena
-            let user_method = UserMethod::new(params, method.body, captures.clone(), arena.clone());
+            // Create user method with Arc-cloned captures (O(1) instead of O(n))
+            let user_method =
+                UserMethod::new(params, method.body, Arc::clone(&captures), arena.clone());
 
             registry.register(type_name, method.name, user_method);
         }

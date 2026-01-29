@@ -88,7 +88,7 @@ impl TextEdit {
 }
 
 /// A code action that can be applied to fix an error.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct CodeAction {
     /// User-visible title describing the fix.
     pub title: String,

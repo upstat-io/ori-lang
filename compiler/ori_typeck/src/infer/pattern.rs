@@ -230,17 +230,25 @@ fn infer_function_exp_with_scoped_bindings(
 ) -> Type {
     use ori_patterns::ScopedBindingType;
 
-    let props_needing_scope: std::collections::HashSet<Name> = scoped_bindings
-        .iter()
-        .flat_map(|b| {
-            b.for_props
-                .iter()
-                .map(|p| checker.context.interner.intern(p))
-        })
-        .collect();
+    // Pre-compute which bindings apply to each property (O(n) instead of O(n*m))
+    let mut bindings_by_prop: HashMap<Name, Vec<&ori_patterns::ScopedBinding>> = HashMap::new();
+    let mut props_needing_scope: std::collections::HashSet<Name> =
+        std::collections::HashSet::new();
+
+    for binding in scoped_bindings {
+        for prop_str in binding.for_props {
+            let prop_name = checker.context.interner.intern(prop_str);
+            props_needing_scope.insert(prop_name);
+            bindings_by_prop
+                .entry(prop_name)
+                .or_default()
+                .push(binding);
+        }
+    }
 
     let mut prop_types: HashMap<Name, Type> = HashMap::new();
 
+    // First pass: type-check properties that don't need scoped bindings
     for prop in props {
         if !props_needing_scope.contains(&prop.name) {
             let ty = infer_expr(checker, prop.value);
@@ -248,48 +256,50 @@ fn infer_function_exp_with_scoped_bindings(
         }
     }
 
+    // Second pass: type-check properties that need scoped bindings
     for prop in props {
         if props_needing_scope.contains(&prop.name) {
-            let bindings_for_prop: Vec<(Name, Type)> = scoped_bindings
-                .iter()
-                .filter(|b| {
-                    b.for_props
+            // Use pre-computed binding list (O(1) lookup)
+            let bindings_for_prop: Vec<(Name, Type)> = bindings_by_prop
+                .get(&prop.name)
+                .map(|bindings| {
+                    bindings
                         .iter()
-                        .any(|p| checker.context.interner.intern(p) == prop.name)
+                        .map(|binding| {
+                            let binding_name = checker.context.interner.intern(binding.name);
+                            let binding_type = match &binding.type_from {
+                                ScopedBindingType::SameAs(source_prop) => {
+                                    let source_name = checker.context.interner.intern(source_prop);
+                                    prop_types
+                                        .get(&source_name)
+                                        .cloned()
+                                        .unwrap_or_else(|| checker.inference.ctx.fresh_var())
+                                }
+                                ScopedBindingType::FunctionReturning(source_prop) => {
+                                    let source_name = checker.context.interner.intern(source_prop);
+                                    let ret_type = prop_types
+                                        .get(&source_name)
+                                        .cloned()
+                                        .unwrap_or_else(|| checker.inference.ctx.fresh_var());
+                                    Type::Function {
+                                        params: vec![],
+                                        ret: Box::new(ret_type),
+                                    }
+                                }
+                                ScopedBindingType::EnclosingFunction => {
+                                    // Use the enclosing function's type for recursive patterns
+                                    checker
+                                        .scope
+                                        .current_function_type
+                                        .clone()
+                                        .unwrap_or_else(|| checker.inference.ctx.fresh_var())
+                                }
+                            };
+                            (binding_name, binding_type)
+                        })
+                        .collect()
                 })
-                .map(|binding| {
-                    let binding_name = checker.context.interner.intern(binding.name);
-                    let binding_type = match &binding.type_from {
-                        ScopedBindingType::SameAs(source_prop) => {
-                            let source_name = checker.context.interner.intern(source_prop);
-                            prop_types
-                                .get(&source_name)
-                                .cloned()
-                                .unwrap_or_else(|| checker.inference.ctx.fresh_var())
-                        }
-                        ScopedBindingType::FunctionReturning(source_prop) => {
-                            let source_name = checker.context.interner.intern(source_prop);
-                            let ret_type = prop_types
-                                .get(&source_name)
-                                .cloned()
-                                .unwrap_or_else(|| checker.inference.ctx.fresh_var());
-                            Type::Function {
-                                params: vec![],
-                                ret: Box::new(ret_type),
-                            }
-                        }
-                        ScopedBindingType::EnclosingFunction => {
-                            // Use the enclosing function's type for recursive patterns like `recurse`
-                            checker
-                                .scope
-                                .current_function_type
-                                .clone()
-                                .unwrap_or_else(|| checker.inference.ctx.fresh_var())
-                        }
-                    };
-                    (binding_name, binding_type)
-                })
-                .collect();
+                .unwrap_or_default();
 
             let ty = checker
                 .with_infer_bindings(bindings_for_prop, |checker| infer_expr(checker, prop.value));

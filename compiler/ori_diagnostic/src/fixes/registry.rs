@@ -54,13 +54,13 @@ impl FixRegistry {
     pub fn register<F: CodeFix + 'static>(&mut self, fix: F) {
         let fix = Arc::new(fix);
         let idx = self.fixes.len();
-        let codes: Vec<ErrorCode> = fix.error_codes().to_vec();
 
-        self.fixes.push(fix);
-
-        for code in codes {
+        // Iterate directly over slice, no allocation
+        for &code in fix.error_codes() {
             self.by_code.entry(code).or_default().push(idx);
         }
+
+        self.fixes.push(fix);
     }
 
     /// Get all code actions for a diagnostic.

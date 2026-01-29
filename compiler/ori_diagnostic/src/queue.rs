@@ -10,8 +10,37 @@
 use crate::{Diagnostic, ErrorCode, ErrorGuaranteed};
 use ori_ir::Span;
 
+/// Number of characters to use for message prefix deduplication.
+const MESSAGE_PREFIX_LEN: usize = 30;
+
+/// Extract the first N characters of a message for deduplication.
+#[inline]
+fn message_prefix(msg: &str) -> String {
+    msg.chars().take(MESSAGE_PREFIX_LEN).collect()
+}
+
+/// Case-insensitive substring check without allocation.
+#[inline]
+fn contains_ascii_ci(haystack: &str, needle: &str) -> bool {
+    haystack
+        .as_bytes()
+        .windows(needle.len())
+        .any(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
+}
+
+/// Severity level for a diagnostic.
+///
+/// This determines how the diagnostic is handled by the queue.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiagnosticSeverity {
+    /// Hard error - always reported, not suppressed by other errors.
+    Hard,
+    /// Soft error - can be suppressed after a hard error to reduce noise.
+    Soft,
+}
+
 /// Configuration for diagnostic processing.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct DiagnosticConfig {
     /// Maximum number of errors before stopping (0 = unlimited).
     pub error_limit: usize,
@@ -43,7 +72,7 @@ impl DiagnosticConfig {
 }
 
 /// Queued diagnostic with metadata for sorting and deduplication.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct QueuedDiagnostic {
     /// The diagnostic itself.
     pub diagnostic: Diagnostic,
@@ -77,7 +106,7 @@ impl QueuedDiagnostic {
 /// // ... add more diagnostics
 /// let sorted = queue.flush();
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct DiagnosticQueue {
     /// Collected diagnostics.
     diagnostics: Vec<QueuedDiagnostic>,
@@ -124,10 +153,33 @@ impl DiagnosticQueue {
         }
     }
 
+    /// Add a diagnostic to the queue with severity level.
+    ///
+    /// Returns `true` if the diagnostic was added, `false` if it was filtered.
+    pub fn add_with_severity(
+        &mut self,
+        diag: Diagnostic,
+        line: u32,
+        column: u32,
+        severity: DiagnosticSeverity,
+    ) -> bool {
+        let soft = matches!(severity, DiagnosticSeverity::Soft);
+        self.add_internal(diag, line, column, soft)
+    }
+
     /// Add a diagnostic to the queue.
     ///
     /// Returns `true` if the diagnostic was added, `false` if it was filtered.
+    ///
+    /// # Deprecated
+    /// Use `add_with_severity` instead for clearer intent about soft vs hard errors.
+    #[deprecated(since = "0.1.0", note = "use `add_with_severity` instead")]
     pub fn add(&mut self, diag: Diagnostic, line: u32, column: u32, soft: bool) -> bool {
+        self.add_internal(diag, line, column, soft)
+    }
+
+    /// Internal implementation of add.
+    fn add_internal(&mut self, diag: Diagnostic, line: u32, column: u32, soft: bool) -> bool {
         // Check error limit
         if self.config.error_limit > 0 && self.error_count >= self.config.error_limit {
             return false;
@@ -161,7 +213,7 @@ impl DiagnosticQueue {
                 self.last_syntax_line = Some(line);
             } else {
                 // Take first ~30 chars of message for dedup
-                let prefix = diag.message.chars().take(30).collect();
+                let prefix = message_prefix(&diag.message);
                 self.last_error = Some((line, prefix));
             }
         }
@@ -178,13 +230,17 @@ impl DiagnosticQueue {
     }
 
     /// Add a diagnostic with position computed from source.
+    ///
+    /// # Deprecated
+    /// Use `add_with_severity` instead for clearer intent about soft vs hard errors.
+    #[deprecated(since = "0.1.0", note = "use `add_with_severity` instead")]
     pub fn add_with_source(&mut self, diag: Diagnostic, source: &str, soft: bool) -> bool {
         let (line, column) = if let Some(span) = diag.primary_span() {
             crate::span_utils::offset_to_line_col(source, span.start)
         } else {
             (1, 1)
         };
-        self.add(diag, line, column, soft)
+        self.add_internal(diag, line, column, soft)
     }
 
     /// Check if the error limit has been reached.
@@ -216,7 +272,7 @@ impl DiagnosticQueue {
     /// # Returns
     /// `ErrorGuaranteed` proof that the error was emitted.
     pub fn emit_error(&mut self, diag: Diagnostic, line: u32, column: u32) -> ErrorGuaranteed {
-        self.add(diag, line, column, false);
+        self.add_internal(diag, line, column, false);
         ErrorGuaranteed::new()
     }
 
@@ -264,8 +320,8 @@ impl DiagnosticQueue {
     }
 
     /// Get diagnostics without clearing the queue.
-    pub fn peek(&self) -> Vec<&Diagnostic> {
-        self.diagnostics.iter().map(|d| &d.diagnostic).collect()
+    pub fn peek(&self) -> impl Iterator<Item = &Diagnostic> {
+        self.diagnostics.iter().map(|d| &d.diagnostic)
     }
 
     /// Check if a diagnostic is a follow-on error.
@@ -277,8 +333,10 @@ impl DiagnosticQueue {
             return false;
         }
 
-        let msg = diag.message.to_lowercase();
-        msg.contains("invalid operand") || msg.contains("invalid type") || msg.contains("<error>")
+        let msg = &diag.message;
+        contains_ascii_ci(msg, "invalid operand")
+            || contains_ascii_ci(msg, "invalid type")
+            || msg.contains("<error>")
     }
 
     /// Check if a diagnostic is a duplicate of a recent one.
@@ -298,7 +356,7 @@ impl DiagnosticQueue {
             // Non-syntax errors: dedupe same line + similar message
             if let Some((last_line, ref last_prefix)) = self.last_error {
                 if last_line == line {
-                    let prefix: String = diag.message.chars().take(30).collect();
+                    let prefix = message_prefix(&diag.message);
                     if prefix == *last_prefix {
                         return true;
                     }
@@ -319,10 +377,12 @@ impl DiagnosticQueue {
 pub fn too_many_errors(limit: usize, span: Span) -> Diagnostic {
     Diagnostic::error(ErrorCode::E9002)
         .with_message(format!("aborting due to {limit} previous errors"))
-        .with_label(span, "")
+        .with_label(span, "error limit reached here")
+        .with_note("use --error-limit to increase the limit")
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
 
