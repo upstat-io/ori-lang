@@ -51,6 +51,14 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Take ownership of the arena, replacing it with an empty one.
+    ///
+    /// This is useful for tests that need to access the arena after parsing.
+    #[cfg(test)]
+    pub fn take_arena(&mut self) -> ExprArena {
+        std::mem::take(&mut self.arena)
+    }
+
     // --- Context Management ---
     //
     // These methods support context-sensitive parsing. Some are not yet used

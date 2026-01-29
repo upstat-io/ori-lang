@@ -11,6 +11,14 @@
 
 ## 22.1 Formatter
 
+> **DETAILED PLAN**: `plans/ori_fmt/` — Phased implementation with tracking
+> **CRATE**: `compiler/ori_fmt/` — Width calculation, rendering engine
+
+**Status**: 🔶 Partial — Width calculator complete, formatter core pending
+
+- [x] **Implement**: Width calculation engine — `ori_fmt/src/width/`
+  - [x] **Rust Tests**: `ori_fmt/src/width/tests.rs` — 49+ tests passing
+
 - [ ] **Implement**: `ori fmt` command — design/12-tooling/index.md:64-69
   - [ ] **Rust Tests**: `oric/src/cli/fmt.rs` — fmt command
   - [ ] **Ori Tests**: `tests/spec/tooling/fmt.ori`

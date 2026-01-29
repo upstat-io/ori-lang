@@ -187,18 +187,24 @@ pub fn try_match(
 
         MatchPattern::Variant { name, inner } => {
             let variant_name = interner.lookup(*name);
+            let inner_patterns = arena.get_match_pattern_list(*inner);
 
             // Built-in Option/Result variants
             match (variant_name, value) {
                 ("Some", Value::Some(v)) | ("Ok", Value::Ok(v)) | ("Err", Value::Err(v)) => {
-                    return match inner.len() {
+                    return match inner_patterns.len() {
                         0 => Ok(Some(vec![])),
-                        1 => try_match(&inner[0], v.as_ref(), arena, interner),
+                        1 => try_match(
+                            arena.get_match_pattern(inner_patterns[0]),
+                            v.as_ref(),
+                            arena,
+                            interner,
+                        ),
                         _ => Ok(None), // These variants have only one field
                     };
                 }
                 ("None", Value::None) => {
-                    return if inner.is_empty() {
+                    return if inner_patterns.is_empty() {
                         Ok(Some(vec![]))
                     } else {
                         Ok(None)
@@ -219,16 +225,22 @@ pub fn try_match(
                     return Ok(None);
                 }
 
-                match (inner.len(), fields.len()) {
+                match (inner_patterns.len(), fields.len()) {
                     // No inner patterns: matches unit variants or acts as wildcard
                     (0, _) => Ok(Some(vec![])),
                     // Single pattern for single-field variant
-                    (1, 1) => try_match(&inner[0], &fields[0], arena, interner),
+                    (1, 1) => try_match(
+                        arena.get_match_pattern(inner_patterns[0]),
+                        &fields[0],
+                        arena,
+                        interner,
+                    ),
                     // Multiple patterns for multi-field variant
                     (n, m) if n == m => {
                         let mut all_bindings = Vec::new();
-                        for (pat, val) in inner.iter().zip(fields.iter()) {
-                            match try_match(pat, val, arena, interner)? {
+                        for (pat_id, val) in inner_patterns.iter().zip(fields.iter()) {
+                            match try_match(arena.get_match_pattern(*pat_id), val, arena, interner)?
+                            {
                                 Some(bindings) => all_bindings.extend(bindings),
                                 None => return Ok(None),
                             }
@@ -245,12 +257,13 @@ pub fn try_match(
 
         MatchPattern::Tuple(patterns) => {
             if let Value::Tuple(values) = value {
-                if patterns.len() != values.len() {
+                let pattern_ids = arena.get_match_pattern_list(*patterns);
+                if pattern_ids.len() != values.len() {
                     return Ok(None);
                 }
                 let mut all_bindings = Vec::new();
-                for (pat, val) in patterns.iter().zip(values.iter()) {
-                    match try_match(pat, val, arena, interner)? {
+                for (pat_id, val) in pattern_ids.iter().zip(values.iter()) {
+                    match try_match(arena.get_match_pattern(*pat_id), val, arena, interner)? {
                         Some(bindings) => all_bindings.extend(bindings),
                         None => return Ok(None),
                     }
@@ -263,21 +276,22 @@ pub fn try_match(
 
         MatchPattern::List { elements, rest } => {
             if let Value::List(values) = value {
-                if values.len() < elements.len() {
+                let element_ids = arena.get_match_pattern_list(*elements);
+                if values.len() < element_ids.len() {
                     return Ok(None);
                 }
-                if rest.is_none() && values.len() != elements.len() {
+                if rest.is_none() && values.len() != element_ids.len() {
                     return Ok(None);
                 }
                 let mut all_bindings = Vec::new();
-                for (pat, val) in elements.iter().zip(values.iter()) {
-                    match try_match(pat, val, arena, interner)? {
+                for (pat_id, val) in element_ids.iter().zip(values.iter()) {
+                    match try_match(arena.get_match_pattern(*pat_id), val, arena, interner)? {
                         Some(bindings) => all_bindings.extend(bindings),
                         None => return Ok(None),
                     }
                 }
                 if let Some(rest_name) = rest {
-                    let rest_values: Vec<_> = values[elements.len()..].to_vec();
+                    let rest_values: Vec<_> = values[element_ids.len()..].to_vec();
                     all_bindings.push((*rest_name, Value::list(rest_values)));
                 }
                 Ok(Some(all_bindings))
@@ -287,8 +301,10 @@ pub fn try_match(
         }
 
         MatchPattern::Or(patterns) => {
-            for pat in patterns {
-                if let Some(bindings) = try_match(pat, value, arena, interner)? {
+            for pat_id in arena.get_match_pattern_list(*patterns) {
+                if let Some(bindings) =
+                    try_match(arena.get_match_pattern(*pat_id), value, arena, interner)?
+                {
                     return Ok(Some(bindings));
                 }
             }
@@ -296,7 +312,9 @@ pub fn try_match(
         }
 
         MatchPattern::At { name, pattern } => {
-            if let Some(mut bindings) = try_match(pattern, value, arena, interner)? {
+            if let Some(mut bindings) =
+                try_match(arena.get_match_pattern(*pattern), value, arena, interner)?
+            {
                 bindings.push((*name, value.clone()));
                 Ok(Some(bindings))
             } else {
@@ -307,10 +325,15 @@ pub fn try_match(
         MatchPattern::Struct { fields } => {
             if let Value::Struct(s) = value {
                 let mut all_bindings = Vec::new();
-                for (field_name, inner_pat) in fields {
+                for (field_name, inner_pat_id) in fields {
                     if let Some(field_val) = s.get_field(*field_name) {
-                        if let Some(pat) = inner_pat {
-                            match try_match(pat, field_val, arena, interner)? {
+                        if let Some(pat_id) = inner_pat_id {
+                            match try_match(
+                                arena.get_match_pattern(*pat_id),
+                                field_val,
+                                arena,
+                                interner,
+                            )? {
                                 Some(bindings) => all_bindings.extend(bindings),
                                 None => return Ok(None),
                             }

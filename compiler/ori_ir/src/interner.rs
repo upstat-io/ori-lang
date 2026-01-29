@@ -13,6 +13,7 @@
 use super::Name;
 use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 /// Per-shard storage for interned strings.
@@ -21,6 +22,20 @@ struct InternShard {
     map: FxHashMap<&'static str, u32>,
     /// Storage for string contents.
     strings: Vec<&'static str>,
+}
+
+/// Panic helper for interner overflow (cold path, never inlined).
+#[cold]
+#[inline(never)]
+fn panic_interner_overflow(shard_idx: usize, count: usize) -> ! {
+    panic!(
+        "interner shard {} exceeded capacity: {} strings (0x{:X}), max is {} (0x{:X})",
+        shard_idx,
+        count,
+        count,
+        u32::MAX,
+        u32::MAX
+    )
 }
 
 impl InternShard {
@@ -50,6 +65,8 @@ impl InternShard {
 /// Can be wrapped in Arc for sharing across threads.
 pub struct StringInterner {
     shards: [RwLock<InternShard>; Name::NUM_SHARDS],
+    /// Total count of interned strings across all shards (O(1) `len()`).
+    total_count: AtomicUsize,
 }
 
 impl StringInterner {
@@ -63,7 +80,11 @@ impl StringInterner {
             }
         });
 
-        let interner = Self { shards };
+        // Start with 1 for the empty string pre-interned in shard 0
+        let interner = Self {
+            shards,
+            total_count: AtomicUsize::new(1),
+        };
         interner.pre_intern_keywords();
         interner
     }
@@ -115,9 +136,12 @@ impl StringInterner {
         let leaked: &'static str = Box::leak(owned.into_boxed_str());
 
         let local = u32::try_from(guard.strings.len())
-            .unwrap_or_else(|_| panic!("interner shard {shard_idx} exceeded u32::MAX strings"));
+            .unwrap_or_else(|_| panic_interner_overflow(shard_idx, guard.strings.len()));
         guard.strings.push(leaked);
         guard.map.insert(leaked, local);
+
+        // Increment total count (Relaxed is fine - we don't need ordering guarantees)
+        self.total_count.fetch_add(1, Ordering::Relaxed);
 
         Name::new(shard_idx_u32, local)
     }
@@ -206,9 +230,9 @@ impl StringInterner {
         }
     }
 
-    /// Get the number of interned strings.
+    /// Get the number of interned strings (O(1)).
     pub fn len(&self) -> usize {
-        self.shards.iter().map(|s| s.read().strings.len()).sum()
+        self.total_count.load(Ordering::Relaxed)
     }
 
     /// Check if the interner is empty (only has the empty string).

@@ -117,7 +117,7 @@ pub fn collect_free_vars_inner(
             collect_free_vars_inner(checker, *scrutinee, bound, free);
             for arm in checker.context.arena.get_arms(*arms) {
                 // Collect pattern bindings
-                let pattern_names = collect_match_pattern_names(&arm.pattern);
+                let pattern_names = collect_match_pattern_names(&arm.pattern, checker.context.arena);
                 let mut arm_bound = bound.clone();
                 arm_bound.extend(pattern_names);
 
@@ -304,7 +304,7 @@ pub fn collect_free_vars_function_seq(
             collect_free_vars_inner(checker, *scrutinee, bound, free);
             for arm in checker.context.arena.get_arms(*arms) {
                 // Collect pattern bindings
-                let pattern_names = collect_match_pattern_names(&arm.pattern);
+                let pattern_names = collect_match_pattern_names(&arm.pattern, checker.context.arena);
                 let mut arm_bound = bound.clone();
                 arm_bound.extend(pattern_names);
 
@@ -327,7 +327,7 @@ pub fn collect_free_vars_function_seq(
                 collect_free_vars_inner(checker, *map_fn, bound, free);
             }
             // Collect pattern bindings from the arm
-            let pattern_names = collect_match_pattern_names(&arm.pattern);
+            let pattern_names = collect_match_pattern_names(&arm.pattern, checker.context.arena);
             let mut arm_bound = bound.clone();
             arm_bound.extend(pattern_names);
 

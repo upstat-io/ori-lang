@@ -17,28 +17,42 @@
     reason = "Arc is the implementation of SharedArena"
 )]
 
-use super::{ExprId, ExprRange, StmtId, StmtRange};
+use super::{
+    ExprId, ExprRange, MatchPatternId, MatchPatternRange, ParsedType, ParsedTypeId,
+    ParsedTypeRange, StmtId, StmtRange,
+};
+use crate::ast::MatchPattern;
+
+/// Panic helper for capacity overflow (cold path, never inlined).
+#[cold]
+#[inline(never)]
+fn panic_capacity_exceeded(value: usize, context: &str, max: u64) -> ! {
+    panic!(
+        "arena capacity exceeded: {context} has {value} elements (0x{value:X}), max is {max} (0x{max:X})"
+    )
+}
+
+/// Panic helper for range length overflow (cold path, never inlined).
+#[cold]
+#[inline(never)]
+fn panic_range_exceeded(value: usize, context: &str, max: u64) -> ! {
+    panic!(
+        "range length exceeded: {context} has {value} elements (0x{value:X}), max is {max} (0x{max:X})"
+    )
+}
 
 /// Convert usize to u32, panicking with a clear message on overflow.
 #[inline]
 fn to_u32(value: usize, context: &str) -> u32 {
-    u32::try_from(value).unwrap_or_else(|_| {
-        panic!(
-            "arena capacity exceeded: {context} has {value} elements, max is {}",
-            u32::MAX
-        )
-    })
+    u32::try_from(value)
+        .unwrap_or_else(|_| panic_capacity_exceeded(value, context, u64::from(u32::MAX)))
 }
 
 /// Convert usize to u16, panicking with a clear message on overflow.
 #[inline]
 fn to_u16(value: usize, context: &str) -> u16 {
-    u16::try_from(value).unwrap_or_else(|_| {
-        panic!(
-            "range length exceeded: {context} has {value} elements, max is {}",
-            u16::MAX
-        )
-    })
+    u16::try_from(value)
+        .unwrap_or_else(|_| panic_range_exceeded(value, context, u64::from(u16::MAX)))
 }
 use super::ast::{
     ArmRange, CallArg, CallArgRange, Expr, FieldInit, FieldInitRange, GenericParam,
@@ -92,6 +106,20 @@ pub struct ExprArena {
 
     /// Generic parameters for functions and types.
     generic_params: Vec<GenericParam>,
+
+    /// All parsed types (indexed by `ParsedTypeId`).
+    /// Used for arena-allocated type annotations.
+    parsed_types: Vec<ParsedType>,
+
+    /// Flattened parsed type lists (for generic type arguments).
+    parsed_type_lists: Vec<ParsedTypeId>,
+
+    /// All match patterns (indexed by `MatchPatternId`).
+    /// Used for arena-allocated match patterns.
+    match_patterns: Vec<MatchPattern>,
+
+    /// Flattened match pattern lists (for pattern collections).
+    match_pattern_lists: Vec<MatchPatternId>,
 }
 
 impl ExprArena {
@@ -116,6 +144,10 @@ impl ExprArena {
             named_exprs: Vec::with_capacity(estimated_exprs / 16),
             call_args: Vec::with_capacity(estimated_exprs / 16),
             generic_params: Vec::with_capacity(estimated_exprs / 32),
+            parsed_types: Vec::with_capacity(estimated_exprs / 8),
+            parsed_type_lists: Vec::with_capacity(estimated_exprs / 16),
+            match_patterns: Vec::with_capacity(estimated_exprs / 16),
+            match_pattern_lists: Vec::with_capacity(estimated_exprs / 32),
         }
     }
 
@@ -157,6 +189,12 @@ impl ExprArena {
     pub fn alloc_expr_list(&mut self, exprs: impl IntoIterator<Item = ExprId>) -> ExprRange {
         let start = to_u32(self.expr_lists.len(), "expression lists");
         self.expr_lists.extend(exprs);
+        debug_assert!(
+            self.expr_lists.len() >= start as usize,
+            "arena corruption: expr_lists length {} < start {}",
+            self.expr_lists.len(),
+            start
+        );
         let len = to_u16(self.expr_lists.len() - start as usize, "expression list");
         ExprRange::new(start, len)
     }
@@ -203,6 +241,12 @@ impl ExprArena {
     pub fn alloc_params(&mut self, params: impl IntoIterator<Item = Param>) -> ParamRange {
         let start = to_u32(self.params.len(), "parameters");
         self.params.extend(params);
+        debug_assert!(
+            self.params.len() >= start as usize,
+            "arena corruption: params length {} < start {}",
+            self.params.len(),
+            start
+        );
         let len = to_u16(self.params.len() - start as usize, "parameter list");
         ParamRange::new(start, len)
     }
@@ -224,10 +268,25 @@ impl ExprArena {
         self.get_params(range).iter().map(|p| p.name).collect()
     }
 
+    /// Iterate over parameter names without allocation.
+    ///
+    /// Use this when you only need to iterate once and don't need a collected Vec.
+    /// For cases where you need to store or pass the names, use `get_param_names()`.
+    #[inline]
+    pub fn param_names_iter(&self, range: ParamRange) -> impl Iterator<Item = super::Name> + '_ {
+        self.get_params(range).iter().map(|p| p.name)
+    }
+
     /// Allocate match arms, return range.
     pub fn alloc_arms(&mut self, arms: impl IntoIterator<Item = MatchArm>) -> ArmRange {
         let start = to_u32(self.arms.len(), "match arms");
         self.arms.extend(arms);
+        debug_assert!(
+            self.arms.len() >= start as usize,
+            "arena corruption: arms length {} < start {}",
+            self.arms.len(),
+            start
+        );
         let len = to_u16(self.arms.len() - start as usize, "match arm list");
         ArmRange::new(start, len)
     }
@@ -247,6 +306,12 @@ impl ExprArena {
     ) -> MapEntryRange {
         let start = to_u32(self.map_entries.len(), "map entries");
         self.map_entries.extend(entries);
+        debug_assert!(
+            self.map_entries.len() >= start as usize,
+            "arena corruption: map_entries length {} < start {}",
+            self.map_entries.len(),
+            start
+        );
         let len = to_u16(self.map_entries.len() - start as usize, "map entry list");
         MapEntryRange::new(start, len)
     }
@@ -266,6 +331,12 @@ impl ExprArena {
     ) -> FieldInitRange {
         let start = to_u32(self.field_inits.len(), "field initializers");
         self.field_inits.extend(inits);
+        debug_assert!(
+            self.field_inits.len() >= start as usize,
+            "arena corruption: field_inits length {} < start {}",
+            self.field_inits.len(),
+            start
+        );
         let len = to_u16(
             self.field_inits.len() - start as usize,
             "field initializer list",
@@ -288,6 +359,12 @@ impl ExprArena {
     ) -> SeqBindingRange {
         let start = to_u32(self.seq_bindings.len(), "sequence bindings");
         self.seq_bindings.extend(bindings);
+        debug_assert!(
+            self.seq_bindings.len() >= start as usize,
+            "arena corruption: seq_bindings length {} < start {}",
+            self.seq_bindings.len(),
+            start
+        );
         let len = to_u16(
             self.seq_bindings.len() - start as usize,
             "sequence binding list",
@@ -310,6 +387,12 @@ impl ExprArena {
     ) -> NamedExprRange {
         let start = to_u32(self.named_exprs.len(), "named expressions");
         self.named_exprs.extend(exprs);
+        debug_assert!(
+            self.named_exprs.len() >= start as usize,
+            "arena corruption: named_exprs length {} < start {}",
+            self.named_exprs.len(),
+            start
+        );
         let len = to_u16(
             self.named_exprs.len() - start as usize,
             "named expression list",
@@ -329,6 +412,12 @@ impl ExprArena {
     pub fn alloc_call_args(&mut self, args: impl IntoIterator<Item = CallArg>) -> CallArgRange {
         let start = to_u32(self.call_args.len(), "call arguments");
         self.call_args.extend(args);
+        debug_assert!(
+            self.call_args.len() >= start as usize,
+            "arena corruption: call_args length {} < start {}",
+            self.call_args.len(),
+            start
+        );
         let len = to_u16(self.call_args.len() - start as usize, "call argument list");
         CallArgRange::new(start, len)
     }
@@ -348,6 +437,12 @@ impl ExprArena {
     ) -> GenericParamRange {
         let start = to_u32(self.generic_params.len(), "generic parameters");
         self.generic_params.extend(params);
+        debug_assert!(
+            self.generic_params.len() >= start as usize,
+            "arena corruption: generic_params length {} < start {}",
+            self.generic_params.len(),
+            start
+        );
         let len = to_u16(
             self.generic_params.len() - start as usize,
             "generic parameter list",
@@ -363,6 +458,106 @@ impl ExprArena {
         &self.generic_params[start..end]
     }
 
+    // =========================================================================
+    // Parsed Type Storage (for future arena-based type annotations)
+    // =========================================================================
+
+    /// Allocate a parsed type, return ID.
+    #[inline]
+    pub fn alloc_parsed_type(&mut self, ty: ParsedType) -> ParsedTypeId {
+        let id = ParsedTypeId::new(to_u32(self.parsed_types.len(), "parsed types"));
+        self.parsed_types.push(ty);
+        id
+    }
+
+    /// Get parsed type by ID.
+    ///
+    /// # Panics
+    /// Panics if `id` is out of bounds or invalid.
+    #[inline]
+    #[track_caller]
+    pub fn get_parsed_type(&self, id: ParsedTypeId) -> &ParsedType {
+        &self.parsed_types[id.index()]
+    }
+
+    /// Allocate parsed type list, return range.
+    pub fn alloc_parsed_type_list(
+        &mut self,
+        types: impl IntoIterator<Item = ParsedTypeId>,
+    ) -> ParsedTypeRange {
+        let start = to_u32(self.parsed_type_lists.len(), "parsed type lists");
+        self.parsed_type_lists.extend(types);
+        debug_assert!(
+            self.parsed_type_lists.len() >= start as usize,
+            "arena corruption: parsed_type_lists length {} < start {}",
+            self.parsed_type_lists.len(),
+            start
+        );
+        let len = to_u16(
+            self.parsed_type_lists.len() - start as usize,
+            "parsed type list",
+        );
+        ParsedTypeRange::new(start, len)
+    }
+
+    /// Get parsed type list by range.
+    #[inline]
+    pub fn get_parsed_type_list(&self, range: ParsedTypeRange) -> &[ParsedTypeId] {
+        let start = range.start as usize;
+        let end = start + range.len as usize;
+        &self.parsed_type_lists[start..end]
+    }
+
+    // =========================================================================
+    // Match Pattern Storage (for future arena-based patterns)
+    // =========================================================================
+
+    /// Allocate a match pattern, return ID.
+    #[inline]
+    pub fn alloc_match_pattern(&mut self, pattern: MatchPattern) -> MatchPatternId {
+        let id = MatchPatternId::new(to_u32(self.match_patterns.len(), "match patterns"));
+        self.match_patterns.push(pattern);
+        id
+    }
+
+    /// Get match pattern by ID.
+    ///
+    /// # Panics
+    /// Panics if `id` is out of bounds or invalid.
+    #[inline]
+    #[track_caller]
+    pub fn get_match_pattern(&self, id: MatchPatternId) -> &MatchPattern {
+        &self.match_patterns[id.index()]
+    }
+
+    /// Allocate match pattern list, return range.
+    pub fn alloc_match_pattern_list(
+        &mut self,
+        patterns: impl IntoIterator<Item = MatchPatternId>,
+    ) -> MatchPatternRange {
+        let start = to_u32(self.match_pattern_lists.len(), "match pattern lists");
+        self.match_pattern_lists.extend(patterns);
+        debug_assert!(
+            self.match_pattern_lists.len() >= start as usize,
+            "arena corruption: match_pattern_lists length {} < start {}",
+            self.match_pattern_lists.len(),
+            start
+        );
+        let len = to_u16(
+            self.match_pattern_lists.len() - start as usize,
+            "match pattern list",
+        );
+        MatchPatternRange::new(start, len)
+    }
+
+    /// Get match pattern list by range.
+    #[inline]
+    pub fn get_match_pattern_list(&self, range: MatchPatternRange) -> &[MatchPatternId] {
+        let start = range.start as usize;
+        let end = start + range.len as usize;
+        &self.match_pattern_lists[start..end]
+    }
+
     /// Reset arena for reuse (keeps capacity).
     pub fn reset(&mut self) {
         self.exprs.clear();
@@ -376,6 +571,10 @@ impl ExprArena {
         self.named_exprs.clear();
         self.call_args.clear();
         self.generic_params.clear();
+        self.parsed_types.clear();
+        self.parsed_type_lists.clear();
+        self.match_patterns.clear();
+        self.match_pattern_lists.clear();
     }
 
     /// Check if arena is empty.
@@ -397,6 +596,10 @@ impl PartialEq for ExprArena {
             && self.named_exprs == other.named_exprs
             && self.call_args == other.call_args
             && self.generic_params == other.generic_params
+            && self.parsed_types == other.parsed_types
+            && self.parsed_type_lists == other.parsed_type_lists
+            && self.match_patterns == other.match_patterns
+            && self.match_pattern_lists == other.match_pattern_lists
     }
 }
 
@@ -404,20 +607,25 @@ impl Eq for ExprArena {}
 
 impl Hash for ExprArena {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        // O(1) structural fingerprint - lengths only.
+        // Salsa uses Eq for correctness; Hash collisions just cause cache misses.
+        // This is a deliberate trade-off: we sacrifice uniqueness for speed,
+        // since arenas can be very large and full hashing would be O(n).
         self.exprs.len().hash(state);
-        for expr in &self.exprs {
-            expr.hash(state);
-        }
-        self.expr_lists.hash(state);
-        self.stmts.hash(state);
-        self.params.hash(state);
-        self.arms.hash(state);
-        self.map_entries.hash(state);
-        self.field_inits.hash(state);
-        self.seq_bindings.hash(state);
-        self.named_exprs.hash(state);
-        self.call_args.hash(state);
-        self.generic_params.hash(state);
+        self.expr_lists.len().hash(state);
+        self.stmts.len().hash(state);
+        self.params.len().hash(state);
+        self.arms.len().hash(state);
+        self.map_entries.len().hash(state);
+        self.field_inits.len().hash(state);
+        self.seq_bindings.len().hash(state);
+        self.named_exprs.len().hash(state);
+        self.call_args.len().hash(state);
+        self.generic_params.len().hash(state);
+        self.parsed_types.len().hash(state);
+        self.parsed_type_lists.len().hash(state);
+        self.match_patterns.len().hash(state);
+        self.match_pattern_lists.len().hash(state);
     }
 }
 

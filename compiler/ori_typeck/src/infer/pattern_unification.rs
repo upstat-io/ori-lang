@@ -63,12 +63,15 @@ pub fn unify_pattern_with_scrutinee(
 
             // Unify inner patterns with variant field types
             let field_types = get_variant_field_types(checker, &resolved_ty, *name);
-            for (inner_pattern, field_ty) in inner.iter().zip(field_types.iter()) {
+            let inner_ids = checker.context.arena.get_match_pattern_list(*inner);
+            for (pat_id, field_ty) in inner_ids.iter().zip(field_types.iter()) {
+                let inner_pattern = checker.context.arena.get_match_pattern(*pat_id);
                 unify_pattern_with_scrutinee(checker, inner_pattern, field_ty, span);
             }
             // Extra patterns get fresh type variables
-            for inner_pattern in inner.iter().skip(field_types.len()) {
+            for pat_id in inner_ids.iter().skip(field_types.len()) {
                 let fresh = checker.inference.ctx.fresh_var();
+                let inner_pattern = checker.context.arena.get_match_pattern(*pat_id);
                 unify_pattern_with_scrutinee(checker, inner_pattern, &fresh, span);
             }
         }
@@ -76,7 +79,7 @@ pub fn unify_pattern_with_scrutinee(
         MatchPattern::Struct { fields } => {
             let field_types = get_struct_field_types(checker, &resolved_ty);
 
-            for (field_name, opt_pattern) in fields {
+            for (field_name, opt_pattern_id) in fields {
                 let field_ty = field_types
                     .iter()
                     .find(|(n, _)| n == field_name)
@@ -95,86 +98,97 @@ pub fn unify_pattern_with_scrutinee(
                     );
                 }
 
-                if let (Some(nested), Some(ty)) = (opt_pattern, field_ty) {
+                if let (Some(nested_id), Some(ty)) = (opt_pattern_id, field_ty) {
+                    let nested = checker.context.arena.get_match_pattern(*nested_id);
                     unify_pattern_with_scrutinee(checker, nested, &ty, span);
                 }
             }
         }
 
-        MatchPattern::Tuple(patterns) => match &resolved_ty {
-            Type::Tuple(elems) => {
-                if patterns.len() != elems.len() {
+        MatchPattern::Tuple(patterns) => {
+            let pattern_ids = checker.context.arena.get_match_pattern_list(*patterns);
+            match &resolved_ty {
+                Type::Tuple(elems) => {
+                    if pattern_ids.len() != elems.len() {
+                        checker.push_error(
+                            format!(
+                                "tuple pattern has {} elements but scrutinee has {}",
+                                pattern_ids.len(),
+                                elems.len()
+                            ),
+                            span,
+                            ori_diagnostic::ErrorCode::E2001,
+                        );
+                    }
+
+                    for (pat_id, ty) in pattern_ids.iter().zip(elems.iter()) {
+                        let pattern = checker.context.arena.get_match_pattern(*pat_id);
+                        unify_pattern_with_scrutinee(checker, pattern, ty, span);
+                    }
+                }
+                Type::Var(_) => {
+                    let elem_types: Vec<Type> = pattern_ids
+                        .iter()
+                        .map(|_| checker.inference.ctx.fresh_var())
+                        .collect();
+                    let tuple_ty = Type::Tuple(elem_types.clone());
+                    if let Err(e) = checker.inference.ctx.unify(&resolved_ty, &tuple_ty) {
+                        checker.report_type_error(&e, span);
+                    }
+
+                    for (pat_id, ty) in pattern_ids.iter().zip(elem_types.iter()) {
+                        let pattern = checker.context.arena.get_match_pattern(*pat_id);
+                        unify_pattern_with_scrutinee(checker, pattern, ty, span);
+                    }
+                }
+                Type::Error => {}
+                _ => {
                     checker.push_error(
                         format!(
-                            "tuple pattern has {} elements but scrutinee has {}",
-                            patterns.len(),
-                            elems.len()
+                            "tuple pattern cannot match type `{}`",
+                            resolved_ty.display(checker.context.interner)
                         ),
                         span,
                         ori_diagnostic::ErrorCode::E2001,
                     );
                 }
+            }
+        }
 
-                for (pattern, ty) in patterns.iter().zip(elems.iter()) {
-                    unify_pattern_with_scrutinee(checker, pattern, ty, span);
+        MatchPattern::List { elements, rest: _ } => {
+            let element_ids = checker.context.arena.get_match_pattern_list(*elements);
+            match &resolved_ty {
+                Type::List(elem) => {
+                    for pat_id in element_ids {
+                        let pattern = checker.context.arena.get_match_pattern(*pat_id);
+                        unify_pattern_with_scrutinee(checker, pattern, elem, span);
+                    }
                 }
-            }
-            Type::Var(_) => {
-                let elem_types: Vec<Type> = patterns
-                    .iter()
-                    .map(|_| checker.inference.ctx.fresh_var())
-                    .collect();
-                let tuple_ty = Type::Tuple(elem_types.clone());
-                if let Err(e) = checker.inference.ctx.unify(&resolved_ty, &tuple_ty) {
-                    checker.report_type_error(&e, span);
-                }
+                Type::Var(_) => {
+                    let elem_ty = checker.inference.ctx.fresh_var();
+                    let list_ty = Type::List(Box::new(elem_ty.clone()));
+                    if let Err(e) = checker.inference.ctx.unify(&resolved_ty, &list_ty) {
+                        checker.report_type_error(&e, span);
+                    }
 
-                for (pattern, ty) in patterns.iter().zip(elem_types.iter()) {
-                    unify_pattern_with_scrutinee(checker, pattern, ty, span);
+                    for pat_id in element_ids {
+                        let pattern = checker.context.arena.get_match_pattern(*pat_id);
+                        unify_pattern_with_scrutinee(checker, pattern, &elem_ty, span);
+                    }
+                }
+                Type::Error => {}
+                _ => {
+                    checker.push_error(
+                        format!(
+                            "list pattern cannot match type `{}`",
+                            resolved_ty.display(checker.context.interner)
+                        ),
+                        span,
+                        ori_diagnostic::ErrorCode::E2001,
+                    );
                 }
             }
-            Type::Error => {}
-            _ => {
-                checker.push_error(
-                    format!(
-                        "tuple pattern cannot match type `{}`",
-                        resolved_ty.display(checker.context.interner)
-                    ),
-                    span,
-                    ori_diagnostic::ErrorCode::E2001,
-                );
-            }
-        },
-
-        MatchPattern::List { elements, rest: _ } => match &resolved_ty {
-            Type::List(elem) => {
-                for pattern in elements {
-                    unify_pattern_with_scrutinee(checker, pattern, elem, span);
-                }
-            }
-            Type::Var(_) => {
-                let elem_ty = checker.inference.ctx.fresh_var();
-                let list_ty = Type::List(Box::new(elem_ty.clone()));
-                if let Err(e) = checker.inference.ctx.unify(&resolved_ty, &list_ty) {
-                    checker.report_type_error(&e, span);
-                }
-
-                for pattern in elements {
-                    unify_pattern_with_scrutinee(checker, pattern, &elem_ty, span);
-                }
-            }
-            Type::Error => {}
-            _ => {
-                checker.push_error(
-                    format!(
-                        "list pattern cannot match type `{}`",
-                        resolved_ty.display(checker.context.interner)
-                    ),
-                    span,
-                    ori_diagnostic::ErrorCode::E2001,
-                );
-            }
-        },
+        }
 
         MatchPattern::Range { start, end, .. } => {
             if let Some(start_id) = start {
@@ -192,13 +206,15 @@ pub fn unify_pattern_with_scrutinee(
         }
 
         MatchPattern::Or(patterns) => {
-            for p in patterns {
+            for pat_id in checker.context.arena.get_match_pattern_list(*patterns) {
+                let p = checker.context.arena.get_match_pattern(*pat_id);
                 unify_pattern_with_scrutinee(checker, p, scrutinee_ty, span);
             }
         }
 
         MatchPattern::At { pattern, .. } => {
-            unify_pattern_with_scrutinee(checker, pattern, scrutinee_ty, span);
+            let inner = checker.context.arena.get_match_pattern(*pattern);
+            unify_pattern_with_scrutinee(checker, inner, scrutinee_ty, span);
         }
     }
 }

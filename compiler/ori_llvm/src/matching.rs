@@ -89,7 +89,7 @@ impl<'ll> Builder<'_, 'll, '_> {
             self.position_at_end(arm_body_bb);
 
             // Bind pattern variables
-            self.bind_match_pattern_vars(&arm.pattern, scrutinee_val, locals);
+            self.bind_match_pattern_vars(&arm.pattern, scrutinee_val, arena, locals);
 
             // Compile guard if present
             if let Some(guard) = arm.guard {
@@ -207,11 +207,12 @@ impl<'ll> Builder<'_, 'll, '_> {
     }
 
     /// Bind pattern variables to the scrutinee value.
-    #[instrument(skip(self, pattern, scrutinee, locals), level = "trace")]
+    #[instrument(skip(self, pattern, scrutinee, arena, locals), level = "trace")]
     fn bind_match_pattern_vars(
         &self,
         pattern: &MatchPattern,
         scrutinee: BasicValueEnum<'ll>,
+        arena: &ExprArena,
         locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
     ) {
         match pattern {
@@ -221,18 +222,20 @@ impl<'ll> Builder<'_, 'll, '_> {
 
             MatchPattern::Variant { name: _, inner } => {
                 // For variants like Some(x) or Click(x, y), extract and bind inner values
-                if !inner.is_empty() {
+                let inner_ids = arena.get_match_pattern_list(*inner);
+                if !inner_ids.is_empty() {
                     if let BasicValueEnum::StructValue(struct_val) = scrutinee {
-                        if inner.len() == 1 {
+                        if inner_ids.len() == 1 {
                             // Single field variant: payload is the value directly
                             if let Some(payload) = self.extract_value(struct_val, 1, "payload") {
-                                self.bind_match_pattern_vars(&inner[0], payload, locals);
+                                let inner_pattern = arena.get_match_pattern(inner_ids[0]);
+                                self.bind_match_pattern_vars(inner_pattern, payload, arena, locals);
                             }
                         } else {
                             // Multi-field variant: payload is a tuple, extract each element
                             if let Some(payload) = self.extract_value(struct_val, 1, "payload") {
                                 if let BasicValueEnum::StructValue(tuple_val) = payload {
-                                    for (i, inner_pattern) in inner.iter().enumerate() {
+                                    for (i, pat_id) in inner_ids.iter().enumerate() {
                                         #[expect(
                                             clippy::cast_possible_truncation,
                                             reason = "variant field count fits in u32"
@@ -243,9 +246,11 @@ impl<'ll> Builder<'_, 'll, '_> {
                                             idx,
                                             &format!("variant_field_{i}"),
                                         ) {
+                                            let inner_pattern = arena.get_match_pattern(*pat_id);
                                             self.bind_match_pattern_vars(
                                                 inner_pattern,
                                                 elem,
+                                                arena,
                                                 locals,
                                             );
                                         }
@@ -260,13 +265,15 @@ impl<'ll> Builder<'_, 'll, '_> {
             MatchPattern::At { name, pattern } => {
                 // Bind the whole value to name, then process inner pattern
                 locals.insert(*name, scrutinee);
-                self.bind_match_pattern_vars(pattern, scrutinee, locals);
+                let inner = arena.get_match_pattern(*pattern);
+                self.bind_match_pattern_vars(inner, scrutinee, arena, locals);
             }
 
             MatchPattern::Tuple(patterns) => {
                 // Bind each tuple element
+                let pattern_ids = arena.get_match_pattern_list(*patterns);
                 if let BasicValueEnum::StructValue(struct_val) = scrutinee {
-                    for (i, pat) in patterns.iter().enumerate() {
+                    for (i, pat_id) in pattern_ids.iter().enumerate() {
                         #[expect(
                             clippy::cast_possible_truncation,
                             reason = "tuple element count fits in u32"
@@ -275,7 +282,8 @@ impl<'ll> Builder<'_, 'll, '_> {
                         if let Some(elem) =
                             self.extract_value(struct_val, idx, &format!("tuple_{i}"))
                         {
-                            self.bind_match_pattern_vars(pat, elem, locals);
+                            let pat = arena.get_match_pattern(*pat_id);
+                            self.bind_match_pattern_vars(pat, elem, arena, locals);
                         }
                     }
                 }

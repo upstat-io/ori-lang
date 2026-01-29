@@ -518,11 +518,11 @@ impl TokenList {
 
 impl Hash for TokenList {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // Hash length first for better distribution
+        // O(1) structural fingerprint - length only.
+        // Salsa uses Eq for correctness; Hash collisions just cause cache misses.
+        // This is a deliberate trade-off: we sacrifice uniqueness for speed,
+        // since token lists can be very large and full hashing would be O(n).
         self.tokens.len().hash(state);
-        for token in &self.tokens {
-            token.hash(state);
-        }
     }
 }
 

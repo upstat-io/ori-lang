@@ -5,7 +5,7 @@
 use crate::{ParseError, Parser};
 use ori_ir::{
     Expr, ExprId, ExprKind, FunctionExp, FunctionExpKind, FunctionSeq, MatchArm, MatchPattern,
-    NamedExpr, SeqBinding, TokenKind,
+    MatchPatternId, MatchPatternRange, NamedExpr, SeqBinding, TokenKind,
 };
 
 /// Kind of function_seq expression.
@@ -320,12 +320,14 @@ impl Parser<'_> {
 
         // Check for or-pattern continuation: pattern | pattern | ...
         if self.check(&TokenKind::Pipe) {
-            let mut alternatives = vec![base];
+            let mut alt_ids = vec![self.arena.alloc_match_pattern(base)];
             while self.check(&TokenKind::Pipe) {
                 self.advance();
-                alternatives.push(self.parse_match_pattern_base()?);
+                let alt = self.parse_match_pattern_base()?;
+                alt_ids.push(self.arena.alloc_match_pattern(alt));
             }
-            return Ok(MatchPattern::Or(alternatives));
+            let range = self.arena.alloc_match_pattern_list(alt_ids);
+            return Ok(MatchPattern::Or(range));
         }
 
         Ok(base)
@@ -433,9 +435,10 @@ impl Parser<'_> {
                 if self.check(&TokenKind::At) {
                     self.advance();
                     let pattern = self.parse_match_pattern_base()?;
+                    let pattern_id = self.arena.alloc_match_pattern(pattern);
                     return Ok(MatchPattern::At {
                         name,
-                        pattern: Box::new(pattern),
+                        pattern: pattern_id,
                     });
                 }
 
@@ -459,7 +462,7 @@ impl Parser<'_> {
             // List pattern: [a, b, ..rest]
             TokenKind::LBracket => {
                 self.advance();
-                let mut elements = Vec::new();
+                let mut element_ids = Vec::new();
                 let mut rest = None;
 
                 while !self.check(&TokenKind::RBracket) && !self.is_at_end() {
@@ -475,7 +478,8 @@ impl Parser<'_> {
                         break;
                     }
 
-                    elements.push(self.parse_match_pattern()?);
+                    let elem = self.parse_match_pattern()?;
+                    element_ids.push(self.arena.alloc_match_pattern(elem));
 
                     if !self.check(&TokenKind::RBracket) && !self.check(&TokenKind::DotDot) {
                         self.expect(&TokenKind::Comma)?;
@@ -483,6 +487,7 @@ impl Parser<'_> {
                 }
 
                 self.expect(&TokenKind::RBracket)?;
+                let elements = self.arena.alloc_match_pattern_list(element_ids);
                 Ok(MatchPattern::List { elements, rest })
             }
             TokenKind::Some => {
@@ -498,7 +503,7 @@ impl Parser<'_> {
                 self.advance();
                 Ok(MatchPattern::Variant {
                     name,
-                    inner: vec![],
+                    inner: MatchPatternRange::EMPTY,
                 })
             }
             TokenKind::Ok => {
@@ -519,15 +524,17 @@ impl Parser<'_> {
             }
             TokenKind::LParen => {
                 self.advance();
-                let mut patterns = Vec::new();
+                let mut pattern_ids = Vec::new();
                 while !self.check(&TokenKind::RParen) && !self.is_at_end() {
-                    patterns.push(self.parse_match_pattern()?);
+                    let pat = self.parse_match_pattern()?;
+                    pattern_ids.push(self.arena.alloc_match_pattern(pat));
                     if !self.check(&TokenKind::RParen) {
                         self.expect(&TokenKind::Comma)?;
                     }
                 }
                 self.expect(&TokenKind::RParen)?;
-                Ok(MatchPattern::Tuple(patterns))
+                let range = self.arena.alloc_match_pattern_list(pattern_ids);
+                Ok(MatchPattern::Tuple(range))
             }
             _ => Err(ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
@@ -598,18 +605,19 @@ impl Parser<'_> {
 
     /// Parse comma-separated patterns inside a variant pattern.
     ///
-    /// Returns an empty Vec for unit variants (when immediately followed by `)`),
-    /// or a Vec with one or more patterns for variants with fields.
-    fn parse_variant_inner_patterns(&mut self) -> Result<Vec<MatchPattern>, ParseError> {
-        let mut patterns = Vec::new();
+    /// Returns an empty range for unit variants (when immediately followed by `)`),
+    /// or a range with one or more patterns for variants with fields.
+    fn parse_variant_inner_patterns(&mut self) -> Result<MatchPatternRange, ParseError> {
+        let mut pattern_ids = Vec::new();
 
         // Empty case: immediately followed by )
         if self.check(&TokenKind::RParen) {
-            return Ok(patterns);
+            return Ok(MatchPatternRange::EMPTY);
         }
 
         // Parse first pattern
-        patterns.push(self.parse_match_pattern()?);
+        let first = self.parse_match_pattern()?;
+        pattern_ids.push(self.arena.alloc_match_pattern(first));
 
         // Parse additional patterns separated by commas
         while self.check(&TokenKind::Comma) {
@@ -618,10 +626,11 @@ impl Parser<'_> {
             if self.check(&TokenKind::RParen) {
                 break;
             }
-            patterns.push(self.parse_match_pattern()?);
+            let pat = self.parse_match_pattern()?;
+            pattern_ids.push(self.arena.alloc_match_pattern(pat));
         }
 
-        Ok(patterns)
+        Ok(self.arena.alloc_match_pattern_list(pattern_ids))
     }
 
     /// Parse struct pattern fields: `{ x, y: pattern, ... }`
@@ -629,7 +638,7 @@ impl Parser<'_> {
         self.advance(); // consume {
         self.skip_newlines();
 
-        let mut fields = Vec::new();
+        let mut fields: Vec<(ori_ir::Name, Option<MatchPatternId>)> = Vec::new();
 
         while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
             self.skip_newlines();
@@ -637,14 +646,15 @@ impl Parser<'_> {
             let field_name = self.expect_ident()?;
 
             // Check for pattern binding: { x: pattern } vs shorthand { x }
-            let pattern = if self.check(&TokenKind::Colon) {
+            let pattern_id = if self.check(&TokenKind::Colon) {
                 self.advance();
-                Some(self.parse_match_pattern()?)
+                let pat = self.parse_match_pattern()?;
+                Some(self.arena.alloc_match_pattern(pat))
             } else {
                 None // Shorthand: field name is also the binding
             };
 
-            fields.push((field_name, pattern));
+            fields.push((field_name, pattern_id));
 
             self.skip_newlines();
             if !self.check(&TokenKind::RBrace) {

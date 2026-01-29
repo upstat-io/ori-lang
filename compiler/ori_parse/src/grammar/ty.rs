@@ -2,14 +2,22 @@
 //!
 //! This module extends Parser with methods for parsing type expressions.
 //! Returns `ParsedType` which captures the full structure of type annotations.
+//!
+//! # Arena Allocation
+//!
+//! Types are allocated in the parser's arena. For recursive types (lists, maps,
+//! functions, associated types), child types are allocated first and referenced
+//! by ID. This enables flat storage without Box<ParsedType>.
 
-use ori_ir::{ParsedType, TokenKind, TypeId};
+use ori_ir::{ParsedType, ParsedTypeId, ParsedTypeRange, TokenKind, TypeId};
 
 use crate::Parser;
 
 impl Parser<'_> {
     /// Parse a type expression.
     /// Returns a `ParsedType` representing the full type structure.
+    ///
+    /// Recursive types use arena-allocated IDs for their children.
     pub(crate) fn parse_type(&mut self) -> Option<ParsedType> {
         if self.check_type_keyword() {
             let kind = self.current().kind.clone();
@@ -38,10 +46,9 @@ impl Parser<'_> {
                         return Some(ParsedType::SelfType);
                     };
                     self.advance();
-                    Some(ParsedType::associated_type(
-                        ParsedType::SelfType,
-                        assoc_name,
-                    ))
+                    // Allocate SelfType in arena for associated type base
+                    let base_id = self.arena.alloc_parsed_type(ParsedType::SelfType);
+                    Some(ParsedType::associated_type(base_id, assoc_name))
                 } else {
                     Some(ParsedType::SelfType)
                 }
@@ -57,7 +64,7 @@ impl Parser<'_> {
             };
             self.advance();
             // Check for generic parameters
-            let type_args = self.parse_optional_generic_args_full();
+            let type_args = self.parse_optional_generic_args_range();
             let base_type = ParsedType::Named { name, type_args };
 
             // Check for associated type access: T.Item
@@ -70,7 +77,9 @@ impl Parser<'_> {
                         return Some(base_type);
                     };
                     self.advance();
-                    Some(ParsedType::associated_type(base_type, assoc_name))
+                    // Allocate base type in arena for associated type
+                    let base_id = self.arena.alloc_parsed_type(base_type);
+                    Some(ParsedType::associated_type(base_id, assoc_name))
                 } else {
                     Some(base_type)
                 }
@@ -84,7 +93,9 @@ impl Parser<'_> {
             if self.check(&TokenKind::RBracket) {
                 self.advance(); // ]
             }
-            Some(ParsedType::list(inner))
+            // Allocate element type in arena
+            let elem_id = self.arena.alloc_parsed_type(inner);
+            Some(ParsedType::list(elem_id))
         } else if self.check(&TokenKind::LBrace) {
             // {K: V} map type
             self.parse_map_type()
@@ -96,20 +107,31 @@ impl Parser<'_> {
         }
     }
 
+    /// Parse a type and allocate it in the arena, returning its ID.
+    ///
+    /// This is a convenience method for cases where the parsed type
+    /// needs to be stored as an ID (e.g., in lists, maps, functions).
+    #[allow(dead_code)] // Future use - useful helper for parsing nested types
+    pub(crate) fn parse_type_id(&mut self) -> Option<ParsedTypeId> {
+        let ty = self.parse_type()?;
+        Some(self.arena.alloc_parsed_type(ty))
+    }
+
     /// Parse optional generic arguments: `<T, U, ...>`
-    /// Returns an empty Vec if no generic arguments are present.
-    fn parse_optional_generic_args_full(&mut self) -> Vec<ParsedType> {
+    /// Returns a range into the arena's type list storage.
+    fn parse_optional_generic_args_range(&mut self) -> ParsedTypeRange {
         if !self.check(&TokenKind::Lt) {
-            return Vec::new();
+            return ParsedTypeRange::EMPTY;
         }
         self.advance(); // <
 
-        let mut args = Vec::new();
+        let mut arg_ids = Vec::new();
 
         // Parse comma-separated type arguments
         while !self.check(&TokenKind::Gt) && !self.is_at_end() {
             if let Some(ty) = self.parse_type() {
-                args.push(ty);
+                let id = self.arena.alloc_parsed_type(ty);
+                arg_ids.push(id);
             }
             if self.check(&TokenKind::Comma) {
                 self.advance();
@@ -122,30 +144,32 @@ impl Parser<'_> {
             self.advance(); // >
         }
 
-        args
+        self.arena.alloc_parsed_type_list(arg_ids)
     }
 
     /// Parse map type: {K: V}
     fn parse_map_type(&mut self) -> Option<ParsedType> {
         self.advance(); // {
 
-        // Parse key type
+        // Parse key type and allocate in arena
         let key = self.parse_type()?;
+        let key_id = self.arena.alloc_parsed_type(key);
 
         // Expect colon
         if self.check(&TokenKind::Colon) {
             self.advance();
         }
 
-        // Parse value type
+        // Parse value type and allocate in arena
         let value = self.parse_type()?;
+        let value_id = self.arena.alloc_parsed_type(value);
 
         // Expect closing brace
         if self.check(&TokenKind::RBrace) {
             self.advance();
         }
 
-        Some(ParsedType::map(key, value))
+        Some(ParsedType::map(key_id, value_id))
     }
 
     /// Parse parenthesized types: unit `()`, tuple `(T, U)`, or function `(T) -> U`
@@ -155,20 +179,22 @@ impl Parser<'_> {
         // Empty parens: () unit or () -> T function type
         if self.check(&TokenKind::RParen) {
             self.advance(); // )
-                            // Check for -> (function type: () -> T)
+            // Check for -> (function type: () -> T)
             if self.check(&TokenKind::Arrow) {
                 self.advance();
                 let ret = self.parse_type()?;
-                return Some(ParsedType::function(Vec::new(), ret));
+                let ret_id = self.arena.alloc_parsed_type(ret);
+                return Some(ParsedType::function(ParsedTypeRange::EMPTY, ret_id));
             }
             // () is unit (empty tuple)
             return Some(ParsedType::unit());
         }
 
         // Parse first element (could be tuple or function param)
-        let mut elements = Vec::new();
+        let mut element_ids = Vec::new();
         if let Some(first) = self.parse_type() {
-            elements.push(first);
+            let id = self.arena.alloc_parsed_type(first);
+            element_ids.push(id);
         }
 
         // Collect remaining elements if tuple
@@ -178,7 +204,8 @@ impl Parser<'_> {
                 break; // trailing comma
             }
             if let Some(ty) = self.parse_type() {
-                elements.push(ty);
+                let id = self.arena.alloc_parsed_type(ty);
+                element_ids.push(id);
             }
         }
 
@@ -190,22 +217,26 @@ impl Parser<'_> {
         if self.check(&TokenKind::Arrow) {
             self.advance();
             let ret = self.parse_type()?;
-            return Some(ParsedType::function(elements, ret));
+            let ret_id = self.arena.alloc_parsed_type(ret);
+            let params = self.arena.alloc_parsed_type_list(element_ids);
+            return Some(ParsedType::function(params, ret_id));
         }
 
         // If single element without arrow, it could be a parenthesized type or 1-tuple
         // We treat it as a tuple for consistency
-        Some(ParsedType::tuple(elements))
+        let elems = self.arena.alloc_parsed_type_list(element_ids);
+        Some(ParsedType::tuple(elems))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use ori_ir::{ParsedType, StringInterner, TypeId};
+    use ori_ir::{ExprArena, ParsedType, StringInterner, TypeId};
 
     use crate::Parser;
 
-    fn parse_type_from_source(source: &str) -> Option<ParsedType> {
+    /// Parse a type from source, returning the type and the arena for lookups.
+    fn parse_type_with_arena(source: &str) -> (Option<ParsedType>, ExprArena) {
         let interner = StringInterner::new();
         // Wrap in a function to get proper context for type parsing
         let full_source = format!("@test () -> {source} = 0");
@@ -219,55 +250,48 @@ mod tests {
         parser.advance(); // )
         parser.advance(); // ->
 
-        parser.parse_type()
+        let ty = parser.parse_type();
+        let arena = parser.take_arena();
+        (ty, arena)
     }
 
     #[test]
     fn test_parse_primitive_types() {
-        assert_eq!(
-            parse_type_from_source("int"),
-            Some(ParsedType::primitive(TypeId::INT))
-        );
-        assert_eq!(
-            parse_type_from_source("float"),
-            Some(ParsedType::primitive(TypeId::FLOAT))
-        );
-        assert_eq!(
-            parse_type_from_source("bool"),
-            Some(ParsedType::primitive(TypeId::BOOL))
-        );
-        assert_eq!(
-            parse_type_from_source("str"),
-            Some(ParsedType::primitive(TypeId::STR))
-        );
-        assert_eq!(
-            parse_type_from_source("char"),
-            Some(ParsedType::primitive(TypeId::CHAR))
-        );
-        assert_eq!(
-            parse_type_from_source("byte"),
-            Some(ParsedType::primitive(TypeId::BYTE))
-        );
-        assert_eq!(
-            parse_type_from_source("void"),
-            Some(ParsedType::primitive(TypeId::VOID))
-        );
-        assert_eq!(
-            parse_type_from_source("Never"),
-            Some(ParsedType::primitive(TypeId::NEVER))
-        );
+        let (ty, _) = parse_type_with_arena("int");
+        assert_eq!(ty, Some(ParsedType::primitive(TypeId::INT)));
+
+        let (ty, _) = parse_type_with_arena("float");
+        assert_eq!(ty, Some(ParsedType::primitive(TypeId::FLOAT)));
+
+        let (ty, _) = parse_type_with_arena("bool");
+        assert_eq!(ty, Some(ParsedType::primitive(TypeId::BOOL)));
+
+        let (ty, _) = parse_type_with_arena("str");
+        assert_eq!(ty, Some(ParsedType::primitive(TypeId::STR)));
+
+        let (ty, _) = parse_type_with_arena("char");
+        assert_eq!(ty, Some(ParsedType::primitive(TypeId::CHAR)));
+
+        let (ty, _) = parse_type_with_arena("byte");
+        assert_eq!(ty, Some(ParsedType::primitive(TypeId::BYTE)));
+
+        let (ty, _) = parse_type_with_arena("void");
+        assert_eq!(ty, Some(ParsedType::primitive(TypeId::VOID)));
+
+        let (ty, _) = parse_type_with_arena("Never");
+        assert_eq!(ty, Some(ParsedType::primitive(TypeId::NEVER)));
     }
 
     #[test]
     fn test_parse_unit_type() {
         // () is unit (empty tuple)
-        let ty = parse_type_from_source("()");
+        let (ty, _) = parse_type_with_arena("()");
         assert!(matches!(ty, Some(ParsedType::Tuple(ref v)) if v.is_empty()));
     }
 
     #[test]
     fn test_parse_named_type() {
-        let ty = parse_type_from_source("MyType");
+        let (ty, _) = parse_type_with_arena("MyType");
         assert!(matches!(
             ty,
             Some(ParsedType::Named { type_args, .. }) if type_args.is_empty()
@@ -277,22 +301,33 @@ mod tests {
     #[test]
     fn test_parse_generic_type() {
         // Generic types like Option<int>
-        let ty = parse_type_from_source("Option<int>");
+        let (ty, arena) = parse_type_with_arena("Option<int>");
         match ty {
             Some(ParsedType::Named { type_args, .. }) => {
                 assert_eq!(type_args.len(), 1);
-                assert_eq!(type_args[0], ParsedType::primitive(TypeId::INT));
+                let ids = arena.get_parsed_type_list(type_args);
+                assert_eq!(
+                    *arena.get_parsed_type(ids[0]),
+                    ParsedType::primitive(TypeId::INT)
+                );
             }
             _ => panic!("expected Named with type args"),
         }
 
         // Result<int, str>
-        let ty = parse_type_from_source("Result<int, str>");
+        let (ty, arena) = parse_type_with_arena("Result<int, str>");
         match ty {
             Some(ParsedType::Named { type_args, .. }) => {
                 assert_eq!(type_args.len(), 2);
-                assert_eq!(type_args[0], ParsedType::primitive(TypeId::INT));
-                assert_eq!(type_args[1], ParsedType::primitive(TypeId::STR));
+                let ids = arena.get_parsed_type_list(type_args);
+                assert_eq!(
+                    *arena.get_parsed_type(ids[0]),
+                    ParsedType::primitive(TypeId::INT)
+                );
+                assert_eq!(
+                    *arena.get_parsed_type(ids[1]),
+                    ParsedType::primitive(TypeId::STR)
+                );
             }
             _ => panic!("expected Named with 2 type args"),
         }
@@ -300,18 +335,24 @@ mod tests {
 
     #[test]
     fn test_parse_list_type() {
-        let ty = parse_type_from_source("[int]");
+        let (ty, arena) = parse_type_with_arena("[int]");
         match ty {
-            Some(ParsedType::List(inner)) => {
-                assert_eq!(*inner, ParsedType::primitive(TypeId::INT));
+            Some(ParsedType::List(inner_id)) => {
+                assert_eq!(
+                    *arena.get_parsed_type(inner_id),
+                    ParsedType::primitive(TypeId::INT)
+                );
             }
             _ => panic!("expected List"),
         }
 
-        let ty = parse_type_from_source("[str]");
+        let (ty, arena) = parse_type_with_arena("[str]");
         match ty {
-            Some(ParsedType::List(inner)) => {
-                assert_eq!(*inner, ParsedType::primitive(TypeId::STR));
+            Some(ParsedType::List(inner_id)) => {
+                assert_eq!(
+                    *arena.get_parsed_type(inner_id),
+                    ParsedType::primitive(TypeId::STR)
+                );
             }
             _ => panic!("expected List"),
         }
@@ -319,12 +360,19 @@ mod tests {
 
     #[test]
     fn test_parse_tuple_type() {
-        let ty = parse_type_from_source("(int, str)");
+        let (ty, arena) = parse_type_with_arena("(int, str)");
         match ty {
             Some(ParsedType::Tuple(elems)) => {
                 assert_eq!(elems.len(), 2);
-                assert_eq!(elems[0], ParsedType::primitive(TypeId::INT));
-                assert_eq!(elems[1], ParsedType::primitive(TypeId::STR));
+                let ids = arena.get_parsed_type_list(elems);
+                assert_eq!(
+                    *arena.get_parsed_type(ids[0]),
+                    ParsedType::primitive(TypeId::INT)
+                );
+                assert_eq!(
+                    *arena.get_parsed_type(ids[1]),
+                    ParsedType::primitive(TypeId::STR)
+                );
             }
             _ => panic!("expected Tuple"),
         }
@@ -332,30 +380,43 @@ mod tests {
 
     #[test]
     fn test_parse_function_type() {
-        let ty = parse_type_from_source("() -> int");
+        let (ty, arena) = parse_type_with_arena("() -> int");
         match ty {
             Some(ParsedType::Function { params, ret }) => {
                 assert!(params.is_empty());
-                assert_eq!(*ret, ParsedType::primitive(TypeId::INT));
+                assert_eq!(
+                    *arena.get_parsed_type(ret),
+                    ParsedType::primitive(TypeId::INT)
+                );
             }
             _ => panic!("expected Function"),
         }
 
-        let ty = parse_type_from_source("(int) -> str");
+        let (ty, arena) = parse_type_with_arena("(int) -> str");
         match ty {
             Some(ParsedType::Function { params, ret }) => {
                 assert_eq!(params.len(), 1);
-                assert_eq!(params[0], ParsedType::primitive(TypeId::INT));
-                assert_eq!(*ret, ParsedType::primitive(TypeId::STR));
+                let param_ids = arena.get_parsed_type_list(params);
+                assert_eq!(
+                    *arena.get_parsed_type(param_ids[0]),
+                    ParsedType::primitive(TypeId::INT)
+                );
+                assert_eq!(
+                    *arena.get_parsed_type(ret),
+                    ParsedType::primitive(TypeId::STR)
+                );
             }
             _ => panic!("expected Function"),
         }
 
-        let ty = parse_type_from_source("(int, str) -> bool");
+        let (ty, arena) = parse_type_with_arena("(int, str) -> bool");
         match ty {
             Some(ParsedType::Function { params, ret }) => {
                 assert_eq!(params.len(), 2);
-                assert_eq!(*ret, ParsedType::primitive(TypeId::BOOL));
+                assert_eq!(
+                    *arena.get_parsed_type(ret),
+                    ParsedType::primitive(TypeId::BOOL)
+                );
             }
             _ => panic!("expected Function"),
         }
@@ -364,11 +425,12 @@ mod tests {
     #[test]
     fn test_parse_nested_generic_type() {
         // Nested generics like Option<Result<int, str>>
-        let ty = parse_type_from_source("Option<Result<int, str>>");
+        let (ty, arena) = parse_type_with_arena("Option<Result<int, str>>");
         match ty {
             Some(ParsedType::Named { type_args, .. }) => {
                 assert_eq!(type_args.len(), 1);
-                match &type_args[0] {
+                let ids = arena.get_parsed_type_list(type_args);
+                match arena.get_parsed_type(ids[0]) {
                     ParsedType::Named {
                         type_args: inner, ..
                     } => {
@@ -386,23 +448,34 @@ mod tests {
         // Double nested generics: Result<Result<T, E>, E>
         // This was previously broken because >> was lexed as a single Shr token.
         // Now the lexer produces individual > tokens, enabling correct parsing.
-        let ty = parse_type_from_source("Result<Result<int, str>, str>");
+        let (ty, arena) = parse_type_with_arena("Result<Result<int, str>, str>");
         match ty {
             Some(ParsedType::Named { type_args, .. }) => {
                 assert_eq!(type_args.len(), 2, "Expected 2 type args for outer Result");
+                let outer_ids = arena.get_parsed_type_list(type_args);
                 // First arg should be Result<int, str>
-                match &type_args[0] {
+                match arena.get_parsed_type(outer_ids[0]) {
                     ParsedType::Named {
                         type_args: inner, ..
                     } => {
                         assert_eq!(inner.len(), 2, "Expected 2 type args for inner Result");
-                        assert_eq!(inner[0], ParsedType::primitive(TypeId::INT));
-                        assert_eq!(inner[1], ParsedType::primitive(TypeId::STR));
+                        let inner_ids = arena.get_parsed_type_list(*inner);
+                        assert_eq!(
+                            *arena.get_parsed_type(inner_ids[0]),
+                            ParsedType::primitive(TypeId::INT)
+                        );
+                        assert_eq!(
+                            *arena.get_parsed_type(inner_ids[1]),
+                            ParsedType::primitive(TypeId::STR)
+                        );
                     }
                     _ => panic!("expected inner Named (Result<int, str>)"),
                 }
                 // Second arg should be str
-                assert_eq!(type_args[1], ParsedType::primitive(TypeId::STR));
+                assert_eq!(
+                    *arena.get_parsed_type(outer_ids[1]),
+                    ParsedType::primitive(TypeId::STR)
+                );
             }
             _ => panic!("expected Named"),
         }
@@ -411,17 +484,19 @@ mod tests {
     #[test]
     fn test_parse_triple_nested_generic_type() {
         // Triple nested: Option<Result<Result<int, str>, str>>
-        let ty = parse_type_from_source("Option<Result<Result<int, str>, str>>");
+        let (ty, arena) = parse_type_with_arena("Option<Result<Result<int, str>, str>>");
         match ty {
             Some(ParsedType::Named { type_args, .. }) => {
                 assert_eq!(type_args.len(), 1, "Expected 1 type arg for Option");
-                match &type_args[0] {
+                let outer_ids = arena.get_parsed_type_list(type_args);
+                match arena.get_parsed_type(outer_ids[0]) {
                     ParsedType::Named {
                         type_args: inner, ..
                     } => {
                         assert_eq!(inner.len(), 2, "Expected 2 type args for outer Result");
+                        let inner_ids = arena.get_parsed_type_list(*inner);
                         // First arg should be Result<int, str>
-                        match &inner[0] {
+                        match arena.get_parsed_type(inner_ids[0]) {
                             ParsedType::Named {
                                 type_args: deepest, ..
                             } => {
@@ -443,16 +518,16 @@ mod tests {
 
     #[test]
     fn test_parse_self_type() {
-        let ty = parse_type_from_source("Self");
+        let (ty, _) = parse_type_with_arena("Self");
         assert_eq!(ty, Some(ParsedType::SelfType));
     }
 
     #[test]
     fn test_parse_list_of_generic() {
         // [Option<int>]
-        let ty = parse_type_from_source("[Option<int>]");
+        let (ty, arena) = parse_type_with_arena("[Option<int>]");
         match ty {
-            Some(ParsedType::List(inner)) => match inner.as_ref() {
+            Some(ParsedType::List(inner_id)) => match arena.get_parsed_type(inner_id) {
                 ParsedType::Named { type_args, .. } => {
                     assert_eq!(type_args.len(), 1);
                 }
@@ -465,10 +540,10 @@ mod tests {
     #[test]
     fn test_parse_self_associated_type() {
         // Self.Item - associated type access on Self
-        let ty = parse_type_from_source("Self.Item");
+        let (ty, arena) = parse_type_with_arena("Self.Item");
         match ty {
             Some(ParsedType::AssociatedType { base, assoc_name }) => {
-                assert_eq!(*base, ParsedType::SelfType);
+                assert_eq!(*arena.get_parsed_type(base), ParsedType::SelfType);
                 // Note: assoc_name is a Name, we just verify it was parsed
                 let _ = assoc_name;
             }
@@ -479,10 +554,10 @@ mod tests {
     #[test]
     fn test_parse_generic_associated_type() {
         // T.Item - associated type access on a type variable
-        let ty = parse_type_from_source("T.Item");
+        let (ty, arena) = parse_type_with_arena("T.Item");
         match ty {
             Some(ParsedType::AssociatedType { base, assoc_name }) => {
-                match base.as_ref() {
+                match arena.get_parsed_type(base) {
                     ParsedType::Named { type_args, .. } => {
                         assert!(type_args.is_empty());
                     }
@@ -497,13 +572,14 @@ mod tests {
     #[test]
     fn test_parse_option_of_associated_type() {
         // Option<Self.Item> - associated type inside generic
-        let ty = parse_type_from_source("Option<Self.Item>");
+        let (ty, arena) = parse_type_with_arena("Option<Self.Item>");
         match ty {
             Some(ParsedType::Named { type_args, .. }) => {
                 assert_eq!(type_args.len(), 1);
-                match &type_args[0] {
+                let ids = arena.get_parsed_type_list(type_args);
+                match arena.get_parsed_type(ids[0]) {
                     ParsedType::AssociatedType { base, .. } => {
-                        assert_eq!(**base, ParsedType::SelfType);
+                        assert_eq!(*arena.get_parsed_type(*base), ParsedType::SelfType);
                     }
                     _ => panic!("expected AssociatedType as type arg"),
                 }

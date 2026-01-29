@@ -2,8 +2,8 @@
 
 use crate::{ParseError, ParseResult, ParsedAttrs, Parser};
 use ori_ir::{
-    GenericParamRange, Name, ParsedType, Span, StructField, TokenKind, TypeDecl, TypeDeclKind,
-    Variant, VariantField,
+    GenericParamRange, Name, ParsedType, ParsedTypeRange, Span, StructField, TokenKind, TypeDecl,
+    TypeDeclKind, Variant, VariantField,
 };
 
 impl Parser<'_> {
@@ -120,9 +120,11 @@ impl Parser<'_> {
         if self.check(&TokenKind::Lt) {
             // This is a newtype with generic args
             self.advance(); // <
-            let mut type_args = Vec::new();
+            let mut arg_ids = Vec::new();
             while !self.check(&TokenKind::Gt) && !self.is_at_end() {
-                type_args.push(self.parse_type_required()?);
+                let ty = self.parse_type_required()?;
+                let id = self.arena.alloc_parsed_type(ty);
+                arg_ids.push(id);
                 if self.check(&TokenKind::Comma) {
                     self.advance();
                 } else {
@@ -132,6 +134,7 @@ impl Parser<'_> {
             if self.check(&TokenKind::Gt) {
                 self.advance(); // >
             }
+            let type_args = self.arena.alloc_parsed_type_list(arg_ids);
             return Ok(TypeDeclKind::Newtype(ParsedType::Named {
                 name: first_name,
                 type_args,
@@ -179,7 +182,7 @@ impl Parser<'_> {
         // Single identifier without | or ( - newtype referring to another type
         Ok(TypeDeclKind::Newtype(ParsedType::Named {
             name: first_name,
-            type_args: Vec::new(),
+            type_args: ParsedTypeRange::EMPTY,
         }))
     }
 
