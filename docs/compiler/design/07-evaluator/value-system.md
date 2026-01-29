@@ -290,19 +290,44 @@ impl Value {
 
 ```rust
 pub struct FunctionValue {
-    /// Parameter names
+    /// Parameter names.
     pub params: Vec<Name>,
 
-    /// Body expression
+    /// Body expression.
     pub body: ExprId,
 
-    /// Captured environment (for closures)
-    pub captured: Option<Heap<HashMap<Name, Value>>>,
+    /// Captured environment (frozen at creation).
+    /// Uses Arc for efficient sharing between multiple functions.
+    captures: Arc<HashMap<Name, Value>>,
 
-    /// Optional function name (for recursion)
-    pub name: Option<Name>,
+    /// Arena for expression resolution.
+    /// Required for thread safety - the body ExprId must be resolved
+    /// against this arena, not whatever arena happens to be in scope.
+    arena: SharedArena,
+
+    /// Required capabilities (from `uses` clause).
+    capabilities: Vec<Name>,
 }
 ```
+
+### FunctionValue Constructors
+
+```rust
+impl FunctionValue {
+    /// Create a function with owned captures (clones the HashMap).
+    pub fn new(params, body, captures: HashMap<Name, Value>, arena) -> Self;
+
+    /// Create a function with capabilities.
+    pub fn with_capabilities(params, body, captures, arena, capabilities) -> Self;
+
+    /// Create a function with shared captures (avoids cloning).
+    /// Use when multiple functions should share the same captures
+    /// (e.g., module functions for mutual recursion).
+    pub fn with_shared_captures(params, body, captures: Arc<HashMap<Name, Value>>, arena, capabilities) -> Self;
+}
+```
+
+The `with_shared_captures` constructor is used during module loading to avoid cloning the captures HashMap for each function in a module.
 
 ## Struct Values
 
@@ -486,4 +511,4 @@ All heap types use `Arc` internally (wrapped by `Heap<T>`), providing:
 - Cheap cloning (reference count increment)
 - Automatic cleanup when unused
 
-The `FunctionValue` type uses immutable captures (no `RwLock`), eliminating potential race conditions.
+The `FunctionValue` type uses immutable captures wrapped in `Arc` (no `RwLock`), eliminating potential race conditions. Multiple functions can efficiently share captures via `with_shared_captures()` without cloning.
