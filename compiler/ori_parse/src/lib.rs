@@ -286,14 +286,24 @@ impl<'a> Parser<'a> {
         let mut errors = Vec::new();
 
         // Parse imports first (must appear at beginning per spec)
+        // Includes both regular imports and public re-exports
         while !self.is_at_end() {
             self.skip_newlines();
             if self.is_at_end() {
                 break;
             }
 
-            if self.check(&TokenKind::Use) {
-                let result = self.parse_use_with_progress();
+            // Check for pub use (re-export)
+            let is_pub_use = self.check(&TokenKind::Pub) && self.peek_next_kind() == TokenKind::Use;
+
+            if self.check(&TokenKind::Use) || is_pub_use {
+                let is_public = if is_pub_use {
+                    self.advance(); // consume 'pub'
+                    true
+                } else {
+                    false
+                };
+                let result = self.with_progress(|p| p.parse_use_inner(is_public));
                 let made_progress = result.made_progress();
                 match result.into_result() {
                     Ok(use_def) => module.imports.push(use_def),

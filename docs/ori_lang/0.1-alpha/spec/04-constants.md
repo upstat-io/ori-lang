@@ -126,8 +126,8 @@ When importing immutable bindings, the `$` must be included:
 pub let $timeout = 30s
 
 // client.ori
-use './config' { $timeout }  // OK
-use './config' { timeout }   // error: 'timeout' not found
+use "./config" { $timeout }  // OK
+use "./config" { timeout }   // error: 'timeout' not found
 ```
 
 ## Constraints

@@ -29,7 +29,7 @@ pub use ori_patterns::{
 
 pub use ori_patterns::{
     cannot_access_field, cannot_get_length, cannot_index, index_out_of_bounds, invalid_tuple_field,
-    key_not_found, no_field_on_struct, tuple_index_out_of_bounds,
+    key_not_found, no_field_on_struct, no_member_in_module, tuple_index_out_of_bounds,
 };
 
 // Type Conversion and Validation Errors

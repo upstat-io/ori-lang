@@ -116,7 +116,7 @@ src/
 
 ```ori
 // _test/math.test.ori
-use '../math' { add, ::private_helper }
+use "../math" { add, ::private_helper }
 
 @test_add tests @add () -> void = ...
 ```

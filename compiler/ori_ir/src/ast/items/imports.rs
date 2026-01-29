@@ -12,8 +12,17 @@ use crate::{Name, Span};
 pub struct UseDef {
     /// Import path - either relative ('./math', '../utils') or module (std.math)
     pub path: ImportPath,
-    /// Items being imported
+    /// Items being imported (empty when using module alias)
     pub items: Vec<UseItem>,
+    /// Module alias for qualified access: `use std.net.http as http`
+    ///
+    /// When set, the entire module is imported under this alias name,
+    /// enabling qualified access like `http.get()`. Items list must be empty.
+    pub module_alias: Option<Name>,
+    /// Whether this is a public re-export: `pub use './internal' { Widget }`
+    ///
+    /// When true, imported items are re-exported from this module.
+    pub is_public: bool,
     /// Source span
     pub span: Span,
 }

@@ -419,6 +419,11 @@ pub fn build_module_functions(
 /// - Public items (`pub @func`) can be imported normally
 /// - Private items (no `pub`) require `::` prefix: `use './mod' { ::private_func }`
 /// - Test modules in `_test/` can access private items from parent module
+///
+/// Module alias imports:
+/// - `use path as alias` imports the entire module as a namespace
+/// - Only public items are included in the namespace
+/// - Access via qualified syntax: `alias.function()`
 pub fn register_imports(
     import: &crate::ir::UseDef,
     imported: &ImportedModule<'_>,
@@ -427,6 +432,11 @@ pub fn register_imports(
     import_path: &Path,
     current_file: &Path,
 ) -> Result<(), ImportError> {
+    // Handle module alias: `use path as alias`
+    if let Some(alias) = import.module_alias {
+        return register_module_alias(import, imported, env, alias, import_path);
+    }
+
     // Check if this is a test module importing from its parent module
     let allow_private_access =
         is_test_module(current_file) && is_parent_module_import(current_file, import_path);
@@ -486,6 +496,54 @@ pub fn register_imports(
             )));
         }
     }
+
+    Ok(())
+}
+
+/// Register a module alias import.
+///
+/// Creates a `ModuleNamespace` containing all public functions from the module
+/// and binds it to the alias name.
+fn register_module_alias(
+    import: &crate::ir::UseDef,
+    imported: &ImportedModule<'_>,
+    env: &mut Environment,
+    alias: Name,
+    import_path: &Path,
+) -> Result<(), ImportError> {
+    // Module alias imports should not have individual items
+    if !import.items.is_empty() {
+        return Err(ImportError::new(format!(
+            "module alias import cannot have individual items: '{}'",
+            import_path.display()
+        )));
+    }
+
+    // Collect all public functions into the namespace
+    let mut namespace: HashMap<Name, Value> = HashMap::new();
+
+    for func in &imported.result.module.functions {
+        if func.is_public {
+            let params = imported.arena.get_param_names(func.params);
+            let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
+
+            // Captures include all module functions for mutual recursion
+            let captures = imported.functions.clone();
+
+            let func_value = FunctionValue::with_capabilities(
+                params,
+                func.body,
+                captures,
+                imported.arena.clone(),
+                capabilities,
+            );
+
+            namespace.insert(func.name, Value::Function(func_value));
+        }
+    }
+
+    // Bind the namespace to the alias
+    env.define(alias, Value::module_namespace(namespace), Mutability::Immutable);
 
     Ok(())
 }

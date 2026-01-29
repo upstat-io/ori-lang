@@ -92,6 +92,9 @@ pub enum Value {
     FunctionVal(FunctionValFn, &'static str),  // Type conversions: int(), str()
     Range(RangeValue),
 
+    // Module System
+    ModuleNamespace(Heap<HashMap<Name, Value>>),  // For module aliases
+
     // Error Recovery
     Error(String),
 }
@@ -131,6 +134,7 @@ Available factory methods:
 | `Value::variant_constructor(type_name, variant_name, field_count)` | `Value::VariantConstructor` | Create variant constructor |
 | `Value::newtype(type_name, inner)` | `Value::Newtype` | Create newtype wrapper |
 | `Value::newtype_constructor(type_name)` | `Value::NewtypeConstructor` | Create newtype constructor |
+| `Value::module_namespace(members)` | `Value::ModuleNamespace` | Create module namespace for qualified access |
 
 ## Primitives
 
@@ -239,6 +243,45 @@ fn dispatch_newtype_method(receiver: Value, method: &str, args: Vec<Value>) -> E
             Ok((*inner).clone())
         }
         _ => Err(no_such_method(method, "newtype")),
+    }
+}
+```
+
+## Module Namespace Values
+
+Module namespaces represent imported modules accessed via alias. They enable qualified access like `http.get(...)`.
+
+```rust
+Value::ModuleNamespace(Heap<HashMap<Name, Value>>)
+```
+
+Created when processing module alias imports:
+
+```ori
+use std.net.http as http
+```
+
+Field access on a module namespace looks up the member by name:
+
+```rust
+fn eval_field_access(receiver: Value, field: Name) -> EvalResult {
+    match receiver {
+        Value::ModuleNamespace(ns) => {
+            ns.get(&field)
+                .cloned()
+                .ok_or_else(|| no_member_in_module(field))
+        }
+        // ... other cases
+    }
+}
+```
+
+Factory method:
+
+```rust
+impl Value {
+    pub fn module_namespace(members: HashMap<Name, Value>) -> Self {
+        Value::ModuleNamespace(Heap::new(members))
     }
 }
 ```

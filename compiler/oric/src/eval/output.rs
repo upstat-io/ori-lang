@@ -153,6 +153,9 @@ impl EvalOutput {
                     .collect();
                 EvalOutput::Map(entries)
             }
+            Value::ModuleNamespace(ns) => {
+                EvalOutput::Function(format!("<module namespace with {} items>", ns.len()))
+            }
             Value::Error(msg) => EvalOutput::Error(msg.clone()),
         }
     }

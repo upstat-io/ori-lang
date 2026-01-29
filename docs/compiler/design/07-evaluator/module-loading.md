@@ -39,9 +39,9 @@ Module loading handles `use` statements, resolving imports and making external f
 ### Relative Imports
 
 ```ori
-use './math' { add, subtract }
-use '../utils' { helper }
-use './http/client' { get, post }
+use "./math" { add, subtract }
+use "../utils" { helper }
+use "./http/client" { get, post }
 ```
 
 ### Module Imports
@@ -51,10 +51,26 @@ use std.math { sqrt, abs }
 use std.time { Duration }
 ```
 
+### Module Alias
+
+```ori
+use std.net.http as http
+```
+
+When a module alias is used, no individual items are imported. Instead, the entire module is bound to the alias name as a `Value::ModuleNamespace`, enabling qualified access like `http.get(...)`.
+
+### Re-exports
+
+```ori
+pub use "./internal" { helper, Widget }
+```
+
+Re-exports make imported items available to modules that import this module. The `is_public` flag on `UseDef` marks the import for re-export.
+
 ### Private Imports
 
 ```ori
-use './internal' { ::private_helper }
+use "./internal" { ::private_helper }
 ```
 
 ## Import Resolution
@@ -277,6 +293,45 @@ pub fn register_newtype_constructors(module: &Module, env: &mut Environment) {
     }
 }
 ```
+
+### register_module_alias
+
+Registers a module alias by collecting all public functions into a namespace value:
+
+```rust
+fn register_module_alias(
+    import: &UseDef,
+    imported: &ImportedModule<'_>,
+    env: &mut Environment,
+    alias: Name,
+    import_path: &Path,
+) -> Result<(), ImportError> {
+    let mut namespace: HashMap<Name, Value> = HashMap::new();
+
+    for func in &imported.result.module.functions {
+        if func.is_public {
+            let params = imported.result.arena.get_param_names(func.params);
+            let captures = env.capture();
+            let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
+
+            let func_value = FunctionValue::with_details(
+                params,
+                func.body,
+                Some(captures),
+                SharedArena::new(imported.result.arena.clone()),
+                Some(func.name),
+                capabilities,
+            );
+            namespace.insert(func.name, Value::Function(func_value));
+        }
+    }
+
+    env.define(alias, Value::module_namespace(namespace), Mutability::Immutable);
+    Ok(())
+}
+```
+
+The resulting `ModuleNamespace` value enables qualified access like `http.get(...)`. Field access on a module namespace looks up the function by name and returns it.
 
 ## Test Module Access
 

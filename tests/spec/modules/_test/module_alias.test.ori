@@ -1,0 +1,24 @@
+// Spec: 12-modules.md Module Alias
+// Design: (modules not yet in design docs)
+//
+// Tests for module alias parsing: use path as alias
+// NOTE: Full qualified access (math.add) requires type checker support.
+// These tests verify the parsing works correctly.
+
+use std.testing { assert_eq }
+
+// Regular imports still work
+use "../math_lib" { add, multiply, double }
+
+// Test that regular imports from the same module work
+@test_regular_import_add tests @add () -> void = run(
+    assert_eq(actual: add(a: 2, b: 3), expected: 5)
+)
+
+@test_regular_import_multiply tests @multiply () -> void = run(
+    assert_eq(actual: multiply(a: 4, b: 5), expected: 20)
+)
+
+@test_regular_import_double tests @double () -> void = run(
+    assert_eq(actual: double(x: 7), expected: 14)
+)

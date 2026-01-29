@@ -14,6 +14,7 @@ use crate::{
     invalid_tuple_field,
     key_not_found,
     no_field_on_struct,
+    no_member_in_module,
     range_bound_not_int,
     tuple_index_out_of_bounds,
     unbounded_range_end,
@@ -206,6 +207,13 @@ pub fn eval_field_access(value: Value, field: Name, interner: &StringInterner) -
             } else {
                 Err(invalid_tuple_field(field_name))
             }
+        }
+        Value::ModuleNamespace(ns) => {
+            // Qualified access: module.member
+            ns.get(&field).cloned().ok_or_else(|| {
+                let member_name = interner.lookup(field);
+                no_member_in_module(member_name)
+            })
         }
         value => Err(cannot_access_field(value.type_name())),
     }
