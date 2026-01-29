@@ -282,6 +282,14 @@
 - Supports `--verbose`, `--diff`, `--graph` output modes
 - Blocked on: None (Salsa infrastructure already exists)
 
+**Simplified Attribute Syntax** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/simplified-attributes-proposal.md`
+- Implementation: Phase 15.1
+- Changes `#[name(...)]` to `#name(...)` — removes bracket noise
+- Generalized attributes: any attribute can appear before any declaration
+- Compiler validates which attributes valid for which declarations
+- Blocked on: None (lexer/parser change only)
+
 ---
 
 ## Milestones

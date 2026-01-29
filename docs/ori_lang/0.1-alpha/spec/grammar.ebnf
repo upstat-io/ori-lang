@@ -155,12 +155,18 @@ extension_item   = identifier "." identifier .
 // See: 08-declarations.md
 // ============================================================================
 
-declaration = function | type_def | trait_def | impl_block | test | constant_decl .
+declaration = { attribute } [ "pub" ] ( function | type_def | trait_def | impl_block | test | constant_decl ) .
+
+// --- Attributes ---
+// See: 08-declarations.md § Attributes
+
+attribute      = "#" identifier [ "(" [ attribute_arg { "," attribute_arg } ] ")" ] .
+attribute_arg  = expression | identifier "=" expression .
 
 // --- Functions ---
 // See: 08-declarations.md § Functions
 
-function      = [ "pub" ] "@" identifier [ generics ] clause_params "->" type [ uses_clause ] [ where_clause ] [ guard_clause ] "=" expression .
+function      = "@" identifier [ generics ] clause_params "->" type [ uses_clause ] [ where_clause ] [ guard_clause ] "=" expression .
 clause_params = "(" [ clause_param { "," clause_param } ] ")" .
 clause_param  = match_pattern [ ":" type ] [ "=" expression ] .  /* pattern with optional type and default */
 guard_clause  = "if" expression .
@@ -181,8 +187,7 @@ uses_clause = "uses" identifier { "," identifier } .
 // --- Type Definitions ---
 // See: 08-declarations.md § Types, 06-types.md § User-Defined Types
 
-type_def    = [ "pub" ] [ derive ] "type" identifier [ generics ] [ where_clause ] "=" type_body .
-derive      = "#[derive(" identifier { "," identifier } ")]" .
+type_def    = "type" identifier [ generics ] [ where_clause ] "=" type_body .
 type_body   = struct_body | sum_body | type .
 struct_body = "{" [ field { "," field } ] "}" .
 sum_body    = variant { "|" variant } .
@@ -192,7 +197,7 @@ field       = identifier ":" type .
 // --- Traits ---
 // See: 08-declarations.md § Traits
 
-trait_def      = [ "pub" ] "trait" identifier [ generics ] [ ":" bounds ] "{" { trait_item } "}" .
+trait_def      = "trait" identifier [ generics ] [ ":" bounds ] "{" { trait_item } "}" .
 trait_item     = method_sig | default_method | assoc_type .
 method_sig     = "@" identifier params "->" type .
 default_method = method_sig "=" expression .
@@ -209,15 +214,14 @@ method        = "@" identifier params "->" type [ uses_clause ] "=" expression .
 // --- Tests ---
 // See: 13-testing.md
 
-test         = [ attribute ] "@" identifier "tests" test_targets "()" "->" "void" "=" expression .
+test         = "@" identifier "tests" test_targets "()" "->" "void" "=" expression .
 test_targets = "_" | test_target { "tests" test_target } .
 test_target  = "@" identifier .
-attribute    = "#" ( "skip" | "compile_fail" | "fail" ) "(" string_literal ")" .
 
 // --- Constants (Immutable Bindings) ---
 // See: 04-constants.md
 
-constant_decl = [ "pub" ] "let" "$" identifier [ ":" type ] "=" expression .
+constant_decl = "let" "$" identifier [ ":" type ] "=" expression .
 
 
 // ============================================================================

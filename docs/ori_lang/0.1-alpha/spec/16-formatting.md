@@ -319,7 +319,7 @@ type Status =
 Attributes on own line:
 
 ```ori
-#[derive(Eq, Clone)]
+#derive(Eq, Clone)
 type Point = { x: int, y: int }
 ```
 

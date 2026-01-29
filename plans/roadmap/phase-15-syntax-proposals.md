@@ -11,7 +11,7 @@
 
 **Proposal**: `proposals/approved/simplified-attributes-proposal.md`
 
-Change attribute syntax from `#[name(...)]` to `#name(...)`.
+Change attribute syntax from `#[name(...)]` to `#name(...)`. Attributes are now generalizable to all declarations.
 
 ```ori
 // Before
@@ -22,6 +22,12 @@ Change attribute syntax from `#[name(...)]` to `#name(...)`.
 #derive(Eq, Clone)
 #skip("reason")
 ```
+
+### Key Design Decisions
+
+- **Generalized attributes**: Any attribute can appear before any declaration
+- **Compiler validation**: The compiler validates which attributes are valid for which declarations
+- **Positioning**: Attributes must appear immediately before the declaration they modify
 
 ### Implementation
 
@@ -36,6 +42,18 @@ Change attribute syntax from `#[name(...)]` to `#name(...)`.
   - [ ] **Ori Tests**: `tests/spec/attributes/simplified_syntax.ori`
   - [ ] **LLVM Support**: LLVM codegen for simplified attribute parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/attribute_tests.rs` — simplified attribute parsing codegen
+
+- [ ] **Implement**: Generalize attributes to all declarations (functions, types, traits, impls, tests, constants)
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/decl.rs` — generalized attribute parsing
+  - [ ] **Ori Tests**: `tests/spec/attributes/any_declaration.ori`
+  - [ ] **LLVM Support**: LLVM codegen for generalized attributes
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/attribute_tests.rs` — generalized attribute codegen
+
+- [ ] **Implement**: Attribute validation (which attributes valid for which declarations)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/attr.rs` — attribute validation
+  - [ ] **Ori Tests**: `tests/compile-fail/invalid_attribute_target.ori`
+  - [ ] **LLVM Support**: LLVM codegen for attribute validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/attribute_tests.rs` — attribute validation codegen
 
 - [ ] **Implement**: Support migration: accept both syntaxes temporarily
   - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — migration compatibility
