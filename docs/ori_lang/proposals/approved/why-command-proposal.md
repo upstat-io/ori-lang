@@ -1,6 +1,7 @@
 # Proposal: Causality Tracking (`ori impact` and `ori why`)
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-28
 **Author:** Eric (with Claude)
 **Created:** 2026-01-24
 **Draft:** 2026-01-25
@@ -123,6 +124,28 @@ If @Ast type changes:
   This is a high-impact change.
 ```
 
+With verbose:
+
+```bash
+$ ori impact @Ast --verbose
+If @Ast type changes:
+  Returning Ast (8):
+    @parse (src/parser.ori:42)
+    @parse_expr (src/parser.ori:67)
+    @parse_stmt (src/parser.ori:89)
+    ...
+
+  Accepting Ast (15):
+    @compile (src/compiler.ori:23)
+    @optimize (src/optimizer.ori:15)
+    ...
+
+  Using Ast internally (23):
+    @format (src/formatter.ori:31)
+    @validate (src/validator.ori:18)
+    ...
+```
+
 ### `ori why` — After Something Breaks
 
 Traces a failure back to its source:
@@ -191,6 +214,34 @@ $ ori why @test_compile --graph
 └── @compile
     ├── @parse ← CHANGED
     └── @optimize
+```
+
+### Error Handling
+
+**Target not found:**
+```bash
+$ ori why @nonexistent
+error: function @nonexistent not found
+```
+
+**No changes detected:**
+```bash
+$ ori why @compile
+@compile is clean (no changes since last build)
+```
+
+**Large dependency graphs:**
+```bash
+$ ori impact @Ast
+If @Ast type changes:
+  Functions affected: 127
+
+  Showing first 20 (use --all to show all):
+    @parse (src/parser.ori:15)
+    @compile (src/compiler.ori:23)
+    ...
+
+  Run `ori impact @Ast --all` to see all 127 functions.
 ```
 
 ---
@@ -309,6 +360,8 @@ If @Ast changes:
 ---
 
 ## Future Extensions
+
+> **Note:** The features in this section are explicitly out of scope for the initial implementation. They represent potential future directions but are not part of this proposal.
 
 ### Blame Integration
 
