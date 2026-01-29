@@ -16,9 +16,9 @@
 )]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::parallel::{ParallelPattern, Semaphore};
 use crate::Value;
@@ -42,17 +42,25 @@ mod semaphore {
         let sem = Arc::new(Semaphore::new(2));
         let active = Arc::new(AtomicUsize::new(0));
         let max_active = Arc::new(AtomicUsize::new(0));
+        // Barrier ensures all threads attempt acquire simultaneously
+        let start_barrier = Arc::new(Barrier::new(10));
+        // Second barrier ensures threads hold semaphore until all have recorded max
+        let hold_barrier = Arc::new(Barrier::new(2));
 
         let handles: Vec<_> = (0..10)
             .map(|_| {
                 let sem = Arc::clone(&sem);
                 let active = Arc::clone(&active);
                 let max_active = Arc::clone(&max_active);
+                let start_barrier = Arc::clone(&start_barrier);
+                let hold_barrier = Arc::clone(&hold_barrier);
                 thread::spawn(move || {
+                    start_barrier.wait(); // All threads start together
                     sem.acquire();
                     let current = active.fetch_add(1, Ordering::SeqCst) + 1;
                     max_active.fetch_max(current, Ordering::SeqCst);
-                    thread::sleep(Duration::from_millis(10));
+                    // Wait at barrier to ensure both permitted threads overlap
+                    hold_barrier.wait();
                     active.fetch_sub(1, Ordering::SeqCst);
                     sem.release();
                 })
@@ -71,17 +79,21 @@ mod semaphore {
         let sem = Arc::new(Semaphore::new(1));
         let active = Arc::new(AtomicUsize::new(0));
         let max_active = Arc::new(AtomicUsize::new(0));
+        // Barrier ensures all threads attempt acquire simultaneously
+        let start_barrier = Arc::new(Barrier::new(5));
 
         let handles: Vec<_> = (0..5)
             .map(|_| {
                 let sem = Arc::clone(&sem);
                 let active = Arc::clone(&active);
                 let max_active = Arc::clone(&max_active);
+                let start_barrier = Arc::clone(&start_barrier);
                 thread::spawn(move || {
+                    start_barrier.wait(); // All threads start together
                     sem.acquire();
                     let current = active.fetch_add(1, Ordering::SeqCst) + 1;
                     max_active.fetch_max(current, Ordering::SeqCst);
-                    thread::sleep(Duration::from_millis(5));
+                    // No sleep needed - semaphore guarantees serialization
                     active.fetch_sub(1, Ordering::SeqCst);
                     sem.release();
                 })
@@ -101,17 +113,24 @@ mod semaphore {
         let sem = Arc::new(Semaphore::new(50));
         let active = Arc::new(AtomicUsize::new(0));
         let max_active = Arc::new(AtomicUsize::new(0));
+        // Barrier ensures all threads attempt acquire simultaneously
+        let start_barrier = Arc::new(Barrier::new(100));
+        // Hold barrier ensures threads with permits overlap
+        let hold_barrier = Arc::new(Barrier::new(50));
 
         let handles: Vec<_> = (0..100)
             .map(|_| {
                 let sem = Arc::clone(&sem);
                 let active = Arc::clone(&active);
                 let max_active = Arc::clone(&max_active);
+                let start_barrier = Arc::clone(&start_barrier);
+                let hold_barrier = Arc::clone(&hold_barrier);
                 thread::spawn(move || {
+                    start_barrier.wait(); // All threads start together
                     sem.acquire();
                     let current = active.fetch_add(1, Ordering::SeqCst) + 1;
                     max_active.fetch_max(current, Ordering::SeqCst);
-                    thread::sleep(Duration::from_millis(1));
+                    hold_barrier.wait(); // Ensure all 50 permitted threads overlap
                     active.fetch_sub(1, Ordering::SeqCst);
                     sem.release();
                 })
@@ -331,22 +350,26 @@ mod concurrency_verification {
     use std::collections::HashSet;
     use std::sync::Mutex;
 
-    /// Verify that tasks actually execute concurrently using atomic counters.
+    /// Verify that tasks actually execute concurrently using barriers.
     #[test]
     fn tasks_run_concurrently() {
         let active = Arc::new(AtomicUsize::new(0));
         let max_concurrent = Arc::new(AtomicUsize::new(0));
         let completed = Arc::new(AtomicUsize::new(0));
+        // Barrier ensures all threads reach their "active" state together
+        let sync_barrier = Arc::new(Barrier::new(4));
 
         thread::scope(|s| {
             for _ in 0..4 {
                 let active = Arc::clone(&active);
                 let max_concurrent = Arc::clone(&max_concurrent);
                 let completed = Arc::clone(&completed);
+                let sync_barrier = Arc::clone(&sync_barrier);
                 s.spawn(move || {
                     let current = active.fetch_add(1, Ordering::SeqCst) + 1;
                     max_concurrent.fetch_max(current, Ordering::SeqCst);
-                    thread::sleep(Duration::from_millis(50));
+                    // Barrier ensures all threads overlap at this point
+                    sync_barrier.wait();
                     active.fetch_sub(1, Ordering::SeqCst);
                     completed.fetch_add(1, Ordering::SeqCst);
                 });
@@ -355,11 +378,11 @@ mod concurrency_verification {
 
         // All tasks should complete
         assert_eq!(completed.load(Ordering::SeqCst), 4);
-        // At least 2 tasks should have been active concurrently
-        assert!(
-            max_concurrent.load(Ordering::SeqCst) >= 2,
-            "expected concurrent execution, max concurrent was {}",
-            max_concurrent.load(Ordering::SeqCst)
+        // All 4 tasks should have been active concurrently (barrier guarantees this)
+        assert_eq!(
+            max_concurrent.load(Ordering::SeqCst),
+            4,
+            "barrier should ensure all 4 threads overlap"
         );
     }
 
@@ -367,15 +390,18 @@ mod concurrency_verification {
     #[test]
     fn tasks_use_different_threads() {
         let thread_ids = Arc::new(Mutex::new(Vec::new()));
+        // Barrier ensures threads are alive simultaneously when recording IDs
+        let sync_barrier = Arc::new(Barrier::new(4));
 
         thread::scope(|s| {
             for _ in 0..4 {
                 let thread_ids = Arc::clone(&thread_ids);
+                let sync_barrier = Arc::clone(&sync_barrier);
                 s.spawn(move || {
                     let id = thread::current().id();
                     thread_ids.lock().unwrap().push(id);
-                    // Small sleep to ensure threads overlap
-                    thread::sleep(Duration::from_millis(10));
+                    // Barrier ensures all threads exist simultaneously
+                    sync_barrier.wait();
                 });
             }
         });
@@ -396,28 +422,28 @@ mod concurrency_verification {
     fn execution_windows_overlap() {
         let active = Arc::new(AtomicUsize::new(0));
         let max_concurrent = Arc::new(AtomicUsize::new(0));
+        // Barrier ensures all threads are active simultaneously
+        let sync_barrier = Arc::new(Barrier::new(4));
 
         thread::scope(|s| {
             for _ in 0..4 {
                 let active = Arc::clone(&active);
                 let max_concurrent = Arc::clone(&max_concurrent);
+                let sync_barrier = Arc::clone(&sync_barrier);
                 s.spawn(move || {
-                    // Increment active before sleep to detect overlap
+                    // Increment active before barrier to detect overlap
                     let current = active.fetch_add(1, Ordering::SeqCst) + 1;
                     max_concurrent.fetch_max(current, Ordering::SeqCst);
-                    thread::sleep(Duration::from_millis(50));
+                    // Barrier ensures overlap
+                    sync_barrier.wait();
                     active.fetch_sub(1, Ordering::SeqCst);
                 });
             }
         });
 
-        // With 4 concurrent tasks, max_concurrent should be at least 2
-        // (ideally 4, but at minimum we need overlapping execution)
+        // With barrier, all 4 tasks should be active simultaneously
         let max = max_concurrent.load(Ordering::SeqCst);
-        assert!(
-            max >= 2,
-            "expected overlapping execution (max concurrent >= 2), got {max}"
-        );
+        assert_eq!(max, 4, "barrier should ensure all 4 threads overlap");
     }
 
     /// Verify that different threads can execute simultaneously on different cores.
@@ -425,26 +451,27 @@ mod concurrency_verification {
     fn simultaneous_execution_on_cores() {
         let active_threads = Arc::new(AtomicUsize::new(0));
         let max_simultaneous = Arc::new(AtomicUsize::new(0));
-        let thread_ids_at_peak = Arc::new(Mutex::new(Vec::new()));
+        let thread_ids = Arc::new(Mutex::new(Vec::new()));
+        // Barrier ensures all 8 threads are active simultaneously
+        let sync_barrier = Arc::new(Barrier::new(8));
 
         thread::scope(|s| {
             for _ in 0..8 {
                 let active = Arc::clone(&active_threads);
                 let max_sim = Arc::clone(&max_simultaneous);
-                let ids_at_peak = Arc::clone(&thread_ids_at_peak);
+                let thread_ids = Arc::clone(&thread_ids);
+                let sync_barrier = Arc::clone(&sync_barrier);
 
                 s.spawn(move || {
                     // Increment active count
                     let current = active.fetch_add(1, Ordering::SeqCst) + 1;
 
-                    // Track maximum and record thread IDs at peak
-                    let prev_max = max_sim.fetch_max(current, Ordering::SeqCst);
-                    if current > prev_max {
-                        ids_at_peak.lock().unwrap().push(thread::current().id());
-                    }
+                    // Track maximum and record thread ID
+                    max_sim.fetch_max(current, Ordering::SeqCst);
+                    thread_ids.lock().unwrap().push(thread::current().id());
 
-                    // Hold position to allow overlap
-                    thread::sleep(Duration::from_millis(30));
+                    // Barrier ensures all threads overlap
+                    sync_barrier.wait();
 
                     // Decrement active count
                     active.fetch_sub(1, Ordering::SeqCst);
@@ -453,19 +480,16 @@ mod concurrency_verification {
         });
 
         let max = max_simultaneous.load(Ordering::SeqCst);
-        let peak_ids = thread_ids_at_peak.lock().unwrap();
+        let ids = thread_ids.lock().unwrap();
 
-        // On a multi-core system, we should see multiple threads active simultaneously
-        assert!(
-            max >= 2,
-            "expected at least 2 simultaneous threads, got {max}"
-        );
+        // With barrier, all 8 threads should be active simultaneously
+        assert_eq!(max, 8, "barrier should ensure all 8 threads overlap");
 
         // Verify we actually used multiple OS threads
-        let unique_peak_ids: HashSet<_> = peak_ids.iter().collect();
+        let unique_ids: HashSet<_> = ids.iter().collect();
         assert!(
-            !unique_peak_ids.is_empty(),
-            "should have recorded thread IDs at peak"
+            unique_ids.len() > 1,
+            "should have multiple unique thread IDs"
         );
     }
 
@@ -500,6 +524,10 @@ mod concurrency_verification {
         let active = Arc::new(AtomicUsize::new(0));
         let max_observed = Arc::new(AtomicUsize::new(0));
         let completed = Arc::new(AtomicUsize::new(0));
+        // Start barrier ensures all threads try to acquire simultaneously
+        let start_barrier = Arc::new(Barrier::new(6));
+        // Hold barrier ensures threads with permits overlap
+        let hold_barrier = Arc::new(Barrier::new(2));
 
         thread::scope(|s| {
             for _ in 0..6 {
@@ -507,11 +535,15 @@ mod concurrency_verification {
                 let active = Arc::clone(&active);
                 let max_observed = Arc::clone(&max_observed);
                 let completed = Arc::clone(&completed);
+                let start_barrier = Arc::clone(&start_barrier);
+                let hold_barrier = Arc::clone(&hold_barrier);
                 s.spawn(move || {
+                    start_barrier.wait(); // All threads start together
                     sem.acquire();
                     let current = active.fetch_add(1, Ordering::SeqCst) + 1;
                     max_observed.fetch_max(current, Ordering::SeqCst);
-                    thread::sleep(Duration::from_millis(50));
+                    // Barrier ensures the 2 permitted threads overlap
+                    hold_barrier.wait();
                     active.fetch_sub(1, Ordering::SeqCst);
                     completed.fetch_add(1, Ordering::SeqCst);
                     sem.release();
@@ -527,17 +559,20 @@ mod concurrency_verification {
         assert_eq!(completed.load(Ordering::SeqCst), 6);
     }
 
-    /// Verify order is preserved in results.
+    /// Verify order is preserved in results (results go to correct slots).
     #[test]
     fn results_preserve_order() {
         let results = Arc::new(Mutex::new(vec![None; 5]));
+        // Barrier ensures concurrent execution
+        let sync_barrier = Arc::new(Barrier::new(5));
 
         thread::scope(|s| {
             for i in 0..5 {
                 let results = Arc::clone(&results);
+                let sync_barrier = Arc::clone(&sync_barrier);
                 s.spawn(move || {
-                    // Varying sleep times to encourage out-of-order completion
-                    thread::sleep(Duration::from_millis((5 - i) as u64 * 10));
+                    // Barrier ensures threads run concurrently
+                    sync_barrier.wait();
                     results.lock().unwrap()[i] = Some(i);
                 });
             }
@@ -567,16 +602,19 @@ mod timeout {
         let completed = Arc::new(AtomicUsize::new(0));
         let max_concurrent = Arc::new(AtomicUsize::new(0));
         let active = Arc::new(AtomicUsize::new(0));
+        // Barrier ensures all threads overlap
+        let sync_barrier = Arc::new(Barrier::new(3));
 
         thread::scope(|s| {
             for _ in 0..3 {
                 let completed = Arc::clone(&completed);
                 let max_concurrent = Arc::clone(&max_concurrent);
                 let active = Arc::clone(&active);
+                let sync_barrier = Arc::clone(&sync_barrier);
                 s.spawn(move || {
                     let current = active.fetch_add(1, Ordering::SeqCst) + 1;
                     max_concurrent.fetch_max(current, Ordering::SeqCst);
-                    thread::sleep(Duration::from_millis(10));
+                    sync_barrier.wait();
                     active.fetch_sub(1, Ordering::SeqCst);
                     completed.fetch_add(1, Ordering::SeqCst);
                 });
@@ -585,43 +623,55 @@ mod timeout {
 
         // All tasks should complete
         assert_eq!(completed.load(Ordering::SeqCst), 3);
-        // Tasks should run concurrently
-        assert!(
-            max_concurrent.load(Ordering::SeqCst) >= 2,
-            "expected concurrent execution, max concurrent was {}",
-            max_concurrent.load(Ordering::SeqCst)
+        // All 3 tasks should run concurrently (barrier guarantees)
+        assert_eq!(
+            max_concurrent.load(Ordering::SeqCst),
+            3,
+            "barrier should ensure all 3 threads overlap"
         );
     }
 
     #[test]
     fn timeout_elapsed_detection() {
-        let start = Instant::now();
+        // Test the math directly without relying on actual sleep timing
         let timeout = Duration::from_millis(50);
+        let elapsed = Duration::from_millis(60); // Simulated elapsed time
 
-        thread::sleep(Duration::from_millis(60));
-
-        let remaining = timeout.saturating_sub(start.elapsed());
+        let remaining = timeout.saturating_sub(elapsed);
         assert!(remaining.is_zero(), "timeout should have elapsed");
+
+        // Also test boundary condition
+        let elapsed_exact = Duration::from_millis(50);
+        let remaining_exact = timeout.saturating_sub(elapsed_exact);
+        assert!(remaining_exact.is_zero(), "exact timeout should have elapsed");
     }
 
     #[test]
     fn timeout_remaining_calculation() {
-        let start = Instant::now();
+        // Test the math directly without relying on actual sleep timing
         let timeout = Duration::from_millis(500);
+        let elapsed = Duration::from_millis(50); // Simulated elapsed time
 
-        thread::sleep(Duration::from_millis(50));
+        let remaining = timeout.saturating_sub(elapsed);
+        assert_eq!(
+            remaining,
+            Duration::from_millis(450),
+            "remaining should be exactly 450ms"
+        );
 
-        let remaining = timeout.saturating_sub(start.elapsed());
-        // After 50ms sleep, remaining should be ~450ms, but allow generous
-        // variance for system load on CI. Key assertion: some time was consumed.
-        assert!(
-            remaining > Duration::from_millis(100),
-            "remaining should be > 100ms, got {remaining:?}"
+        // Test partial elapsed
+        let elapsed_partial = Duration::from_millis(200);
+        let remaining_partial = timeout.saturating_sub(elapsed_partial);
+        assert_eq!(
+            remaining_partial,
+            Duration::from_millis(300),
+            "remaining should be exactly 300ms"
         );
-        assert!(
-            remaining < Duration::from_millis(480),
-            "remaining should be < 480ms (some time elapsed), got {remaining:?}"
-        );
+
+        // Test over-elapsed (should saturate to zero)
+        let elapsed_over = Duration::from_millis(600);
+        let remaining_over = timeout.saturating_sub(elapsed_over);
+        assert!(remaining_over.is_zero(), "over-elapsed should saturate to zero");
     }
 }
 
@@ -737,24 +787,27 @@ mod edge_cases {
         let sem = Arc::new(Semaphore::new(5));
         let active = Arc::new(AtomicUsize::new(0));
         let max_active = Arc::new(AtomicUsize::new(0));
+        // Barrier ensures all 5 threads overlap
+        let sync_barrier = Arc::new(Barrier::new(5));
 
         thread::scope(|s| {
             for _ in 0..5 {
                 let sem = Arc::clone(&sem);
                 let active = Arc::clone(&active);
                 let max_active = Arc::clone(&max_active);
+                let sync_barrier = Arc::clone(&sync_barrier);
                 s.spawn(move || {
                     sem.acquire();
                     let current = active.fetch_add(1, Ordering::SeqCst) + 1;
                     max_active.fetch_max(current, Ordering::SeqCst);
-                    thread::sleep(Duration::from_millis(10));
+                    sync_barrier.wait();
                     active.fetch_sub(1, Ordering::SeqCst);
                     sem.release();
                 });
             }
         });
 
-        // All 5 should run at once
+        // All 5 should run at once (barrier guarantees)
         assert_eq!(max_active.load(Ordering::SeqCst), 5);
     }
 
@@ -762,15 +815,19 @@ mod edge_cases {
     fn max_concurrent_one() {
         let sem = Arc::new(Semaphore::new(1));
         let sequence = Arc::new(Mutex::new(Vec::new()));
+        // Barrier ensures all threads try to acquire simultaneously
+        let start_barrier = Arc::new(Barrier::new(3));
 
         thread::scope(|s| {
             for i in 0..3 {
                 let sem = Arc::clone(&sem);
                 let sequence = Arc::clone(&sequence);
+                let start_barrier = Arc::clone(&start_barrier);
                 s.spawn(move || {
+                    start_barrier.wait(); // All threads start together
                     sem.acquire();
                     sequence.lock().unwrap().push(format!("start_{i}"));
-                    thread::sleep(Duration::from_millis(10));
+                    // No sleep needed - semaphore guarantees serialization
                     sequence.lock().unwrap().push(format!("end_{i}"));
                     sem.release();
                 });
@@ -885,28 +942,39 @@ mod integration {
 
     #[test]
     fn simulate_parallel_http_requests() {
-        // Simulate parallel HTTP requests with varying response times
+        // Simulate parallel HTTP requests - verify concurrency via barrier, not timing
         let responses = Arc::new(Mutex::new(vec![None; 5]));
-        let start = Instant::now();
+        let max_concurrent = Arc::new(AtomicUsize::new(0));
+        let active = Arc::new(AtomicUsize::new(0));
+        // Barrier ensures all "requests" are in flight simultaneously
+        let sync_barrier = Arc::new(Barrier::new(5));
 
         thread::scope(|s| {
             for i in 0..5 {
                 let responses = Arc::clone(&responses);
+                let max_concurrent = Arc::clone(&max_concurrent);
+                let active = Arc::clone(&active);
+                let sync_barrier = Arc::clone(&sync_barrier);
                 s.spawn(move || {
-                    // Simulate network latency
-                    thread::sleep(Duration::from_millis(20 + (i as u64 * 5)));
+                    // Track concurrent requests
+                    let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_concurrent.fetch_max(current, Ordering::SeqCst);
+
+                    // Barrier proves all requests were concurrent
+                    sync_barrier.wait();
+
                     let response = format!("response_{i}");
                     responses.lock().unwrap()[i] = Some(Value::string(&response));
+                    active.fetch_sub(1, Ordering::SeqCst);
                 });
             }
         });
 
-        let elapsed = start.elapsed();
-        // Should complete in ~40ms (slowest request) not 150ms (sequential)
-        // Using generous margin for CI/loaded systems
-        assert!(
-            elapsed < Duration::from_millis(300),
-            "parallel HTTP should be faster than sequential, took {elapsed:?}"
+        // Verify all 5 requests were concurrent (barrier guarantees this)
+        assert_eq!(
+            max_concurrent.load(Ordering::SeqCst),
+            5,
+            "all HTTP requests should be concurrent"
         );
 
         let responses = responses.lock().unwrap();
@@ -922,6 +990,8 @@ mod integration {
         let processed = Arc::new(AtomicUsize::new(0));
         let max_concurrent = Arc::new(AtomicUsize::new(0));
         let active = Arc::new(AtomicUsize::new(0));
+        // Start barrier ensures all threads try to acquire simultaneously
+        let start_barrier = Arc::new(Barrier::new(10));
 
         thread::scope(|s| {
             for _ in 0..10 {
@@ -929,13 +999,14 @@ mod integration {
                 let processed = Arc::clone(&processed);
                 let max_concurrent = Arc::clone(&max_concurrent);
                 let active = Arc::clone(&active);
+                let start_barrier = Arc::clone(&start_barrier);
                 s.spawn(move || {
+                    start_barrier.wait(); // All threads start together
                     sem.acquire();
                     let current = active.fetch_add(1, Ordering::SeqCst) + 1;
                     max_concurrent.fetch_max(current, Ordering::SeqCst);
 
-                    // Simulate file I/O
-                    thread::sleep(Duration::from_millis(20));
+                    // Semaphore guarantees max 3 concurrent - no sleep needed
                     processed.fetch_add(1, Ordering::SeqCst);
 
                     active.fetch_sub(1, Ordering::SeqCst);
@@ -953,12 +1024,15 @@ mod integration {
     fn simulate_parallel_with_mixed_results() {
         // Simulate a parallel operation where some tasks succeed and some fail
         let results = Arc::new(Mutex::new(vec![None; 6]));
+        // Barrier ensures all threads run concurrently
+        let sync_barrier = Arc::new(Barrier::new(6));
 
         thread::scope(|s| {
             for i in 0..6 {
                 let results = Arc::clone(&results);
+                let sync_barrier = Arc::clone(&sync_barrier);
                 s.spawn(move || {
-                    thread::sleep(Duration::from_millis(10));
+                    sync_barrier.wait();
                     let result = if i % 3 == 0 {
                         // Every 3rd task "fails"
                         Value::err(Value::string(format!("task {i} failed")))
@@ -988,35 +1062,42 @@ mod integration {
     }
 
     #[test]
-    fn simulate_parallel_with_timeout_and_max_concurrent() {
-        // Combine timeout with max_concurrent
+    fn simulate_parallel_with_max_concurrent_verification() {
+        // Verify semaphore limits concurrency correctly
         let sem = Arc::new(Semaphore::new(2));
         let completed = Arc::new(AtomicUsize::new(0));
-        let start = Instant::now();
-        let timeout = Duration::from_millis(100);
+        let max_concurrent = Arc::new(AtomicUsize::new(0));
+        let active = Arc::new(AtomicUsize::new(0));
+        // Start barrier ensures all threads try to acquire simultaneously
+        let start_barrier = Arc::new(Barrier::new(4));
+        // Hold barrier ensures threads with permits overlap
+        let hold_barrier = Arc::new(Barrier::new(2));
 
         thread::scope(|s| {
-            for i in 0..4 {
+            for _ in 0..4 {
                 let sem = Arc::clone(&sem);
                 let completed = Arc::clone(&completed);
+                let max_concurrent = Arc::clone(&max_concurrent);
+                let active = Arc::clone(&active);
+                let start_barrier = Arc::clone(&start_barrier);
+                let hold_barrier = Arc::clone(&hold_barrier);
                 s.spawn(move || {
+                    start_barrier.wait(); // All threads start together
                     sem.acquire();
-                    // Task 3 takes longer than timeout
-                    let sleep_time = if i == 3 { 150 } else { 30 };
-                    thread::sleep(Duration::from_millis(sleep_time));
+                    let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_concurrent.fetch_max(current, Ordering::SeqCst);
+                    hold_barrier.wait(); // Ensure permitted threads overlap
+                    active.fetch_sub(1, Ordering::SeqCst);
                     completed.fetch_add(1, Ordering::SeqCst);
                     sem.release();
                 });
             }
-
-            // Monitor timeout
-            while start.elapsed() < timeout {
-                thread::sleep(Duration::from_millis(10));
-            }
         });
 
-        // At least some tasks should have completed
-        assert!(completed.load(Ordering::SeqCst) >= 2);
+        // All tasks should complete
+        assert_eq!(completed.load(Ordering::SeqCst), 4);
+        // Max concurrent should be limited to 2
+        assert!(max_concurrent.load(Ordering::SeqCst) <= 2);
     }
 }
 

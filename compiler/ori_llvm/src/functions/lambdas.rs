@@ -63,7 +63,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         let entry = self.cx().llcx().append_basic_block(lambda_fn, "entry");
 
         // Save current builder position with RAII guard - restores on drop
-        let _guard = self.save_position();
+        let guard = self.save_position();
 
         // Position at lambda entry
         self.position_at_end(entry);
@@ -107,7 +107,9 @@ impl<'ll> Builder<'_, 'll, '_> {
             self.ret(zero.into());
         }
 
-        // _guard restores builder position when it goes out of scope
+        // Restore builder position to parent function BEFORE building closure struct.
+        // Without this, the following instructions would be emitted after the ret.
+        drop(guard);
 
         // Get function pointer as i64
         let fn_ptr = lambda_fn.as_global_value().as_pointer_value();

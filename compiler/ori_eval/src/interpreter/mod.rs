@@ -194,6 +194,28 @@ impl<'a> Interpreter<'a> {
         ensure_sufficient_stack(|| self.eval_inner(expr_id))
     }
 
+    /// Evaluate a list of expressions from an ExprRange.
+    ///
+    /// Helper to reduce repetition in collection and call evaluation.
+    fn eval_expr_list(&mut self, range: ori_ir::ExprRange) -> Result<Vec<Value>, EvalError> {
+        self.arena
+            .get_expr_list(range)
+            .iter()
+            .map(|id| self.eval(*id))
+            .collect()
+    }
+
+    /// Evaluate call arguments from a CallArgRange.
+    ///
+    /// Helper for named argument evaluation in method calls.
+    fn eval_call_args(&mut self, range: ori_ir::CallArgRange) -> Result<Vec<Value>, EvalError> {
+        self.arena
+            .get_call_args(range)
+            .iter()
+            .map(|arg| self.eval(arg.value))
+            .collect()
+    }
+
     /// Inner evaluation logic (wrapped by `eval` for stack safety).
     fn eval_inner(&mut self, expr_id: ExprId) -> EvalResult {
         // Debug: Check arena bounds before access
@@ -267,24 +289,8 @@ impl<'a> Interpreter<'a> {
             }
 
             // Collections
-            ExprKind::List(range) => {
-                let vals: Result<Vec<_>, _> = self
-                    .arena
-                    .get_expr_list(*range)
-                    .iter()
-                    .map(|id| self.eval(*id))
-                    .collect();
-                Ok(Value::list(vals?))
-            }
-            ExprKind::Tuple(range) => {
-                let vals: Result<Vec<_>, _> = self
-                    .arena
-                    .get_expr_list(*range)
-                    .iter()
-                    .map(|id| self.eval(*id))
-                    .collect();
-                Ok(Value::tuple(vals?))
-            }
+            ExprKind::List(range) => Ok(Value::list(self.eval_expr_list(*range)?)),
+            ExprKind::Tuple(range) => Ok(Value::tuple(self.eval_expr_list(*range)?)),
             ExprKind::Range {
                 start,
                 end,
@@ -323,13 +329,8 @@ impl<'a> Interpreter<'a> {
 
             ExprKind::Call { func, args } => {
                 let func_val = self.eval(*func)?;
-                let arg_vals: Result<Vec<_>, _> = self
-                    .arena
-                    .get_expr_list(*args)
-                    .iter()
-                    .map(|id| self.eval(*id))
-                    .collect();
-                self.eval_call(func_val, &arg_vals?)
+                let arg_vals = self.eval_expr_list(*args)?;
+                self.eval_call(func_val, &arg_vals)
             }
 
             // Variant constructors
@@ -381,13 +382,8 @@ impl<'a> Interpreter<'a> {
                 args,
             } => {
                 let recv = self.eval(*receiver)?;
-                let arg_vals: Result<Vec<_>, _> = self
-                    .arena
-                    .get_expr_list(*args)
-                    .iter()
-                    .map(|id| self.eval(*id))
-                    .collect();
-                self.dispatch_method_call(recv, *method, arg_vals?)
+                let arg_vals = self.eval_expr_list(*args)?;
+                self.dispatch_method_call(recv, *method, arg_vals)
             }
             ExprKind::MethodCallNamed {
                 receiver,
@@ -395,13 +391,8 @@ impl<'a> Interpreter<'a> {
                 args,
             } => {
                 let recv = self.eval(*receiver)?;
-                let arg_vals: Result<Vec<_>, _> = self
-                    .arena
-                    .get_call_args(*args)
-                    .iter()
-                    .map(|arg| self.eval(arg.value))
-                    .collect();
-                self.dispatch_method_call(recv, *method, arg_vals?)
+                let arg_vals = self.eval_call_args(*args)?;
+                self.dispatch_method_call(recv, *method, arg_vals)
             }
             ExprKind::Match { scrutinee, arms } => {
                 let value = self.eval(*scrutinee)?;
@@ -658,7 +649,7 @@ impl<'a> Interpreter<'a> {
                     ForIterator::List { list, index } => {
                         if *index < list.len() {
                             let item = list[*index].clone();
-                            *index += 1;
+                            *index = index.saturating_add(1);
                             Some(item)
                         } else {
                             None

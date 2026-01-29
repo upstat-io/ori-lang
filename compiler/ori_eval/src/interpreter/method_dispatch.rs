@@ -398,8 +398,9 @@ mod tests {
         fn wrong_count_returns_error() {
             let args = vec![Value::int(1), Value::int(2)];
             let result = Interpreter::expect_arg_count("test", 1, &args);
-            assert!(result.is_err());
-            let err = result.unwrap_err();
+            let Err(err) = result else {
+                panic!("expected error for wrong arg count");
+            };
             assert!(err.message.contains("test"));
         }
 

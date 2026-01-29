@@ -209,8 +209,9 @@ mod tests {
     #[test]
     fn test_span_try_from_range_success() {
         let result = Span::try_from_range(50..100);
-        assert!(result.is_ok());
-        let span = result.unwrap();
+        let Ok(span) = result else {
+            panic!("expected Ok for valid range");
+        };
         assert_eq!(span.start, 50);
         assert_eq!(span.end, 100);
     }
