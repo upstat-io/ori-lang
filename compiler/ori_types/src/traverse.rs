@@ -139,6 +139,7 @@ pub trait TypeFolder {
                 trait_name,
                 assoc_name,
             } => self.fold_projection(base, *trait_name, *assoc_name),
+            Type::ModuleNamespace { items } => self.fold_module_namespace(items),
             type_leaf_pattern!() => ty.clone(),
         }
     }
@@ -206,6 +207,16 @@ pub trait TypeFolder {
             assoc_name,
         }
     }
+
+    /// Fold a module namespace type. Default folds item types.
+    fn fold_module_namespace(&mut self, items: &[(Name, Type)]) -> Type {
+        Type::ModuleNamespace {
+            items: items
+                .iter()
+                .map(|(name, ty)| (*name, self.fold(ty)))
+                .collect(),
+        }
+    }
 }
 
 /// Trait for visiting types without modification.
@@ -250,6 +261,9 @@ pub trait TypeVisitor {
                 assoc_name,
             } => {
                 self.visit_projection(base, *trait_name, *assoc_name);
+            }
+            Type::ModuleNamespace { items } => {
+                self.visit_module_namespace(items);
             }
             type_leaf_pattern!() => {}
         }
@@ -307,6 +321,13 @@ pub trait TypeVisitor {
     fn visit_projection(&mut self, base: &Type, _trait_name: Name, _assoc_name: Name) {
         self.visit(base);
     }
+
+    /// Visit a module namespace type. Default visits item types.
+    fn visit_module_namespace(&mut self, items: &[(Name, Type)]) {
+        for (_, ty) in items {
+            self.visit(ty);
+        }
+    }
 }
 
 /// Trait for transforming interned types via structural recursion.
@@ -360,6 +381,7 @@ pub trait TypeIdFolder {
                 trait_name,
                 assoc_name,
             } => self.fold_projection(base, trait_name, assoc_name),
+            TypeData::ModuleNamespace { items } => self.fold_module_namespace(&items),
             type_data_leaf_pattern!() => id,
         }
     }
@@ -421,6 +443,15 @@ pub trait TypeIdFolder {
         self.interner()
             .projection(folded_base, trait_name, assoc_name)
     }
+
+    /// Fold a module namespace type. Default folds item types.
+    fn fold_module_namespace(&mut self, items: &[(Name, TypeId)]) -> TypeId {
+        let folded_items: Vec<(Name, TypeId)> = items
+            .iter()
+            .map(|(name, type_id)| (*name, self.fold(*type_id)))
+            .collect();
+        self.interner().module_namespace(folded_items)
+    }
 }
 
 /// Trait for visiting interned types without modification.
@@ -472,6 +503,9 @@ pub trait TypeIdVisitor {
                 assoc_name,
             } => {
                 self.visit_projection(base, trait_name, assoc_name);
+            }
+            TypeData::ModuleNamespace { items } => {
+                self.visit_module_namespace(&items);
             }
             type_data_leaf_pattern!() => {}
         }
@@ -528,5 +562,12 @@ pub trait TypeIdVisitor {
     /// Visit a projection type. Default visits base type.
     fn visit_projection(&mut self, base: TypeId, _trait_name: Name, _assoc_name: Name) {
         self.visit(base);
+    }
+
+    /// Visit a module namespace type. Default visits item types.
+    fn visit_module_namespace(&mut self, items: &[(Name, TypeId)]) {
+        for (_, type_id) in items {
+            self.visit(*type_id);
+        }
     }
 }

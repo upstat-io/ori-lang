@@ -268,6 +268,14 @@ impl TypeInterner {
                 trait_name,
                 assoc_name,
             },
+
+            // Module namespaces
+            TypeData::ModuleNamespace { items } => Type::ModuleNamespace {
+                items: items
+                    .iter()
+                    .map(|(name, type_id)| (*name, self.to_type(*type_id)))
+                    .collect(),
+            },
         }
     }
 
@@ -358,6 +366,13 @@ impl TypeInterner {
     pub fn error(&self) -> TypeId {
         // Error is pre-interned at shard 0, index 10
         TypeId::from_shard_local(0, 10)
+    }
+
+    /// Create a ModuleNamespace type.
+    pub fn module_namespace(&self, items: impl Into<Box<[(Name, TypeId)]>>) -> TypeId {
+        self.intern(TypeData::ModuleNamespace {
+            items: items.into(),
+        })
     }
 
     /// Get the number of interned types.
@@ -748,5 +763,48 @@ mod tests {
         let id2 = list2.to_type_id(&interner);
 
         assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn test_module_namespace() {
+        let interner = TypeInterner::new();
+
+        let name1 = Name::new(0, 100); // e.g., "add"
+        let name2 = Name::new(0, 200); // e.g., "subtract"
+
+        // Create a module namespace with two function items
+        let fn_type1 = interner.function(vec![TypeId::INT, TypeId::INT], TypeId::INT);
+        let fn_type2 = interner.function(vec![TypeId::INT, TypeId::INT], TypeId::INT);
+
+        let ns_id = interner.module_namespace(vec![(name1, fn_type1), (name2, fn_type2)]);
+
+        // Verify lookup returns correct data
+        match interner.lookup(ns_id) {
+            TypeData::ModuleNamespace { items } => {
+                assert_eq!(items.len(), 2);
+                assert_eq!(items[0].0, name1);
+                assert_eq!(items[0].1, fn_type1);
+                assert_eq!(items[1].0, name2);
+                assert_eq!(items[1].1, fn_type2);
+            }
+            _ => panic!("Expected ModuleNamespace"),
+        }
+    }
+
+    #[test]
+    fn test_module_namespace_roundtrip() {
+        let interner = TypeInterner::new();
+
+        let name1 = Name::new(0, 100);
+        let name2 = Name::new(0, 200);
+
+        let ns_ty = Type::ModuleNamespace {
+            items: vec![
+                (name1, Type::Function { params: vec![Type::Int], ret: Box::new(Type::Int) }),
+                (name2, Type::Function { params: vec![Type::Str], ret: Box::new(Type::Bool) }),
+            ],
+        };
+        let ns_id = ns_ty.to_type_id(&interner);
+        assert_eq!(interner.to_type(ns_id), ns_ty);
     }
 }

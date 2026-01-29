@@ -47,6 +47,7 @@ use crate::{
     for_requires_iterable,
     hash_outside_index,
     map_keys_must_be_strings,
+    no_member_in_module,
     non_exhaustive_match,
     parse_error,
     self_outside_method,
@@ -399,6 +400,20 @@ impl<'a> Interpreter<'a> {
                 args,
             } => {
                 let recv = self.eval(*receiver)?;
+                // For module namespace, look up the function and call it directly
+                if let Value::ModuleNamespace(ns) = &recv {
+                    let arg_vals: Result<Vec<_>, _> = self
+                        .arena
+                        .get_expr_list(*args)
+                        .iter()
+                        .map(|id| self.eval(*id))
+                        .collect();
+                    let func = ns.get(method).cloned().ok_or_else(|| {
+                        let method_name = self.interner.lookup(*method);
+                        no_member_in_module(method_name)
+                    })?;
+                    return self.eval_call(func, &arg_vals?);
+                }
                 let arg_vals: Result<Vec<_>, _> = self
                     .arena
                     .get_expr_list(*args)
@@ -413,6 +428,20 @@ impl<'a> Interpreter<'a> {
                 args,
             } => {
                 let recv = self.eval(*receiver)?;
+                // For module namespace, look up the function and call it directly
+                if let Value::ModuleNamespace(ns) = &recv {
+                    let arg_vals: Result<Vec<_>, _> = self
+                        .arena
+                        .get_call_args(*args)
+                        .iter()
+                        .map(|arg| self.eval(arg.value))
+                        .collect();
+                    let func = ns.get(method).cloned().ok_or_else(|| {
+                        let method_name = self.interner.lookup(*method);
+                        no_member_in_module(method_name)
+                    })?;
+                    return self.eval_call(func, &arg_vals?);
+                }
                 let arg_vals: Result<Vec<_>, _> = self
                     .arena
                     .get_call_args(*args)

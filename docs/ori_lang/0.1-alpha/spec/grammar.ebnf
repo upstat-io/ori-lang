@@ -53,8 +53,9 @@ identifier = ( letter | "_" ) { letter | digit | "_" } .
 // Reserved: async, break, continue, do, else, false, for, if, impl, in, let,
 //           loop, match, pub, self, Self, then, trait, true, type, use,
 //           uses, void, where, with, yield
-// Context-sensitive (patterns): cache, catch, collect, filter, find, fold,
-//           map, parallel, recurse, retry, run, timeout, try, validate
+// Context-sensitive (patterns): cache, catch, for, match, nursery, parallel,
+//           recurse, run, spawn, timeout, try, with
+// Context-sensitive (other): by (only after range expressions)
 
 // --- Operators ---
 // See: 03-lexical-elements.md § Operators
@@ -202,6 +203,8 @@ trait_item     = method_sig | default_method | assoc_type .
 method_sig     = "@" identifier params "->" type .
 default_method = method_sig "=" expression .
 assoc_type     = "type" identifier .
+params         = "(" [ param { "," param } ] ")" .
+param          = identifier ":" type .
 
 // --- Implementations ---
 // See: 08-declarations.md § Implementations
@@ -244,7 +247,7 @@ function_type = "(" [ type { "," type } ] ")" "->" type .
 // See: 09-expressions.md
 // ============================================================================
 
-expression = with_expr | let_expr | if_expr | for_expr | loop_expr | lambda | binary_expr .
+expression = with_expr | let_expr | if_expr | for_expr | loop_expr | lambda | break_expr | continue_expr | binary_expr .
 
 // --- Primary Expressions ---
 
@@ -275,7 +278,9 @@ postfix_expr   = primary { postfix_op } .
 postfix_op     = "." identifier [ call_args ]        /* field/method access */
                | "[" expression "]"                  /* index access */
                | call_args                           /* function call */
-               | "?" .                               /* error propagation */
+               | "?"                                 /* error propagation */
+               | "as" type                           /* infallible type conversion */
+               | "as?" type .                        /* fallible type conversion */
 call_args      = "(" [ call_arg { "," call_arg } ] ")" .
 call_arg       = named_arg | positional_arg .
 named_arg      = identifier ":" expression .
@@ -328,14 +333,18 @@ if_expr = "if" expression "then" expression
           [ "else" expression ] .
 
 // --- For Expression ---
-// See: 09-expressions.md § For Expression
+// See: 09-expressions.md § For Expression, 19-control-flow.md § Labeled Loops
 
-for_expr = "for" [ ":" identifier ] identifier "in" expression [ "if" expression ] ( "do" | "yield" ) expression .
+for_expr = "for" [ label ] identifier "in" expression [ "if" expression ] ( "do" | "yield" ) expression .
 
 // --- Loop Expression ---
-// See: 09-expressions.md § Loop Expression
+// See: 09-expressions.md § Loop Expression, 19-control-flow.md § Labeled Loops
 
-loop_expr = "loop" [ ":" identifier ] "(" expression ")" .
+loop_expr = "loop" [ label ] "(" expression ")" .
+
+// --- Labels ---
+// See: 19-control-flow.md § Labeled Loops
+label = ":" identifier .  /* no space around colon */
 
 // --- Lambda ---
 // See: 09-expressions.md § Lambda
@@ -349,8 +358,8 @@ typed_param   = identifier ":" type .
 // --- Control Flow ---
 // See: 19-control-flow.md
 
-break_expr    = "break" [ ":" identifier ] [ expression ] .
-continue_expr = "continue" [ ":" identifier ] [ expression ] .
+break_expr    = "break" [ label ] [ expression ] .
+continue_expr = "continue" [ label ] [ expression ] .
 
 
 // ============================================================================
@@ -360,11 +369,10 @@ continue_expr = "continue" [ ":" identifier ] [ expression ] .
 
 // --- Pattern Categories ---
 
-pattern_expr = function_seq | function_exp | function_val .
-function_seq = run_expr | try_expr | match_expr | for_pattern | catch_expr .
+pattern_expr = function_seq | function_exp | channel_expr .
+function_seq = run_expr | try_expr | match_expr | for_pattern | catch_expr | nursery_expr .
 function_exp = pattern_name "(" pattern_arg { "," pattern_arg } ")" .
-function_val = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
-pattern_name = "recurse" | "parallel" | "spawn" | "timeout" | "cache" | "with" .
+pattern_name = "recurse" | "parallel" | "spawn" | "timeout" | "cache" | "with" | "nursery" .
 pattern_arg  = identifier ":" expression .
 
 // --- Sequential Patterns ---
@@ -393,6 +401,16 @@ for_pattern_args = "over" ":" expression "," "match" ":" match_pattern "->" expr
 // catch: Panic recovery
 // See: 20-errors-and-panics.md § Catching Panics
 catch_expr = "catch" "(" "expr" ":" expression ")" .
+
+// nursery: Structured concurrency
+// See: 10-patterns.md § Concurrency
+nursery_expr = "nursery" "(" nursery_args ")" .
+nursery_args = "body" ":" expression "," "on_error" ":" expression [ "," "timeout" ":" expression ] .
+
+// --- Channel Constructors ---
+// See: 06-types.md § Channel Types
+channel_expr = channel_constructor "(" "buffer" ":" expression ")" .
+channel_constructor = "channel" [ type_args ] | "channel_in" [ type_args ] | "channel_out" [ type_args ] | "channel_all" [ type_args ] .
 
 // --- Match Patterns ---
 // See: 10-patterns.md § Match Patterns

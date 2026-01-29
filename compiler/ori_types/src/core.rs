@@ -84,6 +84,15 @@ pub enum Type {
         /// The associated type name (e.g., `Item`).
         assoc_name: Name,
     },
+
+    /// Module namespace type: created by module alias imports like `use std.http as http`.
+    /// Contains a mapping from exported item names to their types.
+    /// Enables qualified access type checking: `http.get(...)`.
+    ModuleNamespace {
+        /// Mapping from exported item names to their types.
+        /// For functions, this is `Type::Function { ... }`.
+        items: Vec<(Name, Type)>,
+    },
 }
 
 impl Type {
@@ -217,6 +226,15 @@ impl Type {
                 let base_id = base.to_type_id(interner);
                 interner.projection(base_id, *trait_name, *assoc_name)
             }
+
+            // Module namespaces
+            Type::ModuleNamespace { items } => {
+                let item_ids: Vec<(Name, TypeId)> = items
+                    .iter()
+                    .map(|(name, ty)| (*name, ty.to_type_id(interner)))
+                    .collect();
+                interner.module_namespace(item_ids)
+            }
         }
     }
 
@@ -273,6 +291,13 @@ impl Type {
                     base.display(interner),
                     interner.lookup(*assoc_name)
                 )
+            }
+            Type::ModuleNamespace { items } => {
+                let item_names: Vec<_> = items
+                    .iter()
+                    .map(|(name, _)| interner.lookup(*name).to_string())
+                    .collect();
+                format!("module {{ {} }}", item_names.join(", "))
             }
         }
     }

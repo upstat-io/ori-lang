@@ -1,13 +1,18 @@
-//! Imported function support for type checking.
+//! Imported function and module alias support for type checking.
 //!
 //! Provides types and methods for registering imported function signatures
-//! in the type checker before checking local function bodies.
+//! and module aliases in the type checker before checking local function bodies.
 //!
 //! # Usage
 //!
 //! 1. Resolve imports to get `ImportedFunction` from each imported module
 //! 2. Call `TypeChecker::register_imported_functions()` before `check_module()`
 //! 3. Imported functions will be available for call type checking
+//!
+//! For module aliases (`use std.http as http`):
+//! 1. Create `ImportedModuleAlias` with the alias name and exported functions
+//! 2. Call `TypeChecker::register_module_alias()` before `check_module()`
+//! 3. Qualified access like `http.get(...)` will be type checked
 
 use super::types::{FunctionType, GenericBound};
 use super::TypeChecker;
@@ -90,7 +95,56 @@ impl ImportedFunction {
     }
 }
 
+/// A module alias import for type checking.
+///
+/// This represents a `use std.http as http` style import where the entire
+/// module is imported under an alias name, enabling qualified access like
+/// `http.get(...)`.
+#[derive(Clone, Debug)]
+pub struct ImportedModuleAlias {
+    /// The alias name (e.g., `http` in `use std.http as http`)
+    pub alias: Name,
+    /// The exported functions from the module
+    pub functions: Vec<ImportedFunction>,
+}
+
 impl TypeChecker<'_> {
+    /// Register a module alias for type checking.
+    ///
+    /// This should be called before `check_module()` to make module aliases
+    /// available for qualified access type checking.
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// // For: use std.http as http
+    /// let alias = ImportedModuleAlias {
+    ///     alias: http_name,
+    ///     functions: vec![get_fn, post_fn, ...],
+    /// };
+    /// checker.register_module_alias(&alias);
+    /// // Now `http.get(...)` can be type checked
+    /// ```
+    pub fn register_module_alias(&mut self, module_alias: &ImportedModuleAlias) {
+        // Build the module namespace type with all exported functions
+        let items: Vec<(Name, Type)> = module_alias
+            .functions
+            .iter()
+            .map(|func| {
+                let fn_type = Type::Function {
+                    params: func.params.clone(),
+                    ret: Box::new(func.return_type.clone()),
+                };
+                (func.name, fn_type)
+            })
+            .collect();
+
+        let namespace_type = Type::ModuleNamespace { items };
+
+        // Bind the module alias to the namespace type in the environment
+        self.inference.env.bind(module_alias.alias, namespace_type);
+    }
+
     /// Register imported function signatures for type checking.
     ///
     /// This should be called before `check_module()` to make imported

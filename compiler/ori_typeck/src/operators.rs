@@ -51,10 +51,19 @@ pub fn check_binary_operation(
         | BinaryOp::Mod
         | BinaryOp::FloorDiv => {
             if let Err(e) = ctx.unify(left, right) {
-                return TypeOpResult::Err(TypeOpError::new(
-                    format!("type mismatch in arithmetic operation: {e:?}"),
-                    ErrorCode::E2001,
-                ));
+                let msg = match e {
+                    ori_types::TypeError::TypeMismatch { expected, found } => format!(
+                        "type mismatch in arithmetic operation: expected `{}`, found `{}`",
+                        expected.display(interner),
+                        found.display(interner)
+                    ),
+                    _ => format!(
+                        "type mismatch in arithmetic operation: operands have incompatible types `{}` and `{}`",
+                        left.display(interner),
+                        right.display(interner)
+                    ),
+                };
+                return TypeOpResult::Err(TypeOpError::new(msg, ErrorCode::E2001));
             }
 
             let resolved = ctx.resolve(left);
@@ -91,25 +100,40 @@ pub fn check_binary_operation(
         | BinaryOp::Gt
         | BinaryOp::GtEq => {
             if let Err(e) = ctx.unify(left, right) {
-                return TypeOpResult::Err(TypeOpError::new(
-                    format!("type mismatch in comparison: {e:?}"),
-                    ErrorCode::E2001,
-                ));
+                let msg = match e {
+                    ori_types::TypeError::TypeMismatch { expected, found } => format!(
+                        "type mismatch in comparison: expected `{}`, found `{}`",
+                        expected.display(interner),
+                        found.display(interner)
+                    ),
+                    _ => format!(
+                        "type mismatch in comparison: cannot compare `{}` with `{}`",
+                        left.display(interner),
+                        right.display(interner)
+                    ),
+                };
+                return TypeOpResult::Err(TypeOpError::new(msg, ErrorCode::E2001));
             }
             TypeOpResult::Ok(Type::Bool)
         }
 
         // Logical: &&, ||
         BinaryOp::And | BinaryOp::Or => {
-            if let Err(e) = ctx.unify(left, &Type::Bool) {
+            if let Err(_) = ctx.unify(left, &Type::Bool) {
                 return TypeOpResult::Err(TypeOpError::new(
-                    format!("left operand of logical operator must be bool: {e:?}"),
+                    format!(
+                        "left operand of logical operator must be `bool`, found `{}`",
+                        left.display(interner)
+                    ),
                     ErrorCode::E2001,
                 ));
             }
-            if let Err(e) = ctx.unify(right, &Type::Bool) {
+            if let Err(_) = ctx.unify(right, &Type::Bool) {
                 return TypeOpResult::Err(TypeOpError::new(
-                    format!("right operand of logical operator must be bool: {e:?}"),
+                    format!(
+                        "right operand of logical operator must be `bool`, found `{}`",
+                        right.display(interner)
+                    ),
                     ErrorCode::E2001,
                 ));
             }
@@ -118,15 +142,21 @@ pub fn check_binary_operation(
 
         // Bitwise: &, |, ^, <<, >>
         BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor | BinaryOp::Shl | BinaryOp::Shr => {
-            if let Err(e) = ctx.unify(left, &Type::Int) {
+            if let Err(_) = ctx.unify(left, &Type::Int) {
                 return TypeOpResult::Err(TypeOpError::new(
-                    format!("left operand of bitwise operator must be int: {e:?}"),
+                    format!(
+                        "left operand of bitwise operator must be `int`, found `{}`",
+                        left.display(interner)
+                    ),
                     ErrorCode::E2001,
                 ));
             }
-            if let Err(e) = ctx.unify(right, &Type::Int) {
+            if let Err(_) = ctx.unify(right, &Type::Int) {
                 return TypeOpResult::Err(TypeOpError::new(
-                    format!("right operand of bitwise operator must be int: {e:?}"),
+                    format!(
+                        "right operand of bitwise operator must be `int`, found `{}`",
+                        right.display(interner)
+                    ),
                     ErrorCode::E2001,
                 ));
             }
@@ -136,10 +166,19 @@ pub fn check_binary_operation(
         // Range: .., ..=
         BinaryOp::Range | BinaryOp::RangeInclusive => {
             if let Err(e) = ctx.unify(left, right) {
-                return TypeOpResult::Err(TypeOpError::new(
-                    format!("range bounds must have the same type: {e:?}"),
-                    ErrorCode::E2001,
-                ));
+                let msg = match e {
+                    ori_types::TypeError::TypeMismatch { expected, found } => format!(
+                        "range bounds must have the same type: expected `{}`, found `{}`",
+                        expected.display(interner),
+                        found.display(interner)
+                    ),
+                    _ => format!(
+                        "range bounds must have the same type: found `{}` and `{}`",
+                        left.display(interner),
+                        right.display(interner)
+                    ),
+                };
+                return TypeOpResult::Err(TypeOpError::new(msg, ErrorCode::E2001));
             }
             TypeOpResult::Ok(Type::Range(Box::new(ctx.resolve(left))))
         }
@@ -149,17 +188,28 @@ pub fn check_binary_operation(
             let inner = ctx.fresh_var();
             let option_ty = Type::Option(Box::new(inner.clone()));
 
-            if let Err(e) = ctx.unify(left, &option_ty) {
+            if let Err(_) = ctx.unify(left, &option_ty) {
                 return TypeOpResult::Err(TypeOpError::new(
-                    format!("left operand of ?? must be Option: {e:?}"),
+                    format!(
+                        "left operand of `??` must be `Option<T>`, found `{}`",
+                        left.display(interner)
+                    ),
                     ErrorCode::E2001,
                 ));
             }
             if let Err(e) = ctx.unify(&inner, right) {
-                return TypeOpResult::Err(TypeOpError::new(
-                    format!("right operand of ?? must match Option inner type: {e:?}"),
-                    ErrorCode::E2001,
-                ));
+                let msg = match e {
+                    ori_types::TypeError::TypeMismatch { expected, found } => format!(
+                        "right operand of `??` must match Option inner type: expected `{}`, found `{}`",
+                        expected.display(interner),
+                        found.display(interner)
+                    ),
+                    _ => format!(
+                        "right operand of `??` must match Option inner type, found `{}`",
+                        right.display(interner)
+                    ),
+                };
+                return TypeOpResult::Err(TypeOpError::new(msg, ErrorCode::E2001));
             }
 
             TypeOpResult::Ok(ctx.resolve(&inner))

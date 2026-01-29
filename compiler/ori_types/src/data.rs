@@ -124,6 +124,14 @@ pub enum TypeData {
         /// The associated type name (e.g., Item)
         assoc_name: Name,
     },
+
+    // Module namespaces
+    /// Module namespace type: created by module alias imports like `use std.http as http`.
+    /// Contains a mapping from exported item names to their types.
+    ModuleNamespace {
+        /// Mapping from exported item names to their types (as TypeIds).
+        items: Box<[(Name, TypeId)]>,
+    },
 }
 
 impl TypeData {
