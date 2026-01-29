@@ -158,7 +158,7 @@ pub fn infer_block(
                 } => {
                     let init_ty = super::infer_let_init(checker, pattern, *init, stmt.span);
                     let final_ty = super::check_type_annotation_id(checker, *ty, init_ty, *init);
-                    checker.bind_pattern_generalized(pattern, final_ty);
+                    checker.bind_pattern_generalized(pattern, final_ty, stmt.span);
                 }
             }
         }
@@ -181,7 +181,7 @@ pub fn infer_let(
 ) -> Type {
     let init_ty = super::infer_let_init(checker, pattern, init, span);
     let final_ty = super::check_type_annotation(checker, ty, init_ty, init);
-    checker.bind_pattern_generalized(pattern, final_ty);
+    checker.bind_pattern_generalized(pattern, final_ty, span);
     Type::Unit
 }
 

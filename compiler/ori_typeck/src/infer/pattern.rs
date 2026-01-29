@@ -33,7 +33,7 @@ pub fn infer_function_seq(
                             super::infer_let_init(checker, pattern, *value, *binding_span);
                         let final_ty =
                             super::check_type_annotation(checker, ty.as_ref(), init_ty, *value);
-                        checker.bind_pattern(pattern, final_ty);
+                        checker.bind_pattern(pattern, final_ty, *binding_span);
                     }
                     SeqBinding::Stmt { expr, .. } => {
                         infer_expr(checker, *expr);
@@ -72,7 +72,7 @@ pub fn infer_function_seq(
                                 unwrapped,
                                 *value,
                             );
-                            checker.bind_pattern(pattern, final_ty);
+                            checker.bind_pattern(pattern, final_ty, *binding_span);
                         }
                         SeqBinding::Stmt { expr, .. } => {
                             infer_expr(checker, *expr);

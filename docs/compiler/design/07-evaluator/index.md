@@ -224,9 +224,29 @@ pub enum Value {
     Option(Option<Arc<Value>>),
     Result(Result<Arc<Value>, Arc<Value>>),
     Struct { name: Name, fields: Arc<HashMap<Name, Value>> },
+    ModuleNamespace(Arc<HashMap<Name, Value>>),
     Void,
 }
 ```
+
+### ModuleNamespace Values
+
+The `ModuleNamespace` variant represents module aliases at runtime. It stores a map of exported names to their values (typically `FunctionValue`s), enabling qualified access:
+
+```rust
+// Ori source
+use std.math as math
+math.sqrt(x: 16.0)
+
+// Runtime: math is bound to Value::ModuleNamespace containing sqrt
+Value::ModuleNamespace(Arc::new(HashMap::from([
+    (intern("sqrt"), Value::Function(...)),
+    (intern("abs"), Value::Function(...)),
+    // ... other exports
+])))
+```
+
+When a method call occurs on a `ModuleNamespace` value, the interpreter intercepts it before normal method dispatch and looks up the function directly in the namespace map.
 
 ### Environment
 
@@ -309,7 +329,10 @@ The evaluator uses a Chain of Responsibility pattern for method resolution:
 
 ```mermaid
 flowchart TB
-    A["receiver.method(args)"] --> B["MethodDispatcher.resolve()"]
+    A["receiver.method(args)"] --> Z{"ModuleNamespace?"}
+    Z -->|Yes| Y["Namespace lookup"]
+    Y --> H
+    Z -->|No| B["MethodDispatcher.resolve()"]
     B --> C["UserRegistryResolver"]
     C -->|"User + derived methods"| D{"Found?"}
     D -->|No| E["CollectionMethodResolver"]
@@ -319,6 +342,23 @@ flowchart TB
     D -->|Yes| H
     F -->|Yes| H
 ```
+
+### ModuleNamespace Special Case
+
+Method calls on `ModuleNamespace` values bypass the normal method dispatch chain. The interpreter checks for `ModuleNamespace` receivers early in method call evaluation and performs a direct lookup in the namespace's function map:
+
+```rust
+// In interpreter/mod.rs - MethodCall handling
+if let Value::ModuleNamespace(ns) = &receiver {
+    let func = ns.get(method_name).ok_or_else(|| {
+        no_member_in_module(method_name)
+    })?;
+    return self.eval_call(func.clone(), &args);
+}
+// Otherwise, proceed with normal method dispatch
+```
+
+This ensures qualified access like `math.add(a: 1, b: 2)` resolves to the correct function without attempting to find an `add` method on a "module" type.
 
 The `UserRegistryResolver` is a unified resolver that checks both user-defined methods
 (from impl blocks) and derived methods (from `#[derive(...)]`) in a single lookup.

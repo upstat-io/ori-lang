@@ -58,7 +58,7 @@ pub use checker::{
 };
 
 // Re-export import support types
-pub use checker::imports::{ImportedFunction, ImportedGeneric};
+pub use checker::imports::{ImportedFunction, ImportedGeneric, ImportedModuleAlias};
 
 // Re-export bound checking function
 pub use checker::bound_checking::primitive_implements_trait;

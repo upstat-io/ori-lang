@@ -121,8 +121,8 @@ const tiers: Tier[] = [
       {
         num: 4,
         name: "Modules",
-        status: "partial",
-        note: "Parsing complete; qualified access needs type checker",
+        status: "complete",
+        note: "Module alias, re-export, qualified access all working",
         goal: "Implement module system with imports and visibility",
         spec: "spec/12-modules.md",
         sections: [
@@ -137,10 +137,10 @@ const tiers: Tier[] = [
             { name: "Private access (::prefix)", done: true },
           ]},
           { name: "Advanced Features", tasks: [
-            { name: "Module aliases (as) - parsing", done: true },
-            { name: "Re-exports (pub use) - parsing", done: true },
+            { name: "Module aliases (as)", done: true },
+            { name: "Re-exports (pub use)", done: true },
             { name: "Qualified access - runtime", done: true },
-            { name: "Qualified access - type checker", done: false },
+            { name: "Qualified access - type checker", done: true },
           ]},
         ],
       },
@@ -180,7 +180,7 @@ const tiers: Tier[] = [
       },
     ],
     milestone: "M1: Bootstrapped",
-    milestoneStatus: "near-complete",
+    milestoneStatus: "complete",
     exitCriteria: "Can write programs using traits and modules",
   },
   {
@@ -658,7 +658,7 @@ const tiers: Tier[] = [
         num: 21,
         name: "LLVM Backend",
         status: "partial",
-        note: "JIT working; 970/989 tests pass; AOT pending",
+        note: "JIT working; 977/996 tests pass; AOT pending",
         goal: "Compile to native code via LLVM",
         spec: "Implementation-specific",
         sections: [
@@ -787,11 +787,11 @@ function countTasks(sections: Section[]): { done: number; total: number } {
       </p>
       <div class="stats">
         <div class="stat">
-          <span class="stat-value">6</span>
+          <span class="stat-value">7</span>
           <span class="stat-label">Completed</span>
         </div>
         <div class="stat">
-          <span class="stat-value">5</span>
+          <span class="stat-value">4</span>
           <span class="stat-label">In Progress</span>
         </div>
         <div class="stat">
@@ -931,17 +931,17 @@ Branches:
       <h2>Current Test Results</h2>
       <div class="results-grid">
         <div class="result-card">
-          <span class="result-value">1282</span>
+          <span class="result-value">1286</span>
           <span class="result-label">Rust Unit Tests</span>
           <span class="result-status success">All Passing</span>
         </div>
         <div class="result-card">
-          <span class="result-value">913</span>
+          <span class="result-value">920</span>
           <span class="result-label">Ori Spec Tests</span>
           <span class="result-status success">Passing</span>
         </div>
         <div class="result-card">
-          <span class="result-value">970</span>
+          <span class="result-value">977</span>
           <span class="result-label">LLVM Backend Tests</span>
           <span class="result-status success">Passing</span>
         </div>

@@ -27,6 +27,7 @@ pub use ori_typeck::{
     // Import support
     ImportedFunction,
     ImportedGeneric,
+    ImportedModuleAlias,
     InferenceState,
     Registries,
     ScopeContext,
@@ -94,32 +95,66 @@ pub fn type_check_with_context(
         .check_module(&parse_result.module)
 }
 
+/// Result of resolving imports for type checking.
+///
+/// Contains both individual function imports and module alias imports.
+#[derive(Debug, Default)]
+pub struct ResolvedImports {
+    /// Individual function imports.
+    pub functions: Vec<ImportedFunction>,
+    /// Module alias imports (e.g., `use std.http as http`).
+    pub module_aliases: Vec<ImportedModuleAlias>,
+}
+
 /// Resolve imports and extract function signatures for type checking.
 ///
 /// This function:
 /// 1. Resolves each import path to a file
 /// 2. Type checks each imported module (via the `typed` Salsa query)
 /// 3. Extracts `ImportedFunction` for each function that's imported
+/// 4. Extracts `ImportedModuleAlias` for module alias imports
 ///
 /// # Returns
 ///
-/// A list of `ImportedFunction` representing all imported function signatures,
+/// A `ResolvedImports` containing all imported function signatures and module aliases,
 /// or an error if any import fails to resolve.
 pub fn resolve_imports_for_type_checking(
     db: &dyn Db,
     parse_result: &ParseOutput,
     current_file: &Path,
-) -> Result<Vec<ImportedFunction>, ImportError> {
-    let mut imported_functions = Vec::new();
+) -> Result<ResolvedImports, ImportError> {
+    let mut result = ResolvedImports::default();
     let interner = db.interner();
 
     for imp in &parse_result.module.imports {
         // Resolve the import path to a file
-        let resolved = resolve_import(db, &imp.path, current_file)?;
+        let resolved = resolve_import(db, &imp.path, current_file).map_err(|e| {
+            ImportError::with_span(e.message, imp.span)
+        })?;
 
         // Get the parsed module to access function definitions
         let imported_parsed = parsed(db, resolved.file);
 
+        // Handle module alias imports (use std.http as http)
+        if let Some(alias) = imp.module_alias {
+            let mut functions = Vec::new();
+
+            // Collect all public functions from the module
+            for func in &imported_parsed.module.functions {
+                if func.is_public {
+                    let imported = create_imported_function(func, &imported_parsed.arena, interner);
+                    functions.push(imported);
+                }
+            }
+
+            result.module_aliases.push(ImportedModuleAlias {
+                alias,
+                functions,
+            });
+            continue;
+        }
+
+        // Handle individual item imports
         // Build a map of imported function names to their aliases
         let import_map: FxHashMap<Name, Option<Name>> = imp
             .items
@@ -154,14 +189,14 @@ pub fn resolve_imports_for_type_checking(
             // Apply alias if present
             let final_name = alias.unwrap_or(func.name);
 
-            imported_functions.push(ImportedFunction {
+            result.functions.push(ImportedFunction {
                 name: final_name,
                 ..imported
             });
         }
     }
 
-    Ok(imported_functions)
+    Ok(result)
 }
 
 /// Convert a `ParsedType` to a Type.
@@ -320,9 +355,8 @@ pub fn type_check_with_imports(
 ) -> TypedModule {
     let interner = db.interner();
 
-    // Resolve imports and extract function signatures
-    let imported_functions = match resolve_imports_for_type_checking(db, parse_result, current_file)
-    {
+    // Resolve imports and extract function signatures and module aliases
+    let resolved = match resolve_imports_for_type_checking(db, parse_result, current_file) {
         Ok(imports) => imports,
         Err(e) => {
             // Return a TypedModule with the import error
@@ -331,7 +365,7 @@ pub fn type_check_with_imports(
                 function_types: Vec::new(),
                 errors: vec![TypeCheckError {
                     message: format!("import error: {}", e.message),
-                    span: ori_ir::Span::default(),
+                    span: e.span.unwrap_or_default(),
                     code: ori_diagnostic::ErrorCode::E2003, // Unknown identifier
                 }],
                 error_guarantee: ori_diagnostic::ErrorGuaranteed::from_error_count(1),
@@ -339,9 +373,12 @@ pub fn type_check_with_imports(
         }
     };
 
-    // Create type checker and register imported functions
+    // Create type checker and register imported functions and module aliases
     let mut checker = TypeCheckerBuilder::new(&parse_result.arena, interner).build();
-    checker.register_imported_functions(&imported_functions);
+    checker.register_imported_functions(&resolved.functions);
+    for alias in &resolved.module_aliases {
+        checker.register_module_alias(alias);
+    }
 
     // Type check the module
     checker.check_module(&parse_result.module)
@@ -359,9 +396,8 @@ pub fn type_check_with_imports_and_source(
 ) -> TypedModule {
     let interner = db.interner();
 
-    // Resolve imports and extract function signatures
-    let imported_functions = match resolve_imports_for_type_checking(db, parse_result, current_file)
-    {
+    // Resolve imports and extract function signatures and module aliases
+    let resolved = match resolve_imports_for_type_checking(db, parse_result, current_file) {
         Ok(imports) => imports,
         Err(e) => {
             return TypedModule {
@@ -369,7 +405,7 @@ pub fn type_check_with_imports_and_source(
                 function_types: Vec::new(),
                 errors: vec![TypeCheckError {
                     message: format!("import error: {}", e.message),
-                    span: ori_ir::Span::default(),
+                    span: e.span.unwrap_or_default(),
                     code: ori_diagnostic::ErrorCode::E2003,
                 }],
                 error_guarantee: ori_diagnostic::ErrorGuaranteed::from_error_count(1),
@@ -377,11 +413,14 @@ pub fn type_check_with_imports_and_source(
         }
     };
 
-    // Create type checker with source and register imported functions
+    // Create type checker with source and register imported functions and module aliases
     let mut checker = TypeCheckerBuilder::new(&parse_result.arena, interner)
         .with_source(source)
         .build();
-    checker.register_imported_functions(&imported_functions);
+    checker.register_imported_functions(&resolved.functions);
+    for alias in &resolved.module_aliases {
+        checker.register_module_alias(alias);
+    }
 
     // Type check the module
     checker.check_module(&parse_result.module)

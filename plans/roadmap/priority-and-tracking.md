@@ -9,7 +9,7 @@
 | 1 | Type System Foundation | ✅ Complete | All tests pass |
 | 2 | Type Inference | ✅ Complete | All tests pass |
 | 3 | Traits | ✅ Complete | All tests pass including map.len(), map.is_empty() |
-| 4 | Modules | 🔶 Core complete | 16/16 tests pass; module alias/re-export parsing done; qualified access needs type checker |
+| 4 | Modules | ✅ Complete | All tests pass; module alias, re-export, qualified access all working |
 | 5 | Type Declarations | ✅ Complete | Structs, sum types (multi-field variants), newtypes all work |
 
 ### Tier 2: Capabilities & Stdlib
@@ -61,7 +61,7 @@
 | Phase | Name | Status | Notes |
 |-------|------|--------|-------|
 | 20 | Reflection | ⏳ Not started | |
-| 21 | LLVM Backend | 🔶 Partial | JIT working; 734/753 tests pass (19 skipped); destructuring support added; AOT pending |
+| 21 | LLVM Backend | 🔶 Partial | JIT working; 977/996 tests pass (19 skipped); destructuring support added; AOT pending |
 | 22 | Tooling | ⏳ Not started | |
 
 ---
@@ -72,24 +72,25 @@
 
 ### What's Next (Priority Order)
 
-1. **Phase 4 (Modules)** — Type checker support remaining
-   - Parsing complete: module alias (`use std.http as http`), re-exports (`pub use`)
-   - Runtime complete: qualified access on ModuleNamespace values
-   - Need: type checker support for ModuleNamespace (qualified access type checking)
-
-2. **Phase 8 (Patterns)** — cache TTL remaining (NOW UNBLOCKED)
+1. **Phase 8 (Patterns)** — cache TTL remaining (NOW UNBLOCKED)
    - All compiler patterns work with stubs
    - Need: cache TTL with Duration, cache capability enforcement
 
-3. **Phase 9 (Match)** — Guards and exhaustiveness
+2. **Phase 9 (Match)** — Guards and exhaustiveness
    - Basic pattern matching works
    - Need: `.match(guard)` syntax, exhaustiveness checking
 
-4. **Phase 7 (Stdlib)** — retry, validate
+3. **Phase 7 (Stdlib)** — retry, validate
    - Collection methods complete (map, filter, fold, find, collect, any, all)
    - Need: `retry` function, `validate` function
 
 ### Recent Completions
+
+**Phase 4 (Modules)** — ✅ COMPLETED 2026-01-28
+- Module alias imports (`use std.http as http`)
+- Re-exports (`pub use`)
+- Qualified access type checking (`http.get(...)`)
+- Type checker support for ModuleNamespace
 
 **Phase 6 (Capabilities)** — ✅ COMPLETED 2026-01-25
 - 27/27 capability tests pass
@@ -304,12 +305,12 @@
 
 ## Milestones
 
-### M1: Bootstrapped (Tier 1) — 🔶 NEAR COMPLETE
+### M1: Bootstrapped (Tier 1) — ✅ COMPLETE
 
 - [x] Type system foundation
 - [x] Type inference
 - [x] **Traits** — complete including map methods
-- [x] Modules (core)
+- [x] **Modules** — complete including qualified access
 - [x] Type declarations (structs, sum types, newtypes)
 
 **Exit criteria**: Can write programs using traits and modules ✅
@@ -455,16 +456,16 @@ cargo st tests/spec/patterns/     # Tier 3
 
 ## Current Test Results (2026-01-28)
 
-**Rust unit tests:** 1006 passed, 0 failed
+**Rust unit tests:** 1286 passed, 0 failed
 
-**Ori spec tests:** 901 passed, 0 failed, 19 skipped (920 total)
+**Ori spec tests:** 920 passed, 0 failed, 19 skipped (939 total)
 
 | Category | Passed | Skipped | Notes |
 |----------|--------|---------|-------|
 | Types | 70/70 | 0 | ✅ Complete (sum types, multi-field variants, newtypes) |
 | Expressions | 17/17 | 0 | ✅ Complete |
 | Inference | 28/28 | 0 | ✅ Complete |
-| Modules | 16/16 | 0 | ✅ Complete |
+| Modules | 40/40 | 0 | ✅ Complete (includes qualified access) |
 | Declarations | 8/8 | 0 | ✅ Complete |
 | Extensions | 4/4 | 0 | ✅ Complete |
 | Capabilities | 27/27 | 0 | ✅ Complete |
@@ -509,8 +510,8 @@ New prelude enhancements from Rust prelude comparison. See `plan.md` for details
 
 | Test Suite | Passed | Failed | Skipped | Total |
 |------------|--------|--------|---------|-------|
-| All Ori tests | 734 | 0 | 19 | 753 |
-| Rust unit tests | 204 | 0 | 0 | 204 |
+| All Ori tests | 977 | 0 | 19 | 996 |
+| Rust unit tests | 204 | 0 | 1 | 205 |
 
 ### Architecture (Reorganized)
 

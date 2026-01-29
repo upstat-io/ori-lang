@@ -37,12 +37,23 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone)]
 pub struct ImportError {
     pub message: String,
+    /// Optional source span where the error occurred.
+    pub span: Option<ori_ir::Span>,
 }
 
 impl ImportError {
     pub fn new(message: impl Into<String>) -> Self {
         ImportError {
             message: message.into(),
+            span: None,
+        }
+    }
+
+    /// Create an error with a source span.
+    pub fn with_span(message: impl Into<String>, span: ori_ir::Span) -> Self {
+        ImportError {
+            message: message.into(),
+            span: Some(span),
         }
     }
 }

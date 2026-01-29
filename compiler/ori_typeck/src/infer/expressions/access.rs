@@ -38,6 +38,23 @@ pub fn infer_field(checker: &mut TypeChecker<'_>, receiver: ExprId, field: Name)
             args,
         } => handle_struct_field_access(checker, type_name, field, Some(&args), receiver_span),
 
+        Type::ModuleNamespace { items } => {
+            // Look up the field in the module namespace
+            for (item_name, item_type) in items {
+                if item_name == field {
+                    return item_type.clone();
+                }
+            }
+            // Field not found in module namespace
+            let field_name = checker.context.interner.lookup(field);
+            checker.push_error(
+                format!("module has no exported item `{field_name}`"),
+                receiver_span,
+                ori_diagnostic::ErrorCode::E2001,
+            );
+            Type::Error
+        }
+
         Type::Var(_) => checker.inference.ctx.fresh_var(),
         Type::Error => Type::Error,
 

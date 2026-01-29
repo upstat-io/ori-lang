@@ -42,6 +42,7 @@ compiler/ori_typeck/src/
 │   ├── trait_registration.rs     # register_traits, register_impls
 │   ├── bound_checking.rs         # type_satisfies_bound
 │   ├── type_registration.rs      # register_type_declarations
+│   ├── imports.rs                # ImportedFunction, ImportedModuleAlias, register_module_alias
 │   ├── types.rs                  # Helper types (FunctionType, TypeCheckError)
 │   └── tests/                    # Test modules
 │       └── mod.rs                    # TypeChecker unit tests
@@ -145,6 +146,9 @@ pub enum Type {
     Result(Box<Type>, Box<Type>),
     Function { params: Vec<Type>, ret: Box<Type> },
 
+    // Module namespace (for module alias imports)
+    ModuleNamespace { items: Vec<(Name, Type)> },
+
     // Inference
     TypeVar(TypeVarId),
 
@@ -152,6 +156,27 @@ pub enum Type {
     Named(Name),
 }
 ```
+
+### ModuleNamespace Type
+
+The `ModuleNamespace` variant represents module aliases created by `use std.http as http` imports. It stores a mapping of exported item names to their types, enabling qualified access type checking:
+
+```rust
+// Ori source
+use std.http as http
+http.get(url: "/api")  // Qualified access
+
+// Type representation
+Type::ModuleNamespace {
+    items: vec![
+        (intern("get"), Type::Function { params: vec![Type::String], ret: ... }),
+        (intern("post"), Type::Function { params: vec![Type::String, ...], ret: ... }),
+        // ... other exports
+    ]
+}
+```
+
+When field access occurs on a `ModuleNamespace` type, the type checker looks up the field name in the `items` vector and returns the corresponding function type.
 
 ### TypeChecker
 
