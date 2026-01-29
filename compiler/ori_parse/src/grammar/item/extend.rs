@@ -1,7 +1,7 @@
 //! Extend block parsing.
 
 use crate::{ParseError, ParseResult, Parser};
-use ori_ir::{ExtendDef, GenericParamRange, ParsedType, TokenKind, TypeId};
+use ori_ir::{ExtendDef, GenericParamRange, ParsedType, ParsedTypeRange, TokenKind, TypeId};
 
 impl Parser<'_> {
     /// Parse an extend block with progress tracking.
@@ -39,8 +39,9 @@ impl Parser<'_> {
             };
             self.expect(&TokenKind::RBracket)?;
             // List type - method dispatch uses "list"
+            let elem_id = self.arena.alloc_parsed_type(elem_ty);
             (
-                ParsedType::List(Box::new(elem_ty)),
+                ParsedType::List(elem_id),
                 self.interner().intern("list"),
             )
         } else if self.check_type_keyword() {
@@ -62,9 +63,11 @@ impl Parser<'_> {
             // Check for generic parameters like Option<T>
             let type_args = if self.check(&TokenKind::Lt) {
                 self.advance(); // <
-                let mut args = Vec::new();
+                let mut arg_ids = Vec::new();
                 while !self.check(&TokenKind::Gt) && !self.is_at_end() {
-                    args.push(self.parse_type_required()?);
+                    let ty = self.parse_type_required()?;
+                    let id = self.arena.alloc_parsed_type(ty);
+                    arg_ids.push(id);
                     if self.check(&TokenKind::Comma) {
                         self.advance();
                     } else {
@@ -74,9 +77,9 @@ impl Parser<'_> {
                 if self.check(&TokenKind::Gt) {
                     self.advance(); // >
                 }
-                args
+                self.arena.alloc_parsed_type_list(arg_ids)
             } else {
-                Vec::new()
+                ParsedTypeRange::EMPTY
             };
             (
                 ParsedType::Named {

@@ -113,7 +113,10 @@ pub use ast::{
     WhereClause,
 };
 pub use derives::{DerivedMethodInfo, DerivedTrait};
-pub use expr_id::{ExprId, ExprRange, StmtId, StmtRange};
+pub use expr_id::{
+    ExprId, ExprRange, MatchPatternId, MatchPatternRange, ParsedTypeId, ParsedTypeRange, StmtId,
+    StmtRange,
+};
 pub use interner::{SharedInterner, StringInterner, StringLookup};
 pub use name::Name;
 pub use parsed_type::ParsedType;

@@ -2,8 +2,8 @@
 
 use crate::{ParseError, Parser};
 use ori_ir::{
-    CapabilityRef, GenericParam, GenericParamRange, Name, ParsedType, TokenKind, TraitBound,
-    WhereClause,
+    CapabilityRef, GenericParam, GenericParamRange, Name, ParsedType, ParsedTypeRange, TokenKind,
+    TraitBound, WhereClause,
 };
 
 impl Parser<'_> {
@@ -116,9 +116,11 @@ impl Parser<'_> {
         // Check for type arguments: <T, U>
         let type_args = if self.check(&TokenKind::Lt) {
             self.advance(); // <
-            let mut args = Vec::new();
+            let mut arg_ids = Vec::new();
             while !self.check(&TokenKind::Gt) && !self.is_at_end() {
-                args.push(self.parse_type_required()?);
+                let ty = self.parse_type_required()?;
+                let id = self.arena.alloc_parsed_type(ty);
+                arg_ids.push(id);
                 if self.check(&TokenKind::Comma) {
                     self.advance();
                 } else {
@@ -128,9 +130,9 @@ impl Parser<'_> {
             if self.check(&TokenKind::Gt) {
                 self.advance(); // >
             }
-            args
+            self.arena.alloc_parsed_type_list(arg_ids)
         } else {
-            Vec::new()
+            ParsedTypeRange::EMPTY
         };
 
         let ty = ParsedType::Named { name, type_args };

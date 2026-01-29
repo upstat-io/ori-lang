@@ -164,12 +164,25 @@ impl Spanned for TestDef {
 /// Syntax: `[pub] $name = literal`
 ///
 /// Config variables are compile-time constants. The type is inferred from the literal.
+/// They can be imported via `use "./module" { $config_name }`.
+///
+/// # Fields
+///
+/// - `name`: The interned name of the config variable (without the `$` prefix).
+/// - `value`: The initializer expression ID (must resolve to a literal).
+/// - `span`: The source span covering the entire definition.
+/// - `is_public`: Whether this config is exported from the module (`pub` keyword present).
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct ConfigDef {
+    /// The interned name of the config variable (without the `$` prefix).
     pub name: Name,
     /// The initializer expression (must be a literal).
+    /// At parse time, this points to an `ExprKind::Int`, `ExprKind::Float`,
+    /// `ExprKind::String`, `ExprKind::Bool`, or similar literal node.
     pub value: ExprId,
+    /// Source span covering the entire config definition (`$name = value`).
     pub span: Span,
+    /// Whether this config is exported (`pub $name = ...`).
     pub is_public: bool,
 }
 

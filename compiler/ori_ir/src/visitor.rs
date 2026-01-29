@@ -427,25 +427,25 @@ pub fn walk_match_pattern<'ast, V: Visitor<'ast> + ?Sized>(
             visitor.visit_expr_id(*expr_id, arena);
         }
         MatchPattern::Variant { inner, .. } => {
-            for inner_pattern in inner {
-                visitor.visit_match_pattern(inner_pattern, arena);
+            for id in arena.get_match_pattern_list(*inner) {
+                visitor.visit_match_pattern(arena.get_match_pattern(*id), arena);
             }
         }
         MatchPattern::Struct { fields, .. } => {
             for (_, sub_pattern) in fields {
-                if let Some(p) = sub_pattern {
-                    visitor.visit_match_pattern(p, arena);
+                if let Some(id) = sub_pattern {
+                    visitor.visit_match_pattern(arena.get_match_pattern(*id), arena);
                 }
             }
         }
         MatchPattern::Tuple(patterns) | MatchPattern::Or(patterns) => {
-            for p in patterns {
-                visitor.visit_match_pattern(p, arena);
+            for id in arena.get_match_pattern_list(*patterns) {
+                visitor.visit_match_pattern(arena.get_match_pattern(*id), arena);
             }
         }
         MatchPattern::List { elements, .. } => {
-            for p in elements {
-                visitor.visit_match_pattern(p, arena);
+            for id in arena.get_match_pattern_list(*elements) {
+                visitor.visit_match_pattern(arena.get_match_pattern(*id), arena);
             }
         }
         MatchPattern::Range { start, end, .. } => {
@@ -457,7 +457,7 @@ pub fn walk_match_pattern<'ast, V: Visitor<'ast> + ?Sized>(
             }
         }
         MatchPattern::At { pattern, .. } => {
-            visitor.visit_match_pattern(pattern, arena);
+            visitor.visit_match_pattern(arena.get_match_pattern(*pattern), arena);
         }
     }
 }
@@ -794,5 +794,159 @@ mod tests {
         collector.visit_expr_id(binary, &arena);
 
         assert_eq!(collector.idents, vec![0, 1]);
+    }
+
+    // Edge case tests
+
+    #[test]
+    fn test_visit_empty_module() {
+        use crate::ast::Module;
+
+        let arena = ExprArena::new();
+        let module = Module {
+            imports: vec![],
+            configs: vec![],
+            functions: vec![],
+            tests: vec![],
+            types: vec![],
+            traits: vec![],
+            impls: vec![],
+            extends: vec![],
+        };
+
+        let mut counter = ExprCounter { count: 0 };
+        counter.visit_module(&module, &arena);
+
+        assert_eq!(counter.count, 0);
+    }
+
+    #[test]
+    fn test_visit_deeply_nested_expressions() {
+        let mut arena = ExprArena::new();
+
+        // Create a deeply nested expression: ((((1))))
+        let mut current = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(4, 5)));
+
+        // Wrap in 10 levels of tuple nesting
+        for depth in 0..10 {
+            let list = arena.alloc_expr_list([current]);
+            current = arena.alloc_expr(Expr::new(
+                ExprKind::Tuple(list),
+                Span::new(0, (depth + 1) * 2),
+            ));
+        }
+
+        let mut counter = ExprCounter { count: 0 };
+        counter.visit_expr_id(current, &arena);
+
+        // 10 tuple wrappers + 1 inner int = 11 expressions
+        assert_eq!(counter.count, 11);
+    }
+
+    #[test]
+    fn test_visit_empty_list() {
+        let mut arena = ExprArena::new();
+
+        let empty_list_range = arena.alloc_expr_list([]);
+        let empty_list = arena.alloc_expr(Expr::new(
+            ExprKind::List(empty_list_range),
+            Span::new(0, 2),
+        ));
+
+        let mut counter = ExprCounter { count: 0 };
+        counter.visit_expr_id(empty_list, &arena);
+
+        assert_eq!(counter.count, 1); // Just the list itself
+    }
+
+    #[test]
+    fn test_visit_lambda_with_params() {
+        use crate::ast::Param;
+        use crate::Name;
+
+        let mut arena = ExprArena::new();
+
+        let body = arena.alloc_expr(Expr::new(ExprKind::Int(42), Span::new(15, 17)));
+        let params = arena.alloc_params([
+            Param {
+                name: Name::new(0, 0),
+                ty: None,
+                span: Span::new(1, 2),
+            },
+            Param {
+                name: Name::new(0, 1),
+                ty: None,
+                span: Span::new(4, 5),
+            },
+        ]);
+
+        let lambda = arena.alloc_expr(Expr::new(
+            ExprKind::Lambda {
+                params,
+                ret_ty: None,
+                body,
+            },
+            Span::new(0, 17),
+        ));
+
+        let mut counter = ExprCounter { count: 0 };
+        counter.visit_expr_id(lambda, &arena);
+
+        // Lambda + body = 2 expressions
+        assert_eq!(counter.count, 2);
+    }
+
+    #[test]
+    fn test_visit_match_with_guard() {
+        use crate::ast::{MatchArm, MatchPattern};
+        use crate::Name;
+
+        let mut arena = ExprArena::new();
+
+        let scrutinee = arena.alloc_expr(Expr::new(ExprKind::Int(42), Span::new(6, 8)));
+        let guard = arena.alloc_expr(Expr::new(ExprKind::Bool(true), Span::new(15, 19)));
+        let body = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(25, 26)));
+
+        let arm = MatchArm {
+            pattern: MatchPattern::Binding(Name::new(0, 0)),
+            guard: Some(guard),
+            body,
+            span: Span::new(10, 26),
+        };
+
+        let arms = arena.alloc_arms([arm]);
+        let match_expr = arena.alloc_expr(Expr::new(
+            ExprKind::Match { scrutinee, arms },
+            Span::new(0, 27),
+        ));
+
+        let mut counter = ExprCounter { count: 0 };
+        counter.visit_expr_id(match_expr, &arena);
+
+        // match + scrutinee + guard + body = 4
+        assert_eq!(counter.count, 4);
+    }
+
+    #[test]
+    fn test_visit_optional_children() {
+        let mut arena = ExprArena::new();
+
+        // If without else
+        let cond = arena.alloc_expr(Expr::new(ExprKind::Bool(true), Span::new(3, 7)));
+        let then_branch = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(13, 14)));
+        let if_no_else = arena.alloc_expr(Expr::new(
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch: None,
+            },
+            Span::new(0, 14),
+        ));
+
+        let mut counter = ExprCounter { count: 0 };
+        counter.visit_expr_id(if_no_else, &arena);
+
+        // if + cond + then = 3 (no else)
+        assert_eq!(counter.count, 3);
     }
 }

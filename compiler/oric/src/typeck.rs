@@ -201,9 +201,13 @@ pub fn resolve_imports_for_type_checking(
 
 /// Convert a `ParsedType` to a Type.
 ///
-/// This function handles the conversion without needing access to a `TypeInterner`,
+/// This function handles the conversion using the arena for type ID lookups,
 /// making it suitable for cross-module type conversion.
-fn parsed_type_to_type(parsed: &ori_ir::ParsedType, interner: &StringInterner) -> ori_types::Type {
+fn parsed_type_to_type(
+    parsed: &ori_ir::ParsedType,
+    arena: &ori_ir::ExprArena,
+    interner: &StringInterner,
+) -> ori_types::Type {
     use ori_ir::{ParsedType, TypeId};
     use ori_types::Type;
 
@@ -222,53 +226,85 @@ fn parsed_type_to_type(parsed: &ori_ir::ParsedType, interner: &StringInterner) -
         ParsedType::Named { name, type_args } => {
             // Check for well-known generic types
             let name_str = interner.lookup(*name);
+            let arg_ids = arena.get_parsed_type_list(*type_args);
             match name_str {
-                "Option" if type_args.len() == 1 => {
-                    Type::Option(Box::new(parsed_type_to_type(&type_args[0], interner)))
+                "Option" if arg_ids.len() == 1 => {
+                    let arg_ty = arena.get_parsed_type(arg_ids[0]);
+                    Type::Option(Box::new(parsed_type_to_type(arg_ty, arena, interner)))
                 }
-                "Result" if type_args.len() == 2 => Type::Result {
-                    ok: Box::new(parsed_type_to_type(&type_args[0], interner)),
-                    err: Box::new(parsed_type_to_type(&type_args[1], interner)),
-                },
-                "Set" if type_args.len() == 1 => {
-                    Type::Set(Box::new(parsed_type_to_type(&type_args[0], interner)))
+                "Result" if arg_ids.len() == 2 => {
+                    let ok_ty = arena.get_parsed_type(arg_ids[0]);
+                    let err_ty = arena.get_parsed_type(arg_ids[1]);
+                    Type::Result {
+                        ok: Box::new(parsed_type_to_type(ok_ty, arena, interner)),
+                        err: Box::new(parsed_type_to_type(err_ty, arena, interner)),
+                    }
                 }
-                "Range" if type_args.len() == 1 => {
-                    Type::Range(Box::new(parsed_type_to_type(&type_args[0], interner)))
+                "Set" if arg_ids.len() == 1 => {
+                    let arg_ty = arena.get_parsed_type(arg_ids[0]);
+                    Type::Set(Box::new(parsed_type_to_type(arg_ty, arena, interner)))
                 }
-                "Channel" if type_args.len() == 1 => {
-                    Type::Channel(Box::new(parsed_type_to_type(&type_args[0], interner)))
+                "Range" if arg_ids.len() == 1 => {
+                    let arg_ty = arena.get_parsed_type(arg_ids[0]);
+                    Type::Range(Box::new(parsed_type_to_type(arg_ty, arena, interner)))
+                }
+                "Channel" if arg_ids.len() == 1 => {
+                    let arg_ty = arena.get_parsed_type(arg_ids[0]);
+                    Type::Channel(Box::new(parsed_type_to_type(arg_ty, arena, interner)))
                 }
                 "Duration" => Type::Duration,
                 "Size" => Type::Size,
-                _ if type_args.is_empty() => Type::Named(*name),
+                _ if arg_ids.is_empty() => Type::Named(*name),
                 _ => Type::Applied {
                     name: *name,
-                    args: type_args
+                    args: arg_ids
                         .iter()
-                        .map(|t| parsed_type_to_type(t, interner))
+                        .map(|id| {
+                            let ty = arena.get_parsed_type(*id);
+                            parsed_type_to_type(ty, arena, interner)
+                        })
                         .collect(),
                 },
             }
         }
-        ParsedType::List(elem) => Type::List(Box::new(parsed_type_to_type(elem, interner))),
-        ParsedType::Tuple(elems) => Type::Tuple(
-            elems
-                .iter()
-                .map(|e| parsed_type_to_type(e, interner))
-                .collect(),
-        ),
-        ParsedType::Function { params, ret } => Type::Function {
-            params: params
-                .iter()
-                .map(|p| parsed_type_to_type(p, interner))
-                .collect(),
-            ret: Box::new(parsed_type_to_type(ret, interner)),
-        },
-        ParsedType::Map { key, value } => Type::Map {
-            key: Box::new(parsed_type_to_type(key, interner)),
-            value: Box::new(parsed_type_to_type(value, interner)),
-        },
+        ParsedType::List(elem_id) => {
+            let elem_ty = arena.get_parsed_type(*elem_id);
+            Type::List(Box::new(parsed_type_to_type(elem_ty, arena, interner)))
+        }
+        ParsedType::Tuple(elems) => {
+            let elem_ids = arena.get_parsed_type_list(*elems);
+            Type::Tuple(
+                elem_ids
+                    .iter()
+                    .map(|id| {
+                        let ty = arena.get_parsed_type(*id);
+                        parsed_type_to_type(ty, arena, interner)
+                    })
+                    .collect(),
+            )
+        }
+        ParsedType::Function { params, ret } => {
+            let param_ids = arena.get_parsed_type_list(*params);
+            let ret_ty = arena.get_parsed_type(*ret);
+            Type::Function {
+                params: param_ids
+                    .iter()
+                    .map(|id| {
+                        let ty = arena.get_parsed_type(*id);
+                        parsed_type_to_type(ty, arena, interner)
+                    })
+                    .collect(),
+                ret: Box::new(parsed_type_to_type(ret_ty, arena, interner)),
+            }
+        }
+        ParsedType::Map { key, value } => {
+            let key_ty = arena.get_parsed_type(*key);
+            let value_ty = arena.get_parsed_type(*value);
+            Type::Map {
+                key: Box::new(parsed_type_to_type(key_ty, arena, interner)),
+                value: Box::new(parsed_type_to_type(value_ty, arena, interner)),
+            }
+        }
         ParsedType::Infer => Type::Var(ori_types::TypeVar::new(0)), // Fresh var placeholder
         ParsedType::SelfType => Type::Named(interner.intern("Self")),
         ParsedType::AssociatedType {
@@ -294,7 +330,7 @@ fn create_imported_function(
         .iter()
         .map(|p| {
             match &p.ty {
-                Some(parsed_ty) => parsed_type_to_type(parsed_ty, interner),
+                Some(parsed_ty) => parsed_type_to_type(parsed_ty, arena, interner),
                 None => ori_types::Type::Var(ori_types::TypeVar::new(0)), // Inference placeholder
             }
         })
@@ -302,7 +338,7 @@ fn create_imported_function(
 
     // Convert return type
     let return_type = match &func.return_ty {
-        Some(parsed_ty) => parsed_type_to_type(parsed_ty, interner),
+        Some(parsed_ty) => parsed_type_to_type(parsed_ty, arena, interner),
         None => ori_types::Type::Unit, // Default to void
     };
 

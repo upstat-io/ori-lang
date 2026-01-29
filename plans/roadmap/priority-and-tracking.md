@@ -62,7 +62,7 @@
 |-------|------|--------|-------|
 | 20 | Reflection | ⏳ Not started | |
 | 21 | LLVM Backend | 🔶 Partial | JIT working; 977/996 tests pass (19 skipped); destructuring support added; AOT pending |
-| 22 | Tooling | ⏳ Not started | |
+| 22 | Tooling | 🔶 Partial | Width calculator complete; formatter core pending |
 
 ---
 
