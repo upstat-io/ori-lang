@@ -12,6 +12,10 @@ Every function must have at least one test. Compile-time error otherwise.
 
 ## Test Declaration
 
+All tests must use the `tests` keyword.
+
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § DECLARATIONS (test)
+
 ### Targeted Test
 
 ```ori
@@ -29,10 +33,10 @@ Every function must have at least one test. Compile-time error otherwise.
 ### Free-Floating Test
 
 ```ori
-@test_integration () -> void = ...
+@test_integration tests _ () -> void = ...
 ```
 
-Does not satisfy coverage; used for integration tests.
+The `_` wildcard indicates the test targets no specific function. Free-floating tests do not satisfy coverage requirements; they are used for integration tests.
 
 ## Exemptions
 
@@ -135,6 +139,27 @@ ori test file.ori   # specific file
 ```
 
 Tests run in isolation, possibly in parallel. No shared mutable state.
+
+## Incremental Execution
+
+During compilation, targeted tests whose targets (or transitive dependencies) have changed are automatically executed.
+
+| Test Type | When It Runs |
+|-----------|--------------|
+| Targeted (`tests @fn`) | During `ori check` if `@fn` or its dependencies changed |
+| Free-floating (`tests _`) | Only via explicit `ori test` |
+
+### CLI Flags
+
+| Command | Behavior |
+|---------|----------|
+| `ori check` | Compile + run affected targeted tests |
+| `ori check --no-test` | Compile only, skip tests |
+| `ori check --strict` | Fail build on test failure |
+| `ori test` | Run all tests (targeted + free-floating) |
+| `ori test --only-targeted` | Run only targeted tests |
+
+Test failures are reported but do not block compilation by default. Use `--strict` for CI environments.
 
 ## Coverage
 

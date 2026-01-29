@@ -194,9 +194,10 @@ method        = "@" identifier params "->" type [ uses_clause ] "=" expression .
 // --- Tests ---
 // See: 13-testing.md
 
-test       = [ attribute ] "@" identifier [ "tests" target { "tests" target } ] "()" "->" "void" "=" expression .
-target     = "@" identifier .
-attribute  = "#" ( "skip" | "compile_fail" | "fail" ) "(" string_literal ")" .
+test         = [ attribute ] "@" identifier "tests" test_targets "()" "->" "void" "=" expression .
+test_targets = "_" | test_target { "tests" test_target } .
+test_target  = "@" identifier .
+attribute    = "#" ( "skip" | "compile_fail" | "fail" ) "(" string_literal ")" .
 
 // --- Constants (Immutable Bindings) ---
 // See: 04-constants.md
