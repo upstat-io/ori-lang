@@ -37,8 +37,8 @@ mod user_methods;
 // Re-export value types from ori_patterns
 pub use ori_patterns::{
     EvalContext, EvalError, EvalResult, FunctionValFn, FunctionValue, Heap, MemoizedFunctionValue,
-    PatternDefinition, PatternExecutor, PatternRegistry, RangeValue, ScalarInt, SharedPattern,
-    StructLayout, StructValue, TypeCheckContext, Value,
+    PatternDefinition, PatternExecutor, PatternRegistry, RangeValue, ScalarInt, StructLayout,
+    StructValue, TypeCheckContext, Value,
 };
 
 // Re-export error constructors for convenience (canonical path is ori_eval::errors::*)
