@@ -83,11 +83,25 @@ Exceptions exist only for constructs that are *always* stacked regardless of wid
 ### Implementation
 
 - [Implementation Overview](04-implementation/index.md) — Implementation approach
+- [Tooling Integration](04-implementation/index.md#tooling-integration) — Crates, LSP, Playground, editors
 - [AST Integration](04-implementation/ast-integration.md) — Working with the Ori AST
 
 ### Appendices
 
 - [Edge Cases](appendices/A-edge-cases.md) — Comprehensive edge case examples
+
+## Tooling
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| `ori_fmt` | `compiler/ori_fmt/` | Core formatting logic |
+| `ori_lsp` | `compiler/ori_lsp/` | LSP server (formatting, diagnostics, hover) |
+
+**Playground**: Format-on-Run — code formats automatically when user clicks Run. LSP compiled to WASM provides real-time diagnostics and hover in Monaco.
+
+**Editors**: Same `ori_lsp` binary serves VS Code, Neovim, and other LSP-compatible editors.
+
+See [Tooling Integration](04-implementation/index.md#tooling-integration) for architecture details, or the [LSP Design docs](../lsp/design/index.md) for full LSP documentation.
 
 ## Relationship to Spec
 
@@ -96,7 +110,7 @@ The normative formatting rules are defined in [spec/16-formatting.md](/docs/ori_
 | Document | Purpose |
 |----------|---------|
 | `spec/16-formatting.md` | *What* the canonical format is (normative) |
-| `docs/formatter/design/` | *How* to implement the formatter (informative) |
+| `docs/tooling/formatter/design/` | *How* to implement the formatter (informative) |
 
 ## Quick Reference
 

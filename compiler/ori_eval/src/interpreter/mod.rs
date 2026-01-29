@@ -54,7 +54,6 @@ use crate::{
     undefined_config,
     undefined_function,
     undefined_variable,
-    unknown_pattern,
     Environment,
     FunctionValue,
     Mutability,
@@ -618,11 +617,8 @@ impl<'a> Interpreter<'a> {
     fn eval_function_exp(&mut self, func_exp: &ori_ir::FunctionExp) -> EvalResult {
         let props = self.arena.get_named_exprs(func_exp.props);
 
-        // Look up pattern definition from registry
-        let pattern = self
-            .registry
-            .get(func_exp.kind)
-            .ok_or_else(|| unknown_pattern(func_exp.kind.name()))?;
+        // Look up pattern definition from registry (all kinds are covered)
+        let pattern = self.registry.get(func_exp.kind);
 
         // Create evaluation context
         let ctx = EvalContext::new(self.interner, self.arena, props);

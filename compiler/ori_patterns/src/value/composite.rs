@@ -71,7 +71,8 @@ pub struct StructValue {
 impl StructValue {
     /// Create a new struct value from a name and field values.
     pub fn new(name: Name, field_values: HashMap<Name, Value>) -> Self {
-        let field_names: Vec<Name> = field_values.keys().copied().collect();
+        let mut field_names: Vec<Name> = field_values.keys().copied().collect();
+        field_names.sort();
         let layout = Arc::new(StructLayout::new(&field_names));
         let mut fields = vec![Value::Void; field_names.len()];
         for (name, value) in field_values {

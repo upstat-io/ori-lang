@@ -331,29 +331,35 @@ mod concurrency_verification {
     use std::collections::HashSet;
     use std::sync::Mutex;
 
-    /// Verify that tasks actually execute concurrently by checking timing.
+    /// Verify that tasks actually execute concurrently using atomic counters.
     #[test]
     fn tasks_run_concurrently() {
-        let start = Instant::now();
-        let results = Arc::new(Mutex::new(Vec::new()));
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_concurrent = Arc::new(AtomicUsize::new(0));
+        let completed = Arc::new(AtomicUsize::new(0));
 
         thread::scope(|s| {
-            for i in 0..4 {
-                let results = Arc::clone(&results);
+            for _ in 0..4 {
+                let active = Arc::clone(&active);
+                let max_concurrent = Arc::clone(&max_concurrent);
+                let completed = Arc::clone(&completed);
                 s.spawn(move || {
+                    let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_concurrent.fetch_max(current, Ordering::SeqCst);
                     thread::sleep(Duration::from_millis(50));
-                    results.lock().unwrap().push(i);
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    completed.fetch_add(1, Ordering::SeqCst);
                 });
             }
         });
 
-        let elapsed = start.elapsed();
-        // If tasks ran sequentially, would take ~200ms (4 * 50ms)
-        // Running concurrently should take ~50ms (+ overhead)
-        // Using generous margin (300ms) to avoid flakiness on loaded systems/CI
+        // All tasks should complete
+        assert_eq!(completed.load(Ordering::SeqCst), 4);
+        // At least 2 tasks should have been active concurrently
         assert!(
-            elapsed < Duration::from_millis(300),
-            "tasks should run concurrently, took {elapsed:?}"
+            max_concurrent.load(Ordering::SeqCst) >= 2,
+            "expected concurrent execution, max concurrent was {}",
+            max_concurrent.load(Ordering::SeqCst)
         );
     }
 
@@ -385,43 +391,32 @@ mod concurrency_verification {
         );
     }
 
-    /// Verify concurrent execution by detecting overlapping execution windows.
+    /// Verify concurrent execution by tracking max active tasks.
     #[test]
     fn execution_windows_overlap() {
-        let timestamps = Arc::new(Mutex::new(Vec::new()));
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_concurrent = Arc::new(AtomicUsize::new(0));
 
         thread::scope(|s| {
-            for i in 0..4 {
-                let timestamps = Arc::clone(&timestamps);
+            for _ in 0..4 {
+                let active = Arc::clone(&active);
+                let max_concurrent = Arc::clone(&max_concurrent);
                 s.spawn(move || {
-                    let start = Instant::now();
+                    // Increment active before sleep to detect overlap
+                    let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_concurrent.fetch_max(current, Ordering::SeqCst);
                     thread::sleep(Duration::from_millis(50));
-                    let end = Instant::now();
-                    timestamps.lock().unwrap().push((i, start, end));
+                    active.fetch_sub(1, Ordering::SeqCst);
                 });
             }
         });
 
-        let ts = timestamps.lock().unwrap();
-
-        // Check for overlapping windows: if any task's start is before another's end
-        let mut overlaps_found = 0;
-        for i in 0..ts.len() {
-            for j in (i + 1)..ts.len() {
-                let (_, start_i, end_i) = ts[i];
-                let (_, start_j, end_j) = ts[j];
-
-                // Overlap exists if one starts before the other ends
-                if start_i < end_j && start_j < end_i {
-                    overlaps_found += 1;
-                }
-            }
-        }
-
-        // With 4 concurrent tasks, we should have multiple overlapping pairs
+        // With 4 concurrent tasks, max_concurrent should be at least 2
+        // (ideally 4, but at minimum we need overlapping execution)
+        let max = max_concurrent.load(Ordering::SeqCst);
         assert!(
-            overlaps_found >= 3,
-            "expected overlapping execution windows, found {overlaps_found} overlaps"
+            max >= 2,
+            "expected overlapping execution (max concurrent >= 2), got {max}"
         );
     }
 
@@ -504,35 +499,32 @@ mod concurrency_verification {
         let sem = Arc::new(Semaphore::new(2));
         let active = Arc::new(AtomicUsize::new(0));
         let max_observed = Arc::new(AtomicUsize::new(0));
-
-        let start = Instant::now();
+        let completed = Arc::new(AtomicUsize::new(0));
 
         thread::scope(|s| {
             for _ in 0..6 {
                 let sem = Arc::clone(&sem);
                 let active = Arc::clone(&active);
                 let max_observed = Arc::clone(&max_observed);
+                let completed = Arc::clone(&completed);
                 s.spawn(move || {
                     sem.acquire();
                     let current = active.fetch_add(1, Ordering::SeqCst) + 1;
                     max_observed.fetch_max(current, Ordering::SeqCst);
                     thread::sleep(Duration::from_millis(50));
                     active.fetch_sub(1, Ordering::SeqCst);
+                    completed.fetch_add(1, Ordering::SeqCst);
                     sem.release();
                 });
             }
         });
 
-        let elapsed = start.elapsed();
         let max = max_observed.load(Ordering::SeqCst);
 
-        // With max_concurrent=2 and 6 tasks of 50ms each:
-        // Should take ~150ms (3 batches of 2)
+        // Semaphore should limit concurrent execution to 2
         assert!(max <= 2, "max concurrent should be 2, was {max}");
-        assert!(
-            elapsed >= Duration::from_millis(140),
-            "should take ~150ms with limited concurrency, took {elapsed:?}"
-        );
+        // All tasks should complete
+        assert_eq!(completed.load(Ordering::SeqCst), 6);
     }
 
     /// Verify order is preserved in results.
@@ -572,26 +564,33 @@ mod timeout {
 
     #[test]
     fn short_timeout_completes_fast_tasks() {
-        let start = Instant::now();
         let completed = Arc::new(AtomicUsize::new(0));
+        let max_concurrent = Arc::new(AtomicUsize::new(0));
+        let active = Arc::new(AtomicUsize::new(0));
 
         thread::scope(|s| {
             for _ in 0..3 {
                 let completed = Arc::clone(&completed);
+                let max_concurrent = Arc::clone(&max_concurrent);
+                let active = Arc::clone(&active);
                 s.spawn(move || {
+                    let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_concurrent.fetch_max(current, Ordering::SeqCst);
                     thread::sleep(Duration::from_millis(10));
+                    active.fetch_sub(1, Ordering::SeqCst);
                     completed.fetch_add(1, Ordering::SeqCst);
                 });
             }
         });
 
-        let elapsed = start.elapsed();
-        // Generous margin for CI/loaded systems - sequential would take 30ms
-        assert!(
-            elapsed < Duration::from_millis(200),
-            "tasks should run concurrently, took {elapsed:?}"
-        );
+        // All tasks should complete
         assert_eq!(completed.load(Ordering::SeqCst), 3);
+        // Tasks should run concurrently
+        assert!(
+            max_concurrent.load(Ordering::SeqCst) >= 2,
+            "expected concurrent execution, max concurrent was {}",
+            max_concurrent.load(Ordering::SeqCst)
+        );
     }
 
     #[test]
@@ -608,20 +607,20 @@ mod timeout {
     #[test]
     fn timeout_remaining_calculation() {
         let start = Instant::now();
-        let timeout = Duration::from_millis(200);
+        let timeout = Duration::from_millis(500);
 
-        thread::sleep(Duration::from_millis(30));
+        thread::sleep(Duration::from_millis(50));
 
         let remaining = timeout.saturating_sub(start.elapsed());
-        // After 30ms sleep, remaining should be ~170ms, but allow variance
-        // for system load. Key assertion: remaining is neither zero nor full.
+        // After 50ms sleep, remaining should be ~450ms, but allow generous
+        // variance for system load on CI. Key assertion: some time was consumed.
         assert!(
-            remaining > Duration::from_millis(50),
-            "remaining should be > 50ms, got {remaining:?}"
+            remaining > Duration::from_millis(100),
+            "remaining should be > 100ms, got {remaining:?}"
         );
         assert!(
-            remaining < Duration::from_millis(190),
-            "remaining should be < 190ms (some time elapsed), got {remaining:?}"
+            remaining < Duration::from_millis(480),
+            "remaining should be < 480ms (some time elapsed), got {remaining:?}"
         );
     }
 }

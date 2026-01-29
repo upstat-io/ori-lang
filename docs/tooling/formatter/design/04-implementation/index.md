@@ -383,6 +383,89 @@ fn format_directory(path: &Path) -> Vec<FormatResult> {
 }
 ```
 
+## Tooling Integration
+
+### Crate Structure
+
+The formatter is implemented as two crates:
+
+| Crate | Location | Purpose |
+|-------|----------|---------|
+| `ori_fmt` | `compiler/ori_fmt/` | Core formatting logic |
+| `ori_lsp` | `compiler/ori_lsp/` | Language Server Protocol implementation |
+
+```
+compiler/ori_fmt/     ← formatting algorithms, width calculation
+        │
+        ▼ (dependency)
+compiler/ori_lsp/     ← LSP server, editor protocol
+        │
+        ▼ (compile to WASM)
+playground/wasm/      ← browser integration
+```
+
+### LSP Server
+
+The LSP server (`ori_lsp`) provides editor features via the Language Server Protocol:
+
+| LSP Method | Feature | Description |
+|------------|---------|-------------|
+| `textDocument/formatting` | Format | Format entire document |
+| `textDocument/publishDiagnostics` | Squigglies | Error/warning underlines |
+| `textDocument/hover` | Hover | Type info and documentation |
+
+Future capabilities:
+- `textDocument/completion` — code completion
+- `textDocument/definition` — go to definition
+- `textDocument/references` — find all references
+
+### Playground Integration
+
+The Ori Playground uses the existing WASM infrastructure at `playground/wasm/`.
+
+**Format-on-Run**: Following Go and Gleam playground conventions, code is automatically formatted when the user clicks Run. No separate format button.
+
+**Architecture**:
+
+```
+┌─────────────────────────────────────────┐
+│              Browser                    │
+│  ┌──────────────┐    ┌──────────────┐   │
+│  │    Monaco    │◄──►│  ori_lsp     │   │
+│  │    Editor    │    │  (WASM)      │   │
+│  └──────────────┘    └──────────────┘   │
+│         │                   │           │
+│         ▼                   ▼           │
+│  ┌──────────────────────────────────┐   │
+│  │         ori_eval (WASM)          │   │
+│  │  (existing playground runtime)   │   │
+│  └──────────────────────────────────┘   │
+└─────────────────────────────────────────┘
+```
+
+The LSP server compiles to WASM and runs in-browser, providing:
+- Real-time diagnostics (red squigglies for errors)
+- Hover information (types, documentation)
+- Formatting (triggered on Run)
+
+This architecture serves as an early sandbox for LSP features before the VS Code extension.
+
+### Editor Integration
+
+The same `ori_lsp` binary serves desktop editors:
+
+| Editor | Integration |
+|--------|-------------|
+| VS Code | Extension spawns `ori_lsp` process |
+| Neovim | Native LSP client connects to `ori_lsp` |
+| Other | Any LSP-compatible editor |
+
+Single implementation, multiple clients — the LSP handles:
+- Formatting requests
+- Diagnostic publishing
+- Hover information
+- (Future) Completions, definitions, references
+
 ## Testing
 
 ### Round-Trip Testing

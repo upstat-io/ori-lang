@@ -194,9 +194,8 @@ pub fn infer_function_seq(
 pub fn infer_function_exp(checker: &mut TypeChecker<'_>, func_exp: &FunctionExp) -> Type {
     let props = checker.context.arena.get_named_exprs(func_exp.props);
 
-    let Some(pattern) = checker.registries.pattern.get(func_exp.kind) else {
-        return Type::Error;
-    };
+    // Get pattern definition (all FunctionExpKind variants are covered)
+    let pattern = checker.registries.pattern.get(func_exp.kind);
 
     let scoped_bindings = pattern.scoped_bindings();
 

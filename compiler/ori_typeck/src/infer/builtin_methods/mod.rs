@@ -153,29 +153,34 @@ pub trait BuiltinMethodHandler: Send + Sync {
 
 /// Registry of built-in method handlers.
 ///
-/// Provides a way to type check method calls by delegating to registered handlers.
+/// Uses direct type-based dispatch instead of linear search through handlers.
+/// Each handler is a ZST (zero-sized type), so this struct has zero runtime overhead.
 pub struct BuiltinMethodRegistry {
-    handlers: Vec<Box<dyn BuiltinMethodHandler>>,
+    string: StringMethodHandler,
+    list: ListMethodHandler,
+    map: MapMethodHandler,
+    option: OptionMethodHandler,
+    result: ResultMethodHandler,
+    numeric: NumericMethodHandler,
 }
 
 impl BuiltinMethodRegistry {
     /// Create a new built-in method registry with all handlers.
     pub fn new() -> Self {
         BuiltinMethodRegistry {
-            handlers: vec![
-                Box::new(StringMethodHandler),
-                Box::new(ListMethodHandler),
-                Box::new(MapMethodHandler),
-                Box::new(OptionMethodHandler),
-                Box::new(ResultMethodHandler),
-                Box::new(NumericMethodHandler),
-            ],
+            string: StringMethodHandler,
+            list: ListMethodHandler,
+            map: MapMethodHandler,
+            option: OptionMethodHandler,
+            result: ResultMethodHandler,
+            numeric: NumericMethodHandler,
         }
     }
 
     /// Type check a method call.
     ///
-    /// Tries each registered handler in order until one handles the receiver type.
+    /// Dispatches directly to the appropriate handler based on receiver type.
+    /// Returns `None` if no handler matches the receiver type.
     pub fn check(
         &self,
         ctx: &mut InferenceContext,
@@ -185,13 +190,17 @@ impl BuiltinMethodRegistry {
         args: &[Type],
         span: Span,
     ) -> Option<MethodTypeResult> {
-        for handler in &self.handlers {
-            if handler.handles(receiver_ty) {
-                return Some(handler.check(ctx, interner, receiver_ty, method, args, span));
-            }
-        }
+        let handler: &dyn BuiltinMethodHandler = match receiver_ty {
+            Type::Str => &self.string,
+            Type::List(_) => &self.list,
+            Type::Map { .. } => &self.map,
+            Type::Option(_) => &self.option,
+            Type::Result { .. } => &self.result,
+            Type::Int | Type::Float | Type::Bool => &self.numeric,
+            _ => return None,
+        };
 
-        None
+        Some(handler.check(ctx, interner, receiver_ty, method, args, span))
     }
 }
 
