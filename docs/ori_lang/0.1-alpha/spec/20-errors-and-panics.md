@@ -41,7 +41,9 @@ The following operations cause implicit panics:
 | `.unwrap()` | Called on `None` | "called unwrap on None" |
 | `.unwrap()` | Called on `Err(e)` | "called unwrap on Err: {e}" |
 | Division | Divisor is zero | "division by zero" |
+| Modulo | Divisor is zero | "modulo by zero" |
 | Integer arithmetic | Result overflows `int` range | "integer overflow in {operation}" |
+| Division/modulo | `int.min / -1` or `int.min % -1` | "integer overflow in {operation}" |
 
 ### Explicit Panic
 

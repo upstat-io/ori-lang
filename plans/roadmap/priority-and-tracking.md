@@ -225,6 +225,15 @@
 - Cache in `.ori/cache/test/`; threshold configurable via `ori.toml`
 - Blocked on: None (can be implemented independently)
 
+**Integer Overflow Behavior** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/overflow-behavior-proposal.md`
+- Implementation: Phase 7.11
+- Integer arithmetic panics on overflow by default (safe, catches bugs)
+- Explicit alternatives in `std.math`: `saturating_*`, `wrapping_*`, `checked_*`
+- Type bounds constants: `int.min`, `int.max`, `byte.min`, `byte.max`
+- Consistent behavior in debug and release builds (unlike Rust)
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones
