@@ -1,9 +1,9 @@
 # Proposal: Incremental Test Execution and Explicit Free-Floating Tests
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-23
-**Draft:** 2026-01-25
+**Approved:** 2026-01-28
 **Affects:** Language design, compiler, test runner
 
 ---
@@ -100,9 +100,9 @@ All tests must use the `tests` keyword. Free-floating tests use `_` as the targe
 #### Grammar
 
 ```ebnf
-test    = "@" identifier "tests" targets params "->" "void" "=" expression .
-targets = "_" | target { "tests" target } .
-target  = "@" identifier .
+test         = [ attribute ] "@" identifier "tests" test_targets "()" "->" "void" "=" expression .
+test_targets = "_" | test_target { "tests" test_target } .
+test_target  = "@" identifier .
 ```
 
 #### Semantics
@@ -115,15 +115,15 @@ The `_` token is consistent with its use elsewhere:
 - Lambdas: `(_, b) -> b` (ignore parameter)
 - Tests: `tests _` (targets nothing specific)
 
-#### Migration
+#### No Migration Period
 
-The `test_` naming convention is no longer special. Existing code:
+The `tests` keyword is required from the start. The `test_` naming convention is no longer special:
 
 ```ori
-// Old: free-floating by naming convention
+// This is NOT a test (no `tests` keyword)
 @test_integration () -> void = run(...)
 
-// New: explicit free-floating
+// This IS a test (explicit free-floating)
 @test_integration tests _ () -> void = run(...)
 ```
 
@@ -205,6 +205,14 @@ On incremental compile:
 3. Run only affected targeted tests
 4. Cache results keyed by input hashes
 
+#### Cache Storage
+
+Test results are cached in `.ori/cache/test/`:
+- Function hashes: `.ori/cache/test/hashes.bin`
+- Test results: `.ori/cache/test/results.bin`
+
+The `.ori/` directory should be added to `.gitignore`.
+
 ### Part 3: Performance Expectations
 
 Targeted tests run during compilation, so they should be fast.
@@ -237,6 +245,17 @@ warning: targeted test @test_parse took 250ms
   |
   = hint: targeted tests should complete in <100ms
 ```
+
+#### Threshold Configuration
+
+The slow test threshold is configurable via `ori.toml`:
+
+```toml
+[testing]
+slow_test_threshold = "100ms"
+```
+
+Supported units: `ms`, `s`, `m`. Default is `100ms`.
 
 ---
 
@@ -312,7 +331,7 @@ warning: targeted test @test_parse took 250ms
 @test_tokenize_large_file tests _ () -> void = run(
     let input = read_file("fixtures/large.ori"),
     let tokens = tokenize(input),
-    assert(.cond: len(collection: tokens) > 10000),
+    assert(condition: len(collection: tokens) > 10000),
 )
 ```
 
@@ -430,12 +449,6 @@ Running targeted tests...
 1. Accept filter for targeted-only vs all tests
 2. Report timing per test for threshold warnings
 3. Cache test results keyed by dependency hashes
-
-### Migration Path
-
-1. Emit warning for `test_` functions without `tests` keyword
-2. Provide automated fix: add `tests _` to free-floating tests
-3. After transition period, require `tests` keyword
 
 ---
 

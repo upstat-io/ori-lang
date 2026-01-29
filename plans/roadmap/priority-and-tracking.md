@@ -216,6 +216,15 @@
 - Remaining: enhanced error messages, report all cycles, CLI tooling (`ori check --cycles`, `ori graph --imports`)
 - Blocked on: None (core detection complete)
 
+**Incremental Test Execution** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/incremental-test-execution-proposal.md`
+- Implementation: Phase 14.2, 14.11
+- Explicit free-floating tests with `tests _` syntax (no more naming convention)
+- Targeted tests auto-run during `ori check` when targets change
+- Non-blocking by default; `--strict` for CI
+- Cache in `.ori/cache/test/`; threshold configurable via `ori.toml`
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones
