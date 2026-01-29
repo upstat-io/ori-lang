@@ -16,6 +16,7 @@
 //! the Open/Closed principle for extensibility.
 
 use crate::{Environment, EvalError, EvalResult, Value};
+use ori_patterns::propagated_error_message;
 use ori_ir::{
     ArmRange, BindingPattern, ExprArena, ExprId, FunctionSeq, SeqBinding, SeqBindingRange,
 };
@@ -159,12 +160,12 @@ where
 /// Evaluate a try expression (? operator).
 ///
 /// Unwraps Ok/Some values, propagates Err/None.
-pub fn eval_try_expr(value: Value, value_to_string: impl Fn(&Value) -> String) -> EvalResult {
+pub fn eval_try_expr(value: Value) -> EvalResult {
     match value {
         Value::Ok(v) | Value::Some(v) => Ok((*v).clone()),
         Value::Err(e) => Err(EvalError::propagate(
             Value::Err(e.clone()),
-            format!("propagated error: {}", value_to_string(&e)),
+            propagated_error_message(&e),
         )),
         Value::None => Err(EvalError::propagate(Value::None, "propagated None")),
         other => Ok(other),
@@ -179,14 +180,14 @@ mod tests {
     #[test]
     fn test_eval_try_expr_ok() {
         let value = Value::ok(Value::int(42));
-        let result = eval_try_expr(value, |_| String::new());
+        let result = eval_try_expr(value);
         assert_eq!(result.unwrap(), Value::int(42));
     }
 
     #[test]
     fn test_eval_try_expr_err() {
         let value = Value::err(Value::string("error"));
-        let result = eval_try_expr(value, |_| "error".to_string());
+        let result = eval_try_expr(value);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.propagated_value.is_some());
@@ -195,14 +196,14 @@ mod tests {
     #[test]
     fn test_eval_try_expr_some() {
         let value = Value::some(Value::int(42));
-        let result = eval_try_expr(value, |_| String::new());
+        let result = eval_try_expr(value);
         assert_eq!(result.unwrap(), Value::int(42));
     }
 
     #[test]
     fn test_eval_try_expr_none() {
         let value = Value::None;
-        let result = eval_try_expr(value, |_| String::new());
+        let result = eval_try_expr(value);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.propagated_value.is_some());
@@ -212,7 +213,7 @@ mod tests {
     #[test]
     fn test_eval_try_expr_passthrough() {
         let value = Value::int(42);
-        let result = eval_try_expr(value, |_| String::new());
+        let result = eval_try_expr(value);
         assert_eq!(result.unwrap(), Value::int(42));
     }
 }

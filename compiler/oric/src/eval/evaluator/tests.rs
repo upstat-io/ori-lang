@@ -10,6 +10,7 @@ use crate::ir::{BinaryOp, ExprArena, SharedArena, SharedInterner, Span};
 use ori_eval::SharedMutableRegistry;
 use ori_eval::{UserMethod, UserMethodRegistry};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[test]
 fn test_eval_error() {
@@ -58,7 +59,7 @@ fn test_user_method_dispatch() {
 
     // Build registry before creating evaluator (immutable after construction)
     let shared_arena = SharedArena::new(arena.clone());
-    let user_method = UserMethod::new(vec![self_name], body, HashMap::new(), shared_arena);
+    let user_method = UserMethod::new(vec![self_name], body, Arc::new(HashMap::new()), shared_arena);
     let mut registry = UserMethodRegistry::new();
     let point_name = interner.intern("Point");
     let double_x_name = interner.intern("double_x");
@@ -104,7 +105,7 @@ fn test_user_method_with_self_access() {
 
     // Build registry before creating evaluator (immutable after construction)
     let shared_arena = SharedArena::new(arena.clone());
-    let user_method = UserMethod::new(vec![self_name], body, HashMap::new(), shared_arena);
+    let user_method = UserMethod::new(vec![self_name], body, Arc::new(HashMap::new()), shared_arena);
     let mut registry = UserMethodRegistry::new();
     let point_name = interner.intern("Point");
     let get_x_name = interner.intern("get_x");
@@ -162,7 +163,8 @@ fn test_user_method_with_args() {
 
     // Build registry before creating evaluator (immutable after construction)
     let shared_arena = SharedArena::new(arena.clone());
-    let user_method = UserMethod::new(vec![self_name, n_name], body, HashMap::new(), shared_arena);
+    let user_method =
+        UserMethod::new(vec![self_name, n_name], body, Arc::new(HashMap::new()), shared_arena);
     let mut registry = UserMethodRegistry::new();
     let point_name = interner.intern("Point");
     let add_to_x_name = interner.intern("add_to_x");

@@ -21,9 +21,13 @@ impl Parser<'_> {
         let span = self.current_span();
 
         // function_seq keywords (run, try)
-        if let Some(is_try) = self.match_function_seq_kind() {
+        if self.check(&TokenKind::Run) {
             self.advance();
-            return self.parse_function_seq(is_try);
+            return self.parse_run();
+        }
+        if self.check(&TokenKind::Try) {
+            self.advance();
+            return self.parse_try();
         }
 
         // match is also function_seq but parsed separately

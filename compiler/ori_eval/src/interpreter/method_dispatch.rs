@@ -138,8 +138,11 @@ impl Interpreter<'_> {
     // Iterator Helper Methods - unify collection method implementations for lists and ranges
 
     /// Apply a transform function to each item in an iterator, collecting results.
+    ///
+    /// Uses `size_hint` to pre-allocate the result vector when the size is known.
     fn map_iterator(&mut self, iter: impl Iterator<Item = Value>, transform: &Value) -> EvalResult {
-        let mut result = Vec::new();
+        let (lower, _) = iter.size_hint();
+        let mut result = Vec::with_capacity(lower);
         for item in iter {
             let mapped = self.eval_call(transform.clone(), &[item])?;
             result.push(mapped);
@@ -148,12 +151,16 @@ impl Interpreter<'_> {
     }
 
     /// Filter items from an iterator using a predicate function.
+    ///
+    /// Uses `size_hint` to estimate initial capacity (filter results may be smaller).
     fn filter_iterator(
         &mut self,
         iter: impl Iterator<Item = Value>,
         predicate: &Value,
     ) -> EvalResult {
-        let mut result = Vec::new();
+        let (lower, _) = iter.size_hint();
+        // Filter may remove items, so use lower bound as estimate
+        let mut result = Vec::with_capacity(lower);
         for item in iter {
             let keep = self.eval_call(predicate.clone(), std::slice::from_ref(&item))?;
             if keep.is_truthy() {
@@ -346,8 +353,8 @@ impl Interpreter<'_> {
         let mut call_env = self.env.child();
         call_env.push_scope();
 
-        // Bind captured variables
-        for (name, value) in &method.captures {
+        // Bind captured variables (dereference Arc to iterate HashMap)
+        for (name, value) in method.captures.iter() {
             call_env.define(*name, value.clone(), Mutability::Immutable);
         }
 
@@ -372,4 +379,44 @@ impl Interpreter<'_> {
     // NOTE: Derived method evaluation has been moved to `derived_methods.rs`
     // for better separation of concerns. The method `eval_derived_method`
     // and its helpers are now in that module.
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod expect_arg_count_tests {
+        use super::*;
+
+        #[test]
+        fn correct_count_returns_ok() {
+            let args = vec![Value::int(1)];
+            assert!(Interpreter::expect_arg_count("test", 1, &args).is_ok());
+        }
+
+        #[test]
+        fn wrong_count_returns_error() {
+            let args = vec![Value::int(1), Value::int(2)];
+            let result = Interpreter::expect_arg_count("test", 1, &args);
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            assert!(err.message.contains("test"));
+        }
+
+        #[test]
+        fn zero_expected_zero_given_ok() {
+            let args: Vec<Value> = vec![];
+            assert!(Interpreter::expect_arg_count("test", 0, &args).is_ok());
+        }
+
+        #[test]
+        fn zero_expected_one_given_error() {
+            let args = vec![Value::int(1)];
+            assert!(Interpreter::expect_arg_count("test", 0, &args).is_err());
+        }
+    }
+
+    // Note: More comprehensive method dispatch tests are in the integration
+    // tests (tests/spec/) since they require a full interpreter setup.
+    // These unit tests cover the simpler helper functions.
 }

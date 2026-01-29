@@ -97,15 +97,6 @@ impl Parser<'_> {
         }
     }
 
-    /// Match `function_seq` keywords. Returns Some(true) for try, Some(false) for run.
-    pub(crate) fn match_function_seq_kind(&self) -> Option<bool> {
-        match self.current_kind() {
-            TokenKind::Run => Some(false),
-            TokenKind::Try => Some(true),
-            _ => None,
-        }
-    }
-
     /// Match `function_exp` keywords.
     pub(crate) fn match_function_exp_kind(&self) -> Option<FunctionExpKind> {
         // Compiler pattern keywords (require special syntax or static analysis)

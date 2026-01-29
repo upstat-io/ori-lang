@@ -10,6 +10,7 @@
 use crate::Value;
 use ori_ir::{DerivedMethodInfo, ExprId, Name, SharedArena};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::method_key::MethodKey;
 
@@ -20,6 +21,11 @@ use crate::method_key::MethodKey;
 /// safety in parallel execution - when methods are called from different
 /// contexts (e.g., parallel test runner), they must use their own arena to
 /// resolve `ExprId` values correctly.
+///
+/// # Captures
+/// Uses `Arc<HashMap>` for captures to enable cheap cloning when registering
+/// multiple methods from the same scope. The Arc is cloned (O(1)) rather than
+/// the entire HashMap.
 #[derive(Clone, Debug)]
 pub struct UserMethod {
     /// Parameter names (first is always `self`).
@@ -28,8 +34,8 @@ pub struct UserMethod {
     pub body: ExprId,
     /// Arena for evaluating the body (required for thread safety).
     pub arena: SharedArena,
-    /// Captured variables from the defining scope.
-    pub captures: HashMap<Name, Value>,
+    /// Captured variables from the defining scope (Arc for cheap cloning).
+    pub captures: Arc<HashMap<Name, Value>>,
 }
 
 impl UserMethod {
@@ -38,12 +44,12 @@ impl UserMethod {
     /// # Arguments
     /// * `params` - Parameter names (first is always `self`)
     /// * `body` - Method body expression ID
-    /// * `captures` - Captured variables from the defining scope
+    /// * `captures` - Captured variables from the defining scope (wrapped in Arc)
     /// * `arena` - Arena for expression resolution (required for thread safety)
     pub fn new(
         params: Vec<Name>,
         body: ExprId,
-        captures: HashMap<Name, Value>,
+        captures: Arc<HashMap<Name, Value>>,
         arena: SharedArena,
     ) -> Self {
         UserMethod {
@@ -52,6 +58,18 @@ impl UserMethod {
             arena,
             captures,
         }
+    }
+
+    /// Create a new user method from owned captures.
+    ///
+    /// Convenience method that wraps the captures in Arc.
+    pub fn with_captures(
+        params: Vec<Name>,
+        body: ExprId,
+        captures: HashMap<Name, Value>,
+        arena: SharedArena,
+    ) -> Self {
+        Self::new(params, body, Arc::new(captures), arena)
     }
 }
 
@@ -188,6 +206,10 @@ mod tests {
         SharedArena::new(ExprArena::new())
     }
 
+    fn dummy_captures() -> Arc<HashMap<Name, Value>> {
+        Arc::new(HashMap::new())
+    }
+
     #[test]
     fn test_register_and_lookup() {
         let interner = SharedInterner::default();
@@ -195,7 +217,7 @@ mod tests {
         let method = UserMethod::new(
             vec![dummy_name()],
             dummy_expr_id(),
-            HashMap::new(),
+            dummy_captures(),
             dummy_arena(),
         );
 
@@ -289,7 +311,7 @@ mod tests {
         let method = UserMethod::new(
             vec![dummy_name()],
             dummy_expr_id(),
-            HashMap::new(),
+            dummy_captures(),
             dummy_arena(),
         );
         registry.register(point, distance, method);
@@ -331,7 +353,7 @@ mod tests {
         let method = UserMethod::new(
             vec![dummy_name()],
             dummy_expr_id(),
-            HashMap::new(),
+            dummy_captures(),
             dummy_arena(),
         );
         registry1.register(point, distance, method);

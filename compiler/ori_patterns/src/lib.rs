@@ -46,7 +46,7 @@ use std::collections::HashMap;
 use ori_ir::{ExprArena, ExprId, NamedExpr, StringInterner};
 use ori_types::{InferenceContext, Type};
 
-pub use errors::{EvalError, EvalResult};
+pub use errors::{ControlFlow, EvalError, EvalResult};
 pub use fusion::{ChainLink, FusedPattern, FusionHints, PatternChain};
 pub use method_key::{MethodKey, MethodKeyDisplay};
 pub use registry::PatternRegistry;
@@ -120,6 +120,7 @@ pub use errors::{
     not_callable,
     operator_not_supported_in_index,
     parse_error,
+    propagated_error_message,
     range_bound_not_int,
     self_outside_method,
     tuple_index_out_of_bounds,

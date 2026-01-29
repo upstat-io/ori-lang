@@ -20,7 +20,7 @@ mod tests;
 
 use ori_ir::{Name, Span, TypeId};
 use ori_types::{SharedTypeInterner, Type, TypeInterner};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 pub use trait_registry::{
     CoherenceError, ImplAssocTypeDef, ImplEntry, ImplMethodDef, MethodLookup, TraitAssocTypeDef,
@@ -84,10 +84,13 @@ pub struct TypeEntry {
 /// or return individual `TypeEntry` values instead.
 #[derive(Clone, Debug)]
 pub struct TypeRegistry {
-    /// Types indexed by name.
-    types_by_name: HashMap<Name, TypeEntry>,
-    /// Types indexed by `TypeId`.
-    types_by_id: HashMap<TypeId, TypeEntry>,
+    /// Types indexed by name (FxHashMap for faster hashing with Name keys).
+    types_by_name: FxHashMap<Name, TypeEntry>,
+    /// Types indexed by `TypeId` (FxHashMap for faster hashing with `TypeId` keys).
+    types_by_id: FxHashMap<TypeId, TypeEntry>,
+    /// Variant name → (enum `TypeId`, variant index) for O(1) variant lookup.
+    /// This is derived state for performance - not included in equality comparisons.
+    variants_by_name: FxHashMap<Name, (TypeId, usize)>,
     /// Next available `TypeId` for compound types.
     next_type_id: u32,
     /// Type interner for Type↔TypeId conversions.
@@ -99,8 +102,10 @@ impl PartialEq for TypeRegistry {
         self.types_by_name == other.types_by_name
             && self.types_by_id == other.types_by_id
             && self.next_type_id == other.next_type_id
-        // Interner is not compared - two registries with the same data are equal
-        // regardless of which interner they use
+        // Interner and variants_by_name are not compared:
+        // - variants_by_name is derived state for performance
+        // - Interner is internal infrastructure
+        // Two registries with the same type data are equal
     }
 }
 
@@ -116,8 +121,9 @@ impl TypeRegistry {
     /// Create a new empty registry with a new type interner.
     pub fn new() -> Self {
         TypeRegistry {
-            types_by_name: HashMap::new(),
-            types_by_id: HashMap::new(),
+            types_by_name: FxHashMap::default(),
+            types_by_id: FxHashMap::default(),
+            variants_by_name: FxHashMap::default(),
             next_type_id: TypeId::FIRST_COMPOUND,
             interner: SharedTypeInterner::new(),
         }
@@ -128,8 +134,9 @@ impl TypeRegistry {
     /// Use this when you want to share the interner with other compiler phases.
     pub fn with_interner(interner: SharedTypeInterner) -> Self {
         TypeRegistry {
-            types_by_name: HashMap::new(),
-            types_by_id: HashMap::new(),
+            types_by_name: FxHashMap::default(),
+            types_by_id: FxHashMap::default(),
+            variants_by_name: FxHashMap::default(),
             next_type_id: TypeId::FIRST_COMPOUND,
             interner,
         }
@@ -215,14 +222,21 @@ impl TypeRegistry {
                 }
             })
             .collect();
-        self.register_entry(
+        let type_id = self.register_entry(
             name,
             TypeKind::Enum {
-                variants: variant_defs,
+                variants: variant_defs.clone(),
             },
             span,
             type_params,
-        )
+        );
+
+        // Populate variant index for O(1) lookup
+        for (idx, variant) in variant_defs.iter().enumerate() {
+            self.variants_by_name.insert(variant.name, (type_id, idx));
+        }
+
+        type_id
     }
 
     /// Register a newtype (nominally distinct type wrapper).
@@ -317,11 +331,33 @@ impl TypeRegistry {
     /// Get field types for an enum variant.
     ///
     /// Returns the fields as (Name, Type) pairs by converting from `TypeId`.
+    /// Uses O(1) lookup via the variant index when the variant exists in this registry.
     pub fn get_variant_fields(
         &self,
         type_id: TypeId,
         variant_name: Name,
     ) -> Option<Vec<(Name, Type)>> {
+        // First try O(1) lookup via variant index
+        if let Some(&(enum_id, variant_idx)) = self.variants_by_name.get(&variant_name) {
+            // Verify the type_id matches the expected enum type
+            if enum_id == type_id {
+                if let Some(entry) = self.get_by_id(enum_id) {
+                    if let TypeKind::Enum { variants } = &entry.kind {
+                        if let Some(variant) = variants.get(variant_idx) {
+                            return Some(
+                                variant
+                                    .fields
+                                    .iter()
+                                    .map(|(name, ty_id)| (*name, self.interner.to_type(*ty_id)))
+                                    .collect(),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback to linear search (for built-in types like Option, Result)
         self.get_by_id(type_id).and_then(|entry| match &entry.kind {
             TypeKind::Enum { variants } => {
                 variants.iter().find(|v| v.name == variant_name).map(|v| {
@@ -337,31 +373,31 @@ impl TypeRegistry {
 
     /// Look up a variant constructor by name.
     ///
-    /// Searches all registered enum types for a variant with the given name.
+    /// Uses O(1) hash lookup via the variant index.
     /// Returns the enum type name and variant definition if found.
     ///
     /// This is used for resolving variant constructors like `Running` or `Done`
     /// when they appear as identifiers or function calls.
     pub fn lookup_variant_constructor(&self, variant_name: Name) -> Option<VariantConstructorInfo> {
-        for entry in self.types_by_name.values() {
-            if let TypeKind::Enum { variants } = &entry.kind {
-                for variant in variants {
-                    if variant.name == variant_name {
-                        let field_types: Vec<Type> = variant
-                            .fields
-                            .iter()
-                            .map(|(_, ty_id)| self.interner.to_type(*ty_id))
-                            .collect();
-                        return Some(VariantConstructorInfo {
-                            enum_name: entry.name,
-                            variant_name,
-                            field_types,
-                            type_params: entry.type_params.clone(),
-                        });
-                    }
-                }
-            }
+        // O(1) lookup via variant index
+        let &(enum_type_id, variant_idx) = self.variants_by_name.get(&variant_name)?;
+
+        let entry = self.get_by_id(enum_type_id)?;
+        if let TypeKind::Enum { variants } = &entry.kind {
+            let variant = variants.get(variant_idx)?;
+            let field_types: Vec<Type> = variant
+                .fields
+                .iter()
+                .map(|(_, ty_id)| self.interner.to_type(*ty_id))
+                .collect();
+            return Some(VariantConstructorInfo {
+                enum_name: entry.name,
+                variant_name,
+                field_types,
+                type_params: entry.type_params.clone(),
+            });
         }
+
         None
     }
 

@@ -29,6 +29,29 @@ fn plural_s(count: usize) -> &'static str {
     }
 }
 
+/// Color output mode for terminal emitter.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ColorMode {
+    /// Automatically detect based on terminal capabilities.
+    #[default]
+    Auto,
+    /// Always use colors.
+    Always,
+    /// Never use colors.
+    Never,
+}
+
+impl ColorMode {
+    /// Resolve to a boolean based on terminal detection.
+    pub fn should_use_colors(&self) -> bool {
+        match self {
+            ColorMode::Auto => atty_check(),
+            ColorMode::Always => true,
+            ColorMode::Never => false,
+        }
+    }
+}
+
 /// Terminal emitter with optional color support.
 pub struct TerminalEmitter<W: Write> {
     writer: W,
@@ -36,7 +59,17 @@ pub struct TerminalEmitter<W: Write> {
 }
 
 impl<W: Write> TerminalEmitter<W> {
+    /// Create a new terminal emitter with explicit color mode.
+    pub fn with_color_mode(writer: W, mode: ColorMode) -> Self {
+        TerminalEmitter {
+            writer,
+            colors: mode.should_use_colors(),
+        }
+    }
+
     /// Create a new terminal emitter.
+    ///
+    /// Prefer `with_color_mode` for clearer intent.
     pub fn new(writer: W, colors: bool) -> Self {
         TerminalEmitter { writer, colors }
     }
@@ -54,6 +87,15 @@ impl<W: Write> TerminalEmitter<W> {
         TerminalEmitter {
             writer: io::stderr(),
             colors: atty_check(),
+        }
+    }
+
+    /// Write text with optional ANSI color codes.
+    fn write_colored(&mut self, text: &str, color: &str) {
+        if self.colors {
+            let _ = write!(self.writer, "{color}{text}{}", colors::RESET);
+        } else {
+            let _ = write!(self.writer, "{text}");
         }
     }
 
@@ -80,19 +122,11 @@ impl<W: Write> TerminalEmitter<W> {
     }
 
     fn write_primary(&mut self, text: &str) {
-        if self.colors {
-            let _ = write!(self.writer, "{}{text}{}", colors::ERROR, colors::RESET);
-        } else {
-            let _ = write!(self.writer, "{text}");
-        }
+        self.write_colored(text, colors::ERROR);
     }
 
     fn write_secondary(&mut self, text: &str) {
-        if self.colors {
-            let _ = write!(self.writer, "{}{text}{}", colors::SECONDARY, colors::RESET);
-        } else {
-            let _ = write!(self.writer, "{text}");
-        }
+        self.write_colored(text, colors::SECONDARY);
     }
 }
 
@@ -145,63 +179,40 @@ impl<W: Write> DiagnosticEmitter for TerminalEmitter<W> {
     }
 
     fn emit_summary(&mut self, error_count: usize, warning_count: usize) {
-        if error_count > 0 || warning_count > 0 {
-            if self.colors {
-                if error_count > 0 {
-                    let _ = write!(
-                        self.writer,
-                        "{}error{}: aborting due to ",
-                        colors::ERROR,
-                        colors::RESET
-                    );
-                    if error_count == 1 {
-                        let _ = write!(self.writer, "previous error");
-                    } else {
-                        let _ = write!(self.writer, "{error_count} previous errors");
-                    }
-                    if warning_count > 0 {
-                        let _ = write!(
-                            self.writer,
-                            "; {} warning{} emitted",
-                            warning_count,
-                            plural_s(warning_count)
-                        );
-                    }
-                    let _ = writeln!(self.writer);
-                } else if warning_count > 0 {
-                    let _ = writeln!(
-                        self.writer,
-                        "{}warning{}: {} warning{} emitted",
-                        colors::WARNING,
-                        colors::RESET,
-                        warning_count,
-                        plural_s(warning_count)
-                    );
-                }
-            } else if error_count > 0 {
-                let _ = write!(self.writer, "error: aborting due to ");
-                if error_count == 1 {
-                    let _ = write!(self.writer, "previous error");
-                } else {
-                    let _ = write!(self.writer, "{error_count} previous errors");
-                }
-                if warning_count > 0 {
-                    let _ = write!(
-                        self.writer,
-                        "; {} warning{} emitted",
-                        warning_count,
-                        plural_s(warning_count)
-                    );
-                }
-                let _ = writeln!(self.writer);
-            } else if warning_count > 0 {
+        if error_count == 0 && warning_count == 0 {
+            return;
+        }
+
+        if error_count > 0 {
+            // Write "error" prefix
+            self.write_colored("error", colors::ERROR);
+
+            // Build message
+            let error_part = if error_count == 1 {
+                "previous error".to_string()
+            } else {
+                format!("{error_count} previous errors")
+            };
+
+            if warning_count > 0 {
                 let _ = writeln!(
                     self.writer,
-                    "warning: {} warning{} emitted",
+                    ": aborting due to {error_part}; {} warning{} emitted",
                     warning_count,
                     plural_s(warning_count)
                 );
+            } else {
+                let _ = writeln!(self.writer, ": aborting due to {error_part}");
             }
+        } else if warning_count > 0 {
+            // Write "warning" prefix
+            self.write_colored("warning", colors::WARNING);
+            let _ = writeln!(
+                self.writer,
+                ": {} warning{} emitted",
+                warning_count,
+                plural_s(warning_count)
+            );
         }
     }
 }

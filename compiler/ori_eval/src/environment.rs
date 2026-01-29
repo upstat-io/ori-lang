@@ -8,6 +8,7 @@
     reason = "Rc is the implementation of LocalScope<T>"
 )]
 
+use rustc_hash::FxHashMap;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -112,8 +113,8 @@ impl<T> Deref for LocalScope<T> {
 /// A single scope containing variable bindings.
 #[derive(Clone, Debug)]
 pub struct Scope {
-    /// Variable bindings in this scope.
-    bindings: HashMap<Name, Binding>,
+    /// Variable bindings in this scope (FxHashMap for faster hashing with Name keys).
+    bindings: FxHashMap<Name, Binding>,
     /// Parent scope (for lexical scoping).
     parent: Option<LocalScope<Scope>>,
 }
@@ -131,7 +132,7 @@ impl Scope {
     /// Create a new empty scope with no parent.
     pub fn new() -> Self {
         Scope {
-            bindings: HashMap::new(),
+            bindings: FxHashMap::default(),
             parent: None,
         }
     }
@@ -139,17 +140,19 @@ impl Scope {
     /// Create a new scope with a parent.
     pub fn with_parent(parent: LocalScope<Scope>) -> Self {
         Scope {
-            bindings: HashMap::new(),
+            bindings: FxHashMap::default(),
             parent: Some(parent),
         }
     }
 
     /// Define a variable in this scope.
+    #[inline]
     pub fn define(&mut self, name: Name, value: Value, mutability: Mutability) {
         self.bindings.insert(name, Binding { value, mutability });
     }
 
     /// Look up a variable by name.
+    #[inline]
     pub fn lookup(&self, name: Name) -> Option<Value> {
         if let Some(binding) = self.bindings.get(&name) {
             return Some(binding.value.clone());
@@ -161,6 +164,7 @@ impl Scope {
     }
 
     /// Assign to a variable.
+    #[inline]
     pub fn assign(&mut self, name: Name, value: Value) -> Result<(), String> {
         if let Some(binding) = self.bindings.get_mut(&name) {
             if !binding.mutability.is_mutable() {
@@ -204,6 +208,7 @@ impl Environment {
     }
 
     /// Push a new scope onto the stack.
+    #[inline]
     pub fn push_scope(&mut self) {
         let parent = self.current_scope();
         let new_scope = LocalScope::new(Scope::with_parent(parent));
@@ -211,6 +216,7 @@ impl Environment {
     }
 
     /// Pop the current scope from the stack.
+    #[inline]
     pub fn pop_scope(&mut self) {
         if self.scopes.len() > 1 {
             self.scopes.pop();
@@ -219,11 +225,13 @@ impl Environment {
 
     /// Get the current scope.
     /// Returns the last scope on the stack, or the global scope if empty (which shouldn't happen).
+    #[inline]
     fn current_scope(&self) -> LocalScope<Scope> {
         self.scopes.last().unwrap_or(&self.global).clone()
     }
 
     /// Define a variable in the current scope.
+    #[inline]
     pub fn define(&mut self, name: Name, value: Value, mutability: Mutability) {
         self.current_scope()
             .borrow_mut()
@@ -231,11 +239,19 @@ impl Environment {
     }
 
     /// Look up a variable by name.
+    ///
+    /// Optimized to avoid cloning the current scope by accessing the last scope directly.
+    #[inline]
     pub fn lookup(&self, name: Name) -> Option<Value> {
-        self.current_scope().borrow().lookup(name)
+        self.scopes
+            .last()
+            .unwrap_or(&self.global)
+            .borrow()
+            .lookup(name)
     }
 
     /// Assign to a variable.
+    #[inline]
     pub fn assign(&mut self, name: Name, value: Value) -> Result<(), String> {
         self.current_scope().borrow_mut().assign(name, value)
     }
@@ -258,9 +274,11 @@ impl Environment {
     /// but has its own local scope stack.
     #[must_use]
     pub fn child(&self) -> Self {
+        // Clone global once and reuse to avoid redundant Rc::clone
+        let global = self.global.clone();
         Environment {
-            scopes: vec![self.global.clone()],
-            global: self.global.clone(),
+            scopes: vec![global.clone()],
+            global,
         }
     }
 
@@ -369,10 +387,9 @@ impl Default for Environment {
 
 impl Clone for Environment {
     fn clone(&self) -> Self {
-        // Clone creates a new independent environment with copied values
-        let global = LocalScope::new(Scope::new());
-        // Copy global bindings
-        // (in practice, we rarely clone environments)
+        // Clone shares the global scope via Rc (cheap O(1) clone)
+        // This preserves all global bindings in the cloned environment
+        let global = self.global.clone();
         Environment {
             scopes: vec![global.clone()],
             global,
@@ -500,5 +517,35 @@ mod tests {
         // Deref returns &RefCell<T>
         let borrowed = scope.deref().borrow();
         assert_eq!(*borrowed, 42);
+    }
+
+    #[test]
+    fn test_environment_clone_preserves_bindings() {
+        let interner = SharedInterner::default();
+        let x = interner.intern("x");
+        let y = interner.intern("y");
+
+        let mut env = Environment::new();
+        env.define_global(x, Value::int(42));
+        env.define_global(y, Value::string("hello".to_string()));
+
+        // Clone should preserve all global bindings
+        let cloned = env.clone();
+
+        assert_eq!(cloned.lookup(x), Some(Value::int(42)));
+        assert_eq!(cloned.lookup(y), Some(Value::string("hello".to_string())));
+    }
+
+    #[test]
+    fn test_environment_child_preserves_global() {
+        let interner = SharedInterner::default();
+        let x = interner.intern("x");
+
+        let mut env = Environment::new();
+        env.define_global(x, Value::int(99));
+
+        // Child should have access to global bindings
+        let child = env.child();
+        assert_eq!(child.lookup(x), Some(Value::int(99)));
     }
 }

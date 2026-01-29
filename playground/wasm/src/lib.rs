@@ -184,59 +184,11 @@ fn run_ori_internal(source: &str) -> RunResult {
 
 /// Format a Value for output display.
 fn format_value(value: &Value) -> String {
-    match value {
-        Value::Void => String::new(),
-        Value::Int(n) => n.to_string(),
-        Value::Float(f) => f.to_string(),
-        Value::Bool(b) => b.to_string(),
-        Value::Str(s) => s.to_string(),
-        Value::Char(c) => c.to_string(),
-        Value::Byte(b) => format!("0x{:02x}", b),
-        Value::None => "None".to_string(),
-        Value::Some(v) => format!("Some({})", format_value(v)),
-        Value::Ok(v) => format!("Ok({})", format_value(v)),
-        Value::Err(v) => format!("Err({})", format_value(v)),
-        Value::List(items) => {
-            let formatted: Vec<String> = items.iter().map(format_value).collect();
-            format!("[{}]", formatted.join(", "))
-        }
-        Value::Tuple(items) => {
-            let formatted: Vec<String> = items.iter().map(format_value).collect();
-            format!("({})", formatted.join(", "))
-        }
-        Value::Map(map) => {
-            let entries: Vec<String> = map.iter()
-                .map(|(k, v)| format!("{}: {}", k, format_value(v)))
-                .collect();
-            format!("{{{}}}", entries.join(", "))
-        }
-        Value::Struct(s) => {
-            // For struct, we'd need the interner to display field names properly
-            // For now, just show the type name
-            format!("<struct {:?}>", s.type_name)
-        }
-        Value::Range(r) => format!("{}..{}", r.start, r.end),
-        Value::Function(_) | Value::MemoizedFunction(_) => "<function>".to_string(),
-        Value::FunctionVal(_, name) => format!("<builtin {}>", name),
-        Value::Duration(ms) => format!("{ms}ms"),
-        Value::Size(s) => format!("{}b", s),
-        Value::Error(e) => format!("Error({})", e),
-        Value::Variant { variant_name, fields, .. } => {
-            if fields.is_empty() {
-                format!("{variant_name:?}")
-            } else {
-                let formatted: Vec<String> = fields.iter().map(format_value).collect();
-                format!("{:?}({})", variant_name, formatted.join(", "))
-            }
-        }
-        Value::VariantConstructor { variant_name, .. } => {
-            format!("<variant constructor {:?}>", variant_name)
-        }
-        Value::Newtype { inner, .. } => format_value(inner),
-        Value::NewtypeConstructor { type_name } => {
-            format!("<newtype constructor {:?}>", type_name)
-        }
+    // Special case: Void produces no output
+    if matches!(value, Value::Void) {
+        return String::new();
     }
+    value.display_value()
 }
 
 /// Get version information.

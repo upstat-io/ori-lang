@@ -8,9 +8,27 @@ use ori_ir::{
     NamedExpr, SeqBinding, TokenKind,
 };
 
+/// Kind of function_seq expression.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FunctionSeqKind {
+    Run,
+    Try,
+}
+
 impl Parser<'_> {
-    /// Parse `function_seq`: run or try with sequential bindings and statements.
-    pub(crate) fn parse_function_seq(&mut self, is_try: bool) -> Result<ExprId, ParseError> {
+    /// Parse `run(...)` expression.
+    pub(crate) fn parse_run(&mut self) -> Result<ExprId, ParseError> {
+        self.parse_function_seq_internal(FunctionSeqKind::Run)
+    }
+
+    /// Parse `try(...)` expression.
+    pub(crate) fn parse_try(&mut self) -> Result<ExprId, ParseError> {
+        self.parse_function_seq_internal(FunctionSeqKind::Try)
+    }
+
+    /// Internal implementation for parsing run/try expressions.
+    fn parse_function_seq_internal(&mut self, kind: FunctionSeqKind) -> Result<ExprId, ParseError> {
+        let is_try = matches!(kind, FunctionSeqKind::Try);
         let start_span = self.previous_span();
         self.expect(&TokenKind::LParen)?;
         self.skip_newlines();
