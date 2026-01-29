@@ -151,6 +151,10 @@ impl Interpreter<'_> {
     /// Evaluate derived `to_string` method for structs.
     ///
     /// Produces a string representation like "Point { x: 10, y: 20 }".
+    ///
+    /// # Performance
+    /// Uses a single String builder with `write!()` instead of Vec + format! + join
+    /// to minimize allocations on this hot path.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "Consistent derived method dispatch signature"
@@ -160,21 +164,37 @@ impl Interpreter<'_> {
         reason = "Returns EvalResult for consistent derived method dispatch interface"
     )]
     fn eval_derived_to_string(&self, receiver: Value, info: &DerivedMethodInfo) -> EvalResult {
+        use std::fmt::Write;
+
         let Value::Struct(struct_val) = &receiver else {
             return Ok(Value::string(format!("{receiver}")));
         };
 
         let type_name = self.interner.lookup(struct_val.type_name);
-        let mut fields = Vec::new();
+        // Pre-allocate capacity: type_name + " { " + estimated field content + " }"
+        // Overflow is impossible for reasonable struct sizes, and even if it wrapped,
+        // String::with_capacity handles it safely by allocating less.
+        #[expect(clippy::arithmetic_side_effects, reason = "capacity estimation, overflow is safe")]
+        let capacity = type_name.len() + 4 + info.field_names.len() * 20;
+        let mut result = String::with_capacity(capacity);
 
+        result.push_str(type_name);
+        result.push_str(" { ");
+
+        let mut first = true;
         for field_name in &info.field_names {
             let field_str = self.interner.lookup(*field_name);
             if let Some(val) = struct_val.get_field(*field_name) {
-                fields.push(format!("{field_str}: {val}"));
+                if !first {
+                    result.push_str(", ");
+                }
+                first = false;
+                // write! returns fmt::Result but we're writing to String which is infallible
+                let _ = write!(result, "{field_str}: {val}");
             }
         }
 
-        let result = format!("{type_name} {{ {} }}", fields.join(", "));
+        result.push_str(" }");
         Ok(Value::string(result))
     }
 

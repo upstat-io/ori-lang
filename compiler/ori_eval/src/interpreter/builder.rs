@@ -4,7 +4,7 @@ use super::resolvers::{
     BuiltinMethodResolver, CollectionMethodResolver, MethodDispatcher, MethodResolverKind,
     UserRegistryResolver,
 };
-use super::{Interpreter, ModuleLoader};
+use super::Interpreter;
 use crate::{
     stdout_handler, Environment, SharedMutableRegistry, SharedPrintHandler, SharedRegistry,
     UserMethodRegistry,
@@ -20,7 +20,6 @@ pub struct InterpreterBuilder<'a> {
     registry: Option<SharedRegistry<PatternRegistry>>,
     imported_arena: Option<SharedArena>,
     user_method_registry: Option<SharedMutableRegistry<UserMethodRegistry>>,
-    module_loader: Option<Box<dyn ModuleLoader + 'a>>,
     print_handler: Option<SharedPrintHandler>,
 }
 
@@ -34,7 +33,6 @@ impl<'a> InterpreterBuilder<'a> {
             registry: None,
             imported_arena: None,
             user_method_registry: None,
-            module_loader: None,
             print_handler: None,
         }
     }
@@ -64,13 +62,6 @@ impl<'a> InterpreterBuilder<'a> {
     #[must_use]
     pub fn user_method_registry(mut self, r: SharedMutableRegistry<UserMethodRegistry>) -> Self {
         self.user_method_registry = Some(r);
-        self
-    }
-
-    /// Set the module loader for import resolution.
-    #[must_use]
-    pub fn module_loader(mut self, loader: Box<dyn ModuleLoader + 'a>) -> Self {
-        self.module_loader = Some(loader);
         self
     }
 
@@ -111,7 +102,6 @@ impl<'a> InterpreterBuilder<'a> {
             method_dispatcher,
             imported_arena: self.imported_arena,
             prelude_loaded: false,
-            module_loader: self.module_loader,
             print_handler: self.print_handler.unwrap_or_else(stdout_handler),
         }
     }

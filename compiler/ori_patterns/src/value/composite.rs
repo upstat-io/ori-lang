@@ -231,14 +231,24 @@ impl fmt::Debug for FunctionValue {
 ///
 /// Uses a vector of values as the key, with custom Hash implementation
 /// that hashes each element.
+///
+/// # Performance
+/// Implements `Borrow<[Value]>` to enable zero-allocation cache lookups
+/// using `&[Value]` slices.
 #[derive(Clone, PartialEq, Eq)]
 pub struct MemoKey(pub Vec<Value>);
 
 impl Hash for MemoKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        for v in &self.0 {
-            v.hash(state);
-        }
+        // Must match the Hash impl for [Value] to work with Borrow trait.
+        // Vec<T>::hash uses Hash::hash_slice which hashes all elements.
+        self.0.hash(state);
+    }
+}
+
+impl std::borrow::Borrow<[Value]> for MemoKey {
+    fn borrow(&self) -> &[Value] {
+        &self.0
     }
 }
 
@@ -273,12 +283,16 @@ impl MemoizedFunctionValue {
     /// Look up a cached result for the given arguments.
     ///
     /// Returns `Some(value)` if the result is cached, `None` otherwise.
+    ///
+    /// # Performance
+    /// Uses `Borrow<[Value]>` for zero-allocation lookups - no Vec allocation needed.
     pub fn get_cached(&self, args: &[Value]) -> Option<Value> {
-        let key = MemoKey(args.to_vec());
-        self.cache.read().ok()?.get(&key).cloned()
+        self.cache.read().ok()?.get(args).cloned()
     }
 
     /// Store a result in the cache.
+    ///
+    /// Note: This still allocates for the key since we need to own it for storage.
     pub fn cache_result(&self, args: &[Value], result: Value) {
         let key = MemoKey(args.to_vec());
         if let Ok(mut cache) = self.cache.write() {

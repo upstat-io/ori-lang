@@ -130,7 +130,7 @@ pub use function_val::{
 };
 pub use interpreter::{Interpreter, InterpreterBuilder};
 pub use print_handler::{
-    buffer_handler, stdout_handler, BufferPrintHandler, PrintHandler, SharedPrintHandler,
+    buffer_handler, stdout_handler, BufferPrintHandler, PrintHandlerImpl, SharedPrintHandler,
     StdoutPrintHandler,
 };
 pub use shared::{SharedMutableRegistry, SharedRegistry};

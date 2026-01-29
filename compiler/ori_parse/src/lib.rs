@@ -51,9 +51,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // =========================================================================
-    // Context Management
-    // =========================================================================
+    // --- Context Management ---
     //
     // These methods support context-sensitive parsing. Some are not yet used
     // internally but are part of the public API for parser extensions and testing.
@@ -1129,9 +1127,7 @@ trait Async {}
         );
     }
 
-    // =========================================================================
-    // Context Management Tests
-    // =========================================================================
+    // --- Context Management Tests ---
 
     #[test]
     fn test_struct_literal_in_expression() {

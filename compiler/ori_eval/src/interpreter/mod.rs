@@ -102,12 +102,6 @@ pub struct Interpreter<'a> {
     /// Used by `oric::Evaluator` when module loading is enabled.
     #[allow(dead_code)]
     pub(crate) prelude_loaded: bool,
-    /// Optional module loader for import resolution.
-    ///
-    /// When set, enables `use` statements and module imports.
-    /// When None (e.g., in WASM), module loading is disabled.
-    #[allow(dead_code)]
-    pub(crate) module_loader: Option<Box<dyn ModuleLoader + 'a>>,
     /// Print handler for the Print capability.
     ///
     /// Determines where print output goes:
@@ -115,23 +109,6 @@ pub struct Interpreter<'a> {
     /// - WASM: buffer for capture
     /// - Tests: buffer for assertions
     pub print_handler: SharedPrintHandler,
-}
-
-/// Trait for loading modules (imports).
-///
-/// Implemented by oric's Salsa database for full compiler integration.
-/// For standalone/WASM usage, this can be None.
-pub trait ModuleLoader {
-    /// Load a module by path, returning its arena and interner.
-    fn load_module(&self, path: &str) -> Result<LoadedModule, EvalError>;
-}
-
-/// A loaded module's components.
-pub struct LoadedModule {
-    /// The module's expression arena.
-    pub arena: SharedArena,
-    /// The module's string interner.
-    pub interner: StringInterner,
 }
 
 /// Implement `PatternExecutor` for Interpreter to enable pattern evaluation.

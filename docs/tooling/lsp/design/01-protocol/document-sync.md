@@ -8,34 +8,127 @@ order: 2
 
 How the LSP server maintains document state and synchronizes with clients.
 
+## Reference: Gleam's FileSystemProxy
+
+Gleam uses an elegant pattern: a **FileSystemProxy** that layers in-memory edits over the real filesystem. The compiler reads through this proxy transparently, never knowing whether content is from disk or unsaved editor buffers.
+
+```
+┌─────────────────────────────────────────┐
+│            FileSystemProxy              │
+│  ┌─────────────┐   ┌─────────────────┐  │
+│  │ In-Memory   │   │   Real          │  │
+│  │ (unsaved)   │──►│   Filesystem    │  │
+│  │             │   │   (fallback)    │  │
+│  └─────────────┘   └─────────────────┘  │
+└─────────────────────────────────────────┘
+         ▲
+         │ transparent to compiler
+         ▼
+┌─────────────────────────────────────────┐
+│     Compiler (parse, typecheck)         │
+└─────────────────────────────────────────┘
+```
+
 ## Sync Strategy
 
-**Incremental sync** (`TextDocumentSyncKind.Incremental = 2`):
-- Client sends only changed ranges
-- More efficient for large files
-- Requires server to track document state
+**Full sync** (`TextDocumentSyncKind.Full = 1`):
+- Simpler implementation
+- Client sends entire document on each change
+- Gleam uses this approach
 
-Alternative considered:
-- **Full sync** (`TextDocumentSyncKind.Full = 1`): Simpler but sends entire document on every keystroke
+**Why full sync**: For single-file operations (Playground), full sync is simpler and the overhead is negligible. For multi-file workspaces, we can optimize later if needed.
 
-## Document State
+## FileSystemProxy Pattern (from Gleam)
 
 ```rust
-struct DocumentState {
-    /// Full document text
-    text: String,
-    /// Document version (increments on each change)
-    version: i32,
-    /// Cached parse result (invalidated on change)
-    ast: Option<Module>,
-    /// Cached type info (invalidated on change)
-    types: Option<TypeContext>,
-    /// Pending diagnostic computation
-    diagnostics_dirty: bool,
+/// In-memory cache layered over filesystem
+/// Transparent to compiler - it just calls read()
+#[derive(Clone)]
+pub struct FileSystemProxy {
+    /// Unsaved edits from editor (didOpen/didChange)
+    memory: Arc<RwLock<HashMap<Url, String>>>,
 }
 
-struct DocumentManager {
-    documents: HashMap<Url, DocumentState>,
+impl FileSystemProxy {
+    pub fn new() -> Self {
+        Self {
+            memory: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// Read file content - checks memory first, then disk
+    pub fn read(&self, uri: &Url) -> Option<String> {
+        // 1. Check in-memory cache (unsaved edits)
+        if let Some(content) = self.memory.read().unwrap().get(uri) {
+            return Some(content.clone());
+        }
+
+        // 2. Fall back to disk (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let path = uri.to_file_path().ok()?;
+            std::fs::read_to_string(path).ok()
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        None
+    }
+
+    /// Store unsaved content (didOpen or didChange)
+    pub fn write_memory(&self, uri: Url, content: String) {
+        self.memory.write().unwrap().insert(uri, content);
+    }
+
+    /// Remove from memory cache (didSave or didClose)
+    pub fn clear_memory(&self, uri: &Url) {
+        self.memory.write().unwrap().remove(uri);
+    }
+}
+```
+
+## Notification Handlers
+
+```rust
+fn handle_did_open(state: &mut GlobalState, params: DidOpenTextDocumentParams) {
+    let uri = params.text_document.uri;
+    let content = params.text_document.text;
+
+    // Store in memory cache
+    state.files.write_memory(uri.clone(), content);
+
+    // Compute and publish diagnostics
+    publish_diagnostics(state, &uri);
+}
+
+fn handle_did_change(state: &mut GlobalState, params: DidChangeTextDocumentParams) {
+    let uri = params.text_document.uri;
+
+    // Full sync: take the last (complete) content
+    if let Some(change) = params.content_changes.last() {
+        state.files.write_memory(uri.clone(), change.text.clone());
+    }
+
+    // Schedule debounced diagnostics
+    schedule_diagnostics(state, uri);
+}
+
+fn handle_did_save(state: &mut GlobalState, params: DidSaveTextDocumentParams) {
+    let uri = params.text_document.uri;
+
+    // Clear memory cache - use disk version now
+    state.files.clear_memory(&uri);
+
+    // Optionally re-publish diagnostics
+}
+
+fn handle_did_close(state: &mut GlobalState, params: DidCloseTextDocumentParams) {
+    let uri = params.text_document.uri;
+
+    // Clear memory cache
+    state.files.clear_memory(&uri);
+
+    // Clear diagnostics for this file
+    clear_diagnostics(state, &uri);
 }
 ```
 
@@ -105,31 +198,51 @@ fn offset_to_position(text: &str, offset: usize) -> Position {
 
 ## Diagnostic Debouncing
 
-Recomputing diagnostics on every keystroke is wasteful. Debounce with a short delay:
+Recomputing diagnostics on every keystroke is wasteful. Debounce with a short delay.
+
+### Native (with threads)
 
 ```rust
-impl DocumentManager {
-    async fn on_change(&mut self, uri: &Url, changes: Vec<ContentChange>) {
-        let doc = self.documents.get_mut(uri).unwrap();
-
-        for change in changes {
-            apply_change(doc, &change);
-        }
-
-        // Schedule diagnostic update (debounced)
-        self.schedule_diagnostics(uri.clone(), Duration::from_millis(100));
+fn schedule_diagnostics(state: &mut GlobalState, uri: Url) {
+    // Cancel any pending computation for this file
+    if let Some(handle) = state.pending_diagnostics.remove(&uri) {
+        // Signal cancellation (drop handle or set flag)
     }
 
-    async fn schedule_diagnostics(&mut self, uri: Url, delay: Duration) {
-        // Cancel any pending diagnostic computation for this document
-        self.cancel_pending_diagnostics(&uri);
+    let files = state.files.clone();
+    let sender = state.task_sender.clone();
+    let delay = Duration::from_millis(100);
 
-        // Schedule new computation
-        tokio::spawn(async move {
-            tokio::time::sleep(delay).await;
-            self.compute_and_publish_diagnostics(&uri).await;
-        });
+    // Spawn delayed computation
+    let handle = std::thread::spawn(move || {
+        std::thread::sleep(delay);
+
+        let diagnostics = compute_diagnostics(&files, &uri);
+        sender.send(Task::PublishDiagnostics(uri, diagnostics)).ok();
+    });
+
+    state.pending_diagnostics.insert(uri, handle);
+}
+```
+
+### WASM (JavaScript timers)
+
+In WASM, use JavaScript's `setTimeout` for debouncing:
+
+```typescript
+let debounceTimer: number | null = null;
+
+function onContentChange(uri: string, content: string) {
+    server.update_document(uri, content);
+
+    // Debounce diagnostics
+    if (debounceTimer) {
+        clearTimeout(debounceTimer);
     }
+    debounceTimer = setTimeout(() => {
+        const diagnostics = server.get_diagnostics(uri);
+        updateMonacoMarkers(uri, JSON.parse(diagnostics));
+    }, 100);
 }
 ```
 

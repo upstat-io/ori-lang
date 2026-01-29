@@ -1,3 +1,5 @@
+//! Tests for LLVM codegen of collection types (tuples, lists, maps, structs).
+
 use inkwell::context::Context;
 use ori_ir::ast::{Expr, ExprKind, FieldInit, MapEntry};
 use ori_ir::{ExprArena, StringInterner, TypeId};
