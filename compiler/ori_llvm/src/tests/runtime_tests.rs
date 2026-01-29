@@ -233,3 +233,51 @@ fn test_ori_str_concat_empty() {
     let s = std::str::from_utf8(slice).unwrap();
     assert_eq!(s, "test");
 }
+
+#[test]
+#[allow(unsafe_code)]
+fn test_ori_closure_box_allocates_memory() {
+    // Test allocation of various sizes
+    let ptr1 = runtime::ori_closure_box(24); // closure with 1 capture: 1 + 8 + 8 + 8 (aligned)
+    let ptr2 = runtime::ori_closure_box(40); // closure with 3 captures
+
+    assert!(!ptr1.is_null());
+    assert!(!ptr2.is_null());
+
+    // Verify pointers are aligned to 8 bytes
+    assert_eq!(ptr1 as usize % 8, 0);
+    assert_eq!(ptr2 as usize % 8, 0);
+
+    // Write and read back to verify memory is usable
+    unsafe {
+        // Write a pattern to the memory
+        *ptr1 = 42;
+        *(ptr1.add(8) as *mut i64) = 12345;
+
+        // Read back
+        assert_eq!(*ptr1, 42);
+        assert_eq!(*(ptr1.add(8) as *mut i64), 12345);
+    }
+
+    // Clean up (normally closures would be freed by GC or explicit dealloc)
+    unsafe {
+        let layout1 = std::alloc::Layout::from_size_align(24, 8).unwrap();
+        let layout2 = std::alloc::Layout::from_size_align(40, 8).unwrap();
+        std::alloc::dealloc(ptr1, layout1);
+        std::alloc::dealloc(ptr2, layout2);
+    }
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn test_ori_closure_box_minimum_size() {
+    // Even if size is very small, should allocate at least 8 bytes
+    let ptr = runtime::ori_closure_box(1);
+    assert!(!ptr.is_null());
+
+    // Clean up
+    unsafe {
+        let layout = std::alloc::Layout::from_size_align(8, 8).unwrap();
+        std::alloc::dealloc(ptr, layout);
+    }
+}

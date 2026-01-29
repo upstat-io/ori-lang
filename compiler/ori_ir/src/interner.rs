@@ -146,6 +146,54 @@ impl StringInterner {
         Name::new(shard_idx_u32, local)
     }
 
+    /// Intern an owned String, avoiding double allocation.
+    ///
+    /// This is more efficient than `intern()` when you already have an owned String
+    /// (e.g., from `unescape_string`), as it avoids the extra allocation that
+    /// `intern(&s)` would perform.
+    ///
+    /// # Panics
+    /// Panics if the interner exceeds capacity (over 4 billion strings per shard).
+    pub fn intern_owned(&self, s: String) -> Name {
+        let shard_idx = Self::shard_for(&s);
+        let shard_idx_u32 = u32::try_from(shard_idx).unwrap_or_else(|_| {
+            unreachable!(
+                "shard_idx {} from modulo {} cannot exceed u32",
+                shard_idx,
+                Name::NUM_SHARDS
+            )
+        });
+        let shard = &self.shards[shard_idx];
+
+        // Fast path: check if already interned
+        {
+            let guard = shard.read();
+            if let Some(&local) = guard.map.get(s.as_str()) {
+                return Name::new(shard_idx_u32, local);
+            }
+        }
+
+        // Slow path: need to insert
+        let mut guard = shard.write();
+
+        // Double-check after acquiring write lock
+        if let Some(&local) = guard.map.get(s.as_str()) {
+            return Name::new(shard_idx_u32, local);
+        }
+
+        // Leak the owned string directly (no extra allocation)
+        let leaked: &'static str = Box::leak(s.into_boxed_str());
+
+        let local = u32::try_from(guard.strings.len())
+            .unwrap_or_else(|_| panic_interner_overflow(shard_idx, guard.strings.len()));
+        guard.strings.push(leaked);
+        guard.map.insert(leaked, local);
+
+        self.total_count.fetch_add(1, Ordering::Relaxed);
+
+        Name::new(shard_idx_u32, local)
+    }
+
     /// Look up the string for a Name.
     pub fn lookup(&self, name: Name) -> &str {
         let shard = &self.shards[name.shard()];
@@ -362,6 +410,35 @@ mod tests {
 
         let name1 = interner.intern("shared");
         let name2 = interner2.intern("shared");
+
+        assert_eq!(name1, name2);
+    }
+
+    #[test]
+    fn test_intern_owned() {
+        let interner = StringInterner::new();
+
+        // Intern an owned string
+        let owned = String::from("owned_string");
+        let name1 = interner.intern_owned(owned);
+
+        // Should return same Name for equivalent string
+        let name2 = interner.intern("owned_string");
+        assert_eq!(name1, name2);
+
+        assert_eq!(interner.lookup(name1), "owned_string");
+    }
+
+    #[test]
+    fn test_intern_owned_already_interned() {
+        let interner = StringInterner::new();
+
+        // First intern via reference
+        let name1 = interner.intern("test_string");
+
+        // Then intern owned - should return same Name
+        let owned = String::from("test_string");
+        let name2 = interner.intern_owned(owned);
 
         assert_eq!(name1, name2);
     }

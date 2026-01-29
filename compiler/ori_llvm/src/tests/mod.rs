@@ -1,5 +1,28 @@
 //! Test modules for LLVM codegen.
 
+/// Macro to set up common test infrastructure.
+///
+/// Creates: `context`, `interner`, `codegen`, and `arena` variables.
+///
+/// # Example
+/// ```ignore
+/// #[test]
+/// fn test_example() {
+///     setup_test!(test_example);
+///     // now use: context, interner, codegen, arena
+/// }
+/// ```
+#[macro_export]
+macro_rules! setup_test {
+    ($name:ident) => {
+        let context = inkwell::context::Context::create();
+        let interner = ori_ir::StringInterner::new();
+        let codegen =
+            $crate::tests::helper::TestCodegen::new(&context, &interner, stringify!($name));
+        let mut arena = ori_ir::ExprArena::new();
+    };
+}
+
 mod advanced_control_flow_tests;
 mod arithmetic_tests;
 mod builtins_tests;

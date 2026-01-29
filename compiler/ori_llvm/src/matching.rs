@@ -233,6 +233,8 @@ impl<'ll> Builder<'_, 'll, '_> {
                             }
                         } else {
                             // Multi-field variant: payload is a tuple, extract each element
+                            // Keeping separate if-lets for clarity: first extract, then type-check
+                            #[allow(clippy::collapsible_match)]
                             if let Some(payload) = self.extract_value(struct_val, 1, "payload") {
                                 if let BasicValueEnum::StructValue(tuple_val) = payload {
                                     for (i, pat_id) in inner_ids.iter().enumerate() {
