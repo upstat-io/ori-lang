@@ -1,9 +1,10 @@
 # Proposal: No Circular Imports
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-22
 **Draft:** 2026-01-25
+**Approved:** 2026-01-28
 **Affects:** Compiler, module system
 
 ---
@@ -21,7 +22,7 @@ use './a' { bar }  // Creates cycle: a -> b -> a
 ```
 
 ```
-error[E0401]: circular import detected
+error[E5003]: circular import detected
   --> a.ori:1:1
    |
  1 | use './b' { foo }
@@ -106,7 +107,7 @@ A -> B, C -> B        // No cycle (OK - multiple importers)
 Clear, actionable error message:
 
 ```
-error[E0401]: circular import detected
+error[E5003]: circular import detected
   --> src/user.ori:1:1
    |
  1 | use './order' { Order }
@@ -451,7 +452,7 @@ dot -Tpng imports.dot -o imports.png
 - **Matches Go, Rust** and other modern languages
 
 ```
-error[E0401]: circular import detected
+error[E5003]: circular import detected
   --> src/a.ori:1:1
    |
    = note: import cycle: a.ori -> b.ori -> a.ori
