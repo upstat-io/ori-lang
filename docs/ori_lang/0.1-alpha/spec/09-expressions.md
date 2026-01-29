@@ -40,7 +40,7 @@ assert_eq(actual: result, expected: 10)
 
 Named arguments are required for direct function and method calls. Argument names must match parameter names. Argument order is irrelevant.
 
-Positional arguments are permitted in two cases:
+Positional arguments are permitted in three cases:
 
 1. Type conversion functions (`int`, `float`, `str`, `byte`):
 
@@ -61,7 +61,23 @@ apply(fn: inc, val: 10)  // outer call: named required
                          // inner fn(val): positional OK
 ```
 
-It is a compile-time error to use positional arguments in direct function or method calls.
+3. Single-parameter functions called with inline lambda expressions:
+
+```ori
+items.map(x -> x * 2)           // OK: lambda literal
+items.filter(x -> x > 0)        // OK: lambda literal
+items.map(transform: x -> x * 2) // OK: named always works
+
+let double = x -> x * 2
+items.map(double)               // error: named arg required
+items.map(transform: double)    // OK: function reference needs name
+```
+
+A lambda expression is `x -> expr`, `(a, b) -> expr`, `() -> expr`, or `(x: Type) -> Type = expr`. Function references and variables holding functions are not lambda expressions and require named arguments.
+
+For methods, `self` is not counted when determining "single parameter." A method like `map(transform: fn)` has one explicit parameter, so lambda arguments may be positional.
+
+It is a compile-time error to use positional arguments in direct function or method calls outside these three cases.
 
 ### Error Propagation
 
