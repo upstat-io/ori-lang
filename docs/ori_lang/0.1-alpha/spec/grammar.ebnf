@@ -74,7 +74,7 @@ delimiter = "(" | ")" | "[" | "]" | "{" | "}"
 // --- Literals ---
 // See: 03-lexical-elements.md § Literals
 
-literal = int_literal | float_literal | string_literal | char_literal
+literal = int_literal | float_literal | string_literal | template_literal | char_literal
         | bool_literal | duration_literal | size_literal .
 
 // Integer literals
@@ -89,7 +89,22 @@ exponent      = ( "e" | "E" ) [ "+" | "-" ] decimal_lit .
 // String literals
 string_literal = '"' { string_char } '"' .
 string_char    = unicode_char - ( '"' | '\' | newline ) | escape .
-escape         = '\' ( '"' | '\' | 'n' | 't' | 'r' ) .
+escape         = '\' ( '"' | '\' | 'n' | 't' | 'r' | '0' ) .
+
+// Template string literals (with interpolation)
+template_literal = '`' { template_char | template_escape | template_brace | interpolation } '`' .
+template_char    = unicode_char - ( '`' | '\' | '{' | '}' ) .
+template_escape  = '\' ( '`' | '\' | 'n' | 't' | 'r' | '0' ) .
+template_brace   = "{{" | "}}" .
+interpolation    = '{' expression [ ':' format_spec ] '}' .
+
+// Format specifiers for template strings
+format_spec      = [ [ fill ] align ] [ width ] [ '.' precision ] [ format_type ] .
+fill             = unicode_char - align .
+align            = '<' | '>' | '^' .
+width            = decimal_lit .
+precision        = decimal_lit .
+format_type      = 'b' | 'x' | 'X' | 'o' | 'e' | 'E' .
 
 // Character literals
 char_literal = "'" char_char "'" .

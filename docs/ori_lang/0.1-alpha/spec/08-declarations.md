@@ -107,7 +107,7 @@ type User = { id: int, name: str }
 
 ```ori
 trait Printable {
-    @to_string (self) -> str
+    @to_str (self) -> str
 }
 
 trait Comparable: Eq {
@@ -131,11 +131,11 @@ impl Point {
 }
 
 impl Printable for Point {
-    @to_string (self) -> str = "(" + str(self.x) + ", " + str(self.y) + ")"
+    @to_str (self) -> str = "(" + str(self.x) + ", " + str(self.y) + ")"
 }
 
 impl<T: Printable> Printable for [T] {
-    @to_string (self) -> str = ...
+    @to_str (self) -> str = ...
 }
 ```
 

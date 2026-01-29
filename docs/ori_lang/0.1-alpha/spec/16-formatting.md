@@ -329,11 +329,11 @@ Opening brace on same line, one blank line between methods:
 
 ```ori
 trait Printable {
-    @to_string (self) -> str
+    @to_str (self) -> str
 }
 
 impl Printable for Point {
-    @to_string (self) -> str = "(" + str(self.x) + ", " + str(self.y) + ")"
+    @to_str (self) -> str = `({self.x}, {self.y})`
 }
 
 impl Point {
