@@ -71,9 +71,13 @@ impl TypeError {
                     ))
                     .with_label(span, format!("expected {expected} argument{plural}"))
                     .with_suggestion(if *found > *expected {
-                        "remove extra arguments"
+                        let diff = found - expected;
+                        let s = if diff == 1 { "" } else { "s" };
+                        format!("remove {diff} extra argument{s}")
                     } else {
-                        "add missing arguments"
+                        let diff = expected - found;
+                        let s = if diff == 1 { "" } else { "s" };
+                        format!("add {diff} missing argument{s}")
                     })
             }
             TypeError::TupleLengthMismatch { expected, found } => {
@@ -86,7 +90,9 @@ impl TypeError {
             TypeError::InfiniteType => Diagnostic::error(ErrorCode::E2005)
                 .with_message("cannot construct infinite type (occurs check failed)")
                 .with_label(span, "this creates a self-referential type")
-                .with_suggestion("break the cycle by introducing an intermediate type"),
+                .with_suggestion(
+                    "break the cycle using a newtype wrapper: `type Wrapper = { inner: T }`",
+                ),
             TypeError::UnknownIdent(name) => {
                 let name_str = interner.lookup(*name);
                 Diagnostic::error(ErrorCode::E2003)

@@ -1,15 +1,17 @@
 //! Type extraction helpers for match patterns.
 
+use std::collections::HashMap;
+
 use crate::checker::TypeChecker;
 use crate::registry::TypeKind;
 use ori_ir::Name;
 use ori_types::Type;
 
-/// Get field types for a struct pattern.
+/// Get field types for a struct pattern as a HashMap for O(1) lookup.
 pub fn get_struct_field_types(
     checker: &mut TypeChecker<'_>,
     scrutinee_ty: &Type,
-) -> Vec<(Name, Type)> {
+) -> HashMap<Name, Type> {
     if let Type::Named(type_name) = scrutinee_ty {
         if let Some(entry) = checker.registries.types.get_by_name(*type_name) {
             if let TypeKind::Struct { fields } = &entry.kind {
@@ -21,7 +23,7 @@ pub fn get_struct_field_types(
             }
         }
     }
-    vec![]
+    HashMap::new()
 }
 
 /// Get the field types for a variant pattern as a Vec.

@@ -98,7 +98,7 @@ impl Render for ParseProblem {
                 if let Some(suggestion) =
                     suggest_similar(arg_name, valid_args.iter().map(String::as_str))
                 {
-                    diag = diag.with_note(format!("did you mean `.{suggestion}:`?"));
+                    diag = diag.with_suggestion(format!("did you mean `.{suggestion}:`?"));
                 } else {
                     let valid_list = valid_args.join("`, `.");
                     diag = diag.with_note(format!("valid arguments are: `.{valid_list}`"));

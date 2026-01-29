@@ -1,18 +1,21 @@
 //! Config variable parsing.
 
 use crate::{ParseError, ParseResult, Parser};
-use ori_ir::{ConfigDef, Expr, ExprKind, TokenKind};
+use ori_ir::{ConfigDef, Expr, ExprKind, TokenKind, Visibility};
 
 impl Parser<'_> {
     /// Parse a config variable with progress tracking.
-    pub(crate) fn parse_config_with_progress(&mut self, is_public: bool) -> ParseResult<ConfigDef> {
-        self.with_progress(|p| p.parse_config(is_public))
+    pub(crate) fn parse_config_with_progress(
+        &mut self,
+        visibility: Visibility,
+    ) -> ParseResult<ConfigDef> {
+        self.with_progress(|p| p.parse_config(visibility))
     }
 
     /// Parse a config variable declaration.
     ///
     /// Syntax: `[pub] $name = literal`
-    pub(crate) fn parse_config(&mut self, is_public: bool) -> Result<ConfigDef, ParseError> {
+    pub(crate) fn parse_config(&mut self, visibility: Visibility) -> Result<ConfigDef, ParseError> {
         let start_span = self.current_span();
 
         // $
@@ -33,14 +36,14 @@ impl Parser<'_> {
             name,
             value,
             span,
-            is_public,
+            visibility,
         })
     }
 
     /// Parse a literal expression for config values.
     fn parse_literal_expr(&mut self) -> Result<ori_ir::ExprId, ParseError> {
         let span = self.current_span();
-        let kind = match self.current_kind() {
+        let kind = match *self.current_kind() {
             TokenKind::Int(n) => {
                 self.advance();
                 let value = i64::try_from(n).map_err(|_| {

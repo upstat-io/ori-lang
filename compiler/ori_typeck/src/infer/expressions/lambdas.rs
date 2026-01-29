@@ -5,7 +5,13 @@ use crate::checker::TypeChecker;
 use ori_ir::{ExprId, ParamRange, ParsedType, Span};
 use ori_types::Type;
 
-/// Infer type for a lambda expression.
+/// Infer the type of a lambda expression (e.g., `x -> x + 1`, `(a, b) -> a + b`).
+///
+/// Returns a `Function` type with parameter and return types:
+/// - Typed parameters use declared types; untyped get fresh type variables
+/// - Return type inferred from body, or validated against declared return type
+///
+/// Binds parameter names in scope for body inference.
 pub fn infer_lambda(
     checker: &mut TypeChecker<'_>,
     params: ParamRange,

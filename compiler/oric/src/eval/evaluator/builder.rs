@@ -82,12 +82,10 @@ impl<'a> EvaluatorBuilder<'a> {
             interpreter_builder = interpreter_builder.env(env);
         }
 
-        // Use pattern registry from context if provided
-        if let Some(_ctx) = self.context {
-            // TODO: Extract pattern registry from context
-            interpreter_builder = interpreter_builder.registry(PatternRegistry::new());
-        } else if let Some(_registry) = self.registry {
-            // TODO: Extract inner PatternRegistry from SharedRegistry
+        // PatternRegistry is a stateless ZST that dispatches to static pattern definitions.
+        // All instances are functionally equivalent, so we always create a fresh one.
+        // The context/registry options exist for future extension with custom patterns.
+        if self.context.is_some() || self.registry.is_some() {
             interpreter_builder = interpreter_builder.registry(PatternRegistry::new());
         }
 

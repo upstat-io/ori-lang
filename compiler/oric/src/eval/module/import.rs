@@ -32,6 +32,7 @@ use crate::ir::{ImportPath, Name, SharedArena, StringInterner};
 use crate::parser::ParseOutput;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Error during import resolution.
 #[derive(Debug, Clone)]
@@ -65,6 +66,27 @@ impl std::fmt::Display for ImportError {
 }
 
 impl std::error::Error for ImportError {}
+
+/// Extract params and capabilities from a function definition.
+///
+/// This is a common pattern when building `FunctionValue` from AST.
+fn extract_function_metadata(
+    func: &crate::ir::Function,
+    arena: &SharedArena,
+) -> (Vec<Name>, Vec<Name>) {
+    let params = arena.get_param_names(func.params);
+    let capabilities = func.capabilities.iter().map(|c| c.name).collect();
+    (params, capabilities)
+}
+
+/// Build a module path from base directory and components, adding .ori extension.
+fn build_module_path(base: PathBuf, components: &[&str]) -> PathBuf {
+    let mut path = base;
+    for component in components {
+        path.push(component);
+    }
+    path.with_extension("ori")
+}
 
 /// Check if a file is a test module.
 ///
@@ -242,11 +264,7 @@ fn generate_module_candidates(components: &[&str], current_file: &Path) -> Vec<P
 
     // 1. Try ORI_STDLIB environment variable
     if let Ok(stdlib_path) = std::env::var("ORI_STDLIB") {
-        let mut path = PathBuf::from(stdlib_path);
-        for component in components {
-            path.push(component);
-        }
-        candidates.push(path.with_extension("ori"));
+        candidates.push(build_module_path(PathBuf::from(stdlib_path), components));
     }
 
     // 2. Walk up directory tree looking for library/ directories
@@ -255,11 +273,7 @@ fn generate_module_candidates(components: &[&str], current_file: &Path) -> Vec<P
         let library_dir = d.join("library");
 
         // Try library/std/math.ori pattern
-        let mut path = library_dir.clone();
-        for component in components {
-            path.push(component);
-        }
-        candidates.push(path.with_extension("ori"));
+        candidates.push(build_module_path(library_dir.clone(), components));
 
         // Try library/std/math/mod.ori pattern (directory modules)
         let mut mod_path = library_dir;
@@ -274,11 +288,7 @@ fn generate_module_candidates(components: &[&str], current_file: &Path) -> Vec<P
 
     // 3. Try standard system locations
     for base in ["/usr/local/lib/ori/stdlib", "/usr/lib/ori/stdlib"] {
-        let mut path = PathBuf::from(base);
-        for component in components {
-            path.push(component);
-        }
-        candidates.push(path.with_extension("ori"));
+        candidates.push(build_module_path(PathBuf::from(base), components));
     }
 
     candidates
@@ -310,6 +320,8 @@ fn resolve_relative_path_to_pathbuf(
 pub struct LoadingContext {
     /// Stack of modules currently being loaded (for cycle detection)
     loading_stack: Vec<PathBuf>,
+    /// Set of modules currently being loaded (for O(1) cycle detection)
+    loading_set: HashSet<PathBuf>,
     /// Cache of already loaded modules
     loaded: HashSet<PathBuf>,
 }
@@ -319,13 +331,14 @@ impl LoadingContext {
     pub fn new() -> Self {
         LoadingContext {
             loading_stack: Vec::new(),
+            loading_set: HashSet::new(),
             loaded: HashSet::new(),
         }
     }
 
     /// Check if loading this path would create a cycle.
     pub fn would_cycle(&self, path: &Path) -> bool {
-        self.loading_stack.iter().any(|p| p == path)
+        self.loading_set.contains(path)
     }
 
     /// Check if this path has already been loaded.
@@ -347,13 +360,16 @@ impl LoadingContext {
                 cycle.join(" -> ")
             )));
         }
+        self.loading_set.insert(path.clone());
         self.loading_stack.push(path);
         Ok(())
     }
 
     /// Finish loading a module.
     pub fn finish_loading(&mut self, path: PathBuf) {
-        self.loading_stack.pop();
+        if let Some(popped) = self.loading_stack.pop() {
+            self.loading_set.remove(&popped);
+        }
         self.loaded.insert(path);
     }
 }
@@ -394,9 +410,7 @@ impl<'a> ImportedModule<'a> {
         let mut module_functions: HashMap<Name, Value> = HashMap::new();
 
         for func in &parse_result.module.functions {
-            let params = imported_arena.get_param_names(func.params);
-            let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
-
+            let (params, capabilities) = extract_function_metadata(func, imported_arena);
             let func_value = FunctionValue::with_capabilities(
                 params,
                 func.body,
@@ -452,20 +466,22 @@ pub fn register_imports(
     let allow_private_access =
         is_test_module(current_file) && is_parent_module_import(current_file, import_path);
 
+    // Build HashMap for O(1) function lookup instead of O(n) linear scan
+    let func_by_name: HashMap<&str, &crate::ir::Function> = imported
+        .result
+        .module
+        .functions
+        .iter()
+        .map(|f| (interner.lookup(f.name), f))
+        .collect();
+
     for item in &import.items {
         let item_name_str = interner.lookup(item.name);
 
-        // Find the function in the imported module
-        let func = imported
-            .result
-            .module
-            .functions
-            .iter()
-            .find(|f| interner.lookup(f.name) == item_name_str);
-
-        if let Some(func) = func {
+        // Find the function in the imported module (O(1) lookup)
+        if let Some(&func) = func_by_name.get(item_name_str) {
             // Check visibility: private items require :: prefix unless test module
-            if !func.is_public && !item.is_private && !allow_private_access {
+            if !func.visibility.is_public() && !item.is_private && !allow_private_access {
                 return Err(ImportError::new(format!(
                     "'{}' is private in '{}'. Use '::{}' to import private items.",
                     item_name_str,
@@ -474,8 +490,7 @@ pub fn register_imports(
                 )));
             }
 
-            let params = imported.arena.get_param_names(func.params);
-            let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
+            let (params, capabilities) = extract_function_metadata(func, imported.arena);
 
             // Captures include: current environment + all module functions
             // Iterate instead of cloning the entire HashMap to avoid intermediate allocation
@@ -533,18 +548,16 @@ fn register_module_alias(
     // Collect all public functions into the namespace
     let mut namespace: HashMap<Name, Value> = HashMap::new();
 
+    // Clone captures once and wrap in Arc for sharing across all functions
+    let shared_captures = Arc::new(imported.functions.clone());
+
     for func in &imported.result.module.functions {
-        if func.is_public {
-            let params = imported.arena.get_param_names(func.params);
-            let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
-
-            // Captures include all module functions for mutual recursion
-            let captures = imported.functions.clone();
-
-            let func_value = FunctionValue::with_capabilities(
+        if func.visibility.is_public() {
+            let (params, capabilities) = extract_function_metadata(func, imported.arena);
+            let func_value = FunctionValue::with_shared_captures(
                 params,
                 func.body,
-                captures,
+                Arc::clone(&shared_captures),
                 imported.arena.clone(),
                 capabilities,
             );
@@ -554,7 +567,11 @@ fn register_module_alias(
     }
 
     // Bind the namespace to the alias
-    env.define(alias, Value::module_namespace(namespace), Mutability::Immutable);
+    env.define(
+        alias,
+        Value::module_namespace(namespace),
+        Mutability::Immutable,
+    );
 
     Ok(())
 }

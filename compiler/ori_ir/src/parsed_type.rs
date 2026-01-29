@@ -221,7 +221,10 @@ mod tests {
         let ty = ParsedType::list(elem_id);
         match ty {
             ParsedType::List(id) => {
-                assert_eq!(*arena.get_parsed_type(id), ParsedType::primitive(TypeId::INT));
+                assert_eq!(
+                    *arena.get_parsed_type(id),
+                    ParsedType::primitive(TypeId::INT)
+                );
             }
             _ => panic!("expected List"),
         }
@@ -238,7 +241,10 @@ mod tests {
         match ty {
             ParsedType::Function { params, ret } => {
                 assert_eq!(params.len(), 1);
-                assert_eq!(*arena.get_parsed_type(ret), ParsedType::primitive(TypeId::BOOL));
+                assert_eq!(
+                    *arena.get_parsed_type(ret),
+                    ParsedType::primitive(TypeId::BOOL)
+                );
             }
             _ => panic!("expected Function"),
         }
@@ -311,8 +317,14 @@ mod tests {
         let ty = ParsedType::map(key_id, value_id);
         match ty {
             ParsedType::Map { key, value } => {
-                assert_eq!(*arena.get_parsed_type(key), ParsedType::primitive(TypeId::STR));
-                assert_eq!(*arena.get_parsed_type(value), ParsedType::primitive(TypeId::INT));
+                assert_eq!(
+                    *arena.get_parsed_type(key),
+                    ParsedType::primitive(TypeId::STR)
+                );
+                assert_eq!(
+                    *arena.get_parsed_type(value),
+                    ParsedType::primitive(TypeId::INT)
+                );
             }
             _ => panic!("expected Map"),
         }
@@ -325,7 +337,10 @@ mod tests {
         let assoc_name = Name::new(0, 5);
         let ty = ParsedType::associated_type(base_id, assoc_name);
         match ty {
-            ParsedType::AssociatedType { base, assoc_name: name } => {
+            ParsedType::AssociatedType {
+                base,
+                assoc_name: name,
+            } => {
                 assert_eq!(*arena.get_parsed_type(base), ParsedType::SelfType);
                 assert_eq!(name, assoc_name);
             }
@@ -344,8 +359,14 @@ mod tests {
             ParsedType::Tuple(range) => {
                 assert_eq!(range.len(), 2);
                 let ids = arena.get_parsed_type_list(range);
-                assert_eq!(*arena.get_parsed_type(ids[0]), ParsedType::primitive(TypeId::INT));
-                assert_eq!(*arena.get_parsed_type(ids[1]), ParsedType::primitive(TypeId::BOOL));
+                assert_eq!(
+                    *arena.get_parsed_type(ids[0]),
+                    ParsedType::primitive(TypeId::INT)
+                );
+                assert_eq!(
+                    *arena.get_parsed_type(ids[1]),
+                    ParsedType::primitive(TypeId::BOOL)
+                );
             }
             _ => panic!("expected Tuple"),
         }

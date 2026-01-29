@@ -5,6 +5,7 @@
 //! # Salsa Compatibility
 //! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
+use super::super::Visibility;
 use crate::{Name, Span};
 
 /// A use/import statement.
@@ -19,10 +20,10 @@ pub struct UseDef {
     /// When set, the entire module is imported under this alias name,
     /// enabling qualified access like `http.get()`. Items list must be empty.
     pub module_alias: Option<Name>,
-    /// Whether this is a public re-export: `pub use './internal' { Widget }`
+    /// Visibility of this import.
     ///
-    /// When true, imported items are re-exported from this module.
-    pub is_public: bool,
+    /// When public, imported items are re-exported from this module.
+    pub visibility: Visibility,
     /// Source span
     pub span: Span,
 }

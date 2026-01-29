@@ -2,7 +2,7 @@
 //!
 //! Contains types for representing trait definitions in the registry.
 
-use ori_ir::{Name, Span, TypeId};
+use ori_ir::{Name, Span, TypeId, Visibility};
 
 /// Method signature in a trait definition.
 ///
@@ -41,8 +41,8 @@ pub struct TraitEntry {
     pub methods: Vec<TraitMethodDef>,
     /// Associated types.
     pub assoc_types: Vec<TraitAssocTypeDef>,
-    /// Whether this trait is public.
-    pub is_public: bool,
+    /// Visibility of this trait.
+    pub visibility: Visibility,
 }
 
 impl TraitEntry {

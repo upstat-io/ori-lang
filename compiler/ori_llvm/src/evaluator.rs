@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use inkwell::context::Context;
 
-use ori_ir::ast::Module;
+use ori_ir::ast::{Module, Visibility};
 use ori_ir::{ExprArena, ExprId, Name, StringInterner, TypeId};
 
 use crate::module::ModuleCompiler;
@@ -157,7 +157,7 @@ impl<'ctx> LLVMEvaluator<'ctx> {
             where_clauses: vec![],
             body: test_body,
             span: ori_ir::Span::new(0, 0),
-            is_public: false,
+            visibility: Visibility::Private,
         };
         compiler.compile_function(&test_func, arena, &self.expr_types);
 
@@ -188,7 +188,7 @@ impl<'ctx> LLVMEvaluator<'ctx> {
             where_clauses: vec![],
             body: expr,
             span: ori_ir::Span::new(0, 0),
-            is_public: false,
+            visibility: Visibility::Private,
         };
         compiler.compile_function(&wrapper_func, arena, &self.expr_types);
 
@@ -300,7 +300,7 @@ impl OwnedLLVMEvaluator {
             where_clauses: vec![],
             body: test_body,
             span: ori_ir::Span::new(0, 0),
-            is_public: false,
+            visibility: Visibility::Private,
         };
         let void_sig = FunctionSig {
             params: vec![],

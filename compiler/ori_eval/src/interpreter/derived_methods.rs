@@ -174,7 +174,10 @@ impl Interpreter<'_> {
         // Pre-allocate capacity: type_name + " { " + estimated field content + " }"
         // Overflow is impossible for reasonable struct sizes, and even if it wrapped,
         // String::with_capacity handles it safely by allocating less.
-        #[expect(clippy::arithmetic_side_effects, reason = "capacity estimation, overflow is safe")]
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "capacity estimation, overflow is safe"
+        )]
         let capacity = type_name.len() + 4 + info.field_names.len() * 20;
         let mut result = String::with_capacity(capacity);
 

@@ -6,7 +6,7 @@
 //!
 //! - `function_val_tests.rs` - Type conversion functions (int, float, str, byte)
 //! - `operators_tests.rs` - Binary operator evaluation
-//! - `methods_tests.rs` - Method dispatch for built-in types
+//! - `methods/` - Method dispatch for built-in types (split by type)
 //! - `unary_operators_tests.rs` - Unary operator evaluation
 //! - `environment_tests.rs` - Variable scoping and binding
 //! - `expr_tests.rs` - Literal and expression evaluation
@@ -18,6 +18,6 @@ mod control_tests;
 mod environment_tests;
 mod expr_tests;
 mod function_val_tests;
-mod methods_tests;
+mod methods;
 mod operators_tests;
 mod unary_operators_tests;

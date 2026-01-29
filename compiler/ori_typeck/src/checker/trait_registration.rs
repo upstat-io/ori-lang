@@ -72,7 +72,7 @@ impl TypeChecker<'_> {
                 super_traits,
                 methods,
                 assoc_types,
-                is_public: trait_def.is_public,
+                visibility: trait_def.visibility,
             };
 
             self.registries.traits.register_trait(entry);

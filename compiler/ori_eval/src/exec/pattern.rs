@@ -16,10 +16,10 @@
 //! the Open/Closed principle for extensibility.
 
 use crate::{Environment, EvalError, EvalResult, Value};
-use ori_patterns::propagated_error_message;
 use ori_ir::{
     ArmRange, BindingPattern, ExprArena, ExprId, FunctionSeq, SeqBinding, SeqBindingRange,
 };
+use ori_patterns::propagated_error_message;
 
 /// Evaluate a run pattern (sequential evaluation).
 ///

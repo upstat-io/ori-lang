@@ -1,0 +1,5 @@
+error: no field marked with #[primary_span]
+ --> tests/ui/fail/missing_primary_span.rs:5:10
+  |
+5 | #[derive(Diagnostic)]
+  |          ^^^^^^^^^^

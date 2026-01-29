@@ -68,9 +68,7 @@ mod tests {
 
     fn make_function_value(param_count: usize) -> FunctionValue {
         use ori_ir::ExprArena;
-        let params: Vec<Name> = (0..param_count)
-            .map(|i| Name::from_raw(i as u32))
-            .collect();
+        let params: Vec<Name> = (0..param_count).map(|i| Name::from_raw(i as u32)).collect();
         let body = ExprId::new(0);
         let captures = HashMap::new();
         let arena = SharedArena::new(ExprArena::default());

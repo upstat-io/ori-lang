@@ -643,7 +643,10 @@ mod timeout {
         // Also test boundary condition
         let elapsed_exact = Duration::from_millis(50);
         let remaining_exact = timeout.saturating_sub(elapsed_exact);
-        assert!(remaining_exact.is_zero(), "exact timeout should have elapsed");
+        assert!(
+            remaining_exact.is_zero(),
+            "exact timeout should have elapsed"
+        );
     }
 
     #[test]
@@ -671,7 +674,10 @@ mod timeout {
         // Test over-elapsed (should saturate to zero)
         let elapsed_over = Duration::from_millis(600);
         let remaining_over = timeout.saturating_sub(elapsed_over);
-        assert!(remaining_over.is_zero(), "over-elapsed should saturate to zero");
+        assert!(
+            remaining_over.is_zero(),
+            "over-elapsed should saturate to zero"
+        );
     }
 }
 

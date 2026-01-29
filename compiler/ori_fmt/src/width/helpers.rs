@@ -31,7 +31,11 @@ pub(super) fn decimal_digit_count(n: u64) -> usize {
 /// * `items` - The items to measure
 /// * `get_width` - Function to get the width of each item
 /// * `separator_width` - Width of separator between items (e.g., 2 for ", ")
-pub(super) fn accumulate_widths<T, F>(items: &[T], mut get_width: F, separator_width: usize) -> usize
+pub(super) fn accumulate_widths<T, F>(
+    items: &[T],
+    mut get_width: F,
+    separator_width: usize,
+) -> usize
 where
     F: FnMut(&T) -> usize,
 {

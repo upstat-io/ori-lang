@@ -1,7 +1,7 @@
 //! Tests for LLVMEvaluator and OwnedLLVMEvaluator.
 
 use inkwell::context::Context;
-use ori_ir::ast::{Expr, ExprKind, Module};
+use ori_ir::ast::{Expr, ExprKind, Module, Visibility};
 use ori_ir::{ExprArena, Function, GenericParamRange, ParamRange, Span, StringInterner, TypeId};
 
 use crate::evaluator::{FunctionSig, LLVMEvalError, LLVMEvaluator, LLVMValue, OwnedLLVMEvaluator};
@@ -112,7 +112,7 @@ fn test_llvm_evaluator_load_module() {
         where_clauses: vec![],
         body,
         span: Span::new(0, 1),
-        is_public: false,
+        visibility: Visibility::Private,
     };
 
     let mut module = empty_module();
@@ -173,7 +173,7 @@ fn test_owned_llvm_evaluator_load_module() {
         where_clauses: vec![],
         body,
         span: Span::new(0, 1),
-        is_public: false,
+        visibility: Visibility::Private,
     };
 
     let mut module = empty_module();

@@ -94,7 +94,7 @@ impl Render for TypeProblem {
                     if let Some(suggestion) =
                         suggest_similar(field_name, available_fields.iter().map(String::as_str))
                     {
-                        diag = diag.with_note(format!("did you mean `{suggestion}`?"));
+                        diag = diag.with_suggestion(format!("did you mean `{suggestion}`?"));
                     } else {
                         diag = diag.with_note(format!(
                             "available fields: {}",
@@ -119,7 +119,7 @@ impl Render for TypeProblem {
                     if let Some(suggestion) =
                         suggest_similar(method_name, available_methods.iter().map(String::as_str))
                     {
-                        diag = diag.with_note(format!("did you mean `{suggestion}`?"));
+                        diag = diag.with_suggestion(format!("did you mean `{suggestion}`?"));
                     } else {
                         diag = diag.with_note(format!(
                             "available methods: {}",

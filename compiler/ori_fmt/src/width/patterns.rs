@@ -14,7 +14,10 @@ use ori_ir::{BindingPattern, StringLookup};
 ///
 /// Recursively calculates width for nested patterns. Includes all
 /// delimiters, separators, and shorthand syntax.
-pub(super) fn binding_pattern_width<I: StringLookup>(pattern: &BindingPattern, interner: &I) -> usize {
+pub(super) fn binding_pattern_width<I: StringLookup>(
+    pattern: &BindingPattern,
+    interner: &I,
+) -> usize {
     match pattern {
         BindingPattern::Name(name) => interner.lookup(*name).len(),
 
@@ -113,10 +116,7 @@ mod tests {
         let interner = StringInterner::new();
         let a = interner.intern("a");
         let b = interner.intern("b");
-        let pattern = BindingPattern::Tuple(vec![
-            BindingPattern::Name(a),
-            BindingPattern::Name(b),
-        ]);
+        let pattern = BindingPattern::Tuple(vec![BindingPattern::Name(a), BindingPattern::Name(b)]);
 
         // "(a, b)" = 1 + 1 + 2 + 1 + 1 = 6
         assert_eq!(binding_pattern_width(&pattern, &interner), 6);
@@ -127,10 +127,7 @@ mod tests {
         let interner = StringInterner::new();
         let a = interner.intern("a");
         let b = interner.intern("b");
-        let inner = BindingPattern::Tuple(vec![
-            BindingPattern::Name(a),
-            BindingPattern::Name(b),
-        ]);
+        let inner = BindingPattern::Tuple(vec![BindingPattern::Name(a), BindingPattern::Name(b)]);
         let pattern = BindingPattern::Tuple(vec![inner, BindingPattern::Wildcard]);
 
         // "((a, b), _)" = 1 + 6 + 2 + 1 + 1 = 11

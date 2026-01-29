@@ -93,15 +93,21 @@ pub fn infer_call_named(
     let (result, resolved_params) = match func_ty {
         Type::Function { params, ret } => {
             if params.len() != arg_types.len() {
-                checker.push_error(
+                let message = if let Some(name) = func_name {
+                    format!(
+                        "function `{}` expects {} arguments, found {}",
+                        checker.context.interner.lookup(name),
+                        params.len(),
+                        arg_types.len()
+                    )
+                } else {
                     format!(
                         "expected {} arguments, found {}",
                         params.len(),
                         arg_types.len()
-                    ),
-                    span,
-                    ori_diagnostic::ErrorCode::E2004,
-                );
+                    )
+                };
+                checker.push_error(message, span, ori_diagnostic::ErrorCode::E2004);
                 return Type::Error;
             }
 
@@ -204,48 +210,19 @@ pub fn infer_method_call(
     let resolved_receiver = checker.inference.ctx.resolve(&receiver_ty);
 
     let arg_types: Vec<Type> = arg_ids.iter().map(|id| infer_expr(checker, *id)).collect();
+    let arg_spans: Vec<Span> = arg_ids
+        .iter()
+        .map(|id| checker.context.arena.get_expr(*id).span)
+        .collect();
 
-    if let Some(method_lookup) = checker
-        .registries
-        .traits
-        .lookup_method(&resolved_receiver, method)
-    {
-        let expected_arg_count = if method_lookup.params.is_empty() {
-            0
-        } else {
-            method_lookup.params.len().saturating_sub(1)
-        };
-
-        if arg_types.len() != expected_arg_count {
-            checker.push_error(
-                format!(
-                    "method `{}` expects {} arguments, found {}",
-                    checker.context.interner.lookup(method),
-                    expected_arg_count,
-                    arg_types.len()
-                ),
-                span,
-                ori_diagnostic::ErrorCode::E2004,
-            );
-            return Type::Error;
-        }
-
-        let param_types: Vec<_> = method_lookup.params.iter().skip(1).collect();
-        for (i, (param_ty, arg_ty)) in param_types.iter().zip(arg_types.iter()).enumerate() {
-            if let Err(e) = checker.inference.ctx.unify(param_ty, arg_ty) {
-                let arg_span = if i < arg_ids.len() {
-                    checker.context.arena.get_expr(arg_ids[i]).span
-                } else {
-                    span
-                };
-                checker.report_type_error(&e, arg_span);
-            }
-        }
-
-        return method_lookup.return_ty.clone();
-    }
-
-    infer_builtin_method(checker, &resolved_receiver, method, &arg_types, span)
+    infer_method_call_core(
+        checker,
+        &resolved_receiver,
+        method,
+        &arg_types,
+        &arg_spans,
+        span,
+    )
 }
 
 /// Infer type for a method call with named arguments.
@@ -264,17 +241,40 @@ pub fn infer_method_call_named(
         .iter()
         .map(|arg| infer_expr(checker, arg.value))
         .collect();
+    let arg_spans: Vec<Span> = call_args.iter().map(|arg| arg.span).collect();
 
+    infer_method_call_core(
+        checker,
+        &resolved_receiver,
+        method,
+        &arg_types,
+        &arg_spans,
+        span,
+    )
+}
+
+/// Core method call inference logic shared between positional and named variants.
+///
+/// This function handles:
+/// - Looking up methods in the trait registry
+/// - Checking argument count matches expected
+/// - Unifying argument types with parameter types
+/// - Falling back to builtin methods if not found in registry
+fn infer_method_call_core(
+    checker: &mut TypeChecker<'_>,
+    resolved_receiver: &Type,
+    method: Name,
+    arg_types: &[Type],
+    arg_spans: &[Span],
+    span: Span,
+) -> Type {
     if let Some(method_lookup) = checker
         .registries
         .traits
-        .lookup_method(&resolved_receiver, method)
+        .lookup_method(resolved_receiver, method)
     {
-        let expected_arg_count = if method_lookup.params.is_empty() {
-            0
-        } else {
-            method_lookup.params.len().saturating_sub(1)
-        };
+        // Calculate expected arg count (excluding self parameter)
+        let expected_arg_count = method_lookup.params.len().saturating_sub(1);
 
         if arg_types.len() != expected_arg_count {
             checker.push_error(
@@ -290,14 +290,11 @@ pub fn infer_method_call_named(
             return Type::Error;
         }
 
+        // Skip self parameter when unifying
         let param_types: Vec<_> = method_lookup.params.iter().skip(1).collect();
         for (i, (param_ty, arg_ty)) in param_types.iter().zip(arg_types.iter()).enumerate() {
             if let Err(e) = checker.inference.ctx.unify(param_ty, arg_ty) {
-                let arg_span = if i < call_args.len() {
-                    call_args[i].span
-                } else {
-                    span
-                };
+                let arg_span = arg_spans.get(i).copied().unwrap_or(span);
                 checker.report_type_error(&e, arg_span);
             }
         }
@@ -305,7 +302,7 @@ pub fn infer_method_call_named(
         return method_lookup.return_ty.clone();
     }
 
-    infer_builtin_method(checker, &resolved_receiver, method, &arg_types, span)
+    infer_builtin_method(checker, resolved_receiver, method, arg_types, span)
 }
 
 /// Infer type for built-in methods on primitive and collection types.

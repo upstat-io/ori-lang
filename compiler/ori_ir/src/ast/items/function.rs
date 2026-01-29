@@ -8,6 +8,7 @@
 use std::fmt;
 
 use super::super::ranges::{GenericParamRange, ParamRange};
+use super::super::Visibility;
 use super::imports::UseDef;
 use super::traits::WhereClause;
 use crate::{ExprId, Name, ParsedType, Span, Spanned};
@@ -49,15 +50,15 @@ pub struct Function {
     pub where_clauses: Vec<WhereClause>,
     pub body: ExprId,
     pub span: Span,
-    pub is_public: bool,
+    pub visibility: Visibility,
 }
 
 impl fmt::Debug for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Function {{ name: {:?}, generics: {:?}, params: {:?}, ret: {:?}, uses: {:?}, where: {:?}, public: {} }}",
-            self.name, self.generics, self.params, self.return_ty, self.capabilities, self.where_clauses, self.is_public
+            "Function {{ name: {:?}, generics: {:?}, params: {:?}, ret: {:?}, uses: {:?}, where: {:?}, visibility: {:?} }}",
+            self.name, self.generics, self.params, self.return_ty, self.capabilities, self.where_clauses, self.visibility
         )
     }
 }
@@ -171,7 +172,7 @@ impl Spanned for TestDef {
 /// - `name`: The interned name of the config variable (without the `$` prefix).
 /// - `value`: The initializer expression ID (must resolve to a literal).
 /// - `span`: The source span covering the entire definition.
-/// - `is_public`: Whether this config is exported from the module (`pub` keyword present).
+/// - `visibility`: The visibility of this config variable.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct ConfigDef {
     /// The interned name of the config variable (without the `$` prefix).
@@ -182,8 +183,8 @@ pub struct ConfigDef {
     pub value: ExprId,
     /// Source span covering the entire config definition (`$name = value`).
     pub span: Span,
-    /// Whether this config is exported (`pub $name = ...`).
-    pub is_public: bool,
+    /// Visibility of this config variable (`pub $name = ...` or private).
+    pub visibility: Visibility,
 }
 
 impl Spanned for ConfigDef {

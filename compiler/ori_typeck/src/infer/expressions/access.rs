@@ -38,12 +38,10 @@ pub fn infer_field(checker: &mut TypeChecker<'_>, receiver: ExprId, field: Name)
             args,
         } => handle_struct_field_access(checker, type_name, field, Some(&args), receiver_span),
 
-        Type::ModuleNamespace { items } => {
-            // Look up the field in the module namespace
-            for (item_name, item_type) in items {
-                if item_name == field {
-                    return item_type.clone();
-                }
+        Type::ModuleNamespace { .. } => {
+            // Look up the field in the module namespace using the helper method
+            if let Some(item_type) = resolved_ty.get_namespace_item(field) {
+                return item_type.clone();
             }
             // Field not found in module namespace
             let field_name = checker.context.interner.lookup(field);
@@ -60,7 +58,10 @@ pub fn infer_field(checker: &mut TypeChecker<'_>, receiver: ExprId, field: Name)
 
         _ => {
             checker.push_error(
-                format!("type `{resolved_ty:?}` does not support field access"),
+                format!(
+                    "type `{}` does not support field access",
+                    resolved_ty.display(checker.context.interner)
+                ),
                 receiver_span,
                 ori_diagnostic::ErrorCode::E2001,
             );
@@ -69,7 +70,14 @@ pub fn infer_field(checker: &mut TypeChecker<'_>, receiver: ExprId, field: Name)
     }
 }
 
-/// Infer type for index access.
+/// Infer the type of an index access expression (e.g., `list[0]`, `map["key"]`).
+///
+/// Validates that the receiver is indexable and the index type matches:
+/// - `List<T>` indexed by `int` returns `T`
+/// - `Map<K, V>` indexed by `K` returns `Option<V>`
+/// - `str` indexed by `int` returns `str`
+///
+/// Reports an error if the receiver is not indexable or the index type mismatches.
 pub fn infer_index(
     checker: &mut TypeChecker<'_>,
     receiver: ExprId,

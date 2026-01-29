@@ -21,6 +21,7 @@ pub use recovery::{synchronize, RecoverySet};
 
 use ori_ir::{
     ExprArena, Function, Module, Name, Span, StringInterner, TestDef, Token, TokenKind, TokenList,
+    Visibility,
 };
 
 /// Result of parsing a definition starting with @.
@@ -136,7 +137,7 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
-    fn current_kind(&self) -> TokenKind {
+    fn current_kind(&self) -> &TokenKind {
         self.cursor.current_kind()
     }
 
@@ -171,7 +172,7 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
-    fn peek_next_kind(&self) -> TokenKind {
+    fn peek_next_kind(&self) -> &TokenKind {
         self.cursor.peek_next_kind()
     }
 
@@ -325,16 +326,17 @@ impl<'a> Parser<'a> {
             }
 
             // Check for pub use (re-export)
-            let is_pub_use = self.check(&TokenKind::Pub) && self.peek_next_kind() == TokenKind::Use;
+            let is_pub_use =
+                self.check(&TokenKind::Pub) && matches!(self.peek_next_kind(), TokenKind::Use);
 
             if self.check(&TokenKind::Use) || is_pub_use {
-                let is_public = if is_pub_use {
+                let visibility = if is_pub_use {
                     self.advance(); // consume 'pub'
-                    true
+                    Visibility::Public
                 } else {
-                    false
+                    Visibility::Private
                 };
-                let result = self.with_progress(|p| p.parse_use_inner(is_public));
+                let result = self.with_progress(|p| p.parse_use_inner(visibility));
                 self.handle_parse_result(
                     result,
                     &mut module.imports,
@@ -359,15 +361,15 @@ impl<'a> Parser<'a> {
             let attrs = self.parse_attributes(&mut errors);
 
             // Check for pub modifier
-            let is_public = if self.check(&TokenKind::Pub) {
+            let visibility = if self.check(&TokenKind::Pub) {
                 self.advance();
-                true
+                Visibility::Public
             } else {
-                false
+                Visibility::Private
             };
 
             if self.check(&TokenKind::At) {
-                let result = self.parse_function_or_test_with_progress(attrs, is_public);
+                let result = self.parse_function_or_test_with_progress(attrs, visibility);
                 let made_progress = result.made_progress();
                 match result.into_result() {
                     Ok(FunctionOrTest::Function(func)) => module.functions.push(func),
@@ -381,7 +383,7 @@ impl<'a> Parser<'a> {
                     }
                 }
             } else if self.check(&TokenKind::Trait) {
-                let result = self.parse_trait_with_progress(is_public);
+                let result = self.parse_trait_with_progress(visibility);
                 self.handle_parse_result(
                     result,
                     &mut module.traits,
@@ -405,7 +407,7 @@ impl<'a> Parser<'a> {
                     Self::recover_to_function,
                 );
             } else if self.check(&TokenKind::Type) {
-                let result = self.parse_type_decl_with_progress(attrs, is_public);
+                let result = self.parse_type_decl_with_progress(attrs, visibility);
                 self.handle_parse_result(
                     result,
                     &mut module.types,
@@ -413,7 +415,7 @@ impl<'a> Parser<'a> {
                     Self::recover_to_function,
                 );
             } else if self.check(&TokenKind::Dollar) {
-                let result = self.parse_config_with_progress(is_public);
+                let result = self.parse_config_with_progress(visibility);
                 self.handle_parse_result(
                     result,
                     &mut module.configs,

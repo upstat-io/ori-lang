@@ -286,9 +286,14 @@ impl TypeRegistry {
         self.types_by_name.is_empty()
     }
 
-    /// Iterate over all registered types.
+    /// Iterate over all registered types in deterministic order.
+    ///
+    /// Entries are sorted by name for reproducible iteration order,
+    /// ensuring consistent output regardless of `HashMap` insertion order.
     pub fn iter(&self) -> impl Iterator<Item = &TypeEntry> {
-        self.types_by_name.values()
+        let mut entries: Vec<_> = self.types_by_name.values().collect();
+        entries.sort_by_key(|e| e.name);
+        entries.into_iter()
     }
 
     /// Convert a registered type to the type checker's Type representation.

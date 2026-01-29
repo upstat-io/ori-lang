@@ -58,7 +58,10 @@ fn parse_float_skip_underscores(s: &str) -> Option<f64> {
 /// Parse numeric value with suffix, returning (value, unit).
 #[inline]
 fn parse_with_suffix<T: Copy>(s: &str, suffix_len: usize, unit: T) -> Option<(u64, T)> {
-    s[..s.len() - suffix_len].parse::<u64>().ok().map(|v| (v, unit))
+    s[..s.len() - suffix_len]
+        .parse::<u64>()
+        .ok()
+        .map(|v| (v, unit))
 }
 
 /// Raw token from logos (before interning).
@@ -811,7 +814,10 @@ mod tests {
     fn test_parse_int_hex_with_underscores() {
         assert_eq!(parse_int_skip_underscores("FF", 16), Some(255));
         assert_eq!(parse_int_skip_underscores("F_F", 16), Some(255));
-        assert_eq!(parse_int_skip_underscores("dead_beef", 16), Some(0xdead_beef));
+        assert_eq!(
+            parse_int_skip_underscores("dead_beef", 16),
+            Some(0xdead_beef)
+        );
     }
 
     #[test]

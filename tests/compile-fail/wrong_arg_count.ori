@@ -6,7 +6,7 @@
 
 @add (a: int, b: int) -> int = a + b
 
-#[compile_fail("expected 2 arguments")]
+#[compile_fail("function `add` expects 2 arguments")]
 @test_wrong_arg_count () -> void = run(
     let result = add(a: 1),
     ()

@@ -184,6 +184,34 @@ impl FunctionValue {
         }
     }
 
+    /// Create a function value with shared captures.
+    ///
+    /// Use this when multiple functions should share the same captures
+    /// (e.g., module functions for mutual recursion). This avoids cloning
+    /// the captures HashMap for each function.
+    ///
+    /// # Arguments
+    /// * `params` - Parameter names
+    /// * `body` - Body expression ID
+    /// * `captures` - Shared captured environment
+    /// * `arena` - Arena for expression resolution (required for thread safety)
+    /// * `capabilities` - Required capabilities from `uses` clause
+    pub fn with_shared_captures(
+        params: Vec<Name>,
+        body: ExprId,
+        captures: Arc<HashMap<Name, Value>>,
+        arena: SharedArena,
+        capabilities: Vec<Name>,
+    ) -> Self {
+        FunctionValue {
+            params,
+            body,
+            captures,
+            arena,
+            capabilities,
+        }
+    }
+
     /// Get a captured value by name.
     pub fn get_capture(&self, name: Name) -> Option<&Value> {
         self.captures.get(&name)

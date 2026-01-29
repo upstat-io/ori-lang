@@ -1,0 +1,5 @@
+error: missing #[diag(CODE, "message")] attribute
+ --> tests/ui/fail/missing_diag_attribute.rs:5:10
+  |
+5 | #[derive(Diagnostic)]
+  |          ^^^^^^^^^^

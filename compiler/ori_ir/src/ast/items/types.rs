@@ -6,6 +6,7 @@
 //! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
 use super::super::ranges::GenericParamRange;
+use super::super::Visibility;
 use super::traits::WhereClause;
 use crate::{Name, ParsedType, Span, Spanned};
 
@@ -28,7 +29,7 @@ pub struct TypeDecl {
     /// The kind of type being declared
     pub kind: TypeDeclKind,
     pub span: Span,
-    pub is_public: bool,
+    pub visibility: Visibility,
     /// Derived traits: `#[derive(Eq, Clone)]`
     pub derives: Vec<Name>,
 }

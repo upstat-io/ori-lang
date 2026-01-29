@@ -106,7 +106,7 @@ pub fn infer_for(
         other => {
             checker.push_error(
                 format!(
-                    "`{}` is not iterable",
+                    "`{}` is not iterable; expected List, Set, Range, Str, or Map",
                     other.display(checker.context.interner)
                 ),
                 checker.context.arena.get_expr(iter).span,

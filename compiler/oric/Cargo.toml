@@ -52,7 +52,7 @@ rayon.workspace = true
 stacker = "0.1"
 
 # Diagnostic derive macros
-ori-macros = { path = "../ori-macros" }
+ori_macros = { path = "../ori_macros" }
 
 [dev-dependencies]
 pretty_assertions = "1.4"

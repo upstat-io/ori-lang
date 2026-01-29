@@ -67,7 +67,8 @@ impl Span {
     /// Use this for fallible conversion when handling user input.
     #[inline]
     pub fn try_from_range(range: std::ops::Range<usize>) -> Result<Self, SpanError> {
-        let start = u32::try_from(range.start).map_err(|_| SpanError::StartTooLarge(range.start))?;
+        let start =
+            u32::try_from(range.start).map_err(|_| SpanError::StartTooLarge(range.start))?;
         let end = u32::try_from(range.end).map_err(|_| SpanError::EndTooLarge(range.end))?;
         Ok(Span { start, end })
     }

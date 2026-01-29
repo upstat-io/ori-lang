@@ -104,12 +104,9 @@ impl FusedPattern {
                         let mut results = Vec::new();
                         for item in list.iter() {
                             // Apply map
-                            let mapped = exec.call(map_f.clone(), vec![item.clone()])?;
+                            let mapped = exec.call(&map_f, vec![item.clone()])?;
                             // Apply filter
-                            if exec
-                                .call(filter_f.clone(), vec![mapped.clone()])?
-                                .is_truthy()
-                            {
+                            if exec.call(&filter_f, vec![mapped.clone()])?.is_truthy() {
                                 results.push(mapped);
                             }
                         }
@@ -133,9 +130,9 @@ impl FusedPattern {
                         let mut results = Vec::new();
                         for item in list.iter() {
                             // Apply filter first
-                            if exec.call(filter_f.clone(), vec![item.clone()])?.is_truthy() {
+                            if exec.call(&filter_f, vec![item.clone()])?.is_truthy() {
                                 // Then map
-                                let mapped = exec.call(map_f.clone(), vec![item.clone()])?;
+                                let mapped = exec.call(&map_f, vec![item.clone()])?;
                                 results.push(mapped);
                             }
                         }
@@ -160,8 +157,8 @@ impl FusedPattern {
                     Value::List(list) => {
                         for item in list.iter() {
                             // Apply map then fold in single pass
-                            let mapped = exec.call(map_f.clone(), vec![item.clone()])?;
-                            acc = exec.call(fold_f.clone(), vec![acc, mapped])?;
+                            let mapped = exec.call(&map_f, vec![item.clone()])?;
+                            acc = exec.call(&fold_f, vec![acc, mapped])?;
                         }
                         Ok(acc)
                     }
@@ -184,8 +181,8 @@ impl FusedPattern {
                     Value::List(list) => {
                         for item in list.iter() {
                             // Only fold items that pass filter
-                            if exec.call(filter_f.clone(), vec![item.clone()])?.is_truthy() {
-                                acc = exec.call(fold_f.clone(), vec![acc, item.clone()])?;
+                            if exec.call(&filter_f, vec![item.clone()])?.is_truthy() {
+                                acc = exec.call(&fold_f, vec![acc, item.clone()])?;
                             }
                         }
                         Ok(acc)
@@ -211,12 +208,9 @@ impl FusedPattern {
                     Value::List(list) => {
                         for item in list.iter() {
                             // Map -> Filter -> Fold in single pass
-                            let mapped = exec.call(map_f.clone(), vec![item.clone()])?;
-                            if exec
-                                .call(filter_f.clone(), vec![mapped.clone()])?
-                                .is_truthy()
-                            {
-                                acc = exec.call(fold_f.clone(), vec![acc, mapped])?;
+                            let mapped = exec.call(&map_f, vec![item.clone()])?;
+                            if exec.call(&filter_f, vec![mapped.clone()])?.is_truthy() {
+                                acc = exec.call(&fold_f, vec![acc, mapped])?;
                             }
                         }
                         Ok(acc)
@@ -237,8 +231,8 @@ impl FusedPattern {
                 match items {
                     Value::List(list) => {
                         for item in list.iter() {
-                            let mapped = exec.call(map_f.clone(), vec![item.clone()])?;
-                            if exec.call(find_f.clone(), vec![mapped.clone()])?.is_truthy() {
+                            let mapped = exec.call(&map_f, vec![item.clone()])?;
+                            if exec.call(&find_f, vec![mapped.clone()])?.is_truthy() {
                                 return Ok(Value::some(mapped));
                             }
                         }
@@ -261,8 +255,8 @@ impl FusedPattern {
                     Value::List(list) => {
                         for item in list.iter() {
                             // Both predicates must pass
-                            if exec.call(filter_f.clone(), vec![item.clone()])?.is_truthy()
-                                && exec.call(find_f.clone(), vec![item.clone()])?.is_truthy()
+                            if exec.call(&filter_f, vec![item.clone()])?.is_truthy()
+                                && exec.call(&find_f, vec![item.clone()])?.is_truthy()
                             {
                                 return Ok(Value::some(item.clone()));
                             }

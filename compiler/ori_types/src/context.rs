@@ -2,7 +2,6 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use crate::core::{Type, TypeScheme};
@@ -107,9 +106,9 @@ impl InferenceContext {
         let data2 = self.interner.lookup(id2);
 
         match (&data1, &data2) {
-            // Type variables unify with anything
+            // --- Type Variables ---
+            // Type variables unify with anything (after occurs check)
             (TypeData::Var(v), _) => {
-                // Occurs check
                 if self.occurs_id(*v, id2) {
                     return Err(TypeError::InfiniteType);
                 }
@@ -117,7 +116,6 @@ impl InferenceContext {
                 Ok(())
             }
             (_, TypeData::Var(v)) => {
-                // Occurs check
                 if self.occurs_id(*v, id1) {
                     return Err(TypeError::InfiniteType);
                 }
@@ -125,10 +123,12 @@ impl InferenceContext {
                 Ok(())
             }
 
-            // Error type unifies with anything (for error recovery)
+            // --- Error Recovery ---
+            // Error type unifies with anything to allow continued type checking
             (TypeData::Error, _) | (_, TypeData::Error) => Ok(()),
 
-            // Function types
+            // --- Compound Types ---
+            // Functions: params and return must unify
             (
                 TypeData::Function {
                     params: p1,
@@ -151,7 +151,7 @@ impl InferenceContext {
                 self.unify_ids(*r1, *r2)
             }
 
-            // Tuple types
+            // Tuples: same length and elements must unify
             (TypeData::Tuple(t1), TypeData::Tuple(t2)) => {
                 if t1.len() != t2.len() {
                     return Err(TypeError::TupleLengthMismatch {
@@ -165,26 +165,26 @@ impl InferenceContext {
                 Ok(())
             }
 
-            // Single-parameter container types: unify inner types
+            // --- Container Types ---
+            // Single-type containers: inner types must unify
             (TypeData::List(a), TypeData::List(b))
             | (TypeData::Option(a), TypeData::Option(b))
             | (TypeData::Set(a), TypeData::Set(b))
             | (TypeData::Range(a), TypeData::Range(b))
             | (TypeData::Channel(a), TypeData::Channel(b)) => self.unify_ids(*a, *b),
 
-            // Map types
+            // Two-type containers: both inner types must unify
             (TypeData::Map { key: k1, value: v1 }, TypeData::Map { key: k2, value: v2 }) => {
                 self.unify_ids(*k1, *k2)?;
                 self.unify_ids(*v1, *v2)
             }
-
-            // Result types
             (TypeData::Result { ok: o1, err: e1 }, TypeData::Result { ok: o2, err: e2 }) => {
                 self.unify_ids(*o1, *o2)?;
                 self.unify_ids(*e1, *e2)
             }
 
-            // Projection types: unify if same trait/assoc_name and bases unify
+            // --- Generic Types ---
+            // Projections: same trait/assoc_name and bases must unify
             (
                 TypeData::Projection {
                     base: b1,
@@ -198,7 +198,7 @@ impl InferenceContext {
                 },
             ) if t1 == t2 && a1 == a2 => self.unify_ids(*b1, *b2),
 
-            // Applied generic types: unify if same base name and args unify
+            // Applied generics: same name and all args must unify
             (
                 TypeData::Applied { name: n1, args: a1 },
                 TypeData::Applied { name: n2, args: a2 },
@@ -209,6 +209,7 @@ impl InferenceContext {
                 Ok(())
             }
 
+            // --- Mismatch ---
             // Incompatible types - convert back to Type for error message
             _ => Err(TypeError::TypeMismatch {
                 expected: self.interner.to_type(id1),
@@ -345,11 +346,11 @@ impl InferenceContext {
         let ty = self.resolve(ty);
         let free = self.free_vars(&ty);
 
+        // Convert to HashSet for O(1) lookup instead of O(n)
+        let env_set: FxHashSet<TypeVar> = env_free_vars.iter().copied().collect();
+
         // Only quantify variables that are free in the type but not in the environment
-        let quantified: Vec<TypeVar> = free
-            .into_iter()
-            .filter(|v| !env_free_vars.contains(v))
-            .collect();
+        let quantified: Vec<TypeVar> = free.into_iter().filter(|v| !env_set.contains(v)).collect();
 
         if quantified.is_empty() {
             TypeScheme::mono(ty)
@@ -368,7 +369,7 @@ impl InferenceContext {
         }
 
         // Create fresh variables for each quantified variable
-        let fresh_vars: HashMap<TypeVar, Type> =
+        let fresh_vars: FxHashMap<TypeVar, Type> =
             scheme.vars.iter().map(|v| (*v, self.fresh_var())).collect();
 
         // Substitute quantified variables with fresh ones
@@ -376,9 +377,9 @@ impl InferenceContext {
     }
 
     /// Substitute type variables according to a mapping.
-    fn substitute_vars(&self, ty: &Type, mapping: &HashMap<TypeVar, Type>) -> Type {
+    fn substitute_vars(&self, ty: &Type, mapping: &FxHashMap<TypeVar, Type>) -> Type {
         // Convert mapping to TypeId-based
-        let id_mapping: HashMap<TypeVar, TypeId> = mapping
+        let id_mapping: FxHashMap<TypeVar, TypeId> = mapping
             .iter()
             .map(|(&v, t)| (v, t.to_type_id(&self.interner)))
             .collect();
@@ -390,9 +391,9 @@ impl InferenceContext {
     /// Substitute type variables according to a `TypeId` mapping.
     ///
     /// This is the internal implementation using interned types.
-    fn substitute_vars_id(&self, id: TypeId, mapping: &HashMap<TypeVar, TypeId>) -> TypeId {
+    fn substitute_vars_id(&self, id: TypeId, mapping: &FxHashMap<TypeVar, TypeId>) -> TypeId {
         struct VarSubstitutor<'a> {
-            mapping: &'a HashMap<TypeVar, TypeId>,
+            mapping: &'a FxHashMap<TypeVar, TypeId>,
             substitutions: &'a FxHashMap<TypeVar, TypeId>,
             interner: &'a TypeInterner,
         }
@@ -497,12 +498,19 @@ struct TypeContextEntry {
 ///
 /// Note: Salsa handles cross-query memoization, but `TypeContext` deduplicates
 /// **within** a single type-checking pass.
+///
+/// # Memory Behavior
+///
+/// The cache grows as types are instantiated and is never automatically cleared.
+/// For long-running sessions, create a fresh `TypeContext` per compilation unit
+/// or query to prevent unbounded growth. The cache is cheap to recreate since
+/// it's just bookkeeping - the actual type data lives in the `TypeInterner`.
 #[derive(Clone, Debug, Default)]
 pub struct TypeContext {
     /// `hash(origin_id` + targs) -> list of entries with that hash
-    type_map: HashMap<u64, Vec<TypeContextEntry>>,
+    type_map: FxHashMap<u64, Vec<TypeContextEntry>>,
     /// Origin type scheme -> stable ID for hashing
-    origin_ids: HashMap<TypeScheme, u32>,
+    origin_ids: FxHashMap<TypeScheme, u32>,
     /// Next origin ID to assign
     next_origin_id: u32,
 }

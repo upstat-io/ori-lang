@@ -1,7 +1,7 @@
 //! Import/use statement parsing.
 
 use crate::{ParseError, Parser};
-use ori_ir::{ImportPath, TokenKind, UseDef, UseItem};
+use ori_ir::{ImportPath, TokenKind, UseDef, UseItem, Visibility};
 
 impl Parser<'_> {
     /// Parse a use/import statement.
@@ -11,13 +11,13 @@ impl Parser<'_> {
     /// - Module import: `use std.math { sqrt }`
     /// - Module alias: `use std.net.http as http`
     ///
-    /// The `is_public` parameter tracks whether this is a public re-export (`pub use`).
-    pub(crate) fn parse_use_inner(&mut self, is_public: bool) -> Result<UseDef, ParseError> {
+    /// The `visibility` parameter tracks whether this is a public re-export (`pub use`).
+    pub(crate) fn parse_use_inner(&mut self, visibility: Visibility) -> Result<UseDef, ParseError> {
         let start_span = self.current_span();
         self.expect(&TokenKind::Use)?;
 
         // Parse import path
-        let path = if let TokenKind::String(s) = self.current_kind() {
+        let path = if let TokenKind::String(s) = *self.current_kind() {
             // Relative path: './math', '../utils'
             self.advance();
             ImportPath::Relative(s)
@@ -46,7 +46,7 @@ impl Parser<'_> {
                 path,
                 items: vec![],
                 module_alias: Some(alias),
-                is_public,
+                visibility,
                 span: start_span.merge(end_span),
             });
         }
@@ -99,7 +99,7 @@ impl Parser<'_> {
             path,
             items,
             module_alias: None,
-            is_public,
+            visibility,
             span: start_span.merge(end_span),
         })
     }

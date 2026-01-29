@@ -571,3 +571,122 @@ pub trait TypeIdVisitor {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::type_interner::TypeInterner;
+
+    #[test]
+    fn test_type_folder_transforms_all_variants() {
+        // Identity folder - should preserve all types unchanged
+        struct IdentityFolder;
+        impl TypeFolder for IdentityFolder {}
+
+        let mut folder = IdentityFolder;
+
+        // Test primitives
+        assert_eq!(folder.fold(&Type::Int), Type::Int);
+        assert_eq!(folder.fold(&Type::Bool), Type::Bool);
+        assert_eq!(folder.fold(&Type::Str), Type::Str);
+
+        // Test containers
+        let list = Type::List(Box::new(Type::Int));
+        assert_eq!(folder.fold(&list), list);
+
+        let option = Type::Option(Box::new(Type::Str));
+        assert_eq!(folder.fold(&option), option);
+
+        // Test function
+        let func = Type::Function {
+            params: vec![Type::Int, Type::Bool],
+            ret: Box::new(Type::Str),
+        };
+        assert_eq!(folder.fold(&func), func);
+
+        // Test tuple
+        let tuple = Type::Tuple(vec![Type::Int, Type::Bool]);
+        assert_eq!(folder.fold(&tuple), tuple);
+    }
+
+    #[test]
+    fn test_type_visitor_visits_all_variants() {
+        struct CountingVisitor {
+            count: usize,
+        }
+        impl TypeVisitor for CountingVisitor {
+            fn visit_var(&mut self, _var: TypeVar) {
+                self.count += 1;
+            }
+        }
+
+        let mut visitor = CountingVisitor { count: 0 };
+
+        // Var should be visited
+        let var = Type::Var(TypeVar::new(0));
+        visitor.visit(&var);
+        assert_eq!(visitor.count, 1);
+
+        // Nested vars
+        let func = Type::Function {
+            params: vec![Type::Var(TypeVar::new(1))],
+            ret: Box::new(Type::Var(TypeVar::new(2))),
+        };
+        visitor.visit(&func);
+        assert_eq!(visitor.count, 3); // 1 + 2 more vars
+    }
+
+    #[test]
+    fn test_type_id_folder_with_interner() {
+        let interner = TypeInterner::new();
+
+        struct IdentityIdFolder<'a> {
+            interner: &'a TypeInterner,
+        }
+
+        impl TypeIdFolder for IdentityIdFolder<'_> {
+            fn interner(&self) -> &TypeInterner {
+                self.interner
+            }
+        }
+
+        let mut folder = IdentityIdFolder {
+            interner: &interner,
+        };
+
+        // Test that folding primitives returns the same TypeId
+        let int_id = TypeId::INT;
+        assert_eq!(folder.fold(int_id), int_id);
+
+        // Test container
+        let list_id = interner.list(TypeId::INT);
+        assert_eq!(folder.fold(list_id), list_id);
+    }
+
+    #[test]
+    fn test_custom_fold_var_override() {
+        // Folder that replaces all vars with Int
+        struct VarToIntFolder;
+        impl TypeFolder for VarToIntFolder {
+            fn fold_var(&mut self, _var: TypeVar) -> Type {
+                Type::Int
+            }
+        }
+
+        let mut folder = VarToIntFolder;
+
+        let var = Type::Var(TypeVar::new(42));
+        assert_eq!(folder.fold(&var), Type::Int);
+
+        // Test in nested context
+        let func = Type::Function {
+            params: vec![Type::Var(TypeVar::new(0))],
+            ret: Box::new(Type::Var(TypeVar::new(1))),
+        };
+        let expected = Type::Function {
+            params: vec![Type::Int],
+            ret: Box::new(Type::Int),
+        };
+        assert_eq!(folder.fold(&func), expected);
+    }
+}

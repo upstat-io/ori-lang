@@ -10,7 +10,7 @@ members = [
     "compiler/ori_typeck",
     "compiler/ori_eval",
     "compiler/ori_fmt",
-    "compiler/ori-macros",
+    "compiler/ori_macros",
     "compiler/oric",
 ]
 # Excluded crates:
@@ -51,7 +51,7 @@ ori_typeck = { path = "compiler/ori_typeck" }
 ori_eval = { path = "compiler/ori_eval" }
 ori_fmt = { path = "compiler/ori_fmt" }
 ori_llvm = { path = "compiler/ori_llvm" }
-ori-macros = { path = "compiler/ori-macros" }
+ori_macros = { path = "compiler/ori_macros" }
 
 # Workspace-wide lint configuration
 [workspace.lints.rust]

@@ -678,7 +678,7 @@ mod tests {
 
     #[test]
     fn test_visit_function() {
-        use crate::ast::{Function, Param};
+        use crate::ast::{Function, Param, Visibility};
         use crate::Name;
 
         let mut arena = ExprArena::new();
@@ -699,7 +699,7 @@ mod tests {
             where_clauses: Vec::new(),
             body,
             span: Span::new(0, 22),
-            is_public: false,
+            visibility: Visibility::Private,
         };
 
         let mut counter = ExprCounter { count: 0 };
@@ -710,7 +710,7 @@ mod tests {
 
     #[test]
     fn test_visit_module() {
-        use crate::ast::{Function, Module};
+        use crate::ast::{Function, Module, Visibility};
         use crate::Name;
 
         let mut arena = ExprArena::new();
@@ -727,7 +727,7 @@ mod tests {
             where_clauses: Vec::new(),
             body: body1,
             span: Span::new(0, 5),
-            is_public: false,
+            visibility: Visibility::Private,
         };
 
         let func2 = Function {
@@ -739,7 +739,7 @@ mod tests {
             where_clauses: Vec::new(),
             body: body2,
             span: Span::new(10, 15),
-            is_public: true,
+            visibility: Visibility::Public,
         };
 
         let module = Module {
@@ -848,10 +848,8 @@ mod tests {
         let mut arena = ExprArena::new();
 
         let empty_list_range = arena.alloc_expr_list([]);
-        let empty_list = arena.alloc_expr(Expr::new(
-            ExprKind::List(empty_list_range),
-            Span::new(0, 2),
-        ));
+        let empty_list =
+            arena.alloc_expr(Expr::new(ExprKind::List(empty_list_range), Span::new(0, 2)));
 
         let mut counter = ExprCounter { count: 0 };
         counter.visit_expr_id(empty_list, &arena);

@@ -58,7 +58,7 @@ impl Parser<'_> {
             return self.parse_function_exp(kind);
         }
 
-        match self.current_kind() {
+        match *self.current_kind() {
             // Literals
             TokenKind::Int(n) => {
                 self.advance();
@@ -281,7 +281,10 @@ impl Parser<'_> {
 
             _ => Err(ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
-                format!("expected expression, found {:?}", self.current_kind()),
+                format!(
+                    "expected expression, found {}",
+                    self.current_kind().display_name()
+                ),
                 span,
             )),
         }
@@ -553,7 +556,7 @@ impl Parser<'_> {
             return Ok(BindingPattern::Name(name));
         }
 
-        match self.current_kind() {
+        match *self.current_kind() {
             TokenKind::Ident(name) => {
                 self.advance();
                 Ok(BindingPattern::Name(name))
@@ -604,7 +607,7 @@ impl Parser<'_> {
                 while !self.check(&TokenKind::RBracket) && !self.is_at_end() {
                     if self.check(&TokenKind::DotDot) {
                         self.advance();
-                        if let TokenKind::Ident(name) = self.current_kind() {
+                        if let TokenKind::Ident(name) = *self.current_kind() {
                             rest = Some(name);
                             self.advance();
                         }
@@ -620,7 +623,10 @@ impl Parser<'_> {
             }
             _ => Err(ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
-                format!("expected binding pattern, found {:?}", self.current_kind()),
+                format!(
+                    "expected binding pattern, found {}",
+                    self.current_kind().display_name()
+                ),
                 self.current_span(),
             )),
         }

@@ -44,6 +44,22 @@ pub struct ImplEntry {
     pub assoc_types: Vec<ImplAssocTypeDef>,
 }
 
+impl ImplEntry {
+    /// Get a method by name.
+    ///
+    /// Returns `Some(&ImplMethodDef)` if found, `None` otherwise.
+    /// Note: For impls with many methods, consider using the method cache
+    /// at the TraitRegistry level which provides true O(1) lookup.
+    pub fn get_method(&self, name: Name) -> Option<&ImplMethodDef> {
+        self.methods.iter().find(|m| m.name == name)
+    }
+
+    /// Get an associated type definition by name.
+    pub fn get_assoc_type(&self, name: Name) -> Option<&ImplAssocTypeDef> {
+        self.assoc_types.iter().find(|a| a.name == name)
+    }
+}
+
 /// Error when coherence rules are violated.
 #[derive(Clone, Debug)]
 pub struct CoherenceError {

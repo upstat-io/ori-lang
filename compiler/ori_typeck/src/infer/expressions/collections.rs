@@ -38,7 +38,13 @@ pub fn infer_tuple(checker: &mut TypeChecker<'_>, elements: ExprRange) -> Type {
     }
 }
 
-/// Infer type for a map literal.
+/// Infer the type of a map literal (e.g., `{"a": 1, "b": 2}`).
+///
+/// Returns `Map<K, V>` where K and V are inferred from entries:
+/// - Empty map: fresh type variables for key and value
+/// - Non-empty: first entry sets types, subsequent entries unified against them
+///
+/// Reports errors if key or value types are inconsistent across entries.
 pub fn infer_map(checker: &mut TypeChecker<'_>, entries: MapEntryRange, _span: Span) -> Type {
     let map_entries = checker.context.arena.get_map_entries(entries);
     if map_entries.is_empty() {
@@ -62,7 +68,14 @@ pub fn infer_map(checker: &mut TypeChecker<'_>, entries: MapEntryRange, _span: S
     }
 }
 
-/// Infer type for a range expression.
+/// Infer the type of a range expression (e.g., `0..10`, `1..=5`).
+///
+/// Returns `Range<T>` where T is inferred from bounds:
+/// - If start provided, infers from start
+/// - If only end provided, infers from end
+/// - If neither, defaults to `Range<int>`
+///
+/// Unifies start and end types if both are present.
 pub fn infer_range(
     checker: &mut TypeChecker<'_>,
     start: Option<ExprId>,

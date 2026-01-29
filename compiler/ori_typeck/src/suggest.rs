@@ -23,15 +23,14 @@ use ori_ir::Name;
 pub fn suggest_identifier(checker: &TypeChecker<'_>, unknown_name: Name) -> Option<String> {
     let unknown_str = checker.context.interner.lookup(unknown_name);
 
-    // Collect candidate names from the type environment
-    let candidates: Vec<&str> = checker
+    // Pass iterator directly to avoid intermediate Vec allocation
+    let candidates = checker
         .inference
         .env
         .names()
-        .map(|name| checker.context.interner.lookup(name))
-        .collect();
+        .map(|name| checker.context.interner.lookup(name));
 
-    suggest_similar(unknown_str, candidates.into_iter())
+    suggest_similar(unknown_str, candidates)
 }
 
 /// Suggest a similar function name.
@@ -49,16 +48,15 @@ pub fn suggest_identifier(checker: &TypeChecker<'_>, unknown_name: Name) -> Opti
 pub fn suggest_function(checker: &TypeChecker<'_>, unknown_name: Name) -> Option<String> {
     let unknown_str = checker.context.interner.lookup(unknown_name);
 
-    // Collect function names from the type environment
+    // Pass iterator directly to avoid intermediate Vec allocation
     // Functions are stored as regular bindings with function types
-    let candidates: Vec<&str> = checker
+    let candidates = checker
         .inference
         .env
         .names()
-        .map(|name| checker.context.interner.lookup(name))
-        .collect();
+        .map(|name| checker.context.interner.lookup(name));
 
-    suggest_similar(unknown_str, candidates.into_iter())
+    suggest_similar(unknown_str, candidates)
 }
 
 /// Calculate Levenshtein edit distance between two strings.
@@ -112,10 +110,7 @@ fn default_threshold(name_len: usize) -> usize {
 ///
 /// Returns the candidate with the smallest edit distance, if any candidate
 /// is within the threshold.
-fn suggest_similar<'a>(
-    name: &str,
-    candidates: impl Iterator<Item = &'a str>,
-) -> Option<String> {
+fn suggest_similar<'a>(name: &str, candidates: impl Iterator<Item = &'a str>) -> Option<String> {
     if name.is_empty() {
         return None;
     }

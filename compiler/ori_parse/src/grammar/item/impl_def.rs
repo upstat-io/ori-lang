@@ -67,8 +67,8 @@ impl Parser<'_> {
                 return Err(ParseError::new(
                     ori_diagnostic::ErrorCode::E1001,
                     format!(
-                        "expected method definition (@name) or associated type definition (type Name = ...), found {:?}",
-                        self.current().kind
+                        "expected method definition (@name) or associated type definition (type Name = ...), found {}",
+                        self.current_kind().display_name()
                     ),
                     self.current_span(),
                 ));

@@ -128,9 +128,8 @@ pub fn resolve_imports_for_type_checking(
 
     for imp in &parse_result.module.imports {
         // Resolve the import path to a file
-        let resolved = resolve_import(db, &imp.path, current_file).map_err(|e| {
-            ImportError::with_span(e.message, imp.span)
-        })?;
+        let resolved = resolve_import(db, &imp.path, current_file)
+            .map_err(|e| ImportError::with_span(e.message, imp.span))?;
 
         // Get the parsed module to access function definitions
         let imported_parsed = parsed(db, resolved.file);
@@ -141,16 +140,15 @@ pub fn resolve_imports_for_type_checking(
 
             // Collect all public functions from the module
             for func in &imported_parsed.module.functions {
-                if func.is_public {
+                if func.visibility.is_public() {
                     let imported = create_imported_function(func, &imported_parsed.arena, interner);
                     functions.push(imported);
                 }
             }
 
-            result.module_aliases.push(ImportedModuleAlias {
-                alias,
-                functions,
-            });
+            result
+                .module_aliases
+                .push(ImportedModuleAlias { alias, functions });
             continue;
         }
 
@@ -178,7 +176,7 @@ pub fn resolve_imports_for_type_checking(
             };
 
             // Check visibility (public or private with :: prefix)
-            if !func.is_public && !private_access.contains(&func.name) {
+            if !func.visibility.is_public() && !private_access.contains(&func.name) {
                 continue;
             }
 

@@ -221,7 +221,7 @@ impl Parser<'_> {
 
             // Fold negation with integer literals: `-42` → `ExprKind::Int(-42)`
             if op == UnaryOp::Neg {
-                if let TokenKind::Int(n) = self.peek_next_kind() {
+                if let TokenKind::Int(n) = *self.peek_next_kind() {
                     self.advance(); // consume `-`
                     let lit_span = self.current_span();
                     self.advance(); // consume integer literal
