@@ -273,6 +273,15 @@
 - Core types (`Applicability`, `Suggestion`, `Substitution`) already exist; enhances JSON emitter
 - Blocked on: None (can be implemented independently)
 
+**Causality Tracking (`ori impact`, `ori why`)** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/why-command-proposal.md`
+- Implementation: Phase 22.6
+- `ori impact @target` shows blast radius before changing code
+- `ori why @target` traces causality chain after something breaks
+- Exposes Salsa's dependency tracking to users for debugging
+- Supports `--verbose`, `--diff`, `--graph` output modes
+- Blocked on: None (Salsa infrastructure already exists)
+
 ---
 
 ## Milestones
