@@ -5,6 +5,7 @@
 use super::Render;
 use crate::diagnostic::{Diagnostic, ErrorCode};
 use crate::problem::TypeProblem;
+use crate::suggest::suggest_similar;
 
 impl Render for TypeProblem {
     fn render(&self) -> Diagnostic {
@@ -89,8 +90,17 @@ impl Render for TypeProblem {
                     .with_message(format!("no field `{field_name}` on type `{type_name}`"))
                     .with_label(*span, "unknown field");
                 if !available_fields.is_empty() {
-                    diag = diag
-                        .with_note(format!("available fields: {}", available_fields.join(", ")));
+                    // Try to find a similar field name
+                    if let Some(suggestion) =
+                        suggest_similar(field_name, available_fields.iter().map(String::as_str))
+                    {
+                        diag = diag.with_note(format!("did you mean `{suggestion}`?"));
+                    } else {
+                        diag = diag.with_note(format!(
+                            "available fields: {}",
+                            available_fields.join(", ")
+                        ));
+                    }
                 }
                 diag
             }
@@ -105,10 +115,17 @@ impl Render for TypeProblem {
                     .with_message(format!("no method `{method_name}` on type `{type_name}`"))
                     .with_label(*span, "method not found");
                 if !available_methods.is_empty() {
-                    diag = diag.with_note(format!(
-                        "available methods: {}",
-                        available_methods.join(", ")
-                    ));
+                    // Try to find a similar method name
+                    if let Some(suggestion) =
+                        suggest_similar(method_name, available_methods.iter().map(String::as_str))
+                    {
+                        diag = diag.with_note(format!("did you mean `{suggestion}`?"));
+                    } else {
+                        diag = diag.with_note(format!(
+                            "available methods: {}",
+                            available_methods.join(", ")
+                        ));
+                    }
                 }
                 diag
             }

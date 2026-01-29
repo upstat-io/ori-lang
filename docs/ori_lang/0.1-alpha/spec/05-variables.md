@@ -8,7 +8,7 @@ order: 5
 
 Variables are storage locations identified by name.
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § EXPRESSIONS (let_expr, assignment, binding_pattern)
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § EXPRESSIONS (let_expr, assignment, binding_pattern)
 
 ## Bindings
 

@@ -56,6 +56,7 @@ use crate::{
     unknown_pattern,
     Environment,
     FunctionValue,
+    Mutability,
     SharedMutableRegistry,
     SharedRegistry,
     StructValue,
@@ -186,7 +187,7 @@ impl PatternExecutor for Interpreter<'_> {
 
     fn bind_var(&mut self, name: &str, value: Value) {
         let name_id = self.interner.intern(name);
-        self.env.define(name_id, value, false);
+        self.env.define(name_id, value, Mutability::Immutable);
     }
 }
 
@@ -373,7 +374,12 @@ impl<'a> Interpreter<'a> {
                 ..
             } => {
                 let value = self.eval(*init)?;
-                self.bind_pattern(pattern, value, *mutable)?;
+                let mutability = if *mutable {
+                    Mutability::Mutable
+                } else {
+                    Mutability::Immutable
+                };
+                self.bind_pattern(pattern, value, mutability)?;
                 Ok(Value::Void)
             }
 
@@ -501,7 +507,9 @@ impl<'a> Interpreter<'a> {
                 body,
             } => {
                 let provider_val = self.eval(*provider)?;
-                self.with_binding(*capability, provider_val, false, |e| e.eval(*body))
+                self.with_binding(*capability, provider_val, Mutability::Immutable, |e| {
+                    e.eval(*body)
+                })
             }
             ExprKind::Error => Err(parse_error()),
             ExprKind::HashLength => Err(hash_outside_index()),
@@ -548,7 +556,12 @@ impl<'a> Interpreter<'a> {
                         ..
                     } => {
                         let value = eval.eval(*init)?;
-                        eval.bind_pattern(pattern, value, *mutable)?;
+                        let mutability = if *mutable {
+                            Mutability::Mutable
+                        } else {
+                            Mutability::Immutable
+                        };
+                        eval.bind_pattern(pattern, value, mutability)?;
                     }
                 }
             }
@@ -564,9 +577,9 @@ impl<'a> Interpreter<'a> {
         &mut self,
         pattern: &BindingPattern,
         value: Value,
-        mutable: bool,
+        mutability: Mutability,
     ) -> EvalResult {
-        crate::exec::control::bind_pattern(pattern, value, mutable, &mut self.env)
+        crate::exec::control::bind_pattern(pattern, value, mutability, &mut self.env)
     }
 
     /// Evaluate a `function_exp` expression (map, filter, fold, etc.).
@@ -657,7 +670,7 @@ impl<'a> Interpreter<'a> {
             let mut results = Vec::new();
             for item in items {
                 // Use RAII guard for scope safety
-                let iter_result = self.with_binding(binding, item, false, |eval| {
+                let iter_result = self.with_binding(binding, item, Mutability::Immutable, |eval| {
                     // Check guard
                     if let Some(g) = guard {
                         match eval.eval(g) {
@@ -684,7 +697,7 @@ impl<'a> Interpreter<'a> {
         } else {
             for item in items {
                 // Use RAII guard for scope safety
-                let iter_result = self.with_binding(binding, item, false, |eval| {
+                let iter_result = self.with_binding(binding, item, Mutability::Immutable, |eval| {
                     // Check guard
                     if let Some(g) = guard {
                         match eval.eval(g) {

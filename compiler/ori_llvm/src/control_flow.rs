@@ -190,9 +190,9 @@ impl<'ll> Builder<'_, 'll, '_> {
         // Extract length and data pointer
         let iter_struct = iter_val.into_struct_value();
         let len = self
-            .extract_value(iter_struct, 0, "iter_len")
+            .extract_value(iter_struct, 0, "iter_len")?
             .into_int_value();
-        let _data_ptr = self.extract_value(iter_struct, 2, "iter_data");
+        let _data_ptr = self.extract_value(iter_struct, 2, "iter_data")?;
 
         // Create loop blocks
         let header_bb = self.append_block(function, "for_header");
@@ -309,7 +309,7 @@ impl<'ll> Builder<'_, 'll, '_> {
 
         // Extract tag
         let tag = self
-            .extract_value(result_struct, 0, "try_tag")
+            .extract_value(result_struct, 0, "try_tag")?
             .into_int_value();
 
         // Check if Ok (tag == 0)
@@ -329,7 +329,7 @@ impl<'ll> Builder<'_, 'll, '_> {
 
         // Ok path: extract and return value
         self.position_at_end(ok_bb);
-        let ok_val = self.extract_value(result_struct, 1, "ok_val");
+        let ok_val = self.extract_value(result_struct, 1, "ok_val")?;
         self.br(merge_bb);
 
         // Err path: propagate error (return early)

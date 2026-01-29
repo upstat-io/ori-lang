@@ -8,7 +8,7 @@ order: 20
 
 Ori distinguishes between recoverable errors and unrecoverable panics.
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § PATTERNS (catch_expr)
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § PATTERNS (catch_expr)
 
 ## Recoverable Errors
 

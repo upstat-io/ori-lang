@@ -8,7 +8,7 @@ order: 2
 
 Source code is Unicode text encoded in UTF-8.
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § LEXICAL GRAMMAR, SOURCE STRUCTURE
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § LEXICAL GRAMMAR, SOURCE STRUCTURE
 
 ## Characters
 

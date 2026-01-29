@@ -273,6 +273,19 @@ pub extern "C" fn ori_max_int(a: i64, b: i64) -> i64 {
     a.max(b)
 }
 
+/// Allocate memory for a closure struct.
+///
+/// Used when a closure has captures and needs to be boxed for returning.
+/// The size should be the total size of the closure struct in bytes.
+#[no_mangle]
+pub extern "C" fn ori_closure_box(size: i64) -> *mut u8 {
+    let size = size.max(8) as usize;
+    let layout = std::alloc::Layout::from_size_align(size, 8)
+        .unwrap_or_else(|_| std::alloc::Layout::new::<u64>());
+    // SAFETY: Layout is valid
+    unsafe { std::alloc::alloc(layout) }
+}
+
 /// Concatenate two strings.
 ///
 /// Returns a new `OriStr` with the concatenated result.

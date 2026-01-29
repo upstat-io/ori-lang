@@ -28,9 +28,13 @@ impl<'ll> Builder<'_, 'll, '_> {
         match recv_val {
             BasicValueEnum::StructValue(struct_val) => {
                 // Could be a tuple - use index as field number
-                let idx = idx_val.into_int_value();
+                // Only works with integer indices
+                let BasicValueEnum::IntValue(idx) = idx_val else {
+                    // Non-integer index (e.g., string key for map) - not yet supported
+                    return None;
+                };
                 idx.get_zero_extended_constant()
-                    .map(|const_idx| self.extract_value(struct_val, const_idx as u32, "index"))
+                    .and_then(|const_idx| self.extract_value(struct_val, const_idx as u32, "index"))
             }
             _ => {
                 // For lists/arrays, would need GEP or runtime call

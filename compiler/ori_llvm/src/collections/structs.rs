@@ -38,21 +38,16 @@ impl<'ll> Builder<'_, 'll, '_> {
 
         for init in field_inits {
             // Get the value - either explicit or shorthand (variable with same name)
-            let value_id = init.value.unwrap_or_else(|| {
-                // Shorthand: `Point { x, y }` - look up variable `x`
-                // We need to find an expression for this name
-                // For now, assume it's in locals
-                panic!("Struct shorthand not yet supported in LLVM backend")
-            });
-
-            if let Some(val) =
-                self.compile_expr(value_id, arena, expr_types, locals, function, loop_ctx)
-            {
-                types.push(val.get_type());
-                values.push(val);
+            let val = if let Some(value_id) = init.value {
+                // Explicit value: `Point { x: 10 }`
+                self.compile_expr(value_id, arena, expr_types, locals, function, loop_ctx)?
             } else {
-                return None;
-            }
+                // Shorthand: `Point { x, y }` - look up variable with same name as field
+                locals.get(&init.name).copied()?
+            };
+
+            types.push(val.get_type());
+            values.push(val);
         }
 
         // Create a struct type
@@ -106,6 +101,6 @@ impl<'ll> Builder<'_, 'll, '_> {
         };
 
         // Extract the field value
-        Some(self.extract_value(struct_val, field_index, &format!("field_{field_name}")))
+        self.extract_value(struct_val, field_index, &format!("field_{field_name}"))
     }
 }

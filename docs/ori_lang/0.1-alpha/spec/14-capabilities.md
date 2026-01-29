@@ -8,7 +8,7 @@ order: 14
 
 Capabilities are traits representing effects or suspension.
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § DECLARATIONS (uses_clause), EXPRESSIONS (with_expr)
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § DECLARATIONS (uses_clause), EXPRESSIONS (with_expr)
 
 ## Declaration
 

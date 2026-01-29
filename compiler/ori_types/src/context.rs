@@ -1,5 +1,6 @@
 //! Type inference context and type deduplication.
 
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -20,7 +21,7 @@ pub struct InferenceContext {
     /// Next type variable ID.
     next_var: u32,
     /// Type variable substitutions (stored as `TypeId` for efficiency).
-    substitutions: HashMap<TypeVar, TypeId>,
+    substitutions: FxHashMap<TypeVar, TypeId>,
     /// Type context for deduplicating generic instantiations.
     type_context: TypeContext,
     /// Type interner for converting between Type and `TypeId`.
@@ -32,7 +33,7 @@ impl InferenceContext {
     pub fn new() -> Self {
         InferenceContext {
             next_var: 0,
-            substitutions: HashMap::new(),
+            substitutions: FxHashMap::default(),
             type_context: TypeContext::new(),
             interner: SharedTypeInterner::new(),
         }
@@ -44,7 +45,7 @@ impl InferenceContext {
     pub fn with_interner(interner: SharedTypeInterner) -> Self {
         InferenceContext {
             next_var: 0,
-            substitutions: HashMap::new(),
+            substitutions: FxHashMap::default(),
             type_context: TypeContext::new(),
             interner,
         }
@@ -230,7 +231,7 @@ impl InferenceContext {
     /// This is the internal implementation using interned types.
     pub fn resolve_id(&self, id: TypeId) -> TypeId {
         struct IdResolver<'a> {
-            substitutions: &'a HashMap<TypeVar, TypeId>,
+            substitutions: &'a FxHashMap<TypeVar, TypeId>,
             interner: &'a TypeInterner,
         }
 
@@ -261,7 +262,7 @@ impl InferenceContext {
     fn occurs_id(&self, var: TypeVar, id: TypeId) -> bool {
         struct OccursChecker<'a> {
             target: TypeVar,
-            substitutions: &'a HashMap<TypeVar, TypeId>,
+            substitutions: &'a FxHashMap<TypeVar, TypeId>,
             interner: &'a TypeInterner,
             found: bool,
         }
@@ -304,9 +305,9 @@ impl InferenceContext {
     /// This is the internal implementation using interned types.
     pub fn free_vars_id(&self, id: TypeId) -> Vec<TypeVar> {
         struct FreeVarCollector<'a> {
-            substitutions: &'a HashMap<TypeVar, TypeId>,
+            substitutions: &'a FxHashMap<TypeVar, TypeId>,
             interner: &'a TypeInterner,
-            vars: Vec<TypeVar>,
+            vars: FxHashSet<TypeVar>,
         }
 
         impl TypeIdVisitor for FreeVarCollector<'_> {
@@ -317,8 +318,8 @@ impl InferenceContext {
             fn visit_var(&mut self, var: TypeVar) {
                 if let Some(&resolved) = self.substitutions.get(&var) {
                     self.visit(resolved);
-                } else if !self.vars.contains(&var) {
-                    self.vars.push(var);
+                } else {
+                    self.vars.insert(var); // O(1) instead of O(n)
                 }
             }
         }
@@ -326,10 +327,10 @@ impl InferenceContext {
         let mut collector = FreeVarCollector {
             substitutions: &self.substitutions,
             interner: &self.interner,
-            vars: Vec::new(),
+            vars: FxHashSet::default(),
         };
         collector.visit(id);
-        collector.vars
+        collector.vars.into_iter().collect()
     }
 
     /// Generalize a type to a type scheme by quantifying over free variables
@@ -392,7 +393,7 @@ impl InferenceContext {
     fn substitute_vars_id(&self, id: TypeId, mapping: &HashMap<TypeVar, TypeId>) -> TypeId {
         struct VarSubstitutor<'a> {
             mapping: &'a HashMap<TypeVar, TypeId>,
-            substitutions: &'a HashMap<TypeVar, TypeId>,
+            substitutions: &'a FxHashMap<TypeVar, TypeId>,
             interner: &'a TypeInterner,
         }
 

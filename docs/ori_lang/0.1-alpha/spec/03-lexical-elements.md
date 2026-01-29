@@ -6,7 +6,7 @@ order: 3
 
 # Lexical Elements
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § LEXICAL GRAMMAR
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § LEXICAL GRAMMAR
 
 A _token_ is an identifier, keyword, literal, operator, or delimiter.
 

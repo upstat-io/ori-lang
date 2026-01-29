@@ -112,17 +112,27 @@ impl<'ll> Builder<'_, 'll, '_> {
             self.position_at_end(block);
         }
 
-        // Build closure struct: { i8 tag, i64 fn_ptr, capture0, capture1, ... }
+        // Get function pointer as i64
         let fn_ptr = lambda_fn.as_global_value().as_pointer_value();
         let ptr_as_int = self.ptr_to_int(fn_ptr, self.cx().scx.type_i64(), "fn_ptr_to_int");
 
-        // Build struct type and values
+        // For closures without captures, return just the function pointer as i64
+        if captures.is_empty() {
+            return Some(ptr_as_int.into());
+        }
+
+        // For closures with captures, build and box the closure struct
+        // Build closure struct: { i8 capture_count, i64 fn_ptr, capture0, capture1, ... }
         let mut field_types = vec![
-            self.cx().scx.type_i8().into(),  // tag
+            self.cx().scx.type_i8().into(),  // capture_count
             self.cx().scx.type_i64().into(), // fn_ptr as i64
         ];
         let mut field_values: Vec<BasicValueEnum<'ll>> = vec![
-            self.cx().scx.type_i8().const_int(1, false).into(), // tag = 1 (has value)
+            self.cx()
+                .scx
+                .type_i8()
+                .const_int(captures.len() as u64, false)
+                .into(), // capture_count
             ptr_as_int.into(),
         ];
 
@@ -142,7 +152,30 @@ impl<'ll> Builder<'_, 'll, '_> {
         let closure_type = self.cx().scx.type_struct(&field_types, false);
         let closure_val = self.build_struct(closure_type, &field_values, "closure");
 
-        Some(closure_val.into())
+        // Box the closure: allocate heap memory and store the struct
+        // Calculate size: 1 byte (count) + 8 bytes (fn_ptr) + 8 bytes * capture_count
+        let size = 1 + 8 + 8 * captures.len();
+        let size_val = self.cx().scx.type_i64().const_int(size as u64, false);
+
+        // Call ori_closure_box to allocate memory
+        let box_fn = self
+            .cx()
+            .llmod()
+            .get_function("ori_closure_box")
+            .expect("ori_closure_box not declared");
+        let box_ptr = self
+            .call(box_fn, &[size_val.into()], "closure_box")?
+            .into_pointer_value();
+
+        // Store the closure struct to the allocated memory
+        self.store(closure_val.into(), box_ptr);
+
+        // Return the pointer as i64, with lowest bit set as a tag to indicate "boxed closure"
+        // This allows compile_closure_call to distinguish between plain fn_ptr and boxed closure
+        let ptr_int = self.ptr_to_int(box_ptr, self.cx().scx.type_i64(), "closure_ptr_int");
+        let one = self.cx().scx.type_i64().const_int(1, false);
+        let tagged = self.or(ptr_int, one, "closure_tagged");
+        Some(tagged.into())
     }
 
     /// Find variables captured by a lambda expression.

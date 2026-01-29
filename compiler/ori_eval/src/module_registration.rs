@@ -12,7 +12,7 @@
 //! (WASM, embedded interpreters, testing) can call these functions directly after
 //! parsing.
 
-use crate::{Environment, FunctionValue, UserMethod, UserMethodRegistry, Value};
+use crate::{Environment, FunctionValue, Mutability, UserMethod, UserMethodRegistry, Value};
 use ori_ir::{Module, Name, SharedArena, TypeDeclKind};
 use std::collections::{HashMap, HashSet};
 
@@ -39,7 +39,11 @@ pub fn register_module_functions(module: &Module, arena: &SharedArena, env: &mut
             arena.clone(),
             capabilities,
         );
-        env.define(func.name, Value::Function(func_value), false);
+        env.define(
+            func.name,
+            Value::Function(func_value),
+            Mutability::Immutable,
+        );
     }
 }
 

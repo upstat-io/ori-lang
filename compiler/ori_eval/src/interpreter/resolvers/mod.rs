@@ -116,20 +116,71 @@ pub trait MethodResolver {
     fn name(&self) -> &'static str;
 }
 
+/// Enum-based resolver kind for the fixed set of method resolvers.
+///
+/// Uses an enum instead of `Box<dyn MethodResolver>` because:
+/// - Fixed set of 3 resolver types (no user extension needed)
+/// - Eliminates virtual dispatch overhead
+/// - Enables exhaustive matching at compile time
+/// - Better cache locality (no heap indirection)
+pub enum MethodResolverKind {
+    /// User-defined and derived methods (priority 0)
+    UserRegistry(UserRegistryResolver),
+    /// Collection methods requiring evaluator (priority 1)
+    Collection(CollectionMethodResolver),
+    /// Built-in methods on primitives (priority 2)
+    Builtin(BuiltinMethodResolver),
+}
+
+impl MethodResolverKind {
+    /// Try to resolve a method call.
+    pub fn resolve(
+        &self,
+        receiver: &Value,
+        type_name: Name,
+        method_name: Name,
+    ) -> MethodResolution {
+        match self {
+            Self::UserRegistry(r) => r.resolve(receiver, type_name, method_name),
+            Self::Collection(r) => r.resolve(receiver, type_name, method_name),
+            Self::Builtin(r) => r.resolve(receiver, type_name, method_name),
+        }
+    }
+
+    /// Get the priority of this resolver (lower = higher priority).
+    pub fn priority(&self) -> u8 {
+        match self {
+            Self::UserRegistry(r) => r.priority(),
+            Self::Collection(r) => r.priority(),
+            Self::Builtin(r) => r.priority(),
+        }
+    }
+
+    /// Get a human-readable name for this resolver (for debugging).
+    #[allow(dead_code)]
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::UserRegistry(r) => r.name(),
+            Self::Collection(r) => r.name(),
+            Self::Builtin(r) => r.name(),
+        }
+    }
+}
+
 /// Method dispatcher that chains multiple resolvers.
 ///
 /// Tries resolvers in priority order (lowest priority number first)
 /// until one returns a match or all have been tried.
 pub struct MethodDispatcher {
-    resolvers: Vec<Box<dyn MethodResolver + Send + Sync>>,
+    resolvers: Vec<MethodResolverKind>,
 }
 
 impl MethodDispatcher {
     /// Create a new dispatcher with the given resolvers.
     ///
     /// Resolvers are sorted by priority (lowest first).
-    pub fn new(mut resolvers: Vec<Box<dyn MethodResolver + Send + Sync>>) -> Self {
-        resolvers.sort_by_key(|r| r.priority());
+    pub fn new(mut resolvers: Vec<MethodResolverKind>) -> Self {
+        resolvers.sort_by_key(MethodResolverKind::priority);
         Self { resolvers }
     }
 
@@ -191,48 +242,44 @@ mod tests {
 
     #[test]
     fn test_dispatcher_priority_ordering() {
-        struct TestResolver {
-            priority: u8,
-            name: &'static str,
-        }
+        use crate::SharedMutableRegistry;
+        use crate::UserMethodRegistry;
+        use ori_ir::SharedInterner;
 
-        impl MethodResolver for TestResolver {
-            fn resolve(
-                &self,
-                _receiver: &Value,
-                _type_name: Name,
-                _method_name: Name,
-            ) -> MethodResolution {
-                MethodResolution::NotFound
-            }
-            fn priority(&self) -> u8 {
-                self.priority
-            }
-            fn name(&self) -> &'static str {
-                self.name
-            }
-        }
+        let interner = SharedInterner::default();
+        let registry = SharedMutableRegistry::new(UserMethodRegistry::new());
 
-        let resolvers: Vec<Box<dyn MethodResolver + Send + Sync>> = vec![
-            Box::new(TestResolver {
-                priority: 3,
-                name: "third",
-            }),
-            Box::new(TestResolver {
-                priority: 1,
-                name: "first",
-            }),
-            Box::new(TestResolver {
-                priority: 2,
-                name: "second",
-            }),
+        // Create resolvers in wrong order
+        let resolvers = vec![
+            MethodResolverKind::Builtin(BuiltinMethodResolver::new()), // priority 2
+            MethodResolverKind::UserRegistry(UserRegistryResolver::new(registry)), // priority 0
+            MethodResolverKind::Collection(CollectionMethodResolver::new(&interner)), // priority 1
         ];
 
         let dispatcher = MethodDispatcher::new(resolvers);
 
-        // Verify they're in priority order
-        assert_eq!(dispatcher.resolvers[0].name(), "first");
-        assert_eq!(dispatcher.resolvers[1].name(), "second");
-        assert_eq!(dispatcher.resolvers[2].name(), "third");
+        // Verify they're sorted by priority (0, 1, 2)
+        assert_eq!(dispatcher.resolvers[0].priority(), 0);
+        assert_eq!(dispatcher.resolvers[1].priority(), 1);
+        assert_eq!(dispatcher.resolvers[2].priority(), 2);
+        assert_eq!(dispatcher.resolvers[0].name(), "UserRegistryResolver");
+        assert_eq!(dispatcher.resolvers[1].name(), "CollectionMethodResolver");
+        assert_eq!(dispatcher.resolvers[2].name(), "BuiltinMethodResolver");
+    }
+
+    #[test]
+    fn test_resolver_kind_dispatch() {
+        use ori_ir::SharedInterner;
+
+        let interner = SharedInterner::default();
+
+        // Test that MethodResolverKind correctly dispatches to underlying resolvers
+        let builtin = MethodResolverKind::Builtin(BuiltinMethodResolver::new());
+        assert_eq!(builtin.priority(), 2);
+        assert_eq!(builtin.name(), "BuiltinMethodResolver");
+
+        let collection = MethodResolverKind::Collection(CollectionMethodResolver::new(&interner));
+        assert_eq!(collection.priority(), 1);
+        assert_eq!(collection.name(), "CollectionMethodResolver");
     }
 }

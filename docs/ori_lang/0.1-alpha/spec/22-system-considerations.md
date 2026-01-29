@@ -19,7 +19,7 @@ The `int` type is a 64-bit signed integer.
 | Size | 64 bits |
 | Minimum | -9,223,372,036,854,775,808 (-2^63) |
 | Maximum | 9,223,372,036,854,775,807 (2^63 - 1) |
-| Overflow | Wraps (see [Errors and Panics](20-errors-and-panics.md)) |
+| Overflow | Panics (see [Error Codes](https://ori-lang.com/docs/compiler-design/appendices/c-error-codes)) |
 
 There is no separate unsigned integer type. Bitwise operations treat the value as unsigned bits.
 

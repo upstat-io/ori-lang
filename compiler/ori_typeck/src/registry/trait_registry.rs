@@ -18,8 +18,9 @@ pub use super::trait_types::{TraitAssocTypeDef, TraitEntry, TraitMethodDef};
 
 use ori_ir::Name;
 use ori_types::{SharedTypeInterner, Type, TypeInterner};
+use rustc_hash::FxHashMap;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// Registry for traits and implementations.
 ///
@@ -34,24 +35,30 @@ use std::collections::{HashMap, HashSet};
 #[derive(Clone, Debug)]
 pub struct TraitRegistry {
     /// Trait definitions by name.
-    traits: HashMap<Name, TraitEntry>,
+    traits: FxHashMap<Name, TraitEntry>,
     /// Trait implementations: (`trait_name`, `self_type`) -> `ImplEntry`.
-    trait_impls: HashMap<(Name, Type), ImplEntry>,
+    trait_impls: FxHashMap<(Name, Type), ImplEntry>,
     /// Inherent implementations by type.
-    inherent_impls: HashMap<Type, ImplEntry>,
+    inherent_impls: FxHashMap<Type, ImplEntry>,
     /// Type interner for Type↔TypeId conversions.
     interner: SharedTypeInterner,
     /// Secondary index: type -> traits it implements.
     ///
     /// Enables O(1) lookup of which traits a type implements, avoiding O(n) scan
     /// of all `trait_impls` entries. Updated when implementations are registered.
-    traits_by_type: HashMap<Type, Vec<Name>>,
+    traits_by_type: FxHashMap<Type, Vec<Name>>,
+    /// Secondary index: method_name -> traits with that default method.
+    ///
+    /// Enables O(k) lookup of traits with a specific default method, where k is the
+    /// number of traits with that default method name. Avoids O(n) scan of all traits.
+    /// Updated when traits are registered.
+    default_methods_by_name: FxHashMap<Name, Vec<Name>>,
     /// Lazily-populated method lookup cache: `(self_type, method_name)` -> cached result.
     ///
     /// Uses `RefCell` for interior mutability so `lookup_method` can remain `&self`.
     /// Cache entries store `Option<MethodLookup>`: `None` means the method was looked up
     /// but not found. The cache is invalidated (cleared) whenever traits or impls are registered.
-    method_cache: RefCell<HashMap<(Type, Name), Option<MethodLookup>>>,
+    method_cache: RefCell<FxHashMap<(Type, Name), Option<MethodLookup>>>,
 }
 
 impl PartialEq for TraitRegistry {
@@ -68,12 +75,13 @@ impl Eq for TraitRegistry {}
 impl Default for TraitRegistry {
     fn default() -> Self {
         TraitRegistry {
-            traits: HashMap::new(),
-            trait_impls: HashMap::new(),
-            inherent_impls: HashMap::new(),
+            traits: FxHashMap::default(),
+            trait_impls: FxHashMap::default(),
+            inherent_impls: FxHashMap::default(),
             interner: SharedTypeInterner::new(),
-            traits_by_type: HashMap::new(),
-            method_cache: RefCell::new(HashMap::new()),
+            traits_by_type: FxHashMap::default(),
+            default_methods_by_name: FxHashMap::default(),
+            method_cache: RefCell::new(FxHashMap::default()),
         }
     }
 }
@@ -89,12 +97,13 @@ impl TraitRegistry {
     /// Use this when you want to share the interner with other compiler phases.
     pub fn with_interner(interner: SharedTypeInterner) -> Self {
         TraitRegistry {
-            traits: HashMap::new(),
-            trait_impls: HashMap::new(),
-            inherent_impls: HashMap::new(),
+            traits: FxHashMap::default(),
+            trait_impls: FxHashMap::default(),
+            inherent_impls: FxHashMap::default(),
             interner,
-            traits_by_type: HashMap::new(),
-            method_cache: RefCell::new(HashMap::new()),
+            traits_by_type: FxHashMap::default(),
+            default_methods_by_name: FxHashMap::default(),
+            method_cache: RefCell::new(FxHashMap::default()),
         }
     }
 
@@ -105,8 +114,18 @@ impl TraitRegistry {
 
     /// Register a trait definition.
     ///
-    /// Invalidates the method cache since new default methods may affect lookups.
+    /// Updates the default methods index and invalidates the method cache
+    /// since new default methods may affect lookups.
     pub fn register_trait(&mut self, entry: TraitEntry) {
+        // Update secondary index for default methods
+        for method in &entry.methods {
+            if method.has_default {
+                self.default_methods_by_name
+                    .entry(method.name)
+                    .or_default()
+                    .push(entry.name);
+            }
+        }
         self.traits.insert(entry.name, entry);
         self.method_cache.borrow_mut().clear();
     }
@@ -259,20 +278,26 @@ impl TraitRegistry {
             }
         }
 
-        // Finally check if any trait has this as a default method
-        for (trait_name, trait_entry) in &self.traits {
-            if let Some(method) = trait_entry.get_method(method_name) {
-                if method.has_default && self.implements(self_ty, *trait_name) {
-                    return Some(MethodLookup {
-                        trait_name: Some(*trait_name),
-                        method_name,
-                        params: method
-                            .params
-                            .iter()
-                            .map(|id| self.interner.to_type(*id))
-                            .collect(),
-                        return_ty: self.interner.to_type(method.return_ty),
-                    });
+        // Finally check if any trait has this as a default method using the index
+        // This is O(k) where k is the number of traits with this default method name
+        if let Some(trait_names) = self.default_methods_by_name.get(&method_name) {
+            for trait_name in trait_names {
+                if self.implements(self_ty, *trait_name) {
+                    // Get the trait entry to access the method definition
+                    if let Some(trait_entry) = self.traits.get(trait_name) {
+                        if let Some(method) = trait_entry.get_method(method_name) {
+                            return Some(MethodLookup {
+                                trait_name: Some(*trait_name),
+                                method_name,
+                                params: method
+                                    .params
+                                    .iter()
+                                    .map(|id| self.interner.to_type(*id))
+                                    .collect(),
+                                return_ty: self.interner.to_type(method.return_ty),
+                            });
+                        }
+                    }
                 }
             }
         }

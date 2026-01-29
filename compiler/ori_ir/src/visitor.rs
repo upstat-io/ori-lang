@@ -151,8 +151,13 @@ pub trait Visitor<'ast> {
 }
 
 // Walk Functions
+//
+// All walk functions traverse children in depth-first, left-to-right order.
+// For expressions with multiple children (e.g., binary operations), the left
+// child is visited before the right. For collections (lists, tuples), elements
+// are visited in declaration order.
 
-/// Walk a module's children.
+/// Walk a module's children (imports, configs, functions, tests in order).
 pub fn walk_module<'ast, V: Visitor<'ast> + ?Sized>(
     visitor: &mut V,
     module: &'ast Module,

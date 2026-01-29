@@ -176,6 +176,9 @@ impl<'ll> CodegenCx<'ll, '_> {
         self.declare_extern_fn("ori_str_from_int", &[i64_ty.into()], Some(str_ty));
         self.declare_extern_fn("ori_str_from_bool", &[bool_ty.into()], Some(str_ty));
         self.declare_extern_fn("ori_str_from_float", &[f64_ty.into()], Some(str_ty));
+
+        // Closure boxing
+        self.declare_extern_fn("ori_closure_box", &[i64_ty.into()], Some(ptr_ty));
     }
 
     /// Get a declared function by name, or None if not declared.

@@ -346,8 +346,13 @@ pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
     }
 
     // Add EOF token
-    let eof_pos = u32::try_from(source.len())
-        .unwrap_or_else(|_| panic!("source file exceeds {} bytes", u32::MAX));
+    // If source exceeds u32::MAX bytes, emit error token and use max position
+    let eof_pos = u32::try_from(source.len()).unwrap_or_else(|_| {
+        // File too large - emit error token at end
+        let error_span = Span::new(u32::MAX - 1, u32::MAX);
+        result.push(Token::new(TokenKind::Error, error_span));
+        u32::MAX
+    });
     let eof_span = Span::point(eof_pos);
     result.push(Token::new(TokenKind::Eof, eof_span));
 

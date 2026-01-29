@@ -5,6 +5,7 @@
 use super::Render;
 use crate::diagnostic::{Diagnostic, ErrorCode};
 use crate::problem::ParseProblem;
+use crate::suggest::suggest_similar;
 
 impl Render for ParseProblem {
     fn render(&self) -> Diagnostic {
@@ -88,13 +89,21 @@ impl Render for ParseProblem {
                 arg_name,
                 valid_args,
             } => {
-                let valid_list = valid_args.join("`, `.");
-                Diagnostic::error(ErrorCode::E1010)
+                let mut diag = Diagnostic::error(ErrorCode::E1010)
                     .with_message(format!(
                         "unknown argument `.{arg_name}:` in `{pattern_name}` pattern"
                     ))
-                    .with_label(*span, "unknown argument")
-                    .with_note(format!("valid arguments are: `.{valid_list}`"))
+                    .with_label(*span, "unknown argument");
+                // Try to find a similar argument name
+                if let Some(suggestion) =
+                    suggest_similar(arg_name, valid_args.iter().map(String::as_str))
+                {
+                    diag = diag.with_note(format!("did you mean `.{suggestion}:`?"));
+                } else {
+                    let valid_list = valid_args.join("`, `.");
+                    diag = diag.with_note(format!("valid arguments are: `.{valid_list}`"));
+                }
+                diag
             }
 
             ParseProblem::RequiresNamedArgs {

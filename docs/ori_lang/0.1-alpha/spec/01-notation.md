@@ -8,7 +8,7 @@ order: 1
 
 The syntax is specified using Extended Backus-Naur Form (EBNF).
 
-> **Grammar:** The complete formal grammar is in [grammar.ebnf](grammar.ebnf).
+> **Grammar:** The complete formal grammar is in [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar).
 
 ## Productions
 

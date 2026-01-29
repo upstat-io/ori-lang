@@ -26,7 +26,7 @@
 //! - File content changes are tracked and invalidate dependent queries
 
 use crate::db::Db;
-use crate::eval::{Environment, FunctionValue, Value};
+use crate::eval::{Environment, FunctionValue, Mutability, Value};
 use crate::input::SourceFile;
 use crate::ir::{ImportPath, Name, SharedArena, StringInterner};
 use crate::parser::ParseOutput;
@@ -473,7 +473,11 @@ pub fn register_imports(
 
             // Use alias if provided, otherwise use original name
             let bind_name = item.alias.unwrap_or(item.name);
-            env.define(bind_name, Value::Function(func_value), false);
+            env.define(
+                bind_name,
+                Value::Function(func_value),
+                Mutability::Immutable,
+            );
         } else {
             return Err(ImportError::new(format!(
                 "'{}' not found in '{}'",

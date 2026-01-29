@@ -88,24 +88,25 @@ impl<'ll> Builder<'_, 'll, '_> {
             if let BasicTypeEnum::IntType(target_int) = target_type {
                 // If the struct has 2 fields (tag, payload), extract payload
                 if sv.get_type().count_fields() == 2 {
-                    let payload = self.extract_value(sv, 1, "ret_payload");
-                    // If payload is already the right type, return it
-                    if payload.get_type() == target_type {
-                        return payload;
-                    }
-                    // If payload is int, extend/truncate to match
-                    if let BasicValueEnum::IntValue(iv) = payload {
-                        let payload_width = iv.get_type().get_bit_width();
-                        let target_width = target_int.get_bit_width();
-                        return match payload_width.cmp(&target_width) {
-                            std::cmp::Ordering::Less => {
-                                self.zext(iv, target_int, "ret_zext").into()
-                            }
-                            std::cmp::Ordering::Greater => {
-                                self.trunc(iv, target_int, "ret_trunc").into()
-                            }
-                            std::cmp::Ordering::Equal => payload,
-                        };
+                    if let Some(payload) = self.extract_value(sv, 1, "ret_payload") {
+                        // If payload is already the right type, return it
+                        if payload.get_type() == target_type {
+                            return payload;
+                        }
+                        // If payload is int, extend/truncate to match
+                        if let BasicValueEnum::IntValue(iv) = payload {
+                            let payload_width = iv.get_type().get_bit_width();
+                            let target_width = target_int.get_bit_width();
+                            return match payload_width.cmp(&target_width) {
+                                std::cmp::Ordering::Less => {
+                                    self.zext(iv, target_int, "ret_zext").into()
+                                }
+                                std::cmp::Ordering::Greater => {
+                                    self.trunc(iv, target_int, "ret_trunc").into()
+                                }
+                                std::cmp::Ordering::Equal => payload,
+                            };
+                        }
                     }
                 }
             }

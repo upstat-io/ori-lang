@@ -25,6 +25,7 @@ use crate::{
     Environment,
     EvalError,
     EvalResult,
+    Mutability,
     Value,
 };
 use ori_ir::{
@@ -56,12 +57,12 @@ where
 pub fn bind_pattern(
     pattern: &BindingPattern,
     value: Value,
-    mutable: bool,
+    mutability: Mutability,
     env: &mut Environment,
 ) -> EvalResult {
     match pattern {
         BindingPattern::Name(name) => {
-            env.define(*name, value, mutable);
+            env.define(*name, value, mutability);
             Ok(Value::Void)
         }
         BindingPattern::Wildcard => Ok(Value::Void),
@@ -71,7 +72,7 @@ pub fn bind_pattern(
                     return Err(tuple_pattern_mismatch());
                 }
                 for (pat, val) in patterns.iter().zip(values.iter()) {
-                    bind_pattern(pat, val.clone(), mutable, env)?;
+                    bind_pattern(pat, val.clone(), mutability, env)?;
                 }
                 Ok(Value::Void)
             } else {
@@ -83,10 +84,10 @@ pub fn bind_pattern(
                 for (field_name, binding) in fields {
                     if let Some(val) = s.get_field(*field_name) {
                         if let Some(nested_pattern) = binding {
-                            bind_pattern(nested_pattern, val.clone(), mutable, env)?;
+                            bind_pattern(nested_pattern, val.clone(), mutability, env)?;
                         } else {
                             // Shorthand: let { x } = s -> binds x to s.x
-                            env.define(*field_name, val.clone(), mutable);
+                            env.define(*field_name, val.clone(), mutability);
                         }
                     } else {
                         return Err(missing_struct_field());
@@ -103,11 +104,11 @@ pub fn bind_pattern(
                     return Err(list_pattern_too_long());
                 }
                 for (pat, val) in elements.iter().zip(values.iter()) {
-                    bind_pattern(pat, val.clone(), mutable, env)?;
+                    bind_pattern(pat, val.clone(), mutability, env)?;
                 }
                 if let Some(rest_name) = rest {
                     let rest_values: Vec<_> = values[elements.len()..].to_vec();
-                    env.define(*rest_name, Value::list(rest_values), mutable);
+                    env.define(*rest_name, Value::list(rest_values), mutability);
                 }
                 Ok(Value::Void)
             } else {
@@ -395,7 +396,7 @@ where
             // Push scope with bindings
             env.push_scope();
             for (name, val) in bindings {
-                env.define(name, val, false);
+                env.define(name, val, Mutability::Immutable);
             }
 
             // Check if guard passes (if present) - bindings are now available
@@ -447,7 +448,7 @@ where
         let mut results = Vec::new();
         for item in items {
             env.push_scope();
-            env.define(binding, item, false);
+            env.define(binding, item, Mutability::Immutable);
 
             let (result, action) = eval_body(body, guard, env)?;
             env.pop_scope();
@@ -468,7 +469,7 @@ where
     } else {
         for item in items {
             env.push_scope();
-            env.define(binding, item, false);
+            env.define(binding, item, Mutability::Immutable);
 
             let (_, action) = eval_body(body, guard, env)?;
             env.pop_scope();
