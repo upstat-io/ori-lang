@@ -99,39 +99,93 @@ Formalize the distinction between sequential patterns and named-expression patte
 
 **Proposal**: `proposals/approved/remove-dot-prefix-proposal.md`
 
-Change named argument syntax from `.name: value` to `name: value`.
+Change named argument syntax from `.name: value` to `name: value`. All functions require named arguments — no exceptions.
 
 ```ori
 // Before
 fetch_user(.id: 1)
-map(.over: items, .transform: x -> x * 2)
+print("Hello")  // positional was allowed for built-ins
 
 // After
 fetch_user(id: 1)
-map(over: items, transform: x -> x * 2)
+print(msg: "Hello")  // named required everywhere
 ```
+
+### Key Design Decisions
+
+- All functions require named arguments (built-ins, user-defined, methods)
+- Only function variable calls allow positional: `let f = x -> x + 1; f(5)`
+- Type conversions use `as` syntax (see 15.7), not function calls
+- No shorthand syntax (`foo(x)` meaning `foo(x: x)` is NOT supported)
 
 ### Implementation
 
-- [ ] **Implement**: Update parser to expect `IDENTIFIER ':'` instead of `'.' IDENTIFIER ':'`
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/call.rs` — named arg syntax
-  - [ ] **Ori Tests**: `tests/spec/expressions/named_args.ori`
-  - [ ] **LLVM Support**: LLVM codegen for named arg syntax
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — named arg syntax codegen
+#### Parser (dot removal done, enforcement needed)
 
-- [ ] **Implement**: Update error messages to show new syntax
-  - [ ] **Rust Tests**: `ori_diagnostic/src/problem.rs` — syntax error messages
-  - [ ] **Ori Tests**: `tests/compile-fail/named_arg_syntax.ori`
-  - [ ] **LLVM Support**: LLVM codegen for syntax error messages
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — syntax error messages codegen
+- [x] **Done**: Parser accepts `IDENTIFIER ':'` instead of `'.' IDENTIFIER ':'`
+  - Basic syntax change already implemented
 
-- [ ] **Implement**: Add migration tool `ori migrate remove-dot-prefix`
-  - [ ] **LLVM Support**: LLVM codegen for ori migrate tool
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — ori migrate codegen
+- [ ] **Implement**: Enforce named arguments for built-in functions
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/call.rs` — builtin named arg enforcement
+  - [ ] **Ori Tests**: `tests/spec/expressions/builtin_named_args.ori`
+  - [ ] **Ori Tests**: `tests/compile-fail/builtin_positional_args.ori`
 
-- [ ] **Implement**: Update formatter with width-based stacking rule
-  - [ ] **LLVM Support**: LLVM codegen for formatter width-based stacking
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — formatter stacking codegen
+- [ ] **Implement**: Allow positional only for function variable calls
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/call.rs` — function var positional
+  - [ ] **Ori Tests**: `tests/spec/expressions/function_var_positional.ori`
+
+- [ ] **Implement**: Clear error message when positional used incorrectly
+  - [ ] **Rust Tests**: `ori_diagnostic/src/problem.rs` — positional arg error
+  - [ ] **Ori Tests**: `tests/compile-fail/positional_arg_error.ori`
+
+#### Built-in Function Updates
+
+- [ ] **Implement**: Update `print` to require `msg:` parameter
+  - [ ] **Ori Tests**: `tests/spec/expressions/print_named.ori`
+
+- [ ] **Implement**: Update `len` to require `collection:` parameter
+  - [ ] **Ori Tests**: `tests/spec/expressions/len_named.ori`
+
+- [ ] **Implement**: Update `is_empty` to require `collection:` parameter
+
+- [ ] **Implement**: Update `assert` to require `condition:` parameter
+  - [ ] **Ori Tests**: `tests/spec/expressions/assert_named.ori`
+
+- [ ] **Implement**: Update `assert_eq` to require `actual:`, `expected:` parameters
+
+- [ ] **Implement**: Update `assert_ne` to require `actual:`, `unexpected:` parameters
+
+- [ ] **Implement**: Update `assert_some`, `assert_none` to require `option:` parameter
+
+- [ ] **Implement**: Update `assert_ok`, `assert_err` to require `result:` parameter
+
+- [ ] **Implement**: Update `assert_panics` to require `f:` parameter
+
+- [ ] **Implement**: Update `assert_panics_with` to require `f:`, `msg:` parameters
+
+- [ ] **Implement**: Update `panic` to require `msg:` parameter
+
+- [ ] **Implement**: Update `compare`, `min`, `max` to require `left:`, `right:` parameters
+
+- [ ] **Implement**: Update `repeat` to require `value:` parameter
+
+#### Formatter
+
+- [ ] **Implement**: Width-based stacking rule (inline if fits, stack if not)
+  - [ ] **Rust Tests**: `ori_formatter/src/` — width-based stacking
+  - [ ] **Ori Tests**: formatter integration tests
+
+#### Migration Tool
+
+- [ ] **Implement**: `ori migrate remove-dot-prefix` command
+  - Finds `.identifier:` patterns and removes the dot
+  - `--dry-run` flag for preview
+
+#### Documentation & Tests
+
+- [ ] **Implement**: Update all existing tests to use named arguments for built-ins
+- [ ] **Implement**: Update spec examples to use named arguments everywhere
+- [ ] **Implement**: Update CLAUDE.md examples (partially done)
 
 ---
 

@@ -1,8 +1,9 @@
 # Proposal: Remove Dot Prefix from Named Arguments
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Claude (with Eric)
 **Created:** 2026-01-24
+**Approved:** 2026-01-28
 
 ---
 
@@ -36,7 +37,7 @@ send_email(
 
 ```ori
 print(.msg: "Hello")      // Verbose
-len(.of: items)           // Ceremonial
+len(.collection: items)   // Ceremonial
 fetch_user(.id: user_id)  // Noisy
 ```
 
@@ -55,7 +56,7 @@ fetch_user(id: user_id)
 //         └────── parameter name
 ```
 
-No ori needed. Position relative to colon determines role.
+No prefix needed. Position relative to colon determines role.
 
 ### Familiar Syntax
 
@@ -96,32 +97,29 @@ named_arg := IDENTIFIER ':' expression
 
 Simple. No dot prefix.
 
-### Call Syntax by Function Type
+### Named Arguments Required Everywhere
+
+All function calls require named arguments. No exceptions.
 
 | Function Type | Syntax | Example |
 |---------------|--------|---------|
-| Built-in conversions | Positional | `int(x)`, `str(value)` |
-| Built-in functions | Positional | `print("Hello")`, `len(items)` |
+| Built-in functions | Named required | `print(msg: "Hello")`, `len(collection: items)` |
 | User-defined functions | Named required | `fetch_user(id: 1)` |
-| Patterns (function_exp) | Named required | `map(over: items, transform: fn)` |
+| Method calls | Named required | `items.map(transform: fn)` |
 
-### Built-in Functions (Positional)
+> **Note:** Type conversions use the `as` operator (see [as-conversion-proposal.md](approved/as-conversion-proposal.md)), not function calls.
 
-Common built-ins allow positional arguments — they're universal and obvious:
+### Built-in Functions (Named Required)
+
+Built-in functions require named arguments like all other functions:
 
 ```ori
-// Type conversions
-int(x)
-str(value)
-float(n)
-byte(c)
-
-// Core functions
-print("Hello, world!")
-len(items)
-is_empty(collection)
-assert(x > 0)
-assert_eq(result, expected)
+// Core functions - named arguments required
+print(msg: "Hello, world!")
+len(collection: items)
+is_empty(collection: items)
+assert(condition: x > 0)
+assert_eq(actual: result, expected: 10)
 ```
 
 ### User-Defined Functions (Named Required)
@@ -143,25 +141,18 @@ send_email(
 )
 ```
 
-### Patterns (Named Required)
+### Stdlib Methods (Named Required)
 
-Patterns use named arguments for clarity:
+Standard library methods use named arguments:
 
 ```ori
-map(over: items, transform: x -> x * 2)
+items.map(transform: x -> x * 2)
 
-filter(over: users, predicate: u -> u.active)
+users.filter(predicate: u -> u.active)
 
-fold(
-    over: numbers,
-    init: 0,
+numbers.fold(
+    initial: 0,
     op: (acc, n) -> acc + n,
-)
-
-retry(
-    op: fetch(url: "/api"),
-    attempts: 3,
-    backoff: exponential(base: 100ms, max: 5s),
 )
 ```
 
@@ -172,9 +163,9 @@ retry(
 ```ori
 // Fits = inline
 fetch_user(id: 1)
-map(over: items, transform: x -> x * 2)
+items.map(transform: x -> x * 2)
 send_email(to: a, subject: b, body: c)
-Point(x: 0, y: 0, z: 0)
+Point { x: 0, y: 0, z: 0 }
 
 // Doesn't fit = stack
 send_email(
@@ -211,10 +202,10 @@ fetch_user(id)        // ERROR - named argument required
 ### Simple Calls
 
 ```ori
-// Built-ins - positional
-print("Hello, world!")
-len(items)
-assert(x > 0)
+// Built-ins - named
+print(msg: "Hello, world!")
+len(collection: items)
+assert(condition: x > 0)
 
 // User functions - named
 fetch_user(id: 1)
@@ -226,14 +217,11 @@ create_point(x: 0, y: 0)
 ```ori
 @process_batch (ids: [UserId]) -> [Result<User, Error>] uses Http, Async =
     parallel(
-        tasks: map(
-            over: ids,
-            transform: id -> retry(
-                op: fetch_user(id: id),
-                attempts: 3,
-                backoff: exponential(base: 100ms, max: 5s),
-            ),
-        ),
+        tasks: ids.map(transform: id -> retry(
+            op: fetch_user(id: id),
+            attempts: 3,
+            backoff: exponential(base: 100ms, max: 5s),
+        )),
         max_concurrent: 10,
         timeout: 60s,
     )
@@ -253,11 +241,11 @@ result.map(transform: x -> x * 2)
 
 ```ori
 @test_fetch_user tests @fetch_user () -> void =
-    with Http = MockHttp(responses: { "/users/1": json_user }) in
+    with Http = MockHttp { responses: { "/users/1": json_user } } in
     run(
         let result = fetch_user(id: 1),
-        assert_ok(result),
-        assert_eq(result.unwrap().name, "Alice"),
+        assert_ok(result: result),
+        assert_eq(actual: result.unwrap().name, expected: "Alice"),
     )
 ```
 
@@ -293,12 +281,10 @@ ori migrate remove-dot-prefix
 +    body: content,
 +)
 
--map(
--    .over: items,
+-items.map(
 -    .transform: x -> x * 2,
 -)
-+map(
-+    over: items,
++items.map(
 +    transform: x -> x * 2,
 +)
 ```
@@ -329,7 +315,7 @@ When names differ, it's even clearer:
 ```ori
 fetch_user(id: user_id)
 fetch_user(id: row.primary_key)
-fetch_user(id: parse_id(input))
+fetch_user(id: parse_id(input: input))
 ```
 
 ---
@@ -382,7 +368,7 @@ Remove the `.` prefix from named arguments:
 - `name: value` instead of `.name: value`
 - Colon separates parameter name from value — no ambiguity
 - Familiar syntax from Swift, Kotlin, Python
-- Built-ins allow positional; user functions require named
+- All functions require named arguments — no exceptions
 - Width-only formatting: inline if fits, stack if not
 - No shorthand — always explicit `name: value`
 

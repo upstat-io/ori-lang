@@ -255,6 +255,15 @@
 - Multi-line template strings preserve whitespace exactly (no auto-dedent)
 - Blocked on: None (can be implemented independently)
 
+**Remove Dot Prefix from Named Arguments** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/remove-dot-prefix-proposal.md`
+- Implementation: Phase 15.3
+- Dot removal done; named argument enforcement for built-ins pending
+- All functions require named arguments — no exceptions
+- Built-ins need update: `print(msg:)`, `len(collection:)`, `assert(condition:)`, etc.
+- Type conversions use `as` syntax (see `as-conversion-proposal.md`)
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones
