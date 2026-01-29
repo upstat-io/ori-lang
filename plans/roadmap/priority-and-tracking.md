@@ -244,6 +244,17 @@
 - `nursery` pattern for structured concurrency with guaranteed task completion
 - Blocked on: Phase 16 (Async Support)
 
+**String Interpolation** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/string-interpolation-proposal.md`
+- Implementation: Phase 15.6
+- Two string types: `"..."` (regular, no interpolation), `` `...` `` (template, with `{expr}` interpolation)
+- Type-safe via `Printable` trait; expressions inside `{}` must implement `Printable`
+- Format specifiers: `{value:.2}`, `{count:05}`, `{hex:X}`, alignment (`<`, `>`, `^`)
+- `Formattable` trait in prelude with blanket impl from `Printable`
+- Escapes: `{{`/`}}` for literal braces in template strings; `` \` `` for literal backtick
+- Multi-line template strings preserve whitespace exactly (no auto-dedent)
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones

@@ -258,62 +258,123 @@ Add template strings with backtick delimiters and `{expr}` interpolation.
 ```ori
 let name = "Alice"
 let age = 30
-print(`Hello, {name}! You are {age} years old.`)
+print(msg: `Hello, {name}! You are {age} years old.`)
 ```
+
+Two string types:
+- `"..."` — regular strings, no interpolation, braces are literal
+- `` `...` `` — template strings with `{expr}` interpolation
 
 ### Lexer
 
-- [ ] **Implement**: Add template string literal tokenization
+- [ ] **Implement**: Add template string literal tokenization (backtick delimited)
   - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — template string tokenization
   - [ ] **Ori Tests**: `tests/spec/lexical/template_strings.ori`
   - [ ] **LLVM Support**: LLVM codegen for template string tokenization
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — template string tokenization codegen
 
-- [ ] **Implement**: Handle `{expr}` interpolation boundaries
+- [ ] **Implement**: Handle `{expr}` interpolation boundaries (switch lexer modes)
   - [ ] **LLVM Support**: LLVM codegen for interpolation boundaries
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — interpolation boundaries codegen
 
-- [ ] **Implement**: Handle `\{` and `\}` escape for literal braces
+- [ ] **Implement**: Handle `{{` and `}}` escape for literal braces
+  - [ ] **Ori Tests**: `tests/spec/lexical/template_brace_escape.ori`
   - [ ] **LLVM Support**: LLVM codegen for brace escaping
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — brace escaping codegen
 
 - [ ] **Implement**: Handle `` \` `` escape for literal backtick
+  - [ ] **Ori Tests**: `tests/spec/lexical/template_backtick_escape.ori`
   - [ ] **LLVM Support**: LLVM codegen for backtick escaping
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — backtick escaping codegen
 
+- [ ] **Implement**: Support escapes: `\\`, `\n`, `\t`, `\r`, `\0` in template strings
+  - [ ] **Ori Tests**: `tests/spec/lexical/template_escapes.ori`
+  - [ ] **LLVM Support**: LLVM codegen for template escapes
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — template escapes codegen
+
+- [ ] **Implement**: Multi-line template strings (preserve whitespace exactly)
+  - [ ] **Ori Tests**: `tests/spec/lexical/template_multiline.ori`
+  - [ ] **LLVM Support**: LLVM codegen for multiline template strings
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — multiline codegen
+
 ### Parser
 
-- [ ] **Implement**: Parse template strings as sequence of parts
+- [ ] **Implement**: Parse template strings as sequence of `StringPart` (Literal | Interpolation)
   - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — template string parsing
   - [ ] **Ori Tests**: `tests/spec/expressions/interpolation.ori`
   - [ ] **LLVM Support**: LLVM codegen for template string parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — template string parsing codegen
 
-- [ ] **Implement**: Parse interpolated expressions
+- [ ] **Implement**: Parse interpolated expressions (full expression grammar inside `{}`)
+  - [ ] **Ori Tests**: `tests/spec/expressions/interpolation_expressions.ori`
   - [ ] **LLVM Support**: LLVM codegen for interpolated expressions
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — interpolated expressions codegen
 
 - [ ] **Implement**: Parse optional format specifiers `{expr:spec}`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/format_spec.rs` — format spec parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/format_specifiers.ori`
   - [ ] **LLVM Support**: LLVM codegen for format specifiers
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — format specifiers codegen
+
+- [ ] **Implement**: Parse format spec grammar: `[[fill]align][width][.precision][type]`
+  - [ ] **Ori Tests**: `tests/spec/expressions/format_spec_grammar.ori`
+  - [ ] **LLVM Support**: LLVM codegen for format spec grammar
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — format spec grammar codegen
 
 ### Type System
 
 - [ ] **Implement**: Interpolated expressions must implement `Printable`
   - [ ] **Rust Tests**: `oric/src/typeck/checker/interpolation.rs` — printable constraint
-  - [ ] **Ori Tests**: `tests/spec/types/printable.ori`
+  - [ ] **Ori Tests**: `tests/spec/types/printable_interpolation.ori`
   - [ ] **LLVM Support**: LLVM codegen for Printable constraint
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — Printable constraint codegen
 
+- [ ] **Implement**: Validate format spec type compatibility (e.g., `x`/`X`/`b`/`o` only for int)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/format_spec.rs` — format spec type validation
+  - [ ] **Ori Tests**: `tests/compile-fail/format_spec_type_mismatch.ori`
+  - [ ] **LLVM Support**: LLVM codegen for format spec type validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — format spec type validation codegen
+
+### Standard Library
+
+- [ ] **Implement**: `Formattable` trait definition
+  - [ ] **Ori Tests**: `tests/spec/traits/formattable.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Formattable trait
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — Formattable trait codegen
+
+- [ ] **Implement**: `FormatSpec` type definition
+  - [ ] **Ori Tests**: `tests/spec/types/format_spec.ori`
+  - [ ] **LLVM Support**: LLVM codegen for FormatSpec type
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — FormatSpec type codegen
+
+- [ ] **Implement**: `Alignment` and `FormatType` sum types
+  - [ ] **Ori Tests**: `tests/spec/types/format_enums.ori`
+  - [ ] **LLVM Support**: LLVM codegen for format enums
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — format enums codegen
+
+- [ ] **Implement**: Blanket impl `Formattable for T: Printable`
+  - [ ] **Ori Tests**: `tests/spec/traits/formattable_blanket.ori`
+  - [ ] **LLVM Support**: LLVM codegen for blanket impl
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — blanket impl codegen
+
+- [ ] **Implement**: `apply_format` helper for width/alignment/padding
+  - [ ] **Ori Tests**: `tests/spec/stdlib/apply_format.ori`
+  - [ ] **LLVM Support**: LLVM codegen for apply_format
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — apply_format codegen
+
 ### Codegen
 
-- [ ] **Implement**: Desugar template strings to concatenation
+- [ ] **Implement**: Desugar template strings to concatenation with `to_str()` calls
+  - [ ] **Rust Tests**: `oric/src/desugar/interpolation.rs` — template desugaring
+  - [ ] **Ori Tests**: `tests/spec/expressions/interpolation_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for template string desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — template string desugaring codegen
 
-- [ ] **Implement**: Generate `to_str()` calls for interpolations
-  - [ ] **LLVM Support**: LLVM codegen for to_str() calls
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — to_str() calls codegen
+- [ ] **Implement**: Desugar format specifiers to `format(value, FormatSpec {...})` calls
+  - [ ] **Rust Tests**: `oric/src/desugar/format_spec.rs` — format spec desugaring
+  - [ ] **Ori Tests**: `tests/spec/expressions/format_spec_desugar.ori`
+  - [ ] **LLVM Support**: LLVM codegen for format spec desugaring
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — format spec desugaring codegen
 
 ---
 

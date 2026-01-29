@@ -1,8 +1,9 @@
 # Proposal: String Interpolation
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-22
+**Approved:** 2026-01-28
 **Affects:** Lexer, parser, type system, standard library
 
 ---
@@ -118,7 +119,7 @@ Any expression can be interpolated in template strings:
 `Sum: {a + b}`
 
 // Function calls
-`Absolute: {abs(value)}`
+`Absolute: {abs(value: value)}`
 
 // Conditionals
 `Status: {if active then "on" else "off"}`
@@ -132,7 +133,7 @@ Any expression can be interpolated in template strings:
 **In template strings:**
 - `{{` and `}}` for literal braces
 - `` \` `` for literal backtick
-- Standard escapes: `\\`, `\n`, `\t`, `\r`
+- Standard escapes: `\\`, `\n`, `\t`, `\r`, `\0`
 
 ```ori
 `Use {{braces}} for interpolation`  // "Use {braces} for interpolation"
@@ -143,7 +144,7 @@ Any expression can be interpolated in template strings:
 **In regular strings:**
 - Braces are literal (no escaping needed)
 - `\"` for literal quote
-- Standard escapes: `\\`, `\n`, `\t`, `\r`
+- Standard escapes: `\\`, `\n`, `\t`, `\r`, `\0`
 
 ```ori
 "{\"key\": \"value\"}"  // {"key": "value"}
@@ -181,6 +182,24 @@ let json_template = "
     }
 "
 ```
+
+### Multi-line Semantics
+
+Template strings preserve whitespace exactly as written:
+
+- Leading/trailing newlines are included
+- Indentation is preserved verbatim
+- No automatic dedent or common-prefix stripping
+
+For controlled multi-line output, use explicit structure:
+
+```ori
+let report = `Report for {date}
+================
+Total items: {total}`
+```
+
+Or accept the preserved indentation when embedding in formatted contexts.
 
 ### Type Requirements
 
@@ -268,15 +287,39 @@ for item in items do
 
 // Debug output
 print(`Value: {x:08x}`)  // "Value: 0000002a"
-
-// Percentages
-let ratio = 0.756
-`{ratio:.1%}`  // "75.6%" (if we support % type)
 ```
 
 ---
 
 ## Implementation
+
+### Grammar Additions
+
+Add to `grammar.ebnf`:
+
+```ebnf
+// Template string literals (with interpolation)
+template_literal = '`' { template_char | template_escape | template_brace | interpolation } '`' .
+template_char    = unicode_char - ( '`' | '\' | '{' | '}' ) .
+template_escape  = '\' ( '`' | '\' | 'n' | 't' | 'r' | '0' ) .
+template_brace   = "{{" | "}}" .
+interpolation    = '{' expression [ ':' format_spec ] '}' .
+
+// Format specifiers
+format_spec      = [ [ fill ] align ] [ width ] [ '.' precision ] [ format_type ] .
+fill             = unicode_char - align .
+align            = '<' | '>' | '^' .
+width            = decimal_lit .
+precision        = decimal_lit .
+format_type      = 'b' | 'x' | 'X' | 'o' | 'e' | 'E' .
+```
+
+Update the `literal` production:
+
+```ebnf
+literal = int_literal | float_literal | string_literal | template_literal | char_literal
+        | bool_literal | duration_literal | size_literal .
+```
 
 ### Lexer Changes
 
@@ -362,6 +405,18 @@ impl<T: Printable> Formattable for T {
 }
 ```
 
+**Formattable** is in the prelude. Types implementing `Printable` automatically get a default `Formattable` implementation via the blanket impl. Types may override with a custom `Formattable` impl for specialized formatting behavior.
+
+The `apply_format` function is an internal stdlib helper that applies width, alignment, and padding to strings.
+
+When using format specifiers on types that only implement `Printable`:
+- Width/alignment/padding: applied to the `to_str()` result
+- Precision (`.N`): applied to floats/strings (truncates strings, rounds floats)
+- Base formatters (`x`, `X`, `b`, `o`): require numeric types or error
+
+When using format specifiers on types with custom `Formattable` impl:
+- The type's `format` method receives the `FormatSpec` and handles it
+
 ---
 
 ## Examples
@@ -381,7 +436,7 @@ impl<T: Printable> Formattable for T {
 @process_request (req: Request) -> Response uses Logger =
     run(
         Logger.info(`Processing request {req.id} from {req.client_ip}`),
-        let result = handle(req),
+        let result = handle(req: req),
         Logger.info(`Request {req.id} completed in {result.duration}`),
         result.response,
     )
@@ -396,7 +451,7 @@ Note: For SQL, use parameterized queries, not interpolation:
 query(`SELECT * FROM users WHERE name = '{name}'`)
 
 // RIGHT - use query builder or parameters
-query(.sql: "SELECT * FROM users WHERE name = ?", .params: [name])
+query(sql: "SELECT * FROM users WHERE name = ?", params: [name])
 ```
 
 ### HTML Templates
@@ -427,7 +482,7 @@ query(.sql: "SELECT * FROM users WHERE name = ?", .params: [name])
 
 ```ori
 @debug_point (p: Point) -> void =
-    print(`Point { x: {p.x}, y: {p.y} }`)
+    print(msg: `Point { x: {p.x}, y: {p.y} }`)
     // Output: Point { x: 10, y: 20 }
 ```
 
@@ -449,8 +504,8 @@ We chose backtick template strings (`` `...` ``) separate from regular strings (
 Ori uses `$name` for constants (compile-time values):
 
 ```ori
-$timeout = 30s
-$max_retries = 3
+let $timeout = 30s
+let $max_retries = 3
 ```
 
 Using `${expr}` would create visual confusion:
@@ -618,5 +673,5 @@ Key features:
 ```ori
 let user = "Alice"
 let items = 3
-print(`Hello, {user}! You have {items} new messages.`)
+print(msg: `Hello, {user}! You have {items} new messages.`)
 ```

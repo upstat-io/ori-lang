@@ -130,6 +130,32 @@ The `$` sigil marks a binding as immutable. It appears at definition, import, an
 "line1\nline2"
 ```
 
+Regular strings do not support interpolation. Braces are literal characters.
+
+### Template String
+
+Template strings use backticks and support expression interpolation:
+
+```ori
+let name = "World"
+`Hello, {name}!`  // "Hello, World!"
+```
+
+Interpolated expressions must implement `Printable`. Format specifiers are optional:
+
+```ori
+`{value:.2}`   // 2 decimal places
+`{count:05}`   // zero-pad to 5 digits
+`{hex:X}`      // uppercase hex
+```
+
+Escaping in template strings:
+- `{{` and `}}` for literal braces
+- `` \` `` for literal backtick
+- Standard escapes: `\\`, `\n`, `\t`, `\r`, `\0`
+
+Multi-line template strings preserve whitespace exactly as written.
+
 ### Character
 
 ```ori
