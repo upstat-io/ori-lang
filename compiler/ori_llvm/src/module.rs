@@ -262,9 +262,11 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
 
         let module = self.cx.llmod();
         for &(name, addr) in mappings {
-            let func = module
-                .get_function(name)
-                .unwrap_or_else(|| panic!("{name} not declared"));
+            let func = module.get_function(name).unwrap_or_else(|| {
+                panic!(
+                    "{name} not declared - call declare_runtime_functions() before running tests"
+                )
+            });
             ee.add_global_mapping(&func, addr);
         }
     }

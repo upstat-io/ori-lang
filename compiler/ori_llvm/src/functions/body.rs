@@ -27,9 +27,13 @@ impl<'ll> Builder<'_, 'll, '_> {
         let mut locals: HashMap<Name, BasicValueEnum<'ll>> = HashMap::new();
 
         for (i, &param_name) in param_names.iter().enumerate() {
-            let param_value = function
-                .get_nth_param(i as u32)
-                .unwrap_or_else(|| panic!("Missing parameter {i}"));
+            let param_value = function.get_nth_param(i as u32).unwrap_or_else(|| {
+                let fn_name = function.get_name().to_str().unwrap_or("<unknown function>");
+                panic!(
+                    "Missing parameter {i} in function '{fn_name}' (expected {} parameters)",
+                    param_names.len()
+                )
+            });
             param_value.set_name(self.cx().interner.lookup(param_name));
             locals.insert(param_name, param_value);
         }

@@ -214,6 +214,7 @@ impl TokenKind {
                 | TokenKind::Timeout
                 | TokenKind::Cache
                 | TokenKind::Catch
+                | TokenKind::With
                 | TokenKind::Print
                 | TokenKind::Panic
         )
@@ -231,6 +232,7 @@ impl TokenKind {
                 | TokenKind::Run
                 | TokenKind::Timeout
                 | TokenKind::Try
+                | TokenKind::With
                 | TokenKind::Print
                 | TokenKind::Panic
         )

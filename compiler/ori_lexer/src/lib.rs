@@ -1,9 +1,65 @@
 //! Lexer for Ori using logos with string interning.
 //!
 //! Produces `TokenList` for Salsa queries.
+//!
+//! # Lexing
+//!
+//! The main entry point is [`lex()`], which converts source code into a [`TokenList`].
+//!
+//! # Token Types
+//!
+//! - **Literals**: integers (decimal, hex, binary), floats, strings, chars, durations, sizes
+//! - **Keywords**: reserved words (`if`, `else`, `let`, etc.), type names, pattern keywords
+//! - **Symbols**: operators, delimiters, punctuation
+//! - **Identifiers**: user-defined names (interned for efficient comparison)
+//!
+//! # Escape Sequences
+//!
+//! String and char literals support: `\n`, `\r`, `\t`, `\\`, `\"`, `\'`, `\0`
+//! Invalid escapes are preserved literally (e.g., `\q` becomes `\q`).
+//!
+//! # Error Handling
+//!
+//! Invalid tokens produce `TokenKind::Error`. The lexer continues processing after errors.
+//!
+//! # File Size Limits
+//!
+//! Source files larger than `u32::MAX` bytes (~4GB) will emit an error token.
+//! Spans use `u32` for positions to keep tokens compact.
 
 use logos::Logos;
 use ori_ir::{DurationUnit, SizeUnit, Span, StringInterner, Token, TokenKind, TokenList};
+
+/// Parse integer skipping underscores without allocation.
+#[inline]
+fn parse_int_skip_underscores(s: &str, radix: u32) -> Option<u64> {
+    let mut result: u64 = 0;
+    for c in s.chars() {
+        if c == '_' {
+            continue;
+        }
+        let digit = c.to_digit(radix)?;
+        result = result.checked_mul(u64::from(radix))?;
+        result = result.checked_add(u64::from(digit))?;
+    }
+    Some(result)
+}
+
+/// Parse float - only allocate if underscores present.
+#[inline]
+fn parse_float_skip_underscores(s: &str) -> Option<f64> {
+    if s.contains('_') {
+        s.replace('_', "").parse().ok()
+    } else {
+        s.parse().ok()
+    }
+}
+
+/// Parse numeric value with suffix, returning (value, unit).
+#[inline]
+fn parse_with_suffix<T: Copy>(s: &str, suffix_len: usize, unit: T) -> Option<(u64, T)> {
+    s[..s.len() - suffix_len].parse::<u64>().ok().map(|v| (v, unit))
+}
 
 /// Raw token from logos (before interning).
 #[derive(Logos, Debug, Clone, Copy, PartialEq)]
@@ -225,80 +281,54 @@ enum RawToken {
     #[token("div")]
     Div,
 
-    // Hex integer
+    // Hex integer (zero-allocation parsing)
     #[regex(r"0x[0-9a-fA-F][0-9a-fA-F_]*", |lex| {
-        let s = lex.slice();
-        u64::from_str_radix(&s[2..].replace('_', ""), 16).ok()
+        parse_int_skip_underscores(&lex.slice()[2..], 16)
     })]
     HexInt(u64),
 
-    // Binary integer
+    // Binary integer (zero-allocation parsing)
     #[regex(r"0b[01][01_]*", |lex| {
-        let s = lex.slice();
-        u64::from_str_radix(&s[2..].replace('_', ""), 2).ok()
+        parse_int_skip_underscores(&lex.slice()[2..], 2)
     })]
     BinInt(u64),
 
-    // Integer
+    // Integer (zero-allocation parsing)
     #[regex(r"[0-9][0-9_]*", |lex| {
-        lex.slice().replace('_', "").parse::<u64>().ok()
+        parse_int_skip_underscores(lex.slice(), 10)
     })]
     Int(u64),
 
-    // Float
+    // Float (only allocates if underscores present)
     #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?", |lex| {
-        lex.slice().replace('_', "").parse::<f64>().ok()
+        parse_float_skip_underscores(lex.slice())
     })]
     Float(f64),
 
-    // Duration literals
-    #[regex(r"[0-9]+ms", |lex| {
-        let s = lex.slice();
-        s[..s.len()-2].parse::<u64>().ok().map(|v| (v, DurationUnit::Milliseconds))
-    })]
+    // Duration literals (using shared helper)
+    #[regex(r"[0-9]+ms", |lex| parse_with_suffix(lex.slice(), 2, DurationUnit::Milliseconds))]
     DurationMs((u64, DurationUnit)),
 
-    #[regex(r"[0-9]+s", |lex| {
-        let s = lex.slice();
-        s[..s.len()-1].parse::<u64>().ok().map(|v| (v, DurationUnit::Seconds))
-    })]
+    #[regex(r"[0-9]+s", |lex| parse_with_suffix(lex.slice(), 1, DurationUnit::Seconds))]
     DurationS((u64, DurationUnit)),
 
-    #[regex(r"[0-9]+m", |lex| {
-        let s = lex.slice();
-        s[..s.len()-1].parse::<u64>().ok().map(|v| (v, DurationUnit::Minutes))
-    })]
+    #[regex(r"[0-9]+m", |lex| parse_with_suffix(lex.slice(), 1, DurationUnit::Minutes))]
     DurationM((u64, DurationUnit)),
 
-    #[regex(r"[0-9]+h", |lex| {
-        let s = lex.slice();
-        s[..s.len()-1].parse::<u64>().ok().map(|v| (v, DurationUnit::Hours))
-    })]
+    #[regex(r"[0-9]+h", |lex| parse_with_suffix(lex.slice(), 1, DurationUnit::Hours))]
     DurationH((u64, DurationUnit)),
 
-    // Size literals
-    #[regex(r"[0-9]+b", |lex| {
-        let s = lex.slice();
-        s[..s.len()-1].parse::<u64>().ok().map(|v| (v, SizeUnit::Bytes))
-    })]
+    // Size literals (using shared helper)
+    #[regex(r"[0-9]+b", |lex| parse_with_suffix(lex.slice(), 1, SizeUnit::Bytes))]
     SizeB((u64, SizeUnit)),
 
-    #[regex(r"[0-9]+kb", |lex| {
-        let s = lex.slice();
-        s[..s.len()-2].parse::<u64>().ok().map(|v| (v, SizeUnit::Kilobytes))
-    })]
+    #[regex(r"[0-9]+kb", |lex| parse_with_suffix(lex.slice(), 2, SizeUnit::Kilobytes))]
     SizeKb((u64, SizeUnit)),
 
-    #[regex(r"[0-9]+mb", |lex| {
-        let s = lex.slice();
-        s[..s.len()-2].parse::<u64>().ok().map(|v| (v, SizeUnit::Megabytes))
-    })]
+    #[regex(r"[0-9]+mb", |lex| parse_with_suffix(lex.slice(), 2, SizeUnit::Megabytes))]
     SizeMb((u64, SizeUnit)),
 
-    #[regex(r"[0-9]+gb", |lex| {
-        let s = lex.slice();
-        s[..s.len()-2].parse::<u64>().ok().map(|v| (v, SizeUnit::Gigabytes))
-    })]
+    #[regex(r"[0-9]+gb", |lex| parse_with_suffix(lex.slice(), 2, SizeUnit::Gigabytes))]
     SizeGb((u64, SizeUnit)),
 
     // String literal (no unescaped newlines allowed)
@@ -314,9 +344,33 @@ enum RawToken {
     Ident,
 }
 
-/// Lex source code into a `TokenList`.
+/// Lex source code into a [`TokenList`].
 ///
 /// This is the core lexing function used by the `tokens` query.
+///
+/// # Token Types Produced
+///
+/// - **Literals**: `Int`, `Float`, `String`, `Char`, `Duration`, `Size`
+/// - **Keywords**: `If`, `Else`, `Let`, `For`, etc. (see [`TokenKind`])
+/// - **Identifiers**: User-defined names (interned via `interner`)
+/// - **Symbols**: Operators, delimiters, punctuation
+/// - **Trivia**: `Newline` tokens (comments and line continuations are skipped)
+/// - **Special**: `Eof` at end, `Error` for invalid tokens
+///
+/// # String/Char Escape Handling
+///
+/// String and char literals support escape sequences: `\n`, `\r`, `\t`, `\\`, `\"`, `\'`, `\0`.
+/// Invalid escape sequences are preserved literally (e.g., `\q` becomes `\q`).
+///
+/// # Error Tokens
+///
+/// Invalid input produces `TokenKind::Error` tokens. The lexer continues past errors,
+/// allowing partial parsing of malformed source code.
+///
+/// # File Size Limits
+///
+/// Source files larger than `u32::MAX` bytes (~4GB) will produce an error token.
+/// Positions are stored as `u32` to keep tokens compact (24 bytes each).
 pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
     let mut result = TokenList::new();
     let mut logos = RawToken::lexer(source);
@@ -368,7 +422,8 @@ fn convert_token(raw: RawToken, slice: &str, interner: &StringInterner) -> Token
         RawToken::String => {
             let content = &slice[1..slice.len() - 1];
             let unescaped = unescape_string(content);
-            TokenKind::String(interner.intern(&unescaped))
+            // Use intern_owned to avoid double allocation
+            TokenKind::String(interner.intern_owned(unescaped))
         }
         RawToken::Char => {
             let content = &slice[1..slice.len() - 1];
@@ -511,6 +566,8 @@ fn convert_token(raw: RawToken, slice: &str, interner: &StringInterner) -> Token
 /// Resolve a single escape character to its replacement.
 ///
 /// Returns `Some(char)` for recognized escapes, `None` for unrecognized ones.
+/// Recognized escapes: `\n`, `\r`, `\t`, `\\`, `\"`, `\'`, `\0`
+#[inline]
 fn resolve_escape(c: char) -> Option<char> {
     match c {
         'n' => Some('\n'),
@@ -525,14 +582,18 @@ fn resolve_escape(c: char) -> Option<char> {
 }
 
 /// Process string escape sequences.
+///
+/// Uses `char_indices()` directly to avoid `Peekable` iterator overhead.
+/// Invalid escapes are preserved literally (e.g., `\q` becomes `\q`).
+#[inline]
 fn unescape_string(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
+    let mut chars = s.char_indices();
 
-    while let Some(c) = chars.next() {
+    while let Some((_, c)) = chars.next() {
         if c == '\\' {
             match chars.next() {
-                Some(esc) => {
+                Some((_, esc)) => {
                     if let Some(resolved) = resolve_escape(esc) {
                         result.push(resolved);
                     } else {
@@ -551,6 +612,10 @@ fn unescape_string(s: &str) -> String {
 }
 
 /// Process char escape sequences.
+///
+/// Returns the unescaped character. Invalid escapes return the escaped character
+/// (e.g., `\q` returns `q`). Empty input returns `\0`.
+#[inline]
 fn unescape_char(s: &str) -> char {
     let mut chars = s.chars();
     match chars.next() {
@@ -648,5 +713,357 @@ mod tests {
 
         assert!(matches!(tokens[0].kind, TokenKind::Underscore));
         assert!(matches!(tokens[1].kind, TokenKind::Arrow));
+    }
+
+    // === Escape sequence tests ===
+
+    #[test]
+    fn test_resolve_escape_valid() {
+        assert_eq!(resolve_escape('n'), Some('\n'));
+        assert_eq!(resolve_escape('r'), Some('\r'));
+        assert_eq!(resolve_escape('t'), Some('\t'));
+        assert_eq!(resolve_escape('\\'), Some('\\'));
+        assert_eq!(resolve_escape('"'), Some('"'));
+        assert_eq!(resolve_escape('\''), Some('\''));
+        assert_eq!(resolve_escape('0'), Some('\0'));
+    }
+
+    #[test]
+    fn test_resolve_escape_invalid() {
+        assert_eq!(resolve_escape('q'), None);
+        assert_eq!(resolve_escape('x'), None);
+        assert_eq!(resolve_escape('a'), None);
+        assert_eq!(resolve_escape(' '), None);
+    }
+
+    #[test]
+    fn test_unescape_string_no_escapes() {
+        assert_eq!(unescape_string("hello world"), "hello world");
+        assert_eq!(unescape_string(""), "");
+        assert_eq!(unescape_string("abc123"), "abc123");
+    }
+
+    #[test]
+    fn test_unescape_string_valid_escapes() {
+        assert_eq!(unescape_string(r"hello\nworld"), "hello\nworld");
+        assert_eq!(unescape_string(r"tab\there"), "tab\there");
+        assert_eq!(unescape_string(r#"quote\"test"#), "quote\"test");
+        assert_eq!(unescape_string(r"back\\slash"), "back\\slash");
+        assert_eq!(unescape_string(r"null\0char"), "null\0char");
+        assert_eq!(unescape_string(r"\n\r\t"), "\n\r\t");
+    }
+
+    #[test]
+    fn test_unescape_string_invalid_escapes() {
+        // Invalid escapes are preserved literally
+        assert_eq!(unescape_string(r"\q"), "\\q");
+        assert_eq!(unescape_string(r"\x"), "\\x");
+        assert_eq!(unescape_string(r"test\qvalue"), "test\\qvalue");
+    }
+
+    #[test]
+    fn test_unescape_string_trailing_backslash() {
+        assert_eq!(unescape_string(r"test\"), "test\\");
+    }
+
+    #[test]
+    fn test_unescape_char_simple() {
+        assert_eq!(unescape_char("a"), 'a');
+        assert_eq!(unescape_char("λ"), 'λ');
+        assert_eq!(unescape_char("0"), '0');
+    }
+
+    #[test]
+    fn test_unescape_char_escapes() {
+        assert_eq!(unescape_char(r"\n"), '\n');
+        assert_eq!(unescape_char(r"\t"), '\t');
+        assert_eq!(unescape_char(r"\\"), '\\');
+        assert_eq!(unescape_char(r"\'"), '\'');
+    }
+
+    #[test]
+    fn test_unescape_char_invalid_escape() {
+        // Invalid escape returns the escaped character
+        assert_eq!(unescape_char(r"\q"), 'q');
+    }
+
+    #[test]
+    fn test_unescape_char_empty() {
+        assert_eq!(unescape_char(""), '\0');
+    }
+
+    #[test]
+    fn test_unescape_char_lone_backslash() {
+        assert_eq!(unescape_char("\\"), '\\');
+    }
+
+    // === Numeric parsing tests ===
+
+    #[test]
+    fn test_parse_int_skip_underscores() {
+        assert_eq!(parse_int_skip_underscores("123", 10), Some(123));
+        assert_eq!(parse_int_skip_underscores("1_000_000", 10), Some(1_000_000));
+        assert_eq!(parse_int_skip_underscores("1_2_3", 10), Some(123));
+        assert_eq!(parse_int_skip_underscores("___1___", 10), Some(1));
+    }
+
+    #[test]
+    fn test_parse_int_hex_with_underscores() {
+        assert_eq!(parse_int_skip_underscores("FF", 16), Some(255));
+        assert_eq!(parse_int_skip_underscores("F_F", 16), Some(255));
+        assert_eq!(parse_int_skip_underscores("dead_beef", 16), Some(0xdead_beef));
+    }
+
+    #[test]
+    fn test_parse_int_binary_with_underscores() {
+        assert_eq!(parse_int_skip_underscores("1010", 2), Some(10));
+        assert_eq!(parse_int_skip_underscores("1_0_1_0", 2), Some(10));
+        assert_eq!(parse_int_skip_underscores("1111_0000", 2), Some(240));
+    }
+
+    #[test]
+    fn test_parse_int_overflow() {
+        // Should return None on overflow
+        assert_eq!(
+            parse_int_skip_underscores("99999999999999999999999", 10),
+            None
+        );
+    }
+
+    #[test]
+    fn test_parse_float_skip_underscores() {
+        assert_eq!(parse_float_skip_underscores("3.14"), Some(3.14));
+        assert_eq!(parse_float_skip_underscores("1_000.5"), Some(1000.5));
+        assert_eq!(parse_float_skip_underscores("1.5e10"), Some(1.5e10));
+    }
+
+    #[test]
+    fn test_lex_hex_integers() {
+        let interner = test_interner();
+        let tokens = lex("0xFF 0x1_000", &interner);
+
+        assert!(matches!(tokens[0].kind, TokenKind::Int(255)));
+        assert!(matches!(tokens[1].kind, TokenKind::Int(4096)));
+    }
+
+    #[test]
+    fn test_lex_binary_integers() {
+        let interner = test_interner();
+        let tokens = lex("0b1010 0b1111_0000", &interner);
+
+        assert!(matches!(tokens[0].kind, TokenKind::Int(10)));
+        assert!(matches!(tokens[1].kind, TokenKind::Int(240)));
+    }
+
+    #[test]
+    fn test_lex_integers_with_underscores() {
+        let interner = test_interner();
+        let tokens = lex("1_000_000 123_456", &interner);
+
+        assert!(matches!(tokens[0].kind, TokenKind::Int(1_000_000)));
+        assert!(matches!(tokens[1].kind, TokenKind::Int(123_456)));
+    }
+
+    // === Size literal tests ===
+
+    #[test]
+    fn test_lex_size_literals() {
+        let interner = test_interner();
+        let tokens = lex("100b 4kb 10mb 2gb", &interner);
+
+        assert!(matches!(
+            tokens[0].kind,
+            TokenKind::Size(100, SizeUnit::Bytes)
+        ));
+        assert!(matches!(
+            tokens[1].kind,
+            TokenKind::Size(4, SizeUnit::Kilobytes)
+        ));
+        assert!(matches!(
+            tokens[2].kind,
+            TokenKind::Size(10, SizeUnit::Megabytes)
+        ));
+        assert!(matches!(
+            tokens[3].kind,
+            TokenKind::Size(2, SizeUnit::Gigabytes)
+        ));
+    }
+
+    // === Duration literal tests ===
+
+    #[test]
+    fn test_lex_duration_minutes() {
+        let interner = test_interner();
+        let tokens = lex("30m", &interner);
+
+        assert!(matches!(
+            tokens[0].kind,
+            TokenKind::Duration(30, DurationUnit::Minutes)
+        ));
+    }
+
+    // === Edge case tests ===
+
+    #[test]
+    fn test_lex_empty_input() {
+        let interner = test_interner();
+        let tokens = lex("", &interner);
+
+        assert_eq!(tokens.len(), 1);
+        assert!(matches!(tokens[0].kind, TokenKind::Eof));
+    }
+
+    #[test]
+    fn test_lex_whitespace_only() {
+        let interner = test_interner();
+        let tokens = lex("   \t  ", &interner);
+
+        assert_eq!(tokens.len(), 1);
+        assert!(matches!(tokens[0].kind, TokenKind::Eof));
+    }
+
+    #[test]
+    fn test_lex_newlines() {
+        let interner = test_interner();
+        let tokens = lex("a\nb", &interner);
+
+        assert_eq!(tokens.len(), 4); // a, newline, b, EOF
+        assert!(matches!(tokens[1].kind, TokenKind::Newline));
+    }
+
+    #[test]
+    fn test_lex_error_tokens() {
+        let interner = test_interner();
+        // Backtick is not a valid token
+        let tokens = lex("`invalid`", &interner);
+
+        // Should have error tokens for the backticks
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Error)));
+    }
+
+    // === Keyword tests ===
+
+    #[test]
+    fn test_lex_all_reserved_keywords() {
+        let interner = test_interner();
+        let source =
+            "async break continue do else false for if impl in let loop match mut pub self Self then trait true type use uses void where with yield";
+        let tokens = lex(source, &interner);
+
+        let expected = [
+            TokenKind::Async,
+            TokenKind::Break,
+            TokenKind::Continue,
+            TokenKind::Do,
+            TokenKind::Else,
+            TokenKind::False,
+            TokenKind::For,
+            TokenKind::If,
+            TokenKind::Impl,
+            TokenKind::In,
+            TokenKind::Let,
+            TokenKind::Loop,
+            TokenKind::Match,
+            TokenKind::Mut,
+            TokenKind::Pub,
+            TokenKind::SelfLower,
+            TokenKind::SelfUpper,
+            TokenKind::Then,
+            TokenKind::Trait,
+            TokenKind::True,
+            TokenKind::Type,
+            TokenKind::Use,
+            TokenKind::Uses,
+            TokenKind::Void,
+            TokenKind::Where,
+            TokenKind::With,
+            TokenKind::Yield,
+        ];
+
+        for (i, expected_kind) in expected.iter().enumerate() {
+            assert_eq!(
+                &tokens[i].kind, expected_kind,
+                "Mismatch at index {i}: expected {expected_kind:?}, got {:?}",
+                tokens[i].kind
+            );
+        }
+    }
+
+    #[test]
+    fn test_lex_type_keywords() {
+        let interner = test_interner();
+        let tokens = lex("int float bool str char byte Never", &interner);
+
+        assert!(matches!(tokens[0].kind, TokenKind::IntType));
+        assert!(matches!(tokens[1].kind, TokenKind::FloatType));
+        assert!(matches!(tokens[2].kind, TokenKind::BoolType));
+        assert!(matches!(tokens[3].kind, TokenKind::StrType));
+        assert!(matches!(tokens[4].kind, TokenKind::CharType));
+        assert!(matches!(tokens[5].kind, TokenKind::ByteType));
+        assert!(matches!(tokens[6].kind, TokenKind::NeverType));
+    }
+
+    #[test]
+    fn test_lex_constructors() {
+        let interner = test_interner();
+        let tokens = lex("Ok Err Some None", &interner);
+
+        assert!(matches!(tokens[0].kind, TokenKind::Ok));
+        assert!(matches!(tokens[1].kind, TokenKind::Err));
+        assert!(matches!(tokens[2].kind, TokenKind::Some));
+        assert!(matches!(tokens[3].kind, TokenKind::None));
+    }
+
+    // === Char literal tests ===
+
+    #[test]
+    fn test_lex_char_literals() {
+        let interner = test_interner();
+        let tokens = lex(r"'a' '\n' '\\' '\''", &interner);
+
+        assert!(matches!(tokens[0].kind, TokenKind::Char('a')));
+        assert!(matches!(tokens[1].kind, TokenKind::Char('\n')));
+        assert!(matches!(tokens[2].kind, TokenKind::Char('\\')));
+        assert!(matches!(tokens[3].kind, TokenKind::Char('\'')));
+    }
+
+    // === Float literal tests ===
+
+    #[test]
+    #[expect(
+        clippy::approx_constant,
+        reason = "testing float literal parsing, not using PI"
+    )]
+    fn test_lex_float_literals() {
+        let interner = test_interner();
+        let tokens = lex("3.14 2.5e10 1_000.5", &interner);
+
+        assert!(matches!(tokens[0].kind, TokenKind::Float(bits) if f64::from_bits(bits) == 3.14));
+        assert!(matches!(tokens[1].kind, TokenKind::Float(bits) if f64::from_bits(bits) == 2.5e10));
+        assert!(matches!(tokens[2].kind, TokenKind::Float(bits) if f64::from_bits(bits) == 1000.5));
+    }
+
+    // === Comments and line continuations ===
+
+    #[test]
+    fn test_lex_line_comments() {
+        let interner = test_interner();
+        let tokens = lex("a // comment\nb", &interner);
+
+        assert_eq!(tokens.len(), 4); // a, newline, b, EOF
+        assert!(matches!(tokens[0].kind, TokenKind::Ident(_)));
+        assert!(matches!(tokens[1].kind, TokenKind::Newline));
+        assert!(matches!(tokens[2].kind, TokenKind::Ident(_)));
+    }
+
+    #[test]
+    fn test_lex_line_continuation() {
+        let interner = test_interner();
+        let tokens = lex("a \\\nb", &interner);
+
+        // Line continuation is skipped, no newline token
+        assert_eq!(tokens.len(), 3); // a, b, EOF
+        assert!(matches!(tokens[0].kind, TokenKind::Ident(_)));
+        assert!(matches!(tokens[1].kind, TokenKind::Ident(_)));
     }
 }

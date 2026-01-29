@@ -62,8 +62,8 @@ impl<'ll> Builder<'_, 'll, '_> {
         // Create entry block for lambda
         let entry = self.cx().llcx().append_basic_block(lambda_fn, "entry");
 
-        // Save current builder position
-        let saved_block = self.current_block();
+        // Save current builder position with RAII guard - restores on drop
+        let _guard = self.save_position();
 
         // Position at lambda entry
         self.position_at_end(entry);
@@ -107,10 +107,7 @@ impl<'ll> Builder<'_, 'll, '_> {
             self.ret(zero.into());
         }
 
-        // Restore builder position
-        if let Some(block) = saved_block {
-            self.position_at_end(block);
-        }
+        // _guard restores builder position when it goes out of scope
 
         // Get function pointer as i64
         let fn_ptr = lambda_fn.as_global_value().as_pointer_value();
@@ -158,11 +155,9 @@ impl<'ll> Builder<'_, 'll, '_> {
         let size_val = self.cx().scx.type_i64().const_int(size as u64, false);
 
         // Call ori_closure_box to allocate memory
-        let box_fn = self
-            .cx()
-            .llmod()
-            .get_function("ori_closure_box")
-            .expect("ori_closure_box not declared");
+        let box_fn = self.cx().llmod().get_function("ori_closure_box").expect(
+            "ori_closure_box not declared - call declare_runtime_functions() before compiling lambdas",
+        );
         let box_ptr = self
             .call(box_fn, &[size_val.into()], "closure_box")?
             .into_pointer_value();
@@ -200,7 +195,10 @@ impl<'ll> Builder<'_, 'll, '_> {
     }
 
     /// Recursively collect free variables in an expression.
-    #[allow(clippy::self_only_used_in_recursion)]
+    #[expect(
+        clippy::self_only_used_in_recursion,
+        reason = "self provides access to cx().interner for future Name resolution"
+    )]
     fn collect_free_vars(
         &self,
         expr_id: ExprId,

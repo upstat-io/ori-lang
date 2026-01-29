@@ -251,13 +251,15 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     /// Get the LLVM type for an Ori `TypeId`.
     ///
     /// Uses two-level cache: scalars first, then complex types.
+    /// Fast path (cache hit): single `borrow()` check.
+    /// Slow path (cache miss): compute + `borrow_mut()` to cache.
     pub fn llvm_type(&self, type_id: TypeId) -> BasicTypeEnum<'ll> {
-        // Check cache first
+        // Fast path: check cache with read-only borrow
         if let Some(ty) = self.type_cache.borrow().get(type_id) {
             return ty;
         }
 
-        // Compute and cache
+        // Slow path: compute and cache
         let ty = self.compute_llvm_type(type_id);
 
         // Cache in appropriate level
@@ -386,6 +388,10 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     }
 
     /// Get all registered test functions.
+    ///
+    /// Returns a cloned `HashMap` because the test registry is stored in a `RefCell`
+    /// and we cannot return a reference with the borrow guard's lifetime.
+    /// The clone is cheap since `FunctionValue` is a thin pointer wrapper.
     pub fn all_tests(&self) -> HashMap<Name, FunctionValue<'ll>> {
         self.tests.borrow().clone()
     }

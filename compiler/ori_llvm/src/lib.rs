@@ -3,6 +3,20 @@
 //! This crate provides native code generation via LLVM, following patterns
 //! from Rust's `rustc_codegen_llvm`.
 //!
+//! # Debug Environment Variables
+//!
+//! - `ORI_DEBUG_LLVM`: Print LLVM IR to stderr before JIT compilation.
+//!   Useful for debugging codegen issues. Any non-empty value enables this.
+//!   Example: `ORI_DEBUG_LLVM=1 cargo test`
+//!
+//! - `RUST_LOG=ori_llvm=debug`: Enable debug-level tracing output.
+//!   Example: `RUST_LOG=ori_llvm=debug cargo test`
+//!
+//! - `RUST_LOG=ori_llvm=trace`: Enable trace-level tracing (very verbose).
+//!   Useful for following expression compilation step by step.
+//!
+//! - `RUST_LOG=ori_llvm::functions=trace`: Trace only function compilation.
+//!
 //! # Clippy Configuration
 //!
 //! This crate intentionally allows certain clippy lints that are common in

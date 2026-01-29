@@ -30,7 +30,7 @@ pub enum LLVMValue {
 }
 
 /// Error during LLVM evaluation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LLVMEvalError {
     pub message: String,
 }
@@ -64,8 +64,10 @@ pub struct LLVMEvaluator<'ctx> {
 }
 
 /// A compiled function ready for execution.
-// TODO: Fields will be used when function execution is implemented
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "Fields will be used when direct function execution is implemented"
+)]
 struct CompiledFunction {
     /// The expression body
     body: ExprId,
@@ -198,7 +200,7 @@ impl<'ctx> LLVMEvaluator<'ctx> {
 }
 
 /// Function type signature for LLVM compilation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FunctionSig {
     /// Parameter types
     pub params: Vec<TypeId>,

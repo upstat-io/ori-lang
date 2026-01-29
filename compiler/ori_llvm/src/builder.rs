@@ -58,6 +58,23 @@ pub struct Builder<'a, 'll, 'tcx> {
     cx: &'a CodegenCx<'ll, 'tcx>,
 }
 
+/// RAII guard that restores the builder's position when dropped.
+///
+/// Use this when temporarily repositioning the builder (e.g., for lambda compilation)
+/// to ensure the original position is restored, even on early returns or panics.
+pub struct BuilderPositionGuard<'a, 'b, 'll, 'tcx> {
+    builder: &'a Builder<'b, 'll, 'tcx>,
+    saved_block: Option<BasicBlock<'ll>>,
+}
+
+impl Drop for BuilderPositionGuard<'_, '_, '_, '_> {
+    fn drop(&mut self) {
+        if let Some(block) = self.saved_block {
+            self.builder.position_at_end(block);
+        }
+    }
+}
+
 impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     /// Create a new builder positioned at the end of the given basic block.
     pub fn build(cx: &'a CodegenCx<'ll, 'tcx>, bb: BasicBlock<'ll>) -> Self {
@@ -80,6 +97,17 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     /// Position at the end of a basic block.
     pub fn position_at_end(&self, bb: BasicBlock<'ll>) {
         self.llbuilder.position_at_end(bb);
+    }
+
+    /// Save the current builder position and return an RAII guard.
+    ///
+    /// When the guard is dropped, the builder is repositioned to the saved block.
+    /// Use this when temporarily repositioning the builder (e.g., for lambda compilation).
+    pub fn save_position(&self) -> BuilderPositionGuard<'_, '_, 'll, 'tcx> {
+        BuilderPositionGuard {
+            builder: self,
+            saved_block: self.current_block(),
+        }
     }
 
     /// Append a new basic block to the given function.

@@ -107,15 +107,34 @@ impl<'ll> Builder<'_, 'll, '_> {
                 None
             }
 
-            _ => {
-                // Patterns without custom LLVM codegen — return default for now.
-                // Avoids coupling: new FunctionExpKind variants don't require changes here.
-                if result_type == TypeId::VOID {
-                    None
-                } else {
-                    Some(self.cx().default_value(result_type))
-                }
+            FunctionExpKind::Catch => {
+                // TODO: Implement catch pattern for panic recovery
+                // For now, just compile the inner expression and return default
+                tracing::debug!("catch pattern not yet implemented in LLVM backend");
+                self.default_for_result_type(result_type)
             }
+
+            // Concurrency patterns - not yet implemented in LLVM backend
+            FunctionExpKind::Parallel
+            | FunctionExpKind::Spawn
+            | FunctionExpKind::Timeout
+            | FunctionExpKind::Cache
+            | FunctionExpKind::With => {
+                tracing::debug!(
+                    pattern = %exp.kind.name(),
+                    "concurrency/capability pattern not yet implemented in LLVM backend"
+                );
+                self.default_for_result_type(result_type)
+            }
+        }
+    }
+
+    /// Return the default value for a result type, handling void specially.
+    fn default_for_result_type(&self, result_type: TypeId) -> Option<BasicValueEnum<'ll>> {
+        if result_type == TypeId::VOID {
+            None
+        } else {
+            Some(self.cx().default_value(result_type))
         }
     }
 }
