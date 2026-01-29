@@ -404,25 +404,37 @@ pub fn filter_entries_requires_map() -> EvalError {
 /// Map entries not yet implemented.
 #[cold]
 pub fn map_entries_not_implemented() -> EvalError {
-    EvalError::new("map entries not yet implemented")
+    EvalError::new(
+        "map_entries() is not yet implemented; use map() with entry destructuring: \
+         map.entries().map((k, v) -> ...)",
+    )
 }
 
 /// Filter entries not yet implemented.
 #[cold]
 pub fn filter_entries_not_implemented() -> EvalError {
-    EvalError::new("filter entries not yet implemented")
+    EvalError::new(
+        "filter_entries() is not yet implemented; use filter() with entry destructuring: \
+         map.entries().filter((k, v) -> ...)",
+    )
 }
 
 /// Index assignment not yet implemented.
 #[cold]
 pub fn index_assignment_not_implemented() -> EvalError {
-    EvalError::new("index assignment not yet implemented")
+    EvalError::new(
+        "index assignment (list[i] = x) is not yet implemented; \
+         use list.set(index: i, value: x) instead",
+    )
 }
 
 /// Field assignment not yet implemented.
 #[cold]
 pub fn field_assignment_not_implemented() -> EvalError {
-    EvalError::new("field assignment not yet implemented")
+    EvalError::new(
+        "field assignment (obj.field = x) is not yet implemented; \
+         use spread syntax: { ...obj, field: x }",
+    )
 }
 
 /// Default requires type context.

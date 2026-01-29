@@ -282,6 +282,31 @@ impl<'a> Parser<'a> {
         ParseResult { progress, result }
     }
 
+    /// Handle a parse result by pushing to a collection on success, or recording error and recovering.
+    ///
+    /// This is a helper for the common pattern in module parsing:
+    /// 1. Parse an item with progress tracking
+    /// 2. On success: push to collection
+    /// 3. On error: if progress was made, recover; then record error
+    fn handle_parse_result<T>(
+        &mut self,
+        result: ParseResult<T>,
+        collection: &mut Vec<T>,
+        errors: &mut Vec<ParseError>,
+        recover: impl FnOnce(&mut Self),
+    ) {
+        let made_progress = result.made_progress();
+        match result.into_result() {
+            Ok(item) => collection.push(item),
+            Err(e) => {
+                if made_progress {
+                    recover(self);
+                }
+                errors.push(e);
+            }
+        }
+    }
+
     /// Parse a module (collection of function definitions and tests).
     ///
     /// Uses progress-aware parsing for improved error recovery:
@@ -310,17 +335,12 @@ impl<'a> Parser<'a> {
                     false
                 };
                 let result = self.with_progress(|p| p.parse_use_inner(is_public));
-                let made_progress = result.made_progress();
-                match result.into_result() {
-                    Ok(use_def) => module.imports.push(use_def),
-                    Err(e) => {
-                        // Only synchronize if we made progress (consumed tokens)
-                        if made_progress {
-                            self.recover_to_next_statement();
-                        }
-                        errors.push(e);
-                    }
-                }
+                self.handle_parse_result(
+                    result,
+                    &mut module.imports,
+                    &mut errors,
+                    Self::recover_to_next_statement,
+                );
             } else {
                 // No more imports
                 break;
@@ -362,64 +382,44 @@ impl<'a> Parser<'a> {
                 }
             } else if self.check(&TokenKind::Trait) {
                 let result = self.parse_trait_with_progress(is_public);
-                let made_progress = result.made_progress();
-                match result.into_result() {
-                    Ok(trait_def) => module.traits.push(trait_def),
-                    Err(e) => {
-                        if made_progress {
-                            self.recover_to_function();
-                        }
-                        errors.push(e);
-                    }
-                }
+                self.handle_parse_result(
+                    result,
+                    &mut module.traits,
+                    &mut errors,
+                    Self::recover_to_function,
+                );
             } else if self.check(&TokenKind::Impl) {
                 let result = self.parse_impl_with_progress();
-                let made_progress = result.made_progress();
-                match result.into_result() {
-                    Ok(impl_def) => module.impls.push(impl_def),
-                    Err(e) => {
-                        if made_progress {
-                            self.recover_to_function();
-                        }
-                        errors.push(e);
-                    }
-                }
+                self.handle_parse_result(
+                    result,
+                    &mut module.impls,
+                    &mut errors,
+                    Self::recover_to_function,
+                );
             } else if self.check(&TokenKind::Extend) {
                 let result = self.parse_extend_with_progress();
-                let made_progress = result.made_progress();
-                match result.into_result() {
-                    Ok(extend_def) => module.extends.push(extend_def),
-                    Err(e) => {
-                        if made_progress {
-                            self.recover_to_function();
-                        }
-                        errors.push(e);
-                    }
-                }
+                self.handle_parse_result(
+                    result,
+                    &mut module.extends,
+                    &mut errors,
+                    Self::recover_to_function,
+                );
             } else if self.check(&TokenKind::Type) {
                 let result = self.parse_type_decl_with_progress(attrs, is_public);
-                let made_progress = result.made_progress();
-                match result.into_result() {
-                    Ok(type_decl) => module.types.push(type_decl),
-                    Err(e) => {
-                        if made_progress {
-                            self.recover_to_function();
-                        }
-                        errors.push(e);
-                    }
-                }
+                self.handle_parse_result(
+                    result,
+                    &mut module.types,
+                    &mut errors,
+                    Self::recover_to_function,
+                );
             } else if self.check(&TokenKind::Dollar) {
                 let result = self.parse_config_with_progress(is_public);
-                let made_progress = result.made_progress();
-                match result.into_result() {
-                    Ok(config) => module.configs.push(config),
-                    Err(e) => {
-                        if made_progress {
-                            self.recover_to_function();
-                        }
-                        errors.push(e);
-                    }
-                }
+                self.handle_parse_result(
+                    result,
+                    &mut module.configs,
+                    &mut errors,
+                    Self::recover_to_function,
+                );
             } else if self.check(&TokenKind::Use) {
                 // Import after declarations - error
                 errors.push(ParseError::new(

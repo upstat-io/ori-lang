@@ -8,58 +8,130 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+# Cancel previous runs on the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  # Fast checks - run first, fail fast
+  format:
+    name: Format
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+      - run: cargo fmt --manifest-path compiler/ori_llvm/Cargo.toml -- --check
 
-      - name: Cache cargo
-        uses: actions/cache@v4
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: clippy
+      - run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-      - name: Clippy
-        run: cargo clippy --all-targets
+  # Main test suite
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: test
 
       - name: Build
-        run: cargo build --release
+        run: cargo build --workspace
 
-      - name: Run Rust tests
-        run: cargo test
+      - name: Rust unit tests
+        run: cargo test --workspace
 
-      - name: Run Ori tests
-        run: cargo run --bin ori -- test
+      - name: Ori language tests
+        run: cargo run -p oric --bin ori -- test tests/
 
-  # Test on multiple platforms
+  # Cross-platform smoke test - just verify it compiles and basic tests pass
   cross-platform:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+    name: ${{ matrix.os }}
+    needs: [format, clippy]  # Don't waste CI time if basics fail
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Rust unit tests
+        run: cargo test --workspace
+
+      - name: Ori language tests
+        run: cargo run -p oric --bin ori -- test tests/
+
+  # LLVM backend - runs in Docker, non-blocking for now
+  # TODO: Make this blocking once LLVM backend is stable
+  llvm:
+    name: LLVM Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    continue-on-error: true  # Non-blocking during pre-alpha
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Build
-        run: cargo build
+      - name: Build LLVM Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/llvm
+          load: true
+          tags: ori-llvm:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Test
-        run: cargo run --bin ori -- test
+      - name: LLVM clippy
+        run: ./llvm-clippy
+
+      - name: LLVM tests
+        run: ./llvm-test
+
+  # Single status check for branch protection
+  ci-success:
+    name: CI Success
+    needs: [format, clippy, test, cross-platform]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check all jobs passed
+        run: |
+          if [[ "${{ needs.format.result }}" != "success" ]] || \
+             [[ "${{ needs.clippy.result }}" != "success" ]] || \
+             [[ "${{ needs.test.result }}" != "success" ]] || \
+             [[ "${{ needs.cross-platform.result }}" != "success" ]]; then
+            echo "One or more required jobs failed"
+            exit 1
+          fi
+          echo "All required checks passed!"

@@ -70,6 +70,8 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
         let param_names: Vec<Name> = params.iter().map(|p| p.name).collect();
 
         // Use signature if provided, otherwise fall back to INT
+        // Clone params to avoid lifetime complexity with the else branch.
+        // Cost is O(n) where n = param count, typically small (<10).
         let (param_types, return_type) = if let Some(sig) = sig {
             (sig.params.clone(), sig.return_type)
         } else {
