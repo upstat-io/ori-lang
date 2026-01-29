@@ -1,6 +1,7 @@
 # Proposal: Simplified Attribute Syntax
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-28
 **Author:** Eric
 **Created:** 2026-01-22
 
@@ -70,12 +71,21 @@ Most languages with similar concepts don't require nested brackets.
 
 ### Syntax
 
-```
-Attribute = "#" Identifier [ "(" ArgumentList ")" ]
+```ebnf
+attribute      = "#" identifier [ "(" [ attribute_arg { "," attribute_arg } ] ")" ] .
+attribute_arg  = expression | identifier "=" expression .
+attributes     = { attribute } .
 
-ArgumentList = Argument { "," Argument }
-Argument = Expression | Identifier "=" Expression
+declaration = attributes [ "pub" ] ( function | type_def | trait_def | impl_block | test | constant_decl ) .
 ```
+
+This grammar:
+- Defines a single `attribute` production for all attribute types
+- Allows any number of attributes (`attributes = { attribute }`) before any declaration
+- Supports both positional arguments (expressions) and named arguments (`key = value`)
+- The compiler validates which attributes are valid for which declarations
+
+**Positioning rule:** Attributes must appear immediately before the declaration they modify, with no intervening blank lines or other declarations.
 
 Examples:
 
@@ -316,36 +326,6 @@ HashBracket => "#["
 Hash => "#"  // Only at appropriate positions
 ```
 
-### Parser
-
-```rust
-fn parse_declaration(&mut self) -> Declaration {
-    let attributes = self.parse_attributes();
-    let visibility = self.parse_visibility();
-
-    match self.current() {
-        Token::Type => self.parse_type_decl(attributes, visibility),
-        Token::At => self.parse_function_decl(attributes, visibility),
-        // ...
-    }
-}
-
-fn parse_attributes(&mut self) -> Vec<Attribute> {
-    let mut attrs = vec![];
-    while self.current() == Token::Hash {
-        self.advance(); // consume #
-        let name = self.expect_identifier()?;
-        let args = if self.current() == Token::LParen {
-            self.parse_attribute_args()?
-        } else {
-            vec![]
-        };
-        attrs.push(Attribute { name, args });
-    }
-    attrs
-}
-```
-
 ### Migration
 
 This is a breaking syntax change. Migration path:
@@ -354,104 +334,6 @@ This is a breaking syntax change. Migration path:
 2. Add deprecation warning for bracket syntax
 3. Provide `ori fmt` auto-migration
 4. Remove bracket syntax in next minor version
-
-### Editor Support (VSCode TextMate Grammar)
-
-The VSCode syntax highlighting needs to be updated in `editors/vscode-ori/syntaxes/ori.tmLanguage.json`.
-
-**Current grammar (bracket-based):**
-
-```json
-"attribute": {
-    "name": "meta.attribute.ori",
-    "begin": "#\\[",
-    "end": "\\]",
-    "beginCaptures": {
-        "0": { "name": "punctuation.definition.attribute.ori" }
-    },
-    "endCaptures": {
-        "0": { "name": "punctuation.definition.attribute.ori" }
-    },
-    "patterns": [
-        { "include": "#string" },
-        { "name": "entity.other.attribute-name.ori", "match": "[a-zA-Z_][a-zA-Z0-9_]*" }
-    ]
-}
-```
-
-**New grammar (simplified):**
-
-```json
-"attribute": {
-    "name": "meta.attribute.ori",
-    "begin": "(#)([a-zA-Z_][a-zA-Z0-9_]*)(\\()?",
-    "end": "(\\))|(?=\\s*[^,\\s])",
-    "beginCaptures": {
-        "1": { "name": "punctuation.definition.attribute.ori" },
-        "2": { "name": "entity.other.attribute-name.ori" },
-        "3": { "name": "punctuation.brackets.round.ori" }
-    },
-    "endCaptures": {
-        "1": { "name": "punctuation.brackets.round.ori" }
-    },
-    "patterns": [
-        { "include": "#string" },
-        { "name": "entity.name.type.ori", "match": "\\b[A-Z][a-zA-Z0-9_]*\\b" },
-        { "name": "variable.parameter.ori", "match": "[a-zA-Z_][a-zA-Z0-9_]*(?=\\s*=)" },
-        { "name": "keyword.operator.assignment.ori", "match": "=" }
-    ]
-}
-```
-
-**Alternative (simpler, single-match pattern for attributes without arguments):**
-
-```json
-"attribute": {
-    "patterns": [
-        {
-            "name": "meta.attribute.ori",
-            "begin": "(#)([a-zA-Z_][a-zA-Z0-9_]*)(\\()",
-            "end": "\\)",
-            "beginCaptures": {
-                "1": { "name": "punctuation.definition.attribute.ori" },
-                "2": { "name": "entity.other.attribute-name.ori" },
-                "3": { "name": "punctuation.brackets.round.ori" }
-            },
-            "endCaptures": {
-                "0": { "name": "punctuation.brackets.round.ori" }
-            },
-            "patterns": [
-                { "include": "#string" },
-                { "name": "entity.name.type.ori", "match": "\\b[A-Z][a-zA-Z0-9_]*\\b" },
-                { "name": "variable.parameter.ori", "match": "[a-zA-Z_][a-zA-Z0-9_]*(?=\\s*=)" },
-                { "name": "keyword.operator.assignment.ori", "match": "=" }
-            ]
-        },
-        {
-            "name": "meta.attribute.ori",
-            "match": "(#)([a-zA-Z_][a-zA-Z0-9_]*)(?!\\()",
-            "captures": {
-                "1": { "name": "punctuation.definition.attribute.ori" },
-                "2": { "name": "entity.other.attribute-name.ori" }
-            }
-        }
-    ]
-}
-```
-
-This alternative uses two patterns:
-1. Attributes with arguments: `#derive(Eq, Clone)` — uses begin/end for the parentheses
-2. Attributes without arguments: `#inline` — simple match pattern
-
-**Highlighting result:**
-
-| Token | Scope | Color (typical) |
-|-------|-------|-----------------|
-| `#` | `punctuation.definition.attribute` | Gray |
-| `derive` | `entity.other.attribute-name` | Yellow/Gold |
-| `(`, `)` | `punctuation.brackets.round` | Gray |
-| `Eq`, `Clone` | `entity.name.type` | Green/Teal |
-| `"string"` | `string.quoted.double` | Orange/Brown |
 
 ---
 

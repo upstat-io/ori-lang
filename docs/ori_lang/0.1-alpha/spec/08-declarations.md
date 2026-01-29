@@ -99,7 +99,7 @@ type Status = Pending | Running | Done | Failed(reason: str)
 
 type UserId = int
 
-#[derive(Eq, Clone)]
+#derive(Eq, Clone)
 type User = { id: int, name: str }
 ```
 

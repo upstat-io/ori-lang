@@ -195,7 +195,7 @@ Creates distinct nominal type.
 ### Derive
 
 ```ori
-#[derive(Eq, Hashable, Clone)]
+#derive(Eq, Hashable, Clone)]
 type Point = { x: int, y: int }
 ```
 
@@ -272,7 +272,7 @@ Collections implement `Clone` when their element types implement `Clone`:
 `Clone` is derivable for user-defined types when all fields implement `Clone`:
 
 ```ori
-#[derive(Clone)]
+#derive(Clone)]
 type Point = { x: int, y: int }
 ```
 
@@ -297,7 +297,7 @@ trait Debug {
 Unlike `Printable`, which is for user-facing display, `Debug` shows the complete internal structure and is always derivable.
 
 ```ori
-#[derive(Debug)]
+#derive(Debug)]
 type Point = { x: int, y: int }
 
 Point { x: 1, y: 2 }.debug()  // "Point { x: 1, y: 2 }"
@@ -332,7 +332,7 @@ Collections implement `Debug` when their element types implement `Debug`:
 `Debug` is derivable for user-defined types when all fields implement `Debug`:
 
 ```ori
-#[derive(Debug)]
+#derive(Debug)]
 type Config = { host: str, port: int }
 
 Config { host: "localhost", port: 8080 }.debug()
