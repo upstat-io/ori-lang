@@ -234,6 +234,16 @@
 - Consistent behavior in debug and release builds (unlike Rust)
 - Blocked on: None (can be implemented independently)
 
+**Sendable Trait and Role-Based Channels** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/sendable-channels-proposal.md`
+- Implementation: Phase 17.1-17.5
+- `Sendable` auto-implemented marker trait for types safe to send across task boundaries
+- Role-based channels: `Producer<T>`, `Consumer<T>`, `CloneableProducer<T>`, `CloneableConsumer<T>`
+- Channel constructors: `channel()`, `channel_in()`, `channel_out()`, `channel_all()`
+- Ownership transfer on send (value consumed, prevents data races)
+- `nursery` pattern for structured concurrency with guaranteed task completion
+- Blocked on: Phase 16 (Async Support)
+
 ---
 
 ## Milestones
