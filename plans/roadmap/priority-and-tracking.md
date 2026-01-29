@@ -290,6 +290,15 @@
 - Compiler validates which attributes valid for which declarations
 - Blocked on: None (lexer/parser change only)
 
+**Positional Lambdas for Single-Parameter Functions** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/single-lambda-positional-proposal.md`
+- Implementation: Phase 15.14
+- Allow omitting parameter names when calling single-param functions with inline lambdas
+- `items.map(x -> x * 2)` instead of `items.map(transform: x -> x * 2)`
+- Only for lambda literals, not function references; `self` excluded from param count
+- Complementary to Anonymous Parameters proposal (both can coexist)
+- Blocked on: None (type checker change only)
+
 ---
 
 ## Milestones

@@ -1117,7 +1117,111 @@ Add a `by` keyword to range expressions for non-unit step values.
 
 ---
 
-## 15.14 Phase Completion Checklist
+## 15.14 Positional Lambdas for Single-Parameter Functions
+
+**Proposal**: `proposals/approved/single-lambda-positional-proposal.md`
+
+Allow omitting parameter names when calling single-parameter functions with inline lambda expressions.
+
+```ori
+// Before (required)
+items.map(transform: x -> x * 2)
+items.filter(predicate: x -> x > 0)
+
+// After (allowed)
+items.map(x -> x * 2)
+items.filter(x -> x > 0)
+```
+
+### The Rule
+
+When ALL of the following are true:
+1. Function has exactly one explicit parameter (excluding `self` for methods)
+2. The argument expression is a lambda literal
+
+THEN: The parameter name may be omitted.
+
+### What Counts as a Lambda?
+
+Lambda expressions (allowed positional):
+- `x -> expr` (single parameter)
+- `(a, b) -> expr` (multiple parameters)
+- `() -> expr` (no parameters)
+- `(x: int) -> int = expr` (typed lambda)
+
+NOT lambda expressions (named arg required):
+- Variables holding functions: `let f = x -> x + 1; list.map(f)`
+- Function references: `list.map(double)`
+
+### Type Checker
+
+- [ ] **Implement**: Check for lambda-literal positional argument exception in call resolution
+  - [ ] **Rust Tests**: `ori_typeck/src/infer/call.rs` — lambda positional arg tests
+  - [ ] **Ori Tests**: `tests/spec/expressions/lambda_positional.ori`
+  - [ ] **LLVM Support**: LLVM codegen for lambda positional args
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/call_tests.rs` — lambda positional arg codegen
+
+- [ ] **Implement**: Verify callee has exactly 1 explicit parameter (exclude `self`)
+  - [ ] **Rust Tests**: `ori_typeck/src/infer/call.rs` — single param check
+  - [ ] **Ori Tests**: `tests/spec/expressions/lambda_positional_single_param.ori`
+  - [ ] **LLVM Support**: LLVM codegen for single param check
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/call_tests.rs` — single param check codegen
+
+- [ ] **Implement**: Verify argument expression is a `LambdaExpr` AST node
+  - [ ] **Rust Tests**: `ori_typeck/src/infer/call.rs` — lambda detection
+  - [ ] **Ori Tests**: `tests/spec/expressions/lambda_positional_detection.ori`
+  - [ ] **LLVM Support**: LLVM codegen for lambda detection
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/call_tests.rs` — lambda detection codegen
+
+- [ ] **Implement**: Reject positional for function references/variables (not lambda literals)
+  - [ ] **Rust Tests**: `ori_typeck/src/infer/call.rs` — function reference rejection
+  - [ ] **Ori Tests**: `tests/compile-fail/positional_function_reference.ori`
+  - [ ] **LLVM Support**: LLVM codegen for function reference rejection
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/call_tests.rs` — function reference rejection codegen
+
+### Error Messages
+
+- [ ] **Implement**: Clear error when using positional non-lambda for single-param function
+  - [ ] **Rust Tests**: `ori_diagnostic/src/problem.rs` — positional non-lambda error
+  - [ ] **Ori Tests**: `tests/compile-fail/positional_non_lambda_message.ori`
+
+```
+error[E2011]: named arguments required for direct function calls
+  --> src/main.ori:5:12
+   |
+5  |     items.map(double)
+   |               ^^^^^^
+   |
+   = help: use named argument syntax: `map(transform: double)`
+   = note: positional arguments are only allowed for inline lambda
+           expressions, not function references
+```
+
+### Edge Cases
+
+- [ ] **Implement**: Nested lambdas work correctly
+  - [ ] **Ori Tests**: `tests/spec/expressions/lambda_positional_nested.ori`
+  - [ ] **LLVM Support**: LLVM codegen for nested lambdas
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/call_tests.rs` — nested lambdas codegen
+
+- [ ] **Implement**: Chained method calls with lambdas
+  - [ ] **Ori Tests**: `tests/spec/expressions/lambda_positional_chained.ori`
+  - [ ] **LLVM Support**: LLVM codegen for chained lambdas
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/call_tests.rs` — chained lambdas codegen
+
+- [ ] **Implement**: Lambda returning lambda
+  - [ ] **Ori Tests**: `tests/spec/expressions/lambda_returning_lambda.ori`
+  - [ ] **LLVM Support**: LLVM codegen for lambda returning lambda
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/call_tests.rs` — lambda returning lambda codegen
+
+### Documentation
+
+- [ ] **Implement**: Update spec `09-expressions.md` with lambda positional exception
+- [ ] **Implement**: Update `CLAUDE.md` with lambda positional syntax
+
+---
+
+## 15.15 Phase Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[x]`
 - [ ] All spec docs updated
