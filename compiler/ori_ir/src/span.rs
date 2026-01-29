@@ -4,6 +4,26 @@
 
 use std::fmt;
 
+/// Error when creating a span from a range that exceeds u32::MAX.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpanError {
+    /// Span start position exceeds u32::MAX
+    StartTooLarge(usize),
+    /// Span end position exceeds u32::MAX
+    EndTooLarge(usize),
+}
+
+impl std::fmt::Display for SpanError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SpanError::StartTooLarge(v) => write!(f, "span start {} exceeds u32::MAX", v),
+            SpanError::EndTooLarge(v) => write!(f, "span end {} exceeds u32::MAX", v),
+        }
+    }
+}
+
+impl std::error::Error for SpanError {}
+
 /// Source location span.
 ///
 /// Layout: 8 bytes total
@@ -29,18 +49,25 @@ impl Span {
         Span { start, end }
     }
 
+    /// Try to create a span from a byte range.
+    ///
+    /// Returns an error if the range exceeds `u32::MAX` bytes.
+    /// Use this for fallible conversion when handling user input.
+    #[inline]
+    pub fn try_from_range(range: std::ops::Range<usize>) -> Result<Self, SpanError> {
+        let start = u32::try_from(range.start).map_err(|_| SpanError::StartTooLarge(range.start))?;
+        let end = u32::try_from(range.end).map_err(|_| SpanError::EndTooLarge(range.end))?;
+        Ok(Span { start, end })
+    }
+
     /// Create from a byte range.
     ///
     /// # Panics
     /// Panics if the range exceeds `u32::MAX` bytes.
+    /// Use `try_from_range` for fallible conversion when handling user input.
     #[inline]
     pub fn from_range(range: std::ops::Range<usize>) -> Self {
-        Span {
-            start: u32::try_from(range.start)
-                .unwrap_or_else(|_| panic!("span start {} exceeds u32::MAX", range.start)),
-            end: u32::try_from(range.end)
-                .unwrap_or_else(|_| panic!("span end {} exceeds u32::MAX", range.end)),
-        }
+        Self::try_from_range(range).unwrap_or_else(|e| panic!("{}", e))
     }
 
     /// Length of the span in bytes.

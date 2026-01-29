@@ -117,7 +117,7 @@ pub use expr_id::{ExprId, ExprRange, StmtId, StmtRange};
 pub use interner::{SharedInterner, StringInterner, StringLookup};
 pub use name::Name;
 pub use parsed_type::ParsedType;
-pub use span::Span;
+pub use span::{Span, SpanError};
 pub use token::{DurationUnit, SizeUnit, Token, TokenKind, TokenList};
 pub use traits::{Named, Spanned, Typed};
 pub use type_id::TypeId;

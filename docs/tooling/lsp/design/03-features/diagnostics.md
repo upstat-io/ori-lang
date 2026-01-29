@@ -8,6 +8,27 @@ order: 2
 
 Publishing parse errors, type errors, and warnings to the client.
 
+## Reference: Go's Structured Diagnostics
+
+Go pioneered **structured diagnostics with machine-applicable fixes**. Instead of just text messages, Go's analyzers produce:
+
+```go
+type Diagnostic struct {
+    Pos            token.Pos
+    End            token.Pos          // Range, not just point
+    Message        string
+    SuggestedFixes []SuggestedFix     // Machine-applicable fixes!
+    Related        []RelatedInformation
+}
+
+type SuggestedFix struct {
+    Message   string       // "Remove unused variable"
+    TextEdits []TextEdit   // Non-overlapping edits
+}
+```
+
+**Key insight**: By including `SuggestedFix` from day one, editors can offer quick fixes without the server implementing `textDocument/codeAction` separately.
+
 ## Overview
 
 Diagnostics are **notifications** sent from server to client. They appear as squiggly underlines in editors.
@@ -19,13 +40,133 @@ textDocument/publishDiagnostics
 
 ## Diagnostic Sources
 
-| Source | Severity | Examples |
-|--------|----------|----------|
-| Lexer | Error | Invalid token, unterminated string |
-| Parser | Error | Missing `)`, unexpected token |
-| Type checker | Error | Type mismatch, undefined variable |
-| Type checker | Warning | Unused variable, unreachable code |
-| Linter (future) | Warning/Hint | Style suggestions |
+| Source | Severity | Examples | Has Fix? |
+|--------|----------|----------|----------|
+| Lexer | Error | Invalid token, unterminated string | No |
+| Parser | Error | Missing `)`, unexpected token | Sometimes |
+| Type checker | Error | Type mismatch, undefined variable | Sometimes |
+| Type checker | Warning | Unused variable, unreachable code | Often |
+| Linter (future) | Warning/Hint | Style suggestions | Usually |
+
+## SuggestedFix Support (from Go)
+
+### Ori Diagnostic Type
+
+Design Ori's internal diagnostic type with fixes from the start:
+
+```rust
+/// Internal diagnostic representation (before LSP conversion)
+pub struct OriDiagnostic {
+    pub span: Span,
+    pub severity: Severity,
+    pub code: DiagnosticCode,
+    pub message: String,
+    pub suggestions: Vec<SuggestedFix>,  // Machine-applicable fixes
+    pub related: Vec<RelatedInfo>,
+}
+
+pub struct SuggestedFix {
+    pub message: String,       // "Remove unused variable `x`"
+    pub edits: Vec<TextEdit>,  // The actual fix
+}
+
+pub struct TextEdit {
+    pub span: Span,
+    pub new_text: String,
+}
+```
+
+### Example: Unused Variable
+
+```rust
+// Compiler detects unused variable
+let diagnostic = OriDiagnostic {
+    span: var_span,
+    severity: Severity::Warning,
+    code: DiagnosticCode::UnusedVariable,
+    message: format!("unused variable `{}`", name),
+    suggestions: vec![
+        SuggestedFix {
+            message: format!("Remove unused variable `{}`", name),
+            edits: vec![TextEdit {
+                span: declaration_span,  // Include `let` keyword
+                new_text: String::new(), // Delete
+            }],
+        },
+        SuggestedFix {
+            message: format!("Prefix with underscore: `_{}`", name),
+            edits: vec![TextEdit {
+                span: name_span,
+                new_text: format!("_{}", name),
+            }],
+        },
+    ],
+    related: vec![],
+};
+```
+
+### LSP Conversion
+
+LSP's `Diagnostic` doesn't directly include fixes. Instead, store fix data for `codeAction` requests:
+
+```rust
+fn to_lsp_diagnostic(diag: &OriDiagnostic, text: &str) -> lsp_types::Diagnostic {
+    lsp_types::Diagnostic {
+        range: span_to_range(text, diag.span),
+        severity: Some(to_lsp_severity(diag.severity)),
+        code: Some(NumberOrString::String(diag.code.to_string())),
+        source: Some("ori".to_string()),
+        message: diag.message.clone(),
+        related_information: to_lsp_related(&diag.related, text),
+        tags: diagnostic_tags(&diag.code),
+        // Store fix data for later retrieval via codeAction
+        data: if diag.suggestions.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_value(&diag.suggestions).unwrap())
+        },
+        ..Default::default()
+    }
+}
+```
+
+### Code Action Integration
+
+When client requests code actions, retrieve fixes from diagnostic data:
+
+```rust
+fn handle_code_action(
+    params: CodeActionParams,
+    diagnostics_with_fixes: &HashMap<Url, Vec<OriDiagnostic>>,
+) -> Vec<CodeAction> {
+    let uri = &params.text_document.uri;
+    let range = params.range;
+
+    let mut actions = vec![];
+
+    // Find diagnostics overlapping with requested range
+    if let Some(diags) = diagnostics_with_fixes.get(uri) {
+        for diag in diags {
+            if ranges_overlap(diag.span, range) {
+                for fix in &diag.suggestions {
+                    actions.push(CodeAction {
+                        title: fix.message.clone(),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: Some(vec![to_lsp_diagnostic(diag)]),
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(fix_to_changes(uri, &fix.edits)),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+    }
+
+    actions
+}
+```
 
 ## Implementation
 
@@ -169,22 +310,85 @@ These tags enable special rendering:
 
 ## Publishing
 
+### Incremental Updates (Gleam Pattern)
+
+**Key insight from Gleam**: Don't clear all diagnostics on every change. Track which files have diagnostics and only update those that were recompiled.
+
+```rust
+/// Tracks which files have diagnostics (Gleam's FeedbackBookKeeper)
+pub struct DiagnosticTracker {
+    files_with_errors: HashSet<Url>,
+    files_with_warnings: HashSet<Url>,
+}
+
+impl DiagnosticTracker {
+    /// Publish diagnostics, only clearing files that were recompiled
+    pub fn publish_update(
+        &mut self,
+        connection: &Connection,
+        compiled_files: &[Url],
+        new_diagnostics: HashMap<Url, Vec<Diagnostic>>,
+    ) {
+        // 1. Clear diagnostics only for files that were recompiled but have no new errors
+        for uri in compiled_files {
+            if !new_diagnostics.contains_key(uri) {
+                // File was compiled successfully, clear any old diagnostics
+                if self.files_with_errors.remove(uri) || self.files_with_warnings.remove(uri) {
+                    self.publish(connection, uri.clone(), vec![]);
+                }
+            }
+        }
+
+        // 2. Publish new diagnostics
+        for (uri, diagnostics) in new_diagnostics {
+            let has_errors = diagnostics.iter().any(|d| d.severity == Some(DiagnosticSeverity::ERROR));
+            let has_warnings = diagnostics.iter().any(|d| d.severity == Some(DiagnosticSeverity::WARNING));
+
+            if has_errors {
+                self.files_with_errors.insert(uri.clone());
+            }
+            if has_warnings {
+                self.files_with_warnings.insert(uri.clone());
+            }
+
+            self.publish(connection, uri, diagnostics);
+        }
+    }
+
+    fn publish(&self, connection: &Connection, uri: Url, diagnostics: Vec<Diagnostic>) {
+        let params = PublishDiagnosticsParams {
+            uri,
+            diagnostics,
+            version: None,
+        };
+        let notification = lsp_server::Notification::new(
+            "textDocument/publishDiagnostics".to_string(),
+            params,
+        );
+        connection.sender.send(Message::Notification(notification)).ok();
+    }
+}
+```
+
 ### On Document Change
 
 ```rust
-impl OriLanguageServer {
-    async fn on_document_change(&mut self, uri: Url, text: String) {
-        // Update document state
-        let doc = self.documents.update(&uri, text);
+fn handle_document_change(state: &mut GlobalState, uri: Url) {
+    // Compute diagnostics
+    let content = state.files.read(&uri).unwrap();
+    let diagnostics = compute_diagnostics(&content);
 
-        // Compute diagnostics
-        let diagnostics = compute_diagnostics(doc);
-
-        // Publish to client
-        self.client
-            .publish_diagnostics(uri, diagnostics, Some(doc.version))
-            .await;
+    // Track and publish
+    let mut updates = HashMap::new();
+    if !diagnostics.is_empty() {
+        updates.insert(uri.clone(), diagnostics);
     }
+
+    state.diagnostic_tracker.publish_update(
+        &state.connection,
+        &[uri],  // Files that were "compiled"
+        updates,
+    );
 }
 ```
 
@@ -193,15 +397,15 @@ impl OriLanguageServer {
 Clear diagnostics when a document is closed:
 
 ```rust
-impl OriLanguageServer {
-    async fn on_document_close(&mut self, uri: Url) {
-        self.documents.remove(&uri);
+fn handle_document_close(state: &mut GlobalState, uri: Url) {
+    state.files.clear_memory(&uri);
 
-        // Clear diagnostics by publishing empty array
-        self.client
-            .publish_diagnostics(uri, vec![], None)
-            .await;
-    }
+    // Clear diagnostics by publishing empty array
+    state.diagnostic_tracker.publish_update(
+        &state.connection,
+        &[uri],
+        HashMap::new(),
+    );
 }
 ```
 

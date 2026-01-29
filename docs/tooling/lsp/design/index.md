@@ -15,6 +15,22 @@ This documentation describes the design and implementation of the Ori Language S
 3. **Incremental** — Start with essential features, expand over time
 4. **Integrated** — Leverages existing compiler infrastructure (`ori_fmt`, `ori_typeck`, etc.)
 
+## Reference Implementations
+
+The Ori LSP design draws from established language server implementations:
+
+| Language | Key Patterns Adopted |
+|----------|---------------------|
+| **Gleam** | FileSystemProxy, Response pattern, `lsp-server`/`lsp-types` crates |
+| **rust-analyzer** | Snapshot pattern, single main loop with `select!`, execution mode dispatch |
+| **Go (gopls)** | Structured diagnostics with SuggestedFix, modular analyzer design |
+
+### Why These References
+
+- **Gleam**: Rust-based, similar scale, clean separation of LSP from compiler
+- **rust-analyzer**: Production-grade patterns for threading and cancellation
+- **Go**: Pioneered structured diagnostics with machine-applicable fixes
+
 ## Architecture
 
 ```
@@ -111,6 +127,8 @@ compiler/ori_lsp/
 
 ## Dependencies
 
+### Compiler Crates
+
 | Crate | Purpose |
 |-------|---------|
 | `ori_fmt` | Code formatting |
@@ -118,12 +136,89 @@ compiler/ori_lsp/
 | `ori_parse` | Parsing for diagnostics |
 | `ori_lexer` | Tokenization |
 | `ori_ir` | AST and spans |
-| `tower-lsp` | LSP protocol implementation (native) |
-| `wasm-bindgen` | WASM bindings (browser) |
+
+### LSP Infrastructure (Native)
+
+| Crate | Purpose |
+|-------|---------|
+| `lsp-server` | Generic LSP transport (stdio), message loop — used by Gleam, rust-analyzer |
+| `lsp-types` | LSP protocol type definitions |
+| `crossbeam-channel` | Channel-based main loop (rust-analyzer pattern) |
+| `serde_json` | JSON serialization for LSP messages |
+
+### WASM (Browser)
+
+| Crate | Purpose |
+|-------|---------|
+| `wasm-bindgen` | WASM bindings |
+| `serde_json` | JSON serialization |
+
+**Note**: We use `lsp-server` instead of `tower-lsp` because:
+- `lsp-server` is simpler (no async runtime required)
+- Used by both Gleam and rust-analyzer
+- Easier to reason about with single-threaded main loop
 
 ## Design Principles
 
 1. **Leverage existing infrastructure** — Use `ori_fmt` for formatting, `ori_typeck` for type info
-2. **Stateless where possible** — Minimize server state for simplicity
-3. **Fast feedback** — Prioritize responsiveness over completeness
-4. **Graceful degradation** — Partial results better than failure
+2. **Single-threaded main loop** — Simpler than async, use worker threads for heavy work (rust-analyzer)
+3. **Snapshot pattern** — Immutable state clones for thread-safe worker access (rust-analyzer)
+4. **FileSystemProxy** — Transparent in-memory cache for unsaved edits (Gleam)
+5. **Structured diagnostics** — Include `SuggestedFix` with `TextEdit[]` from day one (Go)
+6. **Fast feedback** — Prioritize responsiveness over completeness
+7. **Graceful degradation** — Partial results better than failure
+
+## Key Patterns
+
+### FileSystemProxy (from Gleam)
+
+In-memory cache for unsaved editor content, transparent to compiler:
+
+```rust
+struct FileSystemProxy {
+    disk: RealFileSystem,
+    memory: HashMap<Url, String>,  // Unsaved edits
+}
+
+impl FileSystemProxy {
+    fn read(&self, uri: &Url) -> Option<String> {
+        // Check memory first, fall back to disk
+        self.memory.get(uri).cloned()
+            .or_else(|| self.disk.read(uri))
+    }
+}
+```
+
+### Snapshot Pattern (from rust-analyzer)
+
+Immutable state clones for thread-safe parallel work:
+
+```rust
+struct GlobalState {
+    documents: DocumentManager,
+    // ... mutable state
+}
+
+impl GlobalState {
+    fn snapshot(&self) -> GlobalStateSnapshot {
+        GlobalStateSnapshot {
+            documents: self.documents.clone(),
+            // ... immutable clone
+        }
+    }
+}
+
+// Workers receive snapshot, main thread keeps mutable state
+```
+
+### Response Pattern (from Gleam)
+
+Bundle result with metadata for intelligent feedback:
+
+```rust
+struct Response<T> {
+    result: Result<T, Error>,
+    warnings: Vec<Warning>,
+    compiled_files: Vec<Url>,  // For incremental diagnostics
+}
+```

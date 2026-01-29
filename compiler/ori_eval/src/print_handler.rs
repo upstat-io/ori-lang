@@ -1,50 +1,42 @@
-//! Print handler trait for configurable output.
+//! Print handler for configurable output.
 //!
 //! The Print capability allows output to be directed to different destinations:
 //! - Native: stdout (default)
 //! - WASM: buffer for capture and display
 //! - Tests: buffer for assertions
+//!
+//! # Performance
+//! Uses enum dispatch instead of trait objects for O(1) static dispatch
+//! on this frequently-used path.
 
 use std::sync::Mutex;
-
-/// Handler trait for print output.
-///
-/// Implementations determine where print output goes.
-pub trait PrintHandler: Send + Sync {
-    /// Print a line (with newline).
-    fn println(&self, msg: &str);
-
-    /// Print without newline.
-    fn print(&self, msg: &str);
-
-    /// Get all captured output (for testing/WASM).
-    ///
-    /// Returns empty string for handlers that don't capture (like stdout).
-    fn get_output(&self) -> String;
-
-    /// Clear captured output.
-    fn clear(&self);
-}
 
 /// Default print handler that writes to stdout.
 #[derive(Default)]
 pub struct StdoutPrintHandler;
 
-impl PrintHandler for StdoutPrintHandler {
-    fn println(&self, msg: &str) {
+impl StdoutPrintHandler {
+    /// Print a line (with newline).
+    pub fn println(&self, msg: &str) {
         println!("{msg}");
     }
 
-    fn print(&self, msg: &str) {
+    /// Print without newline.
+    pub fn print(&self, msg: &str) {
         print!("{msg}");
     }
 
-    fn get_output(&self) -> String {
-        // stdout doesn't capture
+    /// Get all captured output (for testing/WASM).
+    ///
+    /// Returns empty string since stdout doesn't capture.
+    pub fn get_output(&self) -> String {
         String::new()
     }
 
-    fn clear(&self) {
+    /// Clear captured output.
+    ///
+    /// No-op for stdout.
+    pub fn clear(&self) {
         // Nothing to clear
     }
 }
@@ -63,16 +55,9 @@ impl BufferPrintHandler {
             buffer: Mutex::new(String::new()),
         }
     }
-}
 
-impl Default for BufferPrintHandler {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl PrintHandler for BufferPrintHandler {
-    fn println(&self, msg: &str) {
+    /// Print a line (with newline).
+    pub fn println(&self, msg: &str) {
         let mut buf = self
             .buffer
             .lock()
@@ -81,7 +66,8 @@ impl PrintHandler for BufferPrintHandler {
         buf.push('\n');
     }
 
-    fn print(&self, msg: &str) {
+    /// Print without newline.
+    pub fn print(&self, msg: &str) {
         let mut buf = self
             .buffer
             .lock()
@@ -89,14 +75,16 @@ impl PrintHandler for BufferPrintHandler {
         buf.push_str(msg);
     }
 
-    fn get_output(&self) -> String {
+    /// Get all captured output.
+    pub fn get_output(&self) -> String {
         self.buffer
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
 
-    fn clear(&self) {
+    /// Clear captured output.
+    pub fn clear(&self) {
         self.buffer
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -104,29 +92,82 @@ impl PrintHandler for BufferPrintHandler {
     }
 }
 
+impl Default for BufferPrintHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Print handler implementation using enum dispatch.
+///
+/// Only two variants exist (Stdout, Buffer), so enum dispatch
+/// is more efficient than trait objects (no vtable indirection).
+pub enum PrintHandlerImpl {
+    /// Writes to stdout (default)
+    Stdout(StdoutPrintHandler),
+    /// Captures to buffer (WASM/testing)
+    Buffer(BufferPrintHandler),
+}
+
+impl PrintHandlerImpl {
+    /// Print a line (with newline).
+    pub fn println(&self, msg: &str) {
+        match self {
+            Self::Stdout(h) => h.println(msg),
+            Self::Buffer(h) => h.println(msg),
+        }
+    }
+
+    /// Print without newline.
+    pub fn print(&self, msg: &str) {
+        match self {
+            Self::Stdout(h) => h.print(msg),
+            Self::Buffer(h) => h.print(msg),
+        }
+    }
+
+    /// Get all captured output (for testing/WASM).
+    ///
+    /// Returns empty string for handlers that don't capture (like stdout).
+    pub fn get_output(&self) -> String {
+        match self {
+            Self::Stdout(h) => h.get_output(),
+            Self::Buffer(h) => h.get_output(),
+        }
+    }
+
+    /// Clear captured output.
+    pub fn clear(&self) {
+        match self {
+            Self::Stdout(h) => h.clear(),
+            Self::Buffer(h) => h.clear(),
+        }
+    }
+}
+
 /// Shared print handler that can be passed around.
 #[expect(
     clippy::disallowed_types,
-    reason = "Arc required for SharedPrintHandler dyn trait object shared across threads"
+    reason = "Arc required for SharedPrintHandler shared across threads"
 )]
-pub type SharedPrintHandler = std::sync::Arc<dyn PrintHandler>;
+pub type SharedPrintHandler = std::sync::Arc<PrintHandlerImpl>;
 
 /// Create a default stdout print handler.
 #[expect(
     clippy::disallowed_types,
-    reason = "Arc required for SharedPrintHandler dyn trait object"
+    reason = "Arc required for SharedPrintHandler"
 )]
 pub fn stdout_handler() -> SharedPrintHandler {
-    std::sync::Arc::new(StdoutPrintHandler)
+    std::sync::Arc::new(PrintHandlerImpl::Stdout(StdoutPrintHandler))
 }
 
 /// Create a buffer print handler for capturing output.
 #[expect(
     clippy::disallowed_types,
-    reason = "Arc required for SharedPrintHandler dyn trait object"
+    reason = "Arc required for SharedPrintHandler"
 )]
 pub fn buffer_handler() -> SharedPrintHandler {
-    std::sync::Arc::new(BufferPrintHandler::new())
+    std::sync::Arc::new(PrintHandlerImpl::Buffer(BufferPrintHandler::new()))
 }
 
 #[cfg(test)]

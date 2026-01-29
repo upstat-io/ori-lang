@@ -40,7 +40,12 @@ pub fn infer_call(
     }
 
     let func_ty = infer_expr(checker, func);
-    let arg_types: Vec<Type> = arg_ids.iter().map(|id| infer_expr(checker, *id)).collect();
+
+    // Pre-allocate to avoid repeated reallocations
+    let mut arg_types = Vec::with_capacity(arg_ids.len());
+    for id in arg_ids {
+        arg_types.push(infer_expr(checker, *id));
+    }
 
     check_call(checker, &func_ty, &arg_types, span)
 }
@@ -79,10 +84,11 @@ pub fn infer_call_named(
     let func_ty = infer_expr(checker, func);
     let call_args = checker.context.arena.get_call_args(args);
 
-    let arg_types: Vec<Type> = call_args
-        .iter()
-        .map(|arg| infer_expr(checker, arg.value))
-        .collect();
+    // Pre-allocate to avoid repeated reallocations
+    let mut arg_types = Vec::with_capacity(call_args.len());
+    for arg in call_args {
+        arg_types.push(infer_expr(checker, arg.value));
+    }
 
     let (result, resolved_params) = match func_ty {
         Type::Function { params, ret } => {
@@ -106,10 +112,11 @@ pub fn infer_call_named(
                 }
             }
 
-            let resolved: Vec<Type> = params
-                .iter()
-                .map(|p| checker.inference.ctx.resolve(p))
-                .collect();
+            // Pre-allocate to avoid repeated reallocations
+            let mut resolved = Vec::with_capacity(params.len());
+            for p in &params {
+                resolved.push(checker.inference.ctx.resolve(p));
+            }
 
             (*ret, Some(resolved))
         }

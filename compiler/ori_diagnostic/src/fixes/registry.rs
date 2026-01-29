@@ -1,6 +1,13 @@
 //! Code Fix Registry
 //!
 //! Manages registration and lookup of code fixes by error code.
+//!
+//! # Design Note
+//!
+//! Currently uses `Arc<dyn CodeFix>` for trait object storage. This is fine
+//! for the current use case where zero production fixes exist. When built-in
+//! fixes are implemented, consider evaluating enum dispatch for better
+//! performance if profiling shows the vtable indirection is significant.
 
 // Box and Arc are needed for trait objects in the registry
 #![expect(

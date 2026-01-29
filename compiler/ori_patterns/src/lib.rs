@@ -287,6 +287,35 @@ pub enum Iterable {
     Range(RangeValue),
 }
 
+/// Iterator over Iterable values.
+///
+/// Uses enum dispatch instead of `Box<dyn Iterator>` for better performance
+/// (no heap allocation, no vtable indirection).
+pub enum IterableIter<'a> {
+    /// Iterator over list elements (cloned).
+    List(std::iter::Cloned<std::slice::Iter<'a, Value>>),
+    /// Iterator over range integers converted to Values.
+    Range(std::iter::Map<std::ops::Range<i64>, fn(i64) -> Value>),
+}
+
+impl Iterator for IterableIter<'_> {
+    type Item = Value;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::List(iter) => iter.next(),
+            Self::Range(iter) => iter.next(),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            Self::List(iter) => iter.size_hint(),
+            Self::Range(iter) => iter.size_hint(),
+        }
+    }
+}
+
 impl Iterable {
     /// Try to convert a Value into an Iterable.
     ///
@@ -305,10 +334,25 @@ impl Iterable {
     /// Iterate over the values in this iterable.
     ///
     /// Returns owned `Value`s: cloned from List elements or created from Range integers.
-    fn iter_values(&self) -> Box<dyn Iterator<Item = Value> + '_> {
+    ///
+    /// # Performance
+    /// Uses `IterableIter` enum dispatch instead of `Box<dyn Iterator>` for
+    /// zero-allocation iteration (no heap allocation, no vtable indirection).
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "range bound arithmetic on user-provided i64 values"
+    )]
+    fn iter_values(&self) -> IterableIter<'_> {
         match self {
-            Iterable::List(list) => Box::new(list.iter().cloned()),
-            Iterable::Range(range) => Box::new(range.iter().map(Value::int)),
+            Iterable::List(list) => IterableIter::List(list.iter().cloned()),
+            Iterable::Range(range) => {
+                let end = if range.inclusive {
+                    range.end + 1
+                } else {
+                    range.end
+                };
+                IterableIter::Range((range.start..end).map(Value::int as fn(i64) -> Value))
+            }
         }
     }
 
