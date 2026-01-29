@@ -136,21 +136,8 @@ Each step is a Salsa query with automatic caching. If the input doesn't change, 
 
 ### LLVM Backend
 
-The LLVM backend (`ori_llvm` crate) provides JIT compilation and execution:
-
-- **Architecture**: Follows Rust's `rustc_codegen_llvm` patterns
-  - `SimpleCx` / `CodegenCx` context hierarchy
-  - Separate `Builder` type for instruction generation
-  - Two-phase codegen (declare then define)
-  - Type caching for efficiency
-
-- **Type Mappings**:
-  - `int` → `i64`, `float` → `f64`, `bool` → `i1`
-  - `str` → `{ i64 len, ptr data }`
-  - `Option<T>` / `Result<T, E>` → `{ i8 tag, T payload }`
-  - Lists → `{ i64 len, i64 cap, ptr data }`
-
-- **Status**: JIT working (734/753 tests pass), AOT pending
+- [LLVM Backend Overview](10-llvm-backend/index.md) - JIT compilation architecture
+- [Closures](10-llvm-backend/closures.md) - Closure representation and calling conventions
 
 ### Appendices
 
