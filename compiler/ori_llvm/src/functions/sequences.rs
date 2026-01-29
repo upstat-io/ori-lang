@@ -137,7 +137,7 @@ impl<'ll> Builder<'_, 'll, '_> {
                     if struct_val.get_type().count_fields() == 2 {
                         // Extract tag to check if Ok or Err
                         let tag = self
-                            .extract_value(struct_val, 0, "try_tag")
+                            .extract_value(struct_val, 0, "try_tag")?
                             .into_int_value();
 
                         // Check if Ok (tag == 0)
@@ -161,7 +161,7 @@ impl<'ll> Builder<'_, 'll, '_> {
 
                         // Ok path: extract value and continue
                         self.position_at_end(ok_bb);
-                        let inner_val = self.extract_value(struct_val, 1, "ok_val");
+                        let inner_val = self.extract_value(struct_val, 1, "ok_val")?;
                         self.br(cont_bb);
 
                         // Continue block
@@ -202,8 +202,11 @@ impl<'ll> Builder<'_, 'll, '_> {
                 // Extract each tuple element by index
                 if let BasicValueEnum::StructValue(struct_val) = value {
                     for (i, pat) in patterns.iter().enumerate() {
-                        let elem = self.extract_value(struct_val, i as u32, &format!("tuple_{i}"));
-                        self.bind_pattern(pat, elem, locals);
+                        if let Some(elem) =
+                            self.extract_value(struct_val, i as u32, &format!("tuple_{i}"))
+                        {
+                            self.bind_pattern(pat, elem, locals);
+                        }
                     }
                 }
             }
@@ -213,18 +216,18 @@ impl<'ll> Builder<'_, 'll, '_> {
                     for (field_name, inner_pattern) in fields {
                         let field_name_str = self.cx().interner.lookup(*field_name);
                         let field_index = self.field_name_to_index(field_name_str);
-                        let field_val = self.extract_value(
+                        if let Some(field_val) = self.extract_value(
                             struct_val,
                             field_index,
                             &format!("field_{field_name_str}"),
-                        );
-
-                        // If there's an inner pattern (rename), bind to that; otherwise bind to field name
-                        if let Some(inner) = inner_pattern {
-                            self.bind_pattern(inner, field_val, locals);
-                        } else {
-                            // Shorthand: { x } binds field x to variable x
-                            locals.insert(*field_name, field_val);
+                        ) {
+                            // If there's an inner pattern (rename), bind to that; otherwise bind to field name
+                            if let Some(inner) = inner_pattern {
+                                self.bind_pattern(inner, field_val, locals);
+                            } else {
+                                // Shorthand: { x } binds field x to variable x
+                                locals.insert(*field_name, field_val);
+                            }
                         }
                     }
                 }
@@ -233,7 +236,9 @@ impl<'ll> Builder<'_, 'll, '_> {
                 // Lists are { i64 len, i64 cap, ptr data }
                 if let BasicValueEnum::StructValue(list_struct) = value {
                     // Extract the data pointer (index 2)
-                    let data_ptr = self.extract_value(list_struct, 2, "list_data");
+                    let Some(data_ptr) = self.extract_value(list_struct, 2, "list_data") else {
+                        return;
+                    };
 
                     // Extract each element by loading from the array
                     for (i, pat) in elements.iter().enumerate() {
@@ -260,7 +265,9 @@ impl<'ll> Builder<'_, 'll, '_> {
                     if let Some(rest_name) = rest {
                         // For now, bind the remaining elements as a new list
                         // This is simplified - real implementation would create a slice
-                        let len_val = self.extract_value(list_struct, 0, "list_len");
+                        let Some(len_val) = self.extract_value(list_struct, 0, "list_len") else {
+                            return;
+                        };
                         let consumed = self
                             .cx()
                             .scx
@@ -279,9 +286,12 @@ impl<'ll> Builder<'_, 'll, '_> {
                                 .const_int(elements.len() as u64, false),
                         ];
                         let array_type = elem_type.array_type(1); // Dummy size for GEP
+                        let BasicValueEnum::PointerValue(data_ptr_val) = data_ptr else {
+                            return;
+                        };
                         let rest_ptr = self.gep(
                             array_type.into(),
-                            data_ptr.into_pointer_value(),
+                            data_ptr_val,
                             &offset_indices,
                             "rest_data",
                         );

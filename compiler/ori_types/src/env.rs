@@ -1,7 +1,8 @@
 //! Type environment for name resolution and scoping.
 
 use ori_ir::{Name, TypeId};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
+use std::collections::HashSet;
 
 use crate::context::InferenceContext;
 use crate::core::{Type, TypeScheme, TypeSchemeId};
@@ -15,7 +16,7 @@ use crate::type_interner::{SharedTypeInterner, TypeInterner};
 #[derive(Clone, Debug)]
 pub struct TypeEnv {
     /// Variable bindings: name -> type scheme (stored as `TypeSchemeId` for efficiency)
-    bindings: HashMap<Name, TypeSchemeId>,
+    bindings: FxHashMap<Name, TypeSchemeId>,
     /// Parent scope (for nested scopes)
     parent: Option<Box<TypeEnv>>,
     /// Type interner for converting between Type and `TypeId`
@@ -26,7 +27,7 @@ impl TypeEnv {
     /// Create a new empty environment with a new type interner.
     pub fn new() -> Self {
         TypeEnv {
-            bindings: HashMap::new(),
+            bindings: FxHashMap::default(),
             parent: None,
             interner: SharedTypeInterner::new(),
         }
@@ -37,7 +38,7 @@ impl TypeEnv {
     /// Use this when you want to share the interner with other compiler phases.
     pub fn with_interner(interner: SharedTypeInterner) -> Self {
         TypeEnv {
-            bindings: HashMap::new(),
+            bindings: FxHashMap::default(),
             parent: None,
             interner,
         }
@@ -57,7 +58,7 @@ impl TypeEnv {
     #[must_use]
     pub fn child(&self) -> Self {
         TypeEnv {
-            bindings: HashMap::new(),
+            bindings: FxHashMap::default(),
             parent: Some(Box::new(self.clone())),
             interner: self.interner.clone(),
         }
@@ -136,18 +137,18 @@ impl TypeEnv {
     /// This is used during generalization to avoid quantifying over
     /// variables that are free in the environment.
     pub fn free_vars(&self, ctx: &InferenceContext) -> Vec<TypeVar> {
-        let mut vars = Vec::new();
+        let mut vars = HashSet::new();
         self.collect_env_free_vars(ctx, &mut vars);
-        vars
+        vars.into_iter().collect()
     }
 
-    fn collect_env_free_vars(&self, ctx: &InferenceContext, vars: &mut Vec<TypeVar>) {
+    fn collect_env_free_vars(&self, ctx: &InferenceContext, vars: &mut HashSet<TypeVar>) {
         for scheme in self.bindings.values() {
             // Only collect free vars that are NOT quantified in the scheme
             let scheme_free = ctx.free_vars_id(scheme.ty);
             for v in scheme_free {
-                if !scheme.vars.contains(&v) && !vars.contains(&v) {
-                    vars.push(v);
+                if !scheme.vars.contains(&v) {
+                    vars.insert(v); // O(1) instead of O(n)
                 }
             }
         }

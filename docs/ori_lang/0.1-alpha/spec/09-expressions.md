@@ -8,7 +8,7 @@ order: 9
 
 Expressions compute values.
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § EXPRESSIONS
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § EXPRESSIONS
 
 ## Postfix Expressions
 
@@ -344,7 +344,7 @@ Elements evaluate left-to-right:
 
 ## Spread Operator
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § EXPRESSIONS (list_element, map_element, struct_element)
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § EXPRESSIONS (list_element, map_element, struct_element)
 
 The spread operator `...` expands collections and structs in literal contexts.
 

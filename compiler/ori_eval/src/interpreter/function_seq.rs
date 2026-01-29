@@ -1,7 +1,7 @@
 //! `FunctionSeq` evaluation methods for the Interpreter.
 
 use super::Interpreter;
-use crate::{for_pattern_requires_list, EvalResult, Value};
+use crate::{for_pattern_requires_list, EvalResult, Mutability, Value};
 use ori_ir::{FunctionSeq, SeqBinding};
 
 impl Interpreter<'_> {
@@ -22,7 +22,12 @@ impl Interpreter<'_> {
                             ..
                         } => {
                             let val = self.eval(*value)?;
-                            self.bind_pattern(pattern, val, *mutable)?;
+                            let mutability = if *mutable {
+                                Mutability::Mutable
+                            } else {
+                                Mutability::Immutable
+                            };
+                            self.bind_pattern(pattern, val, mutability)?;
                         }
                         SeqBinding::Stmt { expr, .. } => {
                             // Evaluate for side effects (e.g., assignment)
@@ -63,7 +68,12 @@ impl Interpreter<'_> {
                                         Value::Ok(inner) | Value::Some(inner) => (*inner).clone(),
                                         other => other,
                                     };
-                                    self.bind_pattern(pattern, unwrapped, *mutable)?;
+                                    let mutability = if *mutable {
+                                        Mutability::Mutable
+                                    } else {
+                                        Mutability::Immutable
+                                    };
+                                    self.bind_pattern(pattern, unwrapped, mutability)?;
                                 }
                                 Err(e) => {
                                     // If this is a propagated error, return the value

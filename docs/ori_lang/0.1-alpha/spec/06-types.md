@@ -8,7 +8,7 @@ order: 6
 
 Every value has a type determined at compile time.
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § TYPES
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § TYPES
 
 ## Primitive Types
 
@@ -170,7 +170,7 @@ let p2 = p.clone()  // OK: CloneableProducer implements Clone
 
 ## User-Defined Types
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § DECLARATIONS (type_def)
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § DECLARATIONS (type_def)
 
 ### Struct
 

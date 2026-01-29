@@ -421,27 +421,6 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     }
 }
 
-/// Extension trait adding `is_primitive` method to `TypeId`.
-#[allow(dead_code)]
-trait TypeIdExt {
-    fn is_primitive(&self) -> bool;
-}
-
-impl TypeIdExt for TypeId {
-    fn is_primitive(&self) -> bool {
-        matches!(
-            *self,
-            TypeId::INT
-                | TypeId::FLOAT
-                | TypeId::BOOL
-                | TypeId::CHAR
-                | TypeId::BYTE
-                | TypeId::VOID
-                | TypeId::NEVER
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

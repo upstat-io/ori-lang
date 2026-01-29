@@ -339,15 +339,15 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     // -- Aggregate operations --
 
     /// Build extract value from aggregate (struct, array).
+    ///
+    /// Returns `None` if the index is out of range for the struct.
     pub fn extract_value(
         &self,
         agg: StructValue<'ll>,
         index: u32,
         name: &str,
-    ) -> BasicValueEnum<'ll> {
-        self.llbuilder
-            .build_extract_value(agg, index, name)
-            .expect("extract_value")
+    ) -> Option<BasicValueEnum<'ll>> {
+        self.llbuilder.build_extract_value(agg, index, name).ok()
     }
 
     /// Build insert value into aggregate.

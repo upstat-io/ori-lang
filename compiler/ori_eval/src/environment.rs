@@ -17,6 +17,23 @@ use std::rc::Rc;
 use ori_ir::Name;
 use ori_patterns::Value;
 
+/// Whether a variable binding can be reassigned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mutability {
+    /// Binding can be reassigned (`let x = ...`).
+    Mutable,
+    /// Binding cannot be reassigned (`let $x = ...`).
+    Immutable,
+}
+
+impl Mutability {
+    /// Returns `true` if this is `Mutable`.
+    #[inline]
+    pub fn is_mutable(self) -> bool {
+        matches!(self, Mutability::Mutable)
+    }
+}
+
 // LocalScope<T> - Newtype wrapper for single-threaded scopes
 
 /// A single-threaded scope wrapper for reference-counted interior mutability.
@@ -106,8 +123,8 @@ pub struct Scope {
 struct Binding {
     /// The value.
     value: Value,
-    /// Whether this binding is mutable.
-    mutable: bool,
+    /// Whether this binding can be reassigned.
+    mutability: Mutability,
 }
 
 impl Scope {
@@ -128,8 +145,8 @@ impl Scope {
     }
 
     /// Define a variable in this scope.
-    pub fn define(&mut self, name: Name, value: Value, mutable: bool) {
-        self.bindings.insert(name, Binding { value, mutable });
+    pub fn define(&mut self, name: Name, value: Value, mutability: Mutability) {
+        self.bindings.insert(name, Binding { value, mutability });
     }
 
     /// Look up a variable by name.
@@ -146,7 +163,7 @@ impl Scope {
     /// Assign to a variable.
     pub fn assign(&mut self, name: Name, value: Value) -> Result<(), String> {
         if let Some(binding) = self.bindings.get_mut(&name) {
-            if !binding.mutable {
+            if !binding.mutability.is_mutable() {
                 return Err("cannot assign to immutable variable".to_string());
             }
             binding.value = value;
@@ -207,10 +224,10 @@ impl Environment {
     }
 
     /// Define a variable in the current scope.
-    pub fn define(&mut self, name: Name, value: Value, mutable: bool) {
+    pub fn define(&mut self, name: Name, value: Value, mutability: Mutability) {
         self.current_scope()
             .borrow_mut()
-            .define(name, value, mutable);
+            .define(name, value, mutability);
     }
 
     /// Look up a variable by name.
@@ -223,9 +240,11 @@ impl Environment {
         self.current_scope().borrow_mut().assign(name, value)
     }
 
-    /// Define a global variable.
+    /// Define a global variable (immutable).
     pub fn define_global(&mut self, name: Name, value: Value) {
-        self.global.borrow_mut().define(name, value, false);
+        self.global
+            .borrow_mut()
+            .define(name, value, Mutability::Immutable);
     }
 
     /// Get the current scope depth.
@@ -254,7 +273,7 @@ impl Environment {
     ///
     /// ```text
     /// env.with_scope(|env| {
-    ///     env.define(name, value, false);
+    ///     env.define(name, value, Mutability::Immutable);
     ///     // ... use the binding ...
     /// }) // scope is automatically popped here
     /// ```
@@ -276,16 +295,22 @@ impl Environment {
     ///
     /// ```text
     /// // for x in items do body
-    /// env.with_binding(x_name, item_value, false, |env| {
+    /// env.with_binding(x_name, item_value, Mutability::Immutable, |env| {
     ///     eval_body(body, env)
     /// })
     /// ```
-    pub fn with_binding<T, F>(&mut self, name: Name, value: Value, mutable: bool, f: F) -> T
+    pub fn with_binding<T, F>(
+        &mut self,
+        name: Name,
+        value: Value,
+        mutability: Mutability,
+        f: F,
+    ) -> T
     where
         F: FnOnce(&mut Self) -> T,
     {
         self.with_scope(|env| {
-            env.define(name, value, mutable);
+            env.define(name, value, mutability);
             f(env)
         })
     }
@@ -309,7 +334,7 @@ impl Environment {
     {
         self.with_scope(|env| {
             for (name, value) in bindings {
-                env.define(name, value, false);
+                env.define(name, value, Mutability::Immutable);
             }
             f(env)
         })
@@ -366,7 +391,7 @@ mod tests {
         let x = interner.intern("x");
 
         let mut scope = Scope::new();
-        scope.define(x, Value::int(42), false);
+        scope.define(x, Value::int(42), Mutability::Immutable);
         assert_eq!(scope.lookup(x), Some(Value::int(42)));
     }
 
@@ -376,10 +401,12 @@ mod tests {
         let x = interner.intern("x");
 
         let parent = LocalScope::new(Scope::new());
-        parent.borrow_mut().define(x, Value::int(1), false);
+        parent
+            .borrow_mut()
+            .define(x, Value::int(1), Mutability::Immutable);
 
         let mut child = Scope::with_parent(parent);
-        child.define(x, Value::int(2), false);
+        child.define(x, Value::int(2), Mutability::Immutable);
 
         // Child's binding shadows parent's
         assert_eq!(child.lookup(x), Some(Value::int(2)));
@@ -391,10 +418,10 @@ mod tests {
         let x = interner.intern("x");
 
         let mut env = Environment::new();
-        env.define(x, Value::int(1), false);
+        env.define(x, Value::int(1), Mutability::Immutable);
 
         env.push_scope();
-        env.define(x, Value::int(2), false);
+        env.define(x, Value::int(2), Mutability::Immutable);
         assert_eq!(env.lookup(x), Some(Value::int(2)));
 
         env.pop_scope();
@@ -407,7 +434,7 @@ mod tests {
         let x = interner.intern("x");
 
         let mut env = Environment::new();
-        env.define(x, Value::int(1), true);
+        env.define(x, Value::int(1), Mutability::Mutable);
         assert!(env.assign(x, Value::int(2)).is_ok());
         assert_eq!(env.lookup(x), Some(Value::int(2)));
     }
@@ -418,7 +445,7 @@ mod tests {
         let x = interner.intern("x");
 
         let mut env = Environment::new();
-        env.define(x, Value::int(1), false);
+        env.define(x, Value::int(1), Mutability::Immutable);
         assert!(env.assign(x, Value::int(2)).is_err());
     }
 
@@ -429,9 +456,9 @@ mod tests {
         let y = interner.intern("y");
 
         let mut env = Environment::new();
-        env.define(x, Value::int(1), false);
+        env.define(x, Value::int(1), Mutability::Immutable);
         env.push_scope();
-        env.define(y, Value::int(2), false);
+        env.define(y, Value::int(2), Mutability::Immutable);
 
         let captures = env.capture();
         assert_eq!(captures.get(&x), Some(&Value::int(1)));

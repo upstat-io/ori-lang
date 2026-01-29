@@ -114,7 +114,7 @@ pub use errors::{
     wrong_function_args,
 };
 
-pub use environment::{Environment, LocalScope, Scope};
+pub use environment::{Environment, LocalScope, Mutability, Scope};
 pub use method_key::MethodKey;
 pub use methods::{dispatch_builtin_method, EVAL_BUILTIN_METHODS};
 pub use operators::evaluate_binary;

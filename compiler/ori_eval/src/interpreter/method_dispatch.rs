@@ -20,6 +20,7 @@ use crate::{
     wrong_function_args,
     EvalError,
     EvalResult,
+    Mutability,
     UserMethod,
     Value,
 };
@@ -346,17 +347,17 @@ impl Interpreter<'_> {
 
         // Bind captured variables
         for (name, value) in &method.captures {
-            call_env.define(*name, value.clone(), false);
+            call_env.define(*name, value.clone(), Mutability::Immutable);
         }
 
         // Bind 'self' to receiver (first parameter)
         if let Some(&self_param) = method.params.first() {
-            call_env.define(self_param, receiver, false);
+            call_env.define(self_param, receiver, Mutability::Immutable);
         }
 
         // Bind remaining parameters
         for (param, arg) in method.params.iter().skip(1).zip(args.iter()) {
-            call_env.define(*param, arg.clone(), false);
+            call_env.define(*param, arg.clone(), Mutability::Immutable);
         }
 
         // Evaluate method body using the method's arena (arena threading pattern).

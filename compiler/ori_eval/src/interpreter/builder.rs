@@ -1,7 +1,8 @@
 //! `InterpreterBuilder` for creating Interpreter instances with various configurations.
 
 use super::resolvers::{
-    BuiltinMethodResolver, CollectionMethodResolver, MethodDispatcher, UserRegistryResolver,
+    BuiltinMethodResolver, CollectionMethodResolver, MethodDispatcher, MethodResolverKind,
+    UserRegistryResolver,
 };
 use super::{Interpreter, ModuleLoader};
 use crate::{
@@ -96,9 +97,9 @@ impl<'a> InterpreterBuilder<'a> {
         // Build method dispatcher once. Because user_method_registry uses interior
         // mutability (RwLock), the dispatcher will see methods registered later.
         let method_dispatcher = MethodDispatcher::new(vec![
-            Box::new(UserRegistryResolver::new(user_meth_reg.clone())),
-            Box::new(CollectionMethodResolver::new(self.interner)),
-            Box::new(BuiltinMethodResolver::new()),
+            MethodResolverKind::UserRegistry(UserRegistryResolver::new(user_meth_reg.clone())),
+            MethodResolverKind::Collection(CollectionMethodResolver::new(self.interner)),
+            MethodResolverKind::Builtin(BuiltinMethodResolver::new()),
         ]);
 
         Interpreter {

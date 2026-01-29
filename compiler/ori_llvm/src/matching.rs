@@ -181,7 +181,7 @@ impl<'ll> Builder<'_, 'll, '_> {
                 };
 
                 // Extract tag
-                let tag = self.extract_value(struct_val, 0, "tag");
+                let tag = self.extract_value(struct_val, 0, "tag")?;
                 let tag_int = tag.into_int_value();
 
                 // Get expected tag based on variant name
@@ -225,24 +225,31 @@ impl<'ll> Builder<'_, 'll, '_> {
                     if let BasicValueEnum::StructValue(struct_val) = scrutinee {
                         if inner.len() == 1 {
                             // Single field variant: payload is the value directly
-                            let payload = self.extract_value(struct_val, 1, "payload");
-                            self.bind_match_pattern_vars(&inner[0], payload, locals);
+                            if let Some(payload) = self.extract_value(struct_val, 1, "payload") {
+                                self.bind_match_pattern_vars(&inner[0], payload, locals);
+                            }
                         } else {
                             // Multi-field variant: payload is a tuple, extract each element
-                            let payload = self.extract_value(struct_val, 1, "payload");
-                            if let BasicValueEnum::StructValue(tuple_val) = payload {
-                                for (i, inner_pattern) in inner.iter().enumerate() {
-                                    #[expect(
-                                        clippy::cast_possible_truncation,
-                                        reason = "variant field count fits in u32"
-                                    )]
-                                    let idx = i as u32;
-                                    let elem = self.extract_value(
-                                        tuple_val,
-                                        idx,
-                                        &format!("variant_field_{i}"),
-                                    );
-                                    self.bind_match_pattern_vars(inner_pattern, elem, locals);
+                            if let Some(payload) = self.extract_value(struct_val, 1, "payload") {
+                                if let BasicValueEnum::StructValue(tuple_val) = payload {
+                                    for (i, inner_pattern) in inner.iter().enumerate() {
+                                        #[expect(
+                                            clippy::cast_possible_truncation,
+                                            reason = "variant field count fits in u32"
+                                        )]
+                                        let idx = i as u32;
+                                        if let Some(elem) = self.extract_value(
+                                            tuple_val,
+                                            idx,
+                                            &format!("variant_field_{i}"),
+                                        ) {
+                                            self.bind_match_pattern_vars(
+                                                inner_pattern,
+                                                elem,
+                                                locals,
+                                            );
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -265,8 +272,11 @@ impl<'ll> Builder<'_, 'll, '_> {
                             reason = "tuple element count fits in u32"
                         )]
                         let idx = i as u32;
-                        let elem = self.extract_value(struct_val, idx, &format!("tuple_{i}"));
-                        self.bind_match_pattern_vars(pat, elem, locals);
+                        if let Some(elem) =
+                            self.extract_value(struct_val, idx, &format!("tuple_{i}"))
+                        {
+                            self.bind_match_pattern_vars(pat, elem, locals);
+                        }
                     }
                 }
             }

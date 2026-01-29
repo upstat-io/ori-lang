@@ -3,7 +3,9 @@
 //! This module provides helper functions for function call evaluation,
 //! including argument validation, parameter binding, and capture handling.
 
-use crate::{wrong_function_args, Environment, EvalError, EvalResult, FunctionValue, Value};
+use crate::{
+    wrong_function_args, Environment, EvalError, EvalResult, FunctionValue, Mutability, Value,
+};
 use ori_ir::{CallArgRange, ExprArena, ExprId, StringInterner};
 
 /// Check if a function has the correct argument count.
@@ -17,21 +19,21 @@ pub fn check_arg_count(func: &FunctionValue, args: &[Value]) -> Result<(), EvalE
 /// Bind function parameters to argument values in an environment.
 pub fn bind_parameters(env: &mut Environment, func: &FunctionValue, args: &[Value]) {
     for (param, arg) in func.params.iter().zip(args.iter()) {
-        env.define(*param, arg.clone(), false);
+        env.define(*param, arg.clone(), Mutability::Immutable);
     }
 }
 
 /// Bind captured variables to an environment.
 pub fn bind_captures(env: &mut Environment, func: &FunctionValue) {
     for (name, value) in func.captures() {
-        env.define(*name, value.clone(), false);
+        env.define(*name, value.clone(), Mutability::Immutable);
     }
 }
 
 /// Bind 'self' for recursive calls.
 pub fn bind_self(env: &mut Environment, func: Value, interner: &StringInterner) {
     let self_name = interner.intern("self");
-    env.define(self_name, func, false);
+    env.define(self_name, func, Mutability::Immutable);
 }
 
 /// Evaluate a call to a `FunctionVal` (built-in function).

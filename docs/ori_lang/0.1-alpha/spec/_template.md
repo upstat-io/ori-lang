@@ -2,7 +2,7 @@
 
 One-line definition of what this section covers.
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § SECTION_NAME
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § SECTION_NAME
 
 ## Subsection
 

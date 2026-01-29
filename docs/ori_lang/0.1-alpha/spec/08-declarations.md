@@ -8,7 +8,7 @@ order: 8
 
 Functions, types, traits, and implementations.
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § DECLARATIONS
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § DECLARATIONS
 
 ## Functions
 

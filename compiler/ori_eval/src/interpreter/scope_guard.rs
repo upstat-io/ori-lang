@@ -4,7 +4,7 @@
 //! even on early returns or errors.
 
 use super::Interpreter;
-use crate::{EvalResult, Value};
+use crate::{EvalResult, Mutability, Value};
 use ori_ir::Name;
 
 impl Interpreter<'_> {
@@ -33,22 +33,22 @@ impl Interpreter<'_> {
 
     /// Execute with pre-defined bindings in a new scope.
     ///
-    /// Each binding is a tuple of (name, value, mutable).
+    /// Each binding is a tuple of (name, value, mutability).
     ///
     /// # Example
     ///
     /// ```text
-    /// let bindings = vec![(param_name, arg_value, false)];
+    /// let bindings = vec![(param_name, arg_value, Mutability::Immutable)];
     /// self.with_bindings(bindings, |eval| eval.eval(body))
     /// ```
     pub fn with_bindings<T, F, I>(&mut self, bindings: I, f: F) -> T
     where
         F: FnOnce(&mut Self) -> T,
-        I: IntoIterator<Item = (Name, Value, bool)>,
+        I: IntoIterator<Item = (Name, Value, Mutability)>,
     {
         self.with_env_scope(|eval| {
-            for (name, value, mutable) in bindings {
-                eval.env.define(name, value, mutable);
+            for (name, value, mutability) in bindings {
+                eval.env.define(name, value, mutability);
             }
             f(eval)
         })
@@ -69,7 +69,12 @@ impl Interpreter<'_> {
     where
         F: FnOnce(&mut Self) -> T,
     {
-        self.with_bindings(bindings.into_iter().map(|(n, v)| (n, v, false)), f)
+        self.with_bindings(
+            bindings
+                .into_iter()
+                .map(|(n, v)| (n, v, Mutability::Immutable)),
+            f,
+        )
     }
 
     /// Execute with a single binding in a new scope.
@@ -81,14 +86,20 @@ impl Interpreter<'_> {
     ///
     /// ```text
     /// // for x in items do body
-    /// self.with_binding(x_name, item_value, false, |eval| eval.eval(body))
+    /// self.with_binding(x_name, item_value, Mutability::Immutable, |eval| eval.eval(body))
     /// ```
-    pub fn with_binding<T, F>(&mut self, name: Name, value: Value, mutable: bool, f: F) -> T
+    pub fn with_binding<T, F>(
+        &mut self,
+        name: Name,
+        value: Value,
+        mutability: Mutability,
+        f: F,
+    ) -> T
     where
         F: FnOnce(&mut Self) -> T,
     {
         self.with_env_scope(|eval| {
-            eval.env.define(name, value, mutable);
+            eval.env.define(name, value, mutability);
             f(eval)
         })
     }

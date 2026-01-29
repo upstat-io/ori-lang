@@ -70,6 +70,8 @@ pub use ori_diagnostic::queue::DiagnosticConfig;
 
 use std::path::Path;
 
+use rustc_hash::{FxHashMap, FxHashSet};
+
 use crate::context::CompilerContext;
 use crate::db::Db;
 use crate::eval::module::import::{resolve_import, ImportError};
@@ -119,14 +121,14 @@ pub fn resolve_imports_for_type_checking(
         let imported_parsed = parsed(db, resolved.file);
 
         // Build a map of imported function names to their aliases
-        let import_map: std::collections::HashMap<Name, Option<Name>> = imp
+        let import_map: FxHashMap<Name, Option<Name>> = imp
             .items
             .iter()
             .map(|item| (item.name, item.alias))
             .collect();
 
         // Build a set of names that request private access
-        let private_access: std::collections::HashSet<Name> = imp
+        let private_access: FxHashSet<Name> = imp
             .items
             .iter()
             .filter(|item| item.is_private)

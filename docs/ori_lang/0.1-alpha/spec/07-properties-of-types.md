@@ -8,7 +8,7 @@ order: 7
 
 Type identity, assignability, and constraints.
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § DECLARATIONS (generics, where_clause)
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § DECLARATIONS (generics, where_clause)
 
 ## Type Identity
 

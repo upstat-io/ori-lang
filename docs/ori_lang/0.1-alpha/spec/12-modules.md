@@ -8,7 +8,7 @@ order: 12
 
 Every source file defines one module.
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § SOURCE STRUCTURE (import, extension_def, extension_import)
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § SOURCE STRUCTURE (import, extension_def, extension_import)
 
 ## Module Names
 

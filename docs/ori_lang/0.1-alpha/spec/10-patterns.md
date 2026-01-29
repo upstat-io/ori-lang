@@ -8,7 +8,7 @@ order: 10
 
 Compiler-level control flow and concurrency constructs.
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § PATTERNS
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § PATTERNS
 
 ## Categories
 

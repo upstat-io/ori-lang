@@ -5,29 +5,29 @@ use crate::exec::call::{
     bind_captures, bind_parameters, bind_self, check_arg_count, eval_function_val_call,
     extract_named_args,
 };
-use crate::{not_callable, EvalResult, Value};
+use crate::{not_callable, EvalResult, Mutability, Value};
 use ori_ir::CallArgRange;
 
 impl Interpreter<'_> {
     /// Evaluate a function call.
     pub(super) fn eval_call(&mut self, func: Value, args: &[Value]) -> EvalResult {
-        match func.clone() {
+        match &func {
             Value::Function(f) => {
-                check_arg_count(&f, args)?;
+                check_arg_count(f, args)?;
 
                 // Create new environment with captures, then push a local scope
                 let mut call_env = self.env.child();
                 call_env.push_scope();
 
                 // Bind captured variables
-                bind_captures(&mut call_env, &f);
+                bind_captures(&mut call_env, f);
 
                 // Pass capabilities from calling scope to called function
                 // This enables capability propagation: functions that `uses` a capability
                 // can access it when called from within a `with Capability = ... in` block
                 for cap_name in f.capabilities() {
                     if let Some(cap_value) = self.env.lookup(*cap_name) {
-                        call_env.define(*cap_name, cap_value, false);
+                        call_env.define(*cap_name, cap_value, Mutability::Immutable);
                     }
                     // Note: If capability is not in scope, we don't error here.
                     // The type checker already validated that the capability is required.
@@ -35,10 +35,11 @@ impl Interpreter<'_> {
                 }
 
                 // Bind parameters
-                bind_parameters(&mut call_env, &f, args);
+                bind_parameters(&mut call_env, f, args);
 
                 // Bind 'self' to the current function for recursive patterns
-                bind_self(&mut call_env, func, self.interner);
+                // Clone only here where ownership is needed (bind_self stores the value)
+                bind_self(&mut call_env, func.clone(), self.interner);
 
                 // Evaluate body using the function's arena (arena threading pattern).
                 let func_arena = f.arena();
@@ -67,7 +68,7 @@ impl Interpreter<'_> {
                 // Pass capabilities from calling scope to called function
                 for cap_name in f.capabilities() {
                     if let Some(cap_value) = self.env.lookup(*cap_name) {
-                        call_env.define(*cap_name, cap_value, false);
+                        call_env.define(*cap_name, cap_value, Mutability::Immutable);
                     }
                 }
 
@@ -75,7 +76,8 @@ impl Interpreter<'_> {
                 bind_parameters(&mut call_env, f, args);
 
                 // Bind 'self' to the MEMOIZED function so recursive calls also use the cache
-                bind_self(&mut call_env, func, self.interner);
+                // Clone only here where ownership is needed (bind_self stores the value)
+                bind_self(&mut call_env, func.clone(), self.interner);
 
                 // Evaluate body using the function's arena (arena threading pattern).
                 let func_arena = f.arena();
@@ -90,34 +92,34 @@ impl Interpreter<'_> {
 
                 result
             }
-            Value::FunctionVal(func_ptr, _name) => eval_function_val_call(func_ptr, args),
+            Value::FunctionVal(func_ptr, _name) => eval_function_val_call(*func_ptr, args),
             Value::VariantConstructor {
                 type_name,
                 variant_name,
                 field_count,
             } => {
                 // Check argument count matches field count
-                if args.len() != field_count {
+                if args.len() != *field_count {
                     return Err(crate::wrong_arg_count(
-                        self.interner.lookup(variant_name),
-                        field_count,
+                        self.interner.lookup(*variant_name),
+                        *field_count,
                         args.len(),
                     ));
                 }
                 // Construct the variant with the provided arguments
-                Ok(Value::variant(type_name, variant_name, args.to_vec()))
+                Ok(Value::variant(*type_name, *variant_name, args.to_vec()))
             }
             Value::NewtypeConstructor { type_name } => {
                 // Newtypes take exactly one argument (the underlying value)
                 if args.len() != 1 {
                     return Err(crate::wrong_arg_count(
-                        self.interner.lookup(type_name),
+                        self.interner.lookup(*type_name),
                         1,
                         args.len(),
                     ));
                 }
                 // Construct the newtype wrapping the underlying value
-                Ok(Value::newtype(type_name, args[0].clone()))
+                Ok(Value::newtype(*type_name, args[0].clone()))
             }
             _ => Err(not_callable(func.type_name())),
         }

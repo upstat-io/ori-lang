@@ -8,13 +8,13 @@ order: 13
 
 Every function must have at least one test. Compile-time error otherwise.
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § DECLARATIONS (test, attribute)
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § DECLARATIONS (test, attribute)
 
 ## Test Declaration
 
 All tests must use the `tests` keyword.
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § DECLARATIONS (test)
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § DECLARATIONS (test)
 
 ### Targeted Test
 

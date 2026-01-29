@@ -64,6 +64,7 @@ pub struct LLVMEvaluator<'ctx> {
 }
 
 /// A compiled function ready for execution.
+// TODO: Fields will be used when function execution is implemented
 #[allow(dead_code)]
 struct CompiledFunction {
     /// The expression body

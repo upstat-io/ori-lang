@@ -253,6 +253,11 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
                 "ori_str_from_float",
                 runtime::ori_str_from_float as *const () as usize,
             ),
+            // Closure boxing
+            (
+                "ori_closure_box",
+                runtime::ori_closure_box as *const () as usize,
+            ),
         ];
 
         let module = self.cx.llmod();

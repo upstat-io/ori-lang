@@ -8,7 +8,7 @@ order: 18
 
 A _program_ is a complete, executable Ori application.
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § PROGRAM ENTRY (main_function)
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § PROGRAM ENTRY (main_function)
 
 ## Entry Point
 
