@@ -1,5 +1,5 @@
 [package]
-name = "ori-macros"
+name = "ori_macros"
 version = "0.1.0-alpha.1"
 edition = "2021"
 description = "Procedural macros for the Ori compiler"

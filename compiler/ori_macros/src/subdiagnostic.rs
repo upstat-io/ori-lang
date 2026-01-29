@@ -1,11 +1,18 @@
 //! Subdiagnostic derive macro implementation.
 //!
 //! Generates `AddToDiagnostic` implementations for additional labels, notes, and suggestions.
+//!
+//! # Note
+//!
+//! This macro generates code that references `crate::diagnostic::Diagnostic`.
+//! It is designed for use in the `oric` crate which re-exports diagnostic types.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{parse_macro_input, Data, DeriveInput, Field, Fields, LitStr};
+use syn::{parse_macro_input, DeriveInput, Field, LitStr};
+
+use crate::utils::{generate_format_args, validate_struct_with_named_fields};
 
 /// Main entry point for the Subdiagnostic derive macro.
 pub fn derive_subdiagnostic(input: TokenStream) -> TokenStream {
@@ -21,23 +28,7 @@ fn derive_subdiagnostic_impl(input: &DeriveInput) -> syn::Result<TokenStream2> {
     let name = &input.ident;
 
     // Get struct fields
-    let fields = match &input.data {
-        Data::Struct(data) => match &data.fields {
-            Fields::Named(fields) => &fields.named,
-            _ => {
-                return Err(syn::Error::new_spanned(
-                    input,
-                    "Subdiagnostic derive only supports structs with named fields",
-                ))
-            }
-        },
-        _ => {
-            return Err(syn::Error::new_spanned(
-                input,
-                "Subdiagnostic derive only supports structs",
-            ))
-        }
-    };
+    let fields = validate_struct_with_named_fields(input, "Subdiagnostic")?;
 
     // Determine the kind of subdiagnostic from struct-level attributes
     let subdiag_kind = determine_subdiag_kind(input)?;
@@ -45,21 +36,24 @@ fn derive_subdiagnostic_impl(input: &DeriveInput) -> syn::Result<TokenStream2> {
     // Find the span field
     let span_field = find_span_field(fields.iter())?;
 
+    // Generate format args for field interpolation
+    let format_args = generate_format_args(fields.iter());
+
     // Generate the body based on kind
     let body = match subdiag_kind {
         SubdiagKind::Label(msg) => {
             quote! {
-                diag.with_secondary_label(self.#span_field, format!(#msg))
+                diag.with_secondary_label(self.#span_field, format!(#msg, #format_args))
             }
         }
         SubdiagKind::Note(msg) => {
             quote! {
-                diag.with_note(format!(#msg))
+                diag.with_note(format!(#msg, #format_args))
             }
         }
         SubdiagKind::Help(msg) => {
             quote! {
-                diag.with_suggestion(format!(#msg))
+                diag.with_suggestion(format!(#msg, #format_args))
             }
         }
     };

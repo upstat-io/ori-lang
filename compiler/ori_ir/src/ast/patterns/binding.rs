@@ -88,10 +88,7 @@ pub enum MatchPattern {
     /// Or pattern: A | B
     Or(MatchPatternRange),
     /// At pattern: x @ Some(_)
-    At {
-        name: Name,
-        pattern: MatchPatternId,
-    },
+    At { name: Name, pattern: MatchPatternId },
 }
 
 /// Match arm.

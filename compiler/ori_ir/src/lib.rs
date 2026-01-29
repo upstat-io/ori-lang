@@ -110,6 +110,8 @@ pub use ast::{
     UseItem,
     Variant,
     VariantField,
+    // Visibility
+    Visibility,
     WhereClause,
 };
 pub use derives::{DerivedMethodInfo, DerivedTrait};

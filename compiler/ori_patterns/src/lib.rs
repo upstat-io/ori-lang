@@ -41,6 +41,9 @@ mod with_pattern;
 #[cfg(test)]
 mod parallel_tests;
 
+#[cfg(test)]
+mod test_helpers;
+
 use std::collections::HashMap;
 
 use ori_ir::{ExprArena, ExprId, NamedExpr, StringInterner};
@@ -361,7 +364,7 @@ impl Iterable {
     pub fn map_values(&self, func: &Value, exec: &mut dyn PatternExecutor) -> EvalResult {
         let mut results = Vec::new();
         for item in self.iter_values() {
-            let result = exec.call(func.clone(), vec![item])?;
+            let result = exec.call(func, vec![item])?;
             results.push(result);
         }
         Ok(Value::list(results))
@@ -371,7 +374,7 @@ impl Iterable {
     pub fn filter_values(&self, func: &Value, exec: &mut dyn PatternExecutor) -> EvalResult {
         let mut results = Vec::new();
         for item in self.iter_values() {
-            let keep = exec.call(func.clone(), vec![item.clone()])?;
+            let keep = exec.call(func, vec![item.clone()])?;
             if keep.is_truthy() {
                 results.push(item);
             }
@@ -387,7 +390,7 @@ impl Iterable {
         exec: &mut dyn PatternExecutor,
     ) -> EvalResult {
         for item in self.iter_values() {
-            acc = exec.call(func.clone(), vec![acc, item])?;
+            acc = exec.call(func, vec![acc, item])?;
         }
         Ok(acc)
     }
@@ -401,7 +404,7 @@ impl Iterable {
         exec: &mut dyn PatternExecutor,
     ) -> Result<Option<Value>, EvalError> {
         for item in self.iter_values() {
-            let matches = exec.call(func.clone(), vec![item.clone()])?;
+            let matches = exec.call(func, vec![item.clone()])?;
             if matches.is_truthy() {
                 return Ok(Some(item));
             }
@@ -428,7 +431,7 @@ pub trait PatternExecutor {
     fn eval(&mut self, expr_id: ExprId) -> EvalResult;
 
     /// Call a function value with the given arguments.
-    fn call(&mut self, func: Value, args: Vec<Value>) -> EvalResult;
+    fn call(&mut self, func: &Value, args: Vec<Value>) -> EvalResult;
 
     /// Look up a capability from the environment.
     ///

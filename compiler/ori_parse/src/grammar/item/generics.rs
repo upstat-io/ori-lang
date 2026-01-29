@@ -16,7 +16,10 @@ impl Parser<'_> {
 
         Err(ParseError::new(
             ori_diagnostic::ErrorCode::E1002,
-            format!("expected type, found {:?}", self.current_kind()),
+            format!(
+                "expected type, found {}",
+                self.current_kind().display_name()
+            ),
             self.current_span(),
         ))
     }

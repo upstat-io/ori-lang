@@ -3,18 +3,21 @@
 use crate::{ParseError, ParseResult, Parser};
 use ori_ir::{
     GenericParamRange, TokenKind, TraitAssocType, TraitDef, TraitDefaultMethod, TraitItem,
-    TraitMethodSig,
+    TraitMethodSig, Visibility,
 };
 
 impl Parser<'_> {
     /// Parse a trait definition with progress tracking.
-    pub(crate) fn parse_trait_with_progress(&mut self, is_public: bool) -> ParseResult<TraitDef> {
-        self.with_progress(|p| p.parse_trait(is_public))
+    pub(crate) fn parse_trait_with_progress(
+        &mut self,
+        visibility: Visibility,
+    ) -> ParseResult<TraitDef> {
+        self.with_progress(|p| p.parse_trait(visibility))
     }
 
     /// Parse a trait definition.
     /// Syntax: [pub] trait Name [<T>] [: Super] { items }
-    pub(crate) fn parse_trait(&mut self, is_public: bool) -> Result<TraitDef, ParseError> {
+    pub(crate) fn parse_trait(&mut self, visibility: Visibility) -> Result<TraitDef, ParseError> {
         let start_span = self.current_span();
         self.expect(&TokenKind::Trait)?;
 
@@ -60,7 +63,7 @@ impl Parser<'_> {
             super_traits,
             items,
             span: start_span.merge(end_span),
-            is_public,
+            visibility,
         })
     }
 
@@ -115,8 +118,8 @@ impl Parser<'_> {
             Err(ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
                 format!(
-                    "expected trait item (method or associated type), found {:?}",
-                    self.current_kind()
+                    "expected trait item (method or associated type), found {}",
+                    self.current_kind().display_name()
                 ),
                 self.current_span(),
             ))

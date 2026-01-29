@@ -6,7 +6,11 @@ use crate::operators::{check_binary_operation, TypeOpResult};
 use ori_ir::{BinaryOp, ExprId, Span, UnaryOp};
 use ori_types::Type;
 
-/// Infer type for a binary operation.
+/// Infer the type of a binary operation (e.g., `a + b`, `x == y`, `p && q`).
+///
+/// Delegates to the type operator registry to determine valid operand combinations
+/// and result types. Arithmetic, comparison, logical, and bitwise operators each
+/// have specific type requirements.
 pub fn infer_binary(
     checker: &mut TypeChecker<'_>,
     op: BinaryOp,
@@ -43,7 +47,13 @@ fn check_binary_op(
     }
 }
 
-/// Infer type for a unary operation.
+/// Infer the type of a unary operation (e.g., `-x`, `!p`, `~n`, `result?`).
+///
+/// Validates operand types and returns result:
+/// - `Neg` (`-`): requires `int` or `float`, returns same type
+/// - `Not` (`!`): requires `bool`, returns `bool`
+/// - `BitNot` (`~`): requires `int`, returns `int`
+/// - `Try` (`?`): requires `Result<T, E>`, returns `T` (propagates error)
 pub fn infer_unary(
     checker: &mut TypeChecker<'_>,
     op: UnaryOp,

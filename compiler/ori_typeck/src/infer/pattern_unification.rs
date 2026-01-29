@@ -80,10 +80,7 @@ pub fn unify_pattern_with_scrutinee(
             let field_types = get_struct_field_types(checker, &resolved_ty);
 
             for (field_name, opt_pattern_id) in fields {
-                let field_ty = field_types
-                    .iter()
-                    .find(|(n, _)| n == field_name)
-                    .map(|(_, ty)| ty.clone());
+                let field_ty = field_types.get(field_name).cloned();
 
                 if field_ty.is_none() && !matches!(resolved_ty, Type::Var(_) | Type::Error) {
                     let field_str = checker.context.interner.lookup(*field_name);

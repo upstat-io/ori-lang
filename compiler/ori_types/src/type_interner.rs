@@ -171,8 +171,13 @@ impl TypeInterner {
             return TypeId::from_shard_local(shard_idx as u32, local);
         }
 
-        let local = u32::try_from(guard.types.len())
-            .unwrap_or_else(|_| panic!("type interner shard {shard_idx} exceeded u32::MAX types"));
+        let local = u32::try_from(guard.types.len()).unwrap_or_else(|_| {
+            #[cold]
+            fn overflow_panic(shard_idx: usize) -> ! {
+                panic!("type interner shard {shard_idx} exceeded u32::MAX types")
+            }
+            overflow_panic(shard_idx)
+        });
 
         guard.types.push(data.clone());
         guard.map.insert(data, local);
@@ -290,49 +295,71 @@ impl TypeInterner {
         self.next_var.load(Ordering::Relaxed)
     }
 
-    // Convenience methods for creating common types
+    // Convenience methods for creating common types.
+    //
+    // All methods below use `intern()` internally, which guarantees deduplication:
+    // calling the same method with the same arguments returns the same `TypeId`.
+    // This enables O(1) type equality via `TypeId` comparison.
 
     /// Create a List type.
+    ///
+    /// Returns the same `TypeId` for identical element types (deduplication).
     pub fn list(&self, elem: TypeId) -> TypeId {
         self.intern(TypeData::List(elem))
     }
 
     /// Create an Option type.
+    ///
+    /// Returns the same `TypeId` for identical inner types (deduplication).
     pub fn option(&self, inner: TypeId) -> TypeId {
         self.intern(TypeData::Option(inner))
     }
 
     /// Create a Result type.
+    ///
+    /// Returns the same `TypeId` for identical ok/err types (deduplication).
     pub fn result(&self, ok: TypeId, err: TypeId) -> TypeId {
         self.intern(TypeData::Result { ok, err })
     }
 
     /// Create a Map type.
+    ///
+    /// Returns the same `TypeId` for identical key/value types (deduplication).
     pub fn map(&self, key: TypeId, value: TypeId) -> TypeId {
         self.intern(TypeData::Map { key, value })
     }
 
     /// Create a Set type.
+    ///
+    /// Returns the same `TypeId` for identical element types (deduplication).
     pub fn set(&self, elem: TypeId) -> TypeId {
         self.intern(TypeData::Set(elem))
     }
 
     /// Create a Range type.
+    ///
+    /// Returns the same `TypeId` for identical element types (deduplication).
     pub fn range(&self, elem: TypeId) -> TypeId {
         self.intern(TypeData::Range(elem))
     }
 
     /// Create a Channel type.
+    ///
+    /// Returns the same `TypeId` for identical element types (deduplication).
     pub fn channel(&self, elem: TypeId) -> TypeId {
         self.intern(TypeData::Channel(elem))
     }
 
     /// Create a Tuple type.
+    ///
+    /// Returns the same `TypeId` for identical element type sequences (deduplication).
     pub fn tuple(&self, types: impl Into<Box<[TypeId]>>) -> TypeId {
         self.intern(TypeData::Tuple(types.into()))
     }
 
     /// Create a Function type.
+    ///
+    /// Returns the same `TypeId` for identical param/return types (deduplication).
     pub fn function(&self, params: impl Into<Box<[TypeId]>>, ret: TypeId) -> TypeId {
         self.intern(TypeData::Function {
             params: params.into(),
@@ -341,11 +368,15 @@ impl TypeInterner {
     }
 
     /// Create a Named type.
+    ///
+    /// Returns the same `TypeId` for identical names (deduplication).
     pub fn named(&self, name: Name) -> TypeId {
         self.intern(TypeData::Named(name))
     }
 
     /// Create an Applied generic type.
+    ///
+    /// Returns the same `TypeId` for identical name/args (deduplication).
     pub fn applied(&self, name: Name, args: impl Into<Box<[TypeId]>>) -> TypeId {
         self.intern(TypeData::Applied {
             name,
@@ -354,6 +385,8 @@ impl TypeInterner {
     }
 
     /// Create a Projection type.
+    ///
+    /// Returns the same `TypeId` for identical base/trait/assoc (deduplication).
     pub fn projection(&self, base: TypeId, trait_name: Name, assoc_name: Name) -> TypeId {
         self.intern(TypeData::Projection {
             base,
@@ -363,12 +396,16 @@ impl TypeInterner {
     }
 
     /// Get the Error type.
+    ///
+    /// Always returns the same pre-interned `TypeId`.
     pub fn error(&self) -> TypeId {
         // Error is pre-interned at shard 0, index 10
         TypeId::from_shard_local(0, 10)
     }
 
-    /// Create a ModuleNamespace type.
+    /// Create a `ModuleNamespace` type.
+    ///
+    /// Returns the same `TypeId` for identical item lists (deduplication).
     pub fn module_namespace(&self, items: impl Into<Box<[(Name, TypeId)]>>) -> TypeId {
         self.intern(TypeData::ModuleNamespace {
             items: items.into(),
@@ -439,28 +476,6 @@ impl std::ops::Deref for SharedTypeInterner {
     }
 }
 
-/// Trait for looking up interned type data.
-///
-/// This trait exists to avoid tight coupling: higher-level crates can define
-/// methods that accept any `TypeLookup` implementor without depending directly
-/// on `TypeInterner`.
-pub trait TypeLookup {
-    /// Look up the type data for a `TypeId`.
-    fn lookup(&self, id: TypeId) -> TypeData;
-}
-
-impl TypeLookup for TypeInterner {
-    fn lookup(&self, id: TypeId) -> TypeData {
-        TypeInterner::lookup(self, id)
-    }
-}
-
-impl TypeLookup for SharedTypeInterner {
-    fn lookup(&self, id: TypeId) -> TypeData {
-        TypeInterner::lookup(self, id)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -509,15 +524,14 @@ mod tests {
         assert_ne!(var1, var2);
 
         // Lookup returns Var with incrementing IDs
-        if let TypeData::Var(v1) = interner.lookup(var1) {
-            if let TypeData::Var(v2) = interner.lookup(var2) {
+        let data1 = interner.lookup(var1);
+        let data2 = interner.lookup(var2);
+        match (&data1, &data2) {
+            (TypeData::Var(v1), TypeData::Var(v2)) => {
                 assert_eq!(v1.0, 0);
                 assert_eq!(v2.0, 1);
-            } else {
-                panic!("Expected Var");
             }
-        } else {
-            panic!("Expected Var");
+            _ => panic!("Expected TypeData::Var but got {:?} and {:?}", data1, data2),
         }
     }
 
@@ -539,22 +553,24 @@ mod tests {
         assert_ne!(fn_type, tuple_type);
 
         // Lookup verifies structure
-        match interner.lookup(result_type) {
+        let result_data = interner.lookup(result_type);
+        match result_data {
             TypeData::Result { ok, err } => {
                 assert_eq!(ok, TypeId::INT);
                 assert_eq!(err, TypeId::STR);
             }
-            _ => panic!("Expected Result"),
+            _ => panic!("Expected TypeData::Result but got {:?}", result_data),
         }
 
-        match interner.lookup(fn_type) {
+        let fn_data = interner.lookup(fn_type);
+        match fn_data {
             TypeData::Function { params, ret } => {
                 assert_eq!(params.len(), 2);
                 assert_eq!(params[0], TypeId::INT);
                 assert_eq!(params[1], TypeId::BOOL);
                 assert_eq!(ret, TypeId::STR);
             }
-            _ => panic!("Expected Function"),
+            _ => panic!("Expected TypeData::Function but got {:?}", fn_data),
         }
     }
 
@@ -800,8 +816,20 @@ mod tests {
 
         let ns_ty = Type::ModuleNamespace {
             items: vec![
-                (name1, Type::Function { params: vec![Type::Int], ret: Box::new(Type::Int) }),
-                (name2, Type::Function { params: vec![Type::Str], ret: Box::new(Type::Bool) }),
+                (
+                    name1,
+                    Type::Function {
+                        params: vec![Type::Int],
+                        ret: Box::new(Type::Int),
+                    },
+                ),
+                (
+                    name2,
+                    Type::Function {
+                        params: vec![Type::Str],
+                        ret: Box::new(Type::Bool),
+                    },
+                ),
             ],
         };
         let ns_id = ns_ty.to_type_id(&interner);

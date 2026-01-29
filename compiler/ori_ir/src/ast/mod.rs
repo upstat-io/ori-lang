@@ -51,6 +51,23 @@ pub use items::{
     UseDef, UseItem, Variant, VariantField, WhereClause,
 };
 
+/// Visibility of a declaration.
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug, Default)]
+pub enum Visibility {
+    /// Private (default visibility, accessible only within the module).
+    #[default]
+    Private,
+    /// Public (accessible from other modules).
+    Public,
+}
+
+impl Visibility {
+    /// Returns true if this is public visibility.
+    pub fn is_public(self) -> bool {
+        matches!(self, Visibility::Public)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

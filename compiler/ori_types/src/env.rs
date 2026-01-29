@@ -1,5 +1,10 @@
 //! Type environment for name resolution and scoping.
 
+#![expect(
+    clippy::disallowed_types,
+    reason = "Rc<TypeEnvInner> is intentional for O(1) parent chain cloning via Rc::make_mut copy-on-write semantics. This differs from LocalScope<T> which uses Rc<RefCell<T>> for interior mutability."
+)]
+
 use ori_ir::{Name, TypeId};
 use rustc_hash::FxHashMap;
 use std::collections::HashSet;
@@ -10,7 +15,7 @@ use crate::core::{Type, TypeScheme, TypeSchemeId};
 use crate::data::TypeVar;
 use crate::type_interner::{SharedTypeInterner, TypeInterner};
 
-/// Internal storage for TypeEnv, wrapped in Rc for cheap cloning.
+/// Internal storage for `TypeEnv`, wrapped in Rc for cheap cloning.
 #[derive(Clone, Debug)]
 struct TypeEnvInner {
     /// Variable bindings: name -> type scheme (stored as `TypeSchemeId` for efficiency)
@@ -122,10 +127,12 @@ impl TypeEnv {
     /// Look up a name, searching parent scopes.
     /// Returns the `TypeSchemeId` (internal representation).
     pub fn lookup_scheme_id(&self, name: Name) -> Option<&TypeSchemeId> {
-        self.0
-            .bindings
-            .get(&name)
-            .or_else(|| self.0.parent.as_ref().and_then(|p| p.lookup_scheme_id(name)))
+        self.0.bindings.get(&name).or_else(|| {
+            self.0
+                .parent
+                .as_ref()
+                .and_then(|p| p.lookup_scheme_id(name))
+        })
     }
 
     /// Look up a name and return just the type (for monomorphic lookups).
@@ -175,8 +182,9 @@ impl TypeEnv {
             // Only collect free vars that are NOT quantified in the scheme
             let scheme_free = ctx.free_vars_id(scheme.ty);
             for v in scheme_free {
+                // scheme.vars is typically small (<5 type parameters), so linear scan is acceptable
                 if !scheme.vars.contains(&v) {
-                    vars.insert(v); // O(1) instead of O(n)
+                    vars.insert(v);
                 }
             }
         }
@@ -192,13 +200,13 @@ impl Default for TypeEnv {
     }
 }
 
-/// Iterator over all bound names in a TypeEnv.
+/// Iterator over all bound names in a `TypeEnv`.
 struct NamesIterator<'a> {
     current: Option<&'a TypeEnv>,
     current_iter: Option<std::collections::hash_map::Keys<'a, Name, TypeSchemeId>>,
 }
 
-impl<'a> Iterator for NamesIterator<'a> {
+impl Iterator for NamesIterator<'_> {
     type Item = Name;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -215,5 +223,107 @@ impl<'a> Iterator for NamesIterator<'a> {
             self.current_iter = Some(env.0.bindings.keys());
             self.current = env.0.parent.as_ref();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ori_ir::SharedInterner;
+
+    #[test]
+    fn test_new_env_is_empty() {
+        let env = TypeEnv::new();
+        let interner = SharedInterner::default();
+        let name = interner.intern("x");
+
+        assert!(env.lookup(name).is_none());
+        assert!(!env.is_bound_locally(name));
+    }
+
+    #[test]
+    fn test_bind_and_lookup() {
+        let interner = SharedInterner::default();
+        let x = interner.intern("x");
+        let y = interner.intern("y");
+
+        let mut env = TypeEnv::new();
+        env.bind(x, Type::Int);
+
+        assert_eq!(env.lookup(x), Some(Type::Int));
+        assert!(env.lookup(y).is_none());
+    }
+
+    #[test]
+    fn test_child_scope_shadows_parent() {
+        let interner = SharedInterner::default();
+        let x = interner.intern("x");
+
+        let mut parent = TypeEnv::new();
+        parent.bind(x, Type::Int);
+
+        let mut child = parent.child();
+        child.bind(x, Type::Bool);
+
+        // Child sees shadowed value
+        assert_eq!(child.lookup(x), Some(Type::Bool));
+        // Parent still has original value
+        assert_eq!(parent.lookup(x), Some(Type::Int));
+    }
+
+    #[test]
+    fn test_is_bound_locally() {
+        let interner = SharedInterner::default();
+        let x = interner.intern("x");
+        let y = interner.intern("y");
+
+        let mut parent = TypeEnv::new();
+        parent.bind(x, Type::Int);
+
+        let child = parent.child();
+
+        // x is in parent, not local to child
+        assert!(!child.is_bound_locally(x));
+        assert!(parent.is_bound_locally(x));
+        // y is nowhere
+        assert!(!child.is_bound_locally(y));
+    }
+
+    #[test]
+    fn test_names_iterator() {
+        let interner = SharedInterner::default();
+        let x = interner.intern("x");
+        let y = interner.intern("y");
+        let z = interner.intern("z");
+
+        let mut parent = TypeEnv::new();
+        parent.bind(x, Type::Int);
+        parent.bind(y, Type::Bool);
+
+        let mut child = parent.child();
+        child.bind(z, Type::Str);
+
+        let names: Vec<Name> = child.names().collect();
+
+        // Should contain all three names (z from child, x and y from parent)
+        assert!(names.contains(&x));
+        assert!(names.contains(&y));
+        assert!(names.contains(&z));
+        assert_eq!(names.len(), 3);
+    }
+
+    #[test]
+    fn test_free_vars_collection() {
+        let interner = SharedInterner::default();
+        let x = interner.intern("x");
+
+        let mut env = TypeEnv::new();
+        let ctx = InferenceContext::new();
+
+        // Bind a monomorphic type (no free vars)
+        env.bind(x, Type::Int);
+
+        let free = env.free_vars(&ctx);
+        assert!(free.is_empty());
     }
 }

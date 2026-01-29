@@ -57,7 +57,11 @@ pub(super) fn float_width(f: f64) -> usize {
 /// Returns 4 for "true", 5 for "false".
 #[inline]
 pub(super) fn bool_width(b: bool) -> usize {
-    if b { 4 } else { 5 }
+    if b {
+        4
+    } else {
+        5
+    }
 }
 
 /// Calculate width of a string literal (including quotes).

@@ -8,7 +8,9 @@
 //! - `match_binding.rs`: Match pattern binding extraction
 //! - `free_vars.rs`: Free variable collection for closure self-capture detection
 //! - `type_annotations.rs`: Type annotation checking for let bindings
+//! - `bound_context.rs`: Stack-based scope tracking for free variable collection
 
+mod bound_context;
 pub mod builtin_methods;
 mod call;
 mod control;
@@ -18,6 +20,8 @@ mod match_binding;
 mod pattern;
 mod pattern_types;
 mod pattern_unification;
+#[cfg(test)]
+mod tests;
 mod type_annotations;
 
 use super::checker::bound_checking;

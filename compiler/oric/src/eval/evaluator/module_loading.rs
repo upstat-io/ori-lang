@@ -70,7 +70,7 @@ impl Evaluator<'_> {
 
         // Register all public functions from the prelude into the global environment
         for func in &prelude_result.module.functions {
-            if func.is_public {
+            if func.visibility.is_public() {
                 if let Some(value) = module_functions.get(&func.name) {
                     self.env_mut().define_global(func.name, value.clone());
                 }

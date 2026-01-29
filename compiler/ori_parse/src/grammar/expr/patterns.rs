@@ -227,10 +227,10 @@ impl Parser<'_> {
             }
 
             let name = self.expect_ident_or_keyword()?;
-            let name_str = self.interner().lookup(name).to_string();
             self.expect(&TokenKind::Colon)?;
+            let name_str = self.interner().lookup(name);
 
-            match name_str.as_str() {
+            match name_str {
                 "over" => {
                     over = Some(self.parse_expr()?);
                 }
@@ -254,10 +254,10 @@ impl Parser<'_> {
                 "default" => {
                     default = Some(self.parse_expr()?);
                 }
-                _ => {
+                unknown => {
                     return Err(ParseError::new(
                         ori_diagnostic::ErrorCode::E1013,
-                        format!("`for` pattern does not accept property `{name_str}`"),
+                        format!("`for` pattern does not accept property `{unknown}`"),
                         self.previous_span(),
                     ));
                 }
@@ -335,7 +335,7 @@ impl Parser<'_> {
 
     /// Parse a base match pattern (without or-pattern handling).
     fn parse_match_pattern_base(&mut self) -> Result<MatchPattern, ParseError> {
-        match self.current_kind() {
+        match *self.current_kind() {
             TokenKind::Underscore => {
                 self.advance();
                 Ok(MatchPattern::Wildcard)
@@ -345,7 +345,7 @@ impl Parser<'_> {
             TokenKind::Minus => {
                 let start_span = self.current_span();
                 self.advance();
-                if let TokenKind::Int(n) = self.current_kind() {
+                if let TokenKind::Int(n) = *self.current_kind() {
                     self.advance();
                     let value = i64::try_from(n).map_err(|_| {
                         ParseError::new(
@@ -470,7 +470,7 @@ impl Parser<'_> {
                     if self.check(&TokenKind::DotDot) {
                         self.advance();
                         // Optional name after ..
-                        if let TokenKind::Ident(name) = self.current_kind() {
+                        if let TokenKind::Ident(name) = *self.current_kind() {
                             rest = Some(name);
                             self.advance();
                         }
@@ -490,38 +490,10 @@ impl Parser<'_> {
                 let elements = self.arena.alloc_match_pattern_list(element_ids);
                 Ok(MatchPattern::List { elements, rest })
             }
-            TokenKind::Some => {
-                let name = self.interner().intern("Some");
-                self.advance();
-                self.expect(&TokenKind::LParen)?;
-                let inner = self.parse_variant_inner_patterns()?;
-                self.expect(&TokenKind::RParen)?;
-                Ok(MatchPattern::Variant { name, inner })
-            }
-            TokenKind::None => {
-                let name = self.interner().intern("None");
-                self.advance();
-                Ok(MatchPattern::Variant {
-                    name,
-                    inner: MatchPatternRange::EMPTY,
-                })
-            }
-            TokenKind::Ok => {
-                let name = self.interner().intern("Ok");
-                self.advance();
-                self.expect(&TokenKind::LParen)?;
-                let inner = self.parse_variant_inner_patterns()?;
-                self.expect(&TokenKind::RParen)?;
-                Ok(MatchPattern::Variant { name, inner })
-            }
-            TokenKind::Err => {
-                let name = self.interner().intern("Err");
-                self.advance();
-                self.expect(&TokenKind::LParen)?;
-                let inner = self.parse_variant_inner_patterns()?;
-                self.expect(&TokenKind::RParen)?;
-                Ok(MatchPattern::Variant { name, inner })
-            }
+            TokenKind::Some => self.parse_builtin_variant_pattern("Some", true),
+            TokenKind::None => self.parse_builtin_variant_pattern("None", false),
+            TokenKind::Ok => self.parse_builtin_variant_pattern("Ok", true),
+            TokenKind::Err => self.parse_builtin_variant_pattern("Err", true),
             TokenKind::LParen => {
                 self.advance();
                 let mut pattern_ids = Vec::new();
@@ -538,7 +510,10 @@ impl Parser<'_> {
             }
             _ => Err(ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
-                format!("expected match pattern, found {:?}", self.current_kind()),
+                format!(
+                    "expected match pattern, found {}",
+                    self.current_kind().display_name()
+                ),
                 self.current_span(),
             )),
         }
@@ -601,6 +576,27 @@ impl Parser<'_> {
             ExprKind::FunctionExp(func_exp),
             start_span.merge(end_span),
         )))
+    }
+
+    /// Parse a built-in variant pattern (Some, None, Ok, Err).
+    ///
+    /// This helper reduces duplication for the standard variant patterns.
+    fn parse_builtin_variant_pattern(
+        &mut self,
+        name_str: &str,
+        has_inner: bool,
+    ) -> Result<MatchPattern, ParseError> {
+        let name = self.interner().intern(name_str);
+        self.advance();
+        let inner = if has_inner {
+            self.expect(&TokenKind::LParen)?;
+            let patterns = self.parse_variant_inner_patterns()?;
+            self.expect(&TokenKind::RParen)?;
+            patterns
+        } else {
+            MatchPatternRange::EMPTY
+        };
+        Ok(MatchPattern::Variant { name, inner })
     }
 
     /// Parse comma-separated patterns inside a variant pattern.
@@ -723,7 +719,7 @@ impl Parser<'_> {
 
         if self.check(&TokenKind::Minus) {
             self.advance();
-            if let TokenKind::Int(n) = self.current_kind() {
+            if let TokenKind::Int(n) = *self.current_kind() {
                 self.advance();
                 let value = i64::try_from(n).map_err(|_| {
                     ParseError::new(
@@ -743,7 +739,7 @@ impl Parser<'_> {
                     self.current_span(),
                 ))
             }
-        } else if let TokenKind::Int(n) = self.current_kind() {
+        } else if let TokenKind::Int(n) = *self.current_kind() {
             self.advance();
             let value = i64::try_from(n).map_err(|_| {
                 ParseError::new(

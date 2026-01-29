@@ -63,20 +63,23 @@ pub(super) fn handle_struct_field_access(
     type_args: Option<&[Type]>,
     span: Span,
 ) -> Type {
-    let Some(entry) = checker.registries.types.get_by_name(type_name) else {
-        checker.push_error(
-            format!(
-                "unknown type `{}`",
-                checker.context.interner.lookup(type_name)
-            ),
-            span,
-            ori_diagnostic::ErrorCode::E2003,
-        );
-        return Type::Error;
+    // Perform lookup directly to avoid cloning the entire entry
+    let lookup_result = {
+        let Some(entry) = checker.registries.types.get_by_name(type_name) else {
+            checker.push_error(
+                format!(
+                    "unknown type `{}`",
+                    checker.context.interner.lookup(type_name)
+                ),
+                span,
+                ori_diagnostic::ErrorCode::E2003,
+            );
+            return Type::Error;
+        };
+        lookup_struct_field_in_entry(entry, field, type_args, &checker.registries.types)
     };
-    let entry = entry.clone();
 
-    match lookup_struct_field_in_entry(&entry, field, type_args, &checker.registries.types) {
+    match lookup_result {
         FieldLookupResult::Found(ty) => ty,
         FieldLookupResult::NoSuchField => {
             checker.push_error(
@@ -107,70 +110,75 @@ pub(super) fn handle_struct_field_access(
 
 /// Infer type for a struct literal.
 pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInitRange) -> Type {
-    let type_entry = if let Some(entry) = checker.registries.types.get_by_name(name) {
-        entry.clone()
-    } else {
-        let field_inits = checker.context.arena.get_field_inits(fields);
-        let span = if let Some(first) = field_inits.first() {
-            first.span
-        } else {
-            ori_ir::Span::new(0, 0)
-        };
+    // Extract only the needed fields from the type entry to avoid cloning the entire entry
+    let (expected_fields, type_params) = {
+        let Some(entry) = checker.registries.types.get_by_name(name) else {
+            let field_inits = checker.context.arena.get_field_inits(fields);
+            let span = if let Some(first) = field_inits.first() {
+                first.span
+            } else {
+                ori_ir::Span::new(0, 0)
+            };
 
-        checker.push_error(
-            format!(
-                "unknown struct type `{}`",
-                checker.context.interner.lookup(name)
-            ),
-            span,
-            ori_diagnostic::ErrorCode::E2003,
-        );
+            checker.push_error(
+                format!(
+                    "unknown struct type `{}`",
+                    checker.context.interner.lookup(name)
+                ),
+                span,
+                ori_diagnostic::ErrorCode::E2003,
+            );
 
-        for init in field_inits {
-            if let Some(value_id) = init.value {
-                infer_expr(checker, value_id);
+            for init in field_inits {
+                if let Some(value_id) = init.value {
+                    infer_expr(checker, value_id);
+                }
             }
-        }
-        return Type::Error;
-    };
-
-    // Get struct fields as TypeId, then convert to Type
-    let expected_fields: Vec<(Name, Type)> = if let TypeKind::Struct { fields } = &type_entry.kind {
-        let interner = checker.registries.types.interner();
-        fields
-            .iter()
-            .map(|(name, ty_id)| (*name, interner.to_type(*ty_id)))
-            .collect()
-    } else {
-        let field_inits = checker.context.arena.get_field_inits(fields);
-        let span = if let Some(first) = field_inits.first() {
-            first.span
-        } else {
-            ori_ir::Span::new(0, 0)
+            return Type::Error;
         };
 
-        checker.push_error(
-            format!(
-                "`{}` is not a struct type",
-                checker.context.interner.lookup(name)
-            ),
-            span,
-            ori_diagnostic::ErrorCode::E2001,
-        );
-        return Type::Error;
+        // Get struct fields as TypeId, then convert to Type
+        let fields_vec: Vec<(Name, Type)> = if let TypeKind::Struct {
+            fields: struct_fields,
+        } = &entry.kind
+        {
+            let interner = checker.registries.types.interner();
+            struct_fields
+                .iter()
+                .map(|(n, ty_id)| (*n, interner.to_type(*ty_id)))
+                .collect()
+        } else {
+            let field_inits = checker.context.arena.get_field_inits(fields);
+            let span = if let Some(first) = field_inits.first() {
+                first.span
+            } else {
+                ori_ir::Span::new(0, 0)
+            };
+
+            checker.push_error(
+                format!(
+                    "`{}` is not a struct type",
+                    checker.context.interner.lookup(name)
+                ),
+                span,
+                ori_diagnostic::ErrorCode::E2001,
+            );
+            return Type::Error;
+        };
+
+        // Clone only the type_params, not the entire entry
+        (fields_vec, entry.type_params.clone())
     };
 
-    let (expected_fields, type_args) = if type_entry.type_params.is_empty() {
+    let (expected_fields, type_args) = if type_params.is_empty() {
         (expected_fields, Vec::new())
     } else {
-        let type_args: Vec<Type> = type_entry
-            .type_params
+        let type_args: Vec<Type> = type_params
             .iter()
             .map(|_| checker.inference.ctx.fresh_var())
             .collect();
 
-        let type_param_vars: HashMap<Name, Type> = type_entry
-            .type_params
+        let type_param_vars: HashMap<Name, Type> = type_params
             .iter()
             .zip(type_args.iter())
             .map(|(&param_name, type_var)| (param_name, type_var.clone()))

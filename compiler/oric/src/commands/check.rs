@@ -7,10 +7,15 @@ use std::path::PathBuf;
 use super::read_file;
 
 /// Type-check a file and verify that every function has test coverage.
+///
+/// Accumulates all errors (parse, type, and coverage) before exiting, giving
+/// the user a complete picture of issues rather than stopping at the first error.
 pub(crate) fn check_file(path: &str) {
     let content = read_file(path);
     let db = CompilerDb::new();
     let file = SourceFile::new(&db, PathBuf::from(path), content);
+
+    let mut has_errors = false;
 
     // Check for parse errors
     let parse_result = parsed(&db, file);
@@ -19,17 +24,18 @@ pub(crate) fn check_file(path: &str) {
         for error in &parse_result.errors {
             eprintln!("  {}: {}", error.span, error.message);
         }
-        std::process::exit(1);
+        has_errors = true;
     }
 
-    // Check for type errors
+    // Check for type errors even if there were parse errors
     let type_result = typed(&db, file);
     if type_result.has_errors() {
         eprintln!("Type errors in '{path}':");
         for error in &type_result.errors {
-            eprintln!("  {error:?}");
+            let diag = error.to_diagnostic();
+            eprintln!("  {diag}");
         }
-        std::process::exit(1);
+        has_errors = true;
     }
 
     // Check test coverage: every function (except @main) must have at least one test
@@ -65,6 +71,11 @@ pub(crate) fn check_file(path: &str) {
             "  Add tests using: @test_name tests @{} () -> void = ...",
             untested[0]
         );
+        has_errors = true;
+    }
+
+    // Exit if any errors occurred
+    if has_errors {
         std::process::exit(1);
     }
 

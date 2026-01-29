@@ -47,8 +47,8 @@ impl<'a> Cursor<'a> {
     }
 
     /// Get the current token's kind.
-    pub fn current_kind(&self) -> TokenKind {
-        self.current().kind.clone()
+    pub fn current_kind(&self) -> &TokenKind {
+        &self.current().kind
     }
 
     /// Get the current token's span.
@@ -72,7 +72,7 @@ impl<'a> Cursor<'a> {
 
     /// Check if the current token matches the given kind.
     pub fn check(&self, kind: &TokenKind) -> bool {
-        std::mem::discriminant(&self.current_kind()) == std::mem::discriminant(kind)
+        std::mem::discriminant(self.current_kind()) == std::mem::discriminant(kind)
     }
 
     /// Check if the current token is an identifier.
@@ -97,11 +97,12 @@ impl<'a> Cursor<'a> {
 
     /// Peek at the next token's kind (one-token lookahead).
     /// Returns `TokenKind::Eof` if at the end of the stream.
-    pub fn peek_next_kind(&self) -> TokenKind {
+    pub fn peek_next_kind(&self) -> &TokenKind {
+        static EOF: TokenKind = TokenKind::Eof;
         if self.pos + 1 < self.tokens.len() {
-            self.tokens[self.pos + 1].kind.clone()
+            &self.tokens[self.pos + 1].kind
         } else {
-            TokenKind::Eof
+            &EOF
         }
     }
 
@@ -241,10 +242,14 @@ impl<'a> Cursor<'a> {
         } else {
             Err(ParseError::new(
                 ErrorCode::E1001,
-                format!("expected {kind:?}, found {:?}", self.current_kind()),
+                format!(
+                    "expected {}, found {}",
+                    kind.display_name(),
+                    self.current_kind().display_name()
+                ),
                 self.current_span(),
             )
-            .with_context(format!("expected {kind:?}")))
+            .with_context(format!("expected {}", kind.display_name())))
         }
     }
 
@@ -252,7 +257,7 @@ impl<'a> Cursor<'a> {
     /// Also accepts soft keywords (len, min, max, etc.) as identifiers.
     pub fn expect_ident(&mut self) -> Result<Name, ParseError> {
         // Accept regular identifiers
-        if let TokenKind::Ident(name) = self.current_kind() {
+        if let TokenKind::Ident(name) = *self.current_kind() {
             self.advance();
             Ok(name)
         // Also accept soft keywords as identifiers
@@ -263,7 +268,10 @@ impl<'a> Cursor<'a> {
         } else {
             Err(ParseError::new(
                 ErrorCode::E1004,
-                format!("expected identifier, found {:?}", self.current_kind()),
+                format!(
+                    "expected identifier, found {}",
+                    self.current_kind().display_name()
+                ),
                 self.current_span(),
             ))
         }
@@ -272,7 +280,7 @@ impl<'a> Cursor<'a> {
     /// Accept an identifier or a keyword that can be used as a named argument name.
     /// This handles cases like `where:` in the find pattern where `where` is a keyword.
     pub fn expect_ident_or_keyword(&mut self) -> Result<Name, ParseError> {
-        match self.current_kind() {
+        match *self.current_kind() {
             TokenKind::Ident(name) => {
                 self.advance();
                 Ok(name)
@@ -314,8 +322,8 @@ impl<'a> Cursor<'a> {
             _ => Err(ParseError::new(
                 ErrorCode::E1004,
                 format!(
-                    "expected identifier or keyword, found {:?}",
-                    self.current_kind()
+                    "expected identifier or keyword, found {}",
+                    self.current_kind().display_name()
                 ),
                 self.current_span(),
             )),

@@ -243,7 +243,7 @@ impl TraitRegistry {
     fn lookup_method_uncached(&self, self_ty: &Type, method_name: Name) -> Option<MethodLookup> {
         // First check inherent impls
         if let Some(impl_entry) = self.get_inherent_impl(self_ty) {
-            if let Some(method) = impl_entry.methods.iter().find(|m| m.name == method_name) {
+            if let Some(method) = impl_entry.get_method(method_name) {
                 return Some(MethodLookup {
                     trait_name: None,
                     method_name,
@@ -261,8 +261,7 @@ impl TraitRegistry {
         if let Some(trait_names) = self.traits_by_type.get(self_ty) {
             for trait_name in trait_names {
                 if let Some(impl_entry) = self.trait_impls.get(&(*trait_name, self_ty.clone())) {
-                    if let Some(method) = impl_entry.methods.iter().find(|m| m.name == method_name)
-                    {
+                    if let Some(method) = impl_entry.get_method(method_name) {
                         return Some(MethodLookup {
                             trait_name: Some(*trait_name),
                             method_name,

@@ -3,7 +3,7 @@
 use crate::{ParseError, ParseResult, ParsedAttrs, Parser};
 use ori_ir::{
     GenericParamRange, Name, ParsedType, ParsedTypeRange, Span, StructField, TokenKind, TypeDecl,
-    TypeDeclKind, Variant, VariantField,
+    TypeDeclKind, Variant, VariantField, Visibility,
 };
 
 impl Parser<'_> {
@@ -11,9 +11,9 @@ impl Parser<'_> {
     pub(crate) fn parse_type_decl_with_progress(
         &mut self,
         attrs: ParsedAttrs,
-        is_public: bool,
+        visibility: Visibility,
     ) -> ParseResult<TypeDecl> {
-        self.with_progress(|p| p.parse_type_decl(attrs, is_public))
+        self.with_progress(|p| p.parse_type_decl(attrs, visibility))
     }
 
     /// Parse a type declaration.
@@ -27,7 +27,7 @@ impl Parser<'_> {
     pub(crate) fn parse_type_decl(
         &mut self,
         attrs: ParsedAttrs,
-        is_public: bool,
+        visibility: Visibility,
     ) -> Result<TypeDecl, ParseError> {
         let start_span = self.current_span();
         self.expect(&TokenKind::Type)?;
@@ -71,30 +71,36 @@ impl Parser<'_> {
             where_clauses,
             kind,
             span: start_span.merge(end_span),
-            is_public,
+            visibility,
             derives: attrs.derive_traits,
         })
     }
 
-    /// Parse struct body: { field: Type, ... }
-    fn parse_struct_body(&mut self) -> Result<TypeDeclKind, ParseError> {
-        self.expect(&TokenKind::LBrace)?;
-        self.skip_newlines();
-
+    /// Parse typed fields with a common structure: `name: Type, ...`
+    ///
+    /// Used for both struct fields and variant fields.
+    fn parse_typed_fields<T, F>(
+        &mut self,
+        end_token: &TokenKind,
+        make_field: F,
+    ) -> Result<Vec<T>, ParseError>
+    where
+        F: Fn(Name, ParsedType, Span) -> T,
+    {
         let mut fields = Vec::new();
-        while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
+        while !self.check(end_token) && !self.is_at_end() {
             let field_span = self.current_span();
             let field_name = self.expect_ident()?;
             self.expect(&TokenKind::Colon)?;
             let field_ty = self.parse_type_required()?;
 
-            fields.push(StructField {
-                name: field_name,
-                ty: field_ty,
-                span: field_span.merge(self.previous_span()),
-            });
+            fields.push(make_field(
+                field_name,
+                field_ty,
+                field_span.merge(self.previous_span()),
+            ));
 
-            // Comma separator (optional before closing brace)
+            // Comma separator (optional before end token)
             if self.check(&TokenKind::Comma) {
                 self.advance();
                 self.skip_newlines();
@@ -103,6 +109,19 @@ impl Parser<'_> {
                 break;
             }
         }
+        Ok(fields)
+    }
+
+    /// Parse struct body: { field: Type, ... }
+    fn parse_struct_body(&mut self) -> Result<TypeDeclKind, ParseError> {
+        self.expect(&TokenKind::LBrace)?;
+        self.skip_newlines();
+
+        let fields = self.parse_typed_fields(&TokenKind::RBrace, |name, ty, span| StructField {
+            name,
+            ty,
+            span,
+        })?;
 
         self.expect(&TokenKind::RBrace)?;
         Ok(TypeDeclKind::Struct(fields))
@@ -193,27 +212,10 @@ impl Parser<'_> {
             self.advance(); // (
             self.skip_newlines();
 
-            let mut fields = Vec::new();
-            while !self.check(&TokenKind::RParen) && !self.is_at_end() {
-                let field_span = self.current_span();
-                let field_name = self.expect_ident()?;
-                self.expect(&TokenKind::Colon)?;
-                let field_ty = self.parse_type_required()?;
+            let fields = self.parse_typed_fields(&TokenKind::RParen, |name, ty, span| {
+                VariantField { name, ty, span }
+            })?;
 
-                fields.push(VariantField {
-                    name: field_name,
-                    ty: field_ty,
-                    span: field_span.merge(self.previous_span()),
-                });
-
-                // Comma separator
-                if self.check(&TokenKind::Comma) {
-                    self.advance();
-                    self.skip_newlines();
-                } else {
-                    break;
-                }
-            }
             self.expect(&TokenKind::RParen)?;
             fields
         } else {

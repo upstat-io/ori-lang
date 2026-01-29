@@ -6,6 +6,9 @@ use ori_types::Type;
 
 use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext, Value};
 
+#[cfg(test)]
+use crate::test_helpers::MockPatternExecutor;
+
 /// The `cache` pattern memoizes computation results.
 ///
 /// Syntax: `cache(operation: fn)`
@@ -47,11 +50,96 @@ impl PatternDefinition for CachePattern {
 
         // Call the compute function with no arguments
         match func {
-            Value::Function(_) | Value::FunctionVal(_, _) => exec.call(func, vec![]),
+            Value::Function(_) | Value::FunctionVal(_, _) => exec.call(&func, vec![]),
             _ => {
                 // If not a function, just return the value
                 Ok(func)
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use ori_ir::{ExprArena, ExprId, NamedExpr, SharedInterner, Span};
+
+    fn make_ctx<'a>(
+        interner: &'a SharedInterner,
+        arena: &'a ExprArena,
+        props: &'a [NamedExpr],
+    ) -> EvalContext<'a> {
+        EvalContext::new(interner, arena, props)
+    }
+
+    #[test]
+    fn cache_non_function_returns_value_directly() {
+        let interner = SharedInterner::default();
+        let arena = ExprArena::new();
+        let op_name = interner.intern("operation");
+        let props = vec![NamedExpr {
+            name: op_name,
+            value: ExprId::new(0),
+            span: Span::new(0, 0),
+        }];
+
+        let mut exec = MockPatternExecutor::new().with_expr(ExprId::new(0), Value::int(42));
+
+        let ctx = make_ctx(&interner, &arena, &props);
+        let result = CachePattern.evaluate(&ctx, &mut exec).unwrap();
+
+        assert_eq!(result, Value::int(42));
+    }
+
+    #[test]
+    fn cache_pattern_name() {
+        assert_eq!(CachePattern.name(), "cache");
+    }
+
+    #[test]
+    fn cache_required_props() {
+        assert_eq!(CachePattern.required_props(), &["operation"]);
+    }
+
+    #[test]
+    fn cache_optional_props() {
+        assert_eq!(CachePattern.optional_props(), &["key", "ttl"]);
+    }
+
+    #[test]
+    fn cache_extracts_function_return_type() {
+        let interner = SharedInterner::default();
+        let mut ctx = ori_types::InferenceContext::new();
+
+        let mut prop_types = std::collections::HashMap::new();
+        let op_name = interner.intern("operation");
+        prop_types.insert(
+            op_name,
+            Type::Function {
+                params: vec![],
+                ret: Box::new(Type::Int),
+            },
+        );
+
+        let mut type_ctx = TypeCheckContext::new(&interner, &mut ctx, prop_types);
+        let result = CachePattern.type_check(&mut type_ctx);
+
+        assert!(matches!(result, Type::Int));
+    }
+
+    #[test]
+    fn cache_non_function_type_returns_as_is() {
+        let interner = SharedInterner::default();
+        let mut ctx = ori_types::InferenceContext::new();
+
+        let mut prop_types = std::collections::HashMap::new();
+        let op_name = interner.intern("operation");
+        prop_types.insert(op_name, Type::Str);
+
+        let mut type_ctx = TypeCheckContext::new(&interner, &mut ctx, prop_types);
+        let result = CachePattern.type_check(&mut type_ctx);
+
+        assert!(matches!(result, Type::Str));
     }
 }

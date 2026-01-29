@@ -1,7 +1,7 @@
 //! Tests for the trait registry.
 
 use crate::registry::{ImplEntry, ImplMethodDef, TraitEntry, TraitMethodDef, TraitRegistry};
-use ori_ir::{SharedInterner, Span, TypeId};
+use ori_ir::{SharedInterner, Span, TypeId, Visibility};
 use ori_types::Type;
 
 fn make_span() -> Span {
@@ -35,7 +35,7 @@ fn test_register_trait() {
             has_default: false,
         }],
         assoc_types: vec![],
-        is_public: true,
+        visibility: Visibility::Public,
     };
 
     registry.register_trait(entry);
@@ -100,7 +100,7 @@ fn test_register_trait_impl() {
             has_default: false,
         }],
         assoc_types: vec![],
-        is_public: true,
+        visibility: Visibility::Public,
     };
     registry.register_trait(trait_entry);
 
@@ -180,7 +180,7 @@ fn test_coherence_duplicate_trait_impl() {
             has_default: false,
         }],
         assoc_types: vec![],
-        is_public: true,
+        visibility: Visibility::Public,
     };
     registry.register_trait(trait_entry);
 

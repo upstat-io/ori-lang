@@ -23,9 +23,15 @@
 //!
 //! This generates an `IntoDiagnostic` implementation that creates a `Diagnostic`
 //! with the specified error code, message, labels, and suggestions.
+//!
+//! # Note
+//!
+//! These macros generate code that references `crate::diagnostic::Diagnostic`.
+//! They are designed for use in the `oric` crate which re-exports diagnostic types.
 
 mod diagnostic;
 mod subdiagnostic;
+mod utils;
 
 use proc_macro::TokenStream;
 

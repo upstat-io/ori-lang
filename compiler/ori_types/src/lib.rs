@@ -30,7 +30,7 @@ pub use traverse::{TypeFolder, TypeIdFolder, TypeIdVisitor, TypeVisitor};
 
 // Type interning exports
 pub use data::{TypeData, TypeVar};
-pub use type_interner::{SharedTypeInterner, TypeInterner, TypeLookup};
+pub use type_interner::{SharedTypeInterner, TypeInterner};
 
 // Size assertions to prevent accidental regressions.
 // Type is used throughout type checking and stored in query results.
@@ -210,6 +210,69 @@ mod tests {
         let diag = err.to_diagnostic(Span::new(0, 10), &interner);
         assert!(diag.message.contains("int"));
         assert!(diag.message.contains("bool"));
+    }
+
+    #[test]
+    fn test_arg_count_mismatch_diagnostic() {
+        let interner = SharedInterner::default();
+        let err = TypeError::ArgCountMismatch {
+            expected: 3,
+            found: 1,
+        };
+
+        let diag = err.to_diagnostic(Span::new(0, 10), &interner);
+        assert!(diag.message.contains("3"));
+        assert!(diag.message.contains("1"));
+        // Should suggest adding 2 missing arguments
+        assert!(!diag.suggestions.is_empty());
+        assert!(diag.suggestions[0].contains("2"));
+    }
+
+    #[test]
+    fn test_tuple_length_mismatch_diagnostic() {
+        let interner = SharedInterner::default();
+        let err = TypeError::TupleLengthMismatch {
+            expected: 2,
+            found: 4,
+        };
+
+        let diag = err.to_diagnostic(Span::new(0, 10), &interner);
+        assert!(diag.message.contains("2-tuple"));
+        assert!(diag.message.contains("4-tuple"));
+    }
+
+    #[test]
+    fn test_infinite_type_diagnostic() {
+        let interner = SharedInterner::default();
+        let err = TypeError::InfiniteType;
+
+        let diag = err.to_diagnostic(Span::new(0, 10), &interner);
+        assert!(diag.message.contains("infinite type"));
+        // Should suggest newtype wrapper
+        assert!(!diag.suggestions.is_empty());
+        assert!(diag.suggestions[0].contains("newtype"));
+    }
+
+    #[test]
+    fn test_unknown_ident_diagnostic() {
+        let interner = SharedInterner::default();
+        let name = interner.intern("foo");
+        let err = TypeError::UnknownIdent(name);
+
+        let diag = err.to_diagnostic(Span::new(0, 10), &interner);
+        assert!(diag.message.contains("foo"));
+    }
+
+    #[test]
+    fn test_cannot_infer_diagnostic() {
+        let interner = SharedInterner::default();
+        let err = TypeError::CannotInfer;
+
+        let diag = err.to_diagnostic(Span::new(0, 10), &interner);
+        assert!(diag.message.contains("cannot infer"));
+        // Should suggest adding type annotation
+        assert!(!diag.suggestions.is_empty());
+        assert!(diag.suggestions[0].contains("annotation"));
     }
 
     #[test]

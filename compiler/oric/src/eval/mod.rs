@@ -31,7 +31,7 @@ pub mod value {
     };
 }
 
-pub use evaluator::{Evaluator, EvaluatorBuilder};
+pub use evaluator::{Evaluator, EvaluatorBuilder, ScopedEvaluator};
 pub use ori_eval::{
     dispatch_builtin_method, evaluate_binary, evaluate_unary, Environment, LocalScope, Mutability,
     Scope, UserMethod, UserMethodRegistry,

@@ -6,6 +6,7 @@
 //! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
 use super::super::ranges::{GenericParamRange, ParamRange};
+use super::super::Visibility;
 use crate::{ExprId, Name, ParsedType, Span, Spanned};
 
 /// Generic parameter: `T` or `T: Bound` or `T: A + B`.
@@ -75,7 +76,7 @@ pub struct TraitDef {
     pub super_traits: Vec<TraitBound>,
     pub items: Vec<TraitItem>,
     pub span: Span,
-    pub is_public: bool,
+    pub visibility: Visibility,
 }
 
 impl Spanned for TraitDef {

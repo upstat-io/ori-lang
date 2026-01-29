@@ -179,7 +179,7 @@ impl Parser<'_> {
         // Empty parens: () unit or () -> T function type
         if self.check(&TokenKind::RParen) {
             self.advance(); // )
-            // Check for -> (function type: () -> T)
+                            // Check for -> (function type: () -> T)
             if self.check(&TokenKind::Arrow) {
                 self.advance();
                 let ret = self.parse_type()?;

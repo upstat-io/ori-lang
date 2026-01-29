@@ -1,16 +1,16 @@
 //! Function and test definition parsing.
 
 use crate::{FunctionOrTest, ParseError, ParseResult, ParsedAttrs, Parser};
-use ori_ir::{Function, GenericParamRange, Param, ParamRange, TestDef, TokenKind};
+use ori_ir::{Function, GenericParamRange, Param, ParamRange, TestDef, TokenKind, Visibility};
 
 impl Parser<'_> {
     /// Parse a function or test definition with progress tracking.
     pub(crate) fn parse_function_or_test_with_progress(
         &mut self,
         attrs: ParsedAttrs,
-        is_public: bool,
+        visibility: Visibility,
     ) -> ParseResult<FunctionOrTest> {
-        self.with_progress(|p| p.parse_function_or_test_with_attrs(attrs, is_public))
+        self.with_progress(|p| p.parse_function_or_test_with_attrs(attrs, visibility))
     }
 
     /// Parse a function or test definition with attributes.
@@ -21,7 +21,7 @@ impl Parser<'_> {
     pub(crate) fn parse_function_or_test_with_attrs(
         &mut self,
         attrs: ParsedAttrs,
-        is_public: bool,
+        visibility: Visibility,
     ) -> Result<FunctionOrTest, ParseError> {
         let start_span = self.current_span();
 
@@ -163,7 +163,7 @@ impl Parser<'_> {
                 where_clauses,
                 body,
                 span,
-                is_public,
+                visibility,
             }))
         }
     }

@@ -40,10 +40,7 @@ impl Parser<'_> {
             self.expect(&TokenKind::RBracket)?;
             // List type - method dispatch uses "list"
             let elem_id = self.arena.alloc_parsed_type(elem_ty);
-            (
-                ParsedType::List(elem_id),
-                self.interner().intern("list"),
-            )
+            (ParsedType::List(elem_id), self.interner().intern("list"))
         } else if self.check_type_keyword() {
             // Primitive type keywords: str, int, float, bool, etc.
             let (ty, type_name_str) = match self.current_kind() {

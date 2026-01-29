@@ -114,16 +114,15 @@ impl Parser<'_> {
 
     /// Parse the attribute name and return its kind.
     fn parse_attr_name(&mut self, errors: &mut Vec<ParseError>) -> AttrKind {
-        match self.current_kind() {
+        match *self.current_kind() {
             TokenKind::Ident(name) => {
-                let s = self.interner().lookup(name).to_owned();
                 self.advance();
-                match s.as_str() {
+                match self.interner().lookup(name) {
                     "skip" => AttrKind::Skip,
                     "compile_fail" => AttrKind::CompileFail,
                     "fail" => AttrKind::Fail,
                     "derive" => AttrKind::Derive,
-                    _ => {
+                    s => {
                         errors.push(ParseError::new(
                             ErrorCode::E1006,
                             format!("unknown attribute '{s}'"),
@@ -140,7 +139,10 @@ impl Parser<'_> {
             _ => {
                 errors.push(ParseError::new(
                     ErrorCode::E1004,
-                    format!("expected attribute name, found {:?}", self.current_kind()),
+                    format!(
+                        "expected attribute name, found {}",
+                        self.current_kind().display_name()
+                    ),
                     self.current_span(),
                 ));
                 AttrKind::Unknown
@@ -171,7 +173,7 @@ impl Parser<'_> {
         self.advance(); // consume (
 
         // Parse string value
-        let value = if let TokenKind::String(string_name) = self.current_kind() {
+        let value = if let TokenKind::String(string_name) = *self.current_kind() {
             self.advance();
             Some(string_name)
         } else {
@@ -240,7 +242,7 @@ impl Parser<'_> {
         self.advance(); // consume (
 
         // Check if this is the simple format (just a string) or extended format (named args)
-        if let TokenKind::String(string_name) = self.current_kind() {
+        if let TokenKind::String(string_name) = *self.current_kind() {
             // Simple format: #[compile_fail("message")]
             self.advance();
             attrs
@@ -264,7 +266,7 @@ impl Parser<'_> {
 
             while !self.check(&TokenKind::RParen) && !self.is_at_end() {
                 // Parse name: value
-                let param_name = if let TokenKind::Ident(name) = self.current_kind() {
+                let param_name = if let TokenKind::Ident(name) = *self.current_kind() {
                     let s = self.interner().lookup(name).to_owned();
                     self.advance();
                     s
@@ -295,7 +297,7 @@ impl Parser<'_> {
                 // Parse value based on parameter name
                 match param_name.as_str() {
                     "message" | "msg" => {
-                        if let TokenKind::String(s) = self.current_kind() {
+                        if let TokenKind::String(s) = *self.current_kind() {
                             expected.message = Some(s);
                             self.advance();
                         } else {
@@ -308,7 +310,7 @@ impl Parser<'_> {
                         }
                     }
                     "code" => {
-                        if let TokenKind::String(s) = self.current_kind() {
+                        if let TokenKind::String(s) = *self.current_kind() {
                             expected.code = Some(s);
                             self.advance();
                         } else {
@@ -321,7 +323,7 @@ impl Parser<'_> {
                         }
                     }
                     "line" => {
-                        if let TokenKind::Int(n) = self.current_kind() {
+                        if let TokenKind::Int(n) = *self.current_kind() {
                             expected.line = u32::try_from(n).ok();
                             self.advance();
                         } else {
@@ -334,7 +336,7 @@ impl Parser<'_> {
                         }
                     }
                     "column" | "col" => {
-                        if let TokenKind::Int(n) = self.current_kind() {
+                        if let TokenKind::Int(n) = *self.current_kind() {
                             expected.column = u32::try_from(n).ok();
                             self.advance();
                         } else {

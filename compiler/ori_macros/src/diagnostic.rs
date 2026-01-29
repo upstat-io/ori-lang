@@ -1,15 +1,22 @@
 //! Diagnostic derive macro implementation.
 //!
 //! Generates `IntoDiagnostic` implementations from struct definitions.
+//!
+//! # Note
+//!
+//! This macro generates code that references `crate::diagnostic::Diagnostic`.
+//! It is designed for use in the `oric` crate which re-exports diagnostic types.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{parse_macro_input, Data, DeriveInput, Field, Fields, Ident, LitStr};
+use syn::{parse_macro_input, Field, Ident, LitStr};
+
+use crate::utils::{generate_format_args, is_option_type, validate_struct_with_named_fields};
 
 /// Main entry point for the Diagnostic derive macro.
 pub fn derive_diagnostic(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
+    let input = parse_macro_input!(input as syn::DeriveInput);
 
     match derive_diagnostic_impl(&input) {
         Ok(tokens) => tokens.into(),
@@ -17,42 +24,32 @@ pub fn derive_diagnostic(input: TokenStream) -> TokenStream {
     }
 }
 
-fn derive_diagnostic_impl(input: &DeriveInput) -> syn::Result<TokenStream2> {
+fn derive_diagnostic_impl(input: &syn::DeriveInput) -> syn::Result<TokenStream2> {
     let name = &input.ident;
 
     // Parse #[diag(CODE, "message")] attribute
     let (error_code, message) = parse_diag_attribute(input)?;
 
     // Get struct fields
-    let fields = match &input.data {
-        Data::Struct(data) => match &data.fields {
-            Fields::Named(fields) => &fields.named,
-            _ => {
-                return Err(syn::Error::new_spanned(
-                    input,
-                    "Diagnostic derive only supports structs with named fields",
-                ))
-            }
-        },
-        _ => {
-            return Err(syn::Error::new_spanned(
-                input,
-                "Diagnostic derive only supports structs",
-            ))
-        }
-    };
+    let fields = validate_struct_with_named_fields(input, "Diagnostic")?;
+
+    // Collect fields for format args (needed by multiple generators)
+    let field_names: Vec<_> = fields.iter().filter_map(|f| f.ident.as_ref()).collect();
 
     // Find primary span field
-    let primary_span_field = find_primary_span_field(fields.iter())?;
+    let primary_span_field = generate_primary_span(&field_names, fields.iter())?;
 
     // Generate label additions
-    let label_additions = generate_label_additions(fields.iter())?;
+    let label_additions = generate_label_additions(&field_names, fields.iter())?;
 
     // Generate note additions
-    let note_additions = generate_note_additions(fields.iter())?;
+    let note_additions = generate_note_additions(&field_names, fields.iter())?;
+
+    // Generate help additions
+    let help_additions = generate_help_additions(&field_names, fields.iter())?;
 
     // Generate suggestion additions
-    let suggestion_additions = generate_suggestion_additions(fields.iter())?;
+    let suggestion_additions = generate_suggestion_additions(&field_names, fields.iter())?;
 
     // Generate the format arguments for message interpolation
     let format_args = generate_format_args(fields.iter());
@@ -78,6 +75,9 @@ fn derive_diagnostic_impl(input: &DeriveInput) -> syn::Result<TokenStream2> {
                 // Add notes
                 #(#note_additions)*
 
+                // Add help messages
+                #(#help_additions)*
+
                 // Add suggestions
                 #(#suggestion_additions)*
 
@@ -94,7 +94,7 @@ fn derive_diagnostic_impl(input: &DeriveInput) -> syn::Result<TokenStream2> {
 }
 
 /// Parse the #[diag(CODE, "message")] attribute.
-fn parse_diag_attribute(input: &DeriveInput) -> syn::Result<(Ident, LitStr)> {
+fn parse_diag_attribute(input: &syn::DeriveInput) -> syn::Result<(Ident, LitStr)> {
     for attr in &input.attrs {
         if attr.path().is_ident("diag") {
             return attr.parse_args_with(|input: syn::parse::ParseStream| {
@@ -112,8 +112,9 @@ fn parse_diag_attribute(input: &DeriveInput) -> syn::Result<(Ident, LitStr)> {
     ))
 }
 
-/// Find the field marked with #[`primary_span`].
-fn find_primary_span_field<'a>(
+/// Generate code for the primary span field.
+fn generate_primary_span<'a>(
+    field_names: &[&Ident],
     fields: impl Iterator<Item = &'a Field>,
 ) -> syn::Result<TokenStream2> {
     for field in fields {
@@ -127,9 +128,12 @@ fn find_primary_span_field<'a>(
                 // Check if there's also a label on this field
                 let label_msg = get_label_message(field)?;
 
+                // Generate format args for all fields
+                let format_args = field_names.iter().map(|name| quote! { #name = self.#name });
+
                 return Ok(if let Some(msg) = label_msg {
                     quote! {
-                        diag = diag.with_label(self.#field_name, format!(#msg, #field_name = self.#field_name));
+                        diag = diag.with_label(self.#field_name, format!(#msg, #(#format_args),*));
                     }
                 } else {
                     quote! {
@@ -159,9 +163,16 @@ fn get_label_message(field: &Field) -> syn::Result<Option<LitStr>> {
 
 /// Generate code to add labels for non-primary spans.
 fn generate_label_additions<'a>(
+    field_names: &[&Ident],
     fields: impl Iterator<Item = &'a Field>,
 ) -> syn::Result<Vec<TokenStream2>> {
     let mut additions = Vec::new();
+
+    // Generate format args once
+    let format_args: Vec<_> = field_names
+        .iter()
+        .map(|name| quote! { #name = self.#name })
+        .collect();
 
     for field in fields {
         // Skip primary_span fields (already handled)
@@ -182,7 +193,7 @@ fn generate_label_additions<'a>(
                 let msg: LitStr = attr.parse_args()?;
 
                 additions.push(quote! {
-                    diag = diag.with_secondary_label(self.#field_name, format!(#msg));
+                    diag = diag.with_secondary_label(self.#field_name, format!(#msg, #(#format_args),*));
                 });
             }
         }
@@ -193,16 +204,50 @@ fn generate_label_additions<'a>(
 
 /// Generate code to add notes.
 fn generate_note_additions<'a>(
+    field_names: &[&Ident],
     fields: impl Iterator<Item = &'a Field>,
 ) -> syn::Result<Vec<TokenStream2>> {
     let mut additions = Vec::new();
+
+    // Generate format args once
+    let format_args: Vec<_> = field_names
+        .iter()
+        .map(|name| quote! { #name = self.#name })
+        .collect();
 
     for field in fields {
         for attr in &field.attrs {
             if attr.path().is_ident("note") {
                 let msg: LitStr = attr.parse_args()?;
                 additions.push(quote! {
-                    diag = diag.with_note(format!(#msg));
+                    diag = diag.with_note(format!(#msg, #(#format_args),*));
+                });
+            }
+        }
+    }
+
+    Ok(additions)
+}
+
+/// Generate code to add help messages.
+fn generate_help_additions<'a>(
+    field_names: &[&Ident],
+    fields: impl Iterator<Item = &'a Field>,
+) -> syn::Result<Vec<TokenStream2>> {
+    let mut additions = Vec::new();
+
+    // Generate format args once
+    let format_args: Vec<_> = field_names
+        .iter()
+        .map(|name| quote! { #name = self.#name })
+        .collect();
+
+    for field in fields {
+        for attr in &field.attrs {
+            if attr.path().is_ident("help") {
+                let msg: LitStr = attr.parse_args()?;
+                additions.push(quote! {
+                    diag = diag.with_suggestion(format!(#msg, #(#format_args),*));
                 });
             }
         }
@@ -213,9 +258,16 @@ fn generate_note_additions<'a>(
 
 /// Generate code to add suggestions.
 fn generate_suggestion_additions<'a>(
+    field_names: &[&Ident],
     fields: impl Iterator<Item = &'a Field>,
 ) -> syn::Result<Vec<TokenStream2>> {
     let mut additions = Vec::new();
+
+    // Generate format args once
+    let format_args: Vec<_> = field_names
+        .iter()
+        .map(|name| quote! { #name = self.#name })
+        .collect();
 
     for field in fields {
         for attr in &field.attrs {
@@ -225,8 +277,8 @@ fn generate_suggestion_additions<'a>(
                     .as_ref()
                     .ok_or_else(|| syn::Error::new_spanned(field, "expected named field"))?;
 
-                // Parse suggestion attributes
-                let parsed = parse_suggestion_attr(attr);
+                // Parse suggestion attributes - now propagates errors properly
+                let parsed = parse_suggestion_attr(attr)?;
 
                 let msg = &parsed.message;
                 let code = &parsed.code;
@@ -245,9 +297,9 @@ fn generate_suggestion_additions<'a>(
                         if let Some(span) = self.#field_name {
                             diag = diag.with_structured_suggestion(
                                 Suggestion::new(
-                                    format!(#msg),
+                                    format!(#msg, #(#format_args),*),
                                     span,
-                                    format!(#code),
+                                    format!(#code, #(#format_args),*),
                                     #applicability,
                                 )
                             );
@@ -257,9 +309,9 @@ fn generate_suggestion_additions<'a>(
                     additions.push(quote! {
                         diag = diag.with_structured_suggestion(
                             Suggestion::new(
-                                format!(#msg),
+                                format!(#msg, #(#format_args),*),
                                 self.#field_name,
-                                format!(#code),
+                                format!(#code, #(#format_args),*),
                                 #applicability,
                             )
                         );
@@ -278,71 +330,61 @@ struct SuggestionParsed {
     applicability: String,
 }
 
-fn parse_suggestion_attr(attr: &syn::Attribute) -> SuggestionParsed {
-    let mut message = None;
-    let mut code = None;
+/// Parse suggestion attribute, properly propagating errors.
+///
+/// Supports two formats:
+/// - `#[suggestion("message", code = "...", applicability = "...")]`
+/// - `#[suggestion("message")]` (code and applicability optional)
+fn parse_suggestion_attr(attr: &syn::Attribute) -> syn::Result<SuggestionParsed> {
+    // Try parsing as a meta list with named arguments
+    let mut message: Option<LitStr> = None;
+    let mut code: Option<LitStr> = None;
     let mut applicability = "unspecified".to_string();
 
-    attr.parse_nested_meta(|meta| {
-        if meta.path.is_ident("code") {
-            let value: LitStr = meta.value()?.parse()?;
-            code = Some(value);
-            Ok(())
-        } else if meta.path.is_ident("applicability") {
-            let value: LitStr = meta.value()?.parse()?;
-            applicability = value.value();
-            Ok(())
-        } else {
-            // First argument is the message
-            Err(meta.error("unknown suggestion attribute"))
-        }
-    })
-    .ok();
-
-    // Try parsing as just a string (the message)
-    if let Ok(msg) = attr.parse_args::<LitStr>() {
+    // Parse the attribute arguments
+    attr.parse_args_with(|input: syn::parse::ParseStream| {
+        // First argument is always the message
+        let msg: LitStr = input.parse()?;
         message = Some(msg);
-    }
 
-    // If we still don't have a message, try parsing as a list
-    if message.is_none() {
-        if let Ok(nested) = attr.meta.require_list() {
-            let tokens = &nested.tokens;
-            // Parse the first token as a string literal
-            let parsed: syn::Result<LitStr> = syn::parse2(tokens.clone());
-            if let Ok(msg) = parsed {
-                message = Some(msg);
+        // Parse optional named arguments
+        while input.peek(syn::Token![,]) {
+            let _: syn::Token![,] = input.parse()?;
+
+            // Check if we've reached the end
+            if input.is_empty() {
+                break;
+            }
+
+            let ident: Ident = input.parse()?;
+            let _: syn::Token![=] = input.parse()?;
+            let value: LitStr = input.parse()?;
+
+            match ident.to_string().as_str() {
+                "code" => code = Some(value),
+                "applicability" => applicability = value.value(),
+                other => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        format!("unknown suggestion attribute: `{other}`"),
+                    ))
+                }
             }
         }
-    }
 
-    SuggestionParsed {
-        message: message.unwrap_or_else(|| LitStr::new("", proc_macro2::Span::call_site())),
-        code: code.unwrap_or_else(|| LitStr::new("", proc_macro2::Span::call_site())),
+        Ok(())
+    })?;
+
+    let message = message
+        .ok_or_else(|| syn::Error::new_spanned(attr, "suggestion attribute requires a message"))?;
+
+    let code = code.ok_or_else(|| {
+        syn::Error::new_spanned(attr, "suggestion attribute requires `code = \"...\"`")
+    })?;
+
+    Ok(SuggestionParsed {
+        message,
+        code,
         applicability,
-    }
-}
-
-/// Check if a type is Option<T>.
-fn is_option_type(ty: &syn::Type) -> bool {
-    if let syn::Type::Path(type_path) = ty {
-        if let Some(segment) = type_path.path.segments.last() {
-            return segment.ident == "Option";
-        }
-    }
-    false
-}
-
-/// Generate format arguments for message interpolation.
-fn generate_format_args<'a>(fields: impl Iterator<Item = &'a Field>) -> TokenStream2 {
-    let args: Vec<_> = fields
-        .filter_map(|f| f.ident.as_ref())
-        .map(|name| quote! { #name = self.#name })
-        .collect();
-
-    if args.is_empty() {
-        quote! {}
-    } else {
-        quote! { #(#args),* }
-    }
+    })
 }

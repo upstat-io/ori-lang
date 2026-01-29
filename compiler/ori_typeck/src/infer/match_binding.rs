@@ -52,9 +52,9 @@ pub fn extract_match_pattern_bindings(
             let mut bindings = Vec::new();
             for (field_name, opt_pattern_id) in fields {
                 let field_ty = field_types
-                    .iter()
-                    .find(|(n, _)| n == field_name)
-                    .map_or_else(|| checker.inference.ctx.fresh_var(), |(_, ty)| ty.clone());
+                    .get(field_name)
+                    .cloned()
+                    .unwrap_or_else(|| checker.inference.ctx.fresh_var());
 
                 match opt_pattern_id {
                     Some(nested_id) => {
@@ -117,11 +117,7 @@ pub fn extract_match_pattern_bindings(
         MatchPattern::At { name, pattern } => {
             let mut bindings = vec![(*name, resolved_ty.clone())];
             let inner = checker.context.arena.get_match_pattern(*pattern);
-            bindings.extend(extract_match_pattern_bindings(
-                checker,
-                inner,
-                &resolved_ty,
-            ));
+            bindings.extend(extract_match_pattern_bindings(checker, inner, &resolved_ty));
             bindings
         }
     }

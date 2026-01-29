@@ -576,16 +576,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
-name = "ori-macros"
-version = "0.1.0-alpha.1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
- "trybuild",
-]
-
-[[package]]
 name = "ori_diagnostic"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -649,6 +639,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ori_macros"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+ "trybuild",
+]
+
+[[package]]
 name = "ori_parse"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -701,12 +701,12 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "criterion",
  "logos",
- "ori-macros",
  "ori_diagnostic",
  "ori_eval",
  "ori_ir",
  "ori_lexer",
  "ori_llvm",
+ "ori_macros",
  "ori_parse",
  "ori_patterns",
  "ori_typeck",

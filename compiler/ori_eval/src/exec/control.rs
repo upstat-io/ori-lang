@@ -737,7 +737,12 @@ mod tests {
         #[test]
         fn wildcard_pattern_succeeds_without_binding() {
             let mut env = Environment::new();
-            let result = bind_pattern(&BindingPattern::Wildcard, Value::int(42), Mutability::Immutable, &mut env);
+            let result = bind_pattern(
+                &BindingPattern::Wildcard,
+                Value::int(42),
+                Mutability::Immutable,
+                &mut env,
+            );
             assert!(result.is_ok());
         }
 
@@ -858,9 +863,7 @@ mod tests {
             let cond = ExprId::new(1);
             let then_branch = ExprId::new(2);
 
-            let result = eval_if(cond, then_branch, None, |_| {
-                Ok(Value::Bool(false))
-            });
+            let result = eval_if(cond, then_branch, None, |_| Ok(Value::Bool(false)));
             assert_eq!(result.unwrap(), Value::Void);
         }
 

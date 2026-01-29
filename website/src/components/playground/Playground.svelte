@@ -165,6 +165,11 @@
 
   .vertical .editor-pane {
     border-bottom: 1px solid var(--color-border, #2a2b35);
+    flex: 2;
+  }
+
+  .vertical :global(.output-pane) {
+    flex: 1;
   }
 
   .pane-header {

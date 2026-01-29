@@ -15,7 +15,7 @@
 use inkwell::context::Context;
 use inkwell::values::FunctionValue;
 
-use ori_ir::{ExprArena, Function, Name, StringInterner, TestDef, TypeId};
+use ori_ir::{ExprArena, Function, Name, StringInterner, TestDef, TypeId, Visibility};
 
 use crate::builder::Builder;
 use crate::context::CodegenCx;
@@ -335,7 +335,7 @@ mod tests {
             where_clauses: vec![],
             body: add_body,
             span: ori_ir::Span::new(0, 1),
-            is_public: false,
+            visibility: Visibility::Private,
         };
 
         let expr_types = vec![TypeId::INT; 10];

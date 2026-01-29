@@ -37,6 +37,7 @@ pub mod resolvers;
 mod scope_guard;
 
 pub use builder::InterpreterBuilder;
+pub use scope_guard::ScopedInterpreter;
 
 use crate::print_handler::SharedPrintHandler;
 use crate::stack::ensure_sufficient_stack;
@@ -125,8 +126,8 @@ impl PatternExecutor for Interpreter<'_> {
         Interpreter::eval(self, expr_id)
     }
 
-    fn call(&mut self, func: Value, args: Vec<Value>) -> EvalResult {
-        self.eval_call(func, &args)
+    fn call(&mut self, func: &Value, args: Vec<Value>) -> EvalResult {
+        self.eval_call(func.clone(), &args)
     }
 
     fn lookup_capability(&self, name: &str) -> Option<Value> {
@@ -776,9 +777,10 @@ impl<'a> Interpreter<'a> {
         args: Vec<Value>,
     ) -> EvalResult {
         if let Value::ModuleNamespace(ns) = &receiver {
-            let func = ns.get(&method).cloned().ok_or_else(|| {
-                no_member_in_module(self.interner.lookup(method))
-            })?;
+            let func = ns
+                .get(&method)
+                .cloned()
+                .ok_or_else(|| no_member_in_module(self.interner.lookup(method)))?;
             self.eval_call(func, &args)
         } else {
             self.eval_method_call(receiver, method, args)

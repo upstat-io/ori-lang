@@ -131,6 +131,19 @@ impl Type {
         }
     }
 
+    /// Get an item from a module namespace by name.
+    ///
+    /// Returns `Some(&Type)` if this is a `ModuleNamespace` containing the named item,
+    /// or `None` if not found or if this is not a namespace type.
+    pub fn get_namespace_item(&self, name: Name) -> Option<&Type> {
+        match self {
+            Type::ModuleNamespace { items } => {
+                items.iter().find(|(n, _)| *n == name).map(|(_, ty)| ty)
+            }
+            _ => None,
+        }
+    }
+
     /// Convert this boxed Type to an interned `TypeId`.
     ///
     /// This is the forward direction of the bidirectional `Type`<->`TypeId` conversion.
