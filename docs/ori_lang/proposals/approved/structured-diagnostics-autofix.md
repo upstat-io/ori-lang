@@ -1,10 +1,11 @@
 # Proposal: Structured Diagnostics and Auto-Fix
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Claude
 **Created:** 2026-01-23
 **Draft:** 2026-01-25
-**Affects:** `compiler/oric/src/diagnostic.rs`, `main.rs`, CLI interface
+**Approved:** 2026-01-28
+**Affects:** `compiler/ori_diagnostic/`, `compiler/oric/`, CLI interface
 
 ## Summary
 
@@ -43,18 +44,28 @@ Proposed state (JSON for AI/tooling):
 {
   "diagnostics": [{
     "code": "E1010",
-    "severity": "error",
+    "severity": "Error",
     "message": "unknown pattern argument",
     "file": "src/main.ori",
-    "span": { "start": 12, "end": 45, "line": 12, "column": 5 },
+    "span": {
+      "start": 12,
+      "end": 45,
+      "start_loc": { "line": 12, "column": 5 },
+      "end_loc": { "line": 12, "column": 18 }
+    },
     "labels": [
-      { "span": { "line": 12, "column": 5, "len": 13 }, "message": "unknown argument", "primary": true }
+      {
+        "span": { "start": 12, "end": 25, "start_loc": { "line": 12, "column": 5 }, "end_loc": { "line": 12, "column": 18 } },
+        "message": "unknown argument",
+        "primary": true
+      }
     ],
     "notes": ["valid arguments are: `over:`, `where:`, `.map:`"],
-    "fixes": [{
+    "suggestions": ["did you mean `target:`?"],
+    "structured_suggestions": [{
       "message": "replace `.target_value:` with `target:`",
-      "edits": [{ "span": { "start": 12, "end": 25 }, "replacement": "target:" }],
-      "applicability": "maybe_incorrect"
+      "substitutions": [{ "span": { "start": 12, "end": 25 }, "snippet": "target:" }],
+      "applicability": "MaybeIncorrect"
     }]
   }],
   "summary": { "errors": 1, "warnings": 0, "fixable": 1 }
@@ -63,45 +74,72 @@ Proposed state (JSON for AI/tooling):
 
 ## Design
 
-### Fix and Edit Types
+### Existing Infrastructure
+
+The core diagnostic types are already implemented in `ori_diagnostic/src/diagnostic.rs`:
 
 ```rust
-/// A suggested fix for a diagnostic
-pub struct Fix {
-    /// Human-readable description of the fix
-    pub message: String,
-    /// The edits to apply (usually one, but refactors may have multiple)
-    pub edits: Vec<Edit>,
-    /// Whether this fix can be automatically applied
-    pub applicability: Applicability,
-}
-
-/// A single text edit
-pub struct Edit {
-    /// The span to replace (can be empty span for insertions)
-    pub span: Span,
-    /// The replacement text (can be empty for deletions)
-    pub replacement: String,
-}
-
-/// Applicability level for auto-fix (modeled after Rust's Applicability)
+/// Applicability level for code suggestions.
 pub enum Applicability {
-    /// The fix is definitely correct and maintains exact semantics.
-    /// Safe to apply automatically without review.
+    /// The suggestion is definitely correct and can be auto-applied.
     MachineApplicable,
-
-    /// The fix is likely correct but uncertain.
-    /// Will produce valid Ori code, but may not match user intent.
+    /// The suggestion might be correct but requires human verification.
     MaybeIncorrect,
-
-    /// The fix contains placeholders that require user input.
-    /// Cannot be auto-applied.
+    /// The suggestion contains placeholders that need user input.
     HasPlaceholders,
-
     /// Applicability unknown or suggestion is informational only.
     Unspecified,
 }
+
+/// A text substitution for a code fix.
+pub struct Substitution {
+    pub span: Span,
+    pub snippet: String,
+}
+
+/// A structured suggestion with substitutions and applicability.
+pub struct Suggestion {
+    pub message: String,
+    pub substitutions: Vec<Substitution>,
+    pub applicability: Applicability,
+}
+
+/// A rich diagnostic with all context needed for great error messages.
+pub struct Diagnostic {
+    pub code: ErrorCode,
+    pub severity: Severity,
+    pub message: String,
+    pub labels: Vec<Label>,
+    pub notes: Vec<String>,
+    pub suggestions: Vec<String>,
+    pub structured_suggestions: Vec<Suggestion>,  // Already present!
+}
 ```
+
+The `Diagnostic` type already has a `structured_suggestions` field and builder methods like `.with_fix()` and `.with_maybe_fix()`.
+
+### New Types
+
+The following type needs to be added for line/column information:
+
+```rust
+/// Source location with line and column information.
+pub struct SourceLoc {
+    /// 1-based line number
+    pub line: u32,
+    /// 1-based column (Unicode codepoints from line start)
+    pub column: u32,
+}
+```
+
+### JSON Output Enhancement
+
+The existing JSON emitter (`ori_diagnostic/src/emitter/json.rs`) needs to be enhanced to include:
+
+1. **File path** — Currently missing; must be added at the diagnostic level
+2. **Line/column locations** — Add `start_loc` and `end_loc` to spans
+3. **Structured suggestions** — Currently omitted from JSON output
+4. **Summary object** — Add error/warning/fixable counts at the end
 
 ### CLI Flags
 
@@ -114,8 +152,8 @@ ori check <file> --fix=all    # Apply MachineApplicable + MaybeIncorrect
 ```
 
 **Fix levels:**
-- `--fix` (default): Only `MachineApplicable` - guaranteed safe
-- `--fix=all`: Also `MaybeIncorrect` - likely correct, review diff
+- `--fix` (default): Only `MachineApplicable` — guaranteed safe
+- `--fix=all`: Also `MaybeIncorrect` — likely correct, review diff
 
 ### Fix Categories by Applicability
 
@@ -133,7 +171,7 @@ ori check <file> --fix=all    # Apply MachineApplicable + MaybeIncorrect
 
 | Error | Fix | Why Uncertain |
 |-------|-----|---------------|
-| `int` ↔ `float` mismatch | Add `int(x)` or `float(x)` | User might want different conversion |
+| `int` ↔ `float` mismatch | Add `x as int` or `x as float` | User might want different conversion |
 | Missing `Some()` wrapper | Wrap in `Some(x)` | Value might intentionally be wrong type |
 | Unknown identifier | "Did you mean `similar_name`?" | Multiple similar names possible |
 
@@ -141,40 +179,40 @@ ori check <file> --fix=all    # Apply MachineApplicable + MaybeIncorrect
 
 | Error | Fix | Placeholder |
 |-------|-----|-------------|
-| Missing required pattern arg | Add `.arg: ???` | User must provide value |
+| Missing required pattern arg | Add `arg: ???` | User must provide value |
 | Missing function body | Add `= ???` | User must implement |
 | Missing type annotation | Add `: ???` | User must specify type |
 
 ## Implementation Plan
 
-### Phase 1: Core Types
-- Add `Fix`, `Edit`, `Applicability` types to `diagnostic.rs`
-- Update `Diagnostic` to use `Vec<Fix>` instead of `Vec<String>`
-- Add `SourceLoc` and span-to-location conversion
+### Step 1: SourceLoc Type
+- Add `SourceLoc` struct to `ori_diagnostic`
+- Add span-to-location conversion utility using source text
+- Build line index for efficient lookups
 
-### Phase 2: Upgrade Existing Suggestions
-- Convert type error suggestions to structured fixes
-- Convert pattern validation suggestions to structured fixes
-- Convert parser error suggestions to structured fixes
-- Assign appropriate `Applicability` level to each fix type
+### Step 2: JSON Output Enhancement
+- Add file path to diagnostic JSON output
+- Add `start_loc`/`end_loc` to span serialization
+- Add `structured_suggestions` to JSON output
+- Add summary object with counts
 
-### Phase 3: JSON Output
-- Add serde dependencies
-- Implement `Serialize` for diagnostic types
-- Add `--json` flag to CLI
-- Create `DiagnosticOutput` wrapper with summary
-
-### Phase 4: Improved Human Output
-- Build line index for source files
-- Implement snippet extraction with context lines
+### Step 3: Improved Human Output
+- Implement Rust-style snippet extraction with context lines
 - Implement diagnostic renderer with colors and arrows
+- Show "fix available" indicator for fixable diagnostics
 
-### Phase 5: Auto-Fix
-- Implement `apply_fixes()` function
-- Handle overlapping edits (reject or merge)
-- Add `--fix` and `--fix --dry` flags
+### Step 4: Auto-Fix Infrastructure
+- Implement `apply_suggestions()` function
+- Handle overlapping substitutions (reject or merge)
+- Add `--fix` and `--fix --dry` flags to CLI
 
-### Phase 6: Extended Fixes
+### Step 5: Upgrade Existing Diagnostics
+- Convert type error suggestions to structured suggestions
+- Convert pattern validation suggestions to structured suggestions
+- Convert parser error suggestions to structured suggestions
+- Assign appropriate `Applicability` level to each
+
+### Step 6: Extended Fixes
 - Add typo detection (Levenshtein distance) for identifiers
 - Add formatting fixes (indentation, commas, blank lines)
 - Add import suggestions for unknown types

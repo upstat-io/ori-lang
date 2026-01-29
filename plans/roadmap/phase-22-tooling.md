@@ -189,73 +189,120 @@ Expose Salsa's dependency tracking to users for debugging and impact analysis.
 
 > **PROPOSAL**: `proposals/approved/structured-diagnostics-autofix.md`
 
-Machine-readable diagnostics with actionable fix suggestions.
+Machine-readable diagnostics with actionable fix suggestions. Enables AI agents to programmatically consume errors and auto-fix safe issues.
 
-### 22.7.1 Core Diagnostic Types
+**Existing Infrastructure:** Core types (`Applicability`, `Suggestion`, `Substitution`) already exist in `ori_diagnostic/src/diagnostic.rs`. This phase enhances the JSON emitter and adds CLI flags for auto-fix.
 
-- [ ] **Implement**: `Fix` type with `message`, `edits`, `applicability`
-  - [ ] **Rust Tests**: `ori_diagnostic/src/fix.rs` — Fix type tests
+### 22.7.1 SourceLoc Type (Step 1)
 
-- [ ] **Implement**: `Edit` type with `span`, `replacement`
-  - [ ] **Rust Tests**: `ori_diagnostic/src/edit.rs` — Edit type tests
+- [ ] **Implement**: `SourceLoc` struct with line/column from byte span
+  - [ ] 1-based line and column numbers
+  - [ ] Unicode codepoint column (not byte offset)
+  - [ ] **Rust Tests**: `ori_diagnostic/src/span_utils.rs` — source location tests
 
-- [ ] **Implement**: `Applicability` enum (MachineApplicable, MaybeIncorrect, HasPlaceholders, Unspecified)
-  - [ ] **Rust Tests**: `ori_diagnostic/src/applicability.rs` — applicability tests
+- [ ] **Implement**: Line index builder for efficient lookups
+  - [ ] Build line offset table from source text
+  - [ ] O(log n) span-to-location conversion
+  - [ ] **Rust Tests**: `ori_diagnostic/src/span_utils.rs` — line index tests
 
-- [ ] **Implement**: `SourceLoc` with line/column from byte span
-  - [ ] **Rust Tests**: `ori_diagnostic/src/source_loc.rs` — source location tests
+### 22.7.2 JSON Output Enhancement (Step 2)
 
-### 22.7.2 JSON Output
+- [ ] **Implement**: Add file path to JSON diagnostic output
+  - [ ] File path at diagnostic level
+  - [ ] **Rust Tests**: `ori_diagnostic/src/emitter/json.rs` — file path tests
 
-- [ ] **Implement**: `ori check --json` — Machine-readable output
-  - [ ] Diagnostics array with code, severity, message, span, labels, fixes
-  - [ ] Summary with error/warning/fixable counts
-  - [ ] **Rust Tests**: `oric/src/cli/check.rs` — JSON output
+- [ ] **Implement**: Add `start_loc`/`end_loc` to span serialization
+  - [ ] Line/column for span start and end
+  - [ ] **Rust Tests**: `ori_diagnostic/src/emitter/json.rs` — location tests
+
+- [ ] **Implement**: Add `structured_suggestions` to JSON output
+  - [ ] Include message, substitutions, applicability
+  - [ ] **Rust Tests**: `ori_diagnostic/src/emitter/json.rs` — suggestions tests
+
+- [ ] **Implement**: Add summary object to JSON output
+  - [ ] Error count, warning count, fixable count
+  - [ ] **Rust Tests**: `ori_diagnostic/src/emitter/json.rs` — summary tests
+
+- [ ] **Implement**: `ori check --json` CLI flag
+  - [ ] **Rust Tests**: `oric/src/commands/check.rs` — JSON flag
   - [ ] **Ori Tests**: `tests/spec/tooling/json_output.ori`
 
-### 22.7.3 Improved Human Output
+### 22.7.3 Improved Human Output (Step 3)
 
 - [ ] **Implement**: Rust-style diagnostic rendering
   - [ ] Source snippets with line numbers
-  - [ ] Primary and secondary labels with arrows
+  - [ ] Primary and secondary labels with underline arrows
   - [ ] Notes and help sections
-  - [ ] **Rust Tests**: `ori_diagnostic/src/render.rs` — diagnostic rendering
+  - [ ] "fix available" indicator for fixable diagnostics
+  - [ ] **Rust Tests**: `ori_diagnostic/src/emitter/terminal.rs` — rendering tests
   - [ ] **Ori Tests**: `tests/spec/tooling/human_output.ori`
 
-### 22.7.4 Auto-Fix
+### 22.7.4 Auto-Fix Infrastructure (Step 4)
+
+- [ ] **Implement**: `apply_suggestions()` function
+  - [ ] Apply substitutions to source text
+  - [ ] Return modified source or list of changes
+  - [ ] **Rust Tests**: `ori_diagnostic/src/fixes/apply.rs` — apply tests
+
+- [ ] **Implement**: Overlapping substitution handling
+  - [ ] Detect overlapping spans
+  - [ ] Reject conflicting fixes (error message)
+  - [ ] **Rust Tests**: `ori_diagnostic/src/fixes/apply.rs` — conflict tests
 
 - [ ] **Implement**: `ori check --fix` — Apply MachineApplicable fixes
   - [ ] Only safe fixes applied automatically
-  - [ ] **Rust Tests**: `oric/src/cli/check.rs` — auto-fix
+  - [ ] Report number of fixes applied
+  - [ ] **Rust Tests**: `oric/src/commands/check.rs` — auto-fix
   - [ ] **Ori Tests**: `tests/spec/tooling/autofix_basic.ori`
 
 - [ ] **Implement**: `ori check --fix --dry` — Preview fixes without applying
-  - [ ] **Rust Tests**: `oric/src/cli/check.rs` — dry run
+  - [ ] Show diff of what would change
+  - [ ] **Rust Tests**: `oric/src/commands/check.rs` — dry run
   - [ ] **Ori Tests**: `tests/spec/tooling/autofix_dry.ori`
 
 - [ ] **Implement**: `ori check --fix=all` — Also apply MaybeIncorrect fixes
-  - [ ] **Rust Tests**: `oric/src/cli/check.rs` — fix all
+  - [ ] Include MaybeIncorrect suggestions
+  - [ ] Warn user to review changes
+  - [ ] **Rust Tests**: `oric/src/commands/check.rs` — fix all
   - [ ] **Ori Tests**: `tests/spec/tooling/autofix_all.ori`
 
-- [ ] **Implement**: Overlapping fix handling (three-way merge or reject)
-  - [ ] **Rust Tests**: `ori_diagnostic/src/fixes/merge.rs` — fix merging
-  - [ ] **Ori Tests**: `tests/spec/tooling/autofix_conflict.ori`
+### 22.7.5 Upgrade Existing Diagnostics (Step 5)
 
-### 22.7.5 Fix Categories
+- [ ] **Implement**: Convert type error suggestions to structured suggestions
+  - [ ] Type conversion: `x as int`, `x as float`
+  - [ ] Missing wrapper: `Some(x)`, `Ok(x)`
+  - [ ] Assign `MaybeIncorrect` applicability
+  - [ ] **Rust Tests**: `oric/src/reporting/type_errors.rs` — structured suggestions
+
+- [ ] **Implement**: Convert pattern validation suggestions to structured suggestions
+  - [ ] Unknown argument typos
+  - [ ] Missing required arguments
+  - [ ] **Rust Tests**: `ori_patterns/src/validation.rs` — structured suggestions
+
+- [ ] **Implement**: Convert parser error suggestions to structured suggestions
+  - [ ] Missing delimiters
+  - [ ] Expected token fixes
+  - [ ] **Rust Tests**: `ori_parse/src/error.rs` — structured suggestions
+
+### 22.7.6 Extended Fixes (Step 6)
+
+- [ ] **Implement**: Typo detection for identifiers (Levenshtein distance)
+  - [ ] "Did you mean `similar_name`?" suggestions
+  - [ ] Threshold for similarity (e.g., edit distance ≤ 2)
+  - [ ] **Rust Tests**: `ori_diagnostic/src/fixes/typo.rs` — typo detection
 
 - [ ] **Implement**: MachineApplicable fixes for formatting issues
   - [ ] Missing trailing comma
-  - [ ] Wrong indentation
+  - [ ] Wrong indentation (fix to 4 spaces)
   - [ ] Inline comment moved to own line
-  - [ ] Extra blank lines
+  - [ ] Extra blank lines removed
   - [ ] **Rust Tests**: `ori_diagnostic/src/fixes/formatting.rs` — formatting fixes
   - [ ] **Ori Tests**: `tests/spec/tooling/fix_formatting.ori`
 
-- [ ] **Implement**: MaybeIncorrect fixes for type mismatches
-  - [ ] Type conversion suggestions (`int(x)`, `float(x)`)
-  - [ ] "Did you mean" for identifiers (Levenshtein distance)
-  - [ ] **Rust Tests**: `ori_diagnostic/src/fixes/suggestions.rs` — suggestions
-  - [ ] **Ori Tests**: `tests/spec/tooling/fix_suggestions.ori`
+- [ ] **Implement**: Import suggestions for unknown types
+  - [ ] Search stdlib for matching type names
+  - [ ] Suggest `use std.module { Type }`
+  - [ ] **Rust Tests**: `ori_diagnostic/src/fixes/imports.rs` — import suggestions
 
 ---
 
