@@ -129,11 +129,22 @@ float(1) + 2.0   // OK: 3.0
 
 ### Numeric Behavior
 
-**Integer overflow**: Wraps using two's complement. No panic.
+**Integer overflow**: Panics. Addition, subtraction, multiplication, and negation all panic on overflow.
 
 ```ori
 let max: int = 9223372036854775807
-max + 1  // -9223372036854775808 (wraps)
+max + 1      // panic: integer overflow
+int.min - 1  // panic: integer overflow
+-int.min     // panic: integer overflow (negation)
+```
+
+Programs requiring wrapping or saturating arithmetic should use functions from `std.math`.
+
+**Integer division and modulo overflow**: The expression `int.min / -1` and `int.min % -1` panic because the mathematical result cannot be represented.
+
+```ori
+int.min div -1  // panic: integer overflow
+int.min % -1    // panic: integer overflow
 ```
 
 **Integer division by zero**: Panics.

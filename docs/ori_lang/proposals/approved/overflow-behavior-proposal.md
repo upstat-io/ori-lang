@@ -1,6 +1,7 @@
 # Proposal: Integer Overflow Behavior
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-28
 **Author:** Eric
 **Created:** 2026-01-22
 **Draft:** 2026-01-25
@@ -18,8 +19,8 @@ let x: int = int.max + 1  // PANIC: integer overflow
 // Explicit alternatives via std.math
 use std.math { saturating_add, wrapping_add }
 
-saturating_add(int.max, 1)  // Returns int.max (clamped)
-wrapping_add(int.max, 1)    // Returns int.min (wrapped)
+saturating_add(a: int.max, b: 1)  // Returns int.max (clamped)
+wrapping_add(a: int.max, b: 1)    // Returns int.min (wrapped)
 ```
 
 ---
@@ -105,12 +106,12 @@ use std.math {
 Clamps the result to the type's bounds:
 
 ```ori
-saturating_add(int.max, 1)   // int.max
-saturating_add(int.max, 100) // int.max
-saturating_sub(int.min, 1)   // int.min
-saturating_mul(int.max, 2)   // int.max
+saturating_add(a: int.max, b: 1)     // int.max
+saturating_add(a: int.max, b: 100)   // int.max
+saturating_sub(a: int.min, b: 1)     // int.min
+saturating_mul(a: int.max, b: 2)     // int.max
 
-saturating_add(byte.max, byte(1))  // byte.max (255)
+saturating_add(a: byte.max, b: byte(1))  // byte.max (255)
 ```
 
 #### Wrapping Arithmetic
@@ -118,11 +119,11 @@ saturating_add(byte.max, byte(1))  // byte.max (255)
 Wraps around on overflow (modular arithmetic):
 
 ```ori
-wrapping_add(int.max, 1)     // int.min
-wrapping_sub(int.min, 1)     // int.max
-wrapping_mul(int.max, 2)     // -2
+wrapping_add(a: int.max, b: 1)     // int.min
+wrapping_sub(a: int.min, b: 1)     // int.max
+wrapping_mul(a: int.max, b: 2)     // -2
 
-wrapping_add(byte.max, byte(1))  // byte(0)
+wrapping_add(a: byte.max, b: byte(1))  // byte(0)
 ```
 
 #### Checked Arithmetic
@@ -130,10 +131,10 @@ wrapping_add(byte.max, byte(1))  // byte(0)
 Returns `Option<T>` — `None` on overflow:
 
 ```ori
-checked_add(int.max, 1)      // None
-checked_add(100, 200)        // Some(300)
-checked_sub(int.min, 1)      // None
-checked_mul(int.max, 2)      // None
+checked_add(a: int.max, b: 1)    // None
+checked_add(a: 100, b: 200)      // Some(300)
+checked_sub(a: int.min, b: 1)    // None
+checked_mul(a: int.max, b: 2)    // None
 ```
 
 ### Type Signatures
@@ -165,7 +166,7 @@ Division has a special overflow case: `int.min / -1` overflows because the resul
 
 ```ori
 int.min div -1  // PANIC: integer overflow
-int.min % -1    // PANIC: integer overflow (implementation may vary)
+int.min % -1    // PANIC: integer overflow
 ```
 
 Division by zero is a separate error:
@@ -186,7 +187,7 @@ type Counter = { value: int }
 use std.math { saturating_add }
 
 @increment (c: Counter) -> Counter = run(
-    Counter { value: saturating_add(c.value, 1) }
+    Counter { value: saturating_add(a: c.value, b: 1) }
 )
 
 // Counter.value stays at int.max instead of overflowing
@@ -202,8 +203,8 @@ use std.math { wrapping_add, wrapping_mul }
         over: bytes,
         init: 0,
         op: (acc, b) -> wrapping_add(
-            wrapping_mul(acc, 31),
-            int(b)
+            a: wrapping_mul(a: acc, b: 31),
+            b: int(b)
         )
     )
 )
@@ -215,7 +216,7 @@ use std.math { wrapping_add, wrapping_mul }
 use std.math { checked_add }
 
 @add_scores (a: int, b: int) -> Result<int, str> = run(
-    match(checked_add(a, b),
+    match(checked_add(a: a, b: b),
         Some(result) -> Ok(result),
         None -> Err("score overflow")
     )
@@ -255,7 +256,7 @@ Alternatives considered:
 |----------|---------|---------|
 | Operators | `a +% b` (wrapping) | Adds cryptic syntax |
 | Methods | `a.wrapping_add(b)` | Integers aren't struct types |
-| **Functions** | `wrapping_add(a, b)` | Clear, explicit, no new syntax |
+| **Functions** | `wrapping_add(a: x, b: y)` | Clear, explicit, no new syntax |
 
 Functions are consistent with Ori's pattern-based approach.
 
