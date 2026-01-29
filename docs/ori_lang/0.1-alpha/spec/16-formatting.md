@@ -431,9 +431,9 @@ use std.collections { HashMap, Set }
 use std.math { abs, sqrt }
 use std.time { Duration }
 
-use '../utils' { format }
-use './helpers' { compute, validate }
-use './local' { helper }
+use "../utils" { format }
+use "./helpers" { compute, validate }
+use "./local" { helper }
 ```
 
 Import items sorted alphabetically:

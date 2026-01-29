@@ -31,7 +31,7 @@ compiler/ori_ir/src/
 │   ├── items/              # Top-level item definitions
 │   │   ├── mod.rs              # Re-exports (~15 lines)
 │   │   ├── function.rs         # Function, TestDef (~141 lines)
-│   │   ├── imports.rs          # UseDef, ImportPath (~39 lines)
+│   │   ├── imports.rs          # UseDef, ImportPath (~48 lines)
 │   │   └── traits.rs           # TraitDef, ImplDef, ExtendDef (~205 lines)
 │   └── patterns/           # Pattern constructs
 │       ├── mod.rs              # Re-exports (~11 lines)

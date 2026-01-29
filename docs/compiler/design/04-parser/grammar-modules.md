@@ -77,7 +77,9 @@ Handles top-level declarations:
 
 ```rust
 // use_def.rs - Imports
-parse_use()           // use './math' { add, subtract }
+parse_use_inner()     // use "./math" { add, subtract }
+                      // use std.net.http as http (module alias)
+                      // pub use "./internal" { helper } (re-exports)
 
 // config.rs - Config variables
 parse_config()        // $timeout = 30s

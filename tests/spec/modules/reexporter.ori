@@ -1,0 +1,18 @@
+// Spec: 12-modules.md Re-exports
+// Design: (modules not yet in design docs)
+//
+// Module that re-exports items from other modules.
+// Tests the pub use syntax for making imports available to importers.
+
+use std.testing { assert_eq }
+
+// Re-export selected functions from math_lib
+pub use "./math_lib" { add, multiply }
+
+// Local function that uses re-exported function
+pub @quad (x: int) -> int = multiply(a: x, b: 4)
+
+// Test for local function
+@test_quad tests @quad () -> void = run(
+    assert_eq(actual: quad(x: 10), expected: 40)
+)

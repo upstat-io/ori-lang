@@ -170,6 +170,12 @@ pub fn cannot_access_field(type_name: &str) -> EvalError {
     EvalError::new(format!("cannot access field on {type_name}"))
 }
 
+/// No member in module namespace.
+#[cold]
+pub fn no_member_in_module(member: &str) -> EvalError {
+    EvalError::new(format!("module has no member '{member}'"))
+}
+
 // Type Conversion and Validation Errors
 
 /// Range start/end must be integer.

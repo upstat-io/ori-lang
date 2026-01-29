@@ -321,6 +321,7 @@ impl Interpreter<'_> {
             | Value::NewtypeConstructor { type_name } => *type_name,
             Value::Function(_) | Value::MemoizedFunction(_) => self.interner.intern("function"),
             Value::FunctionVal(_, _) => self.interner.intern("function_val"),
+            Value::ModuleNamespace(_) => self.interner.intern("module"),
             Value::Error(_) => self.interner.intern("error"),
         }
     }

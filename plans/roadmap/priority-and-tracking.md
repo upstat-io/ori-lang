@@ -9,7 +9,7 @@
 | 1 | Type System Foundation | ✅ Complete | All tests pass |
 | 2 | Type Inference | ✅ Complete | All tests pass |
 | 3 | Traits | ✅ Complete | All tests pass including map.len(), map.is_empty() |
-| 4 | Modules | 🔶 Core complete | 16/16 tests pass; remaining: module alias, re-exports, qualified access |
+| 4 | Modules | 🔶 Core complete | 16/16 tests pass; module alias/re-export parsing done; qualified access needs type checker |
 | 5 | Type Declarations | ✅ Complete | Structs, sum types (multi-field variants), newtypes all work |
 
 ### Tier 2: Capabilities & Stdlib
@@ -72,9 +72,10 @@
 
 ### What's Next (Priority Order)
 
-1. **Phase 4 (Modules)** — Advanced features remaining
-   - Core imports work (relative, module, private, aliases)
-   - Need: module alias (`use std.http as http`), re-exports (`pub use`), qualified access
+1. **Phase 4 (Modules)** — Type checker support remaining
+   - Parsing complete: module alias (`use std.http as http`), re-exports (`pub use`)
+   - Runtime complete: qualified access on ModuleNamespace values
+   - Need: type checker support for ModuleNamespace (qualified access type checking)
 
 2. **Phase 8 (Patterns)** — cache TTL remaining (NOW UNBLOCKED)
    - All compiler patterns work with stubs

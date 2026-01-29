@@ -24,8 +24,8 @@ Every source file defines one module.
 ### Relative (Local Files)
 
 ```ori
-use './math' { add, subtract }
-use '../utils/helpers' { format }
+use "./math" { add, subtract }
+use "../utils/helpers" { format }
 ```
 
 Paths start with `./` or `../`, resolve from current file, omit `.ori`.
@@ -40,7 +40,7 @@ use std.net.http as http
 ### Private Access
 
 ```ori
-use './math' { ::internal_helper }
+use "./math" { ::internal_helper }
 ```
 
 `::` prefix imports private (non-pub) items.
@@ -48,7 +48,7 @@ use './math' { ::internal_helper }
 ### Aliases
 
 ```ori
-use './math' { add as plus }
+use "./math" { add as plus }
 use std.collections { HashMap as Map }
 ```
 
@@ -65,7 +65,7 @@ pub $timeout = 30s
 ## Re-exports
 
 ```ori
-pub use './client' { get, post }
+pub use "./client" { get, post }
 ```
 
 ## Extensions
@@ -86,7 +86,7 @@ extend Iterator where Self.Item: Add {
 
 ```ori
 extension std.iter.extensions { Iterator.count, Iterator.last }
-extension './my_ext' { Iterator.sum }
+extension "./my_ext" { Iterator.sum }
 ```
 
 Method-level granularity required; no wildcards.

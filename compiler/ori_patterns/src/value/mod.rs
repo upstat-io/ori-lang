@@ -135,6 +135,12 @@ pub enum Value {
     /// Range value.
     Range(RangeValue),
 
+    /// Module namespace for qualified access.
+    ///
+    /// Created by module alias imports like `use std.net.http as http`.
+    /// Enables qualified access like `http.get()`.
+    ModuleNamespace(Heap<HashMap<Name, Value>>),
+
     // Error Recovery
     /// Error value for error recovery.
     Error(String),
@@ -304,6 +310,19 @@ impl Value {
     pub fn newtype_constructor(type_name: Name) -> Self {
         Value::NewtypeConstructor { type_name }
     }
+
+    /// Create a module namespace for qualified access.
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// // Create a namespace for `use std.net.http as http`
+    /// let ns = Value::module_namespace(members);
+    /// ```
+    #[inline]
+    pub fn module_namespace(members: HashMap<Name, Value>) -> Self {
+        Value::ModuleNamespace(Heap::new(members))
+    }
 }
 
 // Value Methods
@@ -396,6 +415,7 @@ impl Value {
             Value::Duration(_) => "Duration",
             Value::Size(_) => "Size",
             Value::Range(_) => "Range",
+            Value::ModuleNamespace(_) => "module",
             Value::Error(_) => "error",
         }
     }
@@ -467,6 +487,7 @@ impl Value {
             Value::Duration(ms) => format!("{ms}ms"),
             Value::Size(bytes) => format!("{bytes}b"),
             Value::Range(r) => format!("{r:?}"),
+            Value::ModuleNamespace(_) => "<module>".to_string(),
             Value::Error(msg) => format!("Error({msg})"),
         }
     }
@@ -573,6 +594,7 @@ impl fmt::Debug for Value {
             Value::Duration(ms) => write!(f, "Duration({ms}ms)"),
             Value::Size(bytes) => write!(f, "Size({bytes}b)"),
             Value::Range(r) => write!(f, "Range({r:?})"),
+            Value::ModuleNamespace(ns) => write!(f, "ModuleNamespace({} items)", ns.len()),
             Value::Error(msg) => write!(f, "Error({msg})"),
         }
     }
@@ -679,6 +701,7 @@ impl fmt::Display for Value {
                     write!(f, "{}..{}", r.start, r.end)
                 }
             }
+            Value::ModuleNamespace(_) => write!(f, "<module>"),
             Value::Error(msg) => write!(f, "<error: {msg}>"),
         }
     }
@@ -836,6 +859,10 @@ impl std::hash::Hash for Value {
                 r.start.hash(state);
                 r.end.hash(state);
                 r.inclusive.hash(state);
+            }
+            Value::ModuleNamespace(ns) => {
+                // Hash by namespace size (discriminant already hashed)
+                ns.len().hash(state);
             }
             Value::Error(msg) => msg.hash(state),
         }

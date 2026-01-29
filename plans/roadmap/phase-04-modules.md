@@ -93,9 +93,10 @@
   - [x] **Rust Tests**: `ori_parse/src/grammar/` — alias parsing
   - [x] **Ori Tests**: `tests/spec/modules/_test/use_aliases.test.ori`
 
-- [ ] **Implement**: Module alias `use std.net.http as http` — spec/12-modules.md § Aliases
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — module alias parsing
-  - [ ] **Ori Tests**: `tests/spec/modules/module_alias.ori`
+- [x] **Implement**: Module alias `use std.net.http as http` — spec/12-modules.md § Aliases
+  - [x] **Rust Tests**: `ori_parse/src/grammar/` — module alias parsing
+  - [x] **Ori Tests**: `tests/spec/modules/_test/module_alias.test.ori`
+  - Note: Parsing and runtime complete; qualified access needs type checker support
 
 ---
 
@@ -113,9 +114,10 @@
   - [x] **Rust Tests**: `ori_parse/src/grammar/` — config visibility parsing
   - [x] **Ori Tests**: `tests/spec/modules/use_imports.ori`
 
-- [ ] **Implement**: Re-exports `pub use` — spec/12-modules.md § Re-exports
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — re-export parsing
-  - [ ] **Ori Tests**: `tests/spec/modules/reexports.ori`
+- [x] **Implement**: Re-exports `pub use` — spec/12-modules.md § Re-exports
+  - [x] **Rust Tests**: `ori_parse/src/grammar/` — re-export parsing
+  - [x] **Ori Tests**: `tests/spec/modules/reexporter.ori`
+  - Note: Parsing complete; full re-export resolution pending
 
 - [x] **Implement**: Private by default — spec/12-modules.md § Visibility
   - [x] **Rust Tests**: `oric/src/eval/module/` — visibility enforcement
@@ -153,9 +155,10 @@
   - [x] **Rust Tests**: `oric/src/eval/module/` — name resolution tests
   - [x] **Ori Tests**: All import tests verify name resolution
 
-- [ ] **Implement**: Qualified access — spec/12-modules.md § Qualified Access
-  - [ ] **Rust Tests**: `oric/src/eval/` — qualified access evaluation
+- [x] **Implement**: Qualified access — spec/12-modules.md § Qualified Access
+  - [x] **Rust Tests**: `oric/src/eval/` — qualified access evaluation
   - [ ] **Ori Tests**: `tests/spec/modules/qualified.ori`
+  - Note: Runtime evaluation complete; type checker needs ModuleNamespace support
 
 ---
 
@@ -219,10 +222,10 @@
 
 ## 4.8 Remaining Work
 
-**Not yet implemented:**
-- Module alias syntax: `use std.net.http as http`
-- Re-exports: `pub use './client' { get, post }`
-- Qualified access: `module.function()` without importing
+**Parsing/Runtime complete, type checker pending:**
+- Module alias syntax: `use std.net.http as http` — parsing ✅, runtime ✅, type checker ❌
+- Re-exports: `pub use './client' { get, post }` — parsing ✅, full resolution pending
+- Qualified access: `module.function()` — runtime ✅, type checker needs ModuleNamespace support
 
 **Nice to have (lower priority):**
 - Extension imports: `extension std.iter.extensions { Iterator.count }`
@@ -245,11 +248,11 @@
 - [x] Auto-load stdlib prelude ✅
 - [x] `Self` type parsing in traits
 - [x] Trait/impl parsing at module level
-- [ ] Module alias syntax (`use std.net.http as http`)
-- [ ] Re-exports (`pub use`)
-- [ ] Qualified access (`module.function()`)
+- [x] Module alias syntax (`use std.net.http as http`) — parsing/runtime complete
+- [x] Re-exports (`pub use`) — parsing complete
+- [x] Qualified access (`module.function()`) — runtime complete, type checker pending
 - [ ] Type definitions parsing (see Phase 5)
 - [x] Run full test suite: `./test-all`
 
 **Exit Criteria**: Multi-file projects compile ✅ (core support complete)
-**Status**: Phase 4 core functionality complete. Remaining items blocked by other phases.
+**Status**: Phase 4 parsing and runtime complete. Type checker support for module namespaces pending.

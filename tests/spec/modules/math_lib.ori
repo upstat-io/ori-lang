@@ -1,0 +1,62 @@
+// Spec: 12-modules.md Module Alias
+// Design: (modules not yet in design docs)
+//
+// Helper module for testing module alias imports and qualified access.
+
+use std.testing { assert_eq }
+
+// Simple arithmetic functions
+pub @add (a: int, b: int) -> int = a + b
+
+pub @subtract (a: int, b: int) -> int = a - b
+
+pub @multiply (a: int, b: int) -> int = a * b
+
+// A function that uses another function in this module
+pub @square (x: int) -> int = multiply(a: x, b: x)
+
+// A function with a single parameter
+pub @double (x: int) -> int = x * 2
+
+// A function that returns a closure
+pub @make_adder (n: int) -> (int) -> int = x -> x + n
+
+// Private function (should not be accessible via module alias)
+@internal_helper (x: int) -> int = x + 100
+
+// Public function using private helper
+pub @use_internal (x: int) -> int = internal_helper(x: x)
+
+// Tests for this module
+@test_add tests @add () -> void = run(
+    assert_eq(actual: add(a: 2, b: 3), expected: 5)
+)
+
+@test_subtract tests @subtract () -> void = run(
+    assert_eq(actual: subtract(a: 10, b: 3), expected: 7)
+)
+
+@test_multiply tests @multiply () -> void = run(
+    assert_eq(actual: multiply(a: 4, b: 5), expected: 20)
+)
+
+@test_square tests @square () -> void = run(
+    assert_eq(actual: square(x: 7), expected: 49)
+)
+
+@test_double tests @double () -> void = run(
+    assert_eq(actual: double(x: 21), expected: 42)
+)
+
+@test_make_adder tests @make_adder () -> void = run(
+    let add5 = make_adder(n: 5),
+    assert_eq(actual: add5(10), expected: 15)
+)
+
+@test_internal_helper tests @internal_helper () -> void = run(
+    assert_eq(actual: internal_helper(x: 1), expected: 101)
+)
+
+@test_use_internal tests @use_internal () -> void = run(
+    assert_eq(actual: use_internal(x: 1), expected: 101)
+)

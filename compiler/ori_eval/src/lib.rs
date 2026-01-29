@@ -92,6 +92,7 @@ pub use errors::{
     missing_struct_field,
     modulo_by_zero,
     no_field_on_struct,
+    no_member_in_module,
     // Method call errors
     no_such_method,
     non_exhaustive_match,

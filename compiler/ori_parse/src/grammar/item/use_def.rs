@@ -1,17 +1,18 @@
 //! Import/use statement parsing.
 
-use crate::{ParseError, ParseResult, Parser};
+use crate::{ParseError, Parser};
 use ori_ir::{ImportPath, TokenKind, UseDef, UseItem};
 
 impl Parser<'_> {
-    /// Parse a use/import statement with progress tracking.
-    pub(crate) fn parse_use_with_progress(&mut self) -> ParseResult<UseDef> {
-        self.with_progress(|p| p.parse_use())
-    }
-
     /// Parse a use/import statement.
-    /// Syntax: use './path' { item1, item2 as alias } or use std.math { sqrt }
-    pub(crate) fn parse_use(&mut self) -> Result<UseDef, ParseError> {
+    ///
+    /// Syntax variants:
+    /// - Item import: `use './path' { item1, item2 as alias }`
+    /// - Module import: `use std.math { sqrt }`
+    /// - Module alias: `use std.net.http as http`
+    ///
+    /// The `is_public` parameter tracks whether this is a public re-export (`pub use`).
+    pub(crate) fn parse_use_inner(&mut self, is_public: bool) -> Result<UseDef, ParseError> {
         let start_span = self.current_span();
         self.expect(&TokenKind::Use)?;
 
@@ -35,6 +36,20 @@ impl Parser<'_> {
             }
             ImportPath::Module(segments)
         };
+
+        // Check for module alias: `use path as alias`
+        if self.check(&TokenKind::As) {
+            self.advance();
+            let alias = self.expect_ident()?;
+            let end_span = self.previous_span();
+            return Ok(UseDef {
+                path,
+                items: vec![],
+                module_alias: Some(alias),
+                is_public,
+                span: start_span.merge(end_span),
+            });
+        }
 
         // Parse imported items: { item1, item2 as alias }
         self.expect(&TokenKind::LBrace)?;
@@ -83,6 +98,8 @@ impl Parser<'_> {
         Ok(UseDef {
             path,
             items,
+            module_alias: None,
+            is_public,
             span: start_span.merge(end_span),
         })
     }
