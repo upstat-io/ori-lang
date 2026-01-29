@@ -264,6 +264,15 @@
 - Type conversions use `as` syntax (see `as-conversion-proposal.md`)
 - Blocked on: None (can be implemented independently)
 
+**Structured Diagnostics and Auto-Fix** — ✅ APPROVED 2026-01-28
+- Proposal: `proposals/approved/structured-diagnostics-autofix.md`
+- Implementation: Phase 22.7
+- JSON output mode (`--json`) for AI agents and IDE integrations
+- Auto-fix capability (`--fix`, `--fix=all`) with applicability levels
+- Improved human-readable output with Rust-style source snippets
+- Core types (`Applicability`, `Suggestion`, `Substitution`) already exist; enhances JSON emitter
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones
