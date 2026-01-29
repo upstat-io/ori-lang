@@ -607,25 +607,21 @@ impl Eq for ExprArena {}
 
 impl Hash for ExprArena {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // O(1) structural fingerprint - lengths only.
-        // Salsa uses Eq for correctness; Hash collisions just cause cache misses.
-        // This is a deliberate trade-off: we sacrifice uniqueness for speed,
-        // since arenas can be very large and full hashing would be O(n).
-        self.exprs.len().hash(state);
-        self.expr_lists.len().hash(state);
-        self.stmts.len().hash(state);
-        self.params.len().hash(state);
-        self.arms.len().hash(state);
-        self.map_entries.len().hash(state);
-        self.field_inits.len().hash(state);
-        self.seq_bindings.len().hash(state);
-        self.named_exprs.len().hash(state);
-        self.call_args.len().hash(state);
-        self.generic_params.len().hash(state);
-        self.parsed_types.len().hash(state);
-        self.parsed_type_lists.len().hash(state);
-        self.match_patterns.len().hash(state);
-        self.match_pattern_lists.len().hash(state);
+        self.exprs.hash(state);
+        self.expr_lists.hash(state);
+        self.stmts.hash(state);
+        self.params.hash(state);
+        self.arms.hash(state);
+        self.map_entries.hash(state);
+        self.field_inits.hash(state);
+        self.seq_bindings.hash(state);
+        self.named_exprs.hash(state);
+        self.call_args.hash(state);
+        self.generic_params.hash(state);
+        self.parsed_types.hash(state);
+        self.parsed_type_lists.hash(state);
+        self.match_patterns.hash(state);
+        self.match_pattern_lists.hash(state);
     }
 }
 
