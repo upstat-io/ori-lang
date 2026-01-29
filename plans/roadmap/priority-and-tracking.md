@@ -208,12 +208,12 @@
 - Traces always collected (all builds), not build-mode dependent
 - Blocked on: None (can be implemented independently)
 
-**No Circular Imports** — ✅ APPROVED 2026-01-25
+**No Circular Imports** — ✅ APPROVED 2026-01-28
 - Proposal: `proposals/approved/no-circular-imports-proposal.md`
-- Implementation: Phase 4.4
-- Circular import dependencies are compile-time errors
+- Implementation: Phase 4.4, 4.7
+- Circular import dependencies are compile-time errors (E5003)
 - Core cycle detection already implemented
-- Remaining: enhanced error messages, report all cycles, CLI tooling
+- Remaining: enhanced error messages, report all cycles, CLI tooling (`ori check --cycles`, `ori graph --imports`)
 - Blocked on: None (core detection complete)
 
 ---
