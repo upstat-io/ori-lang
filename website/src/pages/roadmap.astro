@@ -459,7 +459,7 @@ const tiers: Tier[] = [
         num: 15,
         name: "Syntax Proposals",
         status: "not-started",
-        note: "15.1-15.7 approved syntax changes",
+        note: "15.1-15.14 approved syntax changes",
         goal: "Implement approved syntax changes",
         spec: "docs/ori_lang/proposals/",
         sections: [
@@ -486,6 +486,34 @@ const tiers: Tier[] = [
             { name: "x as T / x as? T parsing", done: false },
             { name: "Type checker enforcement", done: false },
             { name: "Remove int()/float()/str()/byte()", done: false },
+          ]},
+          { name: "Default Parameters (15.8)", tasks: [
+            { name: "param: Type = default_expr syntax", done: false },
+            { name: "Call-time evaluation", done: false },
+          ]},
+          { name: "Function Clauses (15.9)", tasks: [
+            { name: "Pattern matching in parameters", done: false },
+            { name: "if guards", done: false },
+          ]},
+          { name: "Spread Operator (15.10)", tasks: [
+            { name: "[...a, ...b] list spread", done: false },
+            { name: "{...a, ...b} map spread", done: false },
+            { name: "T { ...s, x: v } struct spread", done: false },
+          ]},
+          { name: "Simplified Bindings (15.11)", tasks: [
+            { name: "let x mutable, let $x immutable", done: false },
+            { name: "Remove mut keyword", done: false },
+          ]},
+          { name: "Remove dyn Keyword (15.12)", tasks: [
+            { name: "Trait names as trait objects", done: false },
+          ]},
+          { name: "Range with Step (15.13)", tasks: [
+            { name: "0..10 by 2 syntax", done: false },
+            { name: "Integer-only restriction", done: false },
+          ]},
+          { name: "Positional Lambdas (15.14)", tasks: [
+            { name: "items.map(x -> x * 2) syntax", done: false },
+            { name: "Lambda literal detection", done: false },
           ]},
         ],
       },
@@ -522,10 +550,23 @@ const tiers: Tier[] = [
         num: 17,
         name: "Concurrency Extended",
         status: "not-started",
-        note: "Select, cancel, enhanced channels",
+        note: "Sendable trait, role-based channels, select, cancel",
         goal: "Advanced concurrency primitives",
         spec: "Design pending",
         sections: [
+          { name: "Sendable Trait", tasks: [
+            { name: "Auto-implemented marker trait", done: false },
+            { name: "Type safety for cross-task values", done: false },
+          ]},
+          { name: "Role-Based Channels", tasks: [
+            { name: "Producer<T>, Consumer<T> types", done: false },
+            { name: "CloneableProducer, CloneableConsumer", done: false },
+            { name: "channel(), channel_in(), channel_out(), channel_all()", done: false },
+          ]},
+          { name: "Structured Concurrency", tasks: [
+            { name: "nursery pattern", done: false },
+            { name: "NurseryErrorMode enum", done: false },
+          ]},
           { name: "Select", tasks: [
             { name: "select(...) pattern", done: false },
             { name: "First-to-complete semantics", done: false },
@@ -533,10 +574,6 @@ const tiers: Tier[] = [
           { name: "Cancellation", tasks: [
             { name: "Cancel tokens", done: false },
             { name: "Structured cancellation", done: false },
-          ]},
-          { name: "Channels", tasks: [
-            { name: "Buffered channels", done: false },
-            { name: "Channel select", done: false },
           ]},
         ],
       },
