@@ -263,26 +263,33 @@ run(
 
 ### RAII Scope Guards
 
-The evaluator uses RAII-style scope guards for safe scope management:
+The evaluator uses RAII-style scope guards for panic-safe scope management. Both `ori_eval::Interpreter` and `oric::Evaluator` provide identical APIs through `ScopedInterpreter` and `ScopedEvaluator` guards respectively.
 
 ```rust
-// Execute within a new environment scope (auto-cleanup)
-self.with_env_scope(|eval| {
-    eval.env.define(name, value, mutable);
-    eval.eval(body)
+// Direct guard usage (most flexible)
+{
+    let mut scoped = interpreter.scoped();  // or evaluator.scoped()
+    scoped.env.define(name, value, Mutability::Immutable);
+    scoped.eval(body)?;
+} // pop_scope called here, even on panic
+
+// Closure-based convenience methods
+self.with_env_scope(|scoped| {
+    scoped.env.define(name, value, Mutability::Immutable);
+    scoped.eval(body)
 })
 
 // Execute with pre-defined bindings
-self.with_bindings(bindings, |eval| eval.eval(body))
+self.with_bindings(bindings, |scoped| scoped.eval(body))
 
 // Execute with match bindings (immutable)
-self.with_match_bindings(pattern_bindings, |eval| eval.eval(arm_body))
+self.with_match_bindings(pattern_bindings, |scoped| scoped.eval(arm_body))
 
 // Execute with a single binding
-self.with_binding(name, value, mutable, |eval| eval.eval(body))
+self.with_binding(name, value, Mutability::Immutable, |scoped| scoped.eval(body))
 ```
 
-These guards guarantee cleanup even on early returns or errors.
+The guards implement `Deref` and `DerefMut` to the underlying interpreter/evaluator, allowing transparent access to all methods. Cleanup is guaranteed even on panic via the `Drop` implementation.
 
 ### Pattern Delegation
 

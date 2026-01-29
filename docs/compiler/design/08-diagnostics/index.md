@@ -264,12 +264,25 @@ pub struct Diagnostic {
     /// Additional notes providing context
     pub notes: Vec<String>,
 
-    /// Simple text suggestions (human-readable)
+    /// Simple text suggestions (human-readable, actionable)
+    /// Use for "did you mean X?" style messages.
     pub suggestions: Vec<String>,
 
     /// Structured suggestions with spans and applicability (for `ori fix`)
     pub structured_suggestions: Vec<Suggestion>,
 }
+
+### Notes vs Suggestions
+
+**Notes** (`.with_note()`) provide contextual information:
+- "a type cannot contain itself"
+- "available fields: x, y, z"
+- "closures cannot recursively reference themselves"
+
+**Suggestions** (`.with_suggestion()`) are actionable recommendations:
+- "did you mean `length`?"
+- "add explicit type annotation"
+- "remove extra arguments"
 
 pub enum Severity {
     Error,
