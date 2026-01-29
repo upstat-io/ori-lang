@@ -99,7 +99,73 @@ type Result<T, E> = Ok(T) | Err(E)
 type Ordering = Less | Equal | Greater
 type Error = { message: str, source: Option<Error> }  // trace field internal
 type TraceEntry = { function: str, file: str, line: int, column: int }
-type Channel<T>   // bounded async channel
+type NurseryErrorMode = CancelRemaining | CollectAll | FailFast
+```
+
+## Channel Types
+
+Role-based channel types enforce producer/consumer separation at compile time.
+
+```ori
+type Producer<T: Sendable>           // Can only send
+type Consumer<T: Sendable>           // Can only receive
+type CloneableProducer<T: Sendable>  // Producer that implements Clone
+type CloneableConsumer<T: Sendable>  // Consumer that implements Clone
+```
+
+### Channel Constructors
+
+```ori
+// One-to-one (exclusive, fastest)
+@channel<T: Sendable> (buffer: int) -> (Producer<T>, Consumer<T>)
+
+// Fan-in (many-to-one, producer cloneable)
+@channel_in<T: Sendable> (buffer: int) -> (CloneableProducer<T>, Consumer<T>)
+
+// Fan-out (one-to-many, consumer cloneable)
+@channel_out<T: Sendable> (buffer: int) -> (Producer<T>, CloneableConsumer<T>)
+
+// Many-to-many (both cloneable)
+@channel_all<T: Sendable> (buffer: int) -> (CloneableProducer<T>, CloneableConsumer<T>)
+```
+
+### Producer Methods
+
+```ori
+impl<T: Sendable> Producer<T> {
+    @send (self, value: T) -> void uses Async  // Consumes value
+    @close (self) -> void
+    @is_closed (self) -> bool
+}
+```
+
+Sending a value transfers ownership. The value cannot be used after send.
+
+### Consumer Methods
+
+```ori
+impl<T: Sendable> Consumer<T> {
+    @receive (self) -> Option<T> uses Async
+    @is_closed (self) -> bool
+}
+
+impl<T: Sendable> Iterable for Consumer<T> {
+    type Item = T
+}
+```
+
+`receive` returns `None` when the channel is closed and empty.
+
+### Cloneability
+
+`CloneableProducer` and `CloneableConsumer` implement `Clone`. Regular `Producer` and `Consumer` do not.
+
+```ori
+let (p, c) = channel<int>(buffer: 10)
+// p.clone()  // error: Producer<int> does not implement Clone
+
+let (p, c) = channel_in<int>(buffer: 10)
+let p2 = p.clone()  // OK: CloneableProducer implements Clone
 ```
 
 ## User-Defined Types
@@ -325,6 +391,52 @@ trait Collect<T> {
 | `str` | `Iterable`, `DoubleEndedIterator` |
 | `Range<int>` | `Iterable`, `DoubleEndedIterator` |
 | `Option<T>` | `Iterable` |
+
+## Sendable Trait
+
+The `Sendable` trait marks types that can safely cross task boundaries.
+
+```ori
+trait Sendable {}
+```
+
+`Sendable` is a marker trait with no methods. It is automatically implemented when:
+
+1. All fields are `Sendable`
+2. No interior mutability
+3. No non-Sendable captured state (for closures)
+
+### Standard Implementations
+
+| Type | Sendable |
+|------|----------|
+| `int`, `float`, `bool`, `str`, `char`, `byte` | Yes |
+| `Duration`, `Size` | Yes |
+| `[T]` where `T: Sendable` | Yes |
+| `{K: V}` where `K: Sendable, V: Sendable` | Yes |
+| `Set<T>` where `T: Sendable` | Yes |
+| `Option<T>` where `T: Sendable` | Yes |
+| `Result<T, E>` where `T: Sendable, E: Sendable` | Yes |
+| `(T1, T2, ...)` where all `Ti: Sendable` | Yes |
+| `(T) -> R` where captures are `Sendable` | Yes |
+
+### Non-Sendable Types
+
+Types that are not `Sendable`:
+- Unique resources (file handles, network connections)
+- Types with identity semantics
+- Types containing non-Sendable fields
+
+### Channel Constraint
+
+Channel types require `T: Sendable`:
+
+```ori
+let (p, c) = channel<int>(buffer: 10)  // OK: int is Sendable
+
+type Handle = { file: FileHandle }
+let (p, c) = channel<Handle>(buffer: 10)  // error: Handle is not Sendable
+```
 
 ## Type Inference
 

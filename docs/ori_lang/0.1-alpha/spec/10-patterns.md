@@ -154,6 +154,51 @@ timeout(op: fetch(url), after: 5s)
 
 Returns `Result<T, TimeoutError>`.
 
+### nursery
+
+Structured concurrency with guaranteed task completion.
+
+```ori
+nursery(
+    body: n -> for item in items do n.spawn(task: () -> process(item)),
+    on_error: CollectAll,
+    timeout: 30s,
+)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `body` | `Nursery -> T` | Lambda that spawns tasks |
+| `on_error` | `NurseryErrorMode` | Error handling mode |
+| `timeout` | `Duration` | Maximum time (optional) |
+
+Returns `[Result<T, E>]`. All spawned tasks complete before nursery exits.
+
+The `Nursery` type provides a single method:
+
+```ori
+type Nursery = {
+    @spawn<T> (self, task: () -> T uses Async) -> void
+}
+```
+
+Error modes:
+
+```ori
+type NurseryErrorMode = CancelRemaining | CollectAll | FailFast
+```
+
+| Mode | Behavior |
+|------|----------|
+| `CancelRemaining` | On first error, cancel pending tasks |
+| `CollectAll` | Wait for all tasks regardless of errors |
+| `FailFast` | On first error, cancel all immediately |
+
+Guarantees:
+- No orphan tasks — all spawned tasks complete or cancel
+- Error propagation — task failures captured in results
+- Scoped concurrency — tasks cannot escape nursery scope
+
 ## Resource Management (function_exp)
 
 ### cache
