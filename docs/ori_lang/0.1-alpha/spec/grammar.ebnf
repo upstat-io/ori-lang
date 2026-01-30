@@ -155,13 +155,19 @@ extension_def    = "extend" identifier [ where_clause ] "{" { method } "}" .
 extension_import = "extension" import_path "{" extension_item { "," extension_item } "}" .
 extension_item   = identifier "." identifier .
 
+// --- FFI (Foreign Function Interface) ---
+// See: spec/23-ffi.md
+
+extern_block = [ "pub" ] "extern" string_literal [ "from" string_literal ] "{" { extern_item } "}" .
+extern_item  = "@" identifier params "->" type [ "as" string_literal ] .
+
 
 // ============================================================================
 // DECLARATIONS
 // See: 08-declarations.md
 // ============================================================================
 
-declaration = { attribute } [ "pub" ] ( function | type_def | trait_def | impl_block | test | constant_decl ) .
+declaration = { attribute } [ "pub" ] ( function | type_def | trait_def | impl_block | test | constant_decl | extern_block ) .
 
 // --- Attributes ---
 // See: 08-declarations.md § Attributes, 24-conditional-compilation.md
@@ -256,7 +262,7 @@ function_type = "(" [ type { "," type } ] ")" "->" type .
 // See: 09-expressions.md
 // ============================================================================
 
-expression = with_expr | let_expr | if_expr | for_expr | loop_expr | lambda | break_expr | continue_expr | binary_expr .
+expression = with_expr | let_expr | if_expr | for_expr | loop_expr | lambda | break_expr | continue_expr | unsafe_expr | binary_expr .
 
 // --- Primary Expressions ---
 
@@ -264,7 +270,13 @@ primary       = literal | identifier | "self" | "Self"
               | "(" expression ")"
               | "#"                                   /* length in index context */
               | list_literal | map_literal | struct_literal
-              | pattern_expr .                        /* run, try, match, parallel, etc. */
+              | pattern_expr                          /* run, try, match, parallel, etc. */
+              | unsafe_expr .
+
+// --- Unsafe Expression ---
+// See: spec/23-ffi.md § Unsafe Blocks
+
+unsafe_expr = "unsafe" "{" expression "}" .
 
 // List literals with spread support
 // See: 09-expressions.md § Spread Operator
