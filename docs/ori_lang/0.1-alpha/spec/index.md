@@ -44,6 +44,7 @@ See [Patterns](10-patterns.md) for core constructs. See [Built-in Functions](11-
 20. [Errors and Panics](20-errors-and-panics.md)
 21. [Constant Expressions](21-constant-expressions.md)
 22. [System Considerations](22-system-considerations.md)
+23. [Concurrency Model](23-concurrency-model.md)
 
 ## Status
 

@@ -123,9 +123,11 @@ recurse(
 
 ## Concurrency
 
+Concurrency patterns create tasks. See [Concurrency Model](23-concurrency-model.md) for task definitions, async context semantics, and capture rules.
+
 ### parallel
 
-Execute tasks, wait for all to settle.
+Execute tasks, wait for all to settle. Creates one task per list element.
 
 ```ori
 parallel(
@@ -139,7 +141,7 @@ Returns `[Result<T, E>]`. Never fails; errors captured in results.
 
 ### spawn
 
-Fire and forget.
+Fire and forget. Creates one task per list element.
 
 ```ori
 spawn(tasks: [send_email(u) for u in users])
@@ -157,7 +159,7 @@ Returns `Result<T, TimeoutError>`.
 
 ### nursery
 
-Structured concurrency with guaranteed task completion.
+Structured concurrency with guaranteed task completion. Creates tasks via `n.spawn()`.
 
 ```ori
 nursery(
