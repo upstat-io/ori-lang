@@ -28,7 +28,10 @@
 //! Spans use `u32` for positions to keep tokens compact.
 
 use logos::Logos;
-use ori_ir::{DurationUnit, SizeUnit, Span, StringInterner, Token, TokenKind, TokenList};
+use ori_ir::{
+    Comment, CommentKind, CommentList, DurationUnit, SizeUnit, Span, StringInterner, Token,
+    TokenKind, TokenList,
+};
 
 /// Parse integer skipping underscores without allocation.
 #[inline]
@@ -414,6 +417,166 @@ pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
     result.push(Token::new(TokenKind::Eof, eof_span));
 
     result
+}
+
+/// Output from lexing with comment capture.
+///
+/// Contains both the token stream (for parsing) and the comment list (for formatting).
+#[derive(Clone, Default)]
+pub struct LexOutput {
+    /// The token stream for parsing.
+    pub tokens: TokenList,
+    /// Comments captured during lexing.
+    pub comments: CommentList,
+}
+
+impl LexOutput {
+    /// Create a new empty lex output.
+    pub fn new() -> Self {
+        LexOutput {
+            tokens: TokenList::new(),
+            comments: CommentList::new(),
+        }
+    }
+}
+
+/// Lex source code into tokens and comments.
+///
+/// This is the comment-preserving lexer entry point used by the formatter.
+/// Returns both the token stream and a list of all comments in source order.
+///
+/// # Comment Classification
+///
+/// Comments are classified by their content:
+/// - `// #...` → DocDescription
+/// - `// @param ...` → DocParam
+/// - `// @field ...` → DocField
+/// - `// !...` → DocWarning
+/// - `// >...` → DocExample
+/// - `// ...` (anything else) → Regular
+///
+/// # Example
+///
+/// ```
+/// use ori_lexer::lex_with_comments;
+/// use ori_ir::StringInterner;
+///
+/// let interner = StringInterner::new();
+/// let output = lex_with_comments("// comment\nlet x = 42", &interner);
+/// assert_eq!(output.comments.len(), 1);
+/// assert_eq!(output.tokens.len(), 6); // newline, let, x, =, 42, EOF
+/// ```
+pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
+    let mut output = LexOutput::new();
+    let mut logos = RawToken::lexer(source);
+
+    while let Some(token_result) = logos.next() {
+        let span = Span::from_range(logos.span());
+        let slice = logos.slice();
+
+        match token_result {
+            Ok(raw) => {
+                match raw {
+                    RawToken::LineComment => {
+                        // Capture comment - strip the leading "//"
+                        let content_str = if slice.len() > 2 {
+                            &slice[2..]
+                        } else {
+                            ""
+                        };
+                        let (kind, normalized) = classify_and_normalize_comment(content_str);
+                        let content = interner.intern(&normalized);
+                        output.comments.push(Comment::new(content, span, kind));
+                    }
+                    RawToken::LineContinuation => {}
+                    RawToken::Newline => {
+                        output.tokens.push(Token::new(TokenKind::Newline, span));
+                    }
+                    _ => {
+                        let kind = convert_token(raw, slice, interner);
+                        output.tokens.push(Token::new(kind, span));
+                    }
+                }
+            }
+            Err(()) => {
+                output.tokens.push(Token::new(TokenKind::Error, span));
+            }
+        }
+    }
+
+    // Add EOF token
+    let eof_pos = u32::try_from(source.len()).unwrap_or_else(|_| {
+        let error_span = Span::new(u32::MAX - 1, u32::MAX);
+        output.tokens.push(Token::new(TokenKind::Error, error_span));
+        u32::MAX
+    });
+    let eof_span = Span::point(eof_pos);
+    output.tokens.push(Token::new(TokenKind::Eof, eof_span));
+
+    output
+}
+
+/// Classify a comment by its content and return the normalized content.
+///
+/// Normalizes spacing: adds a space after `//` if missing, removes extra space
+/// after doc markers.
+///
+/// Returns (CommentKind, normalized_content).
+fn classify_and_normalize_comment(content: &str) -> (CommentKind, String) {
+    // Trim leading whitespace to check for markers
+    let trimmed = content.trim_start();
+
+    // Check for doc comment markers
+    if let Some(rest) = trimmed.strip_prefix('#') {
+        // Description: `// #Text` -> ` #Text`
+        let text = rest.trim_start();
+        return (CommentKind::DocDescription, format!(" #{}", text));
+    }
+
+    if let Some(rest) = trimmed.strip_prefix("@param") {
+        // Parameter: `// @param name desc` -> ` @param name desc`
+        // Keep the space or lack thereof after @param
+        let text = if rest.starts_with(char::is_whitespace) {
+            rest.trim_start()
+        } else {
+            rest
+        };
+        return (CommentKind::DocParam, format!(" @param {}", text));
+    }
+
+    if let Some(rest) = trimmed.strip_prefix("@field") {
+        // Field: `// @field name desc` -> ` @field name desc`
+        let text = if rest.starts_with(char::is_whitespace) {
+            rest.trim_start()
+        } else {
+            rest
+        };
+        return (CommentKind::DocField, format!(" @field {}", text));
+    }
+
+    if let Some(rest) = trimmed.strip_prefix('!') {
+        // Warning: `// !Text` -> ` !Text`
+        let text = rest.trim_start();
+        return (CommentKind::DocWarning, format!(" !{}", text));
+    }
+
+    if let Some(rest) = trimmed.strip_prefix('>') {
+        // Example: `// >example()` -> ` >example()`
+        // Don't trim after > to preserve example formatting
+        return (CommentKind::DocExample, format!(" >{}", rest));
+    }
+
+    // Regular comment - ensure space after //
+    if content.is_empty() {
+        // Empty comment: just "//"
+        (CommentKind::Regular, String::new())
+    } else if content.starts_with(' ') {
+        // Already has space: preserve as-is
+        (CommentKind::Regular, content.to_string())
+    } else {
+        // Missing space: add one
+        (CommentKind::Regular, format!(" {}", content))
+    }
 }
 
 /// Convert a raw token to a `TokenKind`, interning strings.
@@ -1071,5 +1234,216 @@ mod tests {
         assert_eq!(tokens.len(), 3); // a, b, EOF
         assert!(matches!(tokens[0].kind, TokenKind::Ident(_)));
         assert!(matches!(tokens[1].kind, TokenKind::Ident(_)));
+    }
+
+    // === Comment capture tests (lex_with_comments) ===
+
+    #[test]
+    fn test_lex_with_comments_basic() {
+        let interner = test_interner();
+        let output = lex_with_comments("// comment\nlet x = 42", &interner);
+
+        assert_eq!(output.comments.len(), 1);
+        assert_eq!(output.tokens.len(), 6); // newline, let, x, =, 42, EOF
+        assert_eq!(output.comments[0].kind, CommentKind::Regular);
+    }
+
+    #[test]
+    fn test_lex_with_comments_multiple() {
+        let interner = test_interner();
+        let output = lex_with_comments(
+            "// first\n// second\nlet x = 42",
+            &interner,
+        );
+
+        assert_eq!(output.comments.len(), 2);
+        assert_eq!(output.comments[0].kind, CommentKind::Regular);
+        assert_eq!(output.comments[1].kind, CommentKind::Regular);
+    }
+
+    #[test]
+    fn test_lex_with_comments_doc_description() {
+        let interner = test_interner();
+        let output = lex_with_comments("// #Calculates the sum.", &interner);
+
+        assert_eq!(output.comments.len(), 1);
+        assert_eq!(output.comments[0].kind, CommentKind::DocDescription);
+        assert_eq!(interner.lookup(output.comments[0].content), " #Calculates the sum.");
+    }
+
+    #[test]
+    fn test_lex_with_comments_doc_param() {
+        let interner = test_interner();
+        let output = lex_with_comments("// @param x The value", &interner);
+
+        assert_eq!(output.comments.len(), 1);
+        assert_eq!(output.comments[0].kind, CommentKind::DocParam);
+        assert_eq!(interner.lookup(output.comments[0].content), " @param x The value");
+    }
+
+    #[test]
+    fn test_lex_with_comments_doc_field() {
+        let interner = test_interner();
+        let output = lex_with_comments("// @field x The x coordinate", &interner);
+
+        assert_eq!(output.comments.len(), 1);
+        assert_eq!(output.comments[0].kind, CommentKind::DocField);
+        assert_eq!(interner.lookup(output.comments[0].content), " @field x The x coordinate");
+    }
+
+    #[test]
+    fn test_lex_with_comments_doc_warning() {
+        let interner = test_interner();
+        let output = lex_with_comments("// !Panics if n is negative", &interner);
+
+        assert_eq!(output.comments.len(), 1);
+        assert_eq!(output.comments[0].kind, CommentKind::DocWarning);
+        assert_eq!(interner.lookup(output.comments[0].content), " !Panics if n is negative");
+    }
+
+    #[test]
+    fn test_lex_with_comments_doc_example() {
+        let interner = test_interner();
+        let output = lex_with_comments("// >add(a: 1, b: 2) -> 3", &interner);
+
+        assert_eq!(output.comments.len(), 1);
+        assert_eq!(output.comments[0].kind, CommentKind::DocExample);
+        // Preserve formatting after > exactly
+        assert_eq!(interner.lookup(output.comments[0].content), " >add(a: 1, b: 2) -> 3");
+    }
+
+    #[test]
+    fn test_lex_with_comments_normalize_spacing() {
+        let interner = test_interner();
+
+        // Missing space after //
+        let output = lex_with_comments("//no space", &interner);
+        assert_eq!(interner.lookup(output.comments[0].content), " no space");
+
+        // Has space - preserved
+        let output = lex_with_comments("// has space", &interner);
+        assert_eq!(interner.lookup(output.comments[0].content), " has space");
+
+        // Empty comment
+        let output = lex_with_comments("//", &interner);
+        assert_eq!(interner.lookup(output.comments[0].content), "");
+    }
+
+    #[test]
+    fn test_lex_with_comments_doc_normalize_spacing() {
+        let interner = test_interner();
+
+        // Doc with extra spaces normalized
+        let output = lex_with_comments("//  #Description", &interner);
+        assert_eq!(output.comments[0].kind, CommentKind::DocDescription);
+        assert_eq!(interner.lookup(output.comments[0].content), " #Description");
+
+        // Doc without space before marker
+        let output = lex_with_comments("//#Description", &interner);
+        assert_eq!(output.comments[0].kind, CommentKind::DocDescription);
+        assert_eq!(interner.lookup(output.comments[0].content), " #Description");
+    }
+
+    #[test]
+    fn test_lex_with_comments_spans() {
+        let interner = test_interner();
+        let output = lex_with_comments("// comment\nlet x", &interner);
+
+        // Comment span covers "// comment" (10 chars)
+        assert_eq!(output.comments[0].span.start, 0);
+        assert_eq!(output.comments[0].span.end, 10);
+    }
+
+    #[test]
+    fn test_lex_with_comments_mixed_doc_types() {
+        let interner = test_interner();
+        let source = r#"// #Computes the sum.
+// @param a First operand
+// @param b Second operand
+// !Panics on overflow
+// >add(a: 1, b: 2) -> 3
+@add (a: int, b: int) -> int = a + b"#;
+
+        let output = lex_with_comments(source, &interner);
+
+        assert_eq!(output.comments.len(), 5);
+        assert_eq!(output.comments[0].kind, CommentKind::DocDescription);
+        assert_eq!(output.comments[1].kind, CommentKind::DocParam);
+        assert_eq!(output.comments[2].kind, CommentKind::DocParam);
+        assert_eq!(output.comments[3].kind, CommentKind::DocWarning);
+        assert_eq!(output.comments[4].kind, CommentKind::DocExample);
+    }
+
+    #[test]
+    fn test_lex_with_comments_no_comments() {
+        let interner = test_interner();
+        let output = lex_with_comments("let x = 42", &interner);
+
+        assert!(output.comments.is_empty());
+        assert_eq!(output.tokens.len(), 5); // let, x, =, 42, EOF
+    }
+
+    // === classify_and_normalize_comment tests ===
+
+    #[test]
+    fn test_classify_regular_comment() {
+        let (kind, content) = classify_and_normalize_comment(" regular text");
+        assert_eq!(kind, CommentKind::Regular);
+        assert_eq!(content, " regular text");
+    }
+
+    #[test]
+    fn test_classify_doc_description() {
+        let (kind, content) = classify_and_normalize_comment(" #Description");
+        assert_eq!(kind, CommentKind::DocDescription);
+        assert_eq!(content, " #Description");
+
+        // With extra spaces
+        let (kind, content) = classify_and_normalize_comment("  #Description");
+        assert_eq!(kind, CommentKind::DocDescription);
+        assert_eq!(content, " #Description");
+    }
+
+    #[test]
+    fn test_classify_doc_param() {
+        let (kind, content) = classify_and_normalize_comment(" @param x value");
+        assert_eq!(kind, CommentKind::DocParam);
+        assert_eq!(content, " @param x value");
+    }
+
+    #[test]
+    fn test_classify_doc_field() {
+        let (kind, content) = classify_and_normalize_comment(" @field x coord");
+        assert_eq!(kind, CommentKind::DocField);
+        assert_eq!(content, " @field x coord");
+    }
+
+    #[test]
+    fn test_classify_doc_warning() {
+        let (kind, content) = classify_and_normalize_comment(" !Panics");
+        assert_eq!(kind, CommentKind::DocWarning);
+        assert_eq!(content, " !Panics");
+    }
+
+    #[test]
+    fn test_classify_doc_example() {
+        let (kind, content) = classify_and_normalize_comment(" >foo() -> 1");
+        assert_eq!(kind, CommentKind::DocExample);
+        // Preserve spacing after > exactly
+        assert_eq!(content, " >foo() -> 1");
+    }
+
+    #[test]
+    fn test_classify_empty_comment() {
+        let (kind, content) = classify_and_normalize_comment("");
+        assert_eq!(kind, CommentKind::Regular);
+        assert_eq!(content, "");
+    }
+
+    #[test]
+    fn test_classify_no_space_adds_space() {
+        let (kind, content) = classify_and_normalize_comment("no space");
+        assert_eq!(kind, CommentKind::Regular);
+        assert_eq!(content, " no space");
     }
 }

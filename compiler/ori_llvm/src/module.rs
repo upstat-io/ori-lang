@@ -15,7 +15,7 @@
 use inkwell::context::Context;
 use inkwell::values::FunctionValue;
 
-use ori_ir::{ExprArena, Function, Name, StringInterner, TestDef, TypeId, Visibility};
+use ori_ir::{ExprArena, Function, Name, StringInterner, TestDef, TypeId};
 
 use crate::builder::Builder;
 use crate::context::CodegenCx;
@@ -278,7 +278,7 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
 mod tests {
     use super::*;
     use ori_ir::ast::{BinaryOp, Expr, ExprKind};
-    use ori_ir::{GenericParamRange, Param};
+    use ori_ir::{GenericParamRange, Param, Visibility};
 
     #[test]
     fn test_module_compiler_basic() {
@@ -341,7 +341,9 @@ mod tests {
         let expr_types = vec![TypeId::INT; 10];
         compiler.compile_function(&func, &arena, &expr_types);
 
-        println!("Module IR:\n{}", compiler.print_to_string());
+        if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+            println!("Module IR:\n{}", compiler.print_to_string());
+        }
 
         // Verify function was compiled
         assert!(compiler.get_function(add_name).is_some());
@@ -387,7 +389,9 @@ mod tests {
         let expr_types = vec![TypeId::BOOL];
         compiler.compile_test(&test_def, &arena, &expr_types);
 
-        println!("Test Module IR:\n{}", compiler.print_to_string());
+        if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+            println!("Test Module IR:\n{}", compiler.print_to_string());
+        }
 
         // Verify test was compiled
         assert!(compiler.get_test(test_name).is_some());

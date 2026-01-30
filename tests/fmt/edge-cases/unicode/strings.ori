@@ -1,0 +1,5 @@
+@greeting () -> str = "Hello, 世界!"
+
+@message () -> str = "Café"
+
+@path () -> str = "/home/user/文档"

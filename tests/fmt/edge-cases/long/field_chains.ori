@@ -1,0 +1,14 @@
+// Long chains of field access
+// Tests formatter handling of long access chains
+
+type Inner = { value: int }
+
+type Middle = { inner: Inner }
+
+type Outer = { middle: Middle }
+
+type Container = { outer: Outer }
+
+@extract_value (container: Container) -> int = container.outer.middle.inner.value
+
+@add_values (a: Container, b: Container) -> int = a.outer.value + b.outer.value

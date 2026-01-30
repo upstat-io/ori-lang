@@ -207,11 +207,12 @@ Ranges are always inline (never break).
 - Structs: inline with spaces, empty without spaces, field shorthand, broken one-per-line
 - Ranges: exclusive and inclusive (always inline)
 - Complexity detection: simple items (literals, identifiers) wrap, complex items (calls, structs, nested) one-per-line
+- Multi-line collection literals: parser updated to skip newlines in lists/tuples
 
-**Not implemented (parser limitations)**:
-- Spread operators (`...`) - not yet in parser
-- Stepped ranges (`by`) - not yet in parser
-- Set literals - using constructor syntax, not distinct from struct
+**Compiler features not yet implemented** (Phase 15C dependencies):
+- Spread operators (`...`) - see `plans/roadmap/phase-15C-literals-operators.md`
+- Stepped ranges (`by`) - see `plans/roadmap/phase-15C-literals-operators.md`
 
-**Known limitations**:
-- Multi-line collection literals in test input require `.expected` files since parser can't re-parse formatter output
+These are language features requiring lexer, parser, type checker, and evaluator changes. The formatter will automatically support them once implemented in the compiler.
+
+**Set literals**: Use `Set { ... }` constructor syntax, not distinct literal syntax.

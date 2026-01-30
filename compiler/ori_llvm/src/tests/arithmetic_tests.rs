@@ -45,7 +45,7 @@ fn test_simple_add() {
     );
 
     // Print IR for debugging
-    println!("Generated LLVM IR:\n{}", codegen.print_to_string());
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Generated LLVM IR:\n{}", codegen.print_to_string()); }
 
     // JIT execute
     let result = codegen.jit_execute_i64("test_add").expect("JIT failed");
@@ -82,7 +82,7 @@ fn test_duration_literal() {
         &expr_types,
     );
 
-    println!("Duration IR:\n{}", codegen.print_to_string());
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Duration IR:\n{}", codegen.print_to_string()); }
 
     // JIT execute - should return 5000 (5 seconds in milliseconds)
     let result = codegen
@@ -121,7 +121,7 @@ fn test_size_literal() {
         &expr_types,
     );
 
-    println!("Size IR:\n{}", codegen.print_to_string());
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Size IR:\n{}", codegen.print_to_string()); }
 
     // JIT execute - should return 2048 (2 * 1024)
     let result = codegen.jit_execute_i64("test_size").expect("JIT failed");

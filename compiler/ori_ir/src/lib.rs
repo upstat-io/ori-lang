@@ -36,6 +36,7 @@ macro_rules! static_assert_size {
 
 mod arena;
 pub mod ast;
+mod comment;
 mod derives;
 mod expr_id;
 mod interner;
@@ -123,6 +124,7 @@ pub use interner::{SharedInterner, StringInterner, StringLookup};
 pub use name::Name;
 pub use parsed_type::ParsedType;
 pub use span::{Span, SpanError};
+pub use comment::{Comment, CommentKind, CommentList};
 pub use token::{DurationUnit, SizeUnit, Token, TokenKind, TokenList};
 pub use traits::{Named, Spanned, Typed};
 pub use type_id::TypeId;

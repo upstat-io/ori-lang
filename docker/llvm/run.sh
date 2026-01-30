@@ -64,6 +64,6 @@ exec docker run --rm ${DOCKER_FLAGS} \
     -v "${CONTAINER_TARGET}:/workspace/target" \
     -v "${CARGO_CACHE}:/root/.cargo/registry:ro" \
     -w /workspace \
-    -e ORI_DEBUG_LLVM="${ORI_DEBUG_LLVM:-}" \
+    ${ORI_DEBUG_LLVM:+-e ORI_DEBUG_LLVM="$ORI_DEBUG_LLVM"} \
     ori-llvm:latest \
     sh -c "${CMD}"

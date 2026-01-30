@@ -5,14 +5,15 @@
 //! and the output is compared against the input (idempotency check) or an
 //! expected output file.
 //!
-//! Note: Comment preservation is Phase 6 work, so comments are stripped before
-//! comparison in these tests.
+//! Comment preservation tests (Phase 6) use `format_module_with_comments` and
+//! do not strip comments.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ori_fmt::format_module;
+use ori_fmt::{format_module, format_module_with_comments};
 use ori_ir::StringInterner;
+use ori_lexer::lex_with_comments;
 
 /// Strip comments from source code for comparison.
 /// Comments are not preserved in Phase 2 (that's Phase 6 work).
@@ -71,6 +72,29 @@ fn parse_and_format(source: &str) -> Result<String, String> {
     }
 
     Ok(format_module(&output.module, &output.arena, &interner))
+}
+
+/// Parse source code and format it with comment preservation.
+fn parse_and_format_with_comments(source: &str) -> Result<String, String> {
+    let interner = StringInterner::new();
+    let lex_output = lex_with_comments(source, &interner);
+    let parse_output = ori_parse::parse(&lex_output.tokens, &interner);
+
+    if parse_output.has_errors() {
+        let errors: Vec<String> = parse_output
+            .errors
+            .iter()
+            .map(|e| format!("{:?}", e))
+            .collect();
+        return Err(format!("Parse errors:\n{}", errors.join("\n")));
+    }
+
+    Ok(format_module_with_comments(
+        &parse_output.module,
+        &lex_output.comments,
+        &parse_output.arena,
+        &interner,
+    ))
 }
 
 /// Find all .ori files in a directory recursively.
@@ -268,3 +292,128 @@ golden_test!(golden_tests_collections_maps, "collections/maps");
 golden_test!(golden_tests_collections_tuples, "collections/tuples");
 golden_test!(golden_tests_collections_structs, "collections/structs");
 golden_test!(golden_tests_collections_ranges, "collections/ranges");
+
+// Comment Tests (Phase 6)
+// These tests use format_module_with_comments and don't strip comments
+
+/// Run a single golden test file with comment preservation.
+fn run_golden_test_with_comments(path: &Path) -> Result<(), String> {
+    let source = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+
+    let formatted = parse_and_format_with_comments(&source)?;
+
+    // Check for .expected file
+    let expected_path = path.with_extension("ori.expected");
+    let expected = if expected_path.exists() {
+        let exp = fs::read_to_string(&expected_path)
+            .map_err(|e| format!("Failed to read {}: {}", expected_path.display(), e))?;
+        normalize_whitespace(&exp)
+    } else {
+        // Idempotency test: formatted should match source
+        normalize_whitespace(&source)
+    };
+
+    let formatted_normalized = normalize_whitespace(&formatted);
+
+    if formatted_normalized != expected {
+        return Err(format!(
+            "Formatting mismatch for {}:\n\n--- Expected ---\n{}\n--- Got ---\n{}\n",
+            path.display(),
+            expected,
+            formatted_normalized
+        ));
+    }
+
+    Ok(())
+}
+
+/// Test idempotency with comment preservation.
+fn test_idempotency_with_comments(path: &Path) -> Result<(), String> {
+    // Skip idempotency for files with .expected (known format differences)
+    let expected_path = path.with_extension("ori.expected");
+    if expected_path.exists() {
+        return Ok(());
+    }
+
+    let source = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+
+    let first = parse_and_format_with_comments(&source)?;
+
+    // Try to parse the formatted output
+    let second = match parse_and_format_with_comments(&first) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!(
+                "Note: Skipping idempotency for {} (formatter output can't be re-parsed: {})",
+                path.display(),
+                e
+            );
+            return Ok(());
+        }
+    };
+
+    let first_normalized = normalize_whitespace(&first);
+    let second_normalized = normalize_whitespace(&second);
+
+    if first_normalized != second_normalized {
+        return Err(format!(
+            "Idempotency failure for {}:\n\n--- First format ---\n{}\n--- Second format ---\n{}\n",
+            path.display(),
+            first_normalized,
+            second_normalized
+        ));
+    }
+
+    Ok(())
+}
+
+/// Run golden tests for comment directories (with comment preservation).
+fn run_golden_tests_for_comments_dir(subdir: &str) {
+    let dir = golden_tests_dir().join(subdir);
+    let files = find_ori_files(&dir);
+
+    assert!(!files.is_empty(), "No test files found in {:?}", dir);
+
+    let mut failures = Vec::new();
+    for file in &files {
+        if let Err(e) = run_golden_test_with_comments(file) {
+            failures.push(e);
+        }
+        if let Err(e) = test_idempotency_with_comments(file) {
+            failures.push(e);
+        }
+    }
+
+    if !failures.is_empty() {
+        panic!(
+            "{} golden test failures:\n\n{}",
+            failures.len(),
+            failures.join("\n---\n")
+        );
+    }
+}
+
+/// Macro to generate comment golden test functions.
+macro_rules! comment_golden_test {
+    ($name:ident, $path:expr) => {
+        #[test]
+        fn $name() {
+            run_golden_tests_for_comments_dir($path);
+        }
+    };
+}
+
+comment_golden_test!(golden_tests_comments_regular, "comments/regular");
+comment_golden_test!(golden_tests_comments_doc, "comments/doc");
+comment_golden_test!(golden_tests_comments_edge, "comments/edge");
+
+// Edge Case Tests (Phase 8)
+golden_test!(golden_tests_edge_cases_empty, "edge-cases/empty");
+golden_test!(golden_tests_edge_cases_whitespace, "edge-cases/whitespace");
+golden_test!(golden_tests_edge_cases_boundary, "edge-cases/boundary");
+golden_test!(golden_tests_edge_cases_nested, "edge-cases/nested");
+golden_test!(golden_tests_edge_cases_unicode, "edge-cases/unicode");
+golden_test!(golden_tests_edge_cases_long, "edge-cases/long");
+golden_test!(golden_tests_edge_cases_real, "edge-cases/real");

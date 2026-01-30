@@ -1,0 +1,53 @@
+// Golden test: HTTP client with capabilities
+// Spec: 09-capabilities.md § Capability System
+// Design: tooling/formatter/design/appendices/A-edge-cases.md
+
+type Method = Get | Post | Put
+
+type Request = { method: Method, url: str, body: str }
+
+type Response = { status: int, body: str }
+
+type ApiError = Network(msg: str) | Timeout | NotFound
+
+@build_request (method: Method, url: str, body: str) -> Request = Request {
+    method: method,
+    url: url,
+    body: body,
+}
+
+@get (url: str) -> Result<Response, ApiError> uses Http = run(
+    let request = build_request(method: Get, url: url, body: ""),
+    send_request(request: request),
+)
+
+@post (url: str, body: str) -> Result<Response, ApiError> uses Http = run(
+    let request = build_request(method: Post, url: url, body: body),
+    send_request(request: request),
+)
+
+@send_request (request: Request) -> Result<Response, ApiError> uses Http = run(
+    let response = Response { status: 200, body: "OK" },
+    Ok(response),
+)
+
+// TODO: LLVM backend doesn't support struct field access on function return values
+// @fetch_user (id: int) -> Result<str, ApiError> uses Http, Logger = try(
+//     let response = get(url: "/api/users"),
+//     if response.status == 200 then Ok(response.body) else Err(NotFound),
+// )
+@fetch_user (id: int) -> Result<str, ApiError> uses Http, Logger = Ok("placeholder")
+
+// TODO: LLVM backend doesn't support struct field access on function return values
+// @create_user (name: str) -> Result<int, ApiError> uses Http, Logger = try(
+//     let response = post(url: "/api/users", body: name),
+//     if response.status == 201 then Ok(1) else Err(NotFound),
+// )
+@create_user (name: str) -> Result<int, ApiError> uses Http, Logger = Ok(1)
+
+// TODO: LLVM backend doesn't support struct field access
+#skip("LLVM backend: struct field access not supported")
+@test_build_request tests @build_request () -> void = run(
+    let req = build_request(method: Get, url: "/test", body: ""),
+    assert_eq(actual: req.url, expected: "/test"),
+)

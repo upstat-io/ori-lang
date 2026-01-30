@@ -1,0 +1,6 @@
+// Long parameter names
+// Tests formatter handling of very long parameter identifiers
+
+@process (long_param_name: int, other_param: int) -> int = long_param_name + other_param
+
+@concat (source_data: str, suffix: str) -> str = source_data

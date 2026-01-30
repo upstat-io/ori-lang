@@ -1,0 +1,6 @@
+// Regular comment
+// #Description of the function.
+// Another regular comment
+// @param x The input value.
+// Yet another regular comment
+@identity (x: int) -> int = x

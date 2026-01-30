@@ -3,8 +3,16 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "bun run server.ts",
+    "dev": "vite",
     "build:wasm": "cd wasm && wasm-pack build --target web --out-dir ../pkg",
-    "build": "bun run build:wasm"
+    "copy:website": "cp pkg/ori_playground_wasm.js pkg/ori_playground_wasm.d.ts pkg/ori_playground_wasm_bg.wasm pkg/ori_playground_wasm_bg.wasm.d.ts ../website/src/wasm/",
+    "build:wasm:all": "bun run build:wasm && bun run copy:website",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^4.0.0",
+    "svelte": "^5.0.0",
+    "vite": "^5.0.0"
   }
 }

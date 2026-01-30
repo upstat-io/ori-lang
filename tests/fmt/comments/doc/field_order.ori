@@ -1,0 +1,4 @@
+// #A 2D point.
+// @field y The Y coordinate.
+// @field x The X coordinate.
+type Point = { x: int, y: int }

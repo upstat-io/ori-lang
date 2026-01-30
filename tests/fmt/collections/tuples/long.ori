@@ -1,7 +1,21 @@
 // Long tuple formatting (one per line when exceeds width)
 // Design: formatter/design/02-constructs/collections.md § Tuples
-// Note: Parser doesn't support multi-line tuple literals
 
-@data () -> (str, str, str) = ("first_very_long_string_value_here", "second_very_long_string_value_here", "third_very_long_string_value_here")
+@data () -> (str, str, str) = (
+    "first_very_long_string_value_here",
+    "second_very_long_string_value_here",
+    "third_very_long_string_value_here",
+)
 
-@many_fields () -> (int, int, int, int, int, int, int, int, int, int) = (100000000, 200000000, 300000000, 400000000, 500000000, 600000000, 700000000, 800000000, 900000000, 1000000000)
+@many_fields () -> (int, int, int, int, int, int, int, int, int, int) = (
+    100000000,
+    200000000,
+    300000000,
+    400000000,
+    500000000,
+    600000000,
+    700000000,
+    800000000,
+    900000000,
+    1000000000,
+)

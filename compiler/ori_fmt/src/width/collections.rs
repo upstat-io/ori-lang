@@ -25,6 +25,7 @@ pub(super) fn list_width<I: StringLookup>(
 }
 
 /// Calculate width of a tuple literal: `(items)`.
+/// Single-element tuples need trailing comma: `(x,)`.
 pub(super) fn tuple_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
     items: ExprRange,
@@ -39,8 +40,9 @@ pub(super) fn tuple_width<I: StringLookup>(
         return ALWAYS_STACKED;
     }
 
-    // "(" + items + ")"
-    1 + items_w + 1
+    // "(" + items + ")" + optional trailing comma for single element
+    let trailing_comma = if items_list.len() == 1 { 1 } else { 0 };
+    1 + items_w + trailing_comma + 1
 }
 
 /// Calculate width of a map literal: `{entries}`.

@@ -1,0 +1,4 @@
+// #Adds two numbers.
+// @param a The first operand.
+// @param b The second operand.
+@add (a: int, b: int) -> int = a + b

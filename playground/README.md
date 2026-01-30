@@ -2,6 +2,8 @@
 
 Browser-based playground for the Ori programming language. Runs the interpreter entirely in WebAssembly.
 
+This standalone playground uses the **same Svelte component** as the website (`website/src/components/playground/`).
+
 ## Quick Start
 
 ### 1. Install wasm-pack
@@ -14,24 +16,25 @@ cargo install wasm-pack
 
 ```bash
 cd playground
-bun run build:wasm
+bun run build:wasm:all
 ```
 
-Or manually:
+This builds the WASM and copies it to both `playground/pkg/` and `website/src/wasm/`.
 
-```bash
-cd playground/wasm
-wasm-pack build --target web --out-dir ../pkg
-```
-
-### 3. Start the dev server
+### 3. Install dependencies
 
 ```bash
 cd playground
+bun install
+```
+
+### 4. Start the dev server
+
+```bash
 bun run dev
 ```
 
-### 4. Open in browser
+### 5. Open in browser
 
 Navigate to `http://localhost:3000`
 
@@ -39,43 +42,43 @@ Navigate to `http://localhost:3000`
 
 ```
 playground/
-├── package.json    # Bun project config
-├── server.ts       # Bun dev server
-├── index.html      # Main page
-├── style.css       # Styling (VS Code dark theme)
-├── app.js          # Monaco editor + WASM integration
-├── pkg/            # Generated WASM output (after build)
-└── wasm/           # WASM crate
+├── package.json       # Vite + Svelte project config
+├── vite.config.ts     # Vite configuration
+├── svelte.config.js   # Svelte 5 configuration
+├── index.html         # Entry HTML
+├── src/
+│   ├── main.ts        # Mounts the Playground component
+│   ├── components/    # Symlink → website/src/components/playground
+│   └── wasm/          # Symlink → website/src/wasm
+├── pkg/               # Generated WASM output (after build)
+└── wasm/              # WASM crate source
     ├── Cargo.toml
     └── src/
-        └── lib.rs  # Rust → WASM bindings via wasm-bindgen
+        └── lib.rs     # Rust → WASM bindings
 ```
 
 ## Scripts
 
 | Command | Description |
 |---------|-------------|
-| `bun run dev` | Start development server on port 3000 |
+| `bun run dev` | Start Vite development server |
+| `bun run build` | Build for production |
 | `bun run build:wasm` | Rebuild the WASM module |
+| `bun run build:wasm:all` | Rebuild WASM and copy to website |
 
 ## Features
 
 - **Monaco Editor** with Ori syntax highlighting
-- **VS Code Dark+ theme**
+- **Format button** - formats code using `ori_fmt`
+- **Auto-format on Run** - code is formatted before execution
 - **Examples** dropdown with sample programs
 - **Share** button (encodes code in URL hash)
 - **Ctrl+Enter** to run
 
-## How It Works
+## Shared Component
 
-The playground uses wasm-bindgen to expose the Ori interpreter to JavaScript:
+The Playground Svelte component is shared between:
+- `website/` - The main Ori website (Astro)
+- `playground/` - This standalone development playground (Vite)
 
-1. `lib.rs` exports `run_ori(source: &str) -> String` which returns JSON
-2. The WASM module uses the same Salsa-based interpreter as `cargo st`
-3. `app.js` imports the WASM module and calls `run_ori()` when you click Run
-
-## Deployment
-
-The playground is static files only. Deploy to GitHub Pages, Cloudflare Pages, Netlify, Vercel, or any static host.
-
-Just copy the `playground/` directory (after building WASM).
+Both import from `website/src/components/playground/` via symlinks.

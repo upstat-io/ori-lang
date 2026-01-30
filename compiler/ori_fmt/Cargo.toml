@@ -17,6 +17,7 @@ rustc-hash.workspace = true
 pretty_assertions.workspace = true
 ori_lexer.workspace = true
 ori_parse.workspace = true
+proptest.workspace = true
 
 [lints]
 workspace = true

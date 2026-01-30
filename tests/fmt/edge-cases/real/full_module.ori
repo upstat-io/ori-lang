@@ -1,0 +1,71 @@
+// Golden test: Full module with imports, types, functions, tests
+// Spec: 08-declarations.md § All declaration types
+// Design: tooling/formatter/design/appendices/A-edge-cases.md
+
+// TODO: std.math functions not yet implemented
+// use std.math { sqrt, abs }
+// TODO: std.time not yet implemented
+// use std.time { Duration }
+
+type Status = Pending | Active | Done
+
+type Task = { id: int, name: str, status: Status, priority: int }
+
+type TaskList = { tasks: [Task], owner: str }
+
+@create_task (id: int, name: str, priority: int) -> Task = Task {
+    id: id,
+    name: name,
+    status: Pending,
+    priority: priority,
+}
+
+// TODO: LLVM backend doesn't support struct field access
+// @complete_task (task: Task) -> Task = Task {
+//     id: task.id,
+//     name: task.name,
+//     status: Done,
+//     priority: task.priority,
+// }
+@complete_task (task: Task) -> Task = task
+
+// TODO: LLVM backend doesn't support struct field access
+// @is_high_priority (task: Task) -> bool = task.priority > 5
+@is_high_priority (task: Task) -> bool = false
+
+// TODO: LLVM backend doesn't support struct field access in for-loop iteration
+// @count_done (tasks: [Task]) -> int = run(
+//     let count = 0,
+//     for task in tasks do
+//         run(
+//             let status = task.status,
+//             match(status,
+//                 Done -> count + 1,
+//                 _ -> count,
+//             ),
+//         ),
+//     count,
+// )
+
+// TODO: LLVM backend doesn't support struct field access
+#skip("LLVM backend: struct field access not supported")
+@test_create_task tests @create_task () -> void = run(
+    let task = create_task(id: 1, name: "Test", priority: 3),
+    assert_eq(actual: task.id, expected: 1),
+    assert_eq(actual: task.name, expected: "Test"),
+)
+
+#skip("LLVM backend: struct field access not supported")
+@test_complete tests @complete_task () -> void = run(
+    let task = create_task(id: 1, name: "Test", priority: 3),
+    let completed = complete_task(task: task),
+    assert_eq(actual: completed.id, expected: 1),
+)
+
+#skip("LLVM backend: struct field access not supported")
+@test_priority tests @is_high_priority () -> void = run(
+    let low = create_task(id: 1, name: "Low", priority: 2),
+    let high = create_task(id: 2, name: "High", priority: 8),
+    assert_eq(actual: is_high_priority(task: low), expected: false),
+    assert_eq(actual: is_high_priority(task: high), expected: true),
+)

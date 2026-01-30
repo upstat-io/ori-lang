@@ -1,0 +1,6 @@
+// #Computes the factorial of n.
+// #Returns 1 for n <= 1.
+// @param n The number to compute factorial of.
+// !Panics if n is negative.
+// >factorial(n: 5) -> 120
+@factorial (n: int) -> int = if n <= 1 then 1 else n * factorial(n: n - 1)

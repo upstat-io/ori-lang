@@ -27,13 +27,17 @@ pub(super) fn binding_pattern_width<I: StringLookup>(
             if elements.is_empty() {
                 return 2; // "()"
             }
-            // "(" + elements + ")"
+            // "(" + elements + ")" + optional trailing comma for single element
             let mut total = 1;
             for (i, elem) in elements.iter().enumerate() {
                 total += binding_pattern_width(elem, interner);
                 if i < elements.len() - 1 {
                     total += COMMA_SEPARATOR_WIDTH;
                 }
+            }
+            // Single-element tuples need trailing comma: (x,)
+            if elements.len() == 1 {
+                total += 1;
             }
             total + 1
         }

@@ -5,29 +5,61 @@
 
 use crate::emitter::{Emitter, StringEmitter};
 
-/// Maximum line width before breaking.
+/// Default maximum line width before breaking.
 pub const MAX_LINE_WIDTH: usize = 100;
 
 /// Spaces per indentation level.
 pub const INDENT_WIDTH: usize = 4;
+
+/// Configuration for the formatter.
+///
+/// Controls formatting behavior such as line width limits.
+#[derive(Debug, Clone, Copy)]
+pub struct FormatConfig {
+    /// Maximum line width before breaking to multiple lines.
+    /// Defaults to 100 characters.
+    pub max_width: usize,
+}
+
+impl Default for FormatConfig {
+    fn default() -> Self {
+        Self {
+            max_width: MAX_LINE_WIDTH,
+        }
+    }
+}
+
+impl FormatConfig {
+    /// Create a new config with the specified max width.
+    pub fn with_max_width(max_width: usize) -> Self {
+        Self { max_width }
+    }
+}
 
 /// Formatting context that tracks state during output.
 ///
 /// This struct wraps an emitter and maintains:
 /// - Current column position (0-indexed)
 /// - Current indentation level
+/// - Configuration (max width, etc.)
 ///
 /// All emit operations update the column position automatically.
 pub struct FormatContext<E: Emitter = StringEmitter> {
     emitter: E,
     column: usize,
     indent_level: usize,
+    config: FormatConfig,
 }
 
 impl FormatContext<StringEmitter> {
-    /// Create a new format context with a string emitter.
+    /// Create a new format context with a string emitter and default config.
     pub fn new() -> Self {
         Self::with_emitter(StringEmitter::new())
+    }
+
+    /// Create a new format context with a string emitter and custom config.
+    pub fn with_config(config: FormatConfig) -> Self {
+        Self::with_emitter_and_config(StringEmitter::new(), config)
     }
 
     /// Create with pre-allocated capacity for the output buffer.
@@ -43,13 +75,29 @@ impl Default for FormatContext<StringEmitter> {
 }
 
 impl<E: Emitter> FormatContext<E> {
-    /// Create a format context with a specific emitter.
+    /// Create a format context with a specific emitter and default config.
     pub fn with_emitter(emitter: E) -> Self {
+        Self::with_emitter_and_config(emitter, FormatConfig::default())
+    }
+
+    /// Create a format context with a specific emitter and config.
+    pub fn with_emitter_and_config(emitter: E, config: FormatConfig) -> Self {
         Self {
             emitter,
             column: 0,
             indent_level: 0,
+            config,
         }
+    }
+
+    /// Get the current configuration.
+    pub fn config(&self) -> &FormatConfig {
+        &self.config
+    }
+
+    /// Get the maximum line width.
+    pub fn max_width(&self) -> usize {
+        self.config.max_width
     }
 
     /// Get the current column position (0-indexed).
@@ -77,12 +125,12 @@ impl<E: Emitter> FormatContext<E> {
 
     /// Check if adding `width` characters would exceed the line limit.
     pub fn would_exceed_limit(&self, width: usize) -> bool {
-        self.column + width > MAX_LINE_WIDTH
+        self.column + width > self.config.max_width
     }
 
     /// Check if content of `width` would fit on the current line.
     pub fn fits(&self, width: usize) -> bool {
-        self.column + width <= MAX_LINE_WIDTH
+        self.column + width <= self.config.max_width
     }
 
     /// Emit a text fragment.

@@ -5,7 +5,7 @@
 use oric::test::TestRunnerConfig;
 
 mod commands;
-use commands::{check_file, explain_error, lex_file, parse_file, run_file, run_tests};
+use commands::{check_file, explain_error, lex_file, parse_file, run_file, run_format, run_tests};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -58,6 +58,9 @@ fn main() {
                 std::process::exit(1);
             }
             check_file(&args[2]);
+        }
+        "fmt" => {
+            run_format(&args[2..]);
         }
         "parse" => {
             if args.len() < 3 {
@@ -114,6 +117,7 @@ fn print_usage() {
     println!("  run <file.ori>       Run/evaluate an Ori program");
     println!("  test [path]          Run tests (default: current directory)");
     println!("  check <file.ori>     Type check a file (no execution)");
+    println!("  fmt [paths...]       Format Ori source files");
     println!("  parse <file.ori>     Parse and display AST info");
     println!("  lex <file.ori>       Tokenize and display tokens");
     println!("  --explain <code>     Explain an error code (e.g., E2001)");
@@ -126,12 +130,19 @@ fn print_usage() {
     println!("  --no-parallel       Run tests sequentially");
     println!("  --backend=<name>    Use backend: interpreter (default), llvm");
     println!();
+    println!("Format options:");
+    println!("  --check             Check if files are formatted (exit 1 if not)");
+    println!("  --diff              Show diff output instead of modifying files");
+    println!();
     println!("Examples:");
     println!("  ori run main.ori");
     println!("  ori test                    # Run all spec tests");
     println!("  ori test tests/spec/patterns/");
     println!("  ori test --filter=map");
     println!("  ori check lib.ori");
+    println!("  ori fmt                     # Format all files in current directory");
+    println!("  ori fmt src/                # Format files in src/ directory");
+    println!("  ori fmt --check             # Check formatting (for CI)");
     println!("  ori --explain E2001         # Explain type mismatch");
     println!("  ori main.ori                # Shorthand for 'run'");
 }

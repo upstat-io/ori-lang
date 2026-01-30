@@ -1,10 +1,9 @@
-// Note: Test attribute output (#skip, #compile_fail, #fail) is not preserved
-// This is because the formatter doesn't have access to the original attribute text
-// and the parser stores attributes as structured data (skip_reason, expected_errors, etc.)
-// TODO: Implement attribute output in formatter
+#skip("not implemented")
+@test_future () -> void = print(msg: "future")
 
-@test_future () -> void = 1
-
+#compile_fail("type mismatch")
 @test_type_error () -> void = 42
 
-@test_panic () -> void = 1
+#skip("LLVM backend: panic handling in #fail tests not working")
+#fail("assertion failed")
+@test_panic () -> void = panic(msg: "assertion failed")

@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 391e793c373e44f841f9e6ddf24eeab9e37600ecf532c4a4bc892423c47187f6 # shrinks to module = "@a000_0a0aaa0 (aa0_00_a_a00_a: Result<int, str>, a0: Result<int, str>) -> int = \"a0A \" <= aa0___aa0a0"

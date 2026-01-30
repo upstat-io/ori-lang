@@ -108,7 +108,7 @@ fn test_let_binding() {
         &expr_types,
     );
 
-    println!("Let Binding IR:\n{}", codegen.print_to_string());
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Let Binding IR:\n{}", codegen.print_to_string()); }
 
     // JIT execute - let x = 10 returns 10
     let result = codegen.jit_execute_i64("test_let").expect("JIT failed");
@@ -150,7 +150,7 @@ fn test_if_else() {
 
     codegen.compile_function(fn_name, &[], &[], TypeId::INT, if_expr, &arena, &expr_types);
 
-    println!("If/Else IR:\n{}", codegen.print_to_string());
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("If/Else IR:\n{}", codegen.print_to_string()); }
 
     // JIT execute - if true then 10 else 20 = 10
     let result = codegen.jit_execute_i64("test_if_true").expect("JIT failed");
@@ -232,7 +232,7 @@ fn test_loop_with_break() {
         &expr_types,
     );
 
-    println!("Loop IR:\n{}", codegen.print_to_string());
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Loop IR:\n{}", codegen.print_to_string()); }
 
     // Verify IR contains loop structure
     let ir = codegen.print_to_string();
@@ -302,7 +302,7 @@ fn test_loop_ir_structure() {
         &expr_types,
     );
 
-    println!("Loop with conditional IR:\n{}", codegen.print_to_string());
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Loop with conditional IR:\n{}", codegen.print_to_string()); }
 
     // Verify proper branching
     let ir = codegen.print_to_string();
@@ -342,7 +342,7 @@ fn test_assign() {
 
     codegen.compile_function(fn_name, &[], &[], TypeId::INT, let_x, &arena, &expr_types);
 
-    println!("Assign IR:\n{}", codegen.print_to_string());
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Assign IR:\n{}", codegen.print_to_string()); }
 
     // JIT execute - should return 10
     let result = codegen.jit_execute_i64("test_assign").expect("JIT failed");
@@ -388,7 +388,7 @@ fn test_break_with_value() {
         &expr_types,
     );
 
-    println!("Break with Value IR:\n{}", codegen.print_to_string());
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Break with Value IR:\n{}", codegen.print_to_string()); }
 
     // Verify IR contains break structure
     let ir = codegen.print_to_string();
@@ -456,7 +456,7 @@ fn test_continue() {
         &expr_types,
     );
 
-    println!("Continue IR:\n{}", codegen.print_to_string());
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Continue IR:\n{}", codegen.print_to_string()); }
 
     // Verify IR contains loop structure
     let ir = codegen.print_to_string();

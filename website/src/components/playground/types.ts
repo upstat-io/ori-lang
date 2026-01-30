@@ -6,6 +6,12 @@ export interface RunResult {
   error_type?: 'parse' | 'type' | 'runtime';
 }
 
+export interface FormatResult {
+  success: boolean;
+  formatted?: string;
+  error?: string;
+}
+
 export interface PlaygroundConfig {
   showToolbar: boolean;
   showOutput: boolean;
@@ -16,6 +22,8 @@ export interface PlaygroundConfig {
   initialCode?: string;
   fontSize: number;
   layout: 'horizontal' | 'vertical';
+  /** Maximum line width for the formatter (default: 100) */
+  maxFormatWidth?: number;
 }
 
 export const DEFAULT_CONFIG: PlaygroundConfig = {
@@ -27,4 +35,5 @@ export const DEFAULT_CONFIG: PlaygroundConfig = {
   readUrlHash: true,
   fontSize: 14,
   layout: 'horizontal',
+  maxFormatWidth: 100,
 };

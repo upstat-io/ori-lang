@@ -81,7 +81,7 @@ fn test_match_literal() {
         &expr_types,
     );
 
-    println!("Match Literal IR:\n{}", codegen.print_to_string());
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Match Literal IR:\n{}", codegen.print_to_string()); }
 
     // JIT execute - should return 100 (matches first arm)
     let result = codegen
@@ -166,7 +166,7 @@ fn test_match_wildcard() {
         &expr_types,
     );
 
-    println!("Match Wildcard IR:\n{}", codegen.print_to_string());
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Match Wildcard IR:\n{}", codegen.print_to_string()); }
 
     // JIT execute - should return 200 (matches wildcard)
     let result = codegen
@@ -240,7 +240,7 @@ fn test_match_binding() {
         &expr_types,
     );
 
-    println!("Match Binding IR:\n{}", codegen.print_to_string());
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Match Binding IR:\n{}", codegen.print_to_string()); }
 
     // JIT execute - should return 43 (42 + 1)
     let result = codegen
@@ -334,7 +334,7 @@ fn test_match_with_guard_pass() {
         &expr_types,
     );
 
-    println!("Match Guard Pass IR:\n{}", codegen.print_to_string());
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Match Guard Pass IR:\n{}", codegen.print_to_string()); }
 
     // JIT execute - should return 100 (guard passes: 10 > 5)
     let result = codegen
@@ -428,7 +428,7 @@ fn test_match_with_guard_fail() {
         &expr_types,
     );
 
-    println!("Match Guard Fail IR:\n{}", codegen.print_to_string());
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Match Guard Fail IR:\n{}", codegen.print_to_string()); }
 
     // JIT execute - should return 200 (guard fails: 3 > 5 is false)
     let result = codegen
@@ -471,7 +471,7 @@ fn test_match_empty() {
         &expr_types,
     );
 
-    println!("Match Empty IR:\n{}", codegen.print_to_string());
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Match Empty IR:\n{}", codegen.print_to_string()); }
 
     // JIT execute - should return default (0)
     let result = codegen
@@ -576,7 +576,7 @@ fn test_match_multiple_literals() {
         &expr_types,
     );
 
-    println!("Match Multiple Literals IR:\n{}", codegen.print_to_string());
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Match Multiple Literals IR:\n{}", codegen.print_to_string()); }
 
     // JIT execute - should return 300 (matches third arm)
     let result = codegen

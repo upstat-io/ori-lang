@@ -39,6 +39,7 @@ parking_lot = "0.12"
 crossbeam = "0.8"
 rustc-hash = "2.1"
 stacker = "0.1"
+proptest = "1.4"
 
 # Internal crates
 ori_ir = { path = "compiler/ori_ir" }

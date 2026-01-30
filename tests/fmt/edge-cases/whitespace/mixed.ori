@@ -1,0 +1,3 @@
+@example (x: int) -> int = x + 1
+
+	@another (a: int, b: int) -> int = a  +  	b

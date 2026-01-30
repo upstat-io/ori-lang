@@ -1,32 +1,34 @@
 //! Attribute parsing.
 //!
 //! This module extends Parser with methods for parsing attributes
-//! like `#[skip("reason")]`, `#[compile_fail("error")]`, `#[fail("error")]`,
-//! and `#[derive(Trait1, Trait2)]`.
+//! like `#skip("reason")`, `#compile_fail("error")`, `#fail("error")`,
+//! and `#derive(Trait1, Trait2)`.
+//!
+//! Grammar: `attribute = "#" identifier [ "(" [ attribute_arg { "," attribute_arg } ] ")" ] .`
 //!
 //! # Extended `compile_fail` Syntax
 //!
-//! The `#[compile_fail(...)]` attribute supports rich error specifications:
+//! The `#compile_fail(...)` attribute supports rich error specifications:
 //!
 //! ```ori
 //! // Basic format: substring match
-//! #[compile_fail("type mismatch")]
+//! #compile_fail("type mismatch")
 //!
 //! // Error code matching
-//! #[compile_fail(code: "E2001")]
+//! #compile_fail(code: "E2001")
 //!
 //! // Combined message and code
-//! #[compile_fail(code: "E2001", message: "type mismatch")]
+//! #compile_fail(code: "E2001", message: "type mismatch")
 //!
 //! // Position-specific (line 1-based)
-//! #[compile_fail(message: "error", line: 5)]
+//! #compile_fail(message: "error", line: 5)
 //!
 //! // Full specification
-//! #[compile_fail(message: "error", code: "E2001", line: 5, column: 10)]
+//! #compile_fail(message: "error", code: "E2001", line: 5, column: 10)
 //!
 //! // Multiple expected errors (multiple attributes)
-//! #[compile_fail("type mismatch")]
-//! #[compile_fail("unknown identifier")]
+//! #compile_fail("type mismatch")
+//! #compile_fail("unknown identifier")
 //! ```
 
 use crate::{ParseError, Parser};
@@ -36,13 +38,13 @@ use ori_ir::{ExpectedError, Name, TokenKind};
 /// Parsed attributes for a function or test.
 #[derive(Default, Clone, Debug)]
 pub struct ParsedAttrs {
-    /// Skip reason for `#[skip("reason")]`.
+    /// Skip reason for `#skip("reason")`.
     pub skip_reason: Option<Name>,
     /// Expected compilation errors (multiple allowed).
     pub expected_errors: Vec<ExpectedError>,
-    /// Expected error for `#[fail("error")]`.
+    /// Expected error for `#fail("error")`.
     pub fail_expected: Option<Name>,
-    /// Derived traits for `#[derive(Trait1, Trait2)]`.
+    /// Derived traits for `#derive(Trait1, Trait2)`.
     pub derive_traits: Vec<Name>,
 }
 
@@ -79,30 +81,37 @@ impl AttrKind {
 }
 
 impl Parser<'_> {
-    /// Parse zero or more attributes: `#[attr("value")]` or `#[derive(Trait)]`.
+    /// Parse zero or more attributes: `#attr("value")` or `#derive(Trait)`.
+    /// Grammar: `attribute = "#" identifier [ "(" [ attribute_arg { "," attribute_arg } ] ")" ] .`
     pub(crate) fn parse_attributes(&mut self, errors: &mut Vec<ParseError>) -> ParsedAttrs {
         let mut attrs = ParsedAttrs::default();
 
-        while self.check(&TokenKind::HashBracket) {
-            self.advance(); // consume #[
+        // Accept both old `#[...]` syntax and new `#...` syntax for backwards compatibility
+        while self.check(&TokenKind::Hash) || self.check(&TokenKind::HashBracket) {
+            let uses_brackets = self.check(&TokenKind::HashBracket);
+            self.advance(); // consume # or #[
 
             let attr_kind = self.parse_attr_name(errors);
 
-            // For unknown attributes, skip to ] and continue
+            // For unknown attributes, skip to end of attribute and continue
             if attr_kind == AttrKind::Unknown {
-                self.skip_to_rbracket();
+                if uses_brackets {
+                    self.skip_to_rbracket();
+                } else {
+                    self.skip_to_rparen_or_newline();
+                }
                 continue;
             }
 
             match attr_kind {
                 AttrKind::Derive => {
-                    self.parse_derive_attr(&mut attrs, errors);
+                    self.parse_derive_attr(&mut attrs, errors, uses_brackets);
                 }
                 AttrKind::CompileFail => {
-                    self.parse_compile_fail_attr(&mut attrs, errors);
+                    self.parse_compile_fail_attr(&mut attrs, errors, uses_brackets);
                 }
                 _ => {
-                    self.parse_string_attr(attr_kind, &mut attrs, errors);
+                    self.parse_string_attr(attr_kind, &mut attrs, errors, uses_brackets);
                 }
             }
 
@@ -150,12 +159,13 @@ impl Parser<'_> {
         }
     }
 
-    /// Parse a string-valued attribute like `#[skip("reason")]`.
+    /// Parse a string-valued attribute like `#skip("reason")`.
     fn parse_string_attr(
         &mut self,
         attr_kind: AttrKind,
         attrs: &mut ParsedAttrs,
         errors: &mut Vec<ParseError>,
+        uses_brackets: bool,
     ) {
         let attr_name_str = attr_kind.as_str();
 
@@ -167,7 +177,9 @@ impl Parser<'_> {
                 span: self.current_span(),
                 context: None,
             });
-            self.skip_to_rbracket();
+            if uses_brackets {
+                self.skip_to_rbracket();
+            }
             return;
         }
         self.advance(); // consume (
@@ -198,16 +210,18 @@ impl Parser<'_> {
             });
         }
 
-        // Expect ]
-        if self.check(&TokenKind::RBracket) {
-            self.advance();
-        } else {
-            errors.push(ParseError {
-                code: ErrorCode::E1006,
-                message: "expected ']' to close attribute".to_string(),
-                span: self.current_span(),
-                context: None,
-            });
+        // Expect ] only if old bracket syntax was used
+        if uses_brackets {
+            if self.check(&TokenKind::RBracket) {
+                self.advance();
+            } else {
+                errors.push(ParseError {
+                    code: ErrorCode::E1006,
+                    message: "expected ']' to close attribute".to_string(),
+                    span: self.current_span(),
+                    context: None,
+                });
+            }
         }
 
         // Store the attribute
@@ -223,11 +237,16 @@ impl Parser<'_> {
     /// Parse a `compile_fail` attribute with extended syntax.
     ///
     /// Supports:
-    /// - `#[compile_fail("message")]` - simple format (message substring)
-    /// - `#[compile_fail(message: "msg")]` - named message
-    /// - `#[compile_fail(code: "E2001")]` - error code
-    /// - `#[compile_fail(message: "msg", code: "E2001", line: 5)]` - combined
-    fn parse_compile_fail_attr(&mut self, attrs: &mut ParsedAttrs, errors: &mut Vec<ParseError>) {
+    /// - `#compile_fail("message")` - simple format (message substring)
+    /// - `#compile_fail(message: "msg")` - named message
+    /// - `#compile_fail(code: "E2001")` - error code
+    /// - `#compile_fail(message: "msg", code: "E2001", line: 5)` - combined
+    fn parse_compile_fail_attr(
+        &mut self,
+        attrs: &mut ParsedAttrs,
+        errors: &mut Vec<ParseError>,
+        uses_brackets: bool,
+    ) {
         // Expect (
         if !self.check(&TokenKind::LParen) {
             errors.push(ParseError {
@@ -236,7 +255,11 @@ impl Parser<'_> {
                 span: self.current_span(),
                 context: None,
             });
-            self.skip_to_rbracket();
+            if uses_brackets {
+                self.skip_to_rbracket();
+            } else {
+                self.skip_to_rparen_or_newline();
+            }
             return;
         }
         self.advance(); // consume (
@@ -277,7 +300,11 @@ impl Parser<'_> {
                         span: self.current_span(),
                         context: None,
                     });
-                    self.skip_to_rbracket();
+                    if uses_brackets {
+                        self.skip_to_rbracket();
+                    } else {
+                        self.skip_to_rparen_or_newline();
+                    }
                     return;
                 };
 
@@ -289,7 +316,11 @@ impl Parser<'_> {
                         span: self.current_span(),
                         context: None,
                     });
-                    self.skip_to_rbracket();
+                    if uses_brackets {
+                        self.skip_to_rbracket();
+                    } else {
+                        self.skip_to_rparen_or_newline();
+                    }
                     return;
                 }
                 self.advance();
@@ -384,21 +415,28 @@ impl Parser<'_> {
             }
         }
 
-        // Expect ]
-        if self.check(&TokenKind::RBracket) {
-            self.advance();
-        } else {
-            errors.push(ParseError {
-                code: ErrorCode::E1006,
-                message: "expected ']' to close attribute".to_string(),
-                span: self.current_span(),
-                context: None,
-            });
+        // Expect ] only if old bracket syntax was used
+        if uses_brackets {
+            if self.check(&TokenKind::RBracket) {
+                self.advance();
+            } else {
+                errors.push(ParseError {
+                    code: ErrorCode::E1006,
+                    message: "expected ']' to close attribute".to_string(),
+                    span: self.current_span(),
+                    context: None,
+                });
+            }
         }
     }
 
-    /// Parse a derive attribute like `#[derive(Eq, Clone)]`.
-    fn parse_derive_attr(&mut self, attrs: &mut ParsedAttrs, errors: &mut Vec<ParseError>) {
+    /// Parse a derive attribute like `#derive(Eq, Clone)`.
+    fn parse_derive_attr(
+        &mut self,
+        attrs: &mut ParsedAttrs,
+        errors: &mut Vec<ParseError>,
+        uses_brackets: bool,
+    ) {
         // Expect (
         if !self.check(&TokenKind::LParen) {
             errors.push(ParseError {
@@ -407,7 +445,11 @@ impl Parser<'_> {
                 span: self.current_span(),
                 context: None,
             });
-            self.skip_to_rbracket();
+            if uses_brackets {
+                self.skip_to_rbracket();
+            } else {
+                self.skip_to_rparen_or_newline();
+            }
             return;
         }
         self.advance(); // consume (
@@ -420,7 +462,11 @@ impl Parser<'_> {
                 }
                 Err(e) => {
                     errors.push(e);
-                    self.skip_to_rbracket();
+                    if uses_brackets {
+                        self.skip_to_rbracket();
+                    } else {
+                        self.skip_to_rparen_or_newline();
+                    }
                     return;
                 }
             }
@@ -445,16 +491,18 @@ impl Parser<'_> {
             });
         }
 
-        // Expect ]
-        if self.check(&TokenKind::RBracket) {
-            self.advance();
-        } else {
-            errors.push(ParseError {
-                code: ErrorCode::E1006,
-                message: "expected ']' to close attribute".to_string(),
-                span: self.current_span(),
-                context: None,
-            });
+        // Expect ] only if old bracket syntax was used
+        if uses_brackets {
+            if self.check(&TokenKind::RBracket) {
+                self.advance();
+            } else {
+                errors.push(ParseError {
+                    code: ErrorCode::E1006,
+                    message: "expected ']' to close attribute".to_string(),
+                    span: self.current_span(),
+                    context: None,
+                });
+            }
         }
     }
 
@@ -464,6 +512,17 @@ impl Parser<'_> {
             self.advance();
         }
         if self.check(&TokenKind::RBracket) {
+            self.advance();
+        }
+    }
+
+    /// Skip tokens until we find a `)` or newline (for bracket-less attributes).
+    fn skip_to_rparen_or_newline(&mut self) {
+        while !self.check(&TokenKind::RParen) && !self.check(&TokenKind::Newline) && !self.is_at_end()
+        {
+            self.advance();
+        }
+        if self.check(&TokenKind::RParen) {
             self.advance();
         }
     }
@@ -595,5 +654,81 @@ mod tests {
 
         // Last attribute wins for each field
         assert!(!result.has_errors(), "errors: {:?}", result.errors);
+    }
+
+    // Tests for new bracket-less syntax per grammar.ebnf
+
+    #[test]
+    fn test_parse_skip_attribute_no_brackets() {
+        let (result, _interner) = parse_with_errors(
+            r#"
+#skip("not implemented")
+@test_example () -> void = print(msg: "test")
+"#,
+        );
+
+        assert!(!result.has_errors(), "errors: {:?}", result.errors);
+        assert_eq!(result.module.tests.len(), 1);
+        let test = &result.module.tests[0];
+        assert!(test.skip_reason.is_some());
+    }
+
+    #[test]
+    fn test_parse_compile_fail_attribute_no_brackets() {
+        let (result, _interner) = parse_with_errors(
+            r#"
+#compile_fail("type error")
+@test_should_fail () -> void = print(msg: "test")
+"#,
+        );
+
+        assert!(!result.has_errors(), "errors: {:?}", result.errors);
+        assert_eq!(result.module.tests.len(), 1);
+        let test = &result.module.tests[0];
+        assert!(test.is_compile_fail());
+        assert_eq!(test.expected_errors.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_fail_attribute_no_brackets() {
+        let (result, _interner) = parse_with_errors(
+            r#"
+#fail("assertion failed")
+@test_expect_failure () -> void = panic(msg: "expected failure")
+"#,
+        );
+
+        assert!(!result.has_errors(), "errors: {:?}", result.errors);
+        assert_eq!(result.module.tests.len(), 1);
+        let test = &result.module.tests[0];
+        assert!(test.fail_expected.is_some());
+    }
+
+    #[test]
+    fn test_parse_derive_attribute_no_brackets() {
+        let (result, _interner) = parse_with_errors(
+            r#"
+#derive(Eq, Clone)
+type Point = { x: int, y: int }
+"#,
+        );
+
+        assert!(!result.has_errors(), "errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_parse_compile_fail_extended_no_brackets() {
+        let (result, _interner) = parse_with_errors(
+            r#"
+#compile_fail(message: "type mismatch", code: "E2001")
+@test_extended () -> void = print(msg: "test")
+"#,
+        );
+
+        assert!(!result.has_errors(), "errors: {:?}", result.errors);
+        assert_eq!(result.module.tests.len(), 1);
+        let test = &result.module.tests[0];
+        assert!(test.is_compile_fail());
+        assert_eq!(test.expected_errors.len(), 1);
     }
 }

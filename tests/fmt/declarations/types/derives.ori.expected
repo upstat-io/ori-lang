@@ -1,8 +1,8 @@
-// Note: Derive attribute output is not implemented yet in Phase 2
-// This expected file shows the current output without derives
-
+#derive(Eq, Clone)
 type Point = { x: int, y: int }
 
+#derive(Debug)
 type Status = Pending | Running | Done
 
+#derive(Eq, Clone, Debug)
 type User = { id: int, name: str }

@@ -1,0 +1,10 @@
+// Right-to-left text in strings
+// Tests formatter handling of RTL text like Arabic and Hebrew in string literals
+
+@arabic_greeting () -> str = "مرحبا بالعالم"
+
+@hebrew_greeting () -> str = "שלום עולם"
+
+@mixed_rtl_ltr () -> str = "Hello مرحبا World עולם"
+
+@rtl_with_numbers () -> str = "العدد 42 والعدد 123"
