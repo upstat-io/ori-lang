@@ -1,6 +1,7 @@
 # Proposal: Developer Convenience Functions
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-30
 **Author:** Eric (with Claude)
 **Created:** 2026-01-27
 
@@ -187,7 +188,7 @@ Prints a value with location information and returns it, enabling inline debuggi
 ```ori
 // Simple debugging
 let result = dbg(value: calculate())
-// Prints: [src/math.ori:10] value = 42
+// Prints: [src/math.ori:10] = 42
 // result = 42
 
 // With label for clarity
@@ -217,7 +218,7 @@ let req = dbg(value: build_request())
 **Output format:**
 
 ```
-[src/file.ori:10] value = 42
+[src/file.ori:10] = 42
 [src/file.ori:15] my label = Point { x: 1, y: 2 }
 ```
 
@@ -263,7 +264,7 @@ A) **Implicit Print capability** — `dbg` uses the `Print` capability (which ha
 B) **Exempt from capabilities** — Debug output is special, always allowed
 C) **Require capability** — `dbg` requires `uses Print`
 
-**Recommendation:** A — Use the existing `Print` capability with its default. This keeps the capability system consistent while still making `dbg` convenient (Print has a default, so no explicit `with` needed).
+**Decision:** Option A — Use the existing `Print` capability with its default. This keeps the capability system consistent while still making `dbg` convenient (Print has a default, so no explicit `with` needed). Additionally, this makes `dbg` output mockable in tests.
 
 ---
 
@@ -364,41 +365,76 @@ dbg(value: x + y, label: "sum")  // Prints: [file:line] sum = 30
 
 ## Spec Changes Required
 
-### `12-modules.md`
+### `11-built-in-functions.md`
 
-Add to prelude built-in functions:
+Add new section "Developer Functions" with signatures and semantics:
 
 ```markdown
-### Developer Functions
+## Developer Functions
+
+### todo
 
 ```ori
-@todo () -> Never
-@todo (reason: str) -> Never
+todo() -> Never
+todo(reason: str) -> Never
 ```
 
 Marks unfinished code. Panics with "not yet implemented" and location.
 
 ```ori
-@unreachable () -> Never
-@unreachable (reason: str) -> Never
+@parse_json (input: str) -> Result<Json, Error> = todo()
+// Panics: "not yet implemented at src/parser.ori:15"
+
+@handle_event (event: Event) -> void = todo(reason: "scroll handling")
+// Panics: "not yet implemented: scroll handling at src/ui.ori:42"
+```
+
+### unreachable
+
+```ori
+unreachable() -> Never
+unreachable(reason: str) -> Never
 ```
 
 Marks code that should never execute. Panics with "unreachable code reached" and location.
 
 ```ori
-@dbg<T: Debug> (value: T) -> T
-@dbg<T: Debug> (value: T, label: str) -> T
+@day_type (day: int) -> str = match(
+    day,
+    1 | 2 | 3 | 4 | 5 -> "weekday",
+    6 | 7 -> "weekend",
+    _ -> unreachable(reason: "day must be 1-7"),
+)
 ```
 
-Prints value with location to stderr, returns value unchanged. Requires `Debug` trait.
+### dbg
+
+```ori
+dbg<T: Debug>(value: T) -> T
+dbg<T: Debug>(value: T, label: str) -> T
 ```
+
+Prints value with location to stderr, returns value unchanged. Requires `Debug` trait. Uses `Print` capability.
+
+```ori
+let x = dbg(value: calculate())
+// Prints: [src/math.ori:10] = 42
+
+let y = dbg(value: get_y(), label: "y coordinate")
+// Prints: [src/point.ori:6] y coordinate = 200
+```
+```
+
+### `12-modules.md`
+
+Update prelude function list to include `todo`, `unreachable`, `dbg`.
 
 ### `/CLAUDE.md`
 
 Add to built-in functions:
-- `todo()`, `todo(reason: str)` -> `Never`
-- `unreachable()`, `unreachable(reason: str)` -> `Never`
-- `dbg(value: T)`, `dbg(value: T, label: str)` -> `T`
+- `todo()`, `todo(reason:)` → `Never`
+- `unreachable()`, `unreachable(reason:)` → `Never`
+- `dbg(value:)`, `dbg(value:, label:)` → `T`
 
 ---
 

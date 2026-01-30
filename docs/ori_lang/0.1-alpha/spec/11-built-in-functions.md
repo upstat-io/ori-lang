@@ -115,6 +115,69 @@ print(msg: str) -> void
 panic(msg: str) -> Never
 ```
 
+## Developer Functions
+
+### todo
+
+```
+todo() -> Never
+todo(reason: str) -> Never
+```
+
+Marks unfinished code. Panics with "not yet implemented" and file location.
+
+```ori
+@parse_json (input: str) -> Result<Json, Error> = todo()
+// Panics: "not yet implemented at src/parser.ori:15"
+
+@handle_event (event: Event) -> void = match(
+    event,
+    Click(pos) -> handle_click(pos: pos),
+    Scroll(delta) -> todo(reason: "scroll handling"),
+    // Panics: "not yet implemented: scroll handling at src/ui.ori:42"
+    KeyPress(key) -> handle_key(key: key),
+)
+```
+
+### unreachable
+
+```
+unreachable() -> Never
+unreachable(reason: str) -> Never
+```
+
+Marks code that should never execute. Panics with "unreachable code reached" and file location.
+
+```ori
+@day_type (day: int) -> str = match(
+    day,
+    1 | 2 | 3 | 4 | 5 -> "weekday",
+    6 | 7 -> "weekend",
+    _ -> unreachable(reason: "day must be 1-7"),
+)
+```
+
+### dbg
+
+```
+dbg<T: Debug>(value: T) -> T
+dbg<T: Debug>(value: T, label: str) -> T
+```
+
+Prints value with location to stderr, returns value unchanged. Requires `Debug` trait. Uses `Print` capability.
+
+```ori
+let x = dbg(value: calculate())
+// Prints: [src/math.ori:10] = 42
+
+let y = dbg(value: get_y(), label: "y coordinate")
+// Prints: [src/point.ori:6] y coordinate = 200
+```
+
+Output format:
+- Without label: `[file:line] = value`
+- With label: `[file:line] label = value`
+
 ## Concurrency
 
 ```
@@ -132,6 +195,7 @@ Available without import:
 - `is_ok`, `is_err`, `Ok`, `Err`
 - All assertions
 - `print`, `panic`, `compare`, `min`, `max`
+- `todo`, `unreachable`, `dbg`
 - `is_cancelled` (async contexts only)
 - `CancellationError`, `CancellationReason` types
 
