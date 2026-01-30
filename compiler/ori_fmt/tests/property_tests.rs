@@ -1,4 +1,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+// proptest macros generate code using Arc and need format strings with variables
+#![allow(
+    clippy::doc_markdown,
+    clippy::disallowed_types,
+    clippy::uninlined_format_args,
+    clippy::redundant_closure_for_method_calls,
+    clippy::no_effect_replace
+)]
 //! Property-based tests for the Ori formatter.
 //!
 //! These tests use proptest to generate random valid Ori code and verify:
@@ -1160,7 +1168,7 @@ fn test_const_def_idempotence() {
 
 #[test]
 fn test_multiple_declarations_idempotence() {
-    let source = r#"
+    let source = r"
 let $MAX = 100
 
 type Point = { x: int, y: int }
@@ -1168,7 +1176,7 @@ type Point = { x: int, y: int }
 @origin () -> Point = Point { x: 0, y: 0 }
 
 @distance (p: Point) -> float = 0.0
-"#;
+";
     test_idempotence(source).expect("module should be idempotent");
 }
 
@@ -1362,12 +1370,12 @@ fn test_struct_literal_shorthand() {
 
 #[test]
 fn test_struct_nested() {
-    let source = r#"
+    let source = r"
 type Inner = { a: int }
 type Outer = { inner: Inner, b: int }
 
 @f () -> Outer = Outer { inner: Inner { a: 1 }, b: 2 }
-"#;
+";
     test_idempotence(source).expect("nested struct should be idempotent");
 }
 

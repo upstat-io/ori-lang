@@ -41,7 +41,7 @@ pub(super) fn tuple_width<I: StringLookup>(
     }
 
     // "(" + items + ")" + optional trailing comma for single element
-    let trailing_comma = if items_list.len() == 1 { 1 } else { 0 };
+    let trailing_comma = usize::from(items_list.len() == 1);
     1 + items_w + trailing_comma + 1
 }
 

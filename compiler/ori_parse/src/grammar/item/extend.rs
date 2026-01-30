@@ -6,7 +6,7 @@ use ori_ir::{ExtendDef, GenericParamRange, ParsedType, ParsedTypeRange, TokenKin
 impl Parser<'_> {
     /// Parse an extend block with progress tracking.
     pub(crate) fn parse_extend_with_progress(&mut self) -> ParseResult<ExtendDef> {
-        self.with_progress(|p| p.parse_extend())
+        self.with_progress(Self::parse_extend)
     }
 
     /// Parse an extend block.

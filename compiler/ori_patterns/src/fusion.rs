@@ -88,6 +88,7 @@ pub enum FusedPattern {
 
 impl FusedPattern {
     /// Evaluate the fused pattern in a single pass.
+    #[allow(clippy::result_large_err)] // EvalError is fundamental error type, boxing would add complexity
     pub fn evaluate(&self, exec: &mut dyn PatternExecutor) -> EvalResult {
         match self {
             FusedPattern::MapFilter {

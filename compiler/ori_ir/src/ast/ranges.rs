@@ -102,18 +102,18 @@ mod tests {
     #[test]
     fn test_range_debug_format() {
         let range = ParamRange::new(5, 3);
-        let debug = format!("{:?}", range);
+        let debug = format!("{range:?}");
         assert_eq!(debug, "ParamRange(5..8)");
 
         let arm_range = ArmRange::new(10, 2);
-        let debug = format!("{:?}", arm_range);
+        let debug = format!("{arm_range:?}");
         assert_eq!(debug, "ArmRange(10..12)");
     }
 
     #[test]
     fn test_range_debug_format_empty() {
         let empty = ParamRange::EMPTY;
-        let debug = format!("{:?}", empty);
+        let debug = format!("{empty:?}");
         assert_eq!(debug, "ParamRange(0..0)");
     }
 
@@ -148,6 +148,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::clone_on_copy)] // Intentionally testing Clone trait impl
     fn test_range_copy_clone() {
         let original = ParamRange::new(5, 10);
         let copied = original; // Copy
@@ -159,7 +160,7 @@ mod tests {
 
     #[test]
     fn test_range_default() {
-        let default: ParamRange = Default::default();
+        let default: ParamRange = ParamRange::default();
         assert_eq!(default, ParamRange::EMPTY);
     }
 }

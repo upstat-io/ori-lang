@@ -24,7 +24,7 @@ static CATCH: CatchPattern = CatchPattern;
 
 /// Registry mapping `FunctionExpKind` to pattern definitions.
 ///
-/// Uses direct enum dispatch instead of HashMap lookup.
+/// Uses direct enum dispatch instead of `HashMap` lookup.
 /// All patterns are ZSTs (zero-sized types) with static lifetime,
 /// so this struct has zero overhead and avoids borrow issues.
 pub struct PatternRegistry {

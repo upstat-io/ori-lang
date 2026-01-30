@@ -99,7 +99,7 @@ fn execute_task_silently(task: &Value) {
 
 #[cfg(test)]
 // Tests use unwrap() to panic on unexpected state, making failures immediately visible
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::default_trait_access)]
 mod tests {
     use super::*;
     use ori_ir::{ExprArena, ExprId, NamedExpr, SharedInterner, Span};

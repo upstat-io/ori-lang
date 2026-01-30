@@ -82,7 +82,7 @@ impl RecoverySet {
 /// Returns `true` if a recovery token was found, `false` if EOF was reached.
 pub fn synchronize(cursor: &mut Cursor<'_>, recovery: RecoverySet) -> bool {
     while !cursor.is_at_end() {
-        if recovery.contains(&cursor.current_kind()) {
+        if recovery.contains(cursor.current_kind()) {
             return true;
         }
         cursor.advance();

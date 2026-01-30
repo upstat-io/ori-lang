@@ -3,6 +3,7 @@
 //! Tests argument binding, parameter validation, and function call dispatch.
 
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+#![allow(clippy::cast_lossless)]
 
 use crate::eval::exec::call::{
     bind_captures, bind_parameters, bind_self, check_arg_count, eval_function_val_call,

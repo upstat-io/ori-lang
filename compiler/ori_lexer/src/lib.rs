@@ -448,12 +448,12 @@ impl LexOutput {
 /// # Comment Classification
 ///
 /// Comments are classified by their content:
-/// - `// #...` → DocDescription
-/// - `// @param ...` → DocParam
-/// - `// @field ...` → DocField
-/// - `// !...` → DocWarning
-/// - `// >...` → DocExample
-/// - `// ...` (anything else) → Regular
+/// - `// #...` → `DocDescription`
+/// - `// @param ...` → `DocParam`
+/// - `// @field ...` → `DocField`
+/// - `// !...` → `DocWarning`
+/// - `// >...` → `DocExample`
+/// - `// ...` (anything else) → `Regular`
 ///
 /// # Example
 ///
@@ -517,7 +517,7 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
 /// Normalizes spacing: adds a space after `//` if missing, removes extra space
 /// after doc markers.
 ///
-/// Returns (CommentKind, normalized_content).
+/// Returns (`CommentKind`, `normalized_content`).
 fn classify_and_normalize_comment(content: &str) -> (CommentKind, String) {
     // Trim leading whitespace to check for markers
     let trimmed = content.trim_start();
@@ -526,7 +526,7 @@ fn classify_and_normalize_comment(content: &str) -> (CommentKind, String) {
     if let Some(rest) = trimmed.strip_prefix('#') {
         // Description: `// #Text` -> ` #Text`
         let text = rest.trim_start();
-        return (CommentKind::DocDescription, format!(" #{}", text));
+        return (CommentKind::DocDescription, format!(" #{text}"));
     }
 
     if let Some(rest) = trimmed.strip_prefix("@param") {
@@ -537,7 +537,7 @@ fn classify_and_normalize_comment(content: &str) -> (CommentKind, String) {
         } else {
             rest
         };
-        return (CommentKind::DocParam, format!(" @param {}", text));
+        return (CommentKind::DocParam, format!(" @param {text}"));
     }
 
     if let Some(rest) = trimmed.strip_prefix("@field") {
@@ -547,19 +547,19 @@ fn classify_and_normalize_comment(content: &str) -> (CommentKind, String) {
         } else {
             rest
         };
-        return (CommentKind::DocField, format!(" @field {}", text));
+        return (CommentKind::DocField, format!(" @field {text}"));
     }
 
     if let Some(rest) = trimmed.strip_prefix('!') {
         // Warning: `// !Text` -> ` !Text`
         let text = rest.trim_start();
-        return (CommentKind::DocWarning, format!(" !{}", text));
+        return (CommentKind::DocWarning, format!(" !{text}"));
     }
 
     if let Some(rest) = trimmed.strip_prefix('>') {
         // Example: `// >example()` -> ` >example()`
         // Don't trim after > to preserve example formatting
-        return (CommentKind::DocExample, format!(" >{}", rest));
+        return (CommentKind::DocExample, format!(" >{rest}"));
     }
 
     // Regular comment - ensure space after //
@@ -571,7 +571,7 @@ fn classify_and_normalize_comment(content: &str) -> (CommentKind, String) {
         (CommentKind::Regular, content.to_string())
     } else {
         // Missing space: add one
-        (CommentKind::Regular, format!(" {}", content))
+        (CommentKind::Regular, format!(" {content}"))
     }
 }
 
@@ -996,6 +996,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // Testing float parsing, not using mathematical constants
     fn test_parse_float_skip_underscores() {
         assert_eq!(parse_float_skip_underscores("3.14"), Some(3.14));
         assert_eq!(parse_float_skip_underscores("1_000.5"), Some(1000.5));
@@ -1199,6 +1200,7 @@ mod tests {
         clippy::approx_constant,
         reason = "testing float literal parsing, not using PI"
     )]
+    #[allow(clippy::float_cmp)] // Exact bit-level comparison for lexer output
     fn test_lex_float_literals() {
         let interner = test_interner();
         let tokens = lex("3.14 2.5e10 1_000.5", &interner);
@@ -1365,12 +1367,12 @@ mod tests {
     #[test]
     fn test_lex_with_comments_mixed_doc_types() {
         let interner = test_interner();
-        let source = r#"// #Computes the sum.
+        let source = r"// #Computes the sum.
 // @param a First operand
 // @param b Second operand
 // !Panics on overflow
 // >add(a: 1, b: 2) -> 3
-@add (a: int, b: int) -> int = a + b"#;
+@add (a: int, b: int) -> int = a + b";
 
         let output = lex_with_comments(source, &interner);
 

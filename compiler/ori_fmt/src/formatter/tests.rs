@@ -1,4 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+// Tests use approximate float values, import-after-statement for test clarity
+#![allow(clippy::approx_constant, clippy::items_after_statements)]
 //! Formatter Core Tests
 //!
 //! Tests for the formatting engine's inline vs broken decisions.

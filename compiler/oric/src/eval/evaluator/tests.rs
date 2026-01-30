@@ -1,6 +1,12 @@
 //! Tests for the Evaluator.
 
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+#![allow(
+    clippy::semicolon_if_nothing_returned,
+    clippy::items_after_statements,
+    clippy::unnecessary_wraps,
+    clippy::manual_assert
+)]
 
 use super::{Evaluator, EvaluatorBuilder};
 use crate::db::CompilerDb;

@@ -12,6 +12,9 @@
 //! (WASM, embedded interpreters, testing) can call these functions directly after
 //! parsing.
 
+// Arc is required for SharedArena API
+#![allow(clippy::disallowed_types)]
+
 use crate::{Environment, FunctionValue, Mutability, UserMethod, UserMethodRegistry, Value};
 use ori_ir::{Module, Name, SharedArena, TypeDeclKind};
 use std::collections::{HashMap, HashSet};

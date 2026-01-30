@@ -1,4 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::uninlined_format_args, clippy::manual_assert)]
 //! Comprehensive idempotence verification tests.
 //!
 //! These tests verify that:
@@ -67,7 +68,7 @@ fn parse_and_format(source: &str) -> Result<String, String> {
     let output = ori_parse::parse(&tokens, &interner);
 
     if output.has_errors() {
-        let errors: Vec<String> = output.errors.iter().map(|e| format!("{:?}", e)).collect();
+        let errors: Vec<String> = output.errors.iter().map(|e| format!("{e:?}")).collect();
         return Err(format!("Parse errors:\n{}", errors.join("\n")));
     }
 
@@ -84,7 +85,7 @@ fn parse_and_format_with_comments(source: &str) -> Result<String, String> {
         let errors: Vec<String> = parse_output
             .errors
             .iter()
-            .map(|e| format!("{:?}", e))
+            .map(|e| format!("{e:?}"))
             .collect();
         return Err(format!("Parse errors:\n{}", errors.join("\n")));
     }
@@ -99,7 +100,7 @@ fn parse_and_format_with_comments(source: &str) -> Result<String, String> {
 
 /// Normalize whitespace for comparison.
 fn normalize_whitespace(source: &str) -> String {
-    let lines: Vec<&str> = source.lines().map(|l| l.trim_end()).collect();
+    let lines: Vec<&str> = source.lines().map(str::trim_end).collect();
     let start = lines.iter().position(|l| !l.is_empty()).unwrap_or(0);
     let mut result = Vec::new();
     let mut prev_blank = false;

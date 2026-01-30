@@ -14,7 +14,7 @@ use crate::ErrorCode;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-/// Lazily-initialized HashMap for O(1) error documentation lookup.
+/// Lazily-initialized `HashMap` for O(1) error documentation lookup.
 static DOCS_MAP: LazyLock<HashMap<ErrorCode, &'static str>> =
     LazyLock::new(|| DOCS.iter().copied().collect());
 

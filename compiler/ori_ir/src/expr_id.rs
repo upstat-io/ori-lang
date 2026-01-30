@@ -502,11 +502,9 @@ mod tests {
     #[test]
     fn test_parsed_type_id_debug() {
         let valid = ParsedTypeId::new(10);
-        assert_eq!(format!("{:?}", valid), "ParsedTypeId(10)");
-        assert_eq!(
-            format!("{:?}", ParsedTypeId::INVALID),
-            "ParsedTypeId::INVALID"
-        );
+        assert_eq!(format!("{valid:?}"), "ParsedTypeId(10)");
+        let invalid = ParsedTypeId::INVALID;
+        assert_eq!(format!("{invalid:?}"), "ParsedTypeId::INVALID");
     }
 
     #[test]
@@ -539,11 +537,9 @@ mod tests {
     #[test]
     fn test_match_pattern_id_debug() {
         let valid = MatchPatternId::new(20);
-        assert_eq!(format!("{:?}", valid), "MatchPatternId(20)");
-        assert_eq!(
-            format!("{:?}", MatchPatternId::INVALID),
-            "MatchPatternId::INVALID"
-        );
+        assert_eq!(format!("{valid:?}"), "MatchPatternId(20)");
+        let invalid = MatchPatternId::INVALID;
+        assert_eq!(format!("{invalid:?}"), "MatchPatternId::INVALID");
     }
 
     #[test]

@@ -593,7 +593,7 @@ pub fn parse_loop_control(message: &str) -> LoopAction {
     }
 }
 
-/// Convert an EvalError to a LoopAction using the ControlFlow enum.
+/// Convert an `EvalError` to a `LoopAction` using the `ControlFlow` enum.
 ///
 /// This is the preferred way to handle loop control flow in new code.
 /// It uses the typed `ControlFlow` enum for better type safety.

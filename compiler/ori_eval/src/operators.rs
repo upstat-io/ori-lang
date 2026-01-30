@@ -175,7 +175,7 @@ fn eval_list_binary(a: &Heap<Vec<Value>>, b: &Heap<Vec<Value>>, op: BinaryOp) ->
     match op {
         BinaryOp::Add => {
             let mut result = (**a).clone();
-            result.extend_from_slice(&**b);
+            result.extend_from_slice(b);
             Ok(Value::list(result))
         }
         BinaryOp::Eq => Ok(Value::Bool(**a == **b)),

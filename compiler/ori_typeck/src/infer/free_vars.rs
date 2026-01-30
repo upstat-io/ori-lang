@@ -4,7 +4,7 @@
 //! self-capture. A variable is "free" if it's referenced but not bound
 //! within the expression.
 //!
-//! Uses `BoundContext` for efficient scope tracking without HashSet cloning.
+//! Uses `BoundContext` for efficient scope tracking without `HashSet` cloning.
 
 use super::bound_context::BoundContext;
 use super::collect_match_pattern_names;
@@ -30,7 +30,7 @@ pub fn collect_free_vars_inner(
     collect_free_vars_impl(checker, expr_id, &mut ctx, free);
 }
 
-/// Internal implementation using BoundContext for efficient scope tracking.
+/// Internal implementation using `BoundContext` for efficient scope tracking.
 fn collect_free_vars_impl(
     checker: &TypeChecker<'_>,
     expr_id: ExprId,
@@ -42,7 +42,7 @@ fn collect_free_vars_impl(
     match &expr.kind {
         // Variable or function reference - free if not bound
         ExprKind::Ident(name) | ExprKind::FunctionRef(name) => {
-            if !bound.contains(name) {
+            if !bound.contains(*name) {
                 free.insert(*name);
             }
         }
@@ -189,7 +189,7 @@ fn collect_free_vars_impl(
                     collect_free_vars_impl(checker, value_id, bound, free);
                 } else {
                     // Shorthand field: { x } is equivalent to { x: x }
-                    if !bound.contains(&init.name) {
+                    if !bound.contains(init.name) {
                         free.insert(init.name);
                     }
                 }
@@ -445,7 +445,7 @@ fn add_pattern_bindings_to_context(pattern: &ori_ir::BindingPattern, bound: &mut
 
 /// Add bindings from a pattern to a set of bound names.
 ///
-/// This is the public API for external callers that use HashSet.
+/// This is the public API for external callers that use `HashSet`.
 #[expect(clippy::implicit_hasher, reason = "Standard HashSet sufficient here")]
 pub fn add_pattern_bindings(pattern: &ori_ir::BindingPattern, bound: &mut HashSet<Name>) {
     match pattern {

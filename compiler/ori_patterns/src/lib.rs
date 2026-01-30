@@ -1,4 +1,6 @@
 #![deny(clippy::arithmetic_side_effects)]
+// EvalError is a fundamental error type - boxing would add complexity across the crate
+#![allow(clippy::result_large_err)]
 //! Ori Patterns - Pattern system for the Ori compiler.
 //!
 //! This crate provides:
@@ -250,6 +252,7 @@ impl<'a> EvalContext<'a> {
     }
 
     /// Get a required property's `ExprId` by name.
+    #[allow(clippy::result_large_err)] // EvalError is fundamental error type
     pub fn get_prop(&self, name: &str) -> Result<ExprId, EvalError> {
         let target = self.interner.intern(name);
         for prop in self.props {

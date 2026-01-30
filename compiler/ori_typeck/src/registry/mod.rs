@@ -84,9 +84,9 @@ pub struct TypeEntry {
 /// or return individual `TypeEntry` values instead.
 #[derive(Clone, Debug)]
 pub struct TypeRegistry {
-    /// Types indexed by name (FxHashMap for faster hashing with Name keys).
+    /// Types indexed by name (`FxHashMap` for faster hashing with `Name` keys).
     types_by_name: FxHashMap<Name, TypeEntry>,
-    /// Types indexed by `TypeId` (FxHashMap for faster hashing with `TypeId` keys).
+    /// Types indexed by `TypeId` (`FxHashMap` for faster hashing with `TypeId` keys).
     types_by_id: FxHashMap<TypeId, TypeEntry>,
     /// Variant name → (enum `TypeId`, variant index) for O(1) variant lookup.
     /// This is derived state for performance - not included in equality comparisons.

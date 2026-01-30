@@ -531,7 +531,7 @@ mod tests {
                 assert_eq!(v1.0, 0);
                 assert_eq!(v2.0, 1);
             }
-            _ => panic!("Expected TypeData::Var but got {:?} and {:?}", data1, data2),
+            _ => panic!("Expected TypeData::Var but got {data1:?} and {data2:?}"),
         }
     }
 
@@ -559,7 +559,7 @@ mod tests {
                 assert_eq!(ok, TypeId::INT);
                 assert_eq!(err, TypeId::STR);
             }
-            _ => panic!("Expected TypeData::Result but got {:?}", result_data),
+            _ => panic!("Expected TypeData::Result but got {result_data:?}"),
         }
 
         let fn_data = interner.lookup(fn_type);
@@ -570,7 +570,7 @@ mod tests {
                 assert_eq!(params[1], TypeId::BOOL);
                 assert_eq!(ret, TypeId::STR);
             }
-            _ => panic!("Expected TypeData::Function but got {:?}", fn_data),
+            _ => panic!("Expected TypeData::Function but got {fn_data:?}"),
         }
     }
 

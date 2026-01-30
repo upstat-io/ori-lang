@@ -119,7 +119,7 @@ pub fn check_binary_operation(
 
         // Logical: &&, ||
         BinaryOp::And | BinaryOp::Or => {
-            if let Err(_) = ctx.unify(left, &Type::Bool) {
+            if ctx.unify(left, &Type::Bool).is_err() {
                 return TypeOpResult::Err(TypeOpError::new(
                     format!(
                         "left operand of logical operator must be `bool`, found `{}`",
@@ -128,7 +128,7 @@ pub fn check_binary_operation(
                     ErrorCode::E2001,
                 ));
             }
-            if let Err(_) = ctx.unify(right, &Type::Bool) {
+            if ctx.unify(right, &Type::Bool).is_err() {
                 return TypeOpResult::Err(TypeOpError::new(
                     format!(
                         "right operand of logical operator must be `bool`, found `{}`",
@@ -142,7 +142,7 @@ pub fn check_binary_operation(
 
         // Bitwise: &, |, ^, <<, >>
         BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor | BinaryOp::Shl | BinaryOp::Shr => {
-            if let Err(_) = ctx.unify(left, &Type::Int) {
+            if ctx.unify(left, &Type::Int).is_err() {
                 return TypeOpResult::Err(TypeOpError::new(
                     format!(
                         "left operand of bitwise operator must be `int`, found `{}`",
@@ -151,7 +151,7 @@ pub fn check_binary_operation(
                     ErrorCode::E2001,
                 ));
             }
-            if let Err(_) = ctx.unify(right, &Type::Int) {
+            if ctx.unify(right, &Type::Int).is_err() {
                 return TypeOpResult::Err(TypeOpError::new(
                     format!(
                         "right operand of bitwise operator must be `int`, found `{}`",
@@ -188,7 +188,7 @@ pub fn check_binary_operation(
             let inner = ctx.fresh_var();
             let option_ty = Type::Option(Box::new(inner.clone()));
 
-            if let Err(_) = ctx.unify(left, &option_ty) {
+            if ctx.unify(left, &option_ty).is_err() {
                 return TypeOpResult::Err(TypeOpError::new(
                     format!(
                         "left operand of `??` must be `Option<T>`, found `{}`",

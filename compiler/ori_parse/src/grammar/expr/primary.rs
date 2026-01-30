@@ -13,7 +13,7 @@ impl Parser<'_> {
     /// Returns `Progress::Made` if tokens were consumed (success or error after consuming).
     #[allow(dead_code)] // Available for expression-level error recovery
     pub(crate) fn parse_primary_with_progress(&mut self) -> ParseResult<ExprId> {
-        self.with_progress(|p| p.parse_primary())
+        self.with_progress(Self::parse_primary)
     }
 
     /// Parse primary expressions.
@@ -488,7 +488,7 @@ impl Parser<'_> {
         // Parse condition without struct literals (for consistency and future safety).
         // While Ori uses `then` instead of `{` after conditions, disallowing struct
         // literals in conditions is a common pattern that prevents potential ambiguities.
-        let cond = self.with_context(ParseContext::NO_STRUCT_LIT, |p| p.parse_expr())?;
+        let cond = self.with_context(ParseContext::NO_STRUCT_LIT, Self::parse_expr)?;
 
         self.expect(&TokenKind::Then)?;
         self.skip_newlines();

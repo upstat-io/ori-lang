@@ -7,7 +7,7 @@ use crate::registry::TypeKind;
 use ori_ir::Name;
 use ori_types::Type;
 
-/// Get field types for a struct pattern as a HashMap for O(1) lookup.
+/// Get field types for a struct pattern as a `HashMap` for O(1) lookup.
 pub fn get_struct_field_types(
     checker: &mut TypeChecker<'_>,
     scrutinee_ty: &Type,

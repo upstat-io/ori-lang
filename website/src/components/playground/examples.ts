@@ -15,7 +15,7 @@ export const EXAMPLES: Record<string, { label: string; code: string }> = {
 )
 
 @main () -> void = run(
-    print(msg: "fib(30) = " + str(fib(n: 30)))
+    print(msg: "fib(30) = " + str(fib(n: 30))),
 )`,
   },
   factorial: {
@@ -24,7 +24,7 @@ export const EXAMPLES: Record<string, { label: string; code: string }> = {
 @factorial (n: int) -> int = if n <= 1 then 1 else n * factorial(n: n - 1)
 
 @main () -> void = run(
-    print(msg: "5! = " + str(factorial(n: 5)))
+    print(msg: "5! = " + str(factorial(n: 5))),
 )`,
   },
   'list-ops': {
@@ -35,7 +35,7 @@ export const EXAMPLES: Record<string, { label: string; code: string }> = {
     let doubled = numbers.map(transform: x -> x * 2),
     let evens = doubled.filter(predicate: x -> x % 2 == 0),
     let sum = evens.fold(initial: 0, op: (acc, x) -> acc + x),
-    print(msg: "Sum of doubled evens: " + str(sum))
+    print(msg: "Sum of doubled evens: " + str(sum)),
 )`,
   },
   structs: {
@@ -45,6 +45,7 @@ type Point = { x: int, y: int }
 
 impl Point {
     @sum (self) -> int = self.x + self.y
+
     @scale (self, factor: int) -> Point = Point { x: self.x * factor, y: self.y * factor }
 }
 
@@ -52,7 +53,7 @@ impl Point {
     let p = Point { x: 3, y: 4 },
     print(msg: "Point sum: " + str(p.sum())),
     let scaled = p.scale(factor: 2),
-    print(msg: "Scaled: (" + str(scaled.x) + ", " + str(scaled.y) + ")")
+    print(msg: "Scaled: (" + str(scaled.x) + ", " + str(scaled.y) + ")"),
 )`,
   },
 };

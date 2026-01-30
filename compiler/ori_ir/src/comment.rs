@@ -11,7 +11,7 @@ use std::hash::{Hash, Hasher};
 /// A source comment with its span and content.
 ///
 /// # Salsa Compatibility
-/// Has all required traits: Clone, Eq, PartialEq, Hash, Debug
+/// Has all required traits: `Clone`, `Eq`, `PartialEq`, `Hash`, `Debug`
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct Comment {
     /// The content of the comment (excluding the `//` prefix).
@@ -103,7 +103,7 @@ impl CommentKind {
 /// Comments are stored in source order (by span start position).
 ///
 /// # Salsa Compatibility
-/// Has all required traits: Clone, Eq, PartialEq, Hash, Debug, Default
+/// Has all required traits: `Clone`, `Eq`, `PartialEq`, `Hash`, `Debug`, `Default`
 #[derive(Clone, Eq, PartialEq, Default)]
 pub struct CommentList {
     comments: Vec<Comment>,

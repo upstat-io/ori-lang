@@ -189,6 +189,7 @@ impl Semaphore {
     clippy::unnecessary_wraps,
     reason = "returns EvalResult to match PatternDefinition::evaluate interface"
 )]
+#[allow(clippy::result_large_err)] // EvalError is fundamental error type
 fn execute_parallel(
     task_list: &[Value],
     max_concurrent: Option<usize>,
