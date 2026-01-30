@@ -31,6 +31,76 @@
 
 ---
 
+## 18.0 Const Evaluation Termination
+
+**Proposal**: `proposals/approved/const-evaluation-termination-proposal.md`
+
+Specifies termination guarantees and limits for compile-time constant evaluation, preventing infinite computation during compilation.
+
+### Implementation
+
+- [ ] **Implement**: Step limit enforcement — stop const evaluation after 1,000,000 operations
+  - [ ] **Rust Tests**: `ori_typeck/tests/const_eval_limits.rs`
+  - [ ] **Ori Tests**: `tests/spec/const/step_limit.ori`
+  - [ ] **LLVM Support**: LLVM codegen for const evaluation step counting
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
+
+- [ ] **Implement**: Recursion depth limit — stop const evaluation after 1,000 stack frames
+  - [ ] **Rust Tests**: `ori_typeck/tests/const_eval_limits.rs`
+  - [ ] **Ori Tests**: `tests/spec/const/recursion_limit.ori`
+  - [ ] **LLVM Support**: LLVM codegen for recursion depth tracking
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
+
+- [ ] **Implement**: Memory limit — stop const evaluation after 100 MB allocation
+  - [ ] **Rust Tests**: `ori_typeck/tests/const_eval_limits.rs`
+  - [ ] **Ori Tests**: `tests/spec/const/memory_limit.ori`
+  - [ ] **LLVM Support**: LLVM codegen for memory tracking
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
+
+- [ ] **Implement**: Time limit — stop const evaluation after 10 seconds
+  - [ ] **Rust Tests**: `ori_typeck/tests/const_eval_limits.rs`
+  - [ ] **Ori Tests**: `tests/spec/const/time_limit.ori`
+  - [ ] **LLVM Support**: LLVM codegen for time limit enforcement
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
+
+- [ ] **Implement**: Configurable limits via `ori.toml`
+  - [ ] **Rust Tests**: `ori_config/tests/const_eval_config.rs`
+  - [ ] **Ori Tests**: `tests/spec/const/configurable_limits.ori`
+
+- [ ] **Implement**: Per-expression limit override via `#const_limit(...)` attribute
+  - [ ] **Rust Tests**: `ori_parser/tests/const_limit_attr.rs`
+  - [ ] **Ori Tests**: `tests/spec/const/const_limit_attribute.ori`
+  - [ ] **LLVM Support**: LLVM codegen for attribute parsing
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
+
+- [ ] **Implement**: Partial evaluation for mixed const/runtime arguments (required behavior)
+  - [ ] **Rust Tests**: `ori_typeck/tests/partial_eval.rs`
+  - [ ] **Ori Tests**: `tests/spec/const/partial_evaluation.ori`
+  - [ ] **LLVM Support**: LLVM codegen for partial const evaluation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
+
+- [ ] **Implement**: Allow local mutable bindings in const functions
+  - [ ] **Rust Tests**: `ori_typeck/tests/const_local_mutation.rs`
+  - [ ] **Ori Tests**: `tests/spec/const/local_mutation.ori`
+  - [ ] **LLVM Support**: LLVM codegen for mutable locals in const
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
+
+- [ ] **Implement**: Allow loop expressions (`for`, `loop`) in const functions
+  - [ ] **Rust Tests**: `ori_typeck/tests/const_loops.rs`
+  - [ ] **Ori Tests**: `tests/spec/const/const_loops.ori`
+  - [ ] **LLVM Support**: LLVM codegen for loops in const
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
+
+- [ ] **Implement**: Const evaluation caching (by function + args hash)
+  - [ ] **Rust Tests**: `ori_typeck/tests/const_caching.rs`
+  - [ ] **Ori Tests**: `tests/spec/const/caching.ori`
+
+- [ ] **Implement**: Error diagnostics (E0500-E0504)
+  - [ ] **Rust Tests**: `ori_reporting/tests/const_eval_errors.rs`
+  - [ ] **Ori Tests**: `tests/spec/const/error_diagnostics.ori`
+
+---
+
 ## 18.1 Const Type Parameters
 
 **Spec section**: `spec/06-types.md § Const Generic Parameters`
