@@ -228,8 +228,8 @@
 **Incremental Test Execution** — ✅ APPROVED 2026-01-28
 - Proposal: `proposals/approved/incremental-test-execution-proposal.md`
 - Implementation: Phase 14.2, 14.11
-- Explicit free-floating tests with `tests _` syntax (no more naming convention)
-- Targeted tests auto-run during `ori check` when targets change
+- Explicit floating tests with `tests _` syntax (no more naming convention)
+- Attached tests auto-run during `ori check` when targets change
 - Non-blocking by default; `--strict` for CI
 - Cache in `.ori/cache/test/`; threshold configurable via `ori.toml`
 - Blocked on: None (can be implemented independently)
@@ -323,7 +323,7 @@
 - Consolidates dependency-aware and incremental test execution into unified implementation spec
 - Defines `TestRegistry` data structure, content hashing (whitespace/comment normalization), cache format
 - Cache maintenance: prune deleted functions on successful build; automatic invalidation via inputs_hash
-- Clarifies `--clean` excludes free-floating tests (they always require `ori test`)
+- Clarifies `--clean` excludes floating tests (they always require `ori test`)
 - Blocked on: None (implementation reference for Phase 14)
 
 **Task and Async Context Definitions** — ✅ APPROVED 2026-01-29
@@ -574,6 +574,13 @@
 - Conversion: `.to_fixed<$N: int>()`, `.try_to_fixed<$N: int>()`
 - Trait implementations same as `[T]` with same constraints
 - Blocked on: None (part of const-generics infrastructure)
+
+**Test Terminology** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/test-terminology-proposal.md`
+- Implementation: Documentation-only (CLI/error message changes tracked in Phase 14)
+- Standardizes terminology: "attached tests" (was "targeted"/"bound") and "floating tests" (was "free-floating")
+- Updates spec, proposals, and CLAUDE.md
+- Blocked on: None (documentation-only)
 
 ---
 

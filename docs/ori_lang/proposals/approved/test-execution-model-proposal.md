@@ -70,7 +70,7 @@ Source Files
          │
          ▼
 ┌─────────────────┐
-│ Test Execution  │  ← Run affected targeted tests
+│ Test Execution  │  ← Run affected attached tests
 └────────┬────────┘
          │
          ▼
@@ -95,15 +95,15 @@ struct TestRegistry {
     /// Map from function → functions that call it (reverse deps)
     callers: HashMap<FunctionId, HashSet<FunctionId>>,
 
-    /// Set of free-floating tests (target = _)
-    free_floating: HashSet<TestId>,
+    /// Set of floating tests (target = _)
+    floating: HashSet<TestId>,
 }
 ```
 
 Built during type checking:
 1. For each `@test tests @target`: add to `tests_for[target]`
 2. For each function call `f()` inside function `g`: add `g` to `callers[f]`
-3. For each `@test tests _`: add to `free_floating`
+3. For each `@test tests _`: add to `floating`
 
 ### Change Detection
 
@@ -256,7 +256,7 @@ Cache invalidation is automatic:
 3. Compute current function hashes
 4. Detect changed functions (hash mismatch)
 5. Compute reverse closure (affected set)
-6. Find targeted tests for affected set
+6. Find attached tests for affected set
 7. For each test:
    a. Compute inputs_hash
    b. If cached result exists with same inputs_hash → skip
@@ -268,9 +268,9 @@ Cache invalidation is automatic:
 ### Full Compilation
 
 On full compilation (no cache, or `--clean`):
-1. All targeted tests execute
+1. All attached tests execute
 2. Results are cached
-3. Free-floating tests do NOT execute (require `ori test`)
+3. Floating tests do NOT execute (require `ori test`)
 
 ### Cache Storage
 
@@ -343,14 +343,14 @@ Compilation fails. Exit code 1. For CI and pre-commit hooks.
 Targeted tests run during compilation. Slow tests degrade the development experience.
 
 ```
-warning: targeted test @test_large_parse took 350ms
+warning: attached test @test_large_parse took 350ms
   --> src/parser.ori:100:1
    |
 100| @test_large_parse tests @parse () -> void = ...
-   | ^^^^^^^^^^^^^^^^^ slow targeted test
+   | ^^^^^^^^^^^^^^^^^ slow attached test
    |
-   = note: targeted tests run during compilation
-   = help: consider making this a free-floating test: `tests _`
+   = note: attached tests run during compilation
+   = help: consider making this a floating test: `tests _`
    = note: threshold is 100ms (configurable in ori.toml)
 ```
 
@@ -361,7 +361,7 @@ Configuration:
 slow_test_threshold = "100ms"  # default
 ```
 
-### Free-Floating Tests
+### Floating Tests
 
 Tests with `tests _` are explicitly excluded from compilation:
 
@@ -373,7 +373,7 @@ Tests with `tests _` are explicitly excluded from compilation:
 )
 ```
 
-Free-floating tests:
+Floating tests:
 - Do NOT run during `ori check`
 - Do NOT satisfy coverage requirements
 - Only run via explicit `ori test`
@@ -391,13 +391,13 @@ Use cases:
 ```
 ori check [OPTIONS] <PATH>
 
-Compile and run affected targeted tests.
+Compile and run affected attached tests.
 
 Options:
     --no-test     Skip test execution (compile only)
     --strict      Fail build on any test failure
     --verbose     Show all test results, not just failures
-    --clean       Ignore cache, run all targeted tests
+    --clean       Ignore cache, run all attached tests
 ```
 
 #### ori test
@@ -408,22 +408,22 @@ ori test [OPTIONS] [PATH]
 Run tests explicitly.
 
 Options:
-    --only-targeted    Skip free-floating tests
+    --only-attached    Skip floating tests
     --filter <PATTERN> Run only tests matching pattern
     --verbose          Show all test results
 ```
 
 #### Execution Matrix
 
-| Command | Targeted (affected) | Targeted (unaffected) | Free-floating |
+| Command | Attached (affected) | Attached (unaffected) | Floating |
 |---------|--------------------|-----------------------|---------------|
 | `ori check` | Run | Skip (cached) | Never |
 | `ori check --no-test` | Never | Never | Never |
 | `ori check --clean` | Run | Run | Never |
 | `ori test` | Run | Run | Run |
-| `ori test --only-targeted` | Run | Run | Never |
+| `ori test --only-attached` | Run | Run | Never |
 
-Note: `--clean` forces re-execution of all targeted tests (ignoring cache), but does not run free-floating tests. Free-floating tests always require explicit `ori test`, regardless of other flags.
+Note: `--clean` forces re-execution of all attached tests (ignoring cache), but does not run floating tests. Floating tests always require explicit `ori test`, regardless of other flags.
 
 ## Implementation Plan
 
@@ -431,7 +431,7 @@ Note: `--clean` forces re-execution of all targeted tests (ignoring cache), but 
 - [ ] Add `TestRegistry` struct to compiler
 - [ ] Build `tests_for` map during type checking
 - [ ] Build `callers` map from call graph analysis
-- [ ] Identify free-floating tests
+- [ ] Identify floating tests
 
 ### Phase 2: Change Detection
 - [ ] Implement content hashing for functions
@@ -457,7 +457,7 @@ Note: `--clean` forces re-execution of all targeted tests (ignoring cache), but 
 
 ### Phase 6: Performance Warnings
 - [ ] Track test execution duration
-- [ ] Emit warning for slow targeted tests
+- [ ] Emit warning for slow attached tests
 - [ ] Read threshold from `ori.toml`
 
 ### Phase 7: Polish
@@ -477,7 +477,7 @@ The implementation should be verified with:
    - `closure.ori` — verify reverse closure is computed correctly
    - `caching.ori` — verify cache hits skip execution
    - `strict.ori` — verify `--strict` fails on test failure
-   - `free-floating.ori` — verify `tests _` excluded from check
+   - `floating.ori` — verify `tests _` excluded from check
 
 ## Alternatives Considered
 
@@ -506,6 +506,6 @@ This proposal defines Ori's test execution model:
 3. **Incremental** — unchanged functions use cached test results
 4. **Non-blocking by default** — failures reported but don't block compilation
 5. **Strict mode for CI** — `--strict` fails on any test failure
-6. **Performance-conscious** — warnings for slow targeted tests
+6. **Performance-conscious** — warnings for slow attached tests
 
 Combined with mandatory test coverage and capability-based mocking, this creates a system where **code integrity is enforced automatically** as a natural part of the development workflow.

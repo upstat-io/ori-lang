@@ -19,9 +19,9 @@ A _test_ is a function that verifies the behavior of one or more target function
 
 > **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § DECLARATIONS (test)
 
-### Targeted Tests
+### Attached Tests
 
-A _targeted test_ declares one or more functions it tests:
+An _attached test_ declares one or more functions it tests:
 
 ```ori
 @test_add tests @add () -> void = run(
@@ -39,11 +39,11 @@ Multiple targets are specified by repeating the `tests` keyword:
 )
 ```
 
-A targeted test satisfies the test coverage requirement for all of its targets.
+An attached test satisfies the test coverage requirement for all of its targets.
 
-### Free-Floating Tests
+### Floating Tests
 
-A _free-floating test_ uses `_` as its target, indicating it tests no specific function:
+A _floating test_ uses `_` as its target, indicating it tests no specific function:
 
 ```ori
 @test_integration tests _ () -> void = run(
@@ -52,7 +52,7 @@ A _free-floating test_ uses `_` as its target, indicating it tests no specific f
 )
 ```
 
-Free-floating tests:
+Floating tests:
 - Do not satisfy coverage requirements for any function
 - Do not run during normal compilation
 - Run only via explicit `ori test` command
@@ -79,7 +79,7 @@ All tests must:
 
 ## Test Coverage Requirement
 
-Every function must have at least one targeted test. It is a compile-time error if a function has no tests.
+Every function must have at least one attached test. It is a compile-time error if a function has no tests.
 
 ```
 error[E0500]: function @multiply has no tests
@@ -129,7 +129,7 @@ Source Files
          │
          ▼
 ┌─────────────────┐
-│ Test Execution  │  ◄── Run affected targeted tests
+│ Test Execution  │  ◄── Run affected attached tests
 └────────┬────────┘
          │
          ▼
@@ -248,7 +248,7 @@ The compiler maintains a cache of function content hashes:
 
 1. **Detect changes**: Compare current function hashes to cached hashes
 2. **Compute affected set**: Build reverse transitive closure of changed functions
-3. **Filter tests**: Select targeted tests where any target is in affected set
+3. **Filter tests**: Select attached tests where any target is in affected set
 4. **Check cache**: Skip tests whose inputs (target hashes) match cached results
 5. **Execute**: Run tests not satisfied by cache
 6. **Update cache**: Store new results keyed by input hashes
@@ -256,9 +256,9 @@ The compiler maintains a cache of function content hashes:
 ### Full Compilation
 
 During full compilation (no cache or cache invalidated):
-1. All targeted tests execute
+1. All attached tests execute
 2. Results are cached for subsequent incremental builds
-3. Free-floating tests do not execute (require explicit `ori test`)
+3. Floating tests do not execute (require explicit `ori test`)
 
 ## Test Results
 
@@ -311,19 +311,19 @@ A test execution produces one of the following results:
 
 ## Performance Considerations
 
-Targeted tests run during compilation and should be fast. The compiler emits a warning if a targeted test exceeds the slow test threshold.
+Attached tests run during compilation and should be fast. The compiler emits a warning if an attached test exceeds the slow test threshold.
 
 ### Slow Test Warning
 
 ```
-warning: targeted test @test_parse took 250ms
+warning: attached test @test_parse took 250ms
   --> src/parser.ori:45:1
    |
 45 | @test_parse tests @parse () -> void = ...
-   | ^^^^^^^^^^^ slow targeted test
+   | ^^^^^^^^^^^ slow attached test
    |
-   = note: targeted tests run during compilation
-   = help: consider making this a free-floating test: `tests _`
+   = note: attached tests run during compilation
+   = help: consider making this a floating test: `tests _`
    = note: threshold is 100ms (configurable in ori.toml)
 ```
 
@@ -340,10 +340,10 @@ Supported duration units: `ms`, `s`, `m`. Default is `100ms`.
 
 ### Guidelines
 
-- Targeted tests should complete in under 100ms
-- Use capability mocking to avoid I/O in targeted tests
-- Use free-floating tests (`tests _`) for integration tests requiring real I/O
-- Use free-floating tests for tests with complex setup or large data sets
+- Attached tests should complete in under 100ms
+- Use capability mocking to avoid I/O in attached tests
+- Use floating tests (`tests _`) for integration tests requiring real I/O
+- Use floating tests for tests with complex setup or large data sets
 
 ## Test Attributes
 
@@ -474,7 +474,7 @@ This enables fast, deterministic tests without actual I/O.
 
 ### ori check
 
-Compiles source files and runs affected targeted tests:
+Compiles source files and runs affected attached tests:
 
 ```
 ori check [OPTIONS] <PATH>
@@ -487,13 +487,13 @@ Options:
 
 ### ori test
 
-Runs all tests (targeted and free-floating):
+Runs all tests (attached and floating):
 
 ```
 ori test [OPTIONS] [PATH]
 
 Options:
-    --only-targeted    Run only targeted tests (skip free-floating)
+    --only-attached    Run only attached tests (skip floating)
     --filter <PATTERN> Run only tests matching pattern
     --verbose          Show all test results
 ```
@@ -505,4 +505,4 @@ Options:
 | `ori check` | Affected only | Never |
 | `ori check --no-test` | Never | Never |
 | `ori test` | All | All |
-| `ori test --only-targeted` | All | Never |
+| `ori test --only-attached` | All | Never |
