@@ -63,7 +63,7 @@ trait Print {
 
 ## Async Capability
 
-`Async` indicates a function may suspend.
+`Async` is a marker capability indicating a function may suspend. A function with `uses Async` requires an async context to execute.
 
 | With `uses Async` | Without |
 |-------------------|---------|
@@ -81,6 +81,8 @@ Concurrency via `parallel` pattern:
 ```ori
 parallel(tasks: [fetch(a), fetch(b)], max_concurrent: 10)
 ```
+
+See [Concurrency Model](23-concurrency-model.md) for task definitions, async context semantics, and suspension points.
 
 ## Providing Capabilities
 

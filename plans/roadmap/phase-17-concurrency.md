@@ -2,9 +2,61 @@
 
 **Goal**: Complete concurrency support with Sendable trait, role-based channels, nursery pattern, and structured concurrency
 
-> **PROPOSAL**: `docs/ori_lang/proposals/approved/sendable-channels-proposal.md`
+> **PROPOSALS**:
+> - `docs/ori_lang/proposals/approved/sendable-channels-proposal.md`
+> - `docs/ori_lang/proposals/approved/task-async-context-proposal.md`
 
 **Dependencies**: Phase 16 (Async Support)
+
+---
+
+## 17.0 Task and Async Context Definitions
+
+**Proposal**: `proposals/approved/task-async-context-proposal.md`
+
+Foundational definitions for tasks, async contexts, and suspension points that the rest of Phase 17 depends on.
+
+### Implementation
+
+- [ ] **Implement**: Task definition and isolation model
+  - [ ] **Rust Tests**: `oric/src/typeck/concurrency/task.rs` — task isolation checks
+  - [ ] **Ori Tests**: `tests/spec/concurrency/task_isolation.ori`
+  - [ ] **LLVM Support**: LLVM task representation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/task_tests.rs` — task codegen
+
+- [ ] **Implement**: Async context tracking
+  - [ ] **Rust Tests**: `oric/src/typeck/concurrency/async_context.rs` — async context validation
+  - [ ] **Ori Tests**: `tests/spec/concurrency/async_context.ori`
+  - [ ] **LLVM Support**: LLVM async runtime integration
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/async_tests.rs` — async context codegen
+
+- [ ] **Implement**: Suspension point tracking
+  - [ ] **Rust Tests**: `oric/src/typeck/concurrency/suspension.rs` — suspension point analysis
+  - [ ] **Ori Tests**: `tests/spec/concurrency/suspension_points.ori`
+  - [ ] **LLVM Support**: LLVM suspension codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/async_tests.rs` — suspension codegen
+
+- [ ] **Implement**: @main uses Async requirement for concurrency patterns
+  - [ ] **Rust Tests**: `oric/src/typeck/concurrency/main_async.rs` — main async check
+  - [ ] **Ori Tests**: `tests/compile-fail/main_without_async.ori`
+  - [ ] **LLVM Support**: N/A (compile-time only)
+
+- [ ] **Implement**: Async propagation checking
+  - [ ] **Rust Tests**: `oric/src/typeck/concurrency/propagation.rs` — async propagation
+  - [ ] **Ori Tests**: `tests/compile-fail/sync_calls_async.ori`
+  - [ ] **LLVM Support**: N/A (compile-time only)
+
+- [ ] **Implement**: Task capture ownership transfer
+  - [ ] **Rust Tests**: `oric/src/typeck/concurrency/capture.rs` — capture analysis
+  - [ ] **Ori Tests**: `tests/spec/concurrency/task_capture.ori`
+  - [ ] **Ori Tests**: `tests/compile-fail/use_after_capture.ori`
+  - [ ] **LLVM Support**: LLVM capture codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/task_tests.rs` — capture codegen
+
+- [ ] **Implement**: Atomic reference counting for cross-task values
+  - [ ] **Rust Tests**: `oric/src/runtime/refcount.rs` — atomic refcount
+  - [ ] **LLVM Support**: LLVM atomic refcount intrinsics
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/memory_tests.rs` — atomic refcount codegen
 
 ---
 

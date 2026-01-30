@@ -319,6 +319,15 @@
 - Clarifies `--clean` excludes free-floating tests (they always require `ori test`)
 - Blocked on: None (implementation reference for Phase 14)
 
+**Task and Async Context Definitions** — ✅ APPROVED 2026-01-29
+- Proposal: `proposals/approved/task-async-context-proposal.md`
+- Implementation: Phase 17.0
+- Formal definitions for tasks, async contexts, and suspension points
+- `@main` must declare `uses Async` for concurrency patterns
+- Capture-by-value with ownership transfer for task closures
+- Atomic reference counting for cross-task values
+- Blocked on: Phase 16 (Async Support)
+
 ---
 
 ## Milestones
