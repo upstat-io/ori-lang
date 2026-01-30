@@ -475,6 +475,15 @@
 - `WriteMode.Create` errors if file exists; `Truncate` overwrites
 - Blocked on: std.time (for Instant type)
 
+**std.fs FFI (POSIX)** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/stdlib-fs-api-ffi-revision.md`
+- Implementation: Phase 7D.8 (part of std.fs)
+- Backend: POSIX/libc for Unix platforms (Linux, macOS, BSD)
+- Windows support deferred to separate proposal
+- Platform-specific errno access (`__errno_location` on Linux, `__error` on macOS/BSD)
+- Uses `.zeroed()` method for FFI struct initialization
+- Blocked on: std.fs API proposal, Fixed-capacity lists proposal
+
 **std.crypto API** — ✅ APPROVED 2026-01-30
 - Proposal: `proposals/approved/stdlib-crypto-api-proposal.md`
 - Implementation: Phase 7D.9
