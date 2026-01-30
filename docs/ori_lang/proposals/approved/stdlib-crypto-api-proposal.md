@@ -89,7 +89,7 @@ Implementation uses Argon2id with secure defaults.
 For data integrity (fast, deterministic):
 
 ```ori
-type HashAlgorithm = Sha256 | Sha384 | Sha512 | Blake2b | Blake3
+type HashAlgorithm = Sha256 | Sha512 | Blake2b
 
 @hash (data: [byte], algorithm: HashAlgorithm = Sha256) -> [byte] uses Crypto
 @hash_hex (data: str, algorithm: HashAlgorithm = Sha256) -> str uses Crypto
@@ -100,8 +100,8 @@ Usage:
 use std.crypto { hash, hash_hex, HashAlgorithm }
 
 let digest = hash(data: file_contents, algorithm: Sha256)
-let hex = hash_hex(data: "hello", algorithm: Blake3)
-// "ea8f163db38682925e4491c5e58d4bb3506ef8c14eb78a86e908c5624a67200f"
+let hex = hash_hex(data: "hello", algorithm: Blake2b)
+// "e4cfa39a3d37be31c59609e807970799caa68a19bfaa15135f165085e01d41a6"
 ```
 
 ### HMAC
@@ -150,7 +150,7 @@ let ciphertext = encrypt(key: key, plaintext: secret_data)
 let plaintext = decrypt(key: key, ciphertext: ciphertext)?
 ```
 
-Internally uses AES-256-GCM with random nonce (prepended to ciphertext).
+Internally uses XSalsa20-Poly1305 with random nonce (prepended to ciphertext).
 
 ### Explicit Nonce API
 
@@ -484,10 +484,8 @@ let hash = hash(data: content, algorithm: Md5)
 | Algorithm | Status | Reason |
 |-----------|--------|--------|
 | SHA-256 | Current | — |
-| SHA-384 | Current | — |
 | SHA-512 | Current | — |
 | Blake2b | Current | — |
-| Blake3 | Current | — |
 | Ed25519 | Current | — |
 | X25519 | Current | — |
 | RSA-2048 | Current | — |

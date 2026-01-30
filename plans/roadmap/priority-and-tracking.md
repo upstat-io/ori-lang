@@ -480,14 +480,23 @@
 - Implementation: Phase 7D.9
 - Type-safe asymmetric keys: `SigningKeyPair`, `EncryptionKeyPair`, `KeyExchangeKeyPair` (prevent misuse at compile time)
 - Password hashing: `hash_password()`, `verify_password()` with Argon2id
-- Symmetric encryption: `generate_key()`, `encrypt()`, `decrypt()` with AES-256-GCM
+- Symmetric encryption: `generate_key()`, `encrypt()`, `decrypt()` with XSalsa20-Poly1305
 - Digital signatures: `sign()`, `verify_signature()` with Ed25519/RSA
 - Key exchange: `derive_shared_secret()` with X25519 (Diffie-Hellman)
 - Secure random: `random_bytes()`, `random_int()`, `random_uuid()` using CSPRNG
-- Memory safety: automatic key zeroization on drop
+- Memory safety: automatic key zeroization on drop (`#zeroize` attribute)
 - Algorithm deprecation: compiler warnings with `#allow(deprecated_algorithm)` suppression
 - Crypto capability: non-suspending, added to standard capabilities
+- Hash algorithms: `Sha256 | Sha512 | Blake2b` (SHA-384 and BLAKE3 removed — not in libsodium)
 - Blocked on: None (can be implemented independently)
+
+**std.crypto FFI (Native)** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/stdlib-crypto-ffi-native-proposal.md`
+- Implementation: Phase 7D.9 (part of std.crypto)
+- Backend: libsodium (modern algorithms) + OpenSSL (RSA only)
+- Language extensions: `[value; count]` array syntax, `#zeroize` attribute
+- Scope: Native platforms only; WASM support deferred to separate proposal
+- Blocked on: std.crypto API proposal
 
 **Conditional Compilation** — ✅ APPROVED 2026-01-30
 - Proposal: `proposals/approved/conditional-compilation-proposal.md`
