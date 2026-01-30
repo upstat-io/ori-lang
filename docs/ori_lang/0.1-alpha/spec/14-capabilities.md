@@ -320,6 +320,9 @@ Functions without `uses` are pure: no side effects, cannot suspend, safely paral
 | Code | Description |
 |------|-------------|
 | E0600 | Function uses capability without declaring it |
+| E1000 | Conflicting default implementations for same trait |
+| E1001 | Duplicate default implementation in same module |
+| E1002 | `def impl` methods cannot have `self` parameter |
 | E1200 | Missing capability (callee requires capability caller lacks) |
 | E1201 | Unbound capability (no `with` or `def impl` available) |
 | E1202 | Type does not implement capability trait |

@@ -1,8 +1,9 @@
 # Proposal: Default Implementation Resolution
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-29
+**Approved:** 2026-01-30
 **Affects:** Compiler, module system, trait system
 
 ---
@@ -155,6 +156,32 @@ with Logger = TestLogger in run(
 
 ---
 
+## Resolution Order
+
+When resolving a capability name, the compiler checks in order:
+
+1. **Innermost `with...in` binding** — highest priority
+2. **Outer `with...in` bindings** — in reverse nesting order
+3. **Imported `def impl`** — from the module where the trait was imported
+4. **Module-local `def impl`** — defined in the current module
+5. **Error** — capability not provided
+
+### Imported Takes Precedence Over Module-Local
+
+When both an imported `def impl` and a module-local `def impl` exist for the same trait, the imported version takes precedence:
+
+```ori
+use std.logging { Logger }  // has def impl
+
+def impl Logger { ... }  // module-local (shadowed by import)
+
+Logger.info(message: "Uses imported def impl, not module-local")
+```
+
+This ensures that importing a trait with its standard implementation always produces consistent behavior, regardless of any local defaults that might exist.
+
+---
+
 ## Scope and Visibility
 
 ### Module-Local Default
@@ -194,6 +221,23 @@ To re-export trait without default:
 
 ```ori
 pub use std.logging { Logger without def }
+```
+
+### Re-export Stripping is Permanent
+
+When a module re-exports a trait `without def`, the default implementation is permanently stripped from that export path. Consumers must import from the original source to get the `def impl`:
+
+```ori
+// module_a.ori
+pub trait Logger { ... }
+pub def impl Logger { ... }
+
+// module_b.ori
+pub use "module_a" { Logger without def }  // Strips def impl
+
+// module_c.ori
+use "module_b" { Logger }  // NO def impl available via this path
+                           // Must import from module_a to get the default
 ```
 
 ---
@@ -443,8 +487,10 @@ Add:
 | Import conflict | Compile error; use `without def` |
 | `with...in` | Always overrides `def impl` |
 | Nested `with` | Inner shadows outer |
+| Resolution order | with...in > imported def > module-local def |
 | Visibility | `pub def impl` exported with trait |
 | Re-export | Includes `def impl` if both public |
+| Re-export stripping | Permanent for that export path |
 | Config variables | Topologically sorted initialization |
 | Circular deps | Compile error |
 | `self` parameter | Not allowed (stateless) |

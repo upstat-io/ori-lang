@@ -363,6 +363,15 @@
 - Async binding prohibition (E1203)
 - Blocked on: Phase 6.10 (def impl)
 
+**Default Implementation Resolution** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/default-impl-resolution-proposal.md`
+- Implementation: Phase 6.12
+- `without def` import syntax: `use "module" { Trait without def }`
+- Conflict detection: one `def impl` per trait per scope (E1000, E1001)
+- Resolution order: with...in > imported def > module-local def
+- Re-export stripping: `without def` permanently strips default from export path
+- Blocked on: Phase 6.10 (def impl)
+
 **Trait Resolution and Conflict Handling** — ✅ APPROVED 2026-01-30
 - Proposal: `proposals/approved/trait-resolution-conflicts-proposal.md`
 - Implementation: Phase 3.10

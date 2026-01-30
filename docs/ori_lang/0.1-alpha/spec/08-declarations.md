@@ -171,6 +171,31 @@ Constraints:
 - Method signatures must match the trait
 - No `self` parameter
 
+### Import Conflicts
+
+A scope can have at most one `def impl` for each trait. Importing the same trait with defaults from two modules is a compile error:
+
+```ori
+use "module_a" { Logger }   // Brings def impl
+use "module_b" { Logger }   // Error: conflicting default for Logger
+```
+
+To import a trait without its default:
+
+```ori
+use "module_a" { Logger without def }  // Import trait, skip def impl
+```
+
+### Resolution Order
+
+When resolving a capability name:
+
+1. Innermost `with...in` binding
+2. Imported `def impl`
+3. Module-local `def impl`
+
+Imported `def impl` takes precedence over module-local `def impl`.
+
 See [Capabilities](14-capabilities.md) for usage with capability traits.
 
 ## Trait Resolution
