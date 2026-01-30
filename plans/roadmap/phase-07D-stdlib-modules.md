@@ -614,10 +614,11 @@ JSON parsing, serialization, and manipulation.
 ## 7D.8 std.fs Module
 
 **Proposal**: `proposals/approved/stdlib-fs-api-proposal.md`
+**FFI Implementation**: `proposals/approved/stdlib-fs-api-ffi-revision.md`
 
 File system operations including reading, writing, directory manipulation, and file metadata.
 
-**Depends on**: `std.time` (for `Instant` type in `FileInfo`)
+**Depends on**: `std.time` (for `Instant` type in `FileInfo`), Fixed-capacity lists proposal (for FFI struct arrays)
 
 ### 7D.8.1 Core Types
 
