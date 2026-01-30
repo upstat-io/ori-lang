@@ -1,0 +1,8 @@
+// Long function names
+// Tests formatter handling of very long function identifiers
+
+@this_is_a_very_long_function_name_that_tests_formatting (x: int) -> int = x + 1
+
+@another_extremely_long_function_name_for_testing_purposes (a: int, b: int) -> int = a + b
+
+@calculate_the_total_value_of_items_in_cart_with_discounts_applied (price: int) -> int = price

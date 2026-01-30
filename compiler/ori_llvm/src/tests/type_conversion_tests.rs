@@ -1,7 +1,5 @@
 //! Tests for built-in type conversion functions (str, int, float, byte).
 
-use std::collections::HashMap;
-
 use inkwell::context::Context;
 use ori_ir::StringInterner;
 

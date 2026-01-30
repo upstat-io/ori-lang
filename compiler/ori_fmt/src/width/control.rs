@@ -7,7 +7,21 @@
 //! - Blocks: `{ stmts; result }`
 
 use super::{WidthCalculator, ALWAYS_STACKED};
-use ori_ir::{ExprId, Name, StmtRange, StringLookup};
+use ori_ir::{ExprId, ExprKind, Name, StmtRange, StringLookup};
+
+/// Check if an expression needs parentheses when used as a receiver.
+fn receiver_needs_parens<I: StringLookup>(calc: &WidthCalculator<'_, I>, receiver: ExprId) -> bool {
+    let expr = calc.arena.get_expr(receiver);
+    matches!(
+        expr.kind,
+        ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Lambda { .. }
+            | ExprKind::Let { .. }
+            | ExprKind::Range { .. }
+    )
+}
 
 /// Calculate width of `return` or `return value`.
 pub(super) fn return_width<I: StringLookup>(
@@ -151,6 +165,7 @@ pub(super) fn assign_width<I: StringLookup>(
 }
 
 /// Calculate width of `receiver.field` access.
+/// Adds 2 for parentheses if receiver needs them for precedence.
 pub(super) fn field_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
     receiver: ExprId,
@@ -160,11 +175,13 @@ pub(super) fn field_width<I: StringLookup>(
     if receiver_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
     }
+    let paren_w = if receiver_needs_parens(calc, receiver) { 2 } else { 0 };
     let field_w = calc.interner.lookup(field).len();
-    receiver_w + 1 + field_w
+    paren_w + receiver_w + 1 + field_w
 }
 
 /// Calculate width of `receiver[index]` access.
+/// Adds 2 for parentheses if receiver needs them for precedence.
 pub(super) fn index_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
     receiver: ExprId,
@@ -175,8 +192,9 @@ pub(super) fn index_width<I: StringLookup>(
     if receiver_w == ALWAYS_STACKED || index_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
     }
-    // receiver + "[" + index + "]"
-    receiver_w + 1 + index_w + 1
+    let paren_w = if receiver_needs_parens(calc, receiver) { 2 } else { 0 };
+    // (receiver)[index] or receiver[index]
+    paren_w + receiver_w + 1 + index_w + 1
 }
 
 /// Calculate width of `with Cap = provider in body`.

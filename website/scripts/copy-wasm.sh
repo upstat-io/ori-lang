@@ -6,7 +6,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WEBSITE_DIR="$(dirname "$SCRIPT_DIR")"
-PKG_DIR="$WEBSITE_DIR/../playground/wasm/pkg"
+PKG_DIR="$WEBSITE_DIR/../playground/pkg"
 WASM_DIR="$WEBSITE_DIR/src/wasm"
 
 if [ ! -d "$PKG_DIR" ]; then

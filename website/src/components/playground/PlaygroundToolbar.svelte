@@ -7,6 +7,7 @@
     running = false,
     selectedExample = '',
     onrun,
+    onformat,
     onshare,
     onexample,
     shareLabel = 'Share',
@@ -16,6 +17,7 @@
     running?: boolean;
     selectedExample?: string;
     onrun?: () => void;
+    onformat?: () => void;
     onshare?: () => void;
     onexample?: (name: string) => void;
     shareLabel?: string;
@@ -27,6 +29,9 @@
     <span class="file-label">main.ori</span>
   </div>
   <div class="toolbar-right">
+    <button class="btn btn-outline" disabled={running} onclick={onformat}>
+      Format
+    </button>
     <button class="btn btn-primary" disabled={running} onclick={onrun}>
       <span class="btn-icon">&#9654;</span>
       Run
@@ -115,6 +120,22 @@
 
   .btn-secondary:hover {
     background: var(--color-border-hover, #3c3d4a);
+  }
+
+  .btn-outline {
+    background: transparent;
+    color: var(--color-accent, #569cd6);
+    border: 1px solid var(--color-accent, #569cd6);
+  }
+
+  .btn-outline:hover {
+    background: rgba(86, 156, 214, 0.1);
+  }
+
+  .btn-outline:disabled {
+    color: var(--color-text-muted, #636874);
+    border-color: var(--color-text-muted, #636874);
+    cursor: not-allowed;
   }
 
   .btn-icon {

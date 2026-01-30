@@ -1,0 +1,12 @@
+// Conditional as function body that needs breaking
+// Spec: 16-formatting.md § Conditionals
+
+// Long condition + branches that exceed 100 chars
+@categorize_value (some_value: int) -> str =
+    if some_value > 1000 then "this_is_a_very_large_value"
+    else "this_is_a_small_value"
+
+// Another example with long function name and params
+@determine_status_category (status_code: int) -> str =
+    if status_code >= 200 then "success"
+    else "failure"

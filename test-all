@@ -1,10 +1,17 @@
 #!/bin/bash
 # Run ALL tests: Rust unit tests, Ori language tests, and LLVM backend tests
-# Usage: ./test-all
+# Usage: ./test-all [-v|--verbose]
 #
-# Runs all test suites and reports a summary at the end.
+# By default, only shows output for failing tests.
+# Use -v or --verbose to see all output.
 
 set -e
+
+# Check for verbose flag
+VERBOSE=0
+if [[ "$1" == "-v" || "$1" == "--verbose" ]]; then
+    VERBOSE=1
+fi
 
 # Colors for output
 RED='\033[0;31m'
@@ -29,11 +36,24 @@ ANY_FAILED=0
 
 # --- Run Rust unit tests ---
 echo "=== Running Rust unit tests ==="
-if cargo t 2>&1 | tee "$RUST_OUTPUT"; then
-    RUST_STATUS="passed"
+if [[ $VERBOSE -eq 1 ]]; then
+    if cargo t 2>&1 | tee "$RUST_OUTPUT"; then
+        RUST_STATUS="passed"
+    else
+        RUST_STATUS="FAILED"
+        ANY_FAILED=1
+    fi
 else
-    RUST_STATUS="FAILED"
-    ANY_FAILED=1
+    if cargo t 2>&1 > "$RUST_OUTPUT"; then
+        RUST_STATUS="passed"
+        # Show just the summary line
+        grep -E "^test result:" "$RUST_OUTPUT" | tail -1
+    else
+        RUST_STATUS="FAILED"
+        ANY_FAILED=1
+        # Show full output on failure
+        cat "$RUST_OUTPUT"
+    fi
 fi
 
 # Parse Rust test results (sum all "X passed" from "test result:" lines)
@@ -43,11 +63,24 @@ RUST_IGNORED=$(grep -E "^test result:" "$RUST_OUTPUT" | sed 's/.*; \([0-9]*\) ig
 
 echo ""
 echo "=== Running Ori language tests (interpreter) ==="
-if cargo run -p oric --bin ori -- test tests/ 2>&1 | tee "$ORI_INTERP_OUTPUT"; then
-    ORI_INTERP_STATUS="passed"
+if [[ $VERBOSE -eq 1 ]]; then
+    if cargo run -p oric --bin ori -- test tests/ 2>&1 | tee "$ORI_INTERP_OUTPUT"; then
+        ORI_INTERP_STATUS="passed"
+    else
+        ORI_INTERP_STATUS="FAILED"
+        ANY_FAILED=1
+    fi
 else
-    ORI_INTERP_STATUS="FAILED"
-    ANY_FAILED=1
+    if cargo run -p oric --bin ori -- test tests/ 2>&1 > "$ORI_INTERP_OUTPUT"; then
+        ORI_INTERP_STATUS="passed"
+        # Show just the summary line
+        grep -E "[0-9]+ passed, [0-9]+ failed" "$ORI_INTERP_OUTPUT" | tail -1
+    else
+        ORI_INTERP_STATUS="FAILED"
+        ANY_FAILED=1
+        # Show full output on failure
+        cat "$ORI_INTERP_OUTPUT"
+    fi
 fi
 
 # Parse Ori interpreter test results (format: "  688 passed, 0 failed, 19 skipped (707 total)")
@@ -60,11 +93,24 @@ ORI_INTERP_SKIPPED="${ORI_INTERP_NUMS[2]:-0}"
 
 echo ""
 echo "=== Running LLVM Rust unit tests (Docker) ==="
-if ./llvm-test 2>&1 | tee "$LLVM_RUST_OUTPUT"; then
-    LLVM_RUST_STATUS="passed"
+if [[ $VERBOSE -eq 1 ]]; then
+    if ./llvm-test 2>&1 | tee "$LLVM_RUST_OUTPUT"; then
+        LLVM_RUST_STATUS="passed"
+    else
+        LLVM_RUST_STATUS="FAILED"
+        ANY_FAILED=1
+    fi
 else
-    LLVM_RUST_STATUS="FAILED"
-    ANY_FAILED=1
+    if ./llvm-test 2>&1 > "$LLVM_RUST_OUTPUT"; then
+        LLVM_RUST_STATUS="passed"
+        # Show just the summary line
+        grep -E "^test result:" "$LLVM_RUST_OUTPUT" | tail -1
+    else
+        LLVM_RUST_STATUS="FAILED"
+        ANY_FAILED=1
+        # Show full output on failure
+        cat "$LLVM_RUST_OUTPUT"
+    fi
 fi
 
 # Parse LLVM Rust test results
@@ -74,11 +120,24 @@ LLVM_RUST_IGNORED=$(grep -E "^test result:" "$LLVM_RUST_OUTPUT" | sed 's/.*; \([
 
 echo ""
 echo "=== Running Ori language tests (LLVM backend) ==="
-if ./docker/llvm/run.sh ori test tests/ 2>&1 | tee "$ORI_LLVM_OUTPUT"; then
-    ORI_LLVM_STATUS="passed"
+if [[ $VERBOSE -eq 1 ]]; then
+    if ./docker/llvm/run.sh ori test tests/ 2>&1 | tee "$ORI_LLVM_OUTPUT"; then
+        ORI_LLVM_STATUS="passed"
+    else
+        ORI_LLVM_STATUS="FAILED"
+        ANY_FAILED=1
+    fi
 else
-    ORI_LLVM_STATUS="FAILED"
-    ANY_FAILED=1
+    if ./docker/llvm/run.sh ori test tests/ 2>&1 > "$ORI_LLVM_OUTPUT"; then
+        ORI_LLVM_STATUS="passed"
+        # Show just the summary line
+        grep -E "[0-9]+ passed, [0-9]+ failed" "$ORI_LLVM_OUTPUT" | tail -1
+    else
+        ORI_LLVM_STATUS="FAILED"
+        ANY_FAILED=1
+        # Show full output on failure
+        cat "$ORI_LLVM_OUTPUT"
+    fi
 fi
 
 # Parse Ori LLVM test results (format: "  745 passed, 0 failed, 19 skipped (764 total)")

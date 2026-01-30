@@ -1,0 +1,5 @@
+type Very_Long_Type_Name_That_Tests_How_The_Formatter_Handles_Extremely_Long_Type_Names = int
+
+@very_long_identifier_name_that_cannot_be_broken_or_split_by_the_formatter () -> int = 42
+
+@large_number () -> int = 9223372036854775807

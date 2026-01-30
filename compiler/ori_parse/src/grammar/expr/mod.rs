@@ -32,6 +32,9 @@ macro_rules! parse_binary_level {
         $(#[doc = $doc])*
         fn $fn_name(&mut self) -> Result<ExprId, ParseError> {
             let mut left = self.$next()?;
+            // Skip newlines to allow binary operators at line start
+            // (supports formatted code like: "a"\n<= "b")
+            self.skip_newlines();
             while self.check(&$tok) {
                 self.advance();
                 let right = self.$next()?;
@@ -41,6 +44,7 @@ macro_rules! parse_binary_level {
                     ExprKind::Binary { op: $op, left, right },
                     span,
                 ));
+                self.skip_newlines();
             }
             Ok(left)
         }
@@ -51,6 +55,9 @@ macro_rules! parse_binary_level {
         $(#[doc = $doc])*
         fn $fn_name(&mut self) -> Result<ExprId, ParseError> {
             let mut left = self.$next()?;
+            // Skip newlines to allow binary operators at line start
+            // (supports formatted code like: "a"\n<= "b")
+            self.skip_newlines();
             while let Some((op, token_count)) = self.$matcher() {
                 for _ in 0..token_count {
                     self.advance();
@@ -62,6 +69,7 @@ macro_rules! parse_binary_level {
                     ExprKind::Binary { op, left, right },
                     span,
                 ));
+                self.skip_newlines();
             }
             Ok(left)
         }
@@ -156,6 +164,8 @@ impl Parser<'_> {
     fn parse_range(&mut self) -> Result<ExprId, ParseError> {
         let mut left = self.parse_shift()?;
 
+        // Skip newlines to allow range operators at line start
+        self.skip_newlines();
         if self.check(&TokenKind::DotDot) || self.check(&TokenKind::DotDotEq) {
             let inclusive = self.check(&TokenKind::DotDotEq);
             self.advance();

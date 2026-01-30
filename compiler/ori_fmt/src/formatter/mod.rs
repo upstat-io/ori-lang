@@ -15,7 +15,7 @@
 #[cfg(test)]
 mod tests;
 
-use crate::context::{FormatContext, MAX_LINE_WIDTH};
+use crate::context::{FormatConfig, FormatContext};
 use crate::emitter::StringEmitter;
 use crate::width::{WidthCalculator, ALWAYS_STACKED};
 use ori_ir::{
@@ -61,6 +61,26 @@ fn unary_op_str(op: UnaryOp) -> &'static str {
     }
 }
 
+/// Check if an expression needs parentheses when used as a receiver for method call,
+/// field access, or indexing. This is needed for expressions with lower precedence
+/// than member access (`.`), which has the highest precedence.
+///
+/// Expressions that need parentheses as receivers:
+/// - Binary operations (all have lower precedence than `.`)
+/// - Unary operations (lower precedence than `.`)
+/// - Conditionals, lambdas, etc.
+fn needs_receiver_parens(expr: &ori_ir::Expr) -> bool {
+    matches!(
+        expr.kind,
+        ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Lambda { .. }
+            | ExprKind::Let { .. }
+            | ExprKind::Range { .. }
+    )
+}
+
 /// Formatter for Ori source code.
 ///
 /// Wraps a width calculator and format context to produce formatted output.
@@ -73,13 +93,18 @@ pub struct Formatter<'a, I: StringLookup> {
 }
 
 impl<'a, I: StringLookup> Formatter<'a, I> {
-    /// Create a new formatter.
+    /// Create a new formatter with default config.
     pub fn new(arena: &'a ExprArena, interner: &'a I) -> Self {
+        Self::with_config(arena, interner, FormatConfig::default())
+    }
+
+    /// Create a new formatter with custom config.
+    pub fn with_config(arena: &'a ExprArena, interner: &'a I, config: FormatConfig) -> Self {
         Self {
             arena,
             interner,
             width_calc: WidthCalculator::new(arena, interner),
-            ctx: FormatContext::new(),
+            ctx: FormatContext::with_config(config),
         }
     }
 
@@ -89,6 +114,17 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
     /// as previous content (e.g., function body after `= `).
     pub fn with_starting_column(mut self, column: usize) -> Self {
         self.ctx.set_column(column);
+        self
+    }
+
+    /// Set the starting indentation level for formatting.
+    ///
+    /// Use this when formatting sub-expressions that should inherit a specific
+    /// indentation level (e.g., function body that breaks to a new line).
+    pub fn with_indent_level(mut self, level: usize) -> Self {
+        for _ in 0..level {
+            self.ctx.indent();
+        }
         self
     }
 
@@ -106,6 +142,20 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
             self.emit_stacked(expr_id);
         } else if self.ctx.fits(width) {
             self.emit_inline(expr_id);
+        } else {
+            self.emit_broken(expr_id);
+        }
+    }
+
+    /// Format an expression in broken mode (force multi-line).
+    ///
+    /// Use this when the caller has already decided the expression needs to break,
+    /// and we don't want the formatter to re-evaluate fit at the current position.
+    pub fn format_broken(&mut self, expr_id: ExprId) {
+        let width = self.width_calc.width(expr_id);
+
+        if width == ALWAYS_STACKED {
+            self.emit_stacked(expr_id);
         } else {
             self.emit_broken(expr_id);
         }
@@ -170,7 +220,7 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
                 method,
                 args,
             } => {
-                self.emit_inline(*receiver);
+                self.emit_receiver_inline(*receiver);
                 self.ctx.emit(".");
                 self.ctx.emit(self.interner.lookup(*method));
                 self.ctx.emit("(");
@@ -182,7 +232,7 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
                 method,
                 args,
             } => {
-                self.emit_inline(*receiver);
+                self.emit_receiver_inline(*receiver);
                 self.ctx.emit(".");
                 self.ctx.emit(self.interner.lookup(*method));
                 self.ctx.emit("(");
@@ -192,12 +242,12 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
 
             // Access
             ExprKind::Field { receiver, field } => {
-                self.emit_inline(*receiver);
+                self.emit_receiver_inline(*receiver);
                 self.ctx.emit(".");
                 self.ctx.emit(self.interner.lookup(*field));
             }
             ExprKind::Index { receiver, index } => {
-                self.emit_inline(*receiver);
+                self.emit_receiver_inline(*receiver);
                 self.ctx.emit("[");
                 self.emit_inline(*index);
                 self.ctx.emit("]");
@@ -309,6 +359,10 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
                         self.ctx.emit(", ");
                     }
                     self.emit_inline(*item);
+                }
+                // Single-element tuples need trailing comma: (42,) vs (42)
+                if items_list.len() == 1 {
+                    self.ctx.emit(",");
                 }
                 self.ctx.emit(")");
             }
@@ -493,7 +547,7 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
                 method,
                 args,
             } => {
-                self.format(*receiver);
+                self.format_receiver(*receiver);
                 self.ctx.emit(".");
                 self.ctx.emit(self.interner.lookup(*method));
                 self.ctx.emit("(");
@@ -505,7 +559,7 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
                 method,
                 args,
             } => {
-                self.format(*receiver);
+                self.format_receiver(*receiver);
                 self.ctx.emit(".");
                 self.ctx.emit(self.interner.lookup(*method));
                 self.ctx.emit("(");
@@ -595,20 +649,43 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
                 }
             }
 
-            // If - break at else
+            // If - break at else, keeping "else if" chains flat
+            // Check if the initial "if cond then branch" segment fits on current line
             ExprKind::If {
                 cond,
                 then_branch,
                 else_branch,
             } => {
-                self.ctx.emit("if ");
-                self.format(*cond);
-                self.ctx.emit(" then ");
-                self.format(*then_branch);
+                // Calculate width of initial segment: "if " + cond + " then " + branch
+                let cond_width = self.width_calc.width(*cond);
+                let then_width = self.width_calc.width(*then_branch);
+
+                // Check if the initial segment fits
+                // 3 = "if ", 6 = " then "
+                let initial_fits = cond_width != ALWAYS_STACKED
+                    && then_width != ALWAYS_STACKED
+                    && self.ctx.fits(3 + cond_width + 6 + then_width);
+
+                if initial_fits {
+                    // Emit "if cond then branch" inline, then break for else
+                    self.ctx.emit("if ");
+                    self.emit_inline(*cond);
+                    self.ctx.emit(" then ");
+                    self.emit_inline(*then_branch);
+                } else {
+                    // Initial segment is too long, break the then_branch to new line
+                    self.ctx.emit("if ");
+                    self.format(*cond);
+                    self.ctx.emit(" then");
+                    self.ctx.emit_newline();
+                    self.ctx.indent();
+                    self.ctx.emit_indent();
+                    self.format(*then_branch);
+                    self.ctx.dedent();
+                }
+
                 if let Some(else_id) = else_branch {
-                    self.ctx.emit_newline_indent();
-                    self.ctx.emit("else ");
-                    self.format(*else_id);
+                    self.emit_else_branch(*else_id);
                 }
             }
 
@@ -657,6 +734,24 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
                 self.ctx.dedent();
             }
 
+            // With capability - body on new line
+            ExprKind::WithCapability {
+                capability,
+                provider,
+                body,
+            } => {
+                self.ctx.emit("with ");
+                self.ctx.emit(self.interner.lookup(*capability));
+                self.ctx.emit(" = ");
+                self.format(*provider);
+                self.ctx.emit(" in");
+                self.ctx.emit_newline();
+                self.ctx.indent();
+                self.ctx.emit_indent();
+                self.format(*body);
+                self.ctx.dedent();
+            }
+
             // For - body on new line if needed
             ExprKind::For {
                 binding,
@@ -687,6 +782,63 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
 
             // Fallback to inline for things that don't have special broken format
             _ => self.emit_inline(expr_id),
+        }
+    }
+
+    /// Emit an else branch, handling else-if chains with proper line breaking.
+    ///
+    /// For chained else-if, each else clause goes on a new line, with the
+    /// `else if cond then branch` together on that line:
+    /// ```text
+    /// if cond1 then branch1
+    /// else if cond2 then branch2
+    /// else if cond3 then branch3
+    /// else branch4
+    /// ```
+    fn emit_else_branch(&mut self, else_id: ExprId) {
+        self.ctx.emit_newline_indent();
+        self.ctx.emit("else ");
+
+        let else_expr = self.arena.get_expr(else_id);
+        if let ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } = &else_expr.kind
+        {
+            // else-if chain: check if "if cond then branch" fits on this line
+            let cond_width = self.width_calc.width(*cond);
+            let then_width = self.width_calc.width(*then_branch);
+
+            // Check if the segment fits: "if " + cond + " then " + branch
+            let segment_fits = cond_width != ALWAYS_STACKED
+                && then_width != ALWAYS_STACKED
+                && self.ctx.fits(3 + cond_width + 6 + then_width);
+
+            if segment_fits {
+                // Emit "if cond then branch" inline
+                self.ctx.emit("if ");
+                self.emit_inline(*cond);
+                self.ctx.emit(" then ");
+                self.emit_inline(*then_branch);
+            } else {
+                // Segment too long, break the then_branch to new line
+                self.ctx.emit("if ");
+                self.format(*cond);
+                self.ctx.emit(" then");
+                self.ctx.emit_newline();
+                self.ctx.indent();
+                self.ctx.emit_indent();
+                self.format(*then_branch);
+                self.ctx.dedent();
+            }
+
+            if let Some(next_else_id) = else_branch {
+                self.emit_else_branch(*next_else_id);
+            }
+        } else {
+            // Final else branch
+            self.format(else_id);
         }
     }
 
@@ -979,6 +1131,10 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
                     let pat = self.arena.get_match_pattern(*pat_id);
                     self.emit_match_pattern(pat);
                 }
+                // Single-element tuples need trailing comma: (x,) vs (x)
+                if items_list.len() == 1 {
+                    self.ctx.emit(",");
+                }
                 self.ctx.emit(")");
             }
             MatchPattern::List { elements, rest } => {
@@ -1049,6 +1205,10 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
                         self.ctx.emit(", ");
                     }
                     self.emit_binding_pattern(item);
+                }
+                // Single-element tuples need trailing comma: (x,) vs (x)
+                if items.len() == 1 {
+                    self.ctx.emit(",");
                 }
                 self.ctx.emit(")");
             }
@@ -1211,6 +1371,30 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
         }
     }
 
+    /// Emit a receiver expression inline, wrapping in parentheses if needed for precedence.
+    fn emit_receiver_inline(&mut self, receiver: ExprId) {
+        let expr = self.arena.get_expr(receiver);
+        if needs_receiver_parens(expr) {
+            self.ctx.emit("(");
+            self.emit_inline(receiver);
+            self.ctx.emit(")");
+        } else {
+            self.emit_inline(receiver);
+        }
+    }
+
+    /// Format a receiver expression, wrapping in parentheses if needed for precedence.
+    fn format_receiver(&mut self, receiver: ExprId) {
+        let expr = self.arena.get_expr(receiver);
+        if needs_receiver_parens(expr) {
+            self.ctx.emit("(");
+            self.format(receiver);
+            self.ctx.emit(")");
+        } else {
+            self.format(receiver);
+        }
+    }
+
     fn emit_broken_expr_list(&mut self, range: ExprRange) {
         let items = self.arena.get_expr_list(range);
         if items.is_empty() {
@@ -1297,6 +1481,7 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
         self.ctx.indent();
         self.ctx.emit_indent();
         let line_start = self.ctx.column();
+        let max_width = self.ctx.max_width();
 
         for (i, item) in items.iter().enumerate() {
             let item_width = self.width_calc.width(*item);
@@ -1304,7 +1489,7 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
             // Check if we need to wrap to a new line
             if item_width != ALWAYS_STACKED
                 && self.ctx.column() > line_start
-                && self.ctx.column() + item_width + 2 > MAX_LINE_WIDTH
+                && self.ctx.column() + item_width + 2 > max_width
             {
                 self.ctx.emit(",");
                 self.ctx.emit_newline();

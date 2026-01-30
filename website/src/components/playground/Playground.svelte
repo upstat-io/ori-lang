@@ -4,7 +4,7 @@
   import OutputPane from './OutputPane.svelte';
   import PlaygroundToolbar from './PlaygroundToolbar.svelte';
   import { EXAMPLES } from './examples';
-  import { initWasm, runOri, isReady, getVersion } from './wasm-runner';
+  import { initWasm, runOri, formatOri, isReady, getVersion } from './wasm-runner';
   import { DEFAULT_CONFIG, type PlaygroundConfig, type RunResult } from './types';
 
   let { config = {} }: { config?: Partial<PlaygroundConfig> } = $props();
@@ -45,8 +45,31 @@
     }
   });
 
+  function handleFormat(): boolean {
+    if (!isReady()) return false;
+
+    const formatResult = formatOri(code, cfg.maxFormatWidth);
+    if (formatResult.success && formatResult.formatted) {
+      code = formatResult.formatted;
+      return true;
+    } else if (formatResult.error) {
+      // Show format/parse error
+      result = {
+        success: false,
+        error: formatResult.error,
+        error_type: 'parse',
+      };
+      status = 'error';
+      return false;
+    }
+    return true;
+  }
+
   async function handleRun() {
     if (!isReady()) return;
+
+    // Auto-format before running (skip run if format fails)
+    if (!handleFormat()) return;
 
     status = 'running';
     result = null;
@@ -100,6 +123,7 @@
       {selectedExample}
       {shareLabel}
       onrun={handleRun}
+      onformat={handleFormat}
       onshare={handleShare}
       onexample={handleExample}
     />

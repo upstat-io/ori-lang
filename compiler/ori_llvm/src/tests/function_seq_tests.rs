@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use inkwell::context::Context;
 use ori_ir::ast::patterns::{BindingPattern, FunctionSeq, MatchArm, MatchPattern, SeqBinding};
 use ori_ir::ast::{Expr, ExprKind};
-use ori_ir::{ArmRange, ExprArena, SeqBindingRange, Span, StringInterner, TypeId};
+use ori_ir::{ExprArena, SeqBindingRange, Span, StringInterner, TypeId};
 
 use crate::builder::Builder;
 use crate::context::CodegenCx;

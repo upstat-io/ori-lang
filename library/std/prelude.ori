@@ -12,11 +12,9 @@
 // - pub type Result<T, E> = Ok(T) | Err(E)
 // - pub type Ordering = Less | Equal | Greater
 // - pub type Error = { message: str }
-
 // =============================================================================
 // Core Traits
 // =============================================================================
-
 // Equality comparison
 pub trait Eq {
     @eq (self, other: Self) -> bool
@@ -57,7 +55,6 @@ pub trait Default {
 // Marker capabilities (Async, Unsafe) have no methods.
 // Effect capabilities (Http, FileSystem, etc.) define operations that may
 // have side effects.
-
 // Suspension marker - function may suspend (non-blocking I/O)
 // No methods; presence indicates async behavior
 pub trait Async {}
@@ -70,8 +67,11 @@ pub trait Unsafe {}
 // Implementations may suspend (use with `uses Http, Async` for non-blocking)
 pub trait Http {
     @get (url: str) -> Result<str, Error>
+
     @post (url: str, body: str) -> Result<str, Error>
+
     @put (url: str, body: str) -> Result<str, Error>
+
     @delete (url: str) -> Result<str, Error>
 }
 
@@ -79,8 +79,11 @@ pub trait Http {
 // Implementations may suspend (use with `uses FileSystem, Async` for non-blocking)
 pub trait FileSystem {
     @read (path: str) -> Result<str, Error>
+
     @write (path: str, content: str) -> Result<void, Error>
+
     @exists (path: str) -> bool
+
     @delete (path: str) -> Result<void, Error>
 }
 
@@ -88,27 +91,34 @@ pub trait FileSystem {
 // Implementations may suspend (use with `uses Cache, Async` for non-blocking)
 pub trait Cache {
     @get (key: str) -> Option<str>
+
     @set (key: str, value: str) -> void
+
     @del (key: str) -> void
 }
 
 // Time operations (typically synchronous)
 pub trait Clock {
     @now () -> int
+
     @today () -> str
 }
 
 // Random number generation (typically synchronous)
 pub trait Random {
     @rand_int (min: int, max: int) -> int
+
     @rand_float () -> float
 }
 
 // Logging operations (typically synchronous)
 pub trait Logger {
     @debug (msg: str) -> void
+
     @info (msg: str) -> void
+
     @warn (msg: str) -> void
+
     @error (msg: str) -> void
 }
 
@@ -120,7 +130,6 @@ pub trait Env {
 // =============================================================================
 // Utility Functions
 // =============================================================================
-
 // Get the length of a list
 pub @len (items: [int]) -> int = items.len()
 
@@ -128,27 +137,39 @@ pub @len (items: [int]) -> int = items.len()
 pub @is_empty (items: [int]) -> bool = items.len() == 0
 
 // Check if Option is Some
-pub @is_some (opt: Option<int>) -> bool = match(opt, Some(_) -> true, None -> false)
+pub @is_some (opt: Option<int>) -> bool = match(opt,
+    Some(_) -> true,
+    None -> false,
+)
 
 // Check if Option is None
-pub @is_none (opt: Option<int>) -> bool = match(opt, Some(_) -> false, None -> true)
+pub @is_none (opt: Option<int>) -> bool = match(opt,
+    Some(_) -> false,
+    None -> true,
+)
 
 // Check if Result is Ok
-pub @is_ok (res: Result<int, str>) -> bool = match(res, Ok(_) -> true, Err(_) -> false)
+pub @is_ok (res: Result<int, str>) -> bool = match(res,
+    Ok(_) -> true,
+    Err(_) -> false,
+)
 
 // Check if Result is Err
-pub @is_err (res: Result<int, str>) -> bool = match(res, Ok(_) -> false, Err(_) -> true)
+pub @is_err (res: Result<int, str>) -> bool = match(res,
+    Ok(_) -> false,
+    Err(_) -> true,
+)
 
 // =============================================================================
 // Assertions
 // =============================================================================
-
 // Assert that a condition is true
 pub @assert (cond: bool) -> void = if !cond then panic(msg: "assertion failed")
 
 // Assert that two values are equal
 pub @assert_eq (actual: int, expected: int) -> void =
-    if actual != expected then panic(msg: "assertion failed: " + str(actual) + " != " + str(expected))
+    if actual != expected then
+        panic(msg: "assertion failed: " + str(actual) + " != " + str(expected))
 
 // Assert that two values are not equal
 pub @assert_ne (actual: int, unexpected: int) -> void =
@@ -172,28 +193,30 @@ pub @assert_err (res: Result<int, str>) -> void =
 
 // Assert that an expression panics
 pub @assert_panics (f: () -> void) -> void = run(
-    let result = catch(expr: f()),
+    let result = catch(
+        expr: f(),
+    ),
     if is_ok(res: result) then panic(msg: "assertion failed: expected panic but succeeded"),
 )
 
 // Assert that an expression panics with a specific message
 pub @assert_panics_with (f: () -> void, msg: str) -> void = run(
-    let result = catch(expr: f()),
+    let result = catch(
+        expr: f(),
+    ),
     match(result,
-        Err(actual_msg) -> if actual_msg != msg then panic(msg: "assertion failed: expected panic with: " + msg + " but got: " + actual_msg),
+        Err(actual_msg) -> if actual_msg != msg then
+            panic(msg: "assertion failed: expected panic with: " + msg + " but got: " + actual_msg),
         Ok(_) -> panic(msg: "assertion failed: expected panic with: " + msg + " but succeeded"),
-    )
+    ),
 )
 
 // =============================================================================
 // Comparison Functions
 // =============================================================================
-
 // Compare two integers
 pub @compare (a: int, b: int) -> Ordering = run(
-    if a < b then Less
-    else if a > b then Greater
-    else Equal
+    if a < b then Less else if a > b then Greater else Equal,
 )
 
 // Get the minimum of two integers

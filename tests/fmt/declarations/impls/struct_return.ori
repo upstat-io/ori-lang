@@ -1,0 +1,16 @@
+// Golden test: Impl methods returning struct literals that break
+// Spec: 08-declarations.md § Implementations
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+type Rectangle = { width: int, height: int, area: int, perimeter: int }
+
+impl Rectangle {
+    @sum (self) -> int = self.width + self.height
+
+    @scale (self, factor: int) -> Rectangle = Rectangle {
+        width: self.width * factor,
+        height: self.height * factor,
+        area: self.width * factor * self.height * factor,
+        perimeter: self.width * 2 + self.height * 2 * factor,
+    }
+}

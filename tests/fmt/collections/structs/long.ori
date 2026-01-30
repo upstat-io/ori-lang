@@ -1,7 +1,11 @@
 // Long struct literal formatting (one field per line)
 // Design: formatter/design/02-constructs/collections.md § Struct Literals
-// Note: Parser doesn't support multi-line struct literals
 
 type Config = { max_timeout: int, max_retries: int, base_url: str, debug_mode: bool }
 
-@default_config () -> Config = Config { max_timeout: 30, max_retries: 3, base_url: "https://api.example.com", debug_mode: false }
+@default_config () -> Config = Config {
+    max_timeout: 30,
+    max_retries: 3,
+    base_url: "https://api.example.com",
+    debug_mode: false,
+}

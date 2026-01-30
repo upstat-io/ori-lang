@@ -8,8 +8,8 @@ Current status of the Ori formatter implementation.
 |------|-------|--------|
 | Tier 1 | Foundation | ✅ Complete |
 | Tier 2 | Expressions | ✅ Complete |
-| Tier 3 | Collections & Comments | 🔶 Partial |
-| Tier 4 | Integration | ⏳ Not started |
+| Tier 3 | Collections & Comments | ✅ Complete |
+| Tier 4 | Integration | 🔶 Partial |
 
 ## Phase Status
 
@@ -32,14 +32,14 @@ Current status of the Ori formatter implementation.
 | Phase | Name | Status | Notes |
 |-------|------|--------|-------|
 | 5 | Collections | ✅ Complete | Lists, maps, tuples, structs, ranges (5 golden test suites, 14 test files). Spread operators not yet in parser |
-| 6 | Comments | ⏳ Not started | Comment handling, doc reordering |
+| 6 | Comments | ✅ Complete | Doc comment reordering, @param/@field ordering, edge cases (3 golden test suites, 13 test files). Comments inside bodies deferred |
 
 ### Tier 4: Integration
 
 | Phase | Name | Status | Notes |
 |-------|------|--------|-------|
-| 7 | Tooling | ⏳ Not started | CLI, LSP, WASM |
-| 8 | Polish | ⏳ Not started | Edge cases, performance |
+| 7 | Tooling | 🔶 Partial | CLI complete (ori fmt), LSP and WASM pending |
+| 8 | Polish | ✅ Complete | Edge cases, idempotence, fuzz tests (171), error messages, documentation (4 guides) |
 
 ## Milestones
 
@@ -70,13 +70,17 @@ Current status of the Ori formatter implementation.
 
 **Exit criteria**: Can format programs with complex expressions
 
-### M3: Full Language Support (Tier 3) — 🔶 Partial
+### M3: Full Language Support (Tier 3) — ✅ Complete
 
 - [x] All collection types (lists, maps, tuples, structs, ranges)
-- [ ] Comment preservation
-- [ ] Doc comment reordering
+- [x] Comment preservation (comments before declarations)
+- [x] Doc comment reordering (Description → Param/Field → Warning → Example)
+- [x] @param order matches function signature
+- [x] @field order matches struct fields
+- [x] Edge cases (empty comments, EOF comments, only-comment files, mixed)
+- [ ] Comments inside function bodies (deferred - requires expression-level tracking)
 
-**Exit criteria**: Can format any valid Ori program
+**Exit criteria**: Can format any valid Ori program with declaration-level comments
 
 ### M4: Production Ready (Tier 4) — ⏳ Not started
 
@@ -99,21 +103,457 @@ Current parser status: ✅ Complete (spans included)
 
 | Category | Tests | Passing |
 |----------|-------|---------|
-| Width Calculation | 112 | 112 |
-| Formatter Core | 55 | 55 |
-| Emitter | 7 | 7 |
-| Context | 9 | 9 |
-| Tab Conversion | 10 | 10 |
-| Declarations | 1 | 1 |
-| Golden Tests (Declarations) | 7 | 7 |
-| Golden Tests (Expressions) | 9 | 9 |
-| Golden Tests (Patterns) | 4 | 4 |
-| Golden Tests (Collections) | 5 | 5 |
-| Comments | 0 | 0 |
-| Edge Cases | 0 | 0 |
-| **Total** | **212** | **212** |
+| ori_fmt Unit Tests | 215 | 215 |
+| ori_fmt Golden Tests | 35 | 35 |
+| ori_fmt Idempotence Tests | 5 | 5 |
+| ori_fmt Property Tests | 171 | 171 |
+| ori_fmt Incremental Tests | 13 | 13 |
+| ori_fmt Doc Tests | 1 | 1 |
+| **Total** | **440** | **440** |
 
 ## Recent Updates
+
+### 2026-01-30: WASM Playground Formatter Integration
+
+Added direct formatter integration to the WASM playground module:
+
+**Changes**:
+- Added `ori_fmt` dependency to `playground/wasm/Cargo.toml`
+- Added `format_ori()` WASM binding in `playground/wasm/src/lib.rs`
+- Returns JSON: `{ success: bool, formatted: Option<String>, error: Option<String> }`
+- Includes TODO comment noting this will switch to LSP-based formatting once `ori_lsp` is implemented
+
+**API**:
+```javascript
+// Call from JavaScript
+const result = JSON.parse(format_ori(source));
+if (result.success) {
+    editor.setValue(result.formatted);
+} else {
+    showError(result.error);
+}
+```
+
+**Status**: Direct integration is temporary. Will migrate to LSP once `ori_lsp` is implemented.
+
+### 2026-01-30: Phase 7.5 Incremental Formatting Complete
+
+Implemented incremental formatting API for formatting only changed declarations:
+
+**New Module** (`compiler/ori_fmt/src/incremental.rs`):
+- `format_incremental()` - Format only declarations overlapping with changed region
+- `apply_regions()` - Apply formatted regions to source text
+- `FormattedRegion` - A region of formatted text with its original position
+- `IncrementalResult` - Enum with Regions, FullFormatNeeded, or NoChangeNeeded
+
+**Features**:
+- Detects which declarations overlap with a changed byte range
+- Formats only affected declarations
+- Preserves comments associated with declarations
+- Falls back to full format for imports/configs (order-sensitive)
+- Includes preceding comments in formatted region
+
+**Tests** (`compiler/ori_fmt/tests/incremental_tests.rs`):
+- 13 integration tests covering:
+  - Empty modules
+  - Changes in functions, types, traits, impls
+  - Changes between declarations (whitespace)
+  - Import/config changes (require full format)
+  - Comment preservation
+  - Multiple overlapping declarations
+
+**Benchmarks** (`compiler/oric/benches/formatter.rs`):
+- `bench_incremental_vs_full` - Compare incremental vs full for 10-1000 functions
+- `bench_incremental_large_file` - 2000 function file comparison
+
+**Benchmark Results**:
+- 1000 functions: Full 622µs, Incremental 424µs (~32% faster)
+- 2000 functions: Full 2.2ms, Incremental 1.74ms (~21% faster)
+- Note: Full speedup requires incremental parsing (future work)
+
+**API Design Decisions**:
+- Minimum unit is a complete top-level declaration
+- Imports and configs require full format (they're block-formatted)
+- Re-parses entire file (incremental parsing would improve this)
+
+### 2026-01-30: Phase 8.11 Documentation Complete
+
+Created comprehensive user-facing documentation for the formatter:
+
+**New Documentation Files** (`docs/tooling/formatter/`):
+
+1. **User Guide** (`user-guide.md`):
+   - CLI command reference and options
+   - Usage patterns (format all, CI, preview, stdin)
+   - `.orifmtignore` file documentation
+   - Exit codes and error handling
+
+2. **Integration Guide** (`integration.md`):
+   - VS Code (Run on Save, custom tasks)
+   - Neovim (autocmds, conform.nvim)
+   - Emacs (format-all, reformatter.el)
+   - Helix (languages.toml)
+   - Sublime Text (Format on Save, build system)
+   - JetBrains IDEs (external tools, file watchers)
+   - CI/CD (GitHub Actions, GitLab CI, pre-commit hooks)
+
+3. **Troubleshooting Guide** (`troubleshooting.md`):
+   - Parse error diagnosis and solutions
+   - Unexpected formatting changes
+   - CI failures and exit codes
+   - Platform-specific issues (Windows line endings, PATH, permissions)
+   - Error message reference table
+
+4. **Style Guide** (`style-guide.md`):
+   - Philosophy (zero-config, deterministic, width-driven)
+   - Core rules (indentation, line width, trailing commas)
+   - Spacing rules (all contexts)
+   - Width-based breaking rules
+   - Always-stacked constructs
+   - Comment formatting
+
+**Status**: Phase 8 (Polish) complete. Tier 4 (Integration) remains partial (LSP, WASM pending).
+
+### 2026-01-30: Phase 8.9 Fuzz Testing Complete
+
+Implemented comprehensive property-based fuzz testing for formatter idempotence:
+
+**New Test Suite** (`compiler/ori_fmt/tests/property_tests.rs`):
+- 171 property-based and unit tests using proptest crate
+- Tests cover: expressions, functions, types, traits, impls, generics, capabilities
+- Strategies for: literals, binary ops, method chains, field access, lambdas
+- Pattern constructs: run, match, for expressions
+- Edge cases: long expressions, unicode strings, nested constructs
+
+**Bug Fixed During Fuzz Testing:**
+- Parser didn't accept binary operators at line start (after newline)
+- Fix: Added `skip_newlines()` in `parse_binary_level!` macro
+- File: `compiler/ori_parse/src/grammar/expr/mod.rs`
+- Enables formatted code like `"a"\n<= "b"` to re-parse correctly
+
+**Property Test Categories (58 proptest-based tests):**
+- Basic: expr, function, type, const, module idempotence (5 tests)
+- Collections: list, tuple idempotence (2 tests)
+- Nesting: nested expressions, conditionals, collections (3 tests)
+- Extended: method chains, field access, lambdas, patterns (8 tests)
+- Declarations: traits, impls, generics, where clauses, capabilities (6 tests)
+- Edge cases: long expressions, unicode, comparison/logical chains (8 tests)
+- Structure: large structs, sum types, many params/generics (5 tests)
+- Literals: duration, size literals (2 tests)
+- Imports: import statements (1 test)
+- Types: complex types, function types, tuple types, generic structs (5 tests)
+- Operators: bitwise chains, shift chains (2 tests)
+- Modules: many functions, mixed declarations (2 tests)
+- Public: public function declarations (1 test)
+- Tests: test declarations (1 test)
+
+**Unit Test Categories (113 deterministic tests):**
+- Literals: zero, negative, large int, float, scientific, strings, chars, escapes (16 tests)
+- Operators: bitwise &|^, shift <<>>, modulo, unary !, precedence, mixed (12 tests)
+- Collections: nested lists/tuples, struct literals, ranges (10 tests)
+- Control flow: if/else chains, nested if, for with filter, nested for (5 tests)
+- Pattern constructs: run, try, match with patterns (10 tests)
+- Function calls: simple, nested, with lambda, method chains, index access (9 tests)
+- Lambdas: no-param, single-param, multi-param, typed, nested, complex body (6 tests)
+- Type definitions: empty struct, single field, many fields, sum types, generics, derives (11 tests)
+- Traits and impls: empty trait, single method, multiple methods, defaults, inheritance, inherent impl, trait impl, generic impl (8 tests)
+- Function signatures: no params, single param, many params, void return, generics, bounds, where clauses, capabilities, public (14 tests)
+- Imports: single, multiple, alias, relative (4 tests)
+- Constants: int, float, string, bool, public (5 tests)
+- Comments: single, doc, param, multiple (4 tests)
+- Line width: long chains, long function names, long param names, long type annotations, very long expressions (5 tests)
+- Complex: full module, complex expression composition, deeply nested everything (3 tests)
+
+### 2026-01-30: Phase 8.10 Error Messages Complete
+
+Implemented rich error messages for formatter parse failures:
+
+**New Features** (`compiler/oric/src/commands/fmt.rs`):
+- Clear error display with file path, line:column location
+- Source code snippet with line numbers and underlines
+- Contextual suggestions for common mistakes (13 error patterns covered)
+- ANSI color support for terminal output (auto-detected)
+- Summary note explaining syntax must be fixed before formatting
+
+**Error Patterns with Suggestions**:
+- E0001: Unterminated string → suggests closing quote
+- E0004: Unterminated char → suggests single quote syntax
+- E0005: Invalid escape → lists valid escape sequences
+- E1001: Unexpected token → context-specific (missing `=`, `,`, `)`, `}`, `]`, `:`)
+- E1002: Expected expression → explains expression required
+- E1003: Unclosed delimiter → suggests checking brackets
+- E1004-E1007: Function definition errors → shows correct syntax
+- E1011: Named arguments → explains named argument syntax
+
+**Tests Added**: 13 new unit tests for error formatting
+
+**Design Decision**: Partial formatting (format what we can) not implemented, matching gofmt/rustfmt behavior which require valid syntax.
+
+### 2026-01-30: Phase 8.9 Idempotence Testing Complete
+
+Implemented comprehensive round-trip idempotence testing (`format(format(code)) == format(code)`):
+
+**New Test Suite** (`compiler/ori_fmt/tests/idempotence_tests.rs`):
+- Tests all .ori files in tests/spec/, tests/run-pass/, tests/fmt/, library/
+- Comprehensive coverage with 952+ test files verified
+- Uses comment-preserving formatting path
+
+**Bugs Fixed During Testing**:
+
+1. **Attribute Syntax** - Parser and formatter now use spec-correct `#attr(...)`:
+   - Fixed `ori_parse/src/grammar/attr.rs` to accept both `#attr(...)` and `#[attr(...)]`
+   - Fixed `ori_fmt/src/declarations.rs` to output `#attr(...)` per grammar.ebnf
+   - Updated golden test expected files for attributes and derives
+
+2. **Single-Element Tuples** - Now preserve trailing comma `(x,)`:
+   - Fixed inline tuple formatting in `formatter/mod.rs`
+   - Fixed binding pattern formatting in `emit_binding_pattern()`
+   - Fixed match pattern formatting in `emit_match_pattern()`
+   - Updated width calculations in `collections.rs` and `patterns.rs`
+
+3. **Method Receiver Precedence** - Wrap in parens when needed:
+   - Added `needs_receiver_parens()` helper for precedence checking
+   - Binary ops, unary ops, ranges, lambdas, conditionals get parens as receivers
+   - Example: `(0..10).iter()` not `0..10.iter()` which would misbind
+
+**Remaining Phase 8 Work**:
+- Fuzz testing for idempotence
+- Property-based testing (AST equivalence)
+- Error messages (section 8.10)
+- Documentation (section 8.11)
+
+### 2026-01-30: Phase 7.5 & 8.8 Performance Complete
+
+Implemented performance benchmarks and parallel processing:
+
+**Benchmark Infrastructure** (`compiler/oric/benches/formatter.rs`):
+- Criterion-based benchmarks for formatter performance
+- Scaling tests: 10/50/100/500/1000 functions
+- Large file tests: 5.7k and 10k line files
+- Parallel vs sequential comparison (1000 files)
+
+**Performance Results:**
+- 10k lines: 2.75ms (target was <1 second) ✅
+- 1000 files: 3.6ms parallel, 8.6ms sequential (2.4x speedup)
+- Comparison: ori fmt core is ~15x faster per line than rustfmt CLI
+
+**Parallel Processing** (`compiler/oric/src/commands/fmt.rs`):
+- Directory formatting now uses rayon for parallel file processing
+- Atomic counters for thread-safe result aggregation
+- Files collected first, then processed in parallel
+
+**Remaining Performance Work:**
+- Incremental formatting (only changed regions)
+
+### 2026-01-30: Phase 8.7 Real-World Examples Complete
+
+Added 5 real-world example golden tests:
+
+**New Test Files**:
+- `edge-cases/real/full_module.ori` - Complete module with imports, types, functions, tests
+- `edge-cases/real/http_client.ori` - HTTP client with capabilities (uses Http, Logger)
+- `edge-cases/real/pipeline.ori` - Data processing pipeline with validation/transformation
+- `edge-cases/real/concurrent.ori` - Concurrent task orchestration (parallel, spawn, timeout)
+- `edge-cases/real/large_file.ori` - Performance testing file (5700+ lines)
+
+**Parser Limitations Discovered**:
+- Multi-line sum types with leading `|` cannot be re-parsed (formatter produces, parser rejects)
+- `?` error propagation operator not in expression position (use `try` pattern instead)
+- Sum types with 4+ variants break to multi-line format
+
+**Remaining Phase 8 Work**:
+- Performance benchmarks (section 8.8)
+- Idempotence verification (section 8.9)
+- Error messages (section 8.10)
+- Documentation (section 8.11)
+
+### 2026-01-30: Phase 8 Boundary Cases & Unicode Width
+
+Completed remaining 8.3 (Boundary Cases) and 8.5 (Unicode Handling) tasks:
+
+**New Test Files**:
+- `edge-cases/boundary/long_strings.ori` - Very long string literals (>100 chars)
+- `edge-cases/boundary/long_tokens.ori` - Very long identifiers and numbers
+- `edge-cases/unicode/rtl.ori` - RTL text (Arabic, Hebrew) in strings
+
+**Multi-byte Width Calculation**:
+- Added `char_display_width()` helper in `width/helpers.rs`
+- Handles CJK (width 2), emoji (width 2), combining marks (width 0)
+- Updated `string_width()` and `char_width()` to use display width
+- Added 14 new tests for character width calculation
+
+**Blocked**:
+- Unicode identifiers blocked by lexer (ASCII-only: `[a-zA-Z_][a-zA-Z0-9_]*`)
+
+### 2026-01-30: Phase 8 Edge Cases Continued
+
+Added more edge case golden tests:
+
+**New Test Files**:
+- `edge-cases/nested/match.ori` - Deeply nested match expressions
+- `edge-cases/long/function_names.ori` - Long function identifiers
+- `edge-cases/long/param_names.ori` - Long parameter identifiers
+- `edge-cases/long/type_names.ori` - Long type identifiers
+- `edge-cases/long/field_chains.ori` - Long field access chains
+- `edge-cases/empty/only_comments.ori` - File containing only comments
+- `edge-cases/whitespace/mixed.ori` - Mixed tabs and spaces (with .expected)
+
+**Test Harness Update**:
+- Added `golden_tests_edge_cases_long` test entry for the new `long/` directory
+
+**Remaining Phase 8 Work**:
+- Long strings/tokens (section 8.3)
+- Unicode identifiers & RTL (section 8.5)
+- Real-world examples (section 8.7)
+- Performance benchmarks (section 8.8)
+- Idempotence verification (section 8.9)
+- Error messages (section 8.10)
+- Documentation (section 8.11)
+
+### 2026-01-30: Phase 8 Edge Cases Started
+
+Added 5 edge case golden test suites with 17 test files:
+
+**New Test Categories**:
+- `edge-cases/empty/` - 6 files: Empty file, imports only, empty function/struct/trait/impl
+- `edge-cases/whitespace/` - 5 files: Tabs, trailing, blank lines, newlines
+- `edge-cases/boundary/` - 2 files: Exact 100 chars, 101 chars (breaks params)
+- `edge-cases/nested/` - 4 files: Nested calls, conditionals, collections, mixed
+- `edge-cases/unicode/` - 2 files: Unicode strings, emoji
+
+**Bug Fix**: Function param breaking now accounts for body width
+- When function signature + short body (≤20 chars) exceeds 100 chars, params break first
+- Prevents ugly mid-expression breaks like `x\n+ y`
+- Long bodies (>20 chars) break naturally at semantic points (else, operators, etc.)
+- Implementation: `calculate_function_trailing_width()` in declarations.rs
+
+**Remaining Phase 8 Work**:
+- Long identifiers (section 8.2)
+- Long strings/tokens (section 8.3)
+- Multi-byte width calculation (section 8.5)
+- Real-world examples (section 8.7)
+- Performance benchmarks (section 8.8)
+- Idempotence verification (section 8.9)
+
+### 2026-01-30: Phase 7 CLI Integration Complete
+
+Implemented the `ori fmt` command with full CLI integration:
+
+**New Features**:
+- `ori fmt <file>` - Format a single file
+- `ori fmt <directory>` - Format all .ori files recursively
+- `ori fmt .` - Format current directory (default)
+- `ori fmt --check` - Check mode (exit 1 if files would be formatted)
+- `ori fmt --diff` - Show diff output instead of modifying files
+- `ori fmt --help` - Show usage information
+
+**Implementation**:
+- `compiler/oric/src/commands/fmt.rs` - New command module (~300 lines)
+- Uses `ori_lexer::lex_with_comments()` for comment-preserving lexing
+- Uses `ori_parse::parse()` for parsing
+- Uses `ori_fmt::format_module_with_comments()` for formatting
+- Graceful error handling for parse errors, missing files, permission errors
+- Recursive directory traversal with default ignores (hidden files, target/, node_modules/)
+
+**CLI Help**:
+```
+ori fmt [options] [paths...]
+
+Options:
+  --check      Check if files are formatted (exit 1 if not)
+  --diff       Show diff output instead of modifying files
+  --stdin      Read from stdin, write to stdout
+  --no-ignore  Ignore .orifmtignore files and format everything
+  --help       Show this help message
+```
+
+**Remaining Work** (Phase 7):
+- LSP integration (textDocument/formatting)
+- WASM compilation for playground
+- CI integration documentation
+
+### 2026-01-30: Phase 7 CLI Completion
+
+Completed the remaining CLI features for `ori fmt`:
+
+**New Features**:
+- `ori fmt --stdin` - Read from stdin, write to stdout (for piping)
+- `.orifmtignore` file support - Exclude paths from formatting with glob patterns
+- `ori fmt --no-ignore` - Format everything, ignoring .orifmtignore files
+
+**Pattern Support in .orifmtignore**:
+- `**/*.test.ori` - Match any path with .test.ori extension
+- `*.tmp` - Match single directory level
+- `generated/` - Exclude entire directory
+- `# comments` - Lines starting with # are ignored
+
+**Default Ignores** (unless --no-ignore):
+- Hidden files and directories (starting with `.`)
+- `target/` directory
+- `node_modules/` directory
+
+### 2026-01-30: Phase 6 Comment Formatting Complete
+
+Completed Phase 6 with full doc comment reordering and edge case handling:
+
+**New Features**:
+- Doc comment reordering: Description → Param/Field → Warning → Example
+- `@param` order now matches function signature (reordered automatically)
+- `@field` order now matches struct field order (reordered automatically)
+- Trailing comments at EOF preserved with blank line separator
+- Mixed doc/regular comments handled (doc comments sorted first, regular preserved)
+
+**New Golden Tests** (13 test files across 3 suites):
+- `comments/doc/reorder.ori` - Out-of-order doc comment sorting
+- `comments/doc/param_order.ori` - @param reordering to match signature
+- `comments/doc/field_order.ori` - @field reordering to match struct
+- `comments/edge/empty.ori` - Empty comment lines
+- `comments/edge/eof.ori` - Comments at end of file
+- `comments/edge/only_comments.ori` - File with only comments
+- `comments/edge/mixed.ori` - Mixed doc and regular comments
+
+**New API**:
+- `CommentIndex::take_comments_before_function()` - @param reordering
+- `CommentIndex::take_comments_before_type()` - @field reordering
+- `emit_comments_before_function()` in ModuleFormatter
+- `emit_comments_before_type()` in ModuleFormatter
+
+**Deferred** (requires expression-level tracking):
+- Comments inside function bodies
+- Inline comment conversion (move to own line)
+
+**Status**: Phase 6 complete. Tier 3 complete. Ready for Tier 4 (Integration).
+
+### 2026-01-30: Comment Preservation Infrastructure (Phase 6 Started)
+
+Added comment preservation infrastructure:
+
+**ori_ir additions**:
+- `Comment` type with span, content, and kind
+- `CommentKind` enum: Regular, DocDescription, DocParam, DocField, DocWarning, DocExample
+- `CommentList` wrapper with Salsa-compatible traits
+
+**ori_lexer additions**:
+- `lex_with_comments()` function returns `LexOutput { tokens, comments }`
+- `classify_and_normalize_comment()` for doc comment detection
+- Comment content normalization (space after `//`)
+
+**ori_fmt additions**:
+- `comments` module with `CommentIndex` for position-based lookup
+- `format_module_with_comments()` that preserves comments
+- Doc comment sort order support (Description → Param/Field → Warning → Example)
+- Helper functions for `@param` and `@field` reordering
+
+**Golden Tests**:
+- `tests/fmt/comments/regular/` - Regular comment tests (2 files)
+- `tests/fmt/comments/doc/` - Doc comment tests (3 files)
+
+**Remaining Work** (Phase 6 completion):
+- Doc comment reordering when out of order
+- `@param` order matching function signature
+- `@field` order matching struct fields
+- Comments inside function bodies
+- Edge cases (empty comments, EOF comments)
 
 ### 2026-01-30: Collection Golden Tests (Phase 5 Complete)
 
@@ -133,9 +573,13 @@ Added 5 collection golden test suites with 14 test files:
 - Fixed empty struct formatting (no spaces: `Empty {}`)
 - Fixed starting column for body formatting (expressions now respect line position)
 
-**Parser Limitations** (discovered during testing):
-- Spread operators (`...`) not yet implemented in parser
-- Multi-line collection literals can't be re-parsed (formatter output needs `.expected` files)
+**Parser Improvements**:
+- Added multi-line support in lists: `skip_newlines()` after `[`, after commas, before `]`
+- Added multi-line support in tuples: `skip_newlines()` after `(`, after commas, before `)`
+
+**Compiler Dependencies** (Phase 15C - not formatter limitations):
+- Spread operators (`...`) - see `plans/roadmap/phase-15C-literals-operators.md`
+- Stepped ranges (`by`) - see `plans/roadmap/phase-15C-literals-operators.md`
 
 **Status**: Phase 5 (Collections) complete. Ready for Phase 6 (Comments).
 

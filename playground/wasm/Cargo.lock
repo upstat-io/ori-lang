@@ -174,6 +174,7 @@ name = "ori-playground-wasm"
 version = "0.1.0"
 dependencies = [
  "ori_eval",
+ "ori_fmt",
  "ori_ir",
  "ori_lexer",
  "ori_parse",
@@ -204,6 +205,14 @@ dependencies = [
  "rayon",
  "rustc-hash",
  "stacker",
+]
+
+[[package]]
+name = "ori_fmt"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "ori_ir",
+ "rustc-hash",
 ]
 
 [[package]]

@@ -1,0 +1,4 @@
+// >example(n: 5) -> 120
+// @param n The input value.
+// #Computes the factorial.
+@factorial (n: int) -> int = if n <= 1 then 1 else n * factorial(n: n - 1)

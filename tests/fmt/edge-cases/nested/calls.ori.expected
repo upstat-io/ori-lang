@@ -1,0 +1,3 @@
+@process (data: int) -> int = outer(arg: middle(arg: inner(arg: data)))
+
+@deep () -> int = a(x: b(y: c(z: d(w: 1))))

@@ -6,12 +6,14 @@
 mod check;
 mod debug;
 mod explain;
+mod fmt;
 mod run;
 mod test;
 
 pub(crate) use check::check_file;
 pub(crate) use debug::{lex_file, parse_file};
 pub(crate) use explain::explain_error;
+pub(crate) use fmt::run_format;
 pub(crate) use run::run_file;
 pub(crate) use test::run_tests;
 

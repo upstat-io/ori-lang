@@ -4,10 +4,10 @@
 //! - Integer literals (including negatives)
 //! - Float literals (using stack buffer to avoid allocation)
 //! - Boolean literals ("true" / "false")
-//! - String literals (including escape sequences)
+//! - String literals (including escape sequences and multi-byte chars)
 //! - Character literals (including escape sequences)
 
-use super::helpers::decimal_digit_count;
+use super::helpers::{char_display_width, decimal_digit_count};
 
 /// Calculate width of an integer literal.
 ///
@@ -66,19 +66,16 @@ pub(super) fn bool_width(b: bool) -> usize {
 
 /// Calculate width of a string literal (including quotes).
 ///
-/// Accounts for escape sequences which take 2 characters when rendered:
-/// - `\\` (backslash)
-/// - `\"` (quote)
-/// - `\n` (newline)
-/// - `\t` (tab)
-/// - `\r` (carriage return)
-/// - `\0` (null)
+/// Accounts for:
+/// - Escape sequences which take 2 characters when rendered
+/// - Multi-byte characters (CJK, emoji) which take 2 columns
+/// - Zero-width characters (combining marks) which take 0 columns
 pub(super) fn string_width(s: &str) -> usize {
     let mut width = 2; // Opening and closing quotes
     for c in s.chars() {
         width += match c {
             '\\' | '"' | '\n' | '\t' | '\r' | '\0' => 2, // Escaped
-            _ => 1,
+            _ => char_display_width(c),
         };
     }
     width
@@ -86,12 +83,14 @@ pub(super) fn string_width(s: &str) -> usize {
 
 /// Calculate width of a char literal (including quotes).
 ///
-/// Accounts for escape sequences which require 4 characters total:
-/// `'\n'`, `'\t'`, etc. Regular characters require 3 characters: `'a'`.
+/// Accounts for:
+/// - Escape sequences which require 4 characters total: `'\n'`, `'\t'`, etc.
+/// - Multi-byte characters (CJK, emoji) which take 2 + quotes = 4 columns
+/// - Regular characters require 3 characters: `'a'`
 pub(super) fn char_width(c: char) -> usize {
     match c {
         '\\' | '\'' | '\n' | '\t' | '\r' | '\0' => 4, // '\n' etc
-        _ => 3,                                       // 'a'
+        _ => 2 + char_display_width(c),               // quotes + display width
     }
 }
 
@@ -197,5 +196,42 @@ mod tests {
         assert_eq!(char_width('\t'), 4);
         assert_eq!(char_width('\r'), 4);
         assert_eq!(char_width('\0'), 4);
+    }
+
+    // Multi-byte character width tests
+
+    #[test]
+    fn test_string_width_cjk() {
+        // "世界" = 2 quotes + 2*2 = 6
+        assert_eq!(string_width("世界"), 6);
+        // "Hello, 世界!" = 2 quotes + 8 ASCII/punct + 2*2 CJK = 14
+        // H(1) + e(1) + l(1) + l(1) + o(1) + ,(1) + space(1) + 世(2) + 界(2) + !(1) = 12 + 2 quotes
+        assert_eq!(string_width("Hello, 世界!"), 14);
+    }
+
+    #[test]
+    fn test_string_width_emoji() {
+        // "😀" = 2 quotes + 2 = 4
+        assert_eq!(string_width("😀"), 4);
+        // "Hi 😀!" = 2 quotes + H(1) + i(1) + space(1) + 😀(2) + !(1) = 8
+        assert_eq!(string_width("Hi 😀!"), 8);
+    }
+
+    #[test]
+    fn test_string_width_mixed_scripts() {
+        // "Café" = 2 quotes + 4 = 6 (é is single width)
+        assert_eq!(string_width("Café"), 6);
+    }
+
+    #[test]
+    fn test_char_width_cjk() {
+        // '世' = 2 quotes + 2 = 4
+        assert_eq!(char_width('世'), 4);
+    }
+
+    #[test]
+    fn test_char_width_emoji() {
+        // '😀' = 2 quotes + 2 = 4
+        assert_eq!(char_width('😀'), 4);
     }
 }

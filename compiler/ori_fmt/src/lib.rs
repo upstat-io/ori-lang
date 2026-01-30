@@ -18,16 +18,23 @@
 //! - [`context`]: Formatting context with indentation and column tracking
 //! - [`formatter`]: Core formatting engine
 
+pub mod comments;
 pub mod context;
 pub mod declarations;
 pub mod emitter;
 pub mod formatter;
+pub mod incremental;
 pub mod width;
 
-pub use context::{FormatContext, INDENT_WIDTH, MAX_LINE_WIDTH};
-pub use declarations::{format_module, ModuleFormatter};
+pub use comments::{format_comment, CommentIndex};
+pub use context::{FormatConfig, FormatContext, INDENT_WIDTH, MAX_LINE_WIDTH};
+pub use declarations::{
+    format_module, format_module_with_comments, format_module_with_comments_and_config,
+    format_module_with_config, ModuleFormatter,
+};
 pub use emitter::{Emitter, FileEmitter, StringEmitter};
 pub use formatter::{format_expr, Formatter};
+pub use incremental::{apply_regions, format_incremental, FormattedRegion, IncrementalResult};
 pub use width::{WidthCalculator, ALWAYS_STACKED};
 
 /// Convert tabs to spaces in source text.

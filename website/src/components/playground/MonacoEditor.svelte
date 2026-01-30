@@ -137,4 +137,16 @@
     background-color: rgba(86, 156, 214, 0.2) !important;
     border: none !important;
   }
+
+  /* Scrollbar CSS override - required due to Monaco bug #2650
+     Theme colors don't apply to scrollbar, only minimap */
+  .monaco-container :global(.monaco-editor .monaco-scrollable-element > .scrollbar > .slider) {
+    background: rgba(99, 104, 116, 0.3) !important;
+  }
+  .monaco-container :global(.monaco-editor .monaco-scrollable-element > .scrollbar > .slider:hover) {
+    background: rgba(99, 104, 116, 0.5) !important;
+  }
+  .monaco-container :global(.monaco-editor .monaco-scrollable-element > .scrollbar > .slider.active) {
+    background: rgba(99, 104, 116, 0.7) !important;
+  }
 </style>

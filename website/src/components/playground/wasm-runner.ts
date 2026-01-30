@@ -1,7 +1,8 @@
-import type { RunResult } from './types';
+import type { RunResult, FormatResult } from './types';
 
 let wasmModule: {
   run_ori: (code: string) => string;
+  format_ori: (code: string, max_width?: number) => string;
   version: () => string;
 } | null = null;
 
@@ -58,4 +59,23 @@ export function runOri(code: string): { result: RunResult; elapsed: string } {
     : `${elapsedMs.toFixed(1)}ms`;
 
   return { result, elapsed };
+}
+
+export function formatOri(code: string, maxWidth?: number): FormatResult {
+  if (!wasmModule) {
+    return {
+      success: false,
+      error: 'WASM module not loaded',
+    };
+  }
+
+  try {
+    const resultJson = wasmModule.format_ori(code, maxWidth);
+    return JSON.parse(resultJson);
+  } catch (e: any) {
+    return {
+      success: false,
+      error: `Format error: ${e.message}`,
+    };
+  }
 }

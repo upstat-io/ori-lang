@@ -1,0 +1,5 @@
+// Nested conditionals with breaking
+// Spec: 16-formatting.md § Conditionals
+
+// Branch bodies break independently - call exceeds line limit
+@process (cond: bool, value: int) -> str = if cond then compute_simple(x: value) else compute_with_many_arguments(input_value: value, fallback_value: 0, option_settings: "default_options_value")

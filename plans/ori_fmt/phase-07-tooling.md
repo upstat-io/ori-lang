@@ -4,49 +4,49 @@
 
 > **DESIGN**: `docs/tooling/formatter/design/04-implementation/`
 
-## Phase Status: ⏳ Not Started
+## Phase Status: 🔶 Partial
 
 ## 7.1 CLI Integration
 
 ### Basic Commands
 
-- [ ] **Implement**: `ori fmt <file>` — format single file
-  - [ ] **Tests**: CLI test for single file formatting
-- [ ] **Implement**: `ori fmt <directory>` — format all .ori files recursively
-  - [ ] **Tests**: CLI test for directory formatting
-- [ ] **Implement**: `ori fmt .` — format current directory
-  - [ ] **Tests**: CLI test for current directory
-- [ ] **Implement**: `ori fmt --check` — check if files are formatted (exit code)
-  - [ ] **Tests**: Check mode returns correct exit code
+- [x] **Implement**: `ori fmt <file>` — format single file
+  - [x] **Tests**: CLI test for single file formatting
+- [x] **Implement**: `ori fmt <directory>` — format all .ori files recursively
+  - [x] **Tests**: CLI test for directory formatting
+- [x] **Implement**: `ori fmt .` — format current directory
+  - [x] **Tests**: CLI test for current directory
+- [x] **Implement**: `ori fmt --check` — check if files are formatted (exit code)
+  - [x] **Tests**: Check mode returns correct exit code
 
 ### Output Modes
 
-- [ ] **Implement**: In-place formatting (default, overwrites files)
-  - [ ] **Tests**: File content updated
-- [ ] **Implement**: `ori fmt --diff` — show diff instead of modifying
-  - [ ] **Tests**: Diff output format
-- [ ] **Implement**: `ori fmt --stdin` — read from stdin, write to stdout
-  - [ ] **Tests**: Stdin/stdout piping
+- [x] **Implement**: In-place formatting (default, overwrites files)
+  - [x] **Tests**: File content updated
+- [x] **Implement**: `ori fmt --diff` — show diff instead of modifying
+  - [x] **Tests**: Diff output format
+- [x] **Implement**: `ori fmt --stdin` — read from stdin, write to stdout
+  - [x] **Tests**: Stdin/stdout piping
 
 ### Error Handling
 
-- [ ] **Implement**: Handle parse errors gracefully
-  - [ ] **Tests**: Parse error message shown, file unchanged
-- [ ] **Implement**: Handle file permission errors
-  - [ ] **Tests**: Permission error message
-- [ ] **Implement**: Handle missing files
-  - [ ] **Tests**: Missing file error message
-- [ ] **Implement**: Partial success (continue on errors)
-  - [ ] **Tests**: Some files formatted, others skipped
+- [x] **Implement**: Handle parse errors gracefully
+  - [x] **Tests**: Parse error message shown, file unchanged
+- [x] **Implement**: Handle file permission errors
+  - [x] **Tests**: Permission error message (via read_file helper)
+- [x] **Implement**: Handle missing files
+  - [x] **Tests**: Missing file error message (via read_file helper)
+- [x] **Implement**: Partial success (continue on errors)
+  - [x] **Tests**: Some files formatted, others skipped
 
 ### Ignore Patterns
 
-- [ ] **Implement**: `.orifmtignore` file support
-  - [ ] **Tests**: Ignored files not formatted
-- [ ] **Implement**: Default ignores (`_test/`, `target/`, etc.)
-  - [ ] **Tests**: Default patterns work
-- [ ] **Implement**: `--no-ignore` flag to format everything
-  - [ ] **Tests**: Flag overrides ignores
+- [x] **Implement**: `.orifmtignore` file support
+  - [x] **Tests**: Ignored files not formatted
+- [x] **Implement**: Default ignores (`_test/`, `target/`, etc.)
+  - [x] **Tests**: Default patterns work
+- [x] **Implement**: `--no-ignore` flag to format everything
+  - [x] **Tests**: Flag overrides ignores
 
 ## 7.2 LSP Integration
 
@@ -83,10 +83,10 @@
 
 ### Core WASM Module
 
-- [ ] **Implement**: Compile `ori_fmt` to WASM
-  - [ ] **Tests**: WASM module builds
-- [ ] **Implement**: JavaScript bindings
-  - [ ] **Tests**: JS can call format function
+- [x] **Implement**: Compile `ori_fmt` to WASM (direct integration, TODO: switch to LSP)
+  - [x] **Tests**: WASM module builds (`cargo check --target wasm32-unknown-unknown`)
+- [x] **Implement**: JavaScript bindings (`format_ori()` function)
+  - [x] **Tests**: Returns JSON with `success`, `formatted`, `error` fields
 - [ ] **Implement**: TypeScript type definitions
   - [ ] **Tests**: Types are correct
 
@@ -132,17 +132,22 @@
 
 ## 7.5 Performance Optimization
 
-- [ ] **Implement**: Incremental formatting (only changed regions)
-  - [ ] **Tests**: Incremental mode faster
-- [ ] **Implement**: Parallel file processing
-  - [ ] **Tests**: Multiple files formatted concurrently
-- [ ] **Implement**: Memory-efficient large file handling
-  - [ ] **Tests**: Large files don't OOM
+- [x] **Implement**: Incremental formatting (only changed regions)
+  - [x] **API**: `format_incremental()`, `apply_regions()`, `FormattedRegion`, `IncrementalResult`
+  - [x] **File**: `compiler/ori_fmt/src/incremental.rs`
+  - [x] **Tests**: 13 integration tests in `compiler/ori_fmt/tests/incremental_tests.rs`
+  - [x] **Benchmarks**: `bench_incremental_vs_full`, `bench_incremental_large_file`
+  - [x] **Results**: ~30% speedup for 1000 functions (424µs vs 622µs), ~20% for 2000 functions
+  - **Note**: Full speedup requires incremental parsing (future work)
+- [x] **Implement**: Parallel file processing
+  - [x] **Tests**: Multiple files formatted concurrently (2.4x speedup with rayon)
+- [x] **Implement**: Memory-efficient large file handling
+  - [x] **Tests**: Large files don't OOM (10k lines in 2.75ms)
 
 ## Completion Checklist
 
-- [ ] All CLI commands work correctly
+- [x] All CLI commands work correctly
 - [ ] LSP integration complete
 - [ ] WASM module builds and works
-- [ ] Build integration documented
-- [ ] Performance targets met
+- [x] Build integration documented (in integration.md)
+- [x] Performance targets met (parallel + incremental)

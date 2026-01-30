@@ -196,3 +196,74 @@ fn format_value(value: &Value) -> String {
 pub fn version() -> String {
     "Ori 0.1.0-alpha".to_string()
 }
+
+// TODO: Switch to LSP-based formatting once ori_lsp is implemented.
+// This direct integration is a temporary solution for the playground.
+
+/// Format Ori source code and return the result as JSON.
+///
+/// Parameters:
+/// - `source`: The Ori source code to format
+/// - `max_width`: Optional maximum line width (defaults to 100)
+///
+/// Returns a JSON object with:
+/// - `success`: boolean indicating if formatting succeeded
+/// - `formatted`: the formatted code (if successful)
+/// - `error`: error message (if failed)
+#[wasm_bindgen]
+pub fn format_ori(source: &str, max_width: Option<usize>) -> String {
+    let result = format_ori_internal(source, max_width);
+    serde_json::to_string(&result).unwrap_or_else(|e| {
+        format!(r#"{{"success":false,"error":"Serialization error: {}"}}"#, e)
+    })
+}
+
+#[derive(Serialize)]
+struct FormatResult {
+    success: bool,
+    formatted: Option<String>,
+    error: Option<String>,
+}
+
+fn format_ori_internal(source: &str, max_width: Option<usize>) -> FormatResult {
+    let interner = SharedInterner::default();
+
+    // Lex with comments for comment-preserving formatting
+    let lex_output = ori_lexer::lex_with_comments(source, &interner);
+
+    // Parse
+    let parse_result = ori_parse::parse(&lex_output.tokens, &interner);
+    if parse_result.has_errors() {
+        let errors: Vec<String> = parse_result
+            .errors
+            .iter()
+            .map(|e| e.message.clone())
+            .collect();
+        return FormatResult {
+            success: false,
+            formatted: None,
+            error: Some(errors.join("\n")),
+        };
+    }
+
+    // Build config
+    let config = match max_width {
+        Some(width) => ori_fmt::FormatConfig::with_max_width(width),
+        None => ori_fmt::FormatConfig::default(),
+    };
+
+    // Format with comment preservation and config
+    let formatted = ori_fmt::format_module_with_comments_and_config(
+        &parse_result.module,
+        &lex_output.comments,
+        &parse_result.arena,
+        &*interner,
+        config,
+    );
+
+    FormatResult {
+        success: true,
+        formatted: Some(formatted),
+        error: None,
+    }
+}

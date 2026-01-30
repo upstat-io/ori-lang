@@ -1,0 +1,8 @@
+// Long type names
+// Tests formatter handling of very long type identifiers
+
+type VeryLongTypeNameForTestingFormatterBehavior = { value: int }
+
+type AnotherExtremelyLongTypeNameUsedInThisTestFile = { field: int }
+
+@process (x: VeryLongTypeNameForTestingFormatterBehavior) -> int = x.value

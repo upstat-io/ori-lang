@@ -11,7 +11,7 @@ use inkwell::targets::{
 use inkwell::OptimizationLevel;
 
 use ori_ir::{
-    ast::{BinaryOp, Expr, ExprKind},
+    ast::{BinaryOp, Expr, ExprKind, Visibility},
     ExprArena, Function, GenericParamRange, Param, StringInterner, TypeId,
 };
 use ori_llvm::module::ModuleCompiler;
@@ -73,7 +73,7 @@ fn benchmark_arithmetic() {
         where_clauses: vec![],
         body: mul_expr,
         span: ori_ir::Span::new(0, 1),
-        is_public: false,
+        visibility: Visibility::Private,
     };
 
     compiler.compile_function(&func, &arena, &expr_types);
@@ -150,7 +150,7 @@ fn benchmark_fib() {
         where_clauses: vec![],
         body: add_expr,
         span: ori_ir::Span::new(0, 1),
-        is_public: false,
+        visibility: Visibility::Private,
     };
 
     // Time compilation
@@ -268,7 +268,7 @@ fn create_standalone_benchmark() {
         where_clauses: vec![],
         body: add,
         span: ori_ir::Span::new(0, 1),
-        is_public: false,
+        visibility: Visibility::Private,
     };
 
     compiler.compile_function(&func, &arena, &expr_types);
