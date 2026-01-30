@@ -3,7 +3,9 @@
 **Goal**: Type conversions, assertions, I/O, and core built-in functions
 
 > **SPEC**: `spec/11-built-in-functions.md`
-> **PROPOSAL**: `proposals/approved/as-conversion-proposal.md` — Type conversion syntax
+> **PROPOSALS**:
+> - `proposals/approved/as-conversion-proposal.md` — Type conversion syntax
+> - `proposals/approved/developer-functions-proposal.md` — Developer convenience functions
 
 ---
 
@@ -179,7 +181,47 @@
 
 ---
 
-## 7A.5 Phase Completion Checklist
+## 7A.5 Developer Functions
+
+> **PROPOSAL**: `proposals/approved/developer-functions-proposal.md`
+>
+> `todo`, `unreachable`, and `dbg` for developer convenience. These provide
+> semantic meaning (unfinished vs. impossible code) and inline debugging.
+
+- [ ] **Implement**: `todo()` and `todo(reason:)` — Mark unfinished code
+  - Returns `Never`, panics with "not yet implemented at file:line"
+  - Location information captured at compile time
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — todo tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/developer_functions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for todo
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/developer_tests.rs` — todo codegen
+
+- [ ] **Implement**: `unreachable()` and `unreachable(reason:)` — Mark impossible code
+  - Returns `Never`, panics with "unreachable code reached at file:line"
+  - Semantically distinct from `todo` (impossible vs. not done)
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — unreachable tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/developer_functions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for unreachable
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/developer_tests.rs` — unreachable codegen
+
+- [ ] **Implement**: `dbg(value:)` and `dbg(value:, label:)` — Debug printing
+  - Generic: `dbg<T: Debug>(value: T) -> T`
+  - Writes to stderr via Print capability
+  - Output format: `[file:line] = value` or `[file:line] label = value`
+  - Returns value unchanged for inline use
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — dbg tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/developer_functions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for dbg
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/developer_tests.rs` — dbg codegen
+
+- [ ] **Implement**: Compile-time location capture for all three functions
+  - Location passed implicitly by compiler, not visible in user signature
+  - [ ] **Rust Tests**: `oric/src/typeck/builtins.rs` — location capture tests
+  - [ ] **Ori Tests**: Verify location appears in panic messages/dbg output
+
+---
+
+## 7A.6 Phase Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md

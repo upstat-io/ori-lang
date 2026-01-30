@@ -502,6 +502,15 @@
 - Feature names must be valid identifiers
 - Blocked on: None (can be implemented independently)
 
+**Developer Convenience Functions** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/developer-functions-proposal.md`
+- Implementation: Phase 7A.5
+- `todo()`, `todo(reason:)` → `Never` — marks unfinished code with location info
+- `unreachable()`, `unreachable(reason:)` → `Never` — marks impossible code paths
+- `dbg(value:)`, `dbg(value:, label:)` → `T` — debug print returning value unchanged
+- `dbg` uses Print capability (mockable in tests)
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones
@@ -685,15 +694,12 @@ cargo st tests/spec/patterns/     # Tier 3
 
 ---
 
-## Draft Proposals Pending Review (2026-01-27)
+## Draft Proposals Pending Review
 
-New prelude enhancements from Rust prelude comparison. See `plan.md` for details.
-
-| Proposal | File | Affects Phases |
-|----------|------|----------------|
-| Developer Functions | `proposals/drafts/developer-functions-proposal.md` | 7 |
+No proposals currently pending.
 
 **Recently Approved:**
+- Developer Convenience Functions — approved 2026-01-30
 - Debug Trait — approved 2026-01-28
 - `as` Conversion Syntax — approved 2026-01-28
 - Iterator Traits — approved 2026-01-28
