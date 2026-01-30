@@ -1,8 +1,9 @@
 # Proposal: Custom Subscripting for User-Defined Types
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-22
+**Approved:** 2026-01-30
 **Affects:** Language design, type system, standard library
 
 ---
@@ -12,10 +13,9 @@
 This proposal introduces trait-based custom subscripting, allowing user-defined types to implement the `[]` operator with compile-time type safety. This enables natural syntax for matrices, custom containers, database abstractions, and domain-specific indexed access.
 
 **Key features:**
-1. **Index trait** for read access: `value[key]`
-2. **IndexMut trait** for write access: `value[key] = x`
-3. **Multi-dimensional indexing** via tuple keys: `matrix[(row, col)]`
-4. **Return type flexibility** - can return `T`, `Option<T>`, or `Result<T, E>`
+1. **Index trait** for indexed read access: `value[key]`
+2. **Multi-dimensional indexing** via tuple keys: `matrix[(row, col)]`
+3. **Return type flexibility** - can return `T`, `Option<T>`, or `Result<T, E>`
 
 ---
 
@@ -37,12 +37,10 @@ User-defined types cannot use `[]` syntax. This forces verbose method calls:
 
 ```ori
 // Current: verbose
-let value = matrix.get(row, col)
-matrix.set(row, col, 42)
+let value = matrix.get(row: row, col: col)
 
 // Desired: natural
 let value = matrix[(row, col)]
-matrix[(row, col)] = 42
 ```
 
 ### Use Cases
@@ -61,17 +59,12 @@ matrix[(row, col)] = 42
 
 ## Proposed Design
 
-### Core Traits
+### Core Trait
 
 ```ori
 // Read-only indexed access
 trait Index<Key, Value> {
     @index (self, key: Key) -> Value
-}
-
-// Read-write indexed access (extends Index)
-trait IndexMut<Key, Value>: Index<Key, Value> {
-    @index_mut (mut self, key: Key, value: Value) -> void
 }
 ```
 
@@ -83,12 +76,7 @@ The compiler transforms subscript syntax into trait method calls:
 // Read access
 x[key]
 // Desugars to:
-x.index(key)
-
-// Write access
-x[key] = value
-// Desugars to:
-x.index_mut(key, value)
+x.index(key: key)
 ```
 
 ### Basic Example: Matrix
@@ -103,28 +91,16 @@ type Matrix<T> = {
 impl<T> Index<(int, int), T> for Matrix<T> {
     @index (self, key: (int, int)) -> T = run(
         let (row, col) = key,
-        assert(row >= 0 && row < self.rows, "row out of bounds"),
-        assert(col >= 0 && col < self.cols, "col out of bounds"),
+        assert(condition: row >= 0 && row < self.rows, msg: "row out of bounds"),
+        assert(condition: col >= 0 && col < self.cols, msg: "col out of bounds"),
         self.data[row * self.cols + col],
-    )
-}
-
-impl<T> IndexMut<(int, int), T> for Matrix<T> {
-    @index_mut (mut self, key: (int, int), value: T) -> void = run(
-        let (row, col) = key,
-        assert(row >= 0 && row < self.rows, "row out of bounds"),
-        assert(col >= 0 && col < self.cols, "col out of bounds"),
-        self.data[row * self.cols + col] = value,
     )
 }
 
 // Usage
 @example () -> void = run(
-    let mut m = Matrix.new(3, 3, 0),
-    m[(0, 0)] = 1,
-    m[(1, 1)] = 1,
-    m[(2, 2)] = 1,
-    print(m[(1, 1)]),  // prints: 1
+    let m = Matrix.identity(size: 3),
+    print(msg: m[(1, 1)] as str),  // prints: 1
 )
 ```
 
@@ -192,7 +168,7 @@ impl Index<str, Option<JsonValue>> for JsonValue {
 impl Index<int, Option<JsonValue>> for JsonValue {
     @index (self, key: int) -> Option<JsonValue> =
         match(self,
-            Array(arr) -> if key >= 0 && key < len(arr) then Some(arr[key]) else None,
+            Array(arr) -> if key >= 0 && key < len(collection: arr) then Some(arr[key]) else None,
             _ -> None,
         )
 }
@@ -210,53 +186,18 @@ impl Index<int, Option<JsonValue>> for JsonValue {
 
 ### The `#` Length Shorthand
 
-Ori's `#` shorthand for length inside brackets should work with custom types that implement `Sized`:
+Ori's `#` shorthand for length inside brackets is supported only for built-in types (`[T]`, `str`). Custom types use `len()` explicitly:
 
 ```ori
-trait Sized {
-    @len (self) -> int
-}
+// Built-in: # works
+list[# - 1]
 
-// If Matrix implements Sized:
-impl<T> Sized for Matrix<T> {
-    @len (self) -> int = self.rows * self.cols
-}
-
-// Then # works inside brackets
-matrix[(# - 1, # - 1)]  // Last element (assumes square, # refers to len)
+// Custom: use explicit len()
+let size = len(collection: matrix.data)
+matrix[(size - 1, size - 1)]
 ```
 
-**Open question:** Should `#` refer to the container's length, or should we require explicit `len(matrix)` for custom types? The built-in behavior for lists (`list[# - 1]`) is convenient but the semantics for multi-dimensional containers are ambiguous.
-
-**Recommendation:** `#` only works for built-in types. Custom types use explicit `len()`.
-
-### Range Indexing (Slicing)
-
-Should custom types support range indexing?
-
-```ori
-list[0..5]      // Built-in: returns [T]
-matrix[0..2]    // Custom: what does this return?
-```
-
-**Proposal:** Separate trait for slicing:
-
-```ori
-trait Slice<RangeType, Output> {
-    @slice (self, range: RangeType) -> Output
-}
-
-impl<T> Slice<Range<int>, [T]> for [T] {
-    @slice (self, range: Range<int>) -> [T] = ...
-}
-
-// Matrix row slice
-impl<T> Slice<int, [T]> for Matrix<T> {
-    @slice (self, row: int) -> [T] = ...  // Returns entire row
-}
-```
-
-This keeps `Index` simple while allowing rich slicing behavior.
+This keeps the semantics simple and avoids ambiguity for multi-dimensional containers where "length" could mean different things.
 
 ---
 
@@ -269,9 +210,9 @@ This keeps `Index` simple while allowing rich slicing behavior.
 | Rust | `Index`/`IndexMut` traits | Compile-time | Yes (via generics) |
 | Python | `__getitem__`/`__setitem__` | Runtime | Yes |
 | C++ | `operator[]` | Compile-time | No (single signature) |
-| **Ori** | `Index`/`IndexMut` traits | Compile-time | Yes (via generics) |
+| **Ori** | `Index` trait | Compile-time | Yes (via generics) |
 
-Ori's approach is most similar to Rust, which has proven effective.
+Ori's approach is similar to Rust's `Index` trait, which has proven effective.
 
 ---
 
@@ -282,15 +223,12 @@ These built-in types would have explicit trait implementations:
 ```ori
 // List
 impl<T> Index<int, T> for [T] { ... }
-impl<T> IndexMut<int, T> for [T] { ... }
 
-// Map - read returns Option, write inserts
+// Map - read returns Option
 impl<K: Hashable, V> Index<K, Option<V>> for {K: V} { ... }
-impl<K: Hashable, V> IndexMut<K, V> for {K: V} { ... }  // Inserts or updates
 
 // String - read only, returns str (single codepoint)
 impl Index<int, str> for str { ... }
-// Note: strings are immutable, no IndexMut
 ```
 
 ---
@@ -328,10 +266,9 @@ impl Index<str, Result<Value, DbError>> for Row {
 
 ### Compiler Changes
 
-1. **Trait definitions**: Add `Index` and `IndexMut` to prelude
-2. **Desugaring pass**: Transform `x[k]` to `x.index(k)` and `x[k] = v` to `x.index_mut(k, v)`
+1. **Trait definition**: Add `Index` to prelude
+2. **Desugaring pass**: Transform `x[k]` to `x.index(key: k)`
 3. **Type inference**: Resolve which `Index` impl based on key type
-4. **Mutability check**: `x[k] = v` requires `x` to be `mut` and `IndexMut` to be implemented
 
 ### Ambiguity Resolution
 
@@ -359,17 +296,9 @@ type RingBuffer<T> = {
 
 impl<T> Index<int, T> for RingBuffer<T> {
     @index (self, key: int) -> T = run(
-        assert(key >= 0 && key < self.len, "index out of bounds"),
-        let actual_idx = (self.head + key) % len(self.data),
+        assert(condition: key >= 0 && key < self.len, msg: "index out of bounds"),
+        let actual_idx = (self.head + key) % len(collection: self.data),
         self.data[actual_idx],
-    )
-}
-
-impl<T> IndexMut<int, T> for RingBuffer<T> {
-    @index_mut (mut self, key: int, value: T) -> void = run(
-        assert(key >= 0 && key < self.len, "index out of bounds"),
-        let actual_idx = (self.head + key) % len(self.data),
-        self.data[actual_idx] = value,
     )
 }
 ```
@@ -384,31 +313,17 @@ type BitSet = {
 
 impl Index<int, bool> for BitSet {
     @index (self, key: int) -> bool = run(
-        assert(key >= 0 && key < self.size, "index out of bounds"),
+        assert(condition: key >= 0 && key < self.size, msg: "index out of bounds"),
         let byte_idx = key / 8,
         let bit_idx = key % 8,
         (self.bits[byte_idx] >> bit_idx) & 1 == 1,
     )
 }
 
-impl IndexMut<int, bool> for BitSet {
-    @index_mut (mut self, key: int, value: bool) -> void = run(
-        assert(key >= 0 && key < self.size, "index out of bounds"),
-        let byte_idx = key / 8,
-        let bit_idx = key % 8,
-        if value
-        then self.bits[byte_idx] = self.bits[byte_idx] | (1 << bit_idx)
-        else self.bits[byte_idx] = self.bits[byte_idx] & ~(1 << bit_idx),
-    )
-}
-
 // Usage
-@bitset_example () -> void = run(
-    let mut bs = BitSet.new(64),
-    bs[0] = true,
-    bs[63] = true,
-    print(bs[0]),   // true
-    print(bs[1]),   // false
+@bitset_example (bs: BitSet) -> void = run(
+    print(msg: bs[0] as str),   // read bit at index 0
+    print(msg: bs[1] as str),   // read bit at index 1
 )
 ```
 
@@ -435,47 +350,34 @@ impl<T> Index<(int, int), Option<T>> for Grid<T> {
     [(-1, -1), (0, -1), (1, -1),
      (-1,  0),          (1,  0),
      (-1,  1), (0,  1), (1,  1)]
-    |> filter(d -> grid[(x + d.0, y + d.1)] == Some(true))
-    |> len()
+    .filter(d -> grid[(x + d.0, y + d.1)] == Some(true))
+    .count()
 ```
 
 ---
 
-## Open Questions
+## Design Decisions
 
-### Q1: Should `#` work in custom subscripts?
+### Why No IndexMut?
 
-**Options:**
-- A) Yes, `#` always means `len(container)` - consistent but may be confusing for multi-dimensional
-- B) No, `#` only for built-in types - explicit but less convenient
-- C) `#` works if type implements `Sized` trait - flexible but adds complexity
-
-**Recommendation:** Option B for simplicity.
-
-### Q2: Chained mutable indexing?
+Ori uses value semantics without shared mutable references. The `mut self` pattern required for in-place mutation does not exist in the language. For types that need mutation, use explicit methods:
 
 ```ori
-matrix[(0, 0)][(1, 1)] = 5  // Is this allowed?
+// Instead of: matrix[(0, 0)] = 5
+// Use:
+let matrix = matrix.set(row: 0, col: 0, value: 5)
+
+// Or provide a method that returns a modified copy
+impl<T> Matrix<T> {
+    @set (self, row: int, col: int, value: T) -> Matrix<T> = ...
+}
 ```
 
-**Options:**
-- A) Allow if intermediate returns mutable reference
-- B) Disallow, require explicit temp variable
-- C) Allow for specific patterns only
+This aligns with Ori's functional approach and ARC-based memory model.
 
-**Recommendation:** Option B initially - keep semantics simple.
+### Why No Slicing in This Proposal?
 
-### Q3: Compound assignment operators?
-
-```ori
-matrix[(0, 0)] += 5  // Desugar to what?
-```
-
-**Proposal:** Desugar to read-modify-write:
-```ori
-// matrix[(0, 0)] += 5 becomes:
-matrix.index_mut((0, 0), matrix.index((0, 0)) + 5)
-```
+Slicing (`x[0..5]`) has different semantics and return types than point indexing. It deserves its own proposal to properly design the `Slice` trait and its interactions with ranges.
 
 ---
 
@@ -484,7 +386,7 @@ matrix.index_mut((0, 0), matrix.index((0, 0)) + 5)
 This is a new feature with no breaking changes:
 - Existing code continues to work
 - Built-in subscripting gains explicit trait implementations
-- New types can opt into subscripting by implementing traits
+- New types can opt into subscripting by implementing the `Index` trait
 
 ---
 
@@ -499,3 +401,4 @@ This is a new feature with no breaking changes:
 ## Changelog
 
 - 2026-01-22: Initial draft
+- 2026-01-30: Approved — Removed IndexMut (Ori has no `mut`), removed Slice (deferred), removed `#`/Sized discussion, added to prelude

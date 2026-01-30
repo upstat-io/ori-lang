@@ -30,6 +30,45 @@ map["key"]     // returns Option<V>
 
 Lists/strings panic on out-of-bounds; maps return `Option`.
 
+#### Index Trait
+
+User-defined types can implement the `Index` trait for custom subscripting:
+
+```ori
+trait Index<Key, Value> {
+    @index (self, key: Key) -> Value
+}
+```
+
+The compiler desugars subscript expressions to trait method calls:
+
+```ori
+x[key]
+// Desugars to:
+x.index(key: key)
+```
+
+A type may implement `Index` for multiple key types:
+
+```ori
+impl Index<str, Option<JsonValue>> for JsonValue { ... }
+impl Index<int, Option<JsonValue>> for JsonValue { ... }
+```
+
+If the key type is ambiguous, the call is a compile-time error.
+
+Return types encode error handling strategy:
+- `T` — panics on invalid key (fixed-size containers)
+- `Option<T>` — returns `None` for missing keys (sparse data)
+- `Result<T, E>` — returns detailed errors (external data)
+
+Built-in implementations:
+- `[T]` implements `Index<int, T>` (panics on out-of-bounds)
+- `{K: V}` implements `Index<K, Option<V>>`
+- `str` implements `Index<int, str>` (single codepoint, panics on out-of-bounds)
+
+The `#` length shorthand is supported only for built-in types. Custom types use `len()` explicitly.
+
 ### Function Call
 
 ```ori
