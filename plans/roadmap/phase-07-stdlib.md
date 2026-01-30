@@ -851,7 +851,183 @@ Returns `Option<T>` — `None` on overflow:
 
 ---
 
-## 7.18 Float NaN Behavior
+## 7.18 std.time Module
+
+**Proposal**: `proposals/approved/stdlib-time-api-proposal.md`
+
+Date/time types, formatting, parsing, arithmetic, and timezone handling.
+
+### 7.18.1 Core Types
+
+- [ ] **Implement**: `Instant` type — UTC timestamp (nanoseconds since Unix epoch)
+  - `Instant.now()`, `from_unix_secs()`, `from_unix_millis()`, `to_unix_secs()`, `to_unix_millis()`
+  - `add()`, `sub()`, `diff()` for Duration arithmetic
+  - Implements `Comparable`
+  - [ ] **Rust Tests**: `library/std/time/instant.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/instant.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Instant
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Instant codegen
+
+- [ ] **Implement**: `DateTime` type — date and time in a specific timezone
+  - `now()`, `now_utc()`, `from_instant()`, `from_parts()`
+  - `to_instant()`, `to_timezone()`, `to_utc()`, `to_local()`
+  - `date()`, `time()`, `weekday()` component accessors
+  - `add()`, `add_days()`, `add_months()`, `add_years()` arithmetic
+  - [ ] **Rust Tests**: `library/std/time/datetime.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/datetime.ori`
+  - [ ] **LLVM Support**: LLVM codegen for DateTime
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — DateTime codegen
+
+- [ ] **Implement**: `Date` type — date only (no time component)
+  - `today()`, `new()`
+  - `weekday()`, `day_of_year()`, `is_leap_year()`, `days_in_month()`
+  - `add_days()`, `add_months()`, `add_years()`, `diff_days()`
+  - [ ] **Rust Tests**: `library/std/time/date.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/date.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Date
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Date codegen
+
+- [ ] **Implement**: `Time` type — time of day only (no date component)
+  - `now()`, `new()`, `midnight()`, `noon()`
+  - `to_seconds()`, `to_millis()`
+  - [ ] **Rust Tests**: `library/std/time/time.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/time.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Time
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Time codegen
+
+- [ ] **Implement**: `Timezone` type — timezone info (opaque)
+  - `utc()`, `local()`, `from_name()`, `from_offset()`, `fixed()`
+  - `name()`, `offset_at()`
+  - [ ] **Rust Tests**: `library/std/time/timezone.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/timezone.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Timezone
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Timezone codegen
+
+- [ ] **Implement**: `Weekday` sum type — `Monday | Tuesday | ... | Sunday`
+  - `is_weekend()`, `next()`, `prev()`, `all()`
+  - [ ] **Rust Tests**: `library/std/time/weekday.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/weekday.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Weekday
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Weekday codegen
+
+### 7.18.2 Duration Extension Methods
+
+> **Note:** These are extension methods requiring `use std.time { Duration }`.
+
+- [ ] **Implement**: Duration construction methods
+  - `from_nanos()`, `from_micros()`, `from_millis()`, `from_secs()`, `from_mins()`, `from_hours()`, `from_days()`
+  - [ ] **Rust Tests**: `library/std/time/duration.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/duration.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Duration construction
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Duration construction codegen
+
+- [ ] **Implement**: Duration extraction methods
+  - `to_nanos()`, `to_micros()`, `to_millis()`, `to_secs()`, `to_mins()`, `to_hours()`
+  - [ ] **Rust Tests**: `library/std/time/duration.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/duration.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Duration extraction
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Duration extraction codegen
+
+- [ ] **Implement**: Duration component methods
+  - `hours_part()`, `minutes_part()`, `seconds_part()`
+  - [ ] **Rust Tests**: `library/std/time/duration.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/duration.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Duration components
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Duration components codegen
+
+- [ ] **Implement**: Duration arithmetic and checks
+  - `add()`, `sub()`, `mul()`, `div()`
+  - `is_zero()`, `is_negative()`
+  - [ ] **Rust Tests**: `library/std/time/duration.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/duration.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Duration arithmetic
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Duration arithmetic codegen
+
+### 7.18.3 Formatting
+
+- [ ] **Implement**: `format(dt, pattern)` — DateTime formatting with pattern specifiers
+  - Pattern specifiers: `YYYY`, `YY`, `MM`, `M`, `DD`, `D`, `HH`, `H`, `hh`, `h`, `mm`, `ss`, `SSS`, `a`, `E`, `EEEE`, `MMM`, `MMMM`, `Z`, `ZZ`, `z`
+  - [ ] **Rust Tests**: `library/std/time/format.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/format.ori`
+  - [ ] **LLVM Support**: LLVM codegen for format
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — format codegen
+
+- [ ] **Implement**: `format_date(d, pattern)` — Date-only formatting
+  - [ ] **Rust Tests**: `library/std/time/format.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/format.ori`
+  - [ ] **LLVM Support**: LLVM codegen for format_date
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — format_date codegen
+
+- [ ] **Implement**: `format_time(t, pattern)` — Time-only formatting
+  - [ ] **Rust Tests**: `library/std/time/format.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/format.ori`
+  - [ ] **LLVM Support**: LLVM codegen for format_time
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — format_time codegen
+
+- [ ] **Implement**: ISO 8601 formatting
+  - `to_iso8601(dt)`, `to_iso8601_date(d)`, `to_iso8601_time(t)`
+  - [ ] **Rust Tests**: `library/std/time/format.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/iso8601.ori`
+  - [ ] **LLVM Support**: LLVM codegen for ISO 8601 formatting
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — ISO 8601 formatting codegen
+
+### 7.18.4 Parsing
+
+- [ ] **Implement**: `parse(source, pattern, tz)` — DateTime parsing with optional timezone
+  - `tz` parameter defaults to UTC for patterns without timezone info
+  - [ ] **Rust Tests**: `library/std/time/parse.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/parse.ori`
+  - [ ] **LLVM Support**: LLVM codegen for parse
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — parse codegen
+
+- [ ] **Implement**: `parse_date(source, pattern)` — Date-only parsing
+  - [ ] **Rust Tests**: `library/std/time/parse.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/parse.ori`
+  - [ ] **LLVM Support**: LLVM codegen for parse_date
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — parse_date codegen
+
+- [ ] **Implement**: `parse_time(source, pattern)` — Time-only parsing
+  - [ ] **Rust Tests**: `library/std/time/parse.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/parse.ori`
+  - [ ] **LLVM Support**: LLVM codegen for parse_time
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — parse_time codegen
+
+- [ ] **Implement**: ISO 8601 parsing
+  - `from_iso8601(source)`, `from_iso8601_date(source)`
+  - [ ] **Rust Tests**: `library/std/time/parse.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/iso8601.ori`
+  - [ ] **LLVM Support**: LLVM codegen for ISO 8601 parsing
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — ISO 8601 parsing codegen
+
+### 7.18.5 Error Type
+
+- [ ] **Implement**: `TimeError` and `TimeErrorKind`
+  - `InvalidDate`, `InvalidTime`, `InvalidTimezone`, `ParseError`, `Overflow`
+  - [ ] **Rust Tests**: `library/std/time/error.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/error.ori`
+  - [ ] **LLVM Support**: LLVM codegen for TimeError
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — TimeError codegen
+
+### 7.18.6 Clock Capability
+
+- [ ] **Implement**: `Clock` trait update
+  - `now() -> Instant`, `local_timezone() -> Timezone`
+  - [ ] **Rust Tests**: `oric/src/capabilities/clock.rs`
+  - [ ] **Ori Tests**: `tests/spec/capabilities/clock.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Clock capability
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — Clock codegen
+
+- [ ] **Implement**: `MockClock` for testing
+  - `MockClock.new(now)` constructor
+  - `advance(by)` with interior mutability
+  - [ ] **Rust Tests**: `library/std/time/mock.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/mock_clock.ori`
+  - [ ] **LLVM Support**: LLVM codegen for MockClock
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — MockClock codegen
+
+---
+
+## 7.19 Float NaN Behavior
 
 > **Decision**: NaN comparisons panic (no proposal needed — behavioral decision)
 >
@@ -876,7 +1052,7 @@ Returns `Option<T>` — `None` on overflow:
 
 ---
 
-## 7.19 Phase Completion Checklist
+## 7.20 Phase Completion Checklist
 
 - [ ] All items above have all three checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md

@@ -204,6 +204,39 @@ Capabilities propagate: if A calls B with capability C, A must declare or provid
 | `Env` | Environment | No |
 | `Async` | Suspension marker | Yes |
 
+### Clock Capability
+
+The `Clock` capability provides access to the current time:
+
+```ori
+trait Clock {
+    @now () -> Instant
+    @local_timezone () -> Timezone
+}
+```
+
+`Instant` and `Timezone` are defined in `std.time`. Functions requiring current time must declare `uses Clock`:
+
+```ori
+@log_timestamp (msg: str) -> void uses Clock, Print =
+    print(msg: `[{Clock.now()}] {msg}`)
+```
+
+Mock clocks enable deterministic testing:
+
+```ori
+@test_expiry tests @is_expired () -> void = run(
+    let mock = MockClock.new(now: Instant.from_unix_secs(secs: 1700000000)),
+    with Clock = mock in run(
+        assert(!is_expired(token: token)),
+        mock.advance(by: 1h),
+        assert(is_expired(token: token)),
+    ),
+)
+```
+
+`MockClock` uses interior mutability for its time state, allowing `advance()` without reassignment.
+
 ## Default Capabilities
 
 `Print` has a default implementation via `def impl`. Programs may use `print` without declaring `uses Print`:

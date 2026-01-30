@@ -368,6 +368,17 @@
 - Caching: by function + args hash
 - Blocked on: None (can be implemented independently)
 
+**std.time API** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/stdlib-time-api-proposal.md`
+- Implementation: Phase 7.18
+- Core types: `Instant` (UTC timestamp), `DateTime` (with timezone), `Date`, `Time`, `Timezone`, `Weekday`
+- Duration extension methods (require import from std.time)
+- Formatting with pattern specifiers, ISO 8601 support
+- Parsing with explicit timezone parameter (`tz: Timezone = Timezone.utc()`)
+- Clock capability: `now() -> Instant`, `local_timezone() -> Timezone`
+- MockClock with interior mutability for testing
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones
