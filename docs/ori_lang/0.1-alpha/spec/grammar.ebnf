@@ -186,12 +186,18 @@ clause_param  = match_pattern [ ":" type ] [ "=" expression ] .  /* pattern with
 guard_clause  = "if" expression .
 
 // --- Generics ---
+// See: 06-types.md § Const Generic Parameters
 
 generics      = "<" generic_param { "," generic_param } ">" .
-generic_param = identifier [ ":" bounds ] .
+generic_param = type_param | const_param .
+type_param    = identifier [ ":" bounds ] .
+const_param   = "$" identifier ":" const_type [ "=" const_expr ] .
+const_type    = "int" | "bool" .
 bounds        = type_path { "+" type_path } .
 where_clause  = "where" constraint { "," constraint } .
-constraint    = identifier ":" bounds .
+constraint    = identifier ":" bounds
+              | identifier comparison_op const_expr .  /* const bounds */
+comparison_op = ">" | "<" | ">=" | "<=" | "==" | "!=" .
 
 // --- Capabilities ---
 // See: 14-capabilities.md
@@ -248,13 +254,16 @@ constant_decl = "let" "$" identifier [ ":" type ] "=" expression .
 // ============================================================================
 
 type          = type_path [ type_args ]
-              | list_type | map_type | tuple_type | function_type .
+              | list_type | fixed_list_type | map_type | tuple_type | function_type .
 type_path     = identifier { "." identifier } .
-type_args     = "<" type { "," type } ">" .
+type_args     = "<" type_or_const { "," type_or_const } ">" .
+type_or_const = type | const_expr .
 list_type     = "[" type "]" .
+fixed_list_type = "[" type "," "max" const_expr "]" .
 map_type      = "{" type ":" type "}" .
 tuple_type    = "(" type { "," type } ")" | "()" .
 function_type = "(" [ type { "," type } ] ")" "->" type .
+const_expr    = integer_literal | "$" identifier | const_expr binary_op const_expr .
 
 
 // ============================================================================

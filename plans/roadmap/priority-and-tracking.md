@@ -553,6 +553,17 @@
 - `compile_error("msg")` built-in for platform availability errors
 - Blocked on: None (can be implemented independently)
 
+**Fixed-Capacity Lists** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/fixed-capacity-list-proposal.md`
+- Implementation: Phase 18.2
+- Type syntax: `[T, max N]` for inline-allocated lists with compile-time maximum capacity
+- Dynamic length (0 to N elements at runtime), subtype of `[T]`
+- Const-generic syntax: `$N: int` for compile-time integer parameters
+- Methods: `.capacity()`, `.is_full()`, `.remaining()`, `.try_push()`, `.push_or_oldest()`
+- Conversion: `.to_fixed<$N: int>()`, `.try_to_fixed<$N: int>()`
+- Trait implementations same as `[T]` with same constraints
+- Blocked on: None (part of const-generics infrastructure)
+
 ---
 
 ## Milestones

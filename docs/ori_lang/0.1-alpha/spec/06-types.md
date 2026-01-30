@@ -36,7 +36,47 @@ Every value has a type determined at compile time.
 [T]
 ```
 
-Ordered, homogeneous collection.
+Ordered, homogeneous collection. Heap-allocated with dynamic size.
+
+### Fixed-Capacity List
+
+```
+[T, max N]
+```
+
+Ordered, homogeneous collection with compile-time maximum capacity `N`. Stored inline (not heap-allocated). Length is dynamic at runtime (0 to N elements).
+
+`N` must be a compile-time constant: a positive integer literal or a `$` constant binding.
+
+```ori
+let buffer: [int, max 10] = []      // Empty, capacity 10
+let coords: [int, max 3] = [1, 2, 3] // Full, capacity 3
+```
+
+**Subtype relationship:** `[T, max N]` is a subtype of `[T]`. A fixed-capacity list can be passed where a dynamic list is expected. The capacity limit is retained even when viewed as `[T]`.
+
+**Methods:**
+
+| Method | Return | Description |
+|--------|--------|-------------|
+| `.capacity()` | `int` | Compile-time capacity N |
+| `.is_full()` | `bool` | `len(self) == capacity` |
+| `.remaining()` | `int` | `capacity - len(self)` |
+| `.push(item: T)` | `void` | Add element; panic if full |
+| `.try_push(item: T)` | `bool` | Add element; return false if full |
+| `.push_or_drop(item: T)` | `void` | Drop item if full |
+| `.push_or_oldest(item: T)` | `void` | Remove index 0 if full, push to end |
+| `.to_dynamic()` | `[T]` | Convert to heap-allocated list |
+
+**Conversion from dynamic list:**
+
+```ori
+let dynamic: [int] = [1, 2, 3]
+let fixed: [int, max 10] = dynamic.to_fixed<10>()      // Panic if len > 10
+let maybe: Option<[int, max 10]> = dynamic.try_to_fixed<10>()
+```
+
+**Trait implementations:** Fixed-capacity lists implement the same traits as regular lists (`Eq`, `Hashable`, `Comparable`, `Clone`, `Debug`, `Printable`, `Sendable`, `Iterable`, `DoubleEndedIterator`, `Collect`) with the same constraints.
 
 ### Map
 
@@ -90,6 +130,42 @@ Type parameters in angle brackets:
 Option<int>
 Result<User, Error>
 type Pair<T> = { first: T, second: T }
+```
+
+### Const Generic Parameters
+
+A _const generic parameter_ is a compile-time constant value (not a type) that parameterizes a type or function. Const generic parameters use the `$` sigil followed by a type annotation:
+
+```ori
+@swap_ends<T, $N: int> (items: [T, max N]) -> [T, max N] = ...
+
+type RingBuffer<T, $N: int> = {
+    data: [T, max N],
+    head: int,
+    tail: int
+}
+```
+
+**Allowed const types:** `int`, `bool`
+
+Const generic parameters can be used wherever a compile-time constant is expected, including:
+- Fixed-capacity list capacities: `[T, max N]`
+- Const expressions in type positions
+- Const bounds in where clauses
+
+```ori
+// Const bound in where clause
+@non_empty_array<$N: int> () -> [int, max N]
+    where N > 0
+= ...
+```
+
+**Instance methods with const generics:**
+
+```ori
+// Conversion methods on [T]
+[T].to_fixed<$N: int>() -> [T, max N]
+[T].try_to_fixed<$N: int>() -> Option<[T, max N]>
 ```
 
 ## Built-in Types
