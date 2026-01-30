@@ -328,6 +328,16 @@
 - Atomic reference counting for cross-task values
 - Blocked on: Phase 16 (Async Support)
 
+**Capability Composition Rules** — ✅ APPROVED 2026-01-29
+- Proposal: `proposals/approved/capability-composition-proposal.md`
+- Implementation: Phase 6.11
+- Multi-binding `with` syntax: `with Http = a, Cache = b in expr`
+- Capability variance: more caps can call fewer (not reverse)
+- Resolution priority: inner with → outer with → imported def impl → local def impl → error
+- Explicit declaration requirement (no inference)
+- Async binding prohibition (E1203)
+- Blocked on: Phase 6.10 (def impl)
+
 ---
 
 ## Milestones

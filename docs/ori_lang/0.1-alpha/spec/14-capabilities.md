@@ -93,6 +93,89 @@ with Http = ConfiguredHttp { timeout: 5s } in
     fetch("/data")
 ```
 
+### Multi-Binding Syntax
+
+Multiple capabilities may be bound in a single `with` expression using comma-separated bindings:
+
+```ori
+with Http = mock_http, Cache = mock_cache in
+    complex_operation()
+```
+
+This is equivalent to nested `with` expressions:
+
+```ori
+with Http = mock_http in
+    with Cache = mock_cache in
+        complex_operation()
+```
+
+### Partial Provision
+
+When a function requires multiple capabilities, some may be explicitly provided while others use defaults:
+
+```ori
+def impl Http { ... }
+def impl Cache { ... }
+def impl Logger { ... }
+
+@test_with_mock_http () -> void = run(
+    let mock = MockHttp { ... },
+
+    with Http = mock in
+        complex_operation(),  // MockHttp + default Cache + default Logger
+)
+```
+
+Only `Http` is overridden; `Cache` and `Logger` use their `def impl`.
+
+### Nested Binding Semantics
+
+Inner bindings shadow outer bindings within their scope:
+
+```ori
+with Http = OuterHttp in run(
+    use_http(),  // OuterHttp
+
+    with Http = InnerHttp in
+        use_http(),  // InnerHttp (shadows Outer)
+
+    use_http(),  // OuterHttp again
+)
+```
+
+`with` creates a lexical scope — bindings are visible only within:
+
+```ori
+let result = with Http = mock in fetch()
+// mock is NOT bound here
+fetch()  // Uses default Http, not mock
+```
+
+## Capability Variance
+
+A context with more capabilities may call functions requiring fewer:
+
+```ori
+@needs_http () -> void uses Http = ...
+@needs_both () -> void uses Http, Cache = ...
+
+@caller () -> void uses Http, Cache = run(
+    needs_http(),  // OK: caller has Http
+    needs_both(),  // OK: caller has both
+)
+```
+
+A function requiring more capabilities cannot be called from one with fewer:
+
+```ori
+@needs_both () -> void uses Http, Cache = ...
+
+@caller () -> void uses Http = run(
+    needs_both(),  // ERROR: caller lacks Cache
+)
+```
+
 ## Propagation
 
 Capabilities propagate: if A calls B with capability C, A must declare or provide C.
@@ -133,12 +216,28 @@ The default is `StdoutPrint` for native execution, `BufferPrint` for WASM.
 
 ### Name Resolution
 
-When resolving a capability name:
+When resolving a capability name, the compiler checks in order:
 
-1. Check for `with...in` binding (innermost first)
-2. Check for imported default (`def impl` from source module)
-3. Check for module-local `def impl`
-4. Error: capability not provided
+1. **Innermost `with...in` binding** — highest priority
+2. **Outer `with...in` bindings** — in reverse nesting order
+3. **Imported `def impl`** — from the module where the trait is defined
+4. **Module-local `def impl`** — defined in the current module
+5. **Error** — capability not provided
+
+When both an imported `def impl` and a module-local `def impl` exist for the same capability, imported takes precedence.
+
+### Async Binding Prohibition
+
+`Async` is a marker capability — it has no methods and cannot be provided via `with...in`. Attempting to bind `Async` is a compile-time error:
+
+```ori
+with Async = SomeImpl in  // ERROR: Async cannot be bound
+    async_fn()
+```
+
+`Async` context is provided by:
+- The runtime for `@main () uses Async`
+- Concurrency patterns: `parallel`, `spawn`, `nursery`
 
 ## Testing
 
@@ -157,6 +256,14 @@ Mock implementations are synchronous; test does not need `Async`.
 Functions without `uses` are pure: no side effects, cannot suspend, safely parallelizable.
 
 ## Errors
+
+| Code | Description |
+|------|-------------|
+| E0600 | Function uses capability without declaring it |
+| E1200 | Missing capability (callee requires capability caller lacks) |
+| E1201 | Unbound capability (no `with` or `def impl` available) |
+| E1202 | Type does not implement capability trait |
+| E1203 | `Async` capability cannot be explicitly bound |
 
 ```
 error[E0600]: function uses `Http` without declaring it
