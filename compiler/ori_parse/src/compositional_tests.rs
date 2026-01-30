@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Compositional tests for the parser.
 //!
 //! These tests verify that all combinations of types, patterns, and expressions

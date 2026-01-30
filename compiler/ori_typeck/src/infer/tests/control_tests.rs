@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Tests for control.rs - control flow type inference.
 
 use super::check_source;

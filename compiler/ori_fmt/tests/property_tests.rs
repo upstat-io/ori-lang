@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Property-based tests for the Ori formatter.
 //!
 //! These tests use proptest to generate random valid Ori code and verify:

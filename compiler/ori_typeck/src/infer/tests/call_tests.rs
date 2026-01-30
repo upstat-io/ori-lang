@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Tests for call.rs - function and method call type inference.
 
 use super::check_source;

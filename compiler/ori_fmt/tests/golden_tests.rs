@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Golden tests for the Ori formatter.
 //!
 //! These tests verify that the formatter produces canonical output for various

@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Tests for `free_vars.rs` - free variable collection for closure self-capture detection.
 
 use super::check_source;

@@ -835,6 +835,7 @@ fn format_parse_errors(path: &str, errors: &[ParseError], source: &str) -> Strin
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use ori_ir::Span;

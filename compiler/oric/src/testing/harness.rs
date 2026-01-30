@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Test harness utilities for compiler testing.
 //!
 //! This module provides utilities for testing the compiler components,

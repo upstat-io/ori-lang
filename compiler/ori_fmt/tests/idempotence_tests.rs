@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Comprehensive idempotence verification tests.
 //!
 //! These tests verify that:

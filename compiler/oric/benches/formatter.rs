@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Formatter benchmarks for Ori.
 //!
 //! Measures formatting performance across different input sizes.
