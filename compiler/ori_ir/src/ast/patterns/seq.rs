@@ -14,7 +14,7 @@ use crate::{ExprId, ParsedType, Span, Spanned};
 /// Can be either a let binding or a statement expression.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum SeqBinding {
-    /// let [mut] pattern [: Type] = expr
+    /// `let [mut] pattern [: Type] = expr`
     Let {
         pattern: BindingPattern,
         /// Optional type annotation.

@@ -66,23 +66,33 @@ impl PatternDefinition for ParallelPattern {
         let timeout_name = ctx.interner.intern("timeout");
         let max_concurrent_name = ctx.interner.intern("max_concurrent");
 
-        // Extract .tasks property (required)
-        let tasks_prop = ctx
-            .props
-            .iter()
-            .find(|p| p.name == tasks_name)
-            .ok_or_else(|| EvalError::new("parallel requires .tasks property"))?;
+        // Single-pass property extraction for O(n) instead of O(3n)
+        let (tasks_prop, timeout_prop, max_concurrent_prop) = {
+            let mut tasks = None;
+            let mut timeout = None;
+            let mut max_concurrent = None;
+            for prop in ctx.props {
+                if prop.name == tasks_name {
+                    tasks = Some(prop);
+                } else if prop.name == timeout_name {
+                    timeout = Some(prop);
+                } else if prop.name == max_concurrent_name {
+                    max_concurrent = Some(prop);
+                }
+            }
+            (tasks, timeout, max_concurrent)
+        };
 
+        // Extract .tasks property (required)
+        let tasks_prop =
+            tasks_prop.ok_or_else(|| EvalError::new("parallel requires .tasks property"))?;
         let tasks_value = exec.eval(tasks_prop.value)?;
         let Value::List(task_list) = tasks_value else {
             return Err(EvalError::new("parallel .tasks must be a list"));
         };
 
         // Extract .timeout (optional)
-        let timeout_ms = ctx
-            .props
-            .iter()
-            .find(|p| p.name == timeout_name)
+        let timeout_ms = timeout_prop
             .map(|p| exec.eval(p.value))
             .transpose()?
             .and_then(|v| match v {
@@ -92,10 +102,7 @@ impl PatternDefinition for ParallelPattern {
             });
 
         // Extract .max_concurrent (optional, defaults to unlimited)
-        let max_concurrent = ctx
-            .props
-            .iter()
-            .find(|p| p.name == max_concurrent_name)
+        let max_concurrent = max_concurrent_prop
             .map(|p| exec.eval(p.value))
             .transpose()?
             .and_then(|v| match v {

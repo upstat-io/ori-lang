@@ -3,6 +3,19 @@
 //! This is the portable interpreter that can run in both native and WASM contexts.
 //! For the full Salsa-integrated evaluator, see `oric::Evaluator`.
 //!
+//! # Modular Architecture
+//!
+//! The interpreter's `eval()` method acts as a dispatcher, delegating to specialized
+//! helper modules in `crate::exec`:
+//!
+//! - `exec::expr` - Literals, identifiers, binary/unary operators, field access
+//! - `exec::call` - Function calls, argument evaluation
+//! - `exec::control` - Control flow (if, match, loop, for, break, continue)
+//! - `exec::pattern` - Pattern matching for let bindings and match arms
+//!
+//! This keeps the main match statement focused on dispatch while logic lives in
+//! the helper modules. The match remains necessary as the coordination point.
+//!
 //! # Arena Threading Pattern
 //!
 //! Functions and methods in Ori carry their own expression arena (`SharedArena`)
@@ -414,7 +427,7 @@ impl<'a> Interpreter<'a> {
             // Map literal
             ExprKind::Map(entries) => {
                 let entry_list = self.arena.get_map_entries(*entries);
-                let mut map = std::collections::HashMap::new();
+                let mut map = std::collections::BTreeMap::new();
                 for entry in entry_list {
                     let key = self.eval(entry.key)?;
                     let value = self.eval(entry.value)?;

@@ -30,7 +30,7 @@ use crate::eval::{Environment, FunctionValue, Mutability, Value};
 use crate::input::SourceFile;
 use crate::ir::{ImportPath, Name, SharedArena, StringInterner};
 use crate::parser::ParseOutput;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -378,13 +378,17 @@ impl LoadingContext {
 ///
 /// Groups together the parse result, arena, and pre-built function map
 /// to reduce parameter count in `register_imports`.
+///
+/// Uses `BTreeMap` for deterministic iteration order, which is important
+/// for reproducible builds and Salsa query compatibility.
 pub struct ImportedModule<'a> {
     /// The parse result containing the module's AST.
     pub result: &'a ParseOutput,
     /// The expression arena for the imported module.
     pub arena: &'a SharedArena,
     /// Pre-built map of all functions in the module.
-    pub functions: HashMap<Name, Value>,
+    /// Uses `BTreeMap` for deterministic iteration order.
+    pub functions: BTreeMap<Name, Value>,
 }
 
 impl<'a> ImportedModule<'a> {
@@ -403,11 +407,12 @@ impl<'a> ImportedModule<'a> {
     /// Build a map of all functions in a module.
     ///
     /// This allows imported functions to call other functions from their module.
+    /// Uses `BTreeMap` for deterministic iteration order.
     fn build_functions(
         parse_result: &ParseOutput,
         imported_arena: &SharedArena,
-    ) -> HashMap<Name, Value> {
-        let mut module_functions: HashMap<Name, Value> = HashMap::new();
+    ) -> BTreeMap<Name, Value> {
+        let mut module_functions: BTreeMap<Name, Value> = BTreeMap::new();
 
         for func in &parse_result.module.functions {
             let (params, capabilities) = extract_function_metadata(func, imported_arena);
@@ -428,10 +433,11 @@ impl<'a> ImportedModule<'a> {
 /// Build a map of all functions in a module.
 ///
 /// This allows imported functions to call other functions from their module.
+/// Uses `BTreeMap` for deterministic iteration order.
 pub fn build_module_functions(
     parse_result: &ParseOutput,
     imported_arena: &SharedArena,
-) -> HashMap<Name, Value> {
+) -> BTreeMap<Name, Value> {
     ImportedModule::build_functions(parse_result, imported_arena)
 }
 
@@ -546,10 +552,18 @@ fn register_module_alias(
     }
 
     // Collect all public functions into the namespace
-    let mut namespace: HashMap<Name, Value> = HashMap::new();
+    // Uses BTreeMap for deterministic iteration order
+    let mut namespace: BTreeMap<Name, Value> = BTreeMap::new();
 
     // Clone captures once and wrap in Arc for sharing across all functions
-    let shared_captures = Arc::new(imported.functions.clone());
+    // Convert BTreeMap to HashMap (FunctionValue expects HashMap for captures)
+    let shared_captures: Arc<HashMap<Name, Value>> = Arc::new(
+        imported
+            .functions
+            .iter()
+            .map(|(&k, v)| (k, v.clone()))
+            .collect(),
+    );
 
     for func in &imported.result.module.functions {
         if func.visibility.is_public() {
@@ -567,9 +581,12 @@ fn register_module_alias(
     }
 
     // Bind the namespace to the alias
+    // Convert BTreeMap to HashMap for Value::module_namespace
+    // (BTreeMap used during construction for deterministic iteration,
+    // HashMap used at runtime for O(1) lookups)
     env.define(
         alias,
-        Value::module_namespace(namespace),
+        Value::module_namespace(namespace.into_iter().collect()),
         Mutability::Immutable,
     );
 

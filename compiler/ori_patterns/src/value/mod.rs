@@ -32,7 +32,7 @@ mod heap;
 mod scalar_int;
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 // Re-export StringLookup from ori_ir for convenience
@@ -75,7 +75,10 @@ pub enum Value {
     /// List of values.
     List(Heap<Vec<Value>>),
     /// Map from string keys to values.
-    Map(Heap<HashMap<String, Value>>),
+    ///
+    /// Uses `BTreeMap` for deterministic iteration order, which enables
+    /// efficient hashing without needing to sort keys.
+    Map(Heap<BTreeMap<String, Value>>),
     /// Tuple of values.
     Tuple(Heap<Vec<Value>>),
 
@@ -184,16 +187,26 @@ impl Value {
         Value::List(Heap::new(items))
     }
 
-    /// Create a map value with String keys.
+    /// Create a map value with String keys from a `BTreeMap`.
+    ///
+    /// Uses `BTreeMap` for deterministic iteration order.
     ///
     /// # Example
     ///
     /// ```text
-    /// let empty = Value::map(HashMap::new());
+    /// let empty = Value::map(BTreeMap::new());
     /// ```
     #[inline]
-    pub fn map(entries: HashMap<String, Value>) -> Self {
+    pub fn map(entries: BTreeMap<String, Value>) -> Self {
         Value::Map(Heap::new(entries))
+    }
+
+    /// Create a map value from a `HashMap` by converting to `BTreeMap`.
+    ///
+    /// This preserves backwards compatibility while ensuring deterministic iteration.
+    #[inline]
+    pub fn map_from_hashmap(entries: HashMap<String, Value>) -> Self {
+        Value::Map(Heap::new(entries.into_iter().collect()))
     }
 
     /// Create a tuple value.
@@ -805,12 +818,10 @@ impl std::hash::Hash for Value {
             Value::Map(m) => {
                 // Hash length for consistency
                 m.len().hash(state);
-                // Note: Map iteration order may vary, so we sort keys for determinism
-                let mut keys: Vec<_> = m.keys().collect();
-                keys.sort();
-                for k in keys {
+                // BTreeMap iterates in sorted key order, so no sorting needed
+                for (k, v) in m.iter() {
                     k.hash(state);
-                    m.get(k).hash(state);
+                    v.hash(state);
                 }
             }
             Value::Struct(s) => {

@@ -2,18 +2,35 @@
 //!
 //! This file is written FIRST, not last.
 //! Everything else is built on top of this.
+//!
+//! # Architecture Notes
+//!
+//! ## File Caching (`RwLock`)
+//!
+//! The `file_cache` uses `parking_lot::RwLock` for efficient concurrent access
+//! to the path→SourceFile deduplication map. This ensures we don't create
+//! duplicate `SourceFile` inputs for the same path. The `SourceFile` values
+//! themselves ARE tracked by Salsa - the cache is just an index to prevent
+//! duplicates, not a substitute for Salsa tracking.
+//!
+//! ## Event Logging (Test-Only)
+//!
+//! The `logs` field uses `parking_lot::Mutex` for efficient test-time logging
+//! of Salsa events. This is purely for debugging/testing and doesn't affect
+//! Salsa's incremental tracking.
 
-// Arc and Mutex are required for Salsa database and thread-safe logging
+// Arc is required for Salsa database Clone
 #![expect(
     clippy::disallowed_types,
-    reason = "Arc/Mutex required for Salsa database"
+    reason = "Arc required for Salsa database Clone"
 )]
 
 use crate::input::SourceFile;
 use crate::ir::{SharedInterner, StringInterner};
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Main database trait that extends Salsa's Database.
 ///
@@ -50,11 +67,21 @@ pub struct CompilerDb {
     interner: SharedInterner,
 
     /// Cache of loaded source files by path.
-    /// This ensures imported files become proper Salsa inputs.
-    file_cache: Arc<Mutex<HashMap<PathBuf, SourceFile>>>,
+    ///
+    /// Uses `parking_lot::RwLock` for efficient concurrent access. This is an
+    /// index for deduplication only - the `SourceFile` values are Salsa inputs
+    /// and are properly tracked. The cache prevents creating duplicate inputs
+    /// for the same file path.
+    ///
+    /// Note: `parking_lot` types don't have poison errors, making error handling
+    /// simpler and more robust than `std::sync` equivalents.
+    file_cache: Arc<RwLock<HashMap<PathBuf, SourceFile>>>,
 
     /// Event logs for testing/debugging (optional).
-    /// Wrapped in Arc<Mutex> so Clone works.
+    ///
+    /// Uses `parking_lot::Mutex` for efficient locking. Wrapped in `Arc` so
+    /// `Clone` works (required by Salsa). This is test-only and doesn't affect
+    /// Salsa's incremental computation tracking.
     logs: Arc<Mutex<Option<Vec<String>>>>,
 }
 
@@ -77,9 +104,8 @@ impl CompilerDb {
 
     /// Enable logging of Salsa events (for testing).
     #[cfg(test)]
-    #[expect(clippy::unwrap_used, reason = "Test-only method uses unwrap")]
     pub fn enable_logging(&self) {
-        let mut logs = self.logs.lock().unwrap();
+        let mut logs = self.logs.lock();
         if logs.is_none() {
             *logs = Some(vec![]);
         }
@@ -87,9 +113,8 @@ impl CompilerDb {
 
     /// Take the accumulated logs (for testing).
     #[cfg(test)]
-    #[expect(clippy::unwrap_used, reason = "Test-only method uses unwrap")]
     pub fn take_logs(&self) -> Vec<String> {
-        let mut logs = self.logs.lock().unwrap();
+        let mut logs = self.logs.lock();
         if let Some(logs) = &mut *logs {
             std::mem::take(logs)
         } else {
@@ -109,12 +134,9 @@ impl Db for CompilerDb {
         // Canonicalize path for consistent caching
         let canonical = path.canonicalize().ok()?;
 
-        // Check cache first
+        // Check cache first (read lock for concurrent reads)
         {
-            let cache = self
-                .file_cache
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let cache = self.file_cache.read();
             if let Some(&file) = cache.get(&canonical) {
                 return Some(file);
             }
@@ -124,12 +146,9 @@ impl Db for CompilerDb {
         let content = std::fs::read_to_string(&canonical).ok()?;
         let file = SourceFile::new(self, canonical.clone(), content);
 
-        // Cache it
+        // Cache it (write lock for insertion)
         {
-            let mut cache = self
-                .file_cache
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut cache = self.file_cache.write();
             cache.insert(canonical, file);
         }
 
@@ -145,11 +164,8 @@ impl Db for CompilerDb {
 impl salsa::Database for CompilerDb {
     fn salsa_event(&self, event: &dyn Fn() -> salsa::Event) {
         // Log events if logging is enabled
-        if let Some(logs) = &mut *self
-            .logs
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-        {
+        // parking_lot::Mutex doesn't have poison errors
+        if let Some(logs) = &mut *self.logs.lock() {
             let event = event();
             // Only log execution events (most interesting for debugging)
             if let salsa::EventKind::WillExecute { .. } = event.kind {

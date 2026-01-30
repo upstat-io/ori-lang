@@ -4,7 +4,7 @@
 //!
 //! # Design Notes
 //! Per design spec A-data-structures.md:
-//! - No Box<Expr>, use ExprId(u32) indices
+//! - No `Box<Expr>`, use `ExprId(u32)` indices
 //! - Contiguous arrays for cache locality
 //! - All types have Salsa-required traits (Clone, Eq, Hash, Debug)
 
@@ -55,7 +55,7 @@ impl Spanned for Expr {
 /// Expression variants.
 ///
 /// All children are indices, not boxes. Per design:
-/// "No Box<Expr>, use ExprId(u32) indices"
+/// "No `Box<Expr>`, use `ExprId(u32)` indices"
 ///
 /// # Salsa Compatibility
 /// Has all required traits: Clone, Eq, `PartialEq`, Hash, Debug
@@ -135,7 +135,7 @@ pub enum ExprKind {
     /// Field access: receiver.field
     Field { receiver: ExprId, field: Name },
 
-    /// Index access: receiver[index]
+    /// Index access: `receiver[index]`
     Index { receiver: ExprId, index: ExprId },
 
     /// Conditional: if cond then t else e

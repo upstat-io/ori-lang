@@ -336,7 +336,15 @@ impl TypeRegistry {
     /// Get field types for an enum variant.
     ///
     /// Returns the fields as (Name, Type) pairs by converting from `TypeId`.
-    /// Uses O(1) lookup via the variant index when the variant exists in this registry.
+    ///
+    /// # Performance
+    ///
+    /// - User-defined enums: O(1) lookup via `variants_by_name` index
+    /// - Built-in enums (Option, Result): O(n) linear scan, but n ≤ 2
+    ///
+    /// The linear fallback exists because built-in types are defined via the
+    /// type interner rather than `register_enum()`, so their variants aren't
+    /// in the index. This is acceptable since built-in enums have few variants.
     pub fn get_variant_fields(
         &self,
         type_id: TypeId,

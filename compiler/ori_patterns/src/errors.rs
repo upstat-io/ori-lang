@@ -688,6 +688,13 @@ mod tests {
         assert!(err.message.contains("int"));
     }
 
+    #[test]
+    fn test_no_member_in_module() {
+        let err = no_member_in_module("foo");
+        assert!(err.message.contains("foo"));
+        assert!(err.message.contains("module"));
+    }
+
     // Type Conversion Errors
     #[test]
     fn test_range_bound_not_int() {
@@ -937,6 +944,14 @@ mod tests {
         assert!(err.message.contains("int"));
     }
 
+    // Propagation Helpers
+    #[test]
+    fn test_propagated_error_message() {
+        let msg = propagated_error_message(&Value::int(42));
+        assert!(msg.contains("propagated"));
+        assert!(msg.contains("42"));
+    }
+
     // Test that errors are distinct (different messages)
     #[test]
     fn test_errors_are_distinct() {
@@ -953,6 +968,7 @@ mod tests {
             list_pattern_too_long().message,
             missing_struct_field().message,
             self_outside_method().message,
+            no_member_in_module("test").message,
             parse_error().message,
             hash_outside_index().message,
             await_not_supported().message,

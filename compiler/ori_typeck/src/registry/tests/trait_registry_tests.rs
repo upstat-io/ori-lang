@@ -23,20 +23,20 @@ fn test_register_trait() {
     let printable = interner.intern("Printable");
     let to_string = interner.intern("to_string");
 
-    let entry = TraitEntry {
-        name: printable,
-        span: make_span(),
-        type_params: vec![],
-        super_traits: vec![],
-        methods: vec![TraitMethodDef {
+    let entry = TraitEntry::new(
+        printable,
+        make_span(),
+        vec![],
+        vec![],
+        vec![TraitMethodDef {
             name: to_string,
             params: vec![],
             return_ty: TypeId::STR,
             has_default: false,
         }],
-        assoc_types: vec![],
-        visibility: Visibility::Public,
-    };
+        vec![],
+        Visibility::Public,
+    );
 
     registry.register_trait(entry);
 
@@ -57,18 +57,18 @@ fn test_register_inherent_impl() {
     let new_name = interner.intern("new");
     let point_type_id = registry.interner().named(point);
 
-    let entry = ImplEntry {
-        trait_name: None,
-        self_ty: Type::Named(point),
-        span: make_span(),
-        type_params: vec![],
-        methods: vec![ImplMethodDef {
+    let entry = ImplEntry::new(
+        None,
+        Type::Named(point),
+        make_span(),
+        vec![],
+        vec![ImplMethodDef {
             name: new_name,
             params: vec![TypeId::INT, TypeId::INT],
             return_ty: point_type_id,
         }],
-        assoc_types: vec![],
-    };
+        vec![],
+    );
 
     registry.register_impl(entry).unwrap();
     assert_eq!(registry.impl_count(), 1);
@@ -88,35 +88,35 @@ fn test_register_trait_impl() {
     let point = interner.intern("Point");
 
     // First register the trait
-    let trait_entry = TraitEntry {
-        name: printable,
-        span: make_span(),
-        type_params: vec![],
-        super_traits: vec![],
-        methods: vec![TraitMethodDef {
+    let trait_entry = TraitEntry::new(
+        printable,
+        make_span(),
+        vec![],
+        vec![],
+        vec![TraitMethodDef {
             name: to_string,
             params: vec![],
             return_ty: TypeId::STR,
             has_default: false,
         }],
-        assoc_types: vec![],
-        visibility: Visibility::Public,
-    };
+        vec![],
+        Visibility::Public,
+    );
     registry.register_trait(trait_entry);
 
     // Then register the impl
-    let impl_entry = ImplEntry {
-        trait_name: Some(printable),
-        self_ty: Type::Named(point),
-        span: make_span(),
-        type_params: vec![],
-        methods: vec![ImplMethodDef {
+    let impl_entry = ImplEntry::new(
+        Some(printable),
+        Type::Named(point),
+        make_span(),
+        vec![],
+        vec![ImplMethodDef {
             name: to_string,
             params: vec![],
             return_ty: TypeId::STR,
         }],
-        assoc_types: vec![],
-    };
+        vec![],
+    );
     registry.register_impl(impl_entry).unwrap();
 
     assert!(registry.implements(&Type::Named(point), printable));
@@ -137,18 +137,18 @@ fn test_method_lookup_priority() {
     let describe = interner.intern("describe");
 
     // Register inherent impl
-    let inherent_entry = ImplEntry {
-        trait_name: None,
-        self_ty: Type::Named(point),
-        span: make_span(),
-        type_params: vec![],
-        methods: vec![ImplMethodDef {
+    let inherent_entry = ImplEntry::new(
+        None,
+        Type::Named(point),
+        make_span(),
+        vec![],
+        vec![ImplMethodDef {
             name: describe,
             params: vec![],
             return_ty: TypeId::STR,
         }],
-        assoc_types: vec![],
-    };
+        vec![],
+    );
     registry.register_impl(inherent_entry).unwrap();
 
     // Lookup should find inherent method (no trait)
@@ -168,50 +168,50 @@ fn test_coherence_duplicate_trait_impl() {
     let point = interner.intern("Point");
 
     // Register the trait
-    let trait_entry = TraitEntry {
-        name: printable,
-        span: make_span(),
-        type_params: vec![],
-        super_traits: vec![],
-        methods: vec![TraitMethodDef {
+    let trait_entry = TraitEntry::new(
+        printable,
+        make_span(),
+        vec![],
+        vec![],
+        vec![TraitMethodDef {
             name: to_string,
             params: vec![],
             return_ty: TypeId::STR,
             has_default: false,
         }],
-        assoc_types: vec![],
-        visibility: Visibility::Public,
-    };
+        vec![],
+        Visibility::Public,
+    );
     registry.register_trait(trait_entry);
 
     // First impl should succeed
-    let impl1 = ImplEntry {
-        trait_name: Some(printable),
-        self_ty: Type::Named(point),
-        span: make_span(),
-        type_params: vec![],
-        methods: vec![ImplMethodDef {
+    let impl1 = ImplEntry::new(
+        Some(printable),
+        Type::Named(point),
+        make_span(),
+        vec![],
+        vec![ImplMethodDef {
             name: to_string,
             params: vec![],
             return_ty: TypeId::STR,
         }],
-        assoc_types: vec![],
-    };
+        vec![],
+    );
     assert!(registry.register_impl(impl1).is_ok());
 
     // Second impl for same trait/type should fail
-    let impl2 = ImplEntry {
-        trait_name: Some(printable),
-        self_ty: Type::Named(point),
-        span: make_span(),
-        type_params: vec![],
-        methods: vec![ImplMethodDef {
+    let impl2 = ImplEntry::new(
+        Some(printable),
+        Type::Named(point),
+        make_span(),
+        vec![],
+        vec![ImplMethodDef {
             name: to_string,
             params: vec![],
             return_ty: TypeId::STR,
         }],
-        assoc_types: vec![],
-    };
+        vec![],
+    );
     assert!(registry.register_impl(impl2).is_err());
 }
 
@@ -224,33 +224,33 @@ fn test_coherence_duplicate_inherent_method() {
     let describe = interner.intern("describe");
 
     // First inherent impl should succeed
-    let impl1 = ImplEntry {
-        trait_name: None,
-        self_ty: Type::Named(point),
-        span: make_span(),
-        type_params: vec![],
-        methods: vec![ImplMethodDef {
+    let impl1 = ImplEntry::new(
+        None,
+        Type::Named(point),
+        make_span(),
+        vec![],
+        vec![ImplMethodDef {
             name: describe,
             params: vec![],
             return_ty: TypeId::STR,
         }],
-        assoc_types: vec![],
-    };
+        vec![],
+    );
     assert!(registry.register_impl(impl1).is_ok());
 
     // Second inherent impl with same method name should fail
-    let impl2 = ImplEntry {
-        trait_name: None,
-        self_ty: Type::Named(point),
-        span: make_span(),
-        type_params: vec![],
-        methods: vec![ImplMethodDef {
+    let impl2 = ImplEntry::new(
+        None,
+        Type::Named(point),
+        make_span(),
+        vec![],
+        vec![ImplMethodDef {
             name: describe,
             params: vec![],
             return_ty: TypeId::INT,
         }],
-        assoc_types: vec![],
-    };
+        vec![],
+    );
     assert!(registry.register_impl(impl2).is_err());
 }
 
@@ -264,33 +264,33 @@ fn test_coherence_multiple_inherent_impls_different_methods() {
     let method2 = interner.intern("method2");
 
     // First inherent impl
-    let impl1 = ImplEntry {
-        trait_name: None,
-        self_ty: Type::Named(point),
-        span: make_span(),
-        type_params: vec![],
-        methods: vec![ImplMethodDef {
+    let impl1 = ImplEntry::new(
+        None,
+        Type::Named(point),
+        make_span(),
+        vec![],
+        vec![ImplMethodDef {
             name: method1,
             params: vec![],
             return_ty: TypeId::INT,
         }],
-        assoc_types: vec![],
-    };
+        vec![],
+    );
     assert!(registry.register_impl(impl1).is_ok());
 
     // Second inherent impl with different method should succeed (methods get merged)
-    let impl2 = ImplEntry {
-        trait_name: None,
-        self_ty: Type::Named(point),
-        span: make_span(),
-        type_params: vec![],
-        methods: vec![ImplMethodDef {
+    let impl2 = ImplEntry::new(
+        None,
+        Type::Named(point),
+        make_span(),
+        vec![],
+        vec![ImplMethodDef {
             name: method2,
             params: vec![],
             return_ty: TypeId::STR,
         }],
-        assoc_types: vec![],
-    };
+        vec![],
+    );
     assert!(registry.register_impl(impl2).is_ok());
 
     // Both methods should be accessible

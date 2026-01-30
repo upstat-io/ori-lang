@@ -18,7 +18,7 @@
 //! # Design Philosophy
 //!
 //! - **Intern Everything**: Strings → Name(u32), Types → TypeId(u32)
-//! - **Flatten Everything**: No Box<Expr>, use ExprId(u32) indices
+//! - **Flatten Everything**: No `Box<Expr>`, use `ExprId(u32)` indices
 //! - **Interface Segregation**: Focused traits (Spanned, Named)
 //!
 //! Types that contain floats store them as u64 bits for Hash compatibility.

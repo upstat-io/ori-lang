@@ -65,15 +65,15 @@ impl TypeChecker<'_> {
                 }
             }
 
-            let entry = TraitEntry {
-                name: trait_def.name,
-                span: trait_def.span,
+            let entry = TraitEntry::new(
+                trait_def.name,
+                trait_def.span,
                 type_params,
                 super_traits,
                 methods,
                 assoc_types,
-                visibility: trait_def.visibility,
-            };
+                trait_def.visibility,
+            );
 
             self.registries.traits.register_trait(entry);
         }
@@ -132,14 +132,14 @@ impl TypeChecker<'_> {
                 })
                 .collect();
 
-            let entry = ImplEntry {
+            let entry = ImplEntry::new(
                 trait_name,
-                self_ty: self_ty.clone(),
-                span: impl_def.span,
+                self_ty.clone(),
+                impl_def.span,
                 type_params,
                 methods,
-                assoc_types: assoc_types.clone(),
-            };
+                assoc_types.clone(),
+            );
 
             // For trait impls, validate that all required associated types are defined
             if let Some(trait_name) = trait_name {

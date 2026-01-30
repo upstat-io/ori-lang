@@ -8,14 +8,40 @@ const guide = await getCollection('guide');
 const toSidebarItems = (items: any[]) =>
   items.map(item => ({ id: item.id, title: item.data.title }));
 
+// Helper to group by part
+const groupByPart = (items: any[], partNames: string[]) =>
+  partNames
+    .map(name => ({
+      name,
+      items: toSidebarItems(
+        items
+          .filter(d => d.data.part === name)
+          .sort((a, b) => a.data.order - b.data.order)
+      ),
+    }))
+    .filter(g => g.items.length > 0);
+
 // Build sections config
 const sections = [
   {
     title: 'Guide',
     basePath: '/guide',
-    items: toSidebarItems(guide.sort((a, b) => a.data.order - b.data.order)),
+    items: toSidebarItems(
+      guide
+        .filter(d => !d.data.part)
+        .sort((a, b) => a.data.order - b.data.order)
+    ),
+    subsections: groupByPart(guide, [
+      'Foundations',
+      'Data',
+      'Error Handling & Safety',
+      'Program Structure',
+      'Effects and Concurrency',
+      'Abstraction',
+      'Advanced Patterns',
+    ]),
   },
 ];
 ---
 
-<Sidebar sections={sections} />
+<Sidebar sections={sections} expandAllByDefault={true} />
