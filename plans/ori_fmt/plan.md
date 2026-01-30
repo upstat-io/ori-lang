@@ -72,28 +72,64 @@ plans/ori_fmt/
 ```
 tests/fmt/
 ├── declarations/
-│   ├── functions.ori
-│   ├── types.ori
-│   ├── traits.ori
-│   └── imports.ori
-├── expressions/
+│   ├── functions/
+│   │   ├── simple.ori
+│   │   ├── multiline_params.ori
+│   │   ├── generics.ori
+│   │   ├── capabilities.ori
+│   │   ├── where_clauses.ori
+│   │   └── visibility.ori
+│   ├── types/
+│   │   ├── struct_inline.ori
+│   │   ├── struct_multiline.ori
+│   │   ├── sum_inline.ori
+│   │   ├── sum_multiline.ori
+│   │   ├── alias.ori
+│   │   ├── generic.ori
+│   │   └── derives.ori
+│   ├── traits/
+│   │   ├── simple.ori
+│   │   ├── multi_method.ori
+│   │   ├── defaults.ori
+│   │   ├── associated.ori
+│   │   └── inheritance.ori
+│   ├── impls/
+│   │   ├── inherent.ori
+│   │   ├── trait.ori
+│   │   └── generic.ori
+│   ├── imports/
+│   │   ├── simple.ori
+│   │   ├── relative.ori
+│   │   ├── alias.ori
+│   │   ├── private.ori
+│   │   ├── grouped.ori
+│   │   └── reexport.ori
+│   ├── tests/
+│   │   ├── targeted.ori
+│   │   ├── free_floating.ori
+│   │   ├── multi_target.ori
+│   │   └── attributes.ori
+│   └── constants/
+│       ├── simple.ori
+│       └── public.ori
+├── expressions/           # Phase 3
 │   ├── calls.ori
 │   ├── chains.ori
 │   ├── conditionals.ori
 │   └── lambdas.ori
-├── patterns/
+├── patterns/              # Phase 4
 │   ├── run.ori
 │   ├── try.ori
 │   ├── match.ori
 │   └── parallel.ori
-├── collections/
+├── collections/           # Phase 5
 │   ├── lists.ori
 │   ├── maps.ori
 │   └── structs.ori
-├── comments/
+├── comments/              # Phase 6
 │   ├── regular.ori
 │   └── doc.ori
-└── edge-cases/
+└── edge-cases/            # Phase 8
     ├── nested.ori
     └── complex.ori
 ```

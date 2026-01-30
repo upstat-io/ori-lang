@@ -1,0 +1,5 @@
+// NOTE: Type conversions using 'as' keyword are not yet implemented in the parser.
+// This test is a placeholder for when the feature is added.
+// Spec: 06-expressions.md § Type Conversions
+
+@identity (x: int) -> int = x

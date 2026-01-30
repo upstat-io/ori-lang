@@ -1,0 +1,13 @@
+// Golden test: Simple trait definitions
+// Spec: 08-declarations.md § Trait Definitions
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+trait Printable {
+    @to_str (self) -> str
+}
+
+trait Default {
+    @default () -> Self
+}
+
+trait Empty {}

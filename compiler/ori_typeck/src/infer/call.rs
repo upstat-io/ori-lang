@@ -92,7 +92,8 @@ pub fn infer_call_named(
 
     let (result, resolved_params) = match func_ty {
         Type::Function { params, ret } => {
-            if params.len() != arg_types.len() {
+            let has_arity_error = params.len() != arg_types.len();
+            if has_arity_error {
                 let message = if let Some(name) = func_name {
                     format!(
                         "function `{}` expects {} arguments, found {}",
@@ -108,14 +109,18 @@ pub fn infer_call_named(
                     )
                 };
                 checker.push_error(message, span, ori_diagnostic::ErrorCode::E2004);
-                return Type::Error;
             }
 
+            // Type-check available arguments even on arity mismatch to catch more errors
             for (i, (param_ty, arg_ty)) in params.iter().zip(arg_types.iter()).enumerate() {
                 if let Err(e) = checker.inference.ctx.unify(param_ty, arg_ty) {
                     let arg_span = call_args[i].span;
                     checker.report_type_error(&e, arg_span);
                 }
+            }
+
+            if has_arity_error {
+                return Type::Error;
             }
 
             // Pre-allocate to avoid repeated reallocations

@@ -1,0 +1,13 @@
+// Golden test: Inherent implementations
+// Spec: 08-declarations.md § Implementations
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+type Point = { x: int, y: int }
+
+impl Point {
+    @new (x: int, y: int) -> Point = Point { x, y }
+
+    @origin () -> Point = Point { x: 0, y: 0 }
+
+    @distance (self, other: Point) -> float = 0.0
+}

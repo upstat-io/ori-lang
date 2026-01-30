@@ -1,0 +1,6 @@
+// List indexing
+// Spec: 06-expressions.md § Index Expressions
+
+@first (items: [int]) -> int = items[0]
+
+@last (items: [int]) -> int = items[# - 1]

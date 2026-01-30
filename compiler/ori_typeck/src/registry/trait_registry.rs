@@ -59,6 +59,11 @@ pub struct TraitRegistry {
     /// Cache entries store `Option<MethodLookup>`: `None` means the method was looked up
     /// but not found. The cache is invalidated (cleared) whenever traits or impls are registered.
     method_cache: RefCell<FxHashMap<(Type, Name), Option<MethodLookup>>>,
+    /// Secondary index: `(type_name, assoc_type_name)` -> `TypeId`.
+    ///
+    /// Enables O(1) lookup of associated types by type and name, avoiding O(n*m) scan
+    /// of all trait impls. Updated when implementations with associated types are registered.
+    assoc_types_index: FxHashMap<(Name, Name), ori_ir::TypeId>,
 }
 
 impl PartialEq for TraitRegistry {
@@ -82,6 +87,7 @@ impl Default for TraitRegistry {
             traits_by_type: FxHashMap::default(),
             default_methods_by_name: FxHashMap::default(),
             method_cache: RefCell::new(FxHashMap::default()),
+            assoc_types_index: FxHashMap::default(),
         }
     }
 }
@@ -104,6 +110,7 @@ impl TraitRegistry {
             traits_by_type: FxHashMap::default(),
             default_methods_by_name: FxHashMap::default(),
             method_cache: RefCell::new(FxHashMap::default()),
+            assoc_types_index: FxHashMap::default(),
         }
     }
 
@@ -160,9 +167,18 @@ impl TraitRegistry {
             }
             // Update secondary index: type -> traits it implements
             self.traits_by_type
-                .entry(type_key)
+                .entry(type_key.clone())
                 .or_default()
                 .push(trait_name);
+
+            // Update associated types index for O(1) lookup
+            if let Type::Named(type_name) | Type::Applied { name: type_name, .. } = &type_key {
+                for assoc_def in &entry.assoc_types {
+                    self.assoc_types_index
+                        .insert((*type_name, assoc_def.name), assoc_def.ty);
+                }
+            }
+
             self.trait_impls.insert(key, entry);
         } else {
             // Inherent implementation - check for duplicate methods
@@ -344,28 +360,15 @@ impl TraitRegistry {
 
     /// Look up an associated type definition for a type by name only.
     ///
-    /// Searches all trait implementations for the given type to find one
-    /// that defines an associated type with the given name.
+    /// Uses a secondary index for O(1) lookup, avoiding the O(n*m) scan
+    /// of all trait implementations.
     ///
     /// This is used when we don't know which trait defines the associated type,
     /// such as when resolving `T.Item` from a where clause.
     pub fn lookup_assoc_type_by_name(&self, type_name: Name, assoc_name: Name) -> Option<Type> {
-        let target_type = Type::Named(type_name);
-
-        // Search all trait impls for this type
-        for ((_, impl_type), impl_entry) in &self.trait_impls {
-            if impl_type == &target_type {
-                // Check if this impl has the associated type we're looking for
-                if let Some(assoc_def) = impl_entry
-                    .assoc_types
-                    .iter()
-                    .find(|at| at.name == assoc_name)
-                {
-                    return Some(self.interner.to_type(assoc_def.ty));
-                }
-            }
-        }
-
-        None
+        // Use O(1) index lookup instead of scanning all trait impls
+        self.assoc_types_index
+            .get(&(type_name, assoc_name))
+            .map(|&type_id| self.interner.to_type(type_id))
     }
 }

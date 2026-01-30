@@ -1,0 +1,9 @@
+// Golden test: Import aliases
+// Spec: 08-declarations.md § Import Statements
+// Design: tooling/formatter/design/02-constructs/declarations.md
+// Note: Formatter groups stdlib imports first, then relative imports
+
+use std.net.http as http
+use std.collections { HashMap as Map }
+
+use "./utils" { helper as h }

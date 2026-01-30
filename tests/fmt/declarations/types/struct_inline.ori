@@ -1,0 +1,9 @@
+// Golden test: Inline struct definitions
+// Spec: 08-declarations.md § Type Definitions
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+type Point = { x: int, y: int }
+
+type Pair = { first: int, second: int }
+
+type Empty = {}

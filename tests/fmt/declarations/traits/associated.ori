@@ -1,0 +1,15 @@
+// Golden test: Traits with associated types
+// Spec: 08-declarations.md § Trait Definitions
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+trait Iterator {
+    type Item
+
+    @next (self) -> (Option<Self.Item>, Self)
+}
+
+trait Collection {
+    type Element
+
+    @get (self, index: int) -> Option<Self.Element>
+}

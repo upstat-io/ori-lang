@@ -1,0 +1,9 @@
+// Immutable bindings
+// Spec: 06-expressions.md § Let Bindings
+// NOTE: $ immutable modifier is only for module-level constants,
+// not local bindings in run patterns.
+
+@with_binding () -> int = run(
+    let x = 42,
+    x,
+)

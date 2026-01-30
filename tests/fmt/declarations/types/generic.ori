@@ -1,0 +1,9 @@
+// Golden test: Generic type definitions
+// Spec: 08-declarations.md § Type Definitions
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+type Container<T> = { value: T }
+
+type Pair<A, B> = { first: A, second: B }
+
+type Tree<T> = Leaf(value: T) | Branch(left: Tree<T>, right: Tree<T>)

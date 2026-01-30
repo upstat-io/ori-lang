@@ -219,19 +219,26 @@ impl TypeChecker<'_> {
         let mut map = HashMap::new();
         let interner = self.inference.env.interner();
 
-        // Build a map from type var ID to generic param name
-        let mut type_var_to_generic: HashMap<u32, Name> = HashMap::new();
-        for generic in &func_sig.generics {
-            if let TypeData::Var(tv) = interner.lookup(generic.type_var) {
-                type_var_to_generic.insert(tv.0, generic.param);
-            }
-        }
-        // Also add type vars from where constraints
-        for constraint in &func_sig.where_constraints {
-            if let TypeData::Var(tv) = interner.lookup(constraint.type_var) {
-                type_var_to_generic.insert(tv.0, constraint.param);
-            }
-        }
+        // Build a map from type var ID to generic param name.
+        // Chain generics and where constraints into a single iterator for efficiency.
+        let type_var_to_generic: HashMap<u32, Name> = func_sig
+            .generics
+            .iter()
+            .map(|g| (g.type_var, g.param))
+            .chain(
+                func_sig
+                    .where_constraints
+                    .iter()
+                    .map(|c| (c.type_var, c.param)),
+            )
+            .filter_map(|(type_var, param)| {
+                if let TypeData::Var(tv) = interner.lookup(type_var) {
+                    Some((tv.0, param))
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         // Match signature params to resolved params
         for (sig_param, resolved_param) in func_sig.params.iter().zip(resolved_params.iter()) {

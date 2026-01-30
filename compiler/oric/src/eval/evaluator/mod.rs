@@ -146,7 +146,7 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Call a function value with the given arguments.
-    pub fn eval_call_value(&mut self, func: Value, args: &[Value]) -> EvalResult {
+    pub fn eval_call_value(&mut self, func: &Value, args: &[Value]) -> EvalResult {
         self.interpreter.eval_call_value(func, args)
     }
 

@@ -4,6 +4,7 @@
 //! and the evaluator's runtime.
 
 use crate::value::Value;
+use ori_ir::Span;
 
 /// Result of evaluation.
 pub type EvalResult = Result<Value, EvalError>;
@@ -31,6 +32,11 @@ pub struct EvalError {
     pub propagated_value: Option<Value>,
     /// If this is a control flow signal (break/continue/return), holds the signal.
     pub control_flow: Option<ControlFlow>,
+    /// Source location where the error occurred.
+    ///
+    /// This enables better error messages with file/line/column information.
+    /// Patterns should attach spans when creating errors from property evaluation.
+    pub span: Option<Span>,
 }
 
 impl EvalError {
@@ -39,6 +45,7 @@ impl EvalError {
             message: message.into(),
             propagated_value: None,
             control_flow: None,
+            span: None,
         }
     }
 
@@ -48,6 +55,7 @@ impl EvalError {
             message: message.into(),
             propagated_value: Some(value),
             control_flow: None,
+            span: None,
         }
     }
 
@@ -57,6 +65,7 @@ impl EvalError {
             message: format!("break:{value}"),
             propagated_value: None,
             control_flow: Some(ControlFlow::Break(value)),
+            span: None,
         }
     }
 
@@ -66,6 +75,7 @@ impl EvalError {
             message: "continue".to_string(),
             propagated_value: None,
             control_flow: Some(ControlFlow::Continue),
+            span: None,
         }
     }
 
@@ -75,7 +85,18 @@ impl EvalError {
             message: format!("return:{value}"),
             propagated_value: None,
             control_flow: Some(ControlFlow::Return(value)),
+            span: None,
         }
+    }
+
+    /// Attach a source span to this error.
+    ///
+    /// This is a builder method that returns the modified error,
+    /// enabling chained construction: `EvalError::new("msg").with_span(span)`.
+    #[must_use]
+    pub fn with_span(mut self, span: Span) -> Self {
+        self.span = Some(span);
+        self
     }
 
     /// Check if this error is a control flow signal.

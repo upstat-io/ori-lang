@@ -1,0 +1,7 @@
+// Tuple destructuring
+// Spec: 06-expressions.md § Pattern Matching
+
+@swap (pair: (int, int)) -> (int, int) = run(
+    let (a, b) = pair,
+    (b, a),
+)

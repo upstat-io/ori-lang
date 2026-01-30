@@ -8,10 +8,16 @@
 use super::{WidthCalculator, ALWAYS_STACKED};
 use ori_ir::{ExprId, StringLookup};
 
-/// Calculate width of `Ok(inner)` or `Ok()`.
-pub(super) fn ok_width<I: StringLookup>(
+/// Helper for optional-inner wrapper width calculation.
+///
+/// Used by `ok_width` and `err_width` which follow the same pattern:
+/// - `prefix_len`: length of prefix including open paren (e.g., 3 for `Ok(`)
+/// - `empty_len`: length when inner is None (e.g., 4 for `Ok()`)
+fn optional_wrapper_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
     inner: Option<ExprId>,
+    prefix_len: usize,
+    empty_len: usize,
 ) -> usize {
     match inner {
         Some(expr) => {
@@ -19,11 +25,19 @@ pub(super) fn ok_width<I: StringLookup>(
             if inner_w == ALWAYS_STACKED {
                 return ALWAYS_STACKED;
             }
-            // "Ok(" + inner + ")"
-            3 + inner_w + 1
+            // prefix + inner + ")"
+            prefix_len + inner_w + 1
         }
-        None => 4, // "Ok()"
+        None => empty_len,
     }
+}
+
+/// Calculate width of `Ok(inner)` or `Ok()`.
+pub(super) fn ok_width<I: StringLookup>(
+    calc: &mut WidthCalculator<'_, I>,
+    inner: Option<ExprId>,
+) -> usize {
+    optional_wrapper_width(calc, inner, 3, 4) // "Ok(" = 3, "Ok()" = 4
 }
 
 /// Calculate width of `Err(inner)` or `Err()`.
@@ -31,17 +45,7 @@ pub(super) fn err_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
     inner: Option<ExprId>,
 ) -> usize {
-    match inner {
-        Some(expr) => {
-            let inner_w = calc.width(expr);
-            if inner_w == ALWAYS_STACKED {
-                return ALWAYS_STACKED;
-            }
-            // "Err(" + inner + ")"
-            4 + inner_w + 1
-        }
-        None => 5, // "Err()"
-    }
+    optional_wrapper_width(calc, inner, 4, 5) // "Err(" = 4, "Err()" = 5
 }
 
 /// Calculate width of `Some(inner)`.

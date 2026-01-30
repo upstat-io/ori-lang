@@ -140,11 +140,27 @@ impl Interpreter<'_> {
     /// Apply a transform function to each item in an iterator, collecting results.
     ///
     /// Uses `size_hint` to pre-allocate the result vector when the size is known.
+    /// For list methods that already have references, use `map_slice` instead to
+    /// avoid cloning items that may not need transformation.
     fn map_iterator(&mut self, iter: impl Iterator<Item = Value>, transform: &Value) -> EvalResult {
         let (lower, _) = iter.size_hint();
         let mut result = Vec::with_capacity(lower);
         for item in iter {
-            let mapped = self.eval_call(transform.clone(), &[item])?;
+            let mapped = self.eval_call(transform, &[item])?;
+            result.push(mapped);
+        }
+        Ok(Value::list(result))
+    }
+
+    /// Map over a slice, cloning items only at the call boundary.
+    ///
+    /// Uses `from_ref` to avoid explicit cloning - the clone happens inside
+    /// `eval_call` when binding parameters, avoiding a double clone.
+    fn map_slice(&mut self, items: &[Value], transform: &Value) -> EvalResult {
+        let mut result = Vec::with_capacity(items.len());
+        for item in items {
+            // from_ref creates &[Value] from &Value; clone happens in bind_parameters
+            let mapped = self.eval_call(transform, std::slice::from_ref(item))?;
             result.push(mapped);
         }
         Ok(Value::list(result))
@@ -153,6 +169,7 @@ impl Interpreter<'_> {
     /// Filter items from an iterator using a predicate function.
     ///
     /// Uses `size_hint` to estimate initial capacity (filter results may be smaller).
+    /// For list methods, use `filter_slice` to avoid cloning discarded items.
     fn filter_iterator(
         &mut self,
         iter: impl Iterator<Item = Value>,
@@ -162,9 +179,27 @@ impl Interpreter<'_> {
         // Filter may remove items, so use lower bound as estimate
         let mut result = Vec::with_capacity(lower);
         for item in iter {
-            let keep = self.eval_call(predicate.clone(), std::slice::from_ref(&item))?;
+            let keep = self.eval_call(predicate, std::slice::from_ref(&item))?;
             if keep.is_truthy() {
                 result.push(item);
+            }
+        }
+        Ok(Value::list(result))
+    }
+
+    /// Filter a slice, cloning only items that pass the predicate.
+    ///
+    /// This is more efficient than `filter_iterator` for lists because:
+    /// - Predicate check uses `from_ref` (no clone for the check)
+    /// - Only items that pass are cloned into the result
+    fn filter_slice(&mut self, items: &[Value], predicate: &Value) -> EvalResult {
+        let mut result = Vec::with_capacity(items.len());
+        for item in items {
+            // from_ref creates &[Value] from &Value without cloning
+            let keep = self.eval_call(predicate, std::slice::from_ref(item))?;
+            if keep.is_truthy() {
+                // Clone only if keeping
+                result.push(item.clone());
             }
         }
         Ok(Value::list(result))
@@ -178,34 +213,36 @@ impl Interpreter<'_> {
         op: &Value,
     ) -> EvalResult {
         for item in iter {
-            acc = self.eval_call(op.clone(), &[acc, item])?;
+            acc = self.eval_call(op, &[acc, item])?;
         }
         Ok(acc)
     }
 
-    /// Find the first item matching a predicate, returning Option.
-    fn find_in_iterator(
-        &mut self,
-        iter: impl Iterator<Item = Value>,
-        predicate: &Value,
-    ) -> EvalResult {
-        for item in iter {
-            let found = self.eval_call(predicate.clone(), std::slice::from_ref(&item))?;
+    /// Fold a slice into a single value, cloning items at the call boundary.
+    fn fold_slice(&mut self, items: &[Value], mut acc: Value, op: &Value) -> EvalResult {
+        for item in items {
+            acc = self.eval_call(op, &[acc, item.clone()])?;
+        }
+        Ok(acc)
+    }
+
+    /// Find first matching item in a slice, cloning only the found item.
+    ///
+    /// Uses `from_ref` for predicate check (no clone), only clones the result.
+    fn find_in_slice(&mut self, items: &[Value], predicate: &Value) -> EvalResult {
+        for item in items {
+            let found = self.eval_call(predicate, std::slice::from_ref(item))?;
             if found.is_truthy() {
-                return Ok(Value::some(item));
+                return Ok(Value::some(item.clone()));
             }
         }
         Ok(Value::None)
     }
 
-    /// Check if any item matches a predicate.
-    fn any_in_iterator(
-        &mut self,
-        iter: impl Iterator<Item = Value>,
-        predicate: &Value,
-    ) -> EvalResult {
-        for item in iter {
-            let result = self.eval_call(predicate.clone(), &[item])?;
+    /// Check if any item in a slice matches a predicate (no cloning).
+    fn any_in_slice(&mut self, items: &[Value], predicate: &Value) -> EvalResult {
+        for item in items {
+            let result = self.eval_call(predicate, std::slice::from_ref(item))?;
             if result.is_truthy() {
                 return Ok(Value::Bool(true));
             }
@@ -213,14 +250,10 @@ impl Interpreter<'_> {
         Ok(Value::Bool(false))
     }
 
-    /// Check if all items match a predicate.
-    fn all_in_iterator(
-        &mut self,
-        iter: impl Iterator<Item = Value>,
-        predicate: &Value,
-    ) -> EvalResult {
-        for item in iter {
-            let result = self.eval_call(predicate.clone(), &[item])?;
+    /// Check if all items in a slice match a predicate (no cloning).
+    fn all_in_slice(&mut self, items: &[Value], predicate: &Value) -> EvalResult {
+        for item in items {
+            let result = self.eval_call(predicate, std::slice::from_ref(item))?;
             if !result.is_truthy() {
                 return Ok(Value::Bool(false));
             }
@@ -244,32 +277,32 @@ impl Interpreter<'_> {
 
     fn eval_list_map(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
         Self::expect_arg_count("map", 1, args)?;
-        self.map_iterator(items.iter().cloned(), &args[0])
+        self.map_slice(items, &args[0])
     }
 
     fn eval_list_filter(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
         Self::expect_arg_count("filter", 1, args)?;
-        self.filter_iterator(items.iter().cloned(), &args[0])
+        self.filter_slice(items, &args[0])
     }
 
     fn eval_list_fold(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
         Self::expect_arg_count("fold", 2, args)?;
-        self.fold_iterator(items.iter().cloned(), args[0].clone(), &args[1])
+        self.fold_slice(items, args[0].clone(), &args[1])
     }
 
     fn eval_list_find(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
         Self::expect_arg_count("find", 1, args)?;
-        self.find_in_iterator(items.iter().cloned(), &args[0])
+        self.find_in_slice(items, &args[0])
     }
 
     fn eval_list_any(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
         Self::expect_arg_count("any", 1, args)?;
-        self.any_in_iterator(items.iter().cloned(), &args[0])
+        self.any_in_slice(items, &args[0])
     }
 
     fn eval_list_all(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
         Self::expect_arg_count("all", 1, args)?;
-        self.all_in_iterator(items.iter().cloned(), &args[0])
+        self.all_in_slice(items, &args[0])
     }
 
     #[expect(
@@ -369,11 +402,10 @@ impl Interpreter<'_> {
         }
 
         // Evaluate method body using the method's arena (arena threading pattern).
+        // The scope is popped automatically via RAII when call_interpreter drops.
         let func_arena: &ExprArena = &method.arena;
         let mut call_interpreter = self.create_function_interpreter(func_arena, call_env);
-        let result = call_interpreter.eval(method.body);
-        call_interpreter.env.pop_scope();
-        result
+        call_interpreter.eval(method.body)
     }
 
     // NOTE: Derived method evaluation has been moved to `derived_methods.rs`

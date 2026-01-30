@@ -1,0 +1,9 @@
+// Golden test: Tests with multiple targets
+// Spec: 08-declarations.md § Test Declarations
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+@add (a: int, b: int) -> int = a + b
+
+@subtract (a: int, b: int) -> int = a - b
+
+@test_arithmetic tests @add tests @subtract () -> void = assert(cond: true)

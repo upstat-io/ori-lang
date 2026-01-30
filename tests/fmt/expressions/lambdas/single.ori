@@ -1,0 +1,6 @@
+// Single parameter lambda
+// Spec: 06-expressions.md § Lambdas
+
+@double (items: [int]) -> [int] = items.map(x -> x * 2)
+
+@negate (items: [int]) -> [int] = items.map(x -> -x)

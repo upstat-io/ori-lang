@@ -1,0 +1,11 @@
+// Golden test: Simple function declarations
+// Spec: 08-declarations.md § Function Declarations
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+@add (a: int, b: int) -> int = a + b
+
+@greet (name: str) -> str = "Hello, " + name + "!"
+
+@noop () -> void = ()
+
+@identity (x: int) -> int = x

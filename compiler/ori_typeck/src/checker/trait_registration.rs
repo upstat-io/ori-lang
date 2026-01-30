@@ -168,18 +168,21 @@ impl TypeChecker<'_> {
         self_ty: &Type,
         span: ori_ir::Span,
     ) {
+        use rustc_hash::FxHashSet;
+
         // Get the trait definition
         let trait_entry = match self.registries.traits.get_trait(trait_name) {
             Some(entry) => entry.clone(),
             None => return, // Trait not found - error reported elsewhere
         };
 
+        // Build a set of provided associated types for O(1) lookup
+        // This avoids O(n*m) nested iteration when validating multiple types
+        let provided: FxHashSet<Name> = impl_assoc_types.iter().map(|at| at.name).collect();
+
         // Check each required associated type
         for required_at in &trait_entry.assoc_types {
-            let defined = impl_assoc_types
-                .iter()
-                .any(|at| at.name == required_at.name);
-            if !defined {
+            if !provided.contains(&required_at.name) {
                 let trait_name_str = self.context.interner.lookup(trait_name);
                 let assoc_name_str = self.context.interner.lookup(required_at.name);
                 let type_name = self_ty.display(self.context.interner);

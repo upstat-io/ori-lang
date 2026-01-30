@@ -102,7 +102,7 @@ impl QueuedDiagnostic {
 ///
 /// ```text
 /// let mut queue = DiagnosticQueue::new();
-/// queue.add(diagnostic, line, column, is_soft);
+/// queue.add_with_severity(diagnostic, line, column, DiagnosticSeverity::Hard);
 /// // ... add more diagnostics
 /// let sorted = queue.flush();
 /// ```
@@ -167,16 +167,6 @@ impl DiagnosticQueue {
         self.add_internal(diag, line, column, soft)
     }
 
-    /// Add a diagnostic to the queue.
-    ///
-    /// Returns `true` if the diagnostic was added, `false` if it was filtered.
-    ///
-    /// # Deprecated
-    /// Use `add_with_severity` instead for clearer intent about soft vs hard errors.
-    #[deprecated(since = "0.1.0", note = "use `add_with_severity` instead")]
-    pub fn add(&mut self, diag: Diagnostic, line: u32, column: u32, soft: bool) -> bool {
-        self.add_internal(diag, line, column, soft)
-    }
 
     /// Internal implementation of add.
     fn add_internal(&mut self, diag: Diagnostic, line: u32, column: u32, soft: bool) -> bool {
@@ -231,17 +221,22 @@ impl DiagnosticQueue {
 
     /// Add a diagnostic with position computed from source.
     ///
-    /// # Deprecated
-    /// Use `add_with_severity` instead for clearer intent about soft vs hard errors.
-    #[deprecated(since = "0.1.0", note = "use `add_with_severity` instead")]
-    pub fn add_with_source(&mut self, diag: Diagnostic, source: &str, soft: bool) -> bool {
+    /// Uses `DiagnosticSeverity` to clearly indicate hard vs soft errors.
+    pub fn add_with_source_and_severity(
+        &mut self,
+        diag: Diagnostic,
+        source: &str,
+        severity: DiagnosticSeverity,
+    ) -> bool {
         let (line, column) = if let Some(span) = diag.primary_span() {
             crate::span_utils::offset_to_line_col(source, span.start)
         } else {
             (1, 1)
         };
+        let soft = matches!(severity, DiagnosticSeverity::Soft);
         self.add_internal(diag, line, column, soft)
     }
+
 
     /// Check if the error limit has been reached.
     pub fn limit_reached(&self) -> bool {
@@ -382,7 +377,6 @@ pub fn too_many_errors(limit: usize, span: Span) -> Diagnostic {
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod tests {
     use super::*;
 
@@ -397,7 +391,7 @@ mod tests {
         let mut queue = DiagnosticQueue::new();
 
         let diag = make_error(ErrorCode::E2001, "type mismatch", 0);
-        assert!(queue.add(diag, 1, 1, false));
+        assert!(queue.add_with_severity(diag, 1, 1, DiagnosticSeverity::Hard));
         assert_eq!(queue.error_count(), 1);
 
         let errors = queue.flush();
@@ -414,14 +408,29 @@ mod tests {
         let mut queue = DiagnosticQueue::with_config(config);
 
         // Add up to limit
-        assert!(queue.add(make_error(ErrorCode::E2001, "error 1", 0), 1, 1, false));
-        assert!(queue.add(make_error(ErrorCode::E2001, "error 2", 10), 2, 1, false));
+        assert!(queue.add_with_severity(
+            make_error(ErrorCode::E2001, "error 1", 0),
+            1,
+            1,
+            DiagnosticSeverity::Hard
+        ));
+        assert!(queue.add_with_severity(
+            make_error(ErrorCode::E2001, "error 2", 10),
+            2,
+            1,
+            DiagnosticSeverity::Hard
+        ));
 
         // At limit
         assert!(queue.limit_reached());
 
         // Rejected
-        assert!(!queue.add(make_error(ErrorCode::E2001, "error 3", 20), 3, 1, false));
+        assert!(!queue.add_with_severity(
+            make_error(ErrorCode::E2001, "error 3", 20),
+            3,
+            1,
+            DiagnosticSeverity::Hard
+        ));
 
         let errors = queue.flush();
         assert_eq!(errors.len(), 2);
@@ -432,11 +441,21 @@ mod tests {
         let mut queue = DiagnosticQueue::new();
 
         // Hard error
-        queue.add(make_error(ErrorCode::E2001, "hard error", 0), 1, 1, false);
+        queue.add_with_severity(
+            make_error(ErrorCode::E2001, "hard error", 0),
+            1,
+            1,
+            DiagnosticSeverity::Hard,
+        );
         assert!(queue.has_hard_error());
 
         // Soft error should be suppressed
-        assert!(!queue.add(make_error(ErrorCode::E2005, "soft error", 10), 2, 1, true));
+        assert!(!queue.add_with_severity(
+            make_error(ErrorCode::E2005, "soft error", 10),
+            2,
+            1,
+            DiagnosticSeverity::Soft
+        ));
 
         let errors = queue.flush();
         assert_eq!(errors.len(), 1);
@@ -447,15 +466,15 @@ mod tests {
         let mut queue = DiagnosticQueue::new();
 
         // First error
-        queue.add(
+        queue.add_with_severity(
             make_error(ErrorCode::E2001, "type mismatch", 0),
             1,
             1,
-            false,
+            DiagnosticSeverity::Hard,
         );
 
         // Follow-on error should be filtered
-        assert!(!queue.add(
+        assert!(!queue.add_with_severity(
             make_error(
                 ErrorCode::E2001,
                 "invalid operand due to previous error",
@@ -463,7 +482,7 @@ mod tests {
             ),
             2,
             1,
-            false
+            DiagnosticSeverity::Hard
         ));
 
         let errors = queue.flush();
@@ -475,27 +494,27 @@ mod tests {
         let mut queue = DiagnosticQueue::new();
 
         // First syntax error on line 1
-        queue.add(
+        queue.add_with_severity(
             make_error(ErrorCode::E1001, "unexpected token", 0),
             1,
             1,
-            false,
+            DiagnosticSeverity::Hard,
         );
 
         // Second syntax error on same line should be deduped
-        assert!(!queue.add(
+        assert!(!queue.add_with_severity(
             make_error(ErrorCode::E1002, "expected expression", 5),
             1,
             5,
-            false
+            DiagnosticSeverity::Hard
         ));
 
         // Error on different line should be added
-        assert!(queue.add(
+        assert!(queue.add_with_severity(
             make_error(ErrorCode::E1001, "another error", 20),
             2,
             1,
-            false
+            DiagnosticSeverity::Hard
         ));
 
         let errors = queue.flush();
@@ -507,7 +526,7 @@ mod tests {
         let mut queue = DiagnosticQueue::new();
 
         // Same message on same line
-        queue.add(
+        queue.add_with_severity(
             make_error(
                 ErrorCode::E2001,
                 "type mismatch: expected int, found str",
@@ -515,9 +534,9 @@ mod tests {
             ),
             1,
             1,
-            false,
+            DiagnosticSeverity::Hard,
         );
-        assert!(!queue.add(
+        assert!(!queue.add_with_severity(
             make_error(
                 ErrorCode::E2001,
                 "type mismatch: expected int, found str",
@@ -525,15 +544,15 @@ mod tests {
             ),
             1,
             5,
-            false
+            DiagnosticSeverity::Hard
         ));
 
         // Different message on same line should be added
-        assert!(queue.add(
+        assert!(queue.add_with_severity(
             make_error(ErrorCode::E2001, "different error message here", 10),
             1,
             10,
-            false
+            DiagnosticSeverity::Hard
         ));
 
         let errors = queue.flush();
@@ -545,23 +564,23 @@ mod tests {
         let mut queue = DiagnosticQueue::with_config(DiagnosticConfig::unlimited());
 
         // Add out of order
-        queue.add(
+        queue.add_with_severity(
             make_error(ErrorCode::E2001, "error on line 3", 40),
             3,
             1,
-            false,
+            DiagnosticSeverity::Hard,
         );
-        queue.add(
+        queue.add_with_severity(
             make_error(ErrorCode::E2001, "error on line 1", 0),
             1,
             1,
-            false,
+            DiagnosticSeverity::Hard,
         );
-        queue.add(
+        queue.add_with_severity(
             make_error(ErrorCode::E2001, "error on line 2", 20),
             2,
             1,
-            false,
+            DiagnosticSeverity::Hard,
         );
 
         let errors = queue.flush();
@@ -576,23 +595,23 @@ mod tests {
         let mut queue = DiagnosticQueue::with_config(DiagnosticConfig::unlimited());
 
         // Add errors on same line, out of order by column
-        queue.add(
+        queue.add_with_severity(
             make_error(ErrorCode::E2001, "error at col 10", 10),
             1,
             10,
-            false,
+            DiagnosticSeverity::Hard,
         );
-        queue.add(
+        queue.add_with_severity(
             make_error(ErrorCode::E2001, "error at col 1", 0),
             1,
             1,
-            false,
+            DiagnosticSeverity::Hard,
         );
-        queue.add(
+        queue.add_with_severity(
             make_error(ErrorCode::E2001, "error at col 5", 5),
             1,
             5,
-            false,
+            DiagnosticSeverity::Hard,
         );
 
         let errors = queue.flush();
@@ -621,12 +640,17 @@ mod tests {
         let warning = Diagnostic::warning(ErrorCode::E2001)
             .with_message("warning")
             .with_label(Span::new(0, 5), "here");
-        assert!(queue.add(warning, 1, 1, false));
+        assert!(queue.add_with_severity(warning, 1, 1, DiagnosticSeverity::Hard));
         assert!(!queue.limit_reached());
         assert_eq!(queue.error_count(), 0);
 
         // Error counts
-        assert!(queue.add(make_error(ErrorCode::E2001, "error", 10), 2, 1, false));
+        assert!(queue.add_with_severity(
+            make_error(ErrorCode::E2001, "error", 10),
+            2,
+            1,
+            DiagnosticSeverity::Hard
+        ));
         assert!(queue.limit_reached());
     }
 

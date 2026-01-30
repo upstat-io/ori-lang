@@ -138,7 +138,7 @@ fn dispatch_newtype_method(receiver: Value, method: &str, args: Vec<Value>) -> E
 )]
 fn dispatch_list_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::List(items) = receiver else {
-        unreachable!();
+        unreachable!("dispatch_list_method called with non-list receiver")
     };
 
     match method {
@@ -161,7 +161,7 @@ fn dispatch_list_method(receiver: Value, method: &str, args: Vec<Value>) -> Eval
 )]
 fn dispatch_string_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Str(s) = receiver else {
-        unreachable!();
+        unreachable!("dispatch_string_method called with non-string receiver")
     };
 
     match method {
@@ -196,7 +196,7 @@ fn dispatch_string_method(receiver: Value, method: &str, args: Vec<Value>) -> Ev
 )]
 fn dispatch_range_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Range(r) = receiver else {
-        unreachable!();
+        unreachable!("dispatch_range_method called with non-range receiver")
     };
 
     match method {
@@ -217,7 +217,7 @@ fn dispatch_range_method(receiver: Value, method: &str, args: Vec<Value>) -> Eva
 )]
 fn dispatch_map_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Map(map) = receiver else {
-        unreachable!();
+        unreachable!("dispatch_map_method called with non-map receiver")
     };
 
     match method {
