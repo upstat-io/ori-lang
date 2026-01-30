@@ -598,6 +598,14 @@
 - Updates spec, proposals, and CLAUDE.md
 - Blocked on: None (documentation-only)
 
+**Simplified Doc Comment Syntax** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/simplified-doc-comments-proposal.md`
+- Implementation: Phase 15A.4
+- Removes `#` marker for descriptions (unmarked comments are docs)
+- Replaces `@param`/`@field` with `* name:` (markdown-like, context determines meaning)
+- Canonical spacing: `// * name: description`
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones
