@@ -237,7 +237,52 @@ Specifies how capabilities compose: partial provision, nested binding semantics,
 
 ---
 
-## 6.12 Phase Completion Checklist
+## 6.12 Default Implementation Resolution
+
+**Proposal**: `proposals/approved/default-impl-resolution-proposal.md`
+
+Specifies resolution rules for `def impl`: conflict handling, `without def` import syntax, re-export behavior, and resolution order.
+
+### Implementation
+
+- [ ] **Implement**: `without def` import syntax — grammar.ebnf § IMPORTS
+  - [ ] Parse `use "module" { Trait without def }` to import trait without its default
+  - [ ] **Rust Tests**: `ori_parse/src/lib.rs` — `without def` import modifier parsing
+  - [ ] **Ori Tests**: `tests/spec/capabilities/def-impl-resolution.ori`
+
+- [ ] **Implement**: Import conflict detection — one `def impl` per trait per scope
+  - [ ] Error E1000: conflicting default implementations when two imports bring same trait's `def impl`
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — import conflict detection
+  - [ ] **Ori Tests**: `tests/spec/capabilities/def-impl-resolution.ori`
+
+- [ ] **Implement**: Duplicate `def impl` detection — one per trait per module
+  - [ ] Error E1001: duplicate default implementation in same module
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — duplicate def impl detection
+  - [ ] **Ori Tests**: `tests/spec/capabilities/def-impl-resolution.ori`
+
+- [ ] **Implement**: Resolution order — with...in > imported def > module-local def
+  - [ ] Innermost `with...in` binding takes precedence
+  - [ ] Imported `def impl` overrides module-local
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — resolution priority
+  - [ ] **Ori Tests**: `tests/spec/capabilities/def-impl-resolution.ori`
+
+- [ ] **Implement**: Re-export with `without def` — permanently strips default from export path
+  - [ ] `pub use "module" { Trait without def }` re-exports trait without default
+  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — re-export stripping
+  - [ ] **Ori Tests**: `tests/spec/capabilities/def-impl-resolution.ori`
+
+- [ ] **Implement**: Error messages with help text
+  - [ ] E1000: "use `Logger without def` to import trait without default"
+  - [ ] E1001: show location of first definition
+  - [ ] E1002: "`def impl` methods cannot have `self` parameter"
+  - [ ] **Rust Tests**: `oric/src/errors/` — error formatting tests
+
+- [ ] **Implement**: LLVM backend support
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/def_impl_resolution_tests.rs`
+
+---
+
+## 6.13 Phase Completion Checklist
 
 - [x] 6.1-6.5 complete (declaration, traits, async, providing, propagation)
 - [x] 6.6 trait definitions in prelude (implementations in Phase 7)
@@ -245,12 +290,13 @@ Specifies how capabilities compose: partial provision, nested binding semantics,
 - [x] 6.9 Unsafe marker trait defined (FFI enforcement in Phase 11)
 - [ ] 6.10 Default implementations (`def impl`) — pending implementation
 - [ ] 6.11 Capability Composition — pending implementation
+- [ ] 6.12 Default Implementation Resolution — pending implementation
 - [x] Spec updated: `spec/14-capabilities.md` reflects implementation
 - [x] CLAUDE.md updated with capabilities syntax
 - [x] 27 capability tests passing
 - [x] Full test suite: `./test-all`
 
-**Exit Criteria**: Effect tracking works per spec (6.1-6.9 ✅, 6.10-6.11 pending)
+**Exit Criteria**: Effect tracking works per spec (6.1-6.9 ✅, 6.10-6.12 pending)
 
 **Remaining for Phase 7 (Stdlib)**:
 - Real capability implementations (Http, FileSystem, etc.)

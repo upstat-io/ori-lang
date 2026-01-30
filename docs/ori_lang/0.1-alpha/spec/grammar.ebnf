@@ -55,6 +55,7 @@ identifier = ( letter | "_" ) { letter | digit | "_" } .
 //           uses, void, where, with, yield
 // Context-sensitive (patterns): cache, catch, for, match, nursery, parallel,
 //           recurse, run, spawn, timeout, try, with
+// Context-sensitive (imports): without (only in import items, before "def")
 // Context-sensitive (other): by (only after range expressions)
 
 // --- Operators ---
@@ -141,7 +142,7 @@ file_attribute = "#!" identifier "(" [ attribute_arg { "," attribute_arg } ] ")"
 import      = "use" import_path [ import_list | "as" identifier ] .
 import_path = string_literal | identifier { "." identifier } .
 import_list = "{" import_item { "," import_item } "}" .
-import_item = [ "::" ] identifier [ "as" identifier ] | "$" identifier .
+import_item = [ "::" ] identifier [ "without" "def" ] [ "as" identifier ] | "$" identifier .
 
 // --- Re-exports ---
 
@@ -262,7 +263,8 @@ expression = with_expr | let_expr | if_expr | for_expr | loop_expr | lambda | br
 primary       = literal | identifier | "self" | "Self"
               | "(" expression ")"
               | "#"                                   /* length in index context */
-              | list_literal | map_literal | struct_literal .
+              | list_literal | map_literal | struct_literal
+              | pattern_expr .                        /* run, try, match, parallel, etc. */
 
 // List literals with spread support
 // See: 09-expressions.md § Spread Operator
@@ -327,12 +329,8 @@ capability_binding  = identifier "=" expression .
 // See: 09-expressions.md § Let Binding, 05-variables.md
 
 let_expr = "let" binding_pattern [ ":" type ] "=" expression .
-binding  = let_expr .
-
-// --- Assignment ---
-// See: 05-variables.md § Assignment
-
 assignment = identifier "=" expression .
+binding  = let_expr | assignment .  /* used in run/try patterns */
 
 // --- Conditional ---
 // See: 09-expressions.md § Conditional
@@ -381,7 +379,7 @@ continue_expr = "continue" [ label ] [ expression ] .
 pattern_expr = function_seq | function_exp | channel_expr .
 function_seq = run_expr | try_expr | match_expr | for_pattern | catch_expr | nursery_expr .
 function_exp = pattern_name "(" pattern_arg { "," pattern_arg } ")" .
-pattern_name = "recurse" | "parallel" | "spawn" | "timeout" | "cache" | "with" | "nursery" .
+pattern_name = "recurse" | "parallel" | "spawn" | "timeout" | "cache" | "with" .  /* nursery has explicit nursery_expr */
 pattern_arg  = identifier ":" expression .
 
 // --- Sequential Patterns ---

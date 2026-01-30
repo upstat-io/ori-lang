@@ -69,6 +69,12 @@ with Http = MockHttp {} in
     Http.get(url: "...")   // Uses mock
 ```
 
+To import a trait without its default:
+
+```ori
+use std.net.http { Http without def }  // Import trait, skip def impl
+```
+
 See [Declarations § Default Implementations](08-declarations.md#default-implementations).
 
 ## Visibility
@@ -86,6 +92,20 @@ pub $timeout = 30s
 ```ori
 pub use "./client" { get, post }
 ```
+
+Re-exporting a trait includes its `def impl` if both are public:
+
+```ori
+pub use std.logging { Logger }  // Re-exports trait AND def impl
+```
+
+To re-export a trait without its default:
+
+```ori
+pub use std.logging { Logger without def }  // Strips def impl permanently
+```
+
+When a trait is re-exported `without def`, consumers cannot access the original default through that export path — they must import from the original source.
 
 ## Extensions
 
