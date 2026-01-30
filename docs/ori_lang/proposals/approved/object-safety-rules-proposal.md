@@ -1,8 +1,9 @@
 # Proposal: Object Safety Rules
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-29
+**Approved:** 2026-01-30
 **Affects:** Compiler, type system, trait objects
 
 ---
@@ -73,7 +74,7 @@ trait Eq {
     @equals (self, other: Self) -> bool  // What is other's type?
 }
 
-// Object-safe: takes specific type
+// Object-safe: takes trait object
 trait Comparable {
     @compare (self, other: Comparable) -> Ordering  // Takes trait object
 }
@@ -99,38 +100,6 @@ trait Formatter {
 
 **Rationale**: Generic methods are monomorphized at compile time, but trait objects defer type information to runtime.
 
-### Rule 4: No Associated Types with Constraints Involving `Self`
-
-Associated types cannot have bounds that reference `Self`:
-
-```ori
-// NOT object-safe: Self in constraint
-trait Container {
-    type Item where Self: Sized  // References Self in bound
-}
-
-// Object-safe: no Self reference
-trait Iterable {
-    type Item
-    @iter (self) -> impl Iterator where Item == Self.Item
-}
-```
-
-### Rule 5: No `Self: Sized` Bound on Trait
-
-The trait itself cannot require `Self: Sized`:
-
-```ori
-// NOT object-safe: requires Sized
-trait Copyable where Self: Sized {
-    @copy (self) -> Self
-}
-
-// Trait objects are !Sized by nature
-```
-
-**Rationale**: Trait objects have unknown size at compile time; requiring `Sized` is contradictory.
-
 ---
 
 ## Object-Safe Traits in the Standard Library
@@ -143,16 +112,16 @@ trait Copyable where Self: Sized {
 | `Formattable` | Returns `str`, not `Self` |
 | `Debug` | Returns `str`, not `Self` |
 | `Hashable` | Returns `int`, no `Self` params |
-| `Default` | **Not safe** (returns `Self`) |
 
 ### Not Object-Safe
 
 | Trait | Why Unsafe | Workaround |
 |-------|------------|------------|
-| `Clone` | Returns `Self` | Use `Box<Clone>` with clone method returning `Box<Clone>` |
-| `Eq` | `Self` as parameter | Use reference comparison or trait object version |
-| `Comparable` | Depends on design | Can be made safe with trait object comparisons |
-| `Iterator` | Associated type often needs `Self` | Design-dependent |
+| `Clone` | Returns `Self` | Use `Arc<CloneArc>` wrapper |
+| `Default` | Returns `Self` | Use factory function returning `Arc<Trait>` |
+| `Eq` | `Self` as parameter | Use trait object parameter type |
+| `Comparable` | `Self` as parameter | Use trait object parameter type |
+| `Iterator` | Returns `Self` in `next()` | Design-dependent |
 | `Collect` | Returns `Self` | Use specific collection types |
 
 ---
@@ -170,12 +139,12 @@ trait Clone {
 }
 
 // Object-safe wrapper
-trait CloneBox {
-    @clone_box (self) -> Box<CloneBox>
+trait CloneArc {
+    @clone_arc (self) -> Arc<CloneArc>
 }
 
-impl<T: Clone> CloneBox for T {
-    @clone_box (self) -> Box<CloneBox> = Box(self.clone())
+impl<T: Clone> CloneArc for T {
+    @clone_arc (self) -> Arc<CloneArc> = Arc(self.clone())
 }
 ```
 
@@ -189,7 +158,7 @@ trait Mergeable {
 
 // Object-safe alternative
 trait MergeableObj {
-    @merge_with (self, other: MergeableObj) -> Box<MergeableObj>
+    @merge_with (self, other: MergeableObj) -> Arc<MergeableObj>
 }
 ```
 
@@ -222,7 +191,7 @@ error[E0800]: trait `Clone` cannot be made into an object
    |                   ^^^^^ the trait `Clone` is not object-safe
    |
    = note: method `clone` returns `Self` which has unknown size
-   = help: consider using a wrapper type that returns a boxed trait object
+   = help: consider using a wrapper type that returns an Arc-wrapped trait object
 ```
 
 ### Self as Parameter
@@ -334,13 +303,13 @@ trait Builder {
 
 // Object-safe wrapper
 trait BuilderObj {
-    @with_option_dyn (self, opt: Option) -> Box<BuilderObj>
+    @with_option_dyn (self, opt: Option) -> Arc<BuilderObj>
     @build (self) -> Product
 }
 
 impl<B: Builder> BuilderObj for B {
-    @with_option_dyn (self, opt: Option) -> Box<BuilderObj> =
-        Box(self.with_option(opt))
+    @with_option_dyn (self, opt: Option) -> Arc<BuilderObj> =
+        Arc(self.with_option(opt: opt))
     @build (self) -> Product = self.build()
 }
 ```
@@ -353,7 +322,7 @@ impl<B: Builder> BuilderObj for B {
 
 Add comprehensive object safety section:
 1. Definition of trait objects
-2. All five object safety rules
+2. All three object safety rules
 3. Examples of safe and unsafe traits
 
 ### Update `08-declarations.md`
@@ -369,8 +338,6 @@ Define error codes:
 - `E0800`: Self in return position
 - `E0801`: Self as non-receiver parameter
 - `E0802`: Generic method in trait
-- `E0803`: Self-referential associated type bound
-- `E0804`: Sized bound on trait
 
 ---
 
@@ -381,5 +348,3 @@ Define error codes:
 | No `Self` return | `@clone (self) -> Self` | Unknown size at runtime |
 | No `Self` param | `@eq (self, other: Self)` | Can't verify type match |
 | No generics | `@convert<T> (self) -> T` | Requires monomorphization |
-| No Self-referential bounds | `type Item where Self: Sized` | Self unknown |
-| No `Self: Sized` on trait | `trait T where Self: Sized` | Trait objects are unsized |

@@ -229,7 +229,77 @@ Use trait objects for heterogeneous collections. Use generics when all elements 
 
 ### Object Safety
 
-Not all traits can be used as types. Traits with methods that return `Self` or have generic parameters may not be object-safe. The compiler enforces these constraints with clear error messages.
+A trait is _object-safe_ if it can be used as a trait object. Not all traits qualify — some require compile-time type information that is unavailable for trait objects.
+
+A trait is object-safe if ALL of the following rules are satisfied:
+
+**Rule 1: No `Self` in Return Position**
+
+Methods cannot return `Self`:
+
+```ori
+// NOT object-safe: returns Self
+trait Clone {
+    @clone (self) -> Self
+}
+
+// Object-safe: returns fixed type
+trait Printable {
+    @to_str (self) -> str
+}
+```
+
+The compiler cannot determine the concrete return type size at runtime.
+
+**Rule 2: No `Self` in Parameter Position (Except Receiver)**
+
+Methods cannot take `Self` as a parameter (except for the first `self` receiver):
+
+```ori
+// NOT object-safe: Self as parameter
+trait Eq {
+    @equals (self, other: Self) -> bool
+}
+
+// Object-safe: takes trait object
+trait EqDyn {
+    @equals_any (self, other: EqDyn) -> bool
+}
+```
+
+The compiler cannot verify that `other` has the same concrete type as `self`.
+
+**Rule 3: No Generic Methods**
+
+Methods cannot have type parameters:
+
+```ori
+// NOT object-safe: generic method
+trait Converter {
+    @convert<T> (self) -> T
+}
+
+// Object-safe: no generics
+trait Formatter {
+    @format (self, spec: FormatSpec) -> str
+}
+```
+
+Generic methods require monomorphization at compile time, but trait objects defer type information to runtime.
+
+**Bounded Trait Objects**
+
+Trait objects can have additional bounds. All component traits must be object-safe:
+
+```ori
+@store (item: Printable + Hashable) -> void
+```
+
+**Error Codes**
+
+- `E0800`: Self in return position
+- `E0801`: Self as non-receiver parameter
+- `E0802`: Generic method in trait
 
 ## Clone Trait
 
