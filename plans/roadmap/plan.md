@@ -31,6 +31,27 @@ Before starting:
 - Update `priority-and-tracking.md` phase status
 - Save after each update
 
+### Adding New Items
+
+When adding new implementation items to the roadmap, consider creating a new phase file if:
+
+1. **Scope warrants separation** — The new work represents a distinct, cohesive unit (e.g., a new stdlib module, a major language feature)
+2. **Phase file is getting large** — If a phase file exceeds ~150-200 items or ~400 lines, consider splitting
+3. **Clear boundaries exist** — The new items have minimal dependencies on other items in the same phase
+4. **Different timeline** — The new work could reasonably be done independently of existing phase items
+
+**How to create a new phase:**
+1. Use letter suffixes for sub-phases within a tier (e.g., 7E, 15E)
+2. Use the next number for entirely new phases (coordinate with tier structure)
+3. Follow naming convention: `phase-NN-descriptive-name.md` or `phase-NNA-descriptive-name.md`
+4. Update three files: new phase file, `00-overview.md` tier table, `priority-and-tracking.md` status table
+5. Keep phases focused — each phase should have a clear goal and exit criteria
+
+**When NOT to create a new phase:**
+- Small additions (1-5 items) that fit naturally into an existing phase
+- Items that are tightly coupled to existing phase work
+- Approved proposals that specify which phase they belong to (follow the proposal)
+
 ---
 
 ## Spec Updates Required
@@ -112,7 +133,10 @@ New proposals from Rust prelude comparison (2026-01-27). These enhance Ori's pre
 | Order | Phase | Document | Focus |
 |-------|-------|----------|-------|
 | 6 | Phase 6 | [phase-06-capabilities.md](./phase-06-capabilities.md) | Effect tracking |
-| 7 | Phase 7 | [phase-07-stdlib.md](./phase-07-stdlib.md) | Standard library |
+| 7A | Phase 7A | [phase-07A-core-builtins.md](./phase-07A-core-builtins.md) | Core built-ins |
+| 7B | Phase 7B | [phase-07B-option-result.md](./phase-07B-option-result.md) | Option & Result |
+| 7C | Phase 7C | [phase-07C-collections.md](./phase-07C-collections.md) | Collections & iteration |
+| 7D | Phase 7D | [phase-07D-stdlib-modules.md](./phase-07D-stdlib-modules.md) | Stdlib modules |
 
 ### Tier 3: Core Patterns
 
@@ -135,7 +159,10 @@ New proposals from Rust prelude comparison (2026-01-27). These enhance Ori's pre
 |-------|-------|----------|-------|
 | 13 | Phase 13 | [phase-13-conditional-compilation.md](./phase-13-conditional-compilation.md) | Platform/feature support |
 | 14 | Phase 14 | [phase-14-testing.md](./phase-14-testing.md) | Testing framework |
-| 15 | Phase 15 | [phase-15-syntax-proposals.md](./phase-15-syntax-proposals.md) | Approved syntax changes |
+| 15A | Phase 15A | [phase-15A-attributes-comments.md](./phase-15A-attributes-comments.md) | Attributes & comments |
+| 15B | Phase 15B | [phase-15B-function-syntax.md](./phase-15B-function-syntax.md) | Function syntax |
+| 15C | Phase 15C | [phase-15C-literals-operators.md](./phase-15C-literals-operators.md) | Literals & operators |
+| 15D | Phase 15D | [phase-15D-bindings-types.md](./phase-15D-bindings-types.md) | Bindings & types |
 
 ### Tier 6: Async & Concurrency
 
@@ -156,7 +183,8 @@ New proposals from Rust prelude comparison (2026-01-27). These enhance Ori's pre
 | Order | Phase | Document | Focus |
 |-------|-------|----------|-------|
 | 20 | Phase 20 | [phase-20-reflection.md](./phase-20-reflection.md) | Runtime introspection |
-| 21 | Phase 21 | [phase-21-codegen.md](./phase-21-codegen.md) | Code generation |
+| 21A | Phase 21A | [phase-21A-llvm.md](./phase-21A-llvm.md) | LLVM backend |
+| 21B | Phase 21B | [phase-21B-aot.md](./phase-21B-aot.md) | AOT compilation |
 | 22 | Phase 22 | [phase-22-tooling.md](./phase-22-tooling.md) | Formatter, LSP, REPL |
 
 ---
@@ -248,7 +276,7 @@ After core complete (Phases 1-15):
 | 4: Modules | phase-08 | — | |
 | 5: Type Declarations | phase-06 | — | |
 | 6: Capabilities | phase-11 | — | **Swapped with Stdlib** |
-| 7: Stdlib | phase-09 | — | **Swapped with Capabilities** |
+| 7A-D: Stdlib | phase-09 | — | **Split into 4 sub-phases** |
 | 8: Patterns | phase-03 | — | |
 | 9: Match | phase-04 | — | |
 | 10: Control Flow | phase-05 | — | |
@@ -256,11 +284,11 @@ After core complete (Phases 1-15):
 | 12: Variadic Functions | — | phase-04 | |
 | 13: Conditional Compilation | — | phase-03 | |
 | 14: Testing | phase-10 | — | |
-| 15: Syntax Proposals | phase-15.1-15.5 | — | |
+| 15A-D: Syntax Proposals | phase-15.1-15.5 | — | **Split into 4 sub-phases** |
 | 16: Async | phase-12 | — | |
 | 17: Concurrency | phase-15.7 | phase-05, phase-06 | |
 | 18: Const Generics | — | phase-07 | |
 | 19: Existential Types | — | phase-08 | |
 | 20: Reflection | — | phase-09 | |
-| 21: Codegen | phase-13 | — | |
+| 21A-B: Codegen | phase-13 | — | **Split into LLVM + AOT** |
 | 22: Tooling | phase-14 | — | |

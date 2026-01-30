@@ -1,0 +1,190 @@
+# Phase 7A: Core Built-ins
+
+**Goal**: Type conversions, assertions, I/O, and core built-in functions
+
+> **SPEC**: `spec/11-built-in-functions.md`
+> **PROPOSAL**: `proposals/approved/as-conversion-proposal.md` — Type conversion syntax
+
+---
+
+## 7A.1 Type Conversions
+
+> **PROPOSAL**: `proposals/approved/as-conversion-proposal.md`
+>
+> Type conversions use `as`/`as?` syntax instead of `int()`, `float()`, etc.
+> This removes the special-case exception for positional arguments.
+
+- [ ] **Implement**: `As<T>` trait — infallible conversions
+  - [ ] **Rust Tests**: `oric/src/typeck/traits/as_trait.rs` — As trait tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/conversions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for As trait
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — As trait codegen
+
+- [ ] **Implement**: `TryAs<T>` trait — fallible conversions returning `Option<T>`
+  - [ ] **Rust Tests**: `oric/src/typeck/traits/try_as_trait.rs` — TryAs trait tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/conversions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for TryAs trait
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — TryAs trait codegen
+
+- [ ] **Implement**: `x as T` syntax — desugars to `As<T>.as(self: x)`
+  - [ ] **Rust Tests**: `oric/src/eval/as_conversion.rs` — as syntax tests
+  - [ ] **Ori Tests**: `tests/spec/expressions/as_conversion.ori`
+  - [ ] **LLVM Support**: LLVM codegen for as syntax
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — as syntax codegen
+
+- [ ] **Implement**: `x as? T` syntax — desugars to `TryAs<T>.try_as(self: x)`
+  - [ ] **Rust Tests**: `oric/src/eval/as_conversion.rs` — as? syntax tests
+  - [ ] **Ori Tests**: `tests/spec/expressions/as_conversion.ori`
+  - [ ] **LLVM Support**: LLVM codegen for as? syntax
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — as? syntax codegen
+
+- [ ] **Implement**: Standard `As` implementations
+  - `impl As<float> for int` — widening (infallible)
+  - `impl As<str> for int` — formatting (infallible)
+  - `impl As<str> for float` — formatting (infallible)
+  - `impl As<str> for bool` — "true"/"false" (infallible)
+  - `impl As<int> for char` — codepoint (infallible)
+  - [ ] **Ori Tests**: `tests/spec/stdlib/as_impls.ori`
+  - [ ] **LLVM Support**: LLVM codegen for standard As implementations
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — As implementations codegen
+
+- [ ] **Implement**: Standard `TryAs` implementations
+  - `impl TryAs<int> for str` — parsing (fallible)
+  - `impl TryAs<float> for str` — parsing (fallible)
+  - `impl TryAs<byte> for int` — range check (fallible)
+  - `impl TryAs<char> for int` — valid codepoint check (fallible)
+  - [ ] **Ori Tests**: `tests/spec/stdlib/try_as_impls.ori`
+  - [ ] **LLVM Support**: LLVM codegen for standard TryAs implementations
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — TryAs implementations codegen
+
+- [ ] **Implement**: Compile-time enforcement — `as` only for infallible conversions
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/as_conversion.rs` — enforcement tests
+  - [ ] **Ori Tests**: `tests/compile-fail/as_fallible.ori`
+  - [ ] **LLVM Support**: LLVM codegen for as conversion enforcement
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — as enforcement codegen
+
+- [ ] **Implement**: Float truncation methods (not `as`)
+  - `float.truncate() -> int` — toward zero
+  - `float.round() -> int` — nearest
+  - `float.floor() -> int` — toward negative infinity
+  - `float.ceil() -> int` — toward positive infinity
+  - [ ] **Ori Tests**: `tests/spec/stdlib/float_methods.ori`
+  - [ ] **LLVM Support**: LLVM codegen for float truncation methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — float truncation codegen
+
+- [ ] **Remove**: `int()`, `float()`, `str()`, `byte()` function syntax
+  - These are replaced by `as`/`as?` syntax
+  - No migration period needed if implementing fresh
+  - [ ] **LLVM Support**: LLVM codegen removal of legacy conversion functions
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — verify legacy functions removed
+
+---
+
+## 7A.2 Assertions
+
+- [ ] **Implement**: `assert(cond)` — spec/11-built-in-functions.md § assert
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — assert tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/assertions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for assert
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` — assert codegen
+
+- [ ] **Implement**: `assert_eq(a, b)` — spec/11-built-in-functions.md § assert_eq
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — assert_eq tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/assertions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for assert_eq
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` — assert_eq codegen
+
+- [ ] **Implement**: `assert_ne(a, b)` — spec/11-built-in-functions.md § assert_ne
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — assert_ne tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/assertions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for assert_ne
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` — assert_ne codegen
+
+- [ ] **Implement**: `assert_some(x)` — spec/11-built-in-functions.md § assert_some
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — assert_some tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/assertions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for assert_some
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` — assert_some codegen
+
+- [ ] **Implement**: `assert_none(x)` — spec/11-built-in-functions.md § assert_none
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — assert_none tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/assertions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for assert_none
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` — assert_none codegen
+
+- [ ] **Implement**: `assert_ok(x)` — spec/11-built-in-functions.md § assert_ok
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — assert_ok tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/assertions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for assert_ok
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` — assert_ok codegen
+
+- [ ] **Implement**: `assert_err(x)` — spec/11-built-in-functions.md § assert_err
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — assert_err tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/assertions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for assert_err
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` — assert_err codegen
+
+---
+
+## 7A.3 I/O and Other
+
+- [ ] **Implement**: `print(x)` — spec/11-built-in-functions.md § print
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — print tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/io.ori`
+  - [ ] **LLVM Support**: LLVM codegen for print
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/io_tests.rs` — print codegen
+
+- [ ] **Implement**: `compare(a, b)` — spec/11-built-in-functions.md § compare
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — compare tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/compare.ori`
+  - [ ] **LLVM Support**: LLVM codegen for compare
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparison_tests.rs` — compare codegen
+
+- [ ] **Implement**: `min(a, b)`, `max(a, b)` — spec/11-built-in-functions.md § min/max
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — min/max tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/minmax.ori`
+  - [ ] **LLVM Support**: LLVM codegen for min/max
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparison_tests.rs` — min/max codegen
+
+- [ ] **Implement**: `panic(msg)` — spec/11-built-in-functions.md § panic
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — panic tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/panic.ori`
+  - [ ] **LLVM Support**: LLVM codegen for panic
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — panic codegen
+
+---
+
+## 7A.4 Float NaN Behavior
+
+> **Decision**: NaN comparisons panic (no proposal needed — behavioral decision)
+>
+> Fits Ori's "bugs should be caught" philosophy (same as integer overflow).
+
+- [ ] **Implement**: NaN comparison panics
+  - `NaN == NaN` → PANIC
+  - `NaN < x` → PANIC
+  - `NaN > x` → PANIC
+  - [ ] **Rust Tests**: `oric/src/eval/exec/binary.rs` — NaN comparison tests
+  - [ ] **Ori Tests**: `tests/spec/types/float_nan.ori`
+  - [ ] **LLVM Support**: LLVM codegen for NaN comparison panic
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/float_tests.rs` — NaN comparison panic codegen
+
+- [ ] **Implement**: NaN-producing operations don't panic (only comparisons)
+  - `0.0 / 0.0` → NaN (allowed)
+  - Using NaN in arithmetic → NaN (allowed)
+  - Comparing NaN → PANIC
+  - [ ] **Ori Tests**: `tests/spec/types/float_nan_ops.ori`
+  - [ ] **LLVM Support**: LLVM codegen for NaN-producing operations
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/float_tests.rs` — NaN operations codegen
+
+---
+
+## 7A.5 Phase Completion Checklist
+
+- [ ] All items above have all checkboxes marked `[x]`
+- [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
+- [ ] 80+% test coverage, tests against spec/design
+- [ ] Run full test suite: `./test-all`
+- [ ] **LLVM Support**: All LLVM codegen tests pass
+
+**Exit Criteria**: Core built-in functions working correctly

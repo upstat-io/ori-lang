@@ -32,79 +32,86 @@ From CLAUDE.md — Ori's core tenets:
 
 Must be completed first. Everything else depends on these.
 
-| Phase | Focus | Status |
-|-------|-------|--------|
-| 1 | Type System Foundation | ✅ Complete |
-| 2 | Type Inference | ✅ Complete |
-| 3 | Traits | 🔶 ~80% complete |
-| 4 | Modules | ✅ Core complete |
-| 5 | Type Declarations | ✅ Core complete |
+| Phase | Focus |
+|-------|-------|
+| 1 | Type System Foundation |
+| 2 | Type Inference |
+| 3 | Traits |
+| 4 | Modules |
+| 5 | Type Declarations |
 
 ### Tier 2: Capabilities & Stdlib (Phases 6-7)
 
 Capabilities must come before Stdlib to unblock Pattern cache (Phase 8) and FFI (Phase 11).
 
-| Phase | Focus | Status |
-|-------|-------|--------|
-| 6 | Capabilities | ⏳ Not started |
-| 7 | Standard Library | ⏳ Blocked on Phase 3, 6 |
+| Phase | Focus |
+|-------|-------|
+| 6 | Capabilities |
+| 7A | Core Built-ins |
+| 7B | Option & Result |
+| 7C | Collections & Iteration |
+| 7D | Stdlib Modules |
 
 ### Tier 3: Core Patterns (Phases 8-10)
 
 Pattern evaluation and control flow, now with Capabilities available.
 
-| Phase | Focus | Status |
-|-------|-------|--------|
-| 8 | Pattern Evaluation | 🔶 ~95% complete (cache blocked until Phase 6) |
-| 9 | Match Expressions | 🔶 Partial |
-| 10 | Control Flow | ⏳ Not started |
+| Phase | Focus |
+|-------|-------|
+| 8 | Pattern Evaluation |
+| 9 | Match Expressions |
+| 10 | Control Flow |
 
 ### Tier 4: FFI & Interop (Phases 11-12)
 
 Foreign code integration.
 
-| Phase | Focus | Dependencies |
-|-------|-------|--------------|
-| 11 | FFI | Phase 6 (Capabilities - Unsafe) |
-| 12 | Variadic Functions | Phase 11 (FFI for C variadics) |
+| Phase | Focus |
+|-------|-------|
+| 11 | FFI |
+| 12 | Variadic Functions |
 
 ### Tier 5: Language Completion (Phases 13-15)
 
 Platform support, testing framework, and syntax finalization.
 
-| Phase | Focus | Dependencies |
-|-------|-------|--------------|
-| 13 | Conditional Compilation | Phase 8 (Patterns) |
-| 14 | Testing Framework | Phase 6 (Capabilities), Phase 7 (Stdlib) |
-| 15 | Approved Syntax Proposals | Core language (Phases 1-10) |
+| Phase | Focus |
+|-------|-------|
+| 13 | Conditional Compilation |
+| 14 | Testing Framework |
+| 15A | Attributes & Comments |
+| 15B | Function Syntax |
+| 15C | Literals & Operators |
+| 15D | Bindings & Types |
 
 ### Tier 6: Async & Concurrency (Phases 16-17)
 
 Async runtime and concurrent programming.
 
-| Phase | Focus | Dependencies |
-|-------|-------|--------------|
-| 16 | Async Support | Phase 6 (Capabilities) |
-| 17 | Concurrency Extended | Phase 16 (Async) |
+| Phase | Focus |
+|-------|-------|
+| 16 | Async Support |
+| 17 | Concurrency Extended |
 
 ### Tier 7: Advanced Type System (Phases 18-19)
 
 Type system extensions. Note: These have minimal dependencies (Phase 2 and 3 respectively) but are deferred for practical reasons—const generics and existential types are advanced features better implemented after core language completion.
 
-| Phase | Focus | Dependencies |
-|-------|-------|--------------|
-| 18 | Const Generics | Phase 2 (Type Inference) |
-| 19 | Existential Types | Phase 3 (Traits) |
+| Phase | Focus |
+|-------|-------|
+| 18 | Const Generics |
+| 19 | Existential Types |
 
 ### Tier 8: Advanced Features (Phases 20-22)
 
 Power-user features and tooling.
 
-| Phase | Focus | Dependencies |
-|-------|-------|--------------|
-| 20 | Reflection | Phase 3 (Traits), Phase 11 (FFI) |
-| 21 | Code Generation | Core complete (Phases 1-15) |
-| 22 | Tooling | Core complete (Phases 1-15) |
+| Phase | Focus |
+|-------|-------|
+| 20 | Reflection |
+| 21A | LLVM Backend |
+| 21B | AOT Compilation |
+| 22 | Tooling |
 
 ---
 
@@ -113,10 +120,10 @@ Power-user features and tooling.
 **Main Sequence** (dependency-ordered for sequential execution):
 ```
 Phase 1 (Types) → Phase 2 (Inference) → Phase 3 (Traits) → Phase 4 (Modules)
-    → Phase 5 (Type Decls) → Phase 6 (Capabilities) → Phase 7 (Stdlib)
+    → Phase 5 (Type Decls) → Phase 6 (Capabilities) → Phase 7A-D (Stdlib)
     → Phase 8 (Patterns) → Phase 9 (Match) → Phase 10 (Control Flow)
     → Phase 11 (FFI) → Phase 12 (Variadics) → Phase 13 (Conditional Compilation)
-    → Phase 14 (Testing) → Phase 15 (Syntax Proposals)
+    → Phase 14 (Testing) → Phase 15A-D (Syntax Proposals)
 ```
 
 > **Note**: Phase 6 (Capabilities) comes BEFORE Phase 7 (Stdlib) because:
@@ -134,12 +141,12 @@ Phase 2 (Inference) ──→ Phase 18 (Const Generics) [deferred to Tier 7]
 
 Phase 11 (FFI) ──→ Phase 20 (Reflection)
 
-Core Complete (1-15) ──→ Phase 21 (Codegen) → Phase 22 (Tooling)
+Core Complete (1-15) ──→ Phase 21A-B (Codegen) → Phase 22 (Tooling)
 ```
 
 **Key Dependencies**:
 - Phase 6 (Capabilities) requires Phase 3 (Traits) — placed after Phase 5 to unblock Phase 8 cache
-- Phase 7 (Stdlib) requires Phase 3 (Traits) AND Phase 6 (Capabilities)
+- Phase 7A-D (Stdlib) requires Phase 3 (Traits) AND Phase 6 (Capabilities)
 - Phase 8 (Patterns) cache feature requires Phase 6 (Capabilities)
 - Phase 11 (FFI) requires Phase 6 (Unsafe capability)
 - Phase 14 (Testing) requires Phase 6 (Capabilities) and Phase 7 (Stdlib)
