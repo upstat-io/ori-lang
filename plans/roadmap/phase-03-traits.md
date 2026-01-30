@@ -516,3 +516,66 @@ Adds a `Debug` trait separate from `Printable` for developer-facing structural r
 - [ ] **Update Spec**: `08-declarations.md` — add Debug to derivable traits list
 - [ ] **Update Spec**: `12-modules.md` — add Debug to prelude traits
 - [ ] **Update**: `CLAUDE.md` — add Debug to prelude traits list
+
+---
+
+## 3.10 Trait Resolution and Conflict Handling
+
+**Proposal**: `proposals/approved/trait-resolution-conflicts-proposal.md`
+
+Specifies rules for resolving trait implementation conflicts: diamond problem, coherence/orphan rules, method resolution order, super trait calls, and extension method conflicts.
+
+### Implementation
+
+- [ ] **Implement**: Diamond problem resolution — single impl satisfies all inheritance paths
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — diamond inheritance tests
+  - [ ] **Ori Tests**: `tests/spec/traits/resolution/diamond.ori`
+
+- [ ] **Implement**: Conflicting default detection — error when multiple supertraits provide conflicting defaults
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — conflicting default tests
+  - [ ] **Ori Tests**: `tests/spec/traits/resolution/conflicting_defaults.ori`
+
+- [ ] **Implement**: Coherence/orphan rules — at least one of trait or type must be local
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — orphan rule tests
+  - [ ] **Ori Tests**: `tests/compile-fail/orphan_impl.ori`
+
+- [ ] **Implement**: Blanket impl restrictions — orphan rules for `impl<T> Trait for T`
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — blanket impl tests
+  - [ ] **Ori Tests**: `tests/compile-fail/orphan_blanket.ori`
+
+- [ ] **Implement**: Method resolution order — Inherent > Trait > Extension priority
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — resolution order tests
+  - [ ] **Ori Tests**: `tests/spec/traits/resolution/method_priority.ori`
+
+- [ ] **Implement**: Ambiguous method detection with fully-qualified syntax
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — ambiguous method tests
+  - [ ] **Ori Tests**: `tests/spec/traits/resolution/fully_qualified.ori`
+
+- [ ] **Implement**: Super trait calls with `Trait.method(self)` syntax
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — super call tests
+  - [ ] **Ori Tests**: `tests/spec/traits/resolution/super_calls.ori`
+
+- [ ] **Implement**: Extension method conflict detection (including re-exports)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — extension conflict tests
+  - [ ] **Ori Tests**: `tests/compile-fail/extension_conflict.ori`
+
+- [ ] **Implement**: Associated type disambiguation with `Type::Trait::AssocType` syntax
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — associated type disambiguation
+  - [ ] **Ori Tests**: `tests/spec/traits/resolution/assoc_type_disambiguation.ori`
+
+- [ ] **Implement**: Implementation specificity (Concrete > Constrained > Generic)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — specificity tests
+  - [ ] **Ori Tests**: `tests/spec/traits/resolution/specificity.ori`
+
+- [ ] **Implement**: Overlapping impl detection — compile error for equal-specificity impls
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — overlap detection tests
+  - [ ] **Ori Tests**: `tests/compile-fail/overlapping_impls.ori`
+
+- [ ] **Implement**: Error messages (E0600-E0603)
+  - [ ] E0600: Conflicting implementations
+  - [ ] E0601: Orphan implementation
+  - [ ] E0602: Ambiguous method call
+  - [ ] E0603: Conflicting extension methods
+
+- [ ] **Update Spec**: `08-declarations.md` — add coherence, resolution, super calls sections
+- [ ] **Update**: `CLAUDE.md` — add trait resolution rules to quick reference

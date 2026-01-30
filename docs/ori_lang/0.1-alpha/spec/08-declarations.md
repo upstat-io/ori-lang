@@ -173,6 +173,133 @@ Constraints:
 
 See [Capabilities](14-capabilities.md) for usage with capability traits.
 
+## Trait Resolution
+
+### Trait Inheritance (Diamond Problem)
+
+When a type inherits a trait through multiple paths, a single implementation satisfies all paths:
+
+```ori
+trait A { @method (self) -> int }
+trait B: A { }
+trait C: A { }
+trait D: B + C { }  // D inherits A through both B and C
+
+impl D for MyType {
+    @method (self) -> int = 42  // Single implementation satisfies A via B and C
+}
+```
+
+### Conflicting Default Implementations
+
+When multiple supertraits provide different default implementations for the same method, the implementing type must provide an explicit implementation:
+
+```ori
+trait A { @method (self) -> int = 0 }
+trait B: A { @method (self) -> int = 1 }
+trait C: A { @method (self) -> int = 2 }
+trait D: B + C { }
+
+impl D for MyType { }  // ERROR: ambiguous default for @method
+
+impl D for MyType {
+    @method (self) -> int = 3  // Explicit implementation resolves ambiguity
+}
+```
+
+### Coherence Rules
+
+_Coherence_ ensures that for any type `T` and trait `Trait`, there is at most one implementation of `Trait for T` visible in any compilation unit.
+
+An implementation `impl Trait for Type` is allowed only if at least one of these is true:
+
+1. `Trait` is defined in the current module
+2. `Type` is defined in the current module
+3. `Type` is a generic parameter constrained in the current module
+
+```ori
+// OK: Type is local
+type MyType = { ... }
+impl ExternalTrait for MyType { }
+
+// OK: Trait is local
+trait MyTrait { ... }
+impl MyTrait for ExternalType { }
+
+// ERROR: Both trait and type are external (orphan)
+impl std.Display for std.Vec { }  // Error: orphan implementation
+```
+
+Blanket implementations (`impl<T> Trait for T where ...`) follow the same rules.
+
+### Method Resolution Order
+
+When calling `value.method()`:
+
+1. **Inherent methods** — methods in `impl Type { }` (not trait impl)
+2. **Trait methods from explicit bounds** — methods from `where T: Trait`
+3. **Trait methods from in-scope traits** — traits imported into current scope
+4. **Extension methods** — methods added via `extend`
+
+If multiple traits provide the same method and none are inherent, the call is ambiguous. Use fully-qualified syntax:
+
+```ori
+A.method(x)  // Calls A's implementation
+B.method(x)  // Calls B's implementation
+```
+
+### Super Trait Method Calls
+
+An implementation can call the parent trait's default implementation using `Trait.method(self)`:
+
+```ori
+trait Parent {
+    @method (self) -> int = 10
+}
+
+trait Child: Parent {
+    @method (self) -> int = Parent.method(self) + 1
+}
+
+impl Parent for MyType {
+    @method (self) -> int = Parent.method(self) * 2
+}
+```
+
+### Associated Type Disambiguation
+
+When a type implements multiple traits with same-named associated types, use qualified paths:
+
+```ori
+trait A { type Item }
+trait B { type Item }
+
+// Qualified path syntax: Type::Trait::AssocType
+@f<C: A + B> (c: C) where C::A::Item: Clone = ...
+
+// To require both Items to be the same type:
+@g<C: A + B> (c: C) where C::A::Item == C::B::Item = ...
+```
+
+### Implementation Specificity
+
+When multiple implementations could apply, the most specific wins:
+
+1. **Concrete** — `impl Trait for MyType` (most specific)
+2. **Constrained blanket** — `impl<T: Clone> Trait for T`
+3. **Generic blanket** — `impl<T> Trait for T` (least specific)
+
+It is an error if two applicable implementations have equal specificity.
+
+### Extension Method Conflicts
+
+Only one extension for a given method may be in scope. Conflicts are detected based on what is in scope, including re-exports:
+
+```ori
+extension "a" { Iterator.sum }
+extension "b" { Iterator.sum }  // ERROR: conflicting extension imports
+```
+
 ## Tests
 
 ```ori

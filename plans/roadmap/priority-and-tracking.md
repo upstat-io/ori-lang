@@ -347,6 +347,17 @@
 - Async binding prohibition (E1203)
 - Blocked on: Phase 6.10 (def impl)
 
+**Trait Resolution and Conflict Handling** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/trait-resolution-conflicts-proposal.md`
+- Implementation: Phase 3.10
+- Diamond problem: single impl satisfies all inheritance paths
+- Coherence/orphan rules: trait or type must be local
+- Method resolution: Inherent > Trait > Extension
+- Super trait calls: unified `Trait.method(self)` syntax
+- Associated type disambiguation: `Type::Trait::AssocType`
+- Extension conflict detection (including re-exports)
+- Blocked on: None (builds on existing Phase 3 infrastructure)
+
 ---
 
 ## Milestones
