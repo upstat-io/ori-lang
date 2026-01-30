@@ -1,0 +1,8 @@
+// Short tuple formatting (inline)
+// Design: formatter/design/02-constructs/collections.md § Tuples
+
+@pair () -> (int, str) = (1, "hello")
+
+@triple () -> (int, int, int) = (10, 20, 30)
+
+@coords () -> (int, int) = (0, 0)

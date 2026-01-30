@@ -1,0 +1,18 @@
+@data () -> (str, str, str) = (
+    "first_very_long_string_value_here",
+    "second_very_long_string_value_here",
+    "third_very_long_string_value_here",
+)
+
+@many_fields () -> (int, int, int, int, int, int, int, int, int, int) = (
+    100000000,
+    200000000,
+    300000000,
+    400000000,
+    500000000,
+    600000000,
+    700000000,
+    800000000,
+    900000000,
+    1000000000,
+)

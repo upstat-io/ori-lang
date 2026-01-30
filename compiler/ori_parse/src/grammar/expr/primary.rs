@@ -293,7 +293,8 @@ impl Parser<'_> {
     /// Parse parenthesized expression, tuple, or lambda.
     fn parse_parenthesized(&mut self) -> Result<ExprId, ParseError> {
         let span = self.current_span();
-        self.advance();
+        self.advance(); // (
+        self.skip_newlines();
 
         // Case 1: () -> body (lambda with no params)
         if self.check(&TokenKind::RParen) {
@@ -356,14 +357,17 @@ impl Parser<'_> {
         // Case 3: Untyped - parse as expression(s)
         let expr = self.parse_expr()?;
 
+        self.skip_newlines();
         if self.check(&TokenKind::Comma) {
             let mut exprs = vec![expr];
             while self.check(&TokenKind::Comma) {
                 self.advance();
+                self.skip_newlines();
                 if self.check(&TokenKind::RParen) {
                     break;
                 }
                 exprs.push(self.parse_expr()?);
+                self.skip_newlines();
             }
             self.expect(&TokenKind::RParen)?;
 
@@ -412,13 +416,17 @@ impl Parser<'_> {
     /// Parse list literal.
     fn parse_list_literal(&mut self) -> Result<ExprId, ParseError> {
         let span = self.current_span();
-        self.advance();
+        self.advance(); // [
+        self.skip_newlines();
+
         let mut exprs = Vec::new();
 
         while !self.check(&TokenKind::RBracket) && !self.is_at_end() {
             exprs.push(self.parse_expr()?);
+            self.skip_newlines();
             if !self.check(&TokenKind::RBracket) {
                 self.expect(&TokenKind::Comma)?;
+                self.skip_newlines();
             }
         }
 

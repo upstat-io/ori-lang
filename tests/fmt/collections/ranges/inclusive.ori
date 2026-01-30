@@ -1,0 +1,14 @@
+// Inclusive range formatting
+// Design: formatter/design/02-constructs/collections.md § Ranges
+
+@simple () -> int = run(
+    let sum = 0,
+    for i in 0..=10 do let sum = sum + i,
+    sum,
+)
+
+@count () -> int = run(
+    let count = 0,
+    for i in 1..=100 do let count = count + 1,
+    count,
+)

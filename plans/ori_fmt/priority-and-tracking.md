@@ -7,8 +7,8 @@ Current status of the Ori formatter implementation.
 | Tier | Focus | Status |
 |------|-------|--------|
 | Tier 1 | Foundation | ✅ Complete |
-| Tier 2 | Expressions | 🔶 In Progress |
-| Tier 3 | Collections & Comments | ⏳ Not started |
+| Tier 2 | Expressions | ✅ Complete |
+| Tier 3 | Collections & Comments | 🔶 Partial |
 | Tier 4 | Integration | ⏳ Not started |
 
 ## Phase Status
@@ -24,14 +24,14 @@ Current status of the Ori formatter implementation.
 
 | Phase | Name | Status | Notes |
 |-------|------|--------|-------|
-| 3 | Expressions | 🔶 In Progress | Calls, chains, conditionals, lambdas, bindings, binary ops (9 golden test suites) |
-| 4 | Patterns | ⏳ Not started | run, try, match, parallel |
+| 3 | Expressions | ✅ Complete | Calls, chains, conditionals, lambdas, bindings, binary ops (9 golden test suites) |
+| 4 | Patterns | ✅ Complete | run, try, match, for (4 golden test suites, 15 test files). loop(...) not yet supported by parser |
 
 ### Tier 3: Collections & Comments
 
 | Phase | Name | Status | Notes |
 |-------|------|--------|-------|
-| 5 | Collections | ⏳ Not started | Lists, maps, structs |
+| 5 | Collections | ✅ Complete | Lists, maps, tuples, structs, ranges (5 golden test suites, 14 test files). Spread operators not yet in parser |
 | 6 | Comments | ⏳ Not started | Comment handling, doc reordering |
 
 ### Tier 4: Integration
@@ -57,7 +57,7 @@ Current status of the Ori formatter implementation.
 
 **Exit criteria**: Can format basic Ori programs with declarations
 
-### M2: Expression Formatting (Tier 2) — 🔶 In Progress
+### M2: Expression Formatting (Tier 2) — ✅ Complete
 
 - [x] Function calls (golden tests: calls/)
 - [x] Method chains (golden tests: chains/)
@@ -66,13 +66,13 @@ Current status of the Ori formatter implementation.
 - [x] Binary expressions (golden tests: binary/)
 - [x] Bindings (golden tests: bindings/)
 - [x] Field/index access (golden tests: access/)
-- [ ] Pattern constructs (run, try, match) — Phase 4
+- [x] Pattern constructs (golden tests: patterns/run, patterns/try, patterns/match, patterns/for)
 
 **Exit criteria**: Can format programs with complex expressions
 
-### M3: Full Language Support (Tier 3) — ⏳ Not started
+### M3: Full Language Support (Tier 3) — 🔶 Partial
 
-- [ ] All collection types
+- [x] All collection types (lists, maps, tuples, structs, ranges)
 - [ ] Comment preservation
 - [ ] Doc comment reordering
 
@@ -107,15 +107,61 @@ Current parser status: ✅ Complete (spans included)
 | Declarations | 1 | 1 |
 | Golden Tests (Declarations) | 7 | 7 |
 | Golden Tests (Expressions) | 9 | 9 |
-| Patterns | 0 | 0 |
-| Collections | 0 | 0 |
+| Golden Tests (Patterns) | 4 | 4 |
+| Golden Tests (Collections) | 5 | 5 |
 | Comments | 0 | 0 |
 | Edge Cases | 0 | 0 |
-| **Total** | **204** | **204** |
+| **Total** | **212** | **212** |
 
 ## Recent Updates
 
-### 2026-01-30: Expression Golden Tests (Phase 3 Started)
+### 2026-01-30: Collection Golden Tests (Phase 5 Complete)
+
+Added 5 collection golden test suites with 14 test files:
+
+| Category | Files | Coverage |
+|----------|-------|----------|
+| lists | 5 | empty, short, simple_wrap, nested, nested_break |
+| maps | 3 | empty, short, multi |
+| tuples | 3 | unit, short, long |
+| structs | 4 | empty, short, long, shorthand |
+| ranges | 2 | exclusive, inclusive |
+
+**Formatter Improvements**:
+- Added tuple broken format (one item per line when exceeds width)
+- Added complexity detection for list items (simple wrap vs complex one-per-line)
+- Fixed empty struct formatting (no spaces: `Empty {}`)
+- Fixed starting column for body formatting (expressions now respect line position)
+
+**Parser Limitations** (discovered during testing):
+- Spread operators (`...`) not yet implemented in parser
+- Multi-line collection literals can't be re-parsed (formatter output needs `.expected` files)
+
+**Status**: Phase 5 (Collections) complete. Ready for Phase 6 (Comments).
+
+### 2026-01-30: Pattern Golden Tests (Phase 4 Complete)
+
+Added 4 pattern golden test suites with 15 test files:
+
+| Category | Files | Coverage |
+|----------|-------|----------|
+| run | 2 | simple, mutable (assignments) |
+| try | 1 | simple (error propagation) |
+| match | 9 | simple, variant, guards, or_pattern, struct, tuple, list, range, at_pattern |
+| for | 2 | do (imperative), yield (collection) |
+
+**Parser Limitations** (discovered during testing):
+- `loop(...)` pattern not yet implemented in parser (spec defines it, parser doesn't support)
+- `$` prefix for immutable bindings only valid in pattern names, not `let $x`
+
+**Formatter Verification**:
+- Mutable bindings: default `let x = ...`, no `let mut` syntax
+- Immutable bindings: `let $x = ...` with `$` in pattern name
+- All pattern constructs (run, try, match, for) format correctly
+
+**Status**: Tier 2 (Expressions) complete. Phase 3 and Phase 4 done. Ready for Tier 3 (Collections & Comments).
+
+### 2026-01-30: Expression Golden Tests (Phase 3 Complete)
 
 Added 9 expression golden test suites with 22 test files:
 
@@ -138,7 +184,7 @@ Added 9 expression golden test suites with 22 test files:
 - `$` immutable modifier only valid at module level, not in run patterns
 - Parentheses around expressions not preserved in AST (affects range precedence)
 
-**Status**: Phase 3 golden tests passing. Ready to continue with Phase 4 (Patterns).
+**Status**: Phase 3 complete. Ready for Phase 4 (Patterns).
 
 ### 2026-01-29: Golden Tests Complete (Phase 2 Done)
 

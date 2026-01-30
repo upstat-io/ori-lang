@@ -1,0 +1,6 @@
+// Empty struct literal formatting
+// Design: formatter/design/02-constructs/collections.md § Struct Literals
+
+type Unit = {}
+
+@make_unit () -> Unit = Unit {}

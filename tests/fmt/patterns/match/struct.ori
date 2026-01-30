@@ -1,0 +1,11 @@
+// Match with struct patterns
+// Spec: 10-patterns.md § match
+
+type Point = { x: int, y: int }
+
+@classify_point (p: Point) -> str = match(p,
+    { x: 0, y: 0 } -> "origin",
+    { x: 0, y } -> "y-axis",
+    { x, y: 0 } -> "x-axis",
+    { x, y } -> "elsewhere",
+)
