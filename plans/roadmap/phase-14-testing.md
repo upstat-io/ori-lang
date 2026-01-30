@@ -7,6 +7,7 @@
 > **PROPOSALS**:
 > - `proposals/approved/dependency-aware-testing-proposal.md` — Dependency-aware test execution
 > - `proposals/approved/incremental-test-execution-proposal.md` — Incremental test execution & explicit free-floating tests
+> - `proposals/approved/test-execution-model-proposal.md` — Consolidated implementation model (data structures, algorithms, cache)
 
 > **NOTE - Pending Syntax Changes**: The approved proposals change attribute syntax:
 > - Attribute syntax: `#[skip("reason")]` → `#skip("reason")` (Phase 15.1)
@@ -410,9 +411,63 @@ warning: targeted test @test_parse took 250ms
 
 ---
 
-## 14.12 Phase Completion Checklist
+## 14.12 Test Execution Model Implementation
 
-- [ ] All items in 14.1-14.11 have all three checkboxes marked `[x]`
+> **PROPOSAL**: `proposals/approved/test-execution-model-proposal.md`
+
+This section consolidates the implementation details from the Test Execution Model proposal, which unifies the dependency-aware and incremental test execution proposals.
+
+### 14.12.1 Test Registry Data Structure
+
+The `TestRegistry` tracks test-to-function relationships and caller graphs.
+
+- [ ] **Implement**: `TestRegistry` struct
+  - [ ] `tests_for: HashMap<FunctionId, Vec<TestId>>` — function → tests targeting it
+  - [ ] `callers: HashMap<FunctionId, HashSet<FunctionId>>` — function → functions that call it
+  - [ ] `free_floating: HashSet<TestId>` — tests with `tests _`
+  - [ ] **Rust Tests**: `oric/src/analysis/test_registry.rs` — registry data structure
+  - [ ] **Ori Tests**: `tests/spec/testing/registry.ori`
+
+### 14.12.2 Content Hashing
+
+Content hashing determines when functions have changed.
+
+- [ ] **Implement**: Content hash computation
+  - [ ] Hash function body AST (normalized: whitespace and comments stripped, source structure preserved)
+  - [ ] Include parameter types and names
+  - [ ] Include return type, capability requirements, generic constraints
+  - [ ] **Rust Tests**: `oric/src/analysis/content_hash.rs` — hash computation
+  - [ ] **Ori Tests**: `tests/spec/testing/content_hash.ori`
+
+### 14.12.3 Cache Storage and Maintenance
+
+Test results are cached for incremental builds.
+
+- [ ] **Implement**: Cache file format
+  - [ ] `.ori/cache/hashes.bin` — FunctionId → content hash
+  - [ ] `.ori/cache/deps.bin` — dependency graph (callers map)
+  - [ ] `.ori/cache/test-results/` — TestId → TestResult
+  - [ ] Binary serialization (bincode or similar) for performance
+  - [ ] **Rust Tests**: `oric/src/cache/test_cache.rs` — cache format
+
+- [ ] **Implement**: Cache maintenance
+  - [ ] Prune entries for deleted functions on successful build completion
+  - [ ] Automatic invalidation via `inputs_hash` mismatch
+  - [ ] **Rust Tests**: `oric/src/cache/test_cache.rs` — pruning logic
+
+### 14.12.4 `--clean` Flag Behavior
+
+- [ ] **Implement**: `ori check --clean` flag
+  - [ ] Force re-execution of all targeted tests (ignore cache)
+  - [ ] Still exclude free-floating tests (they always require `ori test`)
+  - [ ] **Rust Tests**: `oric/src/cli/check.rs` — clean flag
+  - [ ] **Ori Tests**: `tests/spec/testing/cli_clean.ori`
+
+---
+
+## 14.13 Phase Completion Checklist
+
+- [ ] All items in 14.1-14.12 have all three checkboxes marked `[x]`
 - [ ] Spec updated: `spec/13-testing.md` reflects implementation
 - [ ] CLAUDE.md updated if syntax/behavior changed
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md

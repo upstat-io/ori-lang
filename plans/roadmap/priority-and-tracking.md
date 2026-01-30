@@ -310,6 +310,15 @@
 - Override with `with Trait = other in ...` for testing/custom config
 - Blocked on: None (can be implemented independently)
 
+**Test Execution Model** — ✅ APPROVED 2026-01-29
+- Proposal: `proposals/approved/test-execution-model-proposal.md`
+- Implementation: Phase 14.12
+- Consolidates dependency-aware and incremental test execution into unified implementation spec
+- Defines `TestRegistry` data structure, content hashing (whitespace/comment normalization), cache format
+- Cache maintenance: prune deleted functions on successful build; automatic invalidation via inputs_hash
+- Clarifies `--clean` excludes free-floating tests (they always require `ori test`)
+- Blocked on: None (implementation reference for Phase 14)
+
 ---
 
 ## Milestones
