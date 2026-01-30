@@ -5,7 +5,7 @@ use super::identifiers::infer_ident;
 use super::substitute_type_params;
 use crate::checker::TypeChecker;
 use crate::registry::TypeKind;
-use crate::suggest::suggest_field;
+use crate::suggest::{suggest_field, suggest_type};
 use ori_ir::{FieldInitRange, Name, Span};
 use ori_types::Type;
 use std::collections::{HashMap, HashSet};
@@ -67,14 +67,12 @@ pub(super) fn handle_struct_field_access(
     // Perform lookup directly to avoid cloning the entire entry
     let lookup_result = {
         let Some(entry) = checker.registries.types.get_by_name(type_name) else {
-            checker.push_error(
-                format!(
-                    "unknown type `{}`",
-                    checker.context.interner.lookup(type_name)
-                ),
-                span,
-                ori_diagnostic::ErrorCode::E2003,
-            );
+            let type_name_str = checker.context.interner.lookup(type_name);
+            let mut msg = format!("unknown type `{type_name_str}`");
+            if let Some(suggestion) = suggest_type(checker, type_name) {
+                msg.push_str(&format!("; did you mean `{suggestion}`?"));
+            }
+            checker.push_error(msg, span, ori_diagnostic::ErrorCode::E2003);
             return Type::Error;
         };
         lookup_struct_field_in_entry(entry, field, type_args, &checker.registries.types)
@@ -121,14 +119,12 @@ pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInit
                 ori_ir::Span::new(0, 0)
             };
 
-            checker.push_error(
-                format!(
-                    "unknown struct type `{}`",
-                    checker.context.interner.lookup(name)
-                ),
-                span,
-                ori_diagnostic::ErrorCode::E2003,
-            );
+            let name_str = checker.context.interner.lookup(name);
+            let mut msg = format!("unknown struct type `{name_str}`");
+            if let Some(suggestion) = suggest_type(checker, name) {
+                msg.push_str(&format!("; did you mean `{suggestion}`?"));
+            }
+            checker.push_error(msg, span, ori_diagnostic::ErrorCode::E2003);
 
             for init in field_inits {
                 if let Some(value_id) = init.value {

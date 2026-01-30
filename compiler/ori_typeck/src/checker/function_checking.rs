@@ -5,10 +5,9 @@
 //! The shared `check_callable` method consolidates the common logic between
 //! function and test checking.
 
-use std::collections::HashSet;
-
 use ori_ir::{ExprId, Function, Module, Name};
 use ori_types::Type;
+use rustc_hash::FxHashSet;
 
 use super::types::FunctionType;
 use super::TypeChecker;
@@ -25,7 +24,7 @@ impl TypeChecker<'_> {
         params: &[(Name, Type)],
         return_type: &Type,
         body: ExprId,
-        capabilities: HashSet<Name>,
+        capabilities: FxHashSet<Name>,
     ) {
         // Create scope for parameters
         let mut callable_env = if let Some(ref base) = self.inference.base_env {
@@ -88,7 +87,7 @@ impl TypeChecker<'_> {
         let return_type = interner.to_type(func_type.return_type);
 
         // Collect capabilities
-        let capabilities: HashSet<Name> = func.capabilities.iter().map(|c| c.name).collect();
+        let capabilities: FxHashSet<Name> = func.capabilities.iter().map(|c| c.name).collect();
 
         self.check_callable(&params, &return_type, func.body, capabilities);
     }
@@ -115,7 +114,7 @@ impl TypeChecker<'_> {
         };
 
         // Tests don't declare capabilities
-        self.check_callable(&params, &return_type, test.body, HashSet::new());
+        self.check_callable(&params, &return_type, test.body, FxHashSet::default());
     }
 
     /// Type check all methods in an impl block.

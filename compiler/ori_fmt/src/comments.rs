@@ -394,9 +394,7 @@ pub fn group_comments_for_reordering(
 /// Collect all token positions from a span for comment indexing.
 ///
 /// This is a helper for building the token position list needed by [`CommentIndex`].
-pub fn collect_item_positions(
-    spans: impl IntoIterator<Item = Span>,
-) -> Vec<u32> {
+pub fn collect_item_positions(spans: impl IntoIterator<Item = Span>) -> Vec<u32> {
     let mut positions: Vec<u32> = spans.into_iter().map(|s| s.start).collect();
     positions.sort_unstable();
     positions.dedup();

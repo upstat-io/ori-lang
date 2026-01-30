@@ -171,8 +171,8 @@ fn is_unbreakable_signature(trimmed: &str, max_width: usize) -> bool {
     // Find the " = " that separates signature from body
     if let Some(eq_pos) = trimmed.find(" = ") {
         let signature = &trimmed[..eq_pos + 3]; // Include " = "
-        // If just the signature (without body) already exceeds max, it's unbreakable
-        // Account for some indentation (4 spaces typical)
+                                                // If just the signature (without body) already exceeds max, it's unbreakable
+                                                // Account for some indentation (4 spaces typical)
         signature.len() > max_width.saturating_sub(8)
     } else {
         false
@@ -183,7 +183,8 @@ fn is_unbreakable_signature(trimmed: &str, max_width: usize) -> bool {
 /// These need chain breaking support which is not yet implemented.
 fn is_field_chain(trimmed: &str) -> bool {
     // Count number of `.` that are field access (not in strings)
-    let dot_count = trimmed.match_indices('.')
+    let dot_count = trimmed
+        .match_indices('.')
         .filter(|(idx, _)| {
             // Simple heuristic: not inside a string
             let before = &trimmed[..*idx];
@@ -238,8 +239,7 @@ struct FileTestResult {
 
 /// Test a single file at a specific width.
 fn test_file_at_width(path: &Path, max_width: usize) -> Result<FileTestResult, String> {
-    let source = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read: {}", e))?;
+    let source = fs::read_to_string(path).map_err(|e| format!("Failed to read: {}", e))?;
 
     let config = FormatConfig::with_max_width(max_width);
 

@@ -172,7 +172,11 @@ impl TraitRegistry {
                 .push(trait_name);
 
             // Update associated types index for O(1) lookup
-            if let Type::Named(type_name) | Type::Applied { name: type_name, .. } = &type_key {
+            if let Type::Named(type_name)
+            | Type::Applied {
+                name: type_name, ..
+            } = &type_key
+            {
                 for assoc_def in &entry.assoc_types {
                     self.assoc_types_index
                         .insert((*type_name, assoc_def.name), assoc_def.ty);
@@ -202,7 +206,7 @@ impl TraitRegistry {
                 // (This allows multiple inherent impl blocks for the same type)
                 let mut merged = existing.clone();
                 merged.methods.extend(entry.methods);
-                merged.rebuild_method_index();
+                merged.rebuild_indices();
                 self.inherent_impls.insert(type_key, merged);
             } else {
                 self.inherent_impls.insert(type_key, entry);

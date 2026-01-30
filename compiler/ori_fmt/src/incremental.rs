@@ -209,14 +209,8 @@ pub fn format_incremental<I: StringLookup>(
     for decl in &overlapping {
         let mut comment_index = CommentIndex::new(comments, &positions);
 
-        let formatted = format_single_declaration(
-            module,
-            decl,
-            comments,
-            &mut comment_index,
-            arena,
-            interner,
-        );
+        let formatted =
+            format_single_declaration(module, decl, comments, &mut comment_index, arena, interner);
 
         // Expand the original range to include preceding comments
         let preceding_comment_start = find_preceding_comment_start(comments, decl.start);

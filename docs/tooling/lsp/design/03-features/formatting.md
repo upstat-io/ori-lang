@@ -103,25 +103,40 @@ let formatted = match ori_fmt::format(&doc.text) {
 Pros: Simple, non-destructive
 Cons: Silent failure
 
-### Option B: Partial Formatting
+### Option B: Incremental Formatting (Implemented)
 
-Format what's valid, preserve error regions:
+Use `ori_fmt::format_incremental()` to format only declarations overlapping a changed region:
 
 ```rust
-let result = ori_fmt::format_partial(&doc.text);
+use ori_fmt::incremental::{format_incremental, IncrementalResult, apply_regions};
 
-let mut edits = vec![];
-for region in result.formatted_regions {
-    edits.push(TextEdit {
-        range: span_to_range(&doc.text, region.span),
-        new_text: region.text,
-    });
+let result = format_incremental(
+    &module,
+    &comments,
+    &arena,
+    &interner,
+    change_start,
+    change_end,
+);
+
+match result {
+    IncrementalResult::Regions(regions) => {
+        // Apply formatted regions as edits
+        regions.into_iter().map(|r| TextEdit {
+            range: span_to_range(&doc.text, r.original_start, r.original_end),
+            new_text: r.formatted,
+        }).collect()
+    }
+    IncrementalResult::FullFormatNeeded => {
+        // Fall back to full format (e.g., import changes)
+        format_full(&doc.text)
+    }
+    IncrementalResult::NoChangeNeeded => vec![],
 }
-edits
 ```
 
-Pros: Better UX for partial errors
-Cons: More complex, may produce unexpected results
+Pros: Fast for large files, natural for format-on-type
+Cons: Requires successful parse of affected declarations
 
 ### Option C: Publish Diagnostic
 

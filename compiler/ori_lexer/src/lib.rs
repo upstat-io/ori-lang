@@ -479,11 +479,7 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
                 match raw {
                     RawToken::LineComment => {
                         // Capture comment - strip the leading "//"
-                        let content_str = if slice.len() > 2 {
-                            &slice[2..]
-                        } else {
-                            ""
-                        };
+                        let content_str = if slice.len() > 2 { &slice[2..] } else { "" };
                         let (kind, normalized) = classify_and_normalize_comment(content_str);
                         let content = interner.intern(&normalized);
                         output.comments.push(Comment::new(content, span, kind));
@@ -1251,10 +1247,7 @@ mod tests {
     #[test]
     fn test_lex_with_comments_multiple() {
         let interner = test_interner();
-        let output = lex_with_comments(
-            "// first\n// second\nlet x = 42",
-            &interner,
-        );
+        let output = lex_with_comments("// first\n// second\nlet x = 42", &interner);
 
         assert_eq!(output.comments.len(), 2);
         assert_eq!(output.comments[0].kind, CommentKind::Regular);
@@ -1268,7 +1261,10 @@ mod tests {
 
         assert_eq!(output.comments.len(), 1);
         assert_eq!(output.comments[0].kind, CommentKind::DocDescription);
-        assert_eq!(interner.lookup(output.comments[0].content), " #Calculates the sum.");
+        assert_eq!(
+            interner.lookup(output.comments[0].content),
+            " #Calculates the sum."
+        );
     }
 
     #[test]
@@ -1278,7 +1274,10 @@ mod tests {
 
         assert_eq!(output.comments.len(), 1);
         assert_eq!(output.comments[0].kind, CommentKind::DocParam);
-        assert_eq!(interner.lookup(output.comments[0].content), " @param x The value");
+        assert_eq!(
+            interner.lookup(output.comments[0].content),
+            " @param x The value"
+        );
     }
 
     #[test]
@@ -1288,7 +1287,10 @@ mod tests {
 
         assert_eq!(output.comments.len(), 1);
         assert_eq!(output.comments[0].kind, CommentKind::DocField);
-        assert_eq!(interner.lookup(output.comments[0].content), " @field x The x coordinate");
+        assert_eq!(
+            interner.lookup(output.comments[0].content),
+            " @field x The x coordinate"
+        );
     }
 
     #[test]
@@ -1298,7 +1300,10 @@ mod tests {
 
         assert_eq!(output.comments.len(), 1);
         assert_eq!(output.comments[0].kind, CommentKind::DocWarning);
-        assert_eq!(interner.lookup(output.comments[0].content), " !Panics if n is negative");
+        assert_eq!(
+            interner.lookup(output.comments[0].content),
+            " !Panics if n is negative"
+        );
     }
 
     #[test]
@@ -1309,7 +1314,10 @@ mod tests {
         assert_eq!(output.comments.len(), 1);
         assert_eq!(output.comments[0].kind, CommentKind::DocExample);
         // Preserve formatting after > exactly
-        assert_eq!(interner.lookup(output.comments[0].content), " >add(a: 1, b: 2) -> 3");
+        assert_eq!(
+            interner.lookup(output.comments[0].content),
+            " >add(a: 1, b: 2) -> 3"
+        );
     }
 
     #[test]

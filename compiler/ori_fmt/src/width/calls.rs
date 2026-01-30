@@ -74,7 +74,11 @@ pub(super) fn method_call_width<I: StringLookup>(
         return ALWAYS_STACKED;
     }
 
-    let paren_w = if receiver_needs_parens(calc, receiver) { 2 } else { 0 };
+    let paren_w = if receiver_needs_parens(calc, receiver) {
+        2
+    } else {
+        0
+    };
 
     let method_w = calc.interner.lookup(method).len();
     let args_list = calc.arena.get_expr_list(args);
@@ -100,7 +104,11 @@ pub(super) fn method_call_named_width<I: StringLookup>(
         return ALWAYS_STACKED;
     }
 
-    let paren_w = if receiver_needs_parens(calc, receiver) { 2 } else { 0 };
+    let paren_w = if receiver_needs_parens(calc, receiver) {
+        2
+    } else {
+        0
+    };
 
     let method_w = calc.interner.lookup(method).len();
     let call_args = calc.arena.get_call_args(args);

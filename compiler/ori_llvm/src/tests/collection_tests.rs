@@ -48,7 +48,9 @@ fn test_tuple_creation() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Tuple IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Tuple IR:\n{}", codegen.print_to_string());
+    }
 
     // Verify IR contains struct type
     // Note: LLVM may optimize insertvalue to a constant struct
@@ -117,7 +119,9 @@ fn test_struct_creation() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Struct IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Struct IR:\n{}", codegen.print_to_string());
+    }
 
     // Verify IR contains struct construction
     let ir = codegen.print_to_string();
@@ -190,7 +194,9 @@ fn test_field_access() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Field Access IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Field Access IR:\n{}", codegen.print_to_string());
+    }
 
     // JIT execute - should return 10 (the x field)
     let result = codegen.jit_execute_i64("test_field").expect("JIT failed");
@@ -231,7 +237,9 @@ fn test_some() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Some IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Some IR:\n{}", codegen.print_to_string());
+    }
 
     // Verify IR contains tagged union structure
     // Note: LLVM constant-folds the struct, so we see the final value
@@ -269,7 +277,9 @@ fn test_none() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("None IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("None IR:\n{}", codegen.print_to_string());
+    }
 
     // Verify IR contains tagged union with tag = 0
     // Note: LLVM optimizes { i8 0, i64 0 } to zeroinitializer
@@ -313,7 +323,9 @@ fn test_ok() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Ok IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Ok IR:\n{}", codegen.print_to_string());
+    }
 
     // Verify IR contains tagged union structure
     // Note: LLVM constant-folds the struct, so we see the final value
@@ -357,7 +369,9 @@ fn test_err() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Err IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Err IR:\n{}", codegen.print_to_string());
+    }
 
     // Verify IR contains tagged union structure
     // Note: LLVM constant-folds the struct, so we see the final value
@@ -407,7 +421,9 @@ fn test_range_literal() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Range IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Range IR:\n{}", codegen.print_to_string());
+    }
 
     // Verify IR contains range struct type
     let ir = codegen.print_to_string();
@@ -442,7 +458,9 @@ fn test_list_literal_empty() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Empty List IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Empty List IR:\n{}", codegen.print_to_string());
+    }
 
     // Verify IR contains list struct type
     let ir = codegen.print_to_string();
@@ -490,7 +508,9 @@ fn test_list_literal_with_elements() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("List with Elements IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("List with Elements IR:\n{}", codegen.print_to_string());
+    }
 
     // Verify IR contains list construction
     let ir = codegen.print_to_string();
@@ -526,7 +546,9 @@ fn test_map_empty() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Empty Map IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Empty Map IR:\n{}", codegen.print_to_string());
+    }
 
     // Verify IR contains map struct type
     let ir = codegen.print_to_string();
@@ -596,7 +618,9 @@ fn test_map_with_entries() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Map with Entries IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Map with Entries IR:\n{}", codegen.print_to_string());
+    }
 
     // Verify IR contains map struct type and count
     let ir = codegen.print_to_string();
@@ -663,7 +687,9 @@ fn test_tuple_index() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Tuple Index IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Tuple Index IR:\n{}", codegen.print_to_string());
+    }
 
     // JIT execute - should return 10 (first element)
     let result = codegen
@@ -731,7 +757,9 @@ fn test_tuple_index_second() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Tuple Index Second IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Tuple Index Second IR:\n{}", codegen.print_to_string());
+    }
 
     // JIT execute - should return 20 (second element)
     let result = codegen

@@ -63,11 +63,7 @@ fn parse_and_format(source: &str) -> Result<String, String> {
     let output = ori_parse::parse(&tokens, &interner);
 
     if output.has_errors() {
-        let errors: Vec<String> = output
-            .errors
-            .iter()
-            .map(|e| format!("{:?}", e))
-            .collect();
+        let errors: Vec<String> = output.errors.iter().map(|e| format!("{:?}", e)).collect();
         return Err(format!("Parse errors:\n{}", errors.join("\n")));
     }
 
@@ -260,23 +256,35 @@ macro_rules! golden_test {
 }
 
 // Declaration Tests (Phase 2)
-golden_test!(golden_tests_declarations_functions, "declarations/functions");
+golden_test!(
+    golden_tests_declarations_functions,
+    "declarations/functions"
+);
 golden_test!(golden_tests_declarations_types, "declarations/types");
 golden_test!(golden_tests_declarations_traits, "declarations/traits");
 golden_test!(golden_tests_declarations_impls, "declarations/impls");
 golden_test!(golden_tests_declarations_imports, "declarations/imports");
 golden_test!(golden_tests_declarations_tests, "declarations/tests");
-golden_test!(golden_tests_declarations_constants, "declarations/constants");
+golden_test!(
+    golden_tests_declarations_constants,
+    "declarations/constants"
+);
 
 // Expression Tests (Phase 3)
 golden_test!(golden_tests_expressions_calls, "expressions/calls");
 golden_test!(golden_tests_expressions_chains, "expressions/chains");
-golden_test!(golden_tests_expressions_conditionals, "expressions/conditionals");
+golden_test!(
+    golden_tests_expressions_conditionals,
+    "expressions/conditionals"
+);
 golden_test!(golden_tests_expressions_lambdas, "expressions/lambdas");
 golden_test!(golden_tests_expressions_binary, "expressions/binary");
 golden_test!(golden_tests_expressions_bindings, "expressions/bindings");
 golden_test!(golden_tests_expressions_access, "expressions/access");
-golden_test!(golden_tests_expressions_conversions, "expressions/conversions");
+golden_test!(
+    golden_tests_expressions_conversions,
+    "expressions/conversions"
+);
 golden_test!(golden_tests_expressions_errors, "expressions/errors");
 
 // Pattern Tests (Phase 4)

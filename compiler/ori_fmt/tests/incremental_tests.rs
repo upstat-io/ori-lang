@@ -4,7 +4,11 @@ use ori_fmt::{apply_regions, format_incremental, format_module_with_comments, In
 use ori_ir::StringInterner;
 
 /// Helper to parse and test incremental formatting.
-fn parse_and_test_incremental(source: &str, change_start: usize, change_end: usize) -> IncrementalResult {
+fn parse_and_test_incremental(
+    source: &str,
+    change_start: usize,
+    change_end: usize,
+) -> IncrementalResult {
     let interner = StringInterner::new();
     let lex_output = ori_lexer::lex_with_comments(source, &interner);
     let parse_output = ori_parse::parse(&lex_output.tokens, &interner);

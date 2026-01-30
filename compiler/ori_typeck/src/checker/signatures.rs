@@ -6,7 +6,7 @@ use super::types::{FunctionType, GenericBound, WhereConstraint};
 use super::TypeChecker;
 use ori_ir::{Function, Name, TypeId};
 use ori_types::Type;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 impl TypeChecker<'_> {
     /// Infer function signature from declaration.
@@ -17,8 +17,8 @@ impl TypeChecker<'_> {
     pub(crate) fn infer_function_signature(&mut self, func: &Function) -> FunctionType {
         // Step 1: Create fresh type variables for each generic parameter
         let generic_params = self.context.arena.get_generic_params(func.generics);
-        let mut generic_type_vars: HashMap<Name, Type> = HashMap::new();
-        let mut generic_type_var_ids: HashMap<Name, TypeId> = HashMap::new();
+        let mut generic_type_vars: FxHashMap<Name, Type> = FxHashMap::default();
+        let mut generic_type_var_ids: FxHashMap<Name, TypeId> = FxHashMap::default();
 
         for gp in generic_params {
             let type_var = self.inference.ctx.fresh_var();
@@ -28,13 +28,16 @@ impl TypeChecker<'_> {
         }
 
         // Step 2: Collect generic bounds with their type variables
+        // Build index for O(1) lookup when merging where clause bounds
         let mut generics = Vec::new();
+        let mut generic_index: FxHashMap<Name, usize> = FxHashMap::default();
         for gp in generic_params {
             let bounds: Vec<Vec<Name>> = gp.bounds.iter().map(ori_ir::TraitBound::path).collect();
             let type_var_id = generic_type_var_ids
                 .get(&gp.name)
                 .copied()
                 .unwrap_or_else(|| self.inference.ctx.fresh_var_id());
+            generic_index.insert(gp.name, generics.len());
             generics.push(GenericBound {
                 param: gp.name,
                 bounds,
@@ -64,12 +67,13 @@ impl TypeChecker<'_> {
                 });
             } else {
                 // Non-projection constraint: where T: Eq
-                // Merge into generics as before
-                if let Some(gb) = generics.iter_mut().find(|g| g.param == wc.param) {
+                // Merge into generics using O(1) index lookup
+                if let Some(&idx) = generic_index.get(&wc.param) {
                     for bound in &wc.bounds {
-                        gb.bounds.push(bound.path());
+                        generics[idx].bounds.push(bound.path());
                     }
                 } else {
+                    generic_index.insert(wc.param, generics.len());
                     generics.push(GenericBound {
                         param: wc.param,
                         bounds,

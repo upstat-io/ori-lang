@@ -175,7 +175,11 @@ pub(super) fn field_width<I: StringLookup>(
     if receiver_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
     }
-    let paren_w = if receiver_needs_parens(calc, receiver) { 2 } else { 0 };
+    let paren_w = if receiver_needs_parens(calc, receiver) {
+        2
+    } else {
+        0
+    };
     let field_w = calc.interner.lookup(field).len();
     paren_w + receiver_w + 1 + field_w
 }
@@ -192,7 +196,11 @@ pub(super) fn index_width<I: StringLookup>(
     if receiver_w == ALWAYS_STACKED || index_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
     }
-    let paren_w = if receiver_needs_parens(calc, receiver) { 2 } else { 0 };
+    let paren_w = if receiver_needs_parens(calc, receiver) {
+        2
+    } else {
+        0
+    };
     // (receiver)[index] or receiver[index]
     paren_w + receiver_w + 1 + index_w + 1
 }

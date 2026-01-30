@@ -11,7 +11,7 @@
 //! - `DiagnosticState`: Error collection and diagnostic queue
 //! - `ScopeContext`: Function signatures, impl Self type, config types, capabilities
 
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_diagnostic::queue::DiagnosticQueue;
 use ori_ir::{ExprArena, Name, StringInterner, TypeId};
@@ -47,7 +47,7 @@ pub struct InferenceState {
     /// Frozen base environment for child scope creation.
     pub base_env: Option<TypeEnv>,
     /// Inferred types for expressions (stored as `TypeId` for efficiency).
-    pub expr_types: HashMap<usize, TypeId>,
+    pub expr_types: FxHashMap<usize, TypeId>,
 }
 
 impl InferenceState {
@@ -57,7 +57,7 @@ impl InferenceState {
             ctx: InferenceContext::new(),
             env: TypeEnv::new(),
             base_env: None,
-            expr_types: HashMap::new(),
+            expr_types: FxHashMap::default(),
         }
     }
 
@@ -70,7 +70,7 @@ impl InferenceState {
             ctx: InferenceContext::with_interner(interner.clone()),
             env: TypeEnv::with_interner(interner),
             base_env: None,
-            expr_types: HashMap::new(),
+            expr_types: FxHashMap::default(),
         }
     }
 }
@@ -151,15 +151,15 @@ impl Default for DiagnosticState {
 #[derive(Default)]
 pub struct ScopeContext {
     /// Function signatures for constraint checking during calls.
-    pub function_sigs: HashMap<Name, FunctionType>,
+    pub function_sigs: FxHashMap<Name, FunctionType>,
     /// The Self type when inside an impl block.
     pub current_impl_self: Option<Type>,
     /// Config variable types for $name references.
-    pub config_types: HashMap<Name, Type>,
+    pub config_types: FxHashMap<Name, Type>,
     /// Capabilities declared by the current function (from `uses` clause).
-    pub current_function_caps: HashSet<Name>,
+    pub current_function_caps: FxHashSet<Name>,
     /// Capabilities currently provided by `with...in` expressions in scope.
-    pub provided_caps: HashSet<Name>,
+    pub provided_caps: FxHashSet<Name>,
     /// The type of the current function being checked.
     /// Used for patterns like `recurse` that need `self` to have the enclosing function's signature.
     pub current_function_type: Option<Type>,
@@ -169,11 +169,11 @@ impl ScopeContext {
     /// Create a new scope context.
     pub fn new() -> Self {
         Self {
-            function_sigs: HashMap::new(),
+            function_sigs: FxHashMap::default(),
             current_impl_self: None,
-            config_types: HashMap::new(),
-            current_function_caps: HashSet::new(),
-            provided_caps: HashSet::new(),
+            config_types: FxHashMap::default(),
+            current_function_caps: FxHashSet::default(),
+            provided_caps: FxHashSet::default(),
             current_function_type: None,
         }
     }

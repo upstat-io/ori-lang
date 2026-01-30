@@ -59,6 +59,31 @@ pub fn suggest_function(checker: &TypeChecker<'_>, unknown_name: Name) -> Option
     suggest_similar(unknown_str, candidates)
 }
 
+/// Suggest a similar type name.
+///
+/// Searches the type registry for type names similar to the given unknown type.
+///
+/// # Arguments
+///
+/// * `checker` - The type checker (provides access to interner and type registry)
+/// * `unknown_type` - The unknown type name
+///
+/// # Returns
+///
+/// An optional suggestion string if a similar type name is found.
+pub fn suggest_type(checker: &TypeChecker<'_>, unknown_type: Name) -> Option<String> {
+    let unknown_str = checker.context.interner.lookup(unknown_type);
+
+    // Get all registered type names
+    let candidates = checker
+        .registries
+        .types
+        .names()
+        .map(|name| checker.context.interner.lookup(name));
+
+    suggest_similar(unknown_str, candidates)
+}
+
 /// Suggest a similar struct field name.
 ///
 /// Searches for field names similar to the given unknown field within a struct type.
@@ -72,7 +97,11 @@ pub fn suggest_function(checker: &TypeChecker<'_>, unknown_name: Name) -> Option
 /// # Returns
 ///
 /// An optional suggestion string if a similar field name is found.
-pub fn suggest_field(checker: &TypeChecker<'_>, type_name: Name, unknown_field: Name) -> Option<String> {
+pub fn suggest_field(
+    checker: &TypeChecker<'_>,
+    type_name: Name,
+    unknown_field: Name,
+) -> Option<String> {
     let unknown_str = checker.context.interner.lookup(unknown_field);
 
     let entry = checker.registries.types.get_by_name(type_name)?;

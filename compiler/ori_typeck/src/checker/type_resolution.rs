@@ -7,7 +7,7 @@
 
 use ori_ir::{Name, ParsedType, ParsedTypeId, ParsedTypeRange, TypeId};
 use ori_types::Type;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use super::TypeChecker;
 
@@ -54,7 +54,7 @@ impl TypeChecker<'_> {
     pub(crate) fn resolve_parsed_type_with_generics(
         &mut self,
         parsed: &ParsedType,
-        generic_type_vars: &HashMap<Name, Type>,
+        generic_type_vars: &FxHashMap<Name, Type>,
     ) -> Type {
         self.resolve_parsed_type_internal(parsed, Some(generic_type_vars))
     }
@@ -66,7 +66,7 @@ impl TypeChecker<'_> {
     fn resolve_parsed_type_internal(
         &mut self,
         parsed: &ParsedType,
-        generic_type_vars: Option<&HashMap<Name, Type>>,
+        generic_type_vars: Option<&FxHashMap<Name, Type>>,
     ) -> Type {
         match parsed {
             ParsedType::Primitive(type_id) => self.type_id_to_type(*type_id),
@@ -121,7 +121,7 @@ impl TypeChecker<'_> {
     fn resolve_parsed_type_id(
         &mut self,
         id: ParsedTypeId,
-        generic_type_vars: Option<&HashMap<Name, Type>>,
+        generic_type_vars: Option<&FxHashMap<Name, Type>>,
     ) -> Type {
         let parsed = self.context.arena.get_parsed_type(id);
         self.resolve_parsed_type_internal(parsed, generic_type_vars)
@@ -131,7 +131,7 @@ impl TypeChecker<'_> {
     fn resolve_type_range(
         &mut self,
         range: ParsedTypeRange,
-        generic_type_vars: Option<&HashMap<Name, Type>>,
+        generic_type_vars: Option<&FxHashMap<Name, Type>>,
     ) -> Vec<Type> {
         let ids = self.context.arena.get_parsed_type_list(range);
         ids.iter()
@@ -147,7 +147,7 @@ impl TypeChecker<'_> {
         &mut self,
         name: Name,
         type_args: ParsedTypeRange,
-        generic_type_vars: Option<&HashMap<Name, Type>>,
+        generic_type_vars: Option<&FxHashMap<Name, Type>>,
     ) -> Type {
         let name_str = self.context.interner.lookup(name);
         let arg_ids = self.context.arena.get_parsed_type_list(type_args);
@@ -216,7 +216,7 @@ impl TypeChecker<'_> {
         &mut self,
         base_id: ParsedTypeId,
         assoc_name: Name,
-        generic_type_vars: Option<&HashMap<Name, Type>>,
+        generic_type_vars: Option<&FxHashMap<Name, Type>>,
     ) -> Type {
         // Associated type projection like Self.Item or T.Item
         // The base type is converted, and we create a Projection type.

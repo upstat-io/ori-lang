@@ -37,9 +37,19 @@ impl Render for SemanticProblem {
                 diag
             }
 
-            SemanticProblem::UnknownConfig { span, name } => Diagnostic::error(ErrorCode::E2003)
-                .with_message(format!("unknown config `${name}`"))
-                .with_label(*span, "config not found"),
+            SemanticProblem::UnknownConfig {
+                span,
+                name,
+                similar,
+            } => {
+                let mut diag = Diagnostic::error(ErrorCode::E2003)
+                    .with_message(format!("unknown config `${name}`"))
+                    .with_label(*span, "config not found");
+                if let Some(suggestion) = similar {
+                    diag = diag.with_suggestion(format!("did you mean `${suggestion}`?"));
+                }
+                diag
+            }
 
             SemanticProblem::DuplicateDefinition {
                 span,

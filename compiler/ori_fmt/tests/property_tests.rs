@@ -174,7 +174,11 @@ fn binary_op_strategy() -> impl Strategy<Value = String> {
 
 /// Generate a binary expression.
 fn binary_expr_strategy() -> BoxedStrategy<String> {
-    (simple_expr_strategy(), binary_op_strategy(), simple_expr_strategy())
+    (
+        simple_expr_strategy(),
+        binary_op_strategy(),
+        simple_expr_strategy(),
+    )
         .prop_map(|(left, op, right)| format!("{} {} {}", left, op, right))
         .boxed()
 }
@@ -325,11 +329,7 @@ fn parse_and_format(source: &str) -> Result<String, String> {
     let output = ori_parse::parse(&tokens, &interner);
 
     if output.has_errors() {
-        let errors: Vec<String> = output
-            .errors
-            .iter()
-            .map(|e| format!("{:?}", e))
-            .collect();
+        let errors: Vec<String> = output.errors.iter().map(|e| format!("{:?}", e)).collect();
         return Err(format!("Parse errors:\n{}", errors.join("\n")));
     }
 
@@ -617,10 +617,18 @@ fn match_expr_strategy() -> impl Strategy<Value = String> {
 fn for_expr_strategy() -> impl Strategy<Value = String> {
     prop_oneof![
         // for...do
-        (identifier_strategy(), identifier_strategy(), simple_expr_strategy())
+        (
+            identifier_strategy(),
+            identifier_strategy(),
+            simple_expr_strategy()
+        )
             .prop_map(|(var, iter, body)| format!("for {} in {} do {}", var, iter, body)),
         // for...yield
-        (identifier_strategy(), identifier_strategy(), simple_expr_strategy())
+        (
+            identifier_strategy(),
+            identifier_strategy(),
+            simple_expr_strategy()
+        )
             .prop_map(|(var, iter, body)| format!("for {} in {} yield {}", var, iter, body)),
     ]
 }
@@ -1642,7 +1650,8 @@ fn test_trait_multiple_methods() {
 
 #[test]
 fn test_trait_with_default() {
-    let source = "trait WithDefault {\n    @required (self) -> int\n    @optional (self) -> int = 0\n}";
+    let source =
+        "trait WithDefault {\n    @required (self) -> int\n    @optional (self) -> int = 0\n}";
     test_idempotence(source).expect("trait with default should be idempotent");
 }
 
@@ -1749,7 +1758,8 @@ fn test_function_public() {
 #[test]
 fn test_function_all_features() {
     // Order: generics, params, return, uses, where, body
-    let source = "pub @complex<T, U> (a: T, b: U) -> T uses Http where T: Clone, U: Default = a.clone()";
+    let source =
+        "pub @complex<T, U> (a: T, b: U) -> T uses Http where T: Clone, U: Default = a.clone()";
     test_idempotence(source).expect("function with all features should be idempotent");
 }
 
@@ -1974,13 +1984,12 @@ fn import_strategy() -> impl Strategy<Value = String> {
 
 /// Generate a test declaration.
 fn test_decl_strategy() -> impl Strategy<Value = String> {
-    (identifier_strategy(), identifier_strategy())
-        .prop_map(|(test_name, target)| {
-            format!(
-                "@{} tests @{} () -> void = assert(condition: true)",
-                test_name, target
-            )
-        })
+    (identifier_strategy(), identifier_strategy()).prop_map(|(test_name, target)| {
+        format!(
+            "@{} tests @{} () -> void = assert(condition: true)",
+            test_name, target
+        )
+    })
 }
 
 /// Generate a public function.

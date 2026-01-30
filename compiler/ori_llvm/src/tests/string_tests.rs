@@ -33,7 +33,9 @@ fn test_string_literal() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("String IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("String IR:\n{}", codegen.print_to_string());
+    }
 
     // Verify IR contains string constant
     let ir = codegen.print_to_string();
@@ -86,7 +88,9 @@ fn test_string_multiple() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Multiple Strings IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Multiple Strings IR:\n{}", codegen.print_to_string());
+    }
 
     // Verify only one global string constant declaration
     let ir = codegen.print_to_string();
@@ -131,7 +135,9 @@ fn test_string_empty() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Empty String IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Empty String IR:\n{}", codegen.print_to_string());
+    }
 
     // Verify IR contains zero length
     let ir = codegen.print_to_string();
