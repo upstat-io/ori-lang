@@ -87,6 +87,21 @@ let f = () -> x + 1  // f contains a copy of 5, not a reference to x
 
 This eliminates the most common source of cycles in functional-style code.
 
+### Closure Representation
+
+A closure is represented as a struct containing captured values:
+
+```ori
+let x = 10
+let y = "hello"
+let f = () -> `{y}: {x}`
+
+// f is approximately:
+// type _Closure_f = { captured_x: int, captured_y: str }
+```
+
+For reference-counted types (lists, maps, custom types), the closure stores the reference (incrementing the reference count), not a deep copy of the data.
+
 ### Self-Referential Types Forbidden
 
 The one place cycles could form is in user-defined recursive types:

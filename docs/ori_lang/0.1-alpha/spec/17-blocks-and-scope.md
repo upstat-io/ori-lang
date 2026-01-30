@@ -104,7 +104,7 @@ The shadowed binding becomes inaccessible; there is no way to refer to it.
 
 ## Lambda Capture
 
-Lambdas capture variables from enclosing scopes by value.
+Lambdas capture variables from enclosing scopes by value. A _captured variable_ is a _free variable_ (referenced but not defined within the lambda) that exists in an enclosing scope.
 
 ```ori
 run(
@@ -114,30 +114,92 @@ run(
 )
 ```
 
-### Capture Semantics
+### What Gets Captured
 
-Capture is a snapshot at lambda creation time:
+A lambda captures all free variables referenced in its body:
 
 ```ori
 run(
-    let mut x = 10,
-    let f = () -> x * 2,  // captures x = 10
-    x = 20,
-    f(),  // returns 20, not 40
+    let a = 1,
+    let b = 2,
+    let c = 3,
+    let f = () -> a + b,  // captures a and b, not c
+    f(),
 )
 ```
+
+Variables not referenced are not captured.
+
+### Capture Timing
+
+Capture occurs at the moment of lambda creation, not at invocation:
+
+```ori
+run(
+    let closures = [],
+    for i in 0..3 do
+        closures = closures + [() -> i],  // each captures current i
+
+    closures[0](),  // 0
+    closures[1](),  // 1
+    closures[2](),  // 2
+)
+```
+
+### Capture Semantics
+
+Capture is a snapshot at lambda creation time. Reassigning the outer binding does not affect the captured value:
+
+```ori
+run(
+    let x = 10,
+    let f = () -> x * 2,  // captures x = 10
+    x = 20,               // reassigns x in outer scope
+    f(),                  // returns 20, not 40
+)
+```
+
+### Immutability of Captured Bindings
 
 Lambdas cannot mutate captured bindings:
 
 ```ori
 run(
-    let mut x = 0,
-    let inc = () -> x = x + 1,  // error: cannot mutate outer scope
+    let x = 0,
+    let inc = () -> x = x + 1,  // error: cannot mutate captured binding
     inc(),
 )
 ```
 
-This restriction prevents side effects through closures.
+This restriction prevents side effects through closures and ensures ARC safety.
+
+A lambda may shadow a captured binding with a local one:
+
+```ori
+run(
+    let x = 10,
+    let f = () -> run(
+        let x = 20,  // shadows captured x
+        x,
+    ),
+    f(),  // returns 20
+)
+```
+
+### Escaping Closures
+
+An _escaping closure_ outlives the scope in which it was created:
+
+```ori
+@make_adder (n: int) -> (int) -> int =
+    x -> x + n  // escapes: returned from function
+```
+
+Because closures capture by value, escaping is always safe. The closure owns its captured data; no dangling references are possible.
+
+### Task Boundary Restrictions
+
+Closures passed to task-spawning patterns (`parallel`, `spawn`, `nursery`) must capture only `Sendable` values. Captured values are moved into the task, making the original binding inaccessible. See [Concurrency Model § Capture and Ownership](23-concurrency-model.md#capture-and-ownership).
 
 ## Nested Scopes
 

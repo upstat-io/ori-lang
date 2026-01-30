@@ -5,6 +5,7 @@
 > **PROPOSALS**:
 > - `docs/ori_lang/proposals/approved/sendable-channels-proposal.md`
 > - `docs/ori_lang/proposals/approved/task-async-context-proposal.md`
+> - `docs/ori_lang/proposals/approved/closure-capture-semantics-proposal.md`
 
 **Dependencies**: Phase 16 (Async Support)
 
@@ -44,6 +45,23 @@ Foundational definitions for tasks, async contexts, and suspension points that t
 - [ ] **Implement**: Async propagation checking
   - [ ] **Rust Tests**: `oric/src/typeck/concurrency/propagation.rs` — async propagation
   - [ ] **Ori Tests**: `tests/compile-fail/sync_calls_async.ori`
+  - [ ] **LLVM Support**: N/A (compile-time only)
+
+- [ ] **Implement**: Closure capture-by-value semantics — spec/17-blocks-and-scope.md § Lambda Capture
+  - [ ] **Rust Tests**: `oric/src/typeck/closure/capture.rs` — capture-by-value verification
+  - [ ] **Ori Tests**: `tests/spec/closures/capture_by_value.ori`
+  - [ ] **Ori Tests**: `tests/spec/closures/capture_timing.ori`
+  - [ ] **LLVM Support**: LLVM closure capture codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/closure_tests.rs` — capture codegen
+
+- [ ] **Implement**: Closure type inference and coercion — proposals/approved/closure-capture-semantics-proposal.md
+  - [ ] **Rust Tests**: `oric/src/typeck/closure/types.rs` — closure type tests
+  - [ ] **Ori Tests**: `tests/spec/closures/closure_types.ori`
+  - [ ] **LLVM Support**: N/A (compile-time only)
+
+- [ ] **Implement**: Captured binding immutability check — spec/17-blocks-and-scope.md § Capture Semantics
+  - [ ] **Rust Tests**: `oric/src/typeck/closure/mutability.rs` — capture mutability check
+  - [ ] **Ori Tests**: `tests/compile-fail/mutate_captured_binding.ori`
   - [ ] **LLVM Support**: N/A (compile-time only)
 
 - [ ] **Implement**: Task capture ownership transfer

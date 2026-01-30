@@ -328,6 +328,15 @@
 - Atomic reference counting for cross-task values
 - Blocked on: Phase 16 (Async Support)
 
+**Closure Capture Semantics** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/closure-capture-semantics-proposal.md`
+- Implementation: Phase 17.0
+- Formalizes capture-by-value semantics and capture timing
+- Captured bindings are immutable within closures
+- Task closures require Sendable captures with move semantics
+- Closure types inferred, coerce to function types
+- Blocked on: None (formalizes existing spec)
+
 **Capability Composition Rules** — ✅ APPROVED 2026-01-29
 - Proposal: `proposals/approved/capability-composition-proposal.md`
 - Implementation: Phase 6.11
