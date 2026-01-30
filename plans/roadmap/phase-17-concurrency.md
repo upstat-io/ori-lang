@@ -4,6 +4,7 @@
 
 > **PROPOSALS**:
 > - `docs/ori_lang/proposals/approved/sendable-channels-proposal.md`
+> - `docs/ori_lang/proposals/approved/sendable-interior-mutability-proposal.md`
 > - `docs/ori_lang/proposals/approved/task-async-context-proposal.md`
 > - `docs/ori_lang/proposals/approved/closure-capture-semantics-proposal.md`
 
@@ -80,6 +81,8 @@ Foundational definitions for tasks, async contexts, and suspension points that t
 
 ## 17.1 Sendable Trait
 
+**Proposal**: `proposals/approved/sendable-interior-mutability-proposal.md`
+
 Auto-implemented marker trait for types that can safely cross task boundaries.
 
 ```ori
@@ -87,12 +90,17 @@ trait Sendable {}
 
 // Automatically Sendable when ALL conditions met:
 // 1. All fields are Sendable
-// 2. No interior mutability
+// 2. No interior mutability (only exists in runtime resources)
 // 3. No non-Sendable captured state (for closures)
 
 type Point = { x: int, y: int }  // Sendable: all fields are int
 type Handle = { file: FileHandle }  // NOT Sendable
+
+// Manual implementation is forbidden
+impl Sendable for MyType { }  // ERROR: cannot implement Sendable manually
 ```
+
+Interior mutability does not exist in user-defined Ori types. Only runtime-provided resources (FileHandle, Socket, etc.) have interior mutability because they wrap OS state. Channel endpoints (Producer, Consumer) ARE Sendable.
 
 ### Implementation
 
