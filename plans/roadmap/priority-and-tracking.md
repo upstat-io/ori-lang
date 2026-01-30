@@ -460,6 +460,17 @@
 - Precision note: integers >2^53 may lose precision
 - Blocked on: None (can be implemented independently)
 
+**std.json FFI** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/stdlib-json-api-ffi-revision.md`
+- Implementation: Phase 7D.7.8
+- Backend: yyjson (native), JavaScript JSON API (WASM), pure Ori (fallback)
+- Native: ~10x faster parsing/serialization via yyjson C library
+- WASM: uses browser's JSON.parse/stringify, converts eagerly to JsonValue tree
+- Pure Ori: complete recursive descent parser for restricted environments
+- Streaming: yyjson tree walking (native), pure Ori (WASM)
+- Design decisions: eager JS→JsonValue conversion for cross-platform consistency
+- Blocked on: Computed Map Keys proposal (for `{[key]: value}` syntax)
+
 **std.fs API** — ✅ APPROVED 2026-01-30
 - Proposal: `proposals/approved/stdlib-fs-api-proposal.md`
 - Implementation: Phase 7.20
