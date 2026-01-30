@@ -867,15 +867,15 @@ const tiers: Tier[] = [
         num: 22,
         name: "Tooling",
         status: "partial",
-        note: "Width calculator complete; formatter/LSP pending",
+        note: "Formatter CLI complete (440 tests); LSP/WASM pending",
         goal: "Developer tooling ecosystem",
         spec: "Implementation-specific",
         sections: [
           { name: "Formatter", tasks: [
             { name: "Width calculation engine", done: true },
-            { name: "ori fmt command", done: false },
-            { name: "ori fmt --check for CI", done: false },
-            { name: "Zero-config formatting", done: false },
+            { name: "ori fmt command", done: true },
+            { name: "ori fmt --check for CI", done: true },
+            { name: "Zero-config formatting", done: true },
           ]},
           { name: "Language Server", tasks: [
             { name: "LSP implementation", done: false },
