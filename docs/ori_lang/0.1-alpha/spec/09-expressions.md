@@ -270,6 +270,37 @@ The `by` keyword specifies a step value for non-unit increments:
 10..0 by 1      // empty range (can't go from 10 to 0 with positive step)
 ```
 
+### Infinite Ranges
+
+Omitting the end creates an unbounded ascending range:
+
+```ori
+0..           // 0, 1, 2, 3, ... (infinite ascending)
+100..         // 100, 101, 102, ... (infinite ascending from 100)
+0.. by 2      // 0, 2, 4, 6, ... (infinite ascending by 2)
+0.. by -1     // 0, -1, -2, ... (infinite descending)
+```
+
+**Type constraints:**
+
+- Infinite ranges are supported only for `int`
+- The step must be non-zero (zero step panics)
+
+**Semantics:**
+
+- `start..` creates an unbounded range with step +1
+- `start.. by step` creates an unbounded range with explicit step
+- Infinite ranges implement `Iterable` but NOT `DoubleEndedIterator` (no end to iterate from)
+
+Infinite ranges must be bounded before terminal operations like `collect()`:
+
+```ori
+(0..).iter().take(count: 10).collect()    // OK: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+(0..).iter().collect()                     // infinite loop, eventually OOM
+```
+
+Implementations SHOULD warn on obvious unbounded consumption patterns.
+
 ## With Expression
 
 ```ori

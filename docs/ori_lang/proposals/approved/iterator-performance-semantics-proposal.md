@@ -1,15 +1,16 @@
 # Proposal: Iterator Performance and Semantics
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-29
-**Affects:** Standard library, compiler optimizations, runtime
+**Approved:** 2026-01-30
+**Affects:** Standard library, compiler optimizations, runtime, syntax (infinite ranges)
 
 ---
 
 ## Summary
 
-This proposal formalizes the performance characteristics and precise semantics of Ori's functional iterator model, addressing the unusual `(Option<Item>, Self)` return type, state copying behavior, and composition guarantees.
+This proposal formalizes the performance characteristics and precise semantics of Ori's functional iterator model, addressing the unusual `(Option<Item>, Self)` return type, state copying behavior, and composition guarantees. It also introduces infinite range syntax (`start..`) for creating unbounded integer sequences.
 
 ---
 
@@ -75,31 +76,29 @@ items.iter()
 
 ---
 
-## Iterator Structure Sizes
+## Iterator Size Guarantees
 
-### Typical Iterator Sizes
+Iterators are designed for stack allocation with minimal overhead:
 
-| Iterator Type | Fields | Approximate Size |
-|---------------|--------|------------------|
-| `ListIterator<T>` | list ref + front index + back index | 24 bytes |
-| `RangeIterator<int>` | current + end + step | 24 bytes |
-| `MapIterator<I, F>` | source iter + transform fn | source + 16 bytes |
-| `FilterIterator<I, F>` | source iter + predicate fn | source + 16 bytes |
-| `TakeIterator<I>` | source iter + remaining count | source + 8 bytes |
+| Iterator Type | Size Guarantee |
+|---------------|----------------|
+| Base iterators (ListIterator, RangeIterator) | O(1) fixed size |
+| Adaptor iterators (MapIterator, FilterIterator) | Source size + O(1) |
+| Chained adaptors | O(depth) where depth = number of adaptors |
 
-### Chain Size
+All iterator types are fixed-size at compile time. No iterator stores unbounded data.
 
-Iterator chains grow linearly with the number of adaptors:
+**Example chain:**
 
 ```ori
-items.iter()          // ~24 bytes
-    .map(...)         // +16 bytes
-    .filter(...)      // +16 bytes
-    .take(...)        // +8 bytes
-// Total: ~64 bytes
+items.iter()          // O(1)
+    .map(...)         // O(1) additional
+    .filter(...)      // O(1) additional
+    .take(...)        // O(1) additional
+// Total: O(4) = O(1) — four fixed-size structs
 ```
 
-All stack-allocated in normal usage.
+> **Note:** On typical 64-bit platforms, base iterators are approximately 24 bytes, and adaptor iterators add approximately 8-16 bytes each.
 
 ---
 
@@ -253,7 +252,7 @@ let reversed = [1, 2, 3].iter().rev()
 
 ### Guaranteed Optimizations
 
-The compiler performs these optimizations:
+The compiler MUST perform these optimizations:
 
 | Optimization | Description |
 |--------------|-------------|
@@ -289,13 +288,44 @@ These may be added in future compiler versions but are not part of the language 
 
 ---
 
+## Infinite Ranges
+
+### Syntax
+
+The `start..` syntax creates an unbounded ascending integer range:
+
+```ori
+0..       // 0, 1, 2, 3, ... (infinite ascending)
+100..     // 100, 101, 102, ... (infinite ascending from 100)
+```
+
+Infinite ranges always ascend with step +1 by default. For descending infinite sequences, use an explicit step:
+
+```ori
+0.. by -1     // 0, -1, -2, -3, ... (infinite descending)
+100.. by -2   // 100, 98, 96, ... (infinite descending by 2)
+```
+
+### Constraints
+
+- Infinite ranges are supported only for `int`
+- The step must be explicitly positive for ascending or negative for descending
+- `start.. by 0` panics (zero step is invalid for any range)
+
+### Type
+
+An infinite range has type `Range<int>` and implements `Iterable` but NOT `DoubleEndedIterator` (no end to iterate from).
+
+---
+
 ## Infinite Iterator Handling
 
 ### Creating Infinite Iterators
 
 ```ori
 let zeros = repeat(value: 0)          // Infinite zeros
-let naturals = (0..).iter()            // 0, 1, 2, 3, ... (if supported)
+let naturals = (0..).iter()           // 0, 1, 2, 3, ...
+let evens = (0.. by 2).iter()         // 0, 2, 4, 6, ...
 let cycling = [1, 2, 3].iter().cycle() // 1, 2, 3, 1, 2, 3, ...
 ```
 
@@ -316,13 +346,27 @@ repeat(value: 1).find(predicate: x -> x > 0)  // Returns Some(1) immediately
 repeat(value: 0).collect()  // Never terminates, eventually OOM
 ```
 
-### No Automatic Detection
+### Infinite Iteration Detection
 
-The compiler does NOT detect infinite iteration — this is the developer's responsibility:
+The compiler does not automatically prevent infinite iteration. However, implementations SHOULD warn on obvious infinite patterns:
+
+**Recommended warnings:**
+- `repeat(...).collect()` without `take`
+- `repeat(...).fold(...)` without bounds
+- `iter.cycle().collect()` without `take`
+- Unbounded range (e.g., `(0..).collect()`) without `take`
+
+These warnings are advisory. Developers may intentionally use infinite iteration with short-circuiting operations like `find` or `any`.
 
 ```ori
-// Compiles but doesn't terminate:
-repeat(value: 0).fold(initial: 0, op: (a, b) -> a + b)
+// Warning: unbounded collect on infinite iterator
+repeat(value: 0).collect()
+
+// OK: bounded by take
+repeat(value: 0).take(count: 100).collect()
+
+// OK: short-circuits (intentional infinite iteration)
+repeat(value: 0).find(predicate: x -> x > 0)
 ```
 
 ---
@@ -368,20 +412,37 @@ let sum = squared.iter().fold(initial: 0, op: add)
 
 ## Spec Changes Required
 
-### Update Iterator Traits Section
+### `06-types.md`
 
-Add:
+Add infinite range type:
+- `Range<int>` unbounded variant for `start..` syntax
+- Document that unbounded ranges are only iterable, not finite
+
+### `09-expressions.md`
+
+Add infinite range literal syntax:
+- `start..` creates unbounded ascending range with step 1
+- `start.. by step` creates unbounded range with explicit step (step must be non-zero)
+
+### `12-modules.md` (Prelude)
+
+No changes needed (Iterator traits already in prelude from Iterator Traits proposal).
+
+### `grammar.ebnf`
+
+Update range expression to allow omitted end:
+```ebnf
+range_expr = expr ".." [ expr ] [ "by" expr ] .
+```
+
+### Performance Appendix (new section or in existing spec)
+
 1. Copy elision guarantee
 2. Lazy evaluation guarantee
-3. Fused iterator requirement
+3. Fused iterator requirement (already in Iterator Traits, cross-reference)
 4. Performance complexity table
-
-### Add Performance Appendix
-
-Document:
-1. Iterator structure sizes
-2. Optimization guarantees
-3. Infinite iterator warnings
+5. Optimization guarantees
+6. Infinite iterator lint recommendations
 
 ---
 
@@ -396,5 +457,6 @@ Document:
 | Memory | O(chain depth) stack, no heap |
 | Complexity | O(1) per next() for most adaptors |
 | Optimizations | Copy elision, inlining, fusion guaranteed |
-| Infinite iterators | Developer responsibility to bound |
+| Infinite ranges | `start..` syntax for unbounded ascending int ranges |
+| Infinite iterators | Developer responsibility to bound; lint warnings recommended |
 | Double-ended | O(1) for rev(), efficient last() |

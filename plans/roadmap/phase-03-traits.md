@@ -422,6 +422,59 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
 
 ---
 
+## 3.8.1 Iterator Performance and Semantics
+
+**Proposal**: `proposals/approved/iterator-performance-semantics-proposal.md`
+
+Formalizes the performance characteristics and precise semantics of Ori's functional iterator model. Specifies copy elision guarantees, lazy evaluation, compiler optimizations, and introduces infinite range syntax (`start..`).
+
+### Implementation
+
+- [ ] **Implement**: Copy elision for iterator rebinding patterns
+  - [ ] **Rust Tests**: `oric/src/eval/tests/` — copy elision verification
+  - [ ] **Ori Tests**: `tests/spec/traits/iterator/copy_elision.ori`
+  - [ ] **LLVM Support**: LLVM codegen respects copy elision
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+
+- [ ] **Implement**: Infinite range syntax `start..` in lexer/parser
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — infinite range parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/infinite_range.ori`
+  - [ ] **LLVM Support**: LLVM codegen for infinite ranges
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_tests.rs`
+
+- [ ] **Implement**: Infinite range with step `start.. by step`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — infinite range step parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/infinite_range_step.ori`
+  - [ ] **LLVM Support**: LLVM codegen for stepped infinite ranges
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_tests.rs`
+
+- [ ] **Implement**: Infinite range iteration (implements Iterable but NOT DoubleEndedIterator)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — infinite range trait bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/iterator/infinite_range.ori`
+  - [ ] **LLVM Support**: LLVM codegen for infinite range iteration
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+
+- [ ] **Implement**: Lint warnings for obvious infinite iteration patterns (SHOULD warn)
+  - [ ] `repeat(...).collect()` without `take`
+  - [ ] `(start..).collect()` without `take`
+  - [ ] `iter.cycle().collect()` without `take`
+  - [ ] **Rust Tests**: `oric/src/lint/tests.rs` — infinite iteration lint tests
+  - [ ] **Ori Tests**: `tests/lint/infinite_iteration.ori`
+
+- [ ] **Implement**: Guaranteed compiler optimizations
+  - [ ] Copy elision when iterator rebound immediately
+  - [ ] Inline expansion for iterator methods
+  - [ ] Deforestation (intermediate iterator elimination)
+  - [ ] Loop fusion (adjacent maps/filters combined)
+  - [ ] **Rust Tests**: `ori_llvm/tests/optimization_tests.rs`
+
+- [ ] **Update Spec**: `06-types.md` — add infinite range type variant
+- [ ] **Update Spec**: `09-expressions.md` — add infinite range syntax section
+- [ ] **Update Spec**: `grammar.ebnf` — update range_expr production
+- [ ] **Update**: `CLAUDE.md` — add infinite range syntax and iterator performance notes
+
+---
+
 ## 3.9 Debug Trait
 
 **Proposal**: `proposals/approved/debug-trait-proposal.md`
