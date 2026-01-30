@@ -106,6 +106,119 @@ Match patterns include: literals, identifiers, wildcards (`_`), variant patterns
 
 Match must be exhaustive.
 
+#### Exhaustiveness Checking
+
+A match expression is _exhaustive_ if every possible value of the scrutinee type matches at least one pattern arm. The compiler uses pattern matrix decomposition to verify exhaustiveness.
+
+For each type, the compiler knows its constructors:
+- `bool`: `true`, `false`
+- `Option<T>`: `Some(_)`, `None`
+- `Result<T, E>`: `Ok(_)`, `Err(_)`
+- Sum types: all declared variants
+- Integers: infinite (requires wildcard)
+- Strings: infinite (requires wildcard)
+
+Non-exhaustiveness is a compile-time error. There is no partial match construct.
+
+| Context | Non-Exhaustive | Rationale |
+|---------|---------------|-----------|
+| `match` expression | Error | Must handle all cases to return a value |
+| `let` binding destructure | Error | Must match to bind |
+| Function clause patterns | Error | All clauses together must be exhaustive |
+
+#### Pattern Refutability
+
+An _irrefutable pattern_ always matches. A _refutable pattern_ may fail to match.
+
+Irrefutable patterns:
+- Wildcard (`_`)
+- Variable binding (`x`)
+- Struct with all irrefutable fields (`Point { x, y }`)
+- Tuple with all irrefutable elements (`(a, b)`)
+
+Refutable patterns:
+- Literals (`42`, `"hello"`)
+- Variants (`Some(x)`, `None`)
+- Ranges (`0..10`)
+- Lists with length (`[a, b]`)
+- Guards (`x.match(x > 0)`)
+
+| Context | Requirement |
+|---------|-------------|
+| `match` arm | Any pattern (refutable OK) |
+| `let` binding | Must be irrefutable |
+| Function parameter | Must be irrefutable |
+| `for` loop variable | Must be irrefutable |
+
+#### Guards and Exhaustiveness
+
+Guards are not considered for exhaustiveness checking. The compiler cannot statically verify guard conditions. A match with guards must include a catch-all pattern:
+
+```ori
+// ERROR: guards require catch-all
+match(n,
+    x.match(x > 0) -> "positive",
+    x.match(x < 0) -> "negative",
+    // Error: patterns not exhaustive due to guards
+)
+
+// OK: catch-all ensures exhaustiveness
+match(n,
+    x.match(x > 0) -> "positive",
+    x.match(x < 0) -> "negative",
+    _ -> "zero",
+)
+```
+
+#### Or-Pattern Exhaustiveness
+
+Or-patterns contribute their combined coverage:
+
+```ori
+type Light = Red | Yellow | Green
+
+// Exhaustive via or-pattern
+match(light,
+    Red | Yellow -> "stop",
+    Green -> "go",
+)
+```
+
+Bindings in or-patterns must appear in all alternatives with the same type.
+
+#### At-Pattern Exhaustiveness
+
+At-patterns contribute the same coverage as their inner pattern:
+
+```ori
+match(opt,
+    whole @ Some(x) -> use_both(whole, x),
+    None -> default,  // Required for exhaustiveness
+)
+```
+
+#### List Pattern Exhaustiveness
+
+List patterns match by length:
+
+| Pattern | Matches |
+|---------|---------|
+| `[]` | Empty list only |
+| `[x]` | Exactly one element |
+| `[x, y]` | Exactly two elements |
+| `[x, ..rest]` | One or more elements |
+| `[..rest]` | Any list (including empty) |
+
+To be exhaustive, patterns must cover all lengths.
+
+#### Range Pattern Exhaustiveness
+
+Integer ranges cannot be exhaustive without a wildcard (infinite domain). The compiler warns about overlapping ranges.
+
+#### Unreachable Patterns
+
+The compiler warns about patterns that can never match due to earlier patterns covering all their cases.
+
 ## Recursion (function_exp)
 
 ### recurse

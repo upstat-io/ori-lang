@@ -1,15 +1,16 @@
 # Proposal: Pattern Matching Exhaustiveness
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-29
+**Approved:** 2026-01-30
 **Affects:** Compiler, type system, diagnostics
 
 ---
 
 ## Summary
 
-This proposal specifies the algorithm and rules for pattern matching exhaustiveness checking, including how the compiler determines if all cases are covered, when warnings vs errors are issued, and how pattern features (guards, or-patterns, at-patterns) interact with exhaustiveness.
+This proposal specifies the algorithm and rules for pattern matching exhaustiveness checking, including how the compiler determines if all cases are covered, when errors are issued, and how pattern features (guards, or-patterns, at-patterns) interact with exhaustiveness.
 
 ---
 
@@ -18,7 +19,7 @@ This proposal specifies the algorithm and rules for pattern matching exhaustiven
 The spec mentions pattern matching but lacks:
 
 1. **Exhaustiveness algorithm**: How does the compiler verify all cases are covered?
-2. **Warning vs error policy**: When is non-exhaustiveness an error vs warning?
+2. **Error policy**: When is non-exhaustiveness an error?
 3. **Or-pattern semantics**: How do `A | B` patterns affect exhaustiveness?
 4. **Guard interaction**: How do guards affect exhaustiveness checking?
 5. **Refutability rules**: Which patterns can fail to match?
@@ -61,14 +62,13 @@ For each type, the compiler knows its constructors:
 - Integers: infinite (requires wildcard)
 - Strings: infinite (requires wildcard)
 
-### Error vs Warning Policy
+### Error Policy
 
 | Context | Non-Exhaustive | Rationale |
 |---------|---------------|-----------|
 | `match` expression | **Error** | Must handle all cases to return a value |
 | `let` binding destructure | **Error** | Must match to bind |
 | Function clause patterns | **Error** | All clauses together must be exhaustive |
-| `if let` (future) | N/A | Explicitly partial |
 
 Non-exhaustiveness is always an error in Ori — there is no "partial match" construct.
 
@@ -97,7 +97,7 @@ Patterns that may fail to match:
 | Variant | `Some(x)`, `None` | Yes |
 | Range | `0..10` | Yes |
 | List with length | `[a, b]` | Yes |
-| Guard | `x if x > 0` | Yes |
+| Guard | `x.match(x > 0)` | Yes |
 
 ### Refutability Requirements
 
@@ -169,31 +169,33 @@ match(opt,
 
 ### Syntax
 
+Guards use the `.match(condition)` syntax on bindings:
+
 ```ori
 match(n,
-    x if x > 0 -> "positive",
-    x if x < 0 -> "negative",
+    x.match(x > 0) -> "positive",
+    x.match(x < 0) -> "negative",
     0 -> "zero",
 )
 ```
 
 ### Exhaustiveness with Guards
 
-**Guards are not considered for exhaustiveness checking.** The compiler cannot evaluate arbitrary boolean expressions at compile time.
+**Guards are not considered for exhaustiveness checking.** The compiler cannot statically verify guard conditions, so matches with guards must include a catch-all pattern.
 
 ```ori
-// WARNING: may not be exhaustive
+// ERROR: guards require catch-all
 match(n,
-    x if x > 0 -> "positive",
-    x if x < 0 -> "negative",
-    // Compiler warning: patterns may not be exhaustive
-    // Suggestion: add a catch-all pattern
+    x.match(x > 0) -> "positive",
+    x.match(x < 0) -> "negative",
+    // Error: patterns not exhaustive due to guards
+    // Add a wildcard pattern to ensure all cases are covered
 )
 
-// OK: wildcard makes it exhaustive
+// OK: catch-all ensures exhaustiveness
 match(n,
-    x if x > 0 -> "positive",
-    x if x < 0 -> "negative",
+    x.match(x > 0) -> "positive",
+    x.match(x < 0) -> "negative",
     _ -> "zero",
 )
 ```
@@ -205,7 +207,7 @@ Guards are evaluated only if the structural pattern matches:
 ```ori
 match((x, y),
     (0, _) -> "x is zero",
-    (_, y) if y > 10 -> "y is large",  // Guard only checked if first pattern fails
+    (_, y).match(y > 10) -> "y is large",  // Guard only checked if first pattern fails
     _ -> "other",
 )
 ```
@@ -214,8 +216,8 @@ Guards have access to bindings from the pattern:
 
 ```ori
 match(point,
-    Point { x, y } if x == y -> "diagonal",
-    Point { x, y } if x > y -> "above",
+    Point { x, y }.match(x == y) -> "diagonal",
+    Point { x, y }.match(x > y) -> "above",
     _ -> "below or on",
 )
 ```
@@ -367,7 +369,7 @@ match(color,
 )
 ```
 
-### Warning Levels
+### Diagnostic Levels
 
 | Situation | Diagnostic |
 |-----------|------------|
@@ -375,6 +377,7 @@ match(color,
 | Partially unreachable (overlap) | Warning |
 | Redundant wildcard | Warning |
 | Missing cases | Error |
+| Guards without catch-all | Error |
 
 ---
 
@@ -439,40 +442,40 @@ warning[W0456]: unreachable pattern
    = note: this arm will never be executed
 ```
 
-### Guard Coverage Warning
+### Guard Coverage Error
 
 ```
-warning[W0789]: patterns may not be exhaustive due to guards
+error[E0124]: patterns not exhaustive due to guards
   --> src/main.ori:10:5
    |
 10 |     match(n,
-   |     ^^^^^ cannot determine if guards cover all cases
+   |     ^^^^^ guards prevent exhaustiveness verification
    |
-   = help: consider adding a wildcard pattern `_ ->`
+   = help: add a wildcard pattern `_ ->` to cover remaining cases
 ```
 
 ---
 
 ## Spec Changes Required
 
-### New Section: `XX-pattern-matching.md`
+### Extend `10-patterns.md`
 
-Or extend `10-patterns.md` with:
+Add the following sections:
 1. Exhaustiveness algorithm description
 2. Refutability rules
 3. Or-pattern semantics
-4. Guard interaction
+4. Guard interaction with exhaustiveness
 5. At-pattern semantics
 6. List pattern exhaustiveness
-7. Error/warning policy
+7. Error policy
 
 ### Update Diagnostics
 
 Specify error codes and message formats for:
-- Non-exhaustive match
-- Unreachable pattern
-- Guard coverage warning
-- Overlapping ranges
+- Non-exhaustive match (E0123)
+- Unreachable pattern (W0456)
+- Guard coverage error (E0124)
+- Overlapping ranges (W0457)
 
 ---
 
@@ -483,7 +486,7 @@ Specify error codes and message formats for:
 | Algorithm | Pattern matrix decomposition |
 | Non-exhaustive match | Compile error |
 | Refutable in `let` | Compile error |
-| Guards | Not considered for exhaustiveness |
+| Guards | Not considered for exhaustiveness; require catch-all |
 | Or-patterns | Combined coverage, consistent bindings |
 | At-patterns | Same coverage as inner pattern |
 | List patterns | Must cover all lengths |
