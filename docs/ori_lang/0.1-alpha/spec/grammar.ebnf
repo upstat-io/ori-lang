@@ -129,7 +129,11 @@ size_unit    = "b" | "kb" | "mb" | "gb" .
 // See: 02-source-code.md, 12-modules.md
 // ============================================================================
 
-source_file = { import } { declaration } .
+source_file = [ file_attribute ] { import } { declaration } .
+
+// File-level attribute (conditional compilation)
+// See: 24-conditional-compilation.md § File-Level Conditions
+file_attribute = "#!" identifier "(" [ attribute_arg { "," attribute_arg } ] ")" .
 
 // --- Imports ---
 // See: 12-modules.md § Imports
@@ -159,10 +163,12 @@ extension_item   = identifier "." identifier .
 declaration = { attribute } [ "pub" ] ( function | type_def | trait_def | impl_block | test | constant_decl ) .
 
 // --- Attributes ---
-// See: 08-declarations.md § Attributes
+// See: 08-declarations.md § Attributes, 24-conditional-compilation.md
+// Item-level: #derive(...), #skip(...), #target(...), #cfg(...)
 
 attribute      = "#" identifier [ "(" [ attribute_arg { "," attribute_arg } ] ")" ] .
-attribute_arg  = expression | identifier "=" expression .
+attribute_arg  = expression | identifier ":" expression | array_literal .
+array_literal  = "[" [ string_literal { "," string_literal } ] "]" .
 
 // --- Functions ---
 // See: 08-declarations.md § Functions
