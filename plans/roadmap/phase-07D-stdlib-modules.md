@@ -864,7 +864,299 @@ File system operations including reading, writing, directory manipulation, and f
 
 ---
 
-## 7D.9 Phase Completion Checklist
+## 7D.9 std.crypto Module
+
+**Proposal**: `proposals/approved/stdlib-crypto-api-proposal.md`
+
+Cryptographic primitives including hashing, encryption, signatures, key exchange, and secure random.
+
+### 7D.9.1 Core Types
+
+- [ ] **Implement**: `HashAlgorithm` sum type
+  - `Sha256 | Sha384 | Sha512 | Blake2b | Blake3`
+  - [ ] **Rust Tests**: `library/std/crypto/hash.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/hash.ori`
+  - [ ] **LLVM Support**: LLVM codegen for HashAlgorithm
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — HashAlgorithm codegen
+
+- [ ] **Implement**: `SecretKey` type — symmetric key with auto-zeroization
+  - Fields: `bytes: [byte]`
+  - Implements Drop with memory zeroization
+  - [ ] **Rust Tests**: `library/std/crypto/symmetric.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/symmetric.ori`
+  - [ ] **LLVM Support**: LLVM codegen for SecretKey
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — SecretKey codegen
+
+- [ ] **Implement**: `CryptoError` and `CryptoErrorKind` types
+  - `DecryptionFailed | InvalidKey | InvalidSignature | KeyDerivationFailed | RandomGenerationFailed | KeyExchangeFailed`
+  - [ ] **Rust Tests**: `library/std/crypto/error.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/error.ori`
+  - [ ] **LLVM Support**: LLVM codegen for CryptoError
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — CryptoError codegen
+
+### 7D.9.2 Signing Key Types
+
+- [ ] **Implement**: `SigningAlgorithm` sum type
+  - `Ed25519 | Rsa2048 | Rsa4096`
+  - [ ] **Rust Tests**: `library/std/crypto/signing.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/signing.ori`
+  - [ ] **LLVM Support**: LLVM codegen for SigningAlgorithm
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — SigningAlgorithm codegen
+
+- [ ] **Implement**: `SigningKeyPair`, `SigningPublicKey`, `SigningPrivateKey` types
+  - Private key with auto-zeroization on drop
+  - [ ] **Rust Tests**: `library/std/crypto/signing.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/signing.ori`
+  - [ ] **LLVM Support**: LLVM codegen for signing key types
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — signing key types codegen
+
+### 7D.9.3 Encryption Key Types
+
+- [ ] **Implement**: `EncryptionAlgorithm` sum type
+  - `Rsa2048 | Rsa4096`
+  - [ ] **Rust Tests**: `library/std/crypto/encryption.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/encryption.ori`
+  - [ ] **LLVM Support**: LLVM codegen for EncryptionAlgorithm
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — EncryptionAlgorithm codegen
+
+- [ ] **Implement**: `EncryptionKeyPair`, `EncryptionPublicKey`, `EncryptionPrivateKey` types
+  - Private key with auto-zeroization on drop
+  - [ ] **Rust Tests**: `library/std/crypto/encryption.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/encryption.ori`
+  - [ ] **LLVM Support**: LLVM codegen for encryption key types
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — encryption key types codegen
+
+### 7D.9.4 Key Exchange Types
+
+- [ ] **Implement**: `KeyExchangeAlgorithm` sum type
+  - `X25519`
+  - [ ] **Rust Tests**: `library/std/crypto/key_exchange.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/key_exchange.ori`
+  - [ ] **LLVM Support**: LLVM codegen for KeyExchangeAlgorithm
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — KeyExchangeAlgorithm codegen
+
+- [ ] **Implement**: `KeyExchangeKeyPair`, `KeyExchangePublicKey`, `KeyExchangePrivateKey` types
+  - Private key with auto-zeroization on drop
+  - [ ] **Rust Tests**: `library/std/crypto/key_exchange.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/key_exchange.ori`
+  - [ ] **LLVM Support**: LLVM codegen for key exchange types
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — key exchange types codegen
+
+### 7D.9.5 Hashing API
+
+- [ ] **Implement**: `hash(data: [byte], algorithm: HashAlgorithm = Sha256) -> [byte] uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/hash.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/hash.ori`
+  - [ ] **LLVM Support**: LLVM codegen for hash
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — hash codegen
+
+- [ ] **Implement**: `hash_hex(data: str, algorithm: HashAlgorithm = Sha256) -> str uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/hash.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/hash.ori`
+  - [ ] **LLVM Support**: LLVM codegen for hash_hex
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — hash_hex codegen
+
+- [ ] **Implement**: `hash_password(password: str) -> str uses Crypto`
+  - Uses Argon2id with secure defaults
+  - [ ] **Rust Tests**: `library/std/crypto/password.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/password.ori`
+  - [ ] **LLVM Support**: LLVM codegen for hash_password
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — hash_password codegen
+
+- [ ] **Implement**: `verify_password(password: str, hash: str) -> bool uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/password.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/password.ori`
+  - [ ] **LLVM Support**: LLVM codegen for verify_password
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — verify_password codegen
+
+### 7D.9.6 HMAC API
+
+- [ ] **Implement**: `hmac(key: [byte], data: [byte], algorithm: HashAlgorithm = Sha256) -> [byte] uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/hmac.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/hmac.ori`
+  - [ ] **LLVM Support**: LLVM codegen for hmac
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — hmac codegen
+
+- [ ] **Implement**: `verify_hmac(key: [byte], data: [byte], mac: [byte], algorithm: HashAlgorithm = Sha256) -> bool uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/hmac.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/hmac.ori`
+  - [ ] **LLVM Support**: LLVM codegen for verify_hmac
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — verify_hmac codegen
+
+### 7D.9.7 Symmetric Encryption API
+
+- [ ] **Implement**: `generate_key() -> SecretKey uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/symmetric.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/symmetric.ori`
+  - [ ] **LLVM Support**: LLVM codegen for generate_key
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — generate_key codegen
+
+- [ ] **Implement**: `encrypt(key: SecretKey, plaintext: [byte]) -> [byte] uses Crypto`
+  - Uses AES-256-GCM with random nonce (prepended to ciphertext)
+  - [ ] **Rust Tests**: `library/std/crypto/symmetric.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/symmetric.ori`
+  - [ ] **LLVM Support**: LLVM codegen for encrypt
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — encrypt codegen
+
+- [ ] **Implement**: `decrypt(key: SecretKey, ciphertext: [byte]) -> Result<[byte], CryptoError> uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/symmetric.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/symmetric.ori`
+  - [ ] **LLVM Support**: LLVM codegen for decrypt
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — decrypt codegen
+
+- [ ] **Implement**: `encrypt_with_nonce(key, nonce, plaintext, aad)` and `decrypt_with_nonce(key, nonce, ciphertext, aad)`
+  - [ ] **Rust Tests**: `library/std/crypto/symmetric.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/symmetric_nonce.ori`
+  - [ ] **LLVM Support**: LLVM codegen for encrypt/decrypt with nonce
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — nonce API codegen
+
+### 7D.9.8 Asymmetric Encryption API
+
+- [ ] **Implement**: `generate_encryption_keypair(algorithm: EncryptionAlgorithm = Rsa2048) -> EncryptionKeyPair uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/encryption.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/encryption.ori`
+  - [ ] **LLVM Support**: LLVM codegen for generate_encryption_keypair
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — generate_encryption_keypair codegen
+
+- [ ] **Implement**: `encrypt_for(recipient: EncryptionPublicKey, plaintext: [byte]) -> [byte] uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/encryption.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/encryption.ori`
+  - [ ] **LLVM Support**: LLVM codegen for encrypt_for
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — encrypt_for codegen
+
+- [ ] **Implement**: `decrypt_with(key: EncryptionPrivateKey, ciphertext: [byte]) -> Result<[byte], CryptoError> uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/encryption.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/encryption.ori`
+  - [ ] **LLVM Support**: LLVM codegen for decrypt_with
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — decrypt_with codegen
+
+### 7D.9.9 Digital Signatures API
+
+- [ ] **Implement**: `generate_signing_keypair(algorithm: SigningAlgorithm = Ed25519) -> SigningKeyPair uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/signing.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/signing.ori`
+  - [ ] **LLVM Support**: LLVM codegen for generate_signing_keypair
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — generate_signing_keypair codegen
+
+- [ ] **Implement**: `sign(key: SigningPrivateKey, data: [byte]) -> [byte] uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/signing.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/signing.ori`
+  - [ ] **LLVM Support**: LLVM codegen for sign
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — sign codegen
+
+- [ ] **Implement**: `verify_signature(key: SigningPublicKey, data: [byte], signature: [byte]) -> bool uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/signing.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/signing.ori`
+  - [ ] **LLVM Support**: LLVM codegen for verify_signature
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — verify_signature codegen
+
+### 7D.9.10 Key Exchange API
+
+- [ ] **Implement**: `generate_key_exchange_keypair(algorithm: KeyExchangeAlgorithm = X25519) -> KeyExchangeKeyPair uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/key_exchange.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/key_exchange.ori`
+  - [ ] **LLVM Support**: LLVM codegen for generate_key_exchange_keypair
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — generate_key_exchange_keypair codegen
+
+- [ ] **Implement**: `derive_shared_secret(my_private: KeyExchangePrivateKey, their_public: KeyExchangePublicKey) -> [byte] uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/key_exchange.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/key_exchange.ori`
+  - [ ] **LLVM Support**: LLVM codegen for derive_shared_secret
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — derive_shared_secret codegen
+
+### 7D.9.11 Secure Random API
+
+- [ ] **Implement**: `random_bytes(count: int) -> [byte] uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/random.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/random.ori`
+  - [ ] **LLVM Support**: LLVM codegen for random_bytes
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — random_bytes codegen
+
+- [ ] **Implement**: `random_int(min: int, max: int) -> int uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/random.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/random.ori`
+  - [ ] **LLVM Support**: LLVM codegen for random_int
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — random_int codegen
+
+- [ ] **Implement**: `random_uuid() -> str uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/random.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/random.ori`
+  - [ ] **LLVM Support**: LLVM codegen for random_uuid
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — random_uuid codegen
+
+### 7D.9.12 Key Derivation API
+
+- [ ] **Implement**: `derive_key(password: str, salt: [byte], key_length: int = 32) -> [byte] uses Crypto`
+  - [ ] **Rust Tests**: `library/std/crypto/kdf.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/kdf.ori`
+  - [ ] **LLVM Support**: LLVM codegen for derive_key
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — derive_key codegen
+
+- [ ] **Implement**: `stretch_key(input_key: [byte], info: [byte] = [], length: int = 32) -> [byte] uses Crypto`
+  - Uses HKDF for key derivation
+  - [ ] **Rust Tests**: `library/std/crypto/kdf.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/kdf.ori`
+  - [ ] **LLVM Support**: LLVM codegen for stretch_key
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — stretch_key codegen
+
+### 7D.9.13 Key Serialization
+
+- [ ] **Implement**: `SecretKey.to_bytes()` and `SecretKey.from_bytes()`
+  - [ ] **Rust Tests**: `library/std/crypto/serialization.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/serialization.ori`
+  - [ ] **LLVM Support**: LLVM codegen for SecretKey serialization
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — SecretKey serialization codegen
+
+- [ ] **Implement**: Public/private key PEM serialization
+  - `to_pem()`, `from_pem()`, `to_encrypted_pem()`, `from_encrypted_pem()`
+  - [ ] **Rust Tests**: `library/std/crypto/serialization.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/serialization.ori`
+  - [ ] **LLVM Support**: LLVM codegen for PEM serialization
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — PEM serialization codegen
+
+- [ ] **Implement**: Public/private key byte serialization
+  - `to_bytes()`, `from_bytes()` for all key types
+  - [ ] **Rust Tests**: `library/std/crypto/serialization.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/serialization.ori`
+  - [ ] **LLVM Support**: LLVM codegen for byte serialization
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — byte serialization codegen
+
+### 7D.9.14 Utilities
+
+- [ ] **Implement**: `constant_time_eq(a: [byte], b: [byte]) -> bool uses Crypto`
+  - Timing-attack resistant comparison
+  - [ ] **Rust Tests**: `library/std/crypto/util.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/util.ori`
+  - [ ] **LLVM Support**: LLVM codegen for constant_time_eq
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — constant_time_eq codegen
+
+### 7D.9.15 Crypto Capability
+
+- [ ] **Implement**: `Crypto` capability trait
+  - Non-suspending capability for cryptographic operations
+  - [ ] **Rust Tests**: `oric/src/capabilities/crypto.rs`
+  - [ ] **Ori Tests**: `tests/spec/capabilities/crypto.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Crypto capability
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — Crypto codegen
+
+- [ ] **Implement**: `MockCrypto` for testing
+  - Deterministic random, predictable outputs for test verification
+  - [ ] **Rust Tests**: `library/std/crypto/mock.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/mock.ori`
+  - [ ] **LLVM Support**: LLVM codegen for MockCrypto
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — MockCrypto codegen
+
+### 7D.9.16 Algorithm Deprecation
+
+- [ ] **Implement**: Compiler warning for deprecated algorithms
+  - `#allow(deprecated_algorithm)` to suppress
+  - [ ] **Rust Tests**: `oric/src/diagnostics/deprecated.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/deprecation.ori`
+  - [ ] **LLVM Support**: N/A (compile-time only)
+
+---
+
+## 7D.10 Phase Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
