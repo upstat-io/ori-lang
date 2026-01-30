@@ -709,10 +709,10 @@ mod tests {
     #[test]
     fn test_parse_derive_attribute_no_brackets() {
         let (result, _interner) = parse_with_errors(
-            r#"
+            r"
 #derive(Eq, Clone)
 type Point = { x: int, y: int }
-"#,
+",
         );
 
         assert!(!result.has_errors(), "errors: {:?}", result.errors);

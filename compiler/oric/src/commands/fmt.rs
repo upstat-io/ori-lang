@@ -1,3 +1,15 @@
+// Boolean options are standard for CLI config structs like this
+#![allow(clippy::struct_excessive_bools)]
+// CLI code uses string patterns and format macros extensively
+#![allow(
+    clippy::single_char_pattern,
+    clippy::uninlined_format_args,
+    clippy::format_in_format_args,
+    clippy::manual_let_else,
+    clippy::redundant_closure_for_method_calls,
+    clippy::collapsible_else_if
+)]
+
 //! The `fmt` command: format Ori source files.
 //!
 //! Supports single files, directories, and stdin.

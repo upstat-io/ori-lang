@@ -229,7 +229,7 @@ impl<'a> Interpreter<'a> {
         ensure_sufficient_stack(|| self.eval_inner(expr_id))
     }
 
-    /// Evaluate a list of expressions from an ExprRange.
+    /// Evaluate a list of expressions from an `ExprRange`.
     ///
     /// Helper to reduce repetition in collection and call evaluation.
     fn eval_expr_list(&mut self, range: ori_ir::ExprRange) -> Result<Vec<Value>, EvalError> {
@@ -240,7 +240,7 @@ impl<'a> Interpreter<'a> {
             .collect()
     }
 
-    /// Evaluate call arguments from a CallArgRange.
+    /// Evaluate call arguments from a `CallArgRange`.
     ///
     /// Helper for named argument evaluation in method calls.
     fn eval_call_args(&mut self, range: ori_ir::CallArgRange) -> Result<Vec<Value>, EvalError> {
@@ -782,7 +782,7 @@ impl<'a> Interpreter<'a> {
         crate::exec::control::eval_assign(target, value, self.arena, self.interner, &mut self.env)
     }
 
-    /// Dispatch a method call, handling ModuleNamespace specially.
+    /// Dispatch a method call, handling `ModuleNamespace` specially.
     ///
     /// For module namespaces, looks up the function and calls it directly.
     /// For other receivers, uses `eval_method_call`.

@@ -47,7 +47,7 @@ pub struct TraitRegistry {
     /// Enables O(1) lookup of which traits a type implements, avoiding O(n) scan
     /// of all `trait_impls` entries. Updated when implementations are registered.
     traits_by_type: FxHashMap<Type, Vec<Name>>,
-    /// Secondary index: method_name -> traits with that default method.
+    /// Secondary index: `method_name` -> traits with that default method.
     ///
     /// Enables O(k) lookup of traits with a specific default method, where k is the
     /// number of traits with that default method name. Avoids O(n) scan of all traits.

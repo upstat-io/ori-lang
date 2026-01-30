@@ -637,6 +637,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::items_after_statements)] // Local struct/impl for test clarity
     fn test_type_id_folder_with_interner() {
         let interner = TypeInterner::new();
 

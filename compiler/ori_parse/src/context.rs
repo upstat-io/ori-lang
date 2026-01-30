@@ -61,18 +61,21 @@ impl ParseContext {
 
     /// Add a flag to the context.
     #[inline]
+    #[must_use]
     pub const fn with(self, flag: Self) -> Self {
         Self(self.0 | flag.0)
     }
 
     /// Remove a flag from the context.
     #[inline]
+    #[must_use]
     pub const fn without(self, flag: Self) -> Self {
         Self(self.0 & !flag.0)
     }
 
     /// Combine two contexts (union of flags).
     #[inline]
+    #[must_use]
     pub const fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
     }

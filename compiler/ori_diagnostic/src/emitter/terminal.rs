@@ -43,7 +43,7 @@ pub enum ColorMode {
 
 impl ColorMode {
     /// Resolve to a boolean based on terminal detection.
-    pub fn should_use_colors(&self) -> bool {
+    pub fn should_use_colors(self) -> bool {
         match self {
             ColorMode::Auto => atty_check(),
             ColorMode::Always => true,

@@ -83,7 +83,7 @@ impl Parser<'_> {
     /// Returns `Progress::Made` if tokens were consumed (success or error after consuming).
     #[allow(dead_code)] // Available for expression-level error recovery
     pub(crate) fn parse_expr_with_progress(&mut self) -> ParseResult<ExprId> {
-        self.with_progress(|p| p.parse_expr())
+        self.with_progress(Self::parse_expr)
     }
 
     /// Parse an expression.

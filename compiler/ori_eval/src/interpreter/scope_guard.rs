@@ -61,7 +61,7 @@ impl Drop for ScopedInterpreter<'_, '_> {
     }
 }
 
-impl<'guard, 'interp> Deref for ScopedInterpreter<'guard, 'interp> {
+impl<'interp> Deref for ScopedInterpreter<'_, 'interp> {
     type Target = Interpreter<'interp>;
 
     fn deref(&self) -> &Self::Target {
@@ -69,7 +69,7 @@ impl<'guard, 'interp> Deref for ScopedInterpreter<'guard, 'interp> {
     }
 }
 
-impl<'guard, 'interp> DerefMut for ScopedInterpreter<'guard, 'interp> {
+impl DerefMut for ScopedInterpreter<'_, '_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.interpreter
     }
@@ -208,6 +208,11 @@ impl<'a> Interpreter<'a> {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::semicolon_if_nothing_returned,
+    clippy::items_after_statements,
+    clippy::unnecessary_wraps
+)]
 mod tests {
     use super::*;
     use ori_ir::{ExprArena, SharedInterner};

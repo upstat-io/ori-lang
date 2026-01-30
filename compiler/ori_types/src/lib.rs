@@ -221,11 +221,11 @@ mod tests {
         };
 
         let diag = err.to_diagnostic(Span::new(0, 10), &interner);
-        assert!(diag.message.contains("3"));
-        assert!(diag.message.contains("1"));
+        assert!(diag.message.contains('3'));
+        assert!(diag.message.contains('1'));
         // Should suggest adding 2 missing arguments
         assert!(!diag.suggestions.is_empty());
-        assert!(diag.suggestions[0].contains("2"));
+        assert!(diag.suggestions[0].contains('2'));
     }
 
     #[test]

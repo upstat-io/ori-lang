@@ -30,6 +30,7 @@ impl Progress {
     }
 
     /// Combines two progress values - Made if either made progress.
+    #[must_use]
     pub fn or(self, other: Progress) -> Progress {
         if self.made() || other.made() {
             Progress::Made
@@ -138,6 +139,7 @@ impl<T> ParseResult<T> {
     }
 
     /// Maps the error, preserving progress.
+    #[must_use]
     pub fn map_err<F: FnOnce(ParseError) -> ParseError>(self, f: F) -> Self {
         ParseResult {
             progress: self.progress,
@@ -171,6 +173,7 @@ impl<T> ParseResult<T> {
     /// - If succeeded: return this result
     /// - If failed with progress: return this error (committed)
     /// - If failed without progress: try the alternative
+    #[must_use]
     pub fn or_else<F: FnOnce() -> ParseResult<T>>(self, f: F) -> ParseResult<T> {
         if self.is_ok() || self.made_progress() {
             self
@@ -208,8 +211,8 @@ impl<T> ParseResult<T> {
 }
 
 impl<T> From<Result<T, ParseError>> for ParseResult<T> {
-    /// Converts a Result into a ParseResult with Progress::Made.
-    /// Use this when converting from existing code that returns Result.
+    /// Converts a `Result` into a `ParseResult` with `Progress::Made`.
+    /// Use this when converting from existing code that returns `Result`.
     fn from(result: Result<T, ParseError>) -> Self {
         Self {
             progress: Progress::Made,
@@ -218,15 +221,15 @@ impl<T> From<Result<T, ParseError>> for ParseResult<T> {
     }
 }
 
-/// Extension trait to add progress tracking to Results.
+/// Extension trait to add progress tracking to `Result`s.
 pub trait WithProgress<T> {
-    /// Wraps in ParseResult with Progress::Made.
+    /// Wraps in `ParseResult` with `Progress::Made`.
     fn with_progress_made(self) -> ParseResult<T>;
 
-    /// Wraps in ParseResult with Progress::None.
+    /// Wraps in `ParseResult` with `Progress::None`.
     fn with_progress_none(self) -> ParseResult<T>;
 
-    /// Wraps in ParseResult with specified progress.
+    /// Wraps in `ParseResult` with specified progress.
     fn with_progress(self, progress: Progress) -> ParseResult<T>;
 }
 
@@ -253,7 +256,7 @@ impl<T> WithProgress<T> for Result<T, ParseError> {
     }
 }
 
-/// Macro to extract value from ParseResult, propagating errors with progress.
+/// Macro to extract value from `ParseResult`, propagating errors with progress.
 ///
 /// Works like `?` but for `ParseResult`. If the result is an error, returns
 /// early with the error and accumulated progress.
@@ -289,10 +292,10 @@ macro_rules! try_parse {
     };
 }
 
-/// Macro to extract value from Result, converting to ParseResult with progress.
+/// Macro to extract value from `Result`, converting to `ParseResult` with progress.
 ///
 /// Used when calling methods that still return `Result<T, ParseError>`.
-/// Converts the result to ParseResult, accumulating progress based on
+/// Converts the result to `ParseResult`, accumulating progress based on
 /// whether the parser position changed.
 ///
 /// Usage:

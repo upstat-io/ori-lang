@@ -113,7 +113,7 @@ impl<T> Deref for LocalScope<T> {
 /// A single scope containing variable bindings.
 #[derive(Clone, Debug)]
 pub struct Scope {
-    /// Variable bindings in this scope (FxHashMap for faster hashing with Name keys).
+    /// Variable bindings in this scope (`FxHashMap` for faster hashing with `Name` keys).
     bindings: FxHashMap<Name, Binding>,
     /// Parent scope (for lexical scoping).
     parent: Option<LocalScope<Scope>>,

@@ -6,7 +6,7 @@ use ori_ir::{GenericParamRange, ImplAssocType, ImplDef, ImplMethod, TokenKind};
 impl Parser<'_> {
     /// Parse an impl block with progress tracking.
     pub(crate) fn parse_impl_with_progress(&mut self) -> ParseResult<ImplDef> {
-        self.with_progress(|p| p.parse_impl())
+        self.with_progress(Self::parse_impl)
     }
 
     /// Parse an impl block.

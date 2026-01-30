@@ -69,6 +69,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_possible_truncation)] // Test values fit in u32
     fn test_named_trait() {
         let item = MockNamed {
             name: Name::new(1, 42),

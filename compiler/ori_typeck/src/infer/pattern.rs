@@ -215,7 +215,7 @@ pub fn infer_function_exp(checker: &mut TypeChecker<'_>, func_exp: &FunctionExp)
     }
 
     // Handle scoped bindings: type-check in phases
-    infer_function_exp_with_scoped_bindings(checker, props, &*pattern, scoped_bindings)
+    infer_function_exp_with_scoped_bindings(checker, props, pattern, scoped_bindings)
 }
 
 /// Infer type for a `function_exp` that has scoped bindings.

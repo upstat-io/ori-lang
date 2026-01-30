@@ -56,7 +56,7 @@ impl Drop for ScopedEvaluator<'_, '_> {
     }
 }
 
-impl<'guard, 'eval> Deref for ScopedEvaluator<'guard, 'eval> {
+impl<'eval> Deref for ScopedEvaluator<'_, 'eval> {
     type Target = Evaluator<'eval>;
 
     fn deref(&self) -> &Self::Target {
@@ -64,7 +64,7 @@ impl<'guard, 'eval> Deref for ScopedEvaluator<'guard, 'eval> {
     }
 }
 
-impl<'guard, 'eval> DerefMut for ScopedEvaluator<'guard, 'eval> {
+impl DerefMut for ScopedEvaluator<'_, '_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.evaluator
     }

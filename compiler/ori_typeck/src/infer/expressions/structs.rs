@@ -9,6 +9,7 @@ use crate::suggest::{suggest_field, suggest_type};
 use ori_ir::{FieldInitRange, Name, Span};
 use ori_types::Type;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 
 /// Result of looking up a struct field.
 pub(super) enum FieldLookupResult {
@@ -70,7 +71,7 @@ pub(super) fn handle_struct_field_access(
             let type_name_str = checker.context.interner.lookup(type_name);
             let mut msg = format!("unknown type `{type_name_str}`");
             if let Some(suggestion) = suggest_type(checker, type_name) {
-                msg.push_str(&format!("; did you mean `{suggestion}`?"));
+                let _ = write!(msg, "; did you mean `{suggestion}`?");
             }
             checker.push_error(msg, span, ori_diagnostic::ErrorCode::E2003);
             return Type::Error;
@@ -87,7 +88,7 @@ pub(super) fn handle_struct_field_access(
                 checker.context.interner.lookup(field)
             );
             if let Some(suggestion) = suggest_field(checker, type_name, field) {
-                msg.push_str(&format!("; did you mean `{suggestion}`?"));
+                let _ = write!(msg, "; did you mean `{suggestion}`?");
             }
             checker.push_error(msg, span, ori_diagnostic::ErrorCode::E2001);
             Type::Error
@@ -122,7 +123,7 @@ pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInit
             let name_str = checker.context.interner.lookup(name);
             let mut msg = format!("unknown struct type `{name_str}`");
             if let Some(suggestion) = suggest_type(checker, name) {
-                msg.push_str(&format!("; did you mean `{suggestion}`?"));
+                let _ = write!(msg, "; did you mean `{suggestion}`?");
             }
             checker.push_error(msg, span, ori_diagnostic::ErrorCode::E2003);
 
@@ -230,7 +231,7 @@ pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInit
                 checker.context.interner.lookup(init.name)
             );
             if let Some(suggestion) = suggest_field(checker, name, init.name) {
-                msg.push_str(&format!("; did you mean `{suggestion}`?"));
+                let _ = write!(msg, "; did you mean `{suggestion}`?");
             }
             checker.push_error(msg, init.span, ori_diagnostic::ErrorCode::E2001);
 

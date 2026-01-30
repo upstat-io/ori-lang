@@ -509,6 +509,8 @@ pub fn propagated_error_message(value: &Value) -> String {
 }
 
 #[cfg(test)]
+// Tests check specific characters/numbers in error messages
+#[allow(clippy::single_char_pattern, clippy::uninlined_format_args)]
 mod tests {
     use super::*;
 

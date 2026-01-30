@@ -254,6 +254,6 @@ impl Parser<'_> {
     /// which is resolved to the receiver's length during evaluation.
     fn parse_index_expr(&mut self) -> Result<ExprId, ParseError> {
         use crate::context::ParseContext;
-        self.with_context(ParseContext::IN_INDEX, |p| p.parse_expr())
+        self.with_context(ParseContext::IN_INDEX, Self::parse_expr)
     }
 }

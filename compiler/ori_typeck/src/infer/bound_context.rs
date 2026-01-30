@@ -94,15 +94,15 @@ impl<'a> BoundContext<'a> {
     }
 
     /// Check if a name is bound (in any scope or the base set).
-    pub fn contains(&self, name: &Name) -> bool {
+    pub fn contains(&self, name: Name) -> bool {
         // Check scopes in reverse order (innermost first)
         for scope in self.scopes.iter().rev() {
-            if scope.contains(name) {
+            if scope.contains(&name) {
                 return true;
             }
         }
         // Check base set
-        self.base.contains(name)
+        self.base.contains(&name)
     }
 
     /// Execute a closure with a new scope, automatically popping when done.
@@ -150,9 +150,9 @@ mod tests {
 
         let ctx = BoundContext::new(&base);
 
-        assert!(ctx.contains(&x));
-        assert!(ctx.contains(&y));
-        assert!(!ctx.contains(&z));
+        assert!(ctx.contains(x));
+        assert!(ctx.contains(y));
+        assert!(!ctx.contains(z));
     }
 
     #[test]
@@ -165,14 +165,14 @@ mod tests {
         let mut ctx = BoundContext::new(&base);
 
         ctx.push_scope();
-        assert!(!ctx.contains(&x));
+        assert!(!ctx.contains(x));
 
         ctx.add_binding(x);
-        assert!(ctx.contains(&x));
-        assert!(!ctx.contains(&y));
+        assert!(ctx.contains(x));
+        assert!(!ctx.contains(y));
 
         ctx.pop_scope();
-        assert!(!ctx.contains(&x));
+        assert!(!ctx.contains(x));
     }
 
     #[test]
@@ -187,21 +187,21 @@ mod tests {
 
         ctx.push_scope();
         ctx.add_binding(a);
-        assert!(ctx.contains(&a));
-        assert!(!ctx.contains(&b));
+        assert!(ctx.contains(a));
+        assert!(!ctx.contains(b));
 
         ctx.push_scope();
         ctx.add_binding(b);
-        assert!(ctx.contains(&a)); // Still visible from outer scope
-        assert!(ctx.contains(&b));
-        assert!(!ctx.contains(&c));
+        assert!(ctx.contains(a)); // Still visible from outer scope
+        assert!(ctx.contains(b));
+        assert!(!ctx.contains(c));
 
         ctx.pop_scope();
-        assert!(ctx.contains(&a));
-        assert!(!ctx.contains(&b)); // No longer in scope
+        assert!(ctx.contains(a));
+        assert!(!ctx.contains(b)); // No longer in scope
 
         ctx.pop_scope();
-        assert!(!ctx.contains(&a));
+        assert!(!ctx.contains(a));
     }
 
     #[test]
@@ -216,12 +216,12 @@ mod tests {
 
         let result = ctx.with_scope(|inner| {
             inner.add_binding(x);
-            assert!(inner.contains(&x));
+            assert!(inner.contains(x));
             42
         });
 
         assert_eq!(result, 42);
-        assert!(!ctx.contains(&x)); // Scope was popped
+        assert!(!ctx.contains(x)); // Scope was popped
 
         ctx.pop_scope();
     }
@@ -239,9 +239,9 @@ mod tests {
         ctx.push_scope();
         ctx.add_bindings([a, b, c]);
 
-        assert!(ctx.contains(&a));
-        assert!(ctx.contains(&b));
-        assert!(ctx.contains(&c));
+        assert!(ctx.contains(a));
+        assert!(ctx.contains(b));
+        assert!(ctx.contains(c));
 
         ctx.pop_scope();
     }

@@ -1,4 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::uninlined_format_args)]
 //! Integration tests for incremental formatting.
 
 use ori_fmt::{apply_regions, format_incremental, format_module_with_comments, IncrementalResult};
@@ -14,9 +15,11 @@ fn parse_and_test_incremental(
     let lex_output = ori_lexer::lex_with_comments(source, &interner);
     let parse_output = ori_parse::parse(&lex_output.tokens, &interner);
 
-    if parse_output.has_errors() {
-        panic!("Parse error in test: {:?}", parse_output.errors);
-    }
+    assert!(
+        !parse_output.has_errors(),
+        "Parse error in test: {:?}",
+        parse_output.errors
+    );
 
     format_incremental(
         &parse_output.module,
@@ -35,9 +38,11 @@ fn full_format(source: &str) -> String {
     let lex_output = ori_lexer::lex_with_comments(source, &interner);
     let parse_output = ori_parse::parse(&lex_output.tokens, &interner);
 
-    if parse_output.has_errors() {
-        panic!("Parse error in test: {:?}", parse_output.errors);
-    }
+    assert!(
+        !parse_output.has_errors(),
+        "Parse error in test: {:?}",
+        parse_output.errors
+    );
 
     format_module_with_comments(
         &parse_output.module,
@@ -67,7 +72,7 @@ fn test_incremental_change_in_function() {
             assert!(regions[0].formatted.contains("@foo"));
             assert!(!regions[0].formatted.contains("@bar"));
         }
-        _ => panic!("Expected Regions, got {:?}", result),
+        _ => panic!("Expected Regions, got {result:?}"),
     }
 }
 
@@ -85,7 +90,7 @@ fn test_incremental_change_in_second_function() {
             assert!(regions[0].formatted.contains("@bar"));
             assert!(!regions[0].formatted.contains("@foo"));
         }
-        _ => panic!("Expected Regions, got {:?}", result),
+        _ => panic!("Expected Regions, got {result:?}"),
     }
 }
 
@@ -134,7 +139,7 @@ fn test_incremental_change_in_type() {
             assert_eq!(regions.len(), 1);
             assert!(regions[0].formatted.contains("type Point"));
         }
-        _ => panic!("Expected Regions, got {:?}", result),
+        _ => panic!("Expected Regions, got {result:?}"),
     }
 }
 
@@ -150,7 +155,7 @@ fn test_incremental_change_in_trait() {
             assert_eq!(regions.len(), 1);
             assert!(regions[0].formatted.contains("trait Foo"));
         }
-        _ => panic!("Expected Regions, got {:?}", result),
+        _ => panic!("Expected Regions, got {result:?}"),
     }
 }
 
@@ -166,7 +171,7 @@ fn test_incremental_change_in_impl() {
             assert_eq!(regions.len(), 1);
             assert!(regions[0].formatted.contains("impl Foo"));
         }
-        _ => panic!("Expected Regions, got {:?}", result),
+        _ => panic!("Expected Regions, got {result:?}"),
     }
 }
 
@@ -215,7 +220,7 @@ fn test_incremental_with_comments() {
             assert!(regions[0].formatted.contains("// This is bar"));
             assert!(regions[0].formatted.contains("@bar"));
         }
-        _ => panic!("Expected Regions, got {:?}", result),
+        _ => panic!("Expected Regions, got {result:?}"),
     }
 }
 
@@ -230,6 +235,6 @@ fn test_incremental_multiple_overlapping() {
         IncrementalResult::Regions(regions) => {
             assert_eq!(regions.len(), 3);
         }
-        _ => panic!("Expected Regions with 3 entries, got {:?}", result),
+        _ => panic!("Expected Regions with 3 entries, got {result:?}"),
     }
 }

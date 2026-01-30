@@ -1,4 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+// Tests use format strings with loop variables for constructing test code
+#![allow(clippy::uninlined_format_args)]
 //! Compositional tests for the parser.
 //!
 //! These tests verify that all combinations of types, patterns, and expressions
@@ -229,7 +231,7 @@ mod pattern_matrix {
     #[test]
     fn test_all_patterns_in_match() {
         for pat in PATTERNS {
-            let source = format!(r#"@test () -> int = match(value, {} -> 1, _ -> 0)"#, pat);
+            let source = format!(r"@test () -> int = match(value, {} -> 1, _ -> 0)", pat);
             let result = parse_source(&source);
             assert!(
                 !result.has_errors(),
@@ -249,7 +251,7 @@ mod pattern_matrix {
         ];
 
         for pat in patterns_with_guards {
-            let source = format!(r#"@test () -> int = match(value, {} -> 1, _ -> 0)"#, pat);
+            let source = format!(r"@test () -> int = match(value, {} -> 1, _ -> 0)", pat);
             let result = parse_source(&source);
             assert!(
                 !result.has_errors(),
@@ -272,7 +274,7 @@ mod pattern_matrix {
         ];
 
         for pat in nested {
-            let source = format!(r#"@test () -> int = match(value, {} -> 1, _ -> 0)"#, pat);
+            let source = format!(r"@test () -> int = match(value, {} -> 1, _ -> 0)", pat);
             let result = parse_source(&source);
             assert!(
                 !result.has_errors(),
@@ -293,7 +295,7 @@ mod pattern_matrix {
         ];
 
         for pat in or_patterns {
-            let source = format!(r#"@test () -> int = match(value, {} -> 1, _ -> 0)"#, pat);
+            let source = format!(r"@test () -> int = match(value, {} -> 1, _ -> 0)", pat);
             let result = parse_source(&source);
             assert!(
                 !result.has_errors(),

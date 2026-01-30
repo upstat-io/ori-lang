@@ -1,4 +1,6 @@
 #![deny(clippy::arithmetic_side_effects)]
+// EvalError is a fundamental error type - boxing would add complexity across the crate
+#![allow(clippy::result_large_err)]
 //! Ori Eval - Interpreter/evaluator for the Ori compiler.
 //!
 //! This crate provides the tree-walking interpreter for Ori programs.

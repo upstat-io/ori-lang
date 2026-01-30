@@ -188,7 +188,7 @@ impl FunctionValue {
     ///
     /// Use this when multiple functions should share the same captures
     /// (e.g., module functions for mutual recursion). This avoids cloning
-    /// the captures HashMap for each function.
+    /// the captures `HashMap` for each function.
     ///
     /// # Arguments
     /// * `params` - Parameter names

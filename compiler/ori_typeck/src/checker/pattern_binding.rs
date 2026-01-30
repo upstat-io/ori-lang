@@ -14,6 +14,7 @@ impl TypeChecker<'_> {
     /// and each use of `id` gets fresh type variables.
     ///
     /// The `span` parameter is used for error reporting when pattern binding fails.
+    #[allow(clippy::only_used_in_recursion)] // span is passed for future error reporting
     pub(crate) fn bind_pattern_generalized(
         &mut self,
         pattern: &BindingPattern,

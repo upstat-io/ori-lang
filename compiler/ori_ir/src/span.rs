@@ -235,13 +235,13 @@ mod tests {
 
     #[test]
     fn test_span_error_display() {
-        let err = SpanError::StartTooLarge(0x100000000);
-        let msg = format!("{}", err);
+        let err = SpanError::StartTooLarge(0x1_0000_0000);
+        let msg = format!("{err}");
         assert!(msg.contains("start"));
         assert!(msg.contains("0x100000000"));
 
-        let err = SpanError::EndTooLarge(0x200000000);
-        let msg = format!("{}", err);
+        let err = SpanError::EndTooLarge(0x2_0000_0000);
+        let msg = format!("{err}");
         assert!(msg.contains("end"));
         assert!(msg.contains("0x200000000"));
     }
@@ -325,13 +325,13 @@ mod tests {
     #[test]
     fn test_span_debug_display() {
         let span = Span::new(100, 200);
-        assert_eq!(format!("{:?}", span), "100..200");
-        assert_eq!(format!("{}", span), "100..200");
+        assert_eq!(format!("{span:?}"), "100..200");
+        assert_eq!(format!("{span}"), "100..200");
     }
 
     #[test]
     fn test_span_default() {
-        let default: Span = Default::default();
+        let default: Span = Span::default();
         assert_eq!(default, Span::DUMMY);
     }
 }

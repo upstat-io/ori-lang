@@ -61,6 +61,7 @@ where
 
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
 mod tests {
     use super::*;
     use ori_ir::{ExprId, Name, SharedArena};

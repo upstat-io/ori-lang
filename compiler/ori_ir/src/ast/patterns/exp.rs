@@ -109,6 +109,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::clone_on_copy)] // Intentionally testing Clone trait impl
     fn test_function_exp_kind_copy_clone() {
         let kind = FunctionExpKind::Timeout;
         let copied = kind; // Copy

@@ -702,6 +702,7 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
     /// Only includes body width if the body is short enough that breaking it would look ugly.
     /// Long bodies will break naturally at good points (else, operators, etc.), so we let them.
     fn calculate_function_trailing_width(&mut self, func: &Function) -> usize {
+        const SHORT_BODY_THRESHOLD: usize = 20;
         let mut width = 0;
 
         // Return type: " -> Type"
@@ -735,7 +736,6 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
         // Short expressions like `x + y` look bad when broken (`x\n+ y`), so we prefer
         // to break params first. Longer expressions will break at natural points
         // (conditionals at else, chains at method calls, etc.) which is fine.
-        const SHORT_BODY_THRESHOLD: usize = 20;
         let body_width = self.width_calc.width(func.body);
         if body_width != ALWAYS_STACKED && body_width <= SHORT_BODY_THRESHOLD {
             width += body_width;

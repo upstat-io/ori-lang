@@ -8,7 +8,7 @@ use ori_ir::{
     MatchPatternId, MatchPatternRange, NamedExpr, SeqBinding, TokenKind,
 };
 
-/// Kind of function_seq expression.
+/// Kind of `function_seq` expression.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FunctionSeqKind {
     Run,
@@ -670,7 +670,7 @@ impl Parser<'_> {
 
     /// Parse an optional pattern guard: `.match(condition)`
     ///
-    /// Returns Some(expr_id) if a guard is present, None otherwise.
+    /// Returns `Some(expr_id)` if a guard is present, `None` otherwise.
     fn parse_pattern_guard(&mut self) -> Result<Option<ExprId>, ParseError> {
         // Check for .match(condition) syntax
         if !self.check(&TokenKind::Dot) {

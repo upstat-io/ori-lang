@@ -112,6 +112,7 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
     ///
     /// Use this when formatting sub-expressions that continue on the same line
     /// as previous content (e.g., function body after `= `).
+    #[must_use]
     pub fn with_starting_column(mut self, column: usize) -> Self {
         self.ctx.set_column(column);
         self
@@ -121,6 +122,7 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
     ///
     /// Use this when formatting sub-expressions that should inherit a specific
     /// indentation level (e.g., function body that breaks to a new line).
+    #[must_use]
     pub fn with_indent_level(mut self, level: usize) -> Self {
         for _ in 0..level {
             self.ctx.indent();

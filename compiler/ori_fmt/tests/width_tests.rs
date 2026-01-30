@@ -1,4 +1,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(
+    clippy::uninlined_format_args,
+    clippy::single_char_pattern,
+    clippy::manual_is_multiple_of,
+    clippy::redundant_closure_for_method_calls,
+    clippy::if_not_else,
+    clippy::manual_assert
+)]
 //! Width-parameterized tests for the Ori formatter.
 //!
 //! These tests verify that the formatter behaves correctly at various line widths:
@@ -74,7 +82,7 @@ fn parse_and_format_with_config(source: &str, config: FormatConfig) -> Result<St
         let errors: Vec<String> = parse_output
             .errors
             .iter()
-            .map(|e| format!("{:?}", e))
+            .map(|e| format!("{e:?}"))
             .collect();
         return Err(format!("Parse errors:\n{}", errors.join("\n")));
     }
@@ -89,7 +97,7 @@ fn parse_and_format_with_config(source: &str, config: FormatConfig) -> Result<St
 }
 
 /// Check that no line exceeds the max width.
-/// Returns (code_violations, exempt_violations).
+/// Returns `(code_violations, exempt_violations)`.
 ///
 /// Exempt violations include:
 /// - Comments (can't be broken)

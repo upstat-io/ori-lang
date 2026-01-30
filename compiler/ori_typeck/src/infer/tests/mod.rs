@@ -5,6 +5,7 @@
 
 // Allow dead code for utility functions that may be used by future tests
 #![allow(dead_code)]
+#![allow(clippy::needless_raw_string_hashes)]
 
 mod call_tests;
 mod control_tests;

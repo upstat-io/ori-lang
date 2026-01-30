@@ -1,4 +1,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(
+    clippy::uninlined_format_args,
+    clippy::redundant_closure_for_method_calls,
+    clippy::unnecessary_map_or,
+    clippy::unnecessary_debug_formatting,
+    clippy::manual_assert
+)]
 //! Golden tests for the Ori formatter.
 //!
 //! These tests verify that the formatter produces canonical output for various

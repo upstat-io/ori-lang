@@ -167,6 +167,7 @@ fn find_overlapping_declarations(
 /// * `IncrementalResult::Regions` - Formatted regions to replace
 /// * `IncrementalResult::FullFormatNeeded` - Full format required
 /// * `IncrementalResult::NoChangeNeeded` - No formatting changes needed
+#[allow(clippy::cast_possible_truncation)] // Source file offsets are limited to u32
 pub fn format_incremental<I: StringLookup>(
     module: &Module,
     comments: &CommentList,
