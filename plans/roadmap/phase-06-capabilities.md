@@ -145,18 +145,67 @@
 
 ---
 
-## 6.10 Phase Completion Checklist
+## 6.10 Default Implementations (`def impl`)
+
+**Proposal**: `proposals/approved/default-impl-proposal.md`
+
+Introduce `def impl` syntax to declare a default implementation for a trait. Importing a trait with a `def impl` automatically binds the default.
+
+### Implementation
+
+- [ ] **Implement**: Add `def` keyword to lexer — grammar.ebnf § DECLARATIONS
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — `def` token recognition
+  - [ ] **Ori Tests**: `tests/spec/capabilities/default-impl.ori`
+
+- [ ] **Implement**: Parse `def impl Trait { ... }` — grammar.ebnf § DECLARATIONS
+  - [ ] **Rust Tests**: `ori_parse/src/lib.rs` — DefImpl AST node parsing
+  - [ ] **Ori Tests**: `tests/spec/capabilities/default-impl.ori`
+
+- [ ] **Implement**: IR representation for DefImpl
+  - [ ] Add `DefImpl` to module items
+  - [ ] Track which traits have defaults in module metadata
+
+- [ ] **Implement**: Type checking for `def impl`
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs`
+  - [ ] Verify all trait methods implemented
+  - [ ] Verify method signatures match trait
+  - [ ] Verify no `self` parameter (stateless)
+  - [ ] Verify one `def impl` per trait per module
+
+- [ ] **Implement**: Module export with default — 12-modules.md
+  - [ ] Mark exports as "has default" when `def impl` exists
+  - [ ] Bind default when importing trait
+
+- [ ] **Implement**: Name resolution — 14-capabilities.md
+  - [ ] Check `with...in` binding first
+  - [ ] Check imported default second
+  - [ ] Check module-local `def impl` third
+  - [ ] **Ori Tests**: `tests/spec/capabilities/default-impl.ori`
+
+- [ ] **Implement**: Evaluator support
+  - [ ] Dispatch method calls to bound default
+  - [ ] Override via `with...in` works
+  - [ ] **Ori Tests**: `tests/spec/capabilities/default-impl.ori`
+
+- [ ] **Implement**: LLVM backend support
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_impl_tests.rs`
+  - [ ] Codegen for `def impl` methods
+
+---
+
+## 6.11 Phase Completion Checklist
 
 - [x] 6.1-6.5 complete (declaration, traits, async, providing, propagation)
 - [x] 6.6 trait definitions in prelude (implementations in Phase 7)
 - [x] 6.7-6.8 complete (testing/mocking, compile-time enforcement)
 - [x] 6.9 Unsafe marker trait defined (FFI enforcement in Phase 11)
+- [ ] 6.10 Default implementations (`def impl`) — pending implementation
 - [x] Spec updated: `spec/14-capabilities.md` reflects implementation
 - [x] CLAUDE.md updated with capabilities syntax
 - [x] 27 capability tests passing
 - [x] Full test suite: `./test-all`
 
-**Exit Criteria**: Effect tracking works per spec ✅
+**Exit Criteria**: Effect tracking works per spec (6.1-6.9 ✅, 6.10 pending)
 
 **Remaining for Phase 7 (Stdlib)**:
 - Real capability implementations (Http, FileSystem, etc.)

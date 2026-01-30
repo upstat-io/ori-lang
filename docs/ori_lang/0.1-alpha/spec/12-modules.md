@@ -53,6 +53,24 @@ use "./math" { add as plus }
 use std.collections { HashMap as Map }
 ```
 
+### Default Bindings
+
+When importing a trait that has a `def impl` in its source module, the default implementation is automatically bound to the trait name:
+
+```ori
+use std.net.http { Http }  // Http bound to default impl
+Http.get(url: "...")       // Uses default
+```
+
+Override with `with...in`:
+
+```ori
+with Http = MockHttp {} in
+    Http.get(url: "...")   // Uses mock
+```
+
+See [Declarations § Default Implementations](08-declarations.md#default-implementations).
+
 ## Visibility
 
 Items are private by default. `pub` exports:

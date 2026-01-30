@@ -301,6 +301,15 @@
 - Complementary to Anonymous Parameters proposal (both can coexist)
 - Blocked on: None (type checker change only)
 
+**Default Implementations (`def impl`)** — ✅ APPROVED 2026-01-29
+- Proposal: `proposals/approved/default-impl-proposal.md`
+- Implementation: Phase 6.10
+- `def impl Trait { ... }` syntax for default trait implementations
+- Importing a trait automatically binds the default (no `with...in` for common case)
+- Stateless methods (no `self`); use module-level `$` bindings for configuration
+- Override with `with Trait = other in ...` for testing/custom config
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones

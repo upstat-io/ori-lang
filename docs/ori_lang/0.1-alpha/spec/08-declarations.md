@@ -140,6 +140,39 @@ impl<T: Printable> Printable for [T] {
 }
 ```
 
+## Default Implementations
+
+A _default implementation_ provides the standard behavior for a trait:
+
+```ori
+pub def impl Http {
+    @get (url: str) -> Result<Response, Error> = ...
+    @post (url: str, body: str) -> Result<Response, Error> = ...
+}
+```
+
+When a module exports both a trait and its `def impl`, importing the trait automatically binds the default implementation.
+
+Default implementation methods do not have a `self` parameter — they are stateless. For configuration, use module-level bindings:
+
+```ori
+let $timeout = 30s
+
+pub def impl Http {
+    @get (url: str) -> Result<Response, Error> =
+        __http_get(url: url, timeout: $timeout)
+}
+```
+
+Constraints:
+
+- One `def impl` per trait per module
+- Must implement all trait methods
+- Method signatures must match the trait
+- No `self` parameter
+
+See [Capabilities](14-capabilities.md) for usage with capability traits.
+
 ## Tests
 
 ```ori

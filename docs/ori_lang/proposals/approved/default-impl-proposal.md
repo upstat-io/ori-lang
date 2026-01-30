@@ -1,8 +1,9 @@
 # Proposal: Default Implementations (`def impl`)
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with Claude)
 **Created:** 2026-01-29
+**Approved:** 2026-01-29
 
 ---
 
@@ -132,16 +133,20 @@ When resolving a capability name:
 
 The `def impl` doesn't create a named type. It's an anonymous implementation. Users never see a type name — they just use the trait name.
 
-If state is needed, the implementation can use module-level bindings:
+If state is needed, the implementation can use module-level bindings. This is the recommended pattern for configurable defaults:
 
 ```ori
+// Configuration via module-level immutable bindings
 let $timeout = 30s
+let $base_url = "https://api.example.com"
 
 pub def impl Http {
     @get (url: str) -> Result<Response, Error> =
-        __http_get(url: url, timeout: $timeout)
+        __http_get(url: $base_url + url, timeout: $timeout)
 }
 ```
+
+This pattern keeps the default stateless while allowing configuration through module-level constants.
 
 ---
 
