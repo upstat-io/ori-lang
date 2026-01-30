@@ -66,11 +66,7 @@ fn parse_and_format(source: &str) -> Result<String, String> {
     let output = ori_parse::parse(&tokens, &interner);
 
     if output.has_errors() {
-        let errors: Vec<String> = output
-            .errors
-            .iter()
-            .map(|e| format!("{:?}", e))
-            .collect();
+        let errors: Vec<String> = output.errors.iter().map(|e| format!("{:?}", e)).collect();
         return Err(format!("Parse errors:\n{}", errors.join("\n")));
     }
 

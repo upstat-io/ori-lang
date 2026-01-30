@@ -13,6 +13,7 @@
 use std::collections::BTreeSet;
 use std::io::Write;
 
+use crate::span_utils::LineOffsetTable;
 use crate::{Diagnostic, Severity};
 
 use super::{escape_json, trailing_comma, DiagnosticEmitter};
@@ -23,7 +24,10 @@ pub struct SarifEmitter<W: Write> {
     tool_name: String,
     tool_version: String,
     artifact_uri: Option<String>,
+    /// Source text for column computation (characters vs bytes).
     source: Option<String>,
+    /// Pre-computed line offset table for O(log L) lookups.
+    line_table: Option<LineOffsetTable>,
     results: Vec<SarifResult>,
 }
 
@@ -54,6 +58,7 @@ impl<W: Write> SarifEmitter<W> {
             tool_version: tool_version.into(),
             artifact_uri: None,
             source: None,
+            line_table: None,
             results: Vec::new(),
         }
     }
@@ -66,40 +71,28 @@ impl<W: Write> SarifEmitter<W> {
     }
 
     /// Set the source text for computing line/column from byte offsets.
+    ///
+    /// Builds a line offset table for O(log L) lookups where L is the line count.
     #[must_use]
     pub fn with_source(mut self, source: impl Into<String>) -> Self {
-        self.source = Some(source.into());
+        let source = source.into();
+        self.line_table = Some(LineOffsetTable::build(&source));
+        self.source = Some(source);
         self
     }
 
     /// Convert a byte offset to (line, column) using 1-based indexing.
     ///
-    /// Without source text, returns (1, 1) as a placeholder. Users should call
-    /// `with_source()` for accurate position information.
+    /// Uses pre-computed line offset table for O(log L) lookup.
+    /// Without source text, returns (1, 1) as a placeholder.
     fn offset_to_line_col(&self, offset: u32) -> (usize, usize) {
-        let Some(source) = &self.source else {
-            // Without source, we cannot compute accurate positions.
-            // Return (1, 1) as a placeholder.
+        let (Some(table), Some(source)) = (&self.line_table, &self.source) else {
+            // Without source/table, we cannot compute accurate positions.
             return (1, 1);
         };
 
-        let offset = offset as usize;
-        let mut line = 1;
-        let mut col = 1;
-
-        for (i, ch) in source.char_indices() {
-            if i >= offset {
-                break;
-            }
-            if ch == '\n' {
-                line += 1;
-                col = 1;
-            } else {
-                col += 1;
-            }
-        }
-
-        (line, col)
+        let (line, col) = table.offset_to_line_col(source, offset);
+        (line as usize, col as usize)
     }
 
     /// Convert severity to SARIF level.

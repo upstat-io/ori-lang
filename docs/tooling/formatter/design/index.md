@@ -4,8 +4,6 @@ description: "Ori Formatter Design — Implementation Guide"
 order: 0
 ---
 
-> **Proposed** — This design has not yet been implemented.
-
 # Overview
 
 This documentation describes the design and implementation of the Ori formatter. The formatter produces canonical source code formatting with zero configuration.

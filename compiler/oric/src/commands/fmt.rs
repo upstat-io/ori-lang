@@ -3,12 +3,12 @@
 //! Supports single files, directories, and stdin.
 //! Uses parallel processing for directories when multiple files are found.
 
-use ori_diagnostic::{ErrorCode, span_utils};
+use ori_diagnostic::{span_utils, ErrorCode};
 use ori_ir::StringInterner;
 use ori_parse::ParseError;
 use rayon::prelude::*;
 use std::fmt::Write as _;
-use std::io::{Read, IsTerminal};
+use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -175,7 +175,13 @@ fn print_diff(path: &str, original: &str, formatted: &str) {
             let start = i.saturating_sub(2);
             let end = (i + 3).min(max_lines);
 
-            println!("@@ -{},{} +{},{} @@", start + 1, end - start, start + 1, end - start);
+            println!(
+                "@@ -{},{} +{},{} @@",
+                start + 1,
+                end - start,
+                start + 1,
+                end - start
+            );
 
             for j in start..end {
                 let o = original_lines.get(j);
@@ -218,9 +224,14 @@ pub(crate) fn format_directory(path: &str, config: &FormatConfig) -> (usize, usi
 
     // Collect all files first
     let mut files = Vec::new();
-    visit_ori_files(Path::new(path), config, &ignore_patterns, &mut |file_path| {
-        files.push(file_path.to_path_buf());
-    });
+    visit_ori_files(
+        Path::new(path),
+        config,
+        &ignore_patterns,
+        &mut |file_path| {
+            files.push(file_path.to_path_buf());
+        },
+    );
 
     // Use atomic counters for thread-safe counting
     let formatted_count = AtomicUsize::new(0);
@@ -484,7 +495,11 @@ pub(crate) fn run_format(args: &[String]) {
 
     // Print summary for directory operations
     if paths.len() > 1 || paths.iter().any(|p| PathBuf::from(p).is_dir()) {
-        let verb = if config.check { "would format" } else { "formatted" };
+        let verb = if config.check {
+            "would format"
+        } else {
+            "formatted"
+        };
         if total_formatted > 0 || total_unchanged > 0 {
             println!("\n{total_formatted} {verb}, {total_unchanged} unchanged");
         }
@@ -554,9 +569,7 @@ fn get_source_line(source: &str, offset: u32) -> Option<(&str, usize)> {
     }
 
     // Find line start
-    let line_start = source[..offset]
-        .rfind('\n')
-        .map_or(0, |pos| pos + 1);
+    let line_start = source[..offset].rfind('\n').map_or(0, |pos| pos + 1);
 
     // Find line end
     let line_end = source[offset..]
@@ -582,15 +595,24 @@ fn get_suggestion(error: &ParseError) -> Option<String> {
             // Unexpected token - check for common mistakes in message and context
             if msg.contains("expected )") || msg.contains("expected `)") || ctx.contains(")") {
                 Some("check for missing closing parenthesis or comma".to_string())
-            } else if msg.contains("expected }") || msg.contains("expected `}") || ctx.contains("}") {
+            } else if msg.contains("expected }") || msg.contains("expected `}") || ctx.contains("}")
+            {
                 Some("check for missing closing brace".to_string())
-            } else if msg.contains("expected ]") || msg.contains("expected `]") || ctx.contains("]") {
+            } else if msg.contains("expected ]") || msg.contains("expected `]") || ctx.contains("]")
+            {
                 Some("check for missing closing bracket".to_string())
-            } else if msg.contains("expected =") || msg.contains("expected `=`") || ctx.contains("=") {
+            } else if msg.contains("expected =")
+                || msg.contains("expected `=`")
+                || ctx.contains("=")
+            {
                 Some("function definitions require `=` before the body".to_string())
-            } else if msg.contains("expected ,") || msg.contains("expected `,") || ctx.contains(",") {
+            } else if msg.contains("expected ,") || msg.contains("expected `,") || ctx.contains(",")
+            {
                 Some("check for missing comma or colon between items".to_string())
-            } else if msg.contains("expected :") || msg.contains("expected `:`") || ctx.contains(":") {
+            } else if msg.contains("expected :")
+                || msg.contains("expected `:`")
+                || ctx.contains(":")
+            {
                 Some("parameter types use: name: Type".to_string())
             } else {
                 None
@@ -760,13 +782,7 @@ fn format_parse_error(path: &str, error: &ParseError, source: &str) -> String {
     // Context (if available)
     if let Some(ctx) = &error.context {
         if use_color {
-            let _ = writeln!(
-                output,
-                "  = {}note{}: {}",
-                colors::NOTE,
-                colors::RESET,
-                ctx
-            );
+            let _ = writeln!(output, "  = {}note{}: {}", colors::NOTE, colors::RESET, ctx);
         } else {
             let _ = writeln!(output, "  = note: {}", ctx);
         }
@@ -861,7 +877,11 @@ mod tests {
 
     #[test]
     fn test_get_suggestion_missing_equals() {
-        let error = ParseError::new(ErrorCode::E1001, "expected =, found integer", Span::new(0, 1));
+        let error = ParseError::new(
+            ErrorCode::E1001,
+            "expected =, found integer",
+            Span::new(0, 1),
+        );
         let suggestion = get_suggestion(&error);
         assert!(suggestion.is_some());
         assert!(suggestion.unwrap().contains("="));
@@ -894,7 +914,11 @@ mod tests {
 
     #[test]
     fn test_get_suggestion_function_definition() {
-        let error = ParseError::new(ErrorCode::E1006, "invalid function definition", Span::new(0, 1));
+        let error = ParseError::new(
+            ErrorCode::E1006,
+            "invalid function definition",
+            Span::new(0, 1),
+        );
         let suggestion = get_suggestion(&error);
         assert!(suggestion.is_some());
         assert!(suggestion.unwrap().contains("@name"));

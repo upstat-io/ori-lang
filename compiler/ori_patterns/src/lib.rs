@@ -233,7 +233,9 @@ impl<'a> EvalContext<'a> {
     ///
     /// Used as a fallback span for errors when no specific property is available.
     pub fn first_prop_span(&self) -> Option<ori_ir::Span> {
-        self.props.first().map(|p| self.arena.get_expr(p.value).span)
+        self.props
+            .first()
+            .map(|p| self.arena.get_expr(p.value).span)
     }
 
     /// Get the span of a named property, if present.

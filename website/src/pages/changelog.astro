@@ -1,0 +1,581 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout
+  title="Changelog — Ori"
+  description="Ori language changelog: track recent changes, new features, bug fixes, and documentation updates."
+  keywords="Ori changelog, language updates, compiler changes, new features"
+>
+  <main class="changelog-page">
+    <section class="changelog-hero">
+      <h1>Changelog</h1>
+      <p class="changelog-subtitle">
+        Recent changes and updates to the Ori language and compiler.
+      </p>
+      <div class="stats" id="stats">
+        <div class="stat">
+          <span class="stat-value" id="total-count">-</span>
+          <span class="stat-label">Commits</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="feat-count">-</span>
+          <span class="stat-label">Features</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="fix-count">-</span>
+          <span class="stat-label">Fixes</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="changelog-filters">
+      <div class="filter-group">
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="feat">Features</button>
+        <button class="filter-btn" data-filter="fix">Fixes</button>
+        <button class="filter-btn" data-filter="docs">Docs</button>
+        <button class="filter-btn" data-filter="refactor">Refactor</button>
+      </div>
+    </section>
+
+    <section class="changelog-entries" id="entries-container">
+      <div class="loading">Loading changelog...</div>
+    </section>
+
+    <nav class="pagination" id="pagination"></nav>
+
+    <section class="changelog-cta">
+      <h2>View Full History</h2>
+      <p>Browse the complete commit history on GitHub.</p>
+      <div class="cta-buttons">
+        <a href="https://github.com/upstat-io/ori-lang/commits/master" class="btn btn-primary" target="_blank" rel="noopener">View Commits</a>
+        <a href="https://github.com/upstat-io/ori-lang" class="btn btn-secondary" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </section>
+  </main>
+</BaseLayout>
+
+<script is:inline>
+(function() {
+  const ENTRIES_PER_PAGE = 30;
+  let allEntries = [];
+  let filteredEntries = [];
+  let currentPage = 1;
+  let currentFilter = 'all';
+
+  const typeLabels = {
+    feat: 'Feature',
+    fix: 'Fix',
+    docs: 'Docs',
+    refactor: 'Refactor',
+    chore: 'Chore'
+  };
+
+  const typeClasses = {
+    feat: 'type-feat',
+    fix: 'type-fix',
+    docs: 'type-docs',
+    refactor: 'type-refactor',
+    chore: 'type-chore'
+  };
+
+  function formatDate(dateStr) {
+    var date = new Date(dateStr + 'T00:00:00');
+    var options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    return date.toLocaleDateString('en-US', options);
+  }
+
+  function groupByDate(entries) {
+    var groups = {};
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i];
+      if (!groups[entry.date]) {
+        groups[entry.date] = [];
+      }
+      groups[entry.date].push(entry);
+    }
+    return groups;
+  }
+
+  function renderEntries() {
+    var container = document.getElementById('entries-container');
+    var start = (currentPage - 1) * ENTRIES_PER_PAGE;
+    var end = start + ENTRIES_PER_PAGE;
+    var pageEntries = filteredEntries.slice(start, end);
+
+    if (pageEntries.length === 0) {
+      container.innerHTML = '<div class="no-entries">No entries match the current filter.</div>';
+      return;
+    }
+
+    var grouped = groupByDate(pageEntries);
+    var dates = Object.keys(grouped).sort(function(a, b) { return b.localeCompare(a); });
+
+    var html = '';
+    for (var i = 0; i < dates.length; i++) {
+      var date = dates[i];
+      var entries = grouped[date];
+      html += '<div class="date-group">';
+      html += '<h2 class="date-header">' + formatDate(date) + '</h2>';
+      html += '<div class="entries-list">';
+      for (var j = 0; j < entries.length; j++) {
+        var entry = entries[j];
+        var typeClass = typeClasses[entry.type] || 'type-chore';
+        var typeLabel = typeLabels[entry.type] || 'Chore';
+        html += '<div class="entry-card">';
+        html += '<span class="entry-type ' + typeClass + '">' + typeLabel + '</span>';
+        html += '<span class="entry-message">' + entry.message + '</span>';
+        html += '<code class="entry-hash">' + entry.hash + '</code>';
+        html += '</div>';
+      }
+      html += '</div></div>';
+    }
+    container.innerHTML = html;
+  }
+
+  function renderPagination() {
+    var pagination = document.getElementById('pagination');
+    var totalPages = Math.ceil(filteredEntries.length / ENTRIES_PER_PAGE);
+
+    if (totalPages <= 1) {
+      pagination.innerHTML = '';
+      return;
+    }
+
+    var html = '';
+
+    // Previous button
+    if (currentPage > 1) {
+      html += '<button class="page-btn" data-page="' + (currentPage - 1) + '">&larr; Prev</button>';
+    }
+
+    // Page numbers
+    var startPage = Math.max(1, currentPage - 2);
+    var endPage = Math.min(totalPages, currentPage + 2);
+
+    if (startPage > 1) {
+      html += '<button class="page-btn" data-page="1">1</button>';
+      if (startPage > 2) {
+        html += '<span class="page-ellipsis">...</span>';
+      }
+    }
+
+    for (var i = startPage; i <= endPage; i++) {
+      var activeClass = i === currentPage ? ' active' : '';
+      html += '<button class="page-btn' + activeClass + '" data-page="' + i + '">' + i + '</button>';
+    }
+
+    if (endPage < totalPages) {
+      if (endPage < totalPages - 1) {
+        html += '<span class="page-ellipsis">...</span>';
+      }
+      html += '<button class="page-btn" data-page="' + totalPages + '">' + totalPages + '</button>';
+    }
+
+    // Next button
+    if (currentPage < totalPages) {
+      html += '<button class="page-btn" data-page="' + (currentPage + 1) + '">Next &rarr;</button>';
+    }
+
+    pagination.innerHTML = html;
+
+    // Add event listeners
+    var buttons = pagination.querySelectorAll('.page-btn');
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].addEventListener('click', function(e) {
+        currentPage = parseInt(this.getAttribute('data-page'));
+        renderEntries();
+        renderPagination();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    }
+  }
+
+  function updateStats() {
+    document.getElementById('total-count').textContent = allEntries.length;
+    var featCount = 0, fixCount = 0;
+    for (var i = 0; i < allEntries.length; i++) {
+      if (allEntries[i].type === 'feat') featCount++;
+      if (allEntries[i].type === 'fix') fixCount++;
+    }
+    document.getElementById('feat-count').textContent = featCount;
+    document.getElementById('fix-count').textContent = fixCount;
+  }
+
+  function applyFilter(filter) {
+    currentFilter = filter;
+    currentPage = 1;
+
+    if (filter === 'all') {
+      filteredEntries = allEntries.slice();
+    } else {
+      filteredEntries = [];
+      for (var i = 0; i < allEntries.length; i++) {
+        if (allEntries[i].type === filter) {
+          filteredEntries.push(allEntries[i]);
+        }
+      }
+    }
+
+    renderEntries();
+    renderPagination();
+
+    // Update active button
+    var buttons = document.querySelectorAll('.filter-btn');
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].classList.remove('active');
+      if (buttons[i].getAttribute('data-filter') === filter) {
+        buttons[i].classList.add('active');
+      }
+    }
+  }
+
+  function init() {
+    // Set up filter buttons
+    var filterBtns = document.querySelectorAll('.filter-btn');
+    for (var i = 0; i < filterBtns.length; i++) {
+      filterBtns[i].addEventListener('click', function() {
+        applyFilter(this.getAttribute('data-filter'));
+      });
+    }
+
+    // Load changelog data
+    fetch('/changelog.json')
+      .then(function(response) { return response.json(); })
+      .then(function(data) {
+        allEntries = data;
+        filteredEntries = data.slice();
+        updateStats();
+        renderEntries();
+        renderPagination();
+      })
+      .catch(function(err) {
+        document.getElementById('entries-container').innerHTML =
+          '<div class="error">Failed to load changelog. Please try refreshing the page.</div>';
+      });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+
+<style>
+  .changelog-page {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: var(--space-8) var(--space-6) var(--space-16);
+  }
+
+  .changelog-hero {
+    text-align: center;
+    padding: var(--space-12) 0 var(--space-8);
+  }
+
+  .changelog-hero h1 {
+    font-size: var(--text-5xl);
+    font-weight: var(--weight-bold);
+    background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-success) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: var(--space-4);
+  }
+
+  .changelog-subtitle {
+    font-size: var(--text-lg);
+    color: var(--color-text-secondary);
+    margin-bottom: var(--space-6);
+  }
+
+  .stats {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-6);
+    flex-wrap: wrap;
+  }
+
+  .stat {
+    text-align: center;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-4) var(--space-6);
+    min-width: 120px;
+  }
+
+  .stat-value {
+    display: block;
+    font-size: var(--text-3xl);
+    font-weight: var(--weight-bold);
+    color: var(--color-accent);
+    font-family: var(--font-mono);
+  }
+
+  .stat-label {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  .changelog-filters {
+    display: flex;
+    justify-content: center;
+    margin-bottom: var(--space-6);
+  }
+
+  .filter-group {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .filter-btn {
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-secondary);
+    color: var(--color-text-secondary);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .filter-btn:hover {
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-primary);
+  }
+
+  .filter-btn.active {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: #fff;
+  }
+
+  .changelog-entries {
+    max-width: 800px;
+    margin: 0 auto;
+  }
+
+  .loading, .error, .no-entries {
+    text-align: center;
+    padding: var(--space-8);
+    color: var(--color-text-secondary);
+  }
+
+  .error {
+    color: var(--color-error, #ef4444);
+  }
+
+  /* Dynamic content styles - must be global for JS-generated HTML */
+  :global(.date-group) {
+    margin-bottom: var(--space-6);
+  }
+
+  :global(.date-header) {
+    font-size: var(--text-base);
+    font-weight: var(--weight-semibold);
+    color: var(--color-text-primary);
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  :global(.entries-list) {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  :global(.entry-card) {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3);
+    transition: all var(--transition-fast);
+  }
+
+  :global(.entry-card:hover) {
+    background: var(--color-bg-tertiary);
+  }
+
+  :global(.entry-type) {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: var(--weight-medium);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+
+  :global(.type-feat) {
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--color-accent);
+  }
+
+  :global(.type-fix) {
+    background: rgba(74, 222, 128, 0.15);
+    color: var(--color-success);
+  }
+
+  :global(.type-docs) {
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-muted);
+  }
+
+  :global(.type-refactor) {
+    background: rgba(251, 191, 36, 0.15);
+    color: var(--color-warning);
+  }
+
+  :global(.type-chore) {
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-secondary);
+  }
+
+  :global(.entry-message) {
+    flex: 1;
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
+    line-height: 1.4;
+  }
+
+  :global(.entry-hash) {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--color-text-muted);
+    background: var(--color-bg-code);
+    padding: 2px 4px;
+    border-radius: var(--radius-sm);
+  }
+
+  :global(.page-btn) {
+    min-width: 36px;
+    height: 36px;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-secondary);
+    color: var(--color-text-secondary);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  :global(.page-btn:hover) {
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-primary);
+  }
+
+  :global(.page-btn.active) {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: #fff;
+  }
+
+  :global(.page-ellipsis) {
+    color: var(--color-text-muted);
+    padding: 0 var(--space-1);
+  }
+
+  .pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-8) auto;
+    flex-wrap: wrap;
+  }
+
+  .changelog-cta {
+    text-align: center;
+    padding: var(--space-12) var(--space-6);
+    background: var(--color-bg-secondary);
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--color-border);
+    margin-top: var(--space-8);
+  }
+
+  .changelog-cta h2 {
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-bold);
+    color: var(--color-text-primary);
+    margin-bottom: var(--space-2);
+  }
+
+  .changelog-cta p {
+    color: var(--color-text-secondary);
+    margin-bottom: var(--space-6);
+  }
+
+  .cta-buttons {
+    display: flex;
+    gap: var(--space-4);
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-3) var(--space-6);
+    border-radius: var(--radius-md);
+    font-size: var(--text-base);
+    font-weight: var(--weight-semibold);
+    text-decoration: none;
+    transition: all var(--transition-fast);
+  }
+
+  .btn-primary {
+    background: var(--color-accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover {
+    background: var(--color-accent-hover);
+    color: #fff;
+  }
+
+  .btn-secondary {
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-border);
+  }
+
+  .btn-secondary:hover {
+    background: var(--color-bg-elevated);
+    color: var(--color-text-primary);
+    border-color: var(--color-border-hover);
+  }
+
+  @media (max-width: 768px) {
+    .changelog-hero h1 {
+      font-size: var(--text-4xl);
+    }
+
+    :global(.entry-card) {
+      flex-wrap: wrap;
+    }
+
+    :global(.entry-message) {
+      order: 3;
+      width: 100%;
+      margin-top: var(--space-1);
+    }
+
+    :global(.entry-hash) {
+      order: 2;
+    }
+  }
+</style>

@@ -115,6 +115,7 @@ pub use ast::{
     Visibility,
     WhereClause,
 };
+pub use comment::{Comment, CommentKind, CommentList};
 pub use derives::{DerivedMethodInfo, DerivedTrait};
 pub use expr_id::{
     ExprId, ExprRange, MatchPatternId, MatchPatternRange, ParsedTypeId, ParsedTypeRange, StmtId,
@@ -124,7 +125,6 @@ pub use interner::{SharedInterner, StringInterner, StringLookup};
 pub use name::Name;
 pub use parsed_type::ParsedType;
 pub use span::{Span, SpanError};
-pub use comment::{Comment, CommentKind, CommentList};
 pub use token::{DurationUnit, SizeUnit, Token, TokenKind, TokenList};
 pub use traits::{Named, Spanned, Typed};
 pub use type_id::TypeId;

@@ -69,7 +69,7 @@
 | 20 | Reflection | ⏳ Not started | |
 | 21A | LLVM Backend | 🔶 Partial | JIT working; 977/996 tests pass (19 skipped); destructuring support added |
 | 21B | AOT Compilation | ⏳ Not started | Object file generation, optimization, linking |
-| 22 | Tooling | 🔶 Partial | Width calculator complete; formatter core pending |
+| 22 | Tooling | 🔶 Partial | Formatter CLI complete (440 tests); LSP/WASM pending |
 
 ---
 
@@ -92,6 +92,14 @@
    - Need: `retry` function, `validate` function
 
 ### Recent Completions
+
+**Phase 22.1 (Formatter CLI)** — ✅ COMPLETED 2026-01-30
+- `ori fmt` command with full CLI integration
+- Width-based breaking, comment preservation, doc comment reordering
+- Incremental formatting (30% speedup), parallel processing (2.4x speedup)
+- 440 tests (unit, golden, idempotence, property-based, incremental)
+- Documentation: user guide, integration guide, troubleshooting, style guide
+- See `plans/ori_fmt/` for detailed tracking; LSP/WASM deferred to Phase 22.2
 
 **Phase 4 (Modules)** — ✅ COMPLETED 2026-01-28
 - Module alias imports (`use std.http as http`)
@@ -646,7 +654,9 @@
 
 - [ ] Reflection
 - [ ] Code generation
-- [ ] Tooling
+- [x] Formatter (CLI complete, 440 tests)
+- [ ] LSP server
+- [ ] WASM playground
 
 **Exit criteria**: Full IDE support, generic serialization
 

@@ -15,7 +15,11 @@ fn make_expr(arena: &mut ExprArena, kind: ExprKind) -> ori_ir::ExprId {
 }
 
 /// Helper to format an expression and return the result.
-fn format_to_string(arena: &ExprArena, interner: &StringInterner, expr_id: ori_ir::ExprId) -> String {
+fn format_to_string(
+    arena: &ExprArena,
+    interner: &StringInterner,
+    expr_id: ori_ir::ExprId,
+) -> String {
     format_expr(arena, interner, expr_id)
 }
 

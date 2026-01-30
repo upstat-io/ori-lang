@@ -518,7 +518,9 @@ impl Parser<'_> {
 
     /// Skip tokens until we find a `)` or newline (for bracket-less attributes).
     fn skip_to_rparen_or_newline(&mut self) {
-        while !self.check(&TokenKind::RParen) && !self.check(&TokenKind::Newline) && !self.is_at_end()
+        while !self.check(&TokenKind::RParen)
+            && !self.check(&TokenKind::Newline)
+            && !self.is_at_end()
         {
             self.advance();
         }

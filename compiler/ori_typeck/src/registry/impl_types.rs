@@ -31,8 +31,8 @@ pub struct ImplAssocTypeDef {
 
 /// Entry for an implementation block.
 ///
-/// Contains both the method definitions and an index for O(1) method lookup.
-/// The index is excluded from Hash/Eq as it's derived from `methods`.
+/// Contains both the method definitions and indices for O(1) lookups.
+/// The indices are excluded from Hash/Eq as they're derived from the vectors.
 #[derive(Clone, Debug)]
 pub struct ImplEntry {
     /// The trait being implemented (None for inherent impl).
@@ -50,6 +50,9 @@ pub struct ImplEntry {
     /// Index for O(1) method lookup by name.
     /// Maps method name to index in `methods` vector.
     method_index: FxHashMap<Name, usize>,
+    /// Index for O(1) associated type lookup by name.
+    /// Maps assoc type name to index in `assoc_types` vector.
+    assoc_type_index: FxHashMap<Name, usize>,
 }
 
 impl PartialEq for ImplEntry {
@@ -79,7 +82,7 @@ impl Hash for ImplEntry {
 }
 
 impl ImplEntry {
-    /// Create a new impl entry with the method index built automatically.
+    /// Create a new impl entry with lookup indices built automatically.
     pub fn new(
         trait_name: Option<Name>,
         self_ty: Type,
@@ -94,6 +97,12 @@ impl ImplEntry {
             .map(|(i, m)| (m.name, i))
             .collect();
 
+        let assoc_type_index = assoc_types
+            .iter()
+            .enumerate()
+            .map(|(i, a)| (a.name, i))
+            .collect();
+
         Self {
             trait_name,
             self_ty,
@@ -102,6 +111,7 @@ impl ImplEntry {
             methods,
             assoc_types,
             method_index,
+            assoc_type_index,
         }
     }
 
@@ -112,20 +122,30 @@ impl ImplEntry {
         self.method_index.get(&name).map(|&idx| &self.methods[idx])
     }
 
-    /// Get an associated type definition by name.
+    /// Get an associated type definition by name in O(1) time.
+    ///
+    /// Uses the internal associated type index for fast lookup.
     pub fn get_assoc_type(&self, name: Name) -> Option<&ImplAssocTypeDef> {
-        self.assoc_types.iter().find(|a| a.name == name)
+        self.assoc_type_index
+            .get(&name)
+            .map(|&idx| &self.assoc_types[idx])
     }
 
-    /// Rebuild the method index after modifying methods.
+    /// Rebuild indices after modifying methods or associated types.
     ///
-    /// Call this after directly modifying the `methods` field.
-    pub fn rebuild_method_index(&mut self) {
+    /// Call this after directly modifying the `methods` or `assoc_types` fields.
+    pub fn rebuild_indices(&mut self) {
         self.method_index = self
             .methods
             .iter()
             .enumerate()
             .map(|(i, m)| (m.name, i))
+            .collect();
+        self.assoc_type_index = self
+            .assoc_types
+            .iter()
+            .enumerate()
+            .map(|(i, a)| (a.name, i))
             .collect();
     }
 }

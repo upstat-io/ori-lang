@@ -46,7 +46,9 @@ fn test_function_with_params() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Generated LLVM IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Generated LLVM IR:\n{}", codegen.print_to_string());
+    }
 
     // We can't easily JIT a function with params without a wrapper,
     // but we can verify the IR is valid
@@ -138,7 +140,9 @@ fn test_function_call_simple() {
         &main_expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Function Call IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Function Call IR:\n{}", codegen.print_to_string());
+    }
 
     // JIT execute - should return 30 (10 + 20)
     let result = codegen.jit_execute_i64("main").expect("JIT failed");
@@ -238,7 +242,9 @@ fn test_function_call_nested() {
         &main_expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Nested Call IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Nested Call IR:\n{}", codegen.print_to_string());
+    }
 
     // JIT execute - should return 20 (double(double(5)) = double(10) = 20)
     let result = codegen.jit_execute_i64("main").expect("JIT failed");
@@ -387,7 +393,9 @@ fn test_recursive_function() {
         &main_expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Factorial IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Factorial IR:\n{}", codegen.print_to_string());
+    }
 
     // JIT execute - should return 120 (5! = 120)
     let result = codegen.jit_execute_i64("main").expect("JIT failed");
@@ -434,7 +442,9 @@ fn test_function_ref() {
         &expr_types2,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Function Ref IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Function Ref IR:\n{}", codegen.print_to_string());
+    }
 
     // Verify IR contains reference to helper function
     let ir = codegen.print_to_string();
@@ -499,7 +509,9 @@ fn test_lambda_simple() {
         &expr_types,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() { println!("Lambda IR:\n{}", codegen.print_to_string()); }
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        println!("Lambda IR:\n{}", codegen.print_to_string());
+    }
 
     // Verify IR contains lambda function
     let ir = codegen.print_to_string();

@@ -384,7 +384,11 @@ pub enum ErrorCode {
 
 ### Span Utilities
 
-The `span_utils` module provides line/column computation for error positioning:
+The `span_utils` module provides line/column computation for error positioning.
+
+#### Linear Scan Functions
+
+For single or occasional lookups:
 
 ```rust
 /// Compute 1-based line number from span and source.
@@ -394,10 +398,46 @@ pub fn line_number(source: &str, span: Span) -> u32;
 pub fn line_from_offset(source: &str, offset: u32) -> u32;
 
 /// Convert byte offset to (line, column) tuple.
-pub fn offset_to_line_col(source: &str, offset: u32) -> (usize, usize);
+pub fn offset_to_line_col(source: &str, offset: u32) -> (u32, u32);
 ```
 
-These are used by `DiagnosticQueue` for position-based deduplication and sorting.
+#### LineOffsetTable (Batch Lookups)
+
+For repeated lookups on the same source (e.g., multiple diagnostics with multiple labels), `LineOffsetTable` pre-computes line offsets for O(log L) binary search instead of O(n) scanning:
+
+```rust
+pub struct LineOffsetTable {
+    offsets: Vec<u32>,  // Byte offset of each line start
+}
+
+impl LineOffsetTable {
+    /// Build from source text (O(n) once).
+    pub fn build(source: &str) -> Self;
+
+    /// Get 1-based line number from byte offset (O(log L)).
+    pub fn line_from_offset(&self, offset: u32) -> u32;
+
+    /// Get 1-based (line, column) from byte offset.
+    pub fn offset_to_line_col(&self, source: &str, offset: u32) -> (u32, u32);
+
+    /// Get byte offset of a line start (1-based line number).
+    pub fn line_start_offset(&self, line: u32) -> Option<u32>;
+
+    /// Number of lines in the source.
+    pub fn line_count(&self) -> usize;
+}
+```
+
+Usage:
+```rust
+let source = "line1\nline2\nline3";
+let table = LineOffsetTable::build(source);
+
+// O(log L) lookups instead of O(n)
+assert_eq!(table.offset_to_line_col(source, 6), (2, 1));  // 'l' in line2
+```
+
+These utilities are used by `DiagnosticQueue` for position-based deduplication and sorting.
 
 ### Problem
 

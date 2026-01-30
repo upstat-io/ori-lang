@@ -28,7 +28,12 @@ pub enum SemanticProblem {
     },
 
     /// Unknown config variable.
-    UnknownConfig { span: Span, name: String },
+    UnknownConfig {
+        span: Span,
+        name: String,
+        /// Similar config name if found (for "did you mean?").
+        similar: Option<String>,
+    },
 
     /// Duplicate definition.
     DuplicateDefinition {

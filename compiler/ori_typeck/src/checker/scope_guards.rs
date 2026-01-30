@@ -3,19 +3,18 @@
 //! These helpers ensure context (capabilities, impl Self type) is properly
 //! restored even on early returns, preventing bugs from forgotten restores.
 
-use std::collections::HashSet;
-
 use ori_ir::Name;
 use ori_types::Type;
+use rustc_hash::FxHashSet;
 
 use super::TypeChecker;
 
 /// Saved capability context for restoration.
 struct SavedCapabilityContext {
     /// The old capabilities to restore.
-    old_caps: HashSet<Name>,
+    old_caps: FxHashSet<Name>,
     /// The old provided capabilities to restore.
-    old_provided: HashSet<Name>,
+    old_provided: FxHashSet<Name>,
 }
 
 /// Saved impl context for restoration.
@@ -30,7 +29,7 @@ impl TypeChecker<'_> {
     /// Sets the current function's capabilities to the provided set,
     /// executes the closure, and then restores the previous capabilities.
     /// This is used when type-checking function bodies that declare capabilities.
-    pub fn with_capability_scope<T, F>(&mut self, caps: HashSet<Name>, f: F) -> T
+    pub fn with_capability_scope<T, F>(&mut self, caps: FxHashSet<Name>, f: F) -> T
     where
         F: FnOnce(&mut Self) -> T,
     {
@@ -58,7 +57,7 @@ impl TypeChecker<'_> {
     where
         F: FnOnce(&mut Self) -> T,
     {
-        self.with_capability_scope(HashSet::new(), f)
+        self.with_capability_scope(FxHashSet::default(), f)
     }
 
     /// Execute a closure with a specific impl Self type.

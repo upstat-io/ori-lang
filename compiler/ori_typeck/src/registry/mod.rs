@@ -147,6 +147,13 @@ impl TypeRegistry {
         &self.interner
     }
 
+    /// Get an iterator over all registered type names.
+    ///
+    /// Used for "did you mean?" suggestions when an unknown type is referenced.
+    pub fn names(&self) -> impl Iterator<Item = Name> + '_ {
+        self.types_by_name.keys().copied()
+    }
+
     /// Generate the next available `TypeId` for a compound type.
     fn next_id(&mut self) -> TypeId {
         let id = TypeId::new(self.next_type_id);

@@ -23,11 +23,7 @@ use ori_ir::ast::items::{ImplDef, TraitBound, TraitDef, TraitItem, WhereClause};
 use ori_ir::{CommentList, ExprArena, ExprId, ParsedType, StringLookup, TypeId, Visibility};
 
 /// Format a complete module to a string with default config.
-pub fn format_module<I: StringLookup>(
-    module: &Module,
-    arena: &ExprArena,
-    interner: &I,
-) -> String {
+pub fn format_module<I: StringLookup>(module: &Module, arena: &ExprArena, interner: &I) -> String {
     format_module_with_config(module, arena, interner, FormatConfig::default())
 }
 
@@ -53,7 +49,13 @@ pub fn format_module_with_comments<I: StringLookup>(
     arena: &ExprArena,
     interner: &I,
 ) -> String {
-    format_module_with_comments_and_config(module, comments, arena, interner, FormatConfig::default())
+    format_module_with_comments_and_config(
+        module,
+        comments,
+        arena,
+        interner,
+        FormatConfig::default(),
+    )
 }
 
 /// Format a complete module with comment preservation and custom config.
@@ -363,11 +365,7 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
     }
 
     /// Emit any remaining comments at the end of the file.
-    fn emit_trailing_comments(
-        &mut self,
-        comments: &CommentList,
-        comment_index: &mut CommentIndex,
-    ) {
+    fn emit_trailing_comments(&mut self, comments: &CommentList, comment_index: &mut CommentIndex) {
         let indices = comment_index.remaining_indices();
         if !indices.is_empty() {
             // Add a blank line before trailing comments
@@ -388,9 +386,9 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
         comment_index: &mut CommentIndex,
     ) {
         // Group imports: stdlib first, then relative
-        let (stdlib, relative): (Vec<_>, Vec<_>) = imports.iter().partition(|u| {
-            matches!(u.path, ori_ir::ast::items::ImportPath::Module(_))
-        });
+        let (stdlib, relative): (Vec<_>, Vec<_>) = imports
+            .iter()
+            .partition(|u| matches!(u.path, ori_ir::ast::items::ImportPath::Module(_)));
 
         // Format stdlib imports
         for import in &stdlib {
@@ -429,9 +427,9 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
     /// Format import declarations, grouping stdlib imports before relative imports.
     fn format_imports(&mut self, imports: &[UseDef]) {
         // Group imports: stdlib first, then relative
-        let (stdlib, relative): (Vec<_>, Vec<_>) = imports.iter().partition(|u| {
-            matches!(u.path, ori_ir::ast::items::ImportPath::Module(_))
-        });
+        let (stdlib, relative): (Vec<_>, Vec<_>) = imports
+            .iter()
+            .partition(|u| matches!(u.path, ori_ir::ast::items::ImportPath::Module(_)));
 
         // Format stdlib imports
         for import in &stdlib {
@@ -522,8 +520,8 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
         // Format the value expression
         // Pass current column so width decisions account for full line context
         let current_column = self.ctx.column();
-        let mut expr_formatter =
-            Formatter::with_config(self.arena, self.interner, self.config).with_starting_column(current_column);
+        let mut expr_formatter = Formatter::with_config(self.arena, self.interner, self.config)
+            .with_starting_column(current_column);
         expr_formatter.format(config.value);
         // Get the output without trailing newline
         let expr_output = expr_formatter.ctx.as_str().trim_end();
@@ -583,8 +581,8 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
 
         // Check if body fits after " = " on current line
         let space_after_eq = 3; // " = "
-        let fits_inline = body_width != ALWAYS_STACKED
-            && self.ctx.fits(space_after_eq + body_width);
+        let fits_inline =
+            body_width != ALWAYS_STACKED && self.ctx.fits(space_after_eq + body_width);
 
         if fits_inline {
             // Inline: " = body"
@@ -625,10 +623,7 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
 
     /// Check if an expression is a conditional (if-then-else).
     fn is_conditional(&self, body: ExprId) -> bool {
-        matches!(
-            self.arena.get_expr(body).kind,
-            ori_ir::ExprKind::If { .. }
-        )
+        matches!(self.arena.get_expr(body).kind, ori_ir::ExprKind::If { .. })
     }
 
     /// Format params without considering trailing content (for method params, etc.).
@@ -871,8 +866,8 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
 
         // Check if body fits after " = " on current line
         let space_after_eq = 3; // " = "
-        let fits_inline = body_width != ALWAYS_STACKED
-            && self.ctx.fits(space_after_eq + body_width);
+        let fits_inline =
+            body_width != ALWAYS_STACKED && self.ctx.fits(space_after_eq + body_width);
 
         if fits_inline {
             // Inline: " = body"
@@ -1126,9 +1121,10 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
                 // line breaks account for full context
                 let current_column = self.ctx.column();
                 let current_indent = self.ctx.indent_level();
-                let mut expr_formatter = Formatter::with_config(self.arena, self.interner, self.config)
-                    .with_indent_level(current_indent)
-                    .with_starting_column(current_column);
+                let mut expr_formatter =
+                    Formatter::with_config(self.arena, self.interner, self.config)
+                        .with_indent_level(current_indent)
+                        .with_starting_column(current_column);
                 expr_formatter.format(method.body);
                 let body_output = expr_formatter.ctx.as_str().trim_end();
                 self.ctx.emit(body_output);
@@ -1203,9 +1199,10 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
                 // line breaks account for full context
                 let current_column = self.ctx.column();
                 let current_indent = self.ctx.indent_level();
-                let mut expr_formatter = Formatter::with_config(self.arena, self.interner, self.config)
-                    .with_indent_level(current_indent)
-                    .with_starting_column(current_column);
+                let mut expr_formatter =
+                    Formatter::with_config(self.arena, self.interner, self.config)
+                        .with_indent_level(current_indent)
+                        .with_starting_column(current_column);
                 expr_formatter.format(method.body);
                 let body_output = expr_formatter.ctx.as_str().trim_end();
                 self.ctx.emit(body_output);
@@ -1350,8 +1347,8 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
                 2 + self.calculate_type_width(key_ty) + 2 + self.calculate_type_width(value_ty)
                 // "{" + key + ": " + value + "}"
             }
-            ParsedType::Infer => 1,     // "_"
-            ParsedType::SelfType => 4,  // "Self"
+            ParsedType::Infer => 1,    // "_"
+            ParsedType::SelfType => 4, // "Self"
             ParsedType::AssociatedType { base, assoc_name } => {
                 let base_ty = self.arena.get_parsed_type(*base);
                 self.calculate_type_width(base_ty) + 1 + self.interner.lookup(*assoc_name).len()

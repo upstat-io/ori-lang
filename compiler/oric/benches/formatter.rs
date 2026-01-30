@@ -61,11 +61,20 @@ fn parse_and_format_full(source: &str) -> String {
         panic!("Parse errors in benchmark input");
     }
 
-    format_module_with_comments(&output.module, &lex_output.comments, &output.arena, &interner)
+    format_module_with_comments(
+        &output.module,
+        &lex_output.comments,
+        &output.arena,
+        &interner,
+    )
 }
 
 /// Parse and do incremental format for a given byte range.
-fn parse_and_format_incremental(source: &str, change_start: usize, change_end: usize) -> IncrementalResult {
+fn parse_and_format_incremental(
+    source: &str,
+    change_start: usize,
+    change_end: usize,
+) -> IncrementalResult {
     let interner = StringInterner::new();
     let lex_output = ori_lexer::lex_with_comments(source, &interner);
     let output = ori_parse::parse(&lex_output.tokens, &interner);
@@ -141,13 +150,9 @@ fn bench_format_large_file(c: &mut Criterion) {
 
     if let Ok(source) = fs::read_to_string(&benchmark_path) {
         let lines = source.lines().count();
-        group.bench_with_input(
-            BenchmarkId::new("lines", lines),
-            &source,
-            |b, src| {
-                b.iter(|| black_box(parse_and_format(src)));
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("lines", lines), &source, |b, src| {
+            b.iter(|| black_box(parse_and_format(src)));
+        });
     }
 
     // Also test the 5k line file
@@ -160,13 +165,9 @@ fn bench_format_large_file(c: &mut Criterion) {
 
     if let Ok(source) = fs::read_to_string(&large_path) {
         let lines = source.lines().count();
-        group.bench_with_input(
-            BenchmarkId::new("lines", lines),
-            &source,
-            |b, src| {
-                b.iter(|| black_box(parse_and_format(src)));
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("lines", lines), &source, |b, src| {
+            b.iter(|| black_box(parse_and_format(src)));
+        });
     }
 
     group.finish();
@@ -236,17 +237,13 @@ fn bench_format_parallel_scaling(c: &mut Criterion) {
             .map(|i| format!("@f{i} (x: int) -> int = x * {i}\n"))
             .collect();
 
-        group.bench_with_input(
-            BenchmarkId::new("parallel", size),
-            &files,
-            |b, files| {
-                b.iter(|| {
-                    files.par_iter().for_each(|src| {
-                        black_box(parse_and_format(src));
-                    });
+        group.bench_with_input(BenchmarkId::new("parallel", size), &files, |b, files| {
+            b.iter(|| {
+                files.par_iter().for_each(|src| {
+                    black_box(parse_and_format(src));
                 });
-            },
-        );
+            });
+        });
     }
 
     group.finish();
@@ -262,13 +259,9 @@ fn bench_incremental_vs_full(c: &mut Criterion) {
         let source_len = source.len();
 
         // Full format benchmark
-        group.bench_with_input(
-            BenchmarkId::new("full", size),
-            &source,
-            |b, src| {
-                b.iter(|| black_box(parse_and_format_full(src)));
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("full", size), &source, |b, src| {
+            b.iter(|| black_box(parse_and_format_full(src)));
+        });
 
         // Incremental format benchmark (change in first function only)
         // First function is approximately bytes 0-30

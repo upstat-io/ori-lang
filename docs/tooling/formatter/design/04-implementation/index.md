@@ -7,7 +7,7 @@ section: "Implementation"
 
 # Implementation Overview
 
-This document describes the implementation approach for the Ori formatter.
+This document describes the implementation of the Ori formatter in `compiler/ori_fmt/`.
 
 ## Reference: Go's gofmt
 
@@ -17,24 +17,9 @@ Key techniques from gofmt that inform Ori's implementation:
 
 | Technique | gofmt | Ori adaptation |
 |-----------|-------|----------------|
-| **Whitespace buffering** | Accumulates directives, flushes on content | Useful for comment interspersion |
 | **Two-phase pipeline** | AST printer → tabwriter | Width calculator → formatter |
 | **Idempotence** | Core guarantee | Core guarantee |
-
-### Whitespace Buffering
-
-gofmt doesn't emit whitespace immediately. Instead, it buffers formatting directives:
-
-```
-buffer = [indent, newline, space, ...]
-```
-
-Benefits:
-- **Comment interspersion**: Can place comments relative to buffered whitespace
-- **Deferred decisions**: Adjust whitespace before committing
-- **No trailing whitespace**: Only flush when content is written
-
-Ori may adopt this pattern for comment handling, though it's simpler since Ori prohibits inline comments.
+| **No configuration** | Deliberately denied | Zero-config |
 
 ## Architecture
 
@@ -44,476 +29,417 @@ The formatter operates on the parsed AST and produces formatted source text.
 Source Text → Lexer → Parser → AST → Formatter → Formatted Text
 ```
 
+### Crate Structure
+
+```
+compiler/ori_fmt/
+├── src/
+│   ├── lib.rs              # Public API, tabs_to_spaces()
+│   ├── width/              # Width calculation module
+│   │   ├── mod.rs          # WidthCalculator, ALWAYS_STACKED
+│   │   ├── calls.rs        # Call/method call width
+│   │   ├── collections.rs  # List/map/tuple/struct width
+│   │   ├── compounds.rs    # Duration/size width
+│   │   ├── control.rs      # Control flow width
+│   │   ├── helpers.rs      # Shared utilities
+│   │   ├── literals.rs     # Literal width
+│   │   ├── operators.rs    # Binary/unary operator width
+│   │   ├── patterns.rs     # Binding pattern width
+│   │   └── wrappers.rs     # Ok/Err/Some/etc. width
+│   ├── formatter/          # Core formatting engine
+│   │   └── mod.rs          # Formatter struct, format/emit_inline/emit_broken/emit_stacked
+│   ├── context.rs          # FormatContext, column/indent tracking
+│   ├── emitter.rs          # StringEmitter, FileEmitter traits
+│   ├── declarations.rs     # ModuleFormatter for top-level items
+│   ├── comments.rs         # CommentIndex, doc comment reordering
+│   └── incremental.rs      # Incremental formatting for LSP
+└── tests/
+    ├── golden_tests.rs     # Golden file tests
+    ├── idempotence_tests.rs # Idempotence verification
+    ├── incremental_tests.rs # Incremental formatting tests
+    ├── property_tests.rs   # Property-based tests
+    └── width_tests.rs      # Width calculation tests
+```
+
 ### Key Components
 
-| Component | Purpose |
-|-----------|---------|
-| `WidthCalculator` | Computes inline width of AST nodes |
-| `Formatter` | Decides inline vs broken and emits output |
-| `Emitter` | Produces output (string, file, etc.) |
-| `CommentAttacher` | Associates comments with AST nodes |
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| `WidthCalculator` | `width/mod.rs` | Bottom-up width calculation with caching |
+| `Formatter` | `formatter/mod.rs` | Top-down rendering with inline/broken/stacked modes |
+| `FormatContext` | `context.rs` | Column tracking, indentation, line width checking |
+| `ModuleFormatter` | `declarations.rs` | Module-level formatting (functions, types, etc.) |
+| `CommentIndex` | `comments.rs` | Comment association and doc comment reordering |
+| `Emitter` | `emitter.rs` | Output abstraction (string, file) |
 
 ## Width Calculation
 
-### Bottom-Up Traversal
+### The `WidthCalculator` Struct
 
-Calculate widths from leaves up. Cache results on AST nodes or in a side table.
+The `WidthCalculator` performs bottom-up traversal to compute inline width of each expression. Results are cached in an `FxHashMap` for efficiency.
 
 ```rust
-fn calculate_width(node: &Expr, cache: &mut WidthCache) -> usize {
-    if let Some(w) = cache.get(node.id()) {
-        return w;
-    }
-
-    let width = match node {
-        Expr::Literal(lit) => lit.text.len(),
-        Expr::Identifier(name) => name.len(),
-        Expr::Binary { left, op, right } => {
-            calculate_width(left, cache)
-                + 1 + op.len() + 1  // spaces around operator
-                + calculate_width(right, cache)
-        }
-        Expr::Call { func, args } => {
-            func.len()
-                + 1  // opening paren
-                + args.iter()
-                    .map(|a| a.name.len() + 2 + calculate_width(&a.value, cache))
-                    .sum::<usize>()
-                + (args.len().saturating_sub(1)) * 2  // ", " separators
-                + 1  // closing paren
-        }
-        // ... other cases
-    };
-
-    cache.insert(node.id(), width);
-    width
+pub struct WidthCalculator<'a, I: StringLookup> {
+    arena: &'a ExprArena,
+    interner: &'a I,
+    cache: FxHashMap<ExprId, usize>,
 }
 ```
 
-### Width Constants
+### The ALWAYS_STACKED Sentinel
+
+Some constructs bypass width-based decisions and always use stacked format:
+
+```rust
+pub const ALWAYS_STACKED: usize = usize::MAX;
+```
+
+When `width()` returns `ALWAYS_STACKED`, the formatter skips inline rendering and goes directly to stacked format.
+
+**Always-stacked constructs:**
+- `run`, `try` (sequential blocks)
+- `match` (arms always stack)
+- `recurse`, `parallel`, `spawn`, `catch`
+- `nursery`
+
+### Width Formulas
 
 | Construct | Width Formula |
 |-----------|---------------|
 | Identifier | `name.len()` |
-| Integer literal | `text.len()` |
-| String literal | `text.len() + 2` (quotes) |
-| Binary expr | `left + 1 + op + 1 + right` |
-| Function call | `name + 1 + args_width + separators + 1` |
+| Integer literal | digit count |
+| Float literal | formatted string length |
+| String literal | `content.len() + 2` (quotes) |
+| Binary expr | `left + op_width + right` (3 for spaced ops like ` + `) |
+| Function call | `func + 1 + args_width + 1` |
 | Named argument | `name + 2 + value` (`: `) |
+| Struct literal | `name + 3 + fields_width + 2` (` { ` + ` }`) |
+| List | `2 + items_width` (`[` + `]`) |
+| Map | `2 + entries_width` (`{` + `}`) |
+| Tuple | `2 + items_width + trailing_comma` |
+
+### Width Calculation Example
+
+```rust
+impl<'a, I: StringLookup> WidthCalculator<'a, I> {
+    pub fn width(&mut self, expr_id: ExprId) -> usize {
+        if let Some(&cached) = self.cache.get(&expr_id) {
+            return cached;
+        }
+
+        let width = self.calculate_width(expr_id);
+        self.cache.insert(expr_id, width);
+        width
+    }
+
+    fn calculate_width(&mut self, expr_id: ExprId) -> usize {
+        let expr = self.arena.get_expr(expr_id);
+
+        match &expr.kind {
+            ExprKind::Int(n) => int_width(*n),
+            ExprKind::Binary { op, left, right } => {
+                let left_w = self.width(*left);
+                let right_w = self.width(*right);
+                if left_w == ALWAYS_STACKED || right_w == ALWAYS_STACKED {
+                    return ALWAYS_STACKED;
+                }
+                left_w + binary_op_width(*op) + right_w
+            }
+            ExprKind::FunctionSeq(..) => ALWAYS_STACKED,
+            // ... other cases
+        }
+    }
+}
+```
 
 ## Formatting Algorithm
 
-### Top-Down Rendering
+### The `Formatter` Struct
+
+The `Formatter` wraps a width calculator and format context to produce formatted output:
 
 ```rust
-fn format(node: &Expr, ctx: &mut FormatContext) {
-    let width = ctx.width_cache.get(node.id());
+pub struct Formatter<'a, I: StringLookup> {
+    arena: &'a ExprArena,
+    interner: &'a I,
+    width_calc: WidthCalculator<'a, I>,
+    ctx: FormatContext<StringEmitter>,
+}
+```
 
-    if ctx.column + width <= 100 {
-        emit_inline(node, ctx);
+### Three Rendering Modes
+
+The formatter uses three rendering modes:
+
+1. **Inline** (`emit_inline`): Single-line, all content on current line
+2. **Broken** (`emit_broken`): Multi-line, content breaks according to construct rules
+3. **Stacked** (`emit_stacked`): Always multi-line, for run/try/match/etc.
+
+```rust
+pub fn format(&mut self, expr_id: ExprId) {
+    let width = self.width_calc.width(expr_id);
+
+    if width == ALWAYS_STACKED {
+        self.emit_stacked(expr_id);
+    } else if self.ctx.fits(width) {
+        self.emit_inline(expr_id);
     } else {
-        emit_broken(node, ctx);
-    }
-}
-
-fn emit_inline(node: &Expr, ctx: &mut FormatContext) {
-    match node {
-        Expr::Binary { left, op, right } => {
-            emit_inline(left, ctx);
-            ctx.emit(" ");
-            ctx.emit(op);
-            ctx.emit(" ");
-            emit_inline(right, ctx);
-        }
-        // ... other cases
-    }
-}
-
-fn emit_broken(node: &Expr, ctx: &mut FormatContext) {
-    match node {
-        Expr::Binary { left, op, right } => {
-            format(left, ctx);  // May be inline or broken
-            ctx.emit_newline();
-            ctx.emit_indent();
-            ctx.emit(op);
-            ctx.emit(" ");
-            format(right, ctx);
-        }
-        // ... other cases
+        self.emit_broken(expr_id);
     }
 }
 ```
 
-### Context State
+### Format Context
+
+The `FormatContext` tracks state during formatting:
 
 ```rust
-struct FormatContext {
-    column: usize,           // Current column position
-    indent_level: usize,     // Nesting depth (multiply by 4)
-    width_cache: WidthCache,
-    output: String,
-}
-
-impl FormatContext {
-    fn emit(&mut self, text: &str) {
-        self.output.push_str(text);
-        self.column += text.len();
-    }
-
-    fn emit_newline(&mut self) {
-        self.output.push('\n');
-        self.column = 0;
-    }
-
-    fn emit_indent(&mut self) {
-        let spaces = self.indent_level * 4;
-        self.output.push_str(&" ".repeat(spaces));
-        self.column = spaces;
-    }
-
-    fn with_indent<F, R>(&mut self, f: F) -> R
-    where
-        F: FnOnce(&mut Self) -> R,
-    {
-        self.indent_level += 1;
-        let result = f(self);
-        self.indent_level -= 1;
-        result
-    }
+pub struct FormatContext<E: Emitter> {
+    emitter: E,
+    column: usize,        // Current column (0-indexed)
+    indent_level: usize,  // Nesting depth
+    config: FormatConfig, // Max width, etc.
 }
 ```
 
-## Always-Stacked Constructs
+Key methods:
+- `fits(width)`: Returns `true` if `column + width <= max_width`
+- `emit(text)`: Emit text and update column
+- `emit_newline()`: Emit newline and reset column to 0
+- `emit_indent()`: Emit indentation spaces
+- `indent()` / `dedent()`: Adjust indentation level
 
-Some constructs bypass the width check and always use broken format:
+### Breaking Behavior
+
+**Binary expressions** break before the operator:
+```rust
+fn emit_broken(&mut self, expr_id: ExprId) {
+    // ...
+    ExprKind::Binary { op, left, right } => {
+        self.format(*left);
+        self.ctx.emit_newline_indent();
+        self.ctx.emit(binary_op_str(*op));
+        self.ctx.emit_space();
+        self.format(*right);
+    }
+    // ...
+}
+```
+
+**Collections** have two breaking modes:
+- Simple items (literals, identifiers): wrap multiple per line
+- Complex items (structs, calls, nested): one per line
 
 ```rust
-fn format(node: &Expr, ctx: &mut FormatContext) {
-    match node {
-        Expr::Run { .. } | Expr::Try { .. } => {
-            emit_stacked_run(node, ctx);  // Always stacked
-        }
-        Expr::Match { scrutinee, arms } => {
-            emit_stacked_match(scrutinee, arms, ctx);  // Arms always stacked
-        }
-        _ => {
-            // Normal width-based decision
-            let width = ctx.width_cache.get(node.id());
-            if ctx.column + width <= 100 {
-                emit_inline(node, ctx);
-            } else {
-                emit_broken(node, ctx);
-            }
-        }
+fn emit_broken_list(&mut self, items: &[ExprId]) {
+    let all_simple = items.iter().all(|id| self.is_simple_item(*id));
+
+    if all_simple {
+        self.emit_broken_list_wrap(items);     // Multiple per line
+    } else {
+        self.emit_broken_list_one_per_line(items);
     }
 }
 ```
 
 ## Comment Handling
 
-### Comment Attachment
+### Comment Association
 
-During parsing, comments are collected separately. Before formatting, attach comments to AST nodes:
-
-```rust
-struct CommentAttachment {
-    leading: Vec<Comment>,   // Comments before the node
-    trailing: Vec<Comment>,  // Comments after (same line - but Ori doesn't allow these)
-}
-
-fn attach_comments(ast: &Module, comments: &[Comment]) -> CommentMap {
-    let mut map = CommentMap::new();
-
-    for comment in comments {
-        // Find the AST node that follows this comment
-        let node = find_next_node(ast, comment.span.end);
-        map.entry(node.id())
-            .or_default()
-            .leading
-            .push(comment.clone());
-    }
-
-    map
-}
-```
-
-### Emitting Comments
+Comments are associated with AST nodes by source position. A comment "belongs to" the node that immediately follows it.
 
 ```rust
-fn format_with_comments(node: &Expr, ctx: &mut FormatContext, comments: &CommentMap) {
-    // Emit leading comments
-    if let Some(attached) = comments.get(node.id()) {
-        for comment in &attached.leading {
-            emit_comment(comment, ctx);
-            ctx.emit_newline();
-            ctx.emit_indent();
-        }
-    }
-
-    // Format the node itself
-    format(node, ctx);
-}
-
-fn emit_comment(comment: &Comment, ctx: &mut FormatContext) {
-    ctx.emit("// ");
-    ctx.emit(&comment.text);
+pub struct CommentIndex {
+    comments_by_position: BTreeMap<u32, Vec<CommentRef>>,
+    consumed: Vec<bool>,
 }
 ```
 
 ### Doc Comment Reordering
 
-```rust
-fn reorder_doc_comments(comments: &mut Vec<Comment>) {
-    comments.sort_by_key(|c| doc_comment_order(&c.text));
-}
+Doc comments are reordered to canonical order:
+1. `// #Description` (may span multiple lines)
+2. `// @param name` (in signature order)
+3. `// @field name` (in struct order)
+4. `// !Warning` or `// !Error`
+5. `// >example -> result`
 
-fn doc_comment_order(text: &str) -> usize {
-    if text.starts_with('#') { 1 }
-    else if text.starts_with("@param") || text.starts_with("@field") { 2 }
-    else if text.starts_with('!') { 3 }
-    else if text.starts_with('>') { 4 }
-    else { 0 }  // Non-doc comments come first
-}
+Regular comments (`//`) preserve their original order.
+
+### Function Parameter Reordering
+
+For functions, `@param` comments are reordered to match parameter order:
+
+```rust
+pub fn take_comments_before_function<I: StringLookup>(
+    &mut self,
+    pos: u32,
+    param_names: &[&str],  // From function signature
+    comments: &CommentList,
+    interner: &I,
+) -> Vec<usize>
 ```
 
-## List Wrapping Algorithm
+## Declaration Formatting
 
-For lists, the formatter fills as many items as fit per line:
+### Module Structure
 
-```rust
-fn emit_broken_list(items: &[Expr], ctx: &mut FormatContext) {
-    ctx.emit("[");
-    ctx.emit_newline();
-    ctx.with_indent(|ctx| {
-        ctx.emit_indent();
+`ModuleFormatter` handles top-level declarations in order:
+1. Imports (stdlib first, then relative)
+2. Constants/configs
+3. Type definitions
+4. Traits
+5. Impls
+6. Functions
+7. Tests
 
-        for (i, item) in items.iter().enumerate() {
-            let item_width = ctx.width_cache.get(item.id());
+Blank lines separate different declaration kinds.
 
-            // Check if item fits on current line
-            if ctx.column + item_width + 1 > 100 && ctx.column > ctx.indent_level * 4 {
-                // Doesn't fit - wrap to next line
-                ctx.emit(",");
-                ctx.emit_newline();
-                ctx.emit_indent();
-            } else if i > 0 {
-                ctx.emit(", ");
-            }
+### Function Signatures
 
-            emit_inline(item, ctx);
-        }
-
-        ctx.emit(",");  // Trailing comma
-    });
-    ctx.emit_newline();
-    ctx.emit_indent();
-    ctx.emit("]");
-}
-```
-
-## Error Handling
-
-### Partial Formatting
-
-If the AST contains parse errors, format what's valid:
+Function formatting considers trailing width (return type, capabilities, where clauses) when deciding whether to break parameters:
 
 ```rust
-fn format_module(module: &Module) -> FormatResult {
-    let mut output = String::new();
-    let mut errors = Vec::new();
-
-    for item in &module.items {
-        match item {
-            Item::Valid(decl) => {
-                format_decl(decl, &mut output);
-            }
-            Item::Error(span) => {
-                // Preserve original text for error region
-                output.push_str(&module.source[span.start..span.end]);
-                errors.push(FormatError::ParseError(*span));
-            }
-        }
+fn calculate_function_trailing_width(&mut self, func: &Function) -> usize {
+    let mut width = 0;
+    // Return type: " -> Type"
+    if let Some(ref ret_ty) = func.return_ty {
+        width += 4 + self.calculate_type_width(ret_ty);
     }
-
-    FormatResult { output, errors }
+    // Capabilities, where clauses, " = "
+    // ...
+    width
 }
 ```
 
-## Performance
+### Function Bodies
 
-### Caching
+Function bodies break differently based on construct type:
+- Conditionals break to new line with indent
+- Always-stacked constructs stay on same line, break internally
+- Other constructs break internally as needed
 
-Width calculations are cached to avoid recomputation:
+## Incremental Formatting
+
+### Purpose
+
+Format only declarations that overlap with a changed region, rather than reformatting the entire file. Useful for LSP format-on-type.
+
+### API
 
 ```rust
-struct WidthCache {
-    cache: HashMap<ExprId, usize>,
-}
+pub fn format_incremental<I: StringLookup>(
+    module: &Module,
+    comments: &CommentList,
+    arena: &ExprArena,
+    interner: &I,
+    change_start: usize,
+    change_end: usize,
+) -> IncrementalResult
 ```
 
-### Streaming Output
+### Results
 
-For large files, use a streaming emitter instead of building a string:
+- `Regions(Vec<FormattedRegion>)`: Specific regions to replace
+- `FullFormatNeeded`: Change affects imports/configs, need full format
+- `NoChangeNeeded`: Change is between declarations
 
-```rust
-trait Emitter {
-    fn emit(&mut self, text: &str);
-    fn emit_newline(&mut self);
-}
+### Limitations
 
-struct StringEmitter {
-    buffer: String,
-}
-
-struct FileEmitter {
-    writer: BufWriter<File>,
-}
-```
-
-### Parallelization
-
-Format multiple files in parallel:
-
-```rust
-fn format_directory(path: &Path) -> Vec<FormatResult> {
-    let files: Vec<_> = glob(&path.join("**/*.ori")).collect();
-
-    files.par_iter()
-        .map(|file| format_file(file))
-        .collect()
-}
-```
-
-## Tooling Integration
-
-### Crate Structure
-
-The formatter is implemented as two crates:
-
-| Crate | Location | Purpose |
-|-------|----------|---------|
-| `ori_fmt` | `compiler/ori_fmt/` | Core formatting logic |
-| `ori_lsp` | `compiler/ori_lsp/` | Language Server Protocol implementation |
-
-```
-compiler/ori_fmt/     ← formatting algorithms, width calculation
-        │
-        ▼ (dependency)
-compiler/ori_lsp/     ← LSP server, editor protocol
-        │
-        ▼ (compile to WASM)
-playground/wasm/      ← browser integration
-```
-
-### LSP Server
-
-The LSP server (`ori_lsp`) provides editor features via the Language Server Protocol:
-
-| LSP Method | Feature | Description |
-|------------|---------|-------------|
-| `textDocument/formatting` | Format | Format entire document |
-| `textDocument/publishDiagnostics` | Squigglies | Error/warning underlines |
-| `textDocument/hover` | Hover | Type info and documentation |
-
-Future capabilities:
-- `textDocument/completion` — code completion
-- `textDocument/definition` — go to definition
-- `textDocument/references` — find all references
-
-### Playground Integration
-
-The Ori Playground uses the existing WASM infrastructure at `playground/wasm/`.
-
-**Format-on-Run**: Following Go and Gleam playground conventions, code is automatically formatted when the user clicks Run. No separate format button.
-
-**Architecture**:
-
-```
-┌─────────────────────────────────────────┐
-│              Browser                    │
-│  ┌──────────────┐    ┌──────────────┐   │
-│  │    Monaco    │◄──►│  ori_lsp     │   │
-│  │    Editor    │    │  (WASM)      │   │
-│  └──────────────┘    └──────────────┘   │
-│         │                   │           │
-│         ▼                   ▼           │
-│  ┌──────────────────────────────────┐   │
-│  │         ori_eval (WASM)          │   │
-│  │  (existing playground runtime)   │   │
-│  └──────────────────────────────────┘   │
-└─────────────────────────────────────────┘
-```
-
-The LSP server compiles to WASM and runs in-browser, providing:
-- Real-time diagnostics (red squigglies for errors)
-- Hover information (types, documentation)
-- Formatting (triggered on Run)
-
-This architecture serves as an early sandbox for LSP features before the VS Code extension.
-
-### Editor Integration
-
-The same `ori_lsp` binary serves desktop editors:
-
-| Editor | Integration |
-|--------|-------------|
-| VS Code | Extension spawns `ori_lsp` process |
-| Neovim | Native LSP client connects to `ori_lsp` |
-| Other | Any LSP-compatible editor |
-
-Single implementation, multiple clients — the LSP handles:
-- Formatting requests
-- Diagnostic publishing
-- Hover information
-- (Future) Completions, definitions, references
+- Minimum unit is a complete top-level declaration
+- Import and config changes require full format (block-formatted)
+- Multi-declaration changes format all affected declarations
 
 ## Testing
 
-### Round-Trip Testing
+### Test Types
 
-Verify idempotence:
+| Test Type | Location | Purpose |
+|-----------|----------|---------|
+| Golden tests | `tests/golden_tests.rs` | Compare against expected output |
+| Idempotence | `tests/idempotence_tests.rs` | Verify `format(format(x)) == format(x)` |
+| Property tests | `tests/property_tests.rs` | Random input validation |
+| Width tests | `tests/width_tests.rs` | Width calculation accuracy |
+| Incremental | `tests/incremental_tests.rs` | Incremental formatting |
+
+### Idempotence Testing
 
 ```rust
-#[test]
-fn test_idempotence() {
-    let input = "...";
+fn test_idempotence(input: &str) {
     let first = format(input);
     let second = format(&first);
     assert_eq!(first, second);
 }
 ```
 
-### Golden File Testing
+### Property-Based Testing
 
-Compare against expected output:
+Verifies that formatting preserves semantics by comparing ASTs:
 
 ```rust
-#[test]
-fn test_function_formatting() {
-    let input = include_str!("fixtures/input/functions.ori");
-    let expected = include_str!("fixtures/expected/functions.ori");
-    assert_eq!(format(input), expected);
+fn test_semantic_preservation(input: &str) {
+    let original_ast = parse(input);
+    let formatted = format(input);
+    let formatted_ast = parse(&formatted);
+    assert_eq!(strip_spans(&original_ast), strip_spans(&formatted_ast));
 }
 ```
 
-### Property-Based Testing
+## Tooling Integration
 
-Verify semantic preservation:
+### LSP Server
+
+The LSP server (`ori_lsp`) provides formatting via `textDocument/formatting`:
 
 ```rust
-#[test]
-fn test_semantic_preservation() {
-    // Parse original
-    let original_ast = parse(input);
+// In ori_lsp
+pub fn format_document(source: &str) -> String {
+    let (module, comments, arena, interner) = parse(source);
+    format_module_with_comments(&module, &comments, &arena, &interner)
+}
+```
 
-    // Format and re-parse
-    let formatted = format(input);
-    let formatted_ast = parse(&formatted);
+### Playground
 
-    // ASTs should be equivalent (ignoring spans)
-    assert_eq!(
-        strip_spans(&original_ast),
-        strip_spans(&formatted_ast)
-    );
+The Ori Playground uses format-on-run: code is automatically formatted when the user clicks Run. The LSP compiles to WASM and runs in-browser.
+
+### CLI
+
+```bash
+ori fmt src/         # Format all .ori files in directory
+ori fmt file.ori     # Format single file
+ori check --fmt      # Check formatting without modifying
+```
+
+## Performance
+
+### Caching
+
+Width calculations are cached per expression ID:
+
+```rust
+cache: FxHashMap<ExprId, usize>
+```
+
+### Pre-allocation
+
+The formatter pre-allocates based on estimated output size:
+
+```rust
+pub fn with_capacity(capacity: usize) -> Self {
+    Self::with_emitter(StringEmitter::with_capacity(capacity))
+}
+```
+
+### Streaming Output
+
+For large files, the `Emitter` trait enables streaming to file without building a full string:
+
+```rust
+pub trait Emitter {
+    fn emit(&mut self, text: &str);
+    fn emit_space(&mut self);
+    fn emit_newline(&mut self);
+    fn emit_indent(&mut self, level: usize);
 }
 ```

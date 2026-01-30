@@ -167,7 +167,6 @@ impl DiagnosticQueue {
         self.add_internal(diag, line, column, soft)
     }
 
-
     /// Internal implementation of add.
     fn add_internal(&mut self, diag: Diagnostic, line: u32, column: u32, soft: bool) -> bool {
         // Check error limit
@@ -237,7 +236,6 @@ impl DiagnosticQueue {
         self.add_internal(diag, line, column, soft)
     }
 
-
     /// Check if the error limit has been reached.
     pub fn limit_reached(&self) -> bool {
         self.config.error_limit > 0 && self.error_count >= self.config.error_limit
@@ -297,10 +295,18 @@ impl DiagnosticQueue {
 
     /// Sort diagnostics by position and return them.
     ///
-    /// Clears the queue after flushing.
+    /// Clears the queue after flushing. Skips sorting if already in order
+    /// (common case for single-file compilation).
     pub fn flush(&mut self) -> Vec<Diagnostic> {
-        // Sort by line, then column
-        self.diagnostics.sort_by_key(|d| (d.line, d.column));
+        // Check if already sorted (O(n) scan, but skips O(n log n) sort in common case)
+        let already_sorted = self
+            .diagnostics
+            .windows(2)
+            .all(|w| (w[0].line, w[0].column) <= (w[1].line, w[1].column));
+
+        if !already_sorted {
+            self.diagnostics.sort_by_key(|d| (d.line, d.column));
+        }
 
         // Extract diagnostics
         let result: Vec<Diagnostic> = self.diagnostics.drain(..).map(|d| d.diagnostic).collect();
