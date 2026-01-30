@@ -1,6 +1,7 @@
 # Proposal: Sendable Trait and Interior Mutability Definition
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-30
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-29
 **Affects:** Compiler, type system, concurrency
@@ -44,13 +45,17 @@ Therefore, **interior mutability does not exist in user-defined Ori types** by l
 
 ### Where "Interior Mutability" Matters
 
-The only types with interior mutability are **runtime-provided resources**:
+The only types with interior mutability are **runtime-provided resources**. These types wrap OS or runtime state that can change independently of Ori's normal ownership rules:
+
+- The kernel can modify file descriptor state
+- Network connections have internal buffers
+- Database connections maintain session state
 
 | Type | Description | Sendable? |
 |------|-------------|-----------|
-| `FileHandle` | OS file descriptor | No |
-| `Socket` | Network connection | No |
-| `DatabaseConnection` | DB session state | No |
+| `FileHandle` | OS file descriptor wrapper | No |
+| `Socket` | Network connection wrapper | No |
+| `DatabaseConnection` | DB session state wrapper | No |
 | `ThreadLocalStorage` | Thread-specific data | No |
 
 These types represent external resources with identity semantics — sending them to another task would violate their invariants.
@@ -92,6 +97,17 @@ These types represent external resources with identity semantics — sending the
 | `(T) -> U` (no captures) | Always (pure function pointer) |
 | Closure | All captured values are `Sendable` |
 
+### Channel Types (Conditionally Sendable)
+
+| Type | Sendable When |
+|------|---------------|
+| `Producer<T>` | `T: Sendable` |
+| `Consumer<T>` | `T: Sendable` |
+| `CloneableProducer<T>` | `T: Sendable` |
+| `CloneableConsumer<T>` | `T: Sendable` |
+
+Channel endpoints are Sendable because they are designed to be passed to tasks for inter-task communication.
+
 ### Non-Sendable Types
 
 | Type | Reason |
@@ -99,8 +115,7 @@ These types represent external resources with identity semantics — sending the
 | `FileHandle` | OS resource with thread affinity |
 | `Socket` | OS resource, not safely movable |
 | `DatabaseConnection` | Session state, not safely movable |
-| Channel endpoints | Tied to specific async context |
-| Nursery handles | Scoped to specific execution context |
+| `Nursery` | Scoped to specific execution context |
 
 ---
 
@@ -132,17 +147,6 @@ impl Sendable for MyType { }
 ```
 
 **Rationale**: Sendable is a safety property verified by the compiler. Manual implementation could break thread safety.
-
-### Opting Out
-
-There is no way to make a type "not Sendable" if all its fields are Sendable. If you need a non-Sendable type, include a non-Sendable field:
-
-```ori
-type ThreadLocal<T> = {
-    value: T,
-    _marker: NonSendableMarker,  // Hypothetical marker type
-}
-```
 
 ---
 
@@ -278,11 +282,11 @@ spawn_with(value: file_handle, action: h -> h.read())
 
 ### Conditional Sendable
 
-Container types often have conditional Sendability:
+Container types often have conditional Sendability. The compiler generates conditional implementations:
 
 ```ori
-// Box is Sendable when T is Sendable
-impl<T: Sendable> Sendable for Box<T> { }
+// Compiler-generated: Box is Sendable when T is Sendable
+impl<T: Sendable> Sendable for Box<T> { }  // auto-generated, not user code
 
 // This enables:
 let boxed: Box<int> = Box(42)  // Sendable
@@ -350,6 +354,7 @@ Clarify Sendable:
 1. Define interior mutability in Ori context
 2. List base Sendable types
 3. Auto-implementation rules
+4. Add channel types to Sendable list
 
 ### Update `14-capabilities.md`
 
@@ -370,9 +375,10 @@ Document Sendable status for all standard types.
 | Interior mutability | Does not exist in user code; only runtime resources |
 | Base Sendable | All primitives (`int`, `float`, `bool`, `str`, etc.) |
 | Collections | Sendable when elements are Sendable |
+| Channel types | Sendable when element type is Sendable |
 | User types | Auto-Sendable when all fields are Sendable |
 | Manual impl | Not allowed |
 | Closures | Sendable when all captures are Sendable |
 | Verification | Compiler checks at task boundaries |
-| Non-Sendable | Runtime resources (files, sockets, connections) |
+| Non-Sendable | Runtime resources (files, sockets, connections), Nursery |
 | ARC | Thread-safe (atomic refcounts) |

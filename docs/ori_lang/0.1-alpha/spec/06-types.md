@@ -407,12 +407,31 @@ trait Sendable {}
 2. No interior mutability
 3. No non-Sendable captured state (for closures)
 
+### Interior Mutability
+
+Interior mutability does not exist in user-defined Ori types. Ori's memory model prohibits shared mutable references, making interior mutability impossible by design.
+
+The only types with interior mutability are runtime-provided resources. These wrap OS or runtime state that changes independently of Ori's ownership rules:
+
+- File descriptors (kernel-managed state)
+- Network connections (internal buffers)
+- Database connections (session state)
+
+### Manual Implementation
+
+`Sendable` cannot be implemented manually. It is automatically derived by the compiler when all conditions are met. This ensures thread safety cannot be circumvented.
+
+```ori
+impl Sendable for MyType { }  // error: cannot implement Sendable manually
+```
+
 ### Standard Implementations
 
 | Type | Sendable |
 |------|----------|
 | `int`, `float`, `bool`, `str`, `char`, `byte` | Yes |
 | `Duration`, `Size` | Yes |
+| `void`, `Never` | Yes |
 | `[T]` where `T: Sendable` | Yes |
 | `{K: V}` where `K: Sendable, V: Sendable` | Yes |
 | `Set<T>` where `T: Sendable` | Yes |
@@ -420,13 +439,44 @@ trait Sendable {}
 | `Result<T, E>` where `T: Sendable, E: Sendable` | Yes |
 | `(T1, T2, ...)` where all `Ti: Sendable` | Yes |
 | `(T) -> R` where captures are `Sendable` | Yes |
+| `Producer<T>` where `T: Sendable` | Yes |
+| `Consumer<T>` where `T: Sendable` | Yes |
+| `CloneableProducer<T>` where `T: Sendable` | Yes |
+| `CloneableConsumer<T>` where `T: Sendable` | Yes |
 
 ### Non-Sendable Types
 
-Types that are not `Sendable`:
-- Unique resources (file handles, network connections)
-- Types with identity semantics
-- Types containing non-Sendable fields
+| Type | Reason |
+|------|--------|
+| `FileHandle` | OS resource with thread affinity |
+| `Socket` | OS resource, not safely movable |
+| `DatabaseConnection` | Session state, not safely movable |
+| `Nursery` | Scoped to specific execution context |
+
+User-defined types are not `Sendable` when they contain non-Sendable fields.
+
+### Closure Sendability
+
+The compiler analyzes closure captures to determine Sendability:
+
+```ori
+let x: int = 10              // int: Sendable
+let handle: FileHandle = ... // FileHandle: NOT Sendable
+
+let f = () -> x + 1          // f is Sendable
+let g = () -> handle.read()  // g is NOT Sendable
+```
+
+When closures cross task boundaries, the compiler verifies all captures are Sendable:
+
+```ori
+parallel(
+    tasks: [
+        () -> process(x),      // OK: x is Sendable
+        () -> read(handle),    // error: handle is not Sendable
+    ],
+)
+```
 
 ### Channel Constraint
 

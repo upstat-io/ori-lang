@@ -344,6 +344,15 @@
 - Closure types inferred, coerce to function types
 - Blocked on: None (formalizes existing spec)
 
+**Sendable Trait and Interior Mutability Definition** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/sendable-interior-mutability-proposal.md`
+- Implementation: Phase 17.1
+- Clarifies interior mutability: does not exist in user code, only runtime resources
+- Channel types (Producer, Consumer) ARE Sendable (fixes spec ambiguity)
+- Manual Sendable impl forbidden
+- Closure Sendability via capture analysis at task boundaries
+- Blocked on: None (clarification of existing spec)
+
 **Capability Composition Rules** — ✅ APPROVED 2026-01-29
 - Proposal: `proposals/approved/capability-composition-proposal.md`
 - Implementation: Phase 6.11
