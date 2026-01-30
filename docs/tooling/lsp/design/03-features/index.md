@@ -2,6 +2,7 @@
 title: "Features Overview"
 description: "Ori LSP Design — Feature Implementations"
 order: 1
+section: "Features"
 ---
 
 # Features Overview

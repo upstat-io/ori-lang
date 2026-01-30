@@ -1,0 +1,21 @@
+---
+import { getCollection } from 'astro:content';
+import Sidebar from '../common/Sidebar.astro';
+
+const guide = await getCollection('guide');
+
+// Helper to transform collection items
+const toSidebarItems = (items: any[]) =>
+  items.map(item => ({ id: item.id, title: item.data.title }));
+
+// Build sections config
+const sections = [
+  {
+    title: 'Guide',
+    basePath: '/guide',
+    items: toSidebarItems(guide.sort((a, b) => a.data.order - b.data.order)),
+  },
+];
+---
+
+<Sidebar sections={sections} />

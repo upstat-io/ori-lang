@@ -2,6 +2,7 @@
 title: "WASM Compilation"
 description: "Ori LSP Design — WebAssembly Deployment"
 order: 2
+section: "Architecture"
 ---
 
 # WASM Compilation

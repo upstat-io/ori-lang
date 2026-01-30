@@ -2,6 +2,7 @@
 title: "Errors and Panics"
 description: "Ori Language Specification — Errors and Panics"
 order: 20
+section: "Execution"
 ---
 
 # Errors and Panics

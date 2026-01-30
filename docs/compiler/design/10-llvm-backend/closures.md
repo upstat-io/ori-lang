@@ -1,7 +1,8 @@
 ---
 title: "Closures"
 description: "Closure representation and calling conventions in the LLVM backend"
-order: 1
+order: 2
+section: "LLVM Backend"
 ---
 
 # Closures

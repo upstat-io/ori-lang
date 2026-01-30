@@ -2,6 +2,7 @@
 title: "Line Breaking"
 description: "Ori Formatter Design — Line Breaking Rules"
 order: 2
+section: "Algorithm"
 ---
 
 # Line Breaking

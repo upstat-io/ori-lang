@@ -2,6 +2,7 @@
 title: "Types"
 description: "Ori Language Specification — Types"
 order: 6
+section: "Types & Values"
 ---
 
 # Types

@@ -2,6 +2,7 @@
 title: "Testing"
 description: "Ori Language Specification — Testing"
 order: 13
+section: "Verification"
 ---
 
 # Testing

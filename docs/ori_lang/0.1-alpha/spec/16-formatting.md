@@ -2,6 +2,7 @@
 title: "Formatting"
 description: "Ori Language Specification — Formatting"
 order: 16
+section: "Tooling"
 ---
 
 # Formatting

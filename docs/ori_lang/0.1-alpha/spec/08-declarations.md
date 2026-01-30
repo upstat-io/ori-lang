@@ -2,6 +2,7 @@
 title: "Declarations"
 description: "Ori Language Specification — Declarations"
 order: 8
+section: "Declarations"
 ---
 
 # Declarations

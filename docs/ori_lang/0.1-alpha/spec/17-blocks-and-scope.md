@@ -2,6 +2,7 @@
 title: "Blocks and Scope"
 description: "Ori Language Specification — Blocks and Scope"
 order: 17
+section: "Declarations"
 ---
 
 # Blocks and Scope

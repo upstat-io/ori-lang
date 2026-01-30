@@ -2,6 +2,7 @@
 title: "Properties of Types"
 description: "Ori Language Specification — Properties of Types"
 order: 7
+section: "Types & Values"
 ---
 
 # Properties of Types

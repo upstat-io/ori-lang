@@ -2,6 +2,7 @@
 title: "Memory Model"
 description: "Ori Language Specification — Memory Model"
 order: 15
+section: "Execution"
 ---
 
 # Memory Model

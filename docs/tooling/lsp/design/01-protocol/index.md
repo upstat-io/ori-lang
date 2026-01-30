@@ -2,6 +2,7 @@
 title: "Protocol Overview"
 description: "Ori LSP Design — LSP Protocol Methods"
 order: 1
+section: "Protocol"
 ---
 
 # Protocol Overview

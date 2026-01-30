@@ -2,6 +2,7 @@
 title: "Variables"
 description: "Ori Language Specification — Variables"
 order: 5
+section: "Types & Values"
 ---
 
 # Variables

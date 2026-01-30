@@ -2,6 +2,7 @@
 title: "Indentation"
 description: "Ori Formatter Design — Indentation Rules"
 order: 3
+section: "Algorithm"
 ---
 
 # Indentation

@@ -2,6 +2,7 @@
 title: "Built-in Functions"
 description: "Ori Language Specification — Built-in Functions"
 order: 11
+section: "Expressions"
 ---
 
 # Built-in Functions

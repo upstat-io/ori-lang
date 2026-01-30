@@ -2,6 +2,7 @@
 title: "Modules"
 description: "Ori Language Specification — Modules"
 order: 12
+section: "Declarations"
 ---
 
 # Modules

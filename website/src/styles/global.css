@@ -101,12 +101,38 @@ p {
   line-height: var(--leading-relaxed);
 }
 
-ul, ol {
+ul {
   padding-left: var(--space-6);
+  list-style-type: disc;
+  list-style-position: outside;
+}
+
+ol {
+  padding-left: var(--space-6);
+  list-style-type: decimal;
+  list-style-position: outside;
 }
 
 li {
   margin-bottom: var(--space-1);
+  display: list-item;
+}
+
+/* Ensure nested lists also have proper styling */
+ul ul, ol ul {
+  list-style-type: circle;
+}
+
+ul ul ul, ol ul ul {
+  list-style-type: square;
+}
+
+ol ol, ul ol {
+  list-style-type: lower-alpha;
+}
+
+ol ol ol, ul ol ol {
+  list-style-type: lower-roman;
 }
 
 hr {

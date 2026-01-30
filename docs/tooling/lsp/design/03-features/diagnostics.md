@@ -2,6 +2,7 @@
 title: "Diagnostics"
 description: "Ori LSP Design — Error and Warning Reporting"
 order: 2
+section: "Features"
 ---
 
 # Diagnostics

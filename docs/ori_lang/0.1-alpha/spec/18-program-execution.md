@@ -2,6 +2,7 @@
 title: "Program Execution"
 description: "Ori Language Specification — Program Execution"
 order: 18
+section: "Execution"
 ---
 
 # Program Execution

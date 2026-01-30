@@ -2,6 +2,7 @@
 title: "Patterns"
 description: "Ori Language Specification — Patterns"
 order: 10
+section: "Expressions"
 ---
 
 # Patterns

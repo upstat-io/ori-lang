@@ -2,6 +2,7 @@
 title: "Collections"
 description: "Ori Formatter Design — Collection Formatting"
 order: 5
+section: "Constructs"
 ---
 
 # Collections
