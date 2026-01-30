@@ -294,9 +294,13 @@ list_literal   = "[" [ list_element { "," list_element } ] "]" .
 list_element   = "..." expression | expression .
 
 // Map literals with spread support
+// See: computed-map-keys-proposal.md for key semantics
 map_literal    = "{" [ map_element { "," map_element } ] "}" .
 map_element    = "..." expression | map_entry .
-map_entry      = expression ":" expression .
+map_entry      = map_key ":" expression .
+map_key        = "[" expression "]"       /* computed key: evaluates expression */
+               | identifier               /* literal string key: "foo" from foo */
+               | string_literal .         /* literal string key */
 
 // Struct literals with spread support
 struct_literal  = type_path "{" [ struct_element { "," struct_element } ] "}" .
