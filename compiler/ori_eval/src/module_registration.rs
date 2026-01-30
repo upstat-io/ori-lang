@@ -360,6 +360,35 @@ mod tests {
     }
 
     #[test]
+    fn test_collect_impl_methods_with_config() {
+        let (result, interner) = parse_source(
+            r"
+            type Point = { x: int, y: int }
+
+            impl Point {
+                @sum (self) -> int = self.x + self.y
+            }
+        ",
+        );
+
+        let arena = SharedArena::new(result.arena.clone());
+        let mut registry = UserMethodRegistry::new();
+        let captures = HashMap::new();
+
+        let config = MethodCollectionConfig {
+            module: &result.module,
+            arena: &arena,
+            captures: &captures,
+        };
+        collect_impl_methods_with_config(&config, &mut registry);
+
+        let point_name = interner.intern("Point");
+        let sum_name = interner.intern("sum");
+
+        assert!(registry.lookup(point_name, sum_name).is_some());
+    }
+
+    #[test]
     fn test_collect_extend_methods() {
         let (result, interner) = parse_source(
             r"
@@ -374,6 +403,33 @@ mod tests {
         let captures = HashMap::new();
 
         collect_extend_methods(&result.module, &arena, &captures, &mut registry);
+
+        let list_name = interner.intern("list");
+        let double_name = interner.intern("double");
+
+        assert!(registry.lookup(list_name, double_name).is_some());
+    }
+
+    #[test]
+    fn test_collect_extend_methods_with_config() {
+        let (result, interner) = parse_source(
+            r"
+            extend [T] {
+                @double (self) -> [T] = self + self
+            }
+        ",
+        );
+
+        let arena = SharedArena::new(result.arena.clone());
+        let mut registry = UserMethodRegistry::new();
+        let captures = HashMap::new();
+
+        let config = MethodCollectionConfig {
+            module: &result.module,
+            arena: &arena,
+            captures: &captures,
+        };
+        collect_extend_methods_with_config(&config, &mut registry);
 
         let list_name = interner.intern("list");
         let double_name = interner.intern("double");

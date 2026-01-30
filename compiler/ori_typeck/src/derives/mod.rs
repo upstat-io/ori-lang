@@ -107,14 +107,7 @@ fn register_type_derived_impls(
 
     // Register as an inherent impl (no trait_name)
     if !methods.is_empty() {
-        let impl_entry = ImplEntry {
-            trait_name: None,
-            self_ty,
-            span: type_decl.span,
-            type_params: vec![],
-            methods,
-            assoc_types: vec![],
-        };
+        let impl_entry = ImplEntry::new(None, self_ty, type_decl.span, vec![], methods, vec![]);
 
         // Ignore coherence errors for derived methods - they're auto-generated
         let _ = trait_registry.register_impl(impl_entry);

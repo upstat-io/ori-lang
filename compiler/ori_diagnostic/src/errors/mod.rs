@@ -11,6 +11,12 @@
 //! 3. Run `cargo build` to embed the new documentation
 
 use crate::ErrorCode;
+use std::collections::HashMap;
+use std::sync::LazyLock;
+
+/// Lazily-initialized HashMap for O(1) error documentation lookup.
+static DOCS_MAP: LazyLock<HashMap<ErrorCode, &'static str>> =
+    LazyLock::new(|| DOCS.iter().copied().collect());
 
 /// Registry of embedded error documentation.
 ///
@@ -18,7 +24,7 @@ use crate::ErrorCode;
 pub struct ErrorDocs;
 
 impl ErrorDocs {
-    /// Get the documentation for an error code.
+    /// Get the documentation for an error code in O(1) time.
     ///
     /// Returns `Some(markdown)` if documentation exists for the code,
     /// `None` otherwise.
@@ -31,7 +37,7 @@ impl ErrorDocs {
     /// }
     /// ```
     pub fn get(code: ErrorCode) -> Option<&'static str> {
-        DOCS.iter().find(|(c, _)| *c == code).map(|(_, doc)| *doc)
+        DOCS_MAP.get(&code).copied()
     }
 
     /// Get all documented error codes.
@@ -39,9 +45,9 @@ impl ErrorDocs {
         DOCS.iter().map(|(code, _)| *code)
     }
 
-    /// Check if an error code has documentation.
+    /// Check if an error code has documentation in O(1) time.
     pub fn has_docs(code: ErrorCode) -> bool {
-        DOCS.iter().any(|(c, _)| *c == code)
+        DOCS_MAP.contains_key(&code)
     }
 }
 

@@ -107,11 +107,25 @@ pub fn typed(db: &dyn Db, file: SourceFile) -> TypedModule {
 /// - Subsequent calls (same input): returns cached result
 /// - After source changes: re-evaluates only if parsed result changed
 ///
-/// # Note
+/// # Intentional Impurity
 ///
-/// Evaluation results are deterministic for pure functions but may
-/// differ for functions with side effects (I/O, randomness, etc.).
-/// The cached result represents the first evaluation.
+/// This query is **intentionally impure** because evaluation may:
+/// - Execute side effects (I/O, printing, etc.)
+/// - Run tests that have observable behavior
+/// - Interact with external systems via capabilities
+///
+/// Salsa caches the *first* evaluation result. For deterministic results,
+/// ensure evaluated code is pure or uses capability injection for effects.
+///
+/// # Invalidation
+///
+/// This query invalidates when:
+/// - Source file content changes (via `SourceFile.set_text()`)
+/// - Parsed tokens change (triggers re-parse)
+/// - Typed module changes (triggers re-typecheck)
+///
+/// The cached result persists until one of these conditions triggers
+/// re-evaluation. For fresh evaluation, create a new `SourceFile` input.
 #[salsa::tracked]
 pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
     let parse_result = parsed(db, file);

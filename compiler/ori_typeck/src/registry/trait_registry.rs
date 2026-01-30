@@ -186,6 +186,7 @@ impl TraitRegistry {
                 // (This allows multiple inherent impl blocks for the same type)
                 let mut merged = existing.clone();
                 merged.methods.extend(entry.methods);
+                merged.rebuild_method_index();
                 self.inherent_impls.insert(type_key, merged);
             } else {
                 self.inherent_impls.insert(type_key, entry);

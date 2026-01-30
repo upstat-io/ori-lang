@@ -228,13 +228,13 @@ mod collection_length {
 
     #[test]
     fn map_empty() {
-        let m = Value::map(std::collections::HashMap::new());
+        let m = Value::map(std::collections::BTreeMap::new());
         assert_eq!(get_collection_length(&m).unwrap(), 0);
     }
 
     #[test]
     fn map_with_items() {
-        let mut map = std::collections::HashMap::new();
+        let mut map = std::collections::BTreeMap::new();
         map.insert("a".to_string(), Value::int(1));
         map.insert("b".to_string(), Value::int(2));
         let m = Value::map(map);
@@ -385,7 +385,7 @@ mod index_access {
 
         #[test]
         fn existing_key() {
-            let mut map = std::collections::HashMap::new();
+            let mut map = std::collections::BTreeMap::new();
             map.insert("key".to_string(), Value::int(42));
             let m = Value::map(map);
             assert_eq!(eval_index(m, Value::string("key")).unwrap(), Value::int(42));
@@ -393,7 +393,7 @@ mod index_access {
 
         #[test]
         fn missing_key() {
-            let map: std::collections::HashMap<String, Value> = std::collections::HashMap::new();
+            let map: std::collections::BTreeMap<String, Value> = std::collections::BTreeMap::new();
             let m = Value::map(map);
             let result = eval_index(m, Value::string("missing"));
             assert!(result.is_err());
@@ -401,7 +401,7 @@ mod index_access {
 
         #[test]
         fn empty_string_key() {
-            let mut map = std::collections::HashMap::new();
+            let mut map = std::collections::BTreeMap::new();
             map.insert(String::new(), Value::int(1));
             let m = Value::map(map);
             assert_eq!(eval_index(m, Value::string("")).unwrap(), Value::int(1));

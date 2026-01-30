@@ -18,9 +18,10 @@ interface SidebarSection {
 
 interface Props {
   sections: SidebarSection[];
+  expandAllByDefault?: boolean;
 }
 
-const { sections } = Astro.props;
+const { sections, expandAllByDefault = false } = Astro.props;
 const currentPath = Astro.url.pathname;
 ---
 
@@ -49,7 +50,7 @@ const currentPath = Astro.url.pathname;
             return currentPath === href || currentPath === `${href}/`;
           });
           return (
-            <details class="sidebar-subsection" open={hasActiveItem}>
+            <details class="sidebar-subsection" open={expandAllByDefault || hasActiveItem}>
               <summary class="sidebar-subsection-summary">{subsection.name}</summary>
               <ul class="sidebar-list sidebar-subsection-list">
                 {subsection.items.map(item => {

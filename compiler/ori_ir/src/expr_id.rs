@@ -1,7 +1,7 @@
 //! Expression IDs and ranges for flat AST.
 //!
 //! Per design spec A-data-structuresmd:
-//! - ExprId(u32) instead of Box<Expr> for 50% memory savings
+//! - `ExprId(u32)` instead of `Box<Expr>` for 50% memory savings
 //! - `ExprRange` for argument lists (6 bytes vs 24+ for Vec)
 //! - All Salsa-required traits
 
@@ -14,7 +14,7 @@ use std::hash::{Hash, Hasher};
 /// Has all required traits: Copy, Clone, Eq, `PartialEq`, Hash, Debug
 ///
 /// # Design
-/// Per design: "No Box<Expr>, use ExprId(u32) indices"
+/// Per design: "No `Box<Expr>`, use `ExprId(u32)` indices"
 /// - Memory: 4 bytes (vs 8 bytes for Box)
 /// - Equality: O(1) integer compare
 /// - Cache locality: indices into contiguous array
@@ -81,7 +81,7 @@ impl Default for ExprId {
 ///
 /// # Design
 /// Per design spec: uses (start: u32, len: u16) = 6 bytes logical.
-/// Rust aligns to 8 bytes, still 3x better than Vec<ExprId> at 24+ bytes.
+/// Rust aligns to 8 bytes, still 3x better than `Vec<ExprId>` at 24+ bytes.
 /// - start: u32 (4 bytes) - start index in `expr_lists`
 /// - len: u16 (2 bytes) - number of expressions
 /// - padding: 2 bytes (Rust alignment)

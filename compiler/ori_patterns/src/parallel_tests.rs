@@ -1,9 +1,29 @@
 //! Comprehensive tests for the parallel pattern.
 //!
-//! Tests cover:
+//! # Module Structure
+//!
+//! This test file is organized into focused submodules:
+//!
+//! | Module | Lines | Purpose |
+//! |--------|-------|---------|
+//! | `semaphore` | ~120 | Semaphore unit tests (acquire/release, limits) |
+//! | `value_helpers` | ~45 | Value construction tests (Ok/Err/list wrapping) |
+//! | `execute_task_tests` | ~85 | Task execution semantics |
+//! | `wrap_in_result_tests` | ~43 | Result wrapping behavior |
+//! | `pattern_definition` | ~25 | Pattern trait implementation |
+//! | `concurrency_verification` | ~240 | Concurrency control verification |
+//! | `timeout` | ~95 | Timeout handling tests |
+//! | `all_settled` | ~70 | Error capture (all-settled semantics) |
+//! | `edge_cases` | ~115 | Edge cases (empty, single, non-callable) |
+//! | `thread_safety` | ~70 | Thread safety verification |
+//! | `integration` | ~165 | End-to-end integration tests |
+//! | `stress` | ~45 | Stress and performance tests |
+//!
+//! # Coverage Areas
+//!
 //! - Basic parallel execution
 //! - `max_concurrent` limiting
-//! - timeout handling
+//! - Timeout handling
 //! - Error capture (all-settled semantics)
 //! - Edge cases (empty, single task, non-callable)
 //! - Order preservation

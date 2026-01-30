@@ -1,7 +1,7 @@
 //! Flat AST types using arena allocation.
 //!
 //! Per design spec A-data-structures.md:
-//! - No Box<Expr>, use ExprId(u32) indices
+//! - No `Box<Expr>`, use `ExprId(u32)` indices
 //! - Contiguous arrays for cache locality
 //! - All types have Salsa-required traits (Clone, Eq, Hash, Debug)
 //!

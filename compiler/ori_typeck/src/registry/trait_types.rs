@@ -3,6 +3,8 @@
 //! Contains types for representing trait definitions in the registry.
 
 use ori_ir::{Name, Span, TypeId, Visibility};
+use rustc_hash::FxHashMap;
+use std::hash::{Hash, Hasher};
 
 /// Method signature in a trait definition.
 ///
@@ -27,7 +29,10 @@ pub struct TraitAssocTypeDef {
 }
 
 /// Entry for a trait definition.
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+///
+/// Contains both the method definitions and an index for O(1) method lookup.
+/// The index is excluded from Hash/Eq as it's derived from `methods`.
+#[derive(Clone, Debug)]
 pub struct TraitEntry {
     /// Trait name.
     pub name: Name,
@@ -43,11 +48,72 @@ pub struct TraitEntry {
     pub assoc_types: Vec<TraitAssocTypeDef>,
     /// Visibility of this trait.
     pub visibility: Visibility,
+    /// Index for O(1) method lookup by name.
+    /// Maps method name to index in `methods` vector.
+    method_index: FxHashMap<Name, usize>,
+}
+
+impl PartialEq for TraitEntry {
+    fn eq(&self, other: &Self) -> bool {
+        // Exclude method_index from comparison (it's derived from methods)
+        self.name == other.name
+            && self.span == other.span
+            && self.type_params == other.type_params
+            && self.super_traits == other.super_traits
+            && self.methods == other.methods
+            && self.assoc_types == other.assoc_types
+            && self.visibility == other.visibility
+    }
+}
+
+impl Eq for TraitEntry {}
+
+impl Hash for TraitEntry {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Exclude method_index from hash (it's derived from methods)
+        self.name.hash(state);
+        self.span.hash(state);
+        self.type_params.hash(state);
+        self.super_traits.hash(state);
+        self.methods.hash(state);
+        self.assoc_types.hash(state);
+        self.visibility.hash(state);
+    }
 }
 
 impl TraitEntry {
-    /// Look up a method by name.
+    /// Create a new trait entry with the method index built automatically.
+    pub fn new(
+        name: Name,
+        span: Span,
+        type_params: Vec<Name>,
+        super_traits: Vec<Name>,
+        methods: Vec<TraitMethodDef>,
+        assoc_types: Vec<TraitAssocTypeDef>,
+        visibility: Visibility,
+    ) -> Self {
+        let method_index = methods
+            .iter()
+            .enumerate()
+            .map(|(i, m)| (m.name, i))
+            .collect();
+
+        Self {
+            name,
+            span,
+            type_params,
+            super_traits,
+            methods,
+            assoc_types,
+            visibility,
+            method_index,
+        }
+    }
+
+    /// Look up a method by name in O(1) time.
+    ///
+    /// Uses the internal method index for fast lookup.
     pub fn get_method(&self, name: Name) -> Option<&TraitMethodDef> {
-        self.methods.iter().find(|m| m.name == name)
+        self.method_index.get(&name).map(|&idx| &self.methods[idx])
     }
 }

@@ -239,6 +239,15 @@ impl TokenKind {
     }
 
     /// Get a display name for the token.
+    ///
+    /// # Performance
+    ///
+    /// This uses a match statement rather than a lookup table because:
+    /// 1. Some variants carry data (e.g., `Int(i64)`) and must be grouped
+    /// 2. The Rust compiler optimizes exhaustive matches into efficient jump tables
+    /// 3. All display names are static strings, so no allocation occurs
+    ///
+    /// The generated assembly is comparable to a direct array lookup.
     pub fn display_name(&self) -> &'static str {
         match self {
             TokenKind::Int(_) => "integer",
@@ -452,7 +461,7 @@ impl fmt::Debug for SizeUnit {
 
 /// A list of tokens with Salsa-compatible traits.
 ///
-/// Wraps Vec<Token> with Clone, Eq, Hash support.
+/// Wraps `Vec<Token>` with Clone, Eq, Hash support.
 /// Uses the tokens' own Hash impl for content hashing.
 ///
 /// # Salsa Compatibility
