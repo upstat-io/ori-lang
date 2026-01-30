@@ -1,4 +1,4 @@
-# Proposal: Incremental Test Execution and Explicit Free-Floating Tests
+# Proposal: Incremental Test Execution and Explicit Floating Tests
 
 **Status:** Approved
 **Author:** Eric (with AI assistance)
@@ -12,16 +12,16 @@
 
 Two related changes to Ori's testing system:
 
-1. **Explicit free-floating tests**: Replace naming convention with `tests _` syntax
-2. **Incremental test execution**: Targeted tests auto-run during compilation when their targets change
+1. **Explicit floating tests**: Replace naming convention with `tests _` syntax
+2. **Incremental test execution**: Attached tests auto-run during compilation when their targets change
 
 ```ori
-// Targeted test - runs during compilation when @add changes
+// Attached test - runs during compilation when @add changes
 @test_add tests @add () -> void = run(
     assert_eq(actual: add(a: 1, b: 2), expected: 3)
 )
 
-// Free-floating test - only runs via `ori test`
+// Floating test - only runs via `ori test`
 @integration_suite tests _ () -> void = run(
     let result = full_pipeline("input"),
     assert_ok(result: result)
@@ -32,15 +32,15 @@ Two related changes to Ori's testing system:
 
 ## Motivation
 
-### Problem 1: Ambiguous Free-Floating Tests
+### Problem 1: Ambiguous Floating Tests
 
-Current spec: free-floating tests are identified by naming convention (`test_` prefix without `tests @target`).
+Current spec: floating tests are identified by naming convention (`test_` prefix without `tests @target`).
 
 ```ori
 // Is this a test or a helper?
 @test_helper () -> void = setup_data()
 
-// This is a free-floating test (by naming convention)
+// This is a floating test (by naming convention)
 @test_integration () -> void = run(...)
 
 // This is a function (no test_ prefix)
@@ -82,18 +82,18 @@ When `@tokenize` changes, the compiler knows `@test_tokenize` is affected. Why n
 
 ## Design
 
-### Part 1: Explicit Free-Floating Tests with `tests _`
+### Part 1: Explicit Floating Tests with `tests _`
 
-All tests must use the `tests` keyword. Free-floating tests use `_` as the target:
+All tests must use the `tests` keyword. Floating tests use `_` as the target:
 
 ```ori
-// Targeted test
+// Attached test
 @test_add tests @add () -> void = run(...)
 
 // Multiple targets
 @test_roundtrip tests @parse tests @format () -> void = run(...)
 
-// Free-floating test (explicit)
+// Floating test (explicit)
 @test_integration tests _ () -> void = run(...)
 ```
 
@@ -107,8 +107,8 @@ test_target  = "@" identifier .
 
 #### Semantics
 
-- `tests @fn` — targeted test, covers `@fn` for test requirement
-- `tests _` — free-floating test, covers no function
+- `tests @fn` — attached test, covers `@fn` for test requirement
+- `tests _` — floating test, covers no function
 
 The `_` token is consistent with its use elsewhere:
 - Pattern matching: `_ -> default` (match anything)
@@ -123,13 +123,13 @@ The `tests` keyword is required from the start. The `test_` naming convention is
 // This is NOT a test (no `tests` keyword)
 @test_integration () -> void = run(...)
 
-// This IS a test (explicit free-floating)
+// This IS a test (explicit floating)
 @test_integration tests _ () -> void = run(...)
 ```
 
 ### Part 2: Incremental Test Execution
 
-During compilation, targeted tests whose targets (or transitive dependencies) have changed are automatically executed.
+During compilation, attached tests whose targets (or transitive dependencies) have changed are automatically executed.
 
 #### Compilation Flow
 
@@ -153,8 +153,8 @@ Build succeeded with 1 test failure.
 
 | Test Type | When It Runs |
 |-----------|--------------|
-| Targeted (`tests @fn`) | During compilation if `@fn` or its dependencies changed |
-| Free-floating (`tests _`) | Only via explicit `ori test` |
+| Attached (`tests @fn`) | During compilation if `@fn` or its dependencies changed |
+| Floating (`tests _`) | Only via explicit `ori test` |
 
 The dependency graph determines "affected":
 
@@ -165,7 +165,7 @@ Change @helper
     ↓ (tested by)
 @test_process tests @process  ← runs
 
-@test_e2e tests _  ← does NOT run (free-floating)
+@test_e2e tests _  ← does NOT run (floating)
 ```
 
 #### Non-Blocking by Default
@@ -202,7 +202,7 @@ The compiler tracks:
 On incremental compile:
 1. Compute changed functions (hash mismatch)
 2. Walk dependency graph to find affected tests
-3. Run only affected targeted tests
+3. Run only affected attached tests
 4. Cache results keyed by input hashes
 
 #### Cache Storage
@@ -215,16 +215,16 @@ The `.ori/` directory should be added to `.gitignore`.
 
 ### Part 3: Performance Expectations
 
-Targeted tests run during compilation, so they should be fast.
+Attached tests run during compilation, so they should be fast.
 
 ```ori
-// Good: targeted test is fast and focused
+// Good: attached test is fast and focused
 @test_parse_int tests @parse_int () -> void = run(
     assert_eq(actual: parse_int("42"), expected: Some(42)),
     assert_eq(actual: parse_int("abc"), expected: None),
 )
 
-// Good: slow test is free-floating
+// Good: slow test is floating
 @test_full_compile_cycle tests _ () -> void = run(
     let source = read_file("large_program.ori"),
     let result = compile_and_run(source),
@@ -234,16 +234,16 @@ Targeted tests run during compilation, so they should be fast.
 
 #### Compiler Warning
 
-If a targeted test exceeds a threshold (configurable, default 100ms):
+If an attached test exceeds a threshold (configurable, default 100ms):
 
 ```
-warning: targeted test @test_parse took 250ms
+warning: attached test @test_parse took 250ms
   --> src/parser.ori:45
   |
-  | Targeted tests run during compilation.
-  | Consider making this a free-floating test: tests _
+  | Attached tests run during compilation.
+  | Consider making this a floating test: tests _
   |
-  = hint: targeted tests should complete in <100ms
+  = hint: attached tests should complete in <100ms
 ```
 
 #### Threshold Configuration
@@ -278,7 +278,7 @@ Supported units: `ms`, `s`, `m`. Default is `100ms`.
     assert_eq(actual: multiply(a: 2, b: 3), expected: 6),
 )
 
-// Free-floating: only runs via `ori test`
+// Floating: only runs via `ori test`
 @test_math_integration tests _ () -> void = run(
     let result = add(a: multiply(a: 2, b: 3), b: 1),
     assert_eq(actual: result, expected: 7),
@@ -341,7 +341,7 @@ Supported units: `ms`, `s`, `m`. Default is `100ms`.
 
 ### `ori check` (default)
 
-Compiles and runs affected targeted tests:
+Compiles and runs affected attached tests:
 
 ```
 $ ori check src/
@@ -382,7 +382,7 @@ Build FAILED: 1 test failure.
 
 ### `ori test`
 
-Run all tests (targeted and free-floating):
+Run all tests (attached and floating):
 
 ```
 $ ori test
@@ -390,24 +390,24 @@ $ ori test
 Running all tests...
   ✓ @test_parse (2 assertions)
   ✓ @test_tokenize (3 assertions)
-  ✓ @test_integration (5 assertions)  // free-floating runs here
+  ✓ @test_integration (5 assertions)  // floating runs here
   ...
 
 42 passed, 0 failed.
 ```
 
-### `ori test --only-targeted`
+### `ori test --only-attached`
 
-Run only targeted tests (useful for quick check):
+Run only attached tests (useful for quick check):
 
 ```
-$ ori test --only-targeted
+$ ori test --only-attached
 
-Running targeted tests...
+Running attached tests...
   ✓ @test_parse (2 assertions)
   ...
 
-38 passed, 0 failed. (4 free-floating tests skipped)
+38 passed, 0 failed. (4 floating tests skipped)
 ```
 
 ---
@@ -446,7 +446,7 @@ Running targeted tests...
 
 ### Test Runner Changes
 
-1. Accept filter for targeted-only vs all tests
+1. Accept filter for attached-only vs all tests
 2. Report timing per test for threshold warnings
 3. Cache test results keyed by dependency hashes
 
@@ -456,7 +456,7 @@ Running targeted tests...
 
 ### 1. Keep Naming Convention
 
-Status quo: `test_` prefix indicates free-floating test.
+Status quo: `test_` prefix indicates floating test.
 
 Rejected: Implicit, easy to confuse with helper functions.
 
@@ -474,7 +474,7 @@ Rejected: `void` is a type, overloading it is confusing. `_` is the established 
 @test test_integration () -> void = ...
 ```
 
-Rejected: Inconsistent with targeted test syntax, requires new keyword position.
+Rejected: Inconsistent with attached test syntax, requires new keyword position.
 
 ### 4. Attribute for Free-Floating
 
@@ -497,7 +497,7 @@ Rejected: The value is in being automatic. Opt-in means people forget.
 
 This proposal makes Ori's testing system:
 
-1. **Explicit** — `tests _` clearly marks free-floating tests
+1. **Explicit** — `tests _` clearly marks floating tests
 2. **Automatic** — affected tests run during compilation
 3. **Fast** — only changed code's tests run
 4. **Non-intrusive** — failures shown but don't block by default

@@ -198,10 +198,10 @@ Skipped 47 unaffected tests
 
 ## Unit Tests vs Integration Tests
 
-### Bound Tests (Unit Tests)
+### Attached Tests (Unit Tests)
 
 Tests with `tests @target` are unit tests:
-- Bound to specific function
+- Attached to specific function
 - Run when target or its callers change
 - Should be fast (fully mocked via capabilities)
 - Part of the dependency graph
@@ -212,10 +212,10 @@ Tests with `tests @target` are unit tests:
     run(...)
 ```
 
-### Free-Floating Tests (Integration Tests)
+### Floating Tests (Integration Tests)
 
 Tests without `tests @target` are integration tests:
-- Not bound to specific function
+- Not attached to specific function
 - Run only in `--full` mode or explicitly
 - May use real capabilities
 - Not part of dependency closure
@@ -234,10 +234,10 @@ Tests without `tests @target` are integration tests:
 
 | Test Type | Direct Mode | Closure Mode | Full Mode |
 |-----------|-------------|--------------|-----------|
-| Bound (changed target) | Run | Run | Run |
-| Bound (caller of changed) | Skip | Run | Run |
-| Bound (unaffected) | Skip | Skip | Run |
-| Free-floating | Skip | Skip | Run |
+| Attached (changed target) | Run | Run | Run |
+| Attached (caller of changed) | Skip | Run | Run |
+| Attached (unaffected) | Skip | Skip | Run |
+| Floating | Skip | Skip | Run |
 
 ---
 
@@ -256,7 +256,7 @@ Tests without `tests @target` are integration tests:
 
 3. **Closure Computation**
    - Given changed functions, compute reverse transitive closure
-   - Filter to functions that have bound tests
+   - Filter to functions that have attached tests
 
 ### Data Structures
 
@@ -405,7 +405,7 @@ Dependency-aware test execution:
 1. **Uses existing infrastructure** — Dependency graph already exists for incremental compilation
 2. **Runs the right tests** — Not too few (missing failures), not too many (wasted time)
 3. **Enables fast iteration** — Change, test, repeat in milliseconds
-4. **Distinguishes test types** — Unit tests (bound) vs integration tests (free-floating)
+4. **Distinguishes test types** — Unit tests (attached) vs integration tests (floating)
 5. **Makes mandatory testing practical** — Fast feedback makes requirements palatable
 
 Combined with capabilities (trivial mocking) and mandatory testing (no untested code), this creates a system where code integrity is enforced automatically.
