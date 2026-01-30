@@ -1,6 +1,7 @@
 # Proposal: std.crypto API Design
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-30
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-29
 **Affects:** Standard library
@@ -9,7 +10,7 @@
 
 ## Summary
 
-This proposal defines the API for `std.crypto`, providing cryptographic primitives for hashing, encryption, signatures, and secure random number generation.
+This proposal defines the API for `std.crypto`, providing cryptographic primitives for hashing, encryption, signatures, key exchange, and secure random number generation.
 
 ---
 
@@ -21,6 +22,7 @@ Cryptography is essential for:
 - Digital signatures
 - Secure token generation
 - Message authentication
+- Key exchange
 
 A standard crypto library must be:
 1. **Secure by default** — Hard to misuse
@@ -40,6 +42,8 @@ All crypto operations use the `Crypto` capability to track cryptographic side ef
 @hash_password (password: str) -> str uses Crypto = ...
 ```
 
+The `Crypto` capability is non-suspending (CPU-bound operations complete synchronously).
+
 ### High-Level First
 
 Provide high-level APIs for common operations, with low-level primitives available for advanced users.
@@ -47,6 +51,10 @@ Provide high-level APIs for common operations, with low-level primitives availab
 ### Secure Defaults
 
 Default parameters are secure. Insecure options require explicit configuration.
+
+### Type-Safe Key Usage
+
+Asymmetric keys are separated by purpose (signing, encryption, key exchange) to prevent misuse at compile time.
 
 ---
 
@@ -84,15 +92,15 @@ For data integrity (fast, deterministic):
 type HashAlgorithm = Sha256 | Sha384 | Sha512 | Blake2b | Blake3
 
 @hash (data: [byte], algorithm: HashAlgorithm = Sha256) -> [byte] uses Crypto
-@hash_str (data: str, algorithm: HashAlgorithm = Sha256) -> str uses Crypto
+@hash_hex (data: str, algorithm: HashAlgorithm = Sha256) -> str uses Crypto
 ```
 
 Usage:
 ```ori
-use std.crypto { hash, hash_str, HashAlgorithm }
+use std.crypto { hash, hash_hex, HashAlgorithm }
 
 let digest = hash(data: file_contents, algorithm: Sha256)
-let hex = hash_str(data: "hello", algorithm: Blake3)
+let hex = hash_hex(data: "hello", algorithm: Blake3)
 // "ea8f163db38682925e4491c5e58d4bb3506ef8c14eb78a86e908c5624a67200f"
 ```
 
@@ -124,7 +132,7 @@ if verify_hmac(key: secret_key, data: message, mac: received_mac) then
 For simple encrypt/decrypt with secure defaults:
 
 ```ori
-type SecretKey = { bytes: [byte] }  // Opaque key type
+type SecretKey = { bytes: [byte] }  // Opaque key type, auto-zeroizes on drop
 
 @generate_key () -> SecretKey uses Crypto
 @encrypt (key: SecretKey, plaintext: [byte]) -> [byte] uses Crypto
@@ -168,34 +176,63 @@ For when you need to control the nonce:
 
 ---
 
-## Asymmetric Encryption
+## Asymmetric Key Types
 
-### Key Pairs
+Keys are separated by purpose to prevent misuse:
+
+### Signing Keys
 
 ```ori
-type KeyPair = { public: PublicKey, private: PrivateKey }
-type PublicKey = { bytes: [byte], algorithm: AsymmetricAlgorithm }
-type PrivateKey = { bytes: [byte], algorithm: AsymmetricAlgorithm }
-type AsymmetricAlgorithm = Ed25519 | X25519 | Rsa2048 | Rsa4096
+type SigningAlgorithm = Ed25519 | Rsa2048 | Rsa4096
 
-@generate_keypair (algorithm: AsymmetricAlgorithm = Ed25519) -> KeyPair uses Crypto
+type SigningKeyPair = { public: SigningPublicKey, private: SigningPrivateKey }
+type SigningPublicKey = { bytes: [byte], algorithm: SigningAlgorithm }
+type SigningPrivateKey = { bytes: [byte], algorithm: SigningAlgorithm }  // auto-zeroizes
+
+@generate_signing_keypair (algorithm: SigningAlgorithm = Ed25519) -> SigningKeyPair uses Crypto
 ```
 
-### Public Key Encryption
+### Encryption Keys
+
+```ori
+type EncryptionAlgorithm = Rsa2048 | Rsa4096
+
+type EncryptionKeyPair = { public: EncryptionPublicKey, private: EncryptionPrivateKey }
+type EncryptionPublicKey = { bytes: [byte], algorithm: EncryptionAlgorithm }
+type EncryptionPrivateKey = { bytes: [byte], algorithm: EncryptionAlgorithm }  // auto-zeroizes
+
+@generate_encryption_keypair (algorithm: EncryptionAlgorithm = Rsa2048) -> EncryptionKeyPair uses Crypto
+```
+
+### Key Exchange Keys
+
+```ori
+type KeyExchangeAlgorithm = X25519
+
+type KeyExchangeKeyPair = { public: KeyExchangePublicKey, private: KeyExchangePrivateKey }
+type KeyExchangePublicKey = { bytes: [byte], algorithm: KeyExchangeAlgorithm }
+type KeyExchangePrivateKey = { bytes: [byte], algorithm: KeyExchangeAlgorithm }  // auto-zeroizes
+
+@generate_key_exchange_keypair (algorithm: KeyExchangeAlgorithm = X25519) -> KeyExchangeKeyPair uses Crypto
+```
+
+---
+
+## Public Key Encryption
 
 For encrypting data to a recipient's public key:
 
 ```ori
-@encrypt_for (recipient: PublicKey, plaintext: [byte]) -> [byte] uses Crypto
-@decrypt_with (key: PrivateKey, ciphertext: [byte]) -> Result<[byte], CryptoError> uses Crypto
+@encrypt_for (recipient: EncryptionPublicKey, plaintext: [byte]) -> [byte] uses Crypto
+@decrypt_with (key: EncryptionPrivateKey, ciphertext: [byte]) -> Result<[byte], CryptoError> uses Crypto
 ```
 
 Usage:
 ```ori
-use std.crypto { generate_keypair, encrypt_for, decrypt_with }
+use std.crypto { generate_encryption_keypair, encrypt_for, decrypt_with }
 
 // Recipient generates keypair
-let keypair = generate_keypair()
+let keypair = generate_encryption_keypair()
 
 // Sender encrypts for recipient
 let ciphertext = encrypt_for(recipient: keypair.public, plaintext: message)
@@ -211,15 +248,15 @@ let message = decrypt_with(key: keypair.private, ciphertext: ciphertext)?
 ### Signing and Verification
 
 ```ori
-@sign (key: PrivateKey, data: [byte]) -> [byte] uses Crypto
-@verify_signature (key: PublicKey, data: [byte], signature: [byte]) -> bool uses Crypto
+@sign (key: SigningPrivateKey, data: [byte]) -> [byte] uses Crypto
+@verify_signature (key: SigningPublicKey, data: [byte], signature: [byte]) -> bool uses Crypto
 ```
 
 Usage:
 ```ori
-use std.crypto { generate_keypair, sign, verify_signature, AsymmetricAlgorithm }
+use std.crypto { generate_signing_keypair, sign, verify_signature, SigningAlgorithm }
 
-let keypair = generate_keypair(algorithm: Ed25519)
+let keypair = generate_signing_keypair(algorithm: Ed25519)
 
 // Sign data
 let signature = sign(key: keypair.private, data: document)
@@ -227,6 +264,33 @@ let signature = sign(key: keypair.private, data: document)
 // Verify signature
 if verify_signature(key: keypair.public, data: document, signature: signature) then
     trust_document()
+```
+
+---
+
+## Key Exchange
+
+Diffie-Hellman key exchange for establishing shared secrets:
+
+```ori
+@derive_shared_secret (
+    my_private: KeyExchangePrivateKey,
+    their_public: KeyExchangePublicKey,
+) -> [byte] uses Crypto
+```
+
+Usage:
+```ori
+use std.crypto { generate_key_exchange_keypair, derive_shared_secret }
+
+// Alice and Bob each generate keypairs
+let alice = generate_key_exchange_keypair()
+let bob = generate_key_exchange_keypair()
+
+// Exchange public keys (via network, etc.), then derive shared secret
+let alice_secret = derive_shared_secret(my_private: alice.private, their_public: bob.public)
+let bob_secret = derive_shared_secret(my_private: bob.private, their_public: alice.public)
+// alice_secret == bob_secret (can be used as symmetric key)
 ```
 
 ---
@@ -309,18 +373,42 @@ impl SecretKey {
     @from_bytes (bytes: [byte]) -> Result<SecretKey, CryptoError>
 }
 
-impl PublicKey {
+impl SigningPublicKey {
     @to_pem (self) -> str
-    @from_pem (pem: str) -> Result<PublicKey, CryptoError>
+    @from_pem (pem: str) -> Result<SigningPublicKey, CryptoError>
     @to_bytes (self) -> [byte]
-    @from_bytes (bytes: [byte], algorithm: AsymmetricAlgorithm) -> Result<PublicKey, CryptoError>
+    @from_bytes (bytes: [byte], algorithm: SigningAlgorithm) -> Result<SigningPublicKey, CryptoError>
 }
 
-impl PrivateKey {
+impl SigningPrivateKey {
     @to_pem (self) -> str
     @to_encrypted_pem (self, password: str) -> str uses Crypto
-    @from_pem (pem: str) -> Result<PrivateKey, CryptoError>
-    @from_encrypted_pem (pem: str, password: str) -> Result<PrivateKey, CryptoError> uses Crypto
+    @from_pem (pem: str) -> Result<SigningPrivateKey, CryptoError>
+    @from_encrypted_pem (pem: str, password: str) -> Result<SigningPrivateKey, CryptoError> uses Crypto
+}
+
+impl EncryptionPublicKey {
+    @to_pem (self) -> str
+    @from_pem (pem: str) -> Result<EncryptionPublicKey, CryptoError>
+    @to_bytes (self) -> [byte]
+    @from_bytes (bytes: [byte], algorithm: EncryptionAlgorithm) -> Result<EncryptionPublicKey, CryptoError>
+}
+
+impl EncryptionPrivateKey {
+    @to_pem (self) -> str
+    @to_encrypted_pem (self, password: str) -> str uses Crypto
+    @from_pem (pem: str) -> Result<EncryptionPrivateKey, CryptoError>
+    @from_encrypted_pem (pem: str, password: str) -> Result<EncryptionPrivateKey, CryptoError> uses Crypto
+}
+
+impl KeyExchangePublicKey {
+    @to_bytes (self) -> [byte]
+    @from_bytes (bytes: [byte], algorithm: KeyExchangeAlgorithm) -> Result<KeyExchangePublicKey, CryptoError>
+}
+
+impl KeyExchangePrivateKey {
+    @to_bytes (self) -> [byte]
+    @from_bytes (bytes: [byte], algorithm: KeyExchangeAlgorithm) -> Result<KeyExchangePrivateKey, CryptoError>
 }
 ```
 
@@ -340,6 +428,7 @@ type CryptoErrorKind =
     | InvalidSignature   // Signature verification failed
     | KeyDerivationFailed
     | RandomGenerationFailed
+    | KeyExchangeFailed  // Key exchange operation failed
 ```
 
 ---
@@ -360,6 +449,51 @@ use std.crypto { constant_time_eq }
 if constant_time_eq(a: computed_mac, b: received_mac) then
     accept()
 ```
+
+---
+
+## Memory Safety
+
+### Automatic Key Zeroization
+
+`SecretKey`, `SigningPrivateKey`, `EncryptionPrivateKey`, and `KeyExchangePrivateKey` automatically zero their memory when dropped. This prevents sensitive key material from lingering in memory after use.
+
+This is automatic — no user action required. The zeroization happens even if the value is dropped due to an error or early return.
+
+**Note**: Zeroization cannot prevent the operating system from swapping memory to disk. For high-security applications, consider memory locking (OS-specific).
+
+---
+
+## Algorithm Deprecation
+
+Algorithms may be marked as deprecated when they become insecure. Using a deprecated algorithm emits a compiler warning:
+
+```ori
+let hash = hash(data: content, algorithm: Md5)  // Warning: Md5 is deprecated
+```
+
+Suppress warnings when necessary (e.g., legacy compatibility):
+
+```ori
+#allow(deprecated_algorithm)
+let hash = hash(data: content, algorithm: Md5)
+```
+
+### Deprecation Schedule
+
+| Algorithm | Status | Reason |
+|-----------|--------|--------|
+| SHA-256 | Current | — |
+| SHA-384 | Current | — |
+| SHA-512 | Current | — |
+| Blake2b | Current | — |
+| Blake3 | Current | — |
+| Ed25519 | Current | — |
+| X25519 | Current | — |
+| RSA-2048 | Current | — |
+| RSA-4096 | Current | — |
+
+This table will be updated as cryptographic recommendations evolve.
 
 ---
 
@@ -410,11 +544,11 @@ use std.json { parse_as, to_json_string }
 ### Message Signing
 
 ```ori
-use std.crypto { generate_keypair, sign, verify_signature }
+use std.crypto { generate_signing_keypair, sign, verify_signature }
 
-type SignedMessage = { data: [byte], signature: [byte], signer: PublicKey }
+type SignedMessage = { data: [byte], signature: [byte], signer: SigningPublicKey }
 
-@sign_message (key: PrivateKey, public: PublicKey, data: [byte]) -> SignedMessage uses Crypto =
+@sign_message (key: SigningPrivateKey, public: SigningPublicKey, data: [byte]) -> SignedMessage uses Crypto =
     SignedMessage {
         data: data,
         signature: sign(key: key, data: data),
@@ -425,17 +559,40 @@ type SignedMessage = { data: [byte], signature: [byte], signer: PublicKey }
     verify_signature(key: msg.signer, data: msg.data, signature: msg.signature)
 ```
 
+### Secure Channel Establishment
+
+```ori
+use std.crypto { generate_key_exchange_keypair, derive_shared_secret, encrypt, decrypt, SecretKey }
+
+// Establish encrypted channel between two parties
+@establish_channel (my_keypair: KeyExchangeKeyPair, their_public: KeyExchangePublicKey) -> SecretKey uses Crypto =
+    run(
+        let shared = derive_shared_secret(my_private: my_keypair.private, their_public: their_public),
+        SecretKey.from_bytes(bytes: shared).unwrap_or(panic(msg: "Invalid shared secret")),
+    )
+```
+
 ---
 
 ## Module Structure
 
 ```ori
 // std/crypto/mod.ori
-pub use "./hash" { hash, hash_str, hash_password, verify_password, HashAlgorithm }
+pub use "./hash" { hash, hash_hex, hash_password, verify_password, HashAlgorithm }
 pub use "./hmac" { hmac, verify_hmac }
 pub use "./symmetric" { SecretKey, generate_key, encrypt, decrypt, encrypt_with_nonce, decrypt_with_nonce }
-pub use "./asymmetric" { KeyPair, PublicKey, PrivateKey, AsymmetricAlgorithm, generate_keypair }
-pub use "./signature" { sign, verify_signature }
+pub use "./signing" {
+    SigningAlgorithm, SigningKeyPair, SigningPublicKey, SigningPrivateKey,
+    generate_signing_keypair, sign, verify_signature,
+}
+pub use "./encryption" {
+    EncryptionAlgorithm, EncryptionKeyPair, EncryptionPublicKey, EncryptionPrivateKey,
+    generate_encryption_keypair, encrypt_for, decrypt_with,
+}
+pub use "./key_exchange" {
+    KeyExchangeAlgorithm, KeyExchangeKeyPair, KeyExchangePublicKey, KeyExchangePrivateKey,
+    generate_key_exchange_keypair, derive_shared_secret,
+}
 pub use "./random" { random_bytes, random_int, random_uuid }
 pub use "./kdf" { derive_key, stretch_key }
 pub use "./error" { CryptoError, CryptoErrorKind }
@@ -453,6 +610,7 @@ pub use "./util" { constant_time_eq }
 3. **Algorithm selection**: Use recommended defaults unless you have specific requirements
 4. **Timing attacks**: Use `constant_time_eq` for secret comparisons
 5. **Key rotation**: Plan for key rotation from the start
+6. **Key type safety**: Use the correct key type for each operation (signing keys for signatures, encryption keys for encryption, etc.)
 
 ---
 
@@ -461,10 +619,11 @@ pub use "./util" { constant_time_eq }
 | Category | Functions |
 |----------|-----------|
 | Password hashing | `hash_password`, `verify_password` |
-| Data hashing | `hash`, `hash_str`, `hmac`, `verify_hmac` |
+| Data hashing | `hash`, `hash_hex`, `hmac`, `verify_hmac` |
 | Symmetric encryption | `generate_key`, `encrypt`, `decrypt` |
-| Asymmetric encryption | `generate_keypair`, `encrypt_for`, `decrypt_with` |
-| Signatures | `sign`, `verify_signature` |
+| Asymmetric encryption | `generate_encryption_keypair`, `encrypt_for`, `decrypt_with` |
+| Signatures | `generate_signing_keypair`, `sign`, `verify_signature` |
+| Key exchange | `generate_key_exchange_keypair`, `derive_shared_secret` |
 | Random | `random_bytes`, `random_int`, `random_uuid` |
 | Key derivation | `derive_key`, `stretch_key` |
 | Utilities | `constant_time_eq` |

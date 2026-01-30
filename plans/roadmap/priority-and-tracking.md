@@ -415,6 +415,20 @@
 - `WriteMode.Create` errors if file exists; `Truncate` overwrites
 - Blocked on: std.time (for Instant type)
 
+**std.crypto API** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/stdlib-crypto-api-proposal.md`
+- Implementation: Phase 7D.9
+- Type-safe asymmetric keys: `SigningKeyPair`, `EncryptionKeyPair`, `KeyExchangeKeyPair` (prevent misuse at compile time)
+- Password hashing: `hash_password()`, `verify_password()` with Argon2id
+- Symmetric encryption: `generate_key()`, `encrypt()`, `decrypt()` with AES-256-GCM
+- Digital signatures: `sign()`, `verify_signature()` with Ed25519/RSA
+- Key exchange: `derive_shared_secret()` with X25519 (Diffie-Hellman)
+- Secure random: `random_bytes()`, `random_int()`, `random_uuid()` using CSPRNG
+- Memory safety: automatic key zeroization on drop
+- Algorithm deprecation: compiler warnings with `#allow(deprecated_algorithm)` suppression
+- Crypto capability: non-suspending, added to standard capabilities
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones

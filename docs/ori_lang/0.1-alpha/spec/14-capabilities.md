@@ -199,6 +199,7 @@ Capabilities propagate: if A calls B with capability C, A must declare or provid
 | `Cache` | Caching | May |
 | `Clock` | Time | No |
 | `Random` | RNG | No |
+| `Crypto` | Cryptographic operations | No |
 | `Print` | Standard output | No |
 | `Logger` | Structured logging | No |
 | `Env` | Environment | No |
@@ -236,6 +237,32 @@ Mock clocks enable deterministic testing:
 ```
 
 `MockClock` uses interior mutability for its time state, allowing `advance()` without reassignment.
+
+### Crypto Capability
+
+The `Crypto` capability provides cryptographic operations:
+
+```ori
+trait Crypto {
+    @hash (data: [byte], algorithm: HashAlgorithm) -> [byte]
+    @hash_password (password: str) -> str
+    @verify_password (password: str, hash: str) -> bool
+    @generate_key () -> SecretKey
+    @encrypt (key: SecretKey, plaintext: [byte]) -> [byte]
+    @decrypt (key: SecretKey, ciphertext: [byte]) -> Result<[byte], CryptoError>
+    @random_bytes (count: int) -> [byte]
+    // ... additional methods defined in std.crypto
+}
+```
+
+Types and functions are defined in `std.crypto`. The `Crypto` capability is non-suspending — cryptographic operations are CPU-bound and complete synchronously.
+
+Key types are separated by purpose to prevent misuse at compile time:
+- `SigningPrivateKey` / `SigningPublicKey` — for digital signatures
+- `EncryptionPrivateKey` / `EncryptionPublicKey` — for asymmetric encryption
+- `KeyExchangePrivateKey` / `KeyExchangePublicKey` — for Diffie-Hellman key exchange
+
+Private key types (`SecretKey`, `SigningPrivateKey`, `EncryptionPrivateKey`, `KeyExchangePrivateKey`) automatically zero their memory when dropped.
 
 ## Default Capabilities
 
