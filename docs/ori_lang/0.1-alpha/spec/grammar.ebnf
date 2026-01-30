@@ -343,7 +343,7 @@ bit_xor_expr  = bit_and_expr { "^" bit_and_expr } .
 bit_and_expr  = eq_expr { "&" eq_expr } .
 eq_expr       = cmp_expr { ( "==" | "!=" ) cmp_expr } .
 cmp_expr      = range_expr { ( "<" | ">" | "<=" | ">=" ) range_expr } .
-range_expr    = shift_expr [ ( ".." | "..=" ) shift_expr [ "by" shift_expr ] ] .
+range_expr    = shift_expr [ ( ".." | "..=" ) [ shift_expr ] [ "by" shift_expr ] ] .
 shift_expr    = add_expr { ( "<<" | ">>" ) add_expr } .
 add_expr      = mul_expr { ( "+" | "-" ) mul_expr } .
 mul_expr      = unary_expr { ( "*" | "/" | "%" | "div" ) unary_expr } .

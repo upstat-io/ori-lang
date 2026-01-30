@@ -193,6 +193,16 @@
 - Added to prelude: `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`, `repeat`
 - Blocked on: None (builds on existing Phase 3 infrastructure)
 
+**Iterator Performance and Semantics** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/iterator-performance-semantics-proposal.md`
+- Implementation: Phase 3.8.1
+- Formalizes performance guarantees: copy elision, lazy evaluation, fused iterators
+- Compiler optimizations: copy elision, inlining, deforestation, loop fusion (all guaranteed)
+- Iterator sizes: O(1) fixed for base iterators, O(depth) for chains
+- Infinite ranges: `start..` syntax for unbounded ascending int ranges
+- Lint recommendations: SHOULD warn on obvious infinite iteration patterns
+- Blocked on: None (builds on Iterator Traits proposal)
+
 **Clone Trait** — ✅ APPROVED 2026-01-28
 - Proposal: `proposals/approved/clone-trait-proposal.md`
 - Implementation: Phase 3.7
