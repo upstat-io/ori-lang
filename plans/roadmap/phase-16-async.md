@@ -70,9 +70,41 @@
 
 ---
 
-## 16.4 Phase Completion Checklist
+## 16.4 Async Error Traces
 
-- [ ] All items above have all three checkboxes marked `[x]`
+**Proposal**: `proposals/approved/error-trace-async-semantics-proposal.md`
+
+Implements error trace preservation across task boundaries in async code.
+
+- [ ] **Implement**: Task boundary marker in traces — spec/20-errors-and-panics.md § Task Boundary Marker
+  - [ ] **Rust Tests**: `oric/src/eval/exec/async.rs` — task boundary marker tests
+  - [ ] **Ori Tests**: `tests/spec/async/trace_boundary.ori`
+  - [ ] **LLVM Support**: LLVM codegen for task boundary marker
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/async_tests.rs` — task boundary marker codegen
+
+- [ ] **Implement**: Trace preservation across parallel tasks — spec/20-errors-and-panics.md § Trace from Parallel Tasks
+  - [ ] **Rust Tests**: `oric/src/eval/exec/async.rs` — parallel trace tests
+  - [ ] **Ori Tests**: `tests/spec/async/parallel_traces.ori`
+  - [ ] **LLVM Support**: LLVM codegen for parallel trace preservation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/async_tests.rs` — parallel trace codegen
+
+- [ ] **Implement**: Trace preservation across nursery tasks — spec/20-errors-and-panics.md § Async Error Traces
+  - [ ] **Rust Tests**: `oric/src/eval/exec/nursery.rs` — nursery trace tests
+  - [ ] **Ori Tests**: `tests/spec/async/nursery_traces.ori`
+  - [ ] **LLVM Support**: LLVM codegen for nursery trace preservation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/async_tests.rs` — nursery trace codegen
+
+- [ ] **Implement**: Catch and panic trace interaction — spec/20-errors-and-panics.md § Catch and Panic Traces
+  - [ ] **Rust Tests**: `oric/src/eval/exec/catch.rs` — catch trace tests
+  - [ ] **Ori Tests**: `tests/spec/errors/catch_traces.ori`
+  - [ ] **LLVM Support**: LLVM codegen for catch trace interaction
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_tests.rs` — catch trace codegen
+
+---
+
+## 16.5 Phase Completion Checklist
+
+- [ ] All items above have all checkboxes marked `[x]`
 - [ ] Spec updated: `spec/14-capabilities.md` async section, `spec/10-patterns.md` concurrency patterns
 - [ ] CLAUDE.md updated with async/concurrency syntax
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md

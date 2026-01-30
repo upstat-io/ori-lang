@@ -104,7 +104,51 @@
 
 ---
 
-## 7B.3 Phase Completion Checklist
+## 7B.3 Error Return Traces
+
+**Proposal**: `proposals/approved/error-trace-async-semantics-proposal.md`
+
+Implements Result trace methods and context storage for error propagation debugging.
+
+- [ ] **Implement**: `Result.trace()` — spec/20-errors-and-panics.md § Result Trace Methods
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — Result.trace tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/result_traces.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Result.trace
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/result_tests.rs` — Result.trace codegen
+
+- [ ] **Implement**: `Result.trace_entries()` — spec/20-errors-and-panics.md § Result Trace Methods
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — Result.trace_entries tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/result_traces.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Result.trace_entries
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/result_tests.rs` — Result.trace_entries codegen
+
+- [ ] **Implement**: `Result.has_trace()` — spec/20-errors-and-panics.md § Result Trace Methods
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — Result.has_trace tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/result_traces.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Result.has_trace
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/result_tests.rs` — Result.has_trace codegen
+
+- [ ] **Implement**: Trace collection at `?` propagation — spec/20-errors-and-panics.md § Automatic Collection
+  - [ ] **Rust Tests**: `oric/src/eval/propagation.rs` — trace collection tests
+  - [ ] **Ori Tests**: `tests/spec/errors/trace_collection.ori`
+  - [ ] **LLVM Support**: LLVM codegen for trace collection
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_tests.rs` — trace collection codegen
+
+- [ ] **Implement**: Context storage in Result — spec/20-errors-and-panics.md § Context Storage
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — context storage tests
+  - [ ] **Ori Tests**: `tests/spec/errors/context_storage.ori`
+  - [ ] **LLVM Support**: LLVM codegen for context storage
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_tests.rs` — context storage codegen
+
+- [ ] **Implement**: Panic message format with location — spec/20-errors-and-panics.md § Panic Message Format
+  - [ ] **Rust Tests**: `oric/src/eval/panic.rs` — panic format tests
+  - [ ] **Ori Tests**: `tests/spec/errors/panic_format.ori`
+  - [ ] **LLVM Support**: LLVM codegen for panic format
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — panic format codegen
+
+---
+
+## 7B.4 Phase Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md

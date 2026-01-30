@@ -1,6 +1,7 @@
 # Proposal: Error Trace Semantics with Async and Catch
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-30
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-29
 **Affects:** Compiler, runtime, error handling
@@ -46,20 +47,13 @@ Trace entries are added at each `?` propagation point:
     Err(Error { message: "failed" })  // Original error, no trace yet
 ```
 
-If `deep` returns `Err`, the trace contains:
-1. Entry from `deep()?` in `inner` (line X)
-2. Entry from `inner()?` in `outer` (line Y)
+If `@deep` returns `Err`, the trace contains:
+1. Entry from `deep()?` in `@inner` (line X)
+2. Entry from `inner()?` in `@outer` (line Y)
 
 ### Trace Entry Structure
 
-```ori
-type TraceEntry = {
-    function: str,   // Function name where ? occurred
-    file: str,       // Source file path
-    line: int,       // Line number
-    column: int,     // Column number
-}
-```
+See [Errors and Panics § TraceEntry Type](../../0.1-alpha/spec/20-errors-and-panics.md#traceentry-type) for the `TraceEntry` definition.
 
 ### Trace Ordering
 
@@ -68,8 +62,8 @@ Entries are ordered **most recent first** (like a stack trace):
 ```ori
 error.trace_entries()
 // [
-//   TraceEntry { function: "outer", ... },  // Most recent propagation
-//   TraceEntry { function: "inner", ... },  // Earlier propagation
+//   TraceEntry { function: "@outer", ... },  // Most recent propagation
+//   TraceEntry { function: "@inner", ... },  // Earlier propagation
 // ]
 ```
 
@@ -112,10 +106,10 @@ Async-originated traces include a marker indicating task boundary:
 ```ori
 // Trace from parallel task:
 // [
-//   TraceEntry { function: "outer", ... },      // After parallel
+//   TraceEntry { function: "@outer", ... },      // After parallel
 //   TraceEntry { function: "<task boundary>", file: "", line: 0, column: 0 },
-//   TraceEntry { function: "process", ... },    // Inside spawned task
-//   TraceEntry { function: "inner_call", ... }, // Deeper in spawned task
+//   TraceEntry { function: "@process", ... },    // Inside spawned task
+//   TraceEntry { function: "@inner_call", ... }, // Deeper in spawned task
 // ]
 ```
 
@@ -134,10 +128,15 @@ let result = catch(expr: may_panic())
 // result: Result<T, str> where str is panic message
 ```
 
-### Panic Trace Preservation
+### Panic Message Format
 
-**Panics do NOT generate `?`-style traces** because panics bypass normal return flow. However, the panic message may contain location information:
+When a panic occurs, the message string includes the source location:
 
+```
+<user_message> at <file>:<line>:<column>
+```
+
+For example:
 ```ori
 @may_panic () -> int = panic(msg: "something wrong")
 
@@ -145,7 +144,11 @@ let result = catch(expr: may_panic())
 // result = Err("something wrong at src/foo.ori:5:10")
 ```
 
-The panic message includes the location but not a structured trace.
+This format applies to both explicit `panic()` calls and implicit panics (index out of bounds, unwrap on None, etc.).
+
+### Panic Trace Preservation
+
+**Panics do NOT generate `?`-style traces** because panics bypass normal return flow. The panic message includes the location but not a structured trace.
 
 ### Catching Errors vs Panics
 
@@ -209,21 +212,19 @@ Contexts chain, with most recent first:
 | Contains | Message string | File, line, function |
 | Ordering | Most recent first | Most recent first |
 
+### Context Storage
+
+When `.context(msg:)` is called on a `Result`, the context string is stored separately from the trace. Contexts are ordered most recent first, matching trace ordering.
+
+For error types implementing `Traceable`, contexts are stored in the error value. For non-Traceable errors, contexts are stored in the `Result` wrapper alongside the trace.
+
 ---
 
 ## Memory Overhead
 
 ### Trace Storage
 
-Traces are stored in the `Error` type (or attached to `Result` for non-Traceable errors):
-
-```ori
-type Error = {
-    message: str,
-    trace: [TraceEntry],  // Grows with each ?
-    contexts: [str],      // Grows with each .context()
-}
-```
+The prelude `Error` type implements `Traceable` and stores traces internally. Custom error types may implement `Traceable` to carry traces, or rely on `Result`'s trace methods.
 
 ### Overhead Characteristics
 
@@ -294,6 +295,18 @@ let result = fallible()?;
 // Even though SimpleError doesn't have .trace() method
 ```
 
+### Result Trace Methods
+
+`Result<T, E>` provides trace access regardless of whether `E` implements `Traceable`:
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `.trace()` | `str` | Formatted trace string |
+| `.trace_entries()` | `[TraceEntry]` | Programmatic access |
+| `.has_trace()` | `bool` | Check if trace available |
+
+When `E: Traceable`, these delegate to the error's trace methods. When `E` does not implement `Traceable`, the `Result` carries the trace internally.
+
 ---
 
 ## Examples
@@ -322,9 +335,9 @@ let result = fallible()?;
 // Output on error:
 // Error: invalid JSON at position 42
 // Trace:
-//   at load_user (src/users.ori:8:5) - parsing user response
-//   at load_user (src/users.ori:6:5) - fetching user data
-//   at main (src/main.ori:2:5)
+//   @load_user at src/users.ori:8:5 - parsing user response
+//   @load_user at src/users.ori:6:5 - fetching user data
+//   @main at src/main.ori:2:5
 ```
 
 ### Async Trace Example
@@ -349,6 +362,8 @@ Add:
 2. Async trace behavior
 3. Task boundary markers
 4. `catch` interaction with traces
+5. Panic message format with location
+6. Result trace methods
 
 ### Update Traceable Trait
 
@@ -365,10 +380,12 @@ Clarify:
 |--------|----------|
 | Collection | At each `?` propagation |
 | Ordering | Most recent first |
+| Function names | Include `@` prefix (e.g., `@outer`) |
 | Async | Preserved across task boundaries |
 | Task marker | `<task boundary>` pseudo-entry |
-| Panic in catch | Location in message only, no structured trace |
-| Context | Chains with trace, most recent first |
+| Panic in catch | Location in message (`msg at file:line:col`) |
+| Context | Chains with trace, most recent first, stored separately |
 | Memory | Proportional to propagation depth |
 | Disable | Not possible (always on) |
 | Non-Traceable | Trace attaches to Result wrapper |
+| Result methods | `.trace()`, `.trace_entries()`, `.has_trace()` |

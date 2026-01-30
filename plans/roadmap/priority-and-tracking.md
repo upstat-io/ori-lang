@@ -502,6 +502,17 @@
 - Feature names must be valid identifiers
 - Blocked on: None (can be implemented independently)
 
+**Error Trace Async Semantics** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/error-trace-async-semantics-proposal.md`
+- Implementation: Phase 7B.3, Phase 16.4
+- Trace ordering: most recent first (like stack traces)
+- Function names in traces include `@` prefix
+- Panic message format: `<message> at <file>:<line>:<column>`
+- Result trace methods: `.trace()`, `.trace_entries()`, `.has_trace()`
+- Task boundary marker: `<task boundary>` pseudo-entry for async traces
+- Context storage: separate from traces, most recent first
+- Blocked on: None (Phase 7B.3); Phase 16 for async-specific features (Phase 16.4)
+
 **Developer Convenience Functions** — ✅ APPROVED 2026-01-30
 - Proposal: `proposals/approved/developer-functions-proposal.md`
 - Implementation: Phase 7A.5
