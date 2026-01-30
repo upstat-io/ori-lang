@@ -109,7 +109,37 @@
 
 - [ ] **Implement**: Memory management (ARC)
   - [ ] Reference counting implementation
+  - [ ] Atomic refcount operations (fetch-add, fetch-sub)
   - [ ] Weak references for breaking cycles
+
+## 21.6 Memory Model Edge Cases
+
+**Proposal**: `proposals/approved/memory-model-edge-cases-proposal.md`
+
+Custom destructors, destruction ordering, and panic behavior.
+
+- [ ] **Implement**: Drop trait codegen
+  - [ ] **Rust Tests**: `tests/drop_tests.rs`
+  - [ ] Detect types implementing Drop trait
+  - [ ] Generate destructor calls when refcount reaches zero
+  - [ ] Destructor called before memory reclamation
+
+- [ ] **Implement**: Destruction ordering
+  - [ ] **Rust Tests**: `tests/destruction_order_tests.rs`
+  - [ ] Reverse declaration order for local bindings
+  - [ ] Reverse declaration order for struct fields
+  - [ ] Back-to-front for list elements
+  - [ ] Right-to-left for tuple elements
+
+- [ ] **Implement**: Panic during destruction
+  - [ ] **Rust Tests**: `tests/destructor_panic_tests.rs`
+  - [ ] Single panic in destructor: propagate normally
+  - [ ] Other destructors still run after panic
+  - [ ] Double panic (destructor panics during unwind): abort
+
+- [ ] **Implement**: Async destructor restriction
+  - [ ] Compile error if Drop.drop declares `uses Async`
+  - [ ] Error code and message for async destructor attempt
 
 - [ ] **Implement**: FFI runtime support
   - [ ] C ABI compatibility
