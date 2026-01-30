@@ -26,13 +26,23 @@ Comments start with `//` and extend to end of line. Inline comments are not perm
 
 Doc comments use special markers:
 
-| Marker | Purpose |
-|--------|---------|
-| `#` | Description |
-| `@param` | Parameter |
-| `@field` | Field |
-| `!` | Warning |
-| `>` | Example |
+| Marker | Purpose | Example |
+|--------|---------|---------|
+| *(none)* | Description | `// This is a description.` |
+| `*` | Param or Field | `// * name: Description` |
+| `!` | Warning/Panic | `// ! Panics if x is negative` |
+| `>` | Example | `// > func(x: 1) -> 2` |
+
+The canonical form for member documentation is `// * name: description` with space after `*` and colon always required.
+
+Any comment immediately preceding a declaration is treated as documentation. Non-documentation comments must be separated from declarations by a blank line:
+
+```ori
+// TODO: refactor this
+
+// Computes the sum.
+@add (a: int, b: int) -> int = a + b
+```
 
 ## Identifiers
 

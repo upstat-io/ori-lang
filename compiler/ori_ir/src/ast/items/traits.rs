@@ -96,6 +96,17 @@ pub enum TraitItem {
     AssocType(TraitAssocType),
 }
 
+impl TraitItem {
+    /// Get the span of the trait item.
+    pub fn span(&self) -> Span {
+        match self {
+            TraitItem::MethodSig(sig) => sig.span,
+            TraitItem::DefaultMethod(method) => method.span,
+            TraitItem::AssocType(assoc) => assoc.span,
+        }
+    }
+}
+
 /// Required method signature in a trait.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct TraitMethodSig {

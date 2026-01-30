@@ -4,7 +4,7 @@
   import OutputPane from './OutputPane.svelte';
   import PlaygroundToolbar from './PlaygroundToolbar.svelte';
   import { EXAMPLES } from './examples';
-  import { initWasm, runOri, formatOri, isReady, getVersion } from './wasm-runner';
+  import { initWasm, runOri, formatOri, isReady, getVersion, resetWasm } from './wasm-runner';
   import { DEFAULT_CONFIG, type PlaygroundConfig, type RunResult } from './types';
 
   let { config = {} }: { config?: Partial<PlaygroundConfig> } = $props();
@@ -20,6 +20,27 @@
   let shareLabel = $state('Share');
   let wasmVersion = $state('Loading...');
 
+  async function loadWasm() {
+    wasmVersion = 'Loading...';
+    const ready = await initWasm();
+    if (ready) {
+      wasmVersion = getVersion();
+      // Clear any previous WASM load error
+      if (result?.error?.includes('WASM')) {
+        result = null;
+        status = 'idle';
+      }
+    } else {
+      wasmVersion = 'WASM not loaded';
+      result = {
+        success: false,
+        error: 'Failed to load WASM module.\n\nBuild with:\ncd playground/wasm && wasm-pack build --target web --out-dir ../pkg',
+        error_type: 'runtime',
+      };
+      status = 'error';
+    }
+  }
+
   onMount(async () => {
     // Read URL hash if enabled
     if (cfg.readUrlHash && window.location.hash) {
@@ -31,17 +52,18 @@
       }
     }
 
-    const ready = await initWasm();
-    if (ready) {
-      wasmVersion = getVersion();
-    } else {
-      wasmVersion = 'WASM not loaded';
-      result = {
-        success: false,
-        error: 'Failed to load WASM module.\n\nBuild with:\ncd playground/wasm && wasm-pack build --target web --out-dir ../pkg',
-        error_type: 'runtime',
+    await loadWasm();
+
+    // In dev mode, expose reloadWasm() to console for easy iteration
+    // Usage: After running `npm run wasm`, call reloadWasm() in browser console
+    if (import.meta.env?.DEV) {
+      (window as any).reloadWasm = async () => {
+        console.log('Reloading WASM...');
+        resetWasm();
+        await loadWasm();
+        console.log('WASM reloaded:', wasmVersion);
       };
-      status = 'error';
+      console.log('Dev mode: Call reloadWasm() after rebuilding WASM');
     }
   });
 

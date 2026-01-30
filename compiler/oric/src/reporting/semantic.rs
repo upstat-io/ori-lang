@@ -108,19 +108,29 @@ impl Render for SemanticProblem {
 
             SemanticProblem::BreakOutsideLoop { span } => Diagnostic::error(ErrorCode::E3002)
                 .with_message("`break` outside of loop")
-                .with_label(*span, "cannot break here"),
+                .with_label(
+                    *span,
+                    "`break` can only appear inside `loop` or `for` bodies",
+                )
+                .with_suggestion("move this statement inside a loop body"),
 
             SemanticProblem::ContinueOutsideLoop { span } => Diagnostic::error(ErrorCode::E3002)
                 .with_message("`continue` outside of loop")
-                .with_label(*span, "cannot continue here"),
+                .with_label(
+                    *span,
+                    "`continue` can only appear inside `loop` or `for` bodies",
+                )
+                .with_suggestion("move this statement inside a loop body"),
 
             SemanticProblem::ReturnOutsideFunction { span } => Diagnostic::error(ErrorCode::E3002)
                 .with_message("`return` outside of function")
-                .with_label(*span, "cannot return here"),
+                .with_label(*span, "`return` can only appear inside function bodies")
+                .with_suggestion("use a different expression to yield a value"),
 
             SemanticProblem::SelfOutsideMethod { span } => Diagnostic::error(ErrorCode::E3002)
                 .with_message("`self` outside of method")
-                .with_label(*span, "no `self` in this context"),
+                .with_label(*span, "`self` is only available in `impl` block methods")
+                .with_suggestion("define this function inside an `impl` block"),
 
             SemanticProblem::InfiniteRecursion { span, func_name } => {
                 Diagnostic::warning(ErrorCode::E3003)

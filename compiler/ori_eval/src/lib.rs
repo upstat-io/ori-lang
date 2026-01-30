@@ -32,7 +32,6 @@ pub mod module_registration;
 mod operators;
 mod print_handler;
 mod shared;
-mod stack;
 mod unary_operators;
 mod user_methods;
 
@@ -131,12 +130,12 @@ pub use function_val::{
     function_val_thread_id,
 };
 pub use interpreter::{Interpreter, InterpreterBuilder, ScopedInterpreter};
+pub use ori_stack::ensure_sufficient_stack;
 pub use print_handler::{
     buffer_handler, stdout_handler, BufferPrintHandler, PrintHandlerImpl, SharedPrintHandler,
     StdoutPrintHandler,
 };
 pub use shared::{SharedMutableRegistry, SharedRegistry};
-pub use stack::ensure_sufficient_stack;
 
 // Re-export module registration functions for CLI and Playground
 pub use module_registration::{

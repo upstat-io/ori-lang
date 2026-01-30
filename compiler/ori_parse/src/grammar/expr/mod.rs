@@ -17,9 +17,9 @@ mod patterns;
 mod postfix;
 mod primary;
 
-use crate::stack::ensure_sufficient_stack;
 use crate::{ParseError, ParseResult, Parser};
 use ori_ir::{BinaryOp, Expr, ExprId, ExprKind, TokenKind, UnaryOp};
+use ori_stack::ensure_sufficient_stack;
 
 /// Generate a binary operator precedence level parsing function.
 ///

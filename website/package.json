@@ -7,8 +7,9 @@
     "prebuild": "bash scripts/copy-wasm.sh",
     "build": "astro build",
     "preview": "astro preview",
-    "build:wasm": "cd ../playground/wasm && wasm-pack build --target web",
-    "build:all": "npm run build:wasm && npm run build"
+    "build:wasm": "cd ../playground/wasm && wasm-pack build --target web --release --out-dir ../pkg",
+    "build:all": "npm run build:wasm && npm run build",
+    "wasm": "bash scripts/rebuild-wasm.sh"
   },
   "dependencies": {
     "@astrojs/mdx": "^4.3.13",

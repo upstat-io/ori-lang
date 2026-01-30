@@ -10,7 +10,7 @@
     reason = "Arc for immutable HashMap sharing, RwLock for memoization cache"
 )]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, RwLock};
@@ -280,10 +280,26 @@ impl std::borrow::Borrow<[Value]> for MemoKey {
     }
 }
 
+/// Maximum number of entries in a memoization cache.
+///
+/// When this limit is reached, the oldest entries are evicted to make room
+/// for new ones. This prevents unbounded memory growth for functions called
+/// with many distinct argument combinations.
+///
+/// The limit of 100,000 entries is chosen to:
+/// - Allow efficient memoization of typical recursive algorithms (e.g., fib(1000))
+/// - Prevent runaway memory consumption in pathological cases
+/// - Provide reasonable memory bounds (~10-100MB depending on value sizes)
+pub const MAX_MEMO_CACHE_SIZE: usize = 100_000;
+
 /// Memoized function value.
 ///
 /// Wraps a `FunctionValue` with a shared cache that stores computed results.
 /// This enables efficient recursive algorithms by avoiding redundant computation.
+///
+/// # Cache Bounds
+/// The cache is bounded to [`MAX_MEMO_CACHE_SIZE`] entries. When full, the oldest
+/// entries are evicted (FIFO order) to make room for new ones.
 ///
 /// # Thread Safety
 /// The cache uses `RwLock` for thread-safe access. Multiple threads can read
@@ -307,6 +323,11 @@ pub struct MemoizedFunctionValue {
     /// Uses `Arc<RwLock>` for thread-safe caching during evaluation.
     /// This cache is NOT part of Salsa's query system.
     cache: Arc<RwLock<HashMap<MemoKey, Value>>>,
+    /// Insertion order for FIFO eviction.
+    ///
+    /// When the cache reaches [`MAX_MEMO_CACHE_SIZE`], entries are evicted
+    /// in FIFO order (oldest first) to make room for new entries.
+    insertion_order: Arc<RwLock<VecDeque<MemoKey>>>,
 }
 
 impl MemoizedFunctionValue {
@@ -315,6 +336,7 @@ impl MemoizedFunctionValue {
         MemoizedFunctionValue {
             func,
             cache: Arc::new(RwLock::new(HashMap::new())),
+            insertion_order: Arc::new(RwLock::new(VecDeque::new())),
         }
     }
 
@@ -330,12 +352,38 @@ impl MemoizedFunctionValue {
 
     /// Store a result in the cache.
     ///
+    /// If the cache has reached [`MAX_MEMO_CACHE_SIZE`], the oldest entries
+    /// are evicted (FIFO order) to make room for the new entry.
+    ///
     /// Note: This still allocates for the key since we need to own it for storage.
     pub fn cache_result(&self, args: &[Value], result: Value) {
-        let key = MemoKey(args.to_vec());
-        if let Ok(mut cache) = self.cache.write() {
-            cache.insert(key, result);
+        // Acquire both locks to ensure consistency
+        let (Ok(mut cache), Ok(mut order)) = (self.cache.write(), self.insertion_order.write())
+        else {
+            return;
+        };
+
+        // Fast path: update existing entry (no clone, no eviction)
+        if let Some(existing) = cache.get_mut(args) {
+            *existing = result;
+            return;
         }
+
+        // Evict oldest entries if at capacity
+        while cache.len() >= MAX_MEMO_CACHE_SIZE {
+            if let Some(oldest_key) = order.pop_front() {
+                cache.remove(&oldest_key);
+            } else {
+                // Order is empty but cache is full - shouldn't happen, but clear to recover
+                cache.clear();
+                break;
+            }
+        }
+
+        // Insert new entry (one allocation for key)
+        let key = MemoKey(args.to_vec());
+        order.push_back(key.clone());
+        cache.insert(key, result);
     }
 
     /// Get the number of cached entries.
@@ -351,7 +399,8 @@ impl fmt::Debug for MemoizedFunctionValue {
         f.debug_struct("MemoizedFunctionValue")
             .field("func", &self.func)
             .field("cache_entries", &cache_size)
-            .finish()
+            // insertion_order is an internal implementation detail for FIFO eviction
+            .finish_non_exhaustive()
     }
 }
 
@@ -432,6 +481,7 @@ impl RangeValue {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_wrap)]
 mod tests {
     use super::*;
     use ori_ir::ExprArena;
@@ -568,5 +618,58 @@ mod tests {
         // Query with different args
         let args2 = vec![Value::int(2)];
         assert_eq!(memoized.get_cached(&args2), None);
+    }
+
+    #[test]
+    fn test_memoized_function_cache_eviction() {
+        use super::MAX_MEMO_CACHE_SIZE;
+
+        let func = FunctionValue::new(vec![], ExprId::new(0), HashMap::new(), dummy_arena());
+        let memoized = MemoizedFunctionValue::new(func);
+
+        // Fill the cache to capacity
+        for i in 0..MAX_MEMO_CACHE_SIZE {
+            let args = vec![Value::int(i as i64)];
+            memoized.cache_result(&args, Value::int(i as i64 * 10));
+        }
+        assert_eq!(memoized.cache_size(), MAX_MEMO_CACHE_SIZE);
+
+        // Verify first entry is still present
+        assert_eq!(memoized.get_cached(&[Value::int(0)]), Some(Value::int(0)));
+
+        // Add one more entry - should evict the oldest (key 0)
+        let new_args = vec![Value::int(MAX_MEMO_CACHE_SIZE as i64)];
+        memoized.cache_result(&new_args, Value::int(999));
+
+        // Size should still be at capacity
+        assert_eq!(memoized.cache_size(), MAX_MEMO_CACHE_SIZE);
+
+        // First entry should be evicted
+        assert_eq!(memoized.get_cached(&[Value::int(0)]), None);
+
+        // New entry should be present
+        assert_eq!(
+            memoized.get_cached(&[Value::int(MAX_MEMO_CACHE_SIZE as i64)]),
+            Some(Value::int(999))
+        );
+
+        // Entry 1 (second oldest) should still be present
+        assert_eq!(memoized.get_cached(&[Value::int(1)]), Some(Value::int(10)));
+    }
+
+    #[test]
+    fn test_memoized_function_cache_update_no_eviction() {
+        let func = FunctionValue::new(vec![], ExprId::new(0), HashMap::new(), dummy_arena());
+        let memoized = MemoizedFunctionValue::new(func);
+
+        // Cache initial value
+        let args = vec![Value::int(42)];
+        memoized.cache_result(&args, Value::int(100));
+        assert_eq!(memoized.cache_size(), 1);
+
+        // Update same key - should not increase size or cause eviction
+        memoized.cache_result(&args, Value::int(200));
+        assert_eq!(memoized.cache_size(), 1);
+        assert_eq!(memoized.get_cached(&args), Some(Value::int(200)));
     }
 }

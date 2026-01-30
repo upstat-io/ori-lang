@@ -12,7 +12,7 @@ ori_types.workspace = true
 ori_diagnostic.workspace = true
 ori_parse.workspace = true
 ori_patterns.workspace = true
-stacker.workspace = true
+ori_stack.workspace = true
 rustc-hash.workspace = true
 
 [dev-dependencies]

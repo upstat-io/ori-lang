@@ -1,0 +1,14 @@
+// Structs and methods
+type Point = { x: int, y: int }
+
+impl Point {
+    // Comment on sum method
+    @sum (self) -> int = self.x + self.y
+
+    @scale (self, factor: int) -> Point = Point { x: self.x * factor, y: self.y * factor }
+}
+
+@main () -> void = run(
+    let p = Point { x: 3, y: 4 },
+    print(msg: p.sum()),
+)

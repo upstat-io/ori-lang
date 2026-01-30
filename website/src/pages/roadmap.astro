@@ -1,5 +1,98 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import { readFileSync, readdirSync, existsSync } from 'fs';
+import { join, basename } from 'path';
+
+// Proposal loading
+interface Proposal {
+  title: string;
+  status: 'approved' | 'draft' | 'rejected';
+  author?: string;
+  created?: string;
+  approved?: string;
+  rejected?: string;
+  summary?: string;
+  filename: string;
+  path: string;
+}
+
+function parseProposal(content: string, filename: string, dir: string, status: 'approved' | 'draft' | 'rejected'): Proposal {
+  const lines = content.split('\n');
+
+  // Extract title from first H1
+  const titleMatch = lines[0]?.match(/^#\s+(?:Proposal:\s*)?(.+)/);
+  const title = titleMatch ? titleMatch[1].trim() : filename.replace(/-proposal\.md$/, '').replace(/-/g, ' ');
+
+  // Extract metadata from **Key:** Value format
+  const getField = (key: string): string | undefined => {
+    const regex = new RegExp(`\\*\\*${key}:\\*\\*\\s*(.+)`, 'i');
+    for (const line of lines.slice(0, 20)) {
+      const match = line.match(regex);
+      if (match) return match[1].trim();
+    }
+    return undefined;
+  };
+
+  // Extract summary - first paragraph after "## Summary"
+  let summary: string | undefined;
+  const summaryIdx = lines.findIndex(l => l.match(/^##\s+Summary/i));
+  if (summaryIdx !== -1) {
+    const summaryLines: string[] = [];
+    for (let i = summaryIdx + 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.startsWith('#') || line.startsWith('---')) break;
+      if (line.trim()) summaryLines.push(line.trim());
+      else if (summaryLines.length > 0) break;
+    }
+    summary = summaryLines.join(' ').slice(0, 200);
+    if (summary.length === 200) summary += '...';
+  }
+
+  return {
+    title,
+    status,
+    author: getField('Author'),
+    created: getField('Created'),
+    approved: getField('Approved'),
+    rejected: getField('Rejected'),
+    summary,
+    filename,
+    path: `proposals/${dir}/${filename}`,
+  };
+}
+
+function loadProposals(dir: string, status: 'approved' | 'draft' | 'rejected'): Proposal[] {
+  const proposalsDir = join(process.cwd(), '..', 'docs', 'ori_lang', 'proposals', dir);
+  if (!existsSync(proposalsDir)) return [];
+
+  const files = readdirSync(proposalsDir).filter(f => f.endsWith('.md'));
+  return files.map(file => {
+    const content = readFileSync(join(proposalsDir, file), 'utf-8');
+    return parseProposal(content, file, dir, status);
+  }).sort((a, b) => {
+    // Sort by created date descending, then by title
+    if (a.created && b.created) {
+      return b.created.localeCompare(a.created);
+    }
+    return a.title.localeCompare(b.title);
+  });
+}
+
+const approvedProposals = loadProposals('approved', 'approved');
+const draftProposals = loadProposals('drafts', 'draft');
+const rejectedProposals = loadProposals('rejected', 'rejected');
+
+// Format date to US standard (e.g., "January 27, 2026")
+function formatDate(dateStr: string | undefined): string | undefined {
+  if (!dateStr) return undefined;
+  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return dateStr;
+  const [, year, month, day] = match;
+  const months = ['January', 'February', 'March', 'April', 'May', 'June',
+                  'July', 'August', 'September', 'October', 'November', 'December'];
+  const monthName = months[parseInt(month, 10) - 1];
+  return `${monthName} ${parseInt(day, 10)}, ${year}`;
+}
 
 interface Task {
   name: string;
@@ -1150,6 +1243,104 @@ Branches:
       </div>
     </section>
 
+    <section class="proposals-section">
+      <h2>Language Proposals</h2>
+      <p class="proposals-subtitle">
+        Design decisions and rationale for language features. Proposals go through draft review before approval or rejection.
+      </p>
+      <div class="proposal-stats">
+        <span class="proposal-stat approved">{approvedProposals.length} approved</span>
+        <span class="proposal-stat draft">{draftProposals.length} drafts</span>
+        <span class="proposal-stat rejected">{rejectedProposals.length} rejected</span>
+      </div>
+
+      <div class="proposal-categories">
+        <section class="status-section draft-proposals-section">
+          <details open>
+            <summary class="status-header draft-header">
+              <span class="status-icon">◐</span>
+              <h3>Drafts</h3>
+              <span class="status-count">{draftProposals.length} proposals</span>
+              <span class="expand-icon"></span>
+            </summary>
+            <div class="proposal-grid">
+              {draftProposals.map((proposal) => (
+                <a
+                  href={`https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/${proposal.path}`}
+                  class="proposal-card draft"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  <h4>{proposal.title}</h4>
+                  {proposal.summary && <p class="proposal-summary">{proposal.summary}</p>}
+                  <div class="proposal-meta">
+                    {proposal.author && <span class="proposal-author">{proposal.author}</span>}
+                    {proposal.created && <span class="proposal-date">Created {formatDate(proposal.created)}</span>}
+                  </div>
+                </a>
+              ))}
+            </div>
+          </details>
+        </section>
+
+        <section class="status-section approved-proposals-section">
+          <details>
+            <summary class="status-header approved-header">
+              <span class="status-icon">✓</span>
+              <h3>Approved</h3>
+              <span class="status-count">{approvedProposals.length} proposals</span>
+              <span class="expand-icon"></span>
+            </summary>
+            <div class="proposal-grid">
+              {approvedProposals.map((proposal) => (
+                <a
+                  href={`https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/${proposal.path}`}
+                  class="proposal-card approved"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  <h4>{proposal.title}</h4>
+                  {proposal.summary && <p class="proposal-summary">{proposal.summary}</p>}
+                  <div class="proposal-meta">
+                    {proposal.author && <span class="proposal-author">{proposal.author}</span>}
+                    {proposal.approved && <span class="proposal-date">Approved {formatDate(proposal.approved)}</span>}
+                  </div>
+                </a>
+              ))}
+            </div>
+          </details>
+        </section>
+
+        <section class="status-section rejected-proposals-section">
+          <details>
+            <summary class="status-header rejected-header">
+              <span class="status-icon">✕</span>
+              <h3>Rejected</h3>
+              <span class="status-count">{rejectedProposals.length} proposals</span>
+              <span class="expand-icon"></span>
+            </summary>
+            <div class="proposal-grid">
+              {rejectedProposals.map((proposal) => (
+                <a
+                  href={`https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/${proposal.path}`}
+                  class="proposal-card rejected"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  <h4>{proposal.title}</h4>
+                  {proposal.summary && <p class="proposal-summary">{proposal.summary}</p>}
+                  <div class="proposal-meta">
+                    {proposal.author && <span class="proposal-author">{proposal.author}</span>}
+                    {proposal.rejected && <span class="proposal-date">Rejected {formatDate(proposal.rejected)}</span>}
+                  </div>
+                </a>
+              ))}
+            </div>
+          </details>
+        </section>
+      </div>
+    </section>
+
     <section class="roadmap-cta">
       <h2>Want to contribute?</h2>
       <p>The roadmap lives in <code>plans/roadmap/</code>. Each phase has detailed implementation tasks.</p>
@@ -1918,6 +2109,193 @@ Branches:
     border-color: var(--color-border-hover);
   }
 
+  /* Proposals Section */
+  .proposals-section {
+    margin-top: var(--space-12);
+    margin-bottom: var(--space-12);
+  }
+
+  .proposals-section > h2 {
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-bold);
+    margin-bottom: var(--space-2);
+    color: var(--color-text-primary);
+  }
+
+  .proposals-subtitle {
+    font-size: var(--text-base);
+    color: var(--color-text-secondary);
+    margin-bottom: var(--space-4);
+  }
+
+  .proposal-stats {
+    display: flex;
+    gap: var(--space-4);
+    margin-bottom: var(--space-6);
+    flex-wrap: wrap;
+  }
+
+  .proposal-stat {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-full);
+  }
+
+  .proposal-stat.approved {
+    background: rgba(74, 222, 128, 0.15);
+    color: var(--color-success);
+  }
+
+  .proposal-stat.draft {
+    background: rgba(251, 191, 36, 0.15);
+    color: var(--color-warning);
+  }
+
+  .proposal-stat.rejected {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--color-error, #ef4444);
+  }
+
+  .proposal-categories {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  /* Approved Proposals Section */
+  .approved-proposals-section details {
+    background: rgba(74, 222, 128, 0.02);
+    border: 1px solid rgba(74, 222, 128, 0.15);
+    border-radius: var(--radius-lg);
+  }
+
+  .approved-proposals-section details[open] {
+    background: rgba(74, 222, 128, 0.03);
+  }
+
+  .status-header.approved-header h3 {
+    color: var(--color-success);
+  }
+
+  .status-header.approved-header .status-icon {
+    background: rgba(74, 222, 128, 0.15);
+    color: var(--color-success);
+  }
+
+  /* Draft Proposals Section */
+  .draft-proposals-section details {
+    background: rgba(251, 191, 36, 0.02);
+    border: 1px solid rgba(251, 191, 36, 0.15);
+    border-radius: var(--radius-lg);
+  }
+
+  .draft-proposals-section details[open] {
+    background: rgba(251, 191, 36, 0.03);
+  }
+
+  .status-header.draft-header h3 {
+    color: var(--color-warning);
+  }
+
+  .status-header.draft-header .status-icon {
+    background: rgba(251, 191, 36, 0.15);
+    color: var(--color-warning);
+  }
+
+  /* Rejected Proposals Section */
+  .rejected-proposals-section details {
+    background: rgba(239, 68, 68, 0.02);
+    border: 1px solid rgba(239, 68, 68, 0.15);
+    border-radius: var(--radius-lg);
+  }
+
+  .rejected-proposals-section details[open] {
+    background: rgba(239, 68, 68, 0.03);
+  }
+
+  .status-header.rejected-header h3 {
+    color: var(--color-error, #ef4444);
+  }
+
+  .status-header.rejected-header .status-icon {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--color-error, #ef4444);
+  }
+
+  .proposals-section .status-header h3 {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+    margin: 0;
+    flex: 1;
+  }
+
+  .proposal-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--space-3);
+    padding: 0 var(--space-4) var(--space-4);
+  }
+
+  .proposal-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    text-decoration: none;
+    transition: all var(--transition-fast);
+  }
+
+  .proposal-card:hover {
+    background: var(--color-bg-tertiary);
+    border-color: var(--color-border-hover, var(--color-border));
+    transform: translateY(-1px);
+  }
+
+  .proposal-card.approved {
+    border-left: 3px solid var(--color-success);
+  }
+
+  .proposal-card.draft {
+    border-left: 3px solid var(--color-warning);
+  }
+
+  .proposal-card.rejected {
+    border-left: 3px solid var(--color-error, #ef4444);
+  }
+
+  .proposal-card h4 {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-text-primary);
+    margin: 0 0 var(--space-2) 0;
+    line-height: 1.3;
+  }
+
+  .proposal-summary {
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    margin: 0 0 var(--space-3) 0;
+    flex: 1;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .proposal-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    margin-top: auto;
+  }
+
+
   @media (max-width: 768px) {
     .roadmap-hero h1 {
       font-size: var(--text-4xl);
@@ -1942,6 +2320,10 @@ Branches:
     .modal-header {
       flex-direction: column;
       align-items: flex-start;
+    }
+
+    .proposal-grid {
+      grid-template-columns: 1fr;
     }
   }
 </style>

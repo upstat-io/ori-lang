@@ -21,11 +21,10 @@ pub mod infer;
 pub mod operators;
 pub mod registry;
 mod shared;
-mod stack;
 pub mod suggest;
 
+pub use ori_stack::ensure_sufficient_stack;
 pub use shared::SharedRegistry;
-pub use stack::ensure_sufficient_stack;
 
 // Re-export registry types
 pub use registry::{

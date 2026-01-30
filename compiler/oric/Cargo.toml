@@ -50,7 +50,7 @@ rustc-hash.workspace = true
 rayon.workspace = true
 
 # Stack safety for deep recursion
-stacker = "0.1"
+ori_stack.workspace = true
 
 # Diagnostic derive macros
 ori_macros = { path = "../ori_macros" }

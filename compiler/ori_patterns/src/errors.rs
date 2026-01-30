@@ -149,9 +149,12 @@ pub fn no_such_method(method: &str, type_name: &str) -> EvalError {
 /// Wrong argument count for a method.
 #[cold]
 pub fn wrong_arg_count(method: &str, expected: usize, got: usize) -> EvalError {
-    EvalError::new(format!(
-        "{method} expects {expected} argument(s), got {got}"
-    ))
+    let arg_word = if expected == 1 {
+        "argument"
+    } else {
+        "arguments"
+    };
+    EvalError::new(format!("{method} expects {expected} {arg_word}, got {got}"))
 }
 
 /// Wrong argument type for a method.
