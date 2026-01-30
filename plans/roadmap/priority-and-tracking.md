@@ -358,6 +358,16 @@
 - Extension conflict detection (including re-exports)
 - Blocked on: None (builds on existing Phase 3 infrastructure)
 
+**Const Evaluation Termination** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/const-evaluation-termination-proposal.md`
+- Implementation: Phase 18.0
+- Resource limits: 1M steps, 1000 depth, 100MB memory, 10s time (all configurable)
+- Partial evaluation: required compiler behavior
+- Local mutation in const functions: allowed
+- Loop expressions in const functions: allowed
+- Caching: by function + args hash
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones
