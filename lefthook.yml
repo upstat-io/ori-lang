@@ -1,0 +1,11 @@
+# Lefthook configuration for conventional commits
+# Install: https://github.com/evilmartians/lefthook
+#   macOS:  brew install lefthook
+#   Linux:  wget -O ~/.local/bin/lefthook https://github.com/evilmartians/lefthook/releases/latest/download/lefthook_Linux_x86_64 && chmod +x ~/.local/bin/lefthook
+#   Any:    go install github.com/evilmartians/lefthook@latest
+# Then run: lefthook install
+
+commit-msg:
+  commands:
+    conventional-commit:
+      run: .lefthook/commit-msg.sh {1}

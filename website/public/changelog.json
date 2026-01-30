@@ -1,4 +1,6 @@
 [
+  {"date": "2026-01-30", "type": "docs", "message": "Add function_val pattern and update keywords", "hash": "653cf61"},
+  {"date": "2026-01-30", "type": "feat", "message": "Add changelog page to track updates and changes in Ori language", "hash": "d7c1466"},
   {"date": "2026-01-30", "type": "feat", "message": "Add edge case tests for formatting and whitespace handling", "hash": "db6aa13"},
   {"date": "2026-01-30", "type": "docs", "message": "Approve test-terminology", "hash": "83ba66e"},
   {"date": "2026-01-30", "type": "docs", "message": "Approve stdlib-json-api-ffi", "hash": "ad8f1e3"},

@@ -2,31 +2,39 @@
 
 Thank you for your interest in contributing to Ori!
 
+## Platform Requirements
+
+**Windows is not supported for development.** Use WSL2, Linux, or macOS.
+
 ## Getting Started
 
-1. Fork the repository
-2. Clone your fork: `git clone https://github.com/yourusername/ori`
-3. Create a branch: `git checkout -b my-feature`
-4. Make your changes
-5. Run tests: `cargo test && cargo run --bin ori -- test`
-6. Commit: `git commit -m "Add my feature"`
-7. Push: `git push origin my-feature`
-8. Open a Pull Request
+```bash
+git clone https://github.com/yourusername/ori
+cd ori
+./setup.sh
+```
 
-## Development Setup
+This installs git hooks (for commit message linting) and verifies your environment.
+
+Then:
+
+1. Create a branch: `git checkout -b my-feature`
+2. Make your changes
+3. Run tests: `./test-all`
+4. Commit using conventional format (see below)
+5. Push: `git push origin my-feature`
+6. Open a Pull Request
+
+## Development Commands
 
 ```bash
-# Build the compiler
-cargo build
+./test-all      # Run all tests (Rust + Ori + LLVM)
+./build-all     # Build everything
+./clippy-all    # Run lints
+./fmt-all       # Format code
 
-# Run the compiler tests (Rust)
-cargo test
-
-# Run the language tests (Ori)
-cargo run --bin ori -- test
-
-# Build release version
-cargo build --release
+cargo t         # Run Rust tests only
+cargo st        # Run Ori spec tests only
 ```
 
 ## Project Structure
@@ -75,9 +83,26 @@ Add a `.ori` file to `tests/compile-fail/` with a comment describing the expecte
 
 ## Commit Messages
 
-- Use present tense: "Add feature" not "Added feature"
+We use [Conventional Commits](https://www.conventionalcommits.org/). The git hooks enforce this.
+
+```
+feat: add new feature
+fix: resolve bug
+docs: update documentation
+style: formatting changes
+refactor: restructure code
+perf: performance improvement
+test: add or update tests
+build: build system changes
+ci: CI configuration
+chore: maintenance tasks
+```
+
+With optional scope: `fix(parser): handle empty input`
+
+- Use present tense: "add feature" not "added feature"
 - Keep the first line under 72 characters
-- Reference issues when relevant: "Fix #123"
+- Reference issues when relevant: `fix: resolve crash on empty input (#123)`
 
 ## Pull Request Process
 
