@@ -7,6 +7,8 @@
 > - `docs/ori_lang/proposals/approved/sendable-interior-mutability-proposal.md`
 > - `docs/ori_lang/proposals/approved/task-async-context-proposal.md`
 > - `docs/ori_lang/proposals/approved/closure-capture-semantics-proposal.md`
+> - `docs/ori_lang/proposals/approved/parallel-execution-guarantees-proposal.md`
+> - `docs/ori_lang/proposals/approved/nursery-cancellation-proposal.md`
 
 **Dependencies**: Phase 16 (Async Support)
 
@@ -337,20 +339,127 @@ type NurseryErrorMode = CancelRemaining | CollectAll | FailFast
 
 ---
 
-## 17.6 Phase Completion Checklist (This Proposal)
+## 17.6 Parallel Execution Guarantees
 
-- [ ] All items in 17.1-17.5 have checkboxes marked `[x]`
-- [ ] Spec updated: `spec/06-types.md` — Sendable, Producer, Consumer, CloneableProducer, CloneableConsumer
-- [ ] Spec updated: `spec/10-patterns.md` — nursery pattern
-- [ ] CLAUDE.md updated with channel constructors and nursery syntax
+**Proposal**: `proposals/approved/parallel-execution-guarantees-proposal.md`
+
+Specifies execution guarantees for the `parallel` pattern: task ordering, concurrency limits, resource exhaustion, and timeout behavior.
+
+### Implementation
+
+- [ ] **Implement**: Start order guarantee (tasks start in list order)
+  - [ ] **Rust Tests**: `oric/src/eval/parallel.rs` — start order verification
+  - [ ] **Ori Tests**: `tests/spec/concurrency/parallel_start_order.ori`
+  - [ ] **LLVM Support**: LLVM codegen for ordered start
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/parallel_tests.rs` — start order codegen
+
+- [ ] **Implement**: Result order guarantee (results match input order)
+  - [ ] **Rust Tests**: `oric/src/eval/parallel.rs` — result order verification
+  - [ ] **Ori Tests**: `tests/spec/concurrency/parallel_result_order.ori`
+  - [ ] **LLVM Support**: LLVM codegen for result ordering
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/parallel_tests.rs` — result order codegen
+
+- [ ] **Implement**: `max_concurrent: Option<int>` parameter
+  - [ ] **Rust Tests**: `oric/src/eval/parallel.rs` — concurrency limit
+  - [ ] **Ori Tests**: `tests/spec/concurrency/parallel_max_concurrent.ori`
+  - [ ] **LLVM Support**: LLVM codegen for concurrency limit
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/parallel_tests.rs` — max_concurrent codegen
+
+- [ ] **Implement**: `timeout: Option<Duration>` parameter
+  - [ ] **Rust Tests**: `oric/src/eval/parallel.rs` — timeout handling
+  - [ ] **Ori Tests**: `tests/spec/concurrency/parallel_timeout.ori`
+  - [ ] **LLVM Support**: LLVM codegen for parallel timeout
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/parallel_tests.rs` — timeout codegen
+
+- [ ] **Implement**: Resource exhaustion error handling
+  - [ ] **Rust Tests**: `oric/src/eval/parallel.rs` — resource exhaustion
+  - [ ] **Ori Tests**: `tests/spec/concurrency/parallel_resource_exhaustion.ori`
+  - [ ] **LLVM Support**: LLVM codegen for resource exhaustion
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/parallel_tests.rs` — resource exhaustion codegen
+
+- [ ] **Implement**: Empty task list handling (returns `[]` immediately)
+  - [ ] **Rust Tests**: `oric/src/eval/parallel.rs` — empty list
+  - [ ] **Ori Tests**: `tests/spec/concurrency/parallel_empty.ori`
+  - [ ] **LLVM Support**: LLVM codegen for empty parallel
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/parallel_tests.rs` — empty codegen
+
+---
+
+## 17.7 Nursery Cancellation Semantics
+
+**Proposal**: `proposals/approved/nursery-cancellation-proposal.md`
+
+Specifies cooperative cancellation model, checkpoints, error mode behaviors, and cleanup guarantees.
+
+### Implementation
+
+- [ ] **Implement**: Cooperative cancellation model
+  - [ ] **Rust Tests**: `oric/src/eval/cancellation.rs` — cooperative cancellation
+  - [ ] **Ori Tests**: `tests/spec/concurrency/cancellation_cooperative.ori`
+  - [ ] **LLVM Support**: LLVM codegen for cancellation state
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — cancellation codegen
+
+- [ ] **Implement**: Cancellation checkpoints (suspension, loop iteration, pattern entry)
+  - [ ] **Rust Tests**: `oric/src/eval/cancellation.rs` — checkpoint detection
+  - [ ] **Ori Tests**: `tests/spec/concurrency/cancellation_checkpoints.ori`
+  - [ ] **LLVM Support**: LLVM codegen for checkpoint insertion
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — checkpoint codegen
+
+- [ ] **Implement**: `CancellationError` type
+  - [ ] **Rust Tests**: `oric/src/types/cancellation.rs` — CancellationError type
+  - [ ] **Ori Tests**: `tests/spec/concurrency/cancellation_error.ori`
+  - [ ] **LLVM Support**: LLVM codegen for CancellationError
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — CancellationError codegen
+
+- [ ] **Implement**: `CancellationReason` sum type (Timeout, SiblingFailed, NurseryExited, ExplicitCancel, ResourceExhausted)
+  - [ ] **Rust Tests**: `oric/src/types/cancellation.rs` — CancellationReason type
+  - [ ] **Ori Tests**: `tests/spec/concurrency/cancellation_reason.ori`
+  - [ ] **LLVM Support**: LLVM codegen for CancellationReason
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — CancellationReason codegen
+
+- [ ] **Implement**: `is_cancelled()` built-in function
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — is_cancelled
+  - [ ] **Ori Tests**: `tests/spec/concurrency/is_cancelled.ori`
+  - [ ] **LLVM Support**: LLVM codegen for is_cancelled
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — is_cancelled codegen
+
+- [ ] **Implement**: Automatic loop cancellation checking in async contexts
+  - [ ] **Rust Tests**: `oric/src/eval/loops.rs` — automatic cancellation check
+  - [ ] **Ori Tests**: `tests/spec/concurrency/loop_cancellation.ori`
+  - [ ] **LLVM Support**: LLVM codegen for loop cancellation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — loop cancellation codegen
+
+- [ ] **Implement**: Destructor execution guarantee during cancellation
+  - [ ] **Rust Tests**: `oric/src/eval/cancellation.rs` — destructor guarantee
+  - [ ] **Ori Tests**: `tests/spec/concurrency/cancellation_cleanup.ori`
+  - [ ] **LLVM Support**: LLVM codegen for cancellation unwinding
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — cleanup codegen
+
+- [ ] **Implement**: Nested nursery cancellation propagation
+  - [ ] **Rust Tests**: `oric/src/eval/nursery.rs` — nested cancellation
+  - [ ] **Ori Tests**: `tests/spec/concurrency/nested_nursery_cancellation.ori`
+  - [ ] **LLVM Support**: LLVM codegen for nested cancellation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/nursery_tests.rs` — nested cancellation codegen
+
+---
+
+## 17.8 Phase Completion Checklist
+
+- [ ] All items in 17.1-17.7 have checkboxes marked `[x]`
+- [ ] Spec updated: `spec/06-types.md` — Sendable, Producer, Consumer, CloneableProducer, CloneableConsumer, CancellationError, CancellationReason
+- [ ] Spec updated: `spec/10-patterns.md` — nursery pattern, parallel execution guarantees
+- [ ] Spec updated: `spec/23-concurrency-model.md` — cancellation model
+- [ ] CLAUDE.md updated with channel constructors, nursery syntax, is_cancelled()
 - [ ] Sendable trait working (auto-implemented)
 - [ ] Role-based channels working (Producer/Consumer)
 - [ ] Channel constructors working (channel, channel_in, channel_out, channel_all)
 - [ ] Ownership transfer on send working
 - [ ] nursery pattern working
+- [ ] Parallel execution guarantees working (ordering, max_concurrent, timeout)
+- [ ] Cancellation semantics working (cooperative, checkpoints, is_cancelled)
 - [ ] All tests pass: `./test-all`
 
-**Exit Criteria**: Can write producer/consumer pipeline with ownership safety
+**Exit Criteria**: Can write producer/consumer pipeline with ownership safety and proper cancellation
 
 ---
 

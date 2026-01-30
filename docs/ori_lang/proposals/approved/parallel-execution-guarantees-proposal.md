@@ -1,6 +1,7 @@
 # Proposal: Parallel Execution Guarantees
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-30
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-29
 **Affects:** Compiler, runtime, concurrency model
@@ -32,10 +33,12 @@ The spec states that `parallel` "may execute tasks in parallel" but leaves criti
 ```ori
 parallel(
     tasks: [() -> T uses Async],
-    max_concurrent: int = unlimited,
-    timeout: Duration = none,
+    max_concurrent: Option<int> = None,
+    timeout: Option<Duration> = None,
 ) -> [Result<T, E>]
 ```
+
+When `max_concurrent` is `None`, there is no limit. When `timeout` is `None`, there is no timeout.
 
 ### Execution Order Guarantees
 
@@ -72,7 +75,7 @@ The `max_concurrent` parameter limits simultaneous execution:
 ```ori
 parallel(
     tasks: hundred_tasks,
-    max_concurrent: 10,
+    max_concurrent: Some(10),
 )
 // At most 10 tasks run simultaneously
 // When one completes, the next pending task starts
@@ -83,13 +86,13 @@ parallel(
 - When a slot opens (task completes), the next queued task starts
 - Tasks wait in the queue, not in a busy loop
 
-**Default**: When `max_concurrent` is not specified, there is no limit (all tasks may run simultaneously).
+**Default**: When `max_concurrent` is `None` (or not specified), there is no limit (all tasks may run simultaneously).
 
 ### Resource Exhaustion
 
 If the runtime cannot allocate resources for a task (memory, task handles, etc.):
 
-1. The specific task fails with `Err(ResourceExhausted)`
+1. The specific task fails with `Err(CancellationError { reason: ResourceExhausted, task_id: n })`
 2. Other tasks continue executing
 3. The pattern does NOT panic
 4. Result array contains the error for that task
@@ -97,28 +100,50 @@ If the runtime cannot allocate resources for a task (memory, task handles, etc.)
 ```ori
 let results = parallel(tasks: thousand_heavy_tasks)
 // If task 500 can't be allocated:
-// results[500] = Err(ResourceExhausted)
+// results[500] = Err(CancellationError { reason: ResourceExhausted, task_id: 500 })
 // Other tasks still run
 ```
+
+See the nursery-cancellation-proposal for the `CancellationError` and `CancellationReason` types.
 
 ### Timeout Behavior
 
 When `timeout` expires:
 
 1. Incomplete tasks are cancelled (see nursery-cancellation-proposal)
-2. Results for cancelled tasks are `Err(CancellationError { reason: Timeout })`
+2. Results for cancelled tasks are `Err(CancellationError { reason: Timeout, task_id: n })`
 3. Completed results are preserved
 
 ```ori
 let results = parallel(
     tasks: [fast_task, slow_task, medium_task],
-    timeout: 1s,
+    timeout: Some(1s),
 )
 // If slow_task takes 5s:
 // results[0] = Ok(fast_result)     // completed
-// results[1] = Err(Timeout)        // cancelled
+// results[1] = Err(CancellationError { reason: Timeout, task_id: 1 })  // cancelled
 // results[2] = Ok(medium_result)   // completed
 ```
+
+### Cancellation Checking
+
+Tasks in `parallel` can use `is_cancelled()` to check for timeout-triggered cancellation:
+
+```ori
+parallel(
+    tasks: [
+        () -> run(
+            for item in large_list do run(
+                if is_cancelled() then break,
+                process(item),
+            ),
+        ),
+    ],
+    timeout: Some(5s),
+)
+```
+
+This enables cooperative cancellation for long-running tasks. See the nursery-cancellation-proposal for full cancellation semantics.
 
 ### Error Handling
 
@@ -133,6 +158,21 @@ let results = parallel(tasks: [success, failure, success])
 ```
 
 For early termination on error, use `nursery` with appropriate error mode.
+
+### No Early Termination
+
+The `parallel` pattern does NOT support early termination on first error. All tasks always run to completion (or timeout). If you need to cancel remaining tasks when one fails, use `nursery` with `on_error: FailFast`:
+
+```ori
+// parallel: all tasks run regardless of errors
+parallel(tasks: [...])  // → [Result<T, E>] with some Err values
+
+// nursery with FailFast: cancel all on first error
+nursery(
+    body: n -> for task in tasks do n.spawn(task: task),
+    on_error: FailFast,
+)
+```
 
 ### Empty Task List
 
@@ -180,8 +220,8 @@ Tasks in `parallel` observe the same memory model as nursery tasks:
 @fetch_all (urls: [str]) -> [Result<Response, Error>] uses Async =
     parallel(
         tasks: urls.map(url -> () -> fetch(url)),
-        max_concurrent: 10,
-        timeout: 30s,
+        max_concurrent: Some(10),
+        timeout: Some(30s),
     )
 ```
 
@@ -219,7 +259,7 @@ Tasks in `parallel` observe the same memory model as nursery tasks:
 @best_effort_fetch (urls: [str]) -> [Response] uses Async = run(
     let results = parallel(
         tasks: urls.map(url -> () -> fetch(url)),
-        timeout: 10s,
+        timeout: Some(10s),
     ),
     // Keep only successful responses
     results.filter(r -> r.is_ok()).map(r -> r.unwrap()).collect(),
@@ -283,9 +323,11 @@ Add examples showing:
 | Start order | Tasks start in list order |
 | Completion order | Any order (concurrent) |
 | Result order | Same as task list order |
-| max_concurrent | Queued execution, FIFO |
-| Resource exhaustion | Per-task error, others continue |
-| Timeout | Incomplete tasks cancelled |
-| Error handling | All tasks run (CollectAll behavior) |
+| max_concurrent | `Option<int>`, `None` = unlimited, queued FIFO |
+| timeout | `Option<Duration>`, `None` = no timeout |
+| Resource exhaustion | `CancellationError { reason: ResourceExhausted }`, others continue |
+| Timeout | Incomplete tasks get `CancellationError { reason: Timeout }` |
+| Error handling | All tasks run (CollectAll behavior, no early termination) |
+| Cancellation checking | `is_cancelled()` available for cooperative cancellation |
 | Empty list | Returns `[]` immediately |
 | Memory | Same as nursery (no shared mutable state) |
