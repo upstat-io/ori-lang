@@ -2,6 +2,7 @@
 title: "Algorithm Overview"
 description: "Ori Formatter Design — Core Formatting Algorithm"
 order: 1
+section: "Algorithm"
 ---
 
 # Algorithm Overview

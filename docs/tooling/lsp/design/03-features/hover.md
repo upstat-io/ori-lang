@@ -2,6 +2,7 @@
 title: "Hover"
 description: "Ori LSP Design — Type Information Display"
 order: 3
+section: "Features"
 ---
 
 # Hover

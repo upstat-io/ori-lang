@@ -2,6 +2,7 @@
 title: "Constants"
 description: "Ori Language Specification — Constants"
 order: 4
+section: "Types & Values"
 ---
 
 # Constants

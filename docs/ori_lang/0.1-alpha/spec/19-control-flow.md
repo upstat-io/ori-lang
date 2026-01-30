@@ -2,6 +2,7 @@
 title: "Control Flow"
 description: "Ori Language Specification — Control Flow"
 order: 19
+section: "Expressions"
 ---
 
 # Control Flow

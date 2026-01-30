@@ -64,9 +64,22 @@ const { title, description } = Astro.props;
     margin-bottom: var(--space-4, 1rem);
   }
 
-  .docs-article :global(ul),
+  .docs-article :global(ul) {
+    margin-bottom: var(--space-4, 1rem);
+    list-style-type: disc !important;
+    list-style-position: outside;
+    padding-left: var(--space-6, 1.5rem);
+  }
+
   .docs-article :global(ol) {
     margin-bottom: var(--space-4, 1rem);
+    list-style-type: decimal !important;
+    list-style-position: outside;
+    padding-left: var(--space-6, 1.5rem);
+  }
+
+  .docs-article :global(li) {
+    display: list-item;
   }
 
   .docs-article :global(pre) {

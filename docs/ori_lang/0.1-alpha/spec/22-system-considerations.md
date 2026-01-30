@@ -2,6 +2,7 @@
 title: "System Considerations"
 description: "Ori Language Specification — System Considerations"
 order: 22
+section: "Tooling"
 ---
 
 # System Considerations

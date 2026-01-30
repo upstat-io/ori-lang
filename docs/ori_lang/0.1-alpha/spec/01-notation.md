@@ -2,6 +2,7 @@
 title: "Notation"
 description: "Ori Language Specification — Notation"
 order: 1
+section: "Foundations"
 ---
 
 # Notation

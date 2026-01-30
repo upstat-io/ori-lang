@@ -2,6 +2,7 @@
 title: "Lexical Elements"
 description: "Ori Language Specification — Lexical Elements"
 order: 3
+section: "Foundations"
 ---
 
 # Lexical Elements

@@ -1,9 +1,10 @@
 ---
-title: Getting Started
-description: Get up and running with Ori in minutes.
-section: getting-started
+title: "Getting Started"
+description: "Get up and running with Ori in minutes."
 order: 1
 ---
+
+# Getting Started
 
 ## What is Ori?
 
@@ -19,7 +20,7 @@ curl -fsSL https://ori-lang.com/install.sh | sh
 
 Create a file called `hello.ori`:
 
-```
+```ori
 @main () -> void = print(msg: "Hello, World!")
 ```
 
@@ -33,7 +34,7 @@ ori run hello.ori
 
 Every function in Ori requires tests. Here's a function with its test:
 
-```
+```ori
 @add (a: int, b: int) -> int = a + b
 
 @test_add tests @add () -> void = run(
@@ -42,7 +43,7 @@ Every function in Ori requires tests. Here's a function with its test:
 )
 
 @main () -> void = run(
-    print(msg: "2 + 3 = " + str(add(a: 2, b: 3)))
+    print(msg: "2 + 3 = " + str(add(a: 2, b: 3))),
 )
 ```
 

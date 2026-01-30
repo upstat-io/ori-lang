@@ -2,6 +2,7 @@
 title: "Editor Integration"
 description: "Ori LSP Design — VS Code and Neovim Integration"
 order: 3
+section: "Integration"
 ---
 
 # Editor Integration

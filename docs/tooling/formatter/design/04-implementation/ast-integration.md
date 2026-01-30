@@ -2,6 +2,7 @@
 title: "AST Integration"
 description: "Ori Formatter Design — Working with the Ori AST"
 order: 2
+section: "Implementation"
 ---
 
 # AST Integration

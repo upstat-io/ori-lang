@@ -2,6 +2,7 @@
 title: "Constructs Overview"
 description: "Ori Formatter Design — Per-Construct Formatting Rules"
 order: 1
+section: "Constructs"
 ---
 
 # Constructs Overview

@@ -2,6 +2,7 @@
 title: "Playground Integration"
 description: "Ori LSP Design — Browser-based Playground"
 order: 2
+section: "Integration"
 ---
 
 # Playground Integration

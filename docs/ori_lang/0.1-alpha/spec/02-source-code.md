@@ -2,6 +2,7 @@
 title: "Source Code Representation"
 description: "Ori Language Specification — Source Code Representation"
 order: 2
+section: "Foundations"
 ---
 
 # Source Code Representation

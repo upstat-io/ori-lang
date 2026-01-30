@@ -2,6 +2,7 @@
 title: "Capabilities"
 description: "Ori Language Specification — Capabilities"
 order: 14
+section: "Verification"
 ---
 
 # Capabilities

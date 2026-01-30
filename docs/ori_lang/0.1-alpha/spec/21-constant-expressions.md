@@ -2,6 +2,7 @@
 title: "Constant Expressions"
 description: "Ori Language Specification — Constant Expressions"
 order: 21
+section: "Expressions"
 ---
 
 # Constant Expressions

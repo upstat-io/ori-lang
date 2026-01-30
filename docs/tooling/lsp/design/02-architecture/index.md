@@ -2,6 +2,7 @@
 title: "Architecture Overview"
 description: "Ori LSP Design — Crate Structure and Dependencies"
 order: 1
+section: "Architecture"
 ---
 
 # Architecture Overview
@@ -35,30 +36,32 @@ compiler/ori_lsp/
 
 ## Dependency Graph
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                      ori_lsp                            │
-│                                                         │
-│   ┌─────────────┐    ┌─────────────┐    ┌───────────┐   │
-│   │  features/  │    │  protocol/  │    │ document  │   │
-│   │             │    │             │    │           │   │
-│   └──────┬──────┘    └──────┬──────┘    └─────┬─────┘   │
-│          │                  │                 │         │
-└──────────┼──────────────────┼─────────────────┼─────────┘
-           │                  │                 │
-           ▼                  ▼                 ▼
-    ┌──────────────────────────────────────────────────┐
-    │              Compiler Crates                     │
-    │                                                  │
-    │  ori_fmt ◄─┐                                     │
-    │            │                                     │
-    │  ori_typeck ◄─┬─────── ori_ir                    │
-    │               │           ▲                      │
-    │  ori_parse ◄──┘           │                      │
-    │      ▲                    │                      │
-    │      │                    │                      │
-    │  ori_lexer ───────────────┘                      │
-    └──────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph LSP["ori_lsp"]
+        direction TB
+        Protocol["protocol/"]
+        Features["features/"]
+        Document["document"]
+
+        Protocol --> Features
+        Features --> Document
+        Features --> CompilerCrates
+        Document --> CompilerCrates
+    end
+
+    subgraph CompilerCrates["Compiler Crates"]
+        direction TB
+        ori_fmt
+        ori_typeck
+        ori_parse
+        ori_lexer
+        ori_ir
+
+        ori_typeck --> ori_ir
+        ori_parse --> ori_ir
+        ori_lexer --> ori_ir
+    end
 ```
 
 ## Core Types

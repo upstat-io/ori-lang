@@ -1,264 +1,103 @@
 ---
 import { getCollection } from 'astro:content';
+import Sidebar from '../common/Sidebar.astro';
 
-const docs = await getCollection('docs');
 const spec = await getCollection('spec');
 const compilerDesign = await getCollection('compiler-design');
-const currentPath = Astro.url.pathname;
+const formatter = await getCollection('formatter');
+const lsp = await getCollection('lsp');
 
-// Group docs by section
-const docsSections = [
-  { key: 'getting-started', label: 'Getting Started' },
-] as const;
+// Helper to transform collection items
+const toSidebarItems = (items: any[]) =>
+  items.map(item => ({ id: item.id, title: item.data.title }));
 
-const groupedDocs = docsSections.map(section => ({
-  ...section,
-  items: docs
-    .filter(doc => doc.data.section === section.key)
-    .sort((a, b) => a.data.order - b.data.order),
-}));
+// Helper to group by section
+const groupBySection = (items: any[], sectionNames: string[]) =>
+  sectionNames
+    .map(name => ({
+      name,
+      items: toSidebarItems(
+        items
+          .filter(d => d.data.section === name)
+          .sort((a, b) => a.data.order - b.data.order)
+      ),
+    }))
+    .filter(g => g.items.length > 0);
 
-// Sort spec by order
-const sortedSpec = spec.sort((a, b) => a.data.order - b.data.order);
-
-// Group compiler design by section
-const designOverview = compilerDesign
-  .filter(d => !d.data.section)
-  .sort((a, b) => a.data.order - b.data.order);
-
-const designSections = [
-  'Architecture',
-  'Intermediate Representation',
-  'Lexer',
-  'Parser',
-  'Type System',
-  'Pattern System',
-  'Evaluator',
-  'Diagnostics',
-  'Testing',
-  'Appendices',
+// Build sections config
+const sections = [
+  {
+    title: 'Specification',
+    basePath: '/docs/spec',
+    items: toSidebarItems(
+      spec
+        .filter(d => !d.data.section)
+        .sort((a, b) => a.data.order - b.data.order)
+    ),
+    subsections: groupBySection(spec, [
+      'Foundations',
+      'Types & Values',
+      'Declarations',
+      'Expressions',
+      'Execution',
+      'Verification',
+      'Tooling',
+    ]),
+  },
+  {
+    title: 'Compiler Design',
+    basePath: '/docs/compiler-design',
+    items: toSidebarItems(
+      compilerDesign
+        .filter(d => !d.data.section)
+        .sort((a, b) => a.data.order - b.data.order)
+    ),
+    subsections: groupBySection(compilerDesign, [
+      'Architecture',
+      'Intermediate Representation',
+      'Lexer',
+      'Parser',
+      'Type System',
+      'Pattern System',
+      'Evaluator',
+      'Diagnostics',
+      'Testing',
+      'LLVM Backend',
+      'Appendices',
+    ]),
+  },
+  {
+    title: 'Formatter',
+    basePath: '/docs/formatter',
+    items: toSidebarItems(
+      formatter
+        .filter(d => !d.data.section)
+        .sort((a, b) => a.data.order - b.data.order)
+    ),
+    subsections: groupBySection(formatter, [
+      'Algorithm',
+      'Constructs',
+      'Comments',
+      'Implementation',
+      'Appendices',
+    ]),
+  },
+  {
+    title: 'LSP',
+    basePath: '/docs/lsp',
+    items: toSidebarItems(
+      lsp
+        .filter(d => !d.data.section)
+        .sort((a, b) => a.data.order - b.data.order)
+    ),
+    subsections: groupBySection(lsp, [
+      'Protocol',
+      'Architecture',
+      'Features',
+      'Integration',
+    ]),
+  },
 ];
-
-const groupedDesign = designSections.map(section => ({
-  name: section,
-  items: compilerDesign
-    .filter(d => d.data.section === section)
-    .sort((a, b) => a.data.order - b.data.order),
-})).filter(g => g.items.length > 0);
 ---
 
-<aside class="sidebar">
-  <nav class="sidebar-nav">
-    {groupedDocs.map(section => (
-      <div class="sidebar-section">
-        <h3 class="sidebar-section-title">{section.label}</h3>
-        <ul class="sidebar-list">
-          {section.items.map(item => {
-            const href = `/docs/${item.id}`;
-            const isActive = currentPath === href || currentPath === `${href}/`;
-            return (
-              <li>
-                <a href={href} class:list={['sidebar-link', { active: isActive }]}>
-                  {item.data.title}
-                </a>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-    ))}
-
-    <div class="sidebar-section">
-      <h3 class="sidebar-section-title">Specification</h3>
-      <ul class="sidebar-list">
-        {sortedSpec.map(item => {
-          const href = `/docs/spec/${item.id}`;
-          const isActive = currentPath === href || currentPath === `${href}/`;
-          return (
-            <li>
-              <a href={href} class:list={['sidebar-link', { active: isActive }]}>
-                {item.data.title}
-              </a>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-
-    <div class="sidebar-section">
-      <h3 class="sidebar-section-title">Compiler Design</h3>
-      <ul class="sidebar-list">
-        {designOverview.map(item => {
-          const href = `/docs/compiler-design/${item.id}`;
-          const isActive = currentPath === href || currentPath === `${href}/`;
-          return (
-            <li>
-              <a href={href} class:list={['sidebar-link', { active: isActive }]}>
-                {item.data.title}
-              </a>
-            </li>
-          );
-        })}
-      </ul>
-
-      {groupedDesign.map(group => {
-        const hasActiveItem = group.items.some(item => {
-          const href = `/docs/compiler-design/${item.id}`;
-          return currentPath === href || currentPath === `${href}/`;
-        });
-        return (
-          <details class="design-section" open={hasActiveItem}>
-            <summary class="design-summary">{group.name}</summary>
-            <ul class="sidebar-list design-list">
-              {group.items.map(item => {
-                const href = `/docs/compiler-design/${item.id}`;
-                const isActive = currentPath === href || currentPath === `${href}/`;
-                return (
-                  <li>
-                    <a href={href} class:list={['sidebar-link', { active: isActive }]}>
-                      {item.data.title}
-                    </a>
-                  </li>
-                );
-              })}
-            </ul>
-          </details>
-        );
-      })}
-    </div>
-  </nav>
-</aside>
-
-<style>
-  .sidebar {
-    width: var(--sidebar-width);
-    flex-shrink: 0;
-    background: var(--color-bg-secondary);
-    border-right: 1px solid var(--color-border);
-    padding: var(--space-6) 0;
-    overflow-y: auto;
-    height: calc(100vh - var(--header-height));
-    position: sticky;
-    top: var(--header-height);
-  }
-
-  .sidebar-nav {
-    padding: 0 var(--space-4);
-  }
-
-  .sidebar-section {
-    margin-bottom: var(--space-6);
-  }
-
-  .sidebar-section-title {
-    font-size: var(--text-xs);
-    font-weight: var(--weight-semibold);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--color-text-muted);
-    padding: 0 var(--space-3);
-    margin-bottom: var(--space-2);
-  }
-
-  .sidebar-list {
-    list-style: none;
-    padding: 0;
-  }
-
-  .sidebar-list li {
-    margin-bottom: 0;
-  }
-
-  .sidebar-link {
-    display: block;
-    padding: var(--space-1) var(--space-3);
-    font-size: var(--text-sm);
-    color: var(--color-text-secondary);
-    text-decoration: none;
-    border-radius: var(--radius-sm);
-    transition: all var(--transition-fast);
-  }
-
-  .sidebar-link:hover {
-    color: var(--color-text-primary);
-    background: var(--color-bg-tertiary);
-  }
-
-  .sidebar-link.active {
-    color: var(--color-accent);
-    background: var(--color-accent-subtle);
-  }
-
-  .design-section {
-    margin-top: 0;
-  }
-
-  .design-summary {
-    font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
-    color: var(--color-text-secondary);
-    padding: var(--space-1) var(--space-3);
-    cursor: pointer;
-    list-style: none;
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    border-radius: var(--radius-sm);
-    transition: all var(--transition-fast);
-  }
-
-  .design-summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .design-summary::before {
-    content: '›';
-    font-size: 1.1em;
-    transition: transform var(--transition-fast);
-  }
-
-  details[open] .design-summary::before {
-    transform: rotate(90deg);
-  }
-
-  .design-summary:hover {
-    color: var(--color-text-primary);
-    background: var(--color-bg-tertiary);
-  }
-
-  .design-list {
-    padding-left: var(--space-4);
-    margin-top: var(--space-1);
-  }
-
-  @media (max-width: 768px) {
-    .sidebar {
-      width: 100%;
-      height: auto;
-      position: static;
-      border-right: none;
-      border-bottom: 1px solid var(--color-border);
-      padding: var(--space-4) 0;
-    }
-  }
-</style>
-
-<script is:inline>
-  (function() {
-    const sidebar = document.querySelector('.sidebar');
-    if (!sidebar) return;
-
-    // Restore scroll position
-    const savedScroll = sessionStorage.getItem('sidebar-scroll');
-    if (savedScroll) {
-      sidebar.scrollTop = parseInt(savedScroll, 10);
-    }
-
-    // Save scroll position before navigating
-    document.querySelectorAll('.sidebar-link').forEach(link => {
-      link.addEventListener('click', () => {
-        sessionStorage.setItem('sidebar-scroll', sidebar.scrollTop.toString());
-      });
-    });
-  })();
-</script>
+<Sidebar sections={sections} />

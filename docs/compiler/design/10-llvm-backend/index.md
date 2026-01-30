@@ -1,7 +1,8 @@
 ---
 title: "LLVM Backend Overview"
 description: "LLVM backend architecture for JIT compilation and native code generation"
-order: 10
+order: 1
+section: "LLVM Backend"
 ---
 
 # LLVM Backend Overview

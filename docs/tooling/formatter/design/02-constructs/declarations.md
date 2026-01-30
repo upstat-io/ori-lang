@@ -2,6 +2,7 @@
 title: "Declarations"
 description: "Ori Formatter Design — Declaration Formatting"
 order: 2
+section: "Constructs"
 ---
 
 # Declarations

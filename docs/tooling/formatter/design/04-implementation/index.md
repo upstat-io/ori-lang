@@ -2,6 +2,7 @@
 title: "Implementation Overview"
 description: "Ori Formatter Design — Implementation Approach"
 order: 1
+section: "Implementation"
 ---
 
 # Implementation Overview

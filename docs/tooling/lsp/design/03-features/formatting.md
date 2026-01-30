@@ -2,6 +2,7 @@
 title: "Formatting"
 description: "Ori LSP Design — Code Formatting Integration"
 order: 4
+section: "Features"
 ---
 
 # Formatting

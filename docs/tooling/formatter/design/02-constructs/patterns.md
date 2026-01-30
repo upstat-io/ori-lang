@@ -2,6 +2,7 @@
 title: "Patterns"
 description: "Ori Formatter Design — Pattern Formatting"
 order: 4
+section: "Constructs"
 ---
 
 # Patterns

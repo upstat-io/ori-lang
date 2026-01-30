@@ -2,6 +2,7 @@
 title: "Document Synchronization"
 description: "Ori LSP Design — Text Document Sync Strategy"
 order: 2
+section: "Protocol"
 ---
 
 # Document Synchronization

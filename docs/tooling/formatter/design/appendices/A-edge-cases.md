@@ -2,6 +2,7 @@
 title: "Edge Cases"
 description: "Ori Formatter Design — Comprehensive Edge Case Examples"
 order: 1
+section: "Appendices"
 ---
 
 # Edge Cases

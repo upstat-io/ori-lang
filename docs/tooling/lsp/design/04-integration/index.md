@@ -2,6 +2,7 @@
 title: "Integration Overview"
 description: "Ori LSP Design — Client Integration"
 order: 1
+section: "Integration"
 ---
 
 # Integration Overview

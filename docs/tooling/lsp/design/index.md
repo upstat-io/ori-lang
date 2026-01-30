@@ -4,6 +4,8 @@ description: "Ori Language Server Design — Implementation Guide"
 order: 0
 ---
 
+> **Proposed** — This design has not yet been implemented.
+
 # Overview
 
 This documentation describes the design and implementation of the Ori Language Server (`ori_lsp`). The language server provides IDE features via the Language Server Protocol (LSP).
@@ -33,24 +35,23 @@ The Ori LSP design draws from established language server implementations:
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    ori_lsp crate                            │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │  Protocol   │  │  Features   │  │  Document Manager   │  │
-│  │  Handler    │  │  (handlers) │  │  (open files, sync) │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
-│         │               │                    │              │
-│         ▼               ▼                    ▼              │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │              Compiler Components                     │   │
-│  │  ori_fmt │ ori_typeck │ ori_parse │ ori_lexer        │   │
-│  └──────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-         │                              │
-         ▼                              ▼
-   Native binary                  WASM module
-   (VS Code, Neovim)              (Playground)
+```mermaid
+flowchart TD
+    subgraph LSP["ori_lsp crate"]
+        direction TB
+        Protocol["Protocol Handler"]
+        Features["Features (handlers)"]
+        DocMgr["Document Manager<br/>(open files, sync)"]
+        Compiler["Compiler Components<br/>ori_fmt | ori_typeck | ori_parse | ori_lexer"]
+
+        Protocol --> Features
+        Features --> DocMgr
+        Features --> Compiler
+        DocMgr --> Compiler
+    end
+
+    LSP --> Native["Native binary<br/>(VS Code, Neovim)"]
+    LSP --> WASM["WASM module<br/>(Playground)"]
 ```
 
 ## Feature Roadmap
