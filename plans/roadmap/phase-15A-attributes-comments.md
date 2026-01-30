@@ -137,7 +137,63 @@ let y = 42  // SYNTAX ERROR
 
 ---
 
-## 15A.4 Phase Completion Checklist
+## 15A.4 Simplified Doc Comment Syntax
+
+**Proposal**: `proposals/approved/simplified-doc-comments-proposal.md`
+
+Simplify doc comment syntax by removing verbose markers:
+
+```ori
+// Before
+// #Computes the sum.
+// @param a The first operand.
+// @param b The second operand.
+
+// After
+// Computes the sum.
+// * a: The first operand.
+// * b: The second operand.
+```
+
+### Key Design Decisions
+
+- **Remove `#` marker for descriptions** — Unmarked comments before declarations are descriptions
+- **Replace `@param`/`@field` with `*`** — Markdown-like list syntax, context determines meaning
+- **Canonical spacing** — `// * name: description` with space after `*`, colon always required
+- **Non-doc comment separation** — Blank line separates non-doc comments from declarations
+
+### Implementation
+
+- [ ] **Implement**: Update `CommentKind` enum
+  - [ ] Replace `DocParam`, `DocField` with unified `DocMember`
+  - [ ] Remove `DocDescription` detection from lexer (moved to formatter)
+  - [ ] **Rust Tests**: `ori_ir/src/comment.rs` — enum variant tests
+  - [ ] **Ori Tests**: `tests/spec/comments/doc_markers.ori`
+
+- [ ] **Implement**: Update lexer comment classification
+  - [ ] Recognize `*` as member doc marker
+  - [ ] Remove `#`, `@param`, `@field` recognition
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — comment classification tests
+  - [ ] **Ori Tests**: `tests/spec/comments/classification.ori`
+
+- [ ] **Implement**: Update formatter doc comment reordering
+  - [ ] Update `extract_member_name` to parse `* name:` syntax
+  - [ ] Move description detection to formatter (check preceding declaration)
+  - [ ] **Rust Tests**: `ori_fmt/src/comments.rs` — reordering tests
+  - [ ] **Ori Tests**: `tests/fmt/comments/reordering.ori`
+
+- [ ] **Implement**: Support migration from old syntax
+  - [ ] Lexer recognizes both old and new formats during transition
+  - [ ] `ori fmt` converts old to new automatically
+  - [ ] Add deprecation warning for old format
+  - [ ] **Ori Tests**: `tests/spec/comments/migration.ori`
+
+- [ ] **Implement**: LLVM backend support
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comment_tests.rs`
+
+---
+
+## 15A.5 Phase Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[x]`
 - [ ] All spec docs updated
@@ -145,4 +201,4 @@ let y = 42  // SYNTAX ERROR
 - [ ] Migration tools working
 - [ ] All tests pass: `./test-all`
 
-**Exit Criteria**: Attribute syntax and comment rules implemented
+**Exit Criteria**: Attribute syntax, comment rules, and doc comment syntax implemented
