@@ -393,6 +393,21 @@
 - Precision note: integers >2^53 may lose precision
 - Blocked on: None (can be implemented independently)
 
+**std.fs API** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/stdlib-fs-api-proposal.md`
+- Implementation: Phase 7.20
+- Core types: `Path`, `FileInfo`, `FileError`/`FileErrorKind`, `WriteMode`, `Permissions`
+- Reading: `read()`, `read_bytes()`, `read_lines()`, `FileReader` for streaming
+- Writing: `write()`, `write_bytes()`, `write_with()`, `FileWriter` for streaming
+- Directories: `list_dir()`, `walk_dir()`, `create_dir()`, `remove_dir()`
+- Operations: `copy()`, `move()`, `rename()`, `remove()`
+- Info: `info()`, `exists()`, `is_file()`, `is_dir()` (bool returns for simpler API)
+- Glob: `glob()` with `*`, `**`, `?`, `[abc]`, `{a,b}` patterns
+- Temp files: `create_temp_file()`, `with_temp_file()` (scoped auto-cleanup)
+- Uses `Instant` from `std.time` for file timestamps
+- `WriteMode.Create` errors if file exists; `Truncate` overwrites
+- Blocked on: std.time (for Instant type)
+
 ---
 
 ## Milestones

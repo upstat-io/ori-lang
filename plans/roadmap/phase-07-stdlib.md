@@ -1200,7 +1200,260 @@ JSON parsing, serialization, and manipulation.
 
 ---
 
-## 7.20 Float NaN Behavior
+## 7.20 std.fs Module
+
+**Proposal**: `proposals/approved/stdlib-fs-api-proposal.md`
+
+File system operations including reading, writing, directory manipulation, and file metadata.
+
+**Depends on**: `std.time` (for `Instant` type in `FileInfo`)
+
+### 7.20.1 Core Types
+
+- [ ] **Implement**: `Path` type — file system path abstraction
+  - `from_str()`, `join()`, `join_str()`, `parent()`, `file_name()`, `extension()`
+  - `with_extension()`, `is_absolute()`, `to_str()`, `relative_to()`
+  - [ ] **Rust Tests**: `library/std/fs/path.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/path.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Path
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — Path codegen
+
+- [ ] **Implement**: `FileInfo` type — file metadata
+  - Fields: `path`, `size`, `is_file`, `is_dir`, `is_symlink`, `modified` (Instant), `created` (Option<Instant>), `readonly`
+  - [ ] **Rust Tests**: `library/std/fs/types.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/info.ori`
+  - [ ] **LLVM Support**: LLVM codegen for FileInfo
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — FileInfo codegen
+
+- [ ] **Implement**: `FileError` and `FileErrorKind` types
+  - `NotFound | PermissionDenied | AlreadyExists | NotAFile | NotADirectory | DirectoryNotEmpty | IoError | InvalidPath`
+  - [ ] **Rust Tests**: `library/std/fs/error.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/error.ori`
+  - [ ] **LLVM Support**: LLVM codegen for FileError
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — FileError codegen
+
+- [ ] **Implement**: `WriteMode` sum type
+  - `Create` (error if exists), `Append` (create or append), `Truncate` (create or overwrite)
+  - [ ] **Rust Tests**: `library/std/fs/types.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/write_mode.ori`
+  - [ ] **LLVM Support**: LLVM codegen for WriteMode
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — WriteMode codegen
+
+- [ ] **Implement**: `Permissions` type
+  - Fields: `readable`, `writable`, `executable`
+  - [ ] **Rust Tests**: `library/std/fs/types.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/permissions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Permissions
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — Permissions codegen
+
+### 7.20.2 Reading Files
+
+- [ ] **Implement**: `read(path: str) -> Result<str, FileError> uses FileSystem`
+  - [ ] **Rust Tests**: `library/std/fs/read.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/read.ori`
+  - [ ] **LLVM Support**: LLVM codegen for read
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — read codegen
+
+- [ ] **Implement**: `read_bytes(path: str) -> Result<[byte], FileError> uses FileSystem`
+  - [ ] **Rust Tests**: `library/std/fs/read.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/read.ori`
+  - [ ] **LLVM Support**: LLVM codegen for read_bytes
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — read_bytes codegen
+
+- [ ] **Implement**: `read_lines(path: str) -> Result<[str], FileError> uses FileSystem`
+  - [ ] **Rust Tests**: `library/std/fs/read.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/read.ori`
+  - [ ] **LLVM Support**: LLVM codegen for read_lines
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — read_lines codegen
+
+- [ ] **Implement**: `FileReader` type for streaming reads
+  - `open_read(path: str)`, `read_chunk()`, `read_line()`, `close()`
+  - Implements `Iterable` for line-by-line iteration
+  - [ ] **Rust Tests**: `library/std/fs/reader.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/reader.ori`
+  - [ ] **LLVM Support**: LLVM codegen for FileReader
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — FileReader codegen
+
+### 7.20.3 Writing Files
+
+- [ ] **Implement**: `write(path: str, content: str) -> Result<void, FileError> uses FileSystem`
+  - [ ] **Rust Tests**: `library/std/fs/write.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/write.ori`
+  - [ ] **LLVM Support**: LLVM codegen for write
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — write codegen
+
+- [ ] **Implement**: `write_bytes(path: str, content: [byte]) -> Result<void, FileError> uses FileSystem`
+  - [ ] **Rust Tests**: `library/std/fs/write.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/write.ori`
+  - [ ] **LLVM Support**: LLVM codegen for write_bytes
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — write_bytes codegen
+
+- [ ] **Implement**: `write_with(path, content, mode, create_dirs)` with options
+  - Default `mode: Truncate`, `create_dirs: false`
+  - [ ] **Rust Tests**: `library/std/fs/write.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/write.ori`
+  - [ ] **LLVM Support**: LLVM codegen for write_with
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — write_with codegen
+
+- [ ] **Implement**: `FileWriter` type for streaming writes
+  - `open_write(path, mode)`, `write_chunk()`, `write_str()`, `write_line()`, `flush()`, `close()`
+  - [ ] **Rust Tests**: `library/std/fs/writer.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/writer.ori`
+  - [ ] **LLVM Support**: LLVM codegen for FileWriter
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — FileWriter codegen
+
+### 7.20.4 Directory Operations
+
+- [ ] **Implement**: `list_dir(path: str) -> Result<[str], FileError> uses FileSystem`
+  - [ ] **Rust Tests**: `library/std/fs/dir.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/dir.ori`
+  - [ ] **LLVM Support**: LLVM codegen for list_dir
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — list_dir codegen
+
+- [ ] **Implement**: `list_dir_info(path: str) -> Result<[FileInfo], FileError> uses FileSystem`
+  - [ ] **Rust Tests**: `library/std/fs/dir.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/dir.ori`
+  - [ ] **LLVM Support**: LLVM codegen for list_dir_info
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — list_dir_info codegen
+
+- [ ] **Implement**: `walk_dir(path: str) -> Result<[FileInfo], FileError> uses FileSystem`
+  - [ ] **Rust Tests**: `library/std/fs/dir.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/walk.ori`
+  - [ ] **LLVM Support**: LLVM codegen for walk_dir
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — walk_dir codegen
+
+- [ ] **Implement**: `walk_dir_with(path, max_depth, follow_symlinks)` with options
+  - [ ] **Rust Tests**: `library/std/fs/dir.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/walk.ori`
+  - [ ] **LLVM Support**: LLVM codegen for walk_dir_with
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — walk_dir_with codegen
+
+- [ ] **Implement**: `create_dir(path: str)` and `create_dir_all(path: str)`
+  - [ ] **Rust Tests**: `library/std/fs/dir.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/dir.ori`
+  - [ ] **LLVM Support**: LLVM codegen for create_dir/create_dir_all
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — create_dir codegen
+
+- [ ] **Implement**: `remove_dir(path: str)` and `remove_dir_all(path: str)`
+  - [ ] **Rust Tests**: `library/std/fs/dir.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/dir.ori`
+  - [ ] **LLVM Support**: LLVM codegen for remove_dir/remove_dir_all
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — remove_dir codegen
+
+### 7.20.5 File Operations
+
+- [ ] **Implement**: `copy(from: str, to: str)` and `copy_with(from, to, overwrite)`
+  - [ ] **Rust Tests**: `library/std/fs/ops.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/ops.ori`
+  - [ ] **LLVM Support**: LLVM codegen for copy/copy_with
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — copy codegen
+
+- [ ] **Implement**: `move(from: str, to: str)` and `rename(from: str, to: str)` (alias)
+  - [ ] **Rust Tests**: `library/std/fs/ops.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/ops.ori`
+  - [ ] **LLVM Support**: LLVM codegen for move/rename
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — move codegen
+
+- [ ] **Implement**: `remove(path: str) -> Result<void, FileError> uses FileSystem`
+  - [ ] **Rust Tests**: `library/std/fs/ops.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/ops.ori`
+  - [ ] **LLVM Support**: LLVM codegen for remove
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — remove codegen
+
+### 7.20.6 File Info Functions
+
+- [ ] **Implement**: `info(path: str) -> Result<FileInfo, FileError> uses FileSystem`
+  - [ ] **Rust Tests**: `library/std/fs/info.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/info.ori`
+  - [ ] **LLVM Support**: LLVM codegen for info
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — info codegen
+
+- [ ] **Implement**: `exists(path: str) -> bool uses FileSystem`
+  - Returns `false` on permission denied (simpler API)
+  - [ ] **Rust Tests**: `library/std/fs/info.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/info.ori`
+  - [ ] **LLVM Support**: LLVM codegen for exists
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — exists codegen
+
+- [ ] **Implement**: `is_file(path: str) -> bool` and `is_dir(path: str) -> bool`
+  - [ ] **Rust Tests**: `library/std/fs/info.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/info.ori`
+  - [ ] **LLVM Support**: LLVM codegen for is_file/is_dir
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — is_file/is_dir codegen
+
+### 7.20.7 Glob Patterns
+
+- [ ] **Implement**: `glob(pattern: str) -> Result<[str], FileError> uses FileSystem`
+  - Supports `*`, `**`, `?`, `[abc]`, `{a,b}` patterns
+  - [ ] **Rust Tests**: `library/std/fs/glob.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/glob.ori`
+  - [ ] **LLVM Support**: LLVM codegen for glob
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — glob codegen
+
+### 7.20.8 Temporary Files
+
+- [ ] **Implement**: `temp_dir() -> Path uses FileSystem`
+  - [ ] **Rust Tests**: `library/std/fs/temp.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/temp.ori`
+  - [ ] **LLVM Support**: LLVM codegen for temp_dir
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — temp_dir codegen
+
+- [ ] **Implement**: `create_temp_file(prefix: str)` and `create_temp_dir(prefix: str)`
+  - [ ] **Rust Tests**: `library/std/fs/temp.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/temp.ori`
+  - [ ] **LLVM Support**: LLVM codegen for create_temp_file/create_temp_dir
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — temp file codegen
+
+- [ ] **Implement**: `with_temp_file<T>(prefix, action)` and `with_temp_dir<T>(prefix, action)`
+  - Auto-cleanup scoped temp files
+  - [ ] **Rust Tests**: `library/std/fs/temp.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/temp.ori`
+  - [ ] **LLVM Support**: LLVM codegen for with_temp_file/with_temp_dir
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — scoped temp codegen
+
+### 7.20.9 Permissions
+
+- [ ] **Implement**: `get_permissions(path: str) -> Result<Permissions, FileError> uses FileSystem`
+  - [ ] **Rust Tests**: `library/std/fs/permissions.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/permissions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for get_permissions
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — get_permissions codegen
+
+- [ ] **Implement**: `set_permissions(path: str, permissions: Permissions)`
+  - [ ] **Rust Tests**: `library/std/fs/permissions.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/permissions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for set_permissions
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — set_permissions codegen
+
+- [ ] **Implement**: `set_readonly(path: str, readonly: bool)`
+  - [ ] **Rust Tests**: `library/std/fs/permissions.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/permissions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for set_readonly
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — set_readonly codegen
+
+### 7.20.10 Path Utilities
+
+- [ ] **Implement**: `cwd()` and `set_cwd(path: str)`
+  - [ ] **Rust Tests**: `library/std/fs/path_utils.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/path_utils.ori`
+  - [ ] **LLVM Support**: LLVM codegen for cwd/set_cwd
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — cwd codegen
+
+- [ ] **Implement**: `canonicalize(path: str)` and `resolve(path: str)`
+  - [ ] **Rust Tests**: `library/std/fs/path_utils.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/path_utils.ori`
+  - [ ] **LLVM Support**: LLVM codegen for canonicalize/resolve
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — canonicalize codegen
+
+- [ ] **Implement**: `relative(from: str, to: str) -> Result<Path, FileError>`
+  - [ ] **Rust Tests**: `library/std/fs/path_utils.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/fs/path_utils.ori`
+  - [ ] **LLVM Support**: LLVM codegen for relative
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — relative codegen
+
+---
+
+## 7.21 Float NaN Behavior
 
 > **Decision**: NaN comparisons panic (no proposal needed — behavioral decision)
 >
@@ -1225,7 +1478,7 @@ JSON parsing, serialization, and manipulation.
 
 ---
 
-## 7.20 Phase Completion Checklist
+## 7.22 Phase Completion Checklist
 
 - [ ] All items above have all three checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
