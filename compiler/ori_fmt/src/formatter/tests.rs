@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Formatter Core Tests
 //!
 //! Tests for the formatting engine's inline vs broken decisions.

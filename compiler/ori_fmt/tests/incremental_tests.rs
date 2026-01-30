@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Integration tests for incremental formatting.
 
 use ori_fmt::{apply_regions, format_incremental, format_module_with_comments, IncrementalResult};

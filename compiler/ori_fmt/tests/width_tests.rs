@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Width-parameterized tests for the Ori formatter.
 //!
 //! These tests verify that the formatter behaves correctly at various line widths:
