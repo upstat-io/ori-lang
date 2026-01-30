@@ -154,6 +154,14 @@
 - `...` operator for lists (`[...a, ...b]`), maps (`{...a, ...b}`), and structs (`T { ...s, x: v }`)
 - Blocked on: None (can be implemented independently)
 
+**Computed Map Keys** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/computed-map-keys-proposal.md`
+- Implementation: Phase 15C.4
+- Bare identifiers as literal string keys (TypeScript/JS style): `{timeout: 30}` → `{"timeout": 30}`
+- Computed keys with brackets: `{[expr]: value}` evaluates `expr`
+- Reserved keywords allowed as literal keys: `{if: 1, type: "user"}`
+- Blocked on: Spread operator proposal (approved)
+
 **Simplified Bindings with `$` for Immutability** — ✅ APPROVED 2026-01-28
 - Proposal: `proposals/approved/simplified-bindings-proposal.md`
 - Implementation: Phase 15.11

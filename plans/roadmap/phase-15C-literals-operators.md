@@ -311,7 +311,83 @@ Add a `by` keyword to range expressions for non-unit step values.
 
 ---
 
-## 15C.4 Phase Completion Checklist
+## 15C.4 Computed Map Keys
+
+**Proposal**: `proposals/approved/computed-map-keys-proposal.md`
+
+Formalize map literal key semantics: bare identifiers are literal string keys (like TypeScript/JSON), and `[expression]` syntax enables computed keys.
+
+```ori
+{timeout: 30}           // {"timeout": 30} - bare identifier is literal string
+{[key]: 30}             // computed key - evaluates key variable
+{if: 1, type: "user"}   // reserved keywords valid as literal keys
+```
+
+### Lexer
+
+- [ ] **Implement**: Recognize `[` in map key position as start of computed key
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — computed key bracket detection
+  - [ ] **Ori Tests**: `tests/spec/lexical/computed_map_key.ori`
+  - [ ] **LLVM Support**: LLVM codegen for computed key tokenization
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
+
+### Parser
+
+- [ ] **Implement**: Parse bare identifier as literal string key in map context
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — bare identifier key parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/map_literal_keys.ori`
+  - [ ] **LLVM Support**: LLVM codegen for bare identifier keys
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
+
+- [ ] **Implement**: Parse `[expression]` as computed key in map context
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — computed key parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/computed_map_key.ori`
+  - [ ] **LLVM Support**: LLVM codegen for computed key parsing
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
+
+- [ ] **Implement**: Allow reserved keywords as bare literal keys
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — keyword-as-key parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/map_keyword_keys.ori`
+  - [ ] **LLVM Support**: LLVM codegen for keyword keys
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
+
+### Type Checker
+
+- [ ] **Implement**: Bare identifier keys always produce `str` type
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/map_lit.rs` — bare key type inference
+  - [ ] **Ori Tests**: `tests/spec/types/map_key_types.ori`
+  - [ ] **LLVM Support**: LLVM codegen for bare key types
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
+
+- [ ] **Implement**: Computed keys must match map key type `K` in `{K: V}`
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/map_lit.rs` — computed key type checking
+  - [ ] **Ori Tests**: `tests/compile-fail/computed_key_type_mismatch.ori`
+  - [ ] **LLVM Support**: LLVM codegen for computed key type checking
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
+
+- [ ] **Implement**: Error for bare literals in non-string-key maps
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/map_lit.rs` — bare key in int-map error
+  - [ ] **Ori Tests**: `tests/compile-fail/bare_key_non_string_map.ori`
+  - [ ] **LLVM Support**: LLVM codegen for bare key error
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
+
+### Code Generation
+
+- [ ] **Implement**: Desugar bare identifier keys to string literals
+  - [ ] **Rust Tests**: `oric/src/codegen/map.rs` — bare key desugaring
+  - [ ] **Ori Tests**: `tests/spec/expressions/map_key_desugar.ori`
+  - [ ] **LLVM Support**: LLVM codegen for bare key desugaring
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
+
+- [ ] **Implement**: Evaluate computed key expressions at runtime
+  - [ ] **Rust Tests**: `oric/src/codegen/map.rs` — computed key evaluation
+  - [ ] **Ori Tests**: `tests/spec/expressions/computed_key_eval.ori`
+  - [ ] **LLVM Support**: LLVM codegen for computed key evaluation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
+
+---
+
+## 15C.5 Phase Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[x]`
 - [ ] All spec docs updated

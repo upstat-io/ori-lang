@@ -1,6 +1,7 @@
 # Proposal: Computed Map Keys
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-30
 **Created:** 2026-01-30
 **Affects:** Syntax, grammar
 **Depends on:** Spread operator proposal
@@ -55,6 +56,9 @@ let m4 = {[prefix + "name"]: "Alice"}  // {"user_name": "Alice"}
 // Mixed
 let key = "dynamic"
 let m5 = {static: 1, [key]: 2}  // {"static": 1, "dynamic": 2}
+
+// Reserved keywords are valid as literal keys (like JavaScript)
+let m6 = {if: 1, type: "user", for: "loop"}  // {"if": 1, "type": "user", "for": "loop"}
 ```
 
 ### With Spread
@@ -90,11 +94,16 @@ map_key        = "[" expression "]"    /* computed key */
 
 ## Type Checking
 
-- Bare identifier keys: type is `str`
-- String literal keys: type is `str`
+- Bare identifier keys: always produce `str` keys
+- String literal keys: always produce `str` keys
 - Computed keys `[expr]`: `expr` must be of type `K` where the map is `{K: V}`
 
-For most maps (`{str: V}`), computed keys must evaluate to `str`.
+For maps with non-string key types (e.g., `{int: str}`), computed key syntax is required:
+
+```ori
+let m: {int: str} = {[1]: "one", [2]: "two"}  // OK
+let m: {int: str} = {1: "one"}                // Error: bare literal produces str, not int
+```
 
 ---
 
