@@ -383,6 +383,17 @@
 - All bounds in trait object composition must be object-safe
 - Blocked on: None (builds on existing Phase 3 infrastructure)
 
+**Custom Subscripting (Index Trait)** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/custom-subscripting-proposal.md`
+- Implementation: Phase 3.12
+- Read-only `Index<Key, Value>` trait for custom `[]` syntax
+- Desugars `x[k]` to `x.index(key: k)`
+- Multiple index types per type (e.g., JsonValue with str and int)
+- Flexible return types: `T`, `Option<T>`, or `Result<T, E>`
+- No IndexMut (Ori has no `mut`); mutation via explicit methods
+- Added to prelude
+- Blocked on: None (builds on existing Phase 3 infrastructure)
+
 **Const Evaluation Termination** — ✅ APPROVED 2026-01-30
 - Proposal: `proposals/approved/const-evaluation-termination-proposal.md`
 - Implementation: Phase 18.0

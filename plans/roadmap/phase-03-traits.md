@@ -603,3 +603,47 @@ Formalizes the rules that determine whether a trait can be used as a trait objec
 - [ ] **Update Spec**: `06-types.md` — expand Object Safety section with all three rules
 - [ ] **Update Spec**: `08-declarations.md` — add guidance on object-safe trait design
 - [ ] **Update**: `CLAUDE.md` — add object safety rules to quick reference
+
+---
+
+## 3.12 Custom Subscripting (Index Trait)
+
+**Proposal**: `proposals/approved/custom-subscripting-proposal.md`
+
+Introduces the `Index` trait for read-only custom subscripting, allowing user-defined types to use `[]` syntax. Supports multiple index types per type (e.g., `JsonValue` with both `str` and `int` keys) and flexible return types (`T`, `Option<T>`, or `Result<T, E>`).
+
+### Implementation
+
+- [ ] **Implement**: `Index<Key, Value>` trait definition in prelude
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — index trait parsing/bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/index/definition.ori`
+
+- [ ] **Implement**: Desugaring `x[k]` to `x.index(key: k)` in parser/desugarer
+  - [ ] **Rust Tests**: `oric/src/desugar/tests.rs` — subscript desugaring tests
+  - [ ] **Ori Tests**: `tests/spec/traits/index/desugaring.ori`
+  - [ ] **LLVM Support**: LLVM codegen for desugared index calls
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/index_tests.rs`
+
+- [ ] **Implement**: Type inference for subscript expressions (resolve which `Index` impl based on key type)
+  - [ ] **Rust Tests**: `oric/src/typeck/infer/tests.rs` — subscript type inference tests
+  - [ ] **Ori Tests**: `tests/spec/traits/index/inference.ori`
+
+- [ ] **Implement**: Multiple `Index` impls per type (different key types)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — multiple impl resolution
+  - [ ] **Ori Tests**: `tests/spec/traits/index/multiple_impls.ori`
+
+- [ ] **Implement**: Built-in `Index` implementations for `[T]`, `{K: V}`, `str`
+  - [ ] `[T]` implements `Index<int, T>` (panics on out-of-bounds)
+  - [ ] `{K: V}` implements `Index<K, Option<V>>`
+  - [ ] `str` implements `Index<int, str>` (single codepoint, panics on out-of-bounds)
+  - [ ] **Ori Tests**: `tests/spec/traits/index/builtin_impls.ori`
+  - [ ] **LLVM Support**: LLVM codegen for builtin Index impls
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/index_tests.rs`
+
+- [ ] **Implement**: Ambiguity detection when key type is ambiguous
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — ambiguous key type detection
+  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/index_ambiguous_key.ori`
+
+- [ ] **Update Spec**: `09-expressions.md` — document Index trait and desugaring
+- [ ] **Update Spec**: `06-types.md` — add Index trait to prelude section
+- [ ] **Update**: `CLAUDE.md` — add Index trait to prelude and subscripting documentation
