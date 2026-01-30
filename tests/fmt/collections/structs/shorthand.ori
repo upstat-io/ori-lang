@@ -1,0 +1,6 @@
+// Field shorthand formatting
+// Design: formatter/design/02-constructs/collections.md § Field Shorthand
+
+type Point = { x: int, y: int }
+
+@make_point (x: int, y: int) -> Point = Point { x, y }

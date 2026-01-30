@@ -194,9 +194,11 @@ fn test_idempotency(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-#[test]
-fn golden_tests_declarations_functions() {
-    let dir = golden_tests_dir().join("declarations").join("functions");
+/// Run golden tests for a specific subdirectory.
+///
+/// This is the shared implementation for all golden test functions.
+fn run_golden_tests_for_dir(subdir: &str) {
+    let dir = golden_tests_dir().join(subdir);
     let files = find_ori_files(&dir);
 
     assert!(!files.is_empty(), "No test files found in {:?}", dir);
@@ -220,396 +222,49 @@ fn golden_tests_declarations_functions() {
     }
 }
 
-#[test]
-fn golden_tests_declarations_types() {
-    let dir = golden_tests_dir().join("declarations").join("types");
-    let files = find_ori_files(&dir);
-
-    assert!(!files.is_empty(), "No test files found in {:?}", dir);
-
-    let mut failures = Vec::new();
-    for file in &files {
-        if let Err(e) = run_golden_test(file) {
-            failures.push(e);
+/// Macro to generate golden test functions.
+///
+/// Each invocation creates a `#[test]` function that runs golden tests
+/// for a specific subdirectory under `tests/fmt/`.
+macro_rules! golden_test {
+    ($name:ident, $path:expr) => {
+        #[test]
+        fn $name() {
+            run_golden_tests_for_dir($path);
         }
-        if let Err(e) = test_idempotency(file) {
-            failures.push(e);
-        }
-    }
-
-    if !failures.is_empty() {
-        panic!(
-            "{} golden test failures:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
+    };
 }
 
-#[test]
-fn golden_tests_declarations_traits() {
-    let dir = golden_tests_dir().join("declarations").join("traits");
-    let files = find_ori_files(&dir);
+// Declaration Tests (Phase 2)
+golden_test!(golden_tests_declarations_functions, "declarations/functions");
+golden_test!(golden_tests_declarations_types, "declarations/types");
+golden_test!(golden_tests_declarations_traits, "declarations/traits");
+golden_test!(golden_tests_declarations_impls, "declarations/impls");
+golden_test!(golden_tests_declarations_imports, "declarations/imports");
+golden_test!(golden_tests_declarations_tests, "declarations/tests");
+golden_test!(golden_tests_declarations_constants, "declarations/constants");
 
-    assert!(!files.is_empty(), "No test files found in {:?}", dir);
-
-    let mut failures = Vec::new();
-    for file in &files {
-        if let Err(e) = run_golden_test(file) {
-            failures.push(e);
-        }
-        if let Err(e) = test_idempotency(file) {
-            failures.push(e);
-        }
-    }
-
-    if !failures.is_empty() {
-        panic!(
-            "{} golden test failures:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
-}
-
-#[test]
-fn golden_tests_declarations_impls() {
-    let dir = golden_tests_dir().join("declarations").join("impls");
-    let files = find_ori_files(&dir);
-
-    assert!(!files.is_empty(), "No test files found in {:?}", dir);
-
-    let mut failures = Vec::new();
-    for file in &files {
-        if let Err(e) = run_golden_test(file) {
-            failures.push(e);
-        }
-        if let Err(e) = test_idempotency(file) {
-            failures.push(e);
-        }
-    }
-
-    if !failures.is_empty() {
-        panic!(
-            "{} golden test failures:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
-}
-
-#[test]
-fn golden_tests_declarations_imports() {
-    let dir = golden_tests_dir().join("declarations").join("imports");
-    let files = find_ori_files(&dir);
-
-    assert!(!files.is_empty(), "No test files found in {:?}", dir);
-
-    let mut failures = Vec::new();
-    for file in &files {
-        if let Err(e) = run_golden_test(file) {
-            failures.push(e);
-        }
-        if let Err(e) = test_idempotency(file) {
-            failures.push(e);
-        }
-    }
-
-    if !failures.is_empty() {
-        panic!(
-            "{} golden test failures:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
-}
-
-#[test]
-fn golden_tests_declarations_tests() {
-    let dir = golden_tests_dir().join("declarations").join("tests");
-    let files = find_ori_files(&dir);
-
-    assert!(!files.is_empty(), "No test files found in {:?}", dir);
-
-    let mut failures = Vec::new();
-    for file in &files {
-        if let Err(e) = run_golden_test(file) {
-            failures.push(e);
-        }
-        if let Err(e) = test_idempotency(file) {
-            failures.push(e);
-        }
-    }
-
-    if !failures.is_empty() {
-        panic!(
-            "{} golden test failures:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
-}
-
-#[test]
-fn golden_tests_declarations_constants() {
-    let dir = golden_tests_dir().join("declarations").join("constants");
-    let files = find_ori_files(&dir);
-
-    assert!(!files.is_empty(), "No test files found in {:?}", dir);
-
-    let mut failures = Vec::new();
-    for file in &files {
-        if let Err(e) = run_golden_test(file) {
-            failures.push(e);
-        }
-        if let Err(e) = test_idempotency(file) {
-            failures.push(e);
-        }
-    }
-
-    if !failures.is_empty() {
-        panic!(
-            "{} golden test failures:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
-}
-
-// ============================================================================
 // Expression Tests (Phase 3)
-// ============================================================================
+golden_test!(golden_tests_expressions_calls, "expressions/calls");
+golden_test!(golden_tests_expressions_chains, "expressions/chains");
+golden_test!(golden_tests_expressions_conditionals, "expressions/conditionals");
+golden_test!(golden_tests_expressions_lambdas, "expressions/lambdas");
+golden_test!(golden_tests_expressions_binary, "expressions/binary");
+golden_test!(golden_tests_expressions_bindings, "expressions/bindings");
+golden_test!(golden_tests_expressions_access, "expressions/access");
+golden_test!(golden_tests_expressions_conversions, "expressions/conversions");
+golden_test!(golden_tests_expressions_errors, "expressions/errors");
 
-#[test]
-fn golden_tests_expressions_calls() {
-    let dir = golden_tests_dir().join("expressions").join("calls");
-    let files = find_ori_files(&dir);
+// Pattern Tests (Phase 4)
+golden_test!(golden_tests_patterns_run, "patterns/run");
+golden_test!(golden_tests_patterns_try, "patterns/try");
+golden_test!(golden_tests_patterns_match, "patterns/match");
+golden_test!(golden_tests_patterns_for, "patterns/for");
+// Note: loop(...) pattern not yet supported by parser (Phase 4 known limitation)
 
-    assert!(!files.is_empty(), "No test files found in {:?}", dir);
-
-    let mut failures = Vec::new();
-    for file in &files {
-        if let Err(e) = run_golden_test(file) {
-            failures.push(e);
-        }
-        if let Err(e) = test_idempotency(file) {
-            failures.push(e);
-        }
-    }
-
-    if !failures.is_empty() {
-        panic!(
-            "{} golden test failures:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
-}
-
-#[test]
-fn golden_tests_expressions_chains() {
-    let dir = golden_tests_dir().join("expressions").join("chains");
-    let files = find_ori_files(&dir);
-
-    assert!(!files.is_empty(), "No test files found in {:?}", dir);
-
-    let mut failures = Vec::new();
-    for file in &files {
-        if let Err(e) = run_golden_test(file) {
-            failures.push(e);
-        }
-        if let Err(e) = test_idempotency(file) {
-            failures.push(e);
-        }
-    }
-
-    if !failures.is_empty() {
-        panic!(
-            "{} golden test failures:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
-}
-
-#[test]
-fn golden_tests_expressions_conditionals() {
-    let dir = golden_tests_dir().join("expressions").join("conditionals");
-    let files = find_ori_files(&dir);
-
-    assert!(!files.is_empty(), "No test files found in {:?}", dir);
-
-    let mut failures = Vec::new();
-    for file in &files {
-        if let Err(e) = run_golden_test(file) {
-            failures.push(e);
-        }
-        if let Err(e) = test_idempotency(file) {
-            failures.push(e);
-        }
-    }
-
-    if !failures.is_empty() {
-        panic!(
-            "{} golden test failures:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
-}
-
-#[test]
-fn golden_tests_expressions_lambdas() {
-    let dir = golden_tests_dir().join("expressions").join("lambdas");
-    let files = find_ori_files(&dir);
-
-    assert!(!files.is_empty(), "No test files found in {:?}", dir);
-
-    let mut failures = Vec::new();
-    for file in &files {
-        if let Err(e) = run_golden_test(file) {
-            failures.push(e);
-        }
-        if let Err(e) = test_idempotency(file) {
-            failures.push(e);
-        }
-    }
-
-    if !failures.is_empty() {
-        panic!(
-            "{} golden test failures:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
-}
-
-#[test]
-fn golden_tests_expressions_binary() {
-    let dir = golden_tests_dir().join("expressions").join("binary");
-    let files = find_ori_files(&dir);
-
-    assert!(!files.is_empty(), "No test files found in {:?}", dir);
-
-    let mut failures = Vec::new();
-    for file in &files {
-        if let Err(e) = run_golden_test(file) {
-            failures.push(e);
-        }
-        if let Err(e) = test_idempotency(file) {
-            failures.push(e);
-        }
-    }
-
-    if !failures.is_empty() {
-        panic!(
-            "{} golden test failures:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
-}
-
-#[test]
-fn golden_tests_expressions_bindings() {
-    let dir = golden_tests_dir().join("expressions").join("bindings");
-    let files = find_ori_files(&dir);
-
-    assert!(!files.is_empty(), "No test files found in {:?}", dir);
-
-    let mut failures = Vec::new();
-    for file in &files {
-        if let Err(e) = run_golden_test(file) {
-            failures.push(e);
-        }
-        if let Err(e) = test_idempotency(file) {
-            failures.push(e);
-        }
-    }
-
-    if !failures.is_empty() {
-        panic!(
-            "{} golden test failures:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
-}
-
-#[test]
-fn golden_tests_expressions_access() {
-    let dir = golden_tests_dir().join("expressions").join("access");
-    let files = find_ori_files(&dir);
-
-    assert!(!files.is_empty(), "No test files found in {:?}", dir);
-
-    let mut failures = Vec::new();
-    for file in &files {
-        if let Err(e) = run_golden_test(file) {
-            failures.push(e);
-        }
-        if let Err(e) = test_idempotency(file) {
-            failures.push(e);
-        }
-    }
-
-    if !failures.is_empty() {
-        panic!(
-            "{} golden test failures:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
-}
-
-#[test]
-fn golden_tests_expressions_conversions() {
-    let dir = golden_tests_dir().join("expressions").join("conversions");
-    let files = find_ori_files(&dir);
-
-    assert!(!files.is_empty(), "No test files found in {:?}", dir);
-
-    let mut failures = Vec::new();
-    for file in &files {
-        if let Err(e) = run_golden_test(file) {
-            failures.push(e);
-        }
-        if let Err(e) = test_idempotency(file) {
-            failures.push(e);
-        }
-    }
-
-    if !failures.is_empty() {
-        panic!(
-            "{} golden test failures:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
-}
-
-#[test]
-fn golden_tests_expressions_errors() {
-    let dir = golden_tests_dir().join("expressions").join("errors");
-    let files = find_ori_files(&dir);
-
-    assert!(!files.is_empty(), "No test files found in {:?}", dir);
-
-    let mut failures = Vec::new();
-    for file in &files {
-        if let Err(e) = run_golden_test(file) {
-            failures.push(e);
-        }
-        if let Err(e) = test_idempotency(file) {
-            failures.push(e);
-        }
-    }
-
-    if !failures.is_empty() {
-        panic!(
-            "{} golden test failures:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
-}
+// Collection Tests (Phase 5)
+golden_test!(golden_tests_collections_lists, "collections/lists");
+golden_test!(golden_tests_collections_maps, "collections/maps");
+golden_test!(golden_tests_collections_tuples, "collections/tuples");
+golden_test!(golden_tests_collections_structs, "collections/structs");
+golden_test!(golden_tests_collections_ranges, "collections/ranges");

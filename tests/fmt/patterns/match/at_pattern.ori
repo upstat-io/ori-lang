@@ -1,0 +1,7 @@
+// Match with at-patterns
+// Spec: 10-patterns.md § match
+
+@describe (opt: Option<int>) -> str = match(opt,
+    x @ Some(v) -> "some",
+    x @ None -> "none",
+)

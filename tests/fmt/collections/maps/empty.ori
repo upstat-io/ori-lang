@@ -1,0 +1,6 @@
+// Empty map formatting
+// Design: formatter/design/02-constructs/collections.md § Maps
+
+@empty_config () -> {str: int} = {}
+
+@make_empty () -> {str: bool} = {}

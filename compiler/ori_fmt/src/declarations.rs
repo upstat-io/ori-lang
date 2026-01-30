@@ -211,7 +211,10 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
         self.ctx.emit(" = ");
 
         // Format the value expression
-        let mut expr_formatter = Formatter::new(self.arena, self.interner);
+        // Pass current column so width decisions account for full line context
+        let current_column = self.ctx.column();
+        let mut expr_formatter =
+            Formatter::new(self.arena, self.interner).with_starting_column(current_column);
         expr_formatter.format(config.value);
         // Get the output without trailing newline
         let expr_output = expr_formatter.ctx.as_str().trim_end();
@@ -260,7 +263,10 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
         self.ctx.emit(" = ");
 
         // Format the body expression using the expression formatter
-        let mut expr_formatter = Formatter::new(self.arena, self.interner);
+        // Pass current column so width decisions account for full line context
+        let current_column = self.ctx.column();
+        let mut expr_formatter =
+            Formatter::new(self.arena, self.interner).with_starting_column(current_column);
         expr_formatter.format(func.body);
         let body_output = expr_formatter.ctx.as_str().trim_end();
         self.ctx.emit(body_output);
@@ -439,7 +445,10 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
 
         // Body
         self.ctx.emit(" = ");
-        let mut expr_formatter = Formatter::new(self.arena, self.interner);
+        // Pass current column so width decisions account for full line context
+        let current_column = self.ctx.column();
+        let mut expr_formatter =
+            Formatter::new(self.arena, self.interner).with_starting_column(current_column);
         expr_formatter.format(test.body);
         let body_output = expr_formatter.ctx.as_str().trim_end();
         self.ctx.emit(body_output);
@@ -670,7 +679,10 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
                 self.format_parsed_type(&method.return_ty);
                 self.ctx.emit(" = ");
 
-                let mut expr_formatter = Formatter::new(self.arena, self.interner);
+                // Pass current column so width decisions account for full line context
+                let current_column = self.ctx.column();
+                let mut expr_formatter =
+                    Formatter::new(self.arena, self.interner).with_starting_column(current_column);
                 expr_formatter.format(method.body);
                 let body_output = expr_formatter.ctx.as_str().trim_end();
                 self.ctx.emit(body_output);
@@ -741,7 +753,10 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
                 self.format_parsed_type(&method.return_ty);
                 self.ctx.emit(" = ");
 
-                let mut expr_formatter = Formatter::new(self.arena, self.interner);
+                // Pass current column so width decisions account for full line context
+                let current_column = self.ctx.column();
+                let mut expr_formatter =
+                    Formatter::new(self.arena, self.interner).with_starting_column(current_column);
                 expr_formatter.format(method.body);
                 let body_output = expr_formatter.ctx.as_str().trim_end();
                 self.ctx.emit(body_output);

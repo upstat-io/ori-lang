@@ -4,14 +4,17 @@
 
 > **DESIGN**: `docs/tooling/formatter/design/02-constructs/patterns.md`
 
-## Phase Status: ⏳ Not Started
+## Phase Status: ✅ Complete (Core Patterns)
+
+**Completed**: run, try, match, for patterns with golden tests
+**Deferred**: loop(...) pattern not yet supported by parser; pre_check/post_check not yet in parser
 
 ## 4.1 Run Pattern
 
 Always stacked, never inline.
 
-- [ ] **Implement**: Simple run block
-  - [ ] **Golden Tests**: `tests/fmt/patterns/run/simple.ori`
+- [x] **Implement**: Simple run block
+  - [x] **Golden Tests**: `tests/fmt/patterns/run/simple.ori`
   ```ori
   run(
       let x = compute(),

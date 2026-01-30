@@ -1,0 +1,6 @@
+// For-yield loop (collection)
+// Spec: 19-control-flow.md § For Loop
+
+@double_all (items: [int]) -> [int] = for x in items yield x * 2
+
+@with_guard (items: [int]) -> [int] = for x in items if x > 0 yield x

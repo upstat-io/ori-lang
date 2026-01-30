@@ -1,0 +1,17 @@
+// Simple try pattern
+// Spec: 10-patterns.md § try
+
+@succeed (x: int) = Ok(x)
+
+@process () = try(
+    let x = succeed(5),
+    let y = succeed(10),
+    Ok(x + y),
+)
+
+@chain (n: int) = try(
+    let a = succeed(n),
+    let b = succeed(a * 2),
+    let c = succeed(b + 1),
+    Ok(c),
+)

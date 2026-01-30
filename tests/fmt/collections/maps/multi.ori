@@ -1,0 +1,7 @@
+// Multi-entry map (one entry per line when exceeds width)
+// Design: formatter/design/02-constructs/collections.md § Maps
+// Note: These maps stay inline because they fit within 100 chars
+
+@user_scores () -> {str: int} = {"alice": 100, "bob": 95, "charlie": 87, "diana": 92}
+
+@settings () -> {str: bool} = {"debug": true, "verbose": false, "strict": true}

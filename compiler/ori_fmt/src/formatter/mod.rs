@@ -20,7 +20,7 @@ use crate::emitter::StringEmitter;
 use crate::width::{WidthCalculator, ALWAYS_STACKED};
 use ori_ir::{
     BinaryOp, BindingPattern, CallArgRange, ExprArena, ExprId, ExprKind, ExprRange, MatchPattern,
-    SeqBinding, StringLookup, UnaryOp,
+    SeqBinding, SeqBindingRange, StringLookup, UnaryOp,
 };
 
 /// Get string representation of a binary operator.
@@ -81,6 +81,15 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
             width_calc: WidthCalculator::new(arena, interner),
             ctx: FormatContext::new(),
         }
+    }
+
+    /// Set the starting column position for formatting.
+    ///
+    /// Use this when formatting sub-expressions that continue on the same line
+    /// as previous content (e.g., function body after `= `).
+    pub fn with_starting_column(mut self, column: usize) -> Self {
+        self.ctx.set_column(column);
+        self
     }
 
     /// Format an expression and return the formatted string.
@@ -211,16 +220,14 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
             }
 
             // Let binding
+            // Note: mutable is default, immutable uses $ prefix in pattern
             ExprKind::Let {
                 pattern,
                 ty: _,
                 init,
-                mutable,
+                mutable: _,
             } => {
                 self.ctx.emit("let ");
-                if !mutable {
-                    // Immutable bindings have $ prefix in pattern
-                }
                 self.emit_binding_pattern(pattern);
                 self.ctx.emit(" = ");
                 self.emit_inline(*init);
@@ -276,19 +283,23 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
             }
             ExprKind::Struct { name, fields } => {
                 self.ctx.emit(self.interner.lookup(*name));
-                self.ctx.emit(" { ");
                 let fields_list = self.arena.get_field_inits(*fields);
-                for (i, field) in fields_list.iter().enumerate() {
-                    if i > 0 {
-                        self.ctx.emit(", ");
+                if fields_list.is_empty() {
+                    self.ctx.emit(" {}");
+                } else {
+                    self.ctx.emit(" { ");
+                    for (i, field) in fields_list.iter().enumerate() {
+                        if i > 0 {
+                            self.ctx.emit(", ");
+                        }
+                        self.ctx.emit(self.interner.lookup(field.name));
+                        if let Some(value) = field.value {
+                            self.ctx.emit(": ");
+                            self.emit_inline(value);
+                        }
                     }
-                    self.ctx.emit(self.interner.lookup(field.name));
-                    if let Some(value) = field.value {
-                        self.ctx.emit(": ");
-                        self.emit_inline(value);
-                    }
+                    self.ctx.emit(" }");
                 }
-                self.ctx.emit(" }");
             }
             ExprKind::Tuple(items) => {
                 let items_list = self.arena.get_expr_list(*items);
@@ -562,6 +573,27 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
                     self.ctx.emit("}");
                 }
             }
+            ExprKind::Tuple(items) => {
+                let items_list = self.arena.get_expr_list(*items);
+                if items_list.is_empty() {
+                    self.ctx.emit("()");
+                } else {
+                    self.ctx.emit("(");
+                    self.ctx.emit_newline();
+                    self.ctx.indent();
+                    for (i, item) in items_list.iter().enumerate() {
+                        self.ctx.emit_indent();
+                        self.format(*item);
+                        self.ctx.emit(",");
+                        if i < items_list.len() - 1 {
+                            self.ctx.emit_newline();
+                        }
+                    }
+                    self.ctx.dedent();
+                    self.ctx.emit_newline_indent();
+                    self.ctx.emit(")");
+                }
+            }
 
             // If - break at else
             ExprKind::If {
@@ -581,6 +613,7 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
             }
 
             // Let binding
+            // Note: mutable is default, immutable uses $ prefix in pattern
             ExprKind::Let {
                 pattern,
                 ty: _,
@@ -738,24 +771,7 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
                 result,
                 span: _,
             } => {
-                self.ctx.emit("run(");
-                self.ctx.emit_newline();
-                self.ctx.indent();
-
-                let bindings_list = self.arena.get_seq_bindings(*bindings);
-                for binding in bindings_list {
-                    self.ctx.emit_indent();
-                    self.emit_seq_binding(binding);
-                    self.ctx.emit(",");
-                    self.ctx.emit_newline();
-                }
-
-                self.ctx.emit_indent();
-                self.format(*result);
-                self.ctx.emit(",");
-                self.ctx.dedent();
-                self.ctx.emit_newline_indent();
-                self.ctx.emit(")");
+                self.emit_seq_with_bindings("run", *bindings, *result);
             }
 
             ori_ir::FunctionSeq::Try {
@@ -763,24 +779,7 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
                 result,
                 span: _,
             } => {
-                self.ctx.emit("try(");
-                self.ctx.emit_newline();
-                self.ctx.indent();
-
-                let bindings_list = self.arena.get_seq_bindings(*bindings);
-                for binding in bindings_list {
-                    self.ctx.emit_indent();
-                    self.emit_seq_binding(binding);
-                    self.ctx.emit(",");
-                    self.ctx.emit_newline();
-                }
-
-                self.ctx.emit_indent();
-                self.format(*result);
-                self.ctx.emit(",");
-                self.ctx.dedent();
-                self.ctx.emit_newline_indent();
-                self.ctx.emit(")");
+                self.emit_seq_with_bindings("try", *bindings, *result);
             }
 
             ori_ir::FunctionSeq::Match {
@@ -857,9 +856,42 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
         }
     }
 
+    /// Emit a sequential pattern with bindings (shared by run/try).
+    ///
+    /// Format:
+    /// ```text
+    /// keyword(
+    ///     binding1,
+    ///     binding2,
+    ///     result,
+    /// )
+    /// ```
+    fn emit_seq_with_bindings(&mut self, keyword: &str, bindings: SeqBindingRange, result: ExprId) {
+        self.ctx.emit(keyword);
+        self.ctx.emit("(");
+        self.ctx.emit_newline();
+        self.ctx.indent();
+
+        let bindings_list = self.arena.get_seq_bindings(bindings);
+        for binding in bindings_list {
+            self.ctx.emit_indent();
+            self.emit_seq_binding(binding);
+            self.ctx.emit(",");
+            self.ctx.emit_newline();
+        }
+
+        self.ctx.emit_indent();
+        self.format(result);
+        self.ctx.emit(",");
+        self.ctx.dedent();
+        self.ctx.emit_newline_indent();
+        self.ctx.emit(")");
+    }
+
     /// Emit a sequence binding.
     fn emit_seq_binding(&mut self, binding: &SeqBinding) {
         match binding {
+            // Note: mutable is default, immutable uses $ prefix in pattern
             SeqBinding::Let {
                 pattern,
                 ty: _,
@@ -882,6 +914,7 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
     fn emit_stmt(&mut self, stmt: &ori_ir::Stmt) {
         match &stmt.kind {
             ori_ir::StmtKind::Expr(expr) => self.format(*expr),
+            // Note: mutable is default, immutable uses $ prefix in pattern
             ori_ir::StmtKind::Let {
                 pattern,
                 ty: _,
@@ -1222,7 +1255,44 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
         self.ctx.emit_newline_indent();
     }
 
+    /// Check if an expression is "simple" (literal or identifier).
+    ///
+    /// Simple items wrap multiple per line when broken.
+    /// Complex items (structs, calls, nested collections) go one per line.
+    fn is_simple_item(&self, expr_id: ExprId) -> bool {
+        let expr = self.arena.get_expr(expr_id);
+        matches!(
+            expr.kind,
+            ExprKind::Int(_)
+                | ExprKind::Float(_)
+                | ExprKind::Bool(_)
+                | ExprKind::String(_)
+                | ExprKind::Char(_)
+                | ExprKind::Unit
+                | ExprKind::Duration { .. }
+                | ExprKind::Size { .. }
+                | ExprKind::Ident(_)
+                | ExprKind::Config(_)
+                | ExprKind::FunctionRef(_)
+                | ExprKind::SelfRef
+                | ExprKind::HashLength
+                | ExprKind::None
+        )
+    }
+
     fn emit_broken_list(&mut self, items: &[ExprId]) {
+        // If any item is complex, format one per line
+        let all_simple = items.iter().all(|id| self.is_simple_item(*id));
+
+        if all_simple {
+            self.emit_broken_list_wrap(items);
+        } else {
+            self.emit_broken_list_one_per_line(items);
+        }
+    }
+
+    /// Emit broken list with multiple simple items per line (wrapping).
+    fn emit_broken_list_wrap(&mut self, items: &[ExprId]) {
         self.ctx.emit_newline();
         self.ctx.indent();
         self.ctx.emit_indent();
@@ -1246,6 +1316,22 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
             self.format(*item);
         }
         self.ctx.emit(",");
+        self.ctx.dedent();
+        self.ctx.emit_newline_indent();
+    }
+
+    /// Emit broken list with one complex item per line.
+    fn emit_broken_list_one_per_line(&mut self, items: &[ExprId]) {
+        self.ctx.emit_newline();
+        self.ctx.indent();
+        for (i, item) in items.iter().enumerate() {
+            self.ctx.emit_indent();
+            self.format(*item);
+            self.ctx.emit(",");
+            if i < items.len() - 1 {
+                self.ctx.emit_newline();
+            }
+        }
         self.ctx.dedent();
         self.ctx.emit_newline_indent();
     }

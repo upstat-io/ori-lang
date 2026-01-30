@@ -1,0 +1,6 @@
+// Short map formatting (inline)
+// Design: formatter/design/02-constructs/collections.md § Maps
+
+@scores () -> {str: int} = {"alice": 100, "bob": 95}
+
+@config () -> {str: int} = {"timeout": 30}

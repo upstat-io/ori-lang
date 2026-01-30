@@ -1,0 +1,8 @@
+// Short struct literal formatting (inline)
+// Design: formatter/design/02-constructs/collections.md § Struct Literals
+
+type Point = { x: int, y: int }
+
+@origin () -> Point = Point { x: 0, y: 0 }
+
+@at (x: int, y: int) -> Point = Point { x: x, y: y }

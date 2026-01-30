@@ -67,6 +67,14 @@ impl<E: Emitter> FormatContext<E> {
         self.indent_level * INDENT_WIDTH
     }
 
+    /// Set the current column position.
+    ///
+    /// Used when formatting sub-expressions that continue on the same line
+    /// as previous content (e.g., function body after `= `).
+    pub fn set_column(&mut self, column: usize) {
+        self.column = column;
+    }
+
     /// Check if adding `width` characters would exceed the line limit.
     pub fn would_exceed_limit(&self, width: usize) -> bool {
         self.column + width > MAX_LINE_WIDTH
