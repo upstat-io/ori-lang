@@ -1,14 +1,15 @@
 # Proposal: Fixed-Capacity Lists
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric
 **Created:** 2026-01-22
+**Approved:** 2026-01-30
 
 ---
 
 ## Summary
 
-Introduce fixed-capacity lists — stack-allocated lists with a compile-time maximum size. Useful for embedded systems, performance-critical code, and bounded buffers.
+Introduce fixed-capacity lists — inline-allocated lists with a compile-time maximum size. Useful for embedded systems, performance-critical code, and bounded buffers.
 
 ```ori
 // Type syntax: list of int with maximum capacity 10
@@ -39,7 +40,7 @@ For some use cases, these tradeoffs are unacceptable:
 - **Embedded systems**: Limited memory, no heap allocator
 - **Real-time code**: Heap allocation has unpredictable latency
 - **Bounded buffers**: Protocol requires fixed maximum size
-- **Performance-critical inner loops**: Stack allocation is faster
+- **Performance-critical inner loops**: Inline allocation is faster
 
 ### Prior Art
 
@@ -92,7 +93,7 @@ $buffer_size = 64
 
 ### Literal Syntax
 
-Fixed-capacity list literals include the capacity:
+Fixed-capacity lists use standard list literal syntax with type annotations:
 
 ```ori
 // Empty fixed-capacity list
@@ -101,9 +102,11 @@ let buffer: [int, max 10] = []
 // Pre-populated
 let coords: [int, max 3] = [1, 2, 3]
 
-// Type inference from literal with explicit capacity
-let items = [int, max 5] [1, 2, 3]  // Type: [int, max 5], length: 3
+// Type annotation required to create fixed-capacity list
+let items: [int, max 5] = [1, 2, 3]  // Type: [int, max 5], length: 3
 ```
+
+Without a type annotation, list literals create dynamic lists `[T]`.
 
 ### Runtime Behavior
 
@@ -114,9 +117,10 @@ Fixed-capacity lists have two size concepts:
 
 ```ori
 let buffer: [int, max 10] = [1, 2, 3]
-len(buffer)       // 3 (current length)
-buffer.capacity   // 10 (maximum capacity)
-buffer.is_full    // false
+len(buffer)         // 3 (current length)
+buffer.capacity()   // 10 (maximum capacity)
+buffer.is_full()    // false
+buffer.remaining()  // 7
 ```
 
 ### Operations
@@ -142,8 +146,8 @@ buffer.pop()             // Returns Some(5), length 4
 buffer.clear()           // Length 0, capacity still 5
 
 // Iteration (same as regular lists)
-for x in buffer do print(x)
-map(over: buffer, transform: x -> x * 2)
+for x in buffer do print(msg: x.to_str())
+for x in buffer yield x * 2
 ```
 
 ### Type Compatibility
@@ -151,10 +155,10 @@ map(over: buffer, transform: x -> x * 2)
 Fixed-capacity lists are a subtype of regular lists:
 
 ```ori
-@process (items: [int]) -> int = fold(over: items, init: 0, op: +)
+@process (items: [int]) -> int = fold(over: items, init: 0, op: (a, b) -> a + b)
 
 let fixed: [int, max 10] = [1, 2, 3]
-process(fixed)  // OK: [int, max 10] is assignable to [int]
+process(items: fixed)  // OK: [int, max 10] is assignable to [int]
 ```
 
 The reverse is not true:
@@ -163,16 +167,18 @@ The reverse is not true:
 @process_fixed (items: [int, max 10]) -> int = ...
 
 let dynamic: [int] = [1, 2, 3]
-process_fixed(dynamic)  // ERROR: cannot guarantee capacity
+process_fixed(items: dynamic)  // ERROR: cannot guarantee capacity
 ```
+
+**Important:** When a fixed-capacity list is passed to a function expecting `[T]`, the list retains its capacity limit. Calling `.push()` beyond capacity will panic, just as it would through the fixed-capacity type. The subtyping relationship allows code reuse but does not change the underlying storage or limits.
 
 ### Generic Functions
 
-Functions can be generic over capacity:
+Functions can be generic over capacity using const-generic parameters:
 
 ```ori
-@swap_ends<T, N> (items: [T, max N]) -> [T, max N] = run(
-    .pre_check: len(items) >= 2,
+@swap_ends<T, $N: int> (items: [T, max N]) -> [T, max N] = run(
+    pre_check: len(collection: items) >= 2,
     let first = items[0],
     let last = items[# - 1],
     let result = items.clone(),
@@ -182,9 +188,11 @@ Functions can be generic over capacity:
 )
 ```
 
+The `$N: int` syntax denotes a const-generic parameter — a compile-time integer value, not a type.
+
 ### Memory Layout
 
-Fixed-capacity lists are stored inline (stack or within containing struct):
+Fixed-capacity lists store elements inline (within the list's memory allocation):
 
 ```ori
 type Packet = {
@@ -195,6 +203,33 @@ type Packet = {
 
 // sizeof(Packet) includes space for 1500 bytes
 ```
+
+### Memory Model
+
+Fixed-capacity lists store elements inline, eliminating a level of indirection compared to heap-allocated lists. The elements themselves follow Ori's standard ARC semantics:
+
+- Primitive types (`int`, `float`, `bool`, etc.) are stored directly
+- Reference types (strings, other lists, structs) store ARC pointers inline
+- Cloning a fixed-capacity list clones each element (deep copy for ARC types)
+
+The inline allocation benefit applies when the fixed-capacity list itself is a local variable or struct field — no separate heap allocation is needed for the list's storage.
+
+### Trait Implementations
+
+Fixed-capacity lists implement the same traits as regular lists, with the same constraints:
+
+| Trait | Constraint |
+|-------|------------|
+| `Eq` | `T: Eq` |
+| `Hashable` | `T: Hashable` |
+| `Comparable` | `T: Comparable` |
+| `Clone` | `T: Clone` |
+| `Debug` | `T: Debug` |
+| `Printable` | `T: Printable` |
+| `Sendable` | `T: Sendable` |
+| `Iterable` | Always |
+| `DoubleEndedIterator` | Always |
+| `Collect` | Always (panics if collected items exceed capacity) |
 
 ---
 
@@ -210,14 +245,14 @@ type UdpPacket = {
 }
 
 @parse_udp (raw: [byte]) -> Result<UdpPacket, ParseError> = run(
-    .pre_check: len(raw) >= 8,
+    pre_check: len(collection: raw) >= 8,
     let source_port = int(raw[0]) << 8 | int(raw[1]),
     let dest_port = int(raw[2]) << 8 | int(raw[3]),
     let payload_len = int(raw[4]) << 8 | int(raw[5]),
 
     if payload_len > 65507 then Err(ParseError.PayloadTooLarge),
 
-    let payload: [byte, max 65507] = raw[8..8 + payload_len].to_fixed(),
+    let payload: [byte, max 65507] = raw[8..8 + payload_len].to_fixed<65507>(),
     Ok(UdpPacket { source_port, dest_port, payload })
 )
 ```
@@ -225,15 +260,15 @@ type UdpPacket = {
 ### Ring Buffer
 
 ```ori
-type RingBuffer<T, N> = {
+type RingBuffer<T, $N: int> = {
     data: [T, max N],
     head: int,
     tail: int
 }
 
-@push<T, N> (rb: RingBuffer<T, N>, item: T) -> RingBuffer<T, N> = run(
+@push<T, $N: int> (rb: RingBuffer<T, N>, item: T) -> RingBuffer<T, N> = run(
     let new_tail = (rb.tail + 1) % N,
-    if new_tail == rb.head then panic("ring buffer full"),
+    if new_tail == rb.head then panic(msg: "ring buffer full"),
 
     let new_data = rb.data.clone(),
     new_data[rb.tail] = item,
@@ -251,7 +286,7 @@ type SmallVec<T> =
 
 @push<T> (sv: SmallVec<T>, item: T) -> SmallVec<T> = match(sv,
     Inline(data) ->
-        if len(data) < 8
+        if len(collection: data) < 8
         then run(data.push(item), Inline(data: data))
         else run(
             let heap = data.to_dynamic(),
@@ -276,10 +311,9 @@ type SensorArray = {
 }
 
 @read_all (arr: SensorArray) -> [Reading, max $max_sensors] = run(
-    collect(
-        range: 0..arr.active_count,
-        transform: i -> arr.sensors[i].read()
-    )
+    let result: [Reading, max $max_sensors] = [],
+    for i in 0..arr.active_count do result.push(arr.sensors[i].read()),
+    result
 )
 ```
 
@@ -287,18 +321,14 @@ type SensorArray = {
 
 ## API Reference
 
-### Type Properties
-
-```ori
-// For type [T, max N]
-.capacity: int           // The compile-time capacity N
-.is_full: bool          // len(self) == capacity
-.remaining: int         // capacity - len(self)
-```
-
 ### Methods
 
 ```ori
+// Query methods
+.capacity() -> int        // The compile-time capacity N
+.is_full() -> bool        // len(self) == capacity
+.remaining() -> int       // capacity - len(self)
+
 // Mutation (panics if capacity exceeded)
 .push(item: T) -> void
 .push_all(items: [T]) -> void
@@ -308,13 +338,13 @@ type SensorArray = {
 .try_push_all(items: [T]) -> bool
 
 // Dropping behavior
-.push_or_drop(item: T) -> void    // Drops if full
-.push_or_oldest(item: T) -> void  // Drops oldest if full
+.push_or_drop(item: T) -> void     // Drops item if full
+.push_or_oldest(item: T) -> void   // Removes element at index 0 (front) if full, then pushes to end
 
 // Conversion
-.to_dynamic() -> [T]              // Convert to heap-allocated
-[T].to_fixed<N>() -> [T, max N]   // Convert, panics if too large
-[T].try_to_fixed<N>() -> Option<[T, max N]>
+.to_dynamic() -> [T]                           // Convert to heap-allocated
+[T].to_fixed<$N: int>() -> [T, max N]          // Convert, panics if too large
+[T].try_to_fixed<$N: int>() -> Option<[T, max N]>
 ```
 
 ---
@@ -370,6 +400,14 @@ We provide both: `push()` panics (like index out of bounds), `try_push()` return
 
 The reverse doesn't hold because we can't guarantee a dynamic list fits the capacity.
 
+### Const-Generic Syntax
+
+We use `$N: int` for const-generic parameters to:
+
+- Distinguish compile-time values from type parameters
+- Maintain consistency with Ori's `$` sigil for immutable bindings
+- Enable clear error messages when types vs. values are confused
+
 ---
 
 ## Implementation Notes
@@ -394,13 +432,15 @@ The reverse doesn't hold because we can't guarantee a dynamic list fits the capa
 2. Capacity `N` must be a compile-time constant
 3. Generate capacity checks for `push`/`push_all`
 4. Implement subtyping from `[T, max N]` to `[T]`
+5. Support const-generic parameters with `$N: int` syntax
+6. Allow generic instance methods with const-generic parameters
 
 ### Generic Capacity
 
 Capacity can be a generic parameter:
 
 ```ori
-@copy_n<T, N> (src: [T], n: int) -> [T, max N] = ...
+@copy_n<T, $N: int> (src: [T], n: int) -> [T, max N] = ...
 ```
 
 The compiler must track `N` as a const-generic parameter.
@@ -412,7 +452,7 @@ The compiler must track `N` as a const-generic parameter.
 | Aspect | C++26 `inplace_vector` | Ori `[T, max N]` |
 |--------|----------------------|-------------------|
 | Syntax | `inplace_vector<T, N>` | `[T, max N]` |
-| Stack allocated | Yes | Yes |
+| Inline allocated | Yes | Yes |
 | Dynamic length | Yes | Yes |
 | Overflow behavior | Throws/UB | Panic (or `try_push`) |
 | Subtype of `vector` | No | Yes (`[T]`) |
@@ -449,11 +489,12 @@ $packet_size = $header_size + $payload_size  // 1508
 
 Fixed-capacity lists provide:
 
-1. **Stack allocation** — No heap, predictable memory
+1. **Inline allocation** — No heap, predictable memory
 2. **Bounded size** — Compile-time guarantee on maximum
 3. **Dynamic length** — 0 to N elements at runtime
 4. **Natural syntax** — `[T, max N]` reads clearly
 5. **Type compatibility** — Subtype of regular lists
+6. **Const generics** — `$N: int` for generic capacity
 
 Use cases:
 

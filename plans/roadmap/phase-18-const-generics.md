@@ -13,7 +13,9 @@
 | Question | Decision | Rationale |
 |----------|----------|-----------|
 | Value types | `int`, `bool` initially | Start simple, expand later |
-| Array syntax | `[T; N]` | Familiar from Rust |
+| Const-generic syntax | `$N: int` | Consistent with Ori's `$` sigil for immutable bindings |
+| Fixed-capacity list syntax | `[T, max N]` | Reads naturally, distinct from fixed-size arrays |
+| Fixed-size array syntax | `[T, size N]` (future) | Clear distinction from max capacity |
 | Const expressions | Limited initially | Avoid complexity |
 | Default values | Supported | API ergonomics |
 
@@ -108,9 +110,9 @@ Specifies termination guarantees and limits for compile-time constant evaluation
 ### Syntax
 
 ```ori
-// Const parameter in type
-type Array<T, const N: int> = {
-    data: *T,  // Or internal representation
+// Const parameter in type (using $ sigil for const)
+type Array<T, $N: int> = {
+    data: [T, max N],
     // len is known at compile time: N
 }
 
@@ -119,7 +121,7 @@ let arr: Array<int, 5> = Array.new()
 arr[0] = 42
 
 // In functions
-@zeros<const N: int> () -> Array<int, N> = ...
+@zeros<$N: int> () -> Array<int, N> = ...
 
 let five_zeros: Array<int, 5> = zeros()
 ```
@@ -128,7 +130,7 @@ let five_zeros: Array<int, 5> = zeros()
 
 ```ebnf
 TypeParameter = Identifier [ ':' TypeBound ]
-              | 'const' Identifier ':' ConstType ;
+              | '$' Identifier ':' ConstType ;
 ConstType     = 'int' | 'bool' ;
 ```
 
@@ -164,74 +166,161 @@ ConstType     = 'int' | 'bool' ;
 
 ---
 
-## 18.2 Fixed-Size Arrays
+## 18.2 Fixed-Capacity Lists
 
-**Spec section**: `spec/06-types.md § Fixed-Size Arrays`
+**Proposal**: `proposals/approved/fixed-capacity-list-proposal.md`
+
+Inline-allocated lists with compile-time maximum capacity and runtime-dynamic length.
 
 ### Syntax
 
 ```ori
-// Array type with const size
-let arr: [int; 5] = [0, 0, 0, 0, 0]
+// Type: list of T with maximum capacity N
+[T, max N]
 
-// Inferred size from literal
-let arr = [1, 2, 3]  // Type: [int; 3]
+// Examples
+let buffer: [int, max 10] = []
+buffer.push(1)          // OK
+buffer.push(11)         // PANIC after 10 elements
+
+// Generic over capacity
+@swap_ends<T, $N: int> (items: [T, max N]) -> [T, max N] = ...
+```
+
+### Implementation
+
+- [ ] **Spec**: Fixed-capacity list type — `spec/06-types.md § Fixed-Capacity List`
+  - [ ] Type syntax `[T, max N]`
+  - [ ] Relationship to dynamic `[T]` (subtype)
+  - [ ] Capacity limit semantics
+  - [ ] **LLVM Support**: LLVM codegen for fixed-capacity list type
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fixed_capacity_tests.rs`
+
+- [ ] **Grammar**: Parse fixed-capacity list type — `grammar.ebnf`
+  - [ ] `list_type = "[" type "]" | "[" type "," "max" const_expr "]"`
+  - [ ] `max` as soft keyword in this context
+  - [ ] **LLVM Support**: LLVM codegen for parsed fixed-capacity types
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fixed_capacity_tests.rs`
+
+- [ ] **Types**: Fixed-capacity list type representation
+  - [ ] `Type::FixedList(elem, capacity)` in type system
+  - [ ] Subtype relationship: `[T, max N] <: [T]`
+  - [ ] Capacity must be compile-time constant
+  - [ ] **LLVM Support**: LLVM codegen for fixed-capacity type representation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fixed_capacity_tests.rs`
+
+- [ ] **Methods**: Fixed-capacity list methods
+  - [ ] `.capacity() -> int` — compile-time capacity
+  - [ ] `.is_full() -> bool` — length == capacity
+  - [ ] `.remaining() -> int` — capacity - length
+  - [ ] `.push(item: T) -> void` — panic if full
+  - [ ] `.try_push(item: T) -> bool` — return false if full
+  - [ ] `.push_or_drop(item: T) -> void` — drop if full
+  - [ ] `.push_or_oldest(item: T) -> void` — remove index 0 if full, push to end
+  - [ ] `.to_dynamic() -> [T]` — convert to heap-allocated
+  - [ ] **LLVM Support**: LLVM codegen for fixed-capacity methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fixed_capacity_tests.rs`
+
+- [ ] **Methods**: Dynamic list conversion methods
+  - [ ] `[T].to_fixed<$N: int>() -> [T, max N]` — panic if too large
+  - [ ] `[T].try_to_fixed<$N: int>() -> Option<[T, max N]>`
+  - [ ] **LLVM Support**: LLVM codegen for conversion methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fixed_capacity_tests.rs`
+
+- [ ] **Traits**: Trait implementations for `[T, max N]`
+  - [ ] `Eq` when `T: Eq`
+  - [ ] `Hashable` when `T: Hashable`
+  - [ ] `Comparable` when `T: Comparable`
+  - [ ] `Clone` when `T: Clone`
+  - [ ] `Debug` when `T: Debug`
+  - [ ] `Printable` when `T: Printable`
+  - [ ] `Sendable` when `T: Sendable`
+  - [ ] `Iterable` always
+  - [ ] `DoubleEndedIterator` always
+  - [ ] `Collect` always (panic if exceeds capacity)
+  - [ ] **LLVM Support**: LLVM codegen for trait impls
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fixed_capacity_tests.rs`
+
+- [ ] **Memory**: Inline storage representation
+  - [ ] Elements stored inline (no separate heap allocation)
+  - [ ] Length stored as part of structure
+  - [ ] ARC semantics for reference-type elements
+  - [ ] **LLVM Support**: LLVM codegen for inline storage
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fixed_capacity_tests.rs`
+
+- [ ] **Test**: `tests/spec/types/fixed_capacity_list.ori`
+  - [ ] Basic declaration and operations
+  - [ ] Capacity checks and panics
+  - [ ] Safe alternatives (`try_push`, etc.)
+  - [ ] Subtype relationship with `[T]`
+  - [ ] Generic functions with `$N: int`
+  - [ ] In struct fields
+  - [ ] **LLVM Support**: LLVM codegen for tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fixed_capacity_tests.rs`
+
+---
+
+## 18.3 Fixed-Size Arrays (Future)
+
+**Spec section**: `spec/06-types.md § Fixed-Size Arrays`
+
+> **Note:** This is a future extension. Fixed-capacity lists (`[T, max N]`) are prioritized first. Fixed-size arrays always have exactly N elements, unlike fixed-capacity lists which have 0 to N elements.
+
+### Syntax (Proposed)
+
+```ori
+// Array type with fixed size (always exactly N elements)
+let arr: [int, size 5] = [0, 0, 0, 0, 0]
 
 // Array operations
-let len = arr.len()  // Const 5, known at compile time
-let elem = arr[2]    // Bounds checked at compile time if index const
+let len = len(collection: arr)  // Const 5, known at compile time
+let elem = arr[2]               // Bounds checked at compile time if index const
 
-// Conversion to slice
-let slice: [int] = arr.as_slice()
+// Distinct from fixed-capacity: cannot have fewer than N elements
+// [int, size 5] ≠ [int, max 5]
 ```
 
 ### Type Rules
 
 ```
-[T; N] where N: int (const)
-- Length known at compile time
-- Stack allocated (no heap)
+[T, size N] where N: int (const)
+- Length always exactly N, known at compile time
+- Inline allocated (no heap)
+- Cannot be empty, cannot grow, cannot shrink
 - Bounds checks can be optimized away for const indices
 ```
 
-### Implementation
+### Implementation (Deferred)
 
 - [ ] **Spec**: Fixed-size array type
-  - [ ] Syntax `[T; N]`
+  - [ ] Syntax `[T, size N]`
+  - [ ] Distinct from fixed-capacity `[T, max N]`
   - [ ] Relationship to dynamic `[T]`
   - [ ] Operations
   - [ ] **LLVM Support**: LLVM codegen for fixed-size array type
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — fixed-size array type codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs`
 
 - [ ] **Types**: Array type with const
-  - [ ] `Type::Array(elem, ConstValue)`
-  - [ ] Distinct from `Type::List(elem)`
+  - [ ] `Type::FixedArray(elem, ConstValue)`
+  - [ ] Distinct from `Type::List(elem)` and `Type::FixedList(elem, capacity)`
   - [ ] **LLVM Support**: LLVM codegen for array type with const
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — array type with const codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs`
 
 - [ ] **Parser**: Parse array types
-  - [ ] `[T; expr]` syntax
+  - [ ] `[T, size expr]` syntax
   - [ ] Const expression for size
   - [ ] **LLVM Support**: LLVM codegen for parsed array types
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — array type parsing codegen
-
-- [ ] **Type checker**: Array type checking
-  - [ ] Validate size is const
-  - [ ] Literal inference
-  - [ ] Bounds check optimization
-  - [ ] **LLVM Support**: LLVM codegen for array type checking
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — array type checking codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs`
 
 - [ ] **Test**: `tests/spec/types/fixed_arrays.ori`
   - [ ] Array declaration
   - [ ] Array literal with inferred size
-  - [ ] Slice conversion
   - [ ] **LLVM Support**: LLVM codegen for fixed array tests
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — fixed array tests codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs`
 
 ---
 
-## 18.3 Const Expressions in Types
+## 18.4 Const Expressions in Types
 
 **Spec section**: `spec/06-types.md § Const Expressions`
 
@@ -239,20 +328,20 @@ let slice: [int] = arr.as_slice()
 
 ```ori
 // Arithmetic in const position
-type Matrix<const ROWS: int, const COLS: int> = {
-    data: [float; ROWS * COLS],
+type Matrix<$ROWS: int, $COLS: int> = {
+    data: [float, max ROWS * COLS],
 }
 
 // Const function in type
 $double (n: int) -> int = n * 2
 
-type DoubleArray<const N: int> = {
-    data: [int; $double(n: N)],
+type DoubleArray<$N: int> = {
+    data: [int, max $double(n: N)],
 }
 
 // Conditional const
-type Buffer<const SIZE: int> = {
-    data: [byte; if SIZE > 0 then SIZE else 1],
+type Buffer<$SIZE: int> = {
+    data: [byte, max if SIZE > 0 then SIZE else 1],
 }
 ```
 
@@ -296,7 +385,7 @@ type Buffer<const SIZE: int> = {
 
 ---
 
-## 18.4 Const Bounds
+## 18.5 Const Bounds
 
 **Spec section**: `spec/06-types.md § Const Bounds`
 
@@ -304,12 +393,12 @@ type Buffer<const SIZE: int> = {
 
 ```ori
 // Bound on const parameter value
-@non_empty_array<const N: int> () -> [int; N]
+@non_empty_array<$N: int> () -> [int, max N]
     where N > 0  // Const bound
 = ...
 
 // Multiple bounds
-@matrix_multiply<const M: int, const N: int, const P: int> (
+@matrix_multiply<$M: int, $N: int, $P: int> (
     a: Matrix<M, N>,
     b: Matrix<N, P>,
 ) -> Matrix<M, P>
@@ -317,7 +406,7 @@ type Buffer<const SIZE: int> = {
 = ...
 
 // Equality constraints
-@square_matrix<const N: int> () -> Matrix<N, N> = ...
+@square_matrix<$N: int> () -> Matrix<N, N> = ...
 ```
 
 ### Implementation
@@ -350,7 +439,7 @@ type Buffer<const SIZE: int> = {
 
 ---
 
-## 18.5 Default Const Values
+## 18.6 Default Const Values
 
 **Spec section**: `spec/06-types.md § Default Const Values`
 
@@ -358,8 +447,8 @@ type Buffer<const SIZE: int> = {
 
 ```ori
 // Default value for const parameter
-type Buffer<const SIZE: int = 1024> = {
-    data: [byte; SIZE],
+type Buffer<$SIZE: int = 1024> = {
+    data: [byte, max SIZE],
 }
 
 // Usage
@@ -367,7 +456,7 @@ let buf: Buffer = Buffer.new()           // SIZE = 1024
 let small: Buffer<256> = Buffer.new()    // SIZE = 256
 
 // In functions
-@create_buffer<const SIZE: int = 4096> () -> Buffer<SIZE> = ...
+@create_buffer<$SIZE: int = 4096> () -> Buffer<SIZE> = ...
 
 let default_buf = create_buffer()         // 4096
 let custom_buf = create_buffer<8192>()    // 8192
@@ -403,7 +492,7 @@ let custom_buf = create_buffer<8192>()    // 8192
 
 ---
 
-## 18.6 Const in Trait Bounds
+## 18.7 Const in Trait Bounds
 
 **Spec section**: `spec/07-properties-of-types.md § Const in Traits`
 
@@ -412,19 +501,19 @@ let custom_buf = create_buffer<8192>()    // 8192
 ```ori
 // Trait with const parameter
 trait FixedSize {
-    const SIZE: int
+    $SIZE: int
 }
 
-impl FixedSize for [int; 5] {
-    const SIZE: int = 5
+impl FixedSize for [int, max 5] {
+    $SIZE: int = 5
 }
 
 // Use in bounds
-@total_size<T: FixedSize, const N: int> () -> int = T.SIZE * N
+@total_size<T: FixedSize, $N: int> () -> int = T.SIZE * N
 
 // Associated const in generic context
 @print_size<T: FixedSize> () -> void = run(
-    print(`Size: {T.SIZE}`)
+    print(msg: `Size: {T.SIZE}`)
 )
 ```
 
@@ -457,8 +546,8 @@ impl FixedSize for [int; 5] {
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Spec updated: `spec/06-types.md` and `spec/07-properties-of-types.md` const generics sections
 - [ ] CLAUDE.md updated with const generic syntax
-- [ ] `[T; N]` fixed-size arrays work
-- [ ] Const parameters in types work
+- [ ] `[T, max N]` fixed-capacity lists work
+- [ ] `$N: int` const parameters in types work
 - [ ] Const expressions in type positions work
 - [ ] Const bounds work
 - [ ] All tests pass: `./test-all`
@@ -470,24 +559,24 @@ impl FixedSize for [int; 5] {
 ## Example: Matrix Library
 
 ```ori
-type Matrix<const ROWS: int, const COLS: int> = {
-    data: [float; ROWS * COLS],
+type Matrix<$ROWS: int, $COLS: int> = {
+    data: [float, max ROWS * COLS],
 }
 
-impl<const ROWS: int, const COLS: int> Matrix<ROWS, COLS> {
+impl<$ROWS: int, $COLS: int> Matrix<ROWS, COLS> {
     @new () -> Matrix<ROWS, COLS> = Matrix {
-        data: [0.0; ROWS * COLS],
+        data: [],  // Will be filled with zeros
     }
 
     @get (self, row: int, col: int) -> float = run(
-        assert(row >= 0 && row < ROWS)
-        assert(col >= 0 && col < COLS)
+        assert(condition: row >= 0 && row < ROWS),
+        assert(condition: col >= 0 && col < COLS),
         self.data[row * COLS + col]
     )
 
     @set (self, row: int, col: int, value: float) -> void = run(
-        assert(row >= 0 && row < ROWS)
-        assert(col >= 0 && col < COLS)
+        assert(condition: row >= 0 && row < ROWS),
+        assert(condition: col >= 0 && col < COLS),
         self.data[row * COLS + col] = value
     )
 
@@ -497,18 +586,18 @@ impl<const ROWS: int, const COLS: int> Matrix<ROWS, COLS> {
 }
 
 // Matrix multiplication with dimension checking at compile time
-@multiply<const M: int, const N: int, const P: int> (
+@multiply<$M: int, $N: int, $P: int> (
     a: Matrix<M, N>,
     b: Matrix<N, P>,
 ) -> Matrix<M, P> = run(
-    let mut result = Matrix.new()
+    let result = Matrix.new(),
 
     for i in 0..M do
         for j in 0..P do
-            let mut sum = 0.0
+            let sum = 0.0,
             for k in 0..N do
-                sum = sum + a.get(row: i, col: k) * b.get(row: k, col: j)
-            result.set(row: i, col: j, value: sum)
+                sum = sum + a.get(row: i, col: k) * b.get(row: k, col: j),
+            result.set(row: i, col: j, value: sum),
 
     result
 )
