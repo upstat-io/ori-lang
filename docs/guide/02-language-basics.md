@@ -2,7 +2,6 @@
 title: "Language Basics"
 description: "Learn the fundamentals: types, variables, operators, and control flow."
 order: 2
-part: "Foundations"
 ---
 
 # Language Basics

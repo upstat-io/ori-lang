@@ -2,7 +2,6 @@
 title: "Functions"
 description: "Function definitions, generics, lambdas, and closures."
 order: 3
-part: "Foundations"
 ---
 
 # Functions

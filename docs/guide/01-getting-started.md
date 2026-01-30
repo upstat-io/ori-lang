@@ -2,49 +2,13 @@
 title: "Getting Started"
 description: "Install Ori and write your first program."
 order: 1
-part: "Foundations"
 ---
+
+> **Early Development Notice:** Ori is under active development. Many features are still evolving, with some in early prototype stages. Syntax, semantics, and APIs are subject to change.
 
 # Getting Started
 
-Welcome to Ori. This guide will take you from zero to running your first program, and by the end you'll understand what makes Ori different from other languages.
-
-## What is Ori?
-
-Ori is a general-purpose, expression-based language built on a simple premise: **if your code compiles, it works**. The compiler enforces testing, tracks dependencies, and makes side effects explicit.
-
-### The Four Pillars
-
-Ori is built on four core principles:
-
-**1. Mandatory Verification**
-
-Every function requires tests or it doesn't compile. Tests are bound to functions (`@test tests @target`), and contracts (`pre_check:`/`post_check:`) enforce invariants. The compiler refuses to produce code it can't verify.
-
-**2. Dependency-Aware Integrity**
-
-Tests aren't external to your code — they're part of the dependency graph. Change a function and its tests run. Change a function and its callers' tests run too. You get fast feedback because only affected tests execute.
-
-**3. Explicit Effects**
-
-Functions must declare what they can do. `uses Http` means it makes network requests. `uses FileSystem` means it touches files. No hidden side effects. This makes mocking trivial and tests fast.
-
-**4. ARC-Safe by Design**
-
-Memory is managed via Automatic Reference Counting. No garbage collector pauses. No borrow checker complexity. Closures capture by value, preventing reference cycles by design.
-
-### The Virtuous Cycle
-
-These principles work together:
-
-```
-Capabilities make mocking easy
-    -> Tests are fast
-        -> Dependency-aware testing is practical
-            -> Mandatory testing isn't painful
-                -> Code integrity is enforced
-                    -> Code that works, stays working
-```
+Ori is a general-purpose language where **if your code compiles, it works**. The compiler enforces testing, tracks dependencies, and makes side effects explicit.
 
 ## Installation
 
