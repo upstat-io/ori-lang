@@ -616,6 +616,16 @@
 - Canonical spacing: `// * name: description`
 - Blocked on: None (can be implemented independently)
 
+**Memory Model Edge Cases** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/memory-model-edge-cases-proposal.md`
+- Implementation: Phase 21.6
+- Introduces `Drop` trait for custom destructors (added to prelude)
+- Atomic refcount operations required for thread-safety
+- Destruction order: reverse declaration (LIFO) for bindings, fields, lists, tuples
+- Panic during destruction: single propagates, double aborts
+- Async destructors forbidden (compile error)
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones

@@ -148,19 +148,125 @@ References are copied on assignment, argument passing, field storage, return, cl
 
 References are dropped when variables go out of scope or are reassigned.
 
+### Atomicity
+
+All reference count operations are atomic (thread-safe). This ensures correct behavior when values are shared across concurrent tasks:
+
+| Operation | Implementation |
+|-----------|----------------|
+| Increment refcount | Atomic fetch-add |
+| Decrement refcount | Atomic fetch-sub |
+| Check for zero | Part of decrement operation |
+
+Without atomic refcounts, concurrent decrements could both observe a non-zero count, leading to double-free or use-after-free bugs.
+
 ## Destruction
 
 Destruction occurs when values become unreachable, no later than scope end.
+
+### The Drop Trait
+
+The `Drop` trait enables custom destruction logic:
+
+```ori
+trait Drop {
+    @drop (self) -> void
+}
+```
+
+When a value's reference count reaches zero, its `Drop.drop` method is called if implemented. Drop is called before memory is reclaimed.
+
+`Drop` is included in the prelude.
+
+### Destructor Timing
+
+Destructors run when reference count reaches zero:
+
+| Context | Timing |
+|---------|--------|
+| Local binding out of scope | Immediately at scope end |
+| Last reference dropped | Immediately after drop |
+| Field of struct dropped | After struct destructor |
+| Collection element | When removed or collection dropped |
+
+Values may be dropped before scope end if no longer referenced (compiler optimization).
+
+### Destruction Order
 
 Reverse creation order within a scope:
 
 ```ori
 run(
-    let a = create_a(),  // 1st
-    let b = create_b(),  // 2nd
-    // destroyed: b, a
+    let a = create_a(),  // Destroyed 3rd
+    let b = create_b(),  // Destroyed 2nd
+    let c = create_c(),  // Destroyed 1st
+    // destroyed: c, b, a
 )
 ```
+
+Struct fields are destroyed in reverse declaration order:
+
+```ori
+type Container = {
+    first: Resource,   // Destroyed 3rd
+    second: Resource,  // Destroyed 2nd
+    third: Resource,   // Destroyed 1st
+}
+```
+
+List elements are destroyed back-to-front:
+
+```ori
+let items = [a, b, c]
+// When dropped: c, then b, then a
+```
+
+Tuple elements are destroyed right-to-left:
+
+```ori
+let tuple = (first, second, third)
+// When dropped: third, then second, then first
+```
+
+Map entries have no guaranteed destruction order (hash-based).
+
+### Panic During Destruction
+
+If a destructor panics during normal execution (not already unwinding):
+1. That panic propagates normally
+2. Other values in scope still have their destructors run
+3. Each destructor runs in isolation
+
+If a destructor panics while already unwinding from another panic (double panic):
+1. The program **aborts** immediately
+2. No further destructors run
+3. Exit code indicates abnormal termination
+
+### Async Destructors
+
+Destructors cannot be async:
+
+```ori
+impl Drop for Resource {
+    @drop (self) -> void uses Async = ...  // ERROR: drop cannot be async
+}
+```
+
+For async cleanup, use explicit methods:
+
+```ori
+impl AsyncResource {
+    @close (self) -> void uses Async = ...  // Explicit async cleanup
+}
+
+impl Drop for AsyncResource {
+    @drop (self) -> void = ()  // Synchronous no-op
+}
+```
+
+### Destructors and Task Cancellation
+
+When a task is cancelled, destructors still run during unwinding.
 
 ## Cycle Prevention
 

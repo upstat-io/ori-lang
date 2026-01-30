@@ -1,6 +1,7 @@
 # Proposal: Memory Model Edge Cases
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-30
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-29
 **Affects:** Compiler, runtime, memory management
@@ -9,7 +10,7 @@
 
 ## Summary
 
-This proposal addresses edge cases in Ori's memory model, including reference count atomicity across tasks, destructor guarantees, panic during destruction, and value representation rules.
+This proposal addresses edge cases in Ori's memory model, including reference count atomicity across tasks, destructor guarantees, panic during destruction, and value representation rules. It also formally introduces the `Drop` trait for custom destructors.
 
 ---
 
@@ -21,6 +22,42 @@ The memory model spec covers the basics but leaves unclear:
 2. **Destructor timing**: When exactly do destructors run?
 3. **Panic in destructor**: What happens if cleanup code panics?
 4. **Value representation**: What's the threshold for pass-by-value vs reference?
+5. **Custom destructors**: How do types define cleanup logic?
+
+---
+
+## The Drop Trait
+
+The `Drop` trait enables custom destruction logic for user-defined types.
+
+### Definition
+
+```ori
+trait Drop {
+    @drop (self) -> void
+}
+```
+
+### Semantics
+
+- When a value's reference count reaches zero, its `Drop.drop` method is called if implemented
+- Drop is called before memory is reclaimed
+- Drop methods cannot be async (see "Async Destructors" below)
+- Drop methods should not panic (see "Panic During Destruction" below)
+
+### Prelude Status
+
+`Drop` is included in the prelude and available without import.
+
+### Example
+
+```ori
+type FileHandle = { fd: int }
+
+impl Drop for FileHandle {
+    @drop (self) -> void = close_fd(self.fd)
+}
+```
 
 ---
 
@@ -61,9 +98,8 @@ Without atomic refcounts:
 
 ### Performance Note
 
-Atomic operations have higher cost than non-atomic. However:
-- Single-threaded code paths may use non-atomic optimization
-- The compiler can elide refcount operations when values don't escape
+Atomic operations have overhead compared to non-atomic. Implementations may optimize:
+- Elide refcount operations when values don't escape
 - Most programs are not refcount-bound
 
 ---
@@ -110,7 +146,7 @@ Inner scopes are destroyed before outer:
 
 ### Early Drop
 
-Values can be dropped before scope end if no longer referenced:
+Values may be dropped before scope end if no longer referenced:
 
 ```ori
 @early () -> void = run(
@@ -260,34 +296,34 @@ Ori doesn't distinguish Copy vs Clone at the language level:
 
 ### Struct Fields
 
-When a struct is destroyed, fields are destroyed in declaration order:
+When a struct is destroyed, fields are destroyed in reverse declaration order:
 
 ```ori
 type Container = {
-    first: Resource,   // Destroyed 1st
+    first: Resource,   // Destroyed 3rd
     second: Resource,  // Destroyed 2nd
-    third: Resource,   // Destroyed 3rd
+    third: Resource,   // Destroyed 1st (last declared, first destroyed)
 }
 ```
 
 ### Collection Elements
 
-List elements are destroyed front-to-back:
+List elements are destroyed back-to-front (reverse index order):
 
 ```ori
 let items = [a, b, c]
-// When items dropped: a, then b, then c
+// When items dropped: c, then b, then a (reverse index order)
 ```
 
 Map entries have no guaranteed destruction order (hash-based).
 
 ### Tuple Elements
 
-Tuple elements are destroyed left-to-right:
+Tuple elements are destroyed right-to-left (reverse order):
 
 ```ori
 let tuple = (first, second, third)
-// When dropped: first, then second, then third
+// When dropped: third, then second, then first
 ```
 
 ---
@@ -418,17 +454,23 @@ impl Drop for Connection {
 ### Update `15-memory-model.md`
 
 Add:
-1. Refcount atomicity requirement
-2. Destructor timing guarantees
-3. Panic during destruction behavior
-4. Value representation thresholds
+1. Drop trait definition
+2. Refcount atomicity requirement
+3. Destructor timing guarantees
+4. Panic during destruction behavior
+5. Value representation thresholds
 
 ### Add Destruction Order Section
 
 Document:
-1. Struct field destruction order
-2. Collection element destruction order
-3. Async interaction with destructors
+1. Struct field destruction order (reverse declaration order)
+2. Collection element destruction order (reverse index order for lists)
+3. Tuple destruction order (right-to-left)
+4. Async interaction with destructors
+
+### Update Prelude Documentation
+
+Add `Drop` to the prelude traits list.
 
 ---
 
@@ -436,9 +478,10 @@ Document:
 
 | Aspect | Guarantee |
 |--------|-----------|
+| Drop trait | `trait Drop { @drop (self) -> void }` in prelude |
 | Refcount atomicity | All operations atomic (thread-safe) |
 | Destructor timing | No later than scope end |
-| Destruction order | Reverse declaration order |
+| Destruction order | Reverse declaration order (LIFO) |
 | Panic in destructor | Single: propagates; Double: abort |
 | Value threshold | ≤32 bytes = by value |
 | Primitives | Always by value |
