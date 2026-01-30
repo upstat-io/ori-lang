@@ -50,13 +50,14 @@ identifier = ( letter | "_" ) { letter | digit | "_" } .
 
 // --- Keywords ---
 // See: 03-lexical-elements.md § Keywords
-// Reserved: async, break, continue, def, do, else, false, for, if, impl, in, let,
-//           loop, match, pub, self, Self, then, trait, true, type, use,
+// Reserved: async, break, continue, def, do, else, extern, false, for, if, impl, in, let,
+//           loop, match, pub, self, Self, then, trait, true, type, unsafe, use,
 //           uses, void, where, with, yield
 // Context-sensitive (patterns): cache, catch, for, match, nursery, parallel,
 //           recurse, run, spawn, timeout, try, with
 // Context-sensitive (imports): without (only in import items, before "def")
 // Context-sensitive (other): by (only after range expressions)
+// Context-sensitive (type conversion, call position): int, float, str, byte
 
 // --- Operators ---
 // See: 03-lexical-elements.md § Operators
@@ -397,11 +398,14 @@ continue_expr = "continue" [ label ] [ expression ] .
 
 // --- Pattern Categories ---
 
-pattern_expr = function_seq | function_exp | channel_expr .
+pattern_expr = function_seq | function_exp | function_val | channel_expr .
 function_seq = run_expr | try_expr | match_expr | for_pattern | catch_expr | nursery_expr .
 function_exp = pattern_name "(" pattern_arg { "," pattern_arg } ")" .
 pattern_name = "recurse" | "parallel" | "spawn" | "timeout" | "cache" | "with" .  /* nursery has explicit nursery_expr */
 pattern_arg  = identifier ":" expression .
+
+// Type conversion patterns (call position only)
+function_val = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
 
 // --- Sequential Patterns ---
 
@@ -422,6 +426,7 @@ match_arm  = match_pattern [ guard ] "->" expression .
 guard      = ".match" "(" expression ")" .
 
 // for pattern: First-match iteration
+// See: 10-patterns.md § for Pattern
 for_pattern = "for" "(" for_pattern_args ")" .
 for_pattern_args = "over" ":" expression "," "match" ":" match_pattern "->" expression "," "default" ":" expression
                  | "over" ":" expression "," "map" ":" expression "," "match" ":" match_pattern "->" expression "," "default" ":" expression .
@@ -433,7 +438,7 @@ catch_expr = "catch" "(" "expr" ":" expression ")" .
 // nursery: Structured concurrency
 // See: 10-patterns.md § Concurrency
 nursery_expr = "nursery" "(" nursery_args ")" .
-nursery_args = "body" ":" expression "," "on_error" ":" expression [ "," "timeout" ":" expression ] .
+nursery_args = "body" ":" lambda "," "on_error" ":" expression [ "," "timeout" ":" expression ] .
 
 // --- Channel Constructors ---
 // See: 06-types.md § Channel Types
