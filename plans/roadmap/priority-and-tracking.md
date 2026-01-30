@@ -522,6 +522,19 @@
 - `dbg` uses Print capability (mockable in tests)
 - Blocked on: None (can be implemented independently)
 
+**Platform FFI (Native & WASM)** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/platform-ffi-proposal.md`
+- Implementation: Phase 11
+- Unified FFI for native (C ABI) and WASM (JavaScript interop)
+- Syntax: `extern "c" from "lib" { }` and `extern "js" { }`
+- Single `FFI` capability for all foreign calls
+- `CPtr` opaque pointer type for C, `JsValue` handles for JS objects
+- `JsPromise<T>` with implicit resolution (no `await` keyword)
+- `unsafe { }` blocks for operations Ori cannot verify
+- `#repr("c")` attribute for C-compatible struct layout
+- `compile_error("msg")` built-in for platform availability errors
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones
@@ -710,6 +723,7 @@ cargo st tests/spec/patterns/     # Tier 3
 No proposals currently pending.
 
 **Recently Approved:**
+- Platform FFI (Native & WASM) — approved 2026-01-30
 - Developer Convenience Functions — approved 2026-01-30
 - Debug Trait — approved 2026-01-28
 - `as` Conversion Syntax — approved 2026-01-28

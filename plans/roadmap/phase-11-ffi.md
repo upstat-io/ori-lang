@@ -1,86 +1,50 @@
 # Phase 11: Foreign Function Interface (FFI)
 
-**Goal**: Enable Ori to call C libraries and system APIs
+**Goal**: Enable Ori to call C libraries, system APIs, and JavaScript APIs (WASM target)
 
 **Criticality**: **CRITICAL** — Without FFI, Ori cannot integrate with the software ecosystem
 
+**Proposal**: `proposals/approved/platform-ffi-proposal.md`
+
 ---
 
-## Design Decisions
-
-### Key Questions
+## Design Decisions (Approved)
 
 | Question | Decision | Rationale |
 |----------|----------|-----------|
-| Should FFI require unsafe? | Yes | C code can violate Ori's safety guarantees |
-| How to integrate with capabilities? | `uses Unsafe` capability | Consistent with effect tracking |
+| Should FFI require capability? | Yes, `FFI` capability | Consistent with effect tracking |
+| Single or multiple capabilities? | Single `FFI` | Platform-agnostic user code |
 | Support C++ directly? | No | C ABI only; C++ via extern "C" |
-| Support callbacks? | Yes, Phase 1.4 | Required for many C APIs |
+| Support callbacks? | Yes (native) | Required for many C APIs |
 | Memory management? | Manual in unsafe blocks | C doesn't know about ARC |
-
-### Capability Integration
-
-```ori
-// FFI functions require Unsafe capability
-@call_c_function () -> int uses Unsafe = extern("c_function")
-
-// Callers must have capability
-@main () -> void uses Unsafe = run(
-    let result = call_c_function(),
-    print(str(result)),
-)
-
-// Or provide it explicitly in tests
-@test_c_call tests @call_c_function () -> void = run(
-    with Unsafe = AllowUnsafe in
-        assert_eq(actual: call_c_function(), expected: 42),
-)
-```
+| Async WASM handling? | Implicit JsPromise resolution | Preserves Ori's "no await" philosophy |
+| Unsafe operations? | `unsafe { }` blocks | Explicit marking for unverifiable ops |
 
 ---
 
-## Reference Implementation
-
-### Rust FFI
-
-```
-~/lang_repos/rust/compiler/rustc_hir/src/def.rs        # ForeignItem definitions
-~/lang_repos/rust/library/std/src/ffi/                 # C types (CStr, CString)
-~/lang_repos/rust/compiler/rustc_codegen_llvm/src/abi.rs  # ABI handling
-```
-
-### Go CGO
-
-```
-~/lang_repos/golang/src/cmd/cgo/                       # CGO implementation
-~/lang_repos/golang/src/runtime/cgo/                   # Runtime support
-```
-
----
-
-## 11.1 Extern Blocks
+## 11.1 Extern Block Syntax
 
 **Spec section**: `spec/23-ffi.md § Extern Blocks`
 
-### Syntax
-
-```ebnf
-ExternBlock = 'extern' [ StringLiteral ] '{' { ExternItem } '}' ;
-ExternItem  = ExternFunction | ExternStatic ;
-ExternFunction = '@' Identifier '(' [ ParamList ] ')' '->' Type ;
-ExternStatic   = '$' Identifier ':' Type ;
-```
-
-### Semantics
+### Native (C ABI)
 
 ```ori
-// Declare external C functions
-extern "C" {
-    @strlen (s: *byte) -> int
-    @malloc (size: int) -> *byte
-    @free (ptr: *byte) -> void
+extern "c" from "m" {
+    @_sin (x: float) -> float as "sin"
+    @_sqrt (x: float) -> float as "sqrt"
+}
+```
 
-    $errno: int  // External static
+### JavaScript (WASM)
+
+```ori
+extern "js" {
+    @_sin (x: float) -> float as "Math.sin"
+    @_now () -> float as "Date.now"
+}
+
+extern "js" from "./utils.js" {
+    @_formatDate (timestamp: int) -> str as "formatDate"
 }
 ```
 
@@ -88,24 +52,26 @@ extern "C" {
 
 - [ ] **Spec**: Add `spec/23-ffi.md` with extern block syntax
   - [ ] Define extern block grammar
-  - [ ] Define calling conventions ("C" default, future: "stdcall", etc.)
+  - [ ] Define calling conventions ("c", "js")
   - [ ] Define linkage semantics
 
 - [ ] **Lexer**: Add tokens
   - [ ] `extern` keyword
-  - [ ] String literal for ABI (already exists)
+  - [ ] String literals for ABI ("c", "js")
 
 - [ ] **Parser**: Parse extern blocks
   - [ ] `parse_extern_block()` in parser
   - [ ] Add `ExternBlock` to AST
   - [ ] Add `ExternItem` variants
+  - [ ] `from "lib"` library specification
+  - [ ] `as "name"` name mapping
 
 - [ ] **Type checker**: Validate extern declarations
   - [ ] Ensure types are FFI-safe
-  - [ ] Check for `uses Unsafe` in callers
+  - [ ] Check for `uses FFI` in callers
 
 - [ ] **Codegen**: Generate external references
-  - [ ] Emit LLVM `declare` for functions
+  - [ ] Emit LLVM `declare` for C functions
   - [ ] Handle calling convention
   - [ ] Link external symbols
 
@@ -115,7 +81,8 @@ extern "C" {
 - [ ] **Test**: `tests/spec/ffi/extern_blocks.ori`
   - [ ] Basic extern function declaration
   - [ ] Multiple functions in one block
-  - [ ] External statics
+  - [ ] Name mapping with `as`
+  - [ ] Library specification with `from`
 
 ---
 
@@ -126,7 +93,7 @@ extern "C" {
 ### Primitive Mappings
 
 | Ori Type | C Type | Size |
-|------------|--------|------|
+|----------|--------|------|
 | `c_char` | `char` | 1 byte |
 | `c_short` | `short` | 2 bytes |
 | `c_int` | `int` | 4 bytes |
@@ -134,24 +101,21 @@ extern "C" {
 | `c_longlong` | `long long` | 8 bytes |
 | `c_float` | `float` | 4 bytes |
 | `c_double` | `double` | 8 bytes |
-| `c_void` | `void` | 0 bytes |
 | `c_size` | `size_t` | platform |
 
-### Pointer Types
+### CPtr Type
 
 ```ori
-*T           // Raw pointer to T (nullable)
-*mut T       // Mutable raw pointer
-*byte        // void* equivalent
-```
+type CPtr  // Opaque pointer - cannot be dereferenced in Ori
 
-### Struct Layout
+extern "c" from "sqlite3" {
+    @sqlite3_open (filename: str, db: CPtr) -> int
+    @sqlite3_close (db: CPtr) -> int
+}
 
-```ori
-#repr(C)
-type Point = {
-    x: c_int,
-    y: c_int,
+// Nullable pointers
+extern "c" from "foo" {
+    @get_resource (id: int) -> Option<CPtr>
 }
 ```
 
@@ -159,52 +123,90 @@ type Point = {
 
 - [ ] **Spec**: Add C types section
   - [ ] Primitive type mappings
-  - [ ] Pointer syntax
-  - [ ] `#repr(C)` attribute
+  - [ ] `CPtr` opaque pointer type
+  - [ ] `Option<CPtr>` for nullable pointers
 
 - [ ] **Types**: Add C primitive types
-  - [ ] Add to `Type` enum
+  - [ ] Add `CPtr` to type system
+  - [ ] Add C type aliases (`c_int`, `c_long`, etc.)
   - [ ] Size/alignment handling
   - [ ] Platform-dependent sizes
 
-- [ ] **Parser**: Parse pointer types
-  - [ ] `*T` syntax
-  - [ ] `*mut T` syntax
-
 - [ ] **Type checker**: FFI type validation
   - [ ] Warn on non-FFI-safe types
-  - [ ] Validate `#repr(C)` structs
+  - [ ] Validate CPtr usage
 
 - [ ] **LLVM Support**: LLVM codegen for C ABI types
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — C ABI types codegen
 
 - [ ] **Test**: `tests/spec/ffi/c_types.ori`
   - [ ] All primitive C types
-  - [ ] Pointer operations
-  - [ ] Repr(C) structs
+  - [ ] CPtr operations
+  - [ ] Option<CPtr> for nullable
 
 ---
 
-## 11.3 Unsafe Blocks
+## 11.3 #repr Attribute
+
+**Spec section**: `spec/23-ffi.md § Struct Layout`
+
+### Syntax
+
+```ori
+#repr("c")
+type CTimeSpec = {
+    tv_sec: int,
+    tv_nsec: int
+}
+```
+
+### Implementation
+
+- [ ] **Spec**: Define `#repr` attribute semantics
+  - [ ] `"c"` — C ABI compatible layout
+  - [ ] Future: `"packed"`, `"aligned(N)"`
+
+- [ ] **Parser**: Parse `#repr` attribute
+  - [ ] Add to attribute handling
+  - [ ] Validate string argument
+
+- [ ] **Type checker**: Validate #repr usage
+  - [ ] Only valid on struct types
+  - [ ] Validate field types are FFI-compatible
+
+- [ ] **Codegen**: Generate C-compatible layout
+  - [ ] LLVM struct type with correct alignment
+  - [ ] No padding optimization
+
+- [ ] **LLVM Support**: LLVM codegen for #repr structs
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — #repr struct codegen
+
+- [ ] **Test**: `tests/spec/ffi/repr_c.ori`
+  - [ ] Basic #repr("c") struct
+  - [ ] Nested #repr structs
+  - [ ] Invalid #repr (compile error)
+
+---
+
+## 11.4 Unsafe Blocks
 
 **Spec section**: `spec/23-ffi.md § Unsafe Blocks`
 
 ### Syntax
 
 ```ori
-unsafe {
-    // Operations that require manual safety guarantees
-    let ptr = malloc(100)
-    *ptr = 42  // Dereference raw pointer
-    free(ptr)
-}
+@raw_memory_access (ptr: CPtr, offset: int) -> byte uses FFI =
+    unsafe {
+        // Direct pointer arithmetic - Ori cannot verify safety
+        ptr_read_byte(ptr: ptr, offset: offset)
+    }
 ```
 
 ### Semantics
 
 Inside `unsafe`:
 - Dereference raw pointers
-- Call extern functions
+- Pointer arithmetic
 - Access mutable statics
 - Transmute types
 
@@ -213,7 +215,7 @@ Inside `unsafe`:
 - [ ] **Spec**: Define unsafe block semantics
   - [ ] List of unsafe operations
   - [ ] Scoping rules
-  - [ ] Interaction with capabilities
+  - [ ] Interaction with FFI capability
 
 - [ ] **Parser**: Parse unsafe blocks
   - [ ] `unsafe` keyword
@@ -237,206 +239,88 @@ Inside `unsafe`:
 
 - [ ] **Test**: `tests/compile-fail/ffi/unsafe_required.ori`
   - [ ] Pointer deref outside unsafe
-  - [ ] Extern call without capability
+  - [ ] Unsafe op without unsafe block
 
 ---
 
-## 11.4 Raw Pointers
+## 11.5 FFI Capability
 
-**Spec section**: `spec/23-ffi.md § Raw Pointers`
-
-### Operations
-
-```ori
-// Creation
-let ptr: *int = raw_ptr(some_int)      // Take address
-let null_ptr: *int = null()            // Null pointer
-
-// Comparison
-ptr == null_ptr                        // Pointer equality
-ptr != other
-
-// Arithmetic (unsafe)
-unsafe {
-    let next = ptr.offset(1)           // Pointer arithmetic
-    let value = *ptr                   // Dereference
-    *ptr = new_value                   // Write through pointer
-}
-
-// Conversion
-let opt = ptr.as_option()              // *T -> Option<&T>
-```
-
-### Implementation
-
-- [ ] **Spec**: Raw pointer operations
-  - [ ] Creation from references
-  - [ ] Null pointers
-  - [ ] Pointer arithmetic
-  - [ ] Dereference
-
-- [ ] **Types**: Pointer type representation
-  - [ ] `*T` in type system
-  - [ ] Nullability tracking
-  - [ ] Size (platform pointer size)
-
-- [ ] **Operators**: Pointer operations
-  - [ ] Dereference `*ptr`
-  - [ ] Address-of `raw_ptr(x)`
-  - [ ] Offset `.offset(n)`
-
-- [ ] **LLVM Support**: LLVM codegen for raw pointers
-- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — raw pointers codegen
-
-- [ ] **Test**: `tests/spec/ffi/raw_pointers.ori`
-  - [ ] Pointer creation
-  - [ ] Null checks
-  - [ ] Dereference (in unsafe)
-  - [ ] Pointer arithmetic
-
----
-
-## 11.5 Capability Integration
-
-**Spec section**: `spec/23-ffi.md § Unsafe Capability`
+**Spec section**: `spec/23-ffi.md § FFI Capability`
 
 ### Design
 
 ```ori
-// The Unsafe capability
-trait Unsafe {
-    // Marker trait - no methods
-    // Allows: unsafe blocks, extern calls, raw pointer ops
-}
+// FFI functions require FFI capability
+@call_c_function () -> int uses FFI = some_c_function()
 
-// Real implementation (production)
-type AllowUnsafe impl Unsafe = {}
+// Callers must have capability
+@main () -> void uses FFI = run(
+    let result = call_c_function(),
+    print(msg: `Result: {result}`),
+)
 
-// Disabled implementation (safe tests)
-type DenyUnsafe impl Unsafe = {}  // Compile error if used
-
-// Usage
-@dangerous_operation () -> Result<int, Error> uses Unsafe = run(
-    unsafe {
-        let ptr = malloc(100)
-        // ...
-    },
+// Or provide it explicitly in tests
+@test_c_call tests @call_c_function () -> void = run(
+    with FFI = AllowFFI in
+        assert_eq(actual: call_c_function(), expected: 42),
 )
 ```
 
 ### Implementation
 
-- [ ] **Spec**: Unsafe capability definition
-  - [ ] As a marker capability
+- [ ] **Spec**: FFI capability definition
+  - [ ] As a marker capability (like Async)
   - [ ] Propagation rules
   - [ ] Testing patterns
 
-- [ ] **Capability system**: Add `Unsafe` capability
+- [ ] **Capability system**: Add `FFI` capability
   - [ ] Define in prelude
   - [ ] Track in function signatures
   - [ ] Propagate to callers
 
 - [ ] **Type checker**: Enforce capability requirement
-  - [ ] Require `uses Unsafe` for extern calls
-  - [ ] Require `uses Unsafe` for unsafe blocks
+  - [ ] Require `uses FFI` for extern calls
+  - [ ] Require `uses FFI` for unsafe blocks
 
-- [ ] **LLVM Support**: LLVM codegen for Unsafe capability
-- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — Unsafe capability codegen
+- [ ] **LLVM Support**: LLVM codegen for FFI capability
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — FFI capability codegen
 
-- [ ] **Test**: `tests/spec/ffi/unsafe_capability.ori`
-  - [ ] Function requiring Unsafe
-  - [ ] Providing Unsafe in tests
+- [ ] **Test**: `tests/spec/ffi/ffi_capability.ori`
+  - [ ] Function requiring FFI
+  - [ ] Providing FFI in tests
   - [ ] Missing capability error
 
 ---
 
-## 11.6 Build System Integration
-
-**Spec section**: `spec/23-ffi.md § Linking`
-
-### Link Attributes
-
-```ori
-#link(name: "sqlite3")]
-extern "C" {
-    @sqlite3_open (filename: *byte, ppDb: **sqlite3) -> c_int
-}
-
-#link(name: "m", kind: "dylib")]
-extern "C" {
-    @sin (x: c_double) -> c_double
-}
-```
-
-### Implementation
-
-- [ ] **Spec**: Link specification
-  - [ ] `#link(...)` attribute syntax
-  - [ ] Library kinds (static, dylib, framework)
-  - [ ] Search paths
-
-- [ ] **Codegen**: Emit link directives
-  - [ ] LLVM link metadata
-  - [ ] Library search
-
-- [ ] **Build system**: Handle native dependencies
-  - [ ] `ori.toml` native deps section
-  - [ ] pkg-config integration
-
-- [ ] **LLVM Support**: LLVM codegen for link directives
-- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — linking codegen
-
-- [ ] **Test**: `tests/spec/ffi/linking.ori`
-  - [ ] Link to libc
-  - [ ] Link to libm
-  - [ ] Custom library
-
----
-
-## 11.7 Callbacks
+## 11.6 Callbacks (Native)
 
 **Spec section**: `spec/23-ffi.md § Callbacks`
 
 ### Syntax
 
 ```ori
-// C function that takes a callback
-extern "C" {
+extern "c" from "libc" {
     @qsort (
-        base: *byte,
-        nmemb: c_size,
-        size: c_size,
-        compar: extern fn(*byte, *byte) -> c_int,
+        base: [byte],
+        nmemb: int,
+        size: int,
+        compar: (CPtr, CPtr) -> int
     ) -> void
 }
 
-// Creating a callback
-@compare_ints (a: *byte, b: *byte) -> c_int uses Unsafe = run(
-    unsafe {
-        let a_val = *(a as *c_int)
-        let b_val = *(b as *c_int)
-        compare(left: a_val, right: b_val) |> match(
-            Less -> -1,
-            Equal -> 0,
-            Greater -> 1,
-        )
-    },
-)
-
-// Using it
-let callback: extern fn(*byte, *byte) -> c_int = extern_fn(compare_ints)
-qsort(base: arr_ptr, nmemb: len, size: 4, compar: callback)
+@compare_ints (a: CPtr, b: CPtr) -> int uses FFI = ...
+qsort(base: data, nmemb: len, size: 4, compar: compare_ints)
 ```
 
 ### Implementation
 
 - [ ] **Spec**: Callback semantics
-  - [ ] `extern fn` type syntax
+  - [ ] Function pointer type syntax
   - [ ] Conversion from Ori functions
   - [ ] Lifetime considerations
 
-- [ ] **Types**: Extern function type
-  - [ ] `extern fn(...) -> T` in type system
+- [ ] **Types**: Function pointer type
+  - [ ] `(CPtr, CPtr) -> int` in type system
   - [ ] ABI specification
 
 - [ ] **Codegen**: Generate callback wrappers
@@ -453,16 +337,172 @@ qsort(base: arr_ptr, nmemb: len, size: 4, compar: callback)
 
 ---
 
+## 11.7 Build System Integration
+
+**Spec section**: `spec/23-ffi.md § Linking`
+
+### ori.toml Configuration
+
+```toml
+[native]
+libraries = ["m", "z", "pthread"]
+library_paths = ["/usr/local/lib", "./native/lib"]
+
+[native.linux]
+libraries = ["m", "rt"]
+
+[native.macos]
+libraries = ["m"]
+frameworks = ["Security", "Foundation"]
+
+[native.windows]
+libraries = ["msvcrt"]
+```
+
+### Implementation
+
+- [ ] **Spec**: Link specification
+  - [ ] ori.toml native section
+  - [ ] Library kinds (static, dylib, framework)
+  - [ ] Search paths
+
+- [ ] **Codegen**: Emit link directives
+  - [ ] LLVM link metadata
+  - [ ] Library search
+
+- [ ] **Build system**: Handle native dependencies
+  - [ ] ori.toml parsing
+  - [ ] pkg-config integration
+
+- [ ] **LLVM Support**: LLVM codegen for link directives
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — linking codegen
+
+- [ ] **Test**: `tests/spec/ffi/linking.ori`
+  - [ ] Link to libc
+  - [ ] Link to libm
+  - [ ] Custom library
+
+---
+
+## 11.8 compile_error Built-in
+
+**Spec section**: `spec/11-built-in-functions.md § Compile-Time Functions`
+
+### Syntax
+
+```ori
+#target(arch: "wasm32")
+compile_error("std.fs is not available for WASM.")
+```
+
+### Implementation
+
+- [ ] **Spec**: Define compile_error semantics
+  - [ ] Compile-time error with custom message
+  - [ ] Works with conditional compilation
+
+- [ ] **Parser**: Parse compile_error
+  - [ ] Built-in function syntax
+  - [ ] String literal argument
+
+- [ ] **Type checker**: Trigger compile error
+  - [ ] Evaluate during type checking
+  - [ ] Only if code path is active
+
+- [ ] **Test**: `tests/compile-fail/compile_error.ori`
+  - [ ] Basic compile_error
+  - [ ] With conditional compilation
+
+---
+
+## 11.9 WASM Target (Phase 2)
+
+### JS FFI
+
+```ori
+extern "js" {
+    @_sin (x: float) -> float as "Math.sin"
+    @_fetch (url: str) -> JsPromise<JsValue> as "fetch"
+}
+```
+
+### Implementation
+
+- [ ] **Codegen**: WASM code generation
+  - [ ] WASM binary output
+  - [ ] Import generation
+
+- [ ] **Glue generation**: Generate JS glue code
+  - [ ] String marshalling (TextEncoder/TextDecoder)
+  - [ ] Object heap slab
+
+- [ ] **Test**: `tests/spec/ffi/js_ffi.ori`
+  - [ ] Basic JS function call
+  - [ ] String marshalling
+  - [ ] Object handles
+
+---
+
+## 11.10 JsValue and Async (Phase 3-4)
+
+### JsValue Type
+
+```ori
+type JsValue = { _handle: int }
+
+extern "js" {
+    @_document_query (selector: str) -> JsValue
+    @_drop_js_value (handle: JsValue) -> void
+}
+```
+
+### JsPromise with Implicit Resolution
+
+```ori
+extern "js" {
+    @_fetch (url: str) -> JsPromise<JsValue> as "fetch"
+}
+
+// JsPromise auto-resolved at binding sites
+@fetch_text (url: str) -> str uses Async, FFI =
+    run(
+        let response = _fetch(url: url),  // auto-resolved
+        text
+    )
+```
+
+### Implementation
+
+- [ ] **Types**: JsValue opaque handle type
+  - [ ] Define in stdlib
+  - [ ] Handle tracking
+
+- [ ] **Types**: JsPromise<T> type
+  - [ ] Compiler-recognized generic
+  - [ ] Implicit resolution rules
+
+- [ ] **Codegen**: JSPI/Asyncify integration
+  - [ ] Stack switching for async
+  - [ ] Promise resolution glue
+
+- [ ] **Test**: `tests/spec/ffi/js_async.ori`
+  - [ ] JsPromise implicit resolution
+  - [ ] Async function with FFI
+
+---
+
 ## Phase Completion Checklist
 
-- [ ] All items above have all checkboxes marked `[x]`
-- [ ] Spec updated: `spec/23-ffi.md` complete
+- [ ] All items above have checkboxes marked `[x]`
+- [ ] Spec file `spec/23-ffi.md` complete
 - [ ] CLAUDE.md updated with FFI syntax
+- [ ] grammar.ebnf updated with extern blocks
 - [ ] Can call libc functions (strlen, malloc, free)
 - [ ] Can call libm functions (sin, cos, sqrt)
 - [ ] Can create and use SQLite binding
 - [ ] All tests pass: `./test-all`
-- [ ] `uses Unsafe` properly enforced
+- [ ] `uses FFI` properly enforced
+- [ ] `unsafe` blocks working
 
 **Exit Criteria**: Can write a program that opens and queries a SQLite database
 
@@ -473,31 +513,32 @@ qsort(base: arr_ptr, nmemb: len, size: 4, compar: callback)
 Target capability demonstration:
 
 ```ori
-#link(name: "sqlite3")]
-extern "C" {
-    @sqlite3_open (filename: *byte, ppDb: **Sqlite3) -> c_int
-    @sqlite3_close (db: *Sqlite3) -> c_int
-    @sqlite3_exec (
-        db: *Sqlite3,
-        sql: *byte,
-        callback: extern fn(*byte, c_int, **byte, **byte) -> c_int,
-        userdata: *byte,
-        errmsg: **byte,
-    ) -> c_int
+extern "c" from "sqlite3" {
+    @_sqlite3_open (filename: str, ppDb: CPtr) -> int as "sqlite3_open"
+    @_sqlite3_close (db: CPtr) -> int as "sqlite3_close"
+    @_sqlite3_exec (
+        db: CPtr,
+        sql: str,
+        callback: (CPtr, int, CPtr, CPtr) -> int,
+        userdata: CPtr,
+        errmsg: CPtr
+    ) -> int as "sqlite3_exec"
 }
 
-type Sqlite3 = {}  // Opaque type
+type SqliteDb = { handle: CPtr }
 
-@open_database (path: str) -> Result<*Sqlite3, Error> uses Unsafe = run(
-    unsafe {
-        let db: *Sqlite3 = null()
-        let result = sqlite3_open(
-            filename: path.as_c_str(),
-            ppDb: raw_ptr(db),
+impl SqliteDb {
+    pub @open (path: str) -> Result<SqliteDb, str> uses FFI =
+        run(
+            let handle = CPtr.null(),
+            let result = _sqlite3_open(filename: path, ppDb: handle),
+            if result == 0 then
+                Ok(SqliteDb { handle: handle })
+            else
+                Err("Failed to open database")
         )
-        if result == 0
-            then Ok(db)
-            else Err(Error { message: "Failed to open database" })
-    },
-)
+
+    pub @close (self) -> void uses FFI =
+        _sqlite3_close(db: self.handle)
+}
 ```
