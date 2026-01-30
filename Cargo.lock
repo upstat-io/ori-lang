@@ -607,12 +607,12 @@ dependencies = [
  "ori_lexer",
  "ori_parse",
  "ori_patterns",
+ "ori_stack",
  "ori_types",
  "parking_lot",
  "pretty_assertions",
  "rayon",
  "rustc-hash",
- "stacker",
 ]
 
 [[package]]
@@ -673,8 +673,8 @@ dependencies = [
  "ori_diagnostic",
  "ori_ir",
  "ori_lexer",
+ "ori_stack",
  "pretty_assertions",
- "stacker",
 ]
 
 [[package]]
@@ -688,6 +688,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ori_stack"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "stacker",
+]
+
+[[package]]
 name = "ori_typeck"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -696,10 +703,10 @@ dependencies = [
  "ori_lexer",
  "ori_parse",
  "ori_patterns",
+ "ori_stack",
  "ori_types",
  "pretty_assertions",
  "rustc-hash",
- "stacker",
 ]
 
 [[package]]
@@ -728,6 +735,7 @@ dependencies = [
  "ori_macros",
  "ori_parse",
  "ori_patterns",
+ "ori_stack",
  "ori_typeck",
  "ori_types",
  "parking_lot",
@@ -735,7 +743,6 @@ dependencies = [
  "rayon",
  "rustc-hash",
  "salsa",
- "stacker",
  "tempfile",
 ]
 

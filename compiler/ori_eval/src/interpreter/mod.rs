@@ -53,7 +53,6 @@ pub use builder::InterpreterBuilder;
 pub use scope_guard::ScopedInterpreter;
 
 use crate::print_handler::SharedPrintHandler;
-use crate::stack::ensure_sufficient_stack;
 use crate::{
     // Error factories
     await_not_supported,
@@ -84,6 +83,7 @@ use ori_ir::{
 use ori_patterns::{
     propagated_error_message, EvalContext, EvalError, EvalResult, PatternExecutor, PatternRegistry,
 };
+use ori_stack::ensure_sufficient_stack;
 
 /// Tree-walking interpreter for Ori expressions.
 ///
@@ -96,6 +96,8 @@ pub struct Interpreter<'a> {
     pub arena: &'a ExprArena,
     /// Current environment.
     pub env: Environment,
+    /// Pre-computed Name for "self" keyword (avoids repeated interning).
+    pub self_name: Name,
     /// Pattern registry for `function_exp` evaluation.
     pub registry: SharedRegistry<PatternRegistry>,
     /// User-defined method registry for impl block methods.

@@ -2,8 +2,7 @@
 
 use super::Interpreter;
 use crate::exec::call::{
-    bind_captures, bind_parameters, bind_self, check_arg_count, eval_function_val_call,
-    extract_named_args,
+    bind_captures, bind_parameters, check_arg_count, eval_function_val_call, extract_named_args,
 };
 use crate::{not_callable, EvalResult, Mutability, Value};
 use ori_ir::CallArgRange;
@@ -38,8 +37,8 @@ impl Interpreter<'_> {
                 bind_parameters(&mut call_env, f, args);
 
                 // Bind 'self' to the current function for recursive patterns
-                // Clone only here where ownership is needed (bind_self stores the value)
-                bind_self(&mut call_env, func.clone(), self.interner);
+                // Uses pre-computed self_name to avoid repeated interning
+                call_env.define(self.self_name, func.clone(), Mutability::Immutable);
 
                 // Evaluate body using the function's arena (arena threading pattern).
                 // The scope is popped automatically via RAII when call_interpreter drops.
@@ -75,8 +74,8 @@ impl Interpreter<'_> {
                 bind_parameters(&mut call_env, f, args);
 
                 // Bind 'self' to the MEMOIZED function so recursive calls also use the cache
-                // Clone only here where ownership is needed (bind_self stores the value)
-                bind_self(&mut call_env, func.clone(), self.interner);
+                // Uses pre-computed self_name to avoid repeated interning
+                call_env.define(self.self_name, func.clone(), Mutability::Immutable);
 
                 // Evaluate body using the function's arena (arena threading pattern).
                 // The scope is popped automatically via RAII when call_interpreter drops.

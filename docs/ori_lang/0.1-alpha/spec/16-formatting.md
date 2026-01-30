@@ -701,21 +701,21 @@ Formatter normalizes spacing:
 
 ### Doc Comments
 
-Space after `//`, no space after marker. Required order (formatter reorders if wrong):
+Space after `//`, space after marker. Required order (formatter reorders if wrong):
 
 | Order | Marker | Purpose |
 |-------|--------|---------|
-| 1 | `#` | Description |
-| 2 | `@param`, `@field` | Parameters/fields |
+| 1 | *(none)* | Description |
+| 2 | `*` | Parameters/fields |
 | 3 | `!` | Warning |
 | 4 | `>` | Example |
 
 ```ori
-// #Computes the sum of two integers.
-// @param a The first operand.
-// @param b The second operand.
-// !Panics if overflow occurs.
-// >add(a: 2, b: 3) -> 5
+// Computes the sum of two integers.
+// * a: The first operand.
+// * b: The second operand.
+// ! Panics if overflow occurs.
+// > add(a: 2, b: 3) -> 5
 @add (a: int, b: int) -> int = a + b
 ```
 
@@ -723,11 +723,12 @@ Formatter normalizations:
 
 | Input | Output |
 |-------|--------|
-| `//# Desc` | `// #Desc` |
-| `// # Desc` | `// #Desc` |
-| `//#Desc` | `// #Desc` |
+| `//*name:` | `// * name:` |
+| `// *name:` | `// * name:` |
+| `//! Warning` | `// ! Warning` |
+| `//>example` | `// > example` |
 
-`@param` order matches signature order. `@field` order matches struct field order.
+`*` entries are reordered to match declaration order (parameters match signature order, fields match struct field order).
 
 ## Ranges
 

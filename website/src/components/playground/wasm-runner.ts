@@ -8,13 +8,32 @@ let wasmModule: {
 
 let initPromise: Promise<boolean> | null = null;
 
+// Cache buster for dev mode - increment to force reload
+let cacheBuster = 0;
+
+/**
+ * Reset the WASM module to force a reload on next init.
+ * Call this after rebuilding WASM to pick up changes.
+ */
+export function resetWasm(): void {
+  wasmModule = null;
+  initPromise = null;
+  cacheBuster++;
+}
+
 export async function initWasm(): Promise<boolean> {
   if (wasmModule) return true;
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
     try {
-      const wasm = await import('../../wasm/ori_playground_wasm.js');
+      // In dev mode, use cache busting to force reload after WASM rebuild
+      // The timestamp query param is ignored by Vite but busts browser cache
+      const isDev = import.meta.env?.DEV;
+      const wasmPath = isDev
+        ? `../../wasm/ori_playground_wasm.js?t=${Date.now()}&v=${cacheBuster}`
+        : '../../wasm/ori_playground_wasm.js';
+      const wasm = await import(/* @vite-ignore */ wasmPath);
       await wasm.default();
       wasmModule = wasm;
       return true;

@@ -49,5 +49,11 @@ export default defineConfig({
         },
       },
     },
+    server: {
+      watch: {
+        // Watch the wasm directory for changes during dev
+        ignored: ['!**/src/wasm/**'],
+      },
+    },
   },
 });

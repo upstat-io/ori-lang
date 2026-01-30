@@ -26,8 +26,8 @@ mod type_annotations;
 
 use super::checker::bound_checking;
 use crate::checker::TypeChecker;
-use crate::ensure_sufficient_stack;
 use ori_ir::{ExprId, ExprKind};
+use ori_stack::ensure_sufficient_stack;
 use ori_types::Type;
 
 pub use call::*;

@@ -1,0 +1,13 @@
+[package]
+name = "ori_stack"
+description = "Stack safety utilities for deep recursion in the Ori compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+stacker.workspace = true
+
+[lints]
+workspace = true

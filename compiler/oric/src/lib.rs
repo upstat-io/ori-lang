@@ -63,7 +63,6 @@ pub mod edit;
 pub mod eval;
 pub mod problem;
 pub mod reporting;
-pub mod stack;
 pub mod suggest;
 pub mod test;
 pub mod testing;

@@ -1,11 +1,16 @@
 //! Stack safety utilities for deep recursion.
 //!
-//! Uses the `stacker` crate to prevent stack overflow in recursive
-//! parsing, type-checking, and evaluation of deeply nested expressions.
+//! Prevents stack overflow in recursive parsing, type-checking, and evaluation
+//! of deeply nested expressions by dynamically growing the stack when needed.
+//!
+//! # Platform Support
+//!
+//! - **Native targets**: Uses the `stacker` crate to grow the stack on demand.
+//! - **WASM targets**: No-op passthrough (WASM has its own stack management).
 //!
 //! # Usage
 //!
-//! Wrap recursive calls that could overflow with `ensure_sufficient_stack`:
+//! Wrap recursive calls that could overflow with [`ensure_sufficient_stack`]:
 //!
 //! ```text
 //! fn parse_expr(&mut self) -> Result<ExprId, ParseError> {
@@ -14,6 +19,14 @@
 //!     })
 //! }
 //! ```
+//!
+//! # Configuration
+//!
+//! - **Red zone**: 100KB - If less than this remains, we grow the stack
+//! - **Growth size**: 1MB - Each growth allocates this much additional space
+//!
+//! These values are chosen to handle deeply nested code (100k+ recursion depth)
+//! while keeping memory usage reasonable.
 
 /// Minimum stack space to keep available (100KB red zone).
 ///
@@ -45,9 +58,22 @@ const STACK_PER_RECURSION: usize = 1024 * 1024;
 ///     })
 /// }
 /// ```
+///
+/// # Platform Behavior
+///
+/// - **Native**: Uses `stacker::maybe_grow` to dynamically grow the stack
+/// - **WASM**: Simply calls `f()` directly (WASM manages its own stack)
 #[inline]
+#[cfg(not(target_arch = "wasm32"))]
 pub fn ensure_sufficient_stack<R>(f: impl FnOnce() -> R) -> R {
     stacker::maybe_grow(RED_ZONE, STACK_PER_RECURSION, f)
+}
+
+/// WASM version - just call directly (WASM has its own stack management).
+#[inline]
+#[cfg(target_arch = "wasm32")]
+pub fn ensure_sufficient_stack<R>(f: impl FnOnce() -> R) -> R {
+    f()
 }
 
 #[cfg(test)]
@@ -72,5 +98,17 @@ mod tests {
 
         // 100k recursions - would overflow a typical 8MB stack
         assert_eq!(deep_recurse(100_000), 100_000);
+    }
+
+    #[test]
+    fn test_returns_closure_result() {
+        let result = ensure_sufficient_stack(|| 42);
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_works_with_result_type() {
+        let result: Result<i32, &str> = ensure_sufficient_stack(|| Ok(123));
+        assert_eq!(result, Ok(123));
     }
 }

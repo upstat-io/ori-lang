@@ -389,11 +389,16 @@ impl TestRunner {
                 .iter()
                 .map(|e| format_expected(e, interner))
                 .collect();
+            let error_word = if test.expected_errors.len() == 1 {
+                "error"
+            } else {
+                "errors"
+            };
             return TestResult::failed(
                 test_name,
                 targets,
                 format!(
-                    "expected compilation to fail with {} error(s), but compilation succeeded. Expected: {}",
+                    "expected compilation to fail with {} {error_word}, but compilation succeeded. Expected: {}",
                     test.expected_errors.len(),
                     expected_strs.join("; ")
                 ),

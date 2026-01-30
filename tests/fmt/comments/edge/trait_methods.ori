@@ -1,0 +1,7 @@
+// A simple trait
+trait Printable {
+    // Convert to string
+    @to_str (self) -> str
+}
+
+@main () -> void = ()

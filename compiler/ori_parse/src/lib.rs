@@ -8,7 +8,6 @@ mod error;
 mod grammar;
 mod progress;
 mod recovery;
-mod stack;
 
 #[cfg(test)]
 mod compositional_tests;

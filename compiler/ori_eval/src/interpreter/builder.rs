@@ -105,10 +105,14 @@ impl<'a> InterpreterBuilder<'a> {
             MethodResolverKind::Builtin(BuiltinMethodResolver::new()),
         ]);
 
+        // Pre-compute the Name for "self" to avoid repeated interning
+        let self_name = self.interner.intern("self");
+
         Interpreter {
             interner: self.interner,
             arena: self.arena,
             env: self.env.unwrap_or_default(),
+            self_name,
             registry: pat_reg,
             user_method_registry: user_meth_reg,
             method_dispatcher,

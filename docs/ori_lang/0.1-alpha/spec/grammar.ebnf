@@ -40,8 +40,11 @@ token = identifier | keyword | literal | operator | delimiter .
 // See: 03-lexical-elements.md § Comments
 
 comment      = "//" { unicode_char - newline } newline .
-doc_comment  = "//" doc_marker { unicode_char - newline } newline .
-doc_marker   = "#" | "@param" | "@field" | "!" | ">" .
+doc_comment  = "//" [ " " ] [ doc_marker ] { unicode_char - newline } newline .
+doc_marker   = "*" | "!" | ">" .
+member_doc   = "//" " " "*" " " identifier ":" [ " " { unicode_char - newline } ] .
+warning_doc  = "//" " " "!" " " { unicode_char - newline } .
+example_doc  = "//" " " ">" " " { unicode_char - newline } .
 
 // --- Identifiers ---
 // See: 03-lexical-elements.md § Identifiers

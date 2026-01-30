@@ -94,9 +94,20 @@ fn collect_module_positions(module: &Module) -> Vec<u32> {
     }
     for trait_def in &module.traits {
         positions.push(trait_def.span.start);
+        // Also collect positions for items inside traits
+        for item in &trait_def.items {
+            positions.push(item.span().start);
+        }
     }
     for impl_def in &module.impls {
         positions.push(impl_def.span.start);
+        // Also collect positions for items inside impl blocks
+        for assoc in &impl_def.assoc_types {
+            positions.push(assoc.span.start);
+        }
+        for method in &impl_def.methods {
+            positions.push(method.span.start);
+        }
     }
     for func in &module.functions {
         positions.push(func.span.start);
@@ -251,7 +262,7 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
                 self.ctx.emit_newline();
             }
             self.emit_comments_before(trait_def.span.start, comments, comment_index);
-            self.format_trait(trait_def);
+            self.format_trait_with_comments(trait_def, comments, comment_index);
             self.ctx.emit_newline();
             first_item = false;
         }
@@ -262,7 +273,7 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
                 self.ctx.emit_newline();
             }
             self.emit_comments_before(impl_def.span.start, comments, comment_index);
-            self.format_impl(impl_def);
+            self.format_impl_with_comments(impl_def, comments, comment_index);
             self.ctx.emit_newline();
             first_item = false;
         }
@@ -1136,6 +1147,52 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
         }
     }
 
+    /// Format a trait definition with comment preservation.
+    pub fn format_trait_with_comments(
+        &mut self,
+        trait_def: &TraitDef,
+        comments: &CommentList,
+        comment_index: &mut CommentIndex,
+    ) {
+        if trait_def.visibility == Visibility::Public {
+            self.ctx.emit("pub ");
+        }
+
+        self.ctx.emit("trait ");
+        self.ctx.emit(self.interner.lookup(trait_def.name));
+
+        // Generic parameters
+        self.format_generic_params(trait_def.generics);
+
+        // Super traits
+        if !trait_def.super_traits.is_empty() {
+            self.ctx.emit(": ");
+            self.format_trait_bounds(&trait_def.super_traits);
+        }
+
+        // Body
+        if trait_def.items.is_empty() {
+            self.ctx.emit(" {}");
+        } else {
+            self.ctx.emit(" {");
+            self.ctx.emit_newline();
+            self.ctx.indent();
+            for (i, item) in trait_def.items.iter().enumerate() {
+                if i > 0 && trait_def.items.len() > 1 {
+                    self.ctx.emit_newline();
+                }
+                // Emit comments before this trait item
+                self.emit_comments_before_indented(item.span().start, comments, comment_index);
+                self.ctx.emit_indent();
+                self.format_trait_item(item);
+                self.ctx.emit_newline();
+            }
+            self.ctx.dedent();
+            self.ctx.emit_indent();
+            self.ctx.emit("}");
+        }
+    }
+
     /// Format an impl block (trait impl or inherent impl).
     pub fn format_impl(&mut self, impl_def: &ImplDef) {
         self.ctx.emit("impl");
@@ -1212,6 +1269,110 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
             self.ctx.dedent();
             self.ctx.emit_indent();
             self.ctx.emit("}");
+        }
+    }
+
+    /// Format an impl block with comment preservation.
+    pub fn format_impl_with_comments(
+        &mut self,
+        impl_def: &ImplDef,
+        comments: &CommentList,
+        comment_index: &mut CommentIndex,
+    ) {
+        self.ctx.emit("impl");
+
+        // Generic parameters
+        self.format_generic_params(impl_def.generics);
+
+        self.ctx.emit(" ");
+
+        // Trait path (if trait impl)
+        if let Some(ref trait_path) = impl_def.trait_path {
+            for (i, seg) in trait_path.iter().enumerate() {
+                if i > 0 {
+                    self.ctx.emit(".");
+                }
+                self.ctx.emit(self.interner.lookup(*seg));
+            }
+            self.ctx.emit(" for ");
+        }
+
+        // Self type
+        self.format_parsed_type(&impl_def.self_ty);
+
+        // Where clauses
+        self.format_where_clauses(&impl_def.where_clauses);
+
+        // Body
+        if impl_def.methods.is_empty() && impl_def.assoc_types.is_empty() {
+            self.ctx.emit(" {}");
+        } else {
+            self.ctx.emit(" {");
+            self.ctx.emit_newline();
+            self.ctx.indent();
+
+            // Associated types
+            for assoc in &impl_def.assoc_types {
+                // Emit comments before this associated type
+                self.emit_comments_before_indented(assoc.span.start, comments, comment_index);
+                self.ctx.emit_indent();
+                self.ctx.emit("type ");
+                self.ctx.emit(self.interner.lookup(assoc.name));
+                self.ctx.emit(" = ");
+                self.format_parsed_type(&assoc.ty);
+                self.ctx.emit_newline();
+                self.ctx.emit_newline();
+            }
+
+            // Methods
+            for (i, method) in impl_def.methods.iter().enumerate() {
+                if i > 0 {
+                    self.ctx.emit_newline();
+                }
+                // Emit comments before this method
+                self.emit_comments_before_indented(method.span.start, comments, comment_index);
+                self.ctx.emit_indent();
+                self.ctx.emit("@");
+                self.ctx.emit(self.interner.lookup(method.name));
+                self.ctx.emit(" ");
+                self.format_params(method.params);
+                self.ctx.emit(" -> ");
+                self.format_parsed_type(&method.return_ty);
+                self.ctx.emit(" = ");
+
+                // Pass current column and indent level so width decisions and
+                // line breaks account for full context
+                let current_column = self.ctx.column();
+                let current_indent = self.ctx.indent_level();
+                let mut expr_formatter =
+                    Formatter::with_config(self.arena, self.interner, self.config)
+                        .with_indent_level(current_indent)
+                        .with_starting_column(current_column);
+                expr_formatter.format(method.body);
+                let body_output = expr_formatter.ctx.as_str().trim_end();
+                self.ctx.emit(body_output);
+                self.ctx.emit_newline();
+            }
+
+            self.ctx.dedent();
+            self.ctx.emit_indent();
+            self.ctx.emit("}");
+        }
+    }
+
+    /// Emit comments that should appear before a given position, with indentation.
+    fn emit_comments_before_indented(
+        &mut self,
+        pos: u32,
+        comments: &CommentList,
+        comment_index: &mut CommentIndex,
+    ) {
+        let indices = comment_index.take_comments_before(pos);
+        for idx in indices {
+            let comment = &comments[idx];
+            self.ctx.emit_indent();
+            self.ctx.emit(&format_comment(comment, self.interner));
+            self.ctx.emit_newline();
         }
     }
 
