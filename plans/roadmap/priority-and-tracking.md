@@ -469,6 +469,19 @@
 - Crypto capability: non-suspending, added to standard capabilities
 - Blocked on: None (can be implemented independently)
 
+**Conditional Compilation** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/conditional-compilation-proposal.md`
+- Implementation: Phase 13
+- Separate `#target(...)` and `#cfg(...)` attributes (platform vs. feature flags)
+- Target families: `family: "unix"/"windows"/"wasm"`
+- OR conditions: `any_os`, `any_arch`, `any_feature`
+- Negation: `not_os`, `not_arch`, `not_debug`, `not_feature` (unified prefix style)
+- File-level conditions: `#!target(os: "linux")` at file start
+- Compile-time constants: `$target_os`, `$target_arch`, `$target_family`, `$debug`, `$release`
+- Dead code elimination: false branches not type-checked
+- Feature names must be valid identifiers
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones

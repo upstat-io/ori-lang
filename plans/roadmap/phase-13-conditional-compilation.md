@@ -4,17 +4,21 @@
 
 **Criticality**: High — Required for cross-platform support and feature management
 
+**Proposal**: `proposals/approved/conditional-compilation-proposal.md`
+
 ---
 
 ## Design Decisions
 
 | Question | Decision | Rationale |
 |----------|----------|-----------|
-| Syntax | `#cfg(...)` attribute | Simplified (Phase 15.1), cleaner than Rust |
-| Evaluation | Compile-time only | No runtime overhead |
-| Scope | Items and expressions | Flexible application |
-| Predicates | Platform, feature, custom | Cover common cases |
-| Negation | `not(...)` | Clear semantics |
+| Syntax | `#target(...)` and `#cfg(...)` | Separate platform from features, clear intent |
+| File-level | `#!target(...)` | Directive at top of file |
+| OR conditions | `any_os`, `any_arch`, `any_feature` | Essential for real cross-platform code |
+| Negation | `not_*` prefix | `not_os`, `not_debug`, `not_feature` — consistent |
+| Families | `family: "unix"/"windows"/"wasm"` | Group related platforms |
+| DCE | Full elimination | False branches not type-checked |
+| Feature names | Valid identifiers only | Consistent with Ori naming |
 
 ---
 
@@ -36,164 +40,235 @@
 
 ---
 
-## 13.1 Attribute Syntax
+## 13.1 Target Attribute
+
+**Spec section**: `spec/24-conditional-compilation.md § Target Attribute`
+
+### Syntax
+
+```ori
+// Operating system
+#target(os: "linux")
+@linux_specific () -> void = ...
+
+#target(os: "windows")
+@windows_specific () -> void = ...
+
+// Architecture
+#target(arch: "x86_64")
+@x64_specific () -> void = ...
+
+// Target families
+#target(family: "unix")
+@unix_like () -> void = ...
+
+// Combined (AND)
+#target(os: "linux", arch: "x86_64")
+@linux_x64 () -> void = ...
+```
+
+### Implementation
+
+- [ ] **Spec**: Add `spec/24-conditional-compilation.md`
+  - [ ] Target attribute syntax
+  - [ ] OS, arch, family values
+  - [ ] Scope rules
+
+- [ ] **Lexer/Parser**: Parse target attributes
+  - [ ] `#target(...)` syntax
+  - [ ] Named arguments: `os:`, `arch:`, `family:`
+  - [ ] Apply to items
+
+- [ ] **Compiler**: Target evaluation
+  - [ ] Evaluate against build target
+  - [ ] Prune false branches from AST
+  - [ ] Track for error messages
+  - [ ] **Rust Tests**: Target attribute parsing and evaluation
+
+- [ ] **Ori Tests**: `tests/spec/conditional/target_basic.ori`
+  - [ ] OS-specific code
+  - [ ] Arch-specific code
+  - [ ] Family-specific code
+  - [ ] Combined conditions
+
+- [ ] **LLVM Support**: LLVM codegen for target attribute
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — target attribute codegen
+
+---
+
+## 13.2 OR Conditions
+
+**Spec section**: `spec/24-conditional-compilation.md § OR Conditions`
+
+### Syntax
+
+```ori
+// Match any OS in list
+#target(any_os: ["linux", "macos", "freebsd"])
+@unix_variants () -> void = ...
+
+// Match any architecture
+#target(any_arch: ["x86_64", "aarch64"])
+@desktop_arch () -> void = ...
+```
+
+### Implementation
+
+- [ ] **Spec**: OR condition semantics
+  - [ ] `any_os`, `any_arch`, `any_family`
+  - [ ] List syntax
+
+- [ ] **Parser**: Parse any_* variants
+  - [ ] Array literal values
+  - [ ] Validate all elements are strings
+
+- [ ] **Evaluator**: Evaluate OR conditions
+  - [ ] Match if any element matches
+  - [ ] **Rust Tests**: OR condition evaluation
+
+- [ ] **Ori Tests**: `tests/spec/conditional/target_or.ori`
+  - [ ] any_os conditions
+  - [ ] any_arch conditions
+  - [ ] Combined with AND
+
+- [ ] **LLVM Support**: LLVM codegen for OR conditions
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — OR conditions codegen
+
+---
+
+## 13.3 Negation
+
+**Spec section**: `spec/24-conditional-compilation.md § Negation`
+
+### Syntax
+
+```ori
+// Negated conditions
+#target(not_os: "windows")
+@non_windows () -> void = ...
+
+#target(not_family: "wasm")
+@native_only () -> void = ...
+
+#cfg(not_debug)
+@release_only () -> void = ...
+
+#cfg(not_feature: "ssl")
+@insecure_fallback () -> void = ...
+```
+
+### Implementation
+
+- [ ] **Spec**: Negation semantics
+  - [ ] `not_*` prefix for all condition types
+  - [ ] Interaction with OR conditions
+
+- [ ] **Parser**: Parse not_* variants
+  - [ ] Recognize all negation forms
+
+- [ ] **Evaluator**: Evaluate negation
+  - [ ] Boolean NOT of underlying condition
+  - [ ] **Rust Tests**: Negation evaluation
+
+- [ ] **Ori Tests**: `tests/spec/conditional/negation.ori`
+  - [ ] not_os, not_arch, not_family
+  - [ ] not_debug, not_release
+  - [ ] not_feature
+
+- [ ] **LLVM Support**: LLVM codegen for negation
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — negation codegen
+
+---
+
+## 13.4 Cfg Attribute
 
 **Spec section**: `spec/24-conditional-compilation.md § Cfg Attribute`
 
 ### Syntax
 
 ```ori
-// On items
-#cfg(target_os: "linux")]
-@linux_specific () -> void = ...
+// Build mode flags
+#cfg(debug)
+@debug_only () -> void = ...
 
-#cfg(target_os: "windows")]
-@windows_specific () -> void = ...
+#cfg(release)
+@release_only () -> void = ...
 
-// On expressions (cfg_if pattern)
-let path_sep = cfg_match(
-    cfg(target_os: "windows") -> "\\",
-    cfg(target_os: "linux") -> "/",
-    cfg(target_os: "macos") -> "/",
-)
+// Feature flags
+#cfg(feature: "ssl")
+@secure_connect () -> void = ...
 
-// Cfg block
-#cfg(feature: "logging")]
-{
-    use std.logging { Logger }
-    $LOGGER = Logger { level: "debug" }
-}
+#cfg(any_feature: ["ssl", "tls"])
+@encrypted_connect () -> void = ...
 ```
-
-### Grammar
-
-```ebnf
-CfgAttribute = '#' 'cfg' '(' CfgPredicate ')' ;
-CfgPredicate = CfgOption | CfgAll | CfgAny | CfgNot ;
-CfgOption    = Identifier ':' StringLiteral ;
-CfgAll       = 'all' '(' CfgPredicate { ',' CfgPredicate } ')' ;
-CfgAny       = 'any' '(' CfgPredicate { ',' CfgPredicate } ')' ;
-CfgNot       = 'not' '(' CfgPredicate ')' ;
-```
-
-> **Note**: Uses simplified attribute syntax from Phase 15.1 (`#cfg(...)` not `#[cfg(...)]`).
 
 ### Implementation
 
-- [ ] **Spec**: Add `spec/24-conditional-compilation.md`
-  - [ ] Attribute syntax
-  - [ ] Predicate grammar
-  - [ ] Scope rules
+- [ ] **Spec**: Cfg attribute semantics
+  - [ ] `debug`, `release` flags
+  - [ ] `feature: "name"` syntax
+  - [ ] `any_feature`, `not_feature`
 
-- [ ] **Lexer/Parser**: Parse cfg attributes
-  - [ ] `#cfg(...)]` syntax
-  - [ ] Nested predicates
-  - [ ] Apply to items
+- [ ] **Parser**: Parse cfg attributes
+  - [ ] Boolean flags (debug, release)
+  - [ ] Keyed flags (feature: "...")
+  - [ ] OR and negation variants
 
 - [ ] **Compiler**: Cfg evaluation
-  - [ ] Evaluate at compile time
-  - [ ] Prune false branches
-  - [ ] Track for error messages
+  - [ ] Accept `--debug` / `--release` flags
+  - [ ] Accept `--feature name` flags
+  - [ ] Prune based on configuration
+  - [ ] **Rust Tests**: Cfg attribute evaluation
+
+- [ ] **Ori Tests**: `tests/spec/conditional/cfg_basic.ori`
+  - [ ] debug/release flags
+  - [ ] feature flags
+  - [ ] any_feature, not_feature
 
 - [ ] **LLVM Support**: LLVM codegen for cfg attribute
-- [ ] **LLVM Rust Tests**: `ori_llvm/tests/cfg_tests.rs` — cfg attribute codegen
-
-- [ ] **Test**: `tests/spec/cfg/basic.ori`
-  - [ ] Simple cfg
-  - [ ] Nested predicates
-  - [ ] cfg on various items
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — cfg attribute codegen
 
 ---
 
-## 13.2 Platform Predicates
-
-**Spec section**: `spec/24-conditional-compilation.md § Platform Predicates`
-
-### Built-in Predicates
-
-```ori
-// Operating system
-#cfg(target_os: "linux")]
-#cfg(target_os: "macos")]
-#cfg(target_os: "windows")]
-#cfg(target_os: "freebsd")]
-#cfg(target_os: "android")]
-#cfg(target_os: "ios")]
-
-// Architecture
-#cfg(target_arch: "x86_64")]
-#cfg(target_arch: "aarch64")]
-#cfg(target_arch: "arm")]
-#cfg(target_arch: "wasm32")]
-
-// Pointer width
-#cfg(target_pointer_width: "64")]
-#cfg(target_pointer_width: "32")]
-
-// Endianness
-#cfg(target_endian: "little")]
-#cfg(target_endian: "big")]
-
-// OS family
-#cfg(target_family: "unix")]
-#cfg(target_family: "windows")]
-
-// Vendor
-#cfg(target_vendor: "apple")]
-#cfg(target_vendor: "unknown")]
-```
-
-### Implementation
-
-- [ ] **Spec**: Platform predicate reference
-  - [ ] All built-in predicates
-  - [ ] Values for each platform
-  - [ ] Detection mechanism
-
-- [ ] **Compiler**: Target detection
-  - [ ] Detect from build environment
-  - [ ] Cross-compilation support
-  - [ ] `--target` flag
-
-- [ ] **Stdlib**: Platform constants
-  - [ ] `std.env.TARGET_OS`
-  - [ ] `std.env.TARGET_ARCH`
-  - [ ] Runtime equivalents (for dynamic checks)
-
-- [ ] **LLVM Support**: LLVM codegen for platform predicates
-- [ ] **LLVM Rust Tests**: `ori_llvm/tests/cfg_tests.rs` — platform predicates codegen
-
-- [ ] **Test**: `tests/spec/cfg/platform.ori`
-  - [ ] OS-specific code
-  - [ ] Arch-specific code
-  - [ ] Cross-platform fallback
-
----
-
-## 13.3 Feature Flags
+## 13.5 Feature Flags
 
 **Spec section**: `spec/24-conditional-compilation.md § Features`
 
 ### Syntax
 
-```ori
-// In ori.toml
+```toml
+# In ori.toml
 [features]
 default = ["logging"]
 logging = []
-metrics = ["logging"]  // depends on logging
+metrics = ["logging"]  # depends on logging
 experimental = []
+ssl = []
+```
 
+```ori
 // In code
-#cfg(feature: "logging")]
+#cfg(feature: "logging")
 @log_message (msg: str) -> void uses Logger = ...
 
-#cfg(not(feature: "logging"))]
-@log_message (msg: str) -> void = void  // No-op
+#cfg(not_feature: "logging")
+@log_message (msg: str) -> void = ()  // No-op
 
 // Feature-gated imports
-#cfg(feature: "metrics")]
+#cfg(feature: "metrics")
 use std.metrics { Counter, Gauge }
+```
+
+### Feature Name Validation
+
+Feature names must be valid Ori identifiers:
+- Start with a letter or underscore
+- Contain only letters, digits, and underscores
+
+```ori
+#cfg(feature: "ssl")           // valid
+#cfg(feature: "async_io")      // valid
+#cfg(feature: "my-feature")    // error: invalid feature name
 ```
 
 ### Implementation
@@ -202,188 +277,179 @@ use std.metrics { Counter, Gauge }
   - [ ] Declaration in ori.toml
   - [ ] Dependency resolution
   - [ ] Default features
+  - [ ] Feature name validation
 
 - [ ] **Build system**: Feature processing
   - [ ] Parse ori.toml features
   - [ ] Resolve feature dependencies
   - [ ] Pass to compiler
+  - [ ] Validate feature names
 
 - [ ] **Compiler**: Feature evaluation
-  - [ ] `--features` flag
+  - [ ] `--feature` flag
   - [ ] `--no-default-features` flag
   - [ ] `--all-features` flag
+  - [ ] **Rust Tests**: Feature flag processing
 
-- [ ] **LLVM Support**: LLVM codegen for feature flags
-- [ ] **LLVM Rust Tests**: `ori_llvm/tests/cfg_tests.rs` — feature flags codegen
-
-- [ ] **Test**: `tests/spec/cfg/features.ori`
+- [ ] **Ori Tests**: `tests/spec/conditional/features.ori`
   - [ ] Basic feature gating
   - [ ] Feature dependencies
   - [ ] Default features
 
+- [ ] **LLVM Support**: LLVM codegen for feature flags
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — feature flags codegen
+
 ---
 
-## 13.4 Compound Predicates
+## 13.6 File-Level Conditions
 
-**Spec section**: `spec/24-conditional-compilation.md § Compound Predicates`
+**Spec section**: `spec/24-conditional-compilation.md § File-Level Conditions`
 
-### Combinators
+### Syntax
 
 ```ori
-// All (AND)
-#cfg(all(target_os: "linux", target_arch: "x86_64"))]
-@linux_x64_only () -> void = ...
+// file: linux_impl.ori
+#!target(os: "linux")
 
-// Any (OR)
-#cfg(any(target_os: "linux", target_os: "macos"))]
-@unix_like () -> void = ...
+// Everything in this file is Linux-only
+@epoll_create () -> int = ...
+@epoll_wait (fd: int) -> [Event] = ...
+```
 
-// Not (negation)
-#cfg(not(target_os: "windows"))]
-@non_windows () -> void = ...
+The `#!` prefix indicates a file-level condition. It must appear before any declarations (after comments).
 
-// Complex combinations
-#cfg(all(
-    target_family: "unix",
-    not(target_os: "macos"),
-    any(target_arch: "x86_64", target_arch: "aarch64"),
-))]
-@linux_arm_or_x64 () -> void = ...
+### Implementation
+
+- [ ] **Spec**: File-level condition semantics
+  - [ ] `#!` syntax
+  - [ ] Position requirements
+  - [ ] Interaction with imports
+
+- [ ] **Lexer**: Recognize `#!` token
+  - [ ] Only at file start
+
+- [ ] **Parser**: Parse file-level conditions
+  - [ ] `#!target(...)`, `#!cfg(...)`
+  - [ ] Apply to entire file
+
+- [ ] **Compiler**: File-level evaluation
+  - [ ] Skip entire file if condition false
+  - [ ] Track for IDE support
+  - [ ] **Rust Tests**: File-level condition processing
+
+- [ ] **Ori Tests**: `tests/spec/conditional/file_level.ori`
+  - [ ] File-level target
+  - [ ] File-level cfg
+
+- [ ] **LLVM Support**: LLVM codegen for file-level conditions
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — file-level conditions codegen
+
+---
+
+## 13.7 Compile-Time Constants
+
+**Spec section**: `spec/24-conditional-compilation.md § Compile-Time Constants`
+
+### Built-in Constants
+
+```ori
+$target_os: str       // "linux", "macos", "windows", etc.
+$target_arch: str     // "x86_64", "aarch64", etc.
+$target_family: str   // "unix", "windows", "wasm"
+$debug: bool          // true in debug builds
+$release: bool        // true in release builds
+```
+
+### Usage
+
+```ori
+@get_path_separator () -> str =
+    if $target_os == "windows" then "\\" else "/"
+```
+
+### Dead Code Elimination
+
+Branches conditioned on compile-time constants are eliminated and not type-checked:
+
+```ori
+@get_window_handle () -> WindowHandle =
+    if $target_os == "windows" then
+        WinApi.get_hwnd()  // Only type-checked on Windows
+    else
+        panic(msg: "Not supported on this platform")
 ```
 
 ### Implementation
 
-- [ ] **Spec**: Combinator semantics
-  - [ ] Short-circuit evaluation
-  - [ ] Nesting rules
-  - [ ] Precedence
+- [ ] **Spec**: Compile-time constant semantics
+  - [ ] Built-in constant names and types
+  - [ ] DCE rules
+  - [ ] Type-checking behavior
 
-- [ ] **Parser**: Parse compound predicates
-  - [ ] `all(...)`, `any(...)`, `not(...)`
-  - [ ] Recursive parsing
-  - [ ] Error on invalid nesting
+- [ ] **Lexer/Parser**: Recognize built-in constants
+  - [ ] `$target_os`, `$target_arch`, etc.
+  - [ ] Treat as config variables
 
-- [ ] **Evaluator**: Evaluate compound predicates
-  - [ ] Boolean logic
-  - [ ] Short-circuit for efficiency
+- [ ] **Type checker**: Compile-time evaluation
+  - [ ] Evaluate comparisons at compile time
+  - [ ] Skip type-checking false branches
+  - [ ] Eliminate dead code
+  - [ ] **Rust Tests**: Compile-time constant evaluation
 
-- [ ] **LLVM Support**: LLVM codegen for compound predicates
-- [ ] **LLVM Rust Tests**: `ori_llvm/tests/cfg_tests.rs` — compound predicates codegen
-
-- [ ] **Test**: `tests/spec/cfg/compound.ori`
-  - [ ] all() combinations
-  - [ ] any() combinations
-  - [ ] not() negation
-  - [ ] Deep nesting
-
----
-
-## 13.5 Cfg in Expressions
-
-**Spec section**: `spec/24-conditional-compilation.md § Cfg Expressions`
-
-### cfg_match
-
-```ori
-// Multi-way cfg selection
-let line_ending = cfg_match(
-    cfg(target_os: "windows") -> "\r\n",
-    cfg(target_family: "unix") -> "\n",
-    _ -> "\n",  // Default fallback
-)
-
-// With complex expressions
-let max_threads = cfg_match(
-    cfg(target_arch: "wasm32") -> 1,
-    cfg(all(target_os: "linux", target_arch: "x86_64")) -> 16,
-    _ -> 4,
-)
-```
-
-### cfg! predicate function
-
-```ori
-// Check cfg at compile time, returns bool
-if cfg!(feature: "logging") then
-    print("Logging is enabled")
-else
-    void
-
-// Use in expressions
-let debug_mode = cfg!(debug_assertions)
-```
-
-### Implementation
-
-- [ ] **Spec**: Expression-level cfg
-  - [ ] `cfg_match` syntax and semantics
-  - [ ] `cfg!` predicate function
-  - [ ] Exhaustiveness requirements
-
-- [ ] **Parser**: Parse cfg expressions
-  - [ ] `cfg_match` as pattern
-  - [ ] `cfg!` as built-in function
-
-- [ ] **Type checker**: Cfg expression types
-  - [ ] All branches same type
+- [ ] **Ori Tests**: `tests/spec/conditional/constants.ori`
+  - [ ] $target_os checks
+  - [ ] $target_arch checks
+  - [ ] $debug/$release checks
   - [ ] Dead branch elimination
 
-- [ ] **LLVM Support**: LLVM codegen for cfg expressions
-- [ ] **LLVM Rust Tests**: `ori_llvm/tests/cfg_tests.rs` — cfg expressions codegen
-
-- [ ] **Test**: `tests/spec/cfg/expressions.ori`
-  - [ ] cfg_match
-  - [ ] cfg! function
-  - [ ] Type consistency
+- [ ] **LLVM Support**: LLVM codegen for compile-time constants
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — compile-time constants codegen
 
 ---
 
-## 13.6 Build Configuration
+## 13.8 Build Configuration
 
 **Spec section**: `spec/24-conditional-compilation.md § Build Configuration`
 
-### ori.toml
+### CLI Flags
+
+```bash
+# Target specification
+ori build --target linux-x86_64
+ori build --target macos-aarch64
+ori build --target windows-x86_64
+
+# Features
+ori build --feature ssl --feature async
+ori build --no-default-features --feature minimal
+
+# Build mode
+ori build --debug    # sets cfg(debug)
+ori build --release  # sets cfg(release)
+
+# Custom cfg flags
+ori build --cfg experimental
+```
+
+### Project Configuration
 
 ```toml
+# ori.toml
 [package]
 name = "myapp"
 version = "1.0.0"
 
 [features]
-default = ["std"]
-std = []
-alloc = []
-logging = []
-metrics = ["logging"]
+default = ["ssl"]
+ssl = []
+async = ["dep:async-runtime"]
+experimental = []
 
 [target.linux]
 dependencies = ["libc"]
 
 [target.windows]
 dependencies = ["winapi"]
-
-[cfg]
-# Custom cfg values
-custom_key = "custom_value"
-```
-
-### CLI Flags
-
-```bash
-# Enable features
-ori build --features logging,metrics
-
-# Disable default features
-ori build --no-default-features --features alloc
-
-# Enable all features
-ori build --all-features
-
-# Set custom cfg
-ori build --cfg custom_key="value"
-
-# Target cross-compilation
-ori build --target aarch64-unknown-linux-gnu
 ```
 
 ### Implementation
@@ -397,23 +463,25 @@ ori build --target aarch64-unknown-linux-gnu
   - [ ] Parse ori.toml
   - [ ] Merge with CLI flags
   - [ ] Pass to compiler
+  - [ ] **Rust Tests**: Build configuration processing
 
-- [ ] **Compiler**: Accept cfg from build system
+- [ ] **Compiler**: Accept configuration
+  - [ ] `--target` flag
+  - [ ] `--feature` flag
+  - [ ] `--debug` / `--release` flags
   - [ ] `--cfg` flag
-  - [ ] Environment-based cfg
-  - [ ] Target specification
 
-- [ ] **LLVM Support**: LLVM codegen for build configuration
-- [ ] **LLVM Rust Tests**: `ori_llvm/tests/cfg_tests.rs` — build configuration codegen
-
-- [ ] **Test**: Integration tests
+- [ ] **Ori Tests**: Integration tests
   - [ ] Build with features
   - [ ] Cross-compilation cfg
   - [ ] Custom cfg values
 
+- [ ] **LLVM Support**: LLVM codegen for build configuration
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — build configuration codegen
+
 ---
 
-## 13.7 Diagnostics
+## 13.9 Diagnostics
 
 **Spec section**: `spec/24-conditional-compilation.md § Diagnostics`
 
@@ -421,7 +489,7 @@ ori build --target aarch64-unknown-linux-gnu
 
 ```ori
 // Clear errors for cfg mismatch
-#cfg(target_os: "linux")]
+#target(os: "linux")
 @linux_only () -> void = ...
 
 // On Windows:
@@ -429,41 +497,45 @@ ori build --target aarch64-unknown-linux-gnu
 //   --> src/main.ori:5:1
 //   |
 // 5 | linux_only()
-//   | ^^^^^^^^^^ requires cfg(target_os: "linux")
+//   | ^^^^^^^^^^ requires #target(os: "linux")
 //   |
 //   = note: current target: windows-x86_64
 //   = help: this function is only available on Linux
 ```
 
-### Dead Code Warnings
+### Invalid Feature Names
 
 ```ori
-// Warn about never-true cfg
-#cfg(all(target_os: "linux", target_os: "windows"))]
-@impossible () -> void = ...
-// warning: cfg predicate is always false
-//   = note: target_os cannot be both "linux" and "windows"
+#cfg(feature: "my-feature")
+// error: invalid feature name "my-feature"
+//   --> src/main.ori:1:15
+//   |
+// 1 | #cfg(feature: "my-feature")
+//   |               ^^^^^^^^^^^^ feature names must be valid identifiers
+//   |
+//   = help: use "my_feature" instead
 ```
 
 ### Implementation
 
-- [ ] **Diagnostics**: Cfg-aware error messages
-  - [ ] Show active cfg when relevant
-  - [ ] Suggest alternative platforms
-  - [ ] Link to platform docs
+- [ ] **Diagnostics**: Condition-aware error messages
+  - [ ] Show active configuration when relevant
+  - [ ] Suggest alternative platforms/features
+  - [ ] Validate feature names
 
-- [ ] **Lints**: Cfg validation
-  - [ ] Warn on impossible cfg
-  - [ ] Warn on redundant cfg
-  - [ ] Warn on unknown cfg keys
+- [ ] **Lints**: Condition validation
+  - [ ] Warn on impossible conditions
+  - [ ] Warn on unknown OS/arch values
+  - [ ] Error on invalid feature names
+  - [ ] **Rust Tests**: Diagnostic generation
 
-- [ ] **LLVM Support**: LLVM codegen for cfg diagnostics
-- [ ] **LLVM Rust Tests**: `ori_llvm/tests/cfg_tests.rs` — cfg diagnostics codegen
-
-- [ ] **Test**: `tests/compile-fail/cfg/`
+- [ ] **Ori Tests**: `tests/compile-fail/conditional/`
   - [ ] Platform mismatch errors
-  - [ ] Invalid cfg syntax
-  - [ ] Impossible cfg warnings
+  - [ ] Invalid feature names
+  - [ ] Unknown condition values
+
+- [ ] **LLVM Support**: LLVM codegen for condition diagnostics
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — condition diagnostics codegen
 
 ---
 
@@ -471,11 +543,16 @@ ori build --target aarch64-unknown-linux-gnu
 
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Spec updated: `spec/24-conditional-compilation.md` complete
-- [ ] CLAUDE.md updated with cfg syntax
+- [ ] CLAUDE.md updated with conditional compilation syntax
+- [ ] `#target(...)` works on items
 - [ ] `#cfg(...)` works on items
-- [ ] Platform predicates work
+- [ ] `#!target(...)` works on files
+- [ ] OR conditions work (`any_*`)
+- [ ] Negation works (`not_*`)
+- [ ] Target families work
 - [ ] Feature flags work
-- [ ] `cfg_match` expression works
+- [ ] Compile-time constants work
+- [ ] Dead code elimination works
 - [ ] Build system integration complete
 - [ ] All tests pass: `./test-all`
 
@@ -486,38 +563,33 @@ ori build --target aarch64-unknown-linux-gnu
 ## Example: Cross-Platform Path Handling
 
 ```ori
-// Platform-specific path separator
-$PATH_SEP: str = cfg_match(
-    cfg(target_os: "windows") -> "\\",
-    _ -> "/",
-)
+// Platform-specific path separator using compile-time constant
+@get_path_separator () -> str =
+    if $target_os == "windows" then "\\" else "/"
 
-// Platform-specific home directory
-@home_dir () -> Option<str> = cfg_match(
-    cfg(target_family: "unix") -> run(
-        use std.env { get_var }
-        get_var(name: "HOME")
-    ),
-    cfg(target_os: "windows") -> run(
-        use std.env { get_var }
-        get_var(name: "USERPROFILE")
-    ),
-)
+// Platform-specific home directory using target attribute
+#target(family: "unix")
+@home_dir () -> Option<str> = Env.get(key: "HOME")
+
+#target(os: "windows")
+@home_dir () -> Option<str> = Env.get(key: "USERPROFILE")
 
 // Platform-specific file operations
-#cfg(target_family: "unix")]
+#target(family: "unix")
 @set_permissions (path: str, mode: int) -> Result<void, Error> uses FileSystem = run(
     // Unix chmod
-    extern "C" { @chmod (path: *byte, mode: c_int) -> c_int }
-    unsafe {
-        let result = chmod(path: path.as_c_str(), mode: c_int(mode))
-        if result == 0 then Ok(void) else Err(Error { message: "chmod failed" })
-    }
+    Unix.chmod(path: path, mode: mode),
 )
 
-#cfg(target_os: "windows")]
-@set_permissions (path: str, mode: int) -> Result<void, Error> uses FileSystem = run(
-    // Windows ACL (simplified)
-    Ok(void)  // Windows handles permissions differently
-)
+#target(os: "windows")
+@set_permissions (path: str, mode: int) -> Result<void, Error> uses FileSystem =
+    // Windows handles permissions differently
+    Ok(())
+
+// Debug-only logging
+#cfg(debug)
+@debug_log (msg: str) -> void = print(msg: `[DEBUG] {msg}`)
+
+#cfg(not_debug)
+@debug_log (msg: str) -> void = ()
 ```
