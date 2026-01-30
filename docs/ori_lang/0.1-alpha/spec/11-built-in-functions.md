@@ -115,6 +115,14 @@ print(msg: str) -> void
 panic(msg: str) -> Never
 ```
 
+## Concurrency
+
+```
+is_cancelled() -> bool
+```
+
+Available in async contexts. Returns `true` if the current task has been marked for cancellation. See [Patterns § nursery](10-patterns.md#nursery) for cancellation semantics.
+
 ## Prelude
 
 Available without import:
@@ -124,6 +132,8 @@ Available without import:
 - `is_ok`, `is_err`, `Ok`, `Err`
 - All assertions
 - `print`, `panic`, `compare`, `min`, `max`
+- `is_cancelled` (async contexts only)
+- `CancellationError`, `CancellationReason` types
 
 ## Collection Methods
 

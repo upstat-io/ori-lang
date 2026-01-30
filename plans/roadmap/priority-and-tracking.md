@@ -393,6 +393,28 @@
 - Caching: by function + args hash
 - Blocked on: None (can be implemented independently)
 
+**Parallel Execution Guarantees** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/parallel-execution-guarantees-proposal.md`
+- Implementation: Phase 17.6
+- Execution order: tasks start in list order, may complete in any order
+- Result order: always matches original task list order
+- Parameters: `max_concurrent: Option<int> = None`, `timeout: Option<Duration> = None`
+- Resource exhaustion: per-task `CancellationError { reason: ResourceExhausted }`
+- No early termination: use `nursery` with `FailFast` for that
+- Cooperative cancellation: `is_cancelled()` available in tasks
+- Blocked on: Phase 16 (Async Support), nursery-cancellation-proposal
+
+**Nursery Cancellation Semantics** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/nursery-cancellation-proposal.md`
+- Implementation: Phase 17.7
+- Model: cooperative cancellation (not preemptive)
+- Checkpoints: suspension points, loop iterations, pattern entry
+- Error modes: FailFast (cancel all), CancelRemaining (cancel pending), CollectAll (no cancel)
+- Types: `CancellationError`, `CancellationReason` (Timeout, SiblingFailed, NurseryExited, ExplicitCancel, ResourceExhausted)
+- API: `is_cancelled()` built-in function, automatic loop checking
+- Cleanup: guaranteed destructor execution during cancellation
+- Blocked on: Phase 16 (Async Support)
+
 **std.time API** — ✅ APPROVED 2026-01-30
 - Proposal: `proposals/approved/stdlib-time-api-proposal.md`
 - Implementation: Phase 7.18

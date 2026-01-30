@@ -1,6 +1,7 @@
 # Proposal: Nursery Cancellation Semantics
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-30
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-29
 **Affects:** Compiler, runtime, concurrency model
@@ -174,6 +175,7 @@ type CancellationReason =
     | SiblingFailed
     | NurseryExited
     | ExplicitCancel
+    | ResourceExhausted
 ```
 
 Cancelled tasks return `Err(CancellationError)` in the results array.
