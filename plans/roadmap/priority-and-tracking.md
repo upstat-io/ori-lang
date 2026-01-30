@@ -379,6 +379,20 @@
 - MockClock with interior mutability for testing
 - Blocked on: None (can be implemented independently)
 
+**std.json API** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/stdlib-json-api-proposal.md`
+- Implementation: Phase 7.19
+- Core types: `JsonValue` (sum type), `JsonError`, `Json` trait
+- Parsing: `parse()` returns `JsonValue`, `parse_as<T>()` for typed deserialization
+- Serialization: `stringify()`, `stringify_pretty()`, `to_json_string()`, `to_json_string_pretty()`
+- `#derive(Json)` with field attributes (`#json(rename:, skip, default:, flatten)`)
+- Flatten conflicts are compile errors
+- `as_int()` returns `None` for non-integers (no truncation)
+- Streaming API: `JsonParser` implements `Iterator` with `JsonEvent` items
+- Built-in extensions: `Duration` (ISO 8601), `Size` (bytes)
+- Precision note: integers >2^53 may lose precision
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones
