@@ -867,13 +867,16 @@ File system operations including reading, writing, directory manipulation, and f
 ## 7D.9 std.crypto Module
 
 **Proposal**: `proposals/approved/stdlib-crypto-api-proposal.md`
+**FFI Implementation**: `proposals/approved/stdlib-crypto-ffi-native-proposal.md`
 
 Cryptographic primitives including hashing, encryption, signatures, key exchange, and secure random.
+
+**Backend**: libsodium (modern algorithms) + OpenSSL (RSA only)
 
 ### 7D.9.1 Core Types
 
 - [ ] **Implement**: `HashAlgorithm` sum type
-  - `Sha256 | Sha384 | Sha512 | Blake2b | Blake3`
+  - `Sha256 | Sha512 | Blake2b`
   - [ ] **Rust Tests**: `library/std/crypto/hash.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/hash.ori`
   - [ ] **LLVM Support**: LLVM codegen for HashAlgorithm
@@ -992,7 +995,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — generate_key codegen
 
 - [ ] **Implement**: `encrypt(key: SecretKey, plaintext: [byte]) -> [byte] uses Crypto`
-  - Uses AES-256-GCM with random nonce (prepended to ciphertext)
+  - Uses XSalsa20-Poly1305 with random nonce (prepended to ciphertext)
   - [ ] **Rust Tests**: `library/std/crypto/symmetric.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/symmetric.ori`
   - [ ] **LLVM Support**: LLVM codegen for encrypt
