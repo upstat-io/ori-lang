@@ -1,0 +1,13 @@
+// Golden test: Trait implementations
+// Spec: 08-declarations.md § Implementations
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+type Point = { x: int, y: int }
+
+trait Printable {
+    @to_str (self) -> str
+}
+
+impl Printable for Point {
+    @to_str (self) -> str = "point"
+}

@@ -161,7 +161,7 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
     let main_name = interner.intern("main");
     if let Some(main_func) = evaluator.env().lookup(main_name) {
         // Call main with no arguments
-        match evaluator.eval_call_value(main_func, &[]) {
+        match evaluator.eval_call_value(&main_func, &[]) {
             Ok(value) => ModuleEvalResult::success(EvalOutput::from_value(&value, interner)),
             Err(e) => ModuleEvalResult::failure(e.message),
         }

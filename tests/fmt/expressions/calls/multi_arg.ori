@@ -1,0 +1,6 @@
+// Multi-argument function calls (inline when fits)
+// Spec: 04-declarations.md § Functions
+
+@send (to: str, from: str, msg: str) -> void = print(msg: msg)
+
+@use_send () -> void = send(to: "alice", from: "bob", msg: "hello")

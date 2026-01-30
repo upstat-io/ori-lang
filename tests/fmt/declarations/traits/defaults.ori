@@ -1,0 +1,9 @@
+// Golden test: Traits with default implementations
+// Spec: 08-declarations.md § Trait Definitions
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+trait Counter {
+    @count (self) -> int
+
+    @is_empty (self) -> bool = self.count() == 0
+}

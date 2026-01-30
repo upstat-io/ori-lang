@@ -1,0 +1,10 @@
+// Golden test: Test attributes
+// Spec: 08-declarations.md § Test Declarations
+// Design: tooling/formatter/design/02-constructs/declarations.md
+// Note: Free-floating tests are identified by name starting with test_
+
+#skip("not implemented") @test_future () -> void = 1
+
+#compile_fail("type error") @test_type_error () -> void = 42
+
+#fail("expected panic") @test_panic () -> void = 1

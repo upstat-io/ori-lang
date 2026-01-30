@@ -1,0 +1,11 @@
+// Golden test: Traits with multiple methods
+// Spec: 08-declarations.md § Trait Definitions
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+trait Comparable {
+    @compare (self, other: Self) -> int
+
+    @less_than (self, other: Self) -> bool
+
+    @greater_than (self, other: Self) -> bool
+}

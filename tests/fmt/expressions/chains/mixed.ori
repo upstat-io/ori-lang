@@ -1,0 +1,8 @@
+// Mixed field access and method calls
+// Spec: 06-expressions.md § Field Access
+
+type Point = { x: int, y: int }
+
+@get_x (p: Point) -> int = p.x
+
+@get_y (p: Point) -> int = p.y

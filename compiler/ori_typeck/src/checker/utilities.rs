@@ -50,9 +50,14 @@ impl TypeChecker<'_> {
         if let (Some(ref mut queue), Some(ref source)) =
             (&mut self.diagnostics.queue, &self.diagnostics.source)
         {
-            let is_soft = error.is_soft();
+            use ori_diagnostic::queue::DiagnosticSeverity;
+            let severity = if error.is_soft() {
+                DiagnosticSeverity::Soft
+            } else {
+                DiagnosticSeverity::Hard
+            };
             // Add to queue - it will handle deduplication and limits
-            if queue.add_with_source(diag, source, is_soft) {
+            if queue.add_with_source_and_severity(diag, source, severity) {
                 self.diagnostics.errors.push(error);
             }
         } else {

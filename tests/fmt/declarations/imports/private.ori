@@ -1,0 +1,6 @@
+// Golden test: Private imports
+// Spec: 08-declarations.md § Import Statements
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+use "./internal" { ::private_helper }
+use "../utils" { public_fn, ::internal_fn }

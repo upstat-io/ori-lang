@@ -1,0 +1,8 @@
+// Golden test: Public constants
+// Spec: 08-declarations.md § Constants
+// Design: tooling/formatter/design/02-constructs/declarations.md
+// Note: Parser uses $name = value syntax (without let keyword)
+
+pub $MAX_SIZE = 1024
+pub $VERSION = "1.0.0"
+$internal_config = 42

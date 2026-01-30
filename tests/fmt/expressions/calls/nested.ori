@@ -1,0 +1,8 @@
+// Nested function calls
+// Spec: 04-declarations.md § Functions
+
+@outer (x: int) -> int = x + 1
+
+@inner (x: int) -> int = x * 2
+
+@nested () -> int = outer(x: inner(x: 5))

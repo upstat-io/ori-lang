@@ -36,7 +36,7 @@ const tiers: Tier[] = [
   {
     id: 1,
     name: "Foundation",
-    status: "partial",
+    status: "complete",
     description: "Core type system and language fundamentals",
     phases: [
       {
@@ -693,15 +693,16 @@ const tiers: Tier[] = [
       {
         num: 22,
         name: "Tooling",
-        status: "not-started",
-        note: "Formatter, LSP, REPL",
+        status: "partial",
+        note: "Width calculator complete; formatter core pending",
         goal: "Developer tooling ecosystem",
         spec: "Implementation-specific",
         sections: [
           { name: "Formatter", tasks: [
+            { name: "Width calculation engine", done: true },
             { name: "ori fmt command", done: false },
+            { name: "ori fmt --check for CI", done: false },
             { name: "Zero-config formatting", done: false },
-            { name: "IDE integration", done: false },
           ]},
           { name: "Language Server", tasks: [
             { name: "LSP implementation", done: false },
@@ -714,6 +715,22 @@ const tiers: Tier[] = [
             { name: "Interactive shell", done: false },
             { name: "Expression evaluation", done: false },
             { name: "History and completion", done: false },
+          ]},
+          { name: "Test Runner", tasks: [
+            { name: "ori test command", done: true },
+            { name: "File and directory filtering", done: true },
+            { name: "Parallel execution", done: true },
+            { name: "Test output formatting", done: true },
+            { name: "Coverage report generation", done: true },
+          ]},
+          { name: "Causality Tracking", tasks: [
+            { name: "ori impact command", done: false },
+            { name: "ori why command", done: false },
+          ]},
+          { name: "Structured Diagnostics", tasks: [
+            { name: "JSON output mode (--json)", done: false },
+            { name: "Auto-fix (--fix)", done: false },
+            { name: "Rust-style diagnostic rendering", done: false },
           ]},
         ],
       },
@@ -787,11 +804,11 @@ function countTasks(sections: Section[]): { done: number; total: number } {
       </p>
       <div class="stats">
         <div class="stat">
-          <span class="stat-value">7</span>
+          <span class="stat-value">6</span>
           <span class="stat-label">Completed</span>
         </div>
         <div class="stat">
-          <span class="stat-value">4</span>
+          <span class="stat-value">5</span>
           <span class="stat-label">In Progress</span>
         </div>
         <div class="stat">

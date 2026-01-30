@@ -33,11 +33,23 @@ impl BuiltinMethodHandler for NumericMethodHandler {
     }
 }
 
+/// Common methods shared by int and float: `to_string`, `compare`.
+fn common_numeric_method(interner: &StringInterner, method: &str) -> Option<MethodTypeResult> {
+    match method {
+        "to_string" => Some(MethodTypeResult::Ok(Type::Str)),
+        "compare" => Some(MethodTypeResult::Ok(Type::Named(
+            interner.intern("Ordering"),
+        ))),
+        _ => None,
+    }
+}
+
 fn check_int_method(interner: &StringInterner, method: &str) -> MethodTypeResult {
+    if let Some(result) = common_numeric_method(interner, method) {
+        return result;
+    }
     match method {
         "abs" | "min" | "max" => MethodTypeResult::Ok(Type::Int),
-        "to_string" => MethodTypeResult::Ok(Type::Str),
-        "compare" => MethodTypeResult::Ok(Type::Named(interner.intern("Ordering"))),
         _ => MethodTypeResult::Err(MethodTypeError::new(
             format!("unknown method `{method}` for type `int`"),
             ErrorCode::E2002,
@@ -46,12 +58,13 @@ fn check_int_method(interner: &StringInterner, method: &str) -> MethodTypeResult
 }
 
 fn check_float_method(interner: &StringInterner, method: &str) -> MethodTypeResult {
+    if let Some(result) = common_numeric_method(interner, method) {
+        return result;
+    }
     match method {
         "abs" | "floor" | "ceil" | "round" | "sqrt" | "min" | "max" => {
             MethodTypeResult::Ok(Type::Float)
         }
-        "to_string" => MethodTypeResult::Ok(Type::Str),
-        "compare" => MethodTypeResult::Ok(Type::Named(interner.intern("Ordering"))),
         _ => MethodTypeResult::Err(MethodTypeError::new(
             format!("unknown method `{method}` for type `float`"),
             ErrorCode::E2002,

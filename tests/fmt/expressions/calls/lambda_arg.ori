@@ -1,0 +1,8 @@
+// Function calls with lambda arguments
+// Spec: 04-declarations.md § Functions
+
+@process (items: [int]) -> [int] = items.map(x -> x * 2)
+
+@filter_pos (items: [int]) -> [int] = items.filter(x -> x > 0)
+
+@combine (items: [int]) -> int = items.fold(initial: 0, op: (a, b) -> a + b)

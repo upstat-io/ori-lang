@@ -1,0 +1,7 @@
+// Golden test: Relative imports
+// Spec: 08-declarations.md § Import Statements
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+use "./utils" { helper }
+use "../models" { User, Post }
+use "./helpers/math" { add, multiply }

@@ -1,0 +1,8 @@
+// Note: Derive attribute output is not implemented yet in Phase 2
+// This expected file shows the current output without derives
+
+type Point = { x: int, y: int }
+
+type Status = Pending | Running | Done
+
+type User = { id: int, name: str }

@@ -1,0 +1,8 @@
+// Range expressions
+// Spec: 06-expressions.md § Ranges
+
+type Range<T> = { start: T, end: T }
+
+@make_range (n: int) -> Range<int> = 0..n
+
+@make_inclusive (n: int) -> Range<int> = 0..=n

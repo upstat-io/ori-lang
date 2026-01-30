@@ -1,0 +1,7 @@
+// Golden test: Targeted test declarations
+// Spec: 08-declarations.md § Test Declarations
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+@add (a: int, b: int) -> int = a + b
+
+@test_add tests @add () -> void = assert_eq(actual: add(a: 1, b: 2), expected: 3)

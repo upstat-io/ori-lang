@@ -1,0 +1,13 @@
+// Note: Formatter breaks parameters when signature exceeds 100 chars
+// send_notification (88 chars) fits inline
+// process_data (110 chars) breaks to multiple lines
+
+@send_notification (user_id: int, message: str, priority: int, retry_count: int) -> int = 0
+
+@process_data (
+    input_data: str,
+    output_format: str,
+    compression_level: int,
+    encryption_enabled: bool,
+    max_retries: int,
+) -> str = input_data

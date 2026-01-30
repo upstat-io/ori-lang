@@ -1,0 +1,7 @@
+// Simple let bindings
+// Spec: 06-expressions.md § Let Bindings
+
+@with_binding () -> int = run(
+    let x = 42,
+    x,
+)

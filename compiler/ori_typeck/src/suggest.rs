@@ -59,6 +59,35 @@ pub fn suggest_function(checker: &TypeChecker<'_>, unknown_name: Name) -> Option
     suggest_similar(unknown_str, candidates)
 }
 
+/// Suggest a similar struct field name.
+///
+/// Searches for field names similar to the given unknown field within a struct type.
+///
+/// # Arguments
+///
+/// * `checker` - The type checker (provides access to interner and type registry)
+/// * `type_name` - The name of the struct type
+/// * `unknown_field` - The unknown field name
+///
+/// # Returns
+///
+/// An optional suggestion string if a similar field name is found.
+pub fn suggest_field(checker: &TypeChecker<'_>, type_name: Name, unknown_field: Name) -> Option<String> {
+    let unknown_str = checker.context.interner.lookup(unknown_field);
+
+    let entry = checker.registries.types.get_by_name(type_name)?;
+
+    if let crate::registry::TypeKind::Struct { fields } = &entry.kind {
+        let candidates = fields
+            .iter()
+            .map(|(name, _)| checker.context.interner.lookup(*name));
+
+        suggest_similar(unknown_str, candidates)
+    } else {
+        None
+    }
+}
+
 /// Calculate Levenshtein edit distance between two strings.
 ///
 /// This is the minimum number of single-character edits (insertions,

@@ -1,0 +1,6 @@
+// Multi-parameter lambda
+// Spec: 06-expressions.md § Lambdas
+
+@sum (items: [int]) -> int = items.fold(initial: 0, op: (a, b) -> a + b)
+
+@product (items: [int]) -> int = items.fold(initial: 1, op: (a, b) -> a * b)

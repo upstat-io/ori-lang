@@ -5,6 +5,7 @@ use super::identifiers::infer_ident;
 use super::substitute_type_params;
 use crate::checker::TypeChecker;
 use crate::registry::TypeKind;
+use crate::suggest::suggest_field;
 use ori_ir::{FieldInitRange, Name, Span};
 use ori_types::Type;
 use std::collections::{HashMap, HashSet};
@@ -82,15 +83,15 @@ pub(super) fn handle_struct_field_access(
     match lookup_result {
         FieldLookupResult::Found(ty) => ty,
         FieldLookupResult::NoSuchField => {
-            checker.push_error(
-                format!(
-                    "struct `{}` has no field `{}`",
-                    checker.context.interner.lookup(type_name),
-                    checker.context.interner.lookup(field)
-                ),
-                span,
-                ori_diagnostic::ErrorCode::E2001,
+            let mut msg = format!(
+                "struct `{}` has no field `{}`",
+                checker.context.interner.lookup(type_name),
+                checker.context.interner.lookup(field)
             );
+            if let Some(suggestion) = suggest_field(checker, type_name, field) {
+                msg.push_str(&format!("; did you mean `{suggestion}`?"));
+            }
+            checker.push_error(msg, span, ori_diagnostic::ErrorCode::E2001);
             Type::Error
         }
         FieldLookupResult::NotStruct => {
@@ -195,7 +196,8 @@ pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInit
         (substituted_fields, type_args)
     };
 
-    let expected_map: HashMap<Name, Type> = expected_fields.iter().cloned().collect();
+    let expected_map: HashMap<Name, &Type> =
+        expected_fields.iter().map(|(n, ty)| (*n, ty)).collect();
 
     let field_inits = checker.context.arena.get_field_inits(fields);
     let mut provided_fields: HashSet<Name> = HashSet::new();
@@ -213,7 +215,7 @@ pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInit
             continue;
         }
 
-        if let Some(expected_ty) = expected_map.get(&init.name) {
+        if let Some(&expected_ty) = expected_map.get(&init.name) {
             if let Some(value_id) = init.value {
                 let actual_ty = infer_expr(checker, value_id);
                 if let Err(e) = checker.inference.ctx.unify(&actual_ty, expected_ty) {
@@ -226,15 +228,15 @@ pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInit
                 }
             }
         } else {
-            checker.push_error(
-                format!(
-                    "struct `{}` has no field `{}`",
-                    checker.context.interner.lookup(name),
-                    checker.context.interner.lookup(init.name)
-                ),
-                init.span,
-                ori_diagnostic::ErrorCode::E2001,
+            let mut msg = format!(
+                "struct `{}` has no field `{}`",
+                checker.context.interner.lookup(name),
+                checker.context.interner.lookup(init.name)
             );
+            if let Some(suggestion) = suggest_field(checker, name, init.name) {
+                msg.push_str(&format!("; did you mean `{suggestion}`?"));
+            }
+            checker.push_error(msg, init.span, ori_diagnostic::ErrorCode::E2001);
 
             if let Some(value_id) = init.value {
                 infer_expr(checker, value_id);

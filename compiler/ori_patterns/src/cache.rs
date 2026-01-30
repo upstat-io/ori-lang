@@ -60,6 +60,7 @@ impl PatternDefinition for CachePattern {
 }
 
 #[cfg(test)]
+// Tests use unwrap() to panic on unexpected state, making failures immediately visible
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;

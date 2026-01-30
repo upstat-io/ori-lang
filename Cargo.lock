@@ -605,6 +605,8 @@ name = "ori_fmt"
 version = "0.1.0-alpha.1"
 dependencies = [
  "ori_ir",
+ "ori_lexer",
+ "ori_parse",
  "pretty_assertions",
  "rustc-hash",
 ]

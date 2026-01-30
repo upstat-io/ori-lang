@@ -1,0 +1,9 @@
+// Golden test: Generic function declarations
+// Spec: 08-declarations.md § Function Declarations
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+@identity<T> (value: T) -> T = value
+
+@swap<T, U> (a: T, b: U) -> (U, T) = (b, a)
+
+@first<A, B, C> (a: A, b: B, c: C) -> A = a

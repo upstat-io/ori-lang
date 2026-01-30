@@ -1,0 +1,12 @@
+// Simple binary expressions
+// Spec: 06-expressions.md § Binary Operators
+
+@add (a: int, b: int) -> int = a + b
+
+@sub (a: int, b: int) -> int = a - b
+
+@mul (a: int, b: int) -> int = a * b
+
+@divide (a: int, b: int) -> int = a / b
+
+@precedence (a: int, b: int, c: int) -> int = a + b * c

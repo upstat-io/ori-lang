@@ -120,7 +120,7 @@ impl Interpreter<'_> {
                     // Optionally apply map function
                     let match_item = if let Some(map_expr) = map {
                         let map_fn = self.eval(*map_expr)?;
-                        self.eval_call_value(map_fn, std::slice::from_ref(item))?
+                        self.eval_call_value(&map_fn, std::slice::from_ref(item))?
                     } else {
                         item.clone()
                     };

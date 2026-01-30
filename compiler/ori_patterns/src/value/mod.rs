@@ -142,6 +142,11 @@ pub enum Value {
     ///
     /// Created by module alias imports like `use std.net.http as http`.
     /// Enables qualified access like `http.get()`.
+    ///
+    /// # Note on Iteration Order
+    /// Uses `HashMap` for O(1) lookups. If iteration order needs to be
+    /// deterministic (e.g., for Salsa query results), consider changing to
+    /// `BTreeMap`. Currently, lookups dominate the use case.
     ModuleNamespace(Heap<HashMap<Name, Value>>),
 
     // Error Recovery

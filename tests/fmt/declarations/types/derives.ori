@@ -1,0 +1,12 @@
+// Golden test: Type definitions with derives
+// Spec: 08-declarations.md § Type Definitions
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+#derive(Eq, Clone) type Point = { x: int, y: int }
+
+#derive(Debug) type Status = Pending | Running | Done
+
+#derive(Eq, Clone, Debug) type User = {
+    id: int,
+    name: str,
+}

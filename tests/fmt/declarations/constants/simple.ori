@@ -1,0 +1,8 @@
+// Golden test: Simple constants
+// Spec: 08-declarations.md § Constants
+// Design: tooling/formatter/design/02-constructs/declarations.md
+// Note: Parser uses $name = value syntax (without let keyword)
+
+$request_timeout = 30
+$max_retries = 3
+$api_url = "https://api.example.com"

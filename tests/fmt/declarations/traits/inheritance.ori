@@ -1,0 +1,11 @@
+// Golden test: Trait inheritance
+// Spec: 08-declarations.md § Trait Definitions
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+trait Ordered: Eq {
+    @compare (self, other: Self) -> int
+}
+
+trait Countable: Iterator + Clone {
+    @count (self) -> int
+}

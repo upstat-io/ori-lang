@@ -21,6 +21,7 @@ pub struct InterpreterBuilder<'a> {
     imported_arena: Option<SharedArena>,
     user_method_registry: Option<SharedMutableRegistry<UserMethodRegistry>>,
     print_handler: Option<SharedPrintHandler>,
+    owns_scoped_env: bool,
 }
 
 impl<'a> InterpreterBuilder<'a> {
@@ -34,6 +35,7 @@ impl<'a> InterpreterBuilder<'a> {
             imported_arena: None,
             user_method_registry: None,
             print_handler: None,
+            owns_scoped_env: false,
         }
     }
 
@@ -75,6 +77,16 @@ impl<'a> InterpreterBuilder<'a> {
         self
     }
 
+    /// Mark this interpreter as owning a scoped environment.
+    ///
+    /// When set to true, the interpreter will pop its environment scope when dropped.
+    /// This is used for function/method call interpreters to ensure RAII panic safety.
+    #[must_use]
+    pub fn owns_scoped_env(mut self, owns: bool) -> Self {
+        self.owns_scoped_env = owns;
+        self
+    }
+
     /// Build the interpreter.
     pub fn build(self) -> Interpreter<'a> {
         let pat_reg = self
@@ -103,6 +115,7 @@ impl<'a> InterpreterBuilder<'a> {
             imported_arena: self.imported_arena,
             prelude_loaded: false,
             print_handler: self.print_handler.unwrap_or_else(stdout_handler),
+            owns_scoped_env: self.owns_scoped_env,
         }
     }
 }

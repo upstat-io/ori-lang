@@ -1,0 +1,9 @@
+// Struct destructuring
+// Spec: 06-expressions.md § Pattern Matching
+
+type Point = { x: int, y: int }
+
+@distance_sq (p: Point) -> int = run(
+    let { x, y } = p,
+    x * x + y * y,
+)

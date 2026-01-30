@@ -49,7 +49,7 @@ impl<'a> BoundContext<'a> {
     ///
     /// Panics if there are no scopes to pop (invariant violation).
     #[inline]
-    #[allow(clippy::expect_used)]
+    #[expect(clippy::expect_used, reason = "Invariant: scopes are always non-empty after push_scope")]
     pub fn pop_scope(&mut self) {
         self.scopes
             .pop()
@@ -62,7 +62,7 @@ impl<'a> BoundContext<'a> {
     ///
     /// Panics if there is no current scope (must call `push_scope` first).
     #[inline]
-    #[allow(clippy::expect_used)]
+    #[expect(clippy::expect_used, reason = "Invariant: scopes are always non-empty after push_scope")]
     pub fn add_binding(&mut self, name: Name) {
         self.scopes
             .last_mut()
@@ -75,7 +75,7 @@ impl<'a> BoundContext<'a> {
     /// # Panics
     ///
     /// Panics if there is no current scope (must call `push_scope` first).
-    #[allow(clippy::expect_used)]
+    #[expect(clippy::expect_used, reason = "Invariant: scopes are always non-empty after push_scope")]
     pub fn add_bindings(&mut self, names: impl IntoIterator<Item = Name>) {
         let scope = self
             .scopes

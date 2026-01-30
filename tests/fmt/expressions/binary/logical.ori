@@ -1,0 +1,8 @@
+// Logical operators
+// Spec: 06-expressions.md § Binary Operators
+
+@both (a: bool, b: bool) -> bool = a && b
+
+@either (a: bool, b: bool) -> bool = a || b
+
+@complex (a: bool, b: bool, c: bool) -> bool = a && b || c

@@ -10,8 +10,8 @@ use ori_ir::CallArgRange;
 
 impl Interpreter<'_> {
     /// Evaluate a function call.
-    pub(super) fn eval_call(&mut self, func: Value, args: &[Value]) -> EvalResult {
-        match &func {
+    pub(super) fn eval_call(&mut self, func: &Value, args: &[Value]) -> EvalResult {
+        match func {
             Value::Function(f) => {
                 check_arg_count(f, args)?;
 
@@ -42,11 +42,10 @@ impl Interpreter<'_> {
                 bind_self(&mut call_env, func.clone(), self.interner);
 
                 // Evaluate body using the function's arena (arena threading pattern).
+                // The scope is popped automatically via RAII when call_interpreter drops.
                 let func_arena = f.arena();
                 let mut call_interpreter = self.create_function_interpreter(func_arena, call_env);
-                let result = call_interpreter.eval(f.body);
-                call_interpreter.env.pop_scope();
-                result
+                call_interpreter.eval(f.body)
             }
             Value::MemoizedFunction(mf) => {
                 // Check cache first
@@ -80,10 +79,10 @@ impl Interpreter<'_> {
                 bind_self(&mut call_env, func.clone(), self.interner);
 
                 // Evaluate body using the function's arena (arena threading pattern).
+                // The scope is popped automatically via RAII when call_interpreter drops.
                 let func_arena = f.arena();
                 let mut call_interpreter = self.create_function_interpreter(func_arena, call_env);
                 let result = call_interpreter.eval(f.body);
-                call_interpreter.env.pop_scope();
 
                 // Cache the result before returning
                 if let Ok(ref value) = result {
@@ -126,7 +125,7 @@ impl Interpreter<'_> {
     }
 
     /// Evaluate a function call with named arguments.
-    pub(super) fn eval_call_named(&mut self, func: Value, args: CallArgRange) -> EvalResult {
+    pub(super) fn eval_call_named(&mut self, func: &Value, args: CallArgRange) -> EvalResult {
         let arg_values = extract_named_args(args, self.arena, |expr| self.eval(expr))?;
         self.eval_call(func, &arg_values)
     }
@@ -134,7 +133,7 @@ impl Interpreter<'_> {
     /// Call a function value with the given arguments.
     ///
     /// This is a public wrapper around `eval_call` for use in queries.
-    pub fn eval_call_value(&mut self, func: Value, args: &[Value]) -> EvalResult {
+    pub fn eval_call_value(&mut self, func: &Value, args: &[Value]) -> EvalResult {
         self.eval_call(func, args)
     }
 }

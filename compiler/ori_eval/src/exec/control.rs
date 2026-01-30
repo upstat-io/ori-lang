@@ -6,6 +6,12 @@
 //! - For loops (imperative and yield)
 //! - Loop expressions
 //! - Break and continue
+//!
+//! # RAII Scope Safety
+//!
+//! Functions in this module that modify environment scope use `EnvScopeGuard`
+//! to ensure the scope is popped even if evaluation panics. This provides
+//! true panic safety through the RAII pattern.
 
 use crate::{
     // Error factories
@@ -32,6 +38,40 @@ use ori_ir::{
     ArmRange, BindingPattern, ExprArena, ExprId, ExprKind, MatchPattern, Name, StmtKind, StmtRange,
     StringInterner,
 };
+
+/// RAII guard for environment scope management.
+///
+/// Ensures `pop_scope()` is called when dropped, even during panic unwinding.
+/// This provides panic-safe scope management for control flow constructs.
+struct EnvScopeGuard<'a>(&'a mut Environment);
+
+impl Drop for EnvScopeGuard<'_> {
+    fn drop(&mut self) {
+        self.0.pop_scope();
+    }
+}
+
+impl<'a> EnvScopeGuard<'a> {
+    /// Create a new scope guard, pushing a scope immediately.
+    fn new(env: &'a mut Environment) -> Self {
+        env.push_scope();
+        EnvScopeGuard(env)
+    }
+}
+
+impl std::ops::Deref for EnvScopeGuard<'_> {
+    type Target = Environment;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl std::ops::DerefMut for EnvScopeGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0
+    }
+}
 
 /// Evaluate an if/else expression.
 pub fn eval_if<F>(
@@ -398,6 +438,8 @@ pub fn try_match(
 }
 
 /// Evaluate a match expression.
+///
+/// Uses RAII scope guard to ensure scope is popped even on panic.
 pub fn eval_match<EvalFn, GuardFn>(
     value: &Value,
     arms: ArmRange,
@@ -416,25 +458,24 @@ where
     for arm in arm_list {
         // Try to match the pattern first
         if let Some(bindings) = try_match(&arm.pattern, value, arena, interner)? {
-            // Push scope with bindings
-            env.push_scope();
+            // Use RAII guard for scope safety - scope is popped when guard drops
+            let mut guard = EnvScopeGuard::new(env);
             for (name, val) in bindings {
-                env.define(name, val, Mutability::Immutable);
+                guard.define(name, val, Mutability::Immutable);
             }
 
             // Check if guard passes (if present) - bindings are now available
-            if let Some(guard) = arm.guard {
-                let guard_result = guard_fn(guard, env)?;
+            if let Some(arm_guard) = arm.guard {
+                let guard_result = guard_fn(arm_guard, &mut guard)?;
                 if !guard_result.is_truthy() {
-                    env.pop_scope();
+                    // Guard failed, scope will be popped when guard drops
+                    drop(guard);
                     continue;
                 }
             }
 
-            // Evaluate body
-            let result = eval_fn(arm.body);
-            env.pop_scope();
-            return result;
+            // Evaluate body - scope popped when guard drops
+            return eval_fn(arm.body);
         }
     }
 
@@ -449,6 +490,8 @@ pub enum LoopAction {
 }
 
 /// Evaluate a for loop.
+///
+/// Uses RAII scope guard to ensure scope is popped even on panic.
 pub fn eval_for<F>(
     binding: Name,
     iter: Value,
@@ -470,11 +513,12 @@ where
     if is_yield {
         let mut results = Vec::new();
         for item in items {
-            env.push_scope();
-            env.define(binding, item, Mutability::Immutable);
-
-            let (result, action) = eval_body(body, guard, env)?;
-            env.pop_scope();
+            // Use RAII guard for scope safety
+            let (result, action) = {
+                let mut scope_guard = EnvScopeGuard::new(env);
+                scope_guard.define(binding, item, Mutability::Immutable);
+                eval_body(body, guard, &mut scope_guard)?
+            }; // scope popped when guard drops
 
             match action {
                 LoopAction::Continue => {
@@ -491,11 +535,12 @@ where
         Ok(Value::list(results))
     } else {
         for item in items {
-            env.push_scope();
-            env.define(binding, item, Mutability::Immutable);
-
-            let (_, action) = eval_body(body, guard, env)?;
-            env.pop_scope();
+            // Use RAII guard for scope safety
+            let (_, action) = {
+                let mut scope_guard = EnvScopeGuard::new(env);
+                scope_guard.define(binding, item, Mutability::Immutable);
+                eval_body(body, guard, &mut scope_guard)?
+            }; // scope popped when guard drops
 
             match action {
                 LoopAction::Continue => {}
@@ -596,6 +641,8 @@ pub fn eval_assign(
 }
 
 /// Evaluate a block of statements.
+///
+/// Uses RAII scope guard to ensure scope is popped even on panic.
 pub fn eval_block<F, G>(
     stmts: StmtRange,
     result: Option<ExprId>,
@@ -608,7 +655,8 @@ where
     F: FnMut(ExprId) -> EvalResult,
     G: FnMut(&BindingPattern, Value, bool) -> EvalResult,
 {
-    env.push_scope();
+    // Use RAII guard for scope safety - scope is popped when guard drops
+    let _scope_guard = EnvScopeGuard::new(env);
 
     let stmt_list = arena.get_stmt_range(stmts);
 
@@ -629,14 +677,12 @@ where
         }
     }
 
-    let result_val = if let Some(r) = result {
-        eval_fn(r)?
+    if let Some(r) = result {
+        eval_fn(r)
     } else {
-        Value::Void
-    };
-
-    env.pop_scope();
-    Ok(result_val)
+        Ok(Value::Void)
+    }
+    // scope popped when _scope_guard drops
 }
 
 #[cfg(test)]

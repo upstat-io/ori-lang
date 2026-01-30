@@ -70,7 +70,7 @@ impl Render for TypeProblem {
 
             TypeProblem::UnknownType { span, name } => Diagnostic::error(ErrorCode::E2002)
                 .with_message(format!("unknown type `{name}`"))
-                .with_label(*span, "not found"),
+                .with_label(*span, format!("type `{name}` not found")),
 
             TypeProblem::NotCallable { span, found_type } => Diagnostic::error(ErrorCode::E2001)
                 .with_message(format!("`{found_type}` is not callable"))
@@ -88,7 +88,10 @@ impl Render for TypeProblem {
             } => {
                 let mut diag = Diagnostic::error(ErrorCode::E2003)
                     .with_message(format!("no field `{field_name}` on type `{type_name}`"))
-                    .with_label(*span, "unknown field");
+                    .with_label(
+                        *span,
+                        format!("`{field_name}` is not a field of `{type_name}`"),
+                    );
                 if !available_fields.is_empty() {
                     // Try to find a similar field name
                     if let Some(suggestion) =
@@ -113,7 +116,7 @@ impl Render for TypeProblem {
             } => {
                 let mut diag = Diagnostic::error(ErrorCode::E2003)
                     .with_message(format!("no method `{method_name}` on type `{type_name}`"))
-                    .with_label(*span, "method not found");
+                    .with_label(*span, format!("`{method_name}` not found on `{type_name}`"));
                 if !available_methods.is_empty() {
                     // Try to find a similar method name
                     if let Some(suggestion) =
@@ -139,7 +142,10 @@ impl Render for TypeProblem {
                 .with_message(format!(
                     "cannot apply `{op}` to `{left_type}` and `{right_type}`"
                 ))
-                .with_label(*span, "invalid operation"),
+                .with_label(
+                    *span,
+                    format!("`{op}` cannot be applied to `{left_type}` and `{right_type}`"),
+                ),
 
             TypeProblem::InvalidUnaryOp {
                 span,
@@ -147,7 +153,10 @@ impl Render for TypeProblem {
                 operand_type,
             } => Diagnostic::error(ErrorCode::E2001)
                 .with_message(format!("cannot apply `{op}` to `{operand_type}`"))
-                .with_label(*span, "invalid operation"),
+                .with_label(
+                    *span,
+                    format!("`{op}` cannot be applied to `{operand_type}`"),
+                ),
 
             TypeProblem::MissingNamedArg { span, arg_name } => Diagnostic::error(ErrorCode::E2004)
                 .with_message(format!("missing required argument `.{arg_name}:`"))
@@ -160,7 +169,7 @@ impl Render for TypeProblem {
             } => {
                 let mut diag = Diagnostic::error(ErrorCode::E2004)
                     .with_message(format!("unknown argument `.{arg_name}:`"))
-                    .with_label(*span, "unknown argument");
+                    .with_label(*span, format!("`.{arg_name}:` is not a valid argument"));
                 if !valid_args.is_empty() {
                     diag = diag.with_note(format!("valid arguments: .{}", valid_args.join(", .")));
                 }
@@ -173,7 +182,7 @@ impl Render for TypeProblem {
                 first_span,
             } => Diagnostic::error(ErrorCode::E2006)
                 .with_message(format!("duplicate argument `.{arg_name}:`"))
-                .with_label(*span, "duplicate")
+                .with_label(*span, format!("`.{arg_name}:` provided more than once"))
                 .with_secondary_label(*first_span, "first occurrence here"),
 
             TypeProblem::ReturnTypeMismatch {

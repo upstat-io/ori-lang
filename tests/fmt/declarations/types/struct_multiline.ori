@@ -1,0 +1,19 @@
+// Golden test: Multi-line struct definitions
+// Spec: 08-declarations.md § Type Definitions
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+type UserProfile = {
+    id: int,
+    name: str,
+    email: str,
+    created_at: int,
+    preferences: str,
+}
+
+type Configuration = {
+    database_url: str,
+    max_connections: int,
+    timeout_seconds: int,
+    retry_enabled: bool,
+    log_level: str,
+}

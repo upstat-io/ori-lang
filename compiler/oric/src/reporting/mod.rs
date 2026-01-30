@@ -24,7 +24,7 @@ mod parse;
 mod semantic;
 mod type_errors;
 
-use crate::diagnostic::queue::{DiagnosticConfig, DiagnosticQueue};
+use crate::diagnostic::queue::{DiagnosticConfig, DiagnosticQueue, DiagnosticSeverity};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::problem::Problem;
 use crate::typeck::TypeCheckError;
@@ -78,8 +78,12 @@ pub fn process_type_errors(
 
     for error in errors {
         let diag = error.to_diagnostic();
-        let soft = error.is_soft();
-        queue.add_with_source(diag, source, soft);
+        let severity = if error.is_soft() {
+            DiagnosticSeverity::Soft
+        } else {
+            DiagnosticSeverity::Hard
+        };
+        queue.add_with_source_and_severity(diag, source, severity);
     }
 
     queue.flush()
@@ -98,7 +102,7 @@ pub fn process_diagnostics(
 
     for diag in diagnostics {
         // All non-TypeCheckError diagnostics are considered hard errors
-        queue.add_with_source(diag, source, false);
+        queue.add_with_source_and_severity(diag, source, DiagnosticSeverity::Hard);
     }
 
     queue.flush()

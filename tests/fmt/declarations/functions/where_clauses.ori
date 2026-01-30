@@ -1,0 +1,7 @@
+// Golden test: Functions with where clauses
+// Spec: 08-declarations.md § Function Declarations
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+@sort<T> (items: [T]) -> [T] where T: Comparable = items
+
+@transform<T, U> (x: T, f: (T) -> U) -> U where T: Clone = f(x)

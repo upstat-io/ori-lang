@@ -128,6 +128,27 @@ pub struct Interpreter<'a> {
     /// - WASM: buffer for capture
     /// - Tests: buffer for assertions
     pub print_handler: SharedPrintHandler,
+    /// Whether this interpreter owns a scoped environment that should be popped on drop.
+    ///
+    /// When an interpreter is created for function/method calls via `create_function_interpreter`,
+    /// the caller pushes a scope before passing the environment. This flag ensures the scope
+    /// is popped when the interpreter is dropped, even if evaluation panics.
+    ///
+    /// This provides RAII-style panic safety for function call evaluation.
+    pub(crate) owns_scoped_env: bool,
+}
+
+/// RAII Drop implementation for panic-safe scope cleanup.
+///
+/// If `owns_scoped_env` is true, this interpreter was created for a function/method
+/// call and owns a scope that must be popped. This ensures scope cleanup even if
+/// evaluation panics during the call.
+impl Drop for Interpreter<'_> {
+    fn drop(&mut self) {
+        if self.owns_scoped_env {
+            self.env.pop_scope();
+        }
+    }
 }
 
 /// Implement `PatternExecutor` for Interpreter to enable pattern evaluation.
@@ -140,7 +161,7 @@ impl PatternExecutor for Interpreter<'_> {
     }
 
     fn call(&mut self, func: &Value, args: Vec<Value>) -> EvalResult {
-        self.eval_call(func.clone(), &args)
+        self.eval_call(func, &args)
     }
 
     fn lookup_capability(&self, name: &str) -> Option<Value> {
@@ -232,32 +253,14 @@ impl<'a> Interpreter<'a> {
 
     /// Inner evaluation logic (wrapped by `eval` for stack safety).
     fn eval_inner(&mut self, expr_id: ExprId) -> EvalResult {
-        // Debug: Check arena bounds before access
+        // Check arena bounds before access
         if expr_id.index() >= self.arena.expr_count() {
-            // Try to get more context about what we were evaluating
-            let thread_id = std::thread::current().id();
-            let has_imported = self.imported_arena.is_some();
-            let arena_ptr = self.arena as *const _;
-            let imported_ptr = self.imported_arena.as_ref().map(|a| &raw const **a);
-
-            // Get backtrace for more context
-            let bt = std::backtrace::Backtrace::force_capture();
-
-            panic!(
-                "ExprId {} out of bounds (arena has {} expressions). \n\
-                 Thread: {:?}\n\
-                 has_imported_arena: {}\n\
-                 arena_ptr: {:?}\n\
-                 imported_ptr: {:?}\n\
-                 Backtrace:\n{}",
+            return Err(EvalError::new(format!(
+                "Internal error: expression {} not found (arena has {} expressions). \
+                 This is likely a compiler bug.",
                 expr_id.index(),
-                self.arena.expr_count(),
-                thread_id,
-                has_imported,
-                arena_ptr,
-                imported_ptr,
-                bt
-            );
+                self.arena.expr_count()
+            )));
         }
         let expr = self.arena.get_expr(expr_id);
 
@@ -344,7 +347,7 @@ impl<'a> Interpreter<'a> {
             ExprKind::Call { func, args } => {
                 let func_val = self.eval(*func)?;
                 let arg_vals = self.eval_expr_list(*args)?;
-                self.eval_call(func_val, &arg_vals)
+                self.eval_call(&func_val, &arg_vals)
             }
 
             // Variant constructors
@@ -384,7 +387,7 @@ impl<'a> Interpreter<'a> {
             ExprKind::FunctionExp(exp) => self.eval_function_exp(exp),
             ExprKind::CallNamed { func, args } => {
                 let func_val = self.eval(*func)?;
-                self.eval_call_named(func_val, *args)
+                self.eval_call_named(&func_val, *args)
             }
             ExprKind::FunctionRef(name) => self
                 .env
@@ -792,7 +795,6 @@ impl<'a> Interpreter<'a> {
         if let Value::ModuleNamespace(ns) = &receiver {
             let func = ns
                 .get(&method)
-                .cloned()
                 .ok_or_else(|| no_member_in_module(self.interner.lookup(method)))?;
             self.eval_call(func, &args)
         } else {
@@ -838,6 +840,7 @@ impl<'a> Interpreter<'a> {
             .imported_arena(imported_arena)
             .user_method_registry(self.user_method_registry.clone())
             .print_handler(self.print_handler.clone())
+            .owns_scoped_env(true) // RAII: scope will be popped when interpreter drops
             .build()
     }
 

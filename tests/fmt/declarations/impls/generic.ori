@@ -1,0 +1,13 @@
+// Golden test: Generic implementations
+// Spec: 08-declarations.md § Implementations
+// Design: tooling/formatter/design/02-constructs/declarations.md
+
+type Container<T> = { value: T }
+
+trait Clone {
+    @clone (self) -> Self
+}
+
+impl<T: Clone> Clone for Container<T> {
+    @clone (self) -> Self = Container { value: self.value.clone() }
+}

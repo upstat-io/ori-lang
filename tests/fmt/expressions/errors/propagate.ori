@@ -1,0 +1,4 @@
+// Error propagation
+// Spec: 06-expressions.md § Try Operator
+
+@unwrap_result (r: Result<int, str>) -> int = r.unwrap_or(default: 0)
