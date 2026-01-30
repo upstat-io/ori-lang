@@ -193,19 +193,64 @@ Introduce `def impl` syntax to declare a default implementation for a trait. Imp
 
 ---
 
-## 6.11 Phase Completion Checklist
+## 6.11 Capability Composition
+
+**Proposal**: `proposals/approved/capability-composition-proposal.md`
+
+Specifies how capabilities compose: partial provision, nested binding semantics, capability variance, and resolution priority order.
+
+### Implementation
+
+- [ ] **Implement**: Multi-binding `with` syntax — grammar.ebnf § EXPRESSIONS
+  - [ ] **Parser**: Extend `with_expr` to support comma-separated bindings
+  - [ ] **Rust Tests**: `ori_parse/src/lib.rs` — multi-binding with expression parsing
+  - [ ] **Ori Tests**: `tests/spec/capabilities/composition.ori`
+
+- [ ] **Implement**: Partial provision — providing some capabilities while others use defaults
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — partial capability provision
+  - [ ] **Ori Tests**: `tests/spec/capabilities/composition.ori`
+
+- [ ] **Implement**: Nested `with...in` shadowing — inner bindings shadow outer
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — capability shadowing
+  - [ ] **Ori Tests**: `tests/spec/capabilities/composition.ori`
+
+- [ ] **Implement**: Capability variance — more caps can call fewer, not reverse
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — variance checking
+  - [ ] **Ori Tests**: `tests/spec/capabilities/composition.ori`
+
+- [ ] **Implement**: Resolution priority order — inner with → outer with → imported def impl → local def impl → error
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — resolution priority
+  - [ ] **Ori Tests**: `tests/spec/capabilities/composition.ori`
+
+- [ ] **Implement**: Async binding prohibition — `with Async = ...` is compile error
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — async prohibition (E1203)
+  - [ ] **Ori Tests**: `tests/spec/capabilities/composition.ori`
+
+- [ ] **Implement**: Error codes E1200-E1203
+  - [ ] E1200: missing capability
+  - [ ] E1201: unbound capability
+  - [ ] E1202: type doesn't implement capability trait
+  - [ ] E1203: Async cannot be explicitly bound
+
+- [ ] **Implement**: LLVM backend support
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_composition_tests.rs`
+
+---
+
+## 6.12 Phase Completion Checklist
 
 - [x] 6.1-6.5 complete (declaration, traits, async, providing, propagation)
 - [x] 6.6 trait definitions in prelude (implementations in Phase 7)
 - [x] 6.7-6.8 complete (testing/mocking, compile-time enforcement)
 - [x] 6.9 Unsafe marker trait defined (FFI enforcement in Phase 11)
 - [ ] 6.10 Default implementations (`def impl`) — pending implementation
+- [ ] 6.11 Capability Composition — pending implementation
 - [x] Spec updated: `spec/14-capabilities.md` reflects implementation
 - [x] CLAUDE.md updated with capabilities syntax
 - [x] 27 capability tests passing
 - [x] Full test suite: `./test-all`
 
-**Exit Criteria**: Effect tracking works per spec (6.1-6.9 ✅, 6.10 pending)
+**Exit Criteria**: Effect tracking works per spec (6.1-6.9 ✅, 6.10-6.11 pending)
 
 **Remaining for Phase 7 (Stdlib)**:
 - Real capability implementations (Http, FileSystem, etc.)
