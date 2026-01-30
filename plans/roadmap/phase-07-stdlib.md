@@ -1027,7 +1027,180 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
 
 ---
 
-## 7.19 Float NaN Behavior
+## 7.19 std.json Module
+
+**Proposal**: `proposals/approved/stdlib-json-api-proposal.md`
+
+JSON parsing, serialization, and manipulation.
+
+### 7.19.1 Core Types
+
+- [ ] **Implement**: `JsonValue` sum type
+  - `Null | Bool(bool) | Number(float) | String(str) | Array([JsonValue]) | Object({str: JsonValue})`
+  - [ ] **Rust Tests**: `library/std/json/value.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/value.ori`
+  - [ ] **LLVM Support**: LLVM codegen for JsonValue
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — JsonValue codegen
+
+- [ ] **Implement**: `JsonError` and `JsonErrorKind` types
+  - `ParseError | TypeError | MissingField | UnknownField | ValueError`
+  - Fields: `kind`, `message`, `path`, `position`
+  - [ ] **Rust Tests**: `library/std/json/error.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/error.ori`
+  - [ ] **LLVM Support**: LLVM codegen for JsonError
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — JsonError codegen
+
+- [ ] **Implement**: `Json` trait
+  - `@to_json (self) -> JsonValue`
+  - `@from_json (json: JsonValue) -> Result<Self, JsonError>`
+  - [ ] **Rust Tests**: `library/std/json/trait.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/trait.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Json trait
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — Json trait codegen
+
+### 7.19.2 Parsing API
+
+- [ ] **Implement**: `parse(source: str) -> Result<JsonValue, JsonError>`
+  - [ ] **Rust Tests**: `library/std/json/parse.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/parse.ori`
+  - [ ] **LLVM Support**: LLVM codegen for parse
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — parse codegen
+
+- [ ] **Implement**: `parse_as<T: Json>(source: str) -> Result<T, JsonError>`
+  - [ ] **Rust Tests**: `library/std/json/parse.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/parse.ori`
+  - [ ] **LLVM Support**: LLVM codegen for parse_as
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — parse_as codegen
+
+### 7.19.3 Serialization API
+
+- [ ] **Implement**: `stringify(value: JsonValue) -> str`
+  - [ ] **Rust Tests**: `library/std/json/stringify.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/stringify.ori`
+  - [ ] **LLVM Support**: LLVM codegen for stringify
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — stringify codegen
+
+- [ ] **Implement**: `stringify_pretty(value: JsonValue, indent: int = 2) -> str`
+  - [ ] **Rust Tests**: `library/std/json/stringify.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/stringify.ori`
+  - [ ] **LLVM Support**: LLVM codegen for stringify_pretty
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — stringify_pretty codegen
+
+- [ ] **Implement**: `to_json_string<T: Json>(value: T) -> str`
+  - [ ] **Rust Tests**: `library/std/json/stringify.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/stringify.ori`
+  - [ ] **LLVM Support**: LLVM codegen for to_json_string
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — to_json_string codegen
+
+- [ ] **Implement**: `to_json_string_pretty<T: Json>(value: T, indent: int = 2) -> str`
+  - [ ] **Rust Tests**: `library/std/json/stringify.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/stringify.ori`
+  - [ ] **LLVM Support**: LLVM codegen for to_json_string_pretty
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — to_json_string_pretty codegen
+
+### 7.19.4 JsonValue Methods
+
+- [ ] **Implement**: Type check methods
+  - `is_null()`, `is_bool()`, `is_number()`, `is_string()`, `is_array()`, `is_object()`
+  - [ ] **Rust Tests**: `library/std/json/value.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/value_methods.ori`
+  - [ ] **LLVM Support**: LLVM codegen for type check methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — type check methods codegen
+
+- [ ] **Implement**: Safe extraction methods
+  - `as_bool()`, `as_number()`, `as_int()`, `as_string()`, `as_array()`, `as_object()`
+  - `as_int()` returns `Some` only for exact integers within int range (no truncation)
+  - [ ] **Rust Tests**: `library/std/json/value.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/value_methods.ori`
+  - [ ] **LLVM Support**: LLVM codegen for extraction methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — extraction methods codegen
+
+- [ ] **Implement**: Indexing methods
+  - `get(key: str)` for objects, `get_index(index: int)` for arrays
+  - [ ] **Rust Tests**: `library/std/json/value.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/value_methods.ori`
+  - [ ] **LLVM Support**: LLVM codegen for indexing methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — indexing methods codegen
+
+- [ ] **Implement**: Path access method
+  - `at(path: str)` — dot notation with array index support (`"users[0].name"`)
+  - [ ] **Rust Tests**: `library/std/json/value.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/path_access.ori`
+  - [ ] **LLVM Support**: LLVM codegen for path access
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — path access codegen
+
+### 7.19.5 Derive Macro
+
+- [ ] **Implement**: `#derive(Json)` for structs
+  - Generate `to_json` and `from_json` implementations
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/json.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/derive_struct.ori`
+  - [ ] **LLVM Support**: LLVM codegen for derive(Json) structs
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — derive(Json) struct codegen
+
+- [ ] **Implement**: `#derive(Json)` for sum types
+  - Simple variants serialize as strings, payload variants as objects
+  - Support `#json(tag: "type", content: "data")` for tagged unions
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/json.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/derive_enum.ori`
+  - [ ] **LLVM Support**: LLVM codegen for derive(Json) enums
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — derive(Json) enum codegen
+
+- [ ] **Implement**: Field attributes for `#derive(Json)`
+  - `#json(rename: "name")` — different JSON field name
+  - `#json(skip)` — exclude from serialization
+  - `#json(default: value)` — default if field missing
+  - `#json(flatten)` — merge nested object into parent (compile error on conflicts)
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/json.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/derive_attrs.ori`
+  - [ ] **LLVM Support**: LLVM codegen for field attributes
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — field attributes codegen
+
+### 7.19.6 Standard Type Implementations
+
+- [ ] **Implement**: Primitive Json implementations
+  - `bool`, `int`, `float`, `str`
+  - [ ] **Rust Tests**: `library/std/json/impls.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/impls_primitive.ori`
+  - [ ] **LLVM Support**: LLVM codegen for primitive Json impls
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — primitive impls codegen
+
+- [ ] **Implement**: Collection Json implementations
+  - `[T]` (array), `{str: V}` (object), `Set<T>` (array), `Option<T>` (null or value), `(A, B)` (array)
+  - Non-string map keys serialize as strings
+  - [ ] **Rust Tests**: `library/std/json/impls.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/impls_collection.ori`
+  - [ ] **LLVM Support**: LLVM codegen for collection Json impls
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — collection impls codegen
+
+- [ ] **Implement**: Built-in type Json implementations
+  - `Duration` → ISO 8601 duration string (`"PT1H30M"`)
+  - `Size` → integer bytes
+  - [ ] **Rust Tests**: `library/std/json/impls.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/impls_builtin.ori`
+  - [ ] **LLVM Support**: LLVM codegen for built-in Json impls
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — built-in impls codegen
+
+### 7.19.7 Streaming API
+
+- [ ] **Implement**: `JsonParser` type with Iterator trait
+  - `new(source: str)` constructor
+  - Implements `Iterator` and `Iterable` with `Item = JsonEvent`
+  - [ ] **Rust Tests**: `library/std/json/stream.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/streaming.ori`
+  - [ ] **LLVM Support**: LLVM codegen for JsonParser
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — JsonParser codegen
+
+- [ ] **Implement**: `JsonEvent` sum type
+  - `StartObject | EndObject | StartArray | EndArray | Key(str) | Value(JsonValue)`
+  - [ ] **Rust Tests**: `library/std/json/stream.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/streaming.ori`
+  - [ ] **LLVM Support**: LLVM codegen for JsonEvent
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — JsonEvent codegen
+
+---
+
+## 7.20 Float NaN Behavior
 
 > **Decision**: NaN comparisons panic (no proposal needed — behavioral decision)
 >
