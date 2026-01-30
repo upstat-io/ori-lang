@@ -441,6 +441,7 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
 ## 7D.7 std.json Module
 
 **Proposal**: `proposals/approved/stdlib-json-api-proposal.md`
+**FFI Implementation**: `proposals/approved/stdlib-json-api-ffi-revision.md`
 
 JSON parsing, serialization, and manipulation.
 
@@ -608,6 +609,53 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/streaming.ori`
   - [ ] **LLVM Support**: LLVM codegen for JsonEvent
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — JsonEvent codegen
+
+### 7D.7.8 FFI Implementation
+
+> **Depends on**: Computed Map Keys proposal (for `{[key]: value}` syntax)
+
+- [ ] **Implement**: Native FFI (yyjson)
+  - yyjson binding via `extern "c" from "yyjson"`
+  - Memory allocation helpers (`alloc_obj_iter`, `alloc_arr_iter`, `alloc_size_t`)
+  - `yyjson_val_to_json_value` conversion
+  - `json_value_to_yyjson_mut` conversion
+  - [ ] **Rust Tests**: `library/std/json/ffi_native.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/ffi_native.ori`
+  - [ ] **LLVM Support**: LLVM codegen for yyjson FFI
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — yyjson FFI codegen
+
+- [ ] **Implement**: WASM FFI (JavaScript JSON API)
+  - `extern "js"` bindings for `JSON.parse`, `JSON.stringify`
+  - JS glue code for type checking (`__ori_typeof`, `__ori_is_null`)
+  - `js_value_to_json_value` conversion (eager tree conversion)
+  - `json_value_to_js_value` conversion
+  - [ ] **Rust Tests**: `library/std/json/ffi_wasm.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/ffi_wasm.ori`
+  - [ ] **LLVM Support**: WASM codegen for JS JSON FFI
+
+- [ ] **Implement**: Pure Ori fallback parser
+  - Recursive descent parser for all JSON types
+  - `parse_null`, `parse_true`, `parse_false`, `parse_string`, `parse_number`, `parse_array`, `parse_object`
+  - Unicode escape handling (`\uXXXX`)
+  - [ ] **Rust Tests**: `library/std/json/pure.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/pure_parser.ori`
+  - [ ] **LLVM Support**: LLVM codegen for pure Ori parser
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — pure parser codegen
+
+- [ ] **Implement**: Pure Ori fallback serializer
+  - `stringify_pure` and `escape_string`
+  - [ ] **Rust Tests**: `library/std/json/pure.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/pure_stringify.ori`
+  - [ ] **LLVM Support**: LLVM codegen for pure Ori serializer
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — pure serializer codegen
+
+- [ ] **Implement**: Streaming parser FFI
+  - Native: yyjson tree walking with `StackFrame` state machine
+  - WASM: Pure Ori streaming fallback
+  - [ ] **Rust Tests**: `library/std/json/stream_ffi.rs`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/json/streaming_ffi.ori`
+  - [ ] **LLVM Support**: LLVM codegen for streaming parser FFI
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — streaming FFI codegen
 
 ---
 
