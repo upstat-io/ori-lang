@@ -22,12 +22,32 @@ Capabilities are traits representing effects or suspension.
 
 ## Capability Traits
 
+Capabilities are traits with default implementations:
+
 ```ori
-trait Http {
+pub trait Http {
     @get (url: str) -> Result<Response, Error>
     @post (url: str, body: str) -> Result<Response, Error>
 }
 
+pub def impl Http {
+    @get (url: str) -> Result<Response, Error> = ...
+    @post (url: str, body: str) -> Result<Response, Error> = ...
+}
+```
+
+Import the trait to use the default:
+
+```ori
+use std.net.http { Http }
+
+@fetch () -> Result<str, Error> uses Http =
+    Http.get(url: "https://api.example.com/data")
+```
+
+Other standard capability traits:
+
+```ori
 trait FileSystem {
     @read (path: str) -> Result<str, Error>
     @write (path: str, content: str) -> Result<void, Error>
@@ -64,8 +84,10 @@ parallel(tasks: [fetch(a), fetch(b)], max_concurrent: 10)
 
 ## Providing Capabilities
 
+Default implementations are automatically bound when importing a trait. Override with `with...in` when custom configuration or mocking is needed:
+
 ```ori
-with Http = RealHttp { base_url: "https://api.example.com" } in
+with Http = ConfiguredHttp { timeout: 5s } in
     fetch("/data")
 ```
 
@@ -99,13 +121,22 @@ Capabilities propagate: if A calls B with capability C, A must declare or provid
 
 ## Default Capabilities
 
-`Print` has a default implementation. Programs may use `print` without declaring `uses Print`:
+`Print` has a default implementation via `def impl`. Programs may use `print` without declaring `uses Print`:
 
 ```ori
 @main () -> void = print(msg: "Hello, World!")
 ```
 
 The default is `StdoutPrint` for native execution, `BufferPrint` for WASM.
+
+### Name Resolution
+
+When resolving a capability name:
+
+1. Check for `with...in` binding (innermost first)
+2. Check for imported default (`def impl` from source module)
+3. Check for module-local `def impl`
+4. Error: capability not provided
 
 ## Testing
 

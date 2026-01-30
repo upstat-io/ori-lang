@@ -50,7 +50,7 @@ identifier = ( letter | "_" ) { letter | digit | "_" } .
 
 // --- Keywords ---
 // See: 03-lexical-elements.md § Keywords
-// Reserved: async, break, continue, do, else, false, for, if, impl, in, let,
+// Reserved: async, break, continue, def, do, else, false, for, if, impl, in, let,
 //           loop, match, pub, self, Self, then, trait, true, type, use,
 //           uses, void, where, with, yield
 // Context-sensitive (patterns): cache, catch, for, match, nursery, parallel,
@@ -209,10 +209,12 @@ param          = identifier ":" type .
 // --- Implementations ---
 // See: 08-declarations.md § Implementations
 
-impl_block    = inherent_impl | trait_impl .
+impl_block    = inherent_impl | trait_impl | def_impl .
 inherent_impl = "impl" [ generics ] type_path [ where_clause ] "{" { method } "}" .
 trait_impl    = "impl" [ generics ] type_path "for" type [ where_clause ] "{" { method } "}" .
+def_impl      = "def" "impl" identifier "{" { def_impl_method } "}" .
 method        = "@" identifier params "->" type [ uses_clause ] "=" expression .
+def_impl_method = "@" identifier params "->" type "=" expression .  /* no self, no uses */
 
 // --- Tests ---
 // See: 13-testing.md
