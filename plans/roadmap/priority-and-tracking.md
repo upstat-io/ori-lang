@@ -809,6 +809,15 @@ cargo st tests/spec/patterns/     # Tier 3
 
 **Known issue:** Parallel test runner has a thread-safety panic (index out of bounds on ExprArena). Individual test directories pass; full test run may show panic but still completes.
 
+**Pattern Matching Exhaustiveness** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/pattern-matching-exhaustiveness-proposal.md`
+- Implementation: Phase 9.4
+- Pattern matrix decomposition algorithm (Maranget's algorithm)
+- Guards require catch-all pattern (error, not warning)
+- Uses `.match(condition)` syntax for guards (consistent with spec)
+- Error codes: E0123 (non-exhaustive), E0124 (guards without catch-all), W0456 (unreachable), W0457 (overlap)
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Draft Proposals Pending Review

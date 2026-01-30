@@ -146,35 +146,79 @@
 
 ## 9.4 Exhaustiveness Checking
 
-- [ ] **Implement**: Match expressions must be exhaustive — spec/10-patterns.md § Exhaustiveness
+**Proposal**: `proposals/approved/pattern-matching-exhaustiveness-proposal.md`
+
+Pattern matrix decomposition algorithm (Maranget's algorithm) for exhaustiveness verification.
+
+### 9.4.1 Core Algorithm
+
+- [ ] **Implement**: Pattern matrix decomposition — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Algorithm
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — matrix decomposition
+  - [ ] **Ori Tests**: `tests/spec/patterns/match_exhaustive.ori`
+
+- [ ] **Implement**: Constructor enumeration for types — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Algorithm
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — type constructors
+  - [ ] **Ori Tests**: `tests/spec/patterns/match_exhaustive.ori`
+
+### 9.4.2 Exhaustiveness Errors
+
+- [ ] **Implement**: Match expressions must be exhaustive (E0123) — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Error Policy
   - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — exhaustiveness checking
   - [ ] **Ori Tests**: `tests/spec/patterns/match_exhaustive.ori`
-  - [ ] **LLVM Support**: LLVM codegen for exhaustive match
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — exhaustive match codegen
 
-- [ ] **Implement**: Error if any value not covered — spec/10-patterns.md § Exhaustiveness
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — coverage errors
+- [ ] **Implement**: Let binding refutability check — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Refutability Requirements
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — refutability errors
   - [ ] **Ori Tests**: `tests/spec/patterns/match_exhaustive.ori`
-  - [ ] **LLVM Support**: LLVM codegen for coverage error handling
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — coverage error codegen
 
-- [ ] **Implement**: Track covered patterns — spec/10-patterns.md § Exhaustiveness
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — pattern tracking
-  - [ ] **Ori Tests**: `tests/spec/patterns/match_exhaustive.ori`
-  - [ ] **LLVM Support**: LLVM codegen for pattern tracking
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — pattern tracking codegen
+- [ ] **Implement**: Function clause exhaustiveness — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Error Policy
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — clause exhaustiveness
+  - [ ] **Ori Tests**: `tests/spec/patterns/function_clauses_exhaustive.ori`
 
-- [ ] **Implement**: Warn on non-exhaustive match — spec/10-patterns.md § Exhaustiveness
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — warnings
-  - [ ] **Ori Tests**: `tests/spec/patterns/match_exhaustive.ori`
-  - [ ] **LLVM Support**: LLVM codegen for non-exhaustive match warning
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — non-exhaustive warning codegen
+### 9.4.3 Guard Handling
 
-- [ ] **Implement**: Suggest missing patterns — spec/10-patterns.md § Exhaustiveness
+- [ ] **Implement**: Guards not considered for exhaustiveness — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Guards
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — guard handling
+  - [ ] **Ori Tests**: `tests/spec/patterns/match_guards_exhaustive.ori`
+
+- [ ] **Implement**: Guards require catch-all pattern (E0124) — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Guards
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — guard catch-all requirement
+  - [ ] **Ori Tests**: `tests/spec/patterns/match_guards_exhaustive.ori`
+
+### 9.4.4 Pattern Coverage
+
+- [ ] **Implement**: Or-pattern combined coverage — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Or-Patterns
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — or-pattern coverage
+  - [ ] **Ori Tests**: `tests/spec/patterns/match_or_patterns.ori`
+
+- [ ] **Implement**: Or-pattern binding consistency — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Binding Rules
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — or-pattern bindings
+  - [ ] **Ori Tests**: `tests/spec/patterns/match_or_patterns.ori`
+
+- [ ] **Implement**: At-pattern coverage (same as inner) — proposals/approved/pattern-matching-exhaustiveness-proposal.md § At-Patterns
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — at-pattern coverage
+  - [ ] **Ori Tests**: `tests/spec/patterns/match_at_patterns.ori`
+
+- [ ] **Implement**: List pattern length coverage — proposals/approved/pattern-matching-exhaustiveness-proposal.md § List Patterns
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — list length coverage
+  - [ ] **Ori Tests**: `tests/spec/patterns/match_list_patterns.ori`
+
+- [ ] **Implement**: Range pattern requires wildcard for integers — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Range Patterns
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — range coverage
+  - [ ] **Ori Tests**: `tests/spec/patterns/match_range_patterns.ori`
+
+### 9.4.5 Unreachable Pattern Detection
+
+- [ ] **Implement**: Detect completely unreachable patterns (W0456) — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Unreachable Pattern Detection
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — unreachable detection
+  - [ ] **Ori Tests**: `tests/spec/patterns/match_unreachable.ori`
+
+- [ ] **Implement**: Detect overlapping range patterns (W0457) — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Range Overlap
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — range overlap detection
+  - [ ] **Ori Tests**: `tests/spec/patterns/match_range_overlap.ori`
+
+- [ ] **Implement**: Suggest missing patterns in error messages — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Error Messages
   - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — suggestions
   - [ ] **Ori Tests**: `tests/spec/patterns/match_exhaustive.ori`
-  - [ ] **LLVM Support**: LLVM codegen for missing pattern suggestions
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — missing pattern suggestions codegen
 
 ---
 
