@@ -555,3 +555,51 @@ Specifies rules for resolving trait implementation conflicts: diamond problem, c
 
 - [ ] **Update Spec**: `08-declarations.md` — add coherence, resolution, super calls sections
 - [ ] **Update**: `CLAUDE.md` — add trait resolution rules to quick reference
+
+---
+
+## 3.11 Object Safety Rules
+
+**Proposal**: `proposals/approved/object-safety-rules-proposal.md`
+
+Formalizes the rules that determine whether a trait can be used as a trait object for dynamic dispatch. Defines three object safety rules and associated error codes.
+
+### Implementation
+
+- [ ] **Implement**: Object safety checking in type checker
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — object safety detection
+  - [ ] **Ori Tests**: `tests/spec/traits/object_safety/detection.ori`
+
+- [ ] **Implement**: Rule 1 — No `Self` in return position
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — self-return detection
+  - [ ] **Ori Tests**: `tests/spec/traits/object_safety/self_return.ori`
+  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/object_safety_self_return.ori`
+
+- [ ] **Implement**: Rule 2 — No `Self` in parameter position (except receiver)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — self-param detection
+  - [ ] **Ori Tests**: `tests/spec/traits/object_safety/self_param.ori`
+  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/object_safety_self_param.ori`
+
+- [ ] **Implement**: Rule 3 — No generic methods
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — generic method detection
+  - [ ] **Ori Tests**: `tests/spec/traits/object_safety/generic_methods.ori`
+  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/object_safety_generic_method.ori`
+
+- [ ] **Implement**: Error messages (E0800-E0802)
+  - [ ] E0800: Self in return position
+  - [ ] E0801: Self as non-receiver parameter
+  - [ ] E0802: Generic method in trait
+
+- [ ] **Implement**: Object safety checking at trait object usage sites
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — usage site detection
+  - [ ] **Ori Tests**: `tests/spec/traits/object_safety/usage_sites.ori`
+  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/object_safety_usage.ori`
+
+- [ ] **Implement**: Bounded trait objects (`Printable + Hashable`) — all components must be object-safe
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — bounded trait object tests
+  - [ ] **Ori Tests**: `tests/spec/traits/object_safety/bounded.ori`
+  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/object_safety_bounded.ori`
+
+- [ ] **Update Spec**: `06-types.md` — expand Object Safety section with all three rules
+- [ ] **Update Spec**: `08-declarations.md` — add guidance on object-safe trait design
+- [ ] **Update**: `CLAUDE.md` — add object safety rules to quick reference

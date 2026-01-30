@@ -374,6 +374,15 @@
 - Extension conflict detection (including re-exports)
 - Blocked on: None (builds on existing Phase 3 infrastructure)
 
+**Object Safety Rules** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/object-safety-rules-proposal.md`
+- Implementation: Phase 3.11
+- Three rules: No Self return, No Self param (except receiver), No generic methods
+- Error codes: E0800 (Self return), E0801 (Self param), E0802 (generic method)
+- Object-safe wrapper patterns using `Arc<Trait>`
+- All bounds in trait object composition must be object-safe
+- Blocked on: None (builds on existing Phase 3 infrastructure)
+
 **Const Evaluation Termination** — ✅ APPROVED 2026-01-30
 - Proposal: `proposals/approved/const-evaluation-termination-proposal.md`
 - Implementation: Phase 18.0
