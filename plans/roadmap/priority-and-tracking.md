@@ -17,7 +17,10 @@
 | Phase | Name | Status | Notes |
 |-------|------|--------|-------|
 | 6 | Capabilities | ✅ Complete | 27/27 tests pass |
-| 7 | Standard Library | 🔶 Partial | Collection methods done (map, filter, fold, find, collect); retry, validate pending |
+| 7A | Core Built-ins | 🔶 Partial | Type conversions, assertions, I/O |
+| 7B | Option & Result | 🔶 Partial | Option/Result methods |
+| 7C | Collections | 🔶 Partial | Collection methods done (map, filter, fold, find, collect) |
+| 7D | Stdlib Modules | 🔶 Partial | retry, validate pending; time/json/fs pending |
 
 ### Tier 3: Core Patterns
 
@@ -40,7 +43,10 @@
 |-------|------|--------|-------|
 | 13 | Conditional Compilation | ⏳ Not started | |
 | 14 | Testing Framework | ⏳ Not started | Gap analysis complete (see 14.9) |
-| 15 | Syntax Proposals | ⏳ Not started | 15.1-15.5 from V3 |
+| 15A | Attributes & Comments | ⏳ Not started | Simplified attributes, function_seq/exp, inline comments |
+| 15B | Function Syntax | ⏳ Not started | Remove dot prefix, default params, function clauses, positional lambdas |
+| 15C | Literals & Operators | ⏳ Not started | String interpolation, spread operator, range step |
+| 15D | Bindings & Types | ⏳ Not started | Pre/post checks, as conversion, $ bindings, remove dyn |
 
 ### Tier 6: Async & Concurrency
 
@@ -61,7 +67,8 @@
 | Phase | Name | Status | Notes |
 |-------|------|--------|-------|
 | 20 | Reflection | ⏳ Not started | |
-| 21 | LLVM Backend | 🔶 Partial | JIT working; 977/996 tests pass (19 skipped); destructuring support added; AOT pending |
+| 21A | LLVM Backend | 🔶 Partial | JIT working; 977/996 tests pass (19 skipped); destructuring support added |
+| 21B | AOT Compilation | ⏳ Not started | Object file generation, optimization, linking |
 | 22 | Tooling | 🔶 Partial | Width calculator complete; formatter core pending |
 
 ---

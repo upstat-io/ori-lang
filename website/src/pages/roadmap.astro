@@ -12,7 +12,7 @@ interface Section {
 }
 
 interface Phase {
-  num: number;
+  num: number | string;
   name: string;
   status: "complete" | "partial" | "not-started";
   note?: string;
@@ -217,11 +217,61 @@ const tiers: Tier[] = [
         ],
       },
       {
-        num: 7,
-        name: "Standard Library",
+        num: "7A",
+        name: "Core Built-ins",
         status: "partial",
-        note: "Collection methods done; retry, validate pending",
-        goal: "Core standard library modules",
+        note: "Type conversions, assertions, I/O",
+        goal: "Core built-in functions and type conversions",
+        spec: "library/std/",
+        sections: [
+          { name: "Type Conversions (as/as? syntax)", tasks: [
+            { name: "As<T> trait for infallible conversions", done: false },
+            { name: "TryAs<T> trait for fallible conversions", done: false },
+            { name: "x as T / x as? T syntax", done: false },
+            { name: "Float truncation methods", done: false },
+          ]},
+          { name: "Assertions", tasks: [
+            { name: "assert, assert_eq, assert_ne", done: true },
+            { name: "assert_some, assert_none", done: true },
+            { name: "assert_ok, assert_err", done: true },
+            { name: "assert_panics, assert_panics_with", done: true },
+          ]},
+          { name: "I/O Functions", tasks: [
+            { name: "print function", done: true },
+            { name: "panic function", done: true },
+          ]},
+          { name: "Float NaN Handling", tasks: [
+            { name: "NaN comparisons panic", done: false },
+          ]},
+        ],
+      },
+      {
+        num: "7B",
+        name: "Option & Result",
+        status: "partial",
+        note: "Option/Result methods",
+        goal: "Methods for Option<T> and Result<T, E> types",
+        spec: "library/std/",
+        sections: [
+          { name: "Option Methods", tasks: [
+            { name: "map, and_then, filter", done: true },
+            { name: "unwrap_or, ok_or", done: true },
+            { name: "is_some, is_none", done: true },
+          ]},
+          { name: "Result Methods", tasks: [
+            { name: "map, map_err, and_then", done: true },
+            { name: "unwrap_or, ok, err", done: true },
+            { name: "is_ok, is_err", done: true },
+            { name: "context for error traces", done: false },
+          ]},
+        ],
+      },
+      {
+        num: "7C",
+        name: "Collections & Iteration",
+        status: "partial",
+        note: "Collection methods done (map, filter, fold, find, collect)",
+        goal: "Collection methods and iterator traits",
         spec: "library/std/",
         sections: [
           { name: "Collection Methods", tasks: [
@@ -229,36 +279,58 @@ const tiers: Tier[] = [
             { name: "List: any, all", done: true },
             { name: "Range: collect, map, filter, fold", done: true },
             { name: "Map: len, is_empty", done: true },
-            { name: "Rosetta examples updated to method syntax", done: true },
-          ]},
-          { name: "Type Conversions (as/as? syntax)", tasks: [
-            { name: "As<T> trait for infallible conversions", done: false },
-            { name: "TryAs<T> trait for fallible conversions", done: false },
-            { name: "x as T / x as? T syntax", done: false },
-            { name: "Float truncation methods", done: false },
           ]},
           { name: "Iterator Traits", tasks: [
             { name: "Iterator trait with next()", done: false },
+            { name: "DoubleEndedIterator trait", done: false },
             { name: "Iterable trait with iter()", done: false },
             { name: "Collect trait for collection building", done: false },
-            { name: "Iterator extension methods", done: false },
           ]},
           { name: "Debug Trait", tasks: [
             { name: "Debug trait definition", done: false },
-            { name: "#[derive(Debug)] support", done: false },
+            { name: "#derive(Debug) support", done: false },
             { name: "Standard Debug implementations", done: false },
+          ]},
+        ],
+      },
+      {
+        num: "7D",
+        name: "Stdlib Modules",
+        status: "partial",
+        note: "retry, validate, time/json/fs pending",
+        goal: "Standard library modules: validate, resilience, math, time, json, fs",
+        spec: "library/std/",
+        sections: [
+          { name: "std.validate", tasks: [
+            { name: "validate function", done: false },
+            { name: "Validation rules", done: false },
+          ]},
+          { name: "std.resilience", tasks: [
+            { name: "retry function", done: false },
+            { name: "Backoff strategies", done: false },
+          ]},
+          { name: "std.math", tasks: [
+            { name: "Overflow handling functions", done: false },
+            { name: "saturating_*, wrapping_*, checked_*", done: false },
           ]},
           { name: "Developer Functions", tasks: [
             { name: "todo() placeholder function", done: false },
             { name: "unreachable() assertion", done: false },
             { name: "dbg() debug helper", done: false },
           ]},
-          { name: "Resilience (std.resilience)", tasks: [
-            { name: "retry function", done: false },
+          { name: "std.time", tasks: [
+            { name: "Instant, DateTime, Timezone types", done: false },
+            { name: "Duration extension methods", done: false },
+            { name: "Clock capability", done: false },
           ]},
-          { name: "Validation (std.validate)", tasks: [
-            { name: "validate function", done: false },
-            { name: "Validation rules", done: false },
+          { name: "std.json", tasks: [
+            { name: "JsonValue type, parse/stringify", done: false },
+            { name: "#derive(Json) support", done: false },
+          ]},
+          { name: "std.fs", tasks: [
+            { name: "Path, FileInfo types", done: false },
+            { name: "read, write, list_dir functions", done: false },
+            { name: "FileSystem capability", done: false },
           ]},
         ],
       },
@@ -457,64 +529,109 @@ const tiers: Tier[] = [
         ],
       },
       {
-        num: 15,
-        name: "Syntax Proposals",
+        num: "15A",
+        name: "Attributes & Comments",
         status: "not-started",
-        note: "15.1-15.14 approved syntax changes",
-        goal: "Implement approved syntax changes",
+        note: "Simplified attributes, function_seq/exp, inline comments",
+        goal: "Attribute syntax changes and comment rules",
         spec: "docs/ori_lang/proposals/",
         sections: [
-          { name: "Attribute Syntax (15.1)", tasks: [
-            { name: "#name(...) simplified attributes", done: false },
+          { name: "Simplified Attribute Syntax", tasks: [
+            { name: "#name(...) syntax (remove brackets)", done: false },
+            { name: "Generalize attributes to all declarations", done: false },
+            { name: "Attribute validation", done: false },
+            { name: "Migration support (accept both syntaxes)", done: false },
           ]},
-          { name: "Function Categories (15.2)", tasks: [
-            { name: "function_seq vs function_exp formalization", done: false },
+          { name: "function_seq vs function_exp", tasks: [
+            { name: "Verify AST has separate types", done: false },
+            { name: "Parser enforces named args for builtins", done: false },
           ]},
-          { name: "Named Arguments (15.3)", tasks: [
-            { name: "Remove dot prefix from named args", done: false },
+          { name: "Inline Comments Prohibition", tasks: [
+            { name: "Lexer rejects inline comments", done: false },
+            { name: "Clear error message", done: false },
           ]},
-          { name: "Comments (15.4)", tasks: [
-            { name: "Inline comments prohibition", done: false },
+        ],
+      },
+      {
+        num: "15B",
+        name: "Function Syntax",
+        status: "not-started",
+        note: "Remove dot prefix, default params, function clauses, positional lambdas",
+        goal: "Function declaration and call syntax changes",
+        spec: "docs/ori_lang/proposals/",
+        sections: [
+          { name: "Remove Dot Prefix", tasks: [
+            { name: "Update all built-ins to named args", done: false },
+            { name: "print(msg:), len(collection:), assert(condition:)", done: false },
           ]},
-          { name: "Contracts (15.5)", tasks: [
-            { name: "pre_check/post_check for run pattern", done: false },
-          ]},
-          { name: "String Interpolation (15.6)", tasks: [
-            { name: "Template strings with backticks", done: false },
-            { name: "{expr} interpolation", done: false },
-          ]},
-          { name: "as Conversion Syntax (15.7)", tasks: [
-            { name: "x as T / x as? T parsing", done: false },
-            { name: "Type checker enforcement", done: false },
-            { name: "Remove int()/float()/str()/byte()", done: false },
-          ]},
-          { name: "Default Parameters (15.8)", tasks: [
+          { name: "Default Parameters", tasks: [
             { name: "param: Type = default_expr syntax", done: false },
             { name: "Call-time evaluation", done: false },
+            { name: "Works with named args", done: false },
           ]},
-          { name: "Function Clauses (15.9)", tasks: [
+          { name: "Function Clauses", tasks: [
             { name: "Pattern matching in parameters", done: false },
             { name: "if guards", done: false },
+            { name: "Exhaustiveness checking", done: false },
           ]},
-          { name: "Spread Operator (15.10)", tasks: [
+          { name: "Positional Lambdas", tasks: [
+            { name: "items.map(x -> x * 2) syntax", done: false },
+            { name: "Lambda literal detection", done: false },
+            { name: "self excluded from param count", done: false },
+          ]},
+        ],
+      },
+      {
+        num: "15C",
+        name: "Literals & Operators",
+        status: "not-started",
+        note: "String interpolation, spread operator, range step",
+        goal: "Literal syntax and operator additions",
+        spec: "docs/ori_lang/proposals/",
+        sections: [
+          { name: "String Interpolation", tasks: [
+            { name: "Template strings with backticks", done: false },
+            { name: "{expr} interpolation", done: false },
+            { name: "Format specifiers {value:.2}", done: false },
+            { name: "Formattable trait", done: false },
+          ]},
+          { name: "Spread Operator", tasks: [
             { name: "[...a, ...b] list spread", done: false },
             { name: "{...a, ...b} map spread", done: false },
             { name: "T { ...s, x: v } struct spread", done: false },
           ]},
-          { name: "Simplified Bindings (15.11)", tasks: [
-            { name: "let x mutable, let $x immutable", done: false },
-            { name: "Remove mut keyword", done: false },
-          ]},
-          { name: "Remove dyn Keyword (15.12)", tasks: [
-            { name: "Trait names as trait objects", done: false },
-          ]},
-          { name: "Range with Step (15.13)", tasks: [
+          { name: "Range with Step", tasks: [
             { name: "0..10 by 2 syntax", done: false },
             { name: "Integer-only restriction", done: false },
+            { name: "Zero step panics", done: false },
           ]},
-          { name: "Positional Lambdas (15.14)", tasks: [
-            { name: "items.map(x -> x * 2) syntax", done: false },
-            { name: "Lambda literal detection", done: false },
+        ],
+      },
+      {
+        num: "15D",
+        name: "Bindings & Types",
+        status: "not-started",
+        note: "Pre/post checks, as conversion, $ bindings, remove dyn",
+        goal: "Binding syntax and type system changes",
+        spec: "docs/ori_lang/proposals/",
+        sections: [
+          { name: "Pre/Post Checks", tasks: [
+            { name: "pre_check: for run pattern", done: false },
+            { name: "post_check: for run pattern", done: false },
+            { name: "Custom messages with | syntax", done: false },
+          ]},
+          { name: "as Conversion Syntax", tasks: [
+            { name: "x as T / x as? T parsing", done: false },
+            { name: "As<T>, TryAs<T> traits", done: false },
+            { name: "Remove int()/float()/str()/byte()", done: false },
+          ]},
+          { name: "Simplified Bindings", tasks: [
+            { name: "let x mutable, let $x immutable", done: false },
+            { name: "Remove mut keyword", done: false },
+            { name: "Module-level bindings require $", done: false },
+          ]},
+          { name: "Remove dyn Keyword", tasks: [
+            { name: "Trait names as trait objects directly", done: false },
           ]},
         ],
       },
@@ -655,11 +772,11 @@ const tiers: Tier[] = [
         ],
       },
       {
-        num: 21,
+        num: "21A",
         name: "LLVM Backend",
         status: "partial",
-        note: "JIT working; 977/996 tests pass; AOT pending",
-        goal: "Compile to native code via LLVM",
+        note: "JIT working; 977/996 tests pass (19 skipped)",
+        goal: "Compile to native code via LLVM JIT",
         spec: "Implementation-specific",
         sections: [
           { name: "LLVM Setup", tasks: [
@@ -674,6 +791,21 @@ const tiers: Tier[] = [
             { name: "Control flow graphs", done: true },
             { name: "Destructuring support", done: true },
           ]},
+          { name: "JIT Execution", tasks: [
+            { name: "JIT compilation", done: true },
+            { name: "Runtime support functions", done: true },
+            { name: "Generic function support", done: true },
+          ]},
+        ],
+      },
+      {
+        num: "21B",
+        name: "AOT Compilation",
+        status: "not-started",
+        note: "Object file generation, optimization, linking",
+        goal: "Ahead-of-time compilation to native executables",
+        spec: "Implementation-specific",
+        sections: [
           { name: "Optimization", tasks: [
             { name: "O0-O3 optimization levels", done: false },
             { name: "Debug info (DWARF)", done: false },
@@ -681,11 +813,9 @@ const tiers: Tier[] = [
           { name: "Output", tasks: [
             { name: "Object file emission", done: false },
             { name: "Executable linking", done: false },
-            { name: "JIT compilation", done: true },
           ]},
           { name: "Runtime", tasks: [
             { name: "ARC memory management", done: false },
-            { name: "Runtime support functions", done: true },
             { name: "FFI runtime support", done: false },
           ]},
         ],
@@ -800,7 +930,7 @@ function countTasks(sections: Section[]): { done: number; total: number } {
     <section class="roadmap-hero">
       <h1>Compiler Roadmap</h1>
       <p class="roadmap-subtitle">
-        22 phases across 8 tiers. Click any phase to view details.
+        29 phases across 8 tiers. Click any phase to view details.
       </p>
       <div class="stats">
         <div class="stat">
@@ -808,11 +938,11 @@ function countTasks(sections: Section[]): { done: number; total: number } {
           <span class="stat-label">Completed</span>
         </div>
         <div class="stat">
-          <span class="stat-value">5</span>
+          <span class="stat-value">8</span>
           <span class="stat-label">In Progress</span>
         </div>
         <div class="stat">
-          <span class="stat-value">11</span>
+          <span class="stat-value">15</span>
           <span class="stat-label">Planned</span>
         </div>
       </div>
@@ -930,17 +1060,17 @@ function countTasks(sections: Section[]): { done: number; total: number } {
       <h2>Dependency Graph</h2>
       <div class="graph-container">
         <pre class="graph">{`Phase 1 (Types) → Phase 2 (Inference) → Phase 3 (Traits) → Phase 4 (Modules)
-    → Phase 5 (Type Decls) → Phase 6 (Capabilities) → Phase 7 (Stdlib)
+    → Phase 5 (Type Decls) → Phase 6 (Capabilities) → Phase 7A-D (Stdlib)
     → Phase 8 (Patterns) → Phase 9 (Match) → Phase 10 (Control Flow)
     → Phase 11 (FFI) → Phase 12 (Variadics) → Phase 13 (Conditional)
-    → Phase 14 (Testing) → Phase 15 (Syntax Proposals)
+    → Phase 14 (Testing) → Phase 15A-D (Syntax Proposals)
 
 Branches:
   Phase 6 ──→ Phase 16 (Async) → Phase 17 (Concurrency)
   Phase 3 ──→ Phase 19 (Existential Types)
   Phase 2 ──→ Phase 18 (Const Generics)
   Phase 11 ──→ Phase 20 (Reflection)
-  Core Complete (1-15) ──→ Phase 21 (LLVM) → Phase 22 (Tooling)`}</pre>
+  Core Complete (1-15) ──→ Phase 21A (LLVM) → Phase 21B (AOT) → Phase 22 (Tooling)`}</pre>
       </div>
     </section>
 

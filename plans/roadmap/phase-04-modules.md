@@ -8,33 +8,6 @@
 
 ---
 
-## CURRENT STATUS
-
-**Infrastructure Complete:**
-- [x] Parser: `use` statements (relative and module paths)
-- [x] IR: `UseDef`, `UseItem`, `ImportPath` (Relative/Module variants)
-- [x] Import resolution: `eval/module/import.rs` with path resolution
-- [x] Loading context: cycle detection, test module detection
-- [x] Visibility: `pub` keyword, `::` prefix for private access
-- [x] Aliases: `as` keyword for renaming imports
-
-**What Works Now:**
-- Relative imports: `use './path' { item }`, `use '../path' { item }`
-- Module imports: `use std.testing { assert_eq }`
-- Private imports: `use './mod' { ::private_item }`
-- Aliases: `use './math' { add as plus }`
-- Test modules in `_test/` can access private items from parent module
-- Module resolution walks up directory tree to find `library/`
-
-**Tests:**
-- `tests/spec/modules/use_imports.ori` - module being imported
-- `tests/spec/modules/_test/use_imports.test.ori` - relative imports
-- `tests/spec/modules/_test/use_aliases.test.ori` - alias imports
-- `tests/spec/modules/_test/use_private.test.ori` - private imports with ::
-- `tests/spec/modules/_test/test_module_access.test.ori` - test module private access
-
----
-
 ## 4.1 Module Definition
 
 - [x] **Implement**: Module structure — spec/12-modules.md § Module Structure

@@ -7,26 +7,6 @@
 
 ---
 
-## Phase Status: 🔶 ~95% Complete (cache TTL remaining)
-
-**Design Change**: Per "Lean Core, Rich Libraries" principle, data transformation
-patterns (`map`, `filter`, `fold`, `find`, `collect`) and resilience patterns
-(`retry`, `backoff`) have been moved to stdlib. Only patterns requiring special
-syntax or static analysis remain in the compiler.
-
-**Compiler patterns** (8 total):
-- Control flow: `run`, `try`, `match`, `for`
-- Recursion: `recurse`
-- Concurrency: `parallel`, `spawn`, `timeout`
-- Resource management: `cache`, `with`
-
-**Moved to stdlib (Phase 7 - Stdlib)**:
-- Data transformation: `map`, `filter`, `fold`, `find`, `collect`
-- Resilience: `retry`, `exponential`, `linear`
-- Validation: `validate`
-
----
-
 ## Pattern Categories (per spec/10-patterns.md)
 
 The spec formalizes two distinct pattern categories:
