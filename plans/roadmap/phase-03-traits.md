@@ -700,3 +700,49 @@ Introduces the `Index` trait for read-only custom subscripting, allowing user-de
 - [ ] **Update Spec**: `09-expressions.md` — document Index trait and desugaring
 - [ ] **Update Spec**: `06-types.md` — add Index trait to prelude section
 - [ ] **Update**: `CLAUDE.md` — add Index trait to prelude and subscripting documentation
+
+---
+
+## 3.13 Additional Core Traits
+
+**Proposal**: `proposals/approved/additional-traits-proposal.md`
+
+Formalizes three core traits: `Printable`, `Default`, and `Traceable`. The `Iterable`, `Iterator`, `DoubleEndedIterator`, and `Collect` traits are already defined in the spec and implemented in Phase 3.8.
+
+### Implementation
+
+- [ ] **Implement**: `Printable` trait formal definition in type system
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — printable trait parsing/bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/printable/definition.ori`
+
+- [ ] **Implement**: Printable derivation with `Point(1, 2)` format (type name + values)
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — printable derive tests
+  - [ ] **Ori Tests**: `tests/spec/traits/printable/derive.ori`
+
+- [ ] **Implement**: `Default` trait formal definition in type system
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — default trait parsing/bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/default/definition.ori`
+
+- [ ] **Implement**: Default derivation for structs only (error on sum types)
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — default derive tests
+  - [ ] **Ori Tests**: `tests/spec/traits/default/derive.ori`
+  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/default_sum_type.ori`
+
+- [ ] **Implement**: `Traceable` trait formal definition in type system
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — traceable trait parsing/bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/traceable/definition.ori`
+
+- [ ] **Implement**: Traceable for Error type with trace storage
+  - [ ] **Rust Tests**: `oric/src/eval/tests/` — error trace evaluation
+  - [ ] **Ori Tests**: `tests/spec/traits/traceable/error.ori`
+
+- [ ] **Implement**: Traceable delegation for Result<T, E: Traceable>
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — result traceable bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/traceable/result.ori`
+
+- [ ] **Implement**: Error messages (E1040, E1042)
+  - [ ] E1040: Missing Printable for string interpolation
+  - [ ] E1042: Cannot derive Default for sum type
+
+- [ ] **Update Spec**: `07-properties-of-types.md` — add Printable, Default, Traceable sections (DONE)
+- [ ] **Update**: `CLAUDE.md` — ensure traits documented in quick reference
