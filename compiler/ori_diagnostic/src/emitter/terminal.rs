@@ -6,7 +6,7 @@ use std::io::{self, Write};
 
 use crate::{Diagnostic, Severity};
 
-use super::{atty_check, DiagnosticEmitter};
+use super::DiagnosticEmitter;
 
 /// ANSI color codes for terminal output.
 mod colors {
@@ -43,9 +43,16 @@ pub enum ColorMode {
 
 impl ColorMode {
     /// Resolve to a boolean based on terminal detection.
-    pub fn should_use_colors(self) -> bool {
+    ///
+    /// For `Auto` mode, `is_tty` determines whether colors should be used.
+    /// This parameter is ignored for `Always` and `Never` modes.
+    ///
+    /// # Arguments
+    ///
+    /// * `is_tty` - Whether the output is a TTY (from CLI layer detection)
+    pub fn should_use_colors(self, is_tty: bool) -> bool {
         match self {
-            ColorMode::Auto => atty_check(),
+            ColorMode::Auto => is_tty,
             ColorMode::Always => true,
             ColorMode::Never => false,
         }
@@ -60,33 +67,53 @@ pub struct TerminalEmitter<W: Write> {
 
 impl<W: Write> TerminalEmitter<W> {
     /// Create a new terminal emitter with explicit color mode.
-    pub fn with_color_mode(writer: W, mode: ColorMode) -> Self {
+    ///
+    /// # Arguments
+    ///
+    /// * `writer` - The output writer
+    /// * `mode` - Color mode selection
+    /// * `is_tty` - Whether output is a TTY (used for `ColorMode::Auto`)
+    pub fn with_color_mode(writer: W, mode: ColorMode, is_tty: bool) -> Self {
         TerminalEmitter {
             writer,
-            colors: mode.should_use_colors(),
+            colors: mode.should_use_colors(is_tty),
         }
     }
 
-    /// Create a new terminal emitter.
+    /// Create a new terminal emitter with a boolean color flag.
     ///
-    /// Prefer `with_color_mode` for clearer intent.
+    /// # Deprecation
+    ///
+    /// Prefer `with_color_mode` for clearer intent. This method exists for
+    /// backwards compatibility but may be removed in a future version.
+    #[deprecated(since = "0.2.0", note = "use `with_color_mode` instead")]
     pub fn new(writer: W, colors: bool) -> Self {
         TerminalEmitter { writer, colors }
     }
 
-    /// Create a terminal emitter for stdout with auto-detected color support.
-    pub fn stdout() -> TerminalEmitter<io::Stdout> {
+    /// Create a terminal emitter for stdout with explicit color mode.
+    ///
+    /// # Arguments
+    ///
+    /// * `mode` - Color mode selection (`Auto`, `Always`, or `Never`)
+    /// * `is_tty` - Whether stdout is a TTY (used for `ColorMode::Auto`)
+    pub fn stdout(mode: ColorMode, is_tty: bool) -> TerminalEmitter<io::Stdout> {
         TerminalEmitter {
             writer: io::stdout(),
-            colors: atty_check(),
+            colors: mode.should_use_colors(is_tty),
         }
     }
 
-    /// Create a terminal emitter for stderr with auto-detected color support.
-    pub fn stderr() -> TerminalEmitter<io::Stderr> {
+    /// Create a terminal emitter for stderr with explicit color mode.
+    ///
+    /// # Arguments
+    ///
+    /// * `mode` - Color mode selection (`Auto`, `Always`, or `Never`)
+    /// * `is_tty` - Whether stderr is a TTY (used for `ColorMode::Auto`)
+    pub fn stderr(mode: ColorMode, is_tty: bool) -> TerminalEmitter<io::Stderr> {
         TerminalEmitter {
             writer: io::stderr(),
-            colors: atty_check(),
+            colors: mode.should_use_colors(is_tty),
         }
     }
 
@@ -219,6 +246,7 @@ impl<W: Write> DiagnosticEmitter for TerminalEmitter<W> {
 
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+#[allow(deprecated)] // Tests exercise deprecated `new` method for backwards compatibility
 mod tests {
     use super::*;
     use crate::ErrorCode;
@@ -318,5 +346,86 @@ mod tests {
 
         let text = String::from_utf8(output).unwrap();
         assert!(text.contains("3 warnings"));
+    }
+
+    // --- ColorMode Tests ---
+
+    #[test]
+    fn test_color_mode_auto_with_tty() {
+        assert!(ColorMode::Auto.should_use_colors(true));
+    }
+
+    #[test]
+    fn test_color_mode_auto_without_tty() {
+        assert!(!ColorMode::Auto.should_use_colors(false));
+    }
+
+    #[test]
+    fn test_color_mode_always_ignores_tty() {
+        assert!(ColorMode::Always.should_use_colors(false));
+        assert!(ColorMode::Always.should_use_colors(true));
+    }
+
+    #[test]
+    fn test_color_mode_never_ignores_tty() {
+        assert!(!ColorMode::Never.should_use_colors(false));
+        assert!(!ColorMode::Never.should_use_colors(true));
+    }
+
+    #[test]
+    fn test_color_mode_default_is_auto() {
+        assert_eq!(ColorMode::default(), ColorMode::Auto);
+    }
+
+    #[test]
+    fn test_with_color_mode_always() {
+        let mut output = Vec::new();
+        let mut emitter = TerminalEmitter::with_color_mode(&mut output, ColorMode::Always, false);
+
+        emitter.emit(&sample_diagnostic());
+        emitter.flush();
+
+        let text = String::from_utf8(output).unwrap();
+        // Even without TTY, Always mode produces ANSI codes
+        assert!(text.contains("\x1b["));
+    }
+
+    #[test]
+    fn test_with_color_mode_never() {
+        let mut output = Vec::new();
+        let mut emitter = TerminalEmitter::with_color_mode(&mut output, ColorMode::Never, true);
+
+        emitter.emit(&sample_diagnostic());
+        emitter.flush();
+
+        let text = String::from_utf8(output).unwrap();
+        // Even with TTY, Never mode produces no ANSI codes
+        assert!(!text.contains("\x1b["));
+    }
+
+    #[test]
+    fn test_with_color_mode_auto_tty() {
+        let mut output = Vec::new();
+        let mut emitter = TerminalEmitter::with_color_mode(&mut output, ColorMode::Auto, true);
+
+        emitter.emit(&sample_diagnostic());
+        emitter.flush();
+
+        let text = String::from_utf8(output).unwrap();
+        // With TTY, Auto mode produces ANSI codes
+        assert!(text.contains("\x1b["));
+    }
+
+    #[test]
+    fn test_with_color_mode_auto_no_tty() {
+        let mut output = Vec::new();
+        let mut emitter = TerminalEmitter::with_color_mode(&mut output, ColorMode::Auto, false);
+
+        emitter.emit(&sample_diagnostic());
+        emitter.flush();
+
+        let text = String::from_utf8(output).unwrap();
+        // Without TTY, Auto mode produces no ANSI codes
+        assert!(!text.contains("\x1b["));
     }
 }

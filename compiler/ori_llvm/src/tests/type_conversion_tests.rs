@@ -3,33 +3,14 @@
 use inkwell::context::Context;
 use ori_ir::StringInterner;
 
+use super::helper::setup_builder_test_with_entry;
 use crate::builder::Builder;
-use crate::context::CodegenCx;
-
-/// Helper to create test context and builder.
-fn setup_builder<'ll, 'tcx>(
-    context: &'ll Context,
-    interner: &'tcx StringInterner,
-) -> (
-    CodegenCx<'ll, 'tcx>,
-    inkwell::values::FunctionValue<'ll>,
-    inkwell::basic_block::BasicBlock<'ll>,
-) {
-    let cx = CodegenCx::new(context, interner, "test");
-    cx.declare_runtime_functions();
-
-    let fn_type = cx.scx.type_i64().fn_type(&[], false);
-    let function = cx.llmod().add_function("test_fn", fn_type, None);
-    let entry_bb = cx.llcx().append_basic_block(function, "entry");
-
-    (cx, function, entry_bb)
-}
 
 #[test]
 fn test_builtin_str_from_i64() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, _function, entry_bb) = setup_builder(&context, &interner);
+    let (cx, _function, entry_bb) = setup_builder_test_with_entry(&context, &interner);
 
     let builder = Builder::build(&cx, entry_bb);
 
@@ -43,7 +24,7 @@ fn test_builtin_str_from_i64() {
 fn test_builtin_str_from_bool() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, _function, entry_bb) = setup_builder(&context, &interner);
+    let (cx, _function, entry_bb) = setup_builder_test_with_entry(&context, &interner);
 
     let builder = Builder::build(&cx, entry_bb);
 
@@ -57,7 +38,7 @@ fn test_builtin_str_from_bool() {
 fn test_builtin_str_from_other_int() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, _function, entry_bb) = setup_builder(&context, &interner);
+    let (cx, _function, entry_bb) = setup_builder_test_with_entry(&context, &interner);
 
     let builder = Builder::build(&cx, entry_bb);
 
@@ -75,7 +56,7 @@ fn test_builtin_str_from_other_int() {
 fn test_builtin_str_from_float() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, _function, entry_bb) = setup_builder(&context, &interner);
+    let (cx, _function, entry_bb) = setup_builder_test_with_entry(&context, &interner);
 
     let builder = Builder::build(&cx, entry_bb);
 
@@ -89,7 +70,7 @@ fn test_builtin_str_from_float() {
 fn test_builtin_str_from_struct() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, _function, entry_bb) = setup_builder(&context, &interner);
+    let (cx, _function, entry_bb) = setup_builder_test_with_entry(&context, &interner);
 
     let builder = Builder::build(&cx, entry_bb);
 
@@ -107,7 +88,7 @@ fn test_builtin_str_from_struct() {
 fn test_builtin_int_already_i64() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, _function, entry_bb) = setup_builder(&context, &interner);
+    let (cx, _function, entry_bb) = setup_builder_test_with_entry(&context, &interner);
 
     let builder = Builder::build(&cx, entry_bb);
 
@@ -128,7 +109,7 @@ fn test_builtin_int_already_i64() {
 fn test_builtin_int_from_bool() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, _function, entry_bb) = setup_builder(&context, &interner);
+    let (cx, _function, entry_bb) = setup_builder_test_with_entry(&context, &interner);
 
     let builder = Builder::build(&cx, entry_bb);
 
@@ -142,7 +123,7 @@ fn test_builtin_int_from_bool() {
 fn test_builtin_int_from_smaller_int() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, _function, entry_bb) = setup_builder(&context, &interner);
+    let (cx, _function, entry_bb) = setup_builder_test_with_entry(&context, &interner);
 
     let builder = Builder::build(&cx, entry_bb);
 
@@ -160,7 +141,7 @@ fn test_builtin_int_from_smaller_int() {
 fn test_builtin_int_from_float() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, _function, entry_bb) = setup_builder(&context, &interner);
+    let (cx, _function, entry_bb) = setup_builder_test_with_entry(&context, &interner);
 
     let builder = Builder::build(&cx, entry_bb);
 
@@ -174,7 +155,7 @@ fn test_builtin_int_from_float() {
 fn test_builtin_int_from_unknown() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, _function, entry_bb) = setup_builder(&context, &interner);
+    let (cx, _function, entry_bb) = setup_builder_test_with_entry(&context, &interner);
 
     let builder = Builder::build(&cx, entry_bb);
 
@@ -189,7 +170,7 @@ fn test_builtin_int_from_unknown() {
 fn test_builtin_float_from_bool() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, _function, entry_bb) = setup_builder(&context, &interner);
+    let (cx, _function, entry_bb) = setup_builder_test_with_entry(&context, &interner);
 
     let builder = Builder::build(&cx, entry_bb);
 
@@ -203,7 +184,7 @@ fn test_builtin_float_from_bool() {
 fn test_builtin_float_from_int() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, _function, entry_bb) = setup_builder(&context, &interner);
+    let (cx, _function, entry_bb) = setup_builder_test_with_entry(&context, &interner);
 
     let builder = Builder::build(&cx, entry_bb);
 
@@ -217,7 +198,7 @@ fn test_builtin_float_from_int() {
 fn test_builtin_float_already_float() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, _function, entry_bb) = setup_builder(&context, &interner);
+    let (cx, _function, entry_bb) = setup_builder_test_with_entry(&context, &interner);
 
     let builder = Builder::build(&cx, entry_bb);
 
@@ -231,7 +212,7 @@ fn test_builtin_float_already_float() {
 fn test_builtin_float_from_unknown() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, _function, entry_bb) = setup_builder(&context, &interner);
+    let (cx, _function, entry_bb) = setup_builder_test_with_entry(&context, &interner);
 
     let builder = Builder::build(&cx, entry_bb);
 
@@ -245,7 +226,7 @@ fn test_builtin_float_from_unknown() {
 fn test_builtin_byte_already_byte() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, _function, entry_bb) = setup_builder(&context, &interner);
+    let (cx, _function, entry_bb) = setup_builder_test_with_entry(&context, &interner);
 
     let builder = Builder::build(&cx, entry_bb);
 
@@ -266,7 +247,7 @@ fn test_builtin_byte_already_byte() {
 fn test_builtin_byte_from_i64() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, _function, entry_bb) = setup_builder(&context, &interner);
+    let (cx, _function, entry_bb) = setup_builder_test_with_entry(&context, &interner);
 
     let builder = Builder::build(&cx, entry_bb);
 
@@ -280,7 +261,7 @@ fn test_builtin_byte_from_i64() {
 fn test_builtin_byte_from_unknown() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, _function, entry_bb) = setup_builder(&context, &interner);
+    let (cx, _function, entry_bb) = setup_builder_test_with_entry(&context, &interner);
 
     let builder = Builder::build(&cx, entry_bb);
 

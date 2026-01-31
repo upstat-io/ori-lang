@@ -124,4 +124,37 @@ impl TypeChecker<'_> {
             f(checker)
         })
     }
+
+    /// Execute a closure with a pre-created inference environment.
+    ///
+    /// Replaces the current environment with the provided one, executes the
+    /// closure, and then restores the previous environment. Use this when you
+    /// need to set up a custom environment before switching to it (e.g., when
+    /// binding parameters requires access to the current checker state).
+    pub fn with_custom_env_scope<T, F>(&mut self, new_env: ori_types::TypeEnv, f: F) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        let old_env = std::mem::replace(&mut self.inference.env, new_env);
+        let result = f(self);
+        self.inference.env = old_env;
+        result
+    }
+
+    /// Execute a closure with a specific function type scope.
+    ///
+    /// Sets the current function type (for `recurse`/`self()` support),
+    /// executes the closure, and then restores the previous function type.
+    pub fn with_function_type_scope<T, F>(&mut self, fn_type: Type, f: F) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        let old_fn_type = self.scope.current_function_type.take();
+        self.scope.current_function_type = Some(fn_type);
+
+        let result = f(self);
+
+        self.scope.current_function_type = old_fn_type;
+        result
+    }
 }

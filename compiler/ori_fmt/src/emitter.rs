@@ -1,11 +1,7 @@
 //! Output Emitter
 //!
 //! Abstraction for output production during formatting.
-//! Supports string building for in-memory formatting and streaming for file output.
-
-use std::fs::File;
-use std::io::{self, BufWriter, Write};
-use std::path::Path;
+//! Supports string building for in-memory formatting.
 
 /// Trait for emitting formatted output.
 ///
@@ -105,67 +101,6 @@ impl Emitter for StringEmitter {
 
     fn emit_space(&mut self) {
         self.buffer.push(' ');
-    }
-}
-
-/// File-based emitter for streaming output to a file.
-///
-/// Uses buffered writing for efficiency with large files.
-pub struct FileEmitter {
-    writer: BufWriter<File>,
-}
-
-impl FileEmitter {
-    /// Create a new file emitter.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file cannot be created.
-    pub fn new<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        let file = File::create(path)?;
-        Ok(Self {
-            writer: BufWriter::new(file),
-        })
-    }
-
-    /// Flush any buffered output to the file.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if flushing fails.
-    pub fn flush(&mut self) -> io::Result<()> {
-        self.writer.flush()
-    }
-
-    /// Finish writing and return any error that occurred.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if final flush fails.
-    pub fn finish(mut self) -> io::Result<()> {
-        self.writer.flush()
-    }
-}
-
-impl Emitter for FileEmitter {
-    fn emit(&mut self, text: &str) {
-        // Ignore write errors during emit; caller should check flush/finish
-        let _ = self.writer.write_all(text.as_bytes());
-    }
-
-    fn emit_newline(&mut self) {
-        let _ = self.writer.write_all(b"\n");
-    }
-
-    fn emit_indent(&mut self, level: usize) {
-        let spaces = level * 4;
-        for _ in 0..spaces {
-            let _ = self.writer.write_all(b" ");
-        }
-    }
-
-    fn emit_space(&mut self) {
-        let _ = self.writer.write_all(b" ");
     }
 }
 

@@ -26,14 +26,20 @@ impl<'ll> Builder<'_, 'll, '_> {
         // Build parameter map
         let mut locals: HashMap<Name, BasicValueEnum<'ll>> = HashMap::new();
 
+        // Verify parameter count matches (debug assertion for internal consistency)
+        debug_assert_eq!(
+            function.count_params() as usize,
+            param_names.len(),
+            "Function parameter count mismatch: LLVM function has {} params, expected {}",
+            function.count_params(),
+            param_names.len()
+        );
+
         for (i, &param_name) in param_names.iter().enumerate() {
-            let param_value = function.get_nth_param(i as u32).unwrap_or_else(|| {
-                let fn_name = function.get_name().to_str().unwrap_or("<unknown function>");
-                panic!(
-                    "Missing parameter {i} in function '{fn_name}' (expected {} parameters)",
-                    param_names.len()
-                )
-            });
+            // SAFETY: We verified param count above; this should not fail
+            let param_value = function
+                .get_nth_param(i as u32)
+                .expect("internal error: parameter count verified but get_nth_param failed");
             param_value.set_name(self.cx().interner.lookup(param_name));
             locals.insert(param_name, param_value);
         }

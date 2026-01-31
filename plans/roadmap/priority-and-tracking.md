@@ -68,7 +68,7 @@
 |-------|------|--------|-------|
 | 20 | Reflection | ⏳ Not started | |
 | 21A | LLVM Backend | 🔶 Partial | JIT working; 977/996 tests pass (19 skipped); destructuring support added |
-| 21B | AOT Compilation | ⏳ Not started | Object file generation, optimization, linking |
+| 21B | AOT Compilation | 📋 Planned | Object file generation, optimization, linking — see `phase-21B-aot.md` |
 | 22 | Tooling | 🔶 Partial | Formatter CLI complete (440 tests); LSP/WASM pending |
 
 ---
@@ -913,6 +913,17 @@
 - `std.test` contains assertion methods, test doubles, mocking utilities (lean compiler, rich libraries)
 - Blocked on: None (architecture/philosophy proposal)
 
+**If Expression Semantics** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/if-expression-proposal.md`
+- Implementation: Phase 10.1
+- Formalizes `if...then...else` conditional expression semantics
+- Condition must be `bool`; branches must unify to common type
+- Without else: then-branch must be `void` or `Never`; result is `void`
+- Never coerces to any type in branch contexts
+- Else-if: grammar convenience (semantically nested if expressions)
+- Struct literal restriction in condition (use parentheses to re-enable)
+- Blocked on: None (spec clarification)
+
 **Recurse Pattern Semantics** — ✅ APPROVED 2026-01-31
 - Proposal: `proposals/approved/recurse-pattern-proposal.md`
 - Implementation: Phase 8.3
@@ -1013,6 +1024,17 @@
 - Enables user-defined unit types (Temperature, Currency, Angle, etc.)
 - Supersedes: Duration/Size "Special types" categorization in stdlib-philosophy-proposal
 - Blocked on: None (operator-traits and associated-functions now approved)
+
+**AOT Compilation** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/aot-compilation-proposal.md`
+- Implementation: Phase 21B
+- Complete AOT compilation pipeline: targets, object files, linking, optimization, debug info
+- Native targets: Linux (glibc/musl), macOS (Intel/Apple Silicon), Windows (MSVC/MinGW)
+- WebAssembly: wasm32-unknown-unknown, wasm32-wasi, JavaScript binding generation
+- CLI: `ori build`, `ori targets`, `ori target add/remove`, `ori demangle`
+- Cross-compilation support with sysroot management
+- LLVM 17+ required
+- Blocked on: Phase 21A (JIT working — satisfied)
 
 ---
 
@@ -1206,6 +1228,28 @@ cargo st tests/spec/patterns/     # Tier 3
 - Error codes: E0123 (non-exhaustive), E0124 (guards without catch-all), W0456 (unreachable), W0457 (overlap)
 - Blocked on: None (can be implemented independently)
 
+**Existential Types (`impl Trait`)** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/existential-types-proposal.md`
+- Implementation: Phase 19
+- `impl Trait where Assoc == Type` syntax for opaque return types
+- Return position only; argument position uses generics
+- Multi-trait bounds with `+`: `impl Iterator + Clone where Item == int`
+- Type-local where clause for associated type constraints
+- Static dispatch (monomorphized), no vtable overhead
+- Single concrete type across all return paths required
+- Blocked on: None (Phase 3 traits complete)
+
+**For-Do Expression** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/for-do-expression-proposal.md`
+- Implementation: Phase 10 (Control Flow)
+- `for binding in iterable [if guard] do body` returns `void`
+- Supports binding pattern destructuring (tuples, structs, lists)
+- Guard condition evaluated per item before body
+- `break`/`continue` without values; with values is error
+- Empty iteration executes no body, returns `void`
+- Desugars to `.iter().for_each()` (requires `for_each` on Iterator)
+- Blocked on: None (iterator-traits complete)
+
 ---
 
 ## Draft Proposals Pending Review
@@ -1213,6 +1257,8 @@ cargo st tests/spec/patterns/     # Tier 3
 No proposals currently pending.
 
 **Recently Approved:**
+- For-Do Expression — approved 2026-01-31
+- Existential Types (`impl Trait`) — approved 2026-01-31
 - Platform FFI (Native & WASM) — approved 2026-01-30
 - Developer Convenience Functions — approved 2026-01-30
 - Debug Trait — approved 2026-01-28

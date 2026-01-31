@@ -1,6 +1,12 @@
-// Boolean options are standard for CLI config structs like this
+// FormatConfig has 4 bool fields which is standard for CLI config structs
 #![allow(clippy::struct_excessive_bools)]
-// CLI code uses string patterns and format macros extensively
+// CLI string processing justifications:
+// - single_char_pattern: intentional for readability (e.g., pattern.contains('*'))
+// - uninlined_format_args: matches style in rest of codebase
+// - format_in_format_args: needed for conditional color formatting
+// - manual_let_else: some patterns clearer with explicit match
+// - redundant_closure_for_method_calls: explicit closures clearer in callbacks
+// - collapsible_else_if: kept separate for readability in suggestion logic
 #![allow(
     clippy::single_char_pattern,
     clippy::uninlined_format_args,
@@ -847,6 +853,7 @@ fn format_parse_errors(path: &str, errors: &[ParseError], source: &str) -> Strin
 }
 
 #[cfg(test)]
+// Tests use unwrap/expect to panic on unexpected state, making failures immediately visible
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;

@@ -3,35 +3,57 @@
 **Goal**: Complete control flow constructs
 
 > **SPEC**: `spec/09-expressions.md`, `spec/17-blocks-and-scope.md`, `spec/19-control-flow.md`, `spec/20-errors-and-panics.md`
-> **PROPOSAL**: `proposals/approved/error-return-traces-proposal.md` — Automatic error trace collection
+> **PROPOSALS**:
+> - `proposals/approved/if-expression-proposal.md` — Conditional expression semantics
+> - `proposals/approved/error-return-traces-proposal.md` — Automatic error trace collection
 
 ---
 
 ## 10.1 if Expression
 
-- [ ] **Implement**: Parse `if cond then expr else expr` — spec/09-expressions.md § If Expressions
+**Proposal**: `proposals/approved/if-expression-proposal.md`
+
+- [ ] **Implement**: Parse `if cond then expr else expr` — spec/09-expressions.md § Conditional
   - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — if expression parsing
   - [ ] **Ori Tests**: `tests/spec/expressions/conditionals.ori`
   - [ ] **LLVM Support**: LLVM codegen for if expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — if expression codegen
 
-- [ ] **Implement**: Chained conditions — spec/09-expressions.md § If Expressions
+- [ ] **Implement**: Else-if chains (grammar convenience) — spec/09-expressions.md § Conditional
   - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — chained if parsing
   - [ ] **Ori Tests**: `tests/spec/expressions/conditionals.ori`
   - [ ] **LLVM Support**: LLVM codegen for chained conditions
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — chained conditions codegen
 
-- [ ] **Implement**: Condition must be `bool` — spec/09-expressions.md § If Expressions
+- [ ] **Implement**: Condition must be `bool` — spec/09-expressions.md § Conditional
   - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — condition type checking
   - [ ] **Ori Tests**: `tests/spec/expressions/conditionals.ori`
-  - [ ] **LLVM Support**: LLVM codegen for condition type checking
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — condition type checking codegen
+  - [ ] **LLVM Support**: N/A (compile-time check)
+  - [ ] **LLVM Rust Tests**: N/A
 
-- [ ] **Implement**: Both branches same type — spec/09-expressions.md § If Expressions
+- [ ] **Implement**: Branch type unification — spec/09-expressions.md § Conditional
   - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — branch type unification
   - [ ] **Ori Tests**: `tests/spec/expressions/conditionals.ori`
   - [ ] **LLVM Support**: LLVM codegen for branch type unification
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — branch type unification codegen
+
+- [ ] **Implement**: Without else: then-branch must be `void` or `Never` — spec/09-expressions.md § Conditional
+  - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — void branch validation
+  - [ ] **Ori Tests**: `tests/spec/expressions/conditionals.ori`
+  - [ ] **LLVM Support**: N/A (compile-time check)
+  - [ ] **LLVM Rust Tests**: N/A
+
+- [ ] **Implement**: Never coercion in branches — spec/09-expressions.md § Conditional
+  - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — Never coercion
+  - [ ] **Ori Tests**: `tests/spec/expressions/conditionals.ori`
+  - [ ] **LLVM Support**: LLVM codegen for diverging branches
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — Never coercion codegen
+
+- [ ] **Implement**: Struct literal restriction in condition — spec/09-expressions.md § Conditional
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — struct literal exclusion
+  - [ ] **Ori Tests**: `tests/compile-fail/if_struct_literal.ori`
+  - [ ] **LLVM Support**: N/A (parse-time check)
+  - [ ] **LLVM Rust Tests**: N/A
 
 ---
 

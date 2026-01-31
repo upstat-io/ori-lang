@@ -375,6 +375,7 @@ impl DiagnosticQueue {
 }
 
 /// Create a "too many errors" diagnostic.
+#[cold]
 pub fn too_many_errors(limit: usize, span: Span) -> Diagnostic {
     Diagnostic::error(ErrorCode::E9002)
         .with_message(format!("aborting due to {limit} previous errors"))

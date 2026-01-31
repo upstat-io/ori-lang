@@ -32,7 +32,7 @@ pub use declarations::{
     format_module, format_module_with_comments, format_module_with_comments_and_config,
     format_module_with_config, ModuleFormatter,
 };
-pub use emitter::{Emitter, FileEmitter, StringEmitter};
+pub use emitter::{Emitter, StringEmitter};
 pub use formatter::{format_expr, Formatter};
 pub use incremental::{apply_regions, format_incremental, FormattedRegion, IncrementalResult};
 pub use width::{WidthCalculator, ALWAYS_STACKED};

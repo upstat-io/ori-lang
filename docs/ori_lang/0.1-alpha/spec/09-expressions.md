@@ -528,35 +528,141 @@ let { $x, y } = point  // x immutable, y mutable
 
 ## Conditional
 
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § if_expr
+
 ```ori
 if x > 0 then "positive" else "non-positive"
 ```
 
-Condition must be `bool`. When `else` is present, branches must have compatible types.
+The _condition_ must have type `bool`. It is a compile-time error if the condition has any other type.
 
-When `else` is omitted, the expression has type `void`. The `then` branch must also have type `void` (or type `Never`, which is compatible with any type).
+### Branch Evaluation
+
+Only one branch is evaluated at runtime. The unevaluated branch does not execute. This is guaranteed and observable (side effects in the unevaluated branch do not occur).
+
+### Type Unification
+
+When `else` is present, both branches must produce types that unify to a common type:
+
+```ori
+if cond then 1 else 2              // type: int
+if cond then Some(1) else None     // type: Option<int>
+if cond then 1 else "two"          // error: cannot unify int and str
+```
+
+### Without Else
+
+When `else` is omitted, the expression has type `void`. The `then` branch must have type `void` or `Never`:
 
 ```ori
 // Valid: then-branch is void
 if debug then print(msg: "debug mode")
 
-// Valid: then-branch is Never (panic returns Never)
+// Valid: then-branch is Never (coerces to void)
 if !valid then panic(msg: "invalid state")
 
 // Invalid: then-branch has non-void type without else
 if x > 0 then "positive"  // error: non-void then-branch requires else
 ```
 
-## For Expression
+When the `then` branch has type `Never`, it coerces to `void`.
+
+### Never Type Coercion
+
+The `Never` type coerces to any type in conditional branches:
 
 ```ori
-for item in items do print(item)
+let x: int = if condition then 42 else panic(msg: "unreachable")
+// else branch is Never, coerces to int
+```
+
+If both branches have type `Never`, the expression has type `Never`:
+
+```ori
+let x = if a then panic(msg: "a") else panic(msg: "b")
+// type: Never
+```
+
+### Else-If Chains
+
+```ori
+if condition1 then expression1
+else if condition2 then expression2
+else expression3
+```
+
+The grammar treats `else if` as a single production for parsing convenience, but semantically the `else` branch contains another `if` expression.
+
+### Struct Literal Restriction
+
+Struct literals are not permitted directly in the condition position. This prevents parsing ambiguity with block expressions:
+
+```ori
+if Point { x: 0, y: 0 } then ...  // error: struct literal in condition
+if (Point { x: 0, y: 0 }) then ...  // OK: parentheses re-enable struct literals
+```
+
+The parser disables struct literal parsing in the condition context. Parenthesized expressions re-enable it.
+
+## For Expression
+
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § For Expression
+
+### For-Do
+
+The `for...do` expression iterates for side effects and returns `void`:
+
+```ori
+for item in items do print(msg: item)
+for (key, value) in map do process(key: key, value: value)
+```
+
+The source must implement `Iterable`. The binding supports destructuring patterns.
+
+### Guard Condition
+
+An optional `if` clause filters elements:
+
+```ori
+for x in items if x > 0 do process(x: x)
+```
+
+The guard is evaluated per item before the body.
+
+### Break and Continue
+
+In `for...do`, `break` exits the loop and `continue` skips to the next iteration:
+
+```ori
+for x in items do
+    if done(x) then break,
+    if skip(x) then continue,
+    process(x: x),
+```
+
+`break value` and `continue value` are errors in `for...do` context — there is no collection to contribute to.
+
+### For-Yield
+
+The `for...yield` expression builds collections:
+
+```ori
 for n in numbers if n > 0 yield n * n
 ```
 
-`do` returns `void`; `yield` collects results.
+See [Patterns § For-Yield Comprehensions](10-patterns.md#for-yield-comprehensions) for complete semantics including type inference, nested comprehensions, and break/continue with values.
 
-See [Patterns § For-Yield Comprehensions](10-patterns.md#for-yield-comprehensions) for complete `for...yield` semantics including type inference, nested comprehensions, and break/continue behavior.
+### Labeled For
+
+Labels enable break/continue to target outer loops:
+
+```ori
+for:outer x in xs do
+    for y in ys do
+        if done(x, y) then break:outer,
+```
+
+See [Control Flow § Labeled Loops](19-control-flow.md#labeled-loops) for label semantics.
 
 ## Loop Expression
 

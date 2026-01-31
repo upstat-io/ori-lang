@@ -33,39 +33,33 @@ impl TypeChecker<'_> {
             self.inference.env.child()
         };
 
-        // Bind parameters
-        for (name, ty) in params {
-            callable_env.bind(*name, ty.clone());
-        }
-
-        // Save current env and switch to callable env
-        let old_env = std::mem::replace(&mut self.inference.env, callable_env);
-
-        // Build the current function type for patterns like `recurse` that need `self`
-        let param_types: Vec<Type> = params.iter().map(|(_, ty)| ty.clone()).collect();
+        // Bind parameters and collect types in single pass
+        let param_types: Vec<Type> = params
+            .iter()
+            .map(|(name, ty)| {
+                callable_env.bind(*name, ty.clone());
+                ty.clone()
+            })
+            .collect();
         let current_fn_type = Type::Function {
             params: param_types,
             ret: Box::new(return_type.clone()),
         };
 
-        // Save and set current function type
-        let old_fn_type = self.scope.current_function_type.take();
-        self.scope.current_function_type = Some(current_fn_type);
-
-        // Use capability scope and infer body
+        // Use RAII guards for environment, function type, and capability scopes
         let return_type = return_type.clone();
-        self.with_capability_scope(capabilities, |checker| {
-            let body_type = infer::infer_expr(checker, body);
+        self.with_custom_env_scope(callable_env, |checker| {
+            checker.with_function_type_scope(current_fn_type, |checker| {
+                checker.with_capability_scope(capabilities, |checker| {
+                    let body_type = infer::infer_expr(checker, body);
 
-            if let Err(e) = checker.inference.ctx.unify(&body_type, &return_type) {
-                let span = checker.context.arena.get_expr(body).span;
-                checker.report_type_error(&e, span);
-            }
+                    if let Err(e) = checker.inference.ctx.unify(&body_type, &return_type) {
+                        let span = checker.context.arena.get_expr(body).span;
+                        checker.report_type_error(&e, span);
+                    }
+                });
+            });
         });
-
-        // Restore function type and environment
-        self.scope.current_function_type = old_fn_type;
-        self.inference.env = old_env;
     }
 
     /// Type check a function body.
@@ -154,21 +148,16 @@ impl TypeChecker<'_> {
             method_env.bind(param.name, param_ty);
         }
 
-        // Save current env and switch to method env
-        let old_env = std::mem::replace(&mut self.inference.env, method_env);
-
-        // Infer body type
-        let body_type = infer::infer_expr(self, method.body);
-
-        // Unify with declared return type
+        // Use RAII guard for environment scope
         let return_type = self.parsed_type_to_type(&method.return_ty);
-        if let Err(e) = self.inference.ctx.unify(&body_type, &return_type) {
-            let span = self.context.arena.get_expr(method.body).span;
-            self.report_type_error(&e, span);
-        }
+        self.with_custom_env_scope(method_env, |checker| {
+            let body_type = infer::infer_expr(checker, method.body);
 
-        // Restore environment
-        self.inference.env = old_env;
+            if let Err(e) = checker.inference.ctx.unify(&body_type, &return_type) {
+                let span = checker.context.arena.get_expr(method.body).span;
+                checker.report_type_error(&e, span);
+            }
+        });
     }
 
     /// Register config variable types.
@@ -213,20 +202,15 @@ impl TypeChecker<'_> {
             method_env.bind(param.name, param_ty);
         }
 
-        // Save current env and switch to method env
-        let old_env = std::mem::replace(&mut self.inference.env, method_env);
-
-        // Infer body type
-        let body_type = infer::infer_expr(self, method.body);
-
-        // Unify with declared return type
+        // Use RAII guard for environment scope
         let return_type = self.parsed_type_to_type(&method.return_ty);
-        if let Err(e) = self.inference.ctx.unify(&body_type, &return_type) {
-            let span = self.context.arena.get_expr(method.body).span;
-            self.report_type_error(&e, span);
-        }
+        self.with_custom_env_scope(method_env, |checker| {
+            let body_type = infer::infer_expr(checker, method.body);
 
-        // Restore environment
-        self.inference.env = old_env;
+            if let Err(e) = checker.inference.ctx.unify(&body_type, &return_type) {
+                let span = checker.context.arena.get_expr(method.body).span;
+                checker.report_type_error(&e, span);
+            }
+        });
     }
 }

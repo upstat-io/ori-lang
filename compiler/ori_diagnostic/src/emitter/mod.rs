@@ -69,20 +69,6 @@ pub(crate) fn escape_json(s: &str) -> String {
     result
 }
 
-/// Check if stdout is a TTY (for color detection).
-///
-/// Returns true if the `TERM` environment variable is set and not "dumb",
-/// and `NO_COLOR` is not set.
-pub(crate) fn atty_check() -> bool {
-    // Check NO_COLOR first (https://no-color.org/)
-    if std::env::var("NO_COLOR").is_ok() {
-        return false;
-    }
-
-    // Check TERM
-    matches!(std::env::var("TERM"), Ok(term) if term != "dumb")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

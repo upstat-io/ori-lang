@@ -223,11 +223,15 @@ pub fn infer_method_call(
     let receiver_ty = infer_expr(checker, receiver);
     let resolved_receiver = checker.inference.ctx.resolve(&receiver_ty);
 
-    let arg_types: Vec<Type> = arg_ids.iter().map(|id| infer_expr(checker, *id)).collect();
-    let arg_spans: Vec<Span> = arg_ids
+    // Collect types and spans in single pass to avoid repeated iteration
+    let (arg_types, arg_spans): (Vec<Type>, Vec<Span>) = arg_ids
         .iter()
-        .map(|id| checker.context.arena.get_expr(*id).span)
-        .collect();
+        .map(|id| {
+            let ty = infer_expr(checker, *id);
+            let span = checker.context.arena.get_expr(*id).span;
+            (ty, span)
+        })
+        .unzip();
 
     infer_method_call_core(
         checker,
@@ -251,11 +255,11 @@ pub fn infer_method_call_named(
     let resolved_receiver = checker.inference.ctx.resolve(&receiver_ty);
 
     let call_args = checker.context.arena.get_call_args(args);
-    let arg_types: Vec<Type> = call_args
+    // Collect types and spans in single pass to avoid repeated iteration
+    let (arg_types, arg_spans): (Vec<Type>, Vec<Span>) = call_args
         .iter()
-        .map(|arg| infer_expr(checker, arg.value))
-        .collect();
-    let arg_spans: Vec<Span> = call_args.iter().map(|arg| arg.span).collect();
+        .map(|arg| (infer_expr(checker, arg.value), arg.span))
+        .unzip();
 
     infer_method_call_core(
         checker,

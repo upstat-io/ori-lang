@@ -6,28 +6,14 @@ use inkwell::context::Context;
 use ori_ir::ast::{Expr, ExprKind};
 use ori_ir::{ExprArena, Span, StringInterner, TypeId};
 
+use super::helper::setup_builder_test;
 use crate::builder::Builder;
-use crate::context::CodegenCx;
-
-/// Helper to create test context.
-fn setup_test<'ll, 'tcx>(
-    context: &'ll Context,
-    interner: &'tcx StringInterner,
-) -> (CodegenCx<'ll, 'tcx>, inkwell::values::FunctionValue<'ll>) {
-    let cx = CodegenCx::new(context, interner, "test");
-    cx.declare_runtime_functions();
-
-    let fn_type = cx.scx.type_i64().fn_type(&[], false);
-    let function = cx.llmod().add_function("test_fn", fn_type, None);
-
-    (cx, function)
-}
 
 #[test]
 fn test_call_builtin_str() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -67,7 +53,7 @@ fn test_call_builtin_str() {
 fn test_call_builtin_int() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -107,7 +93,7 @@ fn test_call_builtin_int() {
 fn test_call_builtin_float() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -147,7 +133,7 @@ fn test_call_builtin_float() {
 fn test_call_builtin_byte() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -187,7 +173,7 @@ fn test_call_builtin_byte() {
 fn test_call_non_ident_returns_none() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -221,7 +207,7 @@ fn test_call_non_ident_returns_none() {
 fn test_call_unknown_function_returns_none() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -259,7 +245,7 @@ fn test_call_unknown_function_returns_none() {
 fn test_call_closure_from_locals() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -304,7 +290,7 @@ fn test_call_closure_from_locals() {
 fn test_call_closure_as_pointer() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -345,7 +331,7 @@ fn test_call_closure_as_pointer() {
 fn test_call_closure_as_struct_with_captures() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 

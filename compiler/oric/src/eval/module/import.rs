@@ -581,12 +581,10 @@ fn register_module_alias(
     }
 
     // Bind the namespace to the alias
-    // Convert BTreeMap to HashMap for Value::module_namespace
-    // (BTreeMap used during construction for deterministic iteration,
-    // HashMap used at runtime for O(1) lookups)
+    // (BTreeMap used for deterministic iteration order in Salsa queries)
     env.define(
         alias,
-        Value::module_namespace(namespace.into_iter().collect()),
+        Value::module_namespace(namespace),
         Mutability::Immutable,
     );
 

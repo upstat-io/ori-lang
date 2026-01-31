@@ -143,11 +143,10 @@ pub enum Value {
     /// Created by module alias imports like `use std.net.http as http`.
     /// Enables qualified access like `http.get()`.
     ///
-    /// # Note on Iteration Order
-    /// Uses `HashMap` for O(1) lookups. If iteration order needs to be
-    /// deterministic (e.g., for Salsa query results), consider changing to
-    /// `BTreeMap`. Currently, lookups dominate the use case.
-    ModuleNamespace(Heap<HashMap<Name, Value>>),
+    /// Uses `BTreeMap` for deterministic iteration order (required for Salsa
+    /// query results). The O(log n) lookup cost is acceptable since namespace
+    /// lookups are not in hot paths.
+    ModuleNamespace(Heap<BTreeMap<Name, Value>>),
 
     // Error Recovery
     /// Error value for error recovery.
@@ -344,7 +343,7 @@ impl Value {
     /// let ns = Value::module_namespace(members);
     /// ```
     #[inline]
-    pub fn module_namespace(members: HashMap<Name, Value>) -> Self {
+    pub fn module_namespace(members: BTreeMap<Name, Value>) -> Self {
         Value::ModuleNamespace(Heap::new(members))
     }
 }

@@ -7,34 +7,14 @@ use ori_ir::ast::patterns::{FunctionExp, FunctionExpKind, NamedExpr};
 use ori_ir::ast::{Expr, ExprKind};
 use ori_ir::{ExprArena, NamedExprRange, Span, StringInterner, TypeId};
 
+use super::helper::setup_builder_test;
 use crate::builder::Builder;
-use crate::context::CodegenCx;
-
-/// Helper to create a test context and builder.
-fn setup_test<'ll, 'tcx>(
-    context: &'ll Context,
-    interner: &'tcx StringInterner,
-) -> (CodegenCx<'ll, 'tcx>, inkwell::values::FunctionValue<'ll>) {
-    let cx = CodegenCx::new(context, interner, "test");
-    cx.declare_runtime_functions();
-
-    // Create a test function
-    let fn_type = cx.scx.type_i64().fn_type(&[], false);
-    let function = cx.llmod().add_function("test_fn", fn_type, None);
-    let entry_bb = cx.llcx().append_basic_block(function, "entry");
-
-    // Position builder at entry
-    let builder = cx.llcx().create_builder();
-    builder.position_at_end(entry_bb);
-
-    (cx, function)
-}
 
 #[test]
 fn test_function_exp_recurse_with_condition() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -125,7 +105,7 @@ fn test_function_exp_recurse_with_condition() {
 fn test_function_exp_recurse_incomplete_props() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -173,7 +153,7 @@ fn test_function_exp_recurse_incomplete_props() {
 fn test_function_exp_print() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -222,7 +202,7 @@ fn test_function_exp_print() {
 fn test_function_exp_panic() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let arena = ExprArena::new();
 
@@ -262,7 +242,7 @@ fn test_function_exp_panic() {
 fn test_function_exp_default_fallback_void() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let arena = ExprArena::new();
 
@@ -297,7 +277,7 @@ fn test_function_exp_default_fallback_void() {
 fn test_function_exp_default_fallback_int() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let arena = ExprArena::new();
 
@@ -335,7 +315,7 @@ fn test_function_exp_default_fallback_int() {
 fn test_function_exp_timeout() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let arena = ExprArena::new();
 

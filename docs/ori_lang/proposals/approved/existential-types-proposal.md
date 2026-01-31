@@ -1,8 +1,9 @@
 # Proposal: Existential Types (impl Trait)
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-31
+**Approved:** 2026-01-31
 **Affects:** Compiler, type system, API design
 
 ---
@@ -82,15 +83,28 @@ However, this syntax has never been formally specified with:
     {"a": 1, "b": 2}.iter()
 ```
 
+### Grammar
+
+The `impl Trait` type is a type expression with its own optional `where` clause for associated type constraints:
+
+```ebnf
+impl_trait_type = "impl" trait_bounds [ impl_where_clause ] .
+trait_bounds    = type_path { "+" type_path } .
+impl_where_clause = "where" assoc_constraint { "," assoc_constraint } .
+assoc_constraint  = identifier "==" type .
+```
+
+The `where` clause on an `impl Trait` type constrains associated types of the trait(s), not generic type parameters. This is distinct from the function-level `where` clause.
+
 ### Constraint Syntax
 
-Associated type constraints use `where` clause syntax:
+Associated type constraints use a type-local `where` clause:
 
 ```ori
 // Constrain Iterator's Item associated type
 @int_iterator () -> impl Iterator where Item == int
 
-// Multiple constraints
+// Multiple constraints (trait + associated type)
 @bounded_ints () -> impl Iterator + Clone where Item == int
 ```
 
@@ -196,6 +210,8 @@ trait Iterable {
 ```
 
 **Rationale**: Argument-position `impl Trait` creates ambiguity about whether each call site can pass different types (universal) or must pass the same type (existential). Generics make this explicit.
+
+> **Note:** The Iterator Traits proposal originally showed `impl Iterator` in the `Collect` trait parameter position. This has been updated to use generics: `@from_iter<I: Iterator>(iter: I) -> Self where I.Item == T`.
 
 ### Struct Fields (Not Supported)
 
@@ -398,11 +414,15 @@ for line in lines do process(line: line)
 
 Add `impl Trait` as a type variant:
 
+```ebnf
+type_expr = ... | impl_trait_type .
+impl_trait_type = "impl" trait_bounds [ impl_where_clause ] .
+trait_bounds = type_path { "+" type_path } .
+impl_where_clause = "where" assoc_constraint { "," assoc_constraint } .
+assoc_constraint = identifier "==" type .
 ```
-type_expr = ... | impl_trait_type ;
-impl_trait_type = "impl" trait_bounds [ where_clause ] ;
-trait_bounds = trait_bound { "+" trait_bound } ;
-```
+
+Note: The `impl_where_clause` is distinct from the function-level `where_clause`. It constrains associated types of the traits in the bounds, not generic parameters.
 
 ### AST Representation
 
@@ -454,7 +474,7 @@ A future proposal may introduce argument-position `impl Trait` as syntactic suga
 @process<I: Iterator> (iter: I) -> int where I.Item == int
 ```
 
-This would require careful design to avoid universal/existential ambiguity.
+This would require careful design to avoid universal/existential ambiguity. For now, use explicit generic parameters in argument position.
 
 ### Type Alias impl Trait (TAIT)
 
