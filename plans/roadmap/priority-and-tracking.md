@@ -889,6 +889,19 @@
 - `std.test` contains assertion methods, test doubles, mocking utilities (lean compiler, rich libraries)
 - Blocked on: None (architecture/philosophy proposal)
 
+**Recurse Pattern Semantics** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/recurse-pattern-proposal.md`
+- Implementation: Phase 8.3
+- Formalizes `recurse(condition:, base:, step:, memo:, parallel:)` pattern semantics
+- `self(...)` keyword for recursive calls within `step` expression
+- Self scoping: `self` (receiver) vs `self(...)` (recurse) coexist in trait methods
+- Memoization: parameters `Hashable + Eq`, return `Clone`, call-duration cache
+- Parallel: requires `uses Suspend`, captures and return must be `Sendable`, thread-safe memo
+- Tail call optimization when `self(...)` in tail position
+- Stack limit: fixed at 1000 (bypassed by TCO)
+- Error codes: E1000 (non-hashable with memo), E1001 (self outside step), E1002 (arity mismatch), E1003 (parallel without Suspend)
+- Blocked on: None (expands existing Phase 8.3)
+
 ---
 
 ## Milestones

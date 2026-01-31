@@ -236,16 +236,120 @@ The compiler warns about patterns that can never match due to earlier patterns c
 
 ### recurse
 
+The `recurse` pattern evaluates recursive computations with optional memoization and parallelism.
+
 ```ori
 recurse(
-    condition: n <= 1,
-    base: n,
-    step: self(n - 1) + self(n - 2),
-    memo: true,
+    condition: bool_expr,
+    base: expr,
+    step: expr_with_self,
+    memo: bool = false,
+    parallel: bool = false,
 )
 ```
 
-`self(...)` calls recursively. `memo: true` caches results for call duration.
+#### Evaluation
+
+1. Evaluate `condition`
+2. If true: return `base` expression
+3. If false: evaluate `step` expression (which may contain `self(...)` calls)
+
+```ori
+@factorial (n: int) -> int = recurse(
+    condition: n <= 1,
+    base: 1,
+    step: n * self(n - 1),
+)
+```
+
+#### Self Keyword
+
+`self(...)` within `step` represents a recursive invocation:
+
+```ori
+@fibonacci (n: int) -> int = recurse(
+    condition: n <= 1,
+    base: n,
+    step: self(n - 1) + self(n - 2),
+)
+```
+
+Arguments to `self(...)` must match the enclosing function's parameter arity.
+
+#### Self Scoping
+
+Within a `recurse` expression:
+- `self` (without parentheses) — trait method receiver (if applicable)
+- `self(...)` (with arguments) — recursive call
+
+These coexist when `recurse` appears in a trait method:
+
+```ori
+impl Tree for TreeOps {
+    @depth (self) -> int = recurse(
+        condition: self.is_leaf(),  // Receiver
+        base: 1,
+        step: 1 + max(left: self(self.left()), right: self(self.right())),  // Recursive calls
+    )
+}
+```
+
+It is a compile-time error to use `self(...)` outside of a `recurse` step expression.
+
+#### Memoization
+
+With `memo: true`, results are cached for the duration of the top-level call:
+
+```ori
+@fib (n: int) -> int = recurse(
+    condition: n <= 1,
+    base: n,
+    step: self(n - 1) + self(n - 2),
+    memo: true,  // O(n) instead of O(2^n)
+)
+```
+
+Memo requirements:
+- All parameters must be `Hashable + Eq`
+- Return type must be `Clone`
+
+The cache is created at top-level entry, shared across recursive calls, and discarded when the top-level call returns.
+
+#### Parallel Recursion
+
+With `parallel: true`, independent `self(...)` calls execute concurrently:
+
+```ori
+@parallel_fib (n: int) -> int uses Suspend = recurse(
+    condition: n <= 1,
+    base: n,
+    step: self(n - 1) + self(n - 2),
+    parallel: true,
+)
+```
+
+Parallel requirements:
+- Requires `uses Suspend` capability
+- Captured values must be `Sendable`
+- Return type must be `Sendable`
+
+When `memo: true` and `parallel: true` are combined, the memo cache is thread-safe. If multiple tasks request the same key simultaneously, one computes while others wait.
+
+#### Tail Call Optimization
+
+When `self(...)` is in tail position, the compiler optimizes to a loop with O(1) stack space:
+
+```ori
+@sum_to (n: int, acc: int = 0) -> int = recurse(
+    condition: n == 0,
+    base: acc,
+    step: self(n - 1, acc + n),  // Tail position: compiled to loop
+)
+```
+
+#### Stack Limits
+
+Non-tail recursive calls are limited to a depth of 1000. Exceeding this limit causes a panic. Tail-optimized recursion bypasses this limit.
 
 ## Concurrency
 

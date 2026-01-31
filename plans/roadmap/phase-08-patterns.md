@@ -55,6 +55,10 @@ The spec formalizes two distinct pattern categories:
 
 ## 8.3 recurse (Recursive Functions)
 
+**Proposal**: `proposals/approved/recurse-pattern-proposal.md`
+
+### Basic Implementation (complete)
+
 - [x] **Implement**: `.condition:` property type `bool` — spec/10-patterns.md § recurse
   - [x] **Rust Tests**: `oric/src/patterns/recurse.rs` — recurse pattern execution tests
   - [x] **Ori Tests**: `tests/spec/patterns/recurse.ori` — 5 tests pass
@@ -67,6 +71,93 @@ The spec formalizes two distinct pattern categories:
 - [x] **Implement**: Otherwise evaluate `.step` — spec/10-patterns.md § recurse
 - [x] **Implement**: `self(...)` refers to recursive function — spec/10-patterns.md § recurse
 - [x] **Implement**: Memoization caches during top-level call — spec/10-patterns.md § recurse
+
+### Self Scoping (from approved proposal)
+
+- [ ] **Implement**: `self(...)` inside `step` is recursive call — recurse-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/patterns/recurse.rs` — self keyword tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse_self.ori`
+
+- [ ] **Implement**: `self` (receiver) coexists with `self(...)` in trait methods — recurse-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/patterns/recurse.rs` — self scoping in traits
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse_trait_self.ori`
+
+- [ ] **Implement**: Error E1001 — `self(...)` outside `step` is compile error — recurse-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/recurse.rs` — self location error
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse_errors.ori`
+
+- [ ] **Implement**: Error E1002 — `self(...)` arity mismatch — recurse-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/recurse.rs` — arity error
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse_errors.ori`
+
+### Memoization (from approved proposal)
+
+- [ ] **Implement**: Memo key constraint `Hashable + Eq` — recurse-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/recurse.rs` — memo key constraint
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse_memo.ori`
+  - [ ] **LLVM Support**: LLVM codegen for memo key hashing
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — memo codegen
+
+- [ ] **Implement**: Return type constraint `Clone` with memo — recurse-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/recurse.rs` — memo return constraint
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse_memo.ori`
+
+- [ ] **Implement**: Error E1000 — non-Hashable params with memo — recurse-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/recurse.rs` — hashable error
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse_errors.ori`
+
+### Parallel Recursion (from approved proposal)
+
+- [ ] **Implement**: `parallel: true` requires `uses Suspend` — recurse-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/capabilities.rs` — suspend capability
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse_parallel.ori`
+  - [ ] **LLVM Support**: LLVM codegen for parallel recursion
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — parallel codegen
+
+- [ ] **Implement**: Captured values must be `Sendable` with parallel — recurse-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/recurse.rs` — sendable captures
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse_parallel.ori`
+
+- [ ] **Implement**: Return type must be `Sendable` with parallel — recurse-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/recurse.rs` — sendable return
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse_parallel.ori`
+
+- [ ] **Implement**: Error E1003 — parallel without Suspend capability — recurse-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/recurse.rs` — capability error
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse_errors.ori`
+
+### Parallel + Memo Thread Safety (from approved proposal)
+
+- [ ] **Implement**: Thread-safe memo cache for parallel recursion — recurse-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/patterns/recurse.rs` — thread-safe memo
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse_parallel_memo.ori`
+
+- [ ] **Implement**: Concurrent memo access — one computes, others wait — recurse-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/patterns/recurse.rs` — memo stampede
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse_parallel_memo.ori`
+
+### Tail Call Optimization (from approved proposal)
+
+- [ ] **Implement**: TCO when `self(...)` is in tail position — recurse-pattern-proposal.md
+  - [ ] Compile to loop, O(1) stack space
+  - [ ] **Rust Tests**: `oric/src/codegen/tco.rs` — tail call optimization
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse_tco.ori`
+  - [ ] **LLVM Support**: LLVM codegen for TCO
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — TCO codegen
+
+### Stack Limits (from approved proposal)
+
+- [ ] **Implement**: Recursion depth limit of 1000 — recurse-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/patterns/recurse.rs` — depth limit tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse_depth.ori`
+
+- [ ] **Implement**: Panic on depth exceeded — recurse-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/patterns/recurse.rs` — depth panic
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse_depth.ori`
+
+- [ ] **Implement**: TCO-compiled recursion bypasses depth limit — recurse-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/patterns/recurse.rs` — TCO depth bypass
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse_tco.ori`
 
 ---
 
