@@ -1,4 +1,5 @@
 [
+  {"date": "2026-01-31", "type": "docs", "message": "Approve operator-method-naming-proposal", "hash": "a003b36"},
   {"date": "2026-01-31", "type": "feat", "message": "Implement user-defined associated functions", "hash": "5bfe49f"},
   {"date": "2026-01-31", "type": "docs", "message": "Approve associated-functions-language-feature", "hash": "4cf34f6"},
   {"date": "2026-01-31", "type": "feat", "message": "Implement operator traits with uniform dispatch", "hash": "70c2ec2"},
