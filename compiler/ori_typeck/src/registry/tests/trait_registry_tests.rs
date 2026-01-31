@@ -26,8 +26,9 @@ fn test_register_trait() {
     let entry = TraitEntry::new(
         printable,
         make_span(),
-        vec![],
-        vec![],
+        vec![], // type_params
+        vec![], // default_types (parallel to type_params, empty since no type params)
+        vec![], // super_traits
         vec![TraitMethodDef {
             name: to_string,
             params: vec![],
@@ -91,8 +92,9 @@ fn test_register_trait_impl() {
     let trait_entry = TraitEntry::new(
         printable,
         make_span(),
-        vec![],
-        vec![],
+        vec![], // type_params
+        vec![], // default_types (parallel to type_params)
+        vec![], // super_traits
         vec![TraitMethodDef {
             name: to_string,
             params: vec![],
@@ -171,8 +173,9 @@ fn test_coherence_duplicate_trait_impl() {
     let trait_entry = TraitEntry::new(
         printable,
         make_span(),
-        vec![],
-        vec![],
+        vec![], // type_params
+        vec![], // default_types (parallel to type_params)
+        vec![], // super_traits
         vec![TraitMethodDef {
             name: to_string,
             params: vec![],

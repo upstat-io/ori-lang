@@ -935,6 +935,16 @@
 - Essential prerequisite for operator-traits-proposal
 - Blocked on: None (enables operator traits)
 
+**Default Associated Types** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/default-associated-types-proposal.md`
+- Implementation: Phase 3.20
+- Allows `type Output = Self` syntax for default associated types in traits
+- `Self` resolves to implementing type at impl site
+- Defaults can reference type parameters and other associated types
+- Bounds checked at impl site after substitution
+- Works alongside default-type-parameters-proposal to enable operator-traits-proposal
+- Blocked on: None (enables operator traits)
+
 ---
 
 ## Milestones

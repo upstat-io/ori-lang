@@ -1092,35 +1092,75 @@ Formalizes the `Ordering` type that represents comparison results. Defines the t
 
 ## 3.19 Default Type Parameters on Traits
 
+**STATUS: ✅ COMPLETE (2026-01-31)**
+
 **Proposal**: `proposals/approved/default-type-parameters-proposal.md`
 
 Allow type parameters on traits to have default values, enabling `trait Add<Rhs = Self>` where `Rhs` defaults to `Self` if not specified. Essential prerequisite for operator traits.
 
 ### Implementation
 
-- [ ] **Implement**: Parse default type in `type_param` grammar rule (`identifier [ ":" bounds ] [ "=" type ]`)
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/generics.rs` — default type param parsing
-  - [ ] **Ori Tests**: `tests/spec/generics/default_type_params.ori`
+- [x] **Implement**: Parse default type in `type_param` grammar rule (`identifier [ ":" bounds ] [ "=" type ]`)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/item/generics.rs` — `parse_generics()` handles `= Type` after bounds
+  - [x] **Ori Tests**: `tests/spec/traits/default_type_params.ori`
 
-- [ ] **Implement**: Store default types in trait definition AST
-  - [ ] **Rust Tests**: `ori_ir/src/ast.rs` — trait def with defaults
+- [x] **Implement**: Store default types in trait definition AST
+  - [x] **Rust Tests**: `GenericParam` in `ori_ir/src/ast/items/traits.rs` has `default_type: Option<ParsedType>`
+  - [x] **Rust Tests**: `TraitEntry` in `ori_typeck/src/registry/trait_types.rs` has `default_types: Vec<Option<ParsedType>>`
 
-- [ ] **Implement**: Fill missing type arguments with defaults in impl checking
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/trait_registration.rs` — default substitution
-  - [ ] **Ori Tests**: `tests/spec/traits/default_type_params.ori`
+- [x] **Implement**: Fill missing type arguments with defaults in impl checking
+  - [x] **Rust Tests**: `resolve_trait_type_args()` in `trait_registration.rs`
+  - [x] **Ori Tests**: `tests/spec/traits/default_type_params.ori`
+
+- [x] **Implement**: Substitute `Self` with implementing type in defaults
+  - [x] **Rust Tests**: `resolve_parsed_type_with_self_substitution()` in `trait_registration.rs`
+  - [x] **Ori Tests**: `tests/spec/traits/default_type_params.ori` — `test_add` uses Self default
+
+- [x] **Implement**: Ordering constraint enforcement (defaults must follow non-defaults)
+  - [x] **Rust Tests**: `validate_default_type_param_ordering()` in `trait_registration.rs`
+  - [x] **Error Code**: E2015 (type parameter ordering violation)
+
+- [x] **Implement**: Later parameters can reference earlier ones in defaults
+  - [x] **Design**: Stored as `ParsedType`, resolved at impl time with substitution
+
+- [x] **Update Spec**: `grammar.ebnf` § Generics — `type_param = identifier [ ":" bounds ] [ "=" type ] .` ✅
+- [x] **Update Spec**: `08-declarations.md` — Default Type Parameters section under Traits ✅
+- [x] **Update**: `CLAUDE.md` — `trait N<T = Self>` syntax documented ✅
+
+---
+
+## 3.20 Default Associated Types
+
+**Proposal**: `proposals/approved/default-associated-types-proposal.md`
+
+Allow associated types in traits to have default values, enabling `type Output = Self` where implementors can omit the associated type if the default is acceptable. Works alongside default type parameters to enable operator traits.
+
+### Implementation
+
+- [ ] **Implement**: Parse default type in `assoc_type` grammar rule (`"type" identifier [ ":" bounds ] [ "=" type ]`)
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/item.rs` — default assoc type parsing
+  - [ ] **Ori Tests**: `tests/spec/traits/default_assoc_types.ori`
+
+- [ ] **Implement**: Store default types in trait definition AST for associated types
+  - [ ] **Rust Tests**: `ori_ir/src/ast.rs` — trait def with assoc type defaults
+
+- [ ] **Implement**: Fill missing associated types with defaults in impl checking
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/trait_registration.rs` — default assoc type substitution
+  - [ ] **Ori Tests**: `tests/spec/traits/default_assoc_types_impl.ori`
 
 - [ ] **Implement**: Substitute `Self` with implementing type in defaults
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — Self resolution in defaults
-  - [ ] **Ori Tests**: `tests/spec/traits/default_type_params_self.ori`
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — Self resolution in assoc type defaults
+  - [ ] **Ori Tests**: `tests/spec/traits/default_assoc_types_self.ori`
 
-- [ ] **Implement**: Ordering constraint enforcement (defaults must follow non-defaults)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — ordering constraint tests
-  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/default_param_ordering.ori`
+- [ ] **Implement**: Defaults can reference type parameters and other associated types
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — cascading assoc type defaults
+  - [ ] **Ori Tests**: `tests/spec/traits/default_assoc_types_refs.ori`
 
-- [ ] **Implement**: Later parameters can reference earlier ones in defaults
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — cascading defaults
-  - [ ] **Ori Tests**: `tests/spec/traits/default_type_params_cascade.ori`
+- [ ] **Implement**: Bounds checking — verify default satisfies any bounds after substitution
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — bounds checking on defaults
+  - [ ] **Ori Tests**: `tests/spec/traits/default_assoc_types_bounds.ori`
+  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/assoc_type_default_bound_violation.ori`
 
-- [ ] **Update Spec**: `grammar.ebnf` § Generics — update type_param production
-- [ ] **Update Spec**: `08-declarations.md` — add Default Type Parameters section under Traits
-- [ ] **Update**: `CLAUDE.md` — add default type parameter syntax to Traits section
+- [x] **Update Spec**: `grammar.ebnf` — update assoc_type production ✅
+- [x] **Update Spec**: `08-declarations.md` — add Default Associated Types section ✅
+- [x] **Update**: `CLAUDE.md` — add default associated type syntax to Traits section ✅

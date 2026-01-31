@@ -283,17 +283,81 @@ This means:
 ### Trait Definition
 
 ```rust
-pub struct TraitDef {
+pub struct TraitEntry {
     pub name: Name,
-    pub methods: Vec<TraitMethod>,
-    pub associated_types: Vec<AssociatedType>,
+    pub span: Span,
+    pub type_params: Vec<Name>,
+    /// Default types for type parameters (parallel to type_params).
+    /// Stored as ParsedType to preserve Self references for impl-time resolution.
+    pub default_types: Vec<Option<ParsedType>>,
+    pub super_traits: Vec<Name>,
+    pub methods: Vec<TraitMethodDef>,
+    pub assoc_types: Vec<TraitAssocTypeDef>,
+    pub visibility: Visibility,
 }
 
-pub struct TraitMethod {
+pub struct TraitMethodDef {
     pub name: Name,
-    pub params: Vec<Type>,
-    pub ret: Type,
-    pub default: Option<ExprId>,
+    pub params: Vec<TypeId>,
+    pub return_ty: TypeId,
+    pub has_default: bool,
+}
+```
+
+### Default Type Parameters
+
+Traits may have type parameters with default values:
+
+```ori
+trait Add<Rhs = Self> {
+    @add (self, rhs: Rhs) -> Self
+}
+```
+
+Default types are stored as `ParsedType` rather than `TypeId` because `Self` must be resolved at impl registration time, not trait definition time. When an impl omits type arguments, the defaults are substituted with proper `Self` resolution:
+
+```rust
+/// Resolve trait type arguments, filling in defaults for missing args.
+fn resolve_trait_type_args(
+    &mut self,
+    trait_entry: &TraitEntry,
+    explicit_args: ParsedTypeRange,
+    self_type: &Type,
+) -> Vec<TypeId> {
+    let explicit = self.arena.get_parsed_types(explicit_args);
+    let mut resolved = Vec::new();
+
+    for (i, param_name) in trait_entry.type_params.iter().enumerate() {
+        if i < explicit.len() {
+            // Explicit argument provided
+            resolved.push(self.parsed_type_to_type(&explicit[i]));
+        } else if let Some(Some(default)) = trait_entry.default_types.get(i) {
+            // Use default, substituting Self with implementing type
+            let substituted = self.resolve_parsed_type_with_self_substitution(default, self_type);
+            resolved.push(substituted);
+        } else {
+            // Missing required argument - error E2016
+        }
+    }
+    resolved
+}
+```
+
+### Ordering Constraint
+
+Parameters with defaults must appear after all parameters without defaults. This is validated at trait registration (error E2015):
+
+```rust
+fn validate_default_type_param_ordering(generics: &[GenericParam]) -> Result<(), Span> {
+    let mut seen_default = false;
+    for param in generics {
+        if param.default_type.is_some() {
+            seen_default = true;
+        } else if seen_default {
+            return Err(param.span);  // Non-default after default
+        }
+    }
+    Ok(())
 }
 ```
 

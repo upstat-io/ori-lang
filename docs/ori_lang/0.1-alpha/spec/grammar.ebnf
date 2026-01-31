@@ -235,7 +235,7 @@ trait_def      = "trait" identifier [ generics ] [ ":" bounds ] "{" { trait_item
 trait_item     = method_sig | default_method | assoc_type .
 method_sig     = "@" identifier params "->" type .
 default_method = method_sig "=" expression .
-assoc_type     = "type" identifier .
+assoc_type     = "type" identifier [ ":" bounds ] [ "=" type ] .
 params         = "(" [ param { "," param } ] ")" .
 param          = identifier ":" type .
 

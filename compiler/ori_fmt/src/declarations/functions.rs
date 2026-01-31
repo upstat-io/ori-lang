@@ -243,6 +243,11 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                 self.ctx.emit(": ");
                 self.format_trait_bounds(&param.bounds);
             }
+            // Default type parameter: `T = DefaultType`
+            if let Some(ref default_ty) = param.default_type {
+                self.ctx.emit(" = ");
+                format_parsed_type(default_ty, self.arena, self.interner, &mut self.ctx);
+            }
         }
         self.ctx.emit(">");
     }
