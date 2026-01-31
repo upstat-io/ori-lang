@@ -228,9 +228,7 @@ fn test_type_entry_hash() {
     assert_eq!(set.len(), 1);
 }
 
-// =============================================================================
 // Variant Constructor Tests (Phase 5.2)
-// =============================================================================
 
 #[test]
 fn test_lookup_variant_constructor_unit_variant() {

@@ -35,12 +35,11 @@ impl TypeChecker<'_> {
         // First pass: collect function signatures
         for func in &module.functions {
             let func_type = self.infer_function_signature(func);
-            function_types.push(func_type.clone());
 
             // Validate capabilities in uses clause
             self.validate_capabilities(func);
 
-            // Store signature for constraint checking during calls
+            // Store signature for constraint checking during calls (clone once)
             self.scope
                 .function_sigs
                 .insert(func.name, func_type.clone());
@@ -77,6 +76,9 @@ impl TypeChecker<'_> {
                 let scheme = TypeScheme::poly(type_vars, fn_type);
                 self.inference.env.bind_scheme(func.name, scheme);
             }
+
+            // Move into vector at end (no clone needed)
+            function_types.push(func_type);
         }
 
         // Freeze the base environment for child scope creation.

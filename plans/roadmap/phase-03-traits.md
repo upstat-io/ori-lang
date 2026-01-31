@@ -746,3 +746,104 @@ Formalizes three core traits: `Printable`, `Default`, and `Traceable`. The `Iter
 
 - [ ] **Update Spec**: `07-properties-of-types.md` — add Printable, Default, Traceable sections (DONE)
 - [ ] **Update**: `CLAUDE.md` — ensure traits documented in quick reference
+
+---
+
+## 3.14 Comparable and Hashable Traits
+
+**Proposal**: `proposals/approved/comparable-hashable-traits-proposal.md`
+
+Formalizes the `Comparable` and `Hashable` traits with complete definitions, mathematical invariants, standard implementations, and derivation rules. Adds `Result<T, E>` to both trait implementations and introduces `hash_combine` as a prelude function.
+
+### Implementation
+
+- [ ] **Implement**: Formal `Comparable` trait definition in type system
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — comparable trait parsing/bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/comparable/definition.ori`
+
+- [ ] **Implement**: Comparable implementations for all primitives (int, float, bool, str, char, byte, Duration, Size)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — primitive comparable bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/comparable/primitives.ori`
+  - [ ] **LLVM Support**: LLVM codegen for primitive compare methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+
+- [ ] **Implement**: Comparable implementations for collections ([T], tuples)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — collection comparable bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/comparable/collections.ori`
+  - [ ] **LLVM Support**: LLVM codegen for collection compare
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+
+- [ ] **Implement**: Comparable implementations for Option<T> and Result<T, E>
+  - [ ] Option: `None < Some(_)`
+  - [ ] Result: `Ok(_) < Err(_)`, then compare inner values
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — option/result comparable
+  - [ ] **Ori Tests**: `tests/spec/traits/comparable/wrappers.ori`
+  - [ ] **LLVM Support**: LLVM codegen for option/result compare
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+
+- [ ] **Implement**: Float IEEE 754 total ordering (NaN handling)
+  - [ ] **Rust Tests**: `oric/src/eval/tests/` — float comparison edge cases
+  - [ ] **Ori Tests**: `tests/spec/traits/comparable/float_nan.ori`
+  - [ ] **LLVM Support**: LLVM codegen for float total ordering
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+
+- [ ] **Implement**: Comparison operator derivation (`<`, `<=`, `>`, `>=` via Ordering methods)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — operator desugaring
+  - [ ] **Ori Tests**: `tests/spec/traits/comparable/operators.ori`
+  - [ ] **LLVM Support**: LLVM codegen for comparison operators
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+
+- [ ] **Implement**: Formal `Hashable` trait definition in type system
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — hashable trait parsing/bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/hashable/definition.ori`
+
+- [ ] **Implement**: Hashable implementations for all primitives (int, float, bool, str, char, byte, Duration, Size)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — primitive hashable bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/hashable/primitives.ori`
+  - [ ] **LLVM Support**: LLVM codegen for primitive hash methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/hashable_tests.rs`
+
+- [ ] **Implement**: Hashable implementations for collections ([T], {K: V}, Set<T>, tuples)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — collection hashable bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/hashable/collections.ori`
+  - [ ] **LLVM Support**: LLVM codegen for collection hash
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/hashable_tests.rs`
+
+- [ ] **Implement**: Hashable implementations for Option<T> and Result<T, E>
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — option/result hashable
+  - [ ] **Ori Tests**: `tests/spec/traits/hashable/wrappers.ori`
+  - [ ] **LLVM Support**: LLVM codegen for option/result hash
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/hashable_tests.rs`
+
+- [ ] **Implement**: Float hashing consistency (+0.0 == -0.0, NaN == NaN for hash)
+  - [ ] **Rust Tests**: `oric/src/eval/tests/` — float hash edge cases
+  - [ ] **Ori Tests**: `tests/spec/traits/hashable/float_hash.ori`
+  - [ ] **LLVM Support**: LLVM codegen for float hash normalization
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/hashable_tests.rs`
+
+- [ ] **Implement**: `hash_combine` function in prelude
+  - [ ] **Rust Tests**: `oric/src/eval/tests/` — hash_combine evaluation
+  - [ ] **Ori Tests**: `tests/spec/traits/hashable/hash_combine.ori`
+  - [ ] **LLVM Support**: LLVM codegen for hash_combine
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/hashable_tests.rs`
+
+- [ ] **Implement**: `#[derive(Comparable)]` macro for user-defined types
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — comparable derive tests
+  - [ ] **Ori Tests**: `tests/spec/traits/comparable/derive.ori`
+  - [ ] **LLVM Support**: LLVM codegen for derived comparable
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+
+- [ ] **Implement**: `#[derive(Hashable)]` macro for user-defined types
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — hashable derive tests
+  - [ ] **Ori Tests**: `tests/spec/traits/hashable/derive.ori`
+  - [ ] **LLVM Support**: LLVM codegen for derived hashable
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/hashable_tests.rs`
+
+- [ ] **Implement**: Error messages (E0940-E0942)
+  - [ ] E0940: Cannot derive Hashable without Eq
+  - [ ] E0941: Hashable implementation violates hash invariant
+  - [ ] E0942: Type cannot be used as map key (missing Hashable)
+
+- [ ] **Update Spec**: `07-properties-of-types.md` — add Comparable and Hashable sections
+- [ ] **Update Spec**: `12-modules.md` — add hash_combine to prelude functions
+- [ ] **Update**: `CLAUDE.md` — add Comparable, Hashable, hash_combine documentation

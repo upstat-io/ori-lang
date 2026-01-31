@@ -387,7 +387,11 @@ type Buffer<$SIZE: int> = {
 
 ## 18.5 Const Bounds
 
+**Proposal**: `proposals/approved/const-generic-bounds-proposal.md`
+
 **Spec section**: `spec/06-types.md § Const Bounds`
+
+Formalizes const generic bounds (e.g., `where N > 0`), including allowed constraints, evaluation semantics, constraint propagation, and error handling.
 
 ### Syntax
 
@@ -397,43 +401,79 @@ type Buffer<$SIZE: int> = {
     where N > 0  // Const bound
 = ...
 
-// Multiple bounds
+// Multiple bounds (combined with && or separate where clauses)
 @matrix_multiply<$M: int, $N: int, $P: int> (
     a: Matrix<M, N>,
     b: Matrix<N, P>,
 ) -> Matrix<M, P>
-    where M > 0, N > 0, P > 0
+    where M > 0 && N > 0 && P > 0
 = ...
 
-// Equality constraints
-@square_matrix<$N: int> () -> Matrix<N, N> = ...
+// Arithmetic and bitwise in bounds
+@power_of_two<$N: int> ()
+    where N > 0 && (N & (N - 1)) == 0  // Bit trick for power of 2
+= ...
+
+// Bool const generics with bounds
+@either_or<$A: bool, $B: bool> () -> int
+    where A || B  // At least one must be true
+= if A then 1 else 2
 ```
 
 ### Implementation
 
-- [ ] **Spec**: Const bounds syntax
-  - [ ] Where clause for const
-  - [ ] Comparison operators
-  - [ ] Equality constraints
-  - [ ] **LLVM Support**: LLVM codegen for const bounds syntax
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const bounds syntax codegen
+- [ ] **Grammar**: Update `grammar.ebnf` with const bound expression grammar
+  - [ ] `const_bound_expr = const_or_expr`
+  - [ ] `const_or_expr = const_and_expr { "||" const_and_expr }`
+  - [ ] `const_and_expr = const_not_expr { "&&" const_not_expr }`
+  - [ ] `const_not_expr = "!" const_not_expr | const_cmp_expr`
+  - [ ] `const_cmp_expr = const_expr comparison_op const_expr | "(" const_bound_expr ")"`
+  - [ ] **Rust Tests**: `ori_parser/tests/const_bound_grammar.rs`
 
 - [ ] **Parser**: Parse const bounds
-  - [ ] In where clauses
-  - [ ] Comparison expressions
+  - [ ] In where clauses (compound expressions with `&&`, `||`, `!`)
+  - [ ] Comparison expressions (`>`, `<`, `>=`, `<=`, `==`, `!=`)
+  - [ ] Arithmetic in bounds (`+`, `-`, `*`, `/`, `%`)
+  - [ ] Bitwise in bounds (`&`, `|`, `^`, `<<`, `>>`)
+  - [ ] Multiple where clauses (implicitly AND-combined)
+  - [ ] **Rust Tests**: `ori_parser/tests/const_bound_parsing.rs`
   - [ ] **LLVM Support**: LLVM codegen for parsed const bounds
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const bounds parsing codegen
 
-- [ ] **Type checker**: Validate const bounds
-  - [ ] Check at instantiation
-  - [ ] Error messages
+- [ ] **Type checker**: Validate const bounds at compile time
+  - [ ] Check at instantiation when concrete values known
+  - [ ] Defer to monomorphization when values unknown
+  - [ ] Linear arithmetic implication checking (caller must imply callee bounds)
+  - [ ] Transitivity (`M >= 20` implies `M >= 10`)
+  - [ ] Equivalence (`M >= 10` implies `M > 9`)
+  - [ ] **Rust Tests**: `ori_typeck/tests/const_bounds.rs`
   - [ ] **LLVM Support**: LLVM codegen for const bounds validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const bounds validation codegen
 
+- [ ] **Const evaluator**: Overflow handling
+  - [ ] Arithmetic overflow during const bound evaluation is compile error (E1033)
+  - [ ] 64-bit signed integer arithmetic
+  - [ ] **Rust Tests**: `ori_typeck/tests/const_bound_overflow.rs`
+  - [ ] **Ori Tests**: `tests/spec/types/const_bound_overflow.ori`
+
+- [ ] **Error messages**: Const bound error codes
+  - [ ] E1030: Const generic bound not satisfied
+  - [ ] E1031: Caller bound does not imply callee bound (with help message)
+  - [ ] E1032: Invalid const bound expression (method calls not allowed)
+  - [ ] E1033: Const bound evaluation overflow
+  - [ ] **Rust Tests**: `ori_reporting/tests/const_bound_errors.rs`
+
 - [ ] **Test**: `tests/spec/types/const_bounds.ori`
   - [ ] Positive size constraint
-  - [ ] Equality constraint
+  - [ ] Compound bounds with `&&` and `||`
+  - [ ] Negation with `!`
+  - [ ] Arithmetic in bounds (`N % 2 == 0`)
+  - [ ] Bitwise in bounds (`N & (N - 1) == 0`)
+  - [ ] Multiple where clauses
   - [ ] Bound violation error
+  - [ ] Insufficient caller bound error
+  - [ ] Bool const generics (`$B: bool`)
+  - [ ] Bool in bounds (`A || B`)
   - [ ] **LLVM Support**: LLVM codegen for const bounds tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const bounds tests codegen
 

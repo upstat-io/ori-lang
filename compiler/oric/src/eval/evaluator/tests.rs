@@ -225,9 +225,7 @@ fn test_builtin_method_fallback() {
     assert_eq!(result.unwrap(), Value::int(3));
 }
 
-// =============================================================================
 // RAII Scope Guard Tests
-// =============================================================================
 
 use ori_eval::Mutability;
 

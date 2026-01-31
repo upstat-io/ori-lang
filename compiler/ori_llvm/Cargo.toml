@@ -21,6 +21,9 @@ ori_types = { path = "../ori_types" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# Concurrency primitives
+parking_lot = "0.12"
+
 [dev-dependencies]
 pretty_assertions = "1.4"
 

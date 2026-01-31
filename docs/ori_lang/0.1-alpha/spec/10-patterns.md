@@ -425,11 +425,108 @@ When a task is cancelled:
 
 ### cache
 
+Memoization with TTL-based expiration. Requires `Cache` capability.
+
 ```ori
-cache(key: url, op: fetch(url), ttl: 5m)
+cache(
+    key: expression,
+    op: expression,
+    ttl: Duration,
+)
 ```
 
-Requires `Cache` capability.
+#### Semantics
+
+1. Compute `key` expression
+2. Check cache for existing unexpired entry
+3. If hit: return cached value (clone)
+4. If miss: evaluate `op`, store result, return it
+
+```ori
+@fetch_user (id: int) -> User uses Cache =
+    cache(
+        key: `user-{id}`,
+        op: db.query(id: id),
+        ttl: 5m,
+    )
+```
+
+The `cache` pattern returns the same type as `op`.
+
+#### Key Requirements
+
+Keys must implement `Hashable` and `Eq`:
+
+```ori
+cache(key: "string-key", op: ..., ttl: 1m)  // OK: str is Hashable + Eq
+cache(key: 42, op: ..., ttl: 1m)            // OK: int is Hashable + Eq
+cache(key: (user_id, "profile"), op: ..., ttl: 1m)  // OK: tuple of hashables
+```
+
+#### Value Requirements
+
+Cached values must implement `Clone`. The cache returns a clone of the stored value.
+
+#### TTL Behavior
+
+| TTL | Behavior |
+|-----|----------|
+| Positive | Entry expires after TTL from creation |
+| Zero | No caching (always recompute) |
+| Negative | Compile error (E0992) |
+
+#### Concurrent Access
+
+When multiple tasks request the same key simultaneously (stampede prevention):
+
+1. First request computes the value
+2. Other requests wait for computation
+3. All receive the same result
+
+If `op` fails during stampede, waiting requests also receive the error. Failed results are NOT cached.
+
+#### Error Handling
+
+If `op` returns `Err` or panics, the result is NOT cached. To cache error results, wrap in a non-error type:
+
+```ori
+cache(
+    key: url,
+    op: match(fetch(url), r -> r),  // Cache the Result itself
+    ttl: 5m,
+)
+```
+
+#### Invalidation
+
+Time-based expiration is automatic. Manual invalidation uses `Cache` capability methods:
+
+```ori
+@invalidate_user (id: int) -> void uses Cache =
+    Cache.invalidate(key: `user-{id}`)
+
+@clear_all_cache () -> void uses Cache =
+    Cache.clear()
+```
+
+#### Cache vs Memoization
+
+The `cache` pattern and `recurse(..., memo: true)` serve different purposes:
+
+| Aspect | `cache(...)` | `recurse(..., memo: true)` |
+|--------|--------------|---------------------------|
+| Persistence | TTL-based, may persist across calls | Call-duration only |
+| Capability | Requires `Cache` | Pure, no capability |
+| Scope | Shared across function calls | Private to single recurse |
+| Use case | API responses, config, expensive I/O | Pure recursive algorithms |
+
+#### Error Codes
+
+| Code | Description |
+|------|-------------|
+| E0990 | Cache key must be `Hashable` |
+| E0991 | `cache` requires `Cache` capability |
+| E0992 | TTL must be non-negative |
 
 ### with
 

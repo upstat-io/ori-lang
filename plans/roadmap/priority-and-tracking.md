@@ -663,6 +663,42 @@
 - Error codes: E1040 (missing Printable), E1042 (cannot derive Default for sum type)
 - Blocked on: None (builds on existing Phase 3 infrastructure)
 
+**Comparable and Hashable Traits** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/comparable-hashable-traits-proposal.md`
+- Implementation: Phase 3.14
+- Formalizes `Comparable` and `Hashable` trait definitions with mathematical invariants
+- Standard implementations for all primitives, collections, Option, Result
+- `Result<T, E>` ordering: `Ok(_) < Err(_)`, then compare inner values
+- `hash_combine` function in prelude for custom Hashable implementations
+- Float handling: IEEE 754 total ordering for Comparable; +0.0/-0.0/NaN consistency for Hashable
+- Maps/Sets not Comparable (unordered collections)
+- Error codes: E0940 (Hashable without Eq), E0941 (hash invariant violation), E0942 (non-hashable map key)
+- Blocked on: None (builds on existing Phase 3 infrastructure)
+
+**Const Generic Bounds** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/const-generic-bounds-proposal.md`
+- Implementation: Phase 18.5
+- Formalizes `where N > 0` const generic bounds syntax and semantics
+- Operators: comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`), logical (`&&`, `||`, `!`), arithmetic, bitwise
+- Multiple where clauses implicitly AND-combined
+- Linear arithmetic implication checking for constraint propagation
+- Overflow during const evaluation is compile error (E1033)
+- Bool const generics (`$B: bool`) with bounds (`A || B`)
+- Error codes: E1030 (bound not satisfied), E1031 (caller doesn't imply callee), E1032 (invalid expression), E1033 (overflow)
+- Blocked on: Phase 18.1 (const type parameters)
+
+**Cache Pattern Semantics** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/cache-pattern-proposal.md`
+- Implementation: Phase 8.7
+- Complete semantics for `cache(key:, op:, ttl:)` pattern
+- Key requirements: `Hashable + Eq`; value requirements: `Clone`
+- TTL behavior: 0 = no cache, negative = compile error
+- Stampede prevention: first request computes, others wait
+- Errors not cached by default; manual invalidation via `Cache.invalidate(key:)` and `Cache.clear()`
+- Suspension behavior: depends on Cache implementation (in-memory vs distributed)
+- Error codes: E0990 (non-hashable key), E0991 (missing capability), E0992 (negative TTL)
+- Blocked on: None (expands existing Phase 8.7 stub)
+
 ---
 
 ## Milestones

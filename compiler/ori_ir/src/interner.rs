@@ -24,19 +24,30 @@ struct InternShard {
     strings: Vec<&'static str>,
 }
 
-/// Panic helper for interner overflow (cold path, never inlined).
-#[cold]
-#[inline(never)]
-fn panic_interner_overflow(shard_idx: usize, count: usize) -> ! {
-    panic!(
-        "interner shard {} exceeded capacity: {} strings (0x{:X}), max is {} (0x{:X})",
-        shard_idx,
-        count,
-        count,
-        u32::MAX,
-        u32::MAX
-    )
+/// Error when interning a string fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InternError {
+    /// Shard exceeded capacity (over 4 billion strings).
+    ShardOverflow { shard_idx: usize, count: usize },
 }
+
+impl std::fmt::Display for InternError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InternError::ShardOverflow { shard_idx, count } => write!(
+                f,
+                "interner shard {} exceeded capacity: {} strings (0x{:X}), max is {} (0x{:X})",
+                shard_idx,
+                count,
+                count,
+                u32::MAX,
+                u32::MAX
+            ),
+        }
+    }
+}
+
+impl std::error::Error for InternError {}
 
 impl InternShard {
     fn new() -> Self {
@@ -99,27 +110,25 @@ impl StringInterner {
         (hash as usize) % Name::NUM_SHARDS
     }
 
-    /// Intern a string, returning its Name.
+    /// Try to intern a string, returning its Name or an error on overflow.
     ///
-    /// # Panics
-    /// Panics if the interner exceeds capacity (over 4 billion strings per shard).
-    pub fn intern(&self, s: &str) -> Name {
+    /// This is the fallible version of `intern()`. Use this when you need to
+    /// handle the overflow case gracefully instead of panicking.
+    pub fn try_intern(&self, s: &str) -> Result<Name, InternError> {
         let shard_idx = Self::shard_for(s);
         // shard_idx is always < NUM_SHARDS (16) due to modulo, guaranteed to fit in u32
-        let shard_idx_u32 = u32::try_from(shard_idx).unwrap_or_else(|_| {
-            unreachable!(
-                "shard_idx {} from modulo {} cannot exceed u32",
-                shard_idx,
-                Name::NUM_SHARDS
-            )
-        });
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "shard_idx is bounded by NUM_SHARDS (16)"
+        )]
+        let shard_idx_u32 = shard_idx as u32;
         let shard = &self.shards[shard_idx];
 
         // Fast path: check if already interned
         {
             let guard = shard.read();
             if let Some(&local) = guard.map.get(s) {
-                return Name::new(shard_idx_u32, local);
+                return Ok(Name::new(shard_idx_u32, local));
             }
         }
 
@@ -128,22 +137,78 @@ impl StringInterner {
 
         // Double-check after acquiring write lock
         if let Some(&local) = guard.map.get(s) {
-            return Name::new(shard_idx_u32, local);
+            return Ok(Name::new(shard_idx_u32, local));
         }
 
         // Leak the string to get 'static lifetime
         let owned: String = s.to_owned();
         let leaked: &'static str = Box::leak(owned.into_boxed_str());
 
-        let local = u32::try_from(guard.strings.len())
-            .unwrap_or_else(|_| panic_interner_overflow(shard_idx, guard.strings.len()));
+        let local = u32::try_from(guard.strings.len()).map_err(|_| InternError::ShardOverflow {
+            shard_idx,
+            count: guard.strings.len(),
+        })?;
         guard.strings.push(leaked);
         guard.map.insert(leaked, local);
 
         // Increment total count (Relaxed is fine - we don't need ordering guarantees)
         self.total_count.fetch_add(1, Ordering::Relaxed);
 
-        Name::new(shard_idx_u32, local)
+        Ok(Name::new(shard_idx_u32, local))
+    }
+
+    /// Intern a string, returning its Name.
+    ///
+    /// # Panics
+    /// Panics if the interner exceeds capacity (over 4 billion strings per shard).
+    /// Use `try_intern` for fallible interning.
+    pub fn intern(&self, s: &str) -> Name {
+        self.try_intern(s).unwrap_or_else(|e| panic!("{}", e))
+    }
+
+    /// Try to intern an owned String, returning its Name or an error on overflow.
+    ///
+    /// This is more efficient than `try_intern()` when you already have an owned String
+    /// (e.g., from `unescape_string`), as it avoids the extra allocation that
+    /// `try_intern(&s)` would perform.
+    pub fn try_intern_owned(&self, s: String) -> Result<Name, InternError> {
+        let shard_idx = Self::shard_for(&s);
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "shard_idx is bounded by NUM_SHARDS (16)"
+        )]
+        let shard_idx_u32 = shard_idx as u32;
+        let shard = &self.shards[shard_idx];
+
+        // Fast path: check if already interned
+        {
+            let guard = shard.read();
+            if let Some(&local) = guard.map.get(s.as_str()) {
+                return Ok(Name::new(shard_idx_u32, local));
+            }
+        }
+
+        // Slow path: need to insert
+        let mut guard = shard.write();
+
+        // Double-check after acquiring write lock
+        if let Some(&local) = guard.map.get(s.as_str()) {
+            return Ok(Name::new(shard_idx_u32, local));
+        }
+
+        // Leak the owned string directly (no extra allocation)
+        let leaked: &'static str = Box::leak(s.into_boxed_str());
+
+        let local = u32::try_from(guard.strings.len()).map_err(|_| InternError::ShardOverflow {
+            shard_idx,
+            count: guard.strings.len(),
+        })?;
+        guard.strings.push(leaked);
+        guard.map.insert(leaked, local);
+
+        self.total_count.fetch_add(1, Ordering::Relaxed);
+
+        Ok(Name::new(shard_idx_u32, local))
     }
 
     /// Intern an owned String, avoiding double allocation.
@@ -154,44 +219,9 @@ impl StringInterner {
     ///
     /// # Panics
     /// Panics if the interner exceeds capacity (over 4 billion strings per shard).
+    /// Use `try_intern_owned` for fallible interning.
     pub fn intern_owned(&self, s: String) -> Name {
-        let shard_idx = Self::shard_for(&s);
-        let shard_idx_u32 = u32::try_from(shard_idx).unwrap_or_else(|_| {
-            unreachable!(
-                "shard_idx {} from modulo {} cannot exceed u32",
-                shard_idx,
-                Name::NUM_SHARDS
-            )
-        });
-        let shard = &self.shards[shard_idx];
-
-        // Fast path: check if already interned
-        {
-            let guard = shard.read();
-            if let Some(&local) = guard.map.get(s.as_str()) {
-                return Name::new(shard_idx_u32, local);
-            }
-        }
-
-        // Slow path: need to insert
-        let mut guard = shard.write();
-
-        // Double-check after acquiring write lock
-        if let Some(&local) = guard.map.get(s.as_str()) {
-            return Name::new(shard_idx_u32, local);
-        }
-
-        // Leak the owned string directly (no extra allocation)
-        let leaked: &'static str = Box::leak(s.into_boxed_str());
-
-        let local = u32::try_from(guard.strings.len())
-            .unwrap_or_else(|_| panic_interner_overflow(shard_idx, guard.strings.len()));
-        guard.strings.push(leaked);
-        guard.map.insert(leaked, local);
-
-        self.total_count.fetch_add(1, Ordering::Relaxed);
-
-        Name::new(shard_idx_u32, local)
+        self.try_intern_owned(s).unwrap_or_else(|e| panic!("{}", e))
     }
 
     /// Look up the string for a Name.

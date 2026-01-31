@@ -205,6 +205,31 @@ Capabilities propagate: if A calls B with capability C, A must declare or provid
 | `Env` | Environment | No |
 | `Async` | Suspension marker | Yes |
 
+### Cache Capability
+
+The `Cache` capability provides key-value caching with TTL-based expiration:
+
+```ori
+trait Cache {
+    @get<K: Hashable + Eq, V: Clone> (self, key: K) -> Option<V>
+    @set<K: Hashable + Eq, V: Clone> (self, key: K, value: V, ttl: Duration) -> void
+    @invalidate<K: Hashable + Eq> (self, key: K) -> void
+    @clear (self) -> void
+}
+```
+
+Used by the `cache` pattern (see [Patterns § cache](10-patterns.md#cache)).
+
+Cache implementations differ in suspension behavior:
+
+| Implementation | Description | Suspends |
+|----------------|-------------|----------|
+| `InMemoryCache` | Process-local | No |
+| `DistributedCache` | Shared across nodes | Yes |
+| `NoOpCache` | Disable caching (always miss) | No |
+
+When using a suspending cache implementation, the calling function must have `uses Async` or be called from an async context.
+
 ### Clock Capability
 
 The `Clock` capability provides access to the current time:

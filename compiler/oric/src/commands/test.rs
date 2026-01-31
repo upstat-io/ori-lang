@@ -43,7 +43,7 @@ fn print_coverage_report(report: &CoverageReport) {
     }
 
     // Print covered functions
-    let covered: Vec<_> = report.functions.iter().filter(|f| f.has_tests).collect();
+    let covered: Vec<_> = report.functions.iter().filter(|f| f.has_tests()).collect();
     if !covered.is_empty() {
         println!("Covered ({}):", covered.len());
         for func in covered {
@@ -54,7 +54,7 @@ fn print_coverage_report(report: &CoverageReport) {
     }
 
     // Print uncovered functions
-    let uncovered: Vec<_> = report.functions.iter().filter(|f| !f.has_tests).collect();
+    let uncovered: Vec<_> = report.functions.iter().filter(|f| !f.has_tests()).collect();
     if !uncovered.is_empty() {
         println!("Uncovered ({}):", uncovered.len());
         for func in uncovered {

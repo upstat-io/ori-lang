@@ -582,8 +582,7 @@ impl TestRunner {
             }
             let func_name = interner.lookup(func.name).to_string();
             let test_names = test_map.get(&func.name).cloned().unwrap_or_default();
-            let has_tests = !test_names.is_empty();
-            report.add_function(func_name, has_tests, test_names);
+            report.add_function(func_name, test_names);
         }
     }
 }

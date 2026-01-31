@@ -1,0 +1,194 @@
+//! Parsed Type Formatting
+//!
+//! Formatting for type expressions (`ParsedType`) used in function signatures,
+//! type declarations, and other contexts.
+
+use ori_ir::{ExprArena, ParsedType, StringLookup, TypeId};
+
+use crate::context::FormatContext;
+use crate::emitter::Emitter;
+
+/// Format a parsed type expression.
+pub(super) fn format_parsed_type<I: StringLookup, E: Emitter>(
+    ty: &ParsedType,
+    arena: &ExprArena,
+    interner: &I,
+    ctx: &mut FormatContext<E>,
+) {
+    match ty {
+        ParsedType::Primitive(type_id) => {
+            ctx.emit(type_id_to_str(*type_id));
+        }
+        ParsedType::Named { name, type_args } => {
+            ctx.emit(interner.lookup(*name));
+            let args = arena.get_parsed_type_list(*type_args);
+            if !args.is_empty() {
+                ctx.emit("<");
+                for (i, arg_id) in args.iter().enumerate() {
+                    if i > 0 {
+                        ctx.emit(", ");
+                    }
+                    let arg = arena.get_parsed_type(*arg_id);
+                    format_parsed_type(arg, arena, interner, ctx);
+                }
+                ctx.emit(">");
+            }
+        }
+        ParsedType::List(elem) => {
+            ctx.emit("[");
+            let elem_ty = arena.get_parsed_type(*elem);
+            format_parsed_type(elem_ty, arena, interner, ctx);
+            ctx.emit("]");
+        }
+        ParsedType::Tuple(elems) => {
+            ctx.emit("(");
+            let elem_list = arena.get_parsed_type_list(*elems);
+            for (i, elem_id) in elem_list.iter().enumerate() {
+                if i > 0 {
+                    ctx.emit(", ");
+                }
+                let elem = arena.get_parsed_type(*elem_id);
+                format_parsed_type(elem, arena, interner, ctx);
+            }
+            ctx.emit(")");
+        }
+        ParsedType::Function { params, ret } => {
+            ctx.emit("(");
+            let param_list = arena.get_parsed_type_list(*params);
+            for (i, param_id) in param_list.iter().enumerate() {
+                if i > 0 {
+                    ctx.emit(", ");
+                }
+                let param = arena.get_parsed_type(*param_id);
+                format_parsed_type(param, arena, interner, ctx);
+            }
+            ctx.emit(") -> ");
+            let ret_ty = arena.get_parsed_type(*ret);
+            format_parsed_type(ret_ty, arena, interner, ctx);
+        }
+        ParsedType::Map { key, value } => {
+            ctx.emit("{");
+            let key_ty = arena.get_parsed_type(*key);
+            format_parsed_type(key_ty, arena, interner, ctx);
+            ctx.emit(": ");
+            let value_ty = arena.get_parsed_type(*value);
+            format_parsed_type(value_ty, arena, interner, ctx);
+            ctx.emit("}");
+        }
+        ParsedType::Infer => {
+            ctx.emit("_");
+        }
+        ParsedType::SelfType => {
+            ctx.emit("Self");
+        }
+        ParsedType::AssociatedType { base, assoc_name } => {
+            let base_ty = arena.get_parsed_type(*base);
+            format_parsed_type(base_ty, arena, interner, ctx);
+            ctx.emit(".");
+            ctx.emit(interner.lookup(*assoc_name));
+        }
+    }
+}
+
+/// Calculate the width of a parsed type expression.
+pub(super) fn calculate_type_width<I: StringLookup>(
+    ty: &ParsedType,
+    arena: &ExprArena,
+    interner: &I,
+) -> usize {
+    match ty {
+        ParsedType::Primitive(type_id) => type_id_to_str(*type_id).len(),
+        ParsedType::Named { name, type_args } => {
+            let mut width = interner.lookup(*name).len();
+            let args = arena.get_parsed_type_list(*type_args);
+            if !args.is_empty() {
+                width += 2; // "<>"
+                for (i, arg_id) in args.iter().enumerate() {
+                    if i > 0 {
+                        width += 2; // ", "
+                    }
+                    let arg = arena.get_parsed_type(*arg_id);
+                    width += calculate_type_width(arg, arena, interner);
+                }
+            }
+            width
+        }
+        ParsedType::List(elem) => {
+            let elem_ty = arena.get_parsed_type(*elem);
+            2 + calculate_type_width(elem_ty, arena, interner) // "[]"
+        }
+        ParsedType::Tuple(elems) => {
+            let elem_list = arena.get_parsed_type_list(*elems);
+            let mut width = 2; // "()"
+            for (i, elem_id) in elem_list.iter().enumerate() {
+                if i > 0 {
+                    width += 2; // ", "
+                }
+                let elem = arena.get_parsed_type(*elem_id);
+                width += calculate_type_width(elem, arena, interner);
+            }
+            width
+        }
+        ParsedType::Function { params, ret } => {
+            let param_list = arena.get_parsed_type_list(*params);
+            let mut width = 2; // "()"
+            for (i, param_id) in param_list.iter().enumerate() {
+                if i > 0 {
+                    width += 2; // ", "
+                }
+                let param = arena.get_parsed_type(*param_id);
+                width += calculate_type_width(param, arena, interner);
+            }
+            width += 4; // " -> "
+            let ret_ty = arena.get_parsed_type(*ret);
+            width += calculate_type_width(ret_ty, arena, interner);
+            width
+        }
+        ParsedType::Map { key, value } => {
+            let key_ty = arena.get_parsed_type(*key);
+            let value_ty = arena.get_parsed_type(*value);
+            2 + calculate_type_width(key_ty, arena, interner)
+                + 2
+                + calculate_type_width(value_ty, arena, interner)
+            // "{" + key + ": " + value + "}"
+        }
+        ParsedType::Infer => 1,    // "_"
+        ParsedType::SelfType => 4, // "Self"
+        ParsedType::AssociatedType { base, assoc_name } => {
+            let base_ty = arena.get_parsed_type(*base);
+            calculate_type_width(base_ty, arena, interner) + 1 + interner.lookup(*assoc_name).len()
+        }
+    }
+}
+
+/// Convert a [`TypeId`] to its string representation.
+pub(super) fn type_id_to_str(id: TypeId) -> &'static str {
+    match id {
+        TypeId::INT => "int",
+        TypeId::FLOAT => "float",
+        TypeId::BOOL => "bool",
+        TypeId::STR => "str",
+        TypeId::CHAR => "char",
+        TypeId::BYTE => "byte",
+        TypeId::VOID => "void",
+        TypeId::NEVER => "Never",
+        _ => "unknown",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_type_id_to_str() {
+        assert_eq!(type_id_to_str(TypeId::INT), "int");
+        assert_eq!(type_id_to_str(TypeId::FLOAT), "float");
+        assert_eq!(type_id_to_str(TypeId::BOOL), "bool");
+        assert_eq!(type_id_to_str(TypeId::STR), "str");
+        assert_eq!(type_id_to_str(TypeId::CHAR), "char");
+        assert_eq!(type_id_to_str(TypeId::BYTE), "byte");
+        assert_eq!(type_id_to_str(TypeId::VOID), "void");
+        assert_eq!(type_id_to_str(TypeId::NEVER), "Never");
+    }
+}

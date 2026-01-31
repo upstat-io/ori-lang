@@ -109,50 +109,63 @@ pub fn process_diagnostics(
 }
 
 /// A report containing multiple diagnostics.
+///
+/// Collects diagnostics from compilation phases (parsing, type checking)
+/// and provides methods to query error counts and severity levels.
 #[derive(Clone, Debug, Default)]
 pub struct Report {
+    /// The diagnostics in this report.
     pub diagnostics: Vec<Diagnostic>,
 }
 
 impl Report {
+    /// Creates a new empty report.
     pub fn new() -> Self {
         Report {
             diagnostics: Vec::new(),
         }
     }
 
+    /// Creates a new report with pre-allocated capacity.
     pub fn with_capacity(capacity: usize) -> Self {
         Report {
             diagnostics: Vec::with_capacity(capacity),
         }
     }
 
+    /// Adds a diagnostic to the report.
     pub fn add(&mut self, diagnostic: Diagnostic) {
         self.diagnostics.push(diagnostic);
     }
 
+    /// Adds a problem to the report, rendering it as a diagnostic.
     pub fn add_problem(&mut self, problem: &Problem) {
         self.diagnostics.push(problem.render());
     }
 
+    /// Returns true if the report contains no diagnostics.
     pub fn is_empty(&self) -> bool {
         self.diagnostics.is_empty()
     }
 
+    /// Returns the total number of diagnostics.
     pub fn len(&self) -> usize {
         self.diagnostics.len()
     }
 
+    /// Returns true if any diagnostic is an error.
     pub fn has_errors(&self) -> bool {
         self.diagnostics
             .iter()
             .any(ori_diagnostic::Diagnostic::is_error)
     }
 
+    /// Returns the number of error-level diagnostics.
     pub fn error_count(&self) -> usize {
         self.diagnostics.iter().filter(|d| d.is_error()).count()
     }
 
+    /// Returns the number of warning-level diagnostics.
     pub fn warning_count(&self) -> usize {
         self.diagnostics
             .iter()

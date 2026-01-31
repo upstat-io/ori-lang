@@ -31,11 +31,20 @@ pub fn infer_call(
     let arg_ids = checker.context.arena.get_expr_list(args);
 
     if !positional_allowed && !arg_ids.is_empty() {
-        checker.push_error(
-            "named arguments required for function calls (name: value)".to_string(),
-            span,
-            ori_diagnostic::ErrorCode::E2011,
-        );
+        // Extract function name for better error message
+        let func_name = match &func_expr.kind {
+            ExprKind::Ident(name) => Some(checker.context.interner.lookup(*name)),
+            _ => None,
+        };
+        let message = match func_name {
+            Some(name) => {
+                format!("named arguments required when calling `@{name}` (use name: value syntax)")
+            }
+            None => {
+                "named arguments required for function calls (use name: value syntax)".to_string()
+            }
+        };
+        checker.push_error(message, span, ori_diagnostic::ErrorCode::E2011);
         return Type::Error;
     }
 

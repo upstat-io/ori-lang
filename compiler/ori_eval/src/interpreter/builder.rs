@@ -79,11 +79,11 @@ impl<'a> InterpreterBuilder<'a> {
 
     /// Mark this interpreter as owning a scoped environment.
     ///
-    /// When set to true, the interpreter will pop its environment scope when dropped.
+    /// When called, the interpreter will pop its environment scope when dropped.
     /// This is used for function/method call interpreters to ensure RAII panic safety.
     #[must_use]
-    pub fn owns_scoped_env(mut self, owns: bool) -> Self {
-        self.owns_scoped_env = owns;
+    pub fn with_scoped_env_ownership(mut self) -> Self {
+        self.owns_scoped_env = true;
         self
     }
 
