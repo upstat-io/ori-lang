@@ -114,6 +114,84 @@ let result = loop:outer(
 )
 ```
 
+### Label Scope
+
+A label is visible within the loop body it labels. Labels scope correctly through arbitrary nesting:
+
+```ori
+loop:a(
+    loop:b(
+        loop:c(
+            break:a,  // OK: exits outermost
+            break:b,  // OK: exits middle
+            break:c,  // OK: exits innermost
+        ),
+    ),
+)
+```
+
+There is no language-imposed limit on label nesting depth.
+
+### No Label Shadowing
+
+Labels cannot be shadowed within their scope:
+
+```ori
+loop:outer(
+    loop:outer(  // ERROR E0871: label 'outer' already in scope
+        ...
+    ),
+)
+```
+
+### Type Consistency
+
+All `break` paths for a labeled loop must produce values of the same type:
+
+```ori
+let x: int = loop:outer(
+    for item in items do
+        if a(item) then break:outer 1,      // int
+        if b(item) then break:outer "two",  // ERROR E0872: expected int, found str
+    0,
+)
+```
+
+### Continue With Value
+
+In `for...yield` context, `continue:name value` contributes `value` to the outer loop's collection:
+
+```ori
+let results = for:outer x in xs yield
+    for:inner y in ys yield
+        if special(x, y) then continue:outer x * y,  // Contribute to outer
+        transform(x, y),
+```
+
+The value in `continue:label value` must have the same type as the target loop's yield element type.
+
+When `continue:label value` exits an inner `for...yield` to contribute to an outer `for...yield`, the inner loop's partially-built collection is discarded. Only `value` is contributed to the outer loop for this iteration.
+
+In `for...do` context, `continue:name value` is an error — there is no collection to contribute to:
+
+```ori
+for:outer x in xs do
+    for y in ys do
+        if skip(x, y) then continue:outer 42,  // ERROR E0873: for-do doesn't collect
+        process(x, y),
+```
+
+### Valid Label Names
+
+Labels follow identifier rules. They cannot be keywords:
+
+```ori
+loop:search(...)     // OK
+loop:_private(...)   // OK
+loop:loop123(...)    // OK
+loop:for(...)        // ERROR: 'for' is a keyword
+```
+
 ## Error Propagation
 
 The `?` operator propagates errors and absent values.

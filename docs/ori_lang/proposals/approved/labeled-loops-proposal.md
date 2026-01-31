@@ -1,6 +1,7 @@
 # Proposal: Labeled Loops
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-31
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-30
 **Affects:** Compiler, control flow
@@ -84,6 +85,8 @@ loop:a(
 )
 ```
 
+There is no language-imposed limit on label nesting depth. Practical limits arise from stack constraints and code readability.
+
 ### No Shadowing
 
 Labels cannot be shadowed within their scope:
@@ -163,6 +166,10 @@ let results = for:outer x in xs yield
         if special(x, y) then continue:outer x * y,  // Contribute to outer
         transform(x, y),
 ```
+
+The value in `continue:label value` must have the same type as the target loop's yield element type. This is verified at compile time.
+
+When `continue:label value` exits an inner `for...yield` to contribute to an outer `for...yield`, the inner loop's partially-built collection is discarded. Only `value` is contributed to the outer loop for this iteration.
 
 ### Continue With Value in For-Do
 
@@ -332,13 +339,11 @@ error[E0873]: `continue` with value in `for...do`
 ```ori
 @process_valid_rows (data: [[Option<int>]]) -> [[int]] =
     for:outer row in data yield
-        let processed = []
-        for cell in row do
+        for cell in row yield
             match(cell,
-                None -> continue:outer [],  // Skip entire row
-                Some(v) -> processed = processed + [v],
+                None -> continue:outer,  // Skip entire row
+                Some(v) -> v,
             ),
-        processed,
 ```
 
 ---

@@ -813,6 +813,17 @@
 - DAP debugging support deferred to Phase 2
 - Blocked on: None (can be implemented independently)
 
+**Labeled Loops** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/labeled-loops-proposal.md`
+- Implementation: Phase 10.3
+- Complete scope rules: labels visible within their loop body, no nesting depth limit
+- No label shadowing (E0871)
+- Type consistency for `break:label value` (E0872)
+- `continue:label value` in for-yield contributes to outer loop's collection (inner partial discarded)
+- `continue:label value` in for-do is an error (E0873)
+- Undefined label error (E0870)
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones

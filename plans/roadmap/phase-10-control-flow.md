@@ -192,6 +192,57 @@
   - [ ] **LLVM Support**: LLVM codegen for label references
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — label references codegen
 
+**Labeled loop semantics** (proposals/approved/labeled-loops-proposal.md):
+
+- [ ] **Implement**: Label scope rules — proposals/approved/labeled-loops-proposal.md § Label Scope
+  - [ ] Labels visible only within their loop body
+  - [ ] No language-imposed nesting depth limit
+  - [ ] **Rust Tests**: `oric/src/eval/exec/loops.rs` — label scope validation
+  - [ ] **Ori Tests**: `tests/spec/expressions/labeled_loops.ori`
+  - [ ] **LLVM Support**: LLVM codegen for label scope
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — label scope codegen
+
+- [ ] **Implement**: No label shadowing — proposals/approved/labeled-loops-proposal.md § No Shadowing
+  - [ ] Error if label already in scope
+  - [ ] Error E0871 with helpful suggestion
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/labels.rs` — shadowing detection
+  - [ ] **Ori Tests**: `tests/compile-fail/labeled_loop_shadow.ori`
+  - [ ] **LLVM Support**: N/A (compile-time check)
+  - [ ] **LLVM Rust Tests**: N/A
+
+- [ ] **Implement**: Type consistency for `break:label value` — proposals/approved/labeled-loops-proposal.md § Type Consistency
+  - [ ] All break paths for a labeled loop must produce same type
+  - [ ] Error E0872 for type mismatch
+  - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — break type unification
+  - [ ] **Ori Tests**: `tests/compile-fail/labeled_break_type.ori`
+  - [ ] **LLVM Support**: LLVM codegen for typed break
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — typed break codegen
+
+- [ ] **Implement**: `continue:label value` in for-yield — proposals/approved/labeled-loops-proposal.md § Continue With Value in For-Yield
+  - [ ] Value type must match target loop's yield element type
+  - [ ] Inner loop's partial collection discarded
+  - [ ] Value contributed to outer loop's collection
+  - [ ] **Rust Tests**: `oric/src/eval/exec/loops.rs` — continue value in yield
+  - [ ] **Ori Tests**: `tests/spec/expressions/labeled_loops.ori`
+  - [ ] **LLVM Support**: LLVM codegen for continue value
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — continue value codegen
+
+- [ ] **Implement**: `continue:label value` error in for-do — proposals/approved/labeled-loops-proposal.md § Continue With Value in For-Do
+  - [ ] Error E0873 when continue has value in for-do context
+  - [ ] Helpful suggestion to use for-yield or remove value
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/loops.rs` — continue value validation
+  - [ ] **Ori Tests**: `tests/compile-fail/labeled_continue_in_do.ori`
+  - [ ] **LLVM Support**: N/A (compile-time check)
+  - [ ] **LLVM Rust Tests**: N/A
+
+- [ ] **Implement**: Undefined label error — proposals/approved/labeled-loops-proposal.md § Error Messages
+  - [ ] Error E0870 for undefined label
+  - [ ] Suggest similar labels if available
+  - [ ] **Rust Tests**: `oric/src/resolve/labels.rs` — undefined label detection
+  - [ ] **Ori Tests**: `tests/compile-fail/undefined_label.ori`
+  - [ ] **LLVM Support**: N/A (compile-time check)
+  - [ ] **LLVM Rust Tests**: N/A
+
 ---
 
 ## 10.4 Error Propagation (?)
