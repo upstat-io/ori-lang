@@ -64,6 +64,7 @@ Return types encode error handling strategy:
 
 Built-in implementations:
 - `[T]` implements `Index<int, T>` (panics on out-of-bounds)
+- `[T, max N]` implements `Index<int, T>` (same as `[T]`)
 - `{K: V}` implements `Index<K, Option<V>>`
 - `str` implements `Index<int, str>` (single codepoint, panics on out-of-bounds)
 

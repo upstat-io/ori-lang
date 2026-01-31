@@ -1,6 +1,7 @@
 # Proposal: Index Trait
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-30
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-30
 **Affects:** Compiler, type system, expressions
@@ -82,6 +83,9 @@ map["z"]  // None
 For containers where access can fail with details:
 
 ```ori
+// Example: user-defined JSON type with Result-based indexing
+type JsonError = KeyNotFound { key: str } | NotAnObject
+
 impl Index<str, Result<JsonValue, JsonError>> for JsonValue {
     @index (self, key: str) -> Result<JsonValue, JsonError>
 }
@@ -139,7 +143,7 @@ impl<T> Index<int, T> for [T] {
         if key < 0 || key >= len(collection: self) then
             panic(msg: "index out of bounds")
         else
-            // internal access
+            // intrinsic: compiler-provided
 }
 ```
 
@@ -167,7 +171,7 @@ impl Index<int, str> for str {
         if key < 0 || key >= len(collection: self) then
             panic(msg: "index out of bounds")
         else
-            // Return codepoint at index as str
+            // intrinsic: compiler-provided
 }
 ```
 

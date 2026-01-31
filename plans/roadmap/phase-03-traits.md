@@ -661,7 +661,9 @@ Formalizes the rules that determine whether a trait can be used as a trait objec
 
 ## 3.12 Custom Subscripting (Index Trait)
 
-**Proposal**: `proposals/approved/custom-subscripting-proposal.md`
+**Proposals**:
+- `proposals/approved/custom-subscripting-proposal.md` — Design and motivation
+- `proposals/approved/index-trait-proposal.md` — Formal specification and error messages
 
 Introduces the `Index` trait for read-only custom subscripting, allowing user-defined types to use `[]` syntax. Supports multiple index types per type (e.g., `JsonValue` with both `str` and `int` keys) and flexible return types (`T`, `Option<T>`, or `Result<T, E>`).
 
@@ -685,19 +687,23 @@ Introduces the `Index` trait for read-only custom subscripting, allowing user-de
   - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — multiple impl resolution
   - [ ] **Ori Tests**: `tests/spec/traits/index/multiple_impls.ori`
 
-- [ ] **Implement**: Built-in `Index` implementations for `[T]`, `{K: V}`, `str`
+- [ ] **Implement**: Built-in `Index` implementations for `[T]`, `[T, max N]`, `{K: V}`, `str`
   - [ ] `[T]` implements `Index<int, T>` (panics on out-of-bounds)
+  - [ ] `[T, max N]` implements `Index<int, T>` (same as `[T]`)
   - [ ] `{K: V}` implements `Index<K, Option<V>>`
   - [ ] `str` implements `Index<int, str>` (single codepoint, panics on out-of-bounds)
   - [ ] **Ori Tests**: `tests/spec/traits/index/builtin_impls.ori`
   - [ ] **LLVM Support**: LLVM codegen for builtin Index impls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/index_tests.rs`
 
-- [ ] **Implement**: Ambiguity detection when key type is ambiguous
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — ambiguous key type detection
-  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/index_ambiguous_key.ori`
+- [ ] **Implement**: Error messages for Index trait (E0950-E0952)
+  - [ ] E0950: mismatched types in index expression
+  - [ ] E0951: type cannot be indexed (Index not implemented)
+  - [ ] E0952: ambiguous index key type
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — error message tests
+  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/index_errors.ori`
 
-- [ ] **Update Spec**: `09-expressions.md` — document Index trait and desugaring
+- [ ] **Update Spec**: `09-expressions.md` — expand Index Trait section with fixed-capacity list
 - [ ] **Update Spec**: `06-types.md` — add Index trait to prelude section
 - [ ] **Update**: `CLAUDE.md` — add Index trait to prelude and subscripting documentation
 
