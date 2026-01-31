@@ -203,6 +203,8 @@ Capabilities propagate: if A calls B with capability C, A must declare or provid
 | `Print` | Standard output | No |
 | `Logger` | Structured logging | No |
 | `Env` | Environment | No |
+| `Intrinsics` | Low-level SIMD and bit operations | No |
+| `FFI` | Foreign function interface | No |
 | `Async` | Suspension marker | Yes |
 
 ### Cache Capability
@@ -288,6 +290,50 @@ Key types are separated by purpose to prevent misuse at compile time:
 - `KeyExchangePrivateKey` / `KeyExchangePublicKey` — for Diffie-Hellman key exchange
 
 Private key types (`SecretKey`, `SigningPrivateKey`, `EncryptionPrivateKey`, `KeyExchangePrivateKey`) automatically zero their memory when dropped.
+
+### Intrinsics Capability
+
+The `Intrinsics` capability provides low-level SIMD operations, bit manipulation, and hardware feature detection:
+
+```ori
+trait Intrinsics {
+    // SIMD operations (examples for 4-wide float)
+    @simd_add_f32x4 (a: [float, max 4], b: [float, max 4]) -> [float, max 4]
+    @simd_mul_f32x4 (a: [float, max 4], b: [float, max 4]) -> [float, max 4]
+    @simd_sum_f32x4 (a: [float, max 4]) -> float
+    // ... additional widths: f32x8, f32x16, i64x2, i64x4
+
+    // Bit operations
+    @count_ones (value: int) -> int
+    @count_leading_zeros (value: int) -> int
+    @count_trailing_zeros (value: int) -> int
+    @rotate_left (value: int, amount: int) -> int
+    @rotate_right (value: int, amount: int) -> int
+
+    // Hardware queries
+    @cpu_has_feature (feature: str) -> bool
+}
+```
+
+SIMD operations work on fixed-capacity lists representing vector registers:
+
+| Width | Float Type | Int Type | Platforms |
+|-------|------------|----------|-----------|
+| 128-bit | `[float, max 4]` | `[int, max 2]` | SSE, NEON, SIMD128 |
+| 256-bit | `[float, max 8]` | `[int, max 4]` | AVX, AVX2 |
+| 512-bit | `[float, max 16]` | — | AVX-512 |
+
+The default `def impl Intrinsics` uses native SIMD instructions when available and falls back to scalar emulation otherwise. For testing, `EmulatedIntrinsics` always uses scalar operations.
+
+Feature detection via `cpu_has_feature` accepts platform-specific feature strings:
+
+| Platform | Features |
+|----------|----------|
+| x86_64 | `"sse"`, `"sse2"`, `"sse3"`, `"sse4.1"`, `"sse4.2"`, `"avx"`, `"avx2"`, `"avx512f"` |
+| aarch64 | `"neon"` |
+| wasm32 | `"simd128"` |
+
+Unknown feature strings cause a panic.
 
 ## Default Capabilities
 

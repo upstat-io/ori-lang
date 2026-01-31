@@ -282,7 +282,80 @@ Specifies resolution rules for `def impl`: conflict handling, `without def` impo
 
 ---
 
-## 6.13 Phase Completion Checklist
+## 6.14 Intrinsics Capability
+
+**Proposal**: `proposals/approved/intrinsics-capability-proposal.md`
+
+Low-level SIMD, bit manipulation, and hardware feature detection. Atomics deferred to separate proposal.
+
+### Implementation
+
+- [ ] **Implement**: Add `Intrinsics` trait to prelude — spec/14-capabilities.md
+  - [ ] Trait definition with all SIMD and bit operations
+  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics.ori`
+
+- [ ] **Implement**: SIMD float operations (4-wide/128-bit)
+  - [ ] `simd_add_f32x4`, `simd_sub_f32x4`, `simd_mul_f32x4`, `simd_div_f32x4`
+  - [ ] `simd_min_f32x4`, `simd_max_f32x4`, `simd_sqrt_f32x4`, `simd_abs_f32x4`
+  - [ ] `simd_eq_f32x4`, `simd_lt_f32x4`, `simd_gt_f32x4`
+  - [ ] `simd_sum_f32x4` (horizontal reduction)
+  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-simd-f32x4.ori`
+
+- [ ] **Implement**: SIMD float operations (8-wide/256-bit, AVX)
+  - [ ] Same operations as 4-wide with `f32x8` suffix
+  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-simd-f32x8.ori`
+
+- [ ] **Implement**: SIMD float operations (16-wide/512-bit, AVX-512)
+  - [ ] Same operations as 4-wide with `f32x16` suffix
+  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-simd-f32x16.ori`
+
+- [ ] **Implement**: SIMD 64-bit integer operations (2-wide/128-bit)
+  - [ ] `simd_add_i64x2`, `simd_sub_i64x2`, `simd_mul_i64x2`
+  - [ ] `simd_min_i64x2`, `simd_max_i64x2`
+  - [ ] `simd_eq_i64x2`, `simd_lt_i64x2`, `simd_gt_i64x2`
+  - [ ] `simd_sum_i64x2` (horizontal reduction)
+  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-simd-i64x2.ori`
+
+- [ ] **Implement**: SIMD 64-bit integer operations (4-wide/256-bit, AVX2)
+  - [ ] Same operations as 2-wide with `i64x4` suffix
+  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-simd-i64x4.ori`
+
+- [ ] **Implement**: Bit manipulation operations
+  - [ ] `count_leading_zeros`, `count_trailing_zeros`, `count_ones`
+  - [ ] `rotate_left`, `rotate_right`
+  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-bits.ori`
+
+- [ ] **Implement**: Hardware feature detection
+  - [ ] `cpu_has_feature` with valid feature strings
+  - [ ] Error E1062 for unknown features
+  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-feature-detect.ori`
+
+- [ ] **Implement**: `def impl Intrinsics` (NativeWithFallback)
+  - [ ] Native SIMD when platform supports
+  - [ ] Scalar emulation fallback
+  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-fallback.ori`
+
+- [ ] **Implement**: `EmulatedIntrinsics` provider
+  - [ ] Always uses scalar operations
+  - [ ] For testing and portability
+  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-emulated.ori`
+
+- [ ] **Implement**: Error messages
+  - [ ] E1060: requires Intrinsics capability
+  - [ ] E1062: unknown CPU feature
+  - [ ] E1063: wrong SIMD vector size
+  - [ ] **Rust Tests**: `oric/src/errors/` — error formatting tests
+
+- [ ] **Implement**: LLVM backend SIMD codegen
+  - [ ] Map to LLVM vector intrinsics
+  - [ ] `count_ones` → `llvm.ctpop.i64`
+  - [ ] `count_leading_zeros` → `llvm.ctlz.i64`
+  - [ ] Runtime CPUID for feature detection
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/intrinsics_tests.rs`
+
+---
+
+## 6.15 Phase Completion Checklist
 
 - [x] 6.1-6.5 complete (declaration, traits, async, providing, propagation)
 - [x] 6.6 trait definitions in prelude (implementations in Phase 7)
@@ -291,12 +364,13 @@ Specifies resolution rules for `def impl`: conflict handling, `without def` impo
 - [ ] 6.10 Default implementations (`def impl`) — pending implementation
 - [ ] 6.11 Capability Composition — pending implementation
 - [ ] 6.12 Default Implementation Resolution — pending implementation
+- [ ] 6.14 Intrinsics Capability — pending implementation
 - [x] Spec updated: `spec/14-capabilities.md` reflects implementation
 - [x] CLAUDE.md updated with capabilities syntax
 - [x] 27 capability tests passing
 - [x] Full test suite: `./test-all`
 
-**Exit Criteria**: Effect tracking works per spec (6.1-6.9 ✅, 6.10-6.12 pending)
+**Exit Criteria**: Effect tracking works per spec (6.1-6.9 ✅, 6.10-6.14 pending)
 
 **Remaining for Phase 7 (Stdlib)**:
 - Real capability implementations (Http, FileSystem, etc.)
