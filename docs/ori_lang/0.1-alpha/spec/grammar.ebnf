@@ -122,11 +122,11 @@ bool_literal = "true" | "false" .
 
 // Duration literals
 duration_literal = int_literal duration_unit .
-duration_unit    = "ms" | "s" | "m" | "h" .
+duration_unit    = "ns" | "us" | "ms" | "s" | "m" | "h" .
 
 // Size literals
 size_literal = int_literal size_unit .
-size_unit    = "b" | "kb" | "mb" | "gb" .
+size_unit    = "b" | "kb" | "mb" | "gb" | "tb" .
 
 
 // ============================================================================

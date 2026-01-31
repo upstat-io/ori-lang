@@ -23,10 +23,130 @@ Every value has a type determined at compile time.
 | `char` | Unicode scalar value (U+0000–U+10FFFF, excluding surrogates) | — |
 | `void` | Unit type, alias for `()` | `()` |
 | `Never` | Bottom type, uninhabited | — |
-| `Duration` | Time span (nanoseconds) | — |
-| `Size` | Byte count | — |
+| `Duration` | Time span (nanoseconds) | `0ns` |
+| `Size` | Byte count | `0b` |
 
 `Never` is the return type for functions that never return (panic, infinite loop). Coerces to any type.
+
+### Duration
+
+`Duration` represents a span of time with nanosecond precision. Internally stored as a 64-bit signed integer counting nanoseconds (range: approximately ±292 years).
+
+**Literal syntax:**
+
+| Suffix | Unit | Nanoseconds |
+|--------|------|-------------|
+| `ns` | nanoseconds | 1 |
+| `us` | microseconds | 1,000 |
+| `ms` | milliseconds | 1,000,000 |
+| `s` | seconds | 1,000,000,000 |
+| `m` | minutes | 60,000,000,000 |
+| `h` | hours | 3,600,000,000,000 |
+
+```ori
+let timeout = 30s
+let delay = 100ms
+let precise = 500us
+```
+
+Floating-point prefixes are not supported. Use smaller units instead: `1500ms` not `1.5s`.
+
+**Arithmetic:**
+
+| Operation | Types | Result |
+|-----------|-------|--------|
+| `d1 + d2` | Duration + Duration | Duration |
+| `d1 - d2` | Duration - Duration | Duration |
+| `d * n` | Duration * int | Duration |
+| `n * d` | int * Duration | Duration |
+| `d / n` | Duration / int | Duration |
+| `d1 / d2` | Duration / Duration | int (ratio) |
+| `d1 % d2` | Duration % Duration | Duration (remainder) |
+| `-d` | -Duration | Duration |
+
+Arithmetic panics on overflow.
+
+**Conversion methods:**
+
+```ori
+impl Duration {
+    @nanoseconds (self) -> int
+    @microseconds (self) -> int
+    @milliseconds (self) -> int
+    @seconds (self) -> int
+    @minutes (self) -> int
+    @hours (self) -> int
+
+    @from_nanoseconds (ns: int) -> Duration
+    @from_microseconds (us: int) -> Duration
+    @from_milliseconds (ms: int) -> Duration
+    @from_seconds (s: int) -> Duration
+    @from_minutes (m: int) -> Duration
+    @from_hours (h: int) -> Duration
+}
+```
+
+Extraction methods truncate toward zero: `90s.minutes()` returns `1`.
+
+**Traits:** `Eq`, `Comparable`, `Hashable`, `Clone`, `Debug`, `Printable`, `Default`, `Sendable`
+
+### Size
+
+`Size` represents a byte count. Internally stored as a 64-bit signed integer (non-negative, range: 0 to ~8 exabytes).
+
+**Literal syntax:**
+
+| Suffix | Unit | Bytes |
+|--------|------|-------|
+| `b` | bytes | 1 |
+| `kb` | kilobytes | 1,024 |
+| `mb` | megabytes | 1,048,576 |
+| `gb` | gigabytes | 1,073,741,824 |
+| `tb` | terabytes | 1,099,511,627,776 |
+
+Size uses binary units (powers of 1024), not decimal (powers of 1000).
+
+```ori
+let buffer = 64kb
+let limit = 10mb
+let heap = 2gb
+```
+
+**Arithmetic:**
+
+| Operation | Types | Result |
+|-----------|-------|--------|
+| `s1 + s2` | Size + Size | Size |
+| `s1 - s2` | Size - Size | Size (panics if negative) |
+| `s * n` | Size * int | Size |
+| `n * s` | int * Size | Size |
+| `s / n` | Size / int | Size |
+| `s1 / s2` | Size / Size | int (ratio) |
+| `s1 % s2` | Size % Size | Size (remainder) |
+
+Unary negation (`-`) is not permitted on Size. It is a compile-time error.
+
+**Conversion methods:**
+
+```ori
+impl Size {
+    @bytes (self) -> int
+    @kilobytes (self) -> int
+    @megabytes (self) -> int
+    @gigabytes (self) -> int
+    @terabytes (self) -> int
+
+    @from_bytes (b: int) -> Size
+    @from_kilobytes (kb: int) -> Size
+    @from_megabytes (mb: int) -> Size
+    @from_gigabytes (gb: int) -> Size
+    @from_terabytes (tb: int) -> Size
+}
+```
+
+Extraction methods truncate toward zero: `1536kb.megabytes()` returns `1`.
+
+**Traits:** `Eq`, `Comparable`, `Hashable`, `Clone`, `Debug`, `Printable`, `Default`, `Sendable`
 
 ## Compound Types
 

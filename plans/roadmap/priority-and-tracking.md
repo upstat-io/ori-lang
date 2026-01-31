@@ -722,6 +722,17 @@
 - Error codes: E0980 (async in drop), E0981 (wrong return type)
 - Blocked on: None (supplements memory-model-edge-cases-proposal)
 
+**Duration and Size Types** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/duration-size-types-proposal.md`
+- Implementation: Phase 1.1A
+- Formalizes Duration (ns, us, ms, s, m, h) and Size (b, kb, mb, gb, tb) primitive types
+- 64-bit internal representation (nanoseconds for Duration, bytes for Size)
+- Arithmetic: +, -, *, /, % for both; unary - for Duration only (compile error on Size)
+- Conversion methods: `.seconds()`, `.from_seconds()`, `.bytes()`, `.from_bytes()`, etc.
+- Size uses binary units (1024-based); Printable uses casual notation (KB/MB)
+- Panics: Duration overflow, Size negative result
+- Blocked on: None (fills spec gap)
+
 ---
 
 ## Milestones
