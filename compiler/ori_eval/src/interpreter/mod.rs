@@ -52,6 +52,7 @@ mod scope_guard;
 pub use builder::InterpreterBuilder;
 pub use scope_guard::ScopedInterpreter;
 
+use crate::evaluate_binary;
 use crate::print_handler::SharedPrintHandler;
 use crate::{
     // Error factories
@@ -77,7 +78,7 @@ use crate::{
     Value,
 };
 use ori_ir::{
-    ArmRange, BindingPattern, ExprArena, ExprId, ExprKind, Name, SharedArena, StmtKind,
+    ArmRange, BinaryOp, BindingPattern, ExprArena, ExprId, ExprKind, Name, SharedArena, StmtKind,
     StringInterner, UnaryOp,
 };
 use ori_patterns::{
@@ -286,9 +287,7 @@ impl<'a> Interpreter<'a> {
             ExprKind::Ident(name) => crate::exec::expr::eval_ident(*name, &self.env, self.interner),
 
             // Operators
-            ExprKind::Binary { left, op, right } => {
-                crate::exec::expr::eval_binary(*left, *op, *right, |e| self.eval(e))
-            }
+            ExprKind::Binary { left, op, right } => self.eval_binary(*left, *op, *right),
             ExprKind::Unary { op, operand } => self.eval_unary(*op, *operand),
 
             // Control flow
@@ -516,7 +515,60 @@ impl<'a> Interpreter<'a> {
     /// Evaluate a unary operation.
     fn eval_unary(&mut self, op: UnaryOp, operand: ExprId) -> EvalResult {
         let value = self.eval(operand)?;
+
+        // Unary operators with trait implementations dispatch through methods
+        if let Some(method_name) = unary_op_to_method(op) {
+            let method = self.interner.intern(method_name);
+            return self.eval_method_call(value, method, vec![]);
+        }
+
+        // Try operator (?) doesn't have a trait
         evaluate_unary(value, op)
+    }
+
+    /// Evaluate a binary operation.
+    ///
+    /// Operators with trait implementations (Add, Sub, Mul, etc.) dispatch through
+    /// the method system uniformly for all types. Comparison, logical, and range
+    /// operators use direct evaluation.
+    fn eval_binary(&mut self, left: ExprId, op: BinaryOp, right: ExprId) -> EvalResult {
+        let left_val = self.eval(left)?;
+
+        // Short-circuit for && and ||
+        match op {
+            BinaryOp::And => {
+                if !left_val.is_truthy() {
+                    return Ok(Value::Bool(false));
+                }
+                let right_val = self.eval(right)?;
+                return Ok(Value::Bool(right_val.is_truthy()));
+            }
+            BinaryOp::Or => {
+                if left_val.is_truthy() {
+                    return Ok(Value::Bool(true));
+                }
+                let right_val = self.eval(right)?;
+                return Ok(Value::Bool(right_val.is_truthy()));
+            }
+            _ => {}
+        }
+
+        let right_val = self.eval(right)?;
+
+        // Check if this is a mixed-type operation that needs special handling
+        // (e.g., int * Duration, int * Size, Duration / int, Size / int)
+        if is_mixed_primitive_op(&left_val, &right_val) {
+            return evaluate_binary(left_val, right_val, op);
+        }
+
+        // Operators with trait implementations dispatch through methods
+        if let Some(method_name) = binary_op_to_method(op) {
+            let method = self.interner.intern(method_name);
+            return self.eval_method_call(left_val, method, vec![right_val]);
+        }
+
+        // Comparison, range, and null-coalescing operators use direct evaluation
+        evaluate_binary(left_val, right_val, op)
     }
 
     /// Evaluate an expression with # (`HashLength`) resolved to a specific length.
@@ -527,7 +579,20 @@ impl<'a> Interpreter<'a> {
             ExprKind::Binary { left, op, right } => {
                 let left_val = self.eval_with_hash_length(*left, length)?;
                 let right_val = self.eval_with_hash_length(*right, length)?;
-                crate::exec::expr::eval_binary_values(left_val, *op, right_val)
+
+                // Check if this is a mixed-type operation that needs special handling
+                if is_mixed_primitive_op(&left_val, &right_val) {
+                    return evaluate_binary(left_val, right_val, *op);
+                }
+
+                // Dispatch through methods for operators with trait implementations
+                if let Some(method_name) = binary_op_to_method(*op) {
+                    let method = self.interner.intern(method_name);
+                    return self.eval_method_call(left_val, method, vec![right_val]);
+                }
+
+                // Comparison, range, and null-coalescing operators use direct evaluation
+                evaluate_binary(left_val, right_val, *op)
             }
             _ => self.eval(expr_id),
         }
@@ -890,6 +955,73 @@ impl<'a> Interpreter<'a> {
     /// Clear captured print output.
     pub fn clear_print_output(&self) {
         self.print_handler.clear();
+    }
+}
+
+// =============================================================================
+// Operator Trait Method Mapping
+// =============================================================================
+
+/// Check if this is a mixed-type operation between primitives that needs special handling.
+///
+/// Mixed-type operations like `int * Duration`, `int * Size`, etc. cannot be dispatched
+/// through the method system (e.g., `int.mul(Duration)` doesn't exist) and must use
+/// direct evaluation.
+fn is_mixed_primitive_op(left: &Value, right: &Value) -> bool {
+    matches!(
+        (left, right),
+        // int <op> Duration/Size or Duration/Size <op> int
+        (Value::Int(_), Value::Duration(_) | Value::Size(_))
+            | (Value::Duration(_) | Value::Size(_), Value::Int(_))
+    )
+}
+
+/// Map a binary operator to its trait method name.
+///
+/// Returns `Some(method_name)` for operators that have trait implementations,
+/// or `None` for comparison, logical, range, and null-coalescing operators
+/// which use direct evaluation.
+fn binary_op_to_method(op: BinaryOp) -> Option<&'static str> {
+    match op {
+        // Arithmetic operators
+        BinaryOp::Add => Some("add"),
+        BinaryOp::Sub => Some("sub"),
+        BinaryOp::Mul => Some("mul"),
+        BinaryOp::Div => Some("div"),
+        BinaryOp::FloorDiv => Some("floor_div"),
+        BinaryOp::Mod => Some("rem"),
+        // Bitwise operators
+        BinaryOp::BitAnd => Some("bit_and"),
+        BinaryOp::BitOr => Some("bit_or"),
+        BinaryOp::BitXor => Some("bit_xor"),
+        BinaryOp::Shl => Some("shl"),
+        BinaryOp::Shr => Some("shr"),
+        // Comparison, logical, range, and null-coalescing operators
+        // use direct evaluation (no trait method)
+        BinaryOp::Eq
+        | BinaryOp::NotEq
+        | BinaryOp::Lt
+        | BinaryOp::LtEq
+        | BinaryOp::Gt
+        | BinaryOp::GtEq
+        | BinaryOp::And
+        | BinaryOp::Or
+        | BinaryOp::Range
+        | BinaryOp::RangeInclusive
+        | BinaryOp::Coalesce => None,
+    }
+}
+
+/// Map a unary operator to its trait method name.
+///
+/// Returns `Some(method_name)` for operators that have trait implementations,
+/// or `None` for the Try operator which doesn't have a trait.
+fn unary_op_to_method(op: UnaryOp) -> Option<&'static str> {
+    match op {
+        UnaryOp::Neg => Some("neg"),
+        UnaryOp::Not => Some("not"),
+        UnaryOp::BitNot => Some("bit_not"),
+        UnaryOp::Try => None, // Try operator doesn't have a trait
     }
 }
 

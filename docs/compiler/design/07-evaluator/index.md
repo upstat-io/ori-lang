@@ -328,7 +328,7 @@ The evaluator exports an `EVAL_BUILTIN_METHODS` constant listing all `(type_name
 1. Every eval method is a subset of typeck methods (no runtime-only methods that the type checker doesn't know about)
 2. Both lists are sorted for maintainability
 
-Known exceptions (methods in eval but not yet in typeck) are tracked in a `KNOWN_EVAL_ONLY` list.
+Known exceptions (methods in eval but not yet in typeck) are tracked in a `KNOWN_EVAL_ONLY` list. This includes operator methods (`add`, `sub`, `mul`, etc.) which the evaluator dispatches through the method system but the type checker handles via trait lookup rather than builtin handlers.
 
 ## Method Dispatch Architecture
 
@@ -345,9 +345,67 @@ flowchart TB
     D -->|No| E["CollectionMethodResolver"]
     E -->|"map, filter, fold"| F{"Found?"}
     F -->|No| G["BuiltinMethodResolver"]
-    G -->|"len, push, etc."| H["Return method"]
+    G -->|"len, push, add, sub, etc."| H["Return method"]
     D -->|Yes| H
     F -->|Yes| H
+```
+
+### Operator Dispatch
+
+Binary and unary operators are dispatched uniformly through the method system. The interpreter converts operators to method calls:
+
+| Operator | Method | Trait |
+|----------|--------|-------|
+| `+` | `add` | `Add` |
+| `-` | `sub` | `Sub` |
+| `*` | `mul` | `Mul` |
+| `/` | `div` | `Div` |
+| `%` | `rem` | `Rem` |
+| `div` | `floor_div` | `FloorDiv` |
+| `&` | `bit_and` | `BitAnd` |
+| `\|` | `bit_or` | `BitOr` |
+| `^` | `bit_xor` | `BitXor` |
+| `<<` | `shl` | `Shl` |
+| `>>` | `shr` | `Shr` |
+| `-x` | `neg` | `Neg` |
+| `!x` | `not` | `Not` |
+| `~x` | `bit_not` | `BitNot` |
+
+```rust
+// In interpreter/mod.rs
+fn eval_binary(&mut self, left: ExprId, op: BinaryOp, right: ExprId) -> EvalResult {
+    // Short-circuit for && and ||
+    if op == BinaryOp::And || op == BinaryOp::Or { ... }
+
+    // Comparison operators use direct evaluation
+    if matches!(op, BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | ...) { ... }
+
+    let left_val = self.eval(left)?;
+    let right_val = self.eval(right)?;
+
+    // Mixed-type operations fall back to direct evaluation
+    if is_mixed_primitive_op(op, &left_val, &right_val) {
+        return eval_binary_op(&left_val, op, &right_val, self.interner);
+    }
+
+    // Dispatch through method system
+    if let Some(method_name) = binary_op_to_method(op) {
+        return self.call_method(&left_val, method_name, &[right_val]);
+    }
+
+    eval_binary_op(&left_val, op, &right_val, self.interner)
+}
+```
+
+**Mixed-Type Operations**: Certain operations like `int * Duration` or `int * Size` have the primitive on the left side. Since primitives don't implement trait methods with `Self` receiver, these fall back to direct evaluation:
+
+```rust
+fn is_mixed_primitive_op(op: BinaryOp, left: &Value, right: &Value) -> bool {
+    matches!(
+        (op, left, right),
+        (BinaryOp::Mul, Value::Int(_), Value::Duration(_) | Value::Size(_))
+    )
+}
 ```
 
 ### ModuleNamespace Special Case

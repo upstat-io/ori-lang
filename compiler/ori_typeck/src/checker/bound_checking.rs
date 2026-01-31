@@ -16,9 +16,35 @@ const INT_TRAITS: &[&str] = &[
     "Hashable",
     "Default",
     "Printable",
+    // Operator traits
+    "Add",
+    "Sub",
+    "Mul",
+    "Div",
+    "FloorDiv",
+    "Rem",
+    "Neg",
+    "BitAnd",
+    "BitOr",
+    "BitXor",
+    "BitNot",
+    "Shl",
+    "Shr",
 ];
-const FLOAT_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Default", "Printable"];
-const BOOL_TRAITS: &[&str] = &["Eq", "Clone", "Hashable", "Default", "Printable"];
+const FLOAT_TRAITS: &[&str] = &[
+    "Eq",
+    "Comparable",
+    "Clone",
+    "Default",
+    "Printable",
+    // Operator traits
+    "Add",
+    "Sub",
+    "Mul",
+    "Div",
+    "Neg",
+];
+const BOOL_TRAITS: &[&str] = &["Eq", "Clone", "Hashable", "Default", "Printable", "Not"];
 const STR_TRAITS: &[&str] = &[
     "Eq",
     "Comparable",
@@ -28,11 +54,53 @@ const STR_TRAITS: &[&str] = &[
     "Printable",
     "Len",
     "IsEmpty",
+    "Add", // String concatenation
 ];
 const CHAR_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Printable"];
-const BYTE_TRAITS: &[&str] = &["Eq", "Clone", "Hashable", "Printable"];
+const BYTE_TRAITS: &[&str] = &[
+    "Eq",
+    "Clone",
+    "Hashable",
+    "Printable",
+    // Operator traits
+    "Add",
+    "Sub",
+    "Mul",
+    "Div",
+    "Rem",
+    "BitAnd",
+    "BitOr",
+    "BitXor",
+    "BitNot",
+    "Shl",
+    "Shr",
+];
 const UNIT_TRAITS: &[&str] = &["Eq", "Clone", "Default"];
-const DURATION_SIZE_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Printable"];
+const DURATION_TRAITS: &[&str] = &[
+    "Eq",
+    "Comparable",
+    "Clone",
+    "Printable",
+    // Operator traits
+    "Add",
+    "Sub",
+    "Mul", // Duration * int
+    "Div", // Duration / int
+    "Rem",
+    "Neg",
+];
+const SIZE_TRAITS: &[&str] = &[
+    "Eq",
+    "Comparable",
+    "Clone",
+    "Printable",
+    // Operator traits
+    "Add",
+    "Sub",
+    "Mul", // Size * int
+    "Div", // Size / int
+    "Rem",
+];
 const COLLECTION_TRAITS: &[&str] = &["Clone", "Eq", "Len", "IsEmpty"];
 const WRAPPER_TRAITS: &[&str] = &["Clone", "Eq", "Default"];
 const RESULT_TRAITS: &[&str] = &["Clone", "Eq"];
@@ -49,7 +117,8 @@ pub fn primitive_implements_trait(ty: &Type, trait_name: &str) -> bool {
         Type::Char => CHAR_TRAITS,
         Type::Byte => BYTE_TRAITS,
         Type::Unit => UNIT_TRAITS,
-        Type::Duration | Type::Size => DURATION_SIZE_TRAITS,
+        Type::Duration => DURATION_TRAITS,
+        Type::Size => SIZE_TRAITS,
         Type::Option(_) => WRAPPER_TRAITS,
         Type::Result { .. } | Type::Tuple(_) => RESULT_TRAITS,
         Type::List(_) | Type::Map { .. } | Type::Set(_) => COLLECTION_TRAITS,
