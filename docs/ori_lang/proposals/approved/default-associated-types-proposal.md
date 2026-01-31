@@ -1,6 +1,7 @@
 # Default Associated Types
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-31
 **Author:** Claude
 **Created:** 2026-01-31
 **Depends On:** None
@@ -146,19 +147,21 @@ impl Process for Connection {  // ERROR if Connection: !Clone and no override
 }
 ```
 
-## Missing Language Features
+## Semantics Details
 
-### Self in Trait Definition Scope (VERIFY)
+### Bounds Checking with Defaults
 
-`Self` must be resolvable when used as a default value:
+When an impl uses a default associated type:
 
-```ori
-trait Add<Rhs = Self> {
-    type Output = Self  // Self must be valid here
-}
-```
+1. Substitute `Self` with the implementing type
+2. Substitute any referenced associated types
+3. Verify the resulting type satisfies all bounds on the associated type
 
-**Status:** NEEDS VERIFICATION - Same requirement as default type parameters.
+If the default does not satisfy bounds after substitution, it is a compile error at the impl site. The impl must provide an explicit associated type.
+
+### Self in Trait Definition Scope
+
+`Self` in a default associated type refers to the implementing type. This is resolved at the impl site, not at trait definition time. This follows the same semantics as default type parameters.
 
 ## Implementation
 

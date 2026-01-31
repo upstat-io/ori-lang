@@ -42,6 +42,7 @@ The formatter applies normalization rules that produce a single canonical format
 | Type conversion | Space around `as`/`as?` | `42 as float` |
 | Visibility | Space after `pub` | `pub @add` |
 | Generic bounds | Space after `:`, around `+` | `<T: Clone + Debug>` |
+| Default type params | Space around `=` | `<Rhs = Self>` |
 | Sum type variants | Space around `\|` | `Red \| Green \| Blue` |
 | Comments | Space after `//` | `// comment` |
 
@@ -157,6 +158,15 @@ Inline if ≤100 characters:
 ```ori
 @identity<T> (x: T) -> T = x
 type Pair<T, U> = { first: T, second: U }
+trait Add<Rhs = Self> { @add (self, rhs: Rhs) -> Self }
+```
+
+Default type parameters have space around `=`:
+
+```ori
+trait Transform<Input = Self, Output = Input> {
+    @transform (self, input: Input) -> Output
+}
 ```
 
 Break if >100 characters:

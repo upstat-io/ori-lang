@@ -105,7 +105,7 @@ parse_sum_or_newtype()// Some(T) | None
 parse_extend()        // extend [T] { @map... }
 
 // generics.rs - Generic parameters
-parse_generics()      // <T, U: Bound>
+parse_generics()      // <T, U: Bound>, <T = Self>, <T: Clone = int>
 parse_bounds()        // Eq + Clone + Printable
 parse_where_clauses() // where T: Clone, U: Default
 parse_uses_clause()   // uses Http, FileSystem

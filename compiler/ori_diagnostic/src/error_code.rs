@@ -81,6 +81,12 @@ pub enum ErrorCode {
     E2013,
     /// Missing capability declaration (function uses capability without declaring it)
     E2014,
+    /// Type parameter ordering violation (non-default after default)
+    E2015,
+    /// Missing type argument (no default available)
+    E2016,
+    /// Too many type arguments
+    E2017,
 
     // Pattern Errors (E3xxx)
     /// Unknown pattern
@@ -142,6 +148,9 @@ impl ErrorCode {
             ErrorCode::E2012 => "E2012",
             ErrorCode::E2013 => "E2013",
             ErrorCode::E2014 => "E2014",
+            ErrorCode::E2015 => "E2015",
+            ErrorCode::E2016 => "E2016",
+            ErrorCode::E2017 => "E2017",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",

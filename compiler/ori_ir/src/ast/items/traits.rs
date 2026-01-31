@@ -7,13 +7,18 @@
 
 use super::super::ranges::{GenericParamRange, ParamRange};
 use super::super::Visibility;
-use crate::{ExprId, Name, ParsedType, Span, Spanned};
+use crate::{ExprId, Name, ParsedType, ParsedTypeRange, Span, Spanned};
 
-/// Generic parameter: `T` or `T: Bound` or `T: A + B`.
+/// Generic parameter: `T` or `T: Bound` or `T: A + B` or `T = DefaultType`.
+///
+/// Default type parameters allow trait definitions like `trait Add<Rhs = Self>`.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct GenericParam {
     pub name: Name,
     pub bounds: Vec<TraitBound>,
+    /// Default type for this parameter (e.g., `Self` in `trait Add<Rhs = Self>`).
+    /// When present, this type is used if the impl omits the type argument.
+    pub default_type: Option<ParsedType>,
     pub span: Span,
 }
 
@@ -165,12 +170,20 @@ impl Spanned for TraitAssocType {
 /// impl Printable for Point {
 ///     @to_string (self) -> str = "..."
 /// }
+///
+/// // Trait impl with type arguments
+/// impl Add<int> for Point {
+///     @add (self, rhs: int) -> Point = ...
+/// }
 /// ```
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct ImplDef {
     pub generics: GenericParamRange,
     /// The trait being implemented (None for inherent impl).
     pub trait_path: Option<Vec<Name>>,
+    /// Type arguments for the trait (e.g., `[int]` in `impl Add<int> for Point`).
+    /// Empty if no type arguments specified or if this is an inherent impl.
+    pub trait_type_args: ParsedTypeRange,
     /// The type path being implemented (e.g., `["Point"]` for `impl Point { ... }`).
     /// Used for method dispatch lookup.
     pub self_path: Vec<Name>,

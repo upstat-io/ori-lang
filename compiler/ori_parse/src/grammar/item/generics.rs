@@ -24,7 +24,9 @@ impl Parser<'_> {
         ))
     }
 
-    /// Parse generic parameters: <T, U: Bound>
+    /// Parse generic parameters: `<T, U: Bound>` or `<T, U: Bound = DefaultType>`
+    ///
+    /// Supports default type parameters for traits: `trait Add<Rhs = Self>`.
     pub(crate) fn parse_generics(&mut self) -> Result<GenericParamRange, ParseError> {
         self.expect(&TokenKind::Lt)?;
 
@@ -41,9 +43,18 @@ impl Parser<'_> {
                 Vec::new()
             };
 
+            // Optional default type: = Type
+            let default_type = if self.check(&TokenKind::Eq) {
+                self.advance();
+                Some(self.parse_type_required()?)
+            } else {
+                None
+            };
+
             params.push(GenericParam {
                 name,
                 bounds,
+                default_type,
                 span: param_span.merge(self.previous_span()),
             });
 

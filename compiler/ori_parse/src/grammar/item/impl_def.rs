@@ -1,7 +1,7 @@
 //! Impl block parsing.
 
 use crate::{ParseError, ParseResult, Parser};
-use ori_ir::{GenericParamRange, ImplAssocType, ImplDef, ImplMethod, TokenKind};
+use ori_ir::{GenericParamRange, ImplAssocType, ImplDef, ImplMethod, ParsedTypeRange, TokenKind};
 
 impl Parser<'_> {
     /// Parse an impl block with progress tracking.
@@ -27,13 +27,18 @@ impl Parser<'_> {
         let (first_path, first_ty) = self.parse_impl_type()?;
 
         // Check for `for` keyword to determine if this is a trait impl
-        let (trait_path, self_path, self_ty) = if self.check(&TokenKind::For) {
+        let (trait_path, trait_type_args, self_path, self_ty) = if self.check(&TokenKind::For) {
             self.advance();
             // Parse the implementing type
             let (impl_path, impl_ty) = self.parse_impl_type()?;
-            (Some(first_path), impl_path, impl_ty)
+            // Extract type args from trait type (first_ty is a ParsedType::Named with type_args)
+            let trait_type_args = match &first_ty {
+                ori_ir::ParsedType::Named { type_args, .. } => *type_args,
+                _ => ParsedTypeRange::EMPTY,
+            };
+            (Some(first_path), trait_type_args, impl_path, impl_ty)
         } else {
-            (None, first_path, first_ty)
+            (None, ParsedTypeRange::EMPTY, first_path, first_ty)
         };
 
         // Optional where clause
@@ -82,6 +87,7 @@ impl Parser<'_> {
         Ok(ImplDef {
             generics,
             trait_path,
+            trait_type_args,
             self_path,
             self_ty,
             where_clauses,

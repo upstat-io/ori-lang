@@ -1,0 +1,21 @@
+// Golden test: Default type parameters on traits
+// Spec: 08-declarations.md § Default Type Parameters
+// Design: proposals/approved/default-type-parameters-proposal.md
+
+trait Add<Rhs = Self> {
+    @add (self, rhs: Rhs) -> Self
+}
+
+trait Transform<Input = Self, Output = Input> {
+    @transform (self, input: Input) -> Output
+}
+
+trait Container<T, Default = int> {
+    @get (self) -> T
+
+    @default_value (self) -> Default
+}
+
+trait WithBounds<T: Clone = Self> {
+    @clone_and_process (self, value: T) -> T
+}

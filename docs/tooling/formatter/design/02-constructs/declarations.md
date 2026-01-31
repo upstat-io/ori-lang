@@ -67,6 +67,12 @@ Inline if they fit:
 @transform<T, U, V> (a: T, b: U, c: V) -> Result<V, Error> = do_it()
 ```
 
+Default type parameters have space around `=`:
+
+```ori
+@process<T, Output = T> (input: T) -> Output = do_work(input)
+```
+
 Break if exceeding 100 characters:
 
 ```ori
@@ -224,6 +230,34 @@ trait Printable {
 
 trait Default {
     @default () -> Self
+}
+```
+
+### Default Type Parameters
+
+Traits may have type parameters with defaults. Space around `=`:
+
+```ori
+trait Add<Rhs = Self> {
+    @add (self, rhs: Rhs) -> Self
+}
+
+trait Transform<Input = Self, Output = Input> {
+    @transform (self, input: Input) -> Output
+}
+
+trait Container<T, Default = int> {
+    @get (self) -> T
+
+    @default_value (self) -> Default
+}
+```
+
+Bounds combined with defaults (bounds first, then `=`):
+
+```ori
+trait WithBounds<T: Clone = Self> {
+    @clone_and_process (self, value: T) -> T
 }
 ```
 

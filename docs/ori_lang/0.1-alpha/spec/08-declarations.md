@@ -166,6 +166,70 @@ impl Transform<str> for Parser { ... }      // Input = str, Output = str
 impl Transform<str, Ast> for Parser { ... } // Input = str, Output = Ast
 ```
 
+### Default Associated Types
+
+Associated types in traits may have default values:
+
+```ori
+trait Add<Rhs = Self> {
+    type Output = Self  // Defaults to implementing type
+    @add (self, rhs: Rhs) -> Self.Output
+}
+
+trait Container {
+    type Item
+    type Iter = [Self.Item]  // Default references another associated type
+}
+```
+
+Semantics:
+
+1. Default applies when impl omits the associated type
+2. `Self` in default position refers to the implementing type at the impl site
+3. Defaults may reference type parameters and other associated types
+4. Defaults are evaluated at impl site, not trait definition site
+
+```ori
+impl Add for Point {
+    // Output defaults to Self = Point
+    @add (self, rhs: Point) -> Self = ...
+}
+
+impl Add<int> for Vector2 {
+    type Output = Vector2  // Explicit override
+    @add (self, rhs: int) -> Vector2 = ...
+}
+```
+
+#### Bounds on Defaults
+
+Defaults must satisfy any bounds on the associated type:
+
+```ori
+trait Process {
+    type Output: Clone = Self  // Default only valid if Self: Clone
+    @process (self) -> Self.Output
+}
+
+impl Process for String {  // OK: String: Clone
+    @process (self) -> Self = self.clone()
+}
+
+impl Process for Connection {  // ERROR if Connection: !Clone and no override
+    // Must provide explicit Output type since Self doesn't satisfy Clone
+    type Output = ConnectionHandle
+    @process (self) -> ConnectionHandle = ...
+}
+```
+
+When an impl uses a default:
+
+1. Substitute `Self` with the implementing type
+2. Substitute any referenced associated types
+3. Verify the resulting type satisfies all bounds
+
+If the default does not satisfy bounds after substitution, it is a compile error at the impl site.
+
 ### Trait Associated Functions
 
 Traits may define associated functions (methods without `self`) that implementors must provide:
