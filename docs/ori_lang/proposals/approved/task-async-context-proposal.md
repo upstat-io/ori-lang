@@ -24,7 +24,7 @@ The specification references "tasks" in multiple places without defining them:
 
 **What is a task?** The spec doesn't say.
 
-Similarly, `uses Async` declares "may suspend" but:
+Similarly, `uses Suspend` declares "may suspend" but:
 
 - What exactly is suspension?
 - Where can suspension occur?
@@ -49,22 +49,22 @@ Tasks are NOT threads. Multiple tasks may execute on the same thread (green thre
 
 An **async context** is a runtime environment that can:
 
-1. Execute async functions (those with `uses Async`)
+1. Execute async functions (those with `uses Suspend`)
 2. Schedule suspension and resumption
 3. Manage multiple concurrent tasks
 
 An async context is established by:
 
-- **The runtime** — when `@main` declares `uses Async`, the runtime provides the initial async context
+- **The runtime** — when `@main` declares `uses Suspend`, the runtime provides the initial async context
 - **Concurrency patterns** — `parallel`, `spawn`, and `nursery` create nested async contexts for their spawned tasks
 
-A function declaring `uses Async` **requires** an async context to execute — it does not establish one. The `Async` capability indicates the function may suspend, requiring a scheduler to manage resumption.
+A function declaring `uses Suspend` **requires** an async context to execute — it does not establish one. The `Async` capability indicates the function may suspend, requiring a scheduler to manage resumption.
 
 ### Suspension Point
 
 A **suspension point** is a location where a task may yield control to the scheduler. Suspension points occur ONLY at:
 
-1. **Async function calls** — calling a function with `uses Async`
+1. **Async function calls** — calling a function with `uses Suspend`
 2. **Channel operations** — `send` and `receive` on channels
 3. **Explicit yield** — within `parallel`, `spawn`, or `nursery` body evaluation
 
@@ -82,11 +82,11 @@ This provides **predictable interleaving** — developers can reason about atomi
 
 ### @main and Async
 
-Programs using concurrency patterns (`parallel`, `spawn`, `nursery`) must have `@main` declare `uses Async`:
+Programs using concurrency patterns (`parallel`, `spawn`, `nursery`) must have `@main` declare `uses Suspend`:
 
 ```ori
 // Correct: main declares Async
-@main () -> void uses Async = run(
+@main () -> void uses Suspend = run(
     parallel(tasks: [task_a(), task_b()]),
 )
 
@@ -96,7 +96,7 @@ Programs using concurrency patterns (`parallel`, `spawn`, `nursery`) must have `
 )
 ```
 
-The runtime establishes the async context when `@main uses Async` is declared.
+The runtime establishes the async context when `@main uses Suspend` is declared.
 
 ### Task Creation
 
@@ -118,7 +118,7 @@ Each task has:
 - **No shared mutable state** — Ori's memory model prevents this
 
 ```ori
-@example () -> void uses Async = run(
+@example () -> void uses Suspend = run(
     let x = 0,
     parallel(
         tasks: [
@@ -134,13 +134,13 @@ Each task has:
 A function that calls async code must itself be async:
 
 ```ori
-@caller () -> int uses Async =
+@caller () -> int uses Suspend =
     callee()  // OK: caller is async
 
 @caller_sync () -> int =
-    callee()  // ERROR: callee uses Async but caller does not
+    callee()  // ERROR: callee uses Suspend but caller does not
 
-@callee () -> int uses Async = ...
+@callee () -> int uses Suspend = ...
 ```
 
 The async capability **propagates upward** — if you call async code, you must declare it.
@@ -154,7 +154,7 @@ A non-async function called from an async context executes synchronously, blocki
     // Long computation, no suspension points
     heavy_math()
 
-@main () -> void uses Async = run(
+@main () -> void uses Suspend = run(
     parallel(
         tasks: [
             () -> expensive_sync(),  // This task blocks during computation
@@ -173,7 +173,7 @@ A non-async function called from an async context executes synchronously, blocki
 Task closures follow Ori's standard capture-by-value semantics. When a value is captured by a task closure, the original binding becomes inaccessible — ownership transfers to the task:
 
 ```ori
-@capture_example () -> void uses Async = run(
+@capture_example () -> void uses Suspend = run(
     let data = create_data(),
     nursery(
         body: n -> run(
@@ -192,7 +192,7 @@ This is not a new "move" mechanism — it uses the existing capture-by-value beh
 When spawning a task, captured values must be `Sendable`:
 
 ```ori
-@spawn_example () -> void uses Async = run(
+@spawn_example () -> void uses Suspend = run(
     let data = create_data(),  // data: Data, where Data: Sendable
     nursery(
         body: n -> n.spawn(task: () -> process(data)),  // OK: data is Sendable
@@ -212,17 +212,17 @@ When values cross task boundaries (via spawn or channel send), reference count o
 
 ```ori
 // Task creates subtasks
-@fan_out (items: [Item]) -> [Result] uses Async =
+@fan_out (items: [Item]) -> [Result] uses Suspend =
     parallel(
         tasks: items.map(item -> () -> process(item: item)),
     )
 
 // Async function calling async function
-@outer () -> int uses Async = inner()
-@inner () -> int uses Async = fetch_data()
+@outer () -> int uses Suspend = inner()
+@inner () -> int uses Suspend = fetch_data()
 
 // Non-async helper in async context
-@async_with_sync () -> int uses Async = run(
+@async_with_sync () -> int uses Suspend = run(
     let raw = fetch_raw(),   // async call — suspension point
     let parsed = parse(raw),  // sync call — no suspension
     validate(parsed),         // sync call — no suspension
@@ -236,7 +236,7 @@ When values cross task boundaries (via spawn or channel send), reference count o
 @bad_sync () -> int = fetch_data()
 
 // ERROR: capturing mutable binding across task boundary
-@bad_capture () -> void uses Async = run(
+@bad_capture () -> void uses Suspend = run(
     let counter = 0,
     parallel(tasks: [() -> run(counter = counter + 1)]),
 )
@@ -295,4 +295,4 @@ Preventing shared mutable state between tasks eliminates data races. The ownersh
 | Task creation | Via `parallel`, `spawn`, or `nursery` patterns only |
 | Capture | Values captured by value; binding becomes inaccessible; must be `Sendable` |
 | Async propagation | Callers of async functions must be async |
-| @main requirement | Must declare `uses Async` to use concurrency patterns |
+| @main requirement | Must declare `uses Suspend` to use concurrency patterns |

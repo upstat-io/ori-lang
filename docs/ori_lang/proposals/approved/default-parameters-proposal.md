@@ -435,15 +435,15 @@ This keeps capability checking simple and predictable.
 
 ### Async in Defaults
 
-Default expressions may use `Async` operations if the function declares `uses Async`:
+Default expressions may use `Async` operations if the function declares `uses Suspend`:
 
 ```ori
-@process (config: Config = load_config()?) -> Result<Output, Error> uses Async, FileSystem
+@process (config: Config = load_config()?) -> Result<Output, Error> uses Suspend, FileSystem
 
-// load_config() may suspend; function must declare `uses Async`
+// load_config() may suspend; function must declare `uses Suspend`
 ```
 
-The same static requirement rule applies: the function must declare `uses Async` if any default expression may suspend, regardless of whether that default is used at a particular call site.
+The same static requirement rule applies: the function must declare `uses Suspend` if any default expression may suspend, regardless of whether that default is used at a particular call site.
 
 ### Generic Functions
 

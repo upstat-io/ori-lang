@@ -236,7 +236,7 @@ After cloning:
 ### Cloning in Parallel Work
 
 ```ori
-@parallel_process (config: Config, items: [Item]) -> [Result] uses Async = run(
+@parallel_process (config: Config, items: [Item]) -> [Result] uses Suspend = run(
     let { producer, consumer } = channel<Result>(
         .buffer: 100,
         .share: Producers,

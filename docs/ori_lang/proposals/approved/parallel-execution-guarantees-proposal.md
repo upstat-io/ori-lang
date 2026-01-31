@@ -32,7 +32,7 @@ The spec states that `parallel` "may execute tasks in parallel" but leaves criti
 
 ```ori
 parallel(
-    tasks: [() -> T uses Async],
+    tasks: [() -> T uses Suspend],
     max_concurrent: Option<int> = None,
     timeout: Option<Duration> = None,
 ) -> [Result<T, E>]
@@ -217,7 +217,7 @@ Tasks in `parallel` observe the same memory model as nursery tasks:
 ### Basic Parallel Execution
 
 ```ori
-@fetch_all (urls: [str]) -> [Result<Response, Error>] uses Async =
+@fetch_all (urls: [str]) -> [Result<Response, Error>] uses Suspend =
     parallel(
         tasks: urls.map(url -> () -> fetch(url)),
         max_concurrent: Some(10),
@@ -228,7 +228,7 @@ Tasks in `parallel` observe the same memory model as nursery tasks:
 ### Parallel with Index Tracking
 
 ```ori
-@process_with_index (items: [Item]) -> [Result<Output, Error>] uses Async =
+@process_with_index (items: [Item]) -> [Result<Output, Error>] uses Suspend =
     parallel(
         tasks: items
             .iter()
@@ -242,7 +242,7 @@ Tasks in `parallel` observe the same memory model as nursery tasks:
 ### Aggregating Results
 
 ```ori
-@parallel_sum (batches: [[int]]) -> int uses Async = run(
+@parallel_sum (batches: [[int]]) -> int uses Suspend = run(
     let results = parallel(
         tasks: batches.map(batch -> () -> batch.fold(0, (a, b) -> a + b)),
     ),
@@ -256,7 +256,7 @@ Tasks in `parallel` observe the same memory model as nursery tasks:
 ### Handling Partial Failures
 
 ```ori
-@best_effort_fetch (urls: [str]) -> [Response] uses Async = run(
+@best_effort_fetch (urls: [str]) -> [Response] uses Suspend = run(
     let results = parallel(
         tasks: urls.map(url -> () -> fetch(url)),
         timeout: Some(10s),
