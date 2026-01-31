@@ -289,9 +289,15 @@
 
 ## 5.9 Associated Functions
 
-**Proposal**: `proposals/approved/associated-functions-proposal.md`
+**Proposal**: `proposals/approved/associated-functions-language-feature.md`
 
-Add support for associated functions (static methods) on types, enabling syntax like `Duration.from_seconds(s: 10)`.
+Generalize associated functions to work for ANY type with an `impl` block, removing hardcoded type checks. Enables syntax like `Point.origin()`, `Builder.new()`, `Duration.from_seconds(s: 10)`.
+
+### Migration
+
+- [ ] **Implement**: Remove `is_type_name_for_associated_functions()` hardcoded checks
+  - [ ] **Rust Tests**: `ori_typeck/src/infer/call.rs` — general type name resolution
+  - [ ] **Ori Tests**: `tests/spec/types/associated_functions.ori`
 
 ### Parsing
 
