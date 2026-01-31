@@ -913,6 +913,18 @@
 - Error codes: E1010 (timeout requires Suspend), E1011 (spawn tasks must use Suspend)
 - Blocked on: Phase 16 (Async Support)
 
+**Associated Functions** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/associated-functions-proposal.md`
+- Implementation: Phase 5.9
+- Enables `Type.method()` syntax for methods without `self` parameter
+- Factory methods: `Duration.from_seconds(s: 10)`, `Size.from_bytes(b: 1024)`
+- `Self` allowed in return type position
+- Generic types require full type arguments: `Option<int>.some(value: 42)`
+- Trait associated functions: `trait Default { @default () -> Self }`
+- Extensions cannot have associated functions (use `impl` blocks)
+- Uses `.` syntax (not `::`) for consistency with method calls
+- Blocked on: None (unblocks Duration/Size factory methods in Phase 1.1A)
+
 ---
 
 ## Milestones

@@ -124,6 +124,22 @@ trait Iterator {
 - `self` — instance
 - `Self` — implementing type
 
+### Trait Associated Functions
+
+Traits may define associated functions (methods without `self`) that implementors must provide:
+
+```ori
+trait Default {
+    @default () -> Self
+}
+
+impl Default for Point {
+    @default () -> Self = Point { x: 0, y: 0 }
+}
+```
+
+Associated functions returning `Self` prevent the trait from being used as a trait object. See [Object Safety](#object-safety) in Types.
+
 ## Implementations
 
 ```ori
@@ -139,6 +155,38 @@ impl<T: Printable> Printable for [T] {
     @to_str (self) -> str = ...
 }
 ```
+
+### Associated Functions
+
+An _associated function_ is a method defined in an `impl` block without a `self` parameter. Associated functions are called on the type itself, not on an instance.
+
+```ori
+impl Point {
+    // Associated function (no self)
+    @origin () -> Point = Point { x: 0, y: 0 }
+    @new (x: int, y: int) -> Self = Point { x, y }
+
+    // Instance method (has self)
+    @distance (self, other: Point) -> float = ...
+}
+```
+
+Associated functions are called using `Type.method(args)`:
+
+```ori
+let p = Point.origin()
+let q = Point.new(x: 10, y: 20)
+```
+
+`Self` may be used as a return type in associated functions, referring to the implementing type.
+
+For generic types, full type arguments are required:
+
+```ori
+let x: Option<int> = Option<int>.some(value: 42)
+```
+
+Extensions cannot define associated functions. Use inherent `impl` blocks for associated functions.
 
 ## Default Implementations
 
