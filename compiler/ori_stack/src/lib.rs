@@ -31,11 +31,13 @@
 /// Minimum stack space to keep available (100KB red zone).
 ///
 /// If less than this amount remains, we'll grow the stack.
+#[cfg(not(target_arch = "wasm32"))]
 const RED_ZONE: usize = 100 * 1024;
 
 /// Stack space to allocate when growing (1MB).
 ///
 /// Each growth allocates this much additional stack space.
+#[cfg(not(target_arch = "wasm32"))]
 const STACK_PER_RECURSION: usize = 1024 * 1024;
 
 /// Ensure sufficient stack space is available before executing `f`.
