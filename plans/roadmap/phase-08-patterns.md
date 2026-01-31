@@ -116,24 +116,90 @@ The spec formalizes two distinct pattern categories:
 
 ## 8.7 cache (Memoization with TTL)
 
-> **SPEC**: `cache(key: url, operation: fetch(url), ttl: 5m)` — Requires `Cache` capability
+**Proposal**: `proposals/approved/cache-pattern-proposal.md`
+
+> **SPEC**: `cache(key: url, op: fetch(url), ttl: 5m)` — Requires `Cache` capability
+
+### Basic Semantics (complete)
 
 - [x] **Implement**: `.key:` property — spec/10-patterns.md § cache
   - [x] **Rust Tests**: `oric/src/patterns/cache.rs` — cache pattern execution tests
   - [x] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 2 tests pass
 
-- [x] **Implement**: `.operation:` property — spec/10-patterns.md § cache
-- [ ] **Implement**: Optional `.ttl:` with Duration — spec/10-patterns.md § cache
+- [x] **Implement**: `.op:` property — spec/10-patterns.md § cache
+- [x] **Implement**: Stub — Execute `.op` without caching
+
+### Key Requirements (from approved proposal)
+
+- [ ] **Implement**: Key type constraint `Hashable + Eq` — cache-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/cache.rs` — key constraint tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/cache_keys.ori`
+  - [ ] **LLVM Support**: LLVM codegen for key hashing
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — cache key codegen
+
+### Value Requirements (from approved proposal)
+
+- [ ] **Implement**: Value type constraint `Clone` — cache-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/cache.rs` — value constraint tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/cache_values.ori`
+
+### TTL Semantics (from approved proposal)
+
+- [ ] **Implement**: `.ttl:` with Duration — spec/10-patterns.md § cache
   - [ ] **Rust Tests**: `oric/src/patterns/cache.rs` — TTL tests
   - [ ] **Ori Tests**: `tests/spec/patterns/cache_ttl.ori`
   - [ ] **LLVM Support**: LLVM codegen for cache TTL
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — cache TTL codegen
+
+- [ ] **Implement**: TTL = 0 means no caching (always recompute) — cache-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/patterns/cache.rs` — zero TTL tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/cache_ttl.ori`
+
+- [ ] **Implement**: Negative TTL is compile error — cache-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/cache.rs` — negative TTL error
+  - [ ] **Ori Tests**: `tests/spec/patterns/cache_ttl.ori`
+
+### Capability Requirement (from approved proposal)
+
 - [ ] **Implement**: Requires `Cache` capability — spec/10-patterns.md § cache
   - [ ] **Rust Tests**: `oric/src/typeck/checker/capabilities.rs` — cache capability tests
   - [ ] **Ori Tests**: `tests/spec/capabilities/cache.ori`
   - [ ] **LLVM Support**: LLVM codegen for cache capability
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — cache capability codegen
-- [x] **Implement**: Stub — Execute `.operation` without caching
+
+### Concurrent Access (from approved proposal)
+
+- [ ] **Implement**: Stampede prevention — cache-pattern-proposal.md
+  - [ ] First request computes, others wait
+  - [ ] All receive same result
+  - [ ] **Rust Tests**: `oric/src/patterns/cache.rs` — stampede tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/cache_concurrent.ori`
+
+- [ ] **Implement**: Error during stampede propagates to waiting requests — cache-pattern-proposal.md
+  - [ ] Entry NOT cached on error
+  - [ ] **Rust Tests**: `oric/src/patterns/cache.rs` — stampede error tests
+
+### Error Handling (from approved proposal)
+
+- [ ] **Implement**: `Err` and panic results NOT cached — cache-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/patterns/cache.rs` — error caching tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/cache_errors.ori`
+
+### Invalidation (from approved proposal)
+
+- [ ] **Implement**: `Cache.invalidate(key:)` method — cache-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/patterns/cache.rs` — invalidation tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/cache_invalidation.ori`
+
+- [ ] **Implement**: `Cache.clear()` method — cache-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/patterns/cache.rs` — clear tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/cache_invalidation.ori`
+
+### Error Messages (from approved proposal)
+
+- [ ] **Implement**: E0990 — cache key must be `Hashable` — cache-pattern-proposal.md
+- [ ] **Implement**: E0991 — `cache` requires `Cache` capability — cache-pattern-proposal.md
+- [ ] **Implement**: E0992 — TTL must be non-negative — cache-pattern-proposal.md
 
 ---
 

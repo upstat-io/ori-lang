@@ -26,9 +26,7 @@ fn format_to_string(
     format_expr(arena, interner, expr_id)
 }
 
-// =============================================================================
 // Idempotency Tests
-// =============================================================================
 
 /// Verify that formatting the same AST twice produces identical output.
 /// This is AST-level idempotency - formatting is deterministic.
@@ -95,9 +93,7 @@ fn format_idempotent_nested_expression() {
     assert_eq!(first, second);
 }
 
-// =============================================================================
 // Literal Formatting Tests
-// =============================================================================
 
 #[test]
 fn format_int_literal() {
@@ -193,9 +189,7 @@ fn format_unit() {
     assert_eq!(format_to_string(&arena, &interner, expr), "()\n");
 }
 
-// =============================================================================
 // Operator Formatting Tests
-// =============================================================================
 
 #[test]
 fn format_binary_add() {
@@ -250,9 +244,7 @@ fn format_unary_not() {
     assert_eq!(format_to_string(&arena, &interner, expr), "!true\n");
 }
 
-// =============================================================================
 // Duration and Size Formatting Tests
-// =============================================================================
 
 #[test]
 fn format_duration() {
@@ -297,9 +289,7 @@ fn format_size() {
     assert_eq!(format_to_string(&arena, &interner, kb), "4kb\n");
 }
 
-// =============================================================================
 // Identifier Formatting Tests
-// =============================================================================
 
 #[test]
 fn format_identifier() {
@@ -336,9 +326,7 @@ fn format_self_ref() {
     assert_eq!(format_to_string(&arena, &interner, expr), "self\n");
 }
 
-// =============================================================================
 // Control Flow Formatting Tests
-// =============================================================================
 
 #[test]
 fn format_return_void() {
@@ -373,9 +361,7 @@ fn format_continue() {
     assert_eq!(format_to_string(&arena, &interner, expr), "continue\n");
 }
 
-// =============================================================================
 // Option/Result Formatting Tests
-// =============================================================================
 
 #[test]
 fn format_some() {
@@ -424,9 +410,7 @@ fn format_err() {
     );
 }
 
-// =============================================================================
 // Range Formatting Tests
-// =============================================================================
 
 #[test]
 fn format_range_exclusive() {

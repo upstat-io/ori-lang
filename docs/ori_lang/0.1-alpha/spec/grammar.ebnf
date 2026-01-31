@@ -199,9 +199,19 @@ const_param   = "$" identifier ":" const_type [ "=" const_expr ] .
 const_type    = "int" | "bool" .
 bounds        = type_path { "+" type_path } .
 where_clause  = "where" constraint { "," constraint } .
-constraint    = identifier ":" bounds
-              | identifier comparison_op const_expr .  /* const bounds */
-comparison_op = ">" | "<" | ">=" | "<=" | "==" | "!=" .
+constraint    = type_constraint | const_constraint .
+type_constraint = identifier ":" bounds .
+const_constraint = const_bound_expr .
+
+// Const bound expressions (for where clauses)
+// See: 06-types.md § Const Bounds
+const_bound_expr = const_or_expr .
+const_or_expr    = const_and_expr { "||" const_and_expr } .
+const_and_expr   = const_not_expr { "&&" const_not_expr } .
+const_not_expr   = "!" const_not_expr | const_cmp_expr .
+const_cmp_expr   = const_expr comparison_op const_expr
+                 | "(" const_bound_expr ")" .
+comparison_op    = ">" | "<" | ">=" | "<=" | "==" | "!=" .
 
 // --- Capabilities ---
 // See: 14-capabilities.md

@@ -30,7 +30,7 @@ pub use traverse::{TypeFolder, TypeIdFolder, TypeIdVisitor, TypeVisitor};
 
 // Type interning exports
 pub use data::{TypeData, TypeVar};
-pub use type_interner::{SharedTypeInterner, TypeInterner};
+pub use type_interner::{SharedTypeInterner, TypeInternError, TypeInterner};
 
 // Size assertions to prevent accidental regressions.
 // Type is used throughout type checking and stored in query results.

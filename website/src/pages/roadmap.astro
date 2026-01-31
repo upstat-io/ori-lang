@@ -395,7 +395,7 @@ const tiers: Tier[] = [
         num: "7D",
         name: "Stdlib Modules",
         status: "partial",
-        note: "retry, validate pending; time/json/fs/crypto APIs approved",
+        note: "retry, validate pending; time/json/fs/crypto proposals approved",
         goal: "Standard library modules: validate, resilience, math, time, json, fs, crypto",
         spec: "library/std/",
         sections: [
@@ -508,19 +508,20 @@ const tiers: Tier[] = [
       {
         num: 10,
         name: "Control Flow",
-        status: "not-started",
+        status: "partial",
+        note: "Loops and break/continue work; labeled loops pending",
         goal: "Loops, break, continue, labeled blocks",
         spec: "spec/19-control-flow.md",
         sections: [
           { name: "Loops", tasks: [
-            { name: "loop(...) expression", done: false },
-            { name: "for...do imperative", done: false },
-            { name: "for...yield collection", done: false },
+            { name: "loop(...) expression", done: true },
+            { name: "for...do imperative", done: true },
+            { name: "for...yield collection", done: true },
           ]},
           { name: "Control", tasks: [
-            { name: "break expression", done: false },
-            { name: "break with value", done: false },
-            { name: "continue expression", done: false },
+            { name: "break expression", done: true },
+            { name: "break with value", done: true },
+            { name: "continue expression", done: true },
           ]},
           { name: "Labels", tasks: [
             { name: "Labeled loops (loop:name)", done: false },
@@ -1076,11 +1077,11 @@ function countTasks(sections: Section[]): { done: number; total: number } {
           <span class="stat-label">Completed</span>
         </div>
         <div class="stat">
-          <span class="stat-value">8</span>
+          <span class="stat-value">9</span>
           <span class="stat-label">In Progress</span>
         </div>
         <div class="stat">
-          <span class="stat-value">15</span>
+          <span class="stat-value">14</span>
           <span class="stat-label">Planned</span>
         </div>
       </div>
@@ -1236,9 +1237,9 @@ Branches:
           <span class="result-status success">All Passing</span>
         </div>
         <div class="result-card">
-          <span class="result-value">19</span>
-          <span class="result-label">Skipped</span>
-          <span class="result-status muted">Pending Features</span>
+          <span class="result-value">440</span>
+          <span class="result-label">Formatter Tests</span>
+          <span class="result-status success">All Passing</span>
         </div>
       </div>
     </section>

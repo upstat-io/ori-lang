@@ -248,6 +248,7 @@ impl TokenKind {
     /// 3. All display names are static strings, so no allocation occurs
     ///
     /// The generated assembly is comparable to a direct array lookup.
+    #[inline]
     pub fn display_name(&self) -> &'static str {
         match self {
             TokenKind::Int(_) => "integer",

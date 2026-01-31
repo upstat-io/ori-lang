@@ -181,6 +181,8 @@ impl BuiltinMethodRegistry {
     ///
     /// Dispatches directly to the appropriate handler based on receiver type.
     /// Returns `None` if no handler matches the receiver type.
+    ///
+    /// Uses direct dispatch (no trait object) for better inlining and no vtable overhead.
     pub fn check(
         &self,
         ctx: &mut InferenceContext,
@@ -190,17 +192,30 @@ impl BuiltinMethodRegistry {
         args: &[Type],
         span: Span,
     ) -> Option<MethodTypeResult> {
-        let handler: &dyn BuiltinMethodHandler = match receiver_ty {
-            Type::Str => &self.string,
-            Type::List(_) => &self.list,
-            Type::Map { .. } => &self.map,
-            Type::Option(_) => &self.option,
-            Type::Result { .. } => &self.result,
-            Type::Int | Type::Float | Type::Bool => &self.numeric,
+        // Direct dispatch - no dyn, compiler sees concrete types for inlining
+        Some(match receiver_ty {
+            Type::Str => self
+                .string
+                .check(ctx, interner, receiver_ty, method, args, span),
+            Type::List(_) => self
+                .list
+                .check(ctx, interner, receiver_ty, method, args, span),
+            Type::Map { .. } => self
+                .map
+                .check(ctx, interner, receiver_ty, method, args, span),
+            Type::Option(_) => self
+                .option
+                .check(ctx, interner, receiver_ty, method, args, span),
+            Type::Result { .. } => {
+                self.result
+                    .check(ctx, interner, receiver_ty, method, args, span)
+            }
+            Type::Int | Type::Float | Type::Bool => {
+                self.numeric
+                    .check(ctx, interner, receiver_ty, method, args, span)
+            }
             _ => return None,
-        };
-
-        Some(handler.check(ctx, interner, receiver_ty, method, args, span))
+        })
     }
 }
 

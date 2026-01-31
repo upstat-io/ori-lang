@@ -121,7 +121,7 @@ pub use expr_id::{
     ExprId, ExprRange, MatchPatternId, MatchPatternRange, ParsedTypeId, ParsedTypeRange, StmtId,
     StmtRange,
 };
-pub use interner::{SharedInterner, StringInterner, StringLookup};
+pub use interner::{InternError, SharedInterner, StringInterner, StringLookup};
 pub use name::Name;
 pub use parsed_type::ParsedType;
 pub use span::{Span, SpanError};

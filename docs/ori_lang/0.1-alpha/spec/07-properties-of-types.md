@@ -213,3 +213,161 @@ type TraceEntry = {
 |------|------------|
 | `Error` | Yes |
 | `Result<T, E>` where `E: Traceable` | Yes (delegates to E) |
+
+## Comparable Trait
+
+The `Comparable` trait provides total ordering for values.
+
+```ori
+trait Comparable: Eq {
+    @compare (self, other: Self) -> Ordering
+}
+```
+
+`Comparable` extends `Eq` — all comparable types must also be equatable.
+
+### Mathematical Properties
+
+A valid `Comparable` implementation must satisfy:
+
+**Reflexivity**: `a.compare(other: a) == Equal`
+
+**Antisymmetry**: If `a.compare(other: b) == Less`, then `b.compare(other: a) == Greater`
+
+**Transitivity**: If `a.compare(other: b) == Less` and `b.compare(other: c) == Less`, then `a.compare(other: c) == Less`
+
+**Consistency with Eq**: `a.compare(other: b) == Equal` if and only if `a == b`
+
+### Operator Derivation
+
+Types implementing `Comparable` automatically get comparison operators. The builtin `compare` function calls the trait method:
+
+```ori
+compare(left: a, right: b)  // → a.compare(other: b)
+```
+
+Operators desugar to `Ordering` method calls:
+
+```ori
+a < b   // a.compare(other: b).is_less()
+a <= b  // a.compare(other: b).is_less_or_equal()
+a > b   // a.compare(other: b).is_greater()
+a >= b  // a.compare(other: b).is_greater_or_equal()
+```
+
+### Standard Implementations
+
+| Type | Ordering |
+|------|----------|
+| `int` | Numeric order |
+| `float` | IEEE 754 total order (NaN handling) |
+| `bool` | `false < true` |
+| `str` | Lexicographic (Unicode codepoint) |
+| `char` | Unicode codepoint |
+| `byte` | Numeric order |
+| `Duration` | Shorter < longer |
+| `Size` | Smaller < larger |
+| `[T]` where `T: Comparable` | Lexicographic |
+| `(T1, T2, ...)` where all `Ti: Comparable` | Lexicographic |
+| `Option<T>` where `T: Comparable` | `None < Some(_)` |
+| `Result<T, E>` where `T: Comparable, E: Comparable` | `Ok(_) < Err(_)`, then compare inner |
+| `Ordering` | `Less < Equal < Greater` |
+
+Maps and Sets are not Comparable (unordered collections).
+
+### Float Comparison
+
+Floats follow IEEE 754 total ordering:
+- `-Inf < negative < -0.0 < +0.0 < positive < +Inf`
+- `NaN` compares equal to itself and greater than all other values
+
+Note: For ordering purposes, `NaN == NaN`. This differs from `==` where `NaN != NaN`.
+
+### Derivation
+
+`Comparable` is derivable for user-defined types when all fields implement `Comparable`:
+
+```ori
+#derive(Eq, Comparable)
+type Point = { x: int, y: int }
+
+// Generated: lexicographic comparison by field declaration order
+```
+
+For sum types, variants compare by declaration order (`Low < Medium < High`).
+
+## Hashable Trait
+
+The `Hashable` trait provides hash values for map keys and set elements.
+
+```ori
+trait Hashable: Eq {
+    @hash (self) -> int
+}
+```
+
+`Hashable` extends `Eq` — all hashable types must also be equatable.
+
+### Hash Invariant
+
+**Consistency with Eq**: If `a == b`, then `a.hash() == b.hash()`
+
+The converse is NOT required — different values may have the same hash (collisions are expected).
+
+### Standard Implementations
+
+| Type | Hash Method |
+|------|-------------|
+| `int` | Identity or bit-mixing |
+| `float` | Bit representation hash |
+| `bool` | `false` → 0, `true` → 1 |
+| `str` | FNV-1a or similar |
+| `char` | Codepoint value |
+| `byte` | Identity |
+| `Duration` | Hash of nanoseconds |
+| `Size` | Hash of bytes |
+| `[T]` where `T: Hashable` | Combined element hashes |
+| `{K: V}` where `K: Hashable, V: Hashable` | Combined entry hashes (order-independent) |
+| `Set<T>` where `T: Hashable` | Combined element hashes (order-independent) |
+| `(T1, T2, ...)` where all `Ti: Hashable` | Combined element hashes |
+| `Option<T>` where `T: Hashable` | `None` → 0, `Some(x)` → `x.hash()` with salt |
+| `Result<T, E>` where `T: Hashable, E: Hashable` | Combined variant and value hash |
+
+### Float Hashing
+
+Floats hash consistently with equality:
+- `+0.0` and `-0.0` hash the same (they're equal)
+- `NaN` values hash consistently (all NaN equal for hashing)
+
+### Map Key and Set Element Requirements
+
+To use a type as a map key or set element, it must implement both `Eq` and `Hashable`:
+
+```ori
+let map: {Point: str} = {}  // Point must be Eq + Hashable
+let set: Set<Point> = Set.new()  // Point must be Eq + Hashable
+```
+
+### hash_combine Function
+
+The `hash_combine` function in the prelude mixes hash values:
+
+```ori
+@hash_combine (seed: int, value: int) -> int =
+    seed ^ (value + 0x9e3779b9 + (seed << 6) + (seed >> 2))
+```
+
+This follows the boost hash_combine pattern for good distribution. Users implementing custom `Hashable` can use this function directly.
+
+### Derivation
+
+`Hashable` is derivable for user-defined types when all fields implement `Hashable`:
+
+```ori
+#derive(Eq, Hashable)
+type Point = { x: int, y: int }
+
+// Generated: combine field hashes using hash_combine
+```
+
+Deriving `Hashable` without `Eq` produces a warning.

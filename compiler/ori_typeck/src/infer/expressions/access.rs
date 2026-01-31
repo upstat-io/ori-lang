@@ -25,11 +25,18 @@ pub fn infer_field(checker: &mut TypeChecker<'_>, receiver: ExprId, field: Name)
                     return elems[index].clone();
                 }
             }
-            checker.push_error(
-                format!("tuple has no field `{field_name}`"),
-                receiver_span,
-                ori_diagnostic::ErrorCode::E2001,
-            );
+            // Provide helpful error with valid indices
+            let message = if elems.is_empty() {
+                "unit type `()` has no fields".to_string()
+            } else if elems.len() == 1 {
+                format!("tuple has no field `{field_name}` (valid index: 0)")
+            } else {
+                format!(
+                    "tuple has no field `{field_name}` (valid indices: 0..{})",
+                    elems.len() - 1
+                )
+            };
+            checker.push_error(message, receiver_span, ori_diagnostic::ErrorCode::E2001);
             Type::Error
         }
 
@@ -57,11 +64,21 @@ pub fn infer_field(checker: &mut TypeChecker<'_>, receiver: ExprId, field: Name)
         Type::Error => Type::Error,
 
         _ => {
+            let type_str = resolved_ty.display(checker.context.interner);
+            // Provide type-specific suggestions
+            let suggestion = match &resolved_ty {
+                Type::Int | Type::Float | Type::Bool | Type::Char | Type::Byte => {
+                    " (primitives do not have fields)"
+                }
+                Type::Function { .. } => " (functions must be called, not accessed with `.`)",
+                Type::Option(_) => " (use `.unwrap()` or pattern matching to access inner value)",
+                Type::Result { .. } => " (use `.unwrap()` or pattern matching to access Ok value)",
+                Type::List(_) => " (use indexing `[i]` or methods like `.first()`, `.last()`)",
+                Type::Map { .. } => " (use indexing `[key]` or methods like `.get()`)",
+                _ => "",
+            };
             checker.push_error(
-                format!(
-                    "type `{}` does not support field access",
-                    resolved_ty.display(checker.context.interner)
-                ),
+                format!("type `{type_str}` does not support field access{suggestion}"),
                 receiver_span,
                 ori_diagnostic::ErrorCode::E2001,
             );
@@ -109,11 +126,19 @@ pub fn infer_index(
         Type::Var(_) => checker.inference.ctx.fresh_var(),
         Type::Error => Type::Error,
         other => {
+            let type_str = other.display(checker.context.interner);
+            // Provide type-specific suggestions
+            let suggestion = match &other {
+                Type::Named(_) | Type::Applied { .. } => {
+                    " (structs use field access with `.field`)"
+                }
+                Type::Tuple(_) => " (tuples use field access with `.0`, `.1`, etc.)",
+                Type::Option(_) => " (use `.unwrap()` or pattern matching to access inner value)",
+                Type::Result { .. } => " (use `.unwrap()` or pattern matching to access Ok value)",
+                _ => "",
+            };
             checker.push_error(
-                format!(
-                    "type `{}` is not indexable",
-                    other.display(checker.context.interner)
-                ),
+                format!("type `{type_str}` is not indexable{suggestion}"),
                 span,
                 ori_diagnostic::ErrorCode::E2001,
             );

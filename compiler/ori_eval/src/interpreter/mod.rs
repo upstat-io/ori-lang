@@ -448,7 +448,7 @@ impl<'a> Interpreter<'a> {
             // Struct literal
             ExprKind::Struct { name, fields } => {
                 let field_list = self.arena.get_field_inits(*fields);
-                let mut field_values = std::collections::HashMap::new();
+                let mut field_values = std::collections::HashMap::with_capacity(field_list.len());
                 for field in field_list {
                     let value = if let Some(v) = field.value {
                         self.eval(v)?
@@ -842,7 +842,7 @@ impl<'a> Interpreter<'a> {
             .imported_arena(imported_arena)
             .user_method_registry(self.user_method_registry.clone())
             .print_handler(self.print_handler.clone())
-            .owns_scoped_env(true) // RAII: scope will be popped when interpreter drops
+            .with_scoped_env_ownership() // RAII: scope will be popped when interpreter drops
             .build()
     }
 

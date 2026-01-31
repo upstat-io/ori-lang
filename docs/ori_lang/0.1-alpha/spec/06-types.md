@@ -160,6 +160,58 @@ Const generic parameters can be used wherever a compile-time constant is expecte
 = ...
 ```
 
+### Const Bounds
+
+A _const bound_ constrains the values a const generic parameter may take. Const bounds appear in `where` clauses and are checked at compile time.
+
+**Allowed operators in const bounds:**
+
+| Category | Operators |
+|----------|-----------|
+| Comparison | `==`, `!=`, `<`, `<=`, `>`, `>=` |
+| Logical | `&&`, `\|\|`, `!` |
+| Arithmetic | `+`, `-`, `*`, `/`, `%` |
+| Bitwise | `&`, `\|`, `^`, `<<`, `>>` |
+
+```ori
+where N > 0                      // Simple bound
+where N >= 1 && N <= 100         // Compound bound
+where N % 2 == 0                 // Divisibility
+where N & (N - 1) == 0           // Power of two (bitwise)
+where A || B                     // Bool parameters
+```
+
+Multiple `where` clauses are implicitly combined with `&&`:
+
+```ori
+where R > 0
+where C > 0
+// equivalent to: where R > 0 && C > 0
+```
+
+**Evaluation timing:**
+
+- When concrete values are known at the call site, bounds are checked immediately
+- When values depend on outer const parameters, checking is deferred to monomorphization
+
+**Constraint propagation:**
+
+When calling a function with const bounds, the caller's bounds must _imply_ the callee's bounds. The compiler performs linear arithmetic implication checking:
+
+```ori
+@inner<$N: int> () -> [int, max N]
+    where N >= 10
+= ...
+
+@outer<$M: int> () -> [int, max M]
+    where M >= 20  // M >= 20 implies M >= 10
+= inner<M>()       // OK
+```
+
+**Overflow handling:**
+
+Arithmetic overflow during const bound evaluation is a compile-time error (E1033). Const bound arithmetic uses 64-bit signed integers.
+
 **Instance methods with const generics:**
 
 ```ori

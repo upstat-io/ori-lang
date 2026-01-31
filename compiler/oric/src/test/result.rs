@@ -174,10 +174,15 @@ impl TestSummary {
 pub struct FunctionCoverage {
     /// Function name.
     pub name: String,
-    /// Whether function has tests.
-    pub has_tests: bool,
     /// Names of tests targeting this function.
     pub test_names: Vec<String>,
+}
+
+impl FunctionCoverage {
+    /// Returns whether this function has tests.
+    pub fn has_tests(&self) -> bool {
+        !self.test_names.is_empty()
+    }
 }
 
 /// Coverage report for a file or project.
@@ -196,16 +201,16 @@ impl CoverageReport {
         CoverageReport::default()
     }
 
-    pub fn add_function(&mut self, name: String, has_tests: bool, test_names: Vec<String>) {
+    /// Add a function's coverage information.
+    ///
+    /// The `has_tests` status is derived from whether `test_names` is non-empty.
+    pub fn add_function(&mut self, name: String, test_names: Vec<String>) {
+        let has_tests = !test_names.is_empty();
         if has_tests {
             self.covered += 1;
         }
         self.total += 1;
-        self.functions.push(FunctionCoverage {
-            name,
-            has_tests,
-            test_names,
-        });
+        self.functions.push(FunctionCoverage { name, test_names });
     }
 
     /// Get coverage percentage (0-100).
@@ -230,7 +235,7 @@ impl CoverageReport {
     pub fn untested(&self) -> Vec<&str> {
         self.functions
             .iter()
-            .filter(|f| !f.has_tests)
+            .filter(|f| !f.has_tests())
             .map(|f| f.name.as_str())
             .collect()
     }

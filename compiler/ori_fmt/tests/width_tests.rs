@@ -385,9 +385,7 @@ fn run_tests_at_all_widths(dir: &Path, dir_name: &str) {
     println!("  Total exempt (comments/strings): {}", total_exempt);
 }
 
-// =============================================================================
 // Tests
-// =============================================================================
 
 #[test]
 fn width_tests_fmt() {
