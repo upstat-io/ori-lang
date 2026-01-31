@@ -1,8 +1,9 @@
 # Proposal: Duration and Size Literal Types
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-30
+**Approved:** 2026-01-30
 **Affects:** Compiler, type system, literals
 
 ---
@@ -87,6 +88,7 @@ let bad = 0.5h   // ERROR: use 30m instead
 | `n * d` | int * Duration | Duration |
 | `d / n` | Duration / int | Duration |
 | `d1 / d2` | Duration / Duration | int (ratio) |
+| `d1 % d2` | Duration % Duration | Duration (remainder) |
 | `-d` | -Duration | Duration |
 
 ```ori
@@ -95,6 +97,7 @@ let diff = 10s - 3s         // 7s
 let scaled = 100ms * 10     // 1000ms = 1s
 let halved = 2h / 2         // 1h
 let ratio = 1h / 30m        // 2
+let remainder = 5s % 3s     // 2s
 ```
 
 ### Comparison
@@ -210,17 +213,20 @@ Ori uses binary units (powers of 1024), not decimal (powers of 1000):
 | `n * s` | int * Size | Size |
 | `s / n` | Size / int | Size |
 | `s1 / s2` | Size / Size | int (ratio) |
+| `s1 % s2` | Size % Size | Size (remainder) |
 
 ```ori
 let total = 1mb + 512kb   // 1.5mb = 1572864b
 let ratio = 1gb / 1mb     // 1024
+let aligned = 1025b % 1kb // 1b
 ```
 
 ### Non-Negative Constraint
 
-Size cannot be negative:
+Size cannot be negative. Unary negation (`-`) is not permitted on Size literals or expressions:
 
 ```ori
+let bad = -1kb   // ERROR: unary negation not allowed on Size
 let bad = 1kb - 2kb  // panic: Size cannot be negative
 ```
 
@@ -285,6 +291,8 @@ s.bytes()       // 1572864
 Implementation may use most appropriate unit(s).
 
 ### Size
+
+Uses casual notation (KB/MB) rather than IEC notation (KiB/MiB):
 
 ```ori
 100b.to_str()     // "100 bytes"
@@ -379,7 +387,7 @@ error[E0912]: Size cannot be negative
   --> src/main.ori:5:10
    |
  5 | let s = -1kb
-   |         ^^^^ negative Size
+   |         ^^^^ unary negation not allowed on Size
    |
    = note: Size represents byte counts (non-negative)
 ```
@@ -393,13 +401,19 @@ error[E0912]: Size cannot be negative
 Expand Duration and Size sections with:
 1. Internal representation
 2. Complete literal syntax
-3. Arithmetic operations
+3. Arithmetic operations (including modulo)
 4. Conversion methods
 5. Trait implementations
 
 ### Update `03-lexical-elements.md`
 
 Add duration and size literal tokens to lexical grammar.
+
+### Update `grammar.ebnf`
+
+Update duration and size unit productions:
+- `duration_unit = "ns" | "us" | "ms" | "s" | "m" | "h" .`
+- `size_unit = "b" | "kb" | "mb" | "gb" | "tb" .`
 
 ---
 
@@ -410,7 +424,8 @@ Add duration and size literal tokens to lexical grammar.
 | Represents | Time span | Byte count |
 | Storage | 64-bit nanoseconds | 64-bit bytes |
 | Suffixes | ns, us, ms, s, m, h | b, kb, mb, gb, tb |
-| Negative | Allowed | Panic |
+| Negative | Allowed | Compile error (unary -) or panic (subtraction) |
 | Overflow | Panic | Panic |
 | Default | `0ns` | `0b` |
 | Units | Metric time | Binary (1024-based) |
+| Modulo | Supported | Supported |

@@ -46,6 +46,93 @@
 
 ---
 
+## 1.1A Duration and Size Types
+
+**Proposal**: `proposals/approved/duration-size-types-proposal.md`
+
+Formalize Duration and Size primitive types with literal syntax, arithmetic, and conversion methods.
+
+### Lexer
+
+- [ ] **Implement**: Duration literal tokenization with all units (ns, us, ms, s, m, h)
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — duration literal tests
+  - [ ] **Ori Tests**: `tests/spec/types/duration_literals.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Duration literals
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/duration_tests.rs`
+
+- [ ] **Implement**: Size literal tokenization with all units (b, kb, mb, gb, tb)
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — size literal tests
+  - [ ] **Ori Tests**: `tests/spec/types/size_literals.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Size literals
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/size_tests.rs`
+
+- [ ] **Implement**: Error for floating-point prefix on duration/size literals
+  - [ ] **Ori Tests**: `tests/compile-fail/duration_float_prefix.ori`
+
+### Type System
+
+- [ ] **Implement**: Duration type representation — spec/06-types.md § Duration
+  - [ ] **Rust Tests**: `oric/src/typeck/` — Duration type tests
+  - [ ] **Ori Tests**: `tests/spec/types/duration.ori`
+
+- [ ] **Implement**: Size type representation — spec/06-types.md § Size
+  - [ ] **Rust Tests**: `oric/src/typeck/` — Size type tests
+  - [ ] **Ori Tests**: `tests/spec/types/size.ori`
+
+### Arithmetic Operations
+
+- [ ] **Implement**: Duration arithmetic (+, -, *, /, %, unary -)
+  - [ ] **Rust Tests**: `oric/src/eval/` — Duration arithmetic tests
+  - [ ] **Ori Tests**: `tests/spec/types/duration_arithmetic.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Duration arithmetic
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/duration_tests.rs`
+
+- [ ] **Implement**: Size arithmetic (+, -, *, /, %)
+  - [ ] **Rust Tests**: `oric/src/eval/` — Size arithmetic tests
+  - [ ] **Ori Tests**: `tests/spec/types/size_arithmetic.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Size arithmetic
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/size_tests.rs`
+
+- [ ] **Implement**: Compile error for unary negation on Size
+  - [ ] **Rust Tests**: `oric/src/typeck/` — Size negation error
+  - [ ] **Ori Tests**: `tests/compile-fail/size_unary_negation.ori`
+
+- [ ] **Implement**: Runtime panic for Duration overflow
+  - [ ] **Ori Tests**: `tests/spec/types/duration_overflow.ori`
+
+- [ ] **Implement**: Runtime panic for negative Size result
+  - [ ] **Ori Tests**: `tests/spec/types/size_negative_panic.ori`
+
+### Conversion Methods
+
+- [ ] **Implement**: Duration extraction methods (.nanoseconds(), .microseconds(), etc.)
+  - [ ] **Ori Tests**: `tests/spec/types/duration_methods.ori`
+
+- [ ] **Implement**: Duration factory methods (Duration.from_seconds(), etc.)
+  - [ ] **Ori Tests**: `tests/spec/types/duration_factory.ori`
+
+- [ ] **Implement**: Size extraction methods (.bytes(), .kilobytes(), etc.)
+  - [ ] **Ori Tests**: `tests/spec/types/size_methods.ori`
+
+- [ ] **Implement**: Size factory methods (Size.from_bytes(), etc.)
+  - [ ] **Ori Tests**: `tests/spec/types/size_factory.ori`
+
+### Trait Implementations
+
+- [ ] **Implement**: Eq, Comparable, Hashable for Duration
+  - [ ] **Ori Tests**: `tests/spec/types/duration_traits.ori`
+
+- [ ] **Implement**: Eq, Comparable, Hashable for Size
+  - [ ] **Ori Tests**: `tests/spec/types/size_traits.ori`
+
+- [ ] **Implement**: Clone, Debug, Printable, Default for Duration
+  - [ ] **Ori Tests**: `tests/spec/types/duration_traits.ori`
+
+- [ ] **Implement**: Clone, Debug, Printable, Default for Size
+  - [ ] **Ori Tests**: `tests/spec/types/size_traits.ori`
+
+---
+
 ## 1.2 Parameter Type Annotations
 
 - [x] **Implement**: Add `type_id_to_type()` helper function — spec/08-declarations.md § Function Declarations
