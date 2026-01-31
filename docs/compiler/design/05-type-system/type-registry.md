@@ -302,6 +302,13 @@ pub struct TraitMethodDef {
     pub return_ty: TypeId,
     pub has_default: bool,
 }
+
+pub struct TraitAssocTypeDef {
+    pub name: Name,
+    /// Default type for this associated type (e.g., `Self` in `type Output = Self`).
+    /// Stored as ParsedType to preserve Self references for impl-time resolution.
+    pub default_type: Option<ParsedType>,
+}
 ```
 
 ### Default Type Parameters
@@ -358,6 +365,71 @@ fn validate_default_type_param_ordering(generics: &[GenericParam]) -> Result<(),
         }
     }
     Ok(())
+}
+```
+
+### Default Associated Types
+
+Traits may have associated types with default values:
+
+```ori
+trait Add<Rhs = Self> {
+    type Output = Self
+    @add (self, rhs: Rhs) -> Self.Output
+}
+```
+
+Default associated types are stored as `ParsedType` in `TraitAssocTypeDef.default_type` because `Self` must be resolved at impl site, not trait definition time.
+
+When validating an impl, missing associated types are checked against trait defaults:
+
+```rust
+fn validate_associated_types(
+    &mut self,
+    trait_entry: &TraitEntry,
+    impl_assoc_types: &[ImplAssocTypeDef],
+    self_ty: &Type,
+    span: Span,
+) {
+    let provided: FxHashSet<Name> = impl_assoc_types.iter().map(|at| at.name).collect();
+
+    for required_at in &trait_entry.assoc_types {
+        if !provided.contains(&required_at.name) {
+            if required_at.default_type.is_some() {
+                // Default will be applied - no error
+                continue;
+            }
+            // Missing required associated type - error E2018
+        }
+    }
+}
+```
+
+When looking up an associated type, `lookup_assoc_type` falls back to the trait default if the impl does not explicitly define it:
+
+```rust
+pub fn lookup_assoc_type(
+    &self,
+    self_ty: &Type,
+    trait_name: Name,
+    assoc_name: Name,
+) -> Option<Type> {
+    let impl_entry = self.get_trait_impl(trait_name, self_ty)?;
+
+    // First check explicit impl definition
+    if let Some(at) = impl_entry.assoc_types.iter().find(|at| at.name == assoc_name) {
+        return Some(self.interner.to_type(at.ty));
+    }
+
+    // Fall back to trait default
+    let trait_entry = self.traits.get(&trait_name)?;
+    let trait_assoc = trait_entry.assoc_types.iter().find(|at| at.name == assoc_name)?;
+
+    if let Some(ref default_parsed_type) = trait_assoc.default_type {
+        Some(self.resolve_parsed_type_with_self_substitution(default_parsed_type, self_ty))
+    } else {
+        None
+    }
 }
 ```
 

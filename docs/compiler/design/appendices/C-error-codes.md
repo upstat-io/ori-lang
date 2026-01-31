@@ -61,6 +61,10 @@ An expression has a different type than expected in the given context.
 | E2012 | Unknown Capability | Capability not defined | ✓ |
 | E2013 | Provider Mismatch | Provider doesn't implement capability | ✓ |
 | E2014 | Missing Capability | Capability used but not declared | ✓ |
+| E2015 | Type Param Order | Non-default type param after default | |
+| E2016 | Missing Type Arg | Missing type argument (no default) | |
+| E2017 | Too Many Type Args | Too many type arguments provided | |
+| E2018 | Missing Assoc Type | Impl missing required associated type | ✓ |
 | **Patterns (E3xxx)** |
 | E3001 | Unknown Pattern | Pattern name not recognized | ✓ |
 | E3002 | Invalid Pattern Args | Pattern arguments invalid | ✓ |

@@ -1,0 +1,84 @@
+// Spec: 08-declarations.md § Traits (Default Associated Types)
+// Tests for default associated types on traits
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Basic Default Associated Types
+// =============================================================================
+
+// Trait with default associated type (Output defaults to Self)
+trait Addable<Rhs = Self> {
+    type Output = Self
+    @add (self, rhs: Rhs) -> Self.Output
+}
+
+// =============================================================================
+// Type Definitions for Tests
+// =============================================================================
+
+type Point = { x: int, y: int }
+
+// Helper function to create points
+@make_point (x: int, y: int) -> Point = Point { x, y }
+
+// Impl without Output - uses default (Output = Self = Point)
+impl Addable for Point {
+    @add (self, rhs: Point) -> Point = Point {
+        x: self.x + rhs.x,
+        y: self.y + rhs.y
+    }
+}
+
+// =============================================================================
+// Override Default Associated Type
+// =============================================================================
+
+type Number = { value: int }
+
+@make_number (value: int) -> Number = Number { value }
+
+// Helper function to add numbers and return raw int
+@add_numbers (a: Number, b: Number) -> int = a.add(rhs: b)
+
+// Impl that overrides the default Output type
+impl Addable for Number {
+    type Output = int
+    @add (self, rhs: Number) -> int = self.value + rhs.value
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+@test tests @make_point () -> void =
+    run(
+        let p = make_point(x: 1, y: 2),
+        assert_eq(actual: p.x, expected: 1),
+        assert_eq(actual: p.y, expected: 2)
+    )
+
+// Test default associated type (Output = Self = Point)
+@test tests @add () -> void =
+    run(
+        let p1 = make_point(x: 1, y: 2),
+        let p2 = make_point(x: 3, y: 4),
+        let result = p1.add(rhs: p2),
+        assert_eq(actual: result.x, expected: 4),
+        assert_eq(actual: result.y, expected: 6)
+    )
+
+@test tests @make_number () -> void =
+    run(
+        let n = make_number(value: 42),
+        assert_eq(actual: n.value, expected: 42)
+    )
+
+// Test explicit associated type override (Output = int, not Self)
+@test tests @add_numbers () -> void =
+    run(
+        let n1 = make_number(value: 10),
+        let n2 = make_number(value: 20),
+        let result = add_numbers(a: n1, b: n2),
+        assert_eq(actual: result, expected: 30)
+    )

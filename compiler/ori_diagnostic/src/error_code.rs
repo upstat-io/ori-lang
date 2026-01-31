@@ -87,6 +87,8 @@ pub enum ErrorCode {
     E2016,
     /// Too many type arguments
     E2017,
+    /// Missing associated type (impl missing required associated type)
+    E2018,
 
     // Pattern Errors (E3xxx)
     /// Unknown pattern
@@ -151,6 +153,7 @@ impl ErrorCode {
             ErrorCode::E2015 => "E2015",
             ErrorCode::E2016 => "E2016",
             ErrorCode::E2017 => "E2017",
+            ErrorCode::E2018 => "E2018",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",

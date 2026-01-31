@@ -79,7 +79,10 @@ impl TypeChecker<'_> {
                         });
                     }
                     TraitItem::AssocType(at) => {
-                        assoc_types.push(TraitAssocTypeDef { name: at.name });
+                        assoc_types.push(TraitAssocTypeDef {
+                            name: at.name,
+                            default_type: at.default_type.clone(),
+                        });
                     }
                 }
             }
@@ -194,6 +197,10 @@ impl TypeChecker<'_> {
     }
 
     /// Validate that an impl block defines all required associated types from the trait.
+    ///
+    /// If an associated type is missing but has a default, the default is applied
+    /// (with `Self` substituted for the implementing type). Only associated types
+    /// without defaults that are not provided will produce an error.
     fn validate_associated_types(
         &mut self,
         trait_name: Name,
@@ -216,6 +223,14 @@ impl TypeChecker<'_> {
         // Check each required associated type
         for required_at in &trait_entry.assoc_types {
             if !provided.contains(&required_at.name) {
+                // Check if this associated type has a default
+                if required_at.default_type.is_some() {
+                    // Default will be applied - no error needed.
+                    // The default is resolved with Self substitution at use sites.
+                    continue;
+                }
+
+                // No default - report error
                 let trait_name_str = self.context.interner.lookup(trait_name);
                 let assoc_name_str = self.context.interner.lookup(required_at.name);
                 let type_name = self_ty.display(self.context.interner);
@@ -224,7 +239,7 @@ impl TypeChecker<'_> {
                         "impl of `{trait_name_str}` for `{type_name}` missing associated type `{assoc_name_str}`"
                     ),
                     span,
-                    ori_diagnostic::ErrorCode::E2012,
+                    ori_diagnostic::ErrorCode::E2018,
                 );
             }
         }

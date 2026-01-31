@@ -26,6 +26,11 @@ pub struct TraitMethodDef {
 pub struct TraitAssocTypeDef {
     /// Associated type name.
     pub name: Name,
+    /// Default type for this associated type (e.g., `Self` in `type Output = Self`).
+    /// When present, this type is used if the impl omits the associated type.
+    /// Stored as `ParsedType` (not resolved) because defaults may contain `Self`
+    /// which must be resolved at impl registration time, not trait registration time.
+    pub default_type: Option<ParsedType>,
 }
 
 /// Entry for a trait definition.

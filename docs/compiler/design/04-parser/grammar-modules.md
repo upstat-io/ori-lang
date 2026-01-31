@@ -90,7 +90,8 @@ parse_params()        // (a: int, b: str)
 
 // trait_def.rs - Traits
 parse_trait()         // trait Name { ... }
-parse_trait_item()    // Method signatures, default methods, assoc types
+parse_trait_item()    // Method signatures, default methods, associated types
+                      // Associated types: type Item, type Output = Self
 
 // impl_def.rs - Implementations
 parse_impl()          // impl Trait for Type { ... }
@@ -109,6 +110,8 @@ parse_generics()      // <T, U: Bound>, <T = Self>, <T: Clone = int>
 parse_bounds()        // Eq + Clone + Printable
 parse_where_clauses() // where T: Clone, U: Default
 parse_uses_clause()   // uses Http, FileSystem
+
+// Note: Associated type defaults (type Output = Self) are parsed in trait_def.rs
 ```
 
 ### type.rs
