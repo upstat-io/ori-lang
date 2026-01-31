@@ -71,10 +71,14 @@
 
 ## 22.2 LSP Server
 
+> **DETAILED PLAN**: `plans/ori_lsp/` — Phased implementation with tracking
+> **PROPOSAL**: `proposals/approved/lsp-implementation-proposal.md` — Architecture decisions
+> **CRATE**: `compiler/ori_lsp/` — LSP server implementation
+
 ### Formatting (from ori_fmt Phase 7.2)
 
 - [ ] **Implement**: `textDocument/formatting` request handler
-  - [ ] **Rust Tests**: `ori_lsp/src/formatting.rs` — document formatting
+  - [ ] **Rust Tests**: `ori_lsp/src/handlers/formatting.rs` — document formatting
 - [ ] **Implement**: Return TextEdit array for changes
 - [ ] **Implement**: `textDocument/rangeFormatting` request handler
   - [ ] Expand range to nearest complete construct
@@ -85,31 +89,31 @@
 ### Core LSP Features
 
 - [ ] **Implement**: Semantic addressing — design/12-tooling/index.md:25-35
-  - [ ] **Rust Tests**: `oric/src/lsp/addressing.rs` — semantic addressing
+  - [ ] **Rust Tests**: `ori_lsp/src/analysis/addressing.rs` — semantic addressing
   - [ ] **Ori Tests**: `tests/spec/tooling/lsp_addressing.ori`
 
 - [ ] **Implement**: Structured errors — design/12-tooling/index.md:36-55
-  - [ ] **Rust Tests**: `oric/src/lsp/diagnostics.rs` — structured errors
+  - [ ] **Rust Tests**: `ori_lsp/src/diagnostics/mod.rs` — structured errors
   - [ ] **Ori Tests**: `tests/spec/tooling/lsp_errors.ori`
 
 - [ ] **Implement**: Go to definition
-  - [ ] **Rust Tests**: `oric/src/lsp/goto_def.rs` — go to definition
+  - [ ] **Rust Tests**: `ori_lsp/src/handlers/definition.rs` — go to definition
   - [ ] **Ori Tests**: `tests/spec/tooling/lsp_goto.ori`
 
 - [ ] **Implement**: Find references
-  - [ ] **Rust Tests**: `oric/src/lsp/references.rs` — find references
+  - [ ] **Rust Tests**: `ori_lsp/src/handlers/references.rs` — find references
   - [ ] **Ori Tests**: `tests/spec/tooling/lsp_references.ori`
 
 - [ ] **Implement**: Hover information
-  - [ ] **Rust Tests**: `oric/src/lsp/hover.rs` — hover information
+  - [ ] **Rust Tests**: `ori_lsp/src/handlers/hover.rs` — hover information
   - [ ] **Ori Tests**: `tests/spec/tooling/lsp_hover.ori`
 
 - [ ] **Implement**: Completions
-  - [ ] **Rust Tests**: `oric/src/lsp/completions.rs` — completions
+  - [ ] **Rust Tests**: `ori_lsp/src/handlers/completion.rs` — completions
   - [ ] **Ori Tests**: `tests/spec/tooling/lsp_completions.ori`
 
 - [ ] **Implement**: Diagnostics
-  - [ ] **Rust Tests**: `oric/src/lsp/diagnostics.rs` — LSP diagnostics
+  - [ ] **Rust Tests**: `ori_lsp/src/handlers/diagnostics.rs` — LSP diagnostics
   - [ ] **Ori Tests**: `tests/spec/tooling/lsp_diagnostics.ori`
 
 ---

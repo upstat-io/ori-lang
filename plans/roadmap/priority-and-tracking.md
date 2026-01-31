@@ -803,6 +803,16 @@
 - Avoids async/await confusion (Ori has no `.await`)
 - Blocked on: None (documentation/terminology change)
 
+**LSP Implementation** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/lsp-implementation-proposal.md`
+- Implementation: Phase 22.2 (see `plans/ori_lsp/` for detailed phases)
+- Crate: `compiler/ori_lsp/` with `ori lsp` subcommand entry point
+- Uses existing Salsa `CompilerDb` for incremental computation
+- VS Code as primary editor with Test Explorer integration
+- Custom LSP methods for test integration (`ori/testsForFunction`, `ori/testResults`)
+- DAP debugging support deferred to Phase 2
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones
