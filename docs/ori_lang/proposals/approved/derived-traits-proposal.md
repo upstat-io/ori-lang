@@ -1,8 +1,9 @@
 # Proposal: Derived Traits
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-30
+**Approved:** 2026-01-30
 **Affects:** Compiler, type system, traits
 
 ---
@@ -49,13 +50,6 @@ Multiple traits can be derived in a single attribute. The attribute must immedia
 | `Default` | All fields implement `Default` | Field-wise default |
 | `Debug` | All fields implement `Debug` | Formatted struct representation |
 | `Printable` | All fields implement `Printable` | Human-readable representation |
-
-### Serialization Traits
-
-| Trait | Requirement | Generated Implementation |
-|-------|-------------|-------------------------|
-| `Serialize` | All fields implement `Serialize` | Field-wise serialization |
-| `Deserialize` | All fields implement `Deserialize` | Field-wise deserialization |
 
 ---
 
@@ -105,8 +99,8 @@ type Point = { x: int, y: int }
 impl Hashable for Point {
     @hash (self) -> int = run(
         let h = 0,
-        h = combine_hash(h, self.x.hash()),
-        h = combine_hash(h, self.y.hash()),
+        h = hash_combine(seed: h, value: self.x.hash()),
+        h = hash_combine(seed: h, value: self.y.hash()),
         h,
     )
 }
@@ -196,7 +190,7 @@ Point { x: 1, y: 2 }.debug()  // "Point { x: 1, y: 2 }"
 
 ### Printable
 
-Human-readable representation (may differ from Debug):
+Human-readable representation with type name:
 
 ```ori
 #derive(Printable)
@@ -204,11 +198,13 @@ type Point = { x: int, y: int }
 
 // Generated:
 impl Printable for Point {
-    @to_str (self) -> str = `({self.x}, {self.y})`
+    @to_str (self) -> str = `Point({self.x}, {self.y})`
 }
 
-Point { x: 1, y: 2 }.to_str()  // "(1, 2)"
+Point { x: 1, y: 2 }.to_str()  // "Point(1, 2)"
 ```
+
+**Note:** Types implementing `Printable` automatically implement `Formattable` via a blanket implementation. Deriving `Printable` therefore provides `Formattable` as well.
 
 ---
 
@@ -342,7 +338,7 @@ error[E0881]: trait `Iterator` cannot be derived
  1 | #derive(Iterator)
    |         ^^^^^^^^ not derivable
    |
-   = note: derivable traits: Eq, Hashable, Comparable, Clone, Default, Debug, Printable, Serialize, Deserialize
+   = note: derivable traits: Eq, Hashable, Comparable, Clone, Default, Debug, Printable
    = help: implement `Iterator` manually
 ```
 
@@ -380,7 +376,7 @@ warning[W0100]: `Hashable` derived without `Eq`
 ### Complete Data Type
 
 ```ori
-#derive(Eq, Hashable, Comparable, Clone, Debug, Serialize, Deserialize)
+#derive(Eq, Hashable, Comparable, Clone, Debug)
 type User = {
     id: int,
     name: str,
@@ -441,7 +437,4 @@ Add cross-reference to derive semantics.
 | `Default` | Yes | Yes | No | All fields: `Default` |
 | `Debug` | Yes | Yes | Yes | All fields: `Debug` |
 | `Printable` | Yes | Yes | Yes | All fields: `Printable` |
-| `Serialize` | Yes | Yes | Yes | All fields: `Serialize` |
-| `Deserialize` | Yes | Yes | Yes | All fields: `Deserialize` |
 | `Iterator` | No | — | — | — |
-| `Sendable` | Auto | — | — | Compiler-derived |

@@ -324,11 +324,66 @@ Creates distinct nominal type.
 ### Derive
 
 ```ori
-#derive(Eq, Hashable, Clone)]
+#derive(Eq, Hashable, Clone)
 type Point = { x: int, y: int }
 ```
 
-Derivable: `Eq`, `Hashable`, `Comparable`, `Printable`, `Debug`, `Clone`, `Default`, `Serialize`, `Deserialize`.
+The `#derive` attribute generates trait implementations automatically for user-defined types.
+
+**Derivable Traits:**
+
+| Trait | Struct | Sum Type | Requirement |
+|-------|--------|----------|-------------|
+| `Eq` | Yes | Yes | All fields implement `Eq` |
+| `Hashable` | Yes | Yes | All fields implement `Hashable` |
+| `Comparable` | Yes | Yes | All fields implement `Comparable` |
+| `Clone` | Yes | Yes | All fields implement `Clone` |
+| `Default` | Yes | No | All fields implement `Default` |
+| `Debug` | Yes | Yes | All fields implement `Debug` |
+| `Printable` | Yes | Yes | All fields implement `Printable` |
+
+**Derivation Rules:**
+
+- `Eq`: Field-wise equality comparison
+- `Hashable`: Combined field hashes using `hash_combine`; warning if derived without `Eq`
+- `Comparable`: Lexicographic comparison by field declaration order; sum type variants compare by declaration order
+- `Clone`: Field-wise cloning via `.clone()` method
+- `Default`: Field-wise default construction; cannot be derived for sum types (ambiguous variant)
+- `Debug`: Structural representation: `TypeName { field1: value1, field2: value2 }`
+- `Printable`: Human-readable format: `TypeName(value1, value2)`
+
+**Generic Types:**
+
+Generic types derive traits conditionally based on type parameter constraints:
+
+```ori
+#derive(Eq, Clone)
+type Pair<T> = { first: T, second: T }
+
+// Generated:
+impl<T: Eq> Eq for Pair<T> { ... }
+impl<T: Clone> Clone for Pair<T> { ... }
+```
+
+**Recursive Types:**
+
+Recursive types can derive traits; generated implementations handle recursion correctly.
+
+**Non-Derivable Traits:**
+
+| Trait | Reason |
+|-------|--------|
+| `Iterator` | Requires custom `next` logic |
+| `Iterable` | Requires custom `iter` logic |
+| `Into` | Requires custom conversion logic |
+| `Drop` | Requires custom cleanup logic |
+| `Sendable` | Automatically derived by compiler |
+
+**Notes:**
+
+- Types implementing `Printable` automatically implement `Formattable` via blanket implementation
+- Multiple `#derive` attributes are equivalent to a single attribute with combined traits
+- Derive order does not affect behavior
 
 ## Nominal Typing
 
@@ -471,7 +526,7 @@ Collections implement `Clone` when their element types implement `Clone`:
 `Clone` is derivable for user-defined types when all fields implement `Clone`:
 
 ```ori
-#derive(Clone)]
+#derive(Clone)
 type Point = { x: int, y: int }
 ```
 
@@ -496,7 +551,7 @@ trait Debug {
 Unlike `Printable`, which is for user-facing display, `Debug` shows the complete internal structure and is always derivable.
 
 ```ori
-#derive(Debug)]
+#derive(Debug)
 type Point = { x: int, y: int }
 
 Point { x: 1, y: 2 }.debug()  // "Point { x: 1, y: 2 }"
@@ -531,7 +586,7 @@ Collections implement `Debug` when their element types implement `Debug`:
 `Debug` is derivable for user-defined types when all fields implement `Debug`:
 
 ```ori
-#derive(Debug)]
+#derive(Debug)
 type Config = { host: str, port: int }
 
 Config { host: "localhost", port: 8080 }.debug()
