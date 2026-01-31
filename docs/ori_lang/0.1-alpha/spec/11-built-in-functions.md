@@ -186,6 +186,69 @@ is_cancelled() -> bool
 
 Available in async contexts. Returns `true` if the current task has been marked for cancellation. See [Patterns § nursery](10-patterns.md#nursery) for cancellation semantics.
 
+## Iteration
+
+### repeat
+
+```
+repeat<T: Clone>(value: T) -> impl Iterator
+```
+
+Creates an infinite iterator that yields clones of `value`. The type `T` must implement `Clone`.
+
+```ori
+repeat(value: 0).take(count: 5).collect()  // [0, 0, 0, 0, 0]
+repeat(value: "x").take(count: 3).collect()  // ["x", "x", "x"]
+```
+
+Infinite iterators must be bounded before terminal operations:
+
+```ori
+repeat(value: 1).collect()                      // Infinite loop, eventual OOM
+repeat(value: default).take(count: n).collect() // Safe
+```
+
+Common patterns:
+
+```ori
+// Initialize list
+let zeros: [int] = repeat(value: 0).take(count: 100).collect()
+
+// Zip with constant
+items.iter().zip(other: repeat(value: multiplier)).map(transform: (x, m) -> x * m)
+```
+
+## Compile-Time
+
+### compile_error
+
+```
+compile_error(msg: str) -> Never
+```
+
+Causes a compile-time error with the given message. Valid only in contexts that are statically evaluable at compile time:
+
+1. **Conditional compilation branches**: Inside `#target(...)` or `#cfg(...)` blocks
+2. **Const-if branches**: Inside `if $constant then ... else ...` where the condition involves compile-time constants
+
+```ori
+// OK: compile_error in conditional block
+#target(os: "windows")
+@platform_specific () -> void = compile_error(msg: "Windows not supported")
+
+// OK: compile_error in dead branch
+@check () -> void =
+    if $target_os == "windows" then
+        compile_error(msg: "Windows not supported")
+    else
+        ()
+
+// ERROR: compile_error in unconditional code
+@bad () -> void = compile_error(msg: "always fails")
+```
+
+See [Conditional Compilation](24-conditional-compilation.md) for conditional compilation semantics.
+
 ## Prelude
 
 Available without import:
@@ -196,8 +259,10 @@ Available without import:
 - All assertions
 - `print`, `panic`, `compare`, `min`, `max`
 - `todo`, `unreachable`, `dbg`
+- `repeat`
+- `compile_error`
 - `is_cancelled` (async contexts only)
-- `CancellationError`, `CancellationReason` types
+- `CancellationError`, `CancellationReason`, `PanicInfo` types
 
 ## Collection Methods
 

@@ -13,7 +13,7 @@ pub use ori_patterns::{EvalError, EvalResult};
 
 // Binary Operation Errors
 
-pub use ori_patterns::{binary_type_mismatch, division_by_zero, invalid_binary_op, modulo_by_zero};
+pub use ori_patterns::{binary_type_mismatch, division_by_zero, modulo_by_zero};
 
 // Method Call Errors
 

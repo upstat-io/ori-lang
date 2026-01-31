@@ -103,7 +103,7 @@ pub use errors::{
     index_out_of_bounds,
     integer_overflow,
     invalid_assignment_target,
-    invalid_binary_op,
+    invalid_binary_op_for,
     invalid_literal_pattern,
     invalid_tuple_field,
     key_not_found,

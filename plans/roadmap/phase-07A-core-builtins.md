@@ -221,7 +221,47 @@
 
 ---
 
-## 7A.6 Phase Completion Checklist
+## 7A.6 Additional Built-in Functions
+
+**Proposal**: `proposals/approved/additional-builtins-proposal.md`
+
+Formalizes `repeat`, `compile_error`, `PanicInfo`, and clarifies `??` operator semantics.
+
+### repeat Function
+
+- [ ] **Implement**: `repeat<T: Clone>(value: T) -> impl Iterator` — infinite iterator of cloned values
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — repeat tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/repeat.ori`
+  - [ ] **LLVM Support**: LLVM codegen for repeat
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` — repeat codegen
+
+- [ ] **Implement**: Clone requirement enforcement — T must implement Clone
+  - [ ] **Rust Tests**: `oric/src/typeck/builtins.rs` — repeat type checking
+  - [ ] **Ori Tests**: `tests/compile-fail/repeat_not_clone.ori`
+
+- [ ] **Implement**: Integration with Iterator trait — .take(), .collect(), etc.
+  - [ ] **Ori Tests**: `tests/spec/stdlib/repeat_iterator.ori`
+
+### PanicInfo Type
+
+- [ ] **Implement**: `PanicInfo` struct type — `{ message: str, file: str, line: int, column: int }`
+  - [ ] **Rust Tests**: `oric/src/typeck/types.rs` — PanicInfo type tests
+  - [ ] **Ori Tests**: `tests/spec/types/panic_info.ori`
+  - [ ] **LLVM Support**: LLVM codegen for PanicInfo
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/type_tests.rs` — PanicInfo codegen
+
+- [ ] **Implement**: `Printable` impl for PanicInfo
+  - [ ] **Ori Tests**: `tests/spec/types/panic_info_printable.ori`
+
+- [ ] **Implement**: `Debug` impl for PanicInfo
+  - [ ] **Ori Tests**: `tests/spec/types/panic_info_debug.ori`
+
+- [ ] **Add to prelude**: PanicInfo available without import
+  - [ ] **Ori Tests**: `tests/spec/prelude/panic_info.ori`
+
+---
+
+## 7A.7 Phase Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
