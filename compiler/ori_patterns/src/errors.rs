@@ -4,7 +4,7 @@
 //! and the evaluator's runtime.
 
 use crate::value::Value;
-use ori_ir::Span;
+use ori_ir::{BinaryOp, Span};
 
 /// Result of evaluation.
 pub type EvalResult = Result<Value, EvalError>;
@@ -108,10 +108,15 @@ impl EvalError {
 
 // Binary Operation Errors
 
-/// Invalid operator for a specific type.
+/// Invalid operator for a specific type with operator context.
+///
+/// Provides better error messages by including the specific operator that failed.
 #[cold]
-pub fn invalid_binary_op(type_name: &str) -> EvalError {
-    EvalError::new(format!("invalid operator for {type_name}"))
+pub fn invalid_binary_op_for(type_name: &str, op: BinaryOp) -> EvalError {
+    EvalError::new(format!(
+        "operator `{}` cannot be applied to {type_name}",
+        op.as_symbol()
+    ))
 }
 
 /// Type mismatch in binary operation.
@@ -571,10 +576,11 @@ mod tests {
 
     // Binary Operation Errors
     #[test]
-    fn test_invalid_binary_op() {
-        let err = invalid_binary_op("string");
-        assert!(err.message.contains("invalid operator"));
-        assert!(err.message.contains("string"));
+    fn test_invalid_binary_op_for() {
+        let err = invalid_binary_op_for("Option", BinaryOp::Add);
+        assert!(err.message.contains("operator"));
+        assert!(err.message.contains("+"));
+        assert!(err.message.contains("Option"));
     }
 
     #[test]

@@ -85,6 +85,35 @@ panic(msg: "invalid state")
 
 This format applies to both explicit `panic()` calls and implicit panics (index out of bounds, division by zero, etc.).
 
+### PanicInfo Type
+
+The `PanicInfo` type contains structured information about a panic:
+
+```ori
+type PanicInfo = {
+    message: str,
+    file: str,
+    line: int,
+    column: int,
+}
+```
+
+`PanicInfo` is available in the prelude. It implements `Printable` and `Debug`:
+
+```ori
+impl Printable for PanicInfo {
+    @to_str (self) -> str =
+        `panic at {self.file}:{self.line}:{self.column}: {self.message}`
+}
+
+impl Debug for PanicInfo {
+    @debug (self) -> str =
+        `PanicInfo \{ message: {self.message.debug()}, file: {self.file.debug()}, line: {self.line}, column: {self.column} \}`
+}
+```
+
+> **Note:** The `catch` pattern returns `Result<T, str>`, not `Result<T, PanicInfo>`. `PanicInfo` is intended for future panic hook functionality.
+
 ## Integer Overflow
 
 Integer arithmetic panics on overflow:

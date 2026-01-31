@@ -539,6 +539,64 @@ dependencies = ["winapi"]
 
 ---
 
+## 13.10 compile_error Built-in
+
+**Proposal**: `proposals/approved/additional-builtins-proposal.md`
+
+### Syntax
+
+```ori
+@compile_error (msg: str) -> Never
+```
+
+Causes a compile-time error with the given message. Valid only in compile-time evaluable contexts.
+
+### Constraints
+
+```ori
+// ERROR: compile_error in unconditional code
+@bad () -> void = compile_error(msg: "always fails")
+
+// OK: compile_error in dead branch
+@platform_check () -> void =
+    if $target_os == "windows" then
+        compile_error(msg: "Windows not supported")
+    else
+        real_impl()
+
+// OK: compile_error in #target block
+#target(os: "windows")
+@platform_specific () -> void = compile_error(msg: "Not supported")
+```
+
+### Implementation
+
+- [ ] **Spec**: Add `compile_error` to `spec/11-built-in-functions.md`
+  - [ ] Syntax and return type
+  - [ ] Context restrictions (conditional compilation only)
+  - [ ] Error message format
+
+- [ ] **Lexer/Parser**: Reserve `compile_error` as built-in
+  - [ ] Cannot define function with this name
+
+- [ ] **Compiler**: compile_error evaluation
+  - [ ] Detect in conditional compilation branches
+  - [ ] Verify not in runtime-reachable code
+  - [ ] Emit compile-time error with user message
+  - [ ] **Rust Tests**: compile_error evaluation tests
+
+- [ ] **Ori Tests**: `tests/spec/conditional/compile_error.ori`
+  - [ ] In #target blocks
+  - [ ] In #cfg blocks
+  - [ ] In if $constant branches
+  - [ ] **Compile-fail tests**: `tests/compile-fail/compile_error_unconditional.ori`
+
+- [ ] **LLVM Support**: LLVM codegen for compile_error
+  - [ ] Should never reach LLVM (compile-time only)
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — verify compile_error not in codegen
+
+---
+
 ## Phase Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`

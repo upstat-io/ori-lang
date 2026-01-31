@@ -35,6 +35,10 @@ mod shared;
 mod unary_operators;
 mod user_methods;
 
+#[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+mod tests;
+
 // Re-export value types from ori_patterns
 pub use ori_patterns::{
     EvalContext, EvalError, EvalResult, FunctionValFn, FunctionValue, Heap, MemoizedFunctionValue,
@@ -80,7 +84,6 @@ pub use errors::{
     index_assignment_not_implemented,
     index_out_of_bounds,
     invalid_assignment_target,
-    invalid_binary_op,
     invalid_literal_pattern,
     invalid_tuple_field,
     key_not_found,

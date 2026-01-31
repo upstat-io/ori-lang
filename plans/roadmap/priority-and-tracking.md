@@ -645,6 +645,15 @@
 - Enhances `sync-grammar` skill with manual verification checklist
 - Blocked on: None (can be implemented independently)
 
+**Additional Built-in Functions and Types** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/additional-builtins-proposal.md`
+- Implementation: Phase 7A.6 (repeat, PanicInfo), Phase 13.10 (compile_error)
+- `repeat<T: Clone>(value: T)` — infinite iterator of cloned values
+- `compile_error(msg: str)` — compile-time error (conditional branches only)
+- `PanicInfo` type — `{ message, file, line, column }` for panic metadata
+- Clarifies `??` operator precedence (level 14, lowest)
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones
