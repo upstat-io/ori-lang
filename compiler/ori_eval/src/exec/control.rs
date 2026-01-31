@@ -31,6 +31,7 @@ use crate::{
     Environment,
     EvalError,
     EvalResult,
+    Heap,
     Mutability,
     Value,
 };
@@ -277,7 +278,7 @@ pub fn try_match(
                     ),
                     // Multiple patterns for multi-field variant
                     (n, m) if n == m => {
-                        let mut all_bindings = Vec::new();
+                        let mut all_bindings = Vec::with_capacity(inner_patterns.len());
                         for (pat_id, val) in inner_patterns.iter().zip(fields.iter()) {
                             match try_match(arena.get_match_pattern(*pat_id), val, arena, interner)?
                             {
@@ -301,7 +302,7 @@ pub fn try_match(
                 if pattern_ids.len() != values.len() {
                     return Ok(None);
                 }
-                let mut all_bindings = Vec::new();
+                let mut all_bindings = Vec::with_capacity(pattern_ids.len());
                 for (pat_id, val) in pattern_ids.iter().zip(values.iter()) {
                     match try_match(arena.get_match_pattern(*pat_id), val, arena, interner)? {
                         Some(bindings) => all_bindings.extend(bindings),
@@ -323,7 +324,13 @@ pub fn try_match(
                 if rest.is_none() && values.len() != element_ids.len() {
                     return Ok(None);
                 }
-                let mut all_bindings = Vec::new();
+                // Pre-allocate for element bindings plus optional rest binding
+                // Use saturating_add since overflow is impossible in practice (pattern lists
+                // are bounded by source code size), but we need to satisfy arithmetic lint
+                let capacity = element_ids
+                    .len()
+                    .saturating_add(usize::from(rest.is_some()));
+                let mut all_bindings = Vec::with_capacity(capacity);
                 for (pat_id, val) in element_ids.iter().zip(values.iter()) {
                     match try_match(arena.get_match_pattern(*pat_id), val, arena, interner)? {
                         Some(bindings) => all_bindings.extend(bindings),
@@ -364,7 +371,7 @@ pub fn try_match(
 
         MatchPattern::Struct { fields } => {
             if let Value::Struct(s) = value {
-                let mut all_bindings = Vec::new();
+                let mut all_bindings = Vec::with_capacity(fields.len());
                 for (field_name, inner_pat_id) in fields {
                     if let Some(field_val) = s.get_field(*field_name) {
                         if let Some(pat_id) = inner_pat_id {
@@ -489,9 +496,53 @@ pub enum LoopAction {
     Error(EvalError),
 }
 
+/// Lazy iterator over for loop items to avoid pre-collecting all elements.
+///
+/// This avoids the allocation overhead of `list.iter().cloned().collect::<Vec<_>>()`
+/// which would allocate a full copy of the list on every loop iteration.
+enum ForIter {
+    List {
+        list: Heap<Vec<Value>>,
+        index: usize,
+    },
+    Range {
+        iter: std::ops::Range<i64>,
+    },
+}
+
+impl Iterator for ForIter {
+    type Item = Value;
+
+    fn next(&mut self) -> Option<Value> {
+        match self {
+            ForIter::List { list, index } => {
+                if *index < list.len() {
+                    let item = list[*index].clone();
+                    *index = index.saturating_add(1);
+                    Some(item)
+                } else {
+                    None
+                }
+            }
+            ForIter::Range { iter } => iter.next().map(Value::int),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            ForIter::List { list, index } => {
+                let remaining = list.len().saturating_sub(*index);
+                (remaining, Some(remaining))
+            }
+            ForIter::Range { iter } => iter.size_hint(),
+        }
+    }
+}
+
 /// Evaluate a for loop.
 ///
 /// Uses RAII scope guard to ensure scope is popped even on panic.
+/// Uses lazy iteration to avoid pre-collecting all elements.
 pub fn eval_for<F>(
     binding: Name,
     iter: Value,
@@ -505,8 +556,14 @@ where
     F: FnMut(ExprId, Option<ExprId>, &mut Environment) -> Result<(Value, LoopAction), EvalError>,
 {
     let items = match iter {
-        Value::List(list) => list.iter().cloned().collect::<Vec<_>>(),
-        Value::Range(range) => range.iter().map(Value::int).collect(),
+        Value::List(list) => ForIter::List { list, index: 0 },
+        Value::Range(range) => ForIter::Range {
+            iter: range.start..if range.inclusive {
+                range.end.saturating_add(1)
+            } else {
+                range.end
+            },
+        },
         _ => return Err(for_requires_iterable()),
     };
 

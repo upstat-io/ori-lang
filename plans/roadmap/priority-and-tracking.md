@@ -654,6 +654,15 @@
 - Clarifies `??` operator precedence (level 14, lowest)
 - Blocked on: None (can be implemented independently)
 
+**Additional Core Traits** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/additional-traits-proposal.md`
+- Implementation: Phase 3.13
+- `Printable` trait with derivation format `"Point(1, 2)"` (type name + values)
+- `Default` trait with derivation for structs only (error on sum types)
+- `Traceable` trait with `@trace` -> str and `@trace_entries` -> [TraceEntry]
+- Error codes: E1040 (missing Printable), E1042 (cannot derive Default for sum type)
+- Blocked on: None (builds on existing Phase 3 infrastructure)
+
 ---
 
 ## Milestones
