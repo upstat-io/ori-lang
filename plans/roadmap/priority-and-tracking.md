@@ -93,6 +93,14 @@
 
 ### Recent Completions
 
+**Phase 3.21 (Operator Traits)** — ✅ COMPLETED 2026-01-31
+- 14 operator traits added to prelude: Add, Sub, Mul, Div, FloorDiv, Rem, Neg, Not, BitNot, BitAnd, BitOr, BitXor, Shl, Shr
+- Operators desugar to trait method calls (e.g., `a + b` → `a.add(rhs: b)`, `a - b` → `a.subtract(rhs: b)`)
+- Method names use full words: `add`, `subtract`, `multiply`, `divide`, `floor_divide`, `remainder`, `negate`, `not`, `bit_not`, `bit_and`, `bit_or`, `bit_xor`, `shift_left`, `shift_right`
+- Primitive types use direct evaluation; user-defined types dispatch through trait impls
+- User-defined operator tests pass (4 tests)
+- Enables Duration/Size to move from compiler built-ins to stdlib (Phase 7D.10)
+
 **Phase 22.1 (Formatter CLI)** — ✅ COMPLETED 2026-01-30
 - `ori fmt` command with full CLI integration
 - Width-based breaking, comment preservation, doc comment reordering
@@ -947,15 +955,35 @@
 - Works alongside default-type-parameters-proposal to enable operator-traits-proposal
 - Blocked on: None (enables operator traits)
 
-**Operator Traits** — ✅ APPROVED 2026-01-31
+**Operator Traits** — ✅ APPROVED 2026-01-31, ✅ IMPLEMENTED 2026-01-31
 - Proposal: `proposals/approved/operator-traits-proposal.md`
-- Implementation: Phase 3.21
+- Implementation: Phase 3.21 — COMPLETE
 - Defines traits for arithmetic (`Add`, `Sub`, `Mul`, `Div`, `FloorDiv`, `Rem`), bitwise (`BitAnd`, `BitOr`, `BitXor`, `Shl`, `Shr`), and unary (`Neg`, `Not`, `BitNot`) operators
-- Operators desugar to trait method calls (e.g., `a + b` → `a.add(rhs: b)`)
+- Operators desugar to trait method calls (e.g., `a + b` → `a.add(rhs: b)`, `a - b` → `a.subtract(rhs: b)`)
+- Method names: `add`, `subtract`, `multiply`, `divide`, `floor_divide`, `remainder`, `negate`, `not`, `bit_not`, `bit_and`, `bit_or`, `bit_xor`, `shift_left`, `shift_right`
 - User-defined types can implement traits to support operator syntax
 - Mixed-type operations require explicit both-direction impls (no auto-commutativity)
 - Enables Duration/Size to move from compiler built-ins to stdlib
-- Blocked on: None (default-type-parameters and default-associated-types now approved)
+
+**Operator Trait Method Naming** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/operator-method-naming-proposal.md`
+- Implementation: Phase 3.21 (amends operator-traits-proposal)
+- Renames abbreviated method names to full words for consistency with `divide`
+- Before: `sub`, `mul`, `rem`, `neg`, `shl`, `shr`, `floor_div`
+- After: `subtract`, `multiply`, `remainder`, `negate`, `shift_left`, `shift_right`, `floor_divide`
+- Unchanged: `add`, `divide`, `not`, `bit_not`, `bit_and`, `bit_or`, `bit_xor`
+- Blocked on: None (operator-traits already implemented)
+
+**Duration and Size to Stdlib** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/duration-size-to-stdlib-proposal.md`
+- Implementation: Phase 7D.10
+- Moves Duration and Size from compiler built-ins to pure Ori library types
+- Literal suffixes (`10s`, `5mb`) remain compiler-recognized but desugar to associated function calls
+- Validates operator traits and associated functions work together
+- Reduces ~500 lines of compiler special-case code
+- Enables user-defined unit types (Temperature, Currency, Angle, etc.)
+- Supersedes: Duration/Size "Special types" categorization in stdlib-philosophy-proposal
+- Blocked on: None (operator-traits and associated-functions now approved)
 
 ---
 

@@ -13,16 +13,16 @@ use ori_types::Type;
 fn binary_op_to_trait(op: BinaryOp) -> Option<(&'static str, &'static str)> {
     match op {
         BinaryOp::Add => Some(("Add", "add")),
-        BinaryOp::Sub => Some(("Sub", "sub")),
-        BinaryOp::Mul => Some(("Mul", "mul")),
-        BinaryOp::Div => Some(("Div", "div")),
-        BinaryOp::FloorDiv => Some(("FloorDiv", "floor_div")),
-        BinaryOp::Mod => Some(("Rem", "rem")),
+        BinaryOp::Sub => Some(("Sub", "subtract")),
+        BinaryOp::Mul => Some(("Mul", "multiply")),
+        BinaryOp::Div => Some(("Div", "divide")),
+        BinaryOp::FloorDiv => Some(("FloorDiv", "floor_divide")),
+        BinaryOp::Mod => Some(("Rem", "remainder")),
         BinaryOp::BitAnd => Some(("BitAnd", "bit_and")),
         BinaryOp::BitOr => Some(("BitOr", "bit_or")),
         BinaryOp::BitXor => Some(("BitXor", "bit_xor")),
-        BinaryOp::Shl => Some(("Shl", "shl")),
-        BinaryOp::Shr => Some(("Shr", "shr")),
+        BinaryOp::Shl => Some(("Shl", "shift_left")),
+        BinaryOp::Shr => Some(("Shr", "shift_right")),
         // Comparison and logical operators are NOT trait-based
         // They use Eq and Comparable traits directly
         _ => None,
@@ -33,7 +33,7 @@ fn binary_op_to_trait(op: BinaryOp) -> Option<(&'static str, &'static str)> {
 #[allow(dead_code)] // Reserved for future use
 fn unary_op_to_trait(op: UnaryOp) -> Option<(&'static str, &'static str)> {
     match op {
-        UnaryOp::Neg => Some(("Neg", "neg")),
+        UnaryOp::Neg => Some(("Neg", "negate")),
         UnaryOp::Not => Some(("Not", "not")),
         UnaryOp::BitNot => Some(("BitNot", "bit_not")),
         UnaryOp::Try => None, // Try is special, not trait-based

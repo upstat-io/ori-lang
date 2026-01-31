@@ -521,7 +521,12 @@ impl<'a> Interpreter<'a> {
     fn eval_unary(&mut self, op: UnaryOp, operand: ExprId) -> EvalResult {
         let value = self.eval(operand)?;
 
-        // Unary operators with trait implementations dispatch through methods
+        // Primitive types use direct evaluation (built-in operators)
+        if is_primitive_value(&value) {
+            return evaluate_unary(value, op);
+        }
+
+        // User-defined types dispatch unary operators through trait methods
         if let Some(method_name) = unary_op_to_method(op) {
             let method = self.interner.intern(method_name);
             return self.eval_method_call(value, method, vec![]);
@@ -560,13 +565,13 @@ impl<'a> Interpreter<'a> {
 
         let right_val = self.eval(right)?;
 
-        // Check if this is a mixed-type operation that needs special handling
-        // (e.g., int * Duration, int * Size, Duration / int, Size / int)
-        if is_mixed_primitive_op(&left_val, &right_val) {
+        // Primitive types use direct evaluation (built-in operators)
+        // User-defined types dispatch through operator trait methods
+        if is_primitive_value(&left_val) {
             return evaluate_binary(left_val, right_val, op);
         }
 
-        // Operators with trait implementations dispatch through methods
+        // For user-defined types, dispatch arithmetic/bitwise operators through trait methods
         if let Some(method_name) = binary_op_to_method(op) {
             let method = self.interner.intern(method_name);
             return self.eval_method_call(left_val, method, vec![right_val]);
@@ -584,6 +589,11 @@ impl<'a> Interpreter<'a> {
             ExprKind::Binary { left, op, right } => {
                 let left_val = self.eval_with_hash_length(*left, length)?;
                 let right_val = self.eval_with_hash_length(*right, length)?;
+
+                // Primitive types use direct evaluation (built-in operators)
+                if is_primitive_value(&left_val) {
+                    return evaluate_binary(left_val, right_val, *op);
+                }
 
                 // Check if this is a mixed-type operation that needs special handling
                 if is_mixed_primitive_op(&left_val, &right_val) {
@@ -981,6 +991,33 @@ fn is_mixed_primitive_op(left: &Value, right: &Value) -> bool {
     )
 }
 
+/// Check if a value is a primitive type that uses built-in operator evaluation.
+///
+/// Primitive types (int, float, bool, str, char, byte, Duration, Size) use direct
+/// evaluation via `evaluate_binary`. User-defined types dispatch through operator
+/// trait methods (`Add::add`, `Sub::subtract`, `Mul::multiply`, etc.).
+fn is_primitive_value(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Int(_)
+            | Value::Float(_)
+            | Value::Bool(_)
+            | Value::Str(_)
+            | Value::Char(_)
+            | Value::Byte(_)
+            | Value::Duration(_)
+            | Value::Size(_)
+            | Value::List(_)
+            | Value::Tuple(_)
+            | Value::Map(_)
+            | Value::Some(_)
+            | Value::None
+            | Value::Ok(_)
+            | Value::Err(_)
+            | Value::Range(_)
+    )
+}
+
 /// Map a binary operator to its trait method name.
 ///
 /// Returns `Some(method_name)` for operators that have trait implementations,
@@ -990,17 +1027,18 @@ fn binary_op_to_method(op: BinaryOp) -> Option<&'static str> {
     match op {
         // Arithmetic operators
         BinaryOp::Add => Some("add"),
-        BinaryOp::Sub => Some("sub"),
-        BinaryOp::Mul => Some("mul"),
-        BinaryOp::Div => Some("div"),
-        BinaryOp::FloorDiv => Some("floor_div"),
-        BinaryOp::Mod => Some("rem"),
+        BinaryOp::Sub => Some("subtract"),
+        BinaryOp::Mul => Some("multiply"),
+        // Note: "divide" not "div" because `div` is a keyword (floor division operator)
+        BinaryOp::Div => Some("divide"),
+        BinaryOp::FloorDiv => Some("floor_divide"),
+        BinaryOp::Mod => Some("remainder"),
         // Bitwise operators
         BinaryOp::BitAnd => Some("bit_and"),
         BinaryOp::BitOr => Some("bit_or"),
         BinaryOp::BitXor => Some("bit_xor"),
-        BinaryOp::Shl => Some("shl"),
-        BinaryOp::Shr => Some("shr"),
+        BinaryOp::Shl => Some("shift_left"),
+        BinaryOp::Shr => Some("shift_right"),
         // Comparison, logical, range, and null-coalescing operators
         // use direct evaluation (no trait method)
         BinaryOp::Eq
@@ -1023,7 +1061,7 @@ fn binary_op_to_method(op: BinaryOp) -> Option<&'static str> {
 /// or `None` for the Try operator which doesn't have a trait.
 fn unary_op_to_method(op: UnaryOp) -> Option<&'static str> {
     match op {
-        UnaryOp::Neg => Some("neg"),
+        UnaryOp::Neg => Some("negate"),
         UnaryOp::Not => Some("not"),
         UnaryOp::BitNot => Some("bit_not"),
         UnaryOp::Try => None, // Try operator doesn't have a trait

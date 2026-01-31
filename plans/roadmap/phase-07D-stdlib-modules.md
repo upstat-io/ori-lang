@@ -1209,7 +1209,84 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
 
 ---
 
-## 7D.10 Phase Completion Checklist
+## 7D.10 Duration and Size to Stdlib
+
+**Proposal**: `proposals/approved/duration-size-to-stdlib-proposal.md`
+
+Move Duration and Size from compiler built-ins to pure Ori library types using operator traits and associated functions. Literal suffixes (`10s`, `5mb`) remain compiler-recognized but desugar to associated function calls.
+
+### 7D.10.1 Prerequisites
+
+- [x] Operator traits (Phase 3.21) — `Add`, `Sub`, `Mul`, `Div`, `Neg`, `Rem`
+- [x] Associated functions (Phase 3.x) — `Type.method()` syntax
+
+### 7D.10.2 Literal Suffix Desugaring
+
+- [ ] **Implement**: Lexer produces generic "suffixed literal" tokens
+  - [ ] **Rust Tests**: `ori_lexer/tests/suffixed_literals.rs`
+- [ ] **Implement**: Parser desugars to associated function calls
+  - `10s` → `Duration.from_seconds(s: 10)`
+  - `5mb` → `Size.from_megabytes(mb: 5)`
+  - [ ] **Rust Tests**: `ori_parse/tests/literal_desugar.rs`
+  - [ ] **Ori Tests**: `tests/spec/types/duration_literal_desugar.ori`
+  - [ ] **Ori Tests**: `tests/spec/types/size_literal_desugar.ori`
+
+### 7D.10.3 Duration Library Implementation
+
+- [ ] **Implement**: `library/std/duration.ori`
+  - [ ] Type definition with `#derive(Eq, Comparable, Hashable, Clone, Debug, Default, Sendable)`
+  - [ ] `impl Add for Duration`
+  - [ ] `impl Sub for Duration`
+  - [ ] `impl Mul<int> for Duration`
+  - [ ] `impl Mul<Duration> for int` (commutative)
+  - [ ] `impl Div<int> for Duration`
+  - [ ] `impl Div for Duration` → `int` (ratio)
+  - [ ] `impl Rem for Duration`
+  - [ ] `impl Neg for Duration`
+  - [ ] Factory methods: `from_nanoseconds`, `from_microseconds`, `from_milliseconds`, `from_seconds`, `from_minutes`, `from_hours`
+  - [ ] Extraction methods: `nanoseconds`, `microseconds`, `milliseconds`, `seconds`, `minutes`, `hours`
+  - [ ] `impl Printable for Duration`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/duration.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Duration
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/duration_tests.rs`
+
+### 7D.10.4 Size Library Implementation
+
+- [ ] **Implement**: `library/std/size.ori`
+  - [ ] Type definition with `#derive(Eq, Comparable, Hashable, Clone, Debug, Default, Sendable)`
+  - [ ] `impl Add for Size`
+  - [ ] `impl Sub for Size` (panics if negative)
+  - [ ] `impl Mul<int> for Size` (panics if negative)
+  - [ ] `impl Mul<Size> for int` (commutative)
+  - [ ] `impl Div<int> for Size`
+  - [ ] `impl Div for Size` → `int` (ratio)
+  - [ ] `impl Rem for Size`
+  - [ ] Factory methods: `from_bytes`, `from_kilobytes`, `from_megabytes`, `from_gigabytes`, `from_terabytes`
+  - [ ] Extraction methods: `bytes`, `kilobytes`, `megabytes`, `gigabytes`, `terabytes`
+  - [ ] `impl Printable for Size`
+  - [ ] **Ori Tests**: `tests/spec/stdlib/size.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Size
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/size_tests.rs`
+
+### 7D.10.5 Compiler Cleanup
+
+- [ ] **Remove**: `Type::Duration` and `Type::Size` variants from type system
+- [ ] **Remove**: `Value::Duration` and `Value::Size` from evaluator
+- [ ] **Remove**: Hardcoded operator implementations in `ori_eval/src/operators.rs`
+- [ ] **Remove**: Hardcoded method dispatch in `ori_eval/src/methods.rs`
+- [ ] **Update**: Prelude to export Duration and Size from library
+- [ ] **Verify**: All existing Duration/Size tests pass unchanged
+
+### 7D.10.6 Error Messages
+
+- [ ] **Implement**: Special-case error for Size unary negation
+  - E0912: "Size cannot be negative — unary negation not allowed"
+- [ ] **Implement**: Helpful errors for missing operator trait impls
+  - Suggest implementing `Add`, `Sub`, etc. when operators fail on user types
+
+---
+
+## 7D.11 Phase Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md

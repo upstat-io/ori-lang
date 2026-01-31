@@ -46,6 +46,98 @@ pub trait Default {
 }
 
 // =============================================================================
+// Operator Traits
+// =============================================================================
+//
+// Operator traits enable user-defined types to support operator syntax.
+// The compiler desugars operators to trait method calls.
+// Primitives (int, float, etc.) have built-in implementations.
+
+// Binary arithmetic: a + b -> a.add(rhs: b)
+pub trait Add<Rhs = Self> {
+    type Output = Self
+    @add (self, rhs: Rhs) -> Self.Output
+}
+
+// Binary arithmetic: a - b -> a.subtract(rhs: b)
+pub trait Sub<Rhs = Self> {
+    type Output = Self
+    @subtract (self, rhs: Rhs) -> Self.Output
+}
+
+// Binary arithmetic: a * b -> a.multiply(rhs: b)
+pub trait Mul<Rhs = Self> {
+    type Output = Self
+    @multiply (self, rhs: Rhs) -> Self.Output
+}
+
+// Binary arithmetic: a / b -> a.divide(rhs: b)
+pub trait Div<Rhs = Self> {
+    type Output = Self
+    @divide (self, rhs: Rhs) -> Self.Output
+}
+
+// Binary arithmetic: a div b -> a.floor_divide(rhs: b)
+pub trait FloorDiv<Rhs = Self> {
+    type Output = Self
+    @floor_divide (self, rhs: Rhs) -> Self.Output
+}
+
+// Binary arithmetic: a % b -> a.remainder(rhs: b)
+pub trait Rem<Rhs = Self> {
+    type Output = Self
+    @remainder (self, rhs: Rhs) -> Self.Output
+}
+
+// Unary negation: -a -> a.negate()
+pub trait Neg {
+    type Output = Self
+    @negate (self) -> Self.Output
+}
+
+// Unary logical not: !a -> a.not()
+pub trait Not {
+    type Output = Self
+    @not (self) -> Self.Output
+}
+
+// Unary bitwise not: ~a -> a.bit_not()
+pub trait BitNot {
+    type Output = Self
+    @bit_not (self) -> Self.Output
+}
+
+// Bitwise and: a & b -> a.bit_and(rhs: b)
+pub trait BitAnd<Rhs = Self> {
+    type Output = Self
+    @bit_and (self, rhs: Rhs) -> Self.Output
+}
+
+// Bitwise or: a | b -> a.bit_or(rhs: b)
+pub trait BitOr<Rhs = Self> {
+    type Output = Self
+    @bit_or (self, rhs: Rhs) -> Self.Output
+}
+
+// Bitwise xor: a ^ b -> a.bit_xor(rhs: b)
+pub trait BitXor<Rhs = Self> {
+    type Output = Self
+    @bit_xor (self, rhs: Rhs) -> Self.Output
+}
+
+// Left shift: a << b -> a.shift_left(rhs: b)
+pub trait Shl<Rhs = int> {
+    type Output = Self
+    @shift_left (self, rhs: Rhs) -> Self.Output
+}
+
+// Right shift: a >> b -> a.shift_right(rhs: b)
+pub trait Shr<Rhs = int> {
+    type Output = Self
+    @shift_right (self, rhs: Rhs) -> Self.Output
+}
+
+// =============================================================================
 // Capability Traits
 // =============================================================================
 //
