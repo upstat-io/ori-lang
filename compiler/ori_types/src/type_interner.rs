@@ -20,6 +20,25 @@ use std::sync::Arc;
 use crate::core::Type;
 use crate::data::{TypeData, TypeVar};
 
+/// Error when interning a type fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TypeInternError {
+    /// Shard exceeded capacity (over 268 million types per shard).
+    ShardOverflow { shard_idx: usize },
+}
+
+impl std::fmt::Display for TypeInternError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TypeInternError::ShardOverflow { shard_idx } => {
+                write!(f, "type interner shard {shard_idx} exceeded u32::MAX types")
+            }
+        }
+    }
+}
+
+impl std::error::Error for TypeInternError {}
+
 /// Per-shard storage for interned types.
 struct TypeShard {
     /// Map from type data to local index for deduplication.
@@ -120,6 +139,63 @@ impl TypeInterner {
         hash_usize % NUM_SHARDS
     }
 
+    /// Try to intern a type, returning its `TypeId` or an error on overflow.
+    ///
+    /// If the type is already interned, returns the existing `TypeId`.
+    /// Otherwise, creates a new entry and returns a fresh `TypeId`.
+    ///
+    /// # Pre-interned Primitives
+    /// Primitive types return fixed `TypeId` constants (INT, FLOAT, etc.)
+    /// for compatibility with code that depends on these constants.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "shard_idx is bounded by NUM_SHARDS (16)"
+    )]
+    pub fn try_intern(&self, data: TypeData) -> Result<TypeId, TypeInternError> {
+        // Fast path for primitives: return fixed TypeId constants
+        match &data {
+            TypeData::Int => return Ok(TypeId::INT),
+            TypeData::Float => return Ok(TypeId::FLOAT),
+            TypeData::Bool => return Ok(TypeId::BOOL),
+            TypeData::Str => return Ok(TypeId::STR),
+            TypeData::Char => return Ok(TypeId::CHAR),
+            TypeData::Byte => return Ok(TypeId::BYTE),
+            TypeData::Unit => return Ok(TypeId::VOID),
+            TypeData::Never => return Ok(TypeId::NEVER),
+            TypeData::Duration => return Ok(TypeId::from_shard_local(0, 8)),
+            TypeData::Size => return Ok(TypeId::from_shard_local(0, 9)),
+            TypeData::Error => return Ok(TypeId::from_shard_local(0, 10)),
+            _ => {}
+        }
+
+        let shard_idx = Self::shard_for(&data);
+        let shard = &self.shards[shard_idx];
+
+        // Fast path: check if already interned
+        {
+            let guard = shard.read();
+            if let Some(&local) = guard.map.get(&data) {
+                return Ok(TypeId::from_shard_local(shard_idx as u32, local));
+            }
+        }
+
+        // Slow path: need to insert
+        let mut guard = shard.write();
+
+        // Double-check after acquiring write lock
+        if let Some(&local) = guard.map.get(&data) {
+            return Ok(TypeId::from_shard_local(shard_idx as u32, local));
+        }
+
+        let local = u32::try_from(guard.types.len())
+            .map_err(|_| TypeInternError::ShardOverflow { shard_idx })?;
+
+        guard.types.push(data.clone());
+        guard.map.insert(data, local);
+
+        Ok(TypeId::from_shard_local(shard_idx as u32, local))
+    }
+
     /// Intern a type, returning its `TypeId`.
     ///
     /// If the type is already interned, returns the existing `TypeId`.
@@ -131,58 +207,9 @@ impl TypeInterner {
     ///
     /// # Panics
     /// Panics if a shard exceeds capacity (over 268 million types per shard).
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "shard_idx is bounded by NUM_SHARDS (16)"
-    )]
+    /// Use `try_intern` for fallible interning.
     pub fn intern(&self, data: TypeData) -> TypeId {
-        // Fast path for primitives: return fixed TypeId constants
-        match &data {
-            TypeData::Int => return TypeId::INT,
-            TypeData::Float => return TypeId::FLOAT,
-            TypeData::Bool => return TypeId::BOOL,
-            TypeData::Str => return TypeId::STR,
-            TypeData::Char => return TypeId::CHAR,
-            TypeData::Byte => return TypeId::BYTE,
-            TypeData::Unit => return TypeId::VOID,
-            TypeData::Never => return TypeId::NEVER,
-            TypeData::Duration => return TypeId::from_shard_local(0, 8),
-            TypeData::Size => return TypeId::from_shard_local(0, 9),
-            TypeData::Error => return TypeId::from_shard_local(0, 10),
-            _ => {}
-        }
-
-        let shard_idx = Self::shard_for(&data);
-        let shard = &self.shards[shard_idx];
-
-        // Fast path: check if already interned
-        {
-            let guard = shard.read();
-            if let Some(&local) = guard.map.get(&data) {
-                return TypeId::from_shard_local(shard_idx as u32, local);
-            }
-        }
-
-        // Slow path: need to insert
-        let mut guard = shard.write();
-
-        // Double-check after acquiring write lock
-        if let Some(&local) = guard.map.get(&data) {
-            return TypeId::from_shard_local(shard_idx as u32, local);
-        }
-
-        let local = u32::try_from(guard.types.len()).unwrap_or_else(|_| {
-            #[cold]
-            fn overflow_panic(shard_idx: usize) -> ! {
-                panic!("type interner shard {shard_idx} exceeded u32::MAX types")
-            }
-            overflow_panic(shard_idx)
-        });
-
-        guard.types.push(data.clone());
-        guard.map.insert(data, local);
-
-        TypeId::from_shard_local(shard_idx as u32, local)
+        self.try_intern(data).unwrap_or_else(|e| panic!("{}", e))
     }
 
     /// Look up the type data for a `TypeId`.

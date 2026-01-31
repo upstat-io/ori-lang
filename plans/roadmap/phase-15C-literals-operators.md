@@ -387,7 +387,39 @@ Formalize map literal key semantics: bare identifiers are literal string keys (l
 
 ---
 
-## 15C.5 Phase Completion Checklist
+## 15C.5 Floor Division (`div`) Operator Fix
+
+**Proposal**: `proposals/approved/grammar-sync-formalization-proposal.md`
+
+Fix parser discrepancy where `div` operator is in grammar but missing from parser.
+
+### Parser Fix
+
+- [ ] **Implement**: Add `TokenKind::Div` case to `match_multiplicative_op()`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/operators.rs` — div operator parsing
+  - [ ] **Ori Tests**: `tests/spec/operators/div_floor.ori`
+  - [ ] **LLVM Support**: LLVM codegen for div operator
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/operator_tests.rs` — div codegen
+
+### Operator Test Infrastructure
+
+- [ ] **Implement**: Create `tests/spec/operators/` directory structure
+  - [ ] `tests/spec/operators/precedence/` — precedence relationship tests
+  - [ ] `tests/spec/operators/associativity/` — associativity tests
+  - [ ] `tests/spec/operators/operators/` — individual operator tests
+
+- [ ] **Implement**: Add precedence tests for adjacent levels
+  - [ ] **Ori Tests**: `tests/spec/operators/precedence/mul_over_add.ori`
+  - [ ] **Ori Tests**: `tests/spec/operators/precedence/add_over_shift.ori`
+  - [ ] **Ori Tests**: `tests/spec/operators/precedence/shift_over_range.ori`
+
+- [ ] **Implement**: Add associativity tests for binary operators
+  - [ ] **Ori Tests**: `tests/spec/operators/associativity/mul_left_assoc.ori`
+  - [ ] **Ori Tests**: `tests/spec/operators/associativity/add_left_assoc.ori`
+
+---
+
+## 15C.6 Phase Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[x]`
 - [ ] All spec docs updated

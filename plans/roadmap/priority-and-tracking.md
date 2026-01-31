@@ -636,6 +636,15 @@
 - Error messages: E1101 (missing module), E1102 (missing export), E1103 (private item)
 - Blocked on: None (can be implemented independently)
 
+**Grammar Synchronization Formalization** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/grammar-sync-formalization-proposal.md`
+- Implementation: Phase 15C.5 (div fix), Phase 22.8 (sync-grammar enhancement)
+- Establishes grammar.ebnf as single source of truth for syntax
+- Fixes `div` operator parser bug (missing from `match_multiplicative_op()`)
+- Adds operator test infrastructure: `tests/spec/operators/`
+- Enhances `sync-grammar` skill with manual verification checklist
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones

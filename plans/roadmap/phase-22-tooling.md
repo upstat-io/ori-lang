@@ -363,7 +363,26 @@ Machine-readable diagnostics with actionable fix suggestions. Enables AI agents 
 
 ---
 
-## 22.8 Phase Completion Checklist
+## 22.8 Grammar Synchronization Verification
+
+> **PROPOSAL**: `proposals/approved/grammar-sync-formalization-proposal.md`
+
+Enhance `sync-grammar` skill with operator verification checklist to catch discrepancies between grammar.ebnf and parser implementation.
+
+### 22.8.1 Enhance sync-grammar Skill
+
+- [ ] **Implement**: Add operator verification checklist to `.claude/commands/sync-grammar.md`
+  - [ ] Checklist for each grammar operator: lexer, AST, parser, typeck, eval
+  - [ ] Precedence chain verification checklist
+  - [ ] Test coverage section listing operators with/without tests
+
+- [ ] **Document**: Verification process in sync-grammar skill
+  - [ ] Output format specification
+  - [ ] Steps for verifying new operators
+
+---
+
+## 22.9 Phase Completion Checklist
 
 - [ ] All items above have all three checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
