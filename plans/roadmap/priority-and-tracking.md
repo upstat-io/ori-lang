@@ -733,6 +733,17 @@
 - Panics: Duration overflow, Size negative result
 - Blocked on: None (fills spec gap)
 
+**Extension Methods** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/extension-methods-proposal.md`
+- Implementation: Phase 4.11
+- Formalizes `extend Type { }` syntax for adding methods to existing types
+- Explicit `extension "path" { Type.method }` import syntax (no wildcards)
+- Resolution order: Inherent > Trait > Extension
+- Orphan rules: same package as type or trait bound
+- Block-level visibility only (no per-method pub)
+- No static methods, no field addition, no override
+- Blocked on: None (builds on existing Phase 4 infrastructure)
+
 ---
 
 ## Milestones
