@@ -1,8 +1,9 @@
 # Proposal: Recurse Pattern
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-30
+**Approved:** 2026-01-31
 **Affects:** Compiler, patterns, optimization
 
 ---
@@ -66,6 +67,28 @@ recurse(
     step: self(n - 1) + self(n - 2),  // Two recursive calls
 )
 ```
+
+### Self Scoping
+
+Within a `recurse` expression, `self(...)` refers to recursive invocation. If the enclosing function is a trait method, the receiver `self` (without parentheses) remains accessible:
+
+```ori
+impl Tree for TreeOps {
+    @depth (self) -> int = recurse(
+        condition: self.is_leaf(),  // Receiver self (no parens)
+        base: 1,
+        step: 1 + max(
+            left: self(self.left()),   // self(...) = recurse
+            right: self(self.right()),
+        ),
+    )
+}
+```
+
+- `self` (no arguments) — trait receiver
+- `self(...)` (with arguments) — recursive call
+
+It is a compile-time error to use `self(...)` outside of a `recurse` step expression.
 
 ### Argument Binding
 
@@ -137,7 +160,7 @@ With `memo: true`:
 Enables parallel evaluation of independent recursive calls:
 
 ```ori
-@parallel_fib (n: int) -> int uses Async = recurse(
+@parallel_fib (n: int) -> int uses Suspend = recurse(
     condition: n <= 1,
     base: n,
     step: self(n - 1) + self(n - 2),  // Evaluated in parallel
@@ -147,24 +170,31 @@ Enables parallel evaluation of independent recursive calls:
 
 ### Parallel Requirements
 
-- Requires `uses Async` capability
+- Requires `uses Suspend` capability (same as `parallel(...)` pattern)
 - Captured values must be `Sendable`
+- Return type must be `Sendable` (results cross task boundaries)
 - Multiple `self(...)` calls execute concurrently
 
 ### Parallel + Memo
 
-Both can be combined:
+Both can be combined for optimal performance:
 
 ```ori
-@fast_fib (n: int) -> int uses Async = recurse(
+@fast_fib (n: int) -> int uses Suspend = recurse(
     condition: n <= 1,
     base: n,
     step: self(n - 1) + self(n - 2),
     memo: true,
     parallel: true,
 )
-// Memo prevents redundant work; parallel speeds independent calls
 ```
+
+When both are enabled:
+- The memo cache is thread-safe and shared across parallel tasks
+- If two tasks request the same memo key simultaneously, one computes while others wait
+- Memoization reduces parallel overhead by avoiding redundant computation
+
+This combination is particularly effective for tree-shaped recursive call graphs where many subproblems overlap.
 
 ### Parallel Overhead
 
@@ -214,9 +244,9 @@ When `self(...)` is not in tail position, stack space is O(depth):
 
 ## Stack Limits
 
-### Default Limit
+### Recursion Limit
 
-The runtime enforces a recursion depth limit (default: 1000):
+The runtime enforces a recursion depth limit of 1000:
 
 ```ori
 @deep (n: int) -> int = recurse(
@@ -277,25 +307,25 @@ bad(n: 5)  // panic: recursion limit exceeded
 
 ## Common Patterns
 
-### Tree Traversal
+### When NOT to Use Recurse
+
+Tree structures naturally use `match` + direct recursion rather than `recurse`:
 
 ```ori
 type Tree<T> = Leaf(T) | Node(left: Tree<T>, right: Tree<T>)
 
 @sum_tree (tree: Tree<int>) -> int = match(tree,
     Leaf(v) -> v,
-    Node(l, r) -> recurse(
-        condition: false,  // Always step
-        base: 0,           // Unused
-        step: sum_tree(tree: l) + sum_tree(tree: r),
-    ),
+    Node(l, r) -> sum_tree(tree: l) + sum_tree(tree: r),
 )
 ```
+
+The `recurse` pattern is best suited for numeric/iterative recursion where a single decreasing parameter converges toward a base case. For structural recursion (pattern matching on data structure shape), use `match` with direct function calls.
 
 ### Divide and Conquer
 
 ```ori
-@merge_sort<T: Comparable> (items: [T]) -> [T] = recurse(
+@merge_sort<T: Comparable + Sendable> (items: [T]) -> [T] uses Suspend = recurse(
     condition: len(collection: items) <= 1,
     base: items,
     step: run(
@@ -365,6 +395,18 @@ error[E1002]: `self` call has wrong number of arguments
    |           ^^^^^^^ provided 1 argument
 ```
 
+### Missing Suspend Capability
+
+```
+error[E1003]: `parallel: true` requires `Suspend` capability
+  --> src/main.ori:5:5
+   |
+ 5 | @parallel_fib (n: int) -> int = recurse(
+   |                               ^^^^^^^^^ parallel recursion here
+   |
+   = help: add `uses Suspend` to the function signature
+```
+
 ---
 
 ## Spec Changes Required
@@ -373,10 +415,11 @@ error[E1002]: `self` call has wrong number of arguments
 
 Expand recurse section with:
 1. Self keyword semantics
-2. Memoization behavior
-3. Parallel execution rules
-4. Tail call optimization
-5. Stack limit behavior
+2. Self scoping rules (receiver vs recursive call)
+3. Memoization behavior
+4. Parallel execution rules
+5. Tail call optimization
+6. Stack limit behavior
 
 ---
 
@@ -386,9 +429,11 @@ Expand recurse section with:
 |--------|---------|
 | Syntax | `recurse(condition:, base:, step:, memo:, parallel:)` |
 | Self | `self(...)` represents recursive call within `step` |
+| Self scoping | `self` (receiver) vs `self(...)` (recurse) coexist |
 | Memo | Caches results for current call tree |
 | Memo requires | Parameters: `Hashable + Eq`, Return: `Clone` |
 | Parallel | Execute multiple `self()` calls concurrently |
-| Parallel requires | `uses Async`, `Sendable` captures |
+| Parallel requires | `uses Suspend`, `Sendable` captures and return type |
+| Parallel + memo | Thread-safe cache, concurrent access handled |
 | Tail optimization | When `self()` is in tail position |
-| Stack limit | Default 1000, bypassed with tail optimization |
+| Stack limit | Fixed at 1000, bypassed with tail optimization |
