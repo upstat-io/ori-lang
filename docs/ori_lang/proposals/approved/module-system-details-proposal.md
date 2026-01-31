@@ -1,15 +1,16 @@
 # Proposal: Module System Details
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-29
+**Approved:** 2026-01-30
 **Affects:** Compiler, module resolution
 
 ---
 
 ## Summary
 
-This proposal specifies module system details including `mod.ori` conventions, circular dependency detection, re-export chains, and nested module structure.
+This proposal specifies module system details including entry point files (`lib.ori` vs `mod.ori` vs `main.ori`), circular dependency detection and error reporting, re-export chains, nested module visibility rules, and package structure for library vs binary projects.
 
 ---
 
@@ -17,7 +18,7 @@ This proposal specifies module system details including `mod.ori` conventions, c
 
 The spec describes imports but doesn't specify:
 
-1. **mod.ori convention**: How do directory-based modules work?
+1. **Entry point files**: What distinguishes `lib.ori`, `mod.ori`, and `main.ori`?
 2. **Circular dependencies**: How are they detected and reported?
 3. **Re-export chains**: What happens with `pub use` across multiple levels?
 4. **Nested modules**: How does visibility work in nested directories?
@@ -93,15 +94,25 @@ use "./http/client" { Client }  // OK: imports client.ori directly
 
 ---
 
+## Entry Point Files
+
+| File | Purpose |
+|------|---------|
+| `main.ori` | Binary entry point (must contain `@main`) |
+| `lib.ori` | Library entry point (defines public API) |
+| `mod.ori` | Directory module entry point (within a package) |
+
+`lib.ori` and `mod.ori` serve similar purposes at different levels:
+- `lib.ori` is the package-level public interface
+- `mod.ori` is a directory-level public interface within a package
+
+A package root cannot use `mod.ori` as its library entry point; `lib.ori` is required.
+
+---
+
 ## Circular Dependency Detection
 
-### Definition
-
-A circular dependency exists when module A imports module B, and B (directly or transitively) imports A:
-
-```
-A -> B -> C -> A  (circular)
-```
+The specification prohibits circular dependencies (see [Modules § Resolution](spec/12-modules.md#resolution)). This section details how the compiler detects and reports them.
 
 ### Detection Algorithm
 
@@ -110,7 +121,7 @@ The compiler builds a dependency graph during import resolution:
 1. Start with the entry module (e.g., `main.ori`)
 2. For each `use` statement, add an edge from current module to target
 3. Detect cycles using depth-first traversal
-4. Report the first cycle found
+4. Report all cycles found (not just the first)
 
 ### Error Reporting
 
@@ -354,21 +365,35 @@ my_pkg/
 │   └── internal.ori
 ```
 
-The binary can import from the library:
+### Binary Access to Library
+
+When a package contains both `lib.ori` and `main.ori`, the binary imports from the library using the package name. The binary can only access public (`pub`) items — private items are not accessible even within the same package:
+
 ```ori
+// lib.ori
+pub @exported () -> int = 42
+@internal () -> int = 1  // Private
+
 // main.ori
-use "my_pkg" { exported_fn }  // Uses library's public API
+use "my_pkg" { exported }      // OK: public
+use "my_pkg" { ::internal }    // ERROR: private access not allowed
 ```
+
+This enforces clean API boundaries and ensures the binary "dogfoods" the public interface.
 
 ---
 
-## Import Resolution Order
+## Import Path Resolution
 
-### Resolution Steps
+When processing a `use` statement, the compiler determines the target module:
 
-1. **Relative path** (`"./..."`, `"../..."`): Resolve relative to current file
-2. **Package name** (`"my_pkg"`): Look up in dependencies
-3. **Standard library** (`std.xxx`): Built-in modules
+### Path Types
+
+1. **Relative path** (`"./..."`, `"../..."`): Resolve relative to current file's directory
+2. **Package path** (`"pkg_name"`): Look up in `ori.toml` dependencies
+3. **Standard library** (`std.xxx`): Built-in stdlib modules
+
+This is distinct from *name resolution* within a module, which follows: local bindings → function parameters → module-level items → imports → prelude.
 
 ### Path Resolution
 
@@ -384,6 +409,10 @@ use "../../other"      // other.ori (outside src)
 Defined in `ori.toml`:
 
 ```toml
+[project]
+name = "my_project"
+version = "0.1.0"
+
 [dependencies]
 some_lib = "1.0.0"
 ```
@@ -501,10 +530,11 @@ type Post = { id: PostId, author_id: UserId }
 ### Update `12-modules.md`
 
 Add:
-1. `mod.ori` convention specification
-2. Circular dependency detection algorithm
+1. Entry point file conventions (`lib.ori`, `mod.ori`, `main.ori`)
+2. Circular dependency detection algorithm and error format
 3. Re-export chain rules
 4. Visibility in nested modules
+5. Binary access to library (public API only)
 
 ### Add Package Section
 
@@ -519,10 +549,22 @@ Document:
 
 | Aspect | Specification |
 |--------|--------------|
-| mod.ori | Required for directory-as-module |
-| Circular deps | Compile error with path shown |
+| lib.ori | Library package entry point |
+| mod.ori | Directory module entry point |
+| main.ori | Binary entry point (requires @main) |
+| Binary-library | Binary accesses library via public API only |
+| Circular deps | Compile error with full path shown |
 | Re-export chains | All levels must be `pub` |
 | Diamond imports | Same item = no conflict |
 | Private access | `::` prefix for explicit access |
 | Siblings | Cannot access each other's private items |
-| Resolution order | Relative → Package → Stdlib |
+| Import path resolution | Relative → Package → Stdlib |
+
+---
+
+## Design Decisions
+
+1. **`lib.ori` vs `mod.ori`**: Explicit distinction — `lib.ori` for package-level API, `mod.ori` for directory modules within a package
+2. **Binary-library separation**: Binary uses public API only (no `::` private access) to enforce clean separation
+3. **Workspaces**: Deferred to future proposal
+4. **Resolution terminology**: "Import Path Resolution" distinct from name resolution

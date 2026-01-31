@@ -626,6 +626,16 @@
 - Async destructors forbidden (compile error)
 - Blocked on: None (can be implemented independently)
 
+**Module System Details** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/module-system-details-proposal.md`
+- Implementation: Phase 4.8
+- Entry point files: `lib.ori` (library), `mod.ori` (directory), `main.ori` (binary)
+- Binary-library separation: binary accesses library via public API only
+- Re-export chains: all levels must be `pub`, aliases propagate
+- Diamond re-exports: same item via multiple paths is not an error
+- Error messages: E1101 (missing module), E1102 (missing export), E1103 (private item)
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones
