@@ -771,6 +771,18 @@
 - `FormatSpec`, `Alignment`, `Sign`, `FormatType` added to prelude
 - Blocked on: None (builds on existing Phase 3 infrastructure)
 
+**Into Trait** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/into-trait-proposal.md`
+- Implementation: Phase 3.17
+- Formalizes `Into<T>` trait with `@into(self) -> T`
+- Standard implementations: str→Error, int→float, Set<T>→[T]
+- No implicit conversions — explicit `.into()` always required
+- No blanket identity (no `impl<T> Into<T> for T`)
+- No automatic conversion chaining
+- Lossless conversions only (lossy use `as`)
+- Error codes: E0960 (not implemented), E0961 (ambiguous)
+- Blocked on: None (builds on existing Phase 3 infrastructure)
+
 ---
 
 ## Milestones
