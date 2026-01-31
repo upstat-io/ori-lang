@@ -1,8 +1,9 @@
 # Proposal: Never Type Semantics
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-30
+**Approved:** 2026-01-31
 **Affects:** Compiler, type system, control flow
 
 ---
@@ -106,10 +107,11 @@ loop(
 
 ### Error Propagation
 
-When `?` causes early return:
+The `?` operator unwraps `Result<T, E>` or `Option<T>`. The early-return path has type `Never`:
 
 ```ori
-let x = fallible()?  // If Err, ? has type Never (returns early)
+let x = fallible()?  // x: T (unwrapped success type)
+                     // Early-return path: Never (coerces, exits function)
 ```
 
 ### Infinite Loops
@@ -231,6 +233,30 @@ match(maybe,
 
 ---
 
+## Restrictions
+
+### Struct Fields
+
+`Never` cannot appear as a struct field type. A struct with a `Never` field would be unconstructable:
+
+```ori
+type Bad = { value: Never }  // error E0920
+```
+
+### Sum Type Variants
+
+`Never` may appear in sum type variant payloads. Such variants are simply unconstructable:
+
+```ori
+type MaybeNever = Value(int) | Impossible(Never)
+// Impossible variant can never be constructed
+// Only Value(int) values can exist
+```
+
+This is useful for `Result<Never, E>` (always `Err`) and `Result<T, Never>` (always `Ok`).
+
+---
+
 ## Common Patterns
 
 ### Assertion Helper
@@ -314,23 +340,13 @@ error[E0920]: cannot use `Never` as struct field type
 
 ---
 
-## Spec Changes Required
+## Spec Changes Applied
 
-### Update `06-types.md`
+The following spec files were updated upon approval:
 
-Expand Never section with:
-1. Definition as bottom type
-2. Coercion rules
-3. Expressions that produce Never
-4. Generic type argument usage
-
-### Update `09-expressions.md`
-
-Document Never-producing expressions.
-
-### Update `19-control-flow.md`
-
-Document break/continue as Never type.
+- `06-types.md`: Expanded Never section with bottom type definition, coercion rules, restrictions
+- `10-patterns.md`: Added Never variant exhaustiveness rules
+- `CLAUDE.md`: Updated with Never type semantics
 
 ---
 

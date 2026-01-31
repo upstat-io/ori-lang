@@ -133,6 +133,69 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
 
 ---
 
+## 1.1B Never Type Semantics
+
+**Proposal**: `proposals/approved/never-type-proposal.md`
+
+Formalize the Never type as the bottom type with coercion rules, type inference behavior, and pattern matching exhaustiveness.
+
+### Coercion
+
+- [ ] **Implement**: Never coerces to any type T in assignment contexts
+  - [ ] **Rust Tests**: `oric/src/typeck/` — Never coercion tests
+  - [ ] **Ori Tests**: `tests/spec/types/never_coercion.ori`
+
+- [ ] **Implement**: Never coerces in conditional branches
+  - [ ] **Ori Tests**: `tests/spec/types/never_conditionals.ori`
+
+- [ ] **Implement**: Never coerces in match arms
+  - [ ] **Ori Tests**: `tests/spec/types/never_match.ori`
+
+### Type Inference
+
+- [ ] **Implement**: If all branches return Never, expression has type Never
+  - [ ] **Rust Tests**: `oric/src/typeck/infer/` — Never inference tests
+  - [ ] **Ori Tests**: `tests/spec/types/never_inference.ori`
+
+- [ ] **Implement**: Never does not constrain result type in conditionals
+  - [ ] **Ori Tests**: `tests/spec/types/never_inference.ori`
+
+### Expressions Producing Never
+
+- [ ] **Implement**: break/continue have type Never inside loops
+  - [ ] **Ori Tests**: `tests/spec/control_flow/never_break_continue.ori`
+
+- [ ] **Implement**: Early-return path of ? operator has type Never
+  - [ ] **Ori Tests**: `tests/spec/control_flow/never_propagation.ori`
+
+- [ ] **Implement**: Infinite loop (no break) has type Never
+  - [ ] **Ori Tests**: `tests/spec/control_flow/never_infinite_loop.ori`
+
+### Pattern Matching
+
+- [ ] **Implement**: Never variants can be omitted from match exhaustiveness
+  - [ ] **Rust Tests**: `oric/src/typeck/` — exhaustiveness with Never tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/never_exhaustiveness.ori`
+
+### Restrictions
+
+- [ ] **Implement**: Error E0920 for Never as struct field type
+  - [ ] **Rust Tests**: `oric/src/typeck/` — struct field restriction tests
+  - [ ] **Ori Tests**: `tests/compile-fail/never_struct_field.ori`
+
+- [ ] **Implement**: Allow Never in sum type variant payloads
+  - [ ] **Ori Tests**: `tests/spec/types/never_sum_variant.ori`
+
+### Generic Contexts
+
+- [ ] **Implement**: Result<Never, E> can only be Err
+  - [ ] **Ori Tests**: `tests/spec/types/never_generics.ori`
+
+- [ ] **Implement**: Option<Never> can only be None
+  - [ ] **Ori Tests**: `tests/spec/types/never_generics.ori`
+
+---
+
 ## 1.2 Parameter Type Annotations
 
 - [x] **Implement**: Add `type_id_to_type()` helper function — spec/08-declarations.md § Function Declarations

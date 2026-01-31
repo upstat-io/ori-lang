@@ -118,6 +118,19 @@ For each type, the compiler knows its constructors:
 - Integers: infinite (requires wildcard)
 - Strings: infinite (requires wildcard)
 
+**Never variants:** Variants containing `Never` are uninhabited and need not be matched:
+
+```ori
+type MaybeNever = Value(int) | Impossible(Never)
+
+match(maybe,
+    Value(v) -> v,
+    // Impossible case can be omitted — it can never occur
+)
+```
+
+Matching `Never` explicitly is permitted but the arm is unreachable.
+
 Non-exhaustiveness is a compile-time error. There is no partial match construct.
 
 | Context | Non-Exhaustive | Rationale |
