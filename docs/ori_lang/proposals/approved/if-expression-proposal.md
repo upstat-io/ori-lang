@@ -1,8 +1,9 @@
 # Proposal: If Expression
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-31
+**Approved:** 2026-01-31
 **Affects:** Compiler, expressions, type inference
 
 ---
@@ -50,7 +51,7 @@ else if condition3 then expression3
 else expression4
 ```
 
-`else if` is not a special construct. It is an `else` branch containing another `if` expression.
+The grammar treats `else if` as a single production for parsing convenience, but semantically the `else` branch contains another `if` expression. This distinction affects only parsing and error recovery; the evaluation model is recursive composition.
 
 ---
 
@@ -108,14 +109,14 @@ When `else` is omitted, the `then` branch must have type `void` (or `Never`):
 // Valid: then-branch is void
 if debug then print(msg: "debug mode")
 
-// Valid: then-branch is Never
+// Valid: then-branch is Never (coerces to void)
 if !valid then panic(msg: "invalid state")
 
 // Invalid: then-branch has non-void type
 if x > 0 then "positive"  // ERROR: non-void then-branch requires else
 ```
 
-The overall expression has type `void`.
+The overall expression has type `void`. When the `then` branch has type `Never`, it coerces to `void`.
 
 ### Never Type Coercion
 
@@ -194,16 +195,6 @@ match(option,
 )
 ```
 
-### With Error Propagation
-
-```ori
-@validate (x: int) -> Result<int, str> = run(
-    if x < 0 then return Err("negative"),
-    if x > 100 then return Err("too large"),
-    Ok(x),
-)
-```
-
 ---
 
 ## Expression Context
@@ -215,8 +206,8 @@ let sign = if x > 0 then 1 else if x < 0 then -1 else 0
 
 @max (a: int, b: int) -> int = if a > b then a else b
 
-[if x > 0 then x else 0 for x in numbers]  // ERROR: use for-yield
-for x in numbers yield if x > 0 then x else 0  // OK
+// Ori uses for-yield, not list comprehension syntax:
+for x in numbers yield if x > 0 then x else 0
 ```
 
 ---
@@ -323,26 +314,21 @@ error[E0204]: struct literal not allowed in `if` condition
 The grammar is defined in `grammar.ebnf` under the `if_expr` production:
 
 ```
-if_expr = "if" expr "then" expr [ "else" expr ] .
+if_expr = "if" expression "then" expression
+          { "else" "if" expression "then" expression }
+          [ "else" expression ] .
 ```
 
-The condition expression excludes struct literals (handled by parse context).
+The grammar treats `else if` as a single production for parsing convenience. The condition expression excludes struct literals (handled by parse context).
 
 ---
 
-## Spec Changes Required
+## Spec Changes Applied
 
-### Update `09-expressions.md`
+The following spec files were updated upon approval:
 
-Expand Conditional section with:
-
-1. Struct literal restriction explanation
-2. Never type coercion rules
-3. Else-if chain clarification
-
-### Update `19-control-flow.md`
-
-Cross-reference to expression semantics for branch evaluation guarantees.
+- `09-expressions.md`: Expanded Conditional section with struct literal restriction, Never coercion, else-if clarification
+- `CLAUDE.md`: Verified consistent (already documents if...then...else semantics)
 
 ---
 
@@ -357,4 +343,4 @@ Cross-reference to expression semantics for branch evaluation guarantees.
 | Never coercion | `Never` coerces to any type |
 | Evaluation | Only taken branch evaluates |
 | Struct literals | Not allowed in condition (use parentheses) |
-| Else-if | Not special; `else` containing `if` |
+| Else-if | Grammar convenience; semantically nested |

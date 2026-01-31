@@ -6,16 +6,19 @@
 
 **Dependencies**: Phase 3 (Traits)
 
+**Proposal**: `proposals/approved/existential-types-proposal.md`
+
 ---
 
 ## Design Decisions
 
 | Question | Decision | Rationale |
 |----------|----------|-----------|
-| Syntax | `impl Trait` | Matches Rust, clear meaning |
-| Position | Return only (initially) | Simpler, covers main use case |
+| Syntax | `impl Trait where Assoc == Type` | Type-local where clause for associated types |
+| Position | Return only | Argument position uses generics instead |
 | Multiple traits | `impl A + B` | Flexibility |
-| Inference | Per-function | Predictable |
+| Inference | Per-function, from body | Predictable |
+| Where clause | Type-local | Constraints on associated types, not type params |
 
 ---
 
@@ -39,17 +42,17 @@
 
 ```ori
 // Return opaque type
-@make_iterator (items: [int]) -> impl Iterator<Item = int> = run(
+@make_iterator (items: [int]) -> impl Iterator where Item == int = run(
     items.iter()
 )
 
-// Caller sees: impl Iterator<Item = int>
+// Caller sees: impl Iterator where Item == int
 // Cannot access concrete type
 let iter = make_iterator(items: [1, 2, 3])
-for x in iter do print(str(x))  // Works via Iterator trait
+for x in iter do print(msg: `{x}`)  // Works via Iterator trait
 
 // Multiple bounds
-@make_printable_iterator () -> impl Iterator<Item = int> + Clone = ...
+@make_printable_iterator () -> impl Iterator + Clone where Item == int = ...
 ```
 
 ### Semantics
@@ -99,12 +102,12 @@ for x in iter do print(str(x))  // Works via Iterator trait
 
 ```ori
 // Concrete type inferred from function body
-@numbers () -> impl Iterator<Item = int> = run(
+@numbers () -> impl Iterator where Item == int = run(
     [1, 2, 3].iter()  // Concrete: ListIterator<int>
 )
 
 // All return paths must have same concrete type
-@maybe_numbers (flag: bool) -> impl Iterator<Item = int> = run(
+@maybe_numbers (flag: bool) -> impl Iterator where Item == int = run(
     if flag then
         [1, 2, 3].iter()
     else
@@ -112,7 +115,7 @@ for x in iter do print(str(x))  // Works via Iterator trait
 )
 
 // Error: different concrete types
-@bad_numbers (flag: bool) -> impl Iterator<Item = int> = run(
+@bad_numbers (flag: bool) -> impl Iterator where Item == int = run(
     if flag then
         [1, 2, 3].iter()       // ListIterator<int>
     else
@@ -159,10 +162,10 @@ for x in iter do print(str(x))  // Works via Iterator trait
 
 ```ori
 // Constrain associated type
-@int_iterator () -> impl Iterator<Item = int> = ...
+@int_iterator () -> impl Iterator where Item == int = ...
 
 // Use with other traits
-@cloneable_ints () -> impl Iterator<Item = int> + Clone = ...
+@cloneable_ints () -> impl Iterator + Clone where Item == int = ...
 
 // Multiple associated types
 trait Mapping {
@@ -171,7 +174,7 @@ trait Mapping {
     @get (self, key: Self.Key) -> Option<Self.Value>
 }
 
-@string_int_map () -> impl Mapping<Key = str, Value = int> = ...
+@string_int_map () -> impl Mapping where Key == str, Value == int = ...
 ```
 
 ### Implementation
@@ -200,32 +203,20 @@ trait Mapping {
 
 **Spec section**: `spec/06-types.md § Existential Limitations`
 
-### Not Supported (Initially)
+### Not Supported
 
 ```ori
-// Argument position - NOT supported
-@take_iterator (iter: impl Iterator<Item = int>) -> void = ...
-// Use generic instead:
-@take_iterator<T: Iterator<Item = int>> (iter: T) -> void = ...
+// Argument position - NOT supported (use generics)
+@take_iterator (iter: impl Iterator where Item == int) -> void = ...  // Error
+// Correct:
+@take_iterator<I: Iterator> (iter: I) -> void where I.Item == int = ...
 
-// In struct fields - NOT supported
+// In struct fields - NOT supported (use generics)
 type Container = {
-    iter: impl Iterator<Item = int>,  // Error
+    iter: impl Iterator where Item == int,  // Error
 }
-// Use generic instead:
-type Container<T: Iterator<Item = int>> = {
-    iter: T,
-}
-
-// In trait definitions - NOT supported
-trait Foo {
-    @make () -> impl Bar  // Error
-}
-// Use associated type instead:
-trait Foo {
-    type Output: Bar
-    @make () -> Self.Output
-}
+// Correct:
+type Container<I: Iterator> = { iter: I } where I.Item == int
 ```
 
 ### Error Messages
@@ -289,14 +280,14 @@ error: `impl Trait` is only allowed in return position
 
 ```ori
 // Use impl Trait: single concrete type, performance matters
-@fast_iterator () -> impl Iterator<Item = int> = [1, 2, 3].iter()
+@fast_iterator () -> impl Iterator where Item == int = [1, 2, 3].iter()
 
-// Use dyn Trait: multiple types possible, flexibility needed
-@any_iterator (flag: bool) -> Box<dyn Iterator<Item = int>> = run(
+// Use trait object: multiple types possible, flexibility needed
+@any_iterator (flag: bool) -> Iterator where Item == int = run(
     if flag then
-        Box.new([1, 2, 3].iter())
+        [1, 2, 3].iter()
     else
-        Box.new((1..10).iter())
+        (1..10).iter()
 )
 ```
 
@@ -349,34 +340,34 @@ error: `impl Trait` is only allowed in return position
 @map<I: Iterator, U> (
     iter: I,
     f: (I.Item) -> U,
-) -> impl Iterator<Item = U> = run(
+) -> impl Iterator where Item == U = run(
     MapIterator { inner: iter, transform: f }
 )
 
 @filter<I: Iterator> (
     iter: I,
     predicate: (I.Item) -> bool,
-) -> impl Iterator<Item = I.Item> = run(
+) -> impl Iterator where Item == I.Item = run(
     FilterIterator { inner: iter, predicate: predicate }
 )
 
-@take<I: Iterator<Item = int>> (
+@take<I: Iterator> (
     iter: I,
     n: int,
-) -> impl Iterator<Item = int> = run(
+) -> impl Iterator where Item == I.Item = run(
     TakeIterator { inner: iter, remaining: n }
 )
 
 // Usage - clean, composable
-@first_10_even_squares () -> impl Iterator<Item = int> = run(
+@first_10_even_squares () -> impl Iterator where Item == int = run(
     (1..100)
-        |> filter(predicate: n -> n % 2 == 0)
-        |> map(f: n -> n * n)
-        |> take(n: 10)
+        .filter(predicate: n -> n % 2 == 0)
+        .map(transform: n -> n * n)
+        .take(count: 10)
 )
 
 // Caller doesn't know concrete type (MapIterator<FilterIterator<...>>)
 // but can use it as Iterator
 let squares = first_10_even_squares()
-for sq in squares do print(str(sq))
+for sq in squares do print(msg: `{sq}`)
 ```

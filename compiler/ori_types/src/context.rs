@@ -1,7 +1,6 @@
 //! Type inference context and type deduplication.
 
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::hash_map::DefaultHasher;
+use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use std::hash::{Hash, Hasher};
 
 use crate::core::{Type, TypeScheme};
@@ -548,9 +547,11 @@ impl TypeContext {
     }
 
     /// Compute a hash for (origin, targs) for lookup.
+    ///
+    /// Uses `FxHasher` for speed (non-cryptographic, optimized for small keys).
     fn instance_hash(&mut self, origin: &TypeScheme, targs: &[Type]) -> u64 {
         let origin_id = self.get_origin_id(origin);
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = FxHasher::default();
         origin_id.hash(&mut hasher);
         for t in targs {
             t.hash(&mut hasher);
@@ -575,12 +576,18 @@ impl TypeContext {
     ///
     /// If an identical instantiation already exists, returns the existing one.
     pub fn insert(&mut self, origin: TypeScheme, targs: Vec<Type>, instance: Type) -> Type {
-        // Check if already exists
-        if let Some(existing) = self.lookup(&origin, &targs) {
-            return existing.clone();
+        // Compute hash once and reuse for both lookup and insert
+        let hash = self.instance_hash(&origin, &targs);
+
+        // Check if already exists using precomputed hash
+        if let Some(entries) = self.type_map.get(&hash) {
+            for entry in entries {
+                if entry.origin == origin && entry.targs == targs {
+                    return entry.instance.clone();
+                }
+            }
         }
 
-        let hash = self.instance_hash(&origin, &targs);
         let entry = TypeContextEntry {
             origin,
             targs,

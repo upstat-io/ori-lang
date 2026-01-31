@@ -50,31 +50,96 @@ impl BuiltinMethodHandler for UnitsMethodHandler {
     }
 }
 
-fn check_duration_method(method: &str) -> MethodTypeResult {
-    match method {
-        // Extraction methods - return int (truncated unit value)
-        "nanoseconds" | "microseconds" | "milliseconds" | "seconds" | "minutes" | "hours" => {
-            MethodTypeResult::Ok(Type::Int)
-        }
-        _ => MethodTypeResult::Err(MethodTypeError::new(
-            format!("unknown method `{method}` for type `Duration`"),
+/// Check unit extraction methods that return `int`.
+///
+/// Both Duration and Size have extraction methods that convert the value
+/// to a specific unit (e.g., `seconds()`, `bytes()`). This helper factors
+/// out the common pattern.
+fn check_unit_method(method: &str, type_name: &str, valid_methods: &[&str]) -> MethodTypeResult {
+    if valid_methods.contains(&method) {
+        MethodTypeResult::Ok(Type::Int)
+    } else {
+        MethodTypeResult::Err(MethodTypeError::new(
+            format!("unknown method `{method}` for type `{type_name}`"),
             ErrorCode::E2002,
-        )),
+        ))
     }
 }
 
-fn check_size_method(method: &str) -> MethodTypeResult {
-    match method {
-        // Extraction methods - return int (truncated unit value)
-        "bytes" | "kilobytes" | "megabytes" | "gigabytes" | "terabytes" => {
-            MethodTypeResult::Ok(Type::Int)
-        }
-        _ => MethodTypeResult::Err(MethodTypeError::new(
-            format!("unknown method `{method}` for type `Size`"),
-            ErrorCode::E2002,
-        )),
-    }
+/// Duration extraction methods.
+const DURATION_METHODS: &[&str] = &[
+    "nanoseconds",
+    "microseconds",
+    "milliseconds",
+    "seconds",
+    "minutes",
+    "hours",
+];
+
+/// Size extraction methods.
+const SIZE_METHODS: &[&str] = &["bytes", "kilobytes", "megabytes", "gigabytes", "terabytes"];
+
+fn check_duration_method(method: &str) -> MethodTypeResult {
+    check_unit_method(method, "Duration", DURATION_METHODS)
 }
+
+fn check_size_method(method: &str) -> MethodTypeResult {
+    check_unit_method(method, "Size", SIZE_METHODS)
+}
+
+/// Check unit factory methods (associated functions).
+///
+/// Both Duration and Size have factory methods that create instances from
+/// a specific unit (e.g., `Duration.from_seconds()`, `Size.from_bytes()`).
+/// This helper factors out the common validation pattern.
+fn check_unit_associated(
+    ctx: &mut InferenceContext,
+    method: &str,
+    args: &[Type],
+    type_name: &str,
+    valid_methods: &[&str],
+    result_type: Type,
+) -> Option<MethodTypeResult> {
+    if !valid_methods.contains(&method) {
+        return None;
+    }
+
+    if args.len() != 1 {
+        return Some(MethodTypeResult::Err(MethodTypeError::new(
+            format!(
+                "{type_name}.{method} expects 1 argument, found {}",
+                args.len()
+            ),
+            ErrorCode::E2004,
+        )));
+    }
+    if ctx.unify(&args[0], &Type::Int).is_err() {
+        return Some(MethodTypeResult::Err(MethodTypeError::new(
+            format!("{type_name}.{method} expects int argument"),
+            ErrorCode::E2001,
+        )));
+    }
+    Some(MethodTypeResult::Ok(result_type))
+}
+
+/// Duration factory methods.
+const DURATION_FACTORIES: &[&str] = &[
+    "from_nanoseconds",
+    "from_microseconds",
+    "from_milliseconds",
+    "from_seconds",
+    "from_minutes",
+    "from_hours",
+];
+
+/// Size factory methods.
+const SIZE_FACTORIES: &[&str] = &[
+    "from_bytes",
+    "from_kilobytes",
+    "from_megabytes",
+    "from_gigabytes",
+    "from_terabytes",
+];
 
 /// Check Duration associated functions (factory methods).
 fn check_duration_associated(
@@ -82,25 +147,14 @@ fn check_duration_associated(
     method: &str,
     args: &[Type],
 ) -> Option<MethodTypeResult> {
-    match method {
-        "from_nanoseconds" | "from_microseconds" | "from_milliseconds" | "from_seconds"
-        | "from_minutes" | "from_hours" => {
-            if args.len() != 1 {
-                return Some(MethodTypeResult::Err(MethodTypeError::new(
-                    format!("Duration.{method} expects 1 argument, found {}", args.len()),
-                    ErrorCode::E2004,
-                )));
-            }
-            if ctx.unify(&args[0], &Type::Int).is_err() {
-                return Some(MethodTypeResult::Err(MethodTypeError::new(
-                    format!("Duration.{method} expects int argument"),
-                    ErrorCode::E2001,
-                )));
-            }
-            Some(MethodTypeResult::Ok(Type::Duration))
-        }
-        _ => None,
-    }
+    check_unit_associated(
+        ctx,
+        method,
+        args,
+        "Duration",
+        DURATION_FACTORIES,
+        Type::Duration,
+    )
 }
 
 /// Check Size associated functions (factory methods).
@@ -109,23 +163,5 @@ fn check_size_associated(
     method: &str,
     args: &[Type],
 ) -> Option<MethodTypeResult> {
-    match method {
-        "from_bytes" | "from_kilobytes" | "from_megabytes" | "from_gigabytes"
-        | "from_terabytes" => {
-            if args.len() != 1 {
-                return Some(MethodTypeResult::Err(MethodTypeError::new(
-                    format!("Size.{method} expects 1 argument, found {}", args.len()),
-                    ErrorCode::E2004,
-                )));
-            }
-            if ctx.unify(&args[0], &Type::Int).is_err() {
-                return Some(MethodTypeResult::Err(MethodTypeError::new(
-                    format!("Size.{method} expects int argument"),
-                    ErrorCode::E2001,
-                )));
-            }
-            Some(MethodTypeResult::Ok(Type::Size))
-        }
-        _ => None,
-    }
+    check_unit_associated(ctx, method, args, "Size", SIZE_FACTORIES, Type::Size)
 }

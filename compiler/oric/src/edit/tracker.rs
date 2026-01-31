@@ -162,12 +162,20 @@ impl ChangeTracker {
     ///
     /// Returns the first conflict found, if any.
     pub fn check_conflicts(&self) -> Option<EditConflict> {
-        let mut sorted = self.edits.clone();
-        sorted.sort_by_key(|e| (e.span.start, e.span.end));
+        if self.edits.is_empty() {
+            return None;
+        }
 
-        for window in sorted.windows(2) {
-            let e1 = &window[0];
-            let e2 = &window[1];
+        // Use index-based sorting to avoid cloning the entire Vec
+        let mut indices: Vec<usize> = (0..self.edits.len()).collect();
+        indices.sort_by_key(|&i| {
+            let e = &self.edits[i];
+            (e.span.start, e.span.end)
+        });
+
+        for window in indices.windows(2) {
+            let e1 = &self.edits[window[0]];
+            let e2 = &self.edits[window[1]];
 
             // Two edits conflict if they overlap (not just touch)
             // Insert at same position is OK (they're independent)
@@ -190,19 +198,22 @@ impl ChangeTracker {
             return source.to_string();
         }
 
-        // Sort edits by position (end to start for reverse application)
-        let mut sorted = self.edits.clone();
-        sorted.sort_by(|a, b| {
+        // Use index-based sorting to avoid cloning the entire Vec
+        let mut indices: Vec<usize> = (0..self.edits.len()).collect();
+        indices.sort_by(|&a, &b| {
+            let ea = &self.edits[a];
+            let eb = &self.edits[b];
             // Sort by start position descending, then end position descending
-            b.span
+            eb.span
                 .start
-                .cmp(&a.span.start)
-                .then(b.span.end.cmp(&a.span.end))
+                .cmp(&ea.span.start)
+                .then(eb.span.end.cmp(&ea.span.end))
         });
 
         let mut result = source.to_string();
 
-        for edit in sorted {
+        for &idx in &indices {
+            let edit = &self.edits[idx];
             let start = edit.span.start as usize;
             let end = edit.span.end as usize;
 

@@ -44,14 +44,45 @@ mod type_conversion_tests;
 pub mod helper {
     use std::collections::HashMap;
 
+    use inkwell::basic_block::BasicBlock;
     use inkwell::context::Context;
-    use inkwell::values::BasicValueEnum;
+    use inkwell::values::{BasicValueEnum, FunctionValue};
     use inkwell::OptimizationLevel;
     use ori_ir::{ExprArena, ExprId, Name, StringInterner, TypeId};
 
     use crate::builder::Builder;
     use crate::context::CodegenCx;
     use crate::runtime;
+
+    /// Create a test context with a function returning i64.
+    ///
+    /// Returns `(CodegenCx, FunctionValue)` for low-level builder tests.
+    /// This consolidates the common setup pattern used across multiple test files.
+    pub fn setup_builder_test<'ll, 'tcx>(
+        context: &'ll Context,
+        interner: &'tcx StringInterner,
+    ) -> (CodegenCx<'ll, 'tcx>, FunctionValue<'ll>) {
+        let cx = CodegenCx::new(context, interner, "test");
+        cx.declare_runtime_functions();
+
+        let fn_type = cx.scx.type_i64().fn_type(&[], false);
+        let function = cx.llmod().add_function("test_fn", fn_type, None);
+
+        (cx, function)
+    }
+
+    /// Create a test context with a function and entry block.
+    ///
+    /// Returns `(CodegenCx, FunctionValue, BasicBlock)` for tests that need
+    /// immediate access to the entry block.
+    pub fn setup_builder_test_with_entry<'ll, 'tcx>(
+        context: &'ll Context,
+        interner: &'tcx StringInterner,
+    ) -> (CodegenCx<'ll, 'tcx>, FunctionValue<'ll>, BasicBlock<'ll>) {
+        let (cx, function) = setup_builder_test(context, interner);
+        let entry_bb = cx.llcx().append_basic_block(function, "entry");
+        (cx, function, entry_bb)
+    }
 
     /// Test helper that provides a simple API for compiling and running functions.
     pub struct TestCodegen<'ll, 'tcx> {

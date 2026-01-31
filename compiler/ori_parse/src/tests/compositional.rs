@@ -1,22 +1,24 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-// Tests use format strings with loop variables for constructing test code
-#![allow(clippy::uninlined_format_args)]
 //! Compositional tests for the parser.
 //!
 //! These tests verify that all combinations of types, patterns, and expressions
 //! work correctly in all valid positions. This catches edge cases that individual
 //! tests might miss.
 
-#[cfg(test)]
-mod type_matrix {
-    use crate::{parse, ParseOutput};
-    use ori_ir::StringInterner;
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+// Tests use format strings with loop variables for constructing test code
+#![allow(clippy::uninlined_format_args)]
 
-    fn parse_source(source: &str) -> ParseOutput {
-        let interner = StringInterner::new();
-        let tokens = ori_lexer::lex(source, &interner);
-        parse(&tokens, &interner)
-    }
+use crate::{parse, ParseOutput};
+use ori_ir::StringInterner;
+
+fn parse_source(source: &str) -> ParseOutput {
+    let interner = StringInterner::new();
+    let tokens = ori_lexer::lex(source, &interner);
+    parse(&tokens, &interner)
+}
+
+mod type_matrix {
+    use super::*;
 
     /// All type forms to test
     const TYPES: &[&str] = &[
@@ -176,16 +178,8 @@ mod type_matrix {
     }
 }
 
-#[cfg(test)]
 mod pattern_matrix {
-    use crate::{parse, ParseOutput};
-    use ori_ir::StringInterner;
-
-    fn parse_source(source: &str) -> ParseOutput {
-        let interner = StringInterner::new();
-        let tokens = ori_lexer::lex(source, &interner);
-        parse(&tokens, &interner)
-    }
+    use super::*;
 
     /// All pattern forms to test
     const PATTERNS: &[&str] = &[
@@ -307,16 +301,8 @@ mod pattern_matrix {
     }
 }
 
-#[cfg(test)]
 mod expression_context {
-    use crate::{parse, ParseOutput};
-    use ori_ir::StringInterner;
-
-    fn parse_source(source: &str) -> ParseOutput {
-        let interner = StringInterner::new();
-        let tokens = ori_lexer::lex(source, &interner);
-        parse(&tokens, &interner)
-    }
+    use super::*;
 
     #[test]
     fn test_struct_literal_contexts() {

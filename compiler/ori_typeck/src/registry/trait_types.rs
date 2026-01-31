@@ -67,11 +67,14 @@ pub struct TraitEntry {
     /// Index for O(1) method lookup by name.
     /// Maps method name to index in `methods` vector.
     method_index: FxHashMap<Name, usize>,
+    /// Index for O(1) associated type lookup by name.
+    /// Maps associated type name to index in `assoc_types` vector.
+    assoc_type_index: FxHashMap<Name, usize>,
 }
 
 impl PartialEq for TraitEntry {
     fn eq(&self, other: &Self) -> bool {
-        // Exclude method_index from comparison (it's derived from methods)
+        // Exclude method_index and assoc_type_index from comparison (they're derived from methods/assoc_types)
         self.name == other.name
             && self.span == other.span
             && self.type_params == other.type_params
@@ -87,7 +90,7 @@ impl Eq for TraitEntry {}
 
 impl Hash for TraitEntry {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // Exclude method_index from hash (it's derived from methods)
+        // Exclude method_index and assoc_type_index from hash (they're derived from methods/assoc_types)
         self.name.hash(state);
         self.span.hash(state);
         self.type_params.hash(state);
@@ -125,6 +128,12 @@ impl TraitEntry {
             .map(|(i, m)| (m.name, i))
             .collect();
 
+        let assoc_type_index = assoc_types
+            .iter()
+            .enumerate()
+            .map(|(i, at)| (at.name, i))
+            .collect();
+
         Self {
             name,
             span,
@@ -135,6 +144,7 @@ impl TraitEntry {
             assoc_types,
             visibility,
             method_index,
+            assoc_type_index,
         }
     }
 
@@ -143,5 +153,14 @@ impl TraitEntry {
     /// Uses the internal method index for fast lookup.
     pub fn get_method(&self, name: Name) -> Option<&TraitMethodDef> {
         self.method_index.get(&name).map(|&idx| &self.methods[idx])
+    }
+
+    /// Look up an associated type by name in O(1) time.
+    ///
+    /// Uses the internal `assoc_type_index` for fast lookup.
+    pub fn get_assoc_type(&self, name: Name) -> Option<&TraitAssocTypeDef> {
+        self.assoc_type_index
+            .get(&name)
+            .map(|&idx| &self.assoc_types[idx])
     }
 }

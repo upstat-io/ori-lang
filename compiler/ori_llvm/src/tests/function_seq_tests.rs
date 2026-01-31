@@ -7,28 +7,14 @@ use ori_ir::ast::patterns::{BindingPattern, FunctionSeq, MatchArm, MatchPattern,
 use ori_ir::ast::{Expr, ExprKind};
 use ori_ir::{ExprArena, SeqBindingRange, Span, StringInterner, TypeId};
 
+use super::helper::setup_builder_test;
 use crate::builder::Builder;
-use crate::context::CodegenCx;
-
-/// Helper to create a test context and function.
-fn setup_test<'ll, 'tcx>(
-    context: &'ll Context,
-    interner: &'tcx StringInterner,
-) -> (CodegenCx<'ll, 'tcx>, inkwell::values::FunctionValue<'ll>) {
-    let cx = CodegenCx::new(context, interner, "test");
-    cx.declare_runtime_functions();
-
-    let fn_type = cx.scx.type_i64().fn_type(&[], false);
-    let function = cx.llmod().add_function("test_fn", fn_type, None);
-
-    (cx, function)
-}
 
 #[test]
 fn test_function_seq_run_empty_bindings() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -67,7 +53,7 @@ fn test_function_seq_run_empty_bindings() {
 fn test_function_seq_run_with_let_binding() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -123,7 +109,7 @@ fn test_function_seq_run_with_let_binding() {
 fn test_function_seq_run_with_stmt() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -174,7 +160,7 @@ fn test_function_seq_run_with_stmt() {
 fn test_function_seq_try_empty_bindings() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -213,7 +199,7 @@ fn test_function_seq_try_empty_bindings() {
 fn test_function_seq_try_with_let_binding() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -268,7 +254,7 @@ fn test_function_seq_try_with_let_binding() {
 fn test_function_seq_match() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -320,7 +306,7 @@ fn test_function_seq_match() {
 fn test_function_seq_for_pattern_basic() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -394,7 +380,7 @@ fn test_function_seq_for_pattern_basic() {
 fn test_function_seq_for_pattern_with_map() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let mut arena = ExprArena::new();
 
@@ -467,7 +453,7 @@ fn test_function_seq_for_pattern_with_map() {
 fn test_bind_pattern_name() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
@@ -495,7 +481,7 @@ fn test_bind_pattern_name() {
 fn test_bind_pattern_wildcard() {
     let context = Context::create();
     let interner = StringInterner::new();
-    let (cx, function) = setup_test(&context, &interner);
+    let (cx, function) = setup_builder_test(&context, &interner);
 
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);

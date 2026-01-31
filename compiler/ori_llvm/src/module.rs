@@ -178,7 +178,7 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
             .map_err(|e| e.to_string())?;
 
         // Add runtime function mappings
-        self.add_runtime_mappings(&ee);
+        self.add_runtime_mappings(&ee)?;
 
         // Find the test function
         // SAFETY: We trust LLVM's JIT to correctly compile and execute.
@@ -203,7 +203,12 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
     }
 
     /// Add runtime function mappings to the execution engine.
-    fn add_runtime_mappings(&self, ee: &inkwell::execution_engine::ExecutionEngine<'ll>) {
+    ///
+    /// Returns an error if a runtime function is not declared.
+    fn add_runtime_mappings(
+        &self,
+        ee: &inkwell::execution_engine::ExecutionEngine<'ll>,
+    ) -> Result<(), String> {
         use crate::runtime;
 
         let mappings: &[(&str, usize)] = &[
@@ -278,13 +283,15 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
 
         let module = self.cx.llmod();
         for &(name, addr) in mappings {
-            let func = module.get_function(name).unwrap_or_else(|| {
-                panic!(
+            let func = module.get_function(name).ok_or_else(|| {
+                format!(
                     "{name} not declared - call declare_runtime_functions() before running tests"
                 )
-            });
+            })?;
             ee.add_global_mapping(&func, addr);
         }
+
+        Ok(())
     }
 }
 

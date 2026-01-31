@@ -921,7 +921,7 @@ trait Iterable {
 }
 
 trait Collect<T> {
-    @from_iter (iter: impl Iterator where Item == T) -> Self
+    @from_iter<I: Iterator> (iter: I) -> Self where I.Item == T
 }
 ```
 
@@ -1037,6 +1037,97 @@ let (p, c) = channel<int>(buffer: 10)  // OK: int is Sendable
 type Handle = { file: FileHandle }
 let (p, c) = channel<Handle>(buffer: 10)  // error: Handle is not Sendable
 ```
+
+## Existential Types
+
+An _existential type_ written `impl Trait` represents an opaque type that satisfies the specified trait bounds. The concrete type is known to the compiler internally but hidden from callers.
+
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § TYPES (impl_trait_type)
+
+### Syntax
+
+```ori
+@make_iterator (items: [int]) -> impl Iterator where Item == int =
+    items.iter()
+```
+
+The grammar for existential types:
+
+```ebnf
+impl_trait_type   = "impl" trait_bounds [ impl_where_clause ] .
+trait_bounds      = type_path { "+" type_path } .
+impl_where_clause = "where" assoc_constraint { "," assoc_constraint } .
+assoc_constraint  = identifier "==" type .
+```
+
+Multiple trait bounds use `+`:
+
+```ori
+@clonable_iter () -> impl Iterator + Clone where Item == int = ...
+```
+
+### Semantics
+
+**Opaqueness:** Callers see only the trait interface. The concrete type's fields and methods beyond the trait bounds are inaccessible.
+
+```ori
+let iter = make_iterator(items: [1, 2, 3])
+iter.next()   // OK: Iterator method
+iter.list     // error: cannot access concrete type's fields
+```
+
+**Single Concrete Type:** All return paths must yield the same concrete type:
+
+```ori
+// OK: all paths return ListIterator<int>
+@numbers (flag: bool) -> impl Iterator where Item == int =
+    if flag then [1, 2, 3].iter() else [4, 5, 6].iter()
+
+// error: different concrete types
+@bad (flag: bool) -> impl Iterator where Item == int =
+    if flag then [1, 2, 3].iter()     // ListIterator<int>
+    else (1..10).iter()               // RangeIterator<int>
+```
+
+**Static Dispatch:** The compiler monomorphizes each call site. No vtable overhead.
+
+### Valid Positions
+
+`impl Trait` is allowed only in return position:
+
+| Position | Allowed |
+|----------|---------|
+| Function return | Yes |
+| Method return | Yes |
+| Trait method return | Yes |
+| Argument position | No — use generics |
+| Struct fields | No — use generics |
+
+```ori
+// Argument position: use generic parameter
+@process<I: Iterator> (iter: I) -> int where I.Item == int = ...
+
+// Struct field: use generic parameter
+type Container<I: Iterator> = { iter: I } where I.Item == int
+```
+
+### Comparison with Trait Objects
+
+| Aspect | `impl Trait` | Trait Object (`Trait`) |
+|--------|--------------|------------------------|
+| Dispatch | Static (monomorphized) | Dynamic (vtable) |
+| Size | Concrete type size | Pointer size |
+| Performance | Better (inlinable) | Vtable overhead |
+| Flexibility | Single concrete type | Any type at runtime |
+| Object safety | All traits | Object-safe traits only |
+
+Use `impl Trait` when a single concrete type is returned and performance matters. Use trait objects when multiple types may be returned at runtime.
+
+### Error Codes
+
+- `E0810`: `impl Trait` only allowed in return position
+- `E0811`: All return paths must have the same concrete type
+- `E0812`: Concrete type does not implement required trait bounds
 
 ## Type Inference
 

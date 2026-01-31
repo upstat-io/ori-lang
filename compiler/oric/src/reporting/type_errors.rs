@@ -70,15 +70,18 @@ impl Render for TypeProblem {
 
             TypeProblem::UnknownType { span, name } => Diagnostic::error(ErrorCode::E2002)
                 .with_message(format!("unknown type `{name}`"))
-                .with_label(*span, format!("type `{name}` not found")),
+                .with_label(*span, format!("type `{name}` not found"))
+                .with_note("check the type name is spelled correctly and imported"),
 
             TypeProblem::NotCallable { span, found_type } => Diagnostic::error(ErrorCode::E2001)
                 .with_message(format!("`{found_type}` is not callable"))
-                .with_label(*span, "cannot call this as a function"),
+                .with_label(*span, "cannot call this as a function")
+                .with_note("only functions and lambdas can be called"),
 
             TypeProblem::NotIndexable { span, found_type } => Diagnostic::error(ErrorCode::E2001)
                 .with_message(format!("`{found_type}` cannot be indexed"))
-                .with_label(*span, "indexing not supported"),
+                .with_label(*span, "indexing not supported")
+                .with_note("only lists, maps, and tuples support indexing"),
 
             TypeProblem::NoSuchField {
                 span,
@@ -202,23 +205,29 @@ impl Render for TypeProblem {
                         "`?` operator requires Result or Option, found `{found_type}`"
                     ))
                     .with_label(*span, "not Result or Option")
+                    .with_suggestion("wrap the value in Ok() or Some() if it should always succeed")
             }
 
             TypeProblem::InvalidAwait { span, found_type } => Diagnostic::error(ErrorCode::E2001)
                 .with_message(format!(
                     "`await` requires async value, found `{found_type}`"
                 ))
-                .with_label(*span, "not async"),
+                .with_label(*span, "not async")
+                .with_note("only values from async functions can be awaited"),
 
             TypeProblem::ConditionNotBool { span, found_type } => {
                 Diagnostic::error(ErrorCode::E2001)
                     .with_message(format!("condition must be `bool`, found `{found_type}`"))
                     .with_label(*span, "expected `bool`")
+                    .with_suggestion("use a comparison operator to get a bool value")
             }
 
             TypeProblem::NotIterable { span, found_type } => Diagnostic::error(ErrorCode::E2001)
                 .with_message(format!("`{found_type}` is not iterable"))
-                .with_label(*span, "cannot iterate over this"),
+                .with_label(*span, "cannot iterate over this")
+                .with_note(
+                    "only lists, maps, ranges, and types implementing Iterable can be iterated",
+                ),
 
             TypeProblem::MatchArmTypeMismatch {
                 span,

@@ -206,11 +206,13 @@ impl Diagnostic {
     }
 
     /// Create a new error diagnostic.
+    #[cold]
     pub fn error(code: ErrorCode) -> Self {
         Self::new_with_severity(code, Severity::Error)
     }
 
     /// Create a new warning diagnostic.
+    #[cold]
     pub fn warning(code: ErrorCode) -> Self {
         Self::new_with_severity(code, Severity::Warning)
     }

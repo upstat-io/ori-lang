@@ -1,8 +1,9 @@
 # Proposal: AOT Compilation
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-31
+**Approved:** 2026-01-31
 **Affects:** Compiler, tooling, CLI
 
 ---
@@ -143,6 +144,18 @@ ori build --target=x86_64-unknown-linux-gnu --features=+avx2,+fma
 
 **Default:** `--opt=0` for `ori run`, `--opt=2` for `ori build --release`
 
+#### Release Mode Defaults
+
+The `--release` flag sets multiple defaults:
+
+| Flag | Default (debug) | Default (--release) |
+|------|-----------------|---------------------|
+| `--opt` | 0 | 2 |
+| `--debug` | 2 (full) | 0 (none) |
+| `--lto` | off | off (opt-in) |
+
+LTO is not enabled by `--release`; use `--lto=thin` explicitly when desired.
+
 #### Optimization Passes
 
 The optimization pipeline follows LLVM's standard pass manager:
@@ -255,7 +268,7 @@ Ori symbols are mangled for uniqueness:
 
 #### Runtime Library
 
-The Ori runtime (`libori_rt`) provides:
+The Ori runtime (`libori_rt`) consolidates all runtime support functions:
 
 | Category | Functions |
 |----------|-----------|
@@ -265,6 +278,8 @@ The Ori runtime (`libori_rt`) provides:
 | Collections | `ori_list_new`, `ori_map_new`, etc. |
 | Panic | `ori_panic`, `ori_panic_handler` |
 | I/O | `ori_print`, `ori_stdin_read` |
+
+> **Note:** JIT mode (Phase 21A) uses the same runtime functions but links them dynamically at JIT compile time rather than statically embedding them in the executable. The runtime API is identical; only the linking mechanism differs.
 
 **Linking modes:**
 
@@ -453,8 +468,19 @@ Options:
 
 ```bash
 ori targets                     # List all supported targets
-ori targets --installed         # List targets with toolchains
+ori targets --installed         # List targets with sysroots installed
 ```
+
+#### `ori target` (Cross-Compilation)
+
+```bash
+ori target add x86_64-unknown-linux-gnu     # Download/configure sysroot
+ori target add aarch64-apple-darwin         # Add Apple Silicon target
+ori target remove x86_64-pc-windows-msvc    # Remove sysroot
+ori target list                             # List installed targets
+```
+
+Cross-compilation requires the target sysroot (headers, libraries). The `ori target add` command downloads and configures the sysroot for the specified target.
 
 #### `ori demangle`
 
@@ -756,20 +782,48 @@ Replace placeholder content with detailed implementation tasks:
 
 ---
 
-## Open Questions
+## Design Decisions
 
-1. **Should debug symbols be separate files by default on macOS (dSYM)?**
-   - Pro: Smaller binaries, standard practice
-   - Con: Extra file management
+### macOS Debug Symbols (dSYM)
 
-2. **Should we support cross-compilation out of the box?**
-   - Requires target sysroots
-   - Consider: `ori target add x86_64-unknown-linux-gnu`
+**Decision:** Separate dSYM files by default on macOS.
 
-3. **Should incremental compilation cache be shared across projects?**
-   - Pro: Faster builds for shared dependencies
-   - Con: Cache invalidation complexity
+Rationale:
+- Standard macOS practice; debuggers expect this
+- Smaller distributed binaries
+- Debug symbols can be archived separately
 
-4. **What's the minimum LLVM version to support?**
-   - Recommend: LLVM 15+ (better WASM, newer pass manager)
-   - Currently using: LLVM 17
+### Cross-Compilation
+
+**Decision:** Supported via `ori target add <target>` sysroot management.
+
+The compiler supports cross-compilation when the target sysroot is installed. Use `ori target add` to download and configure sysroots for non-native targets.
+
+### Incremental Compilation Cache
+
+**Decision:** Project-local cache in `build/cache/`.
+
+Rationale:
+- Simpler cache invalidation logic
+- No cross-project cache coherency issues
+- Each project manages its own cache lifetime
+
+### LLVM Version
+
+**Decision:** LLVM 17 or later required.
+
+Rationale:
+- Best WASM support with Component Model preview
+- Newest pass manager (default since LLVM 14)
+- Improved debug info generation
+- No legacy compatibility burden
+- Current development uses LLVM 17
+
+### LTO Default
+
+**Decision:** LTO is opt-in; `--release` does not imply LTO.
+
+Rationale:
+- LTO significantly increases compile time
+- Users who need maximum optimization can explicitly add `--lto=thin`
+- Default release builds prioritize reasonable compile times

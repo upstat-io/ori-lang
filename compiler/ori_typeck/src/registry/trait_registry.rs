@@ -16,11 +16,27 @@ pub use super::impl_types::{CoherenceError, ImplAssocTypeDef, ImplEntry, ImplMet
 pub use super::method_lookup::MethodLookup;
 pub use super::trait_types::{TraitAssocTypeDef, TraitEntry, TraitMethodDef};
 
-use ori_ir::Name;
+use ori_ir::{Name, TypeId};
 use ori_types::{SharedTypeInterner, Type, TypeInterner};
 use rustc_hash::FxHashMap;
 use std::cell::RefCell;
 use std::collections::HashSet;
+#[expect(
+    clippy::disallowed_types,
+    reason = "Arc needed for MethodLookup cache to avoid cloning on cache hits"
+)]
+use std::sync::Arc;
+
+/// Type alias for the method lookup cache.
+///
+/// Uses `Arc<MethodLookup>` to avoid cloning the lookup result on cache hits.
+/// The cache maps `(TypeId, method_name)` to the cached result (or `None` for
+/// methods that were looked up but not found).
+#[expect(
+    clippy::disallowed_types,
+    reason = "Arc needed for MethodLookup cache to avoid cloning on cache hits"
+)]
+type MethodCache = RefCell<FxHashMap<(TypeId, Name), Option<Arc<MethodLookup>>>>;
 
 /// Registry for traits and implementations.
 ///
@@ -31,34 +47,40 @@ use std::collections::HashSet;
 ///
 /// # Type Interning
 /// The registry stores method types as `TypeId` and uses the interner
-/// for Type↔TypeId conversions at API boundaries.
+/// for Type↔TypeId conversions at API boundaries. `HashMap` keys use `TypeId`
+/// instead of `Type` to avoid expensive cloning on lookup.
 #[derive(Clone, Debug)]
 pub struct TraitRegistry {
     /// Trait definitions by name.
     traits: FxHashMap<Name, TraitEntry>,
-    /// Trait implementations: (`trait_name`, `self_type`) -> `ImplEntry`.
-    trait_impls: FxHashMap<(Name, Type), ImplEntry>,
+    /// Trait implementations: (`trait_name`, `self_type_id`) -> `ImplEntry`.
+    /// Uses `TypeId` as key to avoid expensive `Type` cloning on lookup.
+    trait_impls: FxHashMap<(Name, TypeId), ImplEntry>,
     /// Inherent implementations by type.
-    inherent_impls: FxHashMap<Type, ImplEntry>,
+    /// Uses `TypeId` as key to avoid expensive `Type` cloning on lookup.
+    inherent_impls: FxHashMap<TypeId, ImplEntry>,
     /// Type interner for Type↔TypeId conversions.
     interner: SharedTypeInterner,
-    /// Secondary index: type -> traits it implements.
+    /// Secondary index: `type_id` -> traits it implements.
     ///
     /// Enables O(1) lookup of which traits a type implements, avoiding O(n) scan
     /// of all `trait_impls` entries. Updated when implementations are registered.
-    traits_by_type: FxHashMap<Type, Vec<Name>>,
+    /// Uses `TypeId` as key to avoid expensive `Type` cloning on lookup.
+    traits_by_type: FxHashMap<TypeId, Vec<Name>>,
     /// Secondary index: `method_name` -> traits with that default method.
     ///
     /// Enables O(k) lookup of traits with a specific default method, where k is the
     /// number of traits with that default method name. Avoids O(n) scan of all traits.
     /// Updated when traits are registered.
     default_methods_by_name: FxHashMap<Name, Vec<Name>>,
-    /// Lazily-populated method lookup cache: `(self_type, method_name)` -> cached result.
+    /// Lazily-populated method lookup cache: `(self_type_id, method_name)` -> cached result.
     ///
     /// Uses `RefCell` for interior mutability so `lookup_method` can remain `&self`.
-    /// Cache entries store `Option<MethodLookup>`: `None` means the method was looked up
+    /// Cache entries store `Option<Arc<MethodLookup>>`: `None` means the method was looked up
     /// but not found. The cache is invalidated (cleared) whenever traits or impls are registered.
-    method_cache: RefCell<FxHashMap<(Type, Name), Option<MethodLookup>>>,
+    /// Uses `TypeId` instead of `Type` as the key to avoid expensive Type cloning.
+    /// Uses `Arc<MethodLookup>` to avoid cloning the lookup result on cache hits.
+    method_cache: MethodCache,
     /// Secondary index: `(type_name, assoc_type_name)` -> `TypeId`.
     ///
     /// Enables O(1) lookup of associated types by type and name, avoiding O(n*m) scan
@@ -159,11 +181,12 @@ impl TraitRegistry {
     /// Returns an error if there's already an impl for the same trait/type combination.
     /// Invalidates the method cache on success since new methods affect lookups.
     pub fn register_impl(&mut self, entry: ImplEntry) -> Result<(), CoherenceError> {
-        let type_key = entry.self_ty.clone();
+        // Convert Type to TypeId once for O(1) HashMap key comparison
+        let type_id = entry.self_ty.to_type_id(&self.interner);
 
         if let Some(trait_name) = entry.trait_name {
             // Trait implementation - check for duplicate
-            let key = (trait_name, type_key.clone());
+            let key = (trait_name, type_id);
             if let Some(existing) = self.trait_impls.get(&key) {
                 return Err(CoherenceError {
                     message: "conflicting implementation: trait already implemented for this type"
@@ -172,9 +195,9 @@ impl TraitRegistry {
                     existing_span: existing.span,
                 });
             }
-            // Update secondary index: type -> traits it implements
+            // Update secondary index: type_id -> traits it implements
             self.traits_by_type
-                .entry(type_key.clone())
+                .entry(type_id)
                 .or_default()
                 .push(trait_name);
 
@@ -182,7 +205,7 @@ impl TraitRegistry {
             if let Type::Named(type_name)
             | Type::Applied {
                 name: type_name, ..
-            } = &type_key
+            } = &entry.self_ty
             {
                 for assoc_def in &entry.assoc_types {
                     self.assoc_types_index
@@ -193,7 +216,7 @@ impl TraitRegistry {
             self.trait_impls.insert(key, entry);
         } else {
             // Inherent implementation - check for duplicate methods
-            if let Some(existing) = self.inherent_impls.get(&type_key) {
+            if let Some(existing) = self.inherent_impls.get(&type_id) {
                 // Build set of existing method names for O(1) lookup
                 let existing_names: HashSet<Name> =
                     existing.methods.iter().map(|m| m.name).collect();
@@ -214,9 +237,9 @@ impl TraitRegistry {
                 let mut merged = existing.clone();
                 merged.methods.extend(entry.methods);
                 merged.rebuild_indices();
-                self.inherent_impls.insert(type_key, merged);
+                self.inherent_impls.insert(type_id, merged);
             } else {
-                self.inherent_impls.insert(type_key, entry);
+                self.inherent_impls.insert(type_id, entry);
             }
         }
         self.method_cache.borrow_mut().clear();
@@ -225,12 +248,14 @@ impl TraitRegistry {
 
     /// Find implementation of a trait for a type.
     pub fn get_trait_impl(&self, trait_name: Name, self_ty: &Type) -> Option<&ImplEntry> {
-        self.trait_impls.get(&(trait_name, self_ty.clone()))
+        let type_id = self_ty.to_type_id(&self.interner);
+        self.trait_impls.get(&(trait_name, type_id))
     }
 
     /// Find inherent implementation for a type.
     pub fn get_inherent_impl(&self, self_ty: &Type) -> Option<&ImplEntry> {
-        self.inherent_impls.get(self_ty)
+        let type_id = self_ty.to_type_id(&self.interner);
+        self.inherent_impls.get(&type_id)
     }
 
     /// Check if a type implements a trait.
@@ -246,21 +271,30 @@ impl TraitRegistry {
     /// full scan through inherent impls, trait impls, and default methods, then caches the
     /// result. Subsequent lookups for the same pair return the cached value in O(1).
     /// The cache is invalidated whenever traits or implementations are registered.
+    ///
+    /// Uses `TypeId` as cache key to avoid expensive `Type` cloning on every lookup.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "Arc::new used to cache MethodLookup results for O(1) retrieval"
+    )]
     pub fn lookup_method(&self, self_ty: &Type, method_name: Name) -> Option<MethodLookup> {
-        let cache_key = (self_ty.clone(), method_name);
+        // Convert Type to TypeId once for O(1) cache key comparison (no Type cloning)
+        let type_id = self_ty.to_type_id(&self.interner);
+        let cache_key = (type_id, method_name);
 
         // Check the cache first
         if let Some(cached) = self.method_cache.borrow().get(&cache_key) {
-            return cached.clone();
+            // Return cloned Arc contents (cheap: just deref + clone the MethodLookup)
+            return cached.as_ref().map(|arc| (**arc).clone());
         }
 
         // Cache miss — perform the full lookup
         let result = self.lookup_method_uncached(self_ty, method_name);
 
-        // Cache the result (including None, to avoid repeated misses)
+        // Cache the result as Arc (including None, to avoid repeated misses)
         self.method_cache
             .borrow_mut()
-            .insert(cache_key, result.clone());
+            .insert(cache_key, result.as_ref().map(|r| Arc::new(r.clone())));
 
         result
     }
@@ -269,8 +303,11 @@ impl TraitRegistry {
     ///
     /// Checks inherent impls first, then trait impls, then default methods.
     fn lookup_method_uncached(&self, self_ty: &Type, method_name: Name) -> Option<MethodLookup> {
+        // Convert Type to TypeId once for all lookups in this function
+        let type_id = self_ty.to_type_id(&self.interner);
+
         // First check inherent impls
-        if let Some(impl_entry) = self.get_inherent_impl(self_ty) {
+        if let Some(impl_entry) = self.inherent_impls.get(&type_id) {
             if let Some(method) = impl_entry.get_method(method_name) {
                 return Some(MethodLookup {
                     trait_name: None,
@@ -286,9 +323,9 @@ impl TraitRegistry {
         }
 
         // Then check trait impls for this type using secondary index (O(k) where k = traits for type)
-        if let Some(trait_names) = self.traits_by_type.get(self_ty) {
+        if let Some(trait_names) = self.traits_by_type.get(&type_id) {
             for trait_name in trait_names {
-                if let Some(impl_entry) = self.trait_impls.get(&(*trait_name, self_ty.clone())) {
+                if let Some(impl_entry) = self.trait_impls.get(&(*trait_name, type_id)) {
                     if let Some(method) = impl_entry.get_method(method_name) {
                         return Some(MethodLookup {
                             trait_name: Some(*trait_name),
@@ -365,21 +402,14 @@ impl TraitRegistry {
         // Get the trait impl for this type
         let impl_entry = self.get_trait_impl(trait_name, self_ty)?;
 
-        // First, check if the impl explicitly defines this associated type
-        if let Some(at) = impl_entry
-            .assoc_types
-            .iter()
-            .find(|at| at.name == assoc_name)
-        {
+        // First, check if the impl explicitly defines this associated type (O(1) lookup)
+        if let Some(at) = impl_entry.get_assoc_type(assoc_name) {
             return Some(self.interner.to_type(at.ty));
         }
 
-        // Not explicitly defined - check if the trait has a default
+        // Not explicitly defined - check if the trait has a default (O(1) lookup)
         let trait_entry = self.traits.get(&trait_name)?;
-        let trait_assoc = trait_entry
-            .assoc_types
-            .iter()
-            .find(|at| at.name == assoc_name)?;
+        let trait_assoc = trait_entry.get_assoc_type(assoc_name)?;
 
         // If there's a default, resolve it with Self substituted
         trait_assoc
@@ -508,13 +538,14 @@ impl TraitRegistry {
     /// Look up a method in a trait's default implementation.
     ///
     /// Returns the method signature if the trait has a def impl with the method.
+    /// Uses O(1) `method_index` lookup instead of linear scan.
     pub fn lookup_def_impl_method(
         &self,
         trait_name: Name,
         method_name: Name,
     ) -> Option<MethodLookup> {
         let entry = self.def_impls.get(&trait_name)?;
-        let method = entry.methods.iter().find(|m| m.name == method_name)?;
+        let method = entry.get_method(method_name)?;
         Some(MethodLookup {
             trait_name: Some(trait_name),
             method_name,

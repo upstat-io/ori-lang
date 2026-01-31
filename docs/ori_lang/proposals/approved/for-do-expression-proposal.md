@@ -1,6 +1,7 @@
 # Proposal: For-Do Expression
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-31
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-31
 **Affects:** Compiler, expressions, iteration
@@ -93,7 +94,7 @@ Built-in iterables include:
 - `[T]` (lists)
 - `{K: V}` (maps, iterates key-value tuples)
 - `Range<int>` (ranges)
-- `str` (iterates codepoints as single-character strings)
+- `str` (iterates codepoints as `char` values)
 
 ### Desugaring
 
@@ -106,6 +107,8 @@ for x in items do process(x)
 // Desugars to:
 items.iter().for_each(f: x -> process(x))
 ```
+
+> **Note:** This desugaring requires `for_each` on the `Iterator` trait. See [Iterator Traits](../approved/iterator-traits-proposal.md) for the trait definition.
 
 With guard:
 

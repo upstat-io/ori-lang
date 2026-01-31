@@ -231,7 +231,8 @@ fn infer_function_exp_with_scoped_bindings(
     use ori_patterns::ScopedBindingType;
 
     // Pre-compute which bindings apply to each property (O(n) instead of O(n*m))
-    let mut bindings_by_prop: HashMap<Name, Vec<&ori_patterns::ScopedBinding>> = HashMap::new();
+    let mut bindings_by_prop: HashMap<Name, Vec<&ori_patterns::ScopedBinding>> =
+        HashMap::with_capacity(scoped_bindings.len());
     let mut props_needing_scope: std::collections::HashSet<Name> = std::collections::HashSet::new();
 
     for binding in scoped_bindings {

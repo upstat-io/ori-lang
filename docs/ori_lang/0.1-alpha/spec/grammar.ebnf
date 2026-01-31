@@ -268,8 +268,17 @@ constant_decl = "let" "$" identifier [ ":" type ] "=" expression .
 // ============================================================================
 
 type          = type_path [ type_args ]
-              | list_type | fixed_list_type | map_type | tuple_type | function_type .
+              | list_type | fixed_list_type | map_type | tuple_type | function_type
+              | impl_trait_type .
 type_path     = identifier { "." identifier } .
+
+// --- Existential Types (impl Trait) ---
+// See: 06-types.md § Existential Types
+
+impl_trait_type   = "impl" trait_bounds [ impl_where_clause ] .
+trait_bounds      = type_path { "+" type_path } .
+impl_where_clause = "where" assoc_constraint { "," assoc_constraint } .
+assoc_constraint  = identifier "==" type .
 type_args     = "<" type_or_const { "," type_or_const } ">" .
 type_or_const = type | const_expr .
 list_type     = "[" type "]" .
@@ -381,7 +390,7 @@ if_expr = "if" expression "then" expression
 // --- For Expression ---
 // See: 09-expressions.md § For Expression, 19-control-flow.md § Labeled Loops
 
-for_expr = "for" [ label ] identifier "in" expression [ "if" expression ] ( "do" | "yield" ) expression .
+for_expr = "for" [ label ] binding_pattern "in" expression [ "if" expression ] ( "do" | "yield" ) expression .
 
 // --- Loop Expression ---
 // See: 09-expressions.md § Loop Expression, 19-control-flow.md § Labeled Loops

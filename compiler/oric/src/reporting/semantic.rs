@@ -65,16 +65,21 @@ impl Render for SemanticProblem {
                 Diagnostic::error(ErrorCode::E2003)
                     .with_message(format!("{kind} `{name}` is private"))
                     .with_label(*span, "private, cannot access")
+                    .with_suggestion(format!(
+                        "add `pub` to the {kind} definition to make it public"
+                    ))
             }
 
             SemanticProblem::ImportNotFound { span, path } => Diagnostic::error(ErrorCode::E2003)
                 .with_message(format!("cannot find module `{path}`"))
-                .with_label(*span, "module not found"),
+                .with_label(*span, "module not found")
+                .with_note("check that the file path is correct and the file exists"),
 
             SemanticProblem::ImportedItemNotFound { span, item, module } => {
                 Diagnostic::error(ErrorCode::E2003)
                     .with_message(format!("cannot find `{item}` in module `{module}`"))
                     .with_label(*span, "not found in module")
+                    .with_note("check the item is exported from the module")
             }
 
             SemanticProblem::ImmutableMutation {
@@ -89,7 +94,8 @@ impl Render for SemanticProblem {
 
             SemanticProblem::UseBeforeInit { span, name } => Diagnostic::error(ErrorCode::E2003)
                 .with_message(format!("use of possibly uninitialized `{name}`"))
-                .with_label(*span, "used before initialization"),
+                .with_label(*span, "used before initialization")
+                .with_suggestion("initialize the variable before using it"),
 
             SemanticProblem::MissingTest { span, func_name } => Diagnostic::error(ErrorCode::E3001)
                 .with_message(format!("function `@{func_name}` has no tests"))
@@ -104,7 +110,8 @@ impl Render for SemanticProblem {
                 .with_message(format!(
                     "test `@{test_name}` targets unknown function `@{target_name}`"
                 ))
-                .with_label(*span, "function not found"),
+                .with_label(*span, "function not found")
+                .with_note("check the function name in `tests @target_name`"),
 
             SemanticProblem::BreakOutsideLoop { span } => Diagnostic::error(ErrorCode::E3002)
                 .with_message("`break` outside of loop")
@@ -151,11 +158,13 @@ impl Render for SemanticProblem {
 
             SemanticProblem::UnusedFunction { span, name } => Diagnostic::warning(ErrorCode::E3003)
                 .with_message(format!("unused function `@{name}`"))
-                .with_label(*span, "never called"),
+                .with_label(*span, "never called")
+                .with_suggestion("remove the function or add a call to it"),
 
             SemanticProblem::UnreachableCode { span } => Diagnostic::warning(ErrorCode::E3003)
                 .with_message("unreachable code")
-                .with_label(*span, "this code will never execute"),
+                .with_label(*span, "this code will never execute")
+                .with_suggestion("remove this code or restructure the control flow"),
 
             SemanticProblem::NonExhaustiveMatch {
                 span,

@@ -10,6 +10,56 @@ use ori_patterns::{
     modulo_by_zero, EvalError, EvalResult, Heap, RangeValue, ScalarInt, Value,
 };
 
+// Helper functions for repetitive checked arithmetic patterns
+
+/// Checked arithmetic operation with overflow handling.
+///
+/// Used for Add, Sub, Mul where the only error case is overflow.
+#[inline]
+fn checked_arith<T>(result: Option<T>, wrap: fn(T) -> Value, op_name: &'static str) -> EvalResult {
+    result.map(wrap).ok_or_else(|| integer_overflow(op_name))
+}
+
+/// Checked division with zero guard.
+///
+/// Returns `division_by_zero` error if divisor is zero, `integer_overflow` if result overflows.
+#[inline]
+fn checked_div<T, F>(
+    is_zero: bool,
+    op: F,
+    wrap: fn(T) -> Value,
+    op_name: &'static str,
+) -> EvalResult
+where
+    F: FnOnce() -> Option<T>,
+{
+    if is_zero {
+        Err(division_by_zero())
+    } else {
+        op().map(wrap).ok_or_else(|| integer_overflow(op_name))
+    }
+}
+
+/// Checked modulo with zero guard.
+///
+/// Returns `modulo_by_zero` error if divisor is zero, `integer_overflow` if result overflows.
+#[inline]
+fn checked_mod<T, F>(
+    is_zero: bool,
+    op: F,
+    wrap: fn(T) -> Value,
+    op_name: &'static str,
+) -> EvalResult
+where
+    F: FnOnce() -> Option<T>,
+{
+    if is_zero {
+        Err(modulo_by_zero())
+    } else {
+        op().map(wrap).ok_or_else(|| integer_overflow(op_name))
+    }
+}
+
 // Direct Dispatch Function
 
 /// Evaluate a binary operation using direct pattern matching.
@@ -54,45 +104,17 @@ pub fn evaluate_binary(left: Value, right: Value, op: BinaryOp) -> EvalResult {
 /// `Sub`, `Mul`, `Div`, `Rem`, or `Neg`.
 fn eval_int_binary(a: ScalarInt, b: ScalarInt, op: BinaryOp) -> EvalResult {
     match op {
-        BinaryOp::Add => a
-            .checked_add(b)
-            .map(Value::Int)
-            .ok_or_else(|| integer_overflow("addition")),
-        BinaryOp::Sub => a
-            .checked_sub(b)
-            .map(Value::Int)
-            .ok_or_else(|| integer_overflow("subtraction")),
-        BinaryOp::Mul => a
-            .checked_mul(b)
-            .map(Value::Int)
-            .ok_or_else(|| integer_overflow("multiplication")),
-        BinaryOp::Div => {
-            if b.is_zero() {
-                Err(division_by_zero())
-            } else {
-                a.checked_div(b)
-                    .map(Value::Int)
-                    .ok_or_else(|| integer_overflow("division"))
-            }
-        }
-        BinaryOp::Mod => {
-            if b.is_zero() {
-                Err(modulo_by_zero())
-            } else {
-                a.checked_rem(b)
-                    .map(Value::Int)
-                    .ok_or_else(|| integer_overflow("remainder"))
-            }
-        }
-        BinaryOp::FloorDiv => {
-            if b.is_zero() {
-                Err(division_by_zero())
-            } else {
-                a.checked_floor_div(b)
-                    .map(Value::Int)
-                    .ok_or_else(|| integer_overflow("floor division"))
-            }
-        }
+        BinaryOp::Add => checked_arith(a.checked_add(b), Value::Int, "addition"),
+        BinaryOp::Sub => checked_arith(a.checked_sub(b), Value::Int, "subtraction"),
+        BinaryOp::Mul => checked_arith(a.checked_mul(b), Value::Int, "multiplication"),
+        BinaryOp::Div => checked_div(b.is_zero(), || a.checked_div(b), Value::Int, "division"),
+        BinaryOp::Mod => checked_mod(b.is_zero(), || a.checked_rem(b), Value::Int, "remainder"),
+        BinaryOp::FloorDiv => checked_div(
+            b.is_zero(),
+            || a.checked_floor_div(b),
+            Value::Int,
+            "floor division",
+        ),
         BinaryOp::Eq => Ok(Value::Bool(a == b)),
         BinaryOp::NotEq => Ok(Value::Bool(a != b)),
         BinaryOp::Lt => Ok(Value::Bool(a < b)),
@@ -254,24 +276,14 @@ fn eval_result_binary(left: &Value, right: &Value, op: BinaryOp) -> EvalResult {
 /// Binary operations on Duration values (stored as i64 nanoseconds).
 fn eval_duration_binary(a: i64, b: i64, op: BinaryOp) -> EvalResult {
     match op {
-        BinaryOp::Add => a
-            .checked_add(b)
-            .map(Value::Duration)
-            .ok_or_else(|| integer_overflow("duration addition")),
-        BinaryOp::Sub => a
-            .checked_sub(b)
-            .map(Value::Duration)
-            .ok_or_else(|| integer_overflow("duration subtraction")),
-        BinaryOp::Mod => {
-            if b == 0 {
-                Err(modulo_by_zero())
-            } else {
-                // checked_rem handles all cases safely
-                a.checked_rem(b)
-                    .map(Value::Duration)
-                    .ok_or_else(|| integer_overflow("duration modulo"))
-            }
-        }
+        BinaryOp::Add => checked_arith(a.checked_add(b), Value::Duration, "duration addition"),
+        BinaryOp::Sub => checked_arith(a.checked_sub(b), Value::Duration, "duration subtraction"),
+        BinaryOp::Mod => checked_mod(
+            b == 0,
+            || a.checked_rem(b),
+            Value::Duration,
+            "duration modulo",
+        ),
         BinaryOp::Eq => Ok(Value::Bool(a == b)),
         BinaryOp::NotEq => Ok(Value::Bool(a != b)),
         BinaryOp::Lt => Ok(Value::Bool(a < b)),
@@ -286,31 +298,29 @@ fn eval_duration_binary(a: i64, b: i64, op: BinaryOp) -> EvalResult {
 fn eval_duration_int_binary(a: i64, b: ScalarInt, op: BinaryOp) -> EvalResult {
     let b_val = b.raw();
     match op {
-        BinaryOp::Mul => a
-            .checked_mul(b_val)
-            .map(Value::Duration)
-            .ok_or_else(|| integer_overflow("duration multiplication")),
-        BinaryOp::Div => {
-            if b_val == 0 {
-                Err(division_by_zero())
-            } else {
-                a.checked_div(b_val)
-                    .map(Value::Duration)
-                    .ok_or_else(|| integer_overflow("duration division"))
-            }
-        }
+        BinaryOp::Mul => checked_arith(
+            a.checked_mul(b_val),
+            Value::Duration,
+            "duration multiplication",
+        ),
+        BinaryOp::Div => checked_div(
+            b_val == 0,
+            || a.checked_div(b_val),
+            Value::Duration,
+            "duration division",
+        ),
         _ => Err(invalid_binary_op_for("Duration and int", op)),
     }
 }
 
 /// Binary operations: int * Duration.
 fn eval_int_duration_binary(a: ScalarInt, b: i64, op: BinaryOp) -> EvalResult {
-    let a_val = a.raw();
     match op {
-        BinaryOp::Mul => a_val
-            .checked_mul(b)
-            .map(Value::Duration)
-            .ok_or_else(|| integer_overflow("duration multiplication")),
+        BinaryOp::Mul => checked_arith(
+            a.raw().checked_mul(b),
+            Value::Duration,
+            "duration multiplication",
+        ),
         _ => Err(invalid_binary_op_for("int and Duration", op)),
     }
 }
@@ -318,24 +328,13 @@ fn eval_int_duration_binary(a: ScalarInt, b: i64, op: BinaryOp) -> EvalResult {
 /// Binary operations on Size values (stored as u64 bytes).
 fn eval_size_binary(a: u64, b: u64, op: BinaryOp) -> EvalResult {
     match op {
-        BinaryOp::Add => a
-            .checked_add(b)
-            .map(Value::Size)
-            .ok_or_else(|| integer_overflow("size addition")),
+        BinaryOp::Add => checked_arith(a.checked_add(b), Value::Size, "size addition"),
+        // Size subtraction has special error message (not "overflow" but "negative value")
         BinaryOp::Sub => a
             .checked_sub(b)
             .map(Value::Size)
             .ok_or_else(|| EvalError::new("size subtraction would result in negative value")),
-        BinaryOp::Mod => {
-            if b == 0 {
-                Err(modulo_by_zero())
-            } else {
-                // Safe: b != 0, and u64 % u64 cannot overflow
-                a.checked_rem(b)
-                    .map(Value::Size)
-                    .ok_or_else(|| integer_overflow("size modulo"))
-            }
-        }
+        BinaryOp::Mod => checked_mod(b == 0, || a.checked_rem(b), Value::Size, "size modulo"),
         BinaryOp::Eq => Ok(Value::Bool(a == b)),
         BinaryOp::NotEq => Ok(Value::Bool(a != b)),
         BinaryOp::Lt => Ok(Value::Bool(a < b)),

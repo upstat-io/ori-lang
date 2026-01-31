@@ -27,9 +27,11 @@ trait Iterable {
 }
 
 trait Collect<T> {
-    @from_iter (iter: impl Iterator where Item == T) -> Self
+    @from_iter<I: Iterator> (iter: I) -> Self where I.Item == T
 }
 ```
+
+> **Note:** The `Collect` trait uses a generic parameter `I` rather than `impl Iterator` in parameter position. See `existential-types-proposal.md` for details on why `impl Trait` is restricted to return position only.
 
 ---
 
@@ -127,7 +129,7 @@ Types that can be built from an iterator:
 
 ```ori
 trait Collect<T> {
-    @from_iter (iter: impl Iterator where Item == T) -> Self
+    @from_iter<I: Iterator> (iter: I) -> Self where I.Item == T
 }
 ```
 
@@ -187,6 +189,10 @@ trait Iterator {
     // Counting
     @count (self) -> int =
         self.fold(initial: 0, op: (acc, _) -> acc + 1)
+
+    // Side effects
+    @for_each (self, f: (Self.Item) -> void) -> void =
+        self.fold(initial: (), op: (_, item) -> f(item))
 
     // Predicates
     @any (self, predicate: (Self.Item) -> bool) -> bool =
@@ -352,7 +358,7 @@ impl<T> Iterable for [T] {
 }
 
 impl<T> Collect<T> for [T] {
-    @from_iter (iter: impl Iterator where Item == T) -> [T] = /* intrinsic */
+    @from_iter<I: Iterator> (iter: I) -> [T] where I.Item == T = /* intrinsic */
 }
 
 // Maps are iterable (yields key-value tuples, NOT double-ended — unordered)
@@ -368,7 +374,7 @@ impl<T> Iterable for Set<T> {
 }
 
 impl<T> Collect<T> for Set<T> {
-    @from_iter (iter: impl Iterator where Item == T) -> Set<T> = /* intrinsic */
+    @from_iter<I: Iterator> (iter: I) -> Set<T> where I.Item == T = /* intrinsic */
 }
 
 // Strings are iterable and double-ended (yields characters)
@@ -838,10 +844,10 @@ Update prelude traits list and add iterator documentation to the quick reference
 | Iterator method | `@next (self) -> (Option<Self.Item>, Self)` (functional) |
 | Double-ended method | `@next_back (self) -> (Option<Self.Item>, Self)` |
 | Iterable method | `@iter (self) -> impl Iterator` |
-| Collect method | `@from_iter (iter: impl Iterator) -> Self` |
+| Collect method | `@from_iter<I: Iterator> (iter: I) -> Self where I.Item == T` |
 | Fused guarantee | Required — once None, always None |
 | For loop | Desugars to `.iter()` and functional `.next()` |
-| Methods | `map`, `filter`, `fold`, `find`, `collect`, `rev`, `last`, `cycle`, etc. as default trait implementations |
+| Methods | `map`, `filter`, `fold`, `find`, `for_each`, `collect`, `rev`, `last`, `cycle`, etc. as default trait implementations |
 | Infinite iterators | `repeat(value)` function, `Iterator.cycle()` method |
 | User types | Implement traits to participate in iteration |
 | Prelude | `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`, `repeat` |
