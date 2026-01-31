@@ -1,6 +1,7 @@
 # Operator Traits Proposal
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-31
 **Author:** Claude
 **Created:** 2026-01-31
 **Depends On:** default-type-parameters-proposal.md, default-associated-types-proposal.md
@@ -8,11 +9,11 @@
 
 ## Summary
 
-Define traits for arithmetic, comparison, and unary operators that user-defined types can implement to support operator syntax. The compiler desugars operators to trait method calls.
+Define traits for arithmetic, bitwise, and unary operators that user-defined types can implement to support operator syntax. The compiler desugars operators to trait method calls.
 
 ## Motivation
 
-Currently, operators (`+`, `-`, `*`, `/`, `%`, `-x`, `~x`) are hardcoded in the compiler for built-in types only. User-defined types cannot use operator syntax:
+Currently, operators (`+`, `-`, `*`, `/`, `%`, `-x`, `~x`, `!x`) are hardcoded in the compiler for built-in types only. User-defined types cannot use operator syntax:
 
 ```ori
 type Vector2 = { x: float, y: float }
@@ -56,6 +57,11 @@ trait Mul<Rhs = Self> {
 trait Div<Rhs = Self> {
     type Output = Self
     @div (self, rhs: Rhs) -> Self.Output
+}
+
+trait FloorDiv<Rhs = Self> {
+    type Output = Self
+    @floor_div (self, rhs: Rhs) -> Self.Output
 }
 
 trait Rem<Rhs = Self> {
@@ -116,6 +122,7 @@ The compiler desugars operators to trait method calls:
 | `a - b` | `a.sub(rhs: b)` |
 | `a * b` | `a.mul(rhs: b)` |
 | `a / b` | `a.div(rhs: b)` |
+| `a div b` | `a.floor_div(rhs: b)` |
 | `a % b` | `a.rem(rhs: b)` |
 | `-a` | `a.neg()` |
 | `!a` | `a.not()` |
@@ -189,6 +196,30 @@ let doubled = 5s * 2      // Duration * int -> Duration
 let halved = 10s / 2      // Duration / int -> Duration
 ```
 
+### Commutative Mixed-Type Operations
+
+For operations where both orderings should be valid (e.g., `int * Duration` and `Duration * int`), implement both directions explicitly:
+
+```ori
+// Duration * int
+impl Mul<int> for Duration {
+    type Output = Duration
+    @mul (self, n: int) -> Duration = Duration.from_nanoseconds(ns: self.nanoseconds() * n)
+}
+
+// int * Duration
+impl Mul<Duration> for int {
+    type Output = Duration
+    @mul (self, d: Duration) -> Duration = d * self  // Delegate to Duration * int
+}
+
+// Usage
+let a = 5s * 2      // Duration * int -> Duration
+let b = 2 * 5s      // int * Duration -> Duration (same result)
+```
+
+The compiler does not automatically commute operands. Each ordering requires an explicit implementation.
+
 ### User-Defined Example
 
 ```ori
@@ -258,7 +289,7 @@ impl Add for Meters {
 // ... etc
 ```
 
-## Missing Language Features
+## Language Features Required
 
 ### 1. Default Type Parameters on Traits (REQUIRED)
 
@@ -275,12 +306,7 @@ impl Add for Point { ... }
 impl Add<Point> for Point { ... }
 ```
 
-**Status:** NOT IMPLEMENTED
-
-Without this, every impl must specify the type parameter:
-```ori
-impl Add<Vector2> for Vector2 { ... }  // Verbose
-```
+**Status:** APPROVED — See `default-type-parameters-proposal.md`
 
 ### 2. Default Associated Types (REQUIRED)
 
@@ -298,15 +324,7 @@ impl Add for Point {
 }
 ```
 
-**Status:** NOT IMPLEMENTED (associated types exist, defaults do not)
-
-Without this, every impl must declare the associated type:
-```ori
-impl Add for Point {
-    type Output = Point  // Required even though it's always Point
-    @add (self, rhs: Point) -> Point = ...
-}
-```
+**Status:** APPROVED — See `default-associated-types-proposal.md`
 
 ### 3. Self in Associated Type Defaults (REQUIRED)
 
@@ -318,7 +336,7 @@ trait Add<Rhs = Self> {
 }
 ```
 
-**Status:** UNCERTAIN - needs verification
+**Status:** IMPLEMENTED — Covered by default-type-parameters and default-associated-types proposals.
 
 ### 4. Derive Macros for Operator Traits (NICE TO HAVE)
 
@@ -329,19 +347,19 @@ trait Add<Rhs = Self> {
 type Celsius = { value: float }
 ```
 
-**Status:** NOT IMPLEMENTED - derive system exists but not for operators
+**Status:** NOT IMPLEMENTED — derive system exists but not for operators. Defer to future proposal.
 
 ## Implementation Plan
 
 ### Phase 1: Language Prerequisites
 
-1. Implement default type parameters on traits
-2. Implement default associated types
-3. Verify `Self` works in associated type defaults
+1. Implement default type parameters on traits ✅ (approved)
+2. Implement default associated types ✅ (approved)
+3. Verify `Self` works in associated type defaults ✅ (covered by above)
 
 ### Phase 2: Operator Traits
 
-1. Define operator traits in prelude (`Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`, etc.)
+1. Define operator traits in prelude (`Add`, `Sub`, `Mul`, `Div`, `FloorDiv`, `Rem`, `Neg`, `Not`, `BitNot`, etc.)
 2. Modify type checker to desugar operators to trait method calls
 3. Modify evaluator to dispatch operators via trait impls
 4. Add built-in impls for primitives (int, float, str, Duration, Size, etc.)
@@ -349,7 +367,7 @@ type Celsius = { value: float }
 ### Phase 3: Testing
 
 1. User-defined types with operators
-2. Mixed-type operations (`Duration * int`)
+2. Mixed-type operations (`Duration * int`, `int * Duration`)
 3. Chaining operators and methods
 4. Error messages for missing impls
 
