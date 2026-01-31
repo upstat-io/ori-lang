@@ -755,6 +755,18 @@
 - Single `if` filter (use `&&` for multiple conditions)
 - Blocked on: None (extends existing for-yield syntax)
 
+**Formattable Trait** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/formattable-trait-proposal.md`
+- Implementation: Phase 3.16
+- Formalizes `Formattable` trait with `@format(self, spec: FormatSpec) -> str`
+- Format spec syntax: `[[fill]align][sign][#][0][width][.precision][type]`
+- Format types: `b` (binary), `o` (octal), `x/X` (hex), `e/E` (scientific), `f` (fixed), `%` (percent)
+- Sign specifiers: `+` (always), `-` (negative only), ` ` (space for positive)
+- Alternate form `#` adds prefixes (0b, 0o, 0x); zero-pad `0` for right-aligned
+- Blanket impl for all `Printable` types
+- `FormatSpec`, `Alignment`, `Sign`, `FormatType` added to prelude
+- Blocked on: None (builds on existing Phase 3 infrastructure)
+
 ---
 
 ## Milestones

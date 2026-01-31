@@ -260,11 +260,11 @@ This is distinct from *name resolution* within a module (see Resolution above).
 
 Available without import:
 
-**Types**: `int`, `float`, `bool`, `str`, `char`, `byte`, `void`, `Never`, `Duration`, `Size`, `Option<T>`, `Result<T, E>`, `Ordering`, `Error`, `TraceEntry`, `Range<T>`, `Set<T>`, `Channel<T>`, `[T]`, `{K: V}`
+**Types**: `int`, `float`, `bool`, `str`, `char`, `byte`, `void`, `Never`, `Duration`, `Size`, `Option<T>`, `Result<T, E>`, `Ordering`, `Error`, `TraceEntry`, `Range<T>`, `Set<T>`, `Channel<T>`, `[T]`, `{K: V}`, `FormatSpec`, `Alignment`, `Sign`, `FormatType`
 
 **Functions**: `print`, `len`, `is_empty`, `is_some`, `is_none`, `is_ok`, `is_err`, `int`, `float`, `str`, `byte`, `compare`, `min`, `max`, `panic`, `todo`, `unreachable`, `dbg`, `hash_combine`, all assertions
 
-**Traits**: `Eq`, `Comparable`, `Hashable`, `Printable`, `Debug`, `Clone`, `Default`, `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`, `Into`, `Traceable`
+**Traits**: `Eq`, `Comparable`, `Hashable`, `Printable`, `Formattable`, `Debug`, `Clone`, `Default`, `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`, `Into`, `Traceable`
 
 | Trait | Method | Description |
 |-------|--------|-------------|
@@ -272,6 +272,7 @@ Available without import:
 | `Comparable` | `.compare()` | Ordering comparison |
 | `Hashable` | `.hash()` | Hash value for map keys |
 | `Printable` | `.to_str()` | String representation |
+| `Formattable` | `.format()` | Formatted string with spec |
 | `Debug` | `.debug()` | Developer-facing representation |
 | `Clone` | `.clone()` | Explicit value duplication |
 | `Default` | `.default()` | Default value construction |
