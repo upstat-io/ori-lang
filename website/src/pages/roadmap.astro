@@ -129,13 +129,14 @@ const tiers: Tier[] = [
   {
     id: 1,
     name: "Foundation",
-    status: "complete",
+    status: "partial",
     description: "Core type system and language fundamentals",
     phases: [
       {
         num: 1,
         name: "Type System Foundation",
-        status: "complete",
+        status: "partial",
+        note: "Core complete; 1.1A Duration/Size traits, 1.1B Never semantics pending",
         goal: "Fix type checking to properly use type annotations",
         spec: "spec/06-types.md, spec/07-properties-of-types.md",
         sections: [
@@ -184,7 +185,8 @@ const tiers: Tier[] = [
       {
         num: 3,
         name: "Traits",
-        status: "complete",
+        status: "partial",
+        note: "Core complete (3.0-3.6); approved proposals 3.7-3.18 pending, operator LLVM pending",
         goal: "Implement trait system with bounds and implementations",
         spec: "spec/08-declarations.md",
         sections: [
@@ -214,8 +216,8 @@ const tiers: Tier[] = [
       {
         num: 4,
         name: "Modules",
-        status: "complete",
-        note: "Module alias, re-export, qualified access all working",
+        status: "partial",
+        note: "Core complete; tooling (4.7), extension methods (4.11), error messages pending",
         goal: "Implement module system with imports and visibility",
         spec: "spec/12-modules.md",
         sections: [
@@ -240,8 +242,8 @@ const tiers: Tier[] = [
       {
         num: 5,
         name: "Type Declarations",
-        status: "complete",
-        note: "Structs, sum types (multi-field variants), newtypes all work",
+        status: "partial",
+        note: "Core complete; newtypes .inner (5.3), associated functions (5.9), constrained generics pending",
         goal: "User-defined types: structs, enums, newtypes",
         spec: "spec/06-types.md, spec/08-declarations.md",
         sections: [
@@ -273,7 +275,7 @@ const tiers: Tier[] = [
       },
     ],
     milestone: "M1: Bootstrapped",
-    milestoneStatus: "complete",
+    milestoneStatus: "partial",
     exitCriteria: "Can write programs using traits and modules",
   },
   {
@@ -285,8 +287,8 @@ const tiers: Tier[] = [
       {
         num: 6,
         name: "Capabilities",
-        status: "complete",
-        note: "27/27 tests pass",
+        status: "partial",
+        note: "Core complete (6.1-6.10); composition (6.11-6.12), intrinsics (6.14) pending",
         goal: "Implement capability system for effect tracking",
         spec: "spec/14-capabilities.md",
         sections: [
@@ -1073,15 +1075,15 @@ function countTasks(sections: Section[]): { done: number; total: number } {
       </p>
       <div class="stats">
         <div class="stat">
-          <span class="stat-value">6</span>
+          <span class="stat-value">1</span>
           <span class="stat-label">Completed</span>
         </div>
         <div class="stat">
-          <span class="stat-value">9</span>
+          <span class="stat-value">13</span>
           <span class="stat-label">In Progress</span>
         </div>
         <div class="stat">
-          <span class="stat-value">14</span>
+          <span class="stat-value">15</span>
           <span class="stat-label">Planned</span>
         </div>
       </div>
