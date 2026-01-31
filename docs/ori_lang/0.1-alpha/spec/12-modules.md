@@ -150,15 +150,53 @@ Aliases propagate through chains. The same underlying item imported through mult
 
 ## Extensions
 
+Extensions add methods to existing types without modifying their definition.
+
 ### Definition
 
 ```ori
 extend Iterator {
     @count (self) -> int = ...
 }
+```
+
+Constrained extensions use angle brackets or where clauses (equivalent):
+
+```ori
+// Angle bracket form
+extend<T: Clone> [T] {
+    @duplicate_all (self) -> [T] = self.map(transform: x -> x.clone())
+}
+
+// Where clause form
+extend [T] where T: Clone {
+    @duplicate_all (self) -> [T] = self.map(transform: x -> x.clone())
+}
 
 extend Iterator where Self.Item: Add {
     @sum (self) -> Self.Item = ...
+}
+```
+
+Extensions may be defined for concrete types, generic types, trait implementors, and constrained generics.
+
+Extensions cannot:
+- Add fields to types
+- Implement traits (use `impl Trait for Type`)
+- Override existing methods
+- Add static methods (methods without `self`)
+
+### Visibility
+
+Visibility is block-level. All methods in a `pub extend` block are public; all in a non-pub block are module-private.
+
+```ori
+pub extend Iterator {
+    @count (self) -> int = ...  // Publicly importable
+}
+
+extend Iterator {
+    @internal (self) -> int = ...  // Module-private
 }
 ```
 
@@ -169,7 +207,34 @@ extension std.iter.extensions { Iterator.count, Iterator.last }
 extension "./my_ext" { Iterator.sum }
 ```
 
-Method-level granularity required; no wildcards.
+Method-level granularity required; wildcards prohibited.
+
+### Resolution Order
+
+When calling `value.method()`:
+
+1. **Inherent methods** — methods in `impl Type { }`
+2. **Trait methods** — methods from implemented traits
+3. **Extension methods** — methods from imported extensions
+
+If multiple imported extensions define the same method, the call is ambiguous. Use qualified syntax:
+
+```ori
+use "./ext_a" as ext_a
+ext_a.Point.distance(p)  // Calls ext_a's implementation
+```
+
+### Scoping
+
+Extension imports are file-scoped. To re-export:
+
+```ori
+pub extension std.iter.extensions { Iterator.count }
+```
+
+### Orphan Rules
+
+An extension must be in the same package as either the type being extended OR at least one trait bound in a constrained extension.
 
 ## Resolution
 

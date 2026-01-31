@@ -1,8 +1,9 @@
 # Proposal: Extension Methods
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-30
+**Approved:** 2026-01-30
 **Affects:** Compiler, type system, module system
 
 ---
@@ -42,9 +43,19 @@ extend Iterator {
 
 ### Constrained Extensions
 
-Extensions can have type constraints:
+Extensions can have type constraints. Both syntax forms are equivalent:
 
 ```ori
+// Angle bracket form
+extend<T: Clone> [T] {
+    @duplicate_all (self) -> [T] = self.map(transform: x -> x.clone())
+}
+
+// Where clause form (equivalent)
+extend [T] where T: Clone {
+    @duplicate_all (self) -> [T] = self.map(transform: x -> x.clone())
+}
+
 extend Iterator where Self.Item: Add {
     @sum (self) -> Self.Item = self.fold(
         initial: Self.Item.default(),
@@ -65,6 +76,7 @@ Extensions cannot:
 - Add fields to types
 - Implement traits (use `impl Trait for Type` instead)
 - Override existing methods
+- Add static methods (methods without `self` — use inherent `impl` instead)
 
 ---
 
@@ -97,7 +109,7 @@ extension std.iter.extensions { Iterator.count, Iterator.sum, Iterator.last }
 
 ### Visibility
 
-Extensions follow normal visibility rules:
+Extensions follow normal visibility rules. Visibility is block-level: all methods in a `pub extend` block are public; all methods in a non-pub `extend` block are module-private. Individual method visibility modifiers are not supported.
 
 ```ori
 // In extensions.ori
@@ -109,6 +121,15 @@ extend Iterator {
     @internal_helper (self) -> int = ...  // Module-private
 }
 ```
+
+### Value Semantics
+
+Extension methods receive `self` by value and return new values (Ori has no mutation):
+
+```ori
+extend [T] {
+    @with_first (self, value: T) -> [T] = [value, ...self]
+}
 
 ---
 
@@ -232,13 +253,7 @@ pub extension std.iter.extensions { Iterator.count }
 
 ## Generic Extensions
 
-### Type Parameter Extensions
-
-```ori
-extend<T: Clone> [T] {
-    @duplicate_all (self) -> [T] = self.map(transform: x -> x.clone())
-}
-```
+Both angle bracket and `where` clause syntax are valid for generic extensions (see Constrained Extensions above).
 
 ### Associated Type Constraints
 

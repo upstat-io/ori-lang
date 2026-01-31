@@ -257,8 +257,111 @@
 - Re-exports: `pub use './client' { get, post }` — parsing ✅, full resolution pending
 - Qualified access: `module.function()` — runtime ✅, type checker needs ModuleNamespace support
 
-**Nice to have (lower priority):**
-- Extension imports: `extension std.iter.extensions { Iterator.count }`
+---
+
+## 4.11 Extension Methods
+
+> **PROPOSAL**: `proposals/approved/extension-methods-proposal.md`
+
+Extension methods add methods to existing types without modifying their definition.
+
+### Extension Definition
+
+- [ ] **Implement**: `extend Type { @method (self) -> T = ... }` — proposals/approved/extension-methods-proposal.md § Extension Definition
+  - [ ] Parse `extend` blocks
+  - [ ] Register extension methods in type environment
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — extension parsing tests
+  - [ ] **Ori Tests**: `tests/spec/extensions/definition.ori`
+
+- [ ] **Implement**: Constrained extensions with angle brackets — proposals/approved/extension-methods-proposal.md § Constrained Extensions
+  - [ ] `extend<T: Clone> [T] { ... }` syntax
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — generic extension parsing
+  - [ ] **Ori Tests**: `tests/spec/extensions/constrained.ori`
+
+- [ ] **Implement**: Constrained extensions with where clause — proposals/approved/extension-methods-proposal.md § Constrained Extensions
+  - [ ] `extend [T] where T: Clone { ... }` syntax (equivalent to angle bracket)
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — where clause parsing
+  - [ ] **Ori Tests**: `tests/spec/extensions/constrained_where.ori`
+
+- [ ] **Implement**: Extension visibility — proposals/approved/extension-methods-proposal.md § Visibility
+  - [ ] `pub extend` makes all methods public
+  - [ ] Non-pub `extend` is module-private
+  - [ ] Block-level visibility only (no per-method pub)
+  - [ ] **Rust Tests**: `oric/src/eval/module/` — visibility tests
+  - [ ] **Ori Tests**: `tests/spec/extensions/visibility.ori`
+
+- [ ] **Implement**: Extension restrictions — proposals/approved/extension-methods-proposal.md § What Can Be Extended
+  - [ ] Error on field addition attempt
+  - [ ] Error on trait implementation in extend block
+  - [ ] Error on override of existing method
+  - [ ] Error on static method (no self)
+  - [ ] **Rust Tests**: `oric/src/diagnostics/` — restriction error tests
+  - [ ] **Ori Tests**: `tests/spec/extensions/restrictions.ori`
+
+### Extension Import
+
+- [ ] **Implement**: `extension "path" { Type.method }` — proposals/approved/extension-methods-proposal.md § Extension Import
+  - [ ] Parse `extension` import syntax
+  - [ ] Method-level granularity required
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — extension import parsing
+  - [ ] **Ori Tests**: `tests/spec/extensions/import.ori`
+
+- [ ] **Implement**: Wildcard prohibition — proposals/approved/extension-methods-proposal.md § Import Syntax
+  - [ ] Error on `extension "path" { Type.* }`
+  - [ ] **Rust Tests**: `oric/src/diagnostics/` — wildcard error tests
+  - [ ] **Ori Tests**: `tests/spec/extensions/no_wildcard.ori`
+
+- [ ] **Implement**: Re-export extensions — proposals/approved/extension-methods-proposal.md § Scoping
+  - [ ] `pub extension "path" { Type.method }` for re-export
+  - [ ] No transitive propagation without explicit re-export
+  - [ ] **Rust Tests**: `oric/src/eval/module/` — re-export tests
+  - [ ] **Ori Tests**: `tests/spec/extensions/reexport.ori`
+
+### Method Resolution
+
+- [ ] **Implement**: Resolution order — proposals/approved/extension-methods-proposal.md § Resolution Order
+  - [ ] Inherent > Trait > Extension
+  - [ ] **Rust Tests**: `oric/src/typeck/` — resolution order tests
+  - [ ] **Ori Tests**: `tests/spec/extensions/resolution_order.ori`
+
+- [ ] **Implement**: Conflict detection — proposals/approved/extension-methods-proposal.md § Conflict Resolution
+  - [ ] Error on ambiguous extension methods
+  - [ ] Qualified syntax for disambiguation: `module.Type.method(v)`
+  - [ ] **Rust Tests**: `oric/src/typeck/` — conflict detection tests
+  - [ ] **Ori Tests**: `tests/spec/extensions/conflict.ori`
+
+### Orphan Rules
+
+- [ ] **Implement**: Same-package rule — proposals/approved/extension-methods-proposal.md § Orphan Rules
+  - [ ] Extension must be in same package as type OR trait bound
+  - [ ] Error for foreign type without local trait bound
+  - [ ] **Rust Tests**: `oric/src/typeck/` — orphan rule tests
+  - [ ] **Ori Tests**: `tests/spec/extensions/orphan.ori`
+
+### Error Messages
+
+- [ ] **Implement**: E0850 (ambiguous extension) — proposals/approved/extension-methods-proposal.md § Error Messages
+  - [ ] Show all candidate extensions
+  - [ ] Help text for qualified syntax
+  - [ ] **Rust Tests**: `oric/src/diagnostics/` — error formatting tests
+  - [ ] **Ori Tests**: `tests/spec/extensions/error_ambiguous.ori`
+
+- [ ] **Implement**: E0851 (method not found) — proposals/approved/extension-methods-proposal.md § Error Messages
+  - [ ] Suggest extension import if method exists in known module
+  - [ ] **Rust Tests**: `oric/src/diagnostics/` — error formatting tests
+  - [ ] **Ori Tests**: `tests/spec/extensions/error_not_found.ori`
+
+- [ ] **Implement**: E0852 (orphan violation) — proposals/approved/extension-methods-proposal.md § Error Messages
+  - [ ] Show package location of foreign type
+  - [ ] Help: "define a newtype wrapper or use a local trait bound"
+  - [ ] **Rust Tests**: `oric/src/diagnostics/` — error formatting tests
+  - [ ] **Ori Tests**: `tests/spec/extensions/error_orphan.ori`
+
+### LLVM Support
+
+- [ ] **Implement**: Extension method codegen — Extension methods in LLVM backend
+  - [ ] Same codegen as regular methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/extension_tests.rs`
 
 **Note on Type Definitions:**
 - Full prelude with user-defined Option, Result, etc. requires Phase 5 (Type Declarations)
