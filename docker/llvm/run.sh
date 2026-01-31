@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run a command in the LLVM container
-# Mounts workspace read-write, uses cached cargo registry
+# Mounts workspace read-write, optionally uses host cargo cache (local dev only)
 #
 # Usage:
 #   ./docker/llvm/run.sh cargo build       # builds ori_llvm
@@ -21,9 +21,6 @@ WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # Resource limits - conservative defaults to protect host
 MEMORY_LIMIT="${LLVM_MEMORY:-4g}"
 CPU_LIMIT="${LLVM_CPUS:-2}"
-
-# Use host's cargo registry cache for faster builds
-CARGO_CACHE="${HOME}/.cargo/registry"
 
 # Separate target dir to avoid host/container binary conflicts
 CONTAINER_TARGET="${WORKSPACE_ROOT}/target-llvm"
@@ -55,6 +52,13 @@ else
     CMD="$*"
 fi
 
+# Optional: use host's cargo registry cache for faster builds (local dev only)
+# In CI, we skip this to avoid read-only filesystem issues
+CARGO_CACHE_MOUNT=""
+if [ -d "${HOME}/.cargo/registry/cache" ] && [ -z "${CI}" ]; then
+    CARGO_CACHE_MOUNT="-v ${HOME}/.cargo/registry:/root/.cargo/registry:ro"
+fi
+
 exec docker run --rm ${DOCKER_FLAGS} \
     --memory="${MEMORY_LIMIT}" \
     --memory-swap="${MEMORY_LIMIT}" \
@@ -62,7 +66,7 @@ exec docker run --rm ${DOCKER_FLAGS} \
     --security-opt seccomp=unconfined \
     -v "${WORKSPACE_ROOT}:/workspace" \
     -v "${CONTAINER_TARGET}:/workspace/target" \
-    -v "${CARGO_CACHE}:/root/.cargo/registry:ro" \
+    ${CARGO_CACHE_MOUNT} \
     -w /workspace \
     ${ORI_DEBUG_LLVM:+-e ORI_DEBUG_LLVM="$ORI_DEBUG_LLVM"} \
     ori-llvm:latest \
