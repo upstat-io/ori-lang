@@ -1,0 +1,36 @@
+// Associated function calls (static methods on type names)
+// Spec: 04-declarations.md § Associated Functions
+
+// Duration factory methods
+@make_duration_ns () -> Duration = Duration.from_nanoseconds(ns: 1000)
+
+@make_duration_us () -> Duration = Duration.from_microseconds(us: 500)
+
+@make_duration_ms () -> Duration = Duration.from_milliseconds(ms: 100)
+
+@make_duration_s () -> Duration = Duration.from_seconds(s: 30)
+
+@make_duration_m () -> Duration = Duration.from_minutes(m: 5)
+
+@make_duration_h () -> Duration = Duration.from_hours(h: 2)
+
+// Size factory methods
+@make_size_b () -> Size = Size.from_bytes(b: 1024)
+
+@make_size_kb () -> Size = Size.from_kilobytes(kb: 4)
+
+@make_size_mb () -> Size = Size.from_megabytes(mb: 10)
+
+@make_size_gb () -> Size = Size.from_gigabytes(gb: 2)
+
+@make_size_tb () -> Size = Size.from_terabytes(tb: 1)
+
+// Nested in expressions
+@add_durations () -> Duration = Duration.from_seconds(s: 10) + Duration.from_minutes(m: 1)
+
+@compare_sizes () -> bool = Size.from_megabytes(mb: 1) < Size.from_gigabytes(gb: 1)
+
+// In conditionals
+@choose_duration (fast: bool) -> Duration =
+    if fast then Duration.from_milliseconds(ms: 100)
+    else Duration.from_seconds(s: 1)

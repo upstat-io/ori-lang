@@ -1087,3 +1087,40 @@ Formalizes the `Ordering` type that represents comparison results. Defines the t
 
 - [ ] **Update Spec**: `06-types.md` — expand Ordering section with methods and trait implementations
 - [ ] **Update**: `CLAUDE.md` — add Ordering methods to quick reference
+
+---
+
+## 3.19 Default Type Parameters on Traits
+
+**Proposal**: `proposals/approved/default-type-parameters-proposal.md`
+
+Allow type parameters on traits to have default values, enabling `trait Add<Rhs = Self>` where `Rhs` defaults to `Self` if not specified. Essential prerequisite for operator traits.
+
+### Implementation
+
+- [ ] **Implement**: Parse default type in `type_param` grammar rule (`identifier [ ":" bounds ] [ "=" type ]`)
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/generics.rs` — default type param parsing
+  - [ ] **Ori Tests**: `tests/spec/generics/default_type_params.ori`
+
+- [ ] **Implement**: Store default types in trait definition AST
+  - [ ] **Rust Tests**: `ori_ir/src/ast.rs` — trait def with defaults
+
+- [ ] **Implement**: Fill missing type arguments with defaults in impl checking
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/trait_registration.rs` — default substitution
+  - [ ] **Ori Tests**: `tests/spec/traits/default_type_params.ori`
+
+- [ ] **Implement**: Substitute `Self` with implementing type in defaults
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — Self resolution in defaults
+  - [ ] **Ori Tests**: `tests/spec/traits/default_type_params_self.ori`
+
+- [ ] **Implement**: Ordering constraint enforcement (defaults must follow non-defaults)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — ordering constraint tests
+  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/default_param_ordering.ori`
+
+- [ ] **Implement**: Later parameters can reference earlier ones in defaults
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — cascading defaults
+  - [ ] **Ori Tests**: `tests/spec/traits/default_type_params_cascade.ori`
+
+- [ ] **Update Spec**: `grammar.ebnf` § Generics — update type_param production
+- [ ] **Update Spec**: `08-declarations.md` — add Default Type Parameters section under Traits
+- [ ] **Update**: `CLAUDE.md` — add default type parameter syntax to Traits section

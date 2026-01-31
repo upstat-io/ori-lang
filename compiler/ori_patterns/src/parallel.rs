@@ -91,12 +91,12 @@ impl PatternDefinition for ParallelPattern {
             return Err(EvalError::new("parallel .tasks must be a list"));
         };
 
-        // Extract .timeout (optional)
+        // Extract .timeout (optional) - convert nanoseconds to milliseconds
         let timeout_ms = timeout_prop
             .map(|p| exec.eval(p.value))
             .transpose()?
             .and_then(|v| match v {
-                Value::Duration(ms) => Some(ms),
+                Value::Duration(ns) if ns > 0 => Some((ns / 1_000_000).cast_unsigned()),
                 Value::Int(n) => u64::try_from(n.raw()).ok(),
                 _ => None,
             });

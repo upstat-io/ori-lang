@@ -28,6 +28,13 @@ pub fn infer_ident(checker: &mut TypeChecker<'_>, name: Name, span: Span) -> Typ
         return newtype_constructor_type(&info);
     }
 
+    // Check if this is a type name for associated function calls
+    // (e.g., `Duration` in `Duration.from_seconds(s: 10)`)
+    let name_str = checker.context.interner.lookup(name);
+    if is_type_name_for_associated_functions(name_str) {
+        return Type::Named(name);
+    }
+
     // Try to suggest a similar name
     let name_str = checker.context.interner.lookup(name);
     let message = if let Some(suggestion) = suggest::suggest_identifier(checker, name) {
@@ -95,6 +102,14 @@ fn builtin_function_type(checker: &mut TypeChecker<'_>, name: &str) -> Option<Ty
         "byte" => Some(make_conversion_type(checker, Type::Byte)),
         _ => None,
     }
+}
+
+/// Check if an identifier is a type name that supports associated functions.
+///
+/// These types have factory methods like `Duration.from_seconds(s:)` that can be
+/// called without an instance. The type name acts as a namespace for these methods.
+fn is_type_name_for_associated_functions(name: &str) -> bool {
+    matches!(name, "Duration" | "Size")
 }
 
 /// Infer type for a function reference.

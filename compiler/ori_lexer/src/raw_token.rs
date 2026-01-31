@@ -255,6 +255,12 @@ pub(crate) enum RawToken {
     Float(f64),
 
     // Duration literals (using shared helper)
+    #[regex(r"[0-9]+ns", |lex| parse_with_suffix(lex.slice(), 2, DurationUnit::Nanoseconds))]
+    DurationNs((u64, DurationUnit)),
+
+    #[regex(r"[0-9]+us", |lex| parse_with_suffix(lex.slice(), 2, DurationUnit::Microseconds))]
+    DurationUs((u64, DurationUnit)),
+
     #[regex(r"[0-9]+ms", |lex| parse_with_suffix(lex.slice(), 2, DurationUnit::Milliseconds))]
     DurationMs((u64, DurationUnit)),
 
@@ -279,6 +285,9 @@ pub(crate) enum RawToken {
 
     #[regex(r"[0-9]+gb", |lex| parse_with_suffix(lex.slice(), 2, SizeUnit::Gigabytes))]
     SizeGb((u64, SizeUnit)),
+
+    #[regex(r"[0-9]+tb", |lex| parse_with_suffix(lex.slice(), 2, SizeUnit::Terabytes))]
+    SizeTb((u64, SizeUnit)),
 
     // String literal (no unescaped newlines allowed)
     #[regex(r#""([^"\\\n\r]|\\.)*""#)]

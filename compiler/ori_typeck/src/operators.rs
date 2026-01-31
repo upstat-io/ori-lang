@@ -44,12 +44,17 @@ pub fn check_binary_operation(
 ) -> TypeOpResult {
     match op {
         // Arithmetic: +, -, *, /, %, div
-        BinaryOp::Add
-        | BinaryOp::Sub
-        | BinaryOp::Mul
-        | BinaryOp::Div
-        | BinaryOp::Mod
-        | BinaryOp::FloorDiv => {
+        BinaryOp::Add | BinaryOp::Sub => {
+            // Duration and Size support +/- between same types
+            let left_resolved = ctx.resolve(left);
+            let right_resolved = ctx.resolve(right);
+
+            match (&left_resolved, &right_resolved) {
+                (Type::Duration, Type::Duration) => return TypeOpResult::Ok(Type::Duration),
+                (Type::Size, Type::Size) => return TypeOpResult::Ok(Type::Size),
+                _ => {}
+            }
+
             if let Err(e) = ctx.unify(left, right) {
                 let msg = match e {
                     ori_types::TypeError::TypeMismatch { expected, found } => format!(
@@ -71,24 +76,144 @@ pub fn check_binary_operation(
                 Type::Str if op == BinaryOp::Add => TypeOpResult::Ok(Type::Str),
                 Type::Int | Type::Float | Type::Var(_) => TypeOpResult::Ok(resolved),
                 _ => {
-                    let op_name = match op {
-                        BinaryOp::Add => "+",
-                        BinaryOp::Sub => "-",
-                        BinaryOp::Mul => "*",
-                        BinaryOp::Div => "/",
-                        BinaryOp::Mod => "%",
-                        BinaryOp::FloorDiv => "div",
-                        _ => "arithmetic",
-                    };
+                    let op_name = if op == BinaryOp::Add { "+" } else { "-" };
                     TypeOpResult::Err(TypeOpError::new(
                         format!(
-                            "cannot apply `{}` to `{}`: arithmetic operators require numeric types (int or float)",
+                            "cannot apply `{}` to `{}`: operator requires numeric types (int or float), Duration, or Size",
                             op_name,
                             left.display(interner)
                         ),
                         ErrorCode::E2001,
                     ))
                 }
+            }
+        }
+
+        BinaryOp::Mul => {
+            // Duration * int, int * Duration, Size * int, int * Size
+            let left_resolved = ctx.resolve(left);
+            let right_resolved = ctx.resolve(right);
+
+            match (&left_resolved, &right_resolved) {
+                (Type::Duration, Type::Int) | (Type::Int, Type::Duration) => {
+                    return TypeOpResult::Ok(Type::Duration);
+                }
+                (Type::Size, Type::Int) | (Type::Int, Type::Size) => {
+                    return TypeOpResult::Ok(Type::Size);
+                }
+                _ => {}
+            }
+
+            if let Err(e) = ctx.unify(left, right) {
+                let msg = match e {
+                    ori_types::TypeError::TypeMismatch { expected, found } => format!(
+                        "type mismatch in arithmetic operation: expected `{}`, found `{}`",
+                        expected.display(interner),
+                        found.display(interner)
+                    ),
+                    _ => format!(
+                        "type mismatch in arithmetic operation: operands have incompatible types `{}` and `{}`",
+                        left.display(interner),
+                        right.display(interner)
+                    ),
+                };
+                return TypeOpResult::Err(TypeOpError::new(msg, ErrorCode::E2001));
+            }
+
+            let resolved = ctx.resolve(left);
+            match resolved {
+                Type::Int | Type::Float | Type::Var(_) => TypeOpResult::Ok(resolved),
+                _ => TypeOpResult::Err(TypeOpError::new(
+                    format!(
+                        "cannot apply `*` to `{}`: multiplication requires numeric types (int or float), or Duration/Size with int",
+                        left.display(interner)
+                    ),
+                    ErrorCode::E2001,
+                )),
+            }
+        }
+
+        BinaryOp::Div | BinaryOp::Mod => {
+            // Duration / int, Duration % Duration, Size / int, Size % Size
+            let left_resolved = ctx.resolve(left);
+            let right_resolved = ctx.resolve(right);
+
+            match (&left_resolved, &right_resolved) {
+                (Type::Duration, Type::Int) if op == BinaryOp::Div => {
+                    return TypeOpResult::Ok(Type::Duration);
+                }
+                (Type::Duration, Type::Duration) if op == BinaryOp::Mod => {
+                    return TypeOpResult::Ok(Type::Duration);
+                }
+                (Type::Size, Type::Int) if op == BinaryOp::Div => {
+                    return TypeOpResult::Ok(Type::Size);
+                }
+                (Type::Size, Type::Size) if op == BinaryOp::Mod => {
+                    return TypeOpResult::Ok(Type::Size);
+                }
+                _ => {}
+            }
+
+            if let Err(e) = ctx.unify(left, right) {
+                let msg = match e {
+                    ori_types::TypeError::TypeMismatch { expected, found } => format!(
+                        "type mismatch in arithmetic operation: expected `{}`, found `{}`",
+                        expected.display(interner),
+                        found.display(interner)
+                    ),
+                    _ => format!(
+                        "type mismatch in arithmetic operation: operands have incompatible types `{}` and `{}`",
+                        left.display(interner),
+                        right.display(interner)
+                    ),
+                };
+                return TypeOpResult::Err(TypeOpError::new(msg, ErrorCode::E2001));
+            }
+
+            let resolved = ctx.resolve(left);
+            match resolved {
+                Type::Int | Type::Float | Type::Var(_) => TypeOpResult::Ok(resolved),
+                _ => {
+                    let op_name = if op == BinaryOp::Div { "/" } else { "%" };
+                    TypeOpResult::Err(TypeOpError::new(
+                        format!(
+                            "cannot apply `{}` to `{}`: operator requires numeric types (int or float)",
+                            op_name,
+                            left.display(interner)
+                        ),
+                        ErrorCode::E2001,
+                    ))
+                }
+            }
+        }
+
+        BinaryOp::FloorDiv => {
+            if let Err(e) = ctx.unify(left, right) {
+                let msg = match e {
+                    ori_types::TypeError::TypeMismatch { expected, found } => format!(
+                        "type mismatch in arithmetic operation: expected `{}`, found `{}`",
+                        expected.display(interner),
+                        found.display(interner)
+                    ),
+                    _ => format!(
+                        "type mismatch in arithmetic operation: operands have incompatible types `{}` and `{}`",
+                        left.display(interner),
+                        right.display(interner)
+                    ),
+                };
+                return TypeOpResult::Err(TypeOpError::new(msg, ErrorCode::E2001));
+            }
+
+            let resolved = ctx.resolve(left);
+            match resolved {
+                Type::Int | Type::Float | Type::Var(_) => TypeOpResult::Ok(resolved),
+                _ => TypeOpResult::Err(TypeOpError::new(
+                    format!(
+                        "cannot apply `div` to `{}`: floor division requires numeric types (int or float)",
+                        left.display(interner)
+                    ),
+                    ErrorCode::E2001,
+                )),
             }
         }
 
@@ -99,6 +224,17 @@ pub fn check_binary_operation(
         | BinaryOp::LtEq
         | BinaryOp::Gt
         | BinaryOp::GtEq => {
+            // Duration and Size support all comparison operators
+            let left_resolved = ctx.resolve(left);
+            let right_resolved = ctx.resolve(right);
+
+            match (&left_resolved, &right_resolved) {
+                (Type::Duration, Type::Duration) | (Type::Size, Type::Size) => {
+                    return TypeOpResult::Ok(Type::Bool);
+                }
+                _ => {}
+            }
+
             if let Err(e) = ctx.unify(left, right) {
                 let msg = match e {
                     ori_types::TypeError::TypeMismatch { expected, found } => format!(

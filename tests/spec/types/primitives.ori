@@ -835,3 +835,873 @@ use std.testing { assert, assert_eq, assert_ne }
 // )
 
 @int_to_byte () -> byte = byte(100)
+
+// =============================================================================
+// Duration — Time Duration
+// =============================================================================
+// Spec: 06-types.md § Duration Type
+// Design: 03-type-system/01-primitive-types.md § Duration
+
+// Literal parsing tests - these verify the lexer accepts all Duration suffixes
+@test_duration_nanoseconds tests @duration_nanoseconds () -> void = run(
+    let d = 100ns,
+    // Literal parses correctly (operators not yet implemented)
+    assert(cond: true),
+)
+
+@duration_nanoseconds () -> Duration = 100ns
+
+@test_duration_microseconds tests @duration_microseconds () -> void = run(
+    let d = 50us,
+    assert(cond: true),
+)
+
+@duration_microseconds () -> Duration = 50us
+
+@test_duration_milliseconds tests @duration_milliseconds () -> void = run(
+    let d = 100ms,
+    assert(cond: true),
+)
+
+@duration_milliseconds () -> Duration = 100ms
+
+@test_duration_seconds tests @duration_seconds () -> void = run(
+    let d = 30s,
+    assert(cond: true),
+)
+
+@duration_seconds () -> Duration = 30s
+
+@test_duration_minutes tests @duration_minutes () -> void = run(
+    let d = 5m,
+    assert(cond: true),
+)
+
+@duration_minutes () -> Duration = 5m
+
+@test_duration_hours tests @duration_hours () -> void = run(
+    let d = 2h,
+    assert(cond: true),
+)
+
+@duration_hours () -> Duration = 2h
+
+@test_duration_annotated tests @duration_annotated () -> void = run(
+    let d: Duration = 500ms,
+    assert(cond: true),
+)
+
+@duration_annotated () -> Duration = run(
+    let d: Duration = 500ms,
+    d,
+)
+
+// Arithmetic and comparison tests
+@test_duration_addition tests @duration_addition () -> void = run(
+    let d1 = 100ms,
+    let d2 = 200ms,
+    assert_eq(
+        actual: d1 + d2,
+        expected: 300ms,
+    ),
+)
+
+@duration_addition () -> Duration = 100ms + 200ms
+
+@test_duration_subtraction tests @duration_subtraction () -> void = run(
+    let d1 = 500ms,
+    let d2 = 200ms,
+    assert_eq(
+        actual: d1 - d2,
+        expected: 300ms,
+    ),
+)
+
+@duration_subtraction () -> Duration = 500ms - 200ms
+
+@test_duration_multiplication tests @duration_multiplication () -> void = run(
+    let d = 100ms,
+    assert_eq(
+        actual: d * 3,
+        expected: 300ms,
+    ),
+)
+
+@duration_multiplication () -> Duration = 100ms * 3
+
+@test_duration_division tests @duration_division () -> void = run(
+    let d = 300ms,
+    assert_eq(
+        actual: d / 3,
+        expected: 100ms,
+    ),
+)
+
+@duration_division () -> Duration = 300ms / 3
+
+@test_duration_comparison tests @duration_comparison () -> void = run(
+    assert(cond: 100ms < 200ms),
+    assert(cond: 200ms > 100ms),
+    assert(cond: 100ms <= 100ms),
+    assert(cond: 100ms >= 100ms),
+    assert(cond: 100ms == 100ms),
+    assert(cond: 100ms != 200ms),
+)
+
+@duration_comparison () -> bool = 100ms < 200ms
+
+@test_duration_negation tests @duration_negation () -> void = run(
+    let d = 100ms,
+    assert_eq(
+        actual: -d,
+        expected: -100ms,
+    ),
+)
+
+@duration_negation () -> Duration = -100ms
+
+@test_duration_zero tests @duration_zero () -> void = run(
+    let d = 0ms,
+    assert_eq(
+        actual: d,
+        expected: 0ns,
+    ),
+)
+
+@duration_zero () -> Duration = 0ms
+
+@test_duration_unit_equivalence tests @duration_unit_equivalence () -> void = run(
+    // 1000 nanoseconds = 1 microsecond
+    assert_eq(
+        actual: 1000ns,
+        expected: 1us,
+    ),
+    // 1000 microseconds = 1 millisecond
+    assert_eq(
+        actual: 1000us,
+        expected: 1ms,
+    ),
+    // 1000 milliseconds = 1 second
+    assert_eq(
+        actual: 1000ms,
+        expected: 1s,
+    ),
+    // 60 seconds = 1 minute
+    assert_eq(
+        actual: 60s,
+        expected: 1m,
+    ),
+    // 60 minutes = 1 hour
+    assert_eq(
+        actual: 60m,
+        expected: 1h,
+    ),
+)
+
+@duration_unit_equivalence () -> Duration = 1000ms
+
+// =============================================================================
+// Size — Byte Size
+// =============================================================================
+// Spec: 06-types.md § Size Type
+// Design: 03-type-system/01-primitive-types.md § Size
+
+// Literal parsing tests - these verify the lexer accepts all Size suffixes
+@test_size_bytes tests @size_bytes () -> void = run(
+    let s = 100b,
+    assert(cond: true),
+)
+
+@size_bytes () -> Size = 100b
+
+@test_size_kilobytes tests @size_kilobytes () -> void = run(
+    let s = 4kb,
+    assert(cond: true),
+)
+
+@size_kilobytes () -> Size = 4kb
+
+@test_size_megabytes tests @size_megabytes () -> void = run(
+    let s = 10mb,
+    assert(cond: true),
+)
+
+@size_megabytes () -> Size = 10mb
+
+@test_size_gigabytes tests @size_gigabytes () -> void = run(
+    let s = 2gb,
+    assert(cond: true),
+)
+
+@size_gigabytes () -> Size = 2gb
+
+@test_size_terabytes tests @size_terabytes () -> void = run(
+    let s = 1tb,
+    assert(cond: true),
+)
+
+@size_terabytes () -> Size = 1tb
+
+@test_size_annotated tests @size_annotated () -> void = run(
+    let s: Size = 512kb,
+    assert(cond: true),
+)
+
+@size_annotated () -> Size = run(
+    let s: Size = 512kb,
+    s,
+)
+
+// Arithmetic and comparison tests
+@test_size_addition tests @size_addition () -> void = run(
+    let s1 = 100b,
+    let s2 = 200b,
+    assert_eq(
+        actual: s1 + s2,
+        expected: 300b,
+    ),
+)
+
+@size_addition () -> Size = 100b + 200b
+
+@test_size_subtraction tests @size_subtraction () -> void = run(
+    let s1 = 500b,
+    let s2 = 200b,
+    assert_eq(
+        actual: s1 - s2,
+        expected: 300b,
+    ),
+)
+
+@size_subtraction () -> Size = 500b - 200b
+
+@test_size_multiplication tests @size_multiplication () -> void = run(
+    let s = 100b,
+    assert_eq(
+        actual: s * 3,
+        expected: 300b,
+    ),
+)
+
+@size_multiplication () -> Size = 100b * 3
+
+@test_size_division tests @size_division () -> void = run(
+    let s = 300b,
+    assert_eq(
+        actual: s / 3,
+        expected: 100b,
+    ),
+)
+
+@size_division () -> Size = 300b / 3
+
+@test_size_comparison tests @size_comparison () -> void = run(
+    assert(cond: 100b < 200b),
+    assert(cond: 200b > 100b),
+    assert(cond: 100b <= 100b),
+    assert(cond: 100b >= 100b),
+    assert(cond: 100b == 100b),
+    assert(cond: 100b != 200b),
+)
+
+@size_comparison () -> bool = 100b < 200b
+
+@test_size_zero tests @size_zero () -> void = run(
+    let s = 0b,
+    assert_eq(
+        actual: s,
+        expected: 0kb,
+    ),
+)
+
+@size_zero () -> Size = 0b
+
+@test_size_unit_equivalence tests @size_unit_equivalence () -> void = run(
+    // 1024 bytes = 1 kilobyte (binary units)
+    assert_eq(
+        actual: 1024b,
+        expected: 1kb,
+    ),
+    // 1024 kilobytes = 1 megabyte
+    assert_eq(
+        actual: 1024kb,
+        expected: 1mb,
+    ),
+    // 1024 megabytes = 1 gigabyte
+    assert_eq(
+        actual: 1024mb,
+        expected: 1gb,
+    ),
+    // 1024 gigabytes = 1 terabyte
+    assert_eq(
+        actual: 1024gb,
+        expected: 1tb,
+    ),
+)
+
+@size_unit_equivalence () -> Size = 1024b
+
+// =============================================================================
+// Duration — Extended Tests
+// =============================================================================
+
+@test_duration_mixed_unit_arithmetic tests @duration_mixed_unit_arithmetic () -> void = run(
+    // Adding different units should work
+    assert_eq(
+        actual: 1s + 500ms,
+        expected: 1500ms,
+    ),
+    assert_eq(
+        actual: 1m + 30s,
+        expected: 90s,
+    ),
+    assert_eq(
+        actual: 2h + 30m,
+        expected: 150m,
+    ),
+    assert_eq(
+        actual: 1us + 500ns,
+        expected: 1500ns,
+    ),
+)
+
+@duration_mixed_unit_arithmetic () -> Duration = 1s + 500ms
+
+@test_duration_negative_arithmetic tests @duration_negative_arithmetic () -> void = run(
+    // Negative durations
+    let neg = -100ms,
+    assert_eq(
+        actual: neg + 100ms,
+        expected: 0ns,
+    ),
+    assert_eq(
+        actual: 100ms + neg,
+        expected: 0ns,
+    ),
+    // Subtracting larger from smaller gives negative
+    assert_eq(
+        actual: 100ms - 200ms,
+        expected: -100ms,
+    ),
+)
+
+@duration_negative_arithmetic () -> Duration = -100ms
+
+@test_duration_int_multiplication tests @duration_int_multiplication () -> void = run(
+    // Duration * int
+    assert_eq(
+        actual: 100ms * 5,
+        expected: 500ms,
+    ),
+    // int * Duration
+    assert_eq(
+        actual: 5 * 100ms,
+        expected: 500ms,
+    ),
+    // Multiply by negative int
+    assert_eq(
+        actual: 100ms * -2,
+        expected: -200ms,
+    ),
+)
+
+@duration_int_multiplication () -> Duration = 100ms * 5
+
+@test_duration_modulo tests @duration_modulo () -> void = run(
+    // Duration % Duration
+    assert_eq(
+        actual: 1500ms % 1s,
+        expected: 500ms,
+    ),
+    assert_eq(
+        actual: 100s % 1m,
+        expected: 40s,
+    ),
+)
+
+@duration_modulo () -> Duration = 1500ms % 1s
+
+@test_duration_comparison_mixed_units tests @duration_comparison_mixed_units () -> void = run(
+    // Comparing across units
+    assert(cond: 1000ms == 1s),
+    assert(cond: 60s == 1m),
+    assert(cond: 60m == 1h),
+    assert(cond: 1001ms > 1s),
+    assert(cond: 999ms < 1s),
+    assert(cond: 1us > 999ns),
+)
+
+@duration_comparison_mixed_units () -> bool = 1000ms == 1s
+
+@test_duration_double_negation tests @duration_double_negation () -> void = run(
+    let d = 100ms,
+    assert_eq(
+        actual: --d,
+        expected: 100ms,
+    ),
+    assert_eq(
+        actual: -(-100ms),
+        expected: 100ms,
+    ),
+)
+
+@duration_double_negation () -> Duration = --100ms
+
+// =============================================================================
+// Size — Extended Tests
+// =============================================================================
+
+@test_size_mixed_unit_arithmetic tests @size_mixed_unit_arithmetic () -> void = run(
+    // Adding different units should work
+    assert_eq(
+        actual: 1kb + 512b,
+        expected: 1536b,
+    ),
+    assert_eq(
+        actual: 1mb + 512kb,
+        expected: 1536kb,
+    ),
+    assert_eq(
+        actual: 1gb + 512mb,
+        expected: 1536mb,
+    ),
+)
+
+@size_mixed_unit_arithmetic () -> Size = 1kb + 512b
+
+@test_size_int_multiplication tests @size_int_multiplication () -> void = run(
+    // Size * int
+    assert_eq(
+        actual: 100b * 5,
+        expected: 500b,
+    ),
+    // int * Size
+    assert_eq(
+        actual: 5 * 100b,
+        expected: 500b,
+    ),
+    assert_eq(
+        actual: 2 * 1kb,
+        expected: 2kb,
+    ),
+)
+
+@size_int_multiplication () -> Size = 100b * 5
+
+@test_size_modulo tests @size_modulo () -> void = run(
+    // Size % Size
+    assert_eq(
+        actual: 1536b % 1kb,
+        expected: 512b,
+    ),
+    assert_eq(
+        actual: 2560kb % 1mb,
+        expected: 512kb,
+    ),
+)
+
+@size_modulo () -> Size = 1536b % 1kb
+
+@test_size_comparison_mixed_units tests @size_comparison_mixed_units () -> void = run(
+    // Comparing across units
+    assert(cond: 1024b == 1kb),
+    assert(cond: 1024kb == 1mb),
+    assert(cond: 1024mb == 1gb),
+    assert(cond: 1024gb == 1tb),
+    assert(cond: 1025b > 1kb),
+    assert(cond: 1023b < 1kb),
+)
+
+@size_comparison_mixed_units () -> bool = 1024b == 1kb
+
+@test_size_large_values tests @size_large_values () -> void = run(
+    // Working with terabytes
+    let one_tb = 1tb,
+    let two_tb = 2tb,
+    assert_eq(
+        actual: one_tb + one_tb,
+        expected: two_tb,
+    ),
+    assert_eq(
+        actual: two_tb / 2,
+        expected: one_tb,
+    ),
+)
+
+@size_large_values () -> Size = 1tb + 1tb
+
+// =============================================================================
+// Duration Extraction Methods
+// =============================================================================
+// Spec: 06-types.md § Duration Conversion Methods
+
+@test_duration_nanoseconds_method tests @duration_nanoseconds_method () -> void = run(
+    // Basic extraction
+    assert_eq(actual: 1000ns.nanoseconds(), expected: 1000),
+    assert_eq(actual: 1us.nanoseconds(), expected: 1000),
+    assert_eq(actual: 1ms.nanoseconds(), expected: 1000000),
+    assert_eq(actual: 1s.nanoseconds(), expected: 1000000000),
+    // Negative durations
+    assert_eq(actual: (-100ns).nanoseconds(), expected: -100),
+    assert_eq(actual: (-1ms).nanoseconds(), expected: -1000000),
+)
+
+@duration_nanoseconds_method () -> int = 1000ns.nanoseconds()
+
+@test_duration_microseconds_method tests @duration_microseconds_method () -> void = run(
+    // Truncating behavior
+    assert_eq(actual: 1500ns.microseconds(), expected: 1),
+    assert_eq(actual: 1000us.microseconds(), expected: 1000),
+    assert_eq(actual: 1ms.microseconds(), expected: 1000),
+    assert_eq(actual: 1s.microseconds(), expected: 1000000),
+    // Negative durations - truncate toward zero
+    assert_eq(actual: (-1500ns).microseconds(), expected: -1),
+)
+
+@duration_microseconds_method () -> int = 1us.microseconds()
+
+@test_duration_ms_method tests @duration_ms_method () -> void = run(
+    // Truncating behavior
+    assert_eq(actual: 1500us.milliseconds(), expected: 1),
+    assert_eq(actual: 1000ms.milliseconds(), expected: 1000),
+    assert_eq(actual: 1s.milliseconds(), expected: 1000),
+    assert_eq(actual: 1m.milliseconds(), expected: 60000),
+    // Negative durations
+    assert_eq(actual: (-1500us).milliseconds(), expected: -1),
+)
+
+@duration_ms_method () -> int = 1000ms.milliseconds()
+
+@test_duration_seconds_method tests @duration_seconds_method () -> void = run(
+    // Truncating behavior - per spec: `90s.minutes()` returns `1`
+    assert_eq(actual: 1500ms.seconds(), expected: 1),
+    assert_eq(actual: 90s.seconds(), expected: 90),
+    assert_eq(actual: 1m.seconds(), expected: 60),
+    assert_eq(actual: 1h.seconds(), expected: 3600),
+    // Negative durations
+    assert_eq(actual: (-1500ms).seconds(), expected: -1),
+)
+
+@duration_seconds_method () -> int = 90s.seconds()
+
+@test_duration_minutes_method tests @duration_minutes_method () -> void = run(
+    // Truncating behavior - per spec: `90s.minutes()` returns `1`
+    assert_eq(actual: 90s.minutes(), expected: 1),
+    assert_eq(actual: 120s.minutes(), expected: 2),
+    assert_eq(actual: 1h.minutes(), expected: 60),
+    assert_eq(actual: 2h.minutes(), expected: 120),
+    // Negative durations
+    assert_eq(actual: (-90s).minutes(), expected: -1),
+)
+
+@duration_minutes_method () -> int = 90s.minutes()
+
+@test_duration_hours_method tests @duration_hours_method () -> void = run(
+    // Truncating behavior
+    assert_eq(actual: 90m.hours(), expected: 1),
+    assert_eq(actual: 120m.hours(), expected: 2),
+    assert_eq(actual: 3600s.hours(), expected: 1),
+    assert_eq(actual: 7200s.hours(), expected: 2),
+    // Negative durations
+    assert_eq(actual: (-90m).hours(), expected: -1),
+)
+
+@duration_hours_method () -> int = 2h.hours()
+
+// =============================================================================
+// Size Extraction Methods
+// =============================================================================
+// Spec: 06-types.md § Size Conversion Methods
+
+@test_size_bytes_method tests @size_bytes_method () -> void = run(
+    // Basic extraction
+    assert_eq(actual: 1024b.bytes(), expected: 1024),
+    assert_eq(actual: 1kb.bytes(), expected: 1024),
+    assert_eq(actual: 1mb.bytes(), expected: 1048576),
+)
+
+@size_bytes_method () -> int = 1024b.bytes()
+
+@test_size_kilobytes_method tests @size_kilobytes_method () -> void = run(
+    // Truncating behavior - per spec: `1536kb.megabytes()` returns `1`
+    assert_eq(actual: 1536b.kilobytes(), expected: 1),
+    assert_eq(actual: 1024kb.kilobytes(), expected: 1024),
+    assert_eq(actual: 1mb.kilobytes(), expected: 1024),
+    assert_eq(actual: 1gb.kilobytes(), expected: 1048576),
+)
+
+@size_kilobytes_method () -> int = 1024kb.kilobytes()
+
+@test_size_megabytes_method tests @size_megabytes_method () -> void = run(
+    // Truncating behavior - per spec: `1536kb.megabytes()` returns `1`
+    assert_eq(actual: 1536kb.megabytes(), expected: 1),
+    assert_eq(actual: 1024mb.megabytes(), expected: 1024),
+    assert_eq(actual: 1gb.megabytes(), expected: 1024),
+    assert_eq(actual: 1tb.megabytes(), expected: 1048576),
+)
+
+@size_megabytes_method () -> int = 1024mb.megabytes()
+
+@test_size_gigabytes_method tests @size_gigabytes_method () -> void = run(
+    // Truncating behavior
+    assert_eq(actual: 1536mb.gigabytes(), expected: 1),
+    assert_eq(actual: 1024gb.gigabytes(), expected: 1024),
+    assert_eq(actual: 1tb.gigabytes(), expected: 1024),
+)
+
+@size_gigabytes_method () -> int = 1024gb.gigabytes()
+
+@test_size_terabytes_method tests @size_terabytes_method () -> void = run(
+    // Truncating behavior
+    assert_eq(actual: 1536gb.terabytes(), expected: 1),
+    assert_eq(actual: 2tb.terabytes(), expected: 2),
+)
+
+@size_terabytes_method () -> int = 1tb.terabytes()
+
+// =============================================================================
+// Duration Factory Methods (Associated Functions)
+// =============================================================================
+// Spec: 06-types.md § Duration Factory Methods
+
+@test_duration_from_nanoseconds tests @duration_from_ns () -> void = run(
+    let d = Duration.from_nanoseconds(ns: 1000),
+    assert_eq(actual: d, expected: 1000ns),
+)
+
+@duration_from_ns () -> Duration = Duration.from_nanoseconds(ns: 1000)
+
+@test_duration_from_microseconds tests @duration_from_us () -> void = run(
+    let d = Duration.from_microseconds(us: 500),
+    assert_eq(actual: d, expected: 500us),
+)
+
+@duration_from_us () -> Duration = Duration.from_microseconds(us: 500)
+
+@test_duration_from_milliseconds tests @duration_from_ms () -> void = run(
+    let d = Duration.from_milliseconds(ms: 100),
+    assert_eq(actual: d, expected: 100ms),
+)
+
+@duration_from_ms () -> Duration = Duration.from_milliseconds(ms: 100)
+
+@test_duration_from_seconds tests @duration_from_s () -> void = run(
+    let d = Duration.from_seconds(s: 30),
+    assert_eq(actual: d, expected: 30s),
+)
+
+@duration_from_s () -> Duration = Duration.from_seconds(s: 30)
+
+@test_duration_from_minutes tests @duration_from_m () -> void = run(
+    let d = Duration.from_minutes(m: 5),
+    assert_eq(actual: d, expected: 5m),
+)
+
+@duration_from_m () -> Duration = Duration.from_minutes(m: 5)
+
+@test_duration_from_hours tests @duration_from_h () -> void = run(
+    let d = Duration.from_hours(h: 2),
+    assert_eq(actual: d, expected: 2h),
+)
+
+@duration_from_h () -> Duration = Duration.from_hours(h: 2)
+
+// =============================================================================
+// Size Factory Methods (Associated Functions)
+// =============================================================================
+// Spec: 06-types.md § Size Factory Methods
+
+@test_size_from_bytes tests @size_from_b () -> void = run(
+    let s = Size.from_bytes(b: 1024),
+    assert_eq(actual: s, expected: 1024b),
+)
+
+@size_from_b () -> Size = Size.from_bytes(b: 1024)
+
+@test_size_from_kilobytes tests @size_from_kb () -> void = run(
+    let s = Size.from_kilobytes(kb: 4),
+    assert_eq(actual: s, expected: 4kb),
+)
+
+@size_from_kb () -> Size = Size.from_kilobytes(kb: 4)
+
+@test_size_from_megabytes tests @size_from_mb () -> void = run(
+    let s = Size.from_megabytes(mb: 10),
+    assert_eq(actual: s, expected: 10mb),
+)
+
+@size_from_mb () -> Size = Size.from_megabytes(mb: 10)
+
+@test_size_from_gigabytes tests @size_from_gb () -> void = run(
+    let s = Size.from_gigabytes(gb: 2),
+    assert_eq(actual: s, expected: 2gb),
+)
+
+@size_from_gb () -> Size = Size.from_gigabytes(gb: 2)
+
+@test_size_from_terabytes tests @size_from_tb () -> void = run(
+    let s = Size.from_terabytes(tb: 1),
+    assert_eq(actual: s, expected: 1tb),
+)
+
+@size_from_tb () -> Size = Size.from_terabytes(tb: 1)
+
+// Associated Functions: Complex Scenarios
+// Spec: 04-declarations.md § Associated Functions
+
+// Method chaining: Type.factory().method()
+@test_duration_chain_single tests @duration_chain_single () -> void = run(
+    assert_eq(actual: Duration.from_hours(h: 2).minutes(), expected: 120),
+)
+@duration_chain_single () -> int = Duration.from_hours(h: 2).minutes()
+
+@test_size_chain_single tests @size_chain_single () -> void = run(
+    assert_eq(actual: Size.from_gigabytes(gb: 2).megabytes(), expected: 2048),
+)
+@size_chain_single () -> int = Size.from_gigabytes(gb: 2).megabytes()
+
+// Method chaining: (Type.factory() + Type.factory()).method()
+@test_duration_chain_after_arithmetic tests @duration_chain_arithmetic () -> void = run(
+    let mins = (Duration.from_hours(h: 1) + Duration.from_minutes(m: 30)).minutes(),
+    assert_eq(actual: mins, expected: 90),
+)
+@duration_chain_arithmetic () -> int = (Duration.from_hours(h: 1) + Duration.from_minutes(m: 30)).minutes()
+
+@test_size_chain_after_arithmetic tests @size_chain_arithmetic () -> void = run(
+    let kb = (Size.from_megabytes(mb: 1) + Size.from_kilobytes(kb: 512)).kilobytes(),
+    assert_eq(actual: kb, expected: 1536),
+)
+@size_chain_arithmetic () -> int = (Size.from_megabytes(mb: 1) + Size.from_kilobytes(kb: 512)).kilobytes()
+
+// Chaining in list context with map
+@test_duration_list_chain tests @duration_list_map () -> void = run(
+    let durations = [Duration.from_seconds(s: 60), Duration.from_seconds(s: 120), Duration.from_seconds(s: 180)],
+    let minutes = durations.map(d -> d.minutes()),
+    assert_eq(actual: minutes, expected: [1, 2, 3]),
+)
+@duration_list_map () -> [int] =
+    [Duration.from_seconds(s: 60), Duration.from_seconds(s: 120), Duration.from_seconds(s: 180)]
+        .map(d -> d.minutes())
+
+@test_size_list_chain tests @size_list_map () -> void = run(
+    let sizes = [Size.from_kilobytes(kb: 1024), Size.from_kilobytes(kb: 2048)],
+    let mbs = sizes.map(s -> s.megabytes()),
+    assert_eq(actual: mbs, expected: [1, 2]),
+)
+@size_list_map () -> [int] =
+    [Size.from_kilobytes(kb: 1024), Size.from_kilobytes(kb: 2048)].map(s -> s.megabytes())
+
+// Chaining with filter
+@test_duration_filter_chain tests @duration_filter () -> void = run(
+    let long_durations = [
+        Duration.from_seconds(s: 30),
+        Duration.from_minutes(m: 2),
+        Duration.from_seconds(s: 45),
+        Duration.from_minutes(m: 5),
+    ].filter(d -> d > Duration.from_minutes(m: 1)),
+    assert_eq(actual: len(collection: long_durations), expected: 2),
+)
+@duration_filter () -> [Duration] = [
+    Duration.from_seconds(s: 30),
+    Duration.from_minutes(m: 2),
+    Duration.from_seconds(s: 45),
+    Duration.from_minutes(m: 5),
+].filter(d -> d > Duration.from_minutes(m: 1))
+
+// Chaining map and filter together
+@test_duration_map_filter_chain tests @duration_map_filter () -> void = run(
+    let result = [
+        Duration.from_seconds(s: 30),
+        Duration.from_minutes(m: 2),
+        Duration.from_seconds(s: 90),
+    ].map(d -> d.seconds()).filter(s -> s >= 60),
+    assert_eq(actual: result, expected: [120, 90]),
+)
+@duration_map_filter () -> [int] = [
+    Duration.from_seconds(s: 30),
+    Duration.from_minutes(m: 2),
+    Duration.from_seconds(s: 90),
+].map(d -> d.seconds()).filter(s -> s >= 60)
+
+// Chaining with fold
+@test_duration_fold_chain tests @duration_fold () -> void = run(
+    let total = [
+        Duration.from_minutes(m: 10),
+        Duration.from_minutes(m: 20),
+        Duration.from_minutes(m: 30),
+    ].fold(init: 0ns, f: (acc, d) -> acc + d),
+    assert_eq(actual: total, expected: 60m),
+)
+@duration_fold () -> Duration = [
+    Duration.from_minutes(m: 10),
+    Duration.from_minutes(m: 20),
+    Duration.from_minutes(m: 30),
+].fold(init: 0ns, f: (acc, d) -> acc + d)
+
+// Arithmetic with factory results
+@test_duration_factory_arithmetic tests @duration_factory_add () -> void = run(
+    let total = Duration.from_minutes(m: 30) + Duration.from_seconds(s: 90),
+    assert_eq(actual: total, expected: 31m + 30s),
+)
+@duration_factory_add () -> Duration = Duration.from_minutes(m: 30) + Duration.from_seconds(s: 90)
+
+@test_size_factory_arithmetic tests @size_factory_add () -> void = run(
+    let total = Size.from_megabytes(mb: 512) + Size.from_kilobytes(kb: 512),
+    assert_eq(actual: total, expected: 512mb + 512kb),
+)
+@size_factory_add () -> Size = Size.from_megabytes(mb: 512) + Size.from_kilobytes(kb: 512)
+
+// Comparisons with factory results
+@test_duration_factory_compare tests @duration_factory_lt () -> void = run(
+    assert(condition: Duration.from_seconds(s: 59) < Duration.from_minutes(m: 1)),
+    assert(condition: Duration.from_minutes(m: 60) == Duration.from_hours(h: 1)),
+)
+@duration_factory_lt () -> bool = Duration.from_seconds(s: 59) < Duration.from_minutes(m: 1)
+
+@test_size_factory_compare tests @size_factory_lt () -> void = run(
+    assert(condition: Size.from_kilobytes(kb: 1023) < Size.from_megabytes(mb: 1)),
+    assert(condition: Size.from_megabytes(mb: 1024) == Size.from_gigabytes(gb: 1)),
+)
+@size_factory_lt () -> bool = Size.from_kilobytes(kb: 1023) < Size.from_megabytes(mb: 1)
+
+// Factory in conditional expressions
+@test_duration_factory_conditional tests @duration_conditional () -> void = run(
+    assert_eq(actual: duration_conditional(fast: true), expected: 100ms),
+    assert_eq(actual: duration_conditional(fast: false), expected: 5s),
+)
+@duration_conditional (fast: bool) -> Duration =
+    if fast then Duration.from_milliseconds(ms: 100) else Duration.from_seconds(s: 5)
+
+// Factory results as function arguments
+@test_duration_factory_as_arg tests @use_duration_arg () -> void = run(
+    assert_eq(actual: use_duration_arg(), expected: 7200),
+)
+@accepts_duration (d: Duration) -> int = d.seconds()
+@use_duration_arg () -> int = accepts_duration(d: Duration.from_hours(h: 2))
+
+// Nested factory calls in expressions
+@test_nested_factory tests @nested_duration_calc () -> void = run(
+    let result = nested_duration_calc(),
+    assert_eq(actual: result.seconds(), expected: 3720),
+)
+@nested_duration_calc () -> Duration = run(
+    let base = Duration.from_hours(h: 1),
+    let extra = Duration.from_minutes(m: 2),
+    base + extra,
+)
+
+// Factory with computed arguments
+@test_factory_computed_arg tests @factory_with_computed () -> void = run(
+    assert_eq(actual: factory_with_computed(), expected: 300s),
+)
+@factory_with_computed () -> Duration = run(
+    let minutes = 5,
+    Duration.from_minutes(m: minutes),
+)
+
+// Multiple factories in single expression
+@test_multi_factory_expr tests @multi_factory () -> void = run(
+    let total = Size.from_gigabytes(gb: 1) + Size.from_megabytes(mb: 500) + Size.from_kilobytes(kb: 256),
+    assert(condition: total > Size.from_gigabytes(gb: 1)),
+)
+@multi_factory () -> Size = Size.from_gigabytes(gb: 1) + Size.from_megabytes(mb: 500) + Size.from_kilobytes(kb: 256)

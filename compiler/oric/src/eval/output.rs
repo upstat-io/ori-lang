@@ -42,8 +42,8 @@ pub enum EvalOutput {
     Ok(Box<EvalOutput>),
     /// Result: Err(error).
     Err(Box<EvalOutput>),
-    /// Duration in milliseconds.
-    Duration(u64),
+    /// Duration in nanoseconds.
+    Duration(i64),
     /// Size in bytes.
     Size(u64),
     /// Range value.
@@ -157,6 +157,10 @@ impl EvalOutput {
                 EvalOutput::Function(format!("<module namespace with {} items>", ns.len()))
             }
             Value::Error(msg) => EvalOutput::Error(msg.clone()),
+            Value::TypeRef { type_name } => {
+                let type_str = interner.lookup(*type_name);
+                EvalOutput::Function(format!("<type {type_str}>"))
+            }
         }
     }
 
@@ -223,13 +227,14 @@ impl EvalOutput {
 impl PartialEq for EvalOutput {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (EvalOutput::Int(a), EvalOutput::Int(b)) => a == b,
+            // i64 types (Int, Duration in nanoseconds)
+            (EvalOutput::Int(a), EvalOutput::Int(b))
+            | (EvalOutput::Duration(a), EvalOutput::Duration(b)) => a == b,
             (EvalOutput::Bool(a), EvalOutput::Bool(b)) => a == b,
             (EvalOutput::Byte(a), EvalOutput::Byte(b)) => a == b,
             (EvalOutput::Char(a), EvalOutput::Char(b)) => a == b,
-            // u64 types can be merged (Float stored as bits, Duration in ms, Size in bytes)
+            // u64 types (Float stored as bits, Size in bytes)
             (EvalOutput::Float(a), EvalOutput::Float(b))
-            | (EvalOutput::Duration(a), EvalOutput::Duration(b))
             | (EvalOutput::Size(a), EvalOutput::Size(b)) => a == b,
             // String types can be merged
             (EvalOutput::Str(a), EvalOutput::Str(b))
@@ -288,9 +293,11 @@ impl Hash for EvalOutput {
             EvalOutput::Char(c) => c.hash(state),
             EvalOutput::Byte(b) => b.hash(state),
             // u64 types
-            EvalOutput::Float(bits) | EvalOutput::Duration(bits) | EvalOutput::Size(bits) => {
+            EvalOutput::Float(bits) | EvalOutput::Size(bits) => {
                 bits.hash(state);
             }
+            // i64 types
+            EvalOutput::Duration(ns) => ns.hash(state),
             // String types
             EvalOutput::Str(s)
             | EvalOutput::Function(s)

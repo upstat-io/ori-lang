@@ -27,7 +27,9 @@ pub(crate) fn convert_token(raw: RawToken, slice: &str, interner: &StringInterne
         RawToken::Ident => TokenKind::Ident(interner.intern(slice)),
 
         // Duration
-        RawToken::DurationMs((v, u))
+        RawToken::DurationNs((v, u))
+        | RawToken::DurationUs((v, u))
+        | RawToken::DurationMs((v, u))
         | RawToken::DurationS((v, u))
         | RawToken::DurationM((v, u))
         | RawToken::DurationH((v, u)) => TokenKind::Duration(v, u),
@@ -36,7 +38,8 @@ pub(crate) fn convert_token(raw: RawToken, slice: &str, interner: &StringInterne
         RawToken::SizeB((v, u))
         | RawToken::SizeKb((v, u))
         | RawToken::SizeMb((v, u))
-        | RawToken::SizeGb((v, u)) => TokenKind::Size(v, u),
+        | RawToken::SizeGb((v, u))
+        | RawToken::SizeTb((v, u)) => TokenKind::Size(v, u),
 
         // Keywords
         RawToken::Async => TokenKind::Async,
