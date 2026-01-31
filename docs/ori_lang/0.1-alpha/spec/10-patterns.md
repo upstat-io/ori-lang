@@ -591,14 +591,107 @@ run(
 )
 ```
 
-For `for...yield`:
+## For-Yield Comprehensions
+
+The `for...yield` expression builds collections from iteration.
+
+### Basic Syntax
 
 ```ori
-// This:
-for x in items yield x * 2
+for x in items yield expression
+```
 
-// Desugars to:
+Desugars to:
+
+```ori
 items.iter().map(transform: x -> x * 2).collect()
+```
+
+### Type Inference
+
+The result type is inferred from context:
+
+```ori
+let numbers: [int] = for x in items yield x.id  // [int]
+let set: Set<str> = for x in items yield x.name  // Set<str>
+```
+
+Without context, defaults to list:
+
+```ori
+let result = for x in 0..5 yield x * 2  // [int]
+```
+
+### Filtering
+
+A single `if` clause filters elements. Use `&&` for multiple conditions:
+
+```ori
+for x in items if x > 0 yield x
+for x in items if x > 0 && x < 100 yield x
+```
+
+Desugars to:
+
+```ori
+items.iter().filter(predicate: x -> x > 0).map(transform: x -> x).collect()
+```
+
+### Nested Comprehensions
+
+Multiple `for` clauses produce a flat result:
+
+```ori
+for x in xs for y in ys yield (x, y)
+```
+
+Desugars to:
+
+```ori
+xs.iter().flat_map(transform: x -> ys.iter().map(transform: y -> (x, y))).collect()
+```
+
+Each clause can have its own filter:
+
+```ori
+for x in xs if x > 0 for y in ys if y > 0 yield x * y
+```
+
+### Break and Continue
+
+In yield context, `break` and `continue` control collection building:
+
+| Statement | Effect |
+|-----------|--------|
+| `continue` | Skip element, add nothing |
+| `continue value` | Add `value` instead of yield expression |
+| `break` | Stop iteration, return results so far |
+| `break value` | Add `value` and stop |
+
+```ori
+for x in items yield
+    if skip(x) then continue,
+    if done(x) then break x,
+    transform(x),
+```
+
+### Map Collection
+
+Maps implement `Collect<(K, V)>`. Yielding 2-tuples collects into a map:
+
+```ori
+let by_id: {int: User} = for user in users yield (user.id, user)
+```
+
+If duplicate keys are yielded, later values overwrite earlier ones.
+
+### Empty Results
+
+Empty source or all elements filtered produces an empty collection:
+
+```ori
+for x in [] yield x * 2  // []
+for x in [1, 2, 3] if x > 10 yield x  // []
 ```
 
 See [Types § Iterator Traits](06-types.md#iterator-traits) for trait definitions.

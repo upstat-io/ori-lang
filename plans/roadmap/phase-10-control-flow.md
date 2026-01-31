@@ -100,6 +100,44 @@
   - [ ] **LLVM Support**: LLVM codegen for guard filtering
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — guard filtering codegen
 
+**For-yield comprehensions** (proposals/approved/for-yield-comprehensions-proposal.md):
+
+- [ ] **Implement**: Type inference for collection target — proposals/approved/for-yield-comprehensions-proposal.md § Type Inference
+  - [ ] Infer from context (`let list: [int] = for ...`)
+  - [ ] Default to list when no context
+  - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — for-yield type inference
+  - [ ] **Ori Tests**: `tests/spec/expressions/comprehensions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for type-directed collection
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — comprehension type inference
+
+- [ ] **Implement**: Collect into any `Collect<T>` type — proposals/approved/for-yield-comprehensions-proposal.md § Collect Target
+  - [ ] Support `Set<T>` collection
+  - [ ] Support `{K: V}` collection via `Collect<(K, V)>`
+  - [ ] Duplicate map keys overwrite earlier values
+  - [ ] **Rust Tests**: `oric/src/eval/exec/loops.rs` — multi-target collection
+  - [ ] **Ori Tests**: `tests/spec/expressions/comprehensions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for multi-target collection
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — multi-target collection codegen
+
+- [ ] **Implement**: Nested `for` clauses — proposals/approved/for-yield-comprehensions-proposal.md § Nested Comprehensions
+  - [ ] Parse `for x in xs for y in ys yield expr`
+  - [ ] Desugar to `flat_map`
+  - [ ] Support filters on each clause
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — nested for parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/comprehensions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for nested comprehensions
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — nested comprehensions codegen
+
+- [ ] **Implement**: Break/continue in yield context — proposals/approved/for-yield-comprehensions-proposal.md § Break and Continue
+  - [ ] `continue` skips current element
+  - [ ] `continue value` substitutes value for yield expression
+  - [ ] `break` stops iteration, collects results so far
+  - [ ] `break value` stops and adds final value
+  - [ ] **Rust Tests**: `oric/src/eval/exec/loops.rs` — yield break/continue
+  - [ ] **Ori Tests**: `tests/spec/expressions/comprehensions.ori`
+  - [ ] **LLVM Support**: LLVM codegen for yield break/continue
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — yield break/continue codegen
+
 ---
 
 ## 10.3 loop Expression

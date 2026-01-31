@@ -1,8 +1,9 @@
 # Proposal: For-Yield Comprehensions
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-30
+**Approved:** 2026-01-30
 **Affects:** Compiler, expressions, type inference
 
 ---
@@ -37,6 +38,12 @@ for element in iterable yield expression
 
 ```ori
 for element in iterable if condition yield expression
+```
+
+Use `&&` for multiple conditions:
+
+```ori
+for element in iterable if cond1 && cond2 yield expression
 ```
 
 ### With Binding Pattern
@@ -81,11 +88,15 @@ let numbers: [int] = for x in items yield x.id  // -> [int]
 let set: Set<str> = for x in items yield x.name  // -> Set<str>
 ```
 
-Without context, defaults to list:
+### Default Collection Type
+
+Without type context, `for...yield` collects into a list:
 
 ```ori
-let result = for x in 0..5 yield x * 2  // [int] inferred
+let result = for x in 0..5 yield x * 2  // type is [int]
 ```
+
+This is consistent with the Iterator trait's `.collect()` method defaulting to `[T]`.
 
 ### Collect Target
 
@@ -98,9 +109,19 @@ let list: [int] = for x in items yield x
 // Collect into set
 let set: Set<int> = for x in items yield x
 
-// Collect into map (yielding tuples)
+// Collect into map (yielding key-value tuples)
 let map: {str: int} = for x in items yield (x.name, x.value)
 ```
+
+### Map Collection
+
+Maps implement `Collect<(K, V)>`:
+
+```ori
+let by_id: {int: User} = for user in users yield (user.id, user)
+```
+
+If duplicate keys are yielded, later values overwrite earlier ones.
 
 ---
 
@@ -118,12 +139,6 @@ Chain conditions with `&&`:
 
 ```ori
 for x in numbers if x > 0 && x < 100 yield x
-```
-
-Or use multiple `if` clauses (equivalent):
-
-```ori
-for x in numbers if x > 0 if x < 100 yield x
 ```
 
 ### Filter Position
@@ -172,7 +187,7 @@ xs.iter().flat_map(transform: x -> ys.iter().map(transform: y -> (x, y))).collec
 
 ### Continue Without Value
 
-Skips the current element:
+Skips the current element (does not add to collection):
 
 ```ori
 for x in items yield
@@ -358,6 +373,15 @@ error[E0892]: mismatched types in `yield`
 
 ---
 
+## Grammar Changes
+
+Update `grammar.ebnf` § EXPRESSIONS to include:
+
+- `for_yield_expr` production with optional `if` filter and nested `for` clauses
+- `break` and `continue` with optional value in yield context
+
+---
+
 ## Examples
 
 ### Basic Transformation
@@ -429,9 +453,10 @@ Cross-reference to for-yield comprehensions.
 | Aspect | Behavior |
 |--------|----------|
 | Basic syntax | `for x in items yield expr` |
-| Filter syntax | `for x in items if cond yield expr` |
+| Filter syntax | `for x in items if cond yield expr` (single `if` with `&&` for multiple) |
 | Desugars to | `.iter().map().collect()` or `.filter().map().collect()` |
 | Result type | Inferred from context or defaults to `[T]` |
+| Map collection | `{K: V}` implements `Collect<(K, V)>`; duplicates overwrite |
 | Empty source | Empty result |
 | All filtered | Empty result |
 | Continue | Skip element (no value) or substitute value |
