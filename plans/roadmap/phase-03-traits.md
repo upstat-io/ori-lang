@@ -1036,3 +1036,54 @@ Formalizes the `Into` trait for semantic, lossless type conversions. Defines tra
 - [ ] **Update Spec**: `07-properties-of-types.md` — add Into trait section
 - [ ] **Update Spec**: `12-modules.md` — verify Into in prelude traits list
 - [ ] **Update**: `CLAUDE.md` — add Into documentation to prelude
+
+---
+
+## 3.18 Ordering Type
+
+**Proposal**: `proposals/approved/ordering-type-proposal.md`
+
+Formalizes the `Ordering` type that represents comparison results. Defines the three variants (`Less`, `Equal`, `Greater`), methods (`is_less`, `is_equal`, `is_greater`, `is_less_or_equal`, `is_greater_or_equal`, `reverse`, `then`, `then_with`), and trait implementations.
+
+### Implementation
+
+- [ ] **Implement**: `Ordering` type definition (already in spec as `type Ordering = Less | Equal | Greater`)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — ordering type recognition
+  - [ ] **Ori Tests**: `tests/spec/types/ordering/definition.ori`
+
+- [ ] **Implement**: Ordering predicate methods (`is_less`, `is_equal`, `is_greater`, `is_less_or_equal`, `is_greater_or_equal`)
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — ordering method tests
+  - [ ] **Ori Tests**: `tests/spec/types/ordering/predicates.ori`
+  - [ ] **LLVM Support**: LLVM codegen for ordering methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ordering_tests.rs`
+
+- [ ] **Implement**: `reverse` method for Ordering
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — reverse method test
+  - [ ] **Ori Tests**: `tests/spec/types/ordering/reverse.ori`
+  - [ ] **LLVM Support**: LLVM codegen for reverse
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ordering_tests.rs`
+
+- [ ] **Implement**: `then` method for lexicographic comparison chaining
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — then method test
+  - [ ] **Ori Tests**: `tests/spec/types/ordering/then.ori`
+  - [ ] **LLVM Support**: LLVM codegen for then
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ordering_tests.rs`
+
+- [ ] **Implement**: `then_with` method for lazy lexicographic chaining
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — then_with method test
+  - [ ] **Ori Tests**: `tests/spec/types/ordering/then_with.ori`
+  - [ ] **LLVM Support**: LLVM codegen for then_with
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ordering_tests.rs`
+
+- [ ] **Implement**: Trait implementations for Ordering (Eq, Comparable, Clone, Debug, Printable, Hashable, Default)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — ordering trait bounds
+  - [ ] **Ori Tests**: `tests/spec/types/ordering/traits.ori`
+  - [ ] **LLVM Support**: LLVM codegen for ordering traits
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ordering_tests.rs`
+
+- [ ] **Implement**: Default value is `Equal`
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — ordering default test
+  - [ ] **Ori Tests**: `tests/spec/types/ordering/default.ori`
+
+- [ ] **Update Spec**: `06-types.md` — expand Ordering section with methods and trait implementations
+- [ ] **Update**: `CLAUDE.md` — add Ordering methods to quick reference

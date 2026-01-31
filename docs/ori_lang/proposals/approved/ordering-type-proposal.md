@@ -1,6 +1,7 @@
 # Proposal: Ordering Type
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-31
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-30
 **Affects:** Compiler, type system, comparison
@@ -269,16 +270,6 @@ let desc = sort_by(
 )
 ```
 
-### Min/Max
-
-```ori
-@min<T: Comparable> (left: T, right: T) -> T =
-    if compare(left: left, right: right).is_less_or_equal() then left else right
-
-@max<T: Comparable> (left: T, right: T) -> T =
-    if compare(left: left, right: right).is_greater_or_equal() then left else right
-```
-
 ---
 
 ## Relationship to Operators
@@ -298,15 +289,7 @@ Types implementing `Comparable` automatically get comparison operators.
 
 ## Derived Comparable
 
-When deriving `Comparable`, fields are compared in declaration order:
-
-```ori
-#derive(Comparable)
-type Version = { major: int, minor: int, patch: int }
-
-// Version { major: 1, minor: 2, patch: 3 } < Version { major: 1, minor: 2, patch: 4 }
-// Compares major first, then minor, then patch
-```
+For derivation rules, see the [derived-traits-proposal](../approved/derived-traits-proposal.md). When `Comparable` is derived, fields are compared in declaration order using lexicographic comparison.
 
 ---
 

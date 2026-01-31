@@ -844,6 +844,18 @@
 - Generic newtypes supported (`type NonEmpty<T> = [T]`)
 - Blocked on: None (updates existing implementation from `.unwrap()` to `.inner`)
 
+**Ordering Type** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/ordering-type-proposal.md`
+- Implementation: Phase 3.18
+- Formalizes `Ordering` type: `type Ordering = Less | Equal | Greater`
+- Methods: `is_less`, `is_equal`, `is_greater`, `is_less_or_equal`, `is_greater_or_equal`, `reverse`, `then`, `then_with`
+- Trait implementations: Eq, Comparable, Clone, Debug, Printable, Hashable, Default
+- Default value: `Equal`
+- Comparable ordering: `Less < Equal < Greater`
+- Key for lexicographic comparison chaining: `compare(a, b).then(other: compare(c, d))`
+- Lazy chaining via `then_with` avoids unnecessary comparisons
+- Blocked on: None (builds on existing Phase 3 Comparable infrastructure)
+
 ---
 
 ## Milestones
