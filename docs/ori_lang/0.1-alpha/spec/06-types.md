@@ -501,7 +501,76 @@ type Status = Pending | Running | Done | Failed(reason: str)
 type UserId = int
 ```
 
-Creates distinct nominal type.
+A _newtype_ creates a distinct nominal type that wraps an existing type.
+
+**Construction:**
+
+Newtypes use their type name as a constructor:
+
+```ori
+type UserId = int
+let id = UserId(42)
+```
+
+Literals cannot directly become newtypes:
+
+```ori
+let id: UserId = 42  // error: expected UserId, found int
+```
+
+**Underlying Value Access:**
+
+The underlying value is accessed via `.inner`:
+
+```ori
+let id = UserId(42)
+let raw: int = id.inner
+```
+
+The `.inner` accessor is always public, regardless of the newtype's visibility. The type-safety boundary is at construction, not access.
+
+**No Trait Inheritance:**
+
+Newtypes do not automatically inherit traits from their underlying type:
+
+```ori
+type UserId = int
+let a = UserId(1)
+let b = UserId(2)
+a == b  // error: UserId does not implement Eq
+```
+
+Derive traits explicitly:
+
+```ori
+#derive(Eq, Hashable, Clone, Debug)
+type UserId = int
+```
+
+**No Method Inheritance:**
+
+Newtypes do not expose the underlying type's methods:
+
+```ori
+type Email = str
+let email = Email("user@example.com")
+email.len()        // error: Email has no method len
+email.inner.len()  // OK
+```
+
+**Generic Newtypes:**
+
+```ori
+type NonEmpty<T> = [T]
+
+impl<T> NonEmpty<T> {
+    @first (self) -> T = self.inner[0]
+}
+```
+
+**Performance:**
+
+Newtypes have zero runtime overhead. They share the same memory layout as their underlying type; the compiler erases the wrapper.
 
 ### Derive
 
@@ -514,25 +583,25 @@ The `#derive` attribute generates trait implementations automatically for user-d
 
 **Derivable Traits:**
 
-| Trait | Struct | Sum Type | Requirement |
-|-------|--------|----------|-------------|
-| `Eq` | Yes | Yes | All fields implement `Eq` |
-| `Hashable` | Yes | Yes | All fields implement `Hashable` |
-| `Comparable` | Yes | Yes | All fields implement `Comparable` |
-| `Clone` | Yes | Yes | All fields implement `Clone` |
-| `Default` | Yes | No | All fields implement `Default` |
-| `Debug` | Yes | Yes | All fields implement `Debug` |
-| `Printable` | Yes | Yes | All fields implement `Printable` |
+| Trait | Struct | Sum Type | Newtype | Requirement |
+|-------|--------|----------|---------|-------------|
+| `Eq` | Yes | Yes | Yes | All fields/underlying implement `Eq` |
+| `Hashable` | Yes | Yes | Yes | All fields/underlying implement `Hashable` |
+| `Comparable` | Yes | Yes | Yes | All fields/underlying implement `Comparable` |
+| `Clone` | Yes | Yes | Yes | All fields/underlying implement `Clone` |
+| `Default` | Yes | No | Yes | All fields/underlying implement `Default` |
+| `Debug` | Yes | Yes | Yes | All fields/underlying implement `Debug` |
+| `Printable` | Yes | Yes | Yes | All fields/underlying implement `Printable` |
 
 **Derivation Rules:**
 
-- `Eq`: Field-wise equality comparison
-- `Hashable`: Combined field hashes using `hash_combine`; warning if derived without `Eq`
-- `Comparable`: Lexicographic comparison by field declaration order; sum type variants compare by declaration order
-- `Clone`: Field-wise cloning via `.clone()` method
-- `Default`: Field-wise default construction; cannot be derived for sum types (ambiguous variant)
-- `Debug`: Structural representation: `TypeName { field1: value1, field2: value2 }`
-- `Printable`: Human-readable format: `TypeName(value1, value2)`
+- `Eq`: Field-wise equality comparison; newtypes delegate to underlying type
+- `Hashable`: Combined field hashes using `hash_combine`; warning if derived without `Eq`; newtypes delegate to underlying type
+- `Comparable`: Lexicographic comparison by field declaration order; sum type variants compare by declaration order; newtypes delegate to underlying type
+- `Clone`: Field-wise cloning via `.clone()` method; newtypes delegate to underlying type
+- `Default`: Field-wise default construction; cannot be derived for sum types (ambiguous variant); newtypes delegate to underlying type
+- `Debug`: Structural representation: `TypeName { field1: value1, field2: value2 }`; newtypes show `TypeName(value)`
+- `Printable`: Human-readable format: `TypeName(value1, value2)`; newtypes show `TypeName(value)`
 
 **Generic Types:**
 
