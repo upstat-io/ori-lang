@@ -419,12 +419,16 @@
 - Blocked on: None (builds on existing Phase 3 infrastructure)
 
 **Custom Subscripting (Index Trait)** — ✅ APPROVED 2026-01-30
-- Proposal: `proposals/approved/custom-subscripting-proposal.md`
+- Proposals:
+  - `proposals/approved/custom-subscripting-proposal.md` — Design and motivation
+  - `proposals/approved/index-trait-proposal.md` — Formal specification and error messages
 - Implementation: Phase 3.12
 - Read-only `Index<Key, Value>` trait for custom `[]` syntax
 - Desugars `x[k]` to `x.index(key: k)`
 - Multiple index types per type (e.g., JsonValue with str and int)
 - Flexible return types: `T`, `Option<T>`, or `Result<T, E>`
+- Fixed-capacity list `[T, max N]` implements `Index<int, T>`
+- Error codes: E0950 (type mismatch), E0951 (not implemented), E0952 (ambiguous key)
 - No IndexMut (Ori has no `mut`); mutation via explicit methods
 - Added to prelude
 - Blocked on: None (builds on existing Phase 3 infrastructure)
