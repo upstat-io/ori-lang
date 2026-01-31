@@ -287,7 +287,65 @@
 
 ---
 
-## 5.9 Phase Completion Checklist
+## 5.9 Associated Functions
+
+**Proposal**: `proposals/approved/associated-functions-proposal.md`
+
+Add support for associated functions (static methods) on types, enabling syntax like `Duration.from_seconds(s: 10)`.
+
+### Parsing
+
+- [ ] **Implement**: Parse `Type.method(...)` syntax in expression position
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/postfix.rs` — type-prefixed method call
+  - [ ] **Ori Tests**: `tests/spec/types/associated_functions.ori`
+
+- [ ] **Implement**: Distinguish type name vs value in resolution
+  - [ ] **Rust Tests**: `oric/src/typeck/infer/postfix.rs` — type vs value resolution
+  - [ ] **Ori Tests**: `tests/spec/types/associated_functions.ori`
+
+### Associated Function Registry
+
+- [ ] **Implement**: Track methods without `self` in impl blocks
+  - [ ] **Rust Tests**: `oric/src/typeck/registry/methods.rs` — associated function registry
+  - [ ] **Ori Tests**: `tests/spec/types/associated_functions.ori`
+
+- [ ] **Implement**: Built-in associated functions for Duration
+  - [ ] **Ori Tests**: `tests/spec/types/duration_factory.ori`
+  - Duration.from_nanoseconds(ns:), from_microseconds(us:), from_milliseconds(ms:)
+  - Duration.from_seconds(s:), from_minutes(m:), from_hours(h:)
+
+- [ ] **Implement**: Built-in associated functions for Size
+  - [ ] **Ori Tests**: `tests/spec/types/size_factory.ori`
+  - Size.from_bytes(b:), from_kilobytes(kb:), from_megabytes(mb:)
+  - Size.from_gigabytes(gb:), from_terabytes(tb:)
+
+### Generic Types
+
+- [ ] **Implement**: Full type arguments required for generic associated functions
+  - [ ] **Ori Tests**: `tests/spec/types/associated_functions.ori`
+  - Example: `Option<int>.some(value: 42)`
+
+### Self Return Type
+
+- [ ] **Implement**: Allow `Self` as return type in associated functions
+  - [ ] **Ori Tests**: `tests/spec/types/associated_functions.ori`
+  - Example: `impl Point { @origin () -> Self = Point { x: 0, y: 0 } }`
+
+### Trait Associated Functions
+
+- [ ] **Implement**: Traits can define associated functions without `self`
+  - [ ] **Rust Tests**: `oric/src/typeck/registry/traits.rs` — trait associated functions
+  - [ ] **Ori Tests**: `tests/spec/traits/associated_functions.ori`
+  - Example: `trait Default { @default () -> Self }`
+
+### LLVM Support
+
+- [ ] **LLVM Support**: Codegen for associated function calls
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/associated_function_tests.rs`
+
+---
+
+## 5.10 Phase Completion Checklist
 
 - [ ] All items above have all three checkboxes marked `[x]`
 - [ ] 80+% test coverage
