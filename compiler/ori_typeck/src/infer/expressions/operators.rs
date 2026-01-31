@@ -70,11 +70,19 @@ fn check_unary_op(checker: &mut TypeChecker<'_>, op: UnaryOp, operand: &Type, sp
         UnaryOp::Neg => {
             let resolved = checker.inference.ctx.resolve(operand);
             match resolved {
-                Type::Int | Type::Float | Type::Var(_) => resolved,
+                Type::Int | Type::Float | Type::Duration | Type::Var(_) => resolved,
+                Type::Size => {
+                    checker.push_error(
+                        "cannot negate `Size`: Size values must be non-negative".to_string(),
+                        span,
+                        ori_diagnostic::ErrorCode::E2001,
+                    );
+                    Type::Error
+                }
                 _ => {
                     checker.push_error(
                         format!(
-                            "cannot negate `{}`: negation requires a numeric type (int or float)",
+                            "cannot negate `{}`: negation requires a numeric type (int, float, or Duration)",
                             operand.display(checker.context.interner)
                         ),
                         span,

@@ -6,6 +6,141 @@
 
 use ori_patterns::{no_such_method, wrong_arg_count, wrong_arg_type, EvalError, EvalResult, Value};
 
+// =============================================================================
+// Associated Function Dispatch
+// =============================================================================
+
+/// Dispatch an associated function call (static method without receiver instance).
+///
+/// Associated functions are called on type names rather than instances,
+/// e.g., `Duration.from_seconds(s: 10)`.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature with other dispatch functions"
+)]
+pub fn dispatch_associated_function(type_name: &str, method: &str, args: Vec<Value>) -> EvalResult {
+    match type_name {
+        "Duration" => dispatch_duration_associated(method, &args),
+        "Size" => dispatch_size_associated(method, &args),
+        _ => Err(no_such_method(method, type_name)),
+    }
+}
+
+/// Dispatch Duration associated functions (factory methods).
+fn dispatch_duration_associated(method: &str, args: &[Value]) -> EvalResult {
+    match method {
+        "from_nanoseconds" => {
+            require_args("from_nanoseconds", 1, args.len())?;
+            let ns = require_int_arg("from_nanoseconds", args, 0)?;
+            Ok(Value::Duration(ns))
+        }
+        "from_microseconds" => {
+            require_args("from_microseconds", 1, args.len())?;
+            let us = require_int_arg("from_microseconds", args, 0)?;
+            us.checked_mul(1_000)
+                .map(Value::Duration)
+                .ok_or_else(|| EvalError::new("duration overflow"))
+        }
+        "from_milliseconds" => {
+            require_args("from_milliseconds", 1, args.len())?;
+            let ms = require_int_arg("from_milliseconds", args, 0)?;
+            ms.checked_mul(1_000_000)
+                .map(Value::Duration)
+                .ok_or_else(|| EvalError::new("duration overflow"))
+        }
+        "from_seconds" => {
+            require_args("from_seconds", 1, args.len())?;
+            let s = require_int_arg("from_seconds", args, 0)?;
+            s.checked_mul(1_000_000_000)
+                .map(Value::Duration)
+                .ok_or_else(|| EvalError::new("duration overflow"))
+        }
+        "from_minutes" => {
+            require_args("from_minutes", 1, args.len())?;
+            let m = require_int_arg("from_minutes", args, 0)?;
+            m.checked_mul(60_000_000_000)
+                .map(Value::Duration)
+                .ok_or_else(|| EvalError::new("duration overflow"))
+        }
+        "from_hours" => {
+            require_args("from_hours", 1, args.len())?;
+            let h = require_int_arg("from_hours", args, 0)?;
+            h.checked_mul(3_600_000_000_000)
+                .map(Value::Duration)
+                .ok_or_else(|| EvalError::new("duration overflow"))
+        }
+        _ => Err(no_such_method(method, "Duration")),
+    }
+}
+
+/// Dispatch Size associated functions (factory methods).
+fn dispatch_size_associated(method: &str, args: &[Value]) -> EvalResult {
+    match method {
+        "from_bytes" => {
+            require_args("from_bytes", 1, args.len())?;
+            let b = require_int_arg("from_bytes", args, 0)?;
+            if b < 0 {
+                return Err(EvalError::new("Size cannot be negative"));
+            }
+            #[expect(clippy::cast_sign_loss, reason = "checked for negative above")]
+            Ok(Value::Size(b as u64))
+        }
+        "from_kilobytes" => {
+            require_args("from_kilobytes", 1, args.len())?;
+            let kb = require_int_arg("from_kilobytes", args, 0)?;
+            if kb < 0 {
+                return Err(EvalError::new("Size cannot be negative"));
+            }
+            #[expect(clippy::cast_sign_loss, reason = "checked for negative above")]
+            (kb as u64)
+                .checked_mul(1024)
+                .map(Value::Size)
+                .ok_or_else(|| EvalError::new("size overflow"))
+        }
+        "from_megabytes" => {
+            require_args("from_megabytes", 1, args.len())?;
+            let mb = require_int_arg("from_megabytes", args, 0)?;
+            if mb < 0 {
+                return Err(EvalError::new("Size cannot be negative"));
+            }
+            #[expect(clippy::cast_sign_loss, reason = "checked for negative above")]
+            (mb as u64)
+                .checked_mul(1024 * 1024)
+                .map(Value::Size)
+                .ok_or_else(|| EvalError::new("size overflow"))
+        }
+        "from_gigabytes" => {
+            require_args("from_gigabytes", 1, args.len())?;
+            let gb = require_int_arg("from_gigabytes", args, 0)?;
+            if gb < 0 {
+                return Err(EvalError::new("Size cannot be negative"));
+            }
+            #[expect(clippy::cast_sign_loss, reason = "checked for negative above")]
+            (gb as u64)
+                .checked_mul(1024 * 1024 * 1024)
+                .map(Value::Size)
+                .ok_or_else(|| EvalError::new("size overflow"))
+        }
+        "from_terabytes" => {
+            require_args("from_terabytes", 1, args.len())?;
+            let tb = require_int_arg("from_terabytes", args, 0)?;
+            if tb < 0 {
+                return Err(EvalError::new("Size cannot be negative"));
+            }
+            #[expect(clippy::cast_sign_loss, reason = "checked for negative above")]
+            (tb as u64)
+                .checked_mul(1024 * 1024 * 1024 * 1024)
+                .map(Value::Size)
+                .ok_or_else(|| EvalError::new("size overflow"))
+        }
+        _ => Err(no_such_method(method, "Size")),
+    }
+}
+
+// =============================================================================
+// Instance Method Dispatch
+// =============================================================================
+
 // Argument Validation Helpers
 
 /// Validate expected argument count.
@@ -54,6 +189,13 @@ fn len_to_value(len: usize, collection_type: &str) -> EvalResult {
 /// checker agree on which methods exist. Each entry is `(type_name, method_name)`.
 /// Sorted by type then method for deterministic comparison.
 pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
+    // duration
+    ("duration", "hours"),
+    ("duration", "microseconds"),
+    ("duration", "milliseconds"),
+    ("duration", "minutes"),
+    ("duration", "nanoseconds"),
+    ("duration", "seconds"),
     // list
     ("list", "contains"),
     ("list", "first"),
@@ -78,6 +220,12 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("result", "is_err"),
     ("result", "is_ok"),
     ("result", "unwrap"),
+    // size
+    ("size", "bytes"),
+    ("size", "gigabytes"),
+    ("size", "kilobytes"),
+    ("size", "megabytes"),
+    ("size", "terabytes"),
     // str
     ("str", "contains"),
     ("str", "ends_with"),
@@ -104,6 +252,8 @@ pub fn dispatch_builtin_method(receiver: Value, method: &str, args: Vec<Value>) 
         Value::Some(_) | Value::None => dispatch_option_method(receiver, method, args),
         Value::Ok(_) | Value::Err(_) => dispatch_result_method(receiver, method, args),
         Value::Newtype { .. } => dispatch_newtype_method(receiver, method, args),
+        Value::Duration(_) => dispatch_duration_method(receiver, method, args),
+        Value::Size(_) => dispatch_size_method(receiver, method, args),
         _ => Err(no_such_method(method, receiver.type_name())),
     }
 }
@@ -274,5 +424,55 @@ fn dispatch_result_method(receiver: Value, method: &str, _args: Vec<Value>) -> E
         ("is_ok", Value::Ok(_)) | ("is_err", Value::Err(_)) => Ok(Value::Bool(true)),
         ("is_ok", Value::Err(_)) | ("is_err", Value::Ok(_)) => Ok(Value::Bool(false)),
         _ => Err(no_such_method(method, "Result")),
+    }
+}
+
+/// Dispatch methods on Duration values.
+/// Duration is stored as i64 nanoseconds.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
+fn dispatch_duration_method(receiver: Value, method: &str, _args: Vec<Value>) -> EvalResult {
+    let Value::Duration(ns) = receiver else {
+        unreachable!("dispatch_duration_method called with non-duration receiver")
+    };
+
+    match method {
+        "nanoseconds" => Ok(Value::int(ns)),
+        "microseconds" => Ok(Value::int(ns / 1_000)),
+        "milliseconds" => Ok(Value::int(ns / 1_000_000)),
+        "seconds" => Ok(Value::int(ns / 1_000_000_000)),
+        "minutes" => Ok(Value::int(ns / (60 * 1_000_000_000))),
+        "hours" => Ok(Value::int(ns / (60 * 60 * 1_000_000_000))),
+        _ => Err(no_such_method(method, "Duration")),
+    }
+}
+
+/// Dispatch methods on Size values.
+/// Size is stored as u64 bytes.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
+fn dispatch_size_method(receiver: Value, method: &str, _args: Vec<Value>) -> EvalResult {
+    let Value::Size(bytes) = receiver else {
+        unreachable!("dispatch_size_method called with non-size receiver")
+    };
+
+    // Convert u64 to i64 safely (truncating division results fit in i64)
+    let to_int = |v: u64| -> EvalResult {
+        i64::try_from(v)
+            .map(Value::int)
+            .map_err(|_| EvalError::new("size value too large for int"))
+    };
+
+    match method {
+        "bytes" => to_int(bytes),
+        "kilobytes" => to_int(bytes / 1024),
+        "megabytes" => to_int(bytes / (1024 * 1024)),
+        "gigabytes" => to_int(bytes / (1024 * 1024 * 1024)),
+        "terabytes" => to_int(bytes / (1024 * 1024 * 1024 * 1024)),
+        _ => Err(no_such_method(method, "Size")),
     }
 }

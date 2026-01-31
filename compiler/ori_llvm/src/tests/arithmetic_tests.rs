@@ -60,7 +60,7 @@ fn test_duration_literal() {
     let interner = StringInterner::new();
     let codegen = TestCodegen::new(&context, &interner, "test");
 
-    // Create: fn test() -> int { 5s } -> 5000 (milliseconds)
+    // Create: fn test() -> int { 5s } -> 5_000_000_000 (nanoseconds)
     let mut arena = ExprArena::new();
 
     let duration_expr = arena.alloc_expr(Expr {
@@ -88,11 +88,11 @@ fn test_duration_literal() {
         println!("Duration IR:\n{}", codegen.print_to_string());
     }
 
-    // JIT execute - should return 5000 (5 seconds in milliseconds)
+    // JIT execute - should return 5_000_000_000 (5 seconds in nanoseconds)
     let result = codegen
         .jit_execute_i64("test_duration")
         .expect("JIT failed");
-    assert_eq!(result, 5000);
+    assert_eq!(result, 5_000_000_000);
 }
 
 #[test]

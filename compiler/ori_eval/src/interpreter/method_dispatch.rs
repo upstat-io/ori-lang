@@ -30,6 +30,7 @@ impl Interpreter<'_> {
     /// Evaluate a method call using the Chain of Responsibility pattern.
     ///
     /// Methods are resolved in priority order:
+    /// 0. Associated functions on type references (e.g., `Duration.from_seconds`)
     /// 1. User-defined methods from impl blocks (priority 0)
     /// 2. Derived methods from `#[derive(...)]` (priority 1)
     /// 3. Collection methods requiring interpreter (priority 2)
@@ -40,6 +41,13 @@ impl Interpreter<'_> {
         method: Name,
         args: Vec<Value>,
     ) -> EvalResult {
+        // Handle associated function calls on type references
+        if let Value::TypeRef { type_name } = &receiver {
+            let type_name_str = self.interner.lookup(*type_name);
+            let method_str = self.interner.lookup(method);
+            return crate::methods::dispatch_associated_function(type_name_str, method_str, args);
+        }
+
         let type_name = self.get_value_type_name(&receiver);
 
         // Resolve the method using the resolver chain
@@ -358,7 +366,8 @@ impl Interpreter<'_> {
             Value::Variant { type_name, .. }
             | Value::VariantConstructor { type_name, .. }
             | Value::Newtype { type_name, .. }
-            | Value::NewtypeConstructor { type_name } => *type_name,
+            | Value::NewtypeConstructor { type_name }
+            | Value::TypeRef { type_name } => *type_name,
             Value::Function(_) | Value::MemoizedFunction(_) => self.interner.intern("function"),
             Value::FunctionVal(_, _) => self.interner.intern("function_val"),
             Value::ModuleNamespace(_) => self.interner.intern("module"),

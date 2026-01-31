@@ -382,6 +382,8 @@ impl fmt::Debug for TokenKind {
 /// Has all required traits: Copy, Clone, Eq, `PartialEq`, Hash, Debug
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum DurationUnit {
+    Nanoseconds,
+    Microseconds,
     Milliseconds,
     Seconds,
     Minutes,
@@ -389,21 +391,27 @@ pub enum DurationUnit {
 }
 
 impl DurationUnit {
-    /// Convert value to milliseconds.
+    /// Convert value to nanoseconds.
     #[inline]
-    pub fn to_millis(self, value: u64) -> u64 {
-        match self {
-            DurationUnit::Milliseconds => value,
-            DurationUnit::Seconds => value * 1000,
-            DurationUnit::Minutes => value * 60 * 1000,
-            DurationUnit::Hours => value * 60 * 60 * 1000,
-        }
+    pub fn to_nanos(self, value: u64) -> i64 {
+        let ns = match self {
+            DurationUnit::Nanoseconds => value,
+            DurationUnit::Microseconds => value * 1_000,
+            DurationUnit::Milliseconds => value * 1_000_000,
+            DurationUnit::Seconds => value * 1_000_000_000,
+            DurationUnit::Minutes => value * 60 * 1_000_000_000,
+            DurationUnit::Hours => value * 60 * 60 * 1_000_000_000,
+        };
+        // Intentional wrap: literal values from lexer won't exceed i64::MAX
+        ns.cast_signed()
     }
 
     /// Get the suffix string.
     #[inline]
     pub fn suffix(self) -> &'static str {
         match self {
+            DurationUnit::Nanoseconds => "ns",
+            DurationUnit::Microseconds => "us",
             DurationUnit::Milliseconds => "ms",
             DurationUnit::Seconds => "s",
             DurationUnit::Minutes => "m",
@@ -428,6 +436,7 @@ pub enum SizeUnit {
     Kilobytes,
     Megabytes,
     Gigabytes,
+    Terabytes,
 }
 
 impl SizeUnit {
@@ -439,6 +448,7 @@ impl SizeUnit {
             SizeUnit::Kilobytes => value * 1024,
             SizeUnit::Megabytes => value * 1024 * 1024,
             SizeUnit::Gigabytes => value * 1024 * 1024 * 1024,
+            SizeUnit::Terabytes => value * 1024 * 1024 * 1024 * 1024,
         }
     }
 
@@ -450,6 +460,7 @@ impl SizeUnit {
             SizeUnit::Kilobytes => "kb",
             SizeUnit::Megabytes => "mb",
             SizeUnit::Gigabytes => "gb",
+            SizeUnit::Terabytes => "tb",
         }
     }
 }
@@ -661,16 +672,24 @@ mod tests {
 
     #[test]
     fn test_duration_unit() {
-        assert_eq!(DurationUnit::Seconds.to_millis(5), 5000);
-        assert_eq!(DurationUnit::Minutes.to_millis(1), 60000);
+        assert_eq!(DurationUnit::Nanoseconds.to_nanos(100), 100);
+        assert_eq!(DurationUnit::Microseconds.to_nanos(50), 50_000);
+        assert_eq!(DurationUnit::Milliseconds.to_nanos(100), 100_000_000);
+        assert_eq!(DurationUnit::Seconds.to_nanos(5), 5_000_000_000);
+        assert_eq!(DurationUnit::Minutes.to_nanos(1), 60_000_000_000);
         assert_eq!(DurationUnit::Hours.suffix(), "h");
+        assert_eq!(DurationUnit::Nanoseconds.suffix(), "ns");
+        assert_eq!(DurationUnit::Microseconds.suffix(), "us");
     }
 
     #[test]
     fn test_size_unit() {
         assert_eq!(SizeUnit::Kilobytes.to_bytes(4), 4096);
         assert_eq!(SizeUnit::Megabytes.to_bytes(1), 1024 * 1024);
+        assert_eq!(SizeUnit::Gigabytes.to_bytes(1), 1024 * 1024 * 1024);
+        assert_eq!(SizeUnit::Terabytes.to_bytes(1), 1024 * 1024 * 1024 * 1024);
         assert_eq!(SizeUnit::Bytes.suffix(), "b");
+        assert_eq!(SizeUnit::Terabytes.suffix(), "tb");
     }
 
     #[test]

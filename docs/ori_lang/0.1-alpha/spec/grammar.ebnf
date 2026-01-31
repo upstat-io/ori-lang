@@ -194,7 +194,7 @@ guard_clause  = "if" expression .
 
 generics      = "<" generic_param { "," generic_param } ">" .
 generic_param = type_param | const_param .
-type_param    = identifier [ ":" bounds ] .
+type_param    = identifier [ ":" bounds ] [ "=" type ] .
 const_param   = "$" identifier ":" const_type [ "=" const_expr ] .
 const_type    = "int" | "bool" .
 bounds        = type_path { "+" type_path } .

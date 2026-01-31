@@ -41,7 +41,7 @@ pub fn eval_literal(kind: &ExprKind, interner: &StringInterner) -> Option<EvalRe
         }
         ExprKind::Char(c) => Some(Ok(Value::Char(*c))),
         ExprKind::Unit => Some(Ok(Value::Void)),
-        ExprKind::Duration { value, unit } => Some(Ok(Value::Duration(unit.to_millis(*value)))),
+        ExprKind::Duration { value, unit } => Some(Ok(Value::Duration(unit.to_nanos(*value)))),
         ExprKind::Size { value, unit } => Some(Ok(Value::Size(unit.to_bytes(*value)))),
         _ => None,
     }
@@ -49,10 +49,26 @@ pub fn eval_literal(kind: &ExprKind, interner: &StringInterner) -> Option<EvalRe
 
 /// Evaluate an identifier lookup.
 pub fn eval_ident(name: Name, env: &Environment, interner: &StringInterner) -> EvalResult {
-    env.lookup(name).ok_or_else(|| {
-        let name_str = interner.lookup(name);
-        undefined_variable(name_str)
-    })
+    // First check local bindings (variables shadow type names)
+    if let Some(val) = env.lookup(name) {
+        return Ok(val);
+    }
+
+    // Check if this is a type name for associated function calls
+    let name_str = interner.lookup(name);
+    if is_type_name_for_associated_functions(name_str) {
+        return Ok(Value::TypeRef { type_name: name });
+    }
+
+    Err(undefined_variable(name_str))
+}
+
+/// Check if an identifier is a type name that supports associated functions.
+///
+/// These types have factory methods like `Duration.from_seconds(s:)` that can be
+/// called without an instance.
+fn is_type_name_for_associated_functions(name: &str) -> bool {
+    matches!(name, "Duration" | "Size")
 }
 
 /// Evaluate a binary operation with short-circuit logic for && and ||.

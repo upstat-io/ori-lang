@@ -124,6 +124,48 @@ trait Iterator {
 - `self` — instance
 - `Self` — implementing type
 
+### Default Type Parameters
+
+Type parameters on traits may have default values:
+
+```ori
+trait Add<Rhs = Self> {
+    type Output
+    @add (self, rhs: Rhs) -> Self.Output
+}
+```
+
+Semantics:
+
+1. Default applies when impl omits the type argument
+2. `Self` in default position refers to the implementing type at the impl site
+3. Defaults are evaluated at impl site, not trait definition site
+4. Parameters with defaults must appear after all parameters without defaults
+
+```ori
+impl Add for Point {
+    // Rhs defaults to Self = Point
+    @add (self, rhs: Point) -> Self = ...
+}
+
+impl Add<int> for Vector2 {
+    // Explicit Rhs = int
+    @add (self, rhs: int) -> Self = ...
+}
+```
+
+Later default parameters may reference earlier ones:
+
+```ori
+trait Transform<Input = Self, Output = Input> {
+    @transform (self, input: Input) -> Output
+}
+
+impl Transform for Parser { ... }           // Input = Self = Parser, Output = Parser
+impl Transform<str> for Parser { ... }      // Input = str, Output = str
+impl Transform<str, Ast> for Parser { ... } // Input = str, Output = Ast
+```
+
 ### Trait Associated Functions
 
 Traits may define associated functions (methods without `self`) that implementors must provide:

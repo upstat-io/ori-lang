@@ -64,9 +64,9 @@ pub enum Value {
     Byte(u8),
     /// Void (unit) value.
     Void,
-    /// Duration value (in milliseconds).
-    Duration(u64),
-    /// Size value (in bytes).
+    /// Duration value (in nanoseconds, can be negative).
+    Duration(i64),
+    /// Size value (in bytes, always non-negative).
     Size(u64),
 
     // Heap Types (use Heap<T> for enforced Arc usage)
@@ -152,6 +152,12 @@ pub enum Value {
     // Error Recovery
     /// Error value for error recovery.
     Error(String),
+
+    /// Reference to a type for associated function dispatch.
+    ///
+    /// Used when a type name (like `Duration` or `Size`) is used as a receiver
+    /// for associated function calls (e.g., `Duration.from_seconds(s: 10)`).
+    TypeRef { type_name: Name },
 }
 
 // Factory Methods (ONLY way to construct heap values)
@@ -435,6 +441,7 @@ impl Value {
             Value::Range(_) => "Range",
             Value::ModuleNamespace(_) => "module",
             Value::Error(_) => "error",
+            Value::TypeRef { .. } => "type",
         }
     }
 
@@ -502,11 +509,12 @@ impl Value {
             Value::Struct(s) => format!("{s:?}"),
             Value::Function(_) | Value::MemoizedFunction(_) => "<function>".to_string(),
             Value::FunctionVal(_, name) => format!("<function_val {name}>"),
-            Value::Duration(ms) => format!("{ms}ms"),
+            Value::Duration(ns) => format_duration(*ns),
             Value::Size(bytes) => format!("{bytes}b"),
             Value::Range(r) => format!("{r:?}"),
             Value::ModuleNamespace(_) => "<module>".to_string(),
             Value::Error(msg) => format!("Error({msg})"),
+            Value::TypeRef { .. } => "<type>".to_string(),
         }
     }
 
@@ -526,7 +534,8 @@ impl Value {
             (Value::List(a), Value::List(b)) | (Value::Tuple(a), Value::Tuple(b)) => {
                 a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.equals(y))
             }
-            (Value::Duration(a), Value::Duration(b)) | (Value::Size(a), Value::Size(b)) => a == b,
+            (Value::Duration(a), Value::Duration(b)) => a == b,
+            (Value::Size(a), Value::Size(b)) => a == b,
             (
                 Value::Variant {
                     type_name: t1,
@@ -614,6 +623,7 @@ impl fmt::Debug for Value {
             Value::Range(r) => write!(f, "Range({r:?})"),
             Value::ModuleNamespace(ns) => write!(f, "ModuleNamespace({} items)", ns.len()),
             Value::Error(msg) => write!(f, "Error({msg})"),
+            Value::TypeRef { type_name } => write!(f, "TypeRef({type_name:?})"),
         }
     }
 }
@@ -696,13 +706,7 @@ impl fmt::Display for Value {
             Value::Struct(s) => write!(f, "<struct {:?}>", s.type_name),
             Value::Function(_) | Value::MemoizedFunction(_) => write!(f, "<function>"),
             Value::FunctionVal(_, name) => write!(f, "<function_val {name}>"),
-            Value::Duration(ms) => {
-                if *ms >= 1000 {
-                    write!(f, "{}s", ms / 1000)
-                } else {
-                    write!(f, "{ms}ms")
-                }
-            }
+            Value::Duration(ns) => write!(f, "{}", format_duration(*ns)),
             Value::Size(bytes) => {
                 if *bytes >= 1024 * 1024 {
                     write!(f, "{}mb", bytes / (1024 * 1024))
@@ -721,6 +725,7 @@ impl fmt::Display for Value {
             }
             Value::ModuleNamespace(_) => write!(f, "<module>"),
             Value::Error(msg) => write!(f, "<error: {msg}>"),
+            Value::TypeRef { type_name } => write!(f, "<type {type_name:?}>"),
         }
     }
 }
@@ -739,7 +744,8 @@ impl PartialEq for Value {
             | (Value::Ok(a), Value::Ok(b))
             | (Value::Err(a), Value::Err(b)) => a == b,
             (Value::List(a), Value::List(b)) | (Value::Tuple(a), Value::Tuple(b)) => a == b,
-            (Value::Duration(a), Value::Duration(b)) | (Value::Size(a), Value::Size(b)) => a == b,
+            (Value::Duration(a), Value::Duration(b)) => a == b,
+            (Value::Size(a), Value::Size(b)) => a == b,
             (Value::FunctionVal(_, name_a), Value::FunctionVal(_, name_b)) => name_a == name_b,
             // Functions are equal by body identity
             (Value::Function(a), Value::Function(b)) => a.body == b.body,
@@ -881,7 +887,41 @@ impl std::hash::Hash for Value {
                 ns.len().hash(state);
             }
             Value::Error(msg) => msg.hash(state),
+            Value::TypeRef { type_name } => type_name.hash(state),
         }
+    }
+}
+
+/// Format a duration value (in nanoseconds) for display.
+/// Uses the largest whole unit that doesn't lose precision.
+fn format_duration(ns: i64) -> String {
+    // Unit constants (nanoseconds per unit)
+    const HOUR_NS: u64 = 60 * 60 * 1_000_000_000;
+    const MIN_NS: u64 = 60 * 1_000_000_000;
+    const SEC_NS: u64 = 1_000_000_000;
+    const MS_NS: u64 = 1_000_000;
+    const US_NS: u64 = 1_000;
+
+    let abs_ns = ns.unsigned_abs();
+    let sign = if ns < 0 { "-" } else { "" };
+
+    if abs_ns >= HOUR_NS && abs_ns.is_multiple_of(HOUR_NS) {
+        let val = abs_ns / HOUR_NS;
+        format!("{sign}{val}h")
+    } else if abs_ns >= MIN_NS && abs_ns.is_multiple_of(MIN_NS) {
+        let val = abs_ns / MIN_NS;
+        format!("{sign}{val}m")
+    } else if abs_ns >= SEC_NS && abs_ns.is_multiple_of(SEC_NS) {
+        let val = abs_ns / SEC_NS;
+        format!("{sign}{val}s")
+    } else if abs_ns >= MS_NS && abs_ns.is_multiple_of(MS_NS) {
+        let val = abs_ns / MS_NS;
+        format!("{sign}{val}ms")
+    } else if abs_ns >= US_NS && abs_ns.is_multiple_of(US_NS) {
+        let val = abs_ns / US_NS;
+        format!("{sign}{val}us")
+    } else {
+        format!("{sign}{abs_ns}ns")
     }
 }
 

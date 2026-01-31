@@ -10,7 +10,7 @@ use ori_ir::{DurationUnit, SizeUnit};
 /// Calculate width of a duration literal.
 ///
 /// Width is the number of digits plus the unit suffix length:
-/// - `ms` = 2 characters
+/// - `ns`, `us`, `ms` = 2 characters
 /// - `s`, `m`, `h` = 1 character
 #[expect(
     clippy::match_same_arms,
@@ -20,6 +20,8 @@ pub(super) fn duration_width(value: u64, unit: DurationUnit) -> usize {
     let value_w = decimal_digit_count(value);
 
     let unit_w = match unit {
+        DurationUnit::Nanoseconds => 2,  // "ns"
+        DurationUnit::Microseconds => 2, // "us"
         DurationUnit::Milliseconds => 2, // "ms"
         DurationUnit::Seconds => 1,      // "s"
         DurationUnit::Minutes => 1,      // "m"
@@ -33,7 +35,7 @@ pub(super) fn duration_width(value: u64, unit: DurationUnit) -> usize {
 ///
 /// Width is the number of digits plus the unit suffix length:
 /// - `b` = 1 character
-/// - `kb`, `mb`, `gb` = 2 characters
+/// - `kb`, `mb`, `gb`, `tb` = 2 characters
 #[expect(
     clippy::match_same_arms,
     reason = "Each arm explicitly documents the unit suffix for maintainability"
@@ -46,6 +48,7 @@ pub(super) fn size_width(value: u64, unit: SizeUnit) -> usize {
         SizeUnit::Kilobytes => 2, // "kb"
         SizeUnit::Megabytes => 2, // "mb"
         SizeUnit::Gigabytes => 2, // "gb"
+        SizeUnit::Terabytes => 2, // "tb"
     };
 
     value_w + unit_w

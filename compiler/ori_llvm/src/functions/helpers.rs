@@ -28,14 +28,21 @@ impl<'ll> Builder<'_, 'll, '_> {
     }
 
     /// Compile a duration literal.
-    /// Durations are stored as i64 milliseconds.
+    /// Durations are stored as i64 nanoseconds.
     pub(crate) fn compile_duration(
         &self,
         value: u64,
         unit: DurationUnit,
     ) -> Option<BasicValueEnum<'ll>> {
-        let millis = unit.to_millis(value);
-        Some(self.cx().scx.type_i64().const_int(millis, false).into())
+        let nanos = unit.to_nanos(value);
+        // Cast i64 to u64 for const_int (sign_extend=true for signed interpretation)
+        Some(
+            self.cx()
+                .scx
+                .type_i64()
+                .const_int(nanos as u64, true)
+                .into(),
+        )
     }
 
     /// Compile a size literal.

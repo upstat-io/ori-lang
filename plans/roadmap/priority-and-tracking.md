@@ -925,6 +925,16 @@
 - Uses `.` syntax (not `::`) for consistency with method calls
 - Blocked on: None (unblocks Duration/Size factory methods in Phase 1.1A)
 
+**Default Type Parameters on Traits** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/default-type-parameters-proposal.md`
+- Implementation: Phase 3.19
+- Allows `trait Add<Rhs = Self>` syntax for default type parameters
+- `Self` resolves to implementing type at impl site
+- Parameters with defaults must follow non-default parameters
+- Later defaults can reference earlier parameters
+- Essential prerequisite for operator-traits-proposal
+- Blocked on: None (enables operator traits)
+
 ---
 
 ## Milestones

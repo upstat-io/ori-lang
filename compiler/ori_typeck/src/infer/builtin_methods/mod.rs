@@ -10,6 +10,7 @@ mod numeric;
 mod option;
 mod result;
 mod string;
+mod units;
 
 use ori_diagnostic::ErrorCode;
 use ori_ir::{Span, StringInterner};
@@ -21,6 +22,7 @@ pub use numeric::NumericMethodHandler;
 pub use option::OptionMethodHandler;
 pub use result::ResultMethodHandler;
 pub use string::StringMethodHandler;
+pub use units::UnitsMethodHandler;
 
 /// All built-in methods registered in the type checker's handlers.
 ///
@@ -30,6 +32,13 @@ pub use string::StringMethodHandler;
 pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     // bool
     ("bool", "to_string"),
+    // duration
+    ("duration", "hours"),
+    ("duration", "microseconds"),
+    ("duration", "milliseconds"),
+    ("duration", "minutes"),
+    ("duration", "nanoseconds"),
+    ("duration", "seconds"),
     // float
     ("float", "abs"),
     ("float", "ceil"),
@@ -89,6 +98,12 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("result", "unwrap"),
     ("result", "unwrap_err"),
     ("result", "unwrap_or"),
+    // size
+    ("size", "bytes"),
+    ("size", "gigabytes"),
+    ("size", "kilobytes"),
+    ("size", "megabytes"),
+    ("size", "terabytes"),
     // str
     ("str", "bytes"),
     ("str", "chars"),
@@ -162,6 +177,7 @@ pub struct BuiltinMethodRegistry {
     option: OptionMethodHandler,
     result: ResultMethodHandler,
     numeric: NumericMethodHandler,
+    units: UnitsMethodHandler,
 }
 
 impl BuiltinMethodRegistry {
@@ -174,6 +190,7 @@ impl BuiltinMethodRegistry {
             option: OptionMethodHandler,
             result: ResultMethodHandler,
             numeric: NumericMethodHandler,
+            units: UnitsMethodHandler,
         }
     }
 
@@ -214,8 +231,27 @@ impl BuiltinMethodRegistry {
                 self.numeric
                     .check(ctx, interner, receiver_ty, method, args, span)
             }
+            Type::Duration | Type::Size => {
+                self.units
+                    .check(ctx, interner, receiver_ty, method, args, span)
+            }
             _ => return None,
         })
+    }
+
+    /// Type check an associated function call.
+    ///
+    /// Associated functions are called on type names (e.g., `Duration.from_seconds`)
+    /// rather than on instances. Returns `None` if the type doesn't support
+    /// associated functions.
+    pub fn check_associated(
+        &self,
+        ctx: &mut InferenceContext,
+        type_name: &str,
+        method: &str,
+        args: &[Type],
+    ) -> Option<MethodTypeResult> {
+        self.units.check_associated(ctx, type_name, method, args)
     }
 }
 

@@ -29,6 +29,12 @@ pub fn evaluate_binary(left: Value, right: Value, op: BinaryOp) -> EvalResult {
         (Value::List(a), Value::List(b)) => eval_list_binary(a, b, op),
         (Value::Char(a), Value::Char(b)) => eval_char_binary(*a, *b, op),
         (Value::Tuple(a), Value::Tuple(b)) => eval_tuple_binary(a, b, op),
+        (Value::Duration(a), Value::Duration(b)) => eval_duration_binary(*a, *b, op),
+        (Value::Duration(a), Value::Int(b)) => eval_duration_int_binary(*a, *b, op),
+        (Value::Int(a), Value::Duration(b)) => eval_int_duration_binary(*a, *b, op),
+        (Value::Size(a), Value::Size(b)) => eval_size_binary(*a, *b, op),
+        (Value::Size(a), Value::Int(b)) => eval_size_int_binary(*a, *b, op),
+        (Value::Int(a), Value::Size(b)) => eval_int_size_binary(*a, *b, op),
         (Value::Some(_) | Value::None, Value::Some(_) | Value::None) => {
             eval_option_binary(&left, &right, op)
         }
@@ -242,5 +248,141 @@ fn eval_result_binary(left: &Value, right: &Value, op: BinaryOp) -> EvalResult {
             _ => Err(invalid_binary_op_for("Result", op)),
         },
         _ => unreachable!(),
+    }
+}
+
+/// Binary operations on Duration values (stored as i64 nanoseconds).
+fn eval_duration_binary(a: i64, b: i64, op: BinaryOp) -> EvalResult {
+    match op {
+        BinaryOp::Add => a
+            .checked_add(b)
+            .map(Value::Duration)
+            .ok_or_else(|| integer_overflow("duration addition")),
+        BinaryOp::Sub => a
+            .checked_sub(b)
+            .map(Value::Duration)
+            .ok_or_else(|| integer_overflow("duration subtraction")),
+        BinaryOp::Mod => {
+            if b == 0 {
+                Err(modulo_by_zero())
+            } else {
+                // checked_rem handles all cases safely
+                a.checked_rem(b)
+                    .map(Value::Duration)
+                    .ok_or_else(|| integer_overflow("duration modulo"))
+            }
+        }
+        BinaryOp::Eq => Ok(Value::Bool(a == b)),
+        BinaryOp::NotEq => Ok(Value::Bool(a != b)),
+        BinaryOp::Lt => Ok(Value::Bool(a < b)),
+        BinaryOp::LtEq => Ok(Value::Bool(a <= b)),
+        BinaryOp::Gt => Ok(Value::Bool(a > b)),
+        BinaryOp::GtEq => Ok(Value::Bool(a >= b)),
+        _ => Err(invalid_binary_op_for("Duration", op)),
+    }
+}
+
+/// Binary operations: Duration * int or Duration / int.
+fn eval_duration_int_binary(a: i64, b: ScalarInt, op: BinaryOp) -> EvalResult {
+    let b_val = b.raw();
+    match op {
+        BinaryOp::Mul => a
+            .checked_mul(b_val)
+            .map(Value::Duration)
+            .ok_or_else(|| integer_overflow("duration multiplication")),
+        BinaryOp::Div => {
+            if b_val == 0 {
+                Err(division_by_zero())
+            } else {
+                a.checked_div(b_val)
+                    .map(Value::Duration)
+                    .ok_or_else(|| integer_overflow("duration division"))
+            }
+        }
+        _ => Err(invalid_binary_op_for("Duration and int", op)),
+    }
+}
+
+/// Binary operations: int * Duration.
+fn eval_int_duration_binary(a: ScalarInt, b: i64, op: BinaryOp) -> EvalResult {
+    let a_val = a.raw();
+    match op {
+        BinaryOp::Mul => a_val
+            .checked_mul(b)
+            .map(Value::Duration)
+            .ok_or_else(|| integer_overflow("duration multiplication")),
+        _ => Err(invalid_binary_op_for("int and Duration", op)),
+    }
+}
+
+/// Binary operations on Size values (stored as u64 bytes).
+fn eval_size_binary(a: u64, b: u64, op: BinaryOp) -> EvalResult {
+    match op {
+        BinaryOp::Add => a
+            .checked_add(b)
+            .map(Value::Size)
+            .ok_or_else(|| integer_overflow("size addition")),
+        BinaryOp::Sub => a
+            .checked_sub(b)
+            .map(Value::Size)
+            .ok_or_else(|| EvalError::new("size subtraction would result in negative value")),
+        BinaryOp::Mod => {
+            if b == 0 {
+                Err(modulo_by_zero())
+            } else {
+                // Safe: b != 0, and u64 % u64 cannot overflow
+                a.checked_rem(b)
+                    .map(Value::Size)
+                    .ok_or_else(|| integer_overflow("size modulo"))
+            }
+        }
+        BinaryOp::Eq => Ok(Value::Bool(a == b)),
+        BinaryOp::NotEq => Ok(Value::Bool(a != b)),
+        BinaryOp::Lt => Ok(Value::Bool(a < b)),
+        BinaryOp::LtEq => Ok(Value::Bool(a <= b)),
+        BinaryOp::Gt => Ok(Value::Bool(a > b)),
+        BinaryOp::GtEq => Ok(Value::Bool(a >= b)),
+        _ => Err(invalid_binary_op_for("Size", op)),
+    }
+}
+
+/// Binary operations: Size * int or Size / int.
+fn eval_size_int_binary(a: u64, b: ScalarInt, op: BinaryOp) -> EvalResult {
+    use std::cmp::Ordering;
+    let b_val = b.raw();
+    match op {
+        BinaryOp::Mul => match b_val.cmp(&0) {
+            Ordering::Less => Err(EvalError::new("cannot multiply Size by negative integer")),
+            Ordering::Equal | Ordering::Greater => a
+                .checked_mul(b_val.cast_unsigned())
+                .map(Value::Size)
+                .ok_or_else(|| integer_overflow("size multiplication")),
+        },
+        BinaryOp::Div => match b_val.cmp(&0) {
+            Ordering::Equal => Err(division_by_zero()),
+            Ordering::Less => Err(EvalError::new("cannot divide Size by negative integer")),
+            Ordering::Greater => a
+                .checked_div(b_val.cast_unsigned())
+                .map(Value::Size)
+                .ok_or_else(|| integer_overflow("size division")),
+        },
+        _ => Err(invalid_binary_op_for("Size and int", op)),
+    }
+}
+
+/// Binary operations: int * Size.
+fn eval_int_size_binary(a: ScalarInt, b: u64, op: BinaryOp) -> EvalResult {
+    use std::cmp::Ordering;
+    let a_val = a.raw();
+    match op {
+        BinaryOp::Mul => match a_val.cmp(&0) {
+            Ordering::Less => Err(EvalError::new("cannot multiply Size by negative integer")),
+            Ordering::Equal | Ordering::Greater => a_val
+                .cast_unsigned()
+                .checked_mul(b)
+                .map(Value::Size)
+                .ok_or_else(|| integer_overflow("size multiplication")),
+        },
+        _ => Err(invalid_binary_op_for("int and Size", op)),
     }
 }

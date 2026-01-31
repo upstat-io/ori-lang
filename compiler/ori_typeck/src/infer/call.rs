@@ -270,6 +270,7 @@ pub fn infer_method_call_named(
 /// Core method call inference logic shared between positional and named variants.
 ///
 /// This function handles:
+/// - Associated function calls on type names (e.g., `Duration.from_seconds`)
 /// - Looking up methods in the trait registry
 /// - Checking argument count matches expected
 /// - Unifying argument types with parameter types
@@ -282,6 +283,14 @@ fn infer_method_call_core(
     arg_spans: &[Span],
     span: Span,
 ) -> Type {
+    // Check for associated function calls on type names (e.g., Duration.from_seconds)
+    if let Type::Named(type_name) = resolved_receiver {
+        let type_name_str = checker.context.interner.lookup(*type_name);
+        if is_type_name_for_associated_functions(type_name_str) {
+            return infer_associated_function(checker, type_name_str, method, arg_types, span);
+        }
+    }
+
     if let Some(method_lookup) = checker
         .registries
         .traits
@@ -399,4 +408,46 @@ fn infer_builtin_method(
         );
         Type::Error
     }
+}
+
+/// Check if an identifier is a type name that supports associated functions.
+///
+/// These types have factory methods like `Duration.from_seconds(s:)` that can be
+/// called without an instance.
+fn is_type_name_for_associated_functions(name: &str) -> bool {
+    matches!(name, "Duration" | "Size")
+}
+
+/// Infer the type of an associated function call.
+///
+/// Associated functions are called on type names rather than instances,
+/// e.g., `Duration.from_seconds(s: 10)`.
+fn infer_associated_function(
+    checker: &mut TypeChecker<'_>,
+    type_name: &str,
+    method: Name,
+    arg_types: &[Type],
+    span: Span,
+) -> Type {
+    let method_str = checker.context.interner.lookup(method);
+
+    let registry = BuiltinMethodRegistry::new();
+    if let Some(result) =
+        registry.check_associated(&mut checker.inference.ctx, type_name, method_str, arg_types)
+    {
+        return match result {
+            MethodTypeResult::Ok(ty) => ty,
+            MethodTypeResult::Err(e) => {
+                checker.push_error(e.message, span, e.code);
+                Type::Error
+            }
+        };
+    }
+
+    checker.push_error(
+        format!("type `{type_name}` has no associated function `{method_str}`"),
+        span,
+        ori_diagnostic::ErrorCode::E2002,
+    );
+    Type::Error
 }

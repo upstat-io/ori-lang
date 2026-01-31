@@ -19,6 +19,10 @@ pub fn evaluate_unary(value: Value, op: UnaryOp) -> EvalResult {
             .map(Value::Int)
             .ok_or_else(|| integer_overflow("negation")),
         (Value::Float(f), UnaryOp::Neg) => Ok(Value::Float(-f)),
+        (Value::Duration(d), UnaryOp::Neg) => d
+            .checked_neg()
+            .map(Value::Duration)
+            .ok_or_else(|| integer_overflow("duration negation")),
 
         // Logical not
         (Value::Bool(b), UnaryOp::Not) => Ok(Value::Bool(!b)),

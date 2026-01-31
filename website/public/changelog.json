@@ -1,4 +1,6 @@
 [
+  {"date": "2026-01-31", "type": "docs", "message": "Approve timeout-spawn-patterns-proposal", "hash": "dced681"},
+  {"date": "2026-01-31", "type": "fix", "message": "Add cfg guards for WASM-unused constants", "hash": "1f6fbaa"},
   {"date": "2026-01-31", "type": "docs", "message": "Approve recurse-pattern-proposal", "hash": "207b7c5"},
   {"date": "2026-01-31", "type": "docs", "message": "Approve stdlib-philosophy-proposal", "hash": "d0ccd60"},
   {"date": "2026-01-31", "type": "docs", "message": "Approve panic-handler-proposal", "hash": "d353075"},
