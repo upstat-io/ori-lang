@@ -11,11 +11,22 @@ Every source file defines one module.
 
 > **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § SOURCE STRUCTURE (import, extension_def, extension_import)
 
+## Entry Point Files
+
+| File | Purpose |
+|------|---------|
+| `main.ori` | Binary entry point (must contain `@main`) |
+| `lib.ori` | Library entry point (defines public API) |
+| `mod.ori` | Directory module entry point (within a package) |
+
+`lib.ori` is the package-level public interface. `mod.ori` is a directory-level public interface within a package. A package root cannot use `mod.ori` as its library entry point; `lib.ori` is required.
+
 ## Module Names
 
 | File Path | Module Name |
 |-----------|-------------|
 | `src/main.ori` | `main` |
+| `src/lib.ori` | (package name) |
 | `src/math.ori` | `math` |
 | `src/http/client.ori` | `http.client` |
 | `src/http/mod.ori` | `http` |
@@ -87,6 +98,16 @@ pub type User = { id: int, name: str }
 pub $timeout = 30s
 ```
 
+### Nested Module Visibility
+
+Parent modules cannot access child private items. Child modules cannot access parent private items. Sibling modules cannot access each other's private items.
+
+The `::` prefix allows importing private items for testing:
+
+```ori
+use "./internal" { ::private_helper }  // Explicit private access
+```
+
 ## Re-exports
 
 ```ori
@@ -106,6 +127,26 @@ pub use std.logging { Logger without def }  // Strips def impl permanently
 ```
 
 When a trait is re-exported `without def`, consumers cannot access the original default through that export path — they must import from the original source.
+
+### Re-export Chains
+
+Re-exports can chain through multiple levels. An item must be `pub` at every level of the chain:
+
+```ori
+// level3.ori
+pub @deep () -> str = "deep"
+
+// level2.ori
+pub use "./level3" { deep }
+
+// level1.ori
+pub use "./level2" { deep }
+
+// main.ori
+use "./level1" { deep }  // Works through the chain
+```
+
+Aliases propagate through chains. The same underlying item imported through multiple paths is not an error.
 
 ## Extensions
 
@@ -138,7 +179,17 @@ Method-level granularity required; no wildcards.
 4. Imports
 5. Prelude
 
-Circular dependencies prohibited.
+Circular dependencies prohibited. The compiler detects cycles using depth-first traversal of the import graph and reports all cycles found.
+
+## Import Path Resolution
+
+When processing a `use` statement, the compiler determines the target module:
+
+1. **Relative path** (`"./..."`, `"../..."`): Resolve relative to current file's directory
+2. **Package path** (`"pkg_name"`): Look up in `ori.toml` dependencies
+3. **Standard library** (`std.xxx`): Built-in stdlib modules
+
+This is distinct from *name resolution* within a module (see Resolution above).
 
 ## Prelude
 
@@ -191,6 +242,48 @@ src/
     math.test.ori
 ```
 
+## Package Structure
+
+### Library Package
+
+A library package exports its public API via `lib.ori`:
+
+```
+my_lib/
+├── ori.toml
+├── src/
+│   ├── lib.ori      # Library entry point
+│   └── internal.ori # Internal implementation
+```
+
+### Binary Package
+
+A binary package has `main.ori` with an `@main` function:
+
+```
+my_app/
+├── ori.toml
+├── src/
+│   ├── main.ori    # Binary entry point
+│   └── utils.ori
+```
+
+### Library + Binary
+
+A package can contain both. The binary imports from the library using the package name and can only access public items:
+
+```ori
+// lib.ori
+pub @exported () -> int = 42
+@internal () -> int = 1  // Private
+
+// main.ori
+use "my_pkg" { exported }      // OK: public
+use "my_pkg" { ::internal }    // ERROR: private access not allowed
+```
+
+This enforces clean API boundaries.
+
 ## Package Manifest
 
 ```toml
@@ -202,4 +295,4 @@ version = "0.1.0"
 some_lib = "1.0.0"
 ```
 
-Entry point: `@main` function.
+Entry point: `@main` function for binaries, `lib.ori` for libraries.

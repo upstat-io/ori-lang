@@ -5,6 +5,7 @@
 > **SPEC**: `spec/12-modules.md`
 > **DESIGN**: `design/09-modules/index.md`
 > **PROPOSAL**: `proposals/approved/no-circular-imports-proposal.md` — Circular import rejection
+> **PROPOSAL**: `proposals/approved/module-system-details-proposal.md` — Entry points, re-export chains, visibility
 
 ---
 
@@ -193,7 +194,63 @@
 
 ---
 
-## 4.8 Remaining Work
+## 4.8 Module System Details
+
+> **PROPOSAL**: `proposals/approved/module-system-details-proposal.md`
+
+### Entry Point Files
+
+- [ ] **Implement**: `lib.ori` as library entry point — spec/12-modules.md § Entry Point Files
+  - [ ] **Rust Tests**: `oric/src/eval/module/` — library entry detection
+  - [ ] **Ori Tests**: `tests/spec/modules/library_entry.ori`
+
+- [ ] **Implement**: Distinguish `lib.ori` vs `mod.ori` — spec/12-modules.md § Entry Point Files
+  - [ ] Package root requires `lib.ori`, not `mod.ori`
+  - [ ] **Rust Tests**: `oric/src/eval/module/` — entry point validation
+  - [ ] **Ori Tests**: `tests/spec/modules/entry_point_validation.ori`
+
+### Binary-Library Separation
+
+- [ ] **Implement**: Binary accesses library via public API only — spec/12-modules.md § Library + Binary
+  - [ ] `use "my_pkg" { item }` accesses `lib.ori` exports
+  - [ ] `use "my_pkg" { ::private }` is an error (no private access)
+  - [ ] **Rust Tests**: `oric/src/eval/module/` — binary-library access tests
+  - [ ] **Ori Tests**: `tests/spec/modules/binary_library_access.ori`
+
+### Re-export Chains
+
+- [ ] **Implement**: Multi-level re-export resolution — spec/12-modules.md § Re-export Chains
+  - [ ] Track visibility through chain (all levels must be `pub`)
+  - [ ] Aliases propagate through chains
+  - [ ] **Rust Tests**: `oric/src/eval/module/` — re-export chain tests
+  - [ ] **Ori Tests**: `tests/spec/modules/reexport_chain.ori`
+
+- [ ] **Implement**: Diamond re-exports — spec/12-modules.md § Re-export Chains
+  - [ ] Same item via multiple paths is not an error
+  - [ ] **Rust Tests**: `oric/src/eval/module/` — diamond import tests
+  - [ ] **Ori Tests**: `tests/spec/modules/diamond_reexport.ori`
+
+### Error Messages
+
+- [ ] **Implement**: E1101 (missing module) — proposals/approved/module-system-details-proposal.md § Error Messages
+  - [ ] Show paths checked: `file.ori`, `file/mod.ori`
+  - [ ] **Rust Tests**: `oric/src/diagnostics/` — error formatting tests
+  - [ ] **Ori Tests**: `tests/spec/modules/error_missing_module.ori`
+
+- [ ] **Implement**: E1102 (missing export) — proposals/approved/module-system-details-proposal.md § Error Messages
+  - [ ] Show available exports in error message
+  - [ ] "Did you mean?" suggestion
+  - [ ] **Rust Tests**: `oric/src/diagnostics/` — error formatting tests
+  - [ ] **Ori Tests**: `tests/spec/modules/error_missing_export.ori`
+
+- [ ] **Implement**: E1103 (private item) — proposals/approved/module-system-details-proposal.md § Error Messages
+  - [ ] Help text: "use `::item` for explicit private access"
+  - [ ] **Rust Tests**: `oric/src/diagnostics/` — error formatting tests
+  - [ ] **Ori Tests**: `tests/spec/modules/error_private_item.ori`
+
+---
+
+## 4.9 Remaining Work (Pre-existing)
 
 **Parsing/Runtime complete, type checker pending:**
 - Module alias syntax: `use std.net.http as http` — parsing ✅, runtime ✅, type checker ❌
@@ -210,7 +267,7 @@
 
 ---
 
-## 4.9 Phase Completion Checklist
+## 4.10 Phase Completion Checklist
 
 - [x] Core module imports working (relative, module, private, aliases)
 - [x] Visibility system working (`pub`, private by default, `::`)
