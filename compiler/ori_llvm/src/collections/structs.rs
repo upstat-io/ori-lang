@@ -78,14 +78,11 @@ impl<'ll> Builder<'_, 'll, '_> {
             self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx)?;
 
         // Check if the receiver is actually a struct
-        let struct_val = match receiver_val {
-            BasicValueEnum::StructValue(s) => s,
-            _ => {
-                // Not a struct - this can happen when method compilation falls back
-                // to INT types. Return a placeholder value for now.
-                // TODO: Proper type tracking for impl method parameters
-                return Some(self.cx().scx.type_i64().const_int(0, false).into());
-            }
+        let BasicValueEnum::StructValue(struct_val) = receiver_val else {
+            // Not a struct - this can happen when method compilation falls back
+            // to INT types. Return a placeholder value for now.
+            // TODO: Proper type tracking for impl method parameters
+            return Some(self.cx().scx.type_i64().const_int(0, false).into());
         };
 
         // For proper field access, we need the type definition to know field indices.
