@@ -867,6 +867,17 @@
 - Error codes: E0860 (missing parameter), E0861 (release must return void)
 - Blocked on: None (expands existing Phase 8.8 stub)
 
+**App-Wide Panic Handler** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/panic-handler-proposal.md`
+- Implementation: Phase 7A.6 (PanicInfo extended, @panic handler)
+- Optional `@panic (info: PanicInfo) -> void` function for crash handling
+- PanicInfo extended: `{ message, location: TraceEntry, stack_trace: [TraceEntry], thread_id: Option<int> }`
+- Single handler per program (like @main), no recovery (panic is still fatal)
+- Implicit stderr: `print()` inside @panic writes to stderr
+- First panic wins in concurrent context; re-panic causes immediate termination
+- Capabilities allowed with documentation warning about risks
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones
