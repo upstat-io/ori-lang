@@ -61,17 +61,17 @@ trait Print {
 }
 ```
 
-## Async Capability
+## Suspend Capability
 
-`Async` is a marker capability indicating a function may suspend. A function with `uses Async` requires an async context to execute.
+`Suspend` is a marker capability indicating a function may suspend. A function with `uses Suspend` requires a suspending context to execute.
 
-| With `uses Async` | Without |
-|-------------------|---------|
+| With `uses Suspend` | Without |
+|---------------------|---------|
 | Non-blocking, may suspend | Blocking, synchronous |
 
 ```ori
-@fetch_async (url: str) -> Result<Data, Error> uses Http, Async = ...  // may suspend
-@fetch_sync (url: str) -> Result<Data, Error> uses Http = ...          // blocks
+@fetch_suspending (url: str) -> Result<Data, Error> uses Http, Suspend = ...  // may suspend
+@fetch_sync (url: str) -> Result<Data, Error> uses Http = ...                 // blocks
 ```
 
 No `async` type modifier. No `.await` expression. Return type is final value type.
@@ -82,7 +82,7 @@ Concurrency via `parallel` pattern:
 parallel(tasks: [fetch(a), fetch(b)], max_concurrent: 10)
 ```
 
-See [Concurrency Model](23-concurrency-model.md) for task definitions, async context semantics, and suspension points.
+See [Concurrency Model](23-concurrency-model.md) for task definitions, suspending context semantics, and suspension points.
 
 ## Providing Capabilities
 
@@ -192,11 +192,11 @@ Capabilities propagate: if A calls B with capability C, A must declare or provid
 
 ## Standard Capabilities
 
-| Capability | Purpose | Suspends |
-|------------|---------|----------|
-| `Http` | HTTP client | May |
-| `FileSystem` | File I/O | May |
-| `Cache` | Caching | May |
+| Capability | Purpose | May Suspend |
+|------------|---------|-------------|
+| `Http` | HTTP client | Yes |
+| `FileSystem` | File I/O | Yes |
+| `Cache` | Caching | Yes |
 | `Clock` | Time | No |
 | `Random` | RNG | No |
 | `Crypto` | Cryptographic operations | No |
@@ -205,7 +205,7 @@ Capabilities propagate: if A calls B with capability C, A must declare or provid
 | `Env` | Environment | No |
 | `Intrinsics` | Low-level SIMD and bit operations | No |
 | `FFI` | Foreign function interface | No |
-| `Async` | Suspension marker | Yes |
+| `Suspend` | Suspension marker | Yes |
 
 ### Cache Capability
 
@@ -230,7 +230,7 @@ Cache implementations differ in suspension behavior:
 | `DistributedCache` | Shared across nodes | Yes |
 | `NoOpCache` | Disable caching (always miss) | No |
 
-When using a suspending cache implementation, the calling function must have `uses Async` or be called from an async context.
+When using a suspending cache implementation, the calling function must have `uses Suspend` or be called from a suspending context.
 
 ### Clock Capability
 
@@ -357,17 +357,17 @@ When resolving a capability name, the compiler checks in order:
 
 When both an imported `def impl` and a module-local `def impl` exist for the same capability, imported takes precedence.
 
-### Async Binding Prohibition
+### Suspend Binding Prohibition
 
-`Async` is a marker capability — it has no methods and cannot be provided via `with...in`. Attempting to bind `Async` is a compile-time error:
+`Suspend` is a marker capability — it has no methods and cannot be provided via `with...in`. Attempting to bind `Suspend` is a compile-time error:
 
 ```ori
-with Async = SomeImpl in  // ERROR: Async cannot be bound
-    async_fn()
+with Suspend = SomeImpl in  // ERROR: Suspend cannot be bound
+    suspending_fn()
 ```
 
-`Async` context is provided by:
-- The runtime for `@main () uses Async`
+Suspending context is provided by:
+- The runtime for `@main () uses Suspend`
 - Concurrency patterns: `parallel`, `spawn`, `nursery`
 
 ## Testing
@@ -380,7 +380,7 @@ with Async = SomeImpl in  // ERROR: Async cannot be bound
     )
 ```
 
-Mock implementations are synchronous; test does not need `Async`.
+Mock implementations are synchronous; test does not need `Suspend`.
 
 ## Purity
 
@@ -397,7 +397,7 @@ Functions without `uses` are pure: no side effects, cannot suspend, safely paral
 | E1200 | Missing capability (callee requires capability caller lacks) |
 | E1201 | Unbound capability (no `with` or `def impl` available) |
 | E1202 | Type does not implement capability trait |
-| E1203 | `Async` capability cannot be explicitly bound |
+| E1203 | `Suspend` capability cannot be explicitly bound |
 
 ```
 error[E0600]: function uses `Http` without declaring it

@@ -27,25 +27,27 @@
 
 ---
 
-## 6.3 Async Capability
+## 6.3 Suspend Capability
 
-- [x] **Implement**: Explicit suspension declaration — spec/14-capabilities.md § Async Capability
+> **Note**: Renamed from `Async` to `Suspend` per `proposals/approved/rename-async-to-suspend-proposal.md`
+
+- [x] **Implement**: Explicit suspension declaration — spec/14-capabilities.md § Suspend Capability
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 4 tests (marker trait, signature storage, combined capabilities, sync function)
-  - [x] **Ori Tests**: `tests/spec/capabilities/async.ori` (5 tests)
+  - [x] **Ori Tests**: `tests/spec/capabilities/suspend.ori` (5 tests)
 
-- [x] **Implement**: Sync vs async behavior — spec/14-capabilities.md § Async Capability
-  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs::test_sync_function_no_async_capability`
-  - [x] **Ori Tests**: `tests/spec/capabilities/async.ori` — sync_fetch vs async_fetch examples
+- [x] **Implement**: Sync vs suspending behavior — spec/14-capabilities.md § Suspend Capability
+  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs::test_sync_function_no_suspend_capability`
+  - [x] **Ori Tests**: `tests/spec/capabilities/suspend.ori` — sync_fetch vs suspending_fetch examples
 
-- [x] **Implement**: No `async` type modifier — spec/14-capabilities.md § Async Capability
+- [x] **Implement**: No `async` type modifier — spec/14-capabilities.md § Suspend Capability
   - [x] **Rust Tests**: `ori_parse/src/lib.rs::test_no_async_type_modifier`, `test_async_keyword_reserved`
-  - [x] **Ori Tests**: `tests/spec/capabilities/async.ori` — design notes document this
+  - [x] **Ori Tests**: `tests/spec/capabilities/suspend.ori` — design notes document this
 
-- [x] **Implement**: No `await` expression — spec/14-capabilities.md § Async Capability
+- [x] **Implement**: No `await` expression — spec/14-capabilities.md § Suspend Capability
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs::test_await_syntax_not_supported`
-  - [x] **Ori Tests**: `tests/spec/capabilities/async.ori` — design notes document this
+  - [x] **Ori Tests**: `tests/spec/capabilities/suspend.ori` — design notes document this
 
-- [ ] **Implement**: Concurrency with `parallel` — spec/14-capabilities.md § Async Capability
+- [ ] **Implement**: Concurrency with `parallel` — spec/14-capabilities.md § Suspend Capability
   - [ ] **Deferred to Phase 8**: `parallel` pattern evaluation
   - [ ] **Ori Tests**: `tests/spec/patterns/parallel.ori` (Phase 8)
 
@@ -222,15 +224,15 @@ Specifies how capabilities compose: partial provision, nested binding semantics,
   - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — resolution priority
   - [ ] **Ori Tests**: `tests/spec/capabilities/composition.ori`
 
-- [ ] **Implement**: Async binding prohibition — `with Async = ...` is compile error
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — async prohibition (E1203)
+- [ ] **Implement**: Suspend binding prohibition — `with Suspend = ...` is compile error
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — suspend prohibition (E1203)
   - [ ] **Ori Tests**: `tests/spec/capabilities/composition.ori`
 
 - [ ] **Implement**: Error codes E1200-E1203
   - [ ] E1200: missing capability
   - [ ] E1201: unbound capability
   - [ ] E1202: type doesn't implement capability trait
-  - [ ] E1203: Async cannot be explicitly bound
+  - [ ] E1203: Suspend cannot be explicitly bound
 
 - [ ] **Implement**: LLVM backend support
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_composition_tests.rs`

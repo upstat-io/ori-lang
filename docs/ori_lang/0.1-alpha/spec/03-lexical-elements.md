@@ -53,11 +53,11 @@ Identifiers are case-sensitive. Must not start with digit or be a reserved keywo
 ### Reserved
 
 ```
-async    break    continue  do       else     false
-for      if       impl      in       let      loop
-match    pub      self      Self     then
-trait    true     type      use      uses     void
-where    with     yield
+break    continue  def      do       else     extern
+false    for       if       impl     in       let
+loop     match     pub      self     Self     suspend
+then     trait     true     type     unsafe   use
+uses     void      where    with     yield
 ```
 
 ### Context-Sensitive
