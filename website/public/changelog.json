@@ -1,4 +1,9 @@
 [
+  {"date": "2026-01-31", "type": "feat", "message": "Never type, operator traits, and const-generics proposal", "hash": "4260519"},
+  {"date": "2026-01-31", "type": "fix", "message": "Serve WASM JS from public folder", "hash": "a9eeed0"},
+  {"date": "2026-01-31", "type": "fix", "message": "Load WASM binary from public folder", "hash": "ff87acd"},
+  {"date": "2026-01-31", "type": "fix", "message": "Use let-else pattern and treat clippy warnings as errors", "hash": "8428943"},
+  {"date": "2026-01-31", "type": "fix", "message": "Skip cargo cache mount in CI to avoid read-only filesystem", "hash": "af6eea1"},
   {"date": "2026-01-31", "type": "docs", "message": "Expand LLVM phase with missing tasks", "hash": "75be302"},
   {"date": "2026-01-31", "type": "docs", "message": "Approve operator-method-naming-proposal", "hash": "a003b36"},
   {"date": "2026-01-31", "type": "feat", "message": "Implement user-defined associated functions", "hash": "5bfe49f"},
