@@ -902,6 +902,17 @@
 - Error codes: E1000 (non-hashable with memo), E1001 (self outside step), E1002 (arity mismatch), E1003 (parallel without Suspend)
 - Blocked on: None (expands existing Phase 8.3)
 
+**Timeout and Spawn Patterns** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/timeout-spawn-patterns-proposal.md`
+- Implementation: Phase 17.8
+- Formalizes `timeout(op:, after:)` and `spawn(tasks:, max_concurrent:)` pattern semantics
+- Timeout returns `Result<T, CancellationError>` (consistent with parallel/nursery)
+- Cooperative cancellation at checkpoints (suspending calls, loops, pattern entry)
+- Spawn is fire-and-forget: returns void, errors silently discarded
+- Spawn tasks can outlive spawning function (only unscoped concurrency pattern)
+- Error codes: E1010 (timeout requires Suspend), E1011 (spawn tasks must use Suspend)
+- Blocked on: Phase 16 (Async Support)
+
 ---
 
 ## Milestones
