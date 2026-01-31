@@ -29,6 +29,8 @@ pub(crate) enum RawToken {
     Break,
     #[token("continue")]
     Continue,
+    #[token("def")]
+    Def,
     #[token("do")]
     Do,
     #[token("else")]
@@ -137,6 +139,10 @@ pub(crate) enum RawToken {
     Print,
     #[token("panic")]
     Panic,
+    #[token("todo")]
+    Todo,
+    #[token("unreachable")]
+    Unreachable,
 
     #[token("#[")]
     HashBracket,

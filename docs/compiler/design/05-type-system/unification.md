@@ -176,6 +176,44 @@ impl Substitution {
 }
 ```
 
+## Special Type Handling
+
+### Never Type (Bottom Type)
+
+The `Never` type is the bottom type — an uninhabited type with no values. It represents computations that never complete normally (diverge). In unification, `Never` coerces to any type `T`:
+
+```rust
+// In unify_ids():
+(TypeData::Never, _) | (_, TypeData::Never) => Ok(()),
+```
+
+This enables diverging expressions to appear in any context:
+
+```ori
+let x: int = if false then panic(msg: "fail") else 42  // Never coerces to int
+let y: str = if true then "hello" else todo()          // Never coerces to str
+```
+
+**Rationale:** Since `Never` has no values, the coercion never actually executes — the expression diverges before producing a value. This is safe because unreachable code has no runtime behavior.
+
+**Expressions producing Never:**
+- `panic(msg:)` — halt with error message
+- `todo()` / `todo(reason:)` — mark unfinished code
+- `unreachable()` / `unreachable(reason:)` — mark impossible code paths
+- `break` / `continue` (inside loops)
+- Infinite `loop(...)` with no break
+
+### Error Type
+
+The `Error` type is a sentinel for error recovery during type checking:
+
+```rust
+// In unify_ids():
+(TypeData::Error, _) | (_, TypeData::Error) => Ok(()),
+```
+
+Unlike `Never` (a legitimate language type), `Error` indicates a type checking failure. It unifies with anything to prevent cascading errors — one type error shouldn't cause dozens of "mismatched types" errors downstream.
+
 ## Unification Examples
 
 ### Simple Unification
@@ -190,6 +228,15 @@ unify(Int, String) = Err(Mismatch)
 ```
 unify(T0, Int) = Ok(substitution[T0] = Int)
 unify(T0, T1) = Ok(substitution[T0] = T1)
+```
+
+### Never Unification
+
+```
+unify(Never, Int) = Ok()      // Never coerces to Int
+unify(String, Never) = Ok()   // Never coerces to String
+unify(Never, [T0]) = Ok()     // Never coerces to any compound type
+unify(Never, Never) = Ok()    // Never unifies with itself
 ```
 
 ### Compound Unification

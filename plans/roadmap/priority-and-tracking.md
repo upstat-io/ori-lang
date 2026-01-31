@@ -6,17 +6,17 @@
 
 | Phase | Name | Status | Notes |
 |-------|------|--------|-------|
-| 1 | Type System Foundation | ✅ Complete | All tests pass |
+| 1 | Type System Foundation | 🔶 Partial | Core complete; 1.1A Duration/Size traits, 1.1B Never semantics pending |
 | 2 | Type Inference | ✅ Complete | All tests pass |
-| 3 | Traits | ✅ Complete | All tests pass including map.len(), map.is_empty() |
-| 4 | Modules | ✅ Complete | All tests pass; module alias, re-export, qualified access all working |
-| 5 | Type Declarations | ✅ Complete | Structs, sum types (multi-field variants), newtypes all work |
+| 3 | Traits | 🔶 Partial | Core complete (3.0-3.6); approved proposals 3.7-3.18 pending, operator LLVM pending |
+| 4 | Modules | 🔶 Partial | Core complete; tooling (4.7), extension methods (4.11), error messages pending |
+| 5 | Type Declarations | 🔶 Partial | Core complete; newtypes `.inner` (5.3), associated functions (5.9), constrained generics pending |
 
 ### Tier 2: Capabilities & Stdlib
 
 | Phase | Name | Status | Notes |
 |-------|------|--------|-------|
-| 6 | Capabilities | ✅ Complete | 27/27 tests pass |
+| 6 | Capabilities | 🔶 Partial | Core complete (6.1-6.10); composition (6.11-6.12), intrinsics (6.14) pending |
 | 7A | Core Built-ins | 🔶 Partial | Type conversions, assertions, I/O |
 | 7B | Option & Result | 🔶 Partial | Option/Result methods |
 | 7C | Collections | 🔶 Partial | Collection methods done (map, filter, fold, find, collect) |
@@ -75,23 +75,39 @@
 
 ## Immediate Priority
 
-**Current Focus: Completing Tier 1-3 partial phases**
+**Current Focus: Completing incomplete items in earlier phases before new features**
 
 ### What's Next (Priority Order)
 
-1. **Phase 8 (Patterns)** — cache TTL remaining (NOW UNBLOCKED)
+**Tier 1 Gaps (Foundation):**
+1. **Phase 5.3 (Newtypes .inner)** — ✅ COMPLETE
+2. **Phase 1.1B (Never Semantics)** — ✅ Core complete; coercion, todo(), unreachable() implemented
+3. **Phase 3.21 (Operator Traits LLVM)** — Add LLVM codegen for user-defined operators
+
+**Tier 2 Gaps (Capabilities):**
+4. **Phase 6.10 (def impl)** — ✅ COMPLETE. Default trait implementations for capabilities
+5. **Phase 6.11 (Capability Composition)** — Multi-binding `with` syntax
+
+**Tier 3 (Core Patterns):**
+6. **Phase 8.7 (Cache Pattern)** — cache TTL remaining (NOW UNBLOCKED)
    - All compiler patterns work with stubs
    - Need: cache TTL with Duration, cache capability enforcement
 
-2. **Phase 9 (Match)** — Guards and exhaustiveness
+7. **Phase 9 (Match)** — Guards and exhaustiveness
    - Basic pattern matching works
    - Need: `.match(guard)` syntax, exhaustiveness checking
 
-3. **Phase 7 (Stdlib)** — retry, validate
+8. **Phase 7 (Stdlib)** — retry, validate
    - Collection methods complete (map, filter, fold, find, collect, any, all)
    - Need: `retry` function, `validate` function
 
 ### Recent Completions
+
+**Phase 1.1B (Never Type Semantics)** — ✅ CORE COMPLETED 2026-01-31
+- Never type unification rule added to type context (coerces to any type T)
+- `todo()` and `unreachable()` patterns implemented with optional `reason:` parameter
+- Comprehensive Never type tests added (`tests/spec/types/never.ori`)
+- LLVM backend support for todo/unreachable diverging patterns
 
 **Phase 3.21 (Operator Traits)** — ✅ COMPLETED 2026-01-31
 - 14 operator traits added to prelude: Add, Sub, Mul, Div, FloorDiv, Rem, Neg, Not, BitNot, BitAnd, BitOr, BitXor, Shl, Shr
@@ -973,6 +989,19 @@
 - After: `subtract`, `multiply`, `remainder`, `negate`, `shift_left`, `shift_right`, `floor_divide`
 - Unchanged: `add`, `divide`, `not`, `bit_not`, `bit_and`, `bit_or`, `bit_xor`
 - Blocked on: None (operator-traits already implemented)
+
+**Basic Const Generics** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/const-generics-proposal.md`
+- Implementation: Phase 18.1
+- Formalizes const generic parameters (`$N: int`, `$B: bool`) for compile-time type parameterization
+- Declaration forms: functions, types, traits, impls, extensions
+- Default values: `$N: int = 64` with `= value` syntax
+- Instantiation: explicit (`f<10>`) or inferred from context
+- Monomorphization: each unique value generates distinct code
+- Const expressions in types: arithmetic (`N + 1`, `N * 2`), bitwise (`N & M`)
+- Visibility: const generics follow normal visibility rules
+- Error codes: E1040 (invalid const type), E1041 (cannot infer), E1042 (type mismatch), E1043 (default violates bound), E1044 (overflow)
+- Blocked on: None (part of const-generics infrastructure)
 
 **Duration and Size to Stdlib** — ✅ APPROVED 2026-01-31
 - Proposal: `proposals/approved/duration-size-to-stdlib-proposal.md`

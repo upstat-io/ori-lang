@@ -19,7 +19,7 @@
 //! Regular comments (`//`) are not reordered.
 
 use ori_ir::{Comment, CommentKind, CommentList, Span, StringLookup};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Index of comments by position for efficient lookup.
 ///
@@ -51,12 +51,10 @@ impl CommentIndex {
         let consumed = vec![false; comments.len()];
 
         for (index, comment) in comments.iter().enumerate() {
-            // Find the first token position after this comment ends
-            let following_pos = token_positions
-                .iter()
-                .find(|&&pos| pos > comment.span.end)
-                .copied()
-                .unwrap_or(u32::MAX);
+            // Find the first token position after this comment ends using binary search
+            // (token_positions is sorted, so partition_point is O(log n) vs O(n) for find)
+            let idx = token_positions.partition_point(|&pos| pos <= comment.span.end);
+            let following_pos = token_positions.get(idx).copied().unwrap_or(u32::MAX);
 
             comments_by_position
                 .entry(following_pos)
@@ -282,6 +280,13 @@ pub fn reorder_param_comments<I: StringLookup>(
         return param_indices.to_vec();
     }
 
+    // Build HashMap for O(1) lookup instead of O(n) linear scan per comment
+    let name_to_order: HashMap<&str, usize> = param_names
+        .iter()
+        .enumerate()
+        .map(|(i, &name)| (name, i))
+        .collect();
+
     // Extract param name from each @param comment
     let mut param_to_index: Vec<(Option<usize>, usize)> = param_indices
         .iter()
@@ -289,7 +294,7 @@ pub fn reorder_param_comments<I: StringLookup>(
             let content = interner.lookup(comments[idx].content);
             // Format: " @param name description"
             let param_name = extract_param_name(content);
-            let order = param_names.iter().position(|&n| n == param_name);
+            let order = name_to_order.get(param_name).copied();
             (order, idx)
         })
         .collect();
@@ -311,12 +316,19 @@ pub fn reorder_field_comments<I: StringLookup>(
         return field_indices.to_vec();
     }
 
+    // Build HashMap for O(1) lookup instead of O(n) linear scan per comment
+    let name_to_order: HashMap<&str, usize> = field_names
+        .iter()
+        .enumerate()
+        .map(|(i, &name)| (name, i))
+        .collect();
+
     let mut field_to_index: Vec<(Option<usize>, usize)> = field_indices
         .iter()
         .map(|&idx| {
             let content = interner.lookup(comments[idx].content);
             let field_name = extract_field_name(content);
-            let order = field_names.iter().position(|&n| n == field_name);
+            let order = name_to_order.get(field_name).copied();
             (order, idx)
         })
         .collect();

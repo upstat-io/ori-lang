@@ -38,6 +38,12 @@ pub fn infer_ident(checker: &mut TypeChecker<'_>, name: Name, span: Span) -> Typ
         return Type::Named(name);
     }
 
+    // Check if this is a trait name with a def impl
+    // (e.g., `Calculator` in `Calculator.add(a: 1, b: 2)` when there's a `def impl Calculator`)
+    if checker.registries.traits.has_def_impl(name) {
+        return Type::Named(name);
+    }
+
     // Check built-in types that have associated functions (Duration, Size)
     let name_str = checker.context.interner.lookup(name);
     if is_builtin_type_with_associated_functions(name_str) {
@@ -47,7 +53,7 @@ pub fn infer_ident(checker: &mut TypeChecker<'_>, name: Name, span: Span) -> Typ
     // Try to suggest a similar name
     let name_str = checker.context.interner.lookup(name);
     let message = if let Some(suggestion) = suggest::suggest_identifier(checker, name) {
-        format!("unknown identifier `{name_str}`, did you mean `{suggestion}`?")
+        format!("unknown identifier `{name_str}`, try using `{suggestion}`")
     } else {
         format!("unknown identifier `{name_str}`")
     };
@@ -129,7 +135,7 @@ pub fn infer_function_ref(checker: &mut TypeChecker<'_>, name: Name, span: Span)
         // Try to suggest a similar function name
         let name_str = checker.context.interner.lookup(name);
         let message = if let Some(suggestion) = suggest::suggest_function(checker, name) {
-            format!("unknown function `@{name_str}`, did you mean `@{suggestion}`?")
+            format!("unknown function `@{name_str}`, try using `@{suggestion}`")
         } else {
             format!("unknown function `@{name_str}`")
         };

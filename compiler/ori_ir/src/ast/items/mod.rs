@@ -10,7 +10,7 @@ mod types;
 pub use function::{CapabilityRef, ConfigDef, ExpectedError, Function, Module, Param, TestDef};
 pub use imports::{ImportPath, UseDef, UseItem};
 pub use traits::{
-    ExtendDef, GenericParam, ImplAssocType, ImplDef, ImplMethod, TraitAssocType, TraitBound,
-    TraitDef, TraitDefaultMethod, TraitItem, TraitMethodSig, WhereClause,
+    DefImplDef, ExtendDef, GenericParam, ImplAssocType, ImplDef, ImplMethod, TraitAssocType,
+    TraitBound, TraitDef, TraitDefaultMethod, TraitItem, TraitMethodSig, WhereClause,
 };
 pub use types::{StructField, TypeDecl, TypeDeclKind, Variant, VariantField};

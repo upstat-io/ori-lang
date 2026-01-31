@@ -127,6 +127,8 @@ impl Parser<'_> {
             TokenKind::Print => Some(FunctionExpKind::Print),
             TokenKind::Panic => Some(FunctionExpKind::Panic),
             TokenKind::Catch => Some(FunctionExpKind::Catch),
+            TokenKind::Todo => Some(FunctionExpKind::Todo),
+            TokenKind::Unreachable => Some(FunctionExpKind::Unreachable),
             _ => None,
         }
     }

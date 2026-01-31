@@ -17,6 +17,7 @@ fn empty_module() -> Module {
         traits: vec![],
         impls: vec![],
         extends: vec![],
+        def_impls: vec![],
     }
 }
 

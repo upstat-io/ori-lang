@@ -65,6 +65,7 @@ pub enum TokenKind {
     Async,
     Break,
     Continue,
+    Def,
     Do,
     Else,
     False,
@@ -122,6 +123,8 @@ pub enum TokenKind {
 
     Print,
     Panic,
+    Todo,
+    Unreachable,
 
     HashBracket,    // #[
     At,             // @
@@ -217,6 +220,8 @@ impl TokenKind {
                 | TokenKind::With
                 | TokenKind::Print
                 | TokenKind::Panic
+                | TokenKind::Todo
+                | TokenKind::Unreachable
         )
     }
 
@@ -235,6 +240,8 @@ impl TokenKind {
                 | TokenKind::With
                 | TokenKind::Print
                 | TokenKind::Panic
+                | TokenKind::Todo
+                | TokenKind::Unreachable
         )
     }
 
@@ -261,6 +268,7 @@ impl TokenKind {
             TokenKind::Async => "async",
             TokenKind::Break => "break",
             TokenKind::Continue => "continue",
+            TokenKind::Def => "def",
             TokenKind::Do => "do",
             TokenKind::Else => "else",
             TokenKind::False => "false",
@@ -310,6 +318,8 @@ impl TokenKind {
             TokenKind::Try => "try",
             TokenKind::Print => "print",
             TokenKind::Panic => "panic",
+            TokenKind::Todo => "todo",
+            TokenKind::Unreachable => "unreachable",
             TokenKind::HashBracket => "#[",
             TokenKind::At => "@",
             TokenKind::Dollar => "$",

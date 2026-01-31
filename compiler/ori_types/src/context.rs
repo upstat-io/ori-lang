@@ -123,9 +123,13 @@ impl InferenceContext {
                 Ok(())
             }
 
-            // --- Error Recovery ---
-            // Error type unifies with anything to allow continued type checking
-            (TypeData::Error, _) | (_, TypeData::Error) => Ok(()),
+            // --- Error Recovery & Never Type ---
+            // Error unifies with anything to allow continued type checking after errors.
+            // Never is the bottom type: it coerces to any type T (the coercion never
+            // actually executes since Never has no values - the expression diverges).
+            (TypeData::Error | TypeData::Never, _) | (_, TypeData::Error | TypeData::Never) => {
+                Ok(())
+            }
 
             // --- Compound Types ---
             // Functions: params and return must unify
@@ -667,5 +671,69 @@ impl TypeContext {
             params,
             ret: Box::new(ret),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_never_unifies_with_any_type() {
+        let mut ctx = InferenceContext::new();
+
+        // Never should unify with int
+        assert!(ctx.unify(&Type::Never, &Type::Int).is_ok());
+
+        // int should unify with Never
+        assert!(ctx.unify(&Type::Int, &Type::Never).is_ok());
+
+        // Never should unify with str
+        assert!(ctx.unify(&Type::Never, &Type::Str).is_ok());
+
+        // Never should unify with complex types
+        assert!(ctx
+            .unify(&Type::Never, &Type::List(Box::new(Type::Int)))
+            .is_ok());
+
+        // Never should unify with Option<int>
+        assert!(ctx
+            .unify(&Type::Never, &Type::Option(Box::new(Type::Int)))
+            .is_ok());
+
+        // Never should unify with Result<int, str>
+        assert!(ctx
+            .unify(
+                &Type::Never,
+                &Type::Result {
+                    ok: Box::new(Type::Int),
+                    err: Box::new(Type::Str)
+                }
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn test_never_unifies_with_never() {
+        let mut ctx = InferenceContext::new();
+        assert!(ctx.unify(&Type::Never, &Type::Never).is_ok());
+    }
+
+    #[test]
+    fn test_never_in_function_return() {
+        let mut ctx = InferenceContext::new();
+
+        // A function returning Never should unify with a function returning int
+        // (common in diverging functions like panic)
+        let fn_never = Type::Function {
+            params: vec![],
+            ret: Box::new(Type::Never),
+        };
+        let fn_int = Type::Function {
+            params: vec![],
+            ret: Box::new(Type::Int),
+        };
+
+        assert!(ctx.unify(&fn_never, &fn_int).is_ok());
     }
 }

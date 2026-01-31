@@ -1,0 +1,86 @@
+// Spec: 14-capabilities.md § Default Implementations
+// Tests for def impl syntax (default trait implementations)
+
+// =============================================================================
+// Basic def impl Declaration
+// =============================================================================
+
+// Trait for testing def impl
+trait Calculator {
+    @add (a: int, b: int) -> int
+    @multiply (a: int, b: int) -> int
+}
+
+// Default implementation
+def impl Calculator {
+    @add (a: int, b: int) -> int = a + b
+    @multiply (a: int, b: int) -> int = a * b
+}
+
+// =============================================================================
+// Public def impl
+// =============================================================================
+
+trait Formatter {
+    @format (value: str) -> str
+}
+
+pub def impl Formatter {
+    @format (value: str) -> str = "[formatted: " + value + "]"
+}
+
+// =============================================================================
+// Multiple def impl blocks
+// =============================================================================
+
+trait Greeter {
+    @hello () -> str
+    @goodbye () -> str
+}
+
+def impl Greeter {
+    @hello () -> str = "Hello!"
+    @goodbye () -> str = "Goodbye!"
+}
+
+// =============================================================================
+// Tests - using floating test pattern (test_ prefix)
+// =============================================================================
+
+// Test that def impl methods can be called via trait name
+@test_def_impl_add () -> void = run(
+    let result = Calculator.add(a: 2, b: 3),
+    assert_eq(
+        actual: result,
+        expected: 5,
+    ),
+)
+
+@test_def_impl_multiply () -> void = run(
+    let result = Calculator.multiply(a: 4, b: 5),
+    assert_eq(
+        actual: result,
+        expected: 20,
+    ),
+)
+
+// Test pub def impl
+@test_pub_def_impl () -> void = run(
+    let result = Formatter.format(value: "test"),
+    assert_eq(
+        actual: result,
+        expected: "[formatted: test]",
+    ),
+)
+
+// Test multiple methods in def impl
+@test_def_impl_greeter () -> void = run(
+    assert_eq(
+        actual: Greeter.hello(),
+        expected: "Hello!",
+    ),
+    assert_eq(
+        actual: Greeter.goodbye(),
+        expected: "Goodbye!",
+    ),
+)

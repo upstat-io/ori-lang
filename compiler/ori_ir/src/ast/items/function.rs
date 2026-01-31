@@ -210,6 +210,8 @@ pub struct Module {
     pub traits: Vec<super::traits::TraitDef>,
     /// Implementation blocks
     pub impls: Vec<super::traits::ImplDef>,
+    /// Default trait implementations
+    pub def_impls: Vec<super::traits::DefImplDef>,
     /// Extension method blocks
     pub extends: Vec<super::traits::ExtendDef>,
 }
@@ -224,6 +226,7 @@ impl Module {
             types: Vec::new(),
             traits: Vec::new(),
             impls: Vec::new(),
+            def_impls: Vec::new(),
             extends: Vec::new(),
         }
     }
@@ -233,13 +236,14 @@ impl fmt::Debug for Module {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Module {{ {} configs, {} functions, {} tests, {} types, {} traits, {} impls, {} extends }}",
+            "Module {{ {} configs, {} functions, {} tests, {} types, {} traits, {} impls, {} def_impls, {} extends }}",
             self.configs.len(),
             self.functions.len(),
             self.tests.len(),
             self.types.len(),
             self.traits.len(),
             self.impls.len(),
+            self.def_impls.len(),
             self.extends.len()
         )
     }

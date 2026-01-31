@@ -45,10 +45,10 @@ pub use patterns::{
 
 // Re-export item types
 pub use items::{
-    CapabilityRef, ConfigDef, ExpectedError, ExtendDef, Function, GenericParam, ImplAssocType,
-    ImplDef, ImplMethod, ImportPath, Module, Param, StructField, TestDef, TraitAssocType,
-    TraitBound, TraitDef, TraitDefaultMethod, TraitItem, TraitMethodSig, TypeDecl, TypeDeclKind,
-    UseDef, UseItem, Variant, VariantField, WhereClause,
+    CapabilityRef, ConfigDef, DefImplDef, ExpectedError, ExtendDef, Function, GenericParam,
+    ImplAssocType, ImplDef, ImplMethod, ImportPath, Module, Param, StructField, TestDef,
+    TraitAssocType, TraitBound, TraitDef, TraitDefaultMethod, TraitItem, TraitMethodSig, TypeDecl,
+    TypeDeclKind, UseDef, UseItem, Variant, VariantField, WhereClause,
 };
 
 /// Visibility of a declaration.

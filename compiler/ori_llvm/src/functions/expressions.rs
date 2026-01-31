@@ -100,8 +100,8 @@ impl<'ll> Builder<'_, 'll, '_> {
                 None // print returns void
             }
 
-            FunctionExpKind::Panic => {
-                // Compile panic - would call runtime panic function
+            FunctionExpKind::Panic | FunctionExpKind::Todo | FunctionExpKind::Unreachable => {
+                // All three diverging patterns - would call runtime panic function
                 // For now, just create unreachable
                 self.unreachable();
                 None

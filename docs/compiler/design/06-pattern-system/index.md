@@ -33,7 +33,10 @@ compiler/ori_patterns/src/
 ├── builtins/           # Built-in patterns
 │   ├── mod.rs              # Re-exports
 │   ├── print.rs            # PrintPattern implementation
-│   └── panic.rs            # PanicPattern implementation
+│   ├── panic.rs            # PanicPattern implementation (returns Never)
+│   ├── catch.rs            # CatchPattern implementation
+│   ├── todo.rs             # TodoPattern implementation (returns Never)
+│   └── unreachable.rs      # UnreachablePattern implementation (returns Never)
 ├── recurse.rs          # recurse pattern
 ├── parallel.rs         # parallel pattern
 ├── spawn.rs            # spawn pattern

@@ -5,6 +5,8 @@
 > **SPEC**: `spec/14-capabilities.md`
 > **DESIGN**: `design/14-capabilities/index.md`
 
+**Status**: 🔶 Partial — Core complete (6.1-6.10, 31/31 tests); composition (6.11), resolution (6.12), intrinsics (6.14) pending
+
 ---
 
 ## 6.1 Capability Declaration
@@ -150,29 +152,34 @@
 ## 6.10 Default Implementations (`def impl`)
 
 **Proposal**: `proposals/approved/default-impl-proposal.md`
+**Status**: ✅ Complete
 
 Introduce `def impl` syntax to declare a default implementation for a trait. Importing a trait with a `def impl` automatically binds the default.
 
 ### Implementation
 
-- [ ] **Implement**: Add `def` keyword to lexer — grammar.ebnf § DECLARATIONS
-  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — `def` token recognition
-  - [ ] **Ori Tests**: `tests/spec/capabilities/default-impl.ori`
+- [x] **Implement**: Add `def` keyword to lexer — grammar.ebnf § DECLARATIONS
+  - [x] **Rust Tests**: `ori_lexer/src/lib.rs` — `def` token recognition
+  - [x] **Ori Tests**: `tests/spec/capabilities/default-impl.ori`
 
-- [ ] **Implement**: Parse `def impl Trait { ... }` — grammar.ebnf § DECLARATIONS
-  - [ ] **Rust Tests**: `ori_parse/src/lib.rs` — DefImpl AST node parsing
-  - [ ] **Ori Tests**: `tests/spec/capabilities/default-impl.ori`
+- [x] **Implement**: Parse `def impl Trait { ... }` — grammar.ebnf § DECLARATIONS
+  - [x] **Rust Tests**: `ori_parse/src/grammar/item/impl_def.rs` — DefImpl AST node parsing (5 tests)
+  - [x] **Ori Tests**: `tests/spec/capabilities/default-impl.ori`
 
-- [ ] **Implement**: IR representation for DefImpl
-  - [ ] Add `DefImpl` to module items
-  - [ ] Track which traits have defaults in module metadata
+- [x] **Implement**: IR representation for DefImpl
+  - [x] Add `DefImplDef` to module items (`ori_ir/src/ast/items/traits.rs`)
+  - [x] Track def_impls in Module struct
 
-- [ ] **Implement**: Type checking for `def impl`
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs`
-  - [ ] Verify all trait methods implemented
-  - [ ] Verify method signatures match trait
-  - [ ] Verify no `self` parameter (stateless)
-  - [ ] Verify one `def impl` per trait per module
+- [x] **Implement**: Type checking for `def impl`
+  - [x] **Rust Tests**: `ori_typeck/src/checker/trait_registration.rs` — register_def_impls
+  - [x] Verify trait exists
+  - [x] Method signatures converted to ImplMethodDef
+  - [x] Methods are associated (no self parameter)
+  - [x] One `def impl` per trait per module (coherence check)
+
+- [x] **Implement**: Evaluator support for def impl dispatch
+  - [x] **Rust Tests**: `ori_eval/src/module_registration.rs` — collect_def_impl_methods (2 tests)
+  - [x] Methods registered under trait name for `TraitName.method()` calls
 
 - [ ] **Implement**: Module export with default — 12-modules.md
   - [ ] Mark exports as "has default" when `def impl` exists

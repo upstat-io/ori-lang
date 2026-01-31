@@ -2,7 +2,7 @@
 
 use ori_ir::FunctionExpKind;
 
-use crate::builtins::{CatchPattern, PanicPattern, PrintPattern};
+use crate::builtins::{CatchPattern, PanicPattern, PrintPattern, TodoPattern, UnreachablePattern};
 use crate::cache::CachePattern;
 use crate::parallel::ParallelPattern;
 use crate::recurse::RecursePattern;
@@ -21,6 +21,8 @@ static WITH: WithPattern = WithPattern;
 static PRINT: PrintPattern = PrintPattern;
 static PANIC: PanicPattern = PanicPattern;
 static CATCH: CatchPattern = CatchPattern;
+static TODO: TodoPattern = TodoPattern;
+static UNREACHABLE: UnreachablePattern = UnreachablePattern;
 
 /// Registry mapping `FunctionExpKind` to pattern definitions.
 ///
@@ -52,6 +54,8 @@ impl PatternRegistry {
             FunctionExpKind::Print => &PRINT,
             FunctionExpKind::Panic => &PANIC,
             FunctionExpKind::Catch => &CATCH,
+            FunctionExpKind::Todo => &TODO,
+            FunctionExpKind::Unreachable => &UNREACHABLE,
         }
     }
 
@@ -67,13 +71,15 @@ impl PatternRegistry {
             FunctionExpKind::Print,
             FunctionExpKind::Panic,
             FunctionExpKind::Catch,
+            FunctionExpKind::Todo,
+            FunctionExpKind::Unreachable,
         ]
         .into_iter()
     }
 
     /// Get the number of registered patterns.
     pub fn len(&self) -> usize {
-        9
+        11
     }
 
     /// Check if the registry is empty.
@@ -95,7 +101,7 @@ mod tests {
     #[test]
     fn test_registry_has_all_patterns() {
         let registry = PatternRegistry::new();
-        assert_eq!(registry.len(), 9);
+        assert_eq!(registry.len(), 11);
 
         // Verify each pattern is accessible (all FunctionExpKind variants are covered)
         let _ = registry.get(FunctionExpKind::Recurse);
@@ -107,6 +113,8 @@ mod tests {
         let _ = registry.get(FunctionExpKind::Print);
         let _ = registry.get(FunctionExpKind::Panic);
         let _ = registry.get(FunctionExpKind::Catch);
+        let _ = registry.get(FunctionExpKind::Todo);
+        let _ = registry.get(FunctionExpKind::Unreachable);
     }
 
     #[test]
@@ -118,6 +126,11 @@ mod tests {
         assert_eq!(registry.get(FunctionExpKind::Timeout).name(), "timeout");
         assert_eq!(registry.get(FunctionExpKind::Print).name(), "print");
         assert_eq!(registry.get(FunctionExpKind::Panic).name(), "panic");
+        assert_eq!(registry.get(FunctionExpKind::Todo).name(), "todo");
+        assert_eq!(
+            registry.get(FunctionExpKind::Unreachable).name(),
+            "unreachable"
+        );
     }
 
     #[test]
@@ -130,13 +143,20 @@ mod tests {
 
         let print = registry.get(FunctionExpKind::Print);
         assert!(print.required_props().contains(&"msg"));
+
+        // todo and unreachable have no required props (reason is optional)
+        let todo = registry.get(FunctionExpKind::Todo);
+        assert!(todo.required_props().is_empty());
+
+        let unreachable = registry.get(FunctionExpKind::Unreachable);
+        assert!(unreachable.required_props().is_empty());
     }
 
     #[test]
     fn test_kinds_iterator() {
         let registry = PatternRegistry::new();
         let kinds: Vec<_> = registry.kinds().collect();
-        assert_eq!(kinds.len(), 9);
+        assert_eq!(kinds.len(), 11);
         assert!(kinds.contains(&FunctionExpKind::Recurse));
         assert!(kinds.contains(&FunctionExpKind::Parallel));
         assert!(kinds.contains(&FunctionExpKind::Spawn));
@@ -146,5 +166,7 @@ mod tests {
         assert!(kinds.contains(&FunctionExpKind::Print));
         assert!(kinds.contains(&FunctionExpKind::Panic));
         assert!(kinds.contains(&FunctionExpKind::Catch));
+        assert!(kinds.contains(&FunctionExpKind::Todo));
+        assert!(kinds.contains(&FunctionExpKind::Unreachable));
     }
 }

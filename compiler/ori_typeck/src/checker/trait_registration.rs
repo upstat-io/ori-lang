@@ -506,4 +506,74 @@ impl TypeChecker<'_> {
             }
         }
     }
+
+    /// Register all default trait implementations from a module.
+    ///
+    /// This handles `def impl TraitName { ... }` blocks, which provide stateless
+    /// default implementations for capability traits.
+    pub(crate) fn register_def_impls(&mut self, module: &Module) {
+        use crate::registry::ImplMethodDef;
+
+        for def_impl in &module.def_impls {
+            let trait_name = def_impl.trait_name;
+
+            // Validate that the trait exists
+            if !self.registries.traits.has_trait(trait_name) {
+                let trait_name_str = self.context.interner.lookup(trait_name);
+                self.push_error(
+                    format!("trait `{trait_name_str}` not found for def impl"),
+                    def_impl.span,
+                    ori_diagnostic::ErrorCode::E2003,
+                );
+                continue;
+            }
+
+            // Convert methods to ImplMethodDef
+            let methods_as_types: Vec<_> = def_impl
+                .methods
+                .iter()
+                .map(|m| {
+                    let params = self.params_to_types(m.params);
+                    let return_ty = self.parsed_type_to_type(&m.return_ty);
+                    // def impl methods are always associated (no self parameter)
+                    (m.name, params, return_ty, true)
+                })
+                .collect();
+
+            let interner = self.registries.traits.interner();
+            let methods: Vec<ImplMethodDef> = methods_as_types
+                .into_iter()
+                .map(|(name, params, return_ty, is_associated)| ImplMethodDef {
+                    name,
+                    params: params.iter().map(|ty| ty.to_type_id(interner)).collect(),
+                    return_ty: return_ty.to_type_id(interner),
+                    is_associated,
+                })
+                .collect();
+
+            // Create ImplEntry for the def impl
+            // def impl has no self_ty - use a placeholder type for the trait name
+            let entry = crate::registry::ImplEntry::new(
+                Some(trait_name),        // trait being implemented
+                Type::Named(trait_name), // self_ty is the trait name (for lookup)
+                def_impl.span,
+                Vec::new(), // no type params for def impl
+                methods,
+                Vec::new(), // no associated types for def impl
+            );
+
+            // Register the def impl
+            if let Err(coherence_err) = self.registries.traits.register_def_impl(trait_name, entry)
+            {
+                self.push_error(
+                    format!(
+                        "{} (previous def impl at {:?})",
+                        coherence_err.message, coherence_err.existing_span
+                    ),
+                    coherence_err.span,
+                    ori_diagnostic::ErrorCode::E2010,
+                );
+            }
+        }
+    }
 }

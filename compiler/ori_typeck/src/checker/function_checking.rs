@@ -180,4 +180,53 @@ impl TypeChecker<'_> {
             self.scope.config_types.insert(config.name, config_ty);
         }
     }
+
+    /// Type check all methods in a def impl block.
+    ///
+    /// Unlike regular impl blocks, def impl methods don't have `self` parameter.
+    /// They're stateless default implementations for capabilities.
+    pub(super) fn check_def_impl_methods(&mut self, def_impl_def: &ori_ir::DefImplDef) {
+        for method in &def_impl_def.methods {
+            self.check_def_impl_method(method);
+        }
+    }
+
+    /// Type check a single def impl method.
+    ///
+    /// Similar to `check_impl_method` but without `self` binding.
+    fn check_def_impl_method(&mut self, method: &ori_ir::ImplMethod) {
+        // Create scope for method parameters
+        let mut method_env = if let Some(ref base) = self.inference.base_env {
+            base.child()
+        } else {
+            self.inference.env.child()
+        };
+
+        // Bind all parameters (no special handling for self - there isn't one)
+        let params = self.context.arena.get_params(method.params);
+        for param in params {
+            let param_ty = if let Some(ref parsed_ty) = param.ty {
+                self.parsed_type_to_type(parsed_ty)
+            } else {
+                self.inference.ctx.fresh_var()
+            };
+            method_env.bind(param.name, param_ty);
+        }
+
+        // Save current env and switch to method env
+        let old_env = std::mem::replace(&mut self.inference.env, method_env);
+
+        // Infer body type
+        let body_type = infer::infer_expr(self, method.body);
+
+        // Unify with declared return type
+        let return_type = self.parsed_type_to_type(&method.return_ty);
+        if let Err(e) = self.inference.ctx.unify(&body_type, &return_type) {
+            let span = self.context.arena.get_expr(method.body).span;
+            self.report_type_error(&e, span);
+        }
+
+        // Restore environment
+        self.inference.env = old_env;
+    }
 }

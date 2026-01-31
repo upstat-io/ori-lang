@@ -751,6 +751,7 @@ mod tests {
             traits: vec![],
             impls: vec![],
             extends: vec![],
+            def_impls: vec![],
         };
 
         let mut counter = ExprCounter { count: 0 };
@@ -812,6 +813,7 @@ mod tests {
             traits: vec![],
             impls: vec![],
             extends: vec![],
+            def_impls: vec![],
         };
 
         let mut counter = ExprCounter { count: 0 };

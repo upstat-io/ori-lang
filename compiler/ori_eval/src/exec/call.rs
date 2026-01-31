@@ -61,7 +61,14 @@ where
 
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "Test values fit in target types"
+)]
+#[expect(
+    clippy::cast_possible_wrap,
+    reason = "Test values are within signed range"
+)]
 mod tests {
     use super::*;
     use ori_ir::{ExprId, Name, SharedArena};

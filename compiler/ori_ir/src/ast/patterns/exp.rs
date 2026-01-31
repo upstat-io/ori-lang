@@ -38,6 +38,9 @@ pub enum FunctionExpKind {
     Print,
     Panic,
     Catch,
+    // Developer convenience (diverge with diagnostics)
+    Todo,
+    Unreachable,
 }
 
 impl FunctionExpKind {
@@ -52,6 +55,8 @@ impl FunctionExpKind {
             FunctionExpKind::Print => "print",
             FunctionExpKind::Panic => "panic",
             FunctionExpKind::Catch => "catch",
+            FunctionExpKind::Todo => "todo",
+            FunctionExpKind::Unreachable => "unreachable",
         }
     }
 }
@@ -79,7 +84,7 @@ mod tests {
 
     #[test]
     fn test_function_exp_kind_name_all_variants() {
-        // Verify all 9 FunctionExpKind variants return correct names
+        // Verify all 11 FunctionExpKind variants return correct names
         assert_eq!(FunctionExpKind::Recurse.name(), "recurse");
         assert_eq!(FunctionExpKind::Parallel.name(), "parallel");
         assert_eq!(FunctionExpKind::Spawn.name(), "spawn");
@@ -89,6 +94,8 @@ mod tests {
         assert_eq!(FunctionExpKind::Print.name(), "print");
         assert_eq!(FunctionExpKind::Panic.name(), "panic");
         assert_eq!(FunctionExpKind::Catch.name(), "catch");
+        assert_eq!(FunctionExpKind::Todo.name(), "todo");
+        assert_eq!(FunctionExpKind::Unreachable.name(), "unreachable");
     }
 
     #[test]

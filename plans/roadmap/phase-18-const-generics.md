@@ -105,6 +105,8 @@ Specifies termination guarantees and limits for compile-time constant evaluation
 
 ## 18.1 Const Type Parameters
 
+**Proposal**: `proposals/approved/const-generics-proposal.md`
+
 **Spec section**: `spec/06-types.md § Const Generic Parameters`
 
 ### Syntax

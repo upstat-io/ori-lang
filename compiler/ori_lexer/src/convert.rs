@@ -45,6 +45,7 @@ pub(crate) fn convert_token(raw: RawToken, slice: &str, interner: &StringInterne
         RawToken::Async => TokenKind::Async,
         RawToken::Break => TokenKind::Break,
         RawToken::Continue => TokenKind::Continue,
+        RawToken::Def => TokenKind::Def,
         RawToken::Do => TokenKind::Do,
         RawToken::Else => TokenKind::Else,
         RawToken::False => TokenKind::False,
@@ -104,6 +105,8 @@ pub(crate) fn convert_token(raw: RawToken, slice: &str, interner: &StringInterne
         // Built-in I/O primitives
         RawToken::Print => TokenKind::Print,
         RawToken::Panic => TokenKind::Panic,
+        RawToken::Todo => TokenKind::Todo,
+        RawToken::Unreachable => TokenKind::Unreachable,
 
         // Symbols
         RawToken::HashBracket => TokenKind::HashBracket,

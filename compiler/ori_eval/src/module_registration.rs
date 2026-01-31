@@ -237,6 +237,58 @@ pub fn register_variant_constructors(module: &Module, env: &mut Environment) {
     }
 }
 
+/// Collect methods from def impl blocks into a registry.
+///
+/// Default implementations provide stateless methods for capability traits.
+/// Methods are registered under the trait name, allowing `TraitName.method(...)` calls.
+///
+/// # Arguments
+///
+/// * `module` - The module containing def impl blocks
+/// * `arena` - Shared arena for expression lookup
+/// * `captures` - Variable captures from the current environment
+/// * `registry` - Registry to store collected methods
+#[expect(
+    clippy::implicit_hasher,
+    reason = "captures use default hasher throughout codebase"
+)]
+pub fn collect_def_impl_methods(
+    module: &Module,
+    arena: &SharedArena,
+    captures: &HashMap<Name, Value>,
+    registry: &mut UserMethodRegistry,
+) {
+    // Wrap captures in Arc once for efficient sharing across all methods
+    let captures = Arc::new(captures.clone());
+
+    for def_impl_def in &module.def_impls {
+        let trait_name = def_impl_def.trait_name;
+
+        for method in &def_impl_def.methods {
+            // Get parameter names
+            let params = arena.get_param_names(method.params);
+
+            // Create user method with Arc-cloned captures (O(1) instead of O(n))
+            let user_method =
+                UserMethod::new(params, method.body, Arc::clone(&captures), arena.clone());
+
+            // Register under trait name (trait_name -> method_name)
+            // This enables `TraitName.method(...)` calls for capability dispatch
+            registry.register(trait_name, method.name, user_method);
+        }
+    }
+}
+
+/// Collect methods from def impl blocks using a config struct.
+///
+/// Prefer this over `collect_def_impl_methods` for new code.
+pub fn collect_def_impl_methods_with_config(
+    config: &MethodCollectionConfig<'_>,
+    registry: &mut UserMethodRegistry,
+) {
+    collect_def_impl_methods(config.module, config.arena, config.captures, registry);
+}
+
 /// Register newtype constructors from type declarations.
 ///
 /// For each newtype (e.g., `type UserId = str`), registers the type name
@@ -438,5 +490,58 @@ mod tests {
         let double_name = interner.intern("double");
 
         assert!(registry.lookup(list_name, double_name).is_some());
+    }
+
+    #[test]
+    fn test_collect_def_impl_methods() {
+        let (result, interner) = parse_source(
+            r"
+            def impl Http {
+                @get (url: str) -> str = url
+                @post (url: str, body: str) -> str = body
+            }
+        ",
+        );
+
+        let arena = SharedArena::new(result.arena.clone());
+        let mut registry = UserMethodRegistry::new();
+        let captures = HashMap::new();
+
+        collect_def_impl_methods(&result.module, &arena, &captures, &mut registry);
+
+        let http_name = interner.intern("Http");
+        let get_name = interner.intern("get");
+        let post_name = interner.intern("post");
+
+        // Methods should be registered under the trait name
+        assert!(registry.lookup(http_name, get_name).is_some());
+        assert!(registry.lookup(http_name, post_name).is_some());
+    }
+
+    #[test]
+    fn test_collect_def_impl_methods_with_config() {
+        let (result, interner) = parse_source(
+            r"
+            pub def impl Http {
+                @get (url: str) -> str = url
+            }
+        ",
+        );
+
+        let arena = SharedArena::new(result.arena.clone());
+        let mut registry = UserMethodRegistry::new();
+        let captures = HashMap::new();
+
+        let config = MethodCollectionConfig {
+            module: &result.module,
+            arena: &arena,
+            captures: &captures,
+        };
+        collect_def_impl_methods_with_config(&config, &mut registry);
+
+        let http_name = interner.intern("Http");
+        let get_name = interner.intern("get");
+
+        assert!(registry.lookup(http_name, get_name).is_some());
     }
 }

@@ -288,3 +288,34 @@ impl Spanned for ExtendDef {
         self.span
     }
 }
+
+/// Default implementation for a trait.
+///
+/// Provides the standard behavior for a trait when imported. Unlike regular `impl`,
+/// `def impl` methods don't have a `self` parameter (stateless) and there's no
+/// `for Type` clause (anonymous implementation).
+///
+/// ```ori
+/// pub def impl Http {
+///     @get (url: str) -> Result<Response, Error> = ...
+///     @post (url: str, body: str) -> Result<Response, Error> = ...
+/// }
+/// ```
+///
+/// When a module exports both a trait and its `def impl`, importing the trait
+/// automatically binds the default implementation.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct DefImplDef {
+    /// The trait this is a default implementation for.
+    pub trait_name: Name,
+    /// Methods implementing the trait (must not have `self` parameter).
+    pub methods: Vec<ImplMethod>,
+    pub span: Span,
+    pub visibility: Visibility,
+}
+
+impl Spanned for DefImplDef {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
