@@ -348,17 +348,17 @@ Operators are desugared to trait method calls. User-defined types can implement 
 | Operator | Trait | Method |
 |----------|-------|--------|
 | `a + b` | `Add` | `a.add(rhs: b)` |
-| `a - b` | `Sub` | `a.sub(rhs: b)` |
-| `a * b` | `Mul` | `a.mul(rhs: b)` |
-| `a / b` | `Div` | `a.div(rhs: b)` |
-| `a div b` | `FloorDiv` | `a.floor_div(rhs: b)` |
-| `a % b` | `Rem` | `a.rem(rhs: b)` |
+| `a - b` | `Sub` | `a.subtract(rhs: b)` |
+| `a * b` | `Mul` | `a.multiply(rhs: b)` |
+| `a / b` | `Div` | `a.divide(rhs: b)` |
+| `a div b` | `FloorDiv` | `a.floor_divide(rhs: b)` |
+| `a % b` | `Rem` | `a.remainder(rhs: b)` |
 
 ### Unary Operators
 
 | Operator | Trait | Method |
 |----------|-------|--------|
-| `-a` | `Neg` | `a.neg()` |
+| `-a` | `Neg` | `a.negate()` |
 | `!a` | `Not` | `a.not()` |
 | `~a` | `BitNot` | `a.bit_not()` |
 
@@ -369,8 +369,8 @@ Operators are desugared to trait method calls. User-defined types can implement 
 | `a & b` | `BitAnd` | `a.bit_and(rhs: b)` |
 | `a \| b` | `BitOr` | `a.bit_or(rhs: b)` |
 | `a ^ b` | `BitXor` | `a.bit_xor(rhs: b)` |
-| `a << b` | `Shl` | `a.shl(rhs: b)` |
-| `a >> b` | `Shr` | `a.shr(rhs: b)` |
+| `a << b` | `Shl` | `a.shift_left(rhs: b)` |
+| `a >> b` | `Shr` | `a.shift_right(rhs: b)` |
 
 ### Comparison Operators
 
@@ -395,6 +395,8 @@ trait Add<Rhs = Self> {
 ```
 
 The `Rhs` parameter defaults to `Self`, and `Output` defaults to `Self`. Implementations may override either.
+
+> **Note:** The `Div` trait method is named `divide` rather than `div` because `div` is a reserved keyword for the floor division operator.
 
 ### User-Defined Example
 
@@ -421,13 +423,13 @@ Traits support different operand types. Commutative operations require both orde
 // Duration * int
 impl Mul<int> for Duration {
     type Output = Duration
-    @mul (self, n: int) -> Duration = ...
+    @multiply (self, n: int) -> Duration = ...
 }
 
 // int * Duration
 impl Mul<Duration> for int {
     type Output = Duration
-    @mul (self, d: Duration) -> Duration = d * self
+    @multiply (self, d: Duration) -> Duration = d * self
 }
 ```
 

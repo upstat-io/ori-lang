@@ -46,33 +46,35 @@ trait Add<Rhs = Self> {
 
 trait Sub<Rhs = Self> {
     type Output = Self
-    @sub (self, rhs: Rhs) -> Self.Output
+    @subtract (self, rhs: Rhs) -> Self.Output
 }
 
 trait Mul<Rhs = Self> {
     type Output = Self
-    @mul (self, rhs: Rhs) -> Self.Output
+    @multiply (self, rhs: Rhs) -> Self.Output
 }
 
 trait Div<Rhs = Self> {
     type Output = Self
-    @div (self, rhs: Rhs) -> Self.Output
+    @divide (self, rhs: Rhs) -> Self.Output
 }
+
+// Note: Method is `divide` (not `div`) because `div` is a keyword (floor division operator)
 
 trait FloorDiv<Rhs = Self> {
     type Output = Self
-    @floor_div (self, rhs: Rhs) -> Self.Output
+    @floor_divide (self, rhs: Rhs) -> Self.Output
 }
 
 trait Rem<Rhs = Self> {
     type Output = Self
-    @rem (self, rhs: Rhs) -> Self.Output
+    @remainder (self, rhs: Rhs) -> Self.Output
 }
 
 // Unary operators
 trait Neg {
     type Output = Self
-    @neg (self) -> Self.Output
+    @negate (self) -> Self.Output
 }
 
 trait Not {
@@ -103,12 +105,12 @@ trait BitXor<Rhs = Self> {
 
 trait Shl<Rhs = int> {
     type Output = Self
-    @shl (self, rhs: Rhs) -> Self.Output
+    @shift_left (self, rhs: Rhs) -> Self.Output
 }
 
 trait Shr<Rhs = int> {
     type Output = Self
-    @shr (self, rhs: Rhs) -> Self.Output
+    @shift_right (self, rhs: Rhs) -> Self.Output
 }
 ```
 
@@ -119,19 +121,19 @@ The compiler desugars operators to trait method calls:
 | Operator | Desugars To |
 |----------|-------------|
 | `a + b` | `a.add(rhs: b)` |
-| `a - b` | `a.sub(rhs: b)` |
-| `a * b` | `a.mul(rhs: b)` |
-| `a / b` | `a.div(rhs: b)` |
-| `a div b` | `a.floor_div(rhs: b)` |
-| `a % b` | `a.rem(rhs: b)` |
-| `-a` | `a.neg()` |
+| `a - b` | `a.subtract(rhs: b)` |
+| `a * b` | `a.multiply(rhs: b)` |
+| `a / b` | `a.divide(rhs: b)` |
+| `a div b` | `a.floor_divide(rhs: b)` |
+| `a % b` | `a.remainder(rhs: b)` |
+| `-a` | `a.negate()` |
 | `!a` | `a.not()` |
 | `~a` | `a.bit_not()` |
 | `a & b` | `a.bit_and(rhs: b)` |
 | `a \| b` | `a.bit_or(rhs: b)` |
 | `a ^ b` | `a.bit_xor(rhs: b)` |
-| `a << b` | `a.shl(rhs: b)` |
-| `a >> b` | `a.shr(rhs: b)` |
+| `a << b` | `a.shift_left(rhs: b)` |
+| `a >> b` | `a.shift_right(rhs: b)` |
 
 ### Existing Comparison Operators
 
@@ -183,12 +185,12 @@ Traits support different right-hand-side types:
 ```ori
 impl Mul<int> for Duration {
     type Output = Duration
-    @mul (self, n: int) -> Duration = Duration.from_nanoseconds(ns: self.nanoseconds() * n)
+    @multiply (self, n: int) -> Duration = Duration.from_nanoseconds(ns: self.nanoseconds() * n)
 }
 
 impl Div<int> for Duration {
     type Output = Duration
-    @div (self, n: int) -> Duration = Duration.from_nanoseconds(ns: self.nanoseconds() / n)
+    @divide (self, n: int) -> Duration = Duration.from_nanoseconds(ns: self.nanoseconds() / n)
 }
 
 // Usage
@@ -204,13 +206,13 @@ For operations where both orderings should be valid (e.g., `int * Duration` and 
 // Duration * int
 impl Mul<int> for Duration {
     type Output = Duration
-    @mul (self, n: int) -> Duration = Duration.from_nanoseconds(ns: self.nanoseconds() * n)
+    @multiply (self, n: int) -> Duration = Duration.from_nanoseconds(ns: self.nanoseconds() * n)
 }
 
 // int * Duration
 impl Mul<Duration> for int {
     type Output = Duration
-    @mul (self, d: Duration) -> Duration = d * self  // Delegate to Duration * int
+    @multiply (self, d: Duration) -> Duration = d * self  // Delegate to Duration * int
 }
 
 // Usage
@@ -233,21 +235,21 @@ impl Add for Vector2 {
 }
 
 impl Sub for Vector2 {
-    @sub (self, rhs: Vector2) -> Self = Vector2 {
+    @subtract (self, rhs: Vector2) -> Self = Vector2 {
         x: self.x - rhs.x,
         y: self.y - rhs.y,
     }
 }
 
 impl Mul<float> for Vector2 {
-    @mul (self, scalar: float) -> Self = Vector2 {
+    @multiply (self, scalar: float) -> Self = Vector2 {
         x: self.x * scalar,
         y: self.y * scalar,
     }
 }
 
 impl Neg for Vector2 {
-    @neg (self) -> Self = Vector2 { x: -self.x, y: -self.y }
+    @negate (self) -> Self = Vector2 { x: -self.x, y: -self.y }
 }
 
 // Usage

@@ -89,7 +89,11 @@ This enables associated function calls like `Point.origin()` where `Point` evalu
 
 ### Binary Operations
 
-Binary operators are dispatched uniformly through the method system, enabling user-defined types to implement operator traits like `Add`, `Sub`, etc.
+Binary operators use a dual-dispatch strategy:
+- **Primitive types** (int, float, bool, str, Duration, Size, etc.) use direct evaluation via `evaluate_binary` for performance
+- **User-defined types** dispatch through operator trait methods (`Add::add`, `Sub::subtract`, `Mul::multiply`, etc.)
+
+This enables user-defined types to implement operator traits while keeping primitive operations efficient.
 
 ```rust
 fn eval_binary(
@@ -125,12 +129,12 @@ fn eval_binary(
     let left_val = self.eval_expr(left)?;
     let right_val = self.eval_expr(right)?;
 
-    // Mixed-type operations (int * Duration, int * Size) fall back to direct eval
-    if is_mixed_primitive_op(op, &left_val, &right_val) {
+    // Primitive types use direct evaluation for performance
+    if is_primitive_value(&left_val) {
         return apply_binary_op(&left_val, op, &right_val, self.interner);
     }
 
-    // Dispatch arithmetic/bitwise operators through method system
+    // User-defined types dispatch through operator trait methods
     if let Some(method_name) = binary_op_to_method(op) {
         return self.call_method(&left_val, method_name, &[right_val]);
     }
@@ -139,13 +143,26 @@ fn eval_binary(
     apply_binary_op(&left_val, op, &right_val, self.interner)
 }
 
+/// Returns true for primitive values that use direct operator evaluation.
+fn is_primitive_value(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Int(_) | Value::Float(_) | Value::Bool(_) | Value::Str(_)
+            | Value::Char(_) | Value::Byte(_) | Value::Duration(_) | Value::Size(_)
+            | Value::List(_) | Value::Tuple(_) | Value::Map(_)
+            | Value::Some(_) | Value::None | Value::Ok(_) | Value::Err(_) | Value::Range(_)
+    )
+}
+
 /// Maps binary operators to their trait method names.
+/// Note: Division uses "divide" (not "div") because `div` is a reserved
+/// keyword for floor division in Ori.
 fn binary_op_to_method(op: BinaryOp) -> Option<&'static str> {
     match op {
         BinaryOp::Add => Some("add"),
         BinaryOp::Sub => Some("sub"),
         BinaryOp::Mul => Some("mul"),
-        BinaryOp::Div => Some("div"),
+        BinaryOp::Div => Some("divide"),  // "divide" not "div" (keyword)
         BinaryOp::Mod => Some("rem"),
         BinaryOp::FloorDiv => Some("floor_div"),
         BinaryOp::BitAnd => Some("bit_and"),

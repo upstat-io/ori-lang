@@ -1,13 +1,15 @@
 # Move Duration and Size to Standard Library
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-31
 **Author:** Claude
 **Created:** 2026-01-31
 **Depends On:** operator-traits-proposal.md, associated-functions-language-feature.md
+**Supersedes:** Portions of stdlib-philosophy-proposal.md (moves Duration/Size from Core to Stdlib)
 
 ## Summary
 
-Remove Duration and Size as compiler built-in types and implement them as regular Ori types in the standard library prelude, using pure language features.
+Remove Duration and Size as compiler built-in types and implement them as regular Ori types in the standard library prelude, using pure language features. Literal suffixes (`10s`, `5mb`) remain compiler-recognized but desugar to associated function calls.
 
 ## Motivation
 
@@ -25,10 +27,28 @@ This creates maintenance burden and prevents the language from being self-hostin
 
 1. **Reduced compiler complexity**: Remove ~500 lines of special-case code
 2. **Validation of language features**: Proves operator overloading and associated functions work
-3. **User extensibility**: Users can create similar unit types (Temperature, Currency, etc.)
-4. **Consistency**: All types follow the same rules
+3. **User extensibility**: Users can create similar unit types (Temperature, Currency, Angle, etc.)
+4. **Consistency**: All types follow the same rules — no magic
 
 ## Design
+
+### Literal Suffix Desugaring
+
+Literal suffixes remain compiler-recognized but desugar to associated function calls:
+
+```ori
+10s      // desugars to: Duration.from_seconds(s: 10)
+5mb      // desugars to: Size.from_megabytes(mb: 5)
+100ns    // desugars to: Duration.from_nanoseconds(ns: 100)
+1kb      // desugars to: Size.from_kilobytes(kb: 1)
+```
+
+The compiler:
+1. Recognizes suffix patterns in lexer
+2. Generates AST for the associated function call
+3. Type checks and evaluates normally
+
+This keeps the ergonomic syntax while moving implementation to the library.
 
 ### Duration Implementation
 
@@ -36,31 +56,57 @@ This creates maintenance burden and prevents the language from being self-hostin
 // library/std/duration.ori
 
 /// Duration represents a span of time in nanoseconds.
-#derive(Eq, Comparable, Hashable, Clone, Debug, Default)
+#derive(Eq, Comparable, Hashable, Clone, Debug, Default, Sendable)
 pub type Duration = { nanoseconds: int }
 
+// Duration + Duration -> Duration
 impl Add for Duration {
     @add (self, other: Duration) -> Duration =
         Duration { nanoseconds: self.nanoseconds + other.nanoseconds }
 }
 
+// Duration - Duration -> Duration
 impl Sub for Duration {
-    @sub (self, other: Duration) -> Duration =
+    @subtract (self, other: Duration) -> Duration =
         Duration { nanoseconds: self.nanoseconds - other.nanoseconds }
 }
 
+// Duration * int -> Duration
 impl Mul<int> for Duration {
-    @mul (self, n: int) -> Duration =
+    type Output = Duration
+    @multiply (self, n: int) -> Duration =
         Duration { nanoseconds: self.nanoseconds * n }
 }
 
+// int * Duration -> Duration (commutative)
+impl Mul<Duration> for int {
+    type Output = Duration
+    @multiply (self, d: Duration) -> Duration = d * self
+}
+
+// Duration / int -> Duration
 impl Div<int> for Duration {
-    @div (self, n: int) -> Duration =
+    type Output = Duration
+    @divide (self, n: int) -> Duration =
         Duration { nanoseconds: self.nanoseconds / n }
 }
 
+// Duration / Duration -> int (ratio)
+impl Div for Duration {
+    type Output = int
+    @divide (self, other: Duration) -> int =
+        self.nanoseconds / other.nanoseconds
+}
+
+// Duration % Duration -> Duration (remainder)
+impl Rem for Duration {
+    @remainder (self, other: Duration) -> Duration =
+        Duration { nanoseconds: self.nanoseconds % other.nanoseconds }
+}
+
+// -Duration -> Duration
 impl Neg for Duration {
-    @neg (self) -> Duration =
+    @negate (self) -> Duration =
         Duration { nanoseconds: -self.nanoseconds }
 }
 
@@ -73,7 +119,7 @@ impl Duration {
     pub @from_minutes (m: int) -> Self = Duration { nanoseconds: m * 60_000_000_000 }
     pub @from_hours (h: int) -> Self = Duration { nanoseconds: h * 3_600_000_000_000 }
 
-    // Extraction methods
+    // Extraction methods (truncate toward zero)
     pub @nanoseconds (self) -> int = self.nanoseconds
     pub @microseconds (self) -> int = self.nanoseconds / 1_000
     pub @milliseconds (self) -> int = self.nanoseconds / 1_000_000
@@ -100,34 +146,60 @@ impl Printable for Duration {
 ```ori
 // library/std/size.ori
 
-/// Size represents a byte count.
-#derive(Eq, Comparable, Hashable, Clone, Debug, Default)
+/// Size represents a byte count (non-negative).
+#derive(Eq, Comparable, Hashable, Clone, Debug, Default, Sendable)
 pub type Size = { bytes: int }
 
+// Size + Size -> Size
 impl Add for Size {
     @add (self, other: Size) -> Size =
         Size { bytes: self.bytes + other.bytes }
 }
 
+// Size - Size -> Size (panics if negative)
 impl Sub for Size {
-    @sub (self, other: Size) -> Size = run(
+    @subtract (self, other: Size) -> Size = run(
         let result = self.bytes - other.bytes,
         if result < 0 then panic(msg: "Size cannot be negative"),
         Size { bytes: result },
     )
 }
 
+// Size * int -> Size (panics if negative)
 impl Mul<int> for Size {
-    @mul (self, n: int) -> Size = run(
+    type Output = Size
+    @multiply (self, n: int) -> Size = run(
         let result = self.bytes * n,
         if result < 0 then panic(msg: "Size cannot be negative"),
         Size { bytes: result },
     )
 }
 
-impl Div<int> for Size {
-    @div (self, n: int) -> Size = Size { bytes: self.bytes / n }
+// int * Size -> Size (commutative)
+impl Mul<Size> for int {
+    type Output = Size
+    @multiply (self, s: Size) -> Size = s * self
 }
+
+// Size / int -> Size
+impl Div<int> for Size {
+    type Output = Size
+    @divide (self, n: int) -> Size = Size { bytes: self.bytes / n }
+}
+
+// Size / Size -> int (ratio)
+impl Div for Size {
+    type Output = int
+    @divide (self, other: Size) -> int = self.bytes / other.bytes
+}
+
+// Size % Size -> Size (remainder)
+impl Rem for Size {
+    @remainder (self, other: Size) -> Size =
+        Size { bytes: self.bytes % other.bytes }
+}
+
+// Note: Neg is NOT implemented for Size — unary negation is a compile error
 
 impl Size {
     // Factory methods (associated functions)
@@ -140,127 +212,45 @@ impl Size {
     pub @from_gigabytes (gb: int) -> Self = Self.from_bytes(b: gb * 1024 * 1024 * 1024)
     pub @from_terabytes (tb: int) -> Self = Self.from_bytes(b: tb * 1024 * 1024 * 1024 * 1024)
 
-    // Extraction methods
+    // Extraction methods (truncate toward zero)
     pub @bytes (self) -> int = self.bytes
     pub @kilobytes (self) -> int = self.bytes / 1024
     pub @megabytes (self) -> int = self.bytes / (1024 * 1024)
     pub @gigabytes (self) -> int = self.bytes / (1024 * 1024 * 1024)
     pub @terabytes (self) -> int = self.bytes / (1024 * 1024 * 1024 * 1024)
 }
-```
 
-## Missing Language Features
-
-To implement Duration and Size in pure Ori, the following features are required:
-
-### 1. Operator Traits (REQUIRED)
-
-Traits that types can implement to support operators:
-
-```ori
-trait Add<Rhs = Self> {
-    type Output = Self
-    @add (self, rhs: Rhs) -> Self.Output
-}
-
-trait Sub<Rhs = Self> {
-    type Output = Self
-    @sub (self, rhs: Rhs) -> Self.Output
-}
-
-trait Mul<Rhs> {
-    type Output
-    @mul (self, rhs: Rhs) -> Self.Output
-}
-
-trait Div<Rhs> {
-    type Output
-    @div (self, rhs: Rhs) -> Self.Output
-}
-
-trait Neg {
-    type Output = Self
-    @neg (self) -> Self.Output
-}
-
-trait Rem<Rhs = Self> {
-    type Output = Self
-    @rem (self, rhs: Rhs) -> Self.Output
+impl Printable for Size {
+    @to_str (self) -> str = run(
+        let b = self.bytes,
+        if b % 1_099_511_627_776 == 0 then `{b / 1_099_511_627_776}tb`
+        else if b % 1_073_741_824 == 0 then `{b / 1_073_741_824}gb`
+        else if b % 1_048_576 == 0 then `{b / 1_048_576}mb`
+        else if b % 1024 == 0 then `{b / 1024}kb`
+        else `{b}b`,
+    )
 }
 ```
 
-The compiler must recognize these traits and dispatch operators to their methods:
-- `a + b` → `a.add(rhs: b)`
-- `a - b` → `a.sub(rhs: b)`
-- `a * b` → `a.mul(rhs: b)`
-- `a / b` → `a.div(rhs: b)`
-- `-a` → `a.neg()`
-- `a % b` → `a.rem(rhs: b)`
+## Language Features Required
 
-**Status**: NOT IMPLEMENTED - operators are hardcoded for built-in types only
+All required features are now approved:
 
-### 2. Literal Suffixes (REQUIRED for ergonomics)
+### 1. Operator Traits (APPROVED)
 
-The syntax `10s`, `5mb` requires compiler support. Options:
+See `operator-traits-proposal.md`. Defines `Add`, `Sub`, `Mul`, `Div`, `Neg`, `Rem` traits that types implement to support operator syntax.
 
-#### Option A: Keep Literal Suffixes in Compiler (Recommended)
+### 2. Associated Functions (APPROVED)
 
-Literal suffixes remain compiler-recognized but desugar to associated function calls:
+See `associated-functions-language-feature.md`. Enables `Type.method()` syntax for factory methods.
 
-```ori
-10s      // desugars to: Duration.from_seconds(s: 10)
-5mb      // desugars to: Size.from_megabytes(mb: 5)
-100ns    // desugars to: Duration.from_nanoseconds(ns: 100)
-```
+### 3. Derive for Operator Traits (NICE TO HAVE)
 
-The compiler:
-1. Recognizes suffix patterns in lexer
-2. Generates AST for the associated function call
-3. Type checks and evaluates normally
-
-This keeps the ergonomic syntax while moving implementation to the library.
-
-#### Option B: User-Defined Literal Suffixes
-
-Allow users to define custom suffixes:
-
-```ori
-#suffix("s")
-@seconds_suffix (n: int) -> Duration = Duration.from_seconds(s: n)
-```
-
-**More complex, defer to future proposal.**
-
-#### Option C: Remove Literal Suffixes
-
-Require explicit factory calls:
-
-```ori
-let d = Duration.from_seconds(s: 10)  // instead of 10s
-let s = Size.from_megabytes(mb: 5)    // instead of 5mb
-```
-
-**Rejected**: Too verbose, reduces language ergonomics significantly.
-
-### 3. Default Trait Implementations with Self (NICE TO HAVE)
-
-For traits like `Default`, the implementation could use `Self`:
-
-```ori
-impl Default for Duration {
-    @default () -> Self = Duration { nanoseconds: 0 }
-}
-```
-
-**Status**: Partially implemented, needs verification with associated functions.
-
-### 4. Derive for Operator Traits (NICE TO HAVE)
-
-Allow `#derive(Add, Sub, Mul, Div)` for newtypes that wrap numeric types:
+Allow `#derive(Add, Sub, Mul, Div)` for newtypes wrapping numeric types:
 
 ```ori
 #derive(Add, Sub, Mul, Div)
-type Duration = { nanoseconds: int }
+type Celsius = { value: float }
 ```
 
 **Defer to future proposal.**
@@ -321,15 +311,23 @@ Continue with hardcoded implementation.
 
 **Rejected**: Prevents language self-hosting, maintains technical debt.
 
-### Implement Only Some Methods in Library
+### Remove Literal Suffixes
 
-Keep operators hardcoded but move factory methods to library.
+Require explicit `Duration.from_seconds(s: 10)` instead of `10s`.
 
-**Rejected**: Half-measure that doesn't address core issue.
+**Rejected**: Too verbose, significantly reduces language ergonomics.
+
+### User-Defined Literal Suffixes
+
+Allow users to define custom suffixes via attribute.
+
+**Deferred**: More complex, enables future extensibility. Defer to future proposal.
 
 ## References
 
 - Current Duration implementation: `compiler/ori_eval/src/methods.rs`
 - Current Size implementation: `compiler/ori_eval/src/methods.rs`
 - Current operator handling: `compiler/ori_eval/src/operators.rs`
+- Operator traits proposal: `proposals/approved/operator-traits-proposal.md`
+- Associated functions proposal: `proposals/approved/associated-functions-language-feature.md`
 - Rust's approach: `std::ops` module with operator traits
