@@ -200,11 +200,11 @@ dependencies = [
  "ori_diagnostic",
  "ori_ir",
  "ori_patterns",
+ "ori_stack",
  "ori_types",
  "parking_lot",
  "rayon",
  "rustc-hash",
- "stacker",
 ]
 
 [[package]]
@@ -237,7 +237,7 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "ori_diagnostic",
  "ori_ir",
- "stacker",
+ "ori_stack",
 ]
 
 [[package]]
@@ -250,6 +250,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ori_stack"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "stacker",
+]
+
+[[package]]
 name = "ori_typeck"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -257,9 +264,9 @@ dependencies = [
  "ori_ir",
  "ori_parse",
  "ori_patterns",
+ "ori_stack",
  "ori_types",
  "rustc-hash",
- "stacker",
 ]
 
 [[package]]

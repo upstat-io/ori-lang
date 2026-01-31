@@ -34,7 +34,10 @@ export async function initWasm(): Promise<boolean> {
         ? `../../wasm/ori_playground_wasm.js?t=${Date.now()}&v=${cacheBuster}`
         : '../../wasm/ori_playground_wasm.js';
       const wasm = await import(/* @vite-ignore */ wasmPath);
-      await wasm.default();
+      // Explicitly provide path to WASM binary in public folder
+      // In dev, it's also served from public. In prod, it's a static asset.
+      const wasmBinaryPath = '/wasm/ori_playground_wasm_bg.wasm';
+      await wasm.default(wasmBinaryPath);
       wasmModule = wasm;
       return true;
     } catch (e) {
