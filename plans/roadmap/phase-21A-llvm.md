@@ -2,12 +2,12 @@
 
 **Status:** 🔶 Partial — JIT working, AOT pending
 
-## Current Test Results (2026-01-28)
+## Current Test Results (2026-01-31)
 
 | Test Suite | Passed | Failed | Skipped | Total |
 |------------|--------|--------|---------|-------|
-| All Ori tests | 734 | 0 | 19 | 753 |
-| Rust unit tests | 204 | 0 | 0 | 204 |
+| All Ori tests | 1572 | 0 | 39 | 1611 |
+| Rust unit tests | 206 | 0 | 1 | 207 |
 
 ---
 
@@ -47,13 +47,21 @@
   - [x] Function calls and method dispatch
   - [x] Field access and indexing
 
+- [x] **Implement**: User-defined impl blocks and associated functions
+  - [x] Register user-defined struct types with LLVM
+  - [x] Support user-defined `impl Type { ... }` blocks
+  - [x] Generate method dispatch for user-defined methods
+  - [x] Support associated functions (methods without `self` parameter)
+  - [x] Enable `Type.method()` syntax for user-defined types
+  - [x] **Tests**: `tests/spec/types/associated_functions.ori` (9 tests passing)
+
 - [ ] **Implement**: User-defined operator dispatch
   - [ ] **Rust Tests**: `tests/operator_trait_tests.rs`
   - [ ] Detect when operand is a user-defined type (struct)
   - [ ] Generate method calls to trait methods instead of direct LLVM ops
   - [ ] Handle trait method lookup for operator traits (Add, Sub, Mul, etc.)
   - [ ] Support generic operator traits with type parameters (e.g., `Mul<int>`)
-  - [ ] **Blocked by**: Interpreter implementation complete (Phase 3.21)
+  - [ ] **Blocked by**: User-defined impl blocks (above)
   - [ ] **Files**: `ori_llvm/src/operators.rs` — add trait dispatch logic
   - [ ] **Tests**: `tests/spec/traits/operators/user_defined.ori` (currently skipped)
 

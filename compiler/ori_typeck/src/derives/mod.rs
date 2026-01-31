@@ -130,30 +130,35 @@ fn create_derived_method_def(
             // eq(self, other: Self) -> bool
             params: vec![self_ty_id, self_ty_id],
             return_ty: ori_ir::TypeId::BOOL,
+            is_associated: false, // has self parameter
         },
         DerivedTrait::Clone => ImplMethodDef {
             name: method_name,
             // clone(self) -> Self
             params: vec![self_ty_id],
             return_ty: self_ty_id,
+            is_associated: false, // has self parameter
         },
         DerivedTrait::Hashable => ImplMethodDef {
             name: method_name,
             // hash(self) -> int
             params: vec![self_ty_id],
             return_ty: ori_ir::TypeId::INT,
+            is_associated: false, // has self parameter
         },
         DerivedTrait::Printable => ImplMethodDef {
             name: method_name,
             // to_string(self) -> str
             params: vec![self_ty_id],
             return_ty: ori_ir::TypeId::STR,
+            is_associated: false, // has self parameter
         },
         DerivedTrait::Default => ImplMethodDef {
             name: method_name,
             // default() -> Self (static method, no self param)
             params: vec![],
             return_ty: self_ty_id,
+            is_associated: true, // no self parameter - this IS an associated function!
         },
     }
 }

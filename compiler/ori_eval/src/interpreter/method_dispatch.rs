@@ -43,6 +43,19 @@ impl Interpreter<'_> {
     ) -> EvalResult {
         // Handle associated function calls on type references
         if let Value::TypeRef { type_name } = &receiver {
+            // First check user-defined associated functions in the registry
+            // Clone the method to release the lock before calling eval_associated_function
+            let user_method = self
+                .user_method_registry
+                .read()
+                .lookup(*type_name, method)
+                .cloned();
+
+            if let Some(ref method_def) = user_method {
+                return self.eval_associated_function(method_def, &args);
+            }
+
+            // Fall back to built-in associated functions (Duration, Size)
             let type_name_str = self.interner.lookup(*type_name);
             let method_str = self.interner.lookup(method);
             return crate::methods::dispatch_associated_function(type_name_str, method_str, args);
@@ -412,6 +425,40 @@ impl Interpreter<'_> {
 
         // Evaluate method body using the method's arena (arena threading pattern).
         // The scope is popped automatically via RAII when call_interpreter drops.
+        let func_arena: &ExprArena = &method.arena;
+        let mut call_interpreter = self.create_function_interpreter(func_arena, call_env);
+        call_interpreter.eval(method.body)
+    }
+
+    /// Evaluate an associated function (no `self` parameter).
+    ///
+    /// Associated functions are called on types rather than instances:
+    /// `Point.origin()` instead of `point.method()`.
+    pub(super) fn eval_associated_function(
+        &mut self,
+        method: &UserMethod,
+        args: &[Value],
+    ) -> EvalResult {
+        // Associated functions don't have 'self', so params == args
+        if method.params.len() != args.len() {
+            return Err(wrong_function_args(method.params.len(), args.len()));
+        }
+
+        // Create new environment with captures
+        let mut call_env = self.env.child();
+        call_env.push_scope();
+
+        // Bind captured variables
+        for (name, value) in method.captures.iter() {
+            call_env.define(*name, value.clone(), Mutability::Immutable);
+        }
+
+        // Bind all parameters directly to arguments (no self)
+        for (param, arg) in method.params.iter().zip(args.iter()) {
+            call_env.define(*param, arg.clone(), Mutability::Immutable);
+        }
+
+        // Evaluate function body using the method's arena
         let func_arena: &ExprArena = &method.arena;
         let mut call_interpreter = self.create_function_interpreter(func_arena, call_env);
         call_interpreter.eval(method.body)

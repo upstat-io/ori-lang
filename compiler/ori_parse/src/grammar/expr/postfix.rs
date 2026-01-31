@@ -11,6 +11,12 @@ impl Parser<'_> {
         let mut expr = self.parse_primary()?;
 
         loop {
+            // Skip newlines to allow method chaining across lines:
+            // Builder.new()
+            //     .with_name(name: "example")
+            //     .with_value(value: 42)
+            self.skip_newlines();
+
             if self.check(&TokenKind::LParen) {
                 // Function call
                 self.advance();

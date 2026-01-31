@@ -20,6 +20,37 @@ use inkwell::AddressSpace;
 
 use ori_ir::{Name, StringInterner, TypeId};
 
+/// Layout information for a user-defined struct type.
+///
+/// Tracks field names and their indices for field access code generation.
+#[derive(Clone, Debug)]
+pub struct StructLayout {
+    /// Field names in declaration order (index = LLVM struct field index).
+    pub fields: Vec<Name>,
+    /// Map from field name to index for O(1) lookup.
+    pub field_indices: HashMap<Name, u32>,
+}
+
+impl StructLayout {
+    /// Create a new struct layout from field names.
+    pub fn new(fields: Vec<Name>) -> Self {
+        let field_indices = fields
+            .iter()
+            .enumerate()
+            .map(|(i, &name)| (name, i as u32))
+            .collect();
+        Self {
+            fields,
+            field_indices,
+        }
+    }
+
+    /// Get the field index for a given field name.
+    pub fn field_index(&self, name: Name) -> Option<u32> {
+        self.field_indices.get(&name).copied()
+    }
+}
+
 /// Type cache for avoiding repeated LLVM type construction.
 ///
 /// Two-level cache following Rust's pattern:
@@ -35,6 +66,10 @@ pub struct TypeCache<'ll> {
     ///
     /// Uses interned `Name` as key for O(1) lookup without string hashing.
     pub named_structs: HashMap<Name, StructType<'ll>>,
+    /// Struct field layouts for user-defined types.
+    ///
+    /// Maps type name to field layout for field access code generation.
+    pub struct_layouts: HashMap<Name, StructLayout>,
 }
 
 impl<'ll> TypeCache<'ll> {
@@ -356,6 +391,51 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
         self.type_cache
             .borrow_mut()
             .get_or_create_named_struct(self.llcx(), name, name_str)
+    }
+
+    // -- Struct layout management --
+
+    /// Register a user-defined struct type with its field layout.
+    ///
+    /// This creates an LLVM named struct type and records the field names
+    /// for later field access code generation.
+    pub fn register_struct(
+        &self,
+        name: Name,
+        field_names: Vec<Name>,
+        field_types: &[BasicTypeEnum<'ll>],
+    ) {
+        // Create or get the named struct type
+        let struct_ty = self.get_or_create_named_struct(name);
+
+        // Set the struct body with field types
+        self.scx.set_struct_body(struct_ty, field_types, false);
+
+        // Record the field layout for field access
+        let layout = StructLayout::new(field_names);
+        self.type_cache
+            .borrow_mut()
+            .struct_layouts
+            .insert(name, layout);
+    }
+
+    /// Look up a registered struct type by name.
+    pub fn get_struct_type(&self, name: Name) -> Option<StructType<'ll>> {
+        self.type_cache.borrow().named_structs.get(&name).copied()
+    }
+
+    /// Look up the field index for a struct field.
+    pub fn get_field_index(&self, struct_name: Name, field_name: Name) -> Option<u32> {
+        self.type_cache
+            .borrow()
+            .struct_layouts
+            .get(&struct_name)
+            .and_then(|layout| layout.field_index(field_name))
+    }
+
+    /// Get the struct layout for a type.
+    pub fn get_struct_layout(&self, name: Name) -> Option<StructLayout> {
+        self.type_cache.borrow().struct_layouts.get(&name).cloned()
     }
 
     // -- Function instance management --

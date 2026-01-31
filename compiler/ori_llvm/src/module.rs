@@ -52,6 +52,20 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
         self.cx.declare_runtime_functions();
     }
 
+    /// Register a user-defined struct type.
+    ///
+    /// Creates an LLVM struct type with the given field names.
+    /// For now, all fields are mapped to i64 (matching the default fallback).
+    pub fn register_struct(&self, name: Name, field_names: Vec<Name>) {
+        // For now, all fields are i64 (matching the INT fallback)
+        let field_types: Vec<_> = field_names
+            .iter()
+            .map(|_| self.cx.scx.type_i64().into())
+            .collect();
+
+        self.cx.register_struct(name, field_names, &field_types);
+    }
+
     /// Compile a function definition (legacy - uses hardcoded INT types).
     pub fn compile_function(&self, func: &Function, arena: &ExprArena, expr_types: &[TypeId]) {
         self.compile_function_with_sig(func, arena, expr_types, None);

@@ -270,7 +270,7 @@ pub fn infer_method_call_named(
 /// Core method call inference logic shared between positional and named variants.
 ///
 /// This function handles:
-/// - Associated function calls on type names (e.g., `Duration.from_seconds`)
+/// - Associated function calls on type names (e.g., `Point.origin`, `Duration.from_seconds`)
 /// - Looking up methods in the trait registry
 /// - Checking argument count matches expected
 /// - Unifying argument types with parameter types
@@ -283,11 +283,55 @@ fn infer_method_call_core(
     arg_spans: &[Span],
     span: Span,
 ) -> Type {
-    // Check for associated function calls on type names (e.g., Duration.from_seconds)
+    // Check for associated function calls on type names (e.g., Point.origin, Duration.from_seconds)
     if let Type::Named(type_name) = resolved_receiver {
+        // First, check user-defined associated functions in the registry
+        if let Some(method_lookup) = checker
+            .registries
+            .traits
+            .lookup_associated_function(*type_name, method)
+        {
+            // Associated functions have no self parameter, so all params are arguments
+            if arg_types.len() != method_lookup.params.len() {
+                checker.push_error(
+                    format!(
+                        "associated function `{}` expects {} arguments, found {}",
+                        checker.context.interner.lookup(method),
+                        method_lookup.params.len(),
+                        arg_types.len()
+                    ),
+                    span,
+                    ori_diagnostic::ErrorCode::E2004,
+                );
+                return Type::Error;
+            }
+
+            // Unify argument types with parameter types
+            for (i, (param_ty, arg_ty)) in method_lookup
+                .params
+                .iter()
+                .zip(arg_types.iter())
+                .enumerate()
+            {
+                if let Err(e) = checker.inference.ctx.unify(param_ty, arg_ty) {
+                    let arg_span = arg_spans.get(i).copied().unwrap_or(span);
+                    checker.report_type_error(&e, arg_span);
+                }
+            }
+
+            return method_lookup.return_ty.clone();
+        }
+
+        // Fall back to built-in associated functions (Duration, Size)
         let type_name_str = checker.context.interner.lookup(*type_name);
-        if is_type_name_for_associated_functions(type_name_str) {
-            return infer_associated_function(checker, type_name_str, method, arg_types, span);
+        if is_builtin_type_with_associated_functions(type_name_str) {
+            return infer_builtin_associated_function(
+                checker,
+                type_name_str,
+                method,
+                arg_types,
+                span,
+            );
         }
     }
 
@@ -410,19 +454,19 @@ fn infer_builtin_method(
     }
 }
 
-/// Check if an identifier is a type name that supports associated functions.
+/// Check if a type name is a built-in type with associated functions.
 ///
-/// These types have factory methods like `Duration.from_seconds(s:)` that can be
-/// called without an instance.
-fn is_type_name_for_associated_functions(name: &str) -> bool {
+/// These built-in types have factory methods like `Duration.from_seconds(s:)` that
+/// are implemented in the compiler rather than user code.
+fn is_builtin_type_with_associated_functions(name: &str) -> bool {
     matches!(name, "Duration" | "Size")
 }
 
-/// Infer the type of an associated function call.
+/// Infer the type of a built-in associated function call.
 ///
-/// Associated functions are called on type names rather than instances,
+/// This handles associated functions on built-in types like Duration and Size,
 /// e.g., `Duration.from_seconds(s: 10)`.
-fn infer_associated_function(
+fn infer_builtin_associated_function(
     checker: &mut TypeChecker<'_>,
     type_name: &str,
     method: Name,

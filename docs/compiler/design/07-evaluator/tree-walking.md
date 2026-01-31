@@ -53,13 +53,39 @@ fn eval_literal(&self, lit: &Literal) -> Result<Value, EvalError> {
 
 ### Identifiers
 
+Identifier evaluation first checks the environment, then checks for type names with associated functions:
+
 ```rust
-fn eval_ident(&self, name: Name) -> Result<Value, EvalError> {
-    self.env.get(name).cloned().ok_or_else(|| {
-        EvalError::UndefinedVariable { name, span: self.current_span() }
-    })
+fn eval_ident(
+    name: Name,
+    env: &Environment,
+    interner: &StringInterner,
+    user_registry: Option<&UserMethodRegistry>,
+) -> EvalResult {
+    // First check environment
+    if let Some(val) = env.lookup(name) {
+        return Ok(val);
+    }
+
+    let name_str = interner.lookup(name);
+
+    // Check user-defined types with associated functions
+    if let Some(registry) = user_registry {
+        if registry.has_any_methods_for_type(name) {
+            return Ok(Value::TypeRef { type_name: name });
+        }
+    }
+
+    // Check built-in types with associated functions
+    if is_builtin_type_with_associated_functions(name_str) {
+        return Ok(Value::TypeRef { type_name: name });
+    }
+
+    Err(undefined_variable(name_str))
 }
 ```
+
+This enables associated function calls like `Point.origin()` where `Point` evaluates to a `TypeRef` value.
 
 ### Binary Operations
 
@@ -129,6 +155,54 @@ fn binary_op_to_method(op: BinaryOp) -> Option<&'static str> {
         BinaryOp::Shr => Some("shr"),
         _ => None, // Comparison and logical operators handled separately
     }
+}
+```
+
+### Method Calls and Associated Functions
+
+Method calls dispatch based on the receiver type. For `TypeRef` receivers (associated function calls), the receiver is not passed as an argument:
+
+```rust
+fn eval_method_call(
+    &mut self,
+    receiver: Value,
+    method: Name,
+    args: Vec<Value>,
+) -> EvalResult {
+    // Associated functions: receiver is a type name
+    if let Value::TypeRef { type_name } = &receiver {
+        // Check user-defined associated functions first
+        if let Some(method_def) = self.user_registry.lookup(*type_name, method) {
+            return self.eval_associated_function(method_def, &args);  // No receiver
+        }
+
+        // Fall back to built-in associated functions (Duration, Size)
+        return self.eval_builtin_associated(type_name, method, &args);
+    }
+
+    // Instance methods: receiver is passed as first argument
+    self.eval_instance_method(receiver, method, args)
+}
+
+fn eval_associated_function(
+    &mut self,
+    method: &UserMethod,
+    args: &[Value],
+) -> EvalResult {
+    // Associated functions don't have 'self', so params == args
+    if method.params.len() != args.len() {
+        return Err(wrong_function_args(method.params.len(), args.len()));
+    }
+
+    let mut call_env = self.env.child();
+    call_env.push_scope();
+
+    // Bind parameters directly (no self binding)
+    for (param, arg) in method.params.iter().zip(args.iter()) {
+        call_env.define(*param, arg.clone(), Mutability::Immutable);
+    }
+
+    self.eval_with_env(method.body, call_env)
 }
 ```
 

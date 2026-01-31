@@ -34,6 +34,7 @@ fn test_register_trait() {
             params: vec![],
             return_ty: TypeId::STR,
             has_default: false,
+            is_associated: true, // no self param
         }],
         vec![],
         Visibility::Public,
@@ -67,6 +68,7 @@ fn test_register_inherent_impl() {
             name: new_name,
             params: vec![TypeId::INT, TypeId::INT],
             return_ty: point_type_id,
+            is_associated: true, // no self param (factory method)
         }],
         vec![],
     );
@@ -100,6 +102,7 @@ fn test_register_trait_impl() {
             params: vec![],
             return_ty: TypeId::STR,
             has_default: false,
+            is_associated: true, // no self param
         }],
         vec![],
         Visibility::Public,
@@ -116,6 +119,7 @@ fn test_register_trait_impl() {
             name: to_string,
             params: vec![],
             return_ty: TypeId::STR,
+            is_associated: true, // no self param
         }],
         vec![],
     );
@@ -148,6 +152,7 @@ fn test_method_lookup_priority() {
             name: describe,
             params: vec![],
             return_ty: TypeId::STR,
+            is_associated: true, // no self param
         }],
         vec![],
     );
@@ -181,6 +186,7 @@ fn test_coherence_duplicate_trait_impl() {
             params: vec![],
             return_ty: TypeId::STR,
             has_default: false,
+            is_associated: true, // no self param
         }],
         vec![],
         Visibility::Public,
@@ -197,6 +203,7 @@ fn test_coherence_duplicate_trait_impl() {
             name: to_string,
             params: vec![],
             return_ty: TypeId::STR,
+            is_associated: true, // no self param
         }],
         vec![],
     );
@@ -212,6 +219,7 @@ fn test_coherence_duplicate_trait_impl() {
             name: to_string,
             params: vec![],
             return_ty: TypeId::STR,
+            is_associated: true, // no self param
         }],
         vec![],
     );
@@ -236,6 +244,7 @@ fn test_coherence_duplicate_inherent_method() {
             name: describe,
             params: vec![],
             return_ty: TypeId::STR,
+            is_associated: true, // no self param
         }],
         vec![],
     );
@@ -251,6 +260,7 @@ fn test_coherence_duplicate_inherent_method() {
             name: describe,
             params: vec![],
             return_ty: TypeId::INT,
+            is_associated: true, // no self param
         }],
         vec![],
     );
@@ -276,6 +286,7 @@ fn test_coherence_multiple_inherent_impls_different_methods() {
             name: method1,
             params: vec![],
             return_ty: TypeId::INT,
+            is_associated: true, // no self param
         }],
         vec![],
     );
@@ -291,6 +302,7 @@ fn test_coherence_multiple_inherent_impls_different_methods() {
             name: method2,
             params: vec![],
             return_ty: TypeId::STR,
+            is_associated: true, // no self param
         }],
         vec![],
     );

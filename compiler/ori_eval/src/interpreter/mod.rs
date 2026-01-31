@@ -284,7 +284,12 @@ impl<'a> Interpreter<'a> {
             | ExprKind::Size { .. } => unreachable!("handled by eval_literal"),
 
             // Identifiers
-            ExprKind::Ident(name) => crate::exec::expr::eval_ident(*name, &self.env, self.interner),
+            ExprKind::Ident(name) => crate::exec::expr::eval_ident(
+                *name,
+                &self.env,
+                self.interner,
+                Some(&self.user_method_registry.read()),
+            ),
 
             // Operators
             ExprKind::Binary { left, op, right } => self.eval_binary(*left, *op, *right),

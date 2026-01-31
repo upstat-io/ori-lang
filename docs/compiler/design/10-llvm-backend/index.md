@@ -59,6 +59,7 @@ Ori types map to LLVM types as follows:
 | `Option<T>` | `{ i8, T }` | Tag (0=None, 1=Some) + payload |
 | `Result<T, E>` | `{ i8, payload }` | Tag (0=Ok, 1=Err) + payload |
 | `(A, B, ...)` | `{ A, B, ... }` | Anonymous struct |
+| User structs | Named `{ fields... }` | Registered via `StructLayout` (see [User Types](user-types.md)) |
 | Closures | `i64` | Tagged pointer (see [Closures](closures.md)) |
 
 ## Compilation Phases
@@ -109,17 +110,21 @@ See [runtime.rs](../../../compiler/ori_llvm/src/runtime.rs) for the complete lis
 ## Documentation Sections
 
 - [Closures](closures.md) - Closure representation and calling conventions
+- [User-Defined Types](user-types.md) - Struct types, impl blocks, and method dispatch
 
 ## Source Files
 
 | File | Purpose |
 |------|---------|
-| `context.rs` | `SimpleCx` and `CodegenCx` definitions |
+| `context.rs` | `SimpleCx`, `CodegenCx`, `StructLayout`, `TypeCache` |
 | `builder.rs` | `Builder` type and IR generation helpers |
 | `declare.rs` | Function declaration phase |
-| `module.rs` | Module-level code generation |
+| `module.rs` | Module-level compilation, struct registration |
+| `evaluator.rs` | JIT evaluation, module loading orchestration |
 | `functions/` | Function body compilation |
+| `functions/calls.rs` | Function and method call compilation |
 | `collections/` | Collection type handling (lists, maps, tuples) |
+| `collections/structs.rs` | Struct literals and field access |
 | `control_flow.rs` | If/else, loops, match |
 | `operators.rs` | Binary and unary operators |
 | `runtime.rs` | Runtime function definitions |

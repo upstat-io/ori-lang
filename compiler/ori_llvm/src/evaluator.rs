@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use inkwell::context::Context;
 
-use ori_ir::ast::{Module, Visibility};
+use ori_ir::ast::{Module, TypeDeclKind, Visibility};
 use ori_ir::{ExprArena, ExprId, Name, StringInterner, TypeId};
 
 use crate::module::ModuleCompiler;
@@ -137,9 +137,36 @@ impl<'ctx> LLVMEvaluator<'ctx> {
         let compiler = ModuleCompiler::new(self.context, self.interner, "test_module");
         compiler.declare_runtime();
 
+        // Register user-defined struct types
+        for type_decl in &module.types {
+            if let TypeDeclKind::Struct(fields) = &type_decl.kind {
+                let field_names: Vec<Name> = fields.iter().map(|f| f.name).collect();
+                compiler.register_struct(type_decl.name, field_names);
+            }
+        }
+
         // Compile all functions the test might call
         for func in &module.functions {
             compiler.compile_function(func, arena, &self.expr_types);
+        }
+
+        // Compile impl block methods
+        for impl_def in &module.impls {
+            for method in &impl_def.methods {
+                // Convert ImplMethod to Function for compilation
+                let func = ori_ir::Function {
+                    name: method.name,
+                    generics: impl_def.generics,
+                    params: method.params,
+                    return_ty: None,
+                    capabilities: vec![],
+                    where_clauses: vec![],
+                    body: method.body,
+                    span: method.span,
+                    visibility: Visibility::Private,
+                };
+                compiler.compile_function(&func, arena, &self.expr_types);
+            }
         }
 
         // Create a wrapper test function
@@ -279,10 +306,39 @@ impl OwnedLLVMEvaluator {
         let compiler = ModuleCompiler::new(&self.context, interner, "test_module");
         compiler.declare_runtime();
 
+        // Register user-defined struct types
+        for type_decl in &module.types {
+            if let TypeDeclKind::Struct(fields) = &type_decl.kind {
+                let field_names: Vec<Name> = fields.iter().map(|f| f.name).collect();
+                compiler.register_struct(type_decl.name, field_names);
+            }
+        }
+
         // Compile all functions the test might call
         for (i, func) in module.functions.iter().enumerate() {
             let sig = function_sigs.get(i);
             compiler.compile_function_with_sig(func, arena, expr_types, sig);
+        }
+
+        // Compile impl block methods
+        for impl_def in &module.impls {
+            for method in &impl_def.methods {
+                // Convert ImplMethod to Function for compilation
+                let func = ori_ir::Function {
+                    name: method.name,
+                    generics: impl_def.generics,
+                    params: method.params,
+                    return_ty: None, // Type info comes from expr_types
+                    capabilities: vec![],
+                    where_clauses: vec![],
+                    body: method.body,
+                    span: method.span,
+                    visibility: Visibility::Private,
+                };
+                // Compile without signature - uses fallback INT types
+                // TODO: Get proper signatures for impl methods
+                compiler.compile_function(&func, arena, expr_types);
+            }
         }
 
         // Create a wrapper test function

@@ -95,6 +95,9 @@ pub enum Value {
     // Module System
     ModuleNamespace(Heap<HashMap<Name, Value>>),  // For module aliases
 
+    // Type References (for associated function calls)
+    TypeRef { type_name: Name },  // e.g., Point in Point.origin()
+
     // Error Recovery
     Error(String),
 }
@@ -283,6 +286,55 @@ impl Value {
     pub fn module_namespace(members: HashMap<Name, Value>) -> Self {
         Value::ModuleNamespace(Heap::new(members))
     }
+}
+```
+
+## Type Reference Values
+
+Type references represent type names used as receivers in associated function calls:
+
+```rust
+Value::TypeRef { type_name: Name }
+```
+
+When evaluating an identifier:
+1. Look up in the local environment
+2. If not found, check if the name refers to a type with associated functions
+3. If so, return `Value::TypeRef { type_name }`
+
+```rust
+fn eval_ident(name: Name, env: &Environment, interner: &StringInterner) -> EvalResult {
+    // First check environment
+    if let Some(val) = env.lookup(name) {
+        return Ok(val);
+    }
+
+    let name_str = interner.lookup(name);
+
+    // Check for types with associated functions
+    if is_type_with_associated_functions(name_str) {
+        return Ok(Value::TypeRef { type_name: name });
+    }
+
+    Err(undefined_variable(name_str))
+}
+```
+
+Associated function calls work as follows:
+1. `Point.origin()` evaluates `Point` to `Value::TypeRef { type_name: "Point" }`
+2. Method dispatch checks if receiver is `TypeRef`
+3. If so, looks up the method as an associated function (no `self` parameter)
+4. Calls the function without passing the receiver as an argument
+
+```rust
+// In method dispatch
+if let Value::TypeRef { type_name } = &receiver {
+    // Look up associated function in the user method registry
+    if let Some(method) = registry.lookup(type_name, method_name) {
+        return eval_associated_function(method, &args);  // No receiver in args
+    }
+    // Fall back to built-in associated functions (Duration, Size)
+    // ...
 }
 ```
 

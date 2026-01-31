@@ -23,6 +23,7 @@ use crate::{
     EvalError,
     EvalResult,
     RangeValue,
+    UserMethodRegistry,
     Value,
 };
 use ori_ir::{BinaryOp, ExprId, ExprKind, Name, StringInterner};
@@ -48,7 +49,16 @@ pub fn eval_literal(kind: &ExprKind, interner: &StringInterner) -> Option<EvalRe
 }
 
 /// Evaluate an identifier lookup.
-pub fn eval_ident(name: Name, env: &Environment, interner: &StringInterner) -> EvalResult {
+///
+/// The `user_registry` parameter allows checking if a type name has associated
+/// functions registered via impl blocks. This enables `Type.method()` syntax for
+/// user-defined types with associated functions (methods without `self`).
+pub fn eval_ident(
+    name: Name,
+    env: &Environment,
+    interner: &StringInterner,
+    user_registry: Option<&UserMethodRegistry>,
+) -> EvalResult {
     // First check local bindings (variables shadow type names)
     if let Some(val) = env.lookup(name) {
         return Ok(val);
@@ -56,18 +66,27 @@ pub fn eval_ident(name: Name, env: &Environment, interner: &StringInterner) -> E
 
     // Check if this is a type name for associated function calls
     let name_str = interner.lookup(name);
-    if is_type_name_for_associated_functions(name_str) {
+
+    // Check user-defined types with associated functions (impl blocks)
+    if let Some(registry) = user_registry {
+        if registry.has_any_methods_for_type(name) {
+            return Ok(Value::TypeRef { type_name: name });
+        }
+    }
+
+    // Check built-in types with associated functions (Duration, Size)
+    if is_builtin_type_with_associated_functions(name_str) {
         return Ok(Value::TypeRef { type_name: name });
     }
 
     Err(undefined_variable(name_str))
 }
 
-/// Check if an identifier is a type name that supports associated functions.
+/// Check if a type name is a built-in type with associated functions.
 ///
-/// These types have factory methods like `Duration.from_seconds(s:)` that can be
-/// called without an instance.
-fn is_type_name_for_associated_functions(name: &str) -> bool {
+/// These built-in types have factory methods like `Duration.from_seconds(s:)` that
+/// are implemented in the compiler rather than user code.
+fn is_builtin_type_with_associated_functions(name: &str) -> bool {
     matches!(name, "Duration" | "Size")
 }
 
