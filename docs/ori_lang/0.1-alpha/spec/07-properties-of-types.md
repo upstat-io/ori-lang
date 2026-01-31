@@ -518,3 +518,95 @@ type Point = { x: int, y: int }
 ```
 
 Deriving `Hashable` without `Eq` produces a warning.
+
+## Into Trait
+
+The `Into` trait provides semantic, lossless type conversions.
+
+```ori
+trait Into<T> {
+    @into (self) -> T
+}
+```
+
+`Into<T>` represents a conversion from `Self` to `T`. Unlike `as` conversions (which are built-in and handle representation changes), `Into` is user-extensible and represents semantic conversions between types.
+
+### Usage
+
+Conversions are always explicit. The caller must invoke `.into()`:
+
+```ori
+let error: Error = "something went wrong".into()
+```
+
+When a function accepts `impl Into<T>`, the caller must still call `.into()` explicitly:
+
+```ori
+@fail (err: impl Into<Error>) -> Never = panic(msg: err.into().message)
+
+fail(err: "simple message".into())  // Explicit .into() required
+fail(err: Error { message: "detailed" })  // No conversion needed
+```
+
+No implicit conversion occurs at call sites. This maintains Ori's "no implicit conversions" principle.
+
+### Standard Implementations
+
+| Source | Target | Notes |
+|--------|--------|-------|
+| `str` | `Error` | Creates Error with message |
+| `int` | `float` | Lossless numeric widening |
+| `Set<T>` | `[T]` | Requires `T: Eq + Hashable` |
+
+**Note**: `Into` is for lossless conversions only. Lossy conversions (like `float` to `int` truncation) require explicit `as` syntax.
+
+### Relationship to `as`
+
+| Mechanism | Fallible | Implicit | Extensible | Use Case |
+|-----------|----------|----------|------------|----------|
+| `as` | No | No | No | Primitive representation changes |
+| `as?` | Yes | No | No | Parsing, checked conversions |
+| `Into` | No | No | Yes | Semantic type conversions |
+
+### Custom Implementations
+
+User types may implement `Into` for meaningful conversions:
+
+```ori
+type UserId = int
+
+impl Into<str> for UserId {
+    @into (self) -> str = `user-{self.0}`
+}
+
+let id = UserId(42)
+let s: str = id.into()  // "user-42"
+```
+
+### No Blanket Identity
+
+There is no blanket `impl<T> Into<T> for T`. Each conversion must be explicitly implemented. This ensures `impl Into<T>` parameters remain meaningful — they indicate types that can be converted to `T`, not any type.
+
+### No Automatic Chaining
+
+Conversions do not chain automatically:
+
+```ori
+// Given: A implements Into<B>, B implements Into<C>
+let a: A = ...
+let c: C = a.into()         // ERROR: A does not implement Into<C>
+let c: C = a.into().into()  // OK: explicit A → B → C
+```
+
+### Orphan Rules
+
+`Into` implementations follow standard orphan rules:
+- Implement in the module defining the source type, OR
+- Implement in the module defining the target type
+
+### Error Codes
+
+| Code | Description |
+|------|-------------|
+| E0960 | Type does not implement `Into<T>` |
+| E0961 | Multiple `Into` implementations apply (ambiguous) |

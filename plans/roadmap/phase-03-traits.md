@@ -982,3 +982,57 @@ Formalizes the `Formattable` trait and format specification syntax for customize
 - [ ] **Update Spec**: `07-properties-of-types.md` — add Formattable trait section
 - [ ] **Update Spec**: `12-modules.md` — add FormatSpec, Alignment, Sign, FormatType to prelude
 - [ ] **Update**: `CLAUDE.md` — update Formattable entry with full format spec syntax
+
+---
+
+## 3.17 Into Trait
+
+**Proposal**: `proposals/approved/into-trait-proposal.md`
+
+Formalizes the `Into` trait for semantic, lossless type conversions. Defines trait signature, standard implementations, relationship to `as`/`as?`, and rules for custom implementations.
+
+### Implementation
+
+- [ ] **Implement**: `Into<T>` trait definition in type system
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — into trait parsing/bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/into/definition.ori`
+
+- [ ] **Implement**: Into implementation for str→Error
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — str to error conversion
+  - [ ] **Ori Tests**: `tests/spec/traits/into/str_to_error.ori`
+  - [ ] **LLVM Support**: LLVM codegen for str→Error conversion
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/into_tests.rs`
+
+- [ ] **Implement**: Into implementation for int→float (numeric widening)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — int to float conversion
+  - [ ] **Ori Tests**: `tests/spec/traits/into/int_to_float.ori`
+  - [ ] **LLVM Support**: LLVM codegen for int→float conversion
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/into_tests.rs`
+
+- [ ] **Implement**: Into implementation for Set<T>→[T] (with T: Eq + Hashable constraint)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — set to list conversion
+  - [ ] **Ori Tests**: `tests/spec/traits/into/set_to_list.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Set→List conversion
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/into_tests.rs`
+
+- [ ] **Implement**: Custom Into implementations for user types
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — custom into impl
+  - [ ] **Ori Tests**: `tests/spec/traits/into/custom_impl.ori`
+
+- [ ] **Implement**: No blanket identity (no impl<T> Into<T> for T)
+  - [ ] **Ori Tests**: `tests/compile-fail/into_no_identity.ori`
+
+- [ ] **Implement**: No automatic conversion chaining
+  - [ ] **Ori Tests**: `tests/compile-fail/into_no_chaining.ori`
+
+- [ ] **Implement**: Orphan rule enforcement for Into implementations
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — orphan rule tests
+  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/into_orphan_rule.ori`
+
+- [ ] **Implement**: Error messages (E0960-E0961)
+  - [ ] E0960: Type does not implement Into<T>
+  - [ ] E0961: Multiple Into implementations apply (ambiguous)
+
+- [ ] **Update Spec**: `07-properties-of-types.md` — add Into trait section
+- [ ] **Update Spec**: `12-modules.md` — verify Into in prelude traits list
+- [ ] **Update**: `CLAUDE.md` — add Into documentation to prelude
