@@ -186,6 +186,31 @@ is_cancelled() -> bool
 
 Available in async contexts. Returns `true` if the current task has been marked for cancellation. See [Patterns § nursery](10-patterns.md#nursery) for cancellation semantics.
 
+## Resource Management
+
+### drop_early
+
+```
+drop_early<T>(value: T) -> void
+```
+
+Forces a value to be dropped before the end of its scope. Takes ownership of the value, causing its destructor to run immediately (if the type implements `Drop`) and its memory to be reclaimed.
+
+```ori
+run(
+    let file = open_file(path: "data.txt"),
+    let content = read_all(file),
+    drop_early(value: file),  // Close immediately, don't wait for scope end
+    process(content),         // Continue with content, file already closed
+)
+```
+
+Works for any type, not just types implementing `Drop`:
+- For types with `Drop`: the `drop` method is called, then memory is reclaimed
+- For types without `Drop`: memory is reclaimed immediately
+
+Use `drop_early` to release resources (file handles, connections, locks) as soon as they are no longer needed, rather than waiting for scope exit.
+
 ## Iteration
 
 ### repeat
@@ -259,7 +284,7 @@ Available without import:
 - All assertions
 - `print`, `panic`, `compare`, `min`, `max`
 - `todo`, `unreachable`, `dbg`
-- `repeat`
+- `repeat`, `drop_early`
 - `compile_error`
 - `is_cancelled` (async contexts only)
 - `CancellationError`, `CancellationReason`, `PanicInfo` types

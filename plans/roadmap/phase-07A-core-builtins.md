@@ -261,7 +261,36 @@ Formalizes `repeat`, `compile_error`, `PanicInfo`, and clarifies `??` operator s
 
 ---
 
-## 7A.7 Phase Completion Checklist
+## 7A.7 Resource Management
+
+**Proposal**: `proposals/approved/drop-trait-proposal.md`
+
+Adds `drop_early` function for explicit early resource release.
+
+### drop_early Function
+
+- [ ] **Implement**: `drop_early<T>(value: T) -> void` — Force drop before scope exit
+  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — drop_early tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/drop_early.ori`
+  - [ ] **LLVM Support**: LLVM codegen for drop_early
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/drop_tests.rs` — drop_early codegen
+
+- [ ] **Implement**: drop_early works for any type (not restricted to T: Drop)
+  - Types with Drop: drop method called, then memory reclaimed
+  - Types without Drop: memory reclaimed immediately
+  - [ ] **Ori Tests**: `tests/spec/stdlib/drop_early_any_type.ori`
+
+- [ ] **Add to prelude**: drop_early available without import
+  - [ ] **Ori Tests**: `tests/spec/prelude/drop_early.ori`
+
+- [ ] **Update Spec**: `spec/11-built-in-functions.md` — add drop_early documentation
+  - [ ] Signature: `drop_early<T>(value: T) -> void`
+  - [ ] Semantics: Takes ownership, value is dropped immediately
+  - [ ] Use case: Release resources before scope exit
+
+---
+
+## 7A.8 Phase Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md

@@ -1,6 +1,7 @@
 # Proposal: Drop Trait
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-30
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-30
 **Affects:** Compiler, memory model, traits
@@ -107,13 +108,13 @@ run(
 
 ### Collections
 
-Collection elements are dropped in iteration order:
+Collection elements are dropped in reverse order (back-to-front):
 
 ```ori
 run(
     let list = [r1, r2, r3],
 )
-// Drop order: r1, r2, r3 (forward order)
+// Drop order: r3, r2, r1 (back-to-front)
 ```
 
 ---
@@ -248,7 +249,7 @@ drop_early(a)  // refcount 1
 Force drop before scope exit:
 
 ```ori
-@drop_early<T: Drop> (value: T) -> void = ()  // Takes ownership, then drops
+@drop_early<T> (value: T) -> void = ()  // Takes ownership, value is dropped
 
 run(
     let file = open_file(path),
@@ -385,7 +386,7 @@ Document Drop's role in ARC.
 | Called when | Reference count reaches zero |
 | Order | LIFO (reverse declaration order) |
 | Field order | Reverse declaration order |
-| Collection order | Forward iteration order |
+| Collection order | Back-to-front (reverse index order) |
 | Async | Not allowed |
 | Panic in drop | Abort if during unwind |
 | Derivable | No |
