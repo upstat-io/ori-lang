@@ -205,7 +205,11 @@ The spec formalizes two distinct pattern categories:
 
 ## 8.8 with (Resource Management)
 
+**Proposal**: `proposals/approved/with-pattern-proposal.md`
+
 > **NOTE**: Uses `.action:` instead of spec's `.use:` (`use` is reserved keyword).
+
+### Basic Implementation (complete)
 
 - [x] **Implement**: Parse `with` pattern in parser
   - [x] **Rust Tests**: `oric/src/patterns/with.rs` — with pattern execution tests
@@ -215,6 +219,37 @@ The spec formalizes two distinct pattern categories:
 - [x] **Implement**: `.action:` property (spec uses `.use:`) — spec/10-patterns.md § with
 - [x] **Implement**: `.release:` property — spec/10-patterns.md § with
 - [x] **Implement**: Acquire resource, call `.action`, always call `.release` even on error
+
+### Release Guarantee (from approved proposal)
+
+- [ ] **Implement**: Release runs if acquire succeeds — with-pattern-proposal.md
+  - Release runs on normal completion of use
+  - Release runs on panic during use
+  - Release runs on error propagation (`?`) in use
+  - Release runs on `break`/`continue` in use
+  - [ ] **Rust Tests**: `oric/src/patterns/with.rs` — release guarantee tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/with_guarantee.ori`
+  - [ ] **LLVM Support**: LLVM codegen for unwinding with release
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — with unwinding codegen
+
+### Type Constraints (from approved proposal)
+
+- [ ] **Implement**: `release` must return `void` — with-pattern-proposal.md
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/with.rs` — release type constraint
+  - [ ] **Ori Tests**: `tests/spec/patterns/with_types.ori`
+
+### Double Fault Abort (from approved proposal)
+
+- [ ] **Implement**: If release panics during unwind, abort immediately — with-pattern-proposal.md
+  - `@panic` handler NOT called
+  - Both panic messages shown
+  - [ ] **Rust Tests**: `oric/src/patterns/with.rs` — double fault tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/with_double_fault.ori`
+
+### Error Messages (from approved proposal)
+
+- [ ] **Implement**: E0860 — `with` pattern missing required parameter — with-pattern-proposal.md
+- [ ] **Implement**: E0861 — `release` must return `void` — with-pattern-proposal.md
 
 ---
 

@@ -543,17 +543,123 @@ The `cache` pattern and `recurse(..., memo: true)` serve different purposes:
 
 ### with
 
-Resource management.
+Resource management with guaranteed cleanup.
 
 ```ori
 with(
     acquire: open_file(path),
-    use: f -> read_all(f),
+    action: f -> read_all(f),
     release: f -> close(f),
 )
 ```
 
-`release` always runs.
+> **Note:** The property is named `action:` because `use` is a reserved keyword.
+
+#### Semantics
+
+1. Evaluate `acquire:` to obtain resource
+2. If `acquire` fails (returns `Err` or panics), stop—no cleanup needed
+3. If `acquire` succeeds, bind result to `action:` parameter
+4. Evaluate `action:` expression
+5. Always evaluate `release:` with the resource, regardless of how `action:` completed
+
+The pattern returns the result of `action:`.
+
+#### Release Guarantee
+
+If `acquire:` succeeds, `release:` runs under all exit conditions:
+
+| Exit Condition | Release Runs |
+|----------------|--------------|
+| Normal completion | Yes |
+| Panic during action | Yes |
+| Error propagation (`?`) | Yes |
+| `break` in action | Yes |
+| `continue` in action | Yes |
+
+```ori
+with(
+    acquire: open_file(path),
+    action: f -> run(
+        if bad_condition then panic("abort"),
+        if err_condition then return Err("failed"),
+        read_all(f),
+    ),
+    release: f -> close(f),  // Always called
+)
+```
+
+#### Type Constraints
+
+The `release:` expression must return `void`:
+
+```ori
+// OK: release returns void
+with(acquire: lock(), action: l -> work(), release: l -> l.unlock())
+
+// Error E0861: release must return void
+with(acquire: lock(), action: l -> work(), release: l -> l.count())
+```
+
+#### Result Types
+
+When `acquire:` returns `Result<R, E>`:
+
+```ori
+@open_file (path: str) -> Result<File, IoError>
+
+// Using `?` for fallible acquire:
+@read_config (path: str) -> Result<Config, IoError> =
+    with(
+        acquire: open_file(path)?,  // Propagates Err, no cleanup needed
+        action: f -> parse(f.read_all()),
+        release: f -> f.close(),
+    )
+```
+
+When `action:` may fail:
+
+```ori
+@process_file (path: str) -> Result<Data, Error> uses FileSystem =
+    with(
+        acquire: open_file(path)?,
+        action: f -> run(
+            let content = f.read_all()?,  // May propagate Err
+            parse(content)?,              // May propagate Err
+        ),
+        release: f -> f.close(),  // Still runs on any Err
+    )
+```
+
+#### Double Fault Abort
+
+If `release:` panics while already unwinding (e.g., after `action:` panicked), the program aborts immediately:
+
+- The `@panic` handler is NOT called
+- Both panic messages are shown
+- Exit code is non-zero
+
+This prevents cascading failures during cleanup.
+
+#### Suspending Context
+
+In a suspending context (`uses Suspend`), both `action:` and `release:` may suspend:
+
+```ori
+@with_connection (url: str) -> Data uses Suspend =
+    with(
+        acquire: connect(url),
+        action: conn -> fetch_data(conn),  // May suspend
+        release: conn -> conn.close(),     // May suspend
+    )
+```
+
+#### Error Codes
+
+| Code | Description |
+|------|-------------|
+| E0860 | `with` pattern missing required parameter (`acquire:`, `action:`, or `release:`) |
+| E0861 | `release` must return `void` |
 
 ## Error Recovery (function_exp)
 

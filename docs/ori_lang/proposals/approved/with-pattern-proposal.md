@@ -1,8 +1,9 @@
 # Proposal: With Pattern (Resource Acquisition)
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-30
+**Approved:** 2026-01-31
 **Affects:** Compiler, patterns, resource management
 
 ---
@@ -21,7 +22,7 @@ The spec documents the `with` pattern syntax but leaves unclear:
 2. **Exception handling**: What happens if acquire, use, or release fails?
 3. **Resource lifetime**: How is the resource scoped?
 4. **Nesting behavior**: How do nested `with` patterns behave?
-5. **Async context**: How does `with` interact with concurrency?
+5. **Suspending context**: How does `with` interact with concurrency?
 
 ---
 
@@ -106,6 +107,53 @@ If `acquire` panics, `release` does not run. The panic propagates normally.
 
 ---
 
+## Result Types
+
+### Fallible Acquire
+
+When `acquire` has type `Result<R, E>`, use `?` to propagate:
+
+```ori
+with(
+    acquire: open_file(path)?,  // Unwraps Ok(R) or propagates Err(E)
+    use: f -> read_all(f),
+    release: f -> close(f),
+)
+```
+
+The `?` is evaluated before `with` binds the resource. If `acquire` returns `Err`, `release` does NOT run (no resource was acquired).
+
+### Fallible Use
+
+When `use` returns `Result<T, E>`:
+
+```ori
+with(
+    acquire: get_conn(),
+    use: c -> run(
+        let result = query(c)?,  // Early return on Err
+        Ok(result),
+    ),
+    release: c -> disconnect(c),  // Runs before Err propagates
+)
+```
+
+`release` executes before the `Err` propagates to the caller.
+
+### With Return Type
+
+The `with` pattern returns whatever `use` returns:
+
+| `use` returns | `with` returns |
+|---------------|----------------|
+| `T` | `T` |
+| `Result<T, E>` | `Result<T, E>` |
+| `Option<T>` | `Option<T>` |
+
+The pattern does not wrap or unwrap the result.
+
+---
+
 ## Release Semantics
 
 ### Normal Release
@@ -124,16 +172,30 @@ with(
 ### Release Panic
 
 If `release` panics:
-- During normal unwinding: panic propagates
-- During panic unwinding (double fault): program aborts
+
+**Normal execution (no prior panic):**
+- Panic propagates normally
+- `@panic` handler runs (if defined)
+- Program terminates after handler
+
+**During unwinding (double fault):**
+- Program aborts immediately
+- `@panic` handler does NOT run
+- Standard error shows both panic messages
+- Exit code is non-zero
 
 ```ori
 with(
     acquire: get_resource(),
-    use: r -> panic(msg: "use failed"),  // First panic
-    release: r -> panic(msg: "release failed"),  // Abort: double fault
+    use: r -> panic(msg: "use failed"),  // First panic, unwinding begins
+    release: r -> panic(msg: "release failed"),  // Second panic during unwind
+    // Output: "abort: panic during panic unwinding"
+    // Shows: "use failed" and "release failed"
+    // @panic handler is NOT called
 )
 ```
+
+**Rationale:** Double faults indicate a serious bug. Running more user code (`@panic` handler) risks further corruption. Immediate abort is the safest response.
 
 ### Release Errors
 
@@ -233,14 +295,14 @@ run(
 
 ---
 
-## Async Context
+## Suspending Context
 
-### With in Async
+### With in Suspending Context
 
-The `with` pattern works in async contexts:
+The `with` pattern works in suspending contexts:
 
 ```ori
-@fetch_data (url: str) -> Result<Data, Error> uses Async = with(
+@fetch_data (url: str) -> Result<Data, Error> uses Suspend = with(
     acquire: connect(url),
     use: conn -> run(
         let response = conn.request(method: "GET"),  // Async operation
@@ -379,7 +441,7 @@ Expand the `with` section with:
 2. Guarantee conditions
 3. Panic/error handling
 4. Nesting semantics
-5. Async interaction
+5. Suspending context interaction
 
 ---
 

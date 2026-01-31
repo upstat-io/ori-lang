@@ -856,6 +856,17 @@
 - Lazy chaining via `then_with` avoids unnecessary comparisons
 - Blocked on: None (builds on existing Phase 3 Comparable infrastructure)
 
+**With Pattern Semantics** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/with-pattern-proposal.md`
+- Implementation: Phase 8.8
+- Resource management with acquire/use/release lifecycle
+- Release guarantee: `release` always runs if `acquire` succeeds (on normal completion, panic, error propagation, break/continue)
+- Type constraints: `release` must return `void`
+- Double fault abort: if `release` panics during unwinding, program aborts immediately (no @panic handler)
+- Result type handling: fallible acquire with `?` propagation, fallible use with `?` propagation
+- Error codes: E0860 (missing parameter), E0861 (release must return void)
+- Blocked on: None (expands existing Phase 8.8 stub)
+
 ---
 
 ## Milestones
