@@ -744,6 +744,17 @@
 - No static methods, no field addition, no override
 - Blocked on: None (builds on existing Phase 4 infrastructure)
 
+**For-Yield Comprehensions** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/for-yield-comprehensions-proposal.md`
+- Implementation: Phase 10.2
+- Formalizes `for...yield` comprehension semantics
+- Type inference: context-directed or defaults to list
+- Map collection via `Collect<(K, V)>` with duplicate key overwrite
+- Nested comprehensions: `for x in xs for y in ys yield expr` via `flat_map`
+- Break/continue in yield: `continue` skips, `continue value` substitutes, `break` stops, `break value` adds final
+- Single `if` filter (use `&&` for multiple conditions)
+- Blocked on: None (extends existing for-yield syntax)
+
 ---
 
 ## Milestones

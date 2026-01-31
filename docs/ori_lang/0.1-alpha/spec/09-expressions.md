@@ -346,6 +346,8 @@ for n in numbers if n > 0 yield n * n
 
 `do` returns `void`; `yield` collects results.
 
+See [Patterns § For-Yield Comprehensions](10-patterns.md#for-yield-comprehensions) for complete `for...yield` semantics including type inference, nested comprehensions, and break/continue behavior.
+
 ## Loop Expression
 
 ```ori
