@@ -425,21 +425,117 @@ See [nursery](#nursery) for cancellation semantics and `CancellationError` type.
 
 ### spawn
 
-Fire and forget. Creates one task per list element.
+Fire-and-forget task execution. Creates one task per list element.
+
+```ori
+spawn(
+    tasks: [() -> T uses Suspend],
+    max_concurrent: Option<int> = None,
+)
+```
+
+Returns `void` immediately. Task results and errors are discarded.
+
+#### Fire-and-Forget Semantics
+
+Tasks start and the pattern returns without waiting:
 
 ```ori
 spawn(tasks: [send_email(u) for u in users])
+// Returns void immediately
+// Emails sent in background
 ```
 
-Returns `void`. Errors discarded.
+Errors in spawned tasks are silently discarded. To log errors, handle them within the task:
+
+```ori
+spawn(tasks: [
+    () -> match(risky_operation(),
+        Ok(_) -> log(msg: "success"),
+        Err(e) -> log(msg: `failed: {e}`),
+    ),
+])
+```
+
+#### Task Lifetime
+
+Spawned tasks:
+- Run independently of the spawning scope
+- May outlive the spawning function (true fire-and-forget)
+- Complete naturally, are cancelled on program exit, or terminate on panic
+
+> **Note:** `spawn` is the ONLY concurrency pattern that allows tasks to escape their spawning scope. Unlike `parallel` and `nursery`, which guarantee all tasks complete before the pattern returns, `spawn` tasks are managed by the runtime. For structured concurrency with guaranteed completion, use `nursery`.
+
+```ori
+@setup () -> void uses Suspend = run(
+    spawn(tasks: [background_monitor()]),
+    // Function returns, but monitor continues
+)
+```
+
+#### Concurrency Control
+
+When `max_concurrent` is `Some(n)`, at most `n` tasks run simultaneously. When `None` (default), all tasks may start simultaneously.
+
+#### Resource Exhaustion
+
+If the runtime cannot allocate resources for a task:
+- The task is dropped
+- No error is surfaced (fire-and-forget semantics)
+- Other tasks continue
 
 ### timeout
 
+Bounded execution time for an operation.
+
 ```ori
-timeout(op: fetch(url), after: 5s)
+timeout(
+    op: expression,
+    after: Duration,
+) -> Result<T, CancellationError>
 ```
 
-Returns `Result<T, TimeoutError>`.
+#### Basic Behavior
+
+1. Start executing `op`
+2. If `op` completes before `after`: return `Ok(result)`
+3. If `after` elapses first: cancel `op`, return `Err(CancellationError { reason: Timeout, task_id: 0 })`
+
+```ori
+let result = timeout(op: fetch(url), after: 5s)
+// result: Result<Response, CancellationError>
+```
+
+#### Cancellation
+
+When timeout expires, the operation is cooperatively cancelled using the same cancellation model as `nursery`:
+
+1. Operation is marked for cancellation
+2. At the next cancellation checkpoint, operation terminates
+3. Destructors run during unwinding
+4. `Err(CancellationError { reason: Timeout, task_id: 0 })` is returned
+
+Cancellation checkpoints:
+- Suspending function calls (functions with `uses Suspend`)
+- Loop iterations
+- Pattern entry (`run`, `try`, `match`, etc.)
+
+CPU-bound operations without checkpoints cannot be cancelled until they reach one.
+
+#### Nested Timeout
+
+Inner timeouts can be shorter than outer:
+
+```ori
+timeout(
+    op: run(
+        let a = timeout(op: step1(), after: 2s)?,
+        let b = timeout(op: step2(), after: 2s)?,
+        (a, b),
+    ),
+    after: 5s,  // Overall timeout
+)
+```
 
 ### nursery
 
@@ -465,7 +561,7 @@ The `Nursery` type provides a single method:
 
 ```ori
 type Nursery = {
-    @spawn<T> (self, task: () -> T uses Async) -> void
+    @spawn<T> (self, task: () -> T uses Suspend) -> void
 }
 ```
 

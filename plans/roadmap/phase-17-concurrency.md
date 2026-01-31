@@ -9,6 +9,7 @@
 > - `docs/ori_lang/proposals/approved/closure-capture-semantics-proposal.md`
 > - `docs/ori_lang/proposals/approved/parallel-execution-guarantees-proposal.md`
 > - `docs/ori_lang/proposals/approved/nursery-cancellation-proposal.md`
+> - `docs/ori_lang/proposals/approved/timeout-spawn-patterns-proposal.md`
 
 **Dependencies**: Phase 16 (Async Support)
 
@@ -443,9 +444,87 @@ Specifies cooperative cancellation model, checkpoints, error mode behaviors, and
 
 ---
 
-## 17.8 Phase Completion Checklist
+## 17.8 Timeout and Spawn Pattern Semantics
 
-- [ ] All items in 17.1-17.7 have checkboxes marked `[x]`
+**Proposal**: `proposals/approved/timeout-spawn-patterns-proposal.md`
+
+Formalizes semantics for `timeout` and `spawn` patterns including cancellation behavior, error handling, and task lifetime.
+
+### Timeout Pattern Implementation
+
+- [ ] **Implement**: `timeout(op:, after:)` pattern returns `Result<T, CancellationError>`
+  - [ ] **Rust Tests**: `oric/src/patterns/timeout.rs` — timeout return type tests
+  - [ ] **Ori Tests**: `tests/spec/concurrency/timeout_semantics.ori`
+  - [ ] **LLVM Support**: LLVM codegen for timeout with cancellation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/timeout_tests.rs` — timeout codegen
+
+- [ ] **Implement**: Cooperative cancellation on timeout expiry
+  - [ ] **Rust Tests**: `oric/src/patterns/timeout.rs` — cancellation tests
+  - [ ] **Ori Tests**: `tests/spec/concurrency/timeout_cancellation.ori`
+  - [ ] **LLVM Support**: LLVM timeout cancellation codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/timeout_tests.rs` — cancellation codegen
+
+- [ ] **Implement**: Cancellation checkpoints (suspending calls, loops, pattern entry)
+  - [ ] **Rust Tests**: `oric/src/patterns/timeout.rs` — checkpoint tests
+  - [ ] **Ori Tests**: `tests/spec/concurrency/timeout_checkpoints.ori`
+  - [ ] **LLVM Support**: LLVM checkpoint insertion for timeout
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/timeout_tests.rs` — checkpoint codegen
+
+- [ ] **Implement**: Nested timeout support (inner can be shorter than outer)
+  - [ ] **Rust Tests**: `oric/src/patterns/timeout.rs` — nested timeout tests
+  - [ ] **Ori Tests**: `tests/spec/concurrency/timeout_nested.ori`
+  - [ ] **LLVM Support**: LLVM nested timeout codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/timeout_tests.rs` — nested codegen
+
+- [ ] **Implement**: Error E1010 — `timeout` requires `Suspend` capability
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/timeout.rs` — capability error
+  - [ ] **Ori Tests**: `tests/compile-fail/timeout_no_suspend.ori`
+
+### Spawn Pattern Implementation
+
+- [ ] **Implement**: `spawn(tasks:, max_concurrent:)` pattern returns `void`
+  - [ ] **Rust Tests**: `oric/src/patterns/spawn.rs` — spawn return type tests
+  - [ ] **Ori Tests**: `tests/spec/concurrency/spawn_semantics.ori`
+  - [ ] **LLVM Support**: LLVM codegen for spawn
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spawn_tests.rs` — spawn codegen
+
+- [ ] **Implement**: Fire-and-forget semantics (errors silently discarded)
+  - [ ] **Rust Tests**: `oric/src/patterns/spawn.rs` — error discard tests
+  - [ ] **Ori Tests**: `tests/spec/concurrency/spawn_fire_forget.ori`
+  - [ ] **LLVM Support**: LLVM spawn error handling codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spawn_tests.rs` — fire-forget codegen
+
+- [ ] **Implement**: Task escapes spawning scope (outlive spawning function)
+  - [ ] **Rust Tests**: `oric/src/patterns/spawn.rs` — task lifetime tests
+  - [ ] **Ori Tests**: `tests/spec/concurrency/spawn_lifetime.ori`
+  - [ ] **LLVM Support**: LLVM unscoped task codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spawn_tests.rs` — lifetime codegen
+
+- [ ] **Implement**: `max_concurrent: Option<int>` parameter (default None = unlimited)
+  - [ ] **Rust Tests**: `oric/src/patterns/spawn.rs` — concurrency limit tests
+  - [ ] **Ori Tests**: `tests/spec/concurrency/spawn_max_concurrent.ori`
+  - [ ] **LLVM Support**: LLVM spawn concurrency limit codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spawn_tests.rs` — max_concurrent codegen
+
+- [ ] **Implement**: Resource exhaustion handling (task dropped, no error)
+  - [ ] **Rust Tests**: `oric/src/patterns/spawn.rs` — resource exhaustion tests
+  - [ ] **Ori Tests**: `tests/spec/concurrency/spawn_resource_exhaustion.ori`
+  - [ ] **LLVM Support**: LLVM resource exhaustion codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spawn_tests.rs` — exhaustion codegen
+
+- [ ] **Implement**: Tasks cancelled on program exit
+  - [ ] **Rust Tests**: `oric/src/patterns/spawn.rs` — exit cancellation tests
+  - [ ] **Ori Tests**: `tests/spec/concurrency/spawn_exit.ori`
+
+- [ ] **Implement**: Error E1011 — `spawn` tasks must use `Suspend`
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/spawn.rs` — capability error
+  - [ ] **Ori Tests**: `tests/compile-fail/spawn_no_suspend.ori`
+
+---
+
+## 17.9 Phase Completion Checklist
+
+- [ ] All items in 17.1-17.8 have checkboxes marked `[x]`
 - [ ] Spec updated: `spec/06-types.md` — Sendable, Producer, Consumer, CloneableProducer, CloneableConsumer, CancellationError, CancellationReason
 - [ ] Spec updated: `spec/10-patterns.md` — nursery pattern, parallel execution guarantees
 - [ ] Spec updated: `spec/23-concurrency-model.md` — cancellation model
@@ -457,6 +536,8 @@ Specifies cooperative cancellation model, checkpoints, error mode behaviors, and
 - [ ] nursery pattern working
 - [ ] Parallel execution guarantees working (ordering, max_concurrent, timeout)
 - [ ] Cancellation semantics working (cooperative, checkpoints, is_cancelled)
+- [ ] Timeout pattern working (returns CancellationError, cooperative cancellation)
+- [ ] Spawn pattern working (fire-and-forget, task escapes scope, errors discarded)
 - [ ] All tests pass: `./test-all`
 
 **Exit Criteria**: Can write producer/consumer pipeline with ownership safety and proper cancellation
