@@ -389,6 +389,17 @@ impl<'a> Parser<'a> {
                     &mut errors,
                     Self::recover_to_function,
                 );
+            } else if self.check(&TokenKind::Def)
+                && matches!(self.peek_next_kind(), TokenKind::Impl)
+            {
+                // def impl TraitName { ... }
+                let result = self.parse_def_impl_with_progress(visibility);
+                self.handle_parse_result(
+                    result,
+                    &mut module.def_impls,
+                    &mut errors,
+                    Self::recover_to_function,
+                );
             } else if self.check(&TokenKind::Impl) {
                 let result = self.parse_impl_with_progress();
                 self.handle_parse_result(

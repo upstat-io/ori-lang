@@ -7,6 +7,8 @@
 > **PROPOSAL**: `proposals/approved/no-circular-imports-proposal.md` — Circular import rejection
 > **PROPOSAL**: `proposals/approved/module-system-details-proposal.md` — Entry points, re-export chains, visibility
 
+**Status**: 🔶 Partial — Core complete (4.1-4.6, 4.10), tooling pending (4.7), module details pending (4.8), extension methods pending (4.11)
+
 ---
 
 ## 4.1 Module Definition

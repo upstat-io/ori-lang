@@ -11,8 +11,9 @@ use crate::query::parsed;
 use crate::typeck::derives::process_derives;
 use crate::typeck::type_registry::TypeRegistry;
 use ori_eval::{
-    collect_extend_methods, collect_impl_methods, register_module_functions,
-    register_newtype_constructors, register_variant_constructors, UserMethodRegistry,
+    collect_def_impl_methods, collect_extend_methods, collect_impl_methods,
+    register_module_functions, register_newtype_constructors, register_variant_constructors,
+    UserMethodRegistry,
 };
 use std::path::{Path, PathBuf};
 
@@ -153,6 +154,12 @@ impl Evaluator<'_> {
             &mut user_methods,
         );
         collect_extend_methods(
+            &parse_result.module,
+            &shared_arena,
+            &captures,
+            &mut user_methods,
+        );
+        collect_def_impl_methods(
             &parse_result.module,
             &shared_arena,
             &captures,

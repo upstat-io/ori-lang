@@ -59,6 +59,8 @@ pub use ast::{
     // Capability types
     CapabilityRef,
     ConfigDef,
+    // Default implementation types
+    DefImplDef,
     ExpectedError,
     Expr,
     ExprKind,

@@ -4,6 +4,8 @@
 
 > **SPEC**: `spec/06-types.md`, `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
+**Status**: 🔶 Partial — Core complete (1.1-1.5), approved proposals pending (1.1A Duration/Size traits, 1.1B Never semantics)
+
 ---
 
 ## 1.1 Primitive Types
@@ -141,28 +143,34 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
 
 Formalize the Never type as the bottom type with coercion rules, type inference behavior, and pattern matching exhaustiveness.
 
+**Status**: ✅ Core complete (coercion and basic Never-producing expressions); advanced features pending
+
 ### Coercion
 
-- [ ] **Implement**: Never coerces to any type T in assignment contexts
-  - [ ] **Rust Tests**: `oric/src/typeck/` — Never coercion tests
-  - [ ] **Ori Tests**: `tests/spec/types/never_coercion.ori`
+- [x] **Implement**: Never coerces to any type T in assignment contexts
+  - [x] **Rust Tests**: `ori_types/src/context.rs` — Never unification tests
+  - [x] **Ori Tests**: `tests/spec/types/never.ori`
 
-- [ ] **Implement**: Never coerces in conditional branches
-  - [ ] **Ori Tests**: `tests/spec/types/never_conditionals.ori`
+- [x] **Implement**: Never coerces in conditional branches
+  - [x] **Ori Tests**: `tests/spec/types/never.ori`
 
-- [ ] **Implement**: Never coerces in match arms
-  - [ ] **Ori Tests**: `tests/spec/types/never_match.ori`
-
-### Type Inference
-
-- [ ] **Implement**: If all branches return Never, expression has type Never
-  - [ ] **Rust Tests**: `oric/src/typeck/infer/` — Never inference tests
-  - [ ] **Ori Tests**: `tests/spec/types/never_inference.ori`
-
-- [ ] **Implement**: Never does not constrain result type in conditionals
-  - [ ] **Ori Tests**: `tests/spec/types/never_inference.ori`
+- [x] **Implement**: Never coerces in match arms
+  - [x] **Ori Tests**: `tests/spec/types/never.ori`
 
 ### Expressions Producing Never
+
+- [x] **Implement**: panic(msg:) returns Never
+  - [x] **Ori Tests**: `tests/spec/types/never.ori`
+
+- [x] **Implement**: todo() and todo(reason:) return Never
+  - [x] **Rust Tests**: `ori_patterns/src/builtins/todo.rs`
+  - [x] **Ori Tests**: `tests/spec/types/never.ori`
+
+- [x] **Implement**: unreachable() and unreachable(reason:) return Never
+  - [x] **Rust Tests**: `ori_patterns/src/builtins/unreachable.rs`
+  - [x] **Ori Tests**: `tests/spec/types/never.ori`
+
+### Pending (Future Work)
 
 - [ ] **Implement**: break/continue have type Never inside loops
   - [ ] **Ori Tests**: `tests/spec/control_flow/never_break_continue.ori`
@@ -173,13 +181,9 @@ Formalize the Never type as the bottom type with coercion rules, type inference 
 - [ ] **Implement**: Infinite loop (no break) has type Never
   - [ ] **Ori Tests**: `tests/spec/control_flow/never_infinite_loop.ori`
 
-### Pattern Matching
-
 - [ ] **Implement**: Never variants can be omitted from match exhaustiveness
   - [ ] **Rust Tests**: `oric/src/typeck/` — exhaustiveness with Never tests
   - [ ] **Ori Tests**: `tests/spec/patterns/never_exhaustiveness.ori`
-
-### Restrictions
 
 - [ ] **Implement**: Error E0920 for Never as struct field type
   - [ ] **Rust Tests**: `oric/src/typeck/` — struct field restriction tests
@@ -187,14 +191,6 @@ Formalize the Never type as the bottom type with coercion rules, type inference 
 
 - [ ] **Implement**: Allow Never in sum type variant payloads
   - [ ] **Ori Tests**: `tests/spec/types/never_sum_variant.ori`
-
-### Generic Contexts
-
-- [ ] **Implement**: Result<Never, E> can only be Err
-  - [ ] **Ori Tests**: `tests/spec/types/never_generics.ori`
-
-- [ ] **Implement**: Option<Never> can only be None
-  - [ ] **Ori Tests**: `tests/spec/types/never_generics.ori`
 
 ---
 

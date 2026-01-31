@@ -19,6 +19,7 @@ impl TypeChecker<'_> {
         // Pass 0b: Register traits and implementations
         self.register_traits(module);
         self.register_impls(module);
+        self.register_def_impls(module);
 
         // Pass 0c: Register derived trait implementations
         // Must be done after register_types so we know the type structure,
@@ -98,6 +99,11 @@ impl TypeChecker<'_> {
         // Fourth pass: type check impl method bodies
         for impl_def in &module.impls {
             self.check_impl_methods(impl_def);
+        }
+
+        // Fifth pass: type check def impl method bodies (default implementations)
+        for def_impl_def in &module.def_impls {
+            self.check_def_impl_methods(def_impl_def);
         }
 
         // Build expression types vector with resolved types

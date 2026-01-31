@@ -18,7 +18,7 @@ impl Render for SemanticProblem {
                     .with_message(format!("unknown identifier `{name}`"))
                     .with_label(*span, "not found in this scope");
                 if let Some(suggestion) = similar {
-                    diag = diag.with_suggestion(format!("did you mean `{suggestion}`?"));
+                    diag = diag.with_suggestion(format!("try using `{suggestion}`"));
                 }
                 diag
             }
@@ -32,7 +32,7 @@ impl Render for SemanticProblem {
                     .with_message(format!("unknown function `@{name}`"))
                     .with_label(*span, "function not found");
                 if let Some(suggestion) = similar {
-                    diag = diag.with_suggestion(format!("did you mean `@{suggestion}`?"));
+                    diag = diag.with_suggestion(format!("try using `@{suggestion}`"));
                 }
                 diag
             }
@@ -46,7 +46,7 @@ impl Render for SemanticProblem {
                     .with_message(format!("unknown config `${name}`"))
                     .with_label(*span, "config not found");
                 if let Some(suggestion) = similar {
-                    diag = diag.with_suggestion(format!("did you mean `${suggestion}`?"));
+                    diag = diag.with_suggestion(format!("try using `${suggestion}`"));
                 }
                 diag
             }

@@ -322,6 +322,43 @@ fn infer_method_call_core(
             return method_lookup.return_ty.clone();
         }
 
+        // Check for def impl methods on trait names (e.g., Calculator.add when there's def impl Calculator)
+        if let Some(method_lookup) = checker
+            .registries
+            .traits
+            .lookup_def_impl_method(*type_name, method)
+        {
+            // def impl methods have no self parameter, so all params are arguments
+            if arg_types.len() != method_lookup.params.len() {
+                checker.push_error(
+                    format!(
+                        "def impl method `{}` expects {} arguments, found {}",
+                        checker.context.interner.lookup(method),
+                        method_lookup.params.len(),
+                        arg_types.len()
+                    ),
+                    span,
+                    ori_diagnostic::ErrorCode::E2004,
+                );
+                return Type::Error;
+            }
+
+            // Unify argument types with parameter types
+            for (i, (param_ty, arg_ty)) in method_lookup
+                .params
+                .iter()
+                .zip(arg_types.iter())
+                .enumerate()
+            {
+                if let Err(e) = checker.inference.ctx.unify(param_ty, arg_ty) {
+                    let arg_span = arg_spans.get(i).copied().unwrap_or(span);
+                    checker.report_type_error(&e, arg_span);
+                }
+            }
+
+            return method_lookup.return_ty.clone();
+        }
+
         // Fall back to built-in associated functions (Duration, Size)
         let type_name_str = checker.context.interner.lookup(*type_name);
         if is_builtin_type_with_associated_functions(type_name_str) {

@@ -4,6 +4,8 @@
 
 > **SPEC**: `spec/06-types.md`, `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
+**Status**: 🔶 Partial — Core complete (5.1-5.2, 5.4 basic); newtypes `.inner` (5.3), constrained generics (5.4), associated functions (5.9) pending
+
 ---
 
 ## 5.1 Struct Types

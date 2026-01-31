@@ -4,6 +4,8 @@
 
 > **SPEC**: `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
+**Status**: 🔶 Partial — Core complete (3.0-3.6, 3.19-3.21), approved proposals pending (3.7-3.18), operator LLVM pending
+
 ---
 
 ## PRIORITY NOTE

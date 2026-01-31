@@ -71,7 +71,7 @@ pub(super) fn handle_struct_field_access(
             let type_name_str = checker.context.interner.lookup(type_name);
             let mut msg = format!("unknown type `{type_name_str}`");
             if let Some(suggestion) = suggest_type(checker, type_name) {
-                let _ = write!(msg, "; did you mean `{suggestion}`?");
+                let _ = write!(msg, "; try using `{suggestion}`");
             }
             checker.push_error(msg, span, ori_diagnostic::ErrorCode::E2003);
             return Type::Error;
@@ -88,7 +88,7 @@ pub(super) fn handle_struct_field_access(
                 checker.context.interner.lookup(field)
             );
             if let Some(suggestion) = suggest_field(checker, type_name, field) {
-                let _ = write!(msg, "; did you mean `{suggestion}`?");
+                let _ = write!(msg, "; try using `{suggestion}`");
             }
             checker.push_error(msg, span, ori_diagnostic::ErrorCode::E2001);
             Type::Error
@@ -123,7 +123,7 @@ pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInit
             let name_str = checker.context.interner.lookup(name);
             let mut msg = format!("unknown struct type `{name_str}`");
             if let Some(suggestion) = suggest_type(checker, name) {
-                let _ = write!(msg, "; did you mean `{suggestion}`?");
+                let _ = write!(msg, "; try using `{suggestion}`");
             }
             checker.push_error(msg, span, ori_diagnostic::ErrorCode::E2003);
 
@@ -231,7 +231,7 @@ pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInit
                 checker.context.interner.lookup(init.name)
             );
             if let Some(suggestion) = suggest_field(checker, name, init.name) {
-                let _ = write!(msg, "; did you mean `{suggestion}`?");
+                let _ = write!(msg, "; try using `{suggestion}`");
             }
             checker.push_error(msg, init.span, ori_diagnostic::ErrorCode::E2001);
 

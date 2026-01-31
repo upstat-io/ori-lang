@@ -101,6 +101,7 @@ impl Hash for TraitEntry {
 
 impl TraitEntry {
     /// Create a new trait entry with the method index built automatically.
+    // TraitEntry construction requires all fields; config struct would obscure initialization
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: Name,

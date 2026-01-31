@@ -142,6 +142,6 @@ pub use shared::{SharedMutableRegistry, SharedRegistry};
 
 // Re-export module registration functions for CLI and Playground
 pub use module_registration::{
-    collect_extend_methods, collect_impl_methods, register_module_functions,
-    register_newtype_constructors, register_variant_constructors,
+    collect_def_impl_methods, collect_extend_methods, collect_impl_methods,
+    register_module_functions, register_newtype_constructors, register_variant_constructors,
 };

@@ -64,6 +64,11 @@ pub struct TraitRegistry {
     /// Enables O(1) lookup of associated types by type and name, avoiding O(n*m) scan
     /// of all trait impls. Updated when implementations with associated types are registered.
     assoc_types_index: FxHashMap<(Name, Name), ori_ir::TypeId>,
+    /// Default implementations for traits: `trait_name` -> `ImplEntry`.
+    ///
+    /// Stores `def impl TraitName { ... }` blocks. These provide stateless default
+    /// implementations for capability traits. Methods are called as `TraitName.method()`.
+    def_impls: FxHashMap<Name, ImplEntry>,
 }
 
 impl PartialEq for TraitRegistry {
@@ -88,6 +93,7 @@ impl Default for TraitRegistry {
             default_methods_by_name: FxHashMap::default(),
             method_cache: RefCell::new(FxHashMap::default()),
             assoc_types_index: FxHashMap::default(),
+            def_impls: FxHashMap::default(),
         }
     }
 }
@@ -111,6 +117,7 @@ impl TraitRegistry {
             default_methods_by_name: FxHashMap::default(),
             method_cache: RefCell::new(FxHashMap::default()),
             assoc_types_index: FxHashMap::default(),
+            def_impls: FxHashMap::default(),
         }
     }
 
@@ -467,5 +474,56 @@ impl TraitRegistry {
         let self_ty = Type::Named(type_name);
         self.get_inherent_impl(&self_ty)
             .is_some_and(|entry| entry.methods.iter().any(|m| m.is_associated))
+    }
+
+    /// Register a default implementation for a trait.
+    ///
+    /// This registers a `def impl TraitName { ... }` block, which provides
+    /// stateless default methods that can be called as `TraitName.method()`.
+    ///
+    /// Returns an error if there's already a def impl for this trait.
+    pub fn register_def_impl(
+        &mut self,
+        trait_name: Name,
+        entry: ImplEntry,
+    ) -> Result<(), CoherenceError> {
+        if let Some(existing) = self.def_impls.get(&trait_name) {
+            return Err(CoherenceError {
+                message: "conflicting default implementation: trait already has a def impl"
+                    .to_string(),
+                span: entry.span,
+                existing_span: existing.span,
+            });
+        }
+        self.def_impls.insert(trait_name, entry);
+        self.method_cache.borrow_mut().clear();
+        Ok(())
+    }
+
+    /// Check if a trait has a default implementation (def impl).
+    pub fn has_def_impl(&self, trait_name: Name) -> bool {
+        self.def_impls.contains_key(&trait_name)
+    }
+
+    /// Look up a method in a trait's default implementation.
+    ///
+    /// Returns the method signature if the trait has a def impl with the method.
+    pub fn lookup_def_impl_method(
+        &self,
+        trait_name: Name,
+        method_name: Name,
+    ) -> Option<MethodLookup> {
+        let entry = self.def_impls.get(&trait_name)?;
+        let method = entry.methods.iter().find(|m| m.name == method_name)?;
+        Some(MethodLookup {
+            trait_name: Some(trait_name),
+            method_name,
+            params: method
+                .params
+                .iter()
+                .map(|id| self.interner.to_type(*id))
+                .collect(),
+            return_ty: self.interner.to_type(method.return_ty),
+        })
     }
 }
