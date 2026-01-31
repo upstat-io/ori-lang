@@ -126,6 +126,153 @@ Point { x: 1, y: 2 }.to_str()  // "Point(1, 2)"
 
 Derived implementation creates human-readable format with type name and field values in order.
 
+## Formattable Trait
+
+The `Formattable` trait provides formatted string conversion with format specifications.
+
+```ori
+trait Formattable {
+    @format (self, spec: FormatSpec) -> str
+}
+```
+
+`Formattable` is required for string interpolation with format specifiers:
+
+```ori
+let n = 42
+`hex: {n:x}`     // Calls n.format(spec: ...) with Hex format type
+`padded: {n:08}` // Calls n.format(spec: ...) with width 8, zero-pad
+```
+
+### FormatSpec Type
+
+```ori
+type FormatSpec = {
+    fill: Option<char>,
+    align: Option<Alignment>,
+    sign: Option<Sign>,
+    width: Option<int>,
+    precision: Option<int>,
+    format_type: Option<FormatType>,
+}
+
+type Alignment = Left | Center | Right
+
+type Sign = Plus | Minus | Space
+
+type FormatType = Binary | Octal | Hex | HexUpper | Exp | ExpUpper | Fixed | Percent
+```
+
+These types are in the prelude.
+
+### Format Spec Syntax
+
+Format specifications in template strings use the syntax:
+
+```
+[[fill]align][sign][#][0][width][.precision][type]
+```
+
+| Component | Syntax | Description |
+|-----------|--------|-------------|
+| Fill | Any character | Padding character (default: space) |
+| Align | `<` `>` `^` | Left, right, center alignment |
+| Sign | `+` `-` ` ` | Sign display for numbers |
+| `#` | `#` | Alternate form (prefix for hex, etc.) |
+| `0` | `0` | Zero-pad (implies right-align) |
+| Width | Integer | Minimum field width |
+| Precision | `.N` | Decimal places or max string length |
+| Type | Letter | Format type (b, o, x, X, e, E, f, %) |
+
+### Format Types
+
+**Integer Types:**
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `b` | Binary | `42` → `"101010"` |
+| `o` | Octal | `42` → `"52"` |
+| `x` | Hex (lowercase) | `255` → `"ff"` |
+| `X` | Hex (uppercase) | `255` → `"FF"` |
+
+**Float Types:**
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `e` | Scientific (lowercase) | `1234.5` → `"1.2345e+03"` |
+| `E` | Scientific (uppercase) | `1234.5` → `"1.2345E+03"` |
+| `f` | Fixed-point (6 decimals) | `1234.5` → `"1234.500000"` |
+| `%` | Percentage | `0.75` → `"75%"` |
+
+**Alternate Form (`#`):**
+
+| Type | Without `#` | With `#` |
+|------|-------------|----------|
+| `b` | `"101010"` | `"0b101010"` |
+| `o` | `"52"` | `"0o52"` |
+| `x` | `"ff"` | `"0xff"` |
+| `X` | `"FF"` | `"0xFF"` |
+
+### Standard Implementations
+
+| Type | Behavior |
+|------|----------|
+| `int` | Supports b, o, x, X format types; sign and alternate form |
+| `float` | Supports e, E, f, % format types; precision and sign |
+| `str` | Width, alignment, fill; precision truncates |
+| `bool` | Width and alignment only |
+| `char` | Width and alignment only |
+
+### Blanket Implementation
+
+All `Printable` types have a blanket `Formattable` implementation:
+
+```ori
+impl<T: Printable> Formattable for T {
+    @format (self, spec: FormatSpec) -> str = run(
+        let base = self.to_str(),
+        apply_format(s: base, spec: spec),
+    )
+}
+```
+
+This applies width, alignment, and fill. Type-specific formatting (binary, hex, etc.) is only available for types that implement `Formattable` directly.
+
+### Custom Implementation
+
+User types may implement `Formattable` for custom formatting:
+
+```ori
+type Money = { cents: int }
+
+impl Formattable for Money {
+    @format (self, spec: FormatSpec) -> str = run(
+        let dollars = self.cents / 100,
+        let cents = self.cents % 100,
+        let base = `${dollars}.{cents:02}`,
+        apply_alignment(s: base, spec: spec),
+    )
+}
+```
+
+Newtypes can delegate to their inner value:
+
+```ori
+type UserId = int
+
+impl Formattable for UserId {
+    @format (self, spec: FormatSpec) -> str = self.inner.format(spec: spec)
+}
+```
+
+### Error Codes
+
+| Code | Description |
+|------|-------------|
+| E0970 | Invalid format specification syntax |
+| E0971 | Format type not supported for this type |
+| E0972 | Type does not implement `Formattable` |
+
 ## Default Trait
 
 The `Default` trait provides zero/empty values.

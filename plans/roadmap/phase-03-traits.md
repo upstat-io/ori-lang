@@ -909,3 +909,70 @@ Formalizes the `#derive` attribute semantics: derivable traits list, derivation 
 - [ ] **Update Spec**: `06-types.md` — expand Derive section with formal semantics
 - [ ] **Update Spec**: `07-properties-of-types.md` — add cross-reference to derive semantics
 - [ ] **Update**: `CLAUDE.md` — update derive documentation
+
+---
+
+## 3.16 Formattable Trait
+
+**Proposal**: `proposals/approved/formattable-trait-proposal.md`
+
+Formalizes the `Formattable` trait and format specification syntax for customized string formatting. Defines `FormatSpec` type structure, format spec syntax, and the relationship between `Formattable` and `Printable` via blanket implementation.
+
+### Implementation
+
+- [ ] **Implement**: `Formattable` trait definition in type system
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — formattable trait parsing/bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/formattable/definition.ori`
+
+- [ ] **Implement**: `FormatSpec` type and related types (`Alignment`, `Sign`, `FormatType`) in prelude
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — format spec type definitions
+  - [ ] **Ori Tests**: `tests/spec/traits/formattable/format_spec.ori`
+
+- [ ] **Implement**: Format spec parsing in template strings
+  - [ ] **Rust Tests**: `oric/src/parse/template_string.rs` — format spec parsing
+  - [ ] **Ori Tests**: `tests/spec/traits/formattable/parsing.ori`
+  - [ ] **LLVM Support**: LLVM codegen for format spec parsing
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/formattable_tests.rs`
+
+- [ ] **Implement**: Blanket `Formattable` implementation for `Printable` types
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — blanket impl resolution
+  - [ ] **Ori Tests**: `tests/spec/traits/formattable/blanket_impl.ori`
+
+- [ ] **Implement**: `Formattable` for `int` with binary, octal, hex format types
+  - [ ] **Rust Tests**: `oric/src/eval/tests/` — int format evaluation
+  - [ ] **Ori Tests**: `tests/spec/traits/formattable/int.ori`
+  - [ ] **LLVM Support**: LLVM codegen for int formatting
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/formattable_tests.rs`
+
+- [ ] **Implement**: `Formattable` for `float` with scientific, fixed, percentage format types
+  - [ ] **Rust Tests**: `oric/src/eval/tests/` — float format evaluation
+  - [ ] **Ori Tests**: `tests/spec/traits/formattable/float.ori`
+  - [ ] **LLVM Support**: LLVM codegen for float formatting
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/formattable_tests.rs`
+
+- [ ] **Implement**: `Formattable` for `str` with width, alignment, precision
+  - [ ] **Rust Tests**: `oric/src/eval/tests/` — str format evaluation
+  - [ ] **Ori Tests**: `tests/spec/traits/formattable/str.ori`
+  - [ ] **LLVM Support**: LLVM codegen for str formatting
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/formattable_tests.rs`
+
+- [ ] **Implement**: Sign specifiers (`+`, `-`, ` `) for numeric formatting
+  - [ ] **Rust Tests**: `oric/src/eval/tests/` — sign format evaluation
+  - [ ] **Ori Tests**: `tests/spec/traits/formattable/sign.ori`
+
+- [ ] **Implement**: Alternate form (`#`) for prefix formatting (0b, 0o, 0x)
+  - [ ] **Rust Tests**: `oric/src/eval/tests/` — alternate form evaluation
+  - [ ] **Ori Tests**: `tests/spec/traits/formattable/alternate.ori`
+
+- [ ] **Implement**: Zero-pad shorthand (`0`) for numeric formatting
+  - [ ] **Rust Tests**: `oric/src/eval/tests/` — zero-pad evaluation
+  - [ ] **Ori Tests**: `tests/spec/traits/formattable/zero_pad.ori`
+
+- [ ] **Implement**: Error messages (E0970-E0972)
+  - [ ] E0970: Invalid format specification
+  - [ ] E0971: Format type not supported for type
+  - [ ] E0972: Type does not implement Formattable
+
+- [ ] **Update Spec**: `07-properties-of-types.md` — add Formattable trait section
+- [ ] **Update Spec**: `12-modules.md` — add FormatSpec, Alignment, Sign, FormatType to prelude
+- [ ] **Update**: `CLAUDE.md` — update Formattable entry with full format spec syntax

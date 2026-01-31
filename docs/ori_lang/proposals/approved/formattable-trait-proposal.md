@@ -1,6 +1,7 @@
 # Proposal: Formattable Trait and Format Specs
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-30
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-30
 **Affects:** Compiler, type system, string formatting
@@ -53,6 +54,8 @@ type Sign = Plus | Minus | Space
 
 type FormatType = Binary | Octal | Hex | HexUpper | Exp | ExpUpper | Fixed | Percent
 ```
+
+These types are in the prelude, allowing custom `Formattable` implementations without explicit imports.
 
 ---
 
@@ -152,7 +155,7 @@ let pi = 3.14159
 ### Escaping
 
 ```ori
-`literal braces: \{\}`  // "literal braces: {}"
+`literal braces: {{}}`  // "literal braces: {}"
 ```
 
 ---
@@ -268,7 +271,7 @@ let price = Money { cents: 1995 }
 type UserId = int
 
 impl Formattable for UserId {
-    @format (self, spec: FormatSpec) -> str = self.0.format(spec: spec)
+    @format (self, spec: FormatSpec) -> str = self.inner.format(spec: spec)
 }
 ```
 
@@ -341,13 +344,24 @@ error[E0972]: `MyType` does not implement `Formattable`
 
 ## Spec Changes Required
 
-### Update `16-formatting.md`
+### Update `07-properties-of-types.md`
 
-Expand with:
-1. Complete FormatSpec structure
-2. All format types
-3. Parsing rules
-4. Standard implementations
+Add Formattable trait section with:
+1. Trait definition
+2. FormatSpec, Alignment, Sign, FormatType types
+3. Blanket implementation for Printable
+
+### Update `12-modules.md` (Prelude)
+
+Add to prelude types:
+- `FormatSpec`, `Alignment`, `Sign`, `FormatType`
+- `Formattable` trait
+
+### Update `CLAUDE.md`
+
+Update Formattable entry with full format spec syntax:
+- `[[fill]align][sign][#][0][width][.precision][type]`
+- Include all format types (b, o, x, X, e, E, f, %)
 
 ---
 
