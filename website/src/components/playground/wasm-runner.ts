@@ -27,21 +27,17 @@ export async function initWasm(): Promise<boolean> {
 
   initPromise = (async () => {
     try {
-      // In dev mode, use cache busting to force reload after WASM rebuild
-      // The timestamp query param is ignored by Vite but busts browser cache
+      // Load WASM JS from public folder - works in both dev and production
+      // In dev, Vite serves public/ at root. In prod, it's a static asset.
       const isDev = import.meta.env?.DEV;
-      const wasmPath = isDev
-        ? `../../wasm/ori_playground_wasm.js?t=${Date.now()}&v=${cacheBuster}`
-        : '../../wasm/ori_playground_wasm.js';
-      const wasm = await import(/* @vite-ignore */ wasmPath);
-      // Explicitly provide path to WASM binary in public folder
-      // In dev, it's also served from public. In prod, it's a static asset.
-      const wasmBinaryPath = '/wasm/ori_playground_wasm_bg.wasm';
-      await wasm.default(wasmBinaryPath);
+      const cacheBust = isDev ? `?t=${Date.now()}&v=${cacheBuster}` : '';
+      const wasm = await import(/* @vite-ignore */ `/wasm/ori_playground_wasm.js${cacheBust}`);
+      await wasm.default();
       wasmModule = wasm;
       return true;
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to load WASM:', e);
+      console.error('Error details:', e?.message, e?.stack);
       return false;
     }
   })();

@@ -20,15 +20,16 @@ fi
 mkdir -p "$WASM_DIR"
 mkdir -p "$PUBLIC_WASM_DIR"
 
-# JS and type definitions go to src/wasm for bundling
-cp "$PKG_DIR/ori_playground_wasm.js" "$WASM_DIR/"
+# Type definitions go to src/wasm for IDE support
 cp "$PKG_DIR/ori_playground_wasm.d.ts" "$WASM_DIR/" 2>/dev/null || true
 cp "$PKG_DIR/ori_playground_wasm_bg.wasm.d.ts" "$WASM_DIR/" 2>/dev/null || true
 
-# WASM binary goes to public for static serving
+# JS and WASM binary go to public for static serving
+# The dynamic import loads these at runtime from /wasm/
+cp "$PKG_DIR/ori_playground_wasm.js" "$PUBLIC_WASM_DIR/"
 cp "$PKG_DIR/ori_playground_wasm_bg.wasm" "$PUBLIC_WASM_DIR/"
 
-echo "WASM JS/TS copied to $WASM_DIR"
-echo "WASM binary copied to $PUBLIC_WASM_DIR"
+echo "Type definitions copied to $WASM_DIR"
+echo "JS + WASM binary copied to $PUBLIC_WASM_DIR"
 ls -la "$WASM_DIR"
 ls -la "$PUBLIC_WASM_DIR"
