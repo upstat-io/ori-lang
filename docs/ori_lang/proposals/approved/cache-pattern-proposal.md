@@ -155,7 +155,7 @@ Cache operations may suspend depending on the implementation:
 | `DistributedCache` | Yes (network I/O) |
 | `NoOpCache` | No |
 
-When using a suspending cache implementation, the calling function must have `uses Async` or be called from an async context. The cache pattern handles this transparently — the suspension is internal to the capability.
+When using a suspending cache implementation, the calling function must have `uses Suspend` or be called from an async context. The cache pattern handles this transparently — the suspension is internal to the capability.
 
 ```ori
 // In async context, distributed cache suspension is transparent

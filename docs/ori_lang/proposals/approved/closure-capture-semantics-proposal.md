@@ -117,7 +117,7 @@ f()  // Returns 20
 Closures passed to `parallel`, `spawn`, or `nursery` must capture only `Sendable` values:
 
 ```ori
-@spawn_closure () -> void uses Async = run(
+@spawn_closure () -> void uses Suspend = run(
     let data = create_sendable_data(),  // data: Sendable
     parallel(
         tasks: [() -> process(data)],   // OK: data is Sendable
@@ -130,7 +130,7 @@ Closures passed to `parallel`, `spawn`, or `nursery` must capture only `Sendable
 ```ori
 type Handle = { fd: FileDescriptor }  // NOT Sendable
 
-@bad_spawn () -> void uses Async = run(
+@bad_spawn () -> void uses Suspend = run(
     let h = get_handle(),  // h: Handle
     parallel(
         tasks: [() -> use_handle(h)],  // ERROR: Handle is not Sendable
@@ -155,7 +155,7 @@ error[E0700]: closure captures non-Sendable type
 When a closure is passed to a task-spawning pattern (`parallel`, `spawn`, `nursery`), captured values are **moved** into the task. The original binding becomes inaccessible after the capture point:
 
 ```ori
-@move_example () -> void uses Async = run(
+@move_example () -> void uses Suspend = run(
     let data = create_data(),
     parallel(
         tasks: [() -> process(data)],  // data captured and moved

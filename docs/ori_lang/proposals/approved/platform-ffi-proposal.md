@@ -372,7 +372,7 @@ extern "js" {
 }
 
 // JsPromise is implicitly resolved at binding sites in async context
-@fetch_text (url: str) -> str uses Async, FFI =
+@fetch_text (url: str) -> str uses Suspend, FFI =
     run(
         let response = _fetch(url: url),  // JsPromise<JsValue> auto-resolved
         let text = _response_text(resp: response),  // JsPromise<str> auto-resolved
@@ -383,7 +383,7 @@ extern "js" {
 **Semantics:**
 - `JsPromise<T>` is a compiler-recognized type
 - When a `JsPromise<T>` is assigned to a binding or used where `T` is expected, the compiler inserts suspension/resolution
-- This only occurs in functions with `uses Async` capability
+- This only occurs in functions with `uses Suspend` capability
 - Error: assigning `JsPromise<T>` in a non-async context
 
 **Compiler transforms at resolution points:**
@@ -745,7 +745,7 @@ extern "js" {
 }
 
 #target(arch: "wasm32")
-@get (url: str) -> Result<str, HttpError> uses Async, FFI =
+@get (url: str) -> Result<str, HttpError> uses Suspend, FFI =
     run(
         let resp = _fetch(url: url),  // JsPromise auto-resolved
         if !_response_ok(resp: resp) then
@@ -755,7 +755,7 @@ extern "js" {
     )
 
 // User code works on both platforms
-@fetch_data (url: str) -> Result<str, HttpError> uses Async =
+@fetch_data (url: str) -> Result<str, HttpError> uses Suspend =
     get(url: url)
 ```
 
@@ -883,7 +883,7 @@ A unified capability simplifies user code and is platform-agnostic. The target d
 
 ### Why implicit JsPromise resolution?
 
-Ori's async model has no explicit `await` keyword — functions with `uses Async` just call other async functions normally. Implicit resolution preserves this philosophy while enabling JS async interop. The compiler handles the complexity transparently.
+Ori's async model has no explicit `await` keyword — functions with `uses Suspend` just call other async functions normally. Implicit resolution preserves this philosophy while enabling JS async interop. The compiler handles the complexity transparently.
 
 ### Why `extern "c"` syntax?
 

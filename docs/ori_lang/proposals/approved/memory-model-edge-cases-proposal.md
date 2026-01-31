@@ -335,12 +335,12 @@ let tuple = (first, second, third)
 Destructors run in the task that drops the value:
 
 ```ori
-@task1 () uses Async = run(
+@task1 () uses Suspend = run(
     let resource = acquire(),
     // resource's destructor runs in task1
 )
 
-@task2 () uses Async = run(
+@task2 () uses Suspend = run(
     let resource = acquire(),
     // resource's destructor runs in task2
 )
@@ -352,7 +352,7 @@ Destructors CANNOT be async — they run synchronously:
 
 ```ori
 impl Drop for Resource {
-    @drop (self) -> void uses Async = ...  // ERROR: drop cannot be async
+    @drop (self) -> void uses Suspend = ...  // ERROR: drop cannot be async
 }
 ```
 
@@ -362,7 +362,7 @@ If cleanup requires async operations, use explicit cleanup methods:
 type AsyncResource = { ... }
 
 impl AsyncResource {
-    @close (self) -> void uses Async = ...  // Explicit async cleanup
+    @close (self) -> void uses Suspend = ...  // Explicit async cleanup
 }
 
 impl Drop for AsyncResource {
@@ -380,7 +380,7 @@ resource.close()  // Explicit async cleanup
 When a task is cancelled, destructors still run:
 
 ```ori
-@cancellable_task () uses Async = run(
+@cancellable_task () uses Suspend = run(
     let resource = acquire(),
     long_async_operation(),  // Task cancelled here
     // resource's destructor STILL runs during cancellation
@@ -427,7 +427,7 @@ impl Drop for Connection {
 ### Reference Counting in Action
 
 ```ori
-@shared_data_example () uses Async = run(
+@shared_data_example () uses Suspend = run(
     let data = create_large_data(),  // refcount = 1
 
     parallel(

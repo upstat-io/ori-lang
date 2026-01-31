@@ -571,7 +571,7 @@ For long-running services, compress repeated trace patterns.
 
 ### 4. Async-Aware Traces
 
-When `uses Async` is involved, trace across suspension points.
+When `uses Suspend` is involved, trace across suspension points.
 
 ---
 

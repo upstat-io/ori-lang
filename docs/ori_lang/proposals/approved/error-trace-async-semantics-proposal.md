@@ -76,7 +76,7 @@ error.trace_entries()
 Traces work normally within a task — `?` adds entries as expected:
 
 ```ori
-@async_fn () -> Result<Data, Error> uses Async = run(
+@async_fn () -> Result<Data, Error> uses Suspend = run(
     let x = step1()?,  // Entry added
     let y = step2()?,  // Entry added
     Ok(y),
@@ -88,7 +88,7 @@ Traces work normally within a task — `?` adds entries as expected:
 When errors cross task boundaries (via channel or nursery results), traces are **preserved**:
 
 ```ori
-@outer () -> Result<[int], Error> uses Async = run(
+@outer () -> Result<[int], Error> uses Suspend = run(
     let results = parallel(
         tasks: items.map(i -> () -> process(i)),  // May return errors
     ),
@@ -343,7 +343,7 @@ When `E: Traceable`, these delegate to the error's trace methods. When `E` does 
 ### Async Trace Example
 
 ```ori
-@fetch_all (urls: [str]) -> [Result<str, Error>] uses Async =
+@fetch_all (urls: [str]) -> [Result<str, Error>] uses Suspend =
     parallel(tasks: urls.map(url -> () -> fetch(url)))
 
 // Each result has its own trace from its task:

@@ -150,14 +150,14 @@ type Consumer<T: Sendable> = { ... }  // Can only receive
 
 // Producer methods
 impl<T: Sendable> Producer<T> {
-    @send (self, value: T) -> void uses Async
+    @send (self, value: T) -> void uses Suspend
     @close (self) -> void
     @is_closed (self) -> bool
 }
 
 // Consumer methods
 impl<T: Sendable> Consumer<T> {
-    @receive (self) -> Option<T> uses Async
+    @receive (self) -> Option<T> uses Suspend
     @is_closed (self) -> bool
 }
 
@@ -171,12 +171,12 @@ impl<T: Sendable> Iterable for Consumer<T> {
 ### Compile-Time Role Enforcement
 
 ```ori
-@produce (p: Producer<int>) -> void uses Async = run(
+@produce (p: Producer<int>) -> void uses Suspend = run(
     p.send(value: 42),
     // p.receive()  // ERROR: Producer<T> has no method 'receive'
 )
 
-@consume (c: Consumer<int>) -> [int] uses Async =
+@consume (c: Consumer<int>) -> [int] uses Suspend =
     for item in c yield item
     // c.send(1)  // ERROR: Consumer<T> has no method 'send'
 ```
@@ -287,7 +287,7 @@ Go allows sending pointers while retaining the original, causing data races. Ori
 Sending a value **consumes** it:
 
 ```ori
-@producer (p: Producer<Data>) -> void uses Async = run(
+@producer (p: Producer<Data>) -> void uses Suspend = run(
     let data = create_data(),
     p.send(value: data),  // Ownership transferred
     // data.field         // ERROR: 'data' moved into channel
@@ -299,7 +299,7 @@ Sending a value **consumes** it:
 To retain access, explicitly clone:
 
 ```ori
-@producer (p: Producer<Data>) -> void uses Async = run(
+@producer (p: Producer<Data>) -> void uses Suspend = run(
     let data = create_data(),
     p.send(value: data.clone()),  // Send a copy
     print(msg: data.field),       // Original still accessible
@@ -368,7 +368,7 @@ Returns results of all spawned tasks, in spawn order.
 
 ```ori
 type Nursery = {
-    @spawn<T> (self, task: () -> T uses Async) -> void
+    @spawn<T> (self, task: () -> T uses Suspend) -> void
 }
 ```
 
@@ -376,7 +376,7 @@ type Nursery = {
 
 ```ori
 // Process batch with error handling
-@process_batch (items: [Item]) -> [Result<Output, Error>] uses Async =
+@process_batch (items: [Item]) -> [Result<Output, Error>] uses Suspend =
     nursery(
         body: n -> for item in items do n.spawn(task: () -> process(item)),
         on_error: CollectAll,
@@ -384,7 +384,7 @@ type Nursery = {
     )
 
 // Fan-out with early termination
-@find_first (queries: [Query]) -> Option<Result> uses Async = run(
+@find_first (queries: [Query]) -> Option<Result> uses Suspend = run(
     let results = nursery(
         body: n -> for q in queries do n.spawn(task: () -> search(q)),
         on_error: CancelRemaining,
@@ -407,7 +407,7 @@ type Nursery = {
 ### Safe Producer-Consumer
 
 ```ori
-@main () -> void uses Async = run(
+@main () -> void uses Suspend = run(
     let (producer, consumer) = channel<Job>(buffer: 100),
 
     parallel(
@@ -420,19 +420,19 @@ type Nursery = {
     print(msg: "All jobs processed"),
 )
 
-@job_producer (p: Producer<Job>) -> void uses Async = run(
+@job_producer (p: Producer<Job>) -> void uses Suspend = run(
     for job in load_jobs() do p.send(value: job),
     p.close(),
 )
 
-@job_consumer (c: Consumer<Job>) -> void uses Async =
+@job_consumer (c: Consumer<Job>) -> void uses Suspend =
     for job in c do process(job)
 ```
 
 ### Worker Pool (Fan-In)
 
 ```ori
-@worker_pool (jobs: [Job]) -> [Result<Output, Error>] uses Async = run(
+@worker_pool (jobs: [Job]) -> [Result<Output, Error>] uses Suspend = run(
     let (sender, receiver) = channel_in<Result<Output, Error>>(buffer: 100),
 
     nursery(
@@ -457,7 +457,7 @@ type Nursery = {
 ### Pipeline with Backpressure
 
 ```ori
-@data_pipeline (input: Consumer<RawData>) -> [ProcessedData] uses Async = run(
+@data_pipeline (input: Consumer<RawData>) -> [ProcessedData] uses Suspend = run(
     let (stage1_out, stage1_in) = channel<Parsed>(buffer: 10),
     let (stage2_out, stage2_in) = channel<Validated>(buffer: 10),
 
@@ -471,7 +471,7 @@ type Nursery = {
     ),
 )
 
-@pipe<A, B> (input: Consumer<A>, output: Producer<B>, f: (A) -> B) -> void uses Async =
+@pipe<A, B> (input: Consumer<A>, output: Producer<B>, f: (A) -> B) -> void uses Suspend =
     for item in input do output.send(value: f(item))
 ```
 

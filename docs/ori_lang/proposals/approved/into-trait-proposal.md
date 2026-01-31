@@ -175,7 +175,7 @@ process(value: 10.into())    // int, explicit .into() required
 type UserId = int
 
 impl Into<str> for UserId {
-    @into (self) -> str = `user-{self.0}`
+    @into (self) -> str = `user-{self.inner}`
 }
 
 let id = UserId(42)
@@ -189,11 +189,11 @@ type Celsius = float
 type Fahrenheit = float
 
 impl Into<Fahrenheit> for Celsius {
-    @into (self) -> Fahrenheit = Fahrenheit(self.0 * 9.0 / 5.0 + 32.0)
+    @into (self) -> Fahrenheit = Fahrenheit(self.inner * 9.0 / 5.0 + 32.0)
 }
 
 impl Into<Celsius> for Fahrenheit {
-    @into (self) -> Celsius = Celsius((self.0 - 32.0) * 5.0 / 9.0)
+    @into (self) -> Celsius = Celsius((self.inner - 32.0) * 5.0 / 9.0)
 }
 ```
 

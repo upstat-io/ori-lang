@@ -386,7 +386,7 @@ repeat(value: 0).find(predicate: x -> x > 0)
 ### Parallel-Ready Iteration
 
 ```ori
-@process_batch (items: [Item]) -> [Result] uses Async =
+@process_batch (items: [Item]) -> [Result] uses Suspend =
     items.iter()
         .map(transform: item -> () -> process(item))  // Create tasks
         .collect()

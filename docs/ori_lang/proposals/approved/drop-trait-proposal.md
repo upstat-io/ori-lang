@@ -343,8 +343,8 @@ Drop cannot return errors. Propagating would require panic, which is dangerous d
 error[E0980]: `Drop::drop` cannot be async
   --> src/types.ori:5:5
    |
- 5 |     @drop (self) -> void uses Async = self.async_cleanup()
-   |                          ^^^^^^^^^^ `uses Async` not allowed
+ 5 |     @drop (self) -> void uses Suspend = self.async_cleanup()
+   |                          ^^^^^^^^^^ `uses Suspend` not allowed
    |
    = note: drop runs synchronously during stack unwinding
    = help: perform async cleanup before dropping

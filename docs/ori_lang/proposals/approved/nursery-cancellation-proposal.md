@@ -192,7 +192,7 @@ When a task is cancelled:
 3. Cleanup is **guaranteed** to complete before the task terminates
 
 ```ori
-@task_with_cleanup () -> void uses Async = run(
+@task_with_cleanup () -> void uses Suspend = run(
     let resource = acquire_resource(),  // Has destructor
     do_work(),                           // <- Cancellation observed here
     // resource's destructor runs even if cancelled
@@ -212,7 +212,7 @@ A task cannot be forcibly terminated during destructor execution. If a destructo
 Tasks can check if they've been cancelled:
 
 ```ori
-@long_running_task () -> Result<Data, Error> uses Async = run(
+@long_running_task () -> Result<Data, Error> uses Suspend = run(
     let result = [],
     for item in large_dataset do run(
         if is_cancelled() then break Err(CancellationError { ... }),
@@ -230,7 +230,7 @@ The `for` loop automatically checks cancellation at each iteration when inside a
 
 ```ori
 // Equivalent to explicit check above
-@long_running_task () -> [Data] uses Async =
+@long_running_task () -> [Data] uses Suspend =
     for item in large_dataset yield process(item)
     // Automatically exits with CancellationError if cancelled
 ```
@@ -248,12 +248,12 @@ When an outer nursery cancels a task containing an inner nursery:
 4. Outer task then completes
 
 ```ori
-@outer () -> void uses Async = nursery(
+@outer () -> void uses Suspend = nursery(
     body: n -> n.spawn(task: () -> inner()),
     timeout: 5s,  // If this triggers...
 )
 
-@inner () -> void uses Async = nursery(
+@inner () -> void uses Suspend = nursery(
     body: n -> run(
         n.spawn(task: () -> task_a()),  // ...these are also cancelled
         n.spawn(task: () -> task_b()),
@@ -275,7 +275,7 @@ If a destructor panics during cancellation unwinding:
 ### Graceful Shutdown Pattern
 
 ```ori
-@fetch_all (urls: [str]) -> [Result<Response, Error>] uses Async = nursery(
+@fetch_all (urls: [str]) -> [Result<Response, Error>] uses Suspend = nursery(
     body: n -> for url in urls do n.spawn(task: () -> fetch(url)),
     on_error: CollectAll,
     timeout: 30s,
@@ -286,7 +286,7 @@ If a destructor panics during cancellation unwinding:
 ### First Success Pattern
 
 ```ori
-@first_success<T> (tasks: [() -> T uses Async]) -> Result<T, Error> uses Async = run(
+@first_success<T> (tasks: [() -> T uses Suspend]) -> Result<T, Error> uses Suspend = run(
     let results = nursery(
         body: n -> for task in tasks do n.spawn(task: task),
         on_error: CancelRemaining,
@@ -298,7 +298,7 @@ If a destructor panics during cancellation unwinding:
 ### Explicit Cancellation Check
 
 ```ori
-@batch_process (items: [Item]) -> [Result<Output, Error>] uses Async = nursery(
+@batch_process (items: [Item]) -> [Result<Output, Error>] uses Suspend = nursery(
     body: n -> for item in items do n.spawn(task: () -> run(
         // Heavy computation
         let partial = phase1(item),

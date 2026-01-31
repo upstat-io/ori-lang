@@ -307,14 +307,14 @@ A capability binding must implement the capability trait:
 
 ```ori
 trait Http {
-    @get (url: str) -> Result<Response, Error> uses Async
-    @post (url: str, body: str) -> Result<Response, Error> uses Async
+    @get (url: str) -> Result<Response, Error> uses Suspend
+    @post (url: str, body: str) -> Result<Response, Error> uses Suspend
 }
 
 type MockHttp = { responses: {str: Response} }
 
 impl Http for MockHttp {
-    @get (url: str) -> Result<Response, Error> uses Async =
+    @get (url: str) -> Result<Response, Error> uses Suspend =
         Ok(self.responses[url])
     // ...
 }
@@ -372,11 +372,11 @@ error[E1203]: `Async` capability cannot be explicitly bound
 ### Async Context Creation
 
 `Async` context is provided by:
-- The runtime for `@main () uses Async`
+- The runtime for `@main () uses Suspend`
 - Concurrency patterns: `parallel`, `spawn`, `nursery`
 
 ```ori
-@main () -> void uses Async = run(
+@main () -> void uses Suspend = run(
     // Async context exists here
     parallel(tasks: [...]),  // Creates sub-contexts for tasks
 )
@@ -431,8 +431,8 @@ Function signatures declare capability sets:
 ```ori
 // Define capabilities
 trait Logger { @info (message: str) -> void }
-trait Database { @query (sql: str) -> Result<Rows, Error> uses Async }
-trait Http { @get (url: str) -> Result<Response, Error> uses Async }
+trait Database { @query (sql: str) -> Result<Rows, Error> uses Suspend }
+trait Http { @get (url: str) -> Result<Response, Error> uses Suspend }
 
 // Default implementations
 def impl Logger { @info (message: str) -> void = print(msg: message) }
@@ -454,7 +454,7 @@ impl Http for ProdHttp { ... }
     )
 
 // Main wiring
-@main () -> void uses Async = run(
+@main () -> void uses Suspend = run(
     let db = ProdDatabase { connection: connect() },
     let http = ProdHttp { client: create_client() },
 

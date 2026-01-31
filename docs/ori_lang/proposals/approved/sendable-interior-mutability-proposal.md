@@ -182,7 +182,7 @@ let outer = () -> inner()    // outer captures inner, which is Sendable
 When closures cross task boundaries, the compiler verifies Sendability:
 
 ```ori
-@spawn_tasks () -> void uses Async = run(
+@spawn_tasks () -> void uses Suspend = run(
     let data = create_data(),     // data: Sendable
     let handle = open_file(),     // handle: NOT Sendable
 
@@ -270,7 +270,7 @@ parallel(
 Generic types can require Sendable bounds:
 
 ```ori
-@spawn_with<T: Sendable> (value: T, action: (T) -> void) -> void uses Async =
+@spawn_with<T: Sendable> (value: T, action: (T) -> void) -> void uses Suspend =
     parallel(tasks: [() -> action(value)])
 
 // OK: int is Sendable
@@ -308,7 +308,7 @@ type Message = {
 }
 // All fields are Sendable, so Message is Sendable
 
-@send_messages (messages: [Message]) -> void uses Async =
+@send_messages (messages: [Message]) -> void uses Suspend =
     parallel(
         tasks: messages.map(m -> () -> deliver(m)),  // OK
     )
@@ -337,7 +337,7 @@ type CacheEntry = {
 }
 // CacheEntry is NOT Sendable due to file_cache
 
-@parallel_cache_lookup (entries: [CacheEntry]) -> void uses Async =
+@parallel_cache_lookup (entries: [CacheEntry]) -> void uses Suspend =
     parallel(
         tasks: entries.map(e -> () -> lookup(e)),  // ERROR
     )
