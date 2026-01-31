@@ -26,7 +26,69 @@ Every value has a type determined at compile time.
 | `Duration` | Time span (nanoseconds) | `0ns` |
 | `Size` | Byte count | `0b` |
 
-`Never` is the return type for functions that never return (panic, infinite loop). Coerces to any type.
+`Never` is the _bottom type_ — a type with no values. It represents computations that never complete normally.
+
+### Never Semantics
+
+**Uninhabited:** No value has type `Never`. This makes it useful for:
+- Functions that never return
+- Match arms that never execute
+- Unreachable code paths
+
+**Coercion:** `Never` coerces to any type `T`. Since `Never` has no values, the coercion never actually executes — the expression diverges before producing a value.
+
+```ori
+let x: int = panic(msg: "unreachable")  // Never coerces to int
+let y: str = unreachable()              // Never coerces to str
+```
+
+**Expressions producing Never:**
+
+| Expression | Description |
+|------------|-------------|
+| `panic(msg:)` | Terminates program |
+| `todo()`, `todo(reason:)` | Placeholder, terminates |
+| `unreachable()`, `unreachable(reason:)` | Assertion, terminates |
+| `break`, `continue` | Loop control (inside loops) |
+| `expr?` on `Err`/`None` | Early return path |
+| `loop(...)` with no `break` | Infinite loop |
+
+**Type inference:** In conditionals, `Never` does not constrain the result type:
+
+```ori
+let x = if condition then 42 else panic(msg: "fail")
+// Type: int (Never coerces to int)
+```
+
+If all paths return `Never`, the expression has type `Never`:
+
+```ori
+let x = if condition then panic(msg: "a") else panic(msg: "b")
+// x: Never
+```
+
+**Generic contexts:** `Never` can be a type argument:
+
+```ori
+Result<Never, E>  // Can only be Err
+Result<T, Never>  // Can only be Ok
+Option<Never>     // Can only be None
+```
+
+**Restrictions:**
+
+`Never` cannot appear as a struct field type:
+
+```ori
+type Bad = { value: Never }  // error E0920: uninhabited struct field
+```
+
+`Never` may appear in sum type variant payloads. Such variants are unconstructable:
+
+```ori
+type MaybeNever = Value(int) | Impossible(Never)
+// Only Value(int) values can exist
+```
 
 ### Duration
 

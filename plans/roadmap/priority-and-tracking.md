@@ -824,6 +824,16 @@
 - Undefined label error (E0870)
 - Blocked on: None (can be implemented independently)
 
+**Never Type Semantics** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/never-type-proposal.md`
+- Implementation: Phase 1.1B
+- Formalizes Never as the bottom type (uninhabited, coerces to any type T)
+- Expressions producing Never: panic, todo, unreachable, break, continue, ? early return, infinite loop
+- Never variants in sum types can be omitted from exhaustiveness checking
+- Struct fields of type Never forbidden (E0920); sum type variant payloads allowed
+- Generic contexts: Result<Never, E> = always Err, Option<Never> = always None
+- Blocked on: None (formalizes existing spec)
+
 ---
 
 ## Milestones
