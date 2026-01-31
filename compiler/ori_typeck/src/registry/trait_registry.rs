@@ -345,6 +345,10 @@ impl TraitRegistry {
     /// Returns `Some(concrete_type)` if the type has an impl for the trait
     /// with an associated type definition for `assoc_name`. The `TypeId` is
     /// converted to Type using the registry's interner.
+    ///
+    /// If the impl does not explicitly define the associated type but the trait
+    /// has a default, the default is resolved with `Self` substituted for the
+    /// implementing type.
     pub fn lookup_assoc_type(
         &self,
         self_ty: &Type,
@@ -354,12 +358,62 @@ impl TraitRegistry {
         // Get the trait impl for this type
         let impl_entry = self.get_trait_impl(trait_name, self_ty)?;
 
-        // Find the associated type definition and convert TypeId to Type
-        impl_entry
+        // First, check if the impl explicitly defines this associated type
+        if let Some(at) = impl_entry
             .assoc_types
             .iter()
             .find(|at| at.name == assoc_name)
-            .map(|at| self.interner.to_type(at.ty))
+        {
+            return Some(self.interner.to_type(at.ty));
+        }
+
+        // Not explicitly defined - check if the trait has a default
+        let trait_entry = self.traits.get(&trait_name)?;
+        let trait_assoc = trait_entry
+            .assoc_types
+            .iter()
+            .find(|at| at.name == assoc_name)?;
+
+        // If there's a default, resolve it with Self substituted
+        trait_assoc
+            .default_type
+            .as_ref()
+            .map(|default_parsed_type| {
+                self.resolve_parsed_type_with_self_substitution(default_parsed_type, self_ty)
+            })
+    }
+
+    /// Resolve a `ParsedType` to a `Type`, substituting `Self` with a concrete type.
+    ///
+    /// This is used when resolving default associated types that may contain `Self`.
+    fn resolve_parsed_type_with_self_substitution(
+        &self,
+        parsed: &ori_ir::ParsedType,
+        self_ty: &Type,
+    ) -> Type {
+        match parsed {
+            ori_ir::ParsedType::SelfType => self_ty.clone(),
+            ori_ir::ParsedType::Primitive(type_id) => self.interner.to_type(*type_id),
+            ori_ir::ParsedType::Infer => Type::Var(ori_types::TypeVar(0)), // Fresh var - should rarely happen in defaults
+            ori_ir::ParsedType::Named { name, type_args } => {
+                if type_args.is_empty() {
+                    Type::Named(*name)
+                } else {
+                    // For now, return Named without resolving type args
+                    // Full resolution would require arena access
+                    Type::Named(*name)
+                }
+            }
+            ori_ir::ParsedType::List(_)
+            | ori_ir::ParsedType::Tuple(_)
+            | ori_ir::ParsedType::Function { .. }
+            | ori_ir::ParsedType::Map { .. }
+            | ori_ir::ParsedType::AssociatedType { .. } => {
+                // Complex types in defaults - return Self as fallback
+                // Full resolution would require arena access
+                self_ty.clone()
+            }
+        }
     }
 
     /// Look up an associated type definition for a type by name only.

@@ -146,9 +146,24 @@ impl Spanned for TraitDefaultMethod {
 }
 
 /// Associated type in a trait.
+///
+/// ```ori
+/// trait Iterator {
+///     type Item  // No default - must be specified
+/// }
+///
+/// trait Add<Rhs = Self> {
+///     type Output = Self  // Default to Self
+/// }
+/// ```
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct TraitAssocType {
     pub name: Name,
+    /// Default type for this associated type (e.g., `Self` in `type Output = Self`).
+    /// When present, this type is used if the impl omits the associated type.
+    /// Stored as `ParsedType` (not resolved) because defaults may contain `Self`
+    /// which must be resolved at impl registration time, not trait registration time.
+    pub default_type: Option<ParsedType>,
     pub span: Span,
 }
 

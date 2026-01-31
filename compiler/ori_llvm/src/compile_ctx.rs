@@ -29,7 +29,7 @@ use crate::LoopContext;
 /// to reduce parameter threading from 5 params to 1.
 ///
 /// # Lifetime Parameters
-/// - `'a`: Lifetime of the arena and expr_types references
+/// - `'a`: Lifetime of the arena and `expr_types` references
 /// - `'ll`: LLVM context lifetime
 pub struct CompileCtx<'a, 'll> {
     /// The expression arena containing all AST nodes.

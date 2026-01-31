@@ -25,7 +25,7 @@ use parking_lot::Mutex;
 static PANIC_OCCURRED: AtomicBool = AtomicBool::new(false);
 
 /// Global storage for panic message.
-/// Uses parking_lot::Mutex which doesn't poison on panic, eliminating .unwrap() calls.
+/// Uses `parking_lot::Mutex` which doesn't poison on panic, eliminating `.unwrap()` calls.
 static PANIC_MESSAGE: Mutex<Option<String>> = Mutex::new(None);
 
 /// Ori string representation: { i64 len, *const u8 data }

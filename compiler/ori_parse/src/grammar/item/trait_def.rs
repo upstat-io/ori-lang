@@ -70,12 +70,22 @@ impl Parser<'_> {
     /// Parse a single trait item (method signature, default method, or associated type).
     fn parse_trait_item(&mut self) -> Result<TraitItem, ParseError> {
         if self.check(&TokenKind::Type) {
-            // Associated type: type Item
+            // Associated type: type Item or type Item = DefaultType
             let start_span = self.current_span();
             self.advance(); // consume `type`
             let name = self.expect_ident()?;
+
+            // Optional default type: = Type
+            let default_type = if self.check(&TokenKind::Eq) {
+                self.advance();
+                Some(self.parse_type_required()?)
+            } else {
+                None
+            };
+
             Ok(TraitItem::AssocType(TraitAssocType {
                 name,
+                default_type,
                 span: start_span.merge(self.previous_span()),
             }))
         } else if self.check(&TokenKind::At) {

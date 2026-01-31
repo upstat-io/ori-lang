@@ -62,6 +62,10 @@ fn parse_error_code(s: &str) -> Option<ErrorCode> {
         "E2012" => Some(ErrorCode::E2012),
         "E2013" => Some(ErrorCode::E2013),
         "E2014" => Some(ErrorCode::E2014),
+        "E2015" => Some(ErrorCode::E2015),
+        "E2016" => Some(ErrorCode::E2016),
+        "E2017" => Some(ErrorCode::E2017),
+        "E2018" => Some(ErrorCode::E2018),
         // Pattern errors
         "E3001" => Some(ErrorCode::E3001),
         "E3002" => Some(ErrorCode::E3002),

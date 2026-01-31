@@ -659,7 +659,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     /// - `loop_ctx`: Current loop context for break/continue
     ///
     /// # Design Note
-    /// The many parameters follow codegen conventions (see rustc_codegen_llvm).
+    /// The many parameters follow codegen conventions (see `rustc_codegen_llvm`).
     /// Using a `CompileCtx` struct was considered but rejected because:
     /// - The crate already allows `clippy::too_many_arguments` at crate level
     /// - The parameters are explicit about what each function needs
