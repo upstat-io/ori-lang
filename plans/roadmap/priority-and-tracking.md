@@ -878,6 +878,17 @@
 - Capabilities allowed with documentation warning about risks
 - Blocked on: None (can be implemented independently)
 
+**Standard Library Philosophy** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/stdlib-philosophy-proposal.md`
+- Implementation: Phase 7D (architecture/philosophy)
+- "Batteries included, independently versioned" stdlib architecture
+- Official `std.*` packages: core team maintained, semver independent, FFI-backed
+- Packages: math (libm), fs, time, json, crypto (libsodium), net, http, regex, compression, encoding, uuid, log, test
+- Security agility: patch stdlib without releasing new compiler
+- Stdlib contract: core team maintains, long-term support, security priority
+- `std.test` contains assertion methods, test doubles, mocking utilities (lean compiler, rich libraries)
+- Blocked on: None (architecture/philosophy proposal)
+
 ---
 
 ## Milestones

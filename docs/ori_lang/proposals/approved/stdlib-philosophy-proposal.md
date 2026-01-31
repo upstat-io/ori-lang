@@ -1,6 +1,7 @@
 # Proposal: Standard Library Philosophy
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-31
 **Created:** 2026-01-30
 **Affects:** Standard library, package management, project structure
 
@@ -83,7 +84,7 @@ Packages maintained by the core team with long-term support commitment:
 | `std.encoding` | Base64, hex, URL encoding | Pure Ori |
 | `std.uuid` | UUID generation and parsing | Pure Ori + std.crypto |
 | `std.log` | Structured logging | Pure Ori |
-| `std.test` | Testing utilities | Pure Ori |
+| `std.test` | Assertion methods, test doubles, mocking utilities | Pure Ori |
 
 ### Community Packages
 

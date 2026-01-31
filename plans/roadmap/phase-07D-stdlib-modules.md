@@ -3,6 +3,7 @@
 **Goal**: Standard library modules including validate, resilience, math, testing, time, json, fs
 
 > **DESIGN**: `modules/` documentation
+> **PROPOSAL**: `proposals/approved/stdlib-philosophy-proposal.md` — Stdlib architecture and philosophy
 > **PROPOSAL**: `proposals/approved/overflow-behavior-proposal.md` — Integer overflow behavior
 
 ---
