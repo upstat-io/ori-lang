@@ -128,7 +128,56 @@ value?         // returns Err early if Err
 
 ## Unary Expressions
 
-`!` logical not, `-` negation, `~` bitwise not.
+### Logical Not (`!`)
+
+Inverts a boolean value.
+
+```ori
+!true   // false
+!false  // true
+!!x     // x (double negation)
+```
+
+Type constraint: `! : bool -> bool`. It is a compile-time error to apply `!` to non-boolean types. For bitwise complement of integers, use `~`.
+
+### Arithmetic Negation (`-`)
+
+Negates a numeric value.
+
+```ori
+-42      // -42
+-3.14    // -3.14
+-(-5)    // 5
+```
+
+Type constraints:
+- `- : int -> int`
+- `- : float -> float`
+- `- : Duration -> Duration`
+
+Integer negation panics on overflow: `-int.min` panics because the positive result does not fit in `int`.
+
+Float negation never overflows (flips sign bit). Duration negation follows the same overflow rules as integer negation.
+
+It is a compile-time error to apply unary `-` to `Size` (byte counts are non-negative).
+
+### Bitwise Not (`~`)
+
+Inverts all bits of an integer.
+
+```ori
+~0       // -1 (all bits set)
+~(-1)    // 0
+~5       // -6
+```
+
+Type constraints:
+- `~ : int -> int`
+- `~ : byte -> byte`
+
+For `int`, `~x` is equivalent to `-(x + 1)`. For `byte`, the result is the bitwise complement within 8 bits.
+
+It is a compile-time error to apply `~` to `bool`. Use `!` for boolean negation.
 
 ## Binary Expressions
 
@@ -162,11 +211,27 @@ Binary operators require operands of matching types. No implicit conversions.
 |------|-------|--------|
 | `str` | `str` | `str` |
 
-**Integer-only** (`%` `div` `<<` `>>` `&` `|` `^`):
+**Integer-only** (`%` `div`):
 
 | Left | Right | Result |
 |------|-------|--------|
 | `int` | `int` | `int` |
+
+**Bitwise** (`&` `|` `^`):
+
+| Left | Right | Result |
+|------|-------|--------|
+| `int` | `int` | `int` |
+| `byte` | `byte` | `byte` |
+
+**Shift** (`<<` `>>`):
+
+| Left | Right | Result |
+|------|-------|--------|
+| `int` | `int` | `int` |
+| `byte` | `int` | `byte` |
+
+The shift count is always `int`. It is a compile-time error to mix `int` and `byte` for bitwise AND/OR/XOR.
 
 **Comparison** (`<` `>` `<=` `>=`):
 
@@ -196,6 +261,19 @@ int.min - 1  // panic: integer overflow
 ```
 
 Programs requiring wrapping or saturating arithmetic should use functions from `std.math`.
+
+**Shift overflow**: Shift operations panic when the shift count is negative, exceeds the bit width, or the result overflows.
+
+```ori
+1 << 63     // panic: shift overflow (result doesn't fit in signed int)
+1 << 64     // panic: shift count exceeds bit width
+1 << -1     // panic: negative shift count
+16 >> 64    // panic: shift count exceeds bit width
+```
+
+For `int` (64-bit signed), valid shift counts are 0 to 62 for left shift when the result must remain representable. For right shift, counts 0 to 63 are valid.
+
+For `byte` (8-bit unsigned), valid shift counts are 0 to 7.
 
 **Integer division and modulo overflow**: The expression `int.min / -1` and `int.min % -1` panic because the mathematical result cannot be represented.
 
@@ -231,6 +309,60 @@ NaN != NaN   // true
 
 ```ori
 0.1 + 0.2 == 0.3  // false (floating-point representation)
+```
+
+## Operator Precedence
+
+Operators are listed from highest to lowest precedence:
+
+| Level | Operators | Associativity | Description |
+|-------|-----------|---------------|-------------|
+| 1 | `.` `[]` `()` `?` | Left | Postfix |
+| 2 | `!` `-` `~` | Right | Unary |
+| 3 | `*` `/` `%` `div` | Left | Multiplicative |
+| 4 | `+` `-` | Left | Additive |
+| 5 | `<<` `>>` | Left | Shift |
+| 6 | `..` `..=` `by` | Left | Range |
+| 7 | `<` `>` `<=` `>=` | Left | Relational |
+| 8 | `==` `!=` | Left | Equality |
+| 9 | `&` | Left | Bitwise AND |
+| 10 | `^` | Left | Bitwise XOR |
+| 11 | `\|` | Left | Bitwise OR |
+| 12 | `&&` | Left | Logical AND |
+| 13 | `\|\|` | Left | Logical OR |
+| 14 | `??` | Left | Coalesce |
+
+Parentheses override precedence:
+
+```ori
+(a & b) == 0    // Compare result of AND with 0
+a & b == 0      // Parsed as a & (b == 0) — likely not intended
+```
+
+## No Operator Overloading
+
+Ori does not support user-defined operator overloading. Operators have fixed meanings for built-in types only.
+
+```ori
+// NOT supported:
+impl Add for Point { ... }
+point1 + point2  // error: + not defined for Point
+```
+
+User-defined types use named methods:
+
+```ori
+impl Point {
+    @add (self, other: Point) -> Point = Point {
+        x: self.x + other.x,
+        y: self.y + other.y,
+    }
+}
+
+point1.add(other: point2)  // explicit method call
+```
+
+This design ensures operators have predictable behavior and all user operations use explicit method syntax.
 
 ## Range Expressions
 
