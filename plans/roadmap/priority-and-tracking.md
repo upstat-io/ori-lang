@@ -783,6 +783,17 @@
 - Error codes: E0960 (not implemented), E0961 (ambiguous)
 - Blocked on: None (builds on existing Phase 3 infrastructure)
 
+**Intrinsics Capability** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/intrinsics-capability-proposal.md`
+- Implementation: Phase 6.14
+- SIMD operations for 128/256/512-bit vectors (float and 64-bit int)
+- Core ops: arithmetic, comparisons, min/max, sqrt/abs, horizontal sum
+- Bit manipulation: count_ones, count_leading_zeros, count_trailing_zeros, rotate_left, rotate_right
+- Hardware feature detection via `cpu_has_feature(feature:)`
+- Auto-fallback to scalar emulation when native SIMD unavailable
+- Atomics deferred to separate proposal (memory model integration required)
+- Blocked on: None (can be implemented independently)
+
 ---
 
 ## Milestones
