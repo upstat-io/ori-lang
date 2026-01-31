@@ -22,9 +22,7 @@ use ori_ir::StringInterner;
 use ori_lexer::lex_with_comments;
 use proptest::prelude::*;
 
-// =============================================================================
-// Code Generation Strategies
-// =============================================================================
+// -- Code Generation Strategies --
 
 /// Generate a valid Ori identifier.
 fn identifier_strategy() -> impl Strategy<Value = String> {
@@ -327,9 +325,7 @@ fn module_strategy() -> impl Strategy<Value = String> {
         })
 }
 
-// =============================================================================
-// Test Helpers
-// =============================================================================
+// -- Test Helpers --
 
 /// Parse and format source code.
 fn parse_and_format(source: &str) -> Result<String, String> {
@@ -420,9 +416,7 @@ fn test_idempotence(source: &str) -> Result<(), String> {
     Ok(())
 }
 
-// =============================================================================
-// Property Tests
-// =============================================================================
+// -- Property Tests --
 
 proptest! {
     #![proptest_config(ProptestConfig {
@@ -546,9 +540,7 @@ proptest! {
     }
 }
 
-// =============================================================================
-// Extended Property Tests - More Comprehensive Fuzzing
-// =============================================================================
+// -- Extended Property Tests - More Comprehensive Fuzzing --
 
 /// Generate a method call chain.
 fn method_chain_strategy(depth: u32) -> BoxedStrategy<String> {
@@ -1076,9 +1068,7 @@ proptest! {
     }
 }
 
-// =============================================================================
-// Additional Unit Tests for Edge Cases
-// =============================================================================
+// -- Additional Unit Tests for Edge Cases --
 
 #[test]
 fn test_single_element_tuple_idempotence() {
@@ -1188,13 +1178,9 @@ fn test_binary_expr_line_break() {
     test_idempotence(source).expect("binary expression with line break should be idempotent");
 }
 
-// =============================================================================
-// Substantially More Comprehensive Tests
-// =============================================================================
+// -- Substantially More Comprehensive Tests --
 
-// -----------------------------------------------------------------------------
-// Literal Edge Cases
-// -----------------------------------------------------------------------------
+// -- Literal Edge Cases --
 
 #[test]
 fn test_zero_literal() {
@@ -1258,9 +1244,7 @@ fn test_char_escape_sequences() {
     }
 }
 
-// -----------------------------------------------------------------------------
-// Operator Edge Cases
-// -----------------------------------------------------------------------------
+// -- Operator Edge Cases --
 
 #[test]
 fn test_bitwise_and() {
@@ -1328,9 +1312,7 @@ fn test_mixed_comparison_logical() {
     test_idempotence(source).expect("mixed comparison/logical should be idempotent");
 }
 
-// -----------------------------------------------------------------------------
-// Collection Tests
-// -----------------------------------------------------------------------------
+// -- Collection Tests --
 
 #[test]
 fn test_list_of_lists() {
@@ -1391,9 +1373,7 @@ fn test_range_inclusive() {
     test_idempotence(source).expect("inclusive range should be idempotent");
 }
 
-// -----------------------------------------------------------------------------
-// Control Flow Tests
-// -----------------------------------------------------------------------------
+// -- Control Flow Tests --
 
 #[test]
 fn test_if_without_else() {
@@ -1425,9 +1405,7 @@ fn test_nested_for() {
     test_idempotence(source).expect("nested for should be idempotent");
 }
 
-// -----------------------------------------------------------------------------
-// Pattern Construct Tests
-// -----------------------------------------------------------------------------
+// -- Pattern Construct Tests --
 
 #[test]
 fn test_run_multiple_bindings() {
@@ -1479,9 +1457,7 @@ fn test_match_list_pattern() {
     test_idempotence(source).expect("match list pattern should be idempotent");
 }
 
-// -----------------------------------------------------------------------------
-// Function Call Tests
-// -----------------------------------------------------------------------------
+// -- Function Call Tests --
 
 #[test]
 fn test_simple_call() {
@@ -1531,9 +1507,7 @@ fn test_nested_index() {
     test_idempotence(source).expect("nested index should be idempotent");
 }
 
-// -----------------------------------------------------------------------------
-// Lambda Tests
-// -----------------------------------------------------------------------------
+// -- Lambda Tests --
 
 #[test]
 fn test_lambda_no_params() {
@@ -1571,9 +1545,7 @@ fn test_lambda_with_complex_body() {
     test_idempotence(source).expect("lambda with complex body should be idempotent");
 }
 
-// -----------------------------------------------------------------------------
-// Type Definition Tests
-// -----------------------------------------------------------------------------
+// -- Type Definition Tests --
 
 #[test]
 fn test_empty_struct() {
@@ -1635,9 +1607,7 @@ fn test_public_type() {
     test_idempotence(source).expect("public type should be idempotent");
 }
 
-// -----------------------------------------------------------------------------
-// Trait and Impl Tests
-// -----------------------------------------------------------------------------
+// -- Trait and Impl Tests --
 
 #[test]
 fn test_empty_trait() {
@@ -1688,9 +1658,7 @@ fn test_impl_generic() {
     test_idempotence(source).expect("generic impl should be idempotent");
 }
 
-// -----------------------------------------------------------------------------
-// Function Signature Tests
-// -----------------------------------------------------------------------------
+// -- Function Signature Tests --
 
 #[test]
 fn test_function_no_params() {
@@ -1772,9 +1740,7 @@ fn test_function_all_features() {
     test_idempotence(source).expect("function with all features should be idempotent");
 }
 
-// -----------------------------------------------------------------------------
-// Import Tests
-// -----------------------------------------------------------------------------
+// -- Import Tests --
 
 #[test]
 fn test_import_single() {
@@ -1800,9 +1766,7 @@ fn test_import_relative() {
     test_idempotence(source).expect("relative import should be idempotent");
 }
 
-// -----------------------------------------------------------------------------
-// Constant Tests
-// -----------------------------------------------------------------------------
+// -- Constant Tests --
 
 #[test]
 fn test_const_int() {
@@ -1834,9 +1798,7 @@ fn test_const_public() {
     test_idempotence(source).expect("public const should be idempotent");
 }
 
-// -----------------------------------------------------------------------------
-// Test Declaration Tests
-// -----------------------------------------------------------------------------
+// -- Test Declaration Tests --
 
 #[test]
 fn test_targeted_test() {
@@ -1851,9 +1813,7 @@ fn test_free_floating_test() {
     test_idempotence(source).expect("free floating test should be idempotent");
 }
 
-// -----------------------------------------------------------------------------
-// Comment Tests
-// -----------------------------------------------------------------------------
+// -- Comment Tests --
 
 #[test]
 fn test_single_comment() {
@@ -1879,9 +1839,7 @@ fn test_multiple_comments() {
     test_idempotence(source).expect("multiple comments should be idempotent");
 }
 
-// -----------------------------------------------------------------------------
-// Line Width Edge Cases
-// -----------------------------------------------------------------------------
+// -- Line Width Edge Cases --
 
 #[test]
 fn test_long_int_chain() {
@@ -1914,9 +1872,7 @@ fn test_very_long_expression() {
     test_idempotence(source).expect("very long expression should be idempotent");
 }
 
-// -----------------------------------------------------------------------------
-// Complex Combined Tests
-// -----------------------------------------------------------------------------
+// -- Complex Combined Tests --
 
 #[test]
 fn test_full_module() {
@@ -1955,9 +1911,7 @@ fn test_deeply_nested_everything() {
     test_idempotence(source).expect("deeply nested everything should be idempotent");
 }
 
-// =============================================================================
-// Additional Property Tests for More Coverage
-// =============================================================================
+// -- Additional Property Tests for More Coverage --
 
 /// Generate a duration literal.
 fn duration_literal_strategy() -> impl Strategy<Value = String> {

@@ -649,6 +649,21 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
     /// Compile an expression, dispatching to the appropriate helper method.
     ///
     /// This is the main entry point for expression compilation in the LLVM backend.
+    ///
+    /// # Parameters
+    /// - `id`: The expression to compile
+    /// - `arena`: The expression arena containing all AST nodes
+    /// - `expr_types`: Type of each expression (indexed by `ExprId`)
+    /// - `locals`: Local variable bindings
+    /// - `function`: The LLVM function being compiled
+    /// - `loop_ctx`: Current loop context for break/continue
+    ///
+    /// # Design Note
+    /// The many parameters follow codegen conventions (see rustc_codegen_llvm).
+    /// Using a `CompileCtx` struct was considered but rejected because:
+    /// - The crate already allows `clippy::too_many_arguments` at crate level
+    /// - The parameters are explicit about what each function needs
+    /// - Lifetime handling is simpler without reborrowing gymnastics
     #[expect(
         clippy::too_many_lines,
         reason = "large match on ExprKind - splitting would obscure the dispatch logic"

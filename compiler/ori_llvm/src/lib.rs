@@ -92,6 +92,7 @@
 
 // -- Public modules (new architecture) --
 pub mod builder;
+pub mod compile_ctx;
 pub mod context;
 pub mod declare;
 pub mod traits;
@@ -103,6 +104,7 @@ pub mod runtime;
 
 // Re-export key types from new architecture
 pub use builder::Builder;
+pub use compile_ctx::CompileCtx;
 pub use context::{CodegenCx, SimpleCx, TypeCache};
 pub use traits::{BackendTypes, BuilderMethods, CodegenMethods, TypeMethods};
 

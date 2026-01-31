@@ -156,7 +156,31 @@ impl TypeCheckError {
     pub fn to_diagnostic(&self) -> Diagnostic {
         Diagnostic::error(self.code)
             .with_message(&self.message)
-            .with_label(self.span, "type error here")
+            .with_label(self.span, self.infer_label())
+    }
+
+    /// Infer a contextual label from the error message.
+    fn infer_label(&self) -> &'static str {
+        let msg = self.message.to_lowercase();
+        if msg.contains("cannot infer") || msg.contains("could not infer") {
+            "cannot infer type"
+        } else if msg.contains("expected") && msg.contains("found") {
+            "type mismatch"
+        } else if msg.contains("no such field") || msg.contains("has no field") {
+            "unknown field"
+        } else if msg.contains("unknown type") || msg.contains("undefined type") {
+            "unknown type"
+        } else if msg.contains("unknown struct") {
+            "unknown struct"
+        } else if msg.contains("not callable") || msg.contains("cannot call") {
+            "not callable"
+        } else if msg.contains("missing") {
+            "missing"
+        } else if msg.contains("duplicate") {
+            "duplicate"
+        } else {
+            "type error"
+        }
     }
 
     /// Check if this is a soft error that can be suppressed after hard errors.
