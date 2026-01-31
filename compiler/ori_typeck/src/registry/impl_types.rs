@@ -18,6 +18,11 @@ pub struct ImplMethodDef {
     pub params: Vec<TypeId>,
     /// Return type.
     pub return_ty: TypeId,
+    /// True if this is an associated function (no `self` parameter).
+    ///
+    /// Associated functions are called on the type itself, not on instances:
+    /// `Point.origin()` vs `point.distance_to(other:)`.
+    pub is_associated: bool,
 }
 
 /// Associated type definition in an impl block (e.g., `type Item = T`).
@@ -120,6 +125,13 @@ impl ImplEntry {
     /// Uses the internal method index for fast lookup.
     pub fn get_method(&self, name: Name) -> Option<&ImplMethodDef> {
         self.method_index.get(&name).map(|&idx| &self.methods[idx])
+    }
+
+    /// Get an associated function by name in O(1) time.
+    ///
+    /// Returns `Some` only if the method exists AND is an associated function (no `self`).
+    pub fn get_associated_function(&self, name: Name) -> Option<&ImplMethodDef> {
+        self.get_method(name).filter(|method| method.is_associated)
     }
 
     /// Get an associated type definition by name in O(1) time.

@@ -429,4 +429,43 @@ impl TraitRegistry {
             .get(&(type_name, assoc_name))
             .map(|&type_id| self.interner.to_type(type_id))
     }
+
+    /// Look up an associated function on a type by name.
+    ///
+    /// Associated functions are methods without a `self` parameter, called on the type itself:
+    /// `Point.origin()`, `Duration.from_seconds(s: 10)`.
+    ///
+    /// Returns `Some(MethodLookup)` if the type has an inherent impl with an associated function
+    /// of the given name. Returns `None` if the function doesn't exist or if it's an instance
+    /// method (has `self` parameter).
+    pub fn lookup_associated_function(
+        &self,
+        type_name: Name,
+        method_name: Name,
+    ) -> Option<MethodLookup> {
+        let self_ty = Type::Named(type_name);
+        let impl_entry = self.get_inherent_impl(&self_ty)?;
+        let method = impl_entry.get_associated_function(method_name)?;
+
+        Some(MethodLookup {
+            trait_name: None,
+            method_name,
+            params: method
+                .params
+                .iter()
+                .map(|id| self.interner.to_type(*id))
+                .collect(),
+            return_ty: self.interner.to_type(method.return_ty),
+        })
+    }
+
+    /// Check if a type has any associated functions defined.
+    ///
+    /// Returns `true` if the type has an inherent impl block with at least one
+    /// method that doesn't have a `self` parameter.
+    pub fn has_associated_functions(&self, type_name: Name) -> bool {
+        let self_ty = Type::Named(type_name);
+        self.get_inherent_impl(&self_ty)
+            .is_some_and(|entry| entry.methods.iter().any(|m| m.is_associated))
+    }
 }

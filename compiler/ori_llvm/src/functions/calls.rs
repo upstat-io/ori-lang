@@ -336,6 +336,9 @@ impl<'ll> Builder<'_, 'll, '_> {
     }
 
     /// Compile a method call: receiver.method(args)
+    ///
+    /// Handles both instance methods (receiver is a value) and associated functions
+    /// (receiver is a type name, which won't compile to a value).
     pub(crate) fn compile_method_call(
         &self,
         receiver: ExprId,
@@ -347,13 +350,18 @@ impl<'ll> Builder<'_, 'll, '_> {
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
-        // Compile receiver
-        let recv_val =
-            self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx)?;
+        // Try to compile receiver
+        let recv_val = self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx);
 
         // Compile arguments
         let arg_ids = arena.get_expr_list(args);
-        let mut compiled_args: Vec<BasicValueEnum<'ll>> = vec![recv_val]; // receiver is first arg
+
+        // If receiver compiled to a value, it's an instance method - include receiver as first arg
+        // If receiver is None (type name for associated function), don't include it
+        let mut compiled_args: Vec<BasicValueEnum<'ll>> = match recv_val {
+            Some(val) => vec![val],
+            None => vec![],
+        };
 
         for &arg_id in arg_ids {
             if let Some(arg_val) =
@@ -373,6 +381,9 @@ impl<'ll> Builder<'_, 'll, '_> {
     }
 
     /// Compile a method call with named args.
+    ///
+    /// Handles both instance methods (receiver is a value) and associated functions
+    /// (receiver is a type name, which won't compile to a value).
     pub(crate) fn compile_method_call_named(
         &self,
         receiver: ExprId,
@@ -384,13 +395,16 @@ impl<'ll> Builder<'_, 'll, '_> {
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
-        // Compile receiver
-        let recv_val =
-            self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx)?;
+        // Try to compile receiver
+        let recv_val = self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx);
 
-        // Compile arguments (receiver first)
+        // If receiver compiled to a value, it's an instance method - include receiver as first arg
+        // If receiver is None (type name for associated function), don't include it
         let call_args = arena.get_call_args(args);
-        let mut compiled_args: Vec<BasicValueEnum<'ll>> = vec![recv_val];
+        let mut compiled_args: Vec<BasicValueEnum<'ll>> = match recv_val {
+            Some(val) => vec![val],
+            None => vec![],
+        };
 
         for arg in call_args {
             if let Some(arg_val) =

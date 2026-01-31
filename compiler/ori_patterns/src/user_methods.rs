@@ -188,6 +188,22 @@ impl UserMethodRegistry {
         self.methods.extend(other.methods);
         self.derived_methods.extend(other.derived_methods);
     }
+
+    /// Check if a type has any methods registered (user or derived).
+    ///
+    /// This is useful for determining if a type name should be treated as
+    /// a type reference for associated function calls.
+    pub fn has_any_methods_for_type(&self, type_name: Name) -> bool {
+        // Check if any user method is registered for this type
+        let has_user = self.methods.keys().any(|k| k.type_name == type_name);
+        if has_user {
+            return true;
+        }
+        // Check if any derived method is registered for this type
+        self.derived_methods
+            .keys()
+            .any(|k| k.type_name == type_name)
+    }
 }
 
 #[cfg(test)]

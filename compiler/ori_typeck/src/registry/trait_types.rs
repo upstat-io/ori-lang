@@ -19,6 +19,11 @@ pub struct TraitMethodDef {
     pub return_ty: TypeId,
     /// Whether this method has a default implementation.
     pub has_default: bool,
+    /// True if this is an associated function (no `self` parameter).
+    ///
+    /// Associated functions are called on the type itself:
+    /// `trait Default { @default () -> Self }`
+    pub is_associated: bool,
 }
 
 /// Associated type in a trait definition.

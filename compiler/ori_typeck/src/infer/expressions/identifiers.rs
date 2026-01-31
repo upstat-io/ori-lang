@@ -29,9 +29,18 @@ pub fn infer_ident(checker: &mut TypeChecker<'_>, name: Name, span: Span) -> Typ
     }
 
     // Check if this is a type name for associated function calls
-    // (e.g., `Duration` in `Duration.from_seconds(s: 10)`)
+    // (e.g., `Point` in `Point.origin()` or `Duration` in `Duration.from_seconds(s: 10)`)
+    //
+    // This includes:
+    // 1. User-defined types with associated functions in impl blocks
+    // 2. Built-in types (Duration, Size) with associated functions
+    if checker.registries.traits.has_associated_functions(name) {
+        return Type::Named(name);
+    }
+
+    // Check built-in types that have associated functions (Duration, Size)
     let name_str = checker.context.interner.lookup(name);
-    if is_type_name_for_associated_functions(name_str) {
+    if is_builtin_type_with_associated_functions(name_str) {
         return Type::Named(name);
     }
 
@@ -104,11 +113,11 @@ fn builtin_function_type(checker: &mut TypeChecker<'_>, name: &str) -> Option<Ty
     }
 }
 
-/// Check if an identifier is a type name that supports associated functions.
+/// Check if a type name is a built-in type with associated functions.
 ///
-/// These types have factory methods like `Duration.from_seconds(s:)` that can be
-/// called without an instance. The type name acts as a namespace for these methods.
-fn is_type_name_for_associated_functions(name: &str) -> bool {
+/// These built-in types have factory methods like `Duration.from_seconds(s:)` that
+/// are implemented in the compiler rather than user code.
+fn is_builtin_type_with_associated_functions(name: &str) -> bool {
     matches!(name, "Duration" | "Size")
 }
 

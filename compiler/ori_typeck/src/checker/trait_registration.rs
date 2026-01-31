@@ -7,7 +7,8 @@ use crate::registry::{
     ImplAssocTypeDef, ImplEntry, ImplMethodDef, TraitAssocTypeDef, TraitEntry, TraitMethodDef,
 };
 use ori_ir::{
-    ExprArena, GenericParam, GenericParamRange, Module, Name, ParamRange, TraitItem, TypeId,
+    ExprArena, GenericParam, GenericParamRange, Module, Name, ParamRange, StringInterner,
+    TraitItem, TypeId,
 };
 use ori_types::Type;
 
@@ -18,6 +19,26 @@ fn extract_type_param_names(arena: &ExprArena, generics: GenericParamRange) -> V
         .iter()
         .map(|gp| gp.name)
         .collect()
+}
+
+/// Check if a method is an associated function (no `self` parameter).
+///
+/// Associated functions are methods that don't have `self` as their first parameter.
+/// For example, `@origin () -> Point` is an associated function, but
+/// `@distance (self, other: Point) -> float` is an instance method.
+fn is_associated_function(
+    arena: &ExprArena,
+    interner: &StringInterner,
+    params: ParamRange,
+) -> bool {
+    let params_list = arena.get_params(params);
+    if params_list.is_empty() {
+        // No parameters means it's definitely an associated function
+        return true;
+    }
+    // Check if the first parameter is named "self"
+    let self_name = interner.intern("self");
+    params_list[0].name != self_name
 }
 
 /// Extract generic params for iteration.
@@ -60,22 +81,34 @@ impl TypeChecker<'_> {
                         let params = self.params_to_type_ids(sig.params);
                         let return_ty = self.parsed_type_to_type(&sig.return_ty);
                         let return_ty_id = return_ty.to_type_id(self.registries.traits.interner());
+                        let is_associated = is_associated_function(
+                            self.context.arena,
+                            self.context.interner,
+                            sig.params,
+                        );
                         methods.push(TraitMethodDef {
                             name: sig.name,
                             params,
                             return_ty: return_ty_id,
                             has_default: false,
+                            is_associated,
                         });
                     }
                     TraitItem::DefaultMethod(method) => {
                         let params = self.params_to_type_ids(method.params);
                         let return_ty = self.parsed_type_to_type(&method.return_ty);
                         let return_ty_id = return_ty.to_type_id(self.registries.traits.interner());
+                        let is_associated = is_associated_function(
+                            self.context.arena,
+                            self.context.interner,
+                            method.params,
+                        );
                         methods.push(TraitMethodDef {
                             name: method.name,
                             params,
                             return_ty: return_ty_id,
                             has_default: true,
+                            is_associated,
                         });
                     }
                     TraitItem::AssocType(at) => {
@@ -129,14 +162,16 @@ impl TypeChecker<'_> {
                 Vec::new()
             };
 
-            // First collect all types (requires mutable self)
+            // First collect all types and check for associated functions (requires mutable self)
             let methods_as_types: Vec<_> = impl_def
                 .methods
                 .iter()
                 .map(|m| {
                     let params = self.params_to_types(m.params);
                     let return_ty = self.parsed_type_to_type(&m.return_ty);
-                    (m.name, params, return_ty)
+                    let is_associated =
+                        is_associated_function(self.context.arena, self.context.interner, m.params);
+                    (m.name, params, return_ty, is_associated)
                 })
                 .collect();
 
@@ -153,10 +188,11 @@ impl TypeChecker<'_> {
             let interner = self.registries.traits.interner();
             let methods: Vec<ImplMethodDef> = methods_as_types
                 .into_iter()
-                .map(|(name, params, return_ty)| ImplMethodDef {
+                .map(|(name, params, return_ty, is_associated)| ImplMethodDef {
                     name,
                     params: params.iter().map(|ty| ty.to_type_id(interner)).collect(),
                     return_ty: return_ty.to_type_id(interner),
+                    is_associated,
                 })
                 .collect();
 
