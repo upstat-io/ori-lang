@@ -1,4 +1,5 @@
 [
+  {"date": "2026-01-31", "type": "fix", "message": "Resolve clippy warnings", "hash": "92994af"},
   {"date": "2026-01-31", "type": "feat", "message": "Implement default type parameters on traits", "hash": "6a823bc"},
   {"date": "2026-01-31", "type": "docs", "message": "Approve default-type-parameters-proposal", "hash": "06d8808"},
   {"date": "2026-01-31", "type": "docs", "message": "Approve associated-functions-proposal", "hash": "255a9ab"},
