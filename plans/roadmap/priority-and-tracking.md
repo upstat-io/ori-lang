@@ -945,6 +945,16 @@
 - Works alongside default-type-parameters-proposal to enable operator-traits-proposal
 - Blocked on: None (enables operator traits)
 
+**Operator Traits** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/operator-traits-proposal.md`
+- Implementation: Phase 3.21
+- Defines traits for arithmetic (`Add`, `Sub`, `Mul`, `Div`, `FloorDiv`, `Rem`), bitwise (`BitAnd`, `BitOr`, `BitXor`, `Shl`, `Shr`), and unary (`Neg`, `Not`, `BitNot`) operators
+- Operators desugar to trait method calls (e.g., `a + b` → `a.add(rhs: b)`)
+- User-defined types can implement traits to support operator syntax
+- Mixed-type operations require explicit both-direction impls (no auto-commutativity)
+- Enables Duration/Size to move from compiler built-ins to stdlib
+- Blocked on: None (default-type-parameters and default-associated-types now approved)
+
 ---
 
 ## Milestones

@@ -339,30 +339,105 @@ Parentheses override precedence:
 a & b == 0      // Parsed as a & (b == 0) — likely not intended
 ```
 
-## No Operator Overloading
+## Operator Traits
 
-Ori does not support user-defined operator overloading. Operators have fixed meanings for built-in types only.
+Operators are desugared to trait method calls. User-defined types can implement operator traits to support operator syntax.
+
+### Arithmetic Operators
+
+| Operator | Trait | Method |
+|----------|-------|--------|
+| `a + b` | `Add` | `a.add(rhs: b)` |
+| `a - b` | `Sub` | `a.sub(rhs: b)` |
+| `a * b` | `Mul` | `a.mul(rhs: b)` |
+| `a / b` | `Div` | `a.div(rhs: b)` |
+| `a div b` | `FloorDiv` | `a.floor_div(rhs: b)` |
+| `a % b` | `Rem` | `a.rem(rhs: b)` |
+
+### Unary Operators
+
+| Operator | Trait | Method |
+|----------|-------|--------|
+| `-a` | `Neg` | `a.neg()` |
+| `!a` | `Not` | `a.not()` |
+| `~a` | `BitNot` | `a.bit_not()` |
+
+### Bitwise Operators
+
+| Operator | Trait | Method |
+|----------|-------|--------|
+| `a & b` | `BitAnd` | `a.bit_and(rhs: b)` |
+| `a \| b` | `BitOr` | `a.bit_or(rhs: b)` |
+| `a ^ b` | `BitXor` | `a.bit_xor(rhs: b)` |
+| `a << b` | `Shl` | `a.shl(rhs: b)` |
+| `a >> b` | `Shr` | `a.shr(rhs: b)` |
+
+### Comparison Operators
+
+| Operator | Trait | Method |
+|----------|-------|--------|
+| `a == b` | `Eq` | `a.equals(other: b)` |
+| `a != b` | `Eq` | `!a.equals(other: b)` |
+| `a < b` | `Comparable` | `a.compare(other: b).is_less()` |
+| `a <= b` | `Comparable` | `a.compare(other: b).is_less_or_equal()` |
+| `a > b` | `Comparable` | `a.compare(other: b).is_greater()` |
+| `a >= b` | `Comparable` | `a.compare(other: b).is_greater_or_equal()` |
+
+### Trait Definitions
+
+Operator traits use default type parameters and default associated types:
 
 ```ori
-// NOT supported:
-impl Add for Point { ... }
-point1 + point2  // error: + not defined for Point
+trait Add<Rhs = Self> {
+    type Output = Self
+    @add (self, rhs: Rhs) -> Self.Output
+}
 ```
 
-User-defined types use named methods:
+The `Rhs` parameter defaults to `Self`, and `Output` defaults to `Self`. Implementations may override either.
+
+### User-Defined Example
 
 ```ori
-impl Point {
-    @add (self, other: Point) -> Point = Point {
-        x: self.x + other.x,
-        y: self.y + other.y,
+type Vector2 = { x: float, y: float }
+
+impl Add for Vector2 {
+    @add (self, rhs: Vector2) -> Self = Vector2 {
+        x: self.x + rhs.x,
+        y: self.y + rhs.y,
     }
 }
 
-point1.add(other: point2)  // explicit method call
+let a = Vector2 { x: 1.0, y: 2.0 }
+let b = Vector2 { x: 3.0, y: 4.0 }
+let sum = a + b  // Vector2 { x: 4.0, y: 6.0 }
 ```
 
-This design ensures operators have predictable behavior and all user operations use explicit method syntax.
+### Mixed-Type Operations
+
+Traits support different operand types. Commutative operations require both orderings:
+
+```ori
+// Duration * int
+impl Mul<int> for Duration {
+    type Output = Duration
+    @mul (self, n: int) -> Duration = ...
+}
+
+// int * Duration
+impl Mul<Duration> for int {
+    type Output = Duration
+    @mul (self, d: Duration) -> Duration = d * self
+}
+```
+
+The compiler does not automatically commute operands.
+
+### Built-in Implementations
+
+Primitive types have built-in implementations for their applicable operators. These implementations use compiler intrinsics.
+
+See [Declarations § Traits](08-declarations.md#traits) for trait definition syntax.
 
 ## Range Expressions
 
