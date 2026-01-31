@@ -1,9 +1,10 @@
 # Associated Functions Proposal
 
-**Status:** Approved
+**Status:** Superseded
 **Author:** Claude
 **Created:** 2026-01-31
 **Approved:** 2026-01-31
+**Superseded By:** associated-functions-language-feature.md (2026-01-31)
 
 ## Summary
 

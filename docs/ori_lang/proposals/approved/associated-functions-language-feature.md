@@ -1,10 +1,11 @@
 # Associated Functions as a Language Feature
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-01-31
 **Author:** Claude
 **Created:** 2026-01-31
+**Supersedes:** associated-functions-proposal.md
 **Depends On:** None
-**Enables:** duration-size-to-stdlib.md
 
 ## Summary
 
@@ -106,81 +107,11 @@ When the type checker encounters `Ident.method(...)`:
 3. If it resolves to a **type name** → look up associated function in that type's impl blocks
 4. If no associated function found → error
 
-### Implementation Changes
-
-#### 1. Type Checker: Recognize Type Names
-
-When an identifier is used in expression position and followed by `.method()`:
-
-```rust
-// In identifier inference
-fn infer_ident(...) -> Type {
-    // First check local bindings (variables shadow type names)
-    if let Some(ty) = lookup_binding(name) {
-        return ty;
-    }
-
-    // Check if this is a type name
-    if let Some(type_entry) = type_registry.lookup(name) {
-        return Type::TypeRef { name };  // New type variant
-    }
-
-    // Unknown identifier error
-}
-```
-
-#### 2. Method Call: Dispatch Associated Functions
-
-```rust
-fn infer_method_call_core(...) -> Type {
-    // If receiver is a TypeRef, look up associated function
-    if let Type::TypeRef { name } = resolved_receiver {
-        return lookup_associated_function(name, method, args);
-    }
-
-    // Otherwise, normal instance method dispatch
-    ...
-}
-```
-
-#### 3. Impl Block Processing
+### Impl Block Processing
 
 When processing `impl` blocks, distinguish between:
 - Methods with `self` parameter → register as instance methods
 - Methods without `self` parameter → register as associated functions
-
-```rust
-struct ImplEntry {
-    instance_methods: HashMap<Name, MethodSig>,
-    associated_functions: HashMap<Name, FunctionSig>,
-}
-```
-
-#### 4. Evaluator: Handle TypeRef
-
-```rust
-fn eval_ident(name: Name) -> Value {
-    // Check local bindings first
-    if let Some(val) = env.lookup(name) {
-        return val;
-    }
-
-    // Check if it's a type name
-    if type_registry.contains(name) {
-        return Value::TypeRef { type_name: name };
-    }
-
-    // Error
-}
-
-fn eval_method_call(receiver: Value, method: Name, args: Vec<Value>) -> Value {
-    if let Value::TypeRef { type_name } = receiver {
-        return dispatch_associated_function(type_name, method, args);
-    }
-
-    // Normal instance method dispatch
-}
-```
 
 ### Chaining
 
@@ -223,12 +154,24 @@ impl Point {
 }
 ```
 
+### Error Cases
+
+It is an error if:
+- A type name is used in expression position except as the receiver of a method call
+- An associated function is called on a type that has no such function defined
+- A local binding shadows a type name when the intent is to call an associated function
+
+```ori
+let Duration = 10
+let d = Duration.from_seconds(s: 5)  // Error: Duration is a value (int), not a type
+                                      // Rename variable to access type's associated functions
+```
+
 ## Migration
 
-1. Remove hardcoded `is_type_name_for_associated_functions()` checks
-2. Remove hardcoded Duration/Size associated function dispatch
-3. Implement general associated function lookup via impl blocks
-4. Move Duration/Size factory methods to impl blocks (see companion proposal)
+1. Remove `is_type_name_for_associated_functions()` checks in type checker and evaluator
+2. Implement general associated function lookup via impl blocks
+3. Register Duration/Size factory methods as impl-block associated functions
 
 ## Testing
 
@@ -259,4 +202,4 @@ Use `Type::method()` (Rust-style) instead of `Type.method()`.
 ## References
 
 - Current implementation: `compiler/ori_typeck/src/infer/call.rs`
-- Spec: `docs/ori_lang/0.1-alpha/spec/04-declarations.md` § Associated Functions
+- Spec: `docs/ori_lang/0.1-alpha/spec/08-declarations.md` § Associated Functions
