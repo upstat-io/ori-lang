@@ -847,3 +847,65 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
 - [ ] **Update Spec**: `07-properties-of-types.md` — add Comparable and Hashable sections
 - [ ] **Update Spec**: `12-modules.md` — add hash_combine to prelude functions
 - [ ] **Update**: `CLAUDE.md` — add Comparable, Hashable, hash_combine documentation
+
+---
+
+## 3.15 Derived Traits Formal Semantics
+
+**Proposal**: `proposals/approved/derived-traits-proposal.md`
+
+Formalizes the `#derive` attribute semantics: derivable traits list, derivation rules, field constraints, generic type handling, and error messages.
+
+### Implementation
+
+- [ ] **Implement**: Eq derivation for structs — field-wise equality
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — eq derive tests
+  - [ ] **Ori Tests**: `tests/spec/traits/derive/eq.ori`
+
+- [ ] **Implement**: Eq derivation for sum types — variant matching
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — eq sum type tests
+  - [ ] **Ori Tests**: `tests/spec/traits/derive/eq_sum.ori`
+
+- [ ] **Implement**: Hashable derivation — combined field hashes via `hash_combine`
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — hashable derive tests
+  - [ ] **Ori Tests**: `tests/spec/traits/derive/hashable.ori`
+
+- [ ] **Implement**: Comparable derivation — lexicographic field comparison
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — comparable derive tests
+  - [ ] **Ori Tests**: `tests/spec/traits/derive/comparable.ori`
+
+- [ ] **Implement**: Clone derivation — field-wise clone
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — clone derive tests
+  - [ ] **Ori Tests**: `tests/spec/traits/derive/clone.ori`
+
+- [ ] **Implement**: Default derivation for structs only
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — default derive tests
+  - [ ] **Ori Tests**: `tests/spec/traits/derive/default.ori`
+  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/derive_default_sum.ori`
+
+- [ ] **Implement**: Debug derivation — structural representation with type name
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — debug derive tests
+  - [ ] **Ori Tests**: `tests/spec/traits/derive/debug.ori`
+
+- [ ] **Implement**: Printable derivation — human-readable format `TypeName(field1, field2)`
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — printable derive tests
+  - [ ] **Ori Tests**: `tests/spec/traits/derive/printable.ori`
+
+- [ ] **Implement**: Generic type conditional derivation — bounded impls
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — generic derive tests
+  - [ ] **Ori Tests**: `tests/spec/traits/derive/generic.ori`
+
+- [ ] **Implement**: Recursive type derivation
+  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — recursive derive tests
+  - [ ] **Ori Tests**: `tests/spec/traits/derive/recursive.ori`
+
+- [ ] **Implement**: Error messages (E0880-E0882)
+  - [ ] E0880: Cannot derive trait for type (field missing trait)
+  - [ ] E0881: Trait is not derivable
+  - [ ] E0882: Cannot derive Default for sum type
+
+- [ ] **Implement**: Warning W0100 — Hashable derived without Eq
+
+- [ ] **Update Spec**: `06-types.md` — expand Derive section with formal semantics
+- [ ] **Update Spec**: `07-properties-of-types.md` — add cross-reference to derive semantics
+- [ ] **Update**: `CLAUDE.md` — update derive documentation

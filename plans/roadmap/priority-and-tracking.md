@@ -675,6 +675,18 @@
 - Error codes: E0940 (Hashable without Eq), E0941 (hash invariant violation), E0942 (non-hashable map key)
 - Blocked on: None (builds on existing Phase 3 infrastructure)
 
+**Derived Traits Formal Semantics** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/derived-traits-proposal.md`
+- Implementation: Phase 3.15
+- Formalizes `#derive` attribute semantics for all derivable traits
+- Derivable: Eq, Hashable, Comparable, Clone, Default, Debug, Printable
+- Default cannot be derived for sum types (E0882)
+- Generic types derive conditionally based on type parameter constraints
+- Printable derivation uses format `TypeName(field1, field2)`
+- Error codes: E0880 (field missing trait), E0881 (not derivable), E0882 (Default for sum type)
+- Warning W0100 for Hashable without Eq
+- Blocked on: None (builds on existing Phase 3.5 infrastructure)
+
 **Const Generic Bounds** — ✅ APPROVED 2026-01-30
 - Proposal: `proposals/approved/const-generic-bounds-proposal.md`
 - Implementation: Phase 18.5
