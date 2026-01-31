@@ -44,7 +44,7 @@ See [Patterns](10-patterns.md) for pattern definitions.
 Each task has private mutable bindings. Bindings captured across task boundaries must be `Sendable` and become inaccessible in the spawning scope:
 
 ```ori
-@example () -> void uses Async = run(
+@example () -> void uses Suspend = run(
     let x = 0,
     parallel(
         tasks: [
@@ -57,36 +57,36 @@ Each task has private mutable bindings. Bindings captured across task boundaries
 
 See [Memory Model § Task Isolation](15-memory-model.md#task-isolation) for isolation guarantees.
 
-## Async Context
+## Suspending Context
 
-An _async context_ is a runtime environment that can execute async functions, schedule suspension and resumption, and manage multiple concurrent tasks.
+A _suspending context_ is a runtime environment that can execute suspending functions, schedule suspension and resumption, and manage multiple concurrent tasks.
 
-### Establishing Async Context
+### Establishing Suspending Context
 
-An async context is established by:
+A suspending context is established by:
 
-- **The runtime** — when `@main` declares `uses Async`, the runtime provides the initial async context
-- **Concurrency patterns** — `parallel`, `spawn`, and `nursery` create nested async contexts for spawned tasks
+- **The runtime** — when `@main` declares `uses Suspend`, the runtime provides the initial suspending context
+- **Concurrency patterns** — `parallel`, `spawn`, and `nursery` create nested suspending contexts for spawned tasks
 
-A function declaring `uses Async` _requires_ an async context to execute — it does not establish one. The `Async` capability indicates the function may suspend, requiring a scheduler to manage resumption.
+A function declaring `uses Suspend` _requires_ a suspending context to execute — it does not establish one. The `Suspend` capability indicates the function may suspend, requiring a scheduler to manage resumption.
 
-### @main and Async
+### @main and Suspend
 
-Programs using concurrency patterns must have `@main` declare `uses Async`:
+Programs using concurrency patterns must have `@main` declare `uses Suspend`:
 
 ```ori
-// Valid: main declares Async
-@main () -> void uses Async = run(
+// Valid: main declares Suspend
+@main () -> void uses Suspend = run(
     parallel(tasks: [task_a(), task_b()]),
 )
 
-// Invalid: main uses concurrency without Async
+// Invalid: main uses concurrency without Suspend
 @main () -> void = run(
-    parallel(tasks: [task_a(), task_b()]),  // error: requires Async capability
+    parallel(tasks: [task_a(), task_b()]),  // error: requires Suspend capability
 )
 ```
 
-The runtime establishes the async context when `@main uses Async` is declared.
+The runtime establishes the suspending context when `@main uses Suspend` is declared.
 
 ## Suspension Points
 
@@ -96,7 +96,7 @@ A _suspension point_ is a location where a task may yield control to the schedul
 
 Suspension points occur ONLY at:
 
-1. **Async function calls** — calling a function with `uses Async`
+1. **Suspending function calls** — calling a function with `uses Suspend`
 2. **Channel operations** — `send` and `receive` on channels
 3. **Explicit yield** — within `parallel`, `spawn`, or `nursery` body evaluation
 
@@ -105,36 +105,36 @@ Suspension points occur ONLY at:
 Suspension NEVER occurs:
 
 - In the middle of expression evaluation
-- During non-async function execution
+- During non-suspending function execution
 - At arbitrary points chosen by the runtime
 
 This provides _predictable interleaving_ — atomicity boundaries are explicit.
 
-## Async Propagation
+## Suspend Propagation
 
-A function that calls async code must itself be async:
+A function that calls suspending code must itself be suspending:
 
 ```ori
-@caller () -> int uses Async =
-    callee()  // OK: caller is async
+@caller () -> int uses Suspend =
+    callee()  // OK: caller can suspend
 
 @caller_sync () -> int =
-    callee()  // error: callee uses Async but caller does not
+    callee()  // error: callee uses Suspend but caller does not
 
-@callee () -> int uses Async = ...
+@callee () -> int uses Suspend = ...
 ```
 
-The `Async` capability _propagates upward_ — callers of async functions must declare `uses Async`.
+The `Suspend` capability _propagates upward_ — callers of suspending functions must declare `uses Suspend`.
 
-## Blocking in Async Context
+## Blocking in Suspending Context
 
-A non-async function called from an async context executes synchronously, blocking that task but not other tasks:
+A non-suspending function called from a suspending context executes synchronously, blocking that task but not other tasks:
 
 ```ori
 @expensive_sync () -> int =
     heavy_math()  // Long computation, no suspension points
 
-@main () -> void uses Async = run(
+@main () -> void uses Suspend = run(
     parallel(
         tasks: [
             () -> expensive_sync(),  // This task blocks during computation
@@ -149,7 +149,7 @@ A non-async function called from an async context executes synchronously, blocki
 Task closures follow capture-by-value semantics. When a value is captured by a task closure, the original binding becomes inaccessible:
 
 ```ori
-@capture_example () -> void uses Async = run(
+@capture_example () -> void uses Suspend = run(
     let data = create_data(),
     nursery(
         body: n -> run(
@@ -167,7 +167,7 @@ Bindings captured across task boundaries become inaccessible in the spawning sco
 Captured values must implement `Sendable`:
 
 ```ori
-@spawn_example () -> void uses Async = run(
+@spawn_example () -> void uses Suspend = run(
     let data = create_data(),  // Data: Sendable
     nursery(
         body: n -> n.spawn(task: () -> process(data)),  // OK
@@ -191,17 +191,17 @@ error[E0700]: cannot capture mutable binding across task boundary
    |               ^^^^^^^^^^
    = note: mutable bindings cannot be shared between tasks
 
-error[E0701]: callee uses Async but caller does not
+error[E0701]: callee uses Suspend but caller does not
   --> example.ori:3:5
    |
  3 |     async_fn()
    |     ^^^^^^^^^^
-   = help: add `uses Async` to the function signature
+   = help: add `uses Suspend` to the function signature
 
-error[E0702]: concurrency pattern requires Async capability
+error[E0702]: concurrency pattern requires Suspend capability
   --> example.ori:2:5
    |
  2 |     parallel(tasks: [...])
    |     ^^^^^^^^^^^^^^^^^^^^^^
-   = help: add `uses Async` to @main
+   = help: add `uses Suspend` to @main
 ```

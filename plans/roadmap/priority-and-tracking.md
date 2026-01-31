@@ -794,6 +794,15 @@
 - Atomics deferred to separate proposal (memory model integration required)
 - Blocked on: None (can be implemented independently)
 
+**Rename Async to Suspend** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/rename-async-to-suspend-proposal.md`
+- Implementation: Phase 6.3 (already implemented, rename only)
+- Renames `Async` capability to `Suspend` (noun form)
+- Renames "async context" to "suspending context"
+- Renames table column "Suspends" to "May Suspend"
+- Avoids async/await confusion (Ori has no `.await`)
+- Blocked on: None (documentation/terminology change)
+
 ---
 
 ## Milestones
