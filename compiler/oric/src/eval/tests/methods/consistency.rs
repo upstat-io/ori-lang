@@ -6,8 +6,48 @@ use ori_eval::EVAL_BUILTIN_METHODS;
 use ori_typeck::infer::builtin_methods::TYPECK_BUILTIN_METHODS;
 
 /// Methods implemented in the evaluator that intentionally lack type
-/// checker handlers (e.g., range has no typeck handler yet).
-const KNOWN_EVAL_ONLY: &[(&str, &str)] = &[("range", "contains"), ("range", "len")];
+/// checker handlers.
+///
+/// Operator trait methods (add, sub, mul, etc.) are handled through the trait
+/// registry in the type checker, not through builtin method handlers, so they
+/// appear here as eval-only. Range methods don't have typeck handlers yet.
+const KNOWN_EVAL_ONLY: &[(&str, &str)] = &[
+    // Operator trait methods - handled via trait lookup in typeck
+    ("bool", "not"),
+    ("duration", "add"),
+    ("duration", "div"),
+    ("duration", "mul"),
+    ("duration", "neg"),
+    ("duration", "rem"),
+    ("duration", "sub"),
+    ("float", "add"),
+    ("float", "div"),
+    ("float", "mul"),
+    ("float", "neg"),
+    ("float", "sub"),
+    ("int", "add"),
+    ("int", "bit_and"),
+    ("int", "bit_not"),
+    ("int", "bit_or"),
+    ("int", "bit_xor"),
+    ("int", "div"),
+    ("int", "floor_div"),
+    ("int", "mul"),
+    ("int", "neg"),
+    ("int", "rem"),
+    ("int", "shl"),
+    ("int", "shr"),
+    ("int", "sub"),
+    ("list", "add"),
+    ("range", "contains"),
+    ("range", "len"),
+    ("size", "add"),
+    ("size", "div"),
+    ("size", "mul"),
+    ("size", "rem"),
+    ("size", "sub"),
+    ("str", "add"),
+];
 
 /// Every method the evaluator implements must have a type signature in the
 /// type checker (unless it's in the known-eval-only list). This test catches

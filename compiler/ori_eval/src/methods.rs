@@ -4,7 +4,10 @@
 //! is fixed (not user-extensible), so pattern matching is preferred over
 //! trait objects for better performance and exhaustiveness checking.
 
-use ori_patterns::{no_such_method, wrong_arg_count, wrong_arg_type, EvalError, EvalResult, Value};
+use ori_patterns::{
+    division_by_zero, integer_overflow, modulo_by_zero, no_such_method, wrong_arg_count,
+    wrong_arg_type, EvalError, EvalResult, Heap, ScalarInt, Value,
+};
 
 // =============================================================================
 // Associated Function Dispatch
@@ -175,6 +178,59 @@ fn require_int_arg(method: &str, args: &[Value], index: usize) -> Result<i64, Ev
     }
 }
 
+/// Extract a `ScalarInt` argument at the given index.
+#[inline]
+fn require_scalar_int_arg(
+    method: &str,
+    args: &[Value],
+    index: usize,
+) -> Result<ScalarInt, EvalError> {
+    match args.get(index) {
+        Some(Value::Int(n)) => Ok(*n),
+        _ => Err(wrong_arg_type(method, "int")),
+    }
+}
+
+/// Extract a float argument at the given index.
+#[inline]
+fn require_float_arg(method: &str, args: &[Value], index: usize) -> Result<f64, EvalError> {
+    match args.get(index) {
+        Some(Value::Float(f)) => Ok(*f),
+        _ => Err(wrong_arg_type(method, "float")),
+    }
+}
+
+/// Extract a list argument at the given index.
+#[inline]
+fn require_list_arg<'a>(
+    method: &str,
+    args: &'a [Value],
+    index: usize,
+) -> Result<&'a Heap<Vec<Value>>, EvalError> {
+    match args.get(index) {
+        Some(Value::List(l)) => Ok(l),
+        _ => Err(wrong_arg_type(method, "list")),
+    }
+}
+
+/// Extract a Duration argument at the given index.
+#[inline]
+fn require_duration_arg(method: &str, args: &[Value], index: usize) -> Result<i64, EvalError> {
+    match args.get(index) {
+        Some(Value::Duration(d)) => Ok(*d),
+        _ => Err(wrong_arg_type(method, "Duration")),
+    }
+}
+
+/// Extract a Size argument at the given index.
+#[inline]
+fn require_size_arg(method: &str, args: &[Value], index: usize) -> Result<u64, EvalError> {
+    match args.get(index) {
+        Some(Value::Size(s)) => Ok(*s),
+        _ => Err(wrong_arg_type(method, "Size")),
+    }
+}
+
 /// Convert a collection length to a Value, with overflow check.
 #[inline]
 fn len_to_value(len: usize, collection_type: &str) -> EvalResult {
@@ -189,14 +245,43 @@ fn len_to_value(len: usize, collection_type: &str) -> EvalResult {
 /// checker agree on which methods exist. Each entry is `(type_name, method_name)`.
 /// Sorted by type then method for deterministic comparison.
 pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
+    // bool
+    ("bool", "not"),
     // duration
+    ("duration", "add"),
+    ("duration", "div"),
     ("duration", "hours"),
     ("duration", "microseconds"),
     ("duration", "milliseconds"),
     ("duration", "minutes"),
+    ("duration", "mul"),
     ("duration", "nanoseconds"),
+    ("duration", "neg"),
+    ("duration", "rem"),
     ("duration", "seconds"),
+    ("duration", "sub"),
+    // float
+    ("float", "add"),
+    ("float", "div"),
+    ("float", "mul"),
+    ("float", "neg"),
+    ("float", "sub"),
+    // int
+    ("int", "add"),
+    ("int", "bit_and"),
+    ("int", "bit_not"),
+    ("int", "bit_or"),
+    ("int", "bit_xor"),
+    ("int", "div"),
+    ("int", "floor_div"),
+    ("int", "mul"),
+    ("int", "neg"),
+    ("int", "rem"),
+    ("int", "shl"),
+    ("int", "shr"),
+    ("int", "sub"),
     // list
+    ("list", "add"),
     ("list", "contains"),
     ("list", "first"),
     ("list", "is_empty"),
@@ -221,12 +306,18 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("result", "is_ok"),
     ("result", "unwrap"),
     // size
+    ("size", "add"),
     ("size", "bytes"),
+    ("size", "div"),
     ("size", "gigabytes"),
     ("size", "kilobytes"),
     ("size", "megabytes"),
+    ("size", "mul"),
+    ("size", "rem"),
+    ("size", "sub"),
     ("size", "terabytes"),
     // str
+    ("str", "add"),
     ("str", "contains"),
     ("str", "ends_with"),
     ("str", "is_empty"),
@@ -243,8 +334,13 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
 ///
 /// This is the preferred entry point for built-in method calls. It uses
 /// enum-based dispatch which is faster than trait objects for fixed type sets.
+///
+/// Handles operator trait methods (add, sub, mul, etc.) uniformly for all types.
 pub fn dispatch_builtin_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     match &receiver {
+        Value::Int(_) => dispatch_int_method(receiver, method, args),
+        Value::Float(_) => dispatch_float_method(receiver, method, args),
+        Value::Bool(_) => dispatch_bool_method(receiver, method, args),
         Value::List(_) => dispatch_list_method(receiver, method, args),
         Value::Str(_) => dispatch_string_method(receiver, method, args),
         Value::Map(_) => dispatch_map_method(receiver, method, args),
@@ -259,6 +355,175 @@ pub fn dispatch_builtin_method(receiver: Value, method: &str, args: Vec<Value>) 
 }
 
 // Type-Specific Dispatch Functions
+
+/// Dispatch operator methods on integer values.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
+fn dispatch_int_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+    let Value::Int(a) = receiver else {
+        unreachable!("dispatch_int_method called with non-int receiver")
+    };
+
+    match method {
+        // Binary arithmetic operators
+        "add" => {
+            require_args("add", 1, args.len())?;
+            let b = require_scalar_int_arg("add", &args, 0)?;
+            a.checked_add(b)
+                .map(Value::Int)
+                .ok_or_else(|| integer_overflow("addition"))
+        }
+        "sub" => {
+            require_args("sub", 1, args.len())?;
+            let b = require_scalar_int_arg("sub", &args, 0)?;
+            a.checked_sub(b)
+                .map(Value::Int)
+                .ok_or_else(|| integer_overflow("subtraction"))
+        }
+        "mul" => {
+            require_args("mul", 1, args.len())?;
+            let b = require_scalar_int_arg("mul", &args, 0)?;
+            a.checked_mul(b)
+                .map(Value::Int)
+                .ok_or_else(|| integer_overflow("multiplication"))
+        }
+        "div" => {
+            require_args("div", 1, args.len())?;
+            let b = require_scalar_int_arg("div", &args, 0)?;
+            if b.is_zero() {
+                Err(division_by_zero())
+            } else {
+                a.checked_div(b)
+                    .map(Value::Int)
+                    .ok_or_else(|| integer_overflow("division"))
+            }
+        }
+        "floor_div" => {
+            require_args("floor_div", 1, args.len())?;
+            let b = require_scalar_int_arg("floor_div", &args, 0)?;
+            if b.is_zero() {
+                Err(division_by_zero())
+            } else {
+                a.checked_floor_div(b)
+                    .map(Value::Int)
+                    .ok_or_else(|| integer_overflow("floor division"))
+            }
+        }
+        "rem" => {
+            require_args("rem", 1, args.len())?;
+            let b = require_scalar_int_arg("rem", &args, 0)?;
+            if b.is_zero() {
+                Err(modulo_by_zero())
+            } else {
+                a.checked_rem(b)
+                    .map(Value::Int)
+                    .ok_or_else(|| integer_overflow("remainder"))
+            }
+        }
+        // Unary operators
+        "neg" => {
+            require_args("neg", 0, args.len())?;
+            a.checked_neg()
+                .map(Value::Int)
+                .ok_or_else(|| integer_overflow("negation"))
+        }
+        // Bitwise operators
+        "bit_and" => {
+            require_args("bit_and", 1, args.len())?;
+            let b = require_scalar_int_arg("bit_and", &args, 0)?;
+            Ok(Value::Int(a & b))
+        }
+        "bit_or" => {
+            require_args("bit_or", 1, args.len())?;
+            let b = require_scalar_int_arg("bit_or", &args, 0)?;
+            Ok(Value::Int(a | b))
+        }
+        "bit_xor" => {
+            require_args("bit_xor", 1, args.len())?;
+            let b = require_scalar_int_arg("bit_xor", &args, 0)?;
+            Ok(Value::Int(a ^ b))
+        }
+        "bit_not" => {
+            require_args("bit_not", 0, args.len())?;
+            Ok(Value::Int(!a))
+        }
+        "shl" => {
+            require_args("shl", 1, args.len())?;
+            let b = require_scalar_int_arg("shl", &args, 0)?;
+            a.checked_shl(b).map(Value::Int).ok_or_else(|| {
+                EvalError::new(format!("shift amount {} out of range (0-63)", b.raw()))
+            })
+        }
+        "shr" => {
+            require_args("shr", 1, args.len())?;
+            let b = require_scalar_int_arg("shr", &args, 0)?;
+            a.checked_shr(b).map(Value::Int).ok_or_else(|| {
+                EvalError::new(format!("shift amount {} out of range (0-63)", b.raw()))
+            })
+        }
+        _ => Err(no_such_method(method, "int")),
+    }
+}
+
+/// Dispatch operator methods on float values.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
+fn dispatch_float_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+    let Value::Float(a) = receiver else {
+        unreachable!("dispatch_float_method called with non-float receiver")
+    };
+
+    match method {
+        "add" => {
+            require_args("add", 1, args.len())?;
+            let b = require_float_arg("add", &args, 0)?;
+            Ok(Value::Float(a + b))
+        }
+        "sub" => {
+            require_args("sub", 1, args.len())?;
+            let b = require_float_arg("sub", &args, 0)?;
+            Ok(Value::Float(a - b))
+        }
+        "mul" => {
+            require_args("mul", 1, args.len())?;
+            let b = require_float_arg("mul", &args, 0)?;
+            Ok(Value::Float(a * b))
+        }
+        "div" => {
+            require_args("div", 1, args.len())?;
+            let b = require_float_arg("div", &args, 0)?;
+            Ok(Value::Float(a / b))
+        }
+        "neg" => {
+            require_args("neg", 0, args.len())?;
+            Ok(Value::Float(-a))
+        }
+        _ => Err(no_such_method(method, "float")),
+    }
+}
+
+/// Dispatch operator methods on bool values.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
+fn dispatch_bool_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+    let Value::Bool(a) = receiver else {
+        unreachable!("dispatch_bool_method called with non-bool receiver")
+    };
+
+    match method {
+        "not" => {
+            require_args("not", 0, args.len())?;
+            Ok(Value::Bool(!a))
+        }
+        _ => Err(no_such_method(method, "bool")),
+    }
+}
 
 /// Dispatch methods on newtype values.
 #[expect(
@@ -300,6 +565,13 @@ fn dispatch_list_method(receiver: Value, method: &str, args: Vec<Value>) -> Eval
             require_args("contains", 1, args.len())?;
             Ok(Value::Bool(items.contains(&args[0])))
         }
+        "add" => {
+            require_args("add", 1, args.len())?;
+            let other = require_list_arg("add", &args, 0)?;
+            let mut result = (*items).clone();
+            result.extend_from_slice(other);
+            Ok(Value::list(result))
+        }
         _ => Err(no_such_method(method, "list")),
     }
 }
@@ -334,6 +606,12 @@ fn dispatch_string_method(receiver: Value, method: &str, args: Vec<Value>) -> Ev
             require_args("ends_with", 1, args.len())?;
             let suffix = require_str_arg("ends_with", &args, 0)?;
             Ok(Value::Bool(s.ends_with(suffix)))
+        }
+        "add" => {
+            require_args("add", 1, args.len())?;
+            let other = require_str_arg("add", &args, 0)?;
+            let result = format!("{}{}", &**s, other);
+            Ok(Value::string(result))
         }
         _ => Err(no_such_method(method, "str")),
     }
@@ -433,7 +711,7 @@ fn dispatch_result_method(receiver: Value, method: &str, _args: Vec<Value>) -> E
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-fn dispatch_duration_method(receiver: Value, method: &str, _args: Vec<Value>) -> EvalResult {
+fn dispatch_duration_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Duration(ns) = receiver else {
         unreachable!("dispatch_duration_method called with non-duration receiver")
     };
@@ -445,6 +723,56 @@ fn dispatch_duration_method(receiver: Value, method: &str, _args: Vec<Value>) ->
         "seconds" => Ok(Value::int(ns / 1_000_000_000)),
         "minutes" => Ok(Value::int(ns / (60 * 1_000_000_000))),
         "hours" => Ok(Value::int(ns / (60 * 60 * 1_000_000_000))),
+        // Operator methods
+        "add" => {
+            require_args("add", 1, args.len())?;
+            let other = require_duration_arg("add", &args, 0)?;
+            ns.checked_add(other)
+                .map(Value::Duration)
+                .ok_or_else(|| integer_overflow("duration addition"))
+        }
+        "sub" => {
+            require_args("sub", 1, args.len())?;
+            let other = require_duration_arg("sub", &args, 0)?;
+            ns.checked_sub(other)
+                .map(Value::Duration)
+                .ok_or_else(|| integer_overflow("duration subtraction"))
+        }
+        "mul" => {
+            require_args("mul", 1, args.len())?;
+            let scalar = require_int_arg("mul", &args, 0)?;
+            ns.checked_mul(scalar)
+                .map(Value::Duration)
+                .ok_or_else(|| integer_overflow("duration multiplication"))
+        }
+        "div" => {
+            require_args("div", 1, args.len())?;
+            let scalar = require_int_arg("div", &args, 0)?;
+            if scalar == 0 {
+                Err(division_by_zero())
+            } else {
+                ns.checked_div(scalar)
+                    .map(Value::Duration)
+                    .ok_or_else(|| integer_overflow("duration division"))
+            }
+        }
+        "rem" => {
+            require_args("rem", 1, args.len())?;
+            let other = require_duration_arg("rem", &args, 0)?;
+            if other == 0 {
+                Err(modulo_by_zero())
+            } else {
+                ns.checked_rem(other)
+                    .map(Value::Duration)
+                    .ok_or_else(|| integer_overflow("duration modulo"))
+            }
+        }
+        "neg" => {
+            require_args("neg", 0, args.len())?;
+            ns.checked_neg()
+                .map(Value::Duration)
+                .ok_or_else(|| integer_overflow("duration negation"))
+        }
         _ => Err(no_such_method(method, "Duration")),
     }
 }
@@ -455,7 +783,7 @@ fn dispatch_duration_method(receiver: Value, method: &str, _args: Vec<Value>) ->
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-fn dispatch_size_method(receiver: Value, method: &str, _args: Vec<Value>) -> EvalResult {
+fn dispatch_size_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Size(bytes) = receiver else {
         unreachable!("dispatch_size_method called with non-size receiver")
     };
@@ -473,6 +801,62 @@ fn dispatch_size_method(receiver: Value, method: &str, _args: Vec<Value>) -> Eva
         "megabytes" => to_int(bytes / (1024 * 1024)),
         "gigabytes" => to_int(bytes / (1024 * 1024 * 1024)),
         "terabytes" => to_int(bytes / (1024 * 1024 * 1024 * 1024)),
+        // Operator methods
+        "add" => {
+            require_args("add", 1, args.len())?;
+            let other = require_size_arg("add", &args, 0)?;
+            bytes
+                .checked_add(other)
+                .map(Value::Size)
+                .ok_or_else(|| integer_overflow("size addition"))
+        }
+        "sub" => {
+            require_args("sub", 1, args.len())?;
+            let other = require_size_arg("sub", &args, 0)?;
+            bytes
+                .checked_sub(other)
+                .map(Value::Size)
+                .ok_or_else(|| EvalError::new("size subtraction would result in negative value"))
+        }
+        "mul" => {
+            require_args("mul", 1, args.len())?;
+            let scalar = require_int_arg("mul", &args, 0)?;
+            if scalar < 0 {
+                return Err(EvalError::new("cannot multiply Size by negative integer"));
+            }
+            #[expect(clippy::cast_sign_loss, reason = "checked for negative above")]
+            bytes
+                .checked_mul(scalar as u64)
+                .map(Value::Size)
+                .ok_or_else(|| integer_overflow("size multiplication"))
+        }
+        "div" => {
+            require_args("div", 1, args.len())?;
+            let scalar = require_int_arg("div", &args, 0)?;
+            if scalar == 0 {
+                return Err(division_by_zero());
+            }
+            if scalar < 0 {
+                return Err(EvalError::new("cannot divide Size by negative integer"));
+            }
+            #[expect(clippy::cast_sign_loss, reason = "checked for negative above")]
+            bytes
+                .checked_div(scalar as u64)
+                .map(Value::Size)
+                .ok_or_else(|| integer_overflow("size division"))
+        }
+        "rem" => {
+            require_args("rem", 1, args.len())?;
+            let other = require_size_arg("rem", &args, 0)?;
+            if other == 0 {
+                Err(modulo_by_zero())
+            } else {
+                bytes
+                    .checked_rem(other)
+                    .map(Value::Size)
+                    .ok_or_else(|| integer_overflow("size modulo"))
+            }
+        }
         _ => Err(no_such_method(method, "Size")),
     }
 }

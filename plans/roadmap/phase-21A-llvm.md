@@ -47,6 +47,16 @@
   - [x] Function calls and method dispatch
   - [x] Field access and indexing
 
+- [ ] **Implement**: User-defined operator dispatch
+  - [ ] **Rust Tests**: `tests/operator_trait_tests.rs`
+  - [ ] Detect when operand is a user-defined type (struct)
+  - [ ] Generate method calls to trait methods instead of direct LLVM ops
+  - [ ] Handle trait method lookup for operator traits (Add, Sub, Mul, etc.)
+  - [ ] Support generic operator traits with type parameters (e.g., `Mul<int>`)
+  - [ ] **Blocked by**: Interpreter implementation complete (Phase 3.21)
+  - [ ] **Files**: `ori_llvm/src/operators.rs` — add trait dispatch logic
+  - [ ] **Tests**: `tests/spec/traits/operators/user_defined.ori` (currently skipped)
+
 - [x] **Implement**: Function codegen
   - [x] **Rust Tests**: `tests/function_tests.rs`, `tests/function_call_tests.rs`
   - [x] Function signatures and calling conventions

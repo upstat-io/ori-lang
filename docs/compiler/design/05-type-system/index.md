@@ -474,12 +474,48 @@ true    : Bool
 
 ### Binary Operations
 
+Arithmetic and bitwise operators are type-checked through operator traits. The type checker first attempts primitive operation checking, then falls back to trait-based dispatch for user-defined types.
+
 ```
-Int + Int       -> Int
-Float + Float   -> Float
-String + String -> String
-Int < Int       -> Bool
-T == T          -> Bool (where T: Eq)
+Int + Int       -> Int       (primitive fast path)
+Float + Float   -> Float     (primitive fast path)
+String + String -> String    (primitive fast path)
+Int < Int       -> Bool      (comparison via Comparable)
+T == T          -> Bool      (where T: Eq)
+T + U           -> T::Output (where T: Add<U>)
+```
+
+**Operator Trait Dispatch** (in `infer/expressions/operators.rs`):
+
+1. Try primitive operation checking via `check_binary_operation()`
+2. If the left operand is a primitive type and the check fails, report error
+3. For user-defined types, look up the trait method (e.g., `Add.add`)
+4. Unify the right operand with the method's `rhs` parameter type
+5. Return the method's return type (typically an associated `Output` type)
+
+```rust
+fn check_binary_op(checker, op, left, right, span) -> Type {
+    // Try primitive fast path
+    match check_binary_operation(op, left, right) {
+        TypeOpResult::Ok(ty) => return ty,
+        TypeOpResult::Err(e) if is_primitive_type(left) => {
+            checker.push_error(e);
+            return Type::Error;
+        }
+        _ => {} // Continue to trait lookup
+    }
+
+    // Trait-based dispatch for user-defined types
+    if let Some((trait_name, method_name)) = binary_op_to_trait(op) {
+        if let Some(result_ty) = check_operator_trait(checker, left, right, trait_name, method_name, span) {
+            return result_ty;
+        }
+    }
+
+    // No trait impl found
+    checker.push_error("type does not implement the required operator trait");
+    Type::Error
+}
 ```
 
 ### Conditionals

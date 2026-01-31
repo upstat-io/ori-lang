@@ -1168,6 +1168,8 @@ Allow associated types in traits to have default values, enabling `type Output =
 
 ## 3.21 Operator Traits
 
+**STATUS: 🔶 Partial — Interpreter complete, LLVM pending**
+
 **Proposal**: `proposals/approved/operator-traits-proposal.md`
 
 Defines traits for arithmetic, bitwise, and unary operators that user-defined types can implement to support operator syntax. The compiler desugars operators to trait method calls. Enables Duration and Size types to move to stdlib.
@@ -1179,55 +1181,39 @@ Defines traits for arithmetic, bitwise, and unary operators that user-defined ty
 
 ### Implementation
 
-- [ ] **Implement**: Define operator traits in prelude
-  - [ ] `Add<Rhs = Self>`, `Sub<Rhs = Self>`, `Mul<Rhs = Self>`, `Div<Rhs = Self>`, `FloorDiv<Rhs = Self>`, `Rem<Rhs = Self>`
-  - [ ] `Neg`, `Not`, `BitNot`
-  - [ ] `BitAnd<Rhs = Self>`, `BitOr<Rhs = Self>`, `BitXor<Rhs = Self>`, `Shl<Rhs = int>`, `Shr<Rhs = int>`
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — operator trait parsing/bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/operators/definition.ori`
+- [x] **Implement**: Define operator traits in prelude (via trait registry lookup)
+  - [x] `Add<Rhs = Self>`, `Sub<Rhs = Self>`, `Mul<Rhs = Self>`, `Div<Rhs = Self>`, `FloorDiv<Rhs = Self>`, `Rem<Rhs = Self>`
+  - [x] `Neg`, `Not`, `BitNot`
+  - [x] `BitAnd<Rhs = Self>`, `BitOr<Rhs = Self>`, `BitXor<Rhs = Self>`, `Shl<Rhs = int>`, `Shr<Rhs = int>`
+  - [x] **Ori Tests**: `tests/spec/traits/operators/user_defined.ori`
 
-- [ ] **Implement**: Operator desugaring in type checker
-  - [ ] `a + b` → `a.add(rhs: b)`
-  - [ ] `a - b` → `a.sub(rhs: b)`
-  - [ ] `a * b` → `a.mul(rhs: b)`
-  - [ ] `a / b` → `a.div(rhs: b)`
-  - [ ] `a div b` → `a.floor_div(rhs: b)`
-  - [ ] `a % b` → `a.rem(rhs: b)`
-  - [ ] `-a` → `a.neg()`
-  - [ ] `!a` → `a.not()`
-  - [ ] `~a` → `a.bit_not()`
-  - [ ] `a & b` → `a.bit_and(rhs: b)`
-  - [ ] `a | b` → `a.bit_or(rhs: b)`
-  - [ ] `a ^ b` → `a.bit_xor(rhs: b)`
-  - [ ] `a << b` → `a.shl(rhs: b)`
-  - [ ] `a >> b` → `a.shr(rhs: b)`
-  - [ ] **Rust Tests**: `oric/src/typeck/infer/tests.rs` — operator desugaring tests
-  - [ ] **Ori Tests**: `tests/spec/traits/operators/desugaring.ori`
+- [x] **Implement**: Operator desugaring in type checker
+  - [x] `a + b` → `a.add(rhs: b)` (etc. for all operators)
+  - [x] **Files**: `ori_typeck/src/infer/expressions/operators.rs` — `check_operator_trait()`
 
-- [ ] **Implement**: Operator dispatch in evaluator via trait impls
-  - [ ] **Rust Tests**: `oric/src/eval/tests/` — operator trait dispatch
-  - [ ] **Ori Tests**: `tests/spec/traits/operators/dispatch.ori`
-  - [ ] **LLVM Support**: LLVM codegen for operator trait dispatch
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/operator_tests.rs`
+- [x] **Implement**: Operator dispatch in evaluator via trait impls
+  - [x] **Files**: `ori_eval/src/interpreter/mod.rs` — `eval_binary()`, `binary_op_to_method()`
+  - [x] **Files**: `ori_eval/src/methods.rs` — operator methods for primitives
+  - [x] **Ori Tests**: `tests/spec/traits/operators/user_defined.ori`
+  - [ ] **LLVM Support**: LLVM codegen for operator trait dispatch (see Phase 21A § 21.2)
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/operator_trait_tests.rs`
 
-- [ ] **Implement**: Built-in operator trait implementations for primitives
-  - [ ] `int`: Add, Sub, Mul, Div, FloorDiv, Rem, Neg, BitAnd, BitOr, BitXor, Shl, Shr, BitNot
-  - [ ] `float`: Add, Sub, Mul, Div, Neg
-  - [ ] `bool`: Not
-  - [ ] `str`: Add (concatenation)
-  - [ ] `byte`: Add, Sub, Mul, Div, Rem, BitAnd, BitOr, BitXor, Shl, Shr, BitNot
-  - [ ] `Duration`: Add, Sub, Mul (with int), Div (with int and Duration), Rem, Neg
-  - [ ] `Size`: Add, Sub, Mul (with int), Div (with int and Size), Rem
-  - [ ] **Ori Tests**: `tests/spec/traits/operators/builtin_impls.ori`
-  - [ ] **LLVM Support**: LLVM codegen for builtin operator impls
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/operator_tests.rs`
+- [x] **Implement**: Built-in operator trait implementations for primitives
+  - [x] `int`: Add, Sub, Mul, Div, FloorDiv, Rem, Neg, BitAnd, BitOr, BitXor, Shl, Shr, BitNot
+  - [x] `float`: Add, Sub, Mul, Div, Neg
+  - [x] `bool`: Not
+  - [x] `str`: Add (concatenation)
+  - [x] `list`: Add (concatenation)
+  - [x] `Duration`: Add, Sub, Mul (with int), Div (with int), Rem, Neg
+  - [x] `Size`: Add, Sub, Mul (with int), Div (with int), Rem
+  - [x] **Files**: `ori_eval/src/methods.rs` — `dispatch_int_method()`, `dispatch_float_method()`, etc.
 
-- [ ] **Implement**: User-defined operator implementations
-  - [ ] **Ori Tests**: `tests/spec/traits/operators/user_defined.ori`
+- [x] **Implement**: User-defined operator implementations
+  - [x] **Ori Tests**: `tests/spec/traits/operators/user_defined.ori` (skipped in LLVM)
 
-- [ ] **Implement**: Mixed-type operations with explicit both-direction impls
-  - [ ] Example: `Duration * int` and `int * Duration`
-  - [ ] **Ori Tests**: `tests/spec/traits/operators/mixed_types.ori`
+- [x] **Implement**: Mixed-type operations with explicit both-direction impls
+  - [x] Example: `Duration * int` and `int * Duration`
+  - [x] **Files**: `ori_eval/src/interpreter/mod.rs` — `is_mixed_primitive_op()`
 
 - [ ] **Implement**: Error messages for missing operator trait implementations
   - [ ] E2020: Type does not implement operator trait

@@ -1,10 +1,44 @@
 //! Binary and unary operation type checking.
+//!
+//! Operators are desugared to trait method calls for user-defined types.
+//! Primitives use fast-path direct dispatch.
 
 use super::super::infer_expr;
 use crate::checker::TypeChecker;
 use crate::operators::{check_binary_operation, TypeOpResult};
 use ori_ir::{BinaryOp, ExprId, Span, UnaryOp};
 use ori_types::Type;
+
+/// Maps a binary operator to its trait name and method name.
+fn binary_op_to_trait(op: BinaryOp) -> Option<(&'static str, &'static str)> {
+    match op {
+        BinaryOp::Add => Some(("Add", "add")),
+        BinaryOp::Sub => Some(("Sub", "sub")),
+        BinaryOp::Mul => Some(("Mul", "mul")),
+        BinaryOp::Div => Some(("Div", "div")),
+        BinaryOp::FloorDiv => Some(("FloorDiv", "floor_div")),
+        BinaryOp::Mod => Some(("Rem", "rem")),
+        BinaryOp::BitAnd => Some(("BitAnd", "bit_and")),
+        BinaryOp::BitOr => Some(("BitOr", "bit_or")),
+        BinaryOp::BitXor => Some(("BitXor", "bit_xor")),
+        BinaryOp::Shl => Some(("Shl", "shl")),
+        BinaryOp::Shr => Some(("Shr", "shr")),
+        // Comparison and logical operators are NOT trait-based
+        // They use Eq and Comparable traits directly
+        _ => None,
+    }
+}
+
+/// Maps a unary operator to its trait name and method name.
+#[allow(dead_code)] // Reserved for future use
+fn unary_op_to_trait(op: UnaryOp) -> Option<(&'static str, &'static str)> {
+    match op {
+        UnaryOp::Neg => Some(("Neg", "neg")),
+        UnaryOp::Not => Some(("Not", "not")),
+        UnaryOp::BitNot => Some(("BitNot", "bit_not")),
+        UnaryOp::Try => None, // Try is special, not trait-based
+    }
+}
 
 /// Infer the type of a binary operation (e.g., `a + b`, `x == y`, `p && q`).
 ///
@@ -24,6 +58,9 @@ pub fn infer_binary(
 }
 
 /// Check a binary operation.
+///
+/// First tries primitive operation checking. If that fails and the left operand
+/// is a user-defined type, attempts trait-based operator dispatch.
 fn check_binary_op(
     checker: &mut TypeChecker<'_>,
     op: BinaryOp,
@@ -31,6 +68,10 @@ fn check_binary_op(
     right: &Type,
     span: Span,
 ) -> Type {
+    let resolved_left = checker.inference.ctx.resolve(left);
+    let resolved_right = checker.inference.ctx.resolve(right);
+
+    // First try primitive operation checking
     match check_binary_operation(
         &mut checker.inference.ctx,
         checker.context.interner,
@@ -39,12 +80,110 @@ fn check_binary_op(
         right,
         span,
     ) {
-        TypeOpResult::Ok(ty) => ty,
+        TypeOpResult::Ok(ty) => return ty,
         TypeOpResult::Err(e) => {
-            checker.push_error(e.message, span, e.code);
-            Type::Error
+            // For primitive types, report the error immediately
+            if is_primitive_type(&resolved_left) {
+                checker.push_error(e.message, span, e.code);
+                return Type::Error;
+            }
+            // For user-defined types, try trait lookup below
         }
     }
+
+    // For user-defined types, try trait-based operator dispatch
+    if let Some((trait_name, method_name)) = binary_op_to_trait(op) {
+        if let Some(result_ty) = check_operator_trait(
+            checker,
+            &resolved_left,
+            &resolved_right,
+            trait_name,
+            method_name,
+            span,
+        ) {
+            return result_ty;
+        }
+    }
+
+    // No trait impl found
+    checker.push_error(
+        format!(
+            "cannot apply operator to `{}` and `{}`: type does not implement the required operator trait",
+            resolved_left.display(checker.context.interner),
+            resolved_right.display(checker.context.interner)
+        ),
+        span,
+        ori_diagnostic::ErrorCode::E2001,
+    );
+    Type::Error
+}
+
+/// Check if a type is a primitive (built-in) type.
+fn is_primitive_type(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Int
+            | Type::Float
+            | Type::Bool
+            | Type::Str
+            | Type::Char
+            | Type::Byte
+            | Type::Unit
+            | Type::Duration
+            | Type::Size
+            | Type::Never
+            | Type::List(_)
+            | Type::Map { .. }
+            | Type::Set(_)
+            | Type::Option(_)
+            | Type::Result { .. }
+            | Type::Tuple(_)
+            | Type::Range(_)
+            | Type::Function { .. }
+    )
+}
+
+/// Check if a type implements an operator trait and return the Output type.
+fn check_operator_trait(
+    checker: &mut TypeChecker<'_>,
+    left_ty: &Type,
+    right_ty: &Type,
+    trait_name: &str,
+    method_name: &str,
+    span: Span,
+) -> Option<Type> {
+    let method_name_interned = checker.context.interner.intern(method_name);
+
+    // Look up the method in the trait registry
+    if let Some(method_lookup) = checker
+        .registries
+        .traits
+        .lookup_method(left_ty, method_name_interned)
+    {
+        // The method should have 2 params: self and rhs
+        if method_lookup.params.len() >= 2 {
+            let rhs_param = &method_lookup.params[1];
+
+            // Check that the right operand type matches
+            if let Err(_e) = checker.inference.ctx.unify(rhs_param, right_ty) {
+                checker.push_error(
+                    format!(
+                        "mismatched types for `{}` operator: expected `{}`, found `{}`",
+                        trait_name,
+                        rhs_param.display(checker.context.interner),
+                        right_ty.display(checker.context.interner)
+                    ),
+                    span,
+                    ori_diagnostic::ErrorCode::E2001,
+                );
+                return Some(Type::Error);
+            }
+
+            return Some(method_lookup.return_ty.clone());
+        }
+    }
+
+    None
 }
 
 /// Infer the type of a unary operation (e.g., `-x`, `!p`, `~n`, `result?`).
@@ -65,11 +204,15 @@ pub fn infer_unary(
 }
 
 /// Check a unary operation.
+///
+/// First tries primitive operation checking. If that fails and the operand
+/// is a user-defined type, attempts trait-based operator dispatch.
 fn check_unary_op(checker: &mut TypeChecker<'_>, op: UnaryOp, operand: &Type, span: Span) -> Type {
+    let resolved = checker.inference.ctx.resolve(operand);
+
     match op {
         UnaryOp::Neg => {
-            let resolved = checker.inference.ctx.resolve(operand);
-            match resolved {
+            match &resolved {
                 Type::Int | Type::Float | Type::Duration | Type::Var(_) => resolved,
                 Type::Size => {
                     checker.push_error(
@@ -79,7 +222,7 @@ fn check_unary_op(checker: &mut TypeChecker<'_>, op: UnaryOp, operand: &Type, sp
                     );
                     Type::Error
                 }
-                _ => {
+                _ if is_primitive_type(&resolved) => {
                     checker.push_error(
                         format!(
                             "cannot negate `{}`: negation requires a numeric type (int, float, or Duration)",
@@ -90,19 +233,75 @@ fn check_unary_op(checker: &mut TypeChecker<'_>, op: UnaryOp, operand: &Type, sp
                     );
                     Type::Error
                 }
+                // User-defined type: try trait lookup
+                _ => {
+                    if let Some(result_ty) =
+                        check_unary_operator_trait(checker, &resolved, "Neg", "neg", span)
+                    {
+                        result_ty
+                    } else {
+                        checker.push_error(
+                            format!(
+                                "cannot negate `{}`: type does not implement `Neg` trait",
+                                operand.display(checker.context.interner)
+                            ),
+                            span,
+                            ori_diagnostic::ErrorCode::E2001,
+                        );
+                        Type::Error
+                    }
+                }
             }
         }
         UnaryOp::Not => {
-            if let Err(e) = checker.inference.ctx.unify(operand, &Type::Bool) {
-                checker.report_type_error(&e, span);
+            // First try bool
+            if checker.inference.ctx.unify(operand, &Type::Bool).is_ok() {
+                return Type::Bool;
             }
-            Type::Bool
+
+            // For non-bool, try Not trait on user types
+            if !is_primitive_type(&resolved) {
+                if let Some(result_ty) =
+                    check_unary_operator_trait(checker, &resolved, "Not", "not", span)
+                {
+                    return result_ty;
+                }
+            }
+
+            checker.push_error(
+                format!(
+                    "cannot apply `!` to `{}`: type does not implement `Not` trait",
+                    operand.display(checker.context.interner)
+                ),
+                span,
+                ori_diagnostic::ErrorCode::E2001,
+            );
+            Type::Error
         }
         UnaryOp::BitNot => {
-            if let Err(e) = checker.inference.ctx.unify(operand, &Type::Int) {
-                checker.report_type_error(&e, span);
+            // First try int
+            if checker.inference.ctx.unify(operand, &Type::Int).is_ok() {
+                return Type::Int;
             }
-            Type::Int
+
+            // For non-int, try BitNot trait on user types
+            if !is_primitive_type(&resolved) {
+                if let Some(result_ty) =
+                    check_unary_operator_trait(checker, &resolved, "BitNot", "bit_not", span)
+                {
+                    return result_ty;
+                }
+            }
+
+            checker.push_error(
+                format!(
+                    "cannot apply `~` to `{}`: type does not implement `BitNot` trait",
+                    operand.display(checker.context.interner)
+                ),
+                span,
+                ori_diagnostic::ErrorCode::E2001,
+            );
+            Type::Error
         }
         UnaryOp::Try => {
             let ok_ty = checker.inference.ctx.fresh_var();
@@ -114,4 +313,29 @@ fn check_unary_op(checker: &mut TypeChecker<'_>, op: UnaryOp, operand: &Type, sp
             checker.inference.ctx.resolve(&ok_ty)
         }
     }
+}
+
+/// Check if a type implements a unary operator trait and return the Output type.
+fn check_unary_operator_trait(
+    checker: &mut TypeChecker<'_>,
+    operand_ty: &Type,
+    _trait_name: &str,
+    method_name: &str,
+    _span: Span,
+) -> Option<Type> {
+    let method_name_interned = checker.context.interner.intern(method_name);
+
+    // Look up the method in the trait registry
+    if let Some(method_lookup) = checker
+        .registries
+        .traits
+        .lookup_method(operand_ty, method_name_interned)
+    {
+        // Unary operator method should have 1 param (self)
+        if !method_lookup.params.is_empty() {
+            return Some(method_lookup.return_ty.clone());
+        }
+    }
+
+    None
 }

@@ -63,6 +63,8 @@ fn eval_ident(&self, name: Name) -> Result<Value, EvalError> {
 
 ### Binary Operations
 
+Binary operators are dispatched uniformly through the method system, enabling user-defined types to implement operator traits like `Add`, `Sub`, etc.
+
 ```rust
 fn eval_binary(
     &mut self,
@@ -87,10 +89,46 @@ fn eval_binary(
         return self.eval_expr(right);
     }
 
-    // Normal evaluation
+    // Comparison operators use direct evaluation (Eq/Comparable traits)
+    if is_comparison_op(op) {
+        let left_val = self.eval_expr(left)?;
+        let right_val = self.eval_expr(right)?;
+        return apply_binary_op(&left_val, op, &right_val, self.interner);
+    }
+
     let left_val = self.eval_expr(left)?;
     let right_val = self.eval_expr(right)?;
-    self.apply_binary_op(op, left_val, right_val)
+
+    // Mixed-type operations (int * Duration, int * Size) fall back to direct eval
+    if is_mixed_primitive_op(op, &left_val, &right_val) {
+        return apply_binary_op(&left_val, op, &right_val, self.interner);
+    }
+
+    // Dispatch arithmetic/bitwise operators through method system
+    if let Some(method_name) = binary_op_to_method(op) {
+        return self.call_method(&left_val, method_name, &[right_val]);
+    }
+
+    // Fallback for any remaining operators
+    apply_binary_op(&left_val, op, &right_val, self.interner)
+}
+
+/// Maps binary operators to their trait method names.
+fn binary_op_to_method(op: BinaryOp) -> Option<&'static str> {
+    match op {
+        BinaryOp::Add => Some("add"),
+        BinaryOp::Sub => Some("sub"),
+        BinaryOp::Mul => Some("mul"),
+        BinaryOp::Div => Some("div"),
+        BinaryOp::Mod => Some("rem"),
+        BinaryOp::FloorDiv => Some("floor_div"),
+        BinaryOp::BitAnd => Some("bit_and"),
+        BinaryOp::BitOr => Some("bit_or"),
+        BinaryOp::BitXor => Some("bit_xor"),
+        BinaryOp::Shl => Some("shl"),
+        BinaryOp::Shr => Some("shr"),
+        _ => None, // Comparison and logical operators handled separately
+    }
 }
 ```
 
