@@ -244,7 +244,9 @@ Formalizes `repeat`, `compile_error`, `PanicInfo`, and clarifies `??` operator s
 
 ### PanicInfo Type
 
-- [ ] **Implement**: `PanicInfo` struct type — `{ message: str, file: str, line: int, column: int }`
+**Proposal**: `proposals/approved/panic-handler-proposal.md` (extends basic definition)
+
+- [ ] **Implement**: `PanicInfo` struct type — `{ message: str, location: TraceEntry, stack_trace: [TraceEntry], thread_id: Option<int> }`
   - [ ] **Rust Tests**: `oric/src/typeck/types.rs` — PanicInfo type tests
   - [ ] **Ori Tests**: `tests/spec/types/panic_info.ori`
   - [ ] **LLVM Support**: LLVM codegen for PanicInfo
@@ -258,6 +260,66 @@ Formalizes `repeat`, `compile_error`, `PanicInfo`, and clarifies `??` operator s
 
 - [ ] **Add to prelude**: PanicInfo available without import
   - [ ] **Ori Tests**: `tests/spec/prelude/panic_info.ori`
+
+### @panic Handler
+
+**Proposal**: `proposals/approved/panic-handler-proposal.md`
+
+App-wide panic handler function that executes before program termination.
+
+- [ ] **Implement**: Recognize `@panic` as special function (like `@main`)
+  - [ ] **Rust Tests**: `oric/src/resolver/special_functions.rs` — @panic recognition
+  - [ ] **Ori Tests**: `tests/spec/declarations/panic_handler.ori`
+  - [ ] **LLVM Support**: LLVM codegen for @panic function recognition
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — @panic recognition codegen
+
+- [ ] **Implement**: Validate signature `(PanicInfo) -> void`
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/special_fns.rs` — @panic signature validation
+  - [ ] **Ori Tests**: `tests/compile-fail/panic_handler_wrong_sig.ori`
+
+- [ ] **Implement**: Error if multiple `@panic` definitions
+  - [ ] **Rust Tests**: `oric/src/resolver/special_functions.rs` — multiple @panic error
+  - [ ] **Ori Tests**: `tests/compile-fail/multiple_panic_handlers.ori`
+
+- [ ] **Implement**: Implicit stderr for print() inside @panic
+  - [ ] **Rust Tests**: `oric/src/eval/panic_handler.rs` — stderr redirection
+  - [ ] **Ori Tests**: `tests/spec/declarations/panic_print_stderr.ori`
+  - [ ] **LLVM Support**: LLVM codegen for stderr redirection in @panic
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — stderr redirection codegen
+
+- [ ] **Implement**: Runtime panic hook installation at program start
+  - [ ] **Rust Tests**: `oric/src/runtime/panic.rs` — hook installation
+  - [ ] **LLVM Support**: LLVM codegen for panic hook installation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — hook installation codegen
+
+- [ ] **Implement**: Construct PanicInfo (message, location, stack_trace, thread_id) on panic
+  - [ ] **Rust Tests**: `oric/src/runtime/panic.rs` — PanicInfo construction
+  - [ ] **Ori Tests**: `tests/spec/runtime/panic_info_construction.ori`
+  - [ ] **LLVM Support**: LLVM codegen for PanicInfo construction
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — PanicInfo construction codegen
+
+- [ ] **Implement**: Re-panic detection — immediate termination if handler panics
+  - [ ] **Rust Tests**: `oric/src/runtime/panic.rs` — re-panic detection
+  - [ ] **Ori Tests**: `tests/spec/runtime/panic_in_handler.ori`
+  - [ ] **LLVM Support**: LLVM codegen for re-panic detection
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — re-panic detection codegen
+
+- [ ] **Implement**: First panic wins in concurrent context
+  - [ ] **Rust Tests**: `oric/src/runtime/panic.rs` — concurrent panic handling
+  - [ ] **Ori Tests**: `tests/spec/runtime/concurrent_panic.ori`
+  - [ ] **LLVM Support**: LLVM codegen for concurrent panic handling
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — concurrent panic codegen
+
+- [ ] **Implement**: Default handler (when no @panic defined) — print to stderr
+  - [ ] **Rust Tests**: `oric/src/runtime/panic.rs` — default handler
+  - [ ] **Ori Tests**: `tests/spec/runtime/default_panic_handler.ori`
+  - [ ] **LLVM Support**: LLVM codegen for default handler
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — default handler codegen
+
+- [ ] **Implement**: Exit with non-zero code after handler returns
+  - [ ] **Rust Tests**: `oric/src/runtime/panic.rs` — exit code
+  - [ ] **LLVM Support**: LLVM codegen for exit code handling
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — exit code codegen
 
 ---
 

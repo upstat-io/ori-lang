@@ -1,8 +1,9 @@
 # Proposal: App-Wide Panic Handler
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-22
+**Approved:** 2026-01-31
 **Affects:** Language design, runtime, compiler
 
 ---
@@ -17,8 +18,8 @@ Add an optional app-wide `@panic` handler function that executes before program 
 )
 
 @panic (info: PanicInfo) -> void = run(
-    log_error("Fatal error: {info.message}"),
-    log_error("Location: {info.location}"),
+    print(msg: `Fatal error: {info.message}`),
+    print(msg: `Location: {info.location.file}:{info.location.line}`),
     send_to_error_tracking(info),
     cleanup_resources(),
 )
@@ -108,32 +109,39 @@ An optional top-level function with a specific signature:
 **Rules:**
 - At most one `@panic` function per program
 - Must have signature `(PanicInfo) -> void`
-- Cannot use capabilities that might panic (avoid infinite loops)
 - Executes synchronously before program exit
 - If `@panic` itself panics, immediate termination (no recursion)
 
 ### PanicInfo Type
 
+This proposal extends `PanicInfo` (from the additional-builtins proposal) with richer information:
+
 ```ori
 type PanicInfo = {
     message: str,
-    location: SourceLocation,
-    stack_trace: [StackFrame],
-    thread_id: Option<int>,  // if in concurrent context
-}
-
-type SourceLocation = {
-    file: str,
-    line: int,
-    column: int,
-    function: str,
-}
-
-type StackFrame = {
-    function: str,
-    location: Option<SourceLocation>,
+    location: TraceEntry,
+    stack_trace: [TraceEntry],
+    thread_id: Option<int>,
 }
 ```
+
+The `location` field uses the existing `TraceEntry` type which has `function`, `file`, `line`, and `column` fields.
+
+The `stack_trace` is a list of `TraceEntry` values representing the call stack at the point of panic, ordered from most recent to oldest.
+
+The `thread_id` is `Some(id)` when the panic occurs in a concurrent context (inside `parallel`, `nursery`, or `spawn`), and `None` for single-threaded execution.
+
+### Implicit Stderr in @panic
+
+Inside the `@panic` handler, `print()` automatically writes to stderr instead of stdout:
+
+```ori
+@panic (info: PanicInfo) -> void = run(
+    print(msg: `Crash: {info.message}`),  // Writes to stderr
+)
+```
+
+This ensures panic output goes to the error stream without needing a separate `print_stderr` function.
 
 ### Default Behavior
 
@@ -142,36 +150,41 @@ If no `@panic` handler is defined, default behavior:
 ```ori
 // Implicit default
 @panic (info: PanicInfo) -> void = run(
-    print_stderr("panic: {info.message}"),
-    print_stderr("  at {info.location.file}:{info.location.line}"),
+    print(msg: `panic: {info.message}`),
+    print(msg: `  at {info.location.file}:{info.location.line}`),
     for frame in info.stack_trace do
-        print_stderr("    {frame.function}"),
+        print(msg: `    {frame.function}`),
 )
 ```
 
-### Capability Restrictions
+### Capabilities
 
-The `@panic` handler has limited capabilities to prevent cascading failures:
+The `@panic` handler may declare any capability:
 
 ```ori
-// OK: basic I/O for logging
+// OK: basic I/O for logging (Print is implicit)
 @panic (info: PanicInfo) -> void = run(
-    print_stderr("Crash: {info.message}"),
+    print(msg: `Crash: {info.message}`),
 )
 
-// OK: file writing (if FileSystem allowed)
+// OK: file writing
 @panic (info: PanicInfo) -> void uses FileSystem = run(
-    write_file("/var/log/crashes.log", str(info)),
+    write_file(path: "/var/log/crashes.log", content: info.to_str()),
 )
 
-// RISKY: network calls might timeout/fail
+// OK but risky: network calls might timeout/fail
 @panic (info: PanicInfo) -> void uses Http = run(
     // This could hang or fail - use with caution
-    Http.post("https://errors.example.com", info),
+    Http.post(url: "https://errors.example.com", body: info),
 )
 ```
 
-**Recommendation:** Keep panic handlers simple. Fire-and-forget logging is safest.
+**Warning:** Capabilities that perform I/O (Http, FileSystem, Network) may hang, timeout, or fail. This risks the handler never completing.
+
+**Recommendations:**
+- Keep handlers simple (stderr logging is safest)
+- Use short timeouts for network calls
+- Fire-and-forget patterns are safer than waiting for responses
 
 ### Re-Panic Protection
 
@@ -179,12 +192,51 @@ If the panic handler itself panics:
 
 ```ori
 @panic (info: PanicInfo) -> void = run(
-    panic("oops"),  // panic inside panic handler
+    panic(msg: "oops"),  // panic inside panic handler
     // Immediate termination, no recursion
 )
 ```
 
 The runtime detects re-panic and terminates immediately with both panic messages.
+
+---
+
+## Concurrency
+
+### First Panic Wins
+
+When multiple tasks panic simultaneously (e.g., in a `parallel` or `nursery` context):
+
+1. The first panic to reach the handler wins
+2. Subsequent panics are recorded but do not re-run the handler
+3. After the handler completes (or terminates), the program exits with the first panic's exit code
+4. All pending panics are logged to stderr before exit
+
+### Task Panics
+
+When a task in `parallel` panics:
+
+```ori
+parallel(
+    tasks: [might_panic(), other_work()],
+)
+```
+
+Behavior:
+1. Panicking task is cancelled
+2. Sibling tasks are cancelled
+3. Parent scope receives panic (propagates up)
+4. `@panic` runs once at the top level (first panic wins)
+
+### Process Isolation
+
+With process isolation:
+
+```ori
+spawn_process(task: risky_work, input: data)
+```
+
+Each process has its own `@panic` handler. Parent process isn't affected by child panics.
 
 ---
 
@@ -194,22 +246,22 @@ The runtime detects re-panic and terminates immediately with both panic messages
 
 ```ori
 @panic (info: PanicInfo) -> void = run(
-    print_stderr(""),
-    print_stderr("=== FATAL ERROR ==="),
-    print_stderr("Message: {info.message}"),
-    print_stderr("Location: {info.location.file}:{info.location.line}"),
-    print_stderr("Function: {info.location.function}"),
-    print_stderr(""),
-    print_stderr("Stack trace:"),
+    print(msg: ""),
+    print(msg: "=== FATAL ERROR ==="),
+    print(msg: `Message: {info.message}`),
+    print(msg: `Location: {info.location.file}:{info.location.line}`),
+    print(msg: `Function: {info.location.function}`),
+    print(msg: ""),
+    print(msg: "Stack trace:"),
     for frame in info.stack_trace do
-        print_stderr("  - {frame.function}"),
+        print(msg: `  - {frame.function}`),
 )
 ```
 
 ### Error Reporting Service
 
 ```ori
-@panic (info: PanicInfo) -> void uses Http = run(
+@panic (info: PanicInfo) -> void uses Http, Clock = run(
     let report = CrashReport {
         app_version: $version,
         message: info.message,
@@ -230,18 +282,18 @@ The runtime detects re-panic and terminates immediately with both panic messages
 
 ```ori
 // Global resources (set during init)
-$db_connection: Option<DbConnection> = None
-$temp_files: [str] = []
+let $db_connection: Option<DbConnection> = None
+let $temp_files: [str] = []
 
 @panic (info: PanicInfo) -> void uses FileSystem = run(
-    print_stderr("Fatal: {info.message}"),
+    print(msg: `Fatal: {info.message}`),
 
     // Clean up temp files
     for file in $temp_files do
-        let _ = FileSystem.delete(file),
+        let _ = FileSystem.delete(path: file),
 
     // Note: can't safely close DB here if it might have caused the panic
-    print_stderr("Cleanup attempted"),
+    print(msg: "Cleanup attempted"),
 )
 ```
 
@@ -249,67 +301,36 @@ $temp_files: [str] = []
 
 ```ori
 @panic (info: PanicInfo) -> void = run(
-    print_stderr(""),
-    print_stderr("Oops! Something went wrong."),
-    print_stderr(""),
-    print_stderr("The application encountered an unexpected error and needs to close."),
-    print_stderr(""),
-    print_stderr("Technical details:"),
-    print_stderr("  {info.message}"),
-    print_stderr("  at {info.location.file}:{info.location.line}"),
-    print_stderr(""),
-    print_stderr("Please report this issue at: https://github.com/example/app/issues"),
+    print(msg: ""),
+    print(msg: "Oops! Something went wrong."),
+    print(msg: ""),
+    print(msg: "The application encountered an unexpected error and needs to close."),
+    print(msg: ""),
+    print(msg: "Technical details:"),
+    print(msg: `  {info.message}`),
+    print(msg: `  at {info.location.file}:{info.location.line}`),
+    print(msg: ""),
+    print(msg: "Please report this issue at: https://github.com/example/app/issues"),
 )
 ```
 
 ### Conditional Debug Info
 
 ```ori
-$debug_mode = false
+let $debug_mode = false
 
 @panic (info: PanicInfo) -> void = run(
-    print_stderr("Error: {info.message}"),
+    print(msg: `Error: {info.message}`),
 
     if $debug_mode then run(
-        print_stderr(""),
-        print_stderr("Debug information:"),
-        print_stderr("Location: {info.location.file}:{info.location.line}"),
+        print(msg: ""),
+        print(msg: "Debug information:"),
+        print(msg: `Location: {info.location.file}:{info.location.line}`),
         for frame in info.stack_trace do
-            print_stderr("  {frame.function}"),
+            print(msg: `  {frame.function}`),
     ),
 )
 ```
-
----
-
-## Interaction with Concurrency
-
-### Task Panics
-
-When a task in `parallel` panics:
-
-```ori
-parallel(
-    .task1: might_panic(),
-    .task2: other_work(),
-)
-```
-
-Behavior:
-1. Panicking task triggers its `@panic` handler
-2. Sibling tasks are cancelled
-3. Parent scope receives panic (propagates up)
-4. `@panic` runs once at the top level
-
-### Process Isolation
-
-With process isolation (from concurrency proposal):
-
-```ori
-spawn_process(task: risky_work, input: data)
-```
-
-Each process has its own `@panic` handler. Parent process isn't affected by child panics.
 
 ---
 
@@ -321,7 +342,7 @@ Alternative considered:
 
 ```ori
 @main () -> void = run(
-    on_panic(info -> log(info)),  // runtime registration
+    on_panic(handler: info -> log(msg: info)),  // runtime registration
     start_app(),
 )
 ```
@@ -356,15 +377,6 @@ If you can recover from it, it's not a panic - use `Result`.
 
 The handler is for **observability**, not **recovery**.
 
-### Why Limit Capabilities?
-
-A panic means something is wrong. Using complex capabilities in the handler risks:
-- Cascading failures
-- Infinite loops
-- Hangs
-
-Simple handlers (stderr, file write) are safest. Network calls are possible but risky.
-
 ---
 
 ## Implementation Notes
@@ -375,13 +387,15 @@ Simple handlers (stderr, file write) are safest. Network calls are possible but 
 2. Validate signature: `(PanicInfo) -> void`
 3. Error if multiple `@panic` definitions
 4. Generate runtime hook registration
+5. Redirect `print()` to stderr within `@panic` scope
 
 ### Runtime Changes
 
 1. Install panic hook at program start
 2. On panic: construct `PanicInfo`, call handler
 3. Detect re-panic, terminate immediately
-4. After handler returns, exit with non-zero code
+4. Track first panic in concurrent context (first panic wins)
+5. After handler returns, exit with non-zero code
 
 ### Stack Trace Collection
 
@@ -390,7 +404,7 @@ Stack traces require:
 - Stack unwinding support
 - Platform-specific implementation
 
-If debug info unavailable, `stack_trace` may be empty or contain only addresses.
+If debug info unavailable, `stack_trace` may be empty or contain only partial information.
 
 ---
 
@@ -426,7 +440,7 @@ Rejected: Overcomplicates. One handler can dispatch internally if needed.
 ### 4. Runtime API Only
 
 ```ori
-set_panic_hook(info -> log(info))
+set_panic_hook(handler: info -> log(msg: info))
 ```
 
 Rejected: Less discoverable, can be forgotten, allows multiple registrations.
@@ -441,6 +455,7 @@ The `@panic` handler provides:
 2. **No recovery** - panic is still fatal
 3. **Observability** - logging, reporting, cleanup
 4. **Simple model** - like `@main`, a special entry point
+5. **First panic wins** - deterministic behavior in concurrent contexts
 
 ```ori
 @main () -> void = start_app()

@@ -115,6 +115,66 @@ print(msg: str) -> void
 panic(msg: str) -> Never
 ```
 
+## Panic Handler
+
+An optional top-level function that executes before program termination when a panic occurs.
+
+```ori
+@panic (info: PanicInfo) -> void = run(
+    print(msg: `Fatal error: {info.message}`),
+    print(msg: `Location: {info.location.file}:{info.location.line}`),
+)
+```
+
+### Rules
+
+- At most one `@panic` function per program
+- Must have signature `(PanicInfo) -> void`
+- Executes synchronously before program exit
+- If `@panic` itself panics, immediate termination (no recursion)
+
+### PanicInfo Type
+
+```ori
+type PanicInfo = {
+    message: str,
+    location: TraceEntry,
+    stack_trace: [TraceEntry],
+    thread_id: Option<int>,
+}
+```
+
+The `location` field uses `TraceEntry` (which has `function`, `file`, `line`, `column`). The `stack_trace` is ordered from most recent to oldest. The `thread_id` is `Some(id)` in concurrent contexts, `None` for single-threaded execution.
+
+### Implicit Stderr
+
+Inside `@panic`, the `print()` function writes to stderr instead of stdout.
+
+### Concurrent Panics
+
+When multiple tasks panic simultaneously:
+
+1. The first panic to reach the handler wins
+2. Subsequent panics are recorded but do not re-run the handler
+3. After the handler completes, the program exits with non-zero code
+
+### Default Handler
+
+If no `@panic` handler is defined:
+
+```ori
+@panic (info: PanicInfo) -> void = run(
+    print(msg: `panic: {info.message}`),
+    print(msg: `  at {info.location.file}:{info.location.line}`),
+    for frame in info.stack_trace do
+        print(msg: `    {frame.function}`),
+)
+```
+
+### Capabilities
+
+Any capability may be declared. Capabilities that perform I/O (Http, FileSystem) may hang or fail, risking the handler never completing. Simple handlers (stderr logging) are safest.
+
 ## Developer Functions
 
 ### todo
@@ -287,7 +347,8 @@ Available without import:
 - `repeat`, `drop_early`
 - `compile_error`
 - `is_cancelled` (async contexts only)
-- `CancellationError`, `CancellationReason`, `PanicInfo` types
+- `CancellationError`, `CancellationReason` types
+- `PanicInfo` type (with `message`, `location`, `stack_trace`, `thread_id`)
 
 ## Collection Methods
 

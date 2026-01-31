@@ -167,13 +167,19 @@ extern "c" from "libfoo" {
 ```ori
 type PanicInfo = {
     message: str,
-    file: str,
-    line: int,
-    column: int,
+    location: TraceEntry,
+    stack_trace: [TraceEntry],
+    thread_id: Option<int>,
 }
 ```
 
-Contains information about a panic.
+Contains information about a panic, including location, stack trace, and thread context.
+
+The `location` field uses the existing `TraceEntry` type (which has `function`, `file`, `line`, `column`).
+
+The `stack_trace` is ordered from most recent to oldest.
+
+The `thread_id` is `Some(id)` in concurrent contexts, `None` for single-threaded execution.
 
 ## Usage
 
@@ -189,28 +195,29 @@ match(result,
 
 Note: `catch` returns `Result<T, str>`, not `Result<T, PanicInfo>`.
 
-### In Panic Hooks (Future)
+### In @panic Handler
 
 ```ori
-// Future: custom panic handlers
-@set_panic_hook (handler: (PanicInfo) -> void) -> void = ...
-
-set_panic_hook(handler: info ->
-    log(msg: `panic at {info.file}:{info.line}: {info.message}`)
+@panic (info: PanicInfo) -> void = run(
+    print(msg: `panic at {info.location.file}:{info.location.line}: {info.message}`),
+    for frame in info.stack_trace do
+        print(msg: `  at {frame.function}`),
 )
 ```
+
+See the panic-handler-proposal for full details on the `@panic` function.
 
 ## Standard Implementation
 
 ```ori
 impl Printable for PanicInfo {
     @to_str (self) -> str =
-        `panic at {self.file}:{self.line}:{self.column}: {self.message}`
+        `panic at {self.location.file}:{self.location.line}:{self.location.column}: {self.message}`
 }
 
 impl Debug for PanicInfo {
     @debug (self) -> str =
-        `PanicInfo \{ message: {self.message.debug()}, file: {self.file.debug()}, line: {self.line}, column: {self.column} \}`
+        `PanicInfo \{ message: {self.message.debug()}, location: {self.location.debug()}, stack_trace: {self.stack_trace.debug()}, thread_id: {self.thread_id.debug()} \}`
 }
 ```
 
