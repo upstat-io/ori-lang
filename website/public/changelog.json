@@ -1,4 +1,6 @@
 [
+  {"date": "2026-01-31", "type": "docs", "message": "Fix commit-push to sync changelog after main commit", "hash": "cbcccec"},
+  {"date": "2026-01-31", "type": "docs", "message": "Approve ordering-type", "hash": "6a5d13b"},
   {"date": "2026-01-31", "type": "docs", "message": "Rename approve-proposal to review-draft-proposal", "hash": "65ae286"},
   {"date": "2026-01-31", "type": "docs", "message": "Use commit-push in approve-proposal workflow", "hash": "095b283"},
   {"date": "2026-01-31", "type": "docs", "message": "Expand unary and bitwise operator semantics", "hash": "71345b6"},
