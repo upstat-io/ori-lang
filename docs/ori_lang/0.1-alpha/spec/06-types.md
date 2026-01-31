@@ -413,6 +413,51 @@ type TraceEntry = { function: str, file: str, line: int, column: int }
 type NurseryErrorMode = CancelRemaining | CollectAll | FailFast
 ```
 
+### Ordering
+
+The `Ordering` type represents the result of comparing two values.
+
+| Variant | Meaning |
+|---------|---------|
+| `Less` | Left operand is less than right |
+| `Equal` | Left operand equals right |
+| `Greater` | Left operand is greater than right |
+
+#### Ordering Methods
+
+```ori
+impl Ordering {
+    @is_less (self) -> bool
+    @is_equal (self) -> bool
+    @is_greater (self) -> bool
+    @is_less_or_equal (self) -> bool
+    @is_greater_or_equal (self) -> bool
+    @reverse (self) -> Ordering
+    @then (self, other: Ordering) -> Ordering
+    @then_with (self, f: () -> Ordering) -> Ordering
+}
+```
+
+The `then` method chains comparisons for lexicographic ordering. It returns `self` unless `self` is `Equal`, in which case it returns `other`.
+
+The `then_with` method is a lazy variant that only evaluates its argument when `self` is `Equal`.
+
+```ori
+// Lexicographic comparison of (a1, a2) with (b1, b2)
+compare(left: a1, right: b1).then(other: compare(left: a2, right: b2))
+
+// Lazy version — second comparison only evaluated if first is Equal
+compare(left: a1, right: b1).then_with(f: () -> compare(left: a2, right: b2))
+```
+
+#### Ordering Traits
+
+`Ordering` implements: `Eq`, `Comparable`, `Clone`, `Debug`, `Printable`, `Hashable`, `Default`.
+
+The `Default` value is `Equal`.
+
+The `Comparable` ordering is: `Less < Equal < Greater`.
+
 ## Channel Types
 
 Role-based channel types enforce producer/consumer separation at compile time.
