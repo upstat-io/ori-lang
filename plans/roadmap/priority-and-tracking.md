@@ -711,6 +711,17 @@
 - Error codes: E0990 (non-hashable key), E0991 (missing capability), E0992 (negative TTL)
 - Blocked on: None (expands existing Phase 8.7 stub)
 
+**Drop Trait** — ✅ APPROVED 2026-01-30
+- Proposal: `proposals/approved/drop-trait-proposal.md`
+- Implementation: Phase 7A.7 (drop_early), Phase 21.6 (Drop trait — in memory-model-edge-cases)
+- Formalizes `Drop` trait for custom destructors (already in prelude)
+- Execution timing: when refcount reaches zero, before memory reclaimed
+- Drop order: LIFO (reverse declaration order) for bindings, fields; back-to-front for lists
+- Constraints: no async, must return void, abort on double panic during unwind
+- `drop_early<T>(value)` function for explicit early resource release (any type, not just T: Drop)
+- Error codes: E0980 (async in drop), E0981 (wrong return type)
+- Blocked on: None (supplements memory-model-edge-cases-proposal)
+
 ---
 
 ## Milestones
