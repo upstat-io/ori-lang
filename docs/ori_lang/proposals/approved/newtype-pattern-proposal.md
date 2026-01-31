@@ -1,8 +1,9 @@
 # Proposal: Newtype Pattern
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-30
+**Approved:** 2026-01-31
 **Affects:** Compiler, type system
 
 ---
@@ -103,15 +104,16 @@ let id: UserId = UserId(42)  // OK
 
 ### To Underlying Type
 
-Use explicit conversion or field access:
+Access the underlying value via `.inner`:
 
 ```ori
 type UserId = int
 
 let id = UserId(42)
-let raw: int = id.0  // Access underlying value
-let raw: int = int(id)  // Explicit conversion via type function
+let raw: int = id.inner  // Access underlying value
 ```
+
+The `.inner` accessor is always public, regardless of the newtype's visibility. The type-safety boundary is at construction, not access.
 
 ### From Underlying Type
 
@@ -134,7 +136,7 @@ type PostId = int
 
 let user_id = UserId(42)
 let post_id = PostId(user_id)  // ERROR: expected int, found UserId
-let post_id = PostId(user_id.0)  // OK: via underlying value
+let post_id = PostId(user_id.inner)  // OK: via underlying value
 ```
 
 ---
@@ -175,7 +177,7 @@ Implement traits with custom behavior:
 type Email = str
 
 impl Printable for Email {
-    @to_str (self) -> str = `<{self.0}>`  // Custom format
+    @to_str (self) -> str = `<{self.inner}>`  // Custom format
 }
 ```
 
@@ -192,7 +194,7 @@ type Email = str
 
 let email = Email("user@example.com")
 email.len()  // ERROR: Email has no method len
-email.0.len()  // OK: access underlying str's len
+email.inner.len()  // OK: access underlying str's len
 ```
 
 ### Define Own Methods
@@ -204,12 +206,12 @@ type Email = str
 
 impl Email {
     @domain (self) -> str = run(
-        let parts = self.0.split(sep: "@"),
+        let parts = self.inner.split(sep: "@"),
         parts[1],
     )
 
     @local_part (self) -> str = run(
-        let parts = self.0.split(sep: "@"),
+        let parts = self.inner.split(sep: "@"),
         parts[0],
     )
 }
@@ -226,8 +228,8 @@ Explicitly delegate methods:
 type SafeString = str
 
 impl SafeString {
-    @len (self) -> int = self.0.len()
-    @is_empty (self) -> bool = self.0.is_empty()
+    @len (self) -> int = self.inner.len()
+    @is_empty (self) -> bool = self.inner.is_empty()
     // Only expose safe operations
 }
 ```
@@ -256,7 +258,7 @@ The compiler can optimize through newtype boundaries:
 type Index = int
 
 @sum_indices (indices: [Index]) -> Index =
-    indices.fold(initial: Index(0), combine: (a, b) -> Index(a.0 + b.0))
+    indices.fold(initial: Index(0), combine: (a, b) -> Index(a.inner + b.inner))
 
 // Compiles to same code as summing [int]
 ```
@@ -271,7 +273,7 @@ type Index = int
 type NonEmpty<T> = [T]  // Semantically non-empty list
 
 impl<T> NonEmpty<T> {
-    @first (self) -> T = self.0[0]  // Safe: guaranteed non-empty
+    @first (self) -> T = self.inner[0]  // Safe: guaranteed non-empty
 }
 ```
 
@@ -315,10 +317,10 @@ type Meters = float
 #derive(Eq, Comparable, Clone, Debug)
 type Feet = float
 
-@meters_to_feet (m: Meters) -> Feet = Feet(m.0 * 3.28084)
+@meters_to_feet (m: Meters) -> Feet = Feet(m.inner * 3.28084)
 
 impl Meters {
-    @add (self, other: Meters) -> Meters = Meters(self.0 + other.0)
+    @add (self, other: Meters) -> Meters = Meters(self.inner + other.inner)
 }
 ```
 
@@ -341,7 +343,7 @@ type Email = str
 type HtmlSafe = str  // Escaped HTML content
 type RawHtml = str   // Unescaped HTML content
 
-@escape (raw: RawHtml) -> HtmlSafe = HtmlSafe(html_escape(raw.0))
+@escape (raw: RawHtml) -> HtmlSafe = HtmlSafe(html_escape(raw.inner))
 
 @render (safe: HtmlSafe) -> void = ...  // Only accepts escaped content
 ```
@@ -360,7 +362,7 @@ error[E0900]: mismatched types
    |                  ^^^^^^^ expected `UserId`, found `PostId`
    |
    = note: `UserId` and `PostId` are distinct types
-   = help: convert explicitly: `UserId(post_id.0)`
+   = help: convert explicitly: `UserId(post_id.inner)`
 ```
 
 ### Missing Trait
@@ -386,8 +388,8 @@ error[E0902]: method `len` not found on `Email`
    |       ^^^ method not found
    |
    = note: `Email` is a newtype over `str`
-   = help: access underlying value: `email.0.len()`
-   = help: or define the method: `impl Email { @len (self) -> int = self.0.len() }`
+   = help: access underlying value: `email.inner.len()`
+   = help: or define the method: `impl Email { @len (self) -> int = self.inner.len() }`
 ```
 
 ---
@@ -398,10 +400,14 @@ error[E0902]: method `len` not found on `Email`
 
 Expand Newtype section with:
 1. Construction syntax
-2. Conversion rules
+2. Conversion rules (`.inner` accessor)
 3. Trait non-inheritance
 4. Method access rules
 5. Performance guarantees
+
+### Fix Spec Inconsistency
+
+Update `07-properties-of-types.md` Into trait example to use `.inner` instead of `.0`.
 
 ---
 
@@ -412,7 +418,7 @@ Expand Newtype section with:
 | Syntax | `type NewType = ExistingType` |
 | Distinctness | Nominally distinct |
 | Construction | `NewType(value)` |
-| Access underlying | `.0` field or type conversion |
+| Access underlying | `.inner` field (always public) |
 | Trait inheritance | None (must derive explicitly) |
 | Method inheritance | None (must delegate explicitly) |
 | Runtime overhead | Zero |

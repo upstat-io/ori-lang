@@ -576,7 +576,7 @@ User types may implement `Into` for meaningful conversions:
 type UserId = int
 
 impl Into<str> for UserId {
-    @into (self) -> str = `user-{self.0}`
+    @into (self) -> str = `user-{self.inner}`
 }
 
 let id = UserId(42)

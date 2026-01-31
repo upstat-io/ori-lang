@@ -79,7 +79,9 @@
 
 ---
 
-## 5.3 Newtypes — COMPLETED 2026-01-28
+## 5.3 Newtypes
+
+**Proposal**: `proposals/approved/newtype-pattern-proposal.md`
 
 - [x] **Implement**: Parse `type Name = ExistingType` — spec/06-types.md § Newtypes, spec/08-declarations.md § Type Declarations
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_newtype`
@@ -96,6 +98,13 @@
   - [x] **Ori Tests**: `tests/spec/types/newtypes.ori` — 9 tests
   - [x] **LLVM Support**: Transparent at runtime (newtype constructor just stores underlying value)
   - [x] **Implementation**: `UserId(value)` wraps, `user_id.unwrap()` unwraps
+
+- [ ] **Implement**: Change `.unwrap()` to `.inner` accessor — spec/06-types.md § Newtypes
+  - [ ] **Rust Tests**: Update `ori_eval/src/methods.rs` tests to use `.inner`
+  - [ ] **Ori Tests**: Update `tests/spec/types/newtypes.ori` to use `.inner`
+  - [ ] **LLVM Support**: Update LLVM codegen to use `.inner` field access
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/newtype_tests.rs` — `.inner` accessor codegen
+  - [ ] **Note**: `.inner` is always public regardless of newtype visibility
 
 ---
 

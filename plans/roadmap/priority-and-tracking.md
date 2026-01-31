@@ -115,10 +115,10 @@
 - Pattern matching on variants works
 - LLVM backend support complete
 
-**Phase 5.3 (Newtypes)** — ✅ COMPLETED 2026-01-28
+**Phase 5.3 (Newtypes)** — ✅ COMPLETED 2026-01-28, updated 2026-01-31
 - Nominal type identity (newtype != underlying type)
-- Constructor pattern (`UserId("abc")`)
-- `unwrap()` method to extract inner value
+- Constructor pattern (`UserId(42)`)
+- `.inner` accessor to extract underlying value (was `.unwrap()`, changed per newtype-pattern-proposal)
 - Runtime transparent (same as underlying at LLVM level)
 
 **Phase 7 (Stdlib Collection Methods)** — ✅ COMPLETED 2026-01-25
@@ -833,6 +833,16 @@
 - Struct fields of type Never forbidden (E0920); sum type variant payloads allowed
 - Generic contexts: Result<Never, E> = always Err, Option<Never> = always None
 - Blocked on: None (formalizes existing spec)
+
+**Newtype Pattern** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/newtype-pattern-proposal.md`
+- Implementation: Phase 5.3 (update existing)
+- Formalizes newtype semantics: construction, `.inner` accessor, trait non-inheritance
+- `.inner` accessor is always public (type-safety boundary at construction)
+- No trait/method inheritance from underlying type (explicit derive required)
+- Zero runtime overhead (same memory layout as underlying type)
+- Generic newtypes supported (`type NonEmpty<T> = [T]`)
+- Blocked on: None (updates existing implementation from `.unwrap()` to `.inner`)
 
 ---
 
