@@ -458,9 +458,7 @@ impl ExprArena {
         &self.generic_params[start..end]
     }
 
-    // =========================================================================
-    // Parsed Type Storage (for future arena-based type annotations)
-    // =========================================================================
+    // -- Parsed Type Storage --
 
     /// Allocate a parsed type, return ID.
     #[inline]
@@ -508,9 +506,7 @@ impl ExprArena {
         &self.parsed_type_lists[start..end]
     }
 
-    // =========================================================================
-    // Match Pattern Storage (for future arena-based patterns)
-    // =========================================================================
+    // -- Match Pattern Storage --
 
     /// Allocate a match pattern, return ID.
     #[inline]
