@@ -4,7 +4,7 @@ version = "0.1.0-alpha.1"
 edition = "2021"
 description = "Procedural macros for the Ori compiler"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/anthropics/ori-lang"
+repository = "https://github.com/upstat-io/ori-lang"
 keywords = ["compiler", "macros", "ori", "diagnostic"]
 
 [lib]

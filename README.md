@@ -176,10 +176,10 @@ Express *what* you want, not *how*. First-class patterns replace error-prone loo
 
 ## Quick Start
 
-Install Ori:
+Install Ori (latest nightly):
 
 ```bash
-curl -sSf https://raw.githubusercontent.com/ori-lang/ori/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/upstat-io/ori-lang/master/install.sh | sh
 ```
 
 Write your first program (`hello.ori`):
@@ -207,6 +207,16 @@ ori emit program.ori     # Emit generated C code
 
 ## Installation
 
+### Quick Install (Recommended)
+
+```bash
+# Install latest nightly (default during alpha)
+curl -fsSL https://raw.githubusercontent.com/upstat-io/ori-lang/master/install.sh | sh
+
+# Install specific version
+curl -fsSL https://raw.githubusercontent.com/upstat-io/ori-lang/master/install.sh | sh -s -- --version v0.1.0-alpha.2
+```
+
 ### Binary Distributions
 
 Official binaries are available at [GitHub Releases](https://github.com/upstat-io/ori-lang/releases).
@@ -217,12 +227,12 @@ Official binaries are available at [GitHub Releases](https://github.com/upstat-i
 
 ```bash
 git clone https://github.com/upstat-io/ori-lang
-cd ori
+cd ori-lang
 cargo build --release
 cp target/release/ori ~/.local/bin/
 ```
 
-Requires Rust 1.70+ and a C compiler (for native compilation).
+Requires Rust 1.70+.
 
 ## Documentation
 

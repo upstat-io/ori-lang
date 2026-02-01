@@ -13,6 +13,9 @@ pre-commit:
     clippy:
       run: ./clippy-all
       stage_fixed: true
+    version-sync:
+      glob: "**/Cargo.toml|**/package.json"
+      run: ./scripts/sync-version.sh --check
 
 commit-msg:
   commands:

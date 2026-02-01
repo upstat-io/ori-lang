@@ -205,7 +205,7 @@ fn format_value(value: &Value) -> String {
 /// Get version information.
 #[wasm_bindgen]
 pub fn version() -> String {
-    "Ori 0.1.0-alpha".to_string()
+    format!("Ori {}", env!("CARGO_PKG_VERSION"))
 }
 
 // TODO: Switch to LSP-based formatting once ori_lsp is implemented.

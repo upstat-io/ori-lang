@@ -4,7 +4,7 @@ version = "0.1.0-alpha.1"
 edition = "2021"
 description = "LLVM backend for the Ori compiler"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/anthropics/ori-lang"
+repository = "https://github.com/upstat-io/ori-lang"
 
 # This crate is EXCLUDED from the main workspace because it requires LLVM.
 # Build only in container: ./docker/llvm/run.sh cargo build -p ori_llvm
