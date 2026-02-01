@@ -105,6 +105,26 @@ pub const SUPPORTED_TARGETS: &[&str] = &[
     "wasm32-wasi",
 ];
 
+/// Check if a target triple is in the supported list.
+///
+/// Uses a match statement for O(1) lookup instead of linear scan.
+#[must_use]
+pub fn is_supported_target(triple: &str) -> bool {
+    matches!(
+        triple,
+        "x86_64-unknown-linux-gnu"
+            | "x86_64-unknown-linux-musl"
+            | "aarch64-unknown-linux-gnu"
+            | "aarch64-unknown-linux-musl"
+            | "x86_64-apple-darwin"
+            | "aarch64-apple-darwin"
+            | "x86_64-pc-windows-msvc"
+            | "x86_64-pc-windows-gnu"
+            | "wasm32-unknown-unknown"
+            | "wasm32-wasi"
+    )
+}
+
 /// Parsed components of a target triple.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetTripleComponents {
@@ -220,7 +240,8 @@ impl TargetConfig {
         initialize_native_target()?;
 
         let triple = TargetMachine::get_default_triple();
-        let triple_str = triple.as_str().to_string_lossy().to_string();
+        // Use into_owned() directly on Cow to avoid redundant allocation
+        let triple_str = triple.as_str().to_string_lossy().into_owned();
         let components = TargetTripleComponents::parse(&triple_str)?;
 
         Ok(Self {
@@ -243,8 +264,8 @@ impl TargetConfig {
     /// - The triple format is invalid
     /// - LLVM target initialization fails
     pub fn from_triple(triple: &str) -> Result<Self, TargetError> {
-        // Validate against supported targets
-        if !SUPPORTED_TARGETS.contains(&triple) {
+        // Validate against supported targets (O(1) match lookup)
+        if !is_supported_target(triple) {
             return Err(TargetError::UnsupportedTarget {
                 triple: triple.to_string(),
                 supported: SUPPORTED_TARGETS.to_vec(),
@@ -323,11 +344,11 @@ impl TargetConfig {
     /// The feature is added with `+` prefix (enabled).
     #[must_use]
     pub fn with_feature(mut self, feature: &str) -> Self {
-        if self.features.is_empty() {
-            self.features = format!("+{feature}");
-        } else {
-            self.features = format!("{},+{feature}", self.features);
+        if !self.features.is_empty() {
+            self.features.push(',');
         }
+        self.features.push('+');
+        self.features.push_str(feature);
         self
     }
 
@@ -336,11 +357,11 @@ impl TargetConfig {
     /// The feature is added with `-` prefix (disabled).
     #[must_use]
     pub fn without_feature(mut self, feature: &str) -> Self {
-        if self.features.is_empty() {
-            self.features = format!("-{feature}");
-        } else {
-            self.features = format!("{},-{feature}", self.features);
+        if !self.features.is_empty() {
+            self.features.push(',');
         }
+        self.features.push('-');
+        self.features.push_str(feature);
         self
     }
 
