@@ -9,8 +9,47 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract expected version from tag
+        id: tag_version
+        run: |
+          # Remove 'v' prefix from tag
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          echo "tag_version=$TAG_VERSION" >> $GITHUB_OUTPUT
+          echo "Tag version: $TAG_VERSION"
+
+      - name: Extract Cargo.toml version
+        id: cargo_version
+        run: |
+          CARGO_VERSION=$(grep -E '^version\s*=' Cargo.toml | head -1 | sed 's/.*=\s*"\([^"]*\)".*/\1/')
+          echo "cargo_version=$CARGO_VERSION" >> $GITHUB_OUTPUT
+          echo "Cargo.toml version: $CARGO_VERSION"
+
+      - name: Validate tag matches Cargo.toml
+        run: |
+          if [[ "${{ steps.tag_version.outputs.tag_version }}" != "${{ steps.cargo_version.outputs.cargo_version }}" ]]; then
+            echo "ERROR: Tag version (${{ steps.tag_version.outputs.tag_version }}) does not match Cargo.toml version (${{ steps.cargo_version.outputs.cargo_version }})"
+            echo ""
+            echo "To fix:"
+            echo "  1. Delete the tag: git tag -d ${{ github.ref_name }} && git push origin :refs/tags/${{ github.ref_name }}"
+            echo "  2. Update versions: ./scripts/release.sh ${{ steps.tag_version.outputs.tag_version }}"
+            echo "  3. Commit, tag, and push again"
+            exit 1
+          fi
+          echo "Version validation passed!"
+
+      - name: Check version synchronization
+        run: ./scripts/sync-version.sh --check
+
   build:
     name: Build ${{ matrix.target }}
+    needs: validate
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -99,26 +138,80 @@ jobs:
       - name: Determine release type
         id: release_type
         run: |
-          if [[ "${{ github.ref_name }}" == *"alpha"* ]]; then
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$VERSION" == *"alpha"* ]]; then
             echo "prerelease=true" >> $GITHUB_OUTPUT
-            echo "This is an alpha release"
-          elif [[ "${{ github.ref_name }}" == *"beta"* ]]; then
+            echo "name=Ori $VERSION (Nightly)" >> $GITHUB_OUTPUT
+            echo "tag_name=nightly" >> $GITHUB_OUTPUT
+            echo "This is an alpha/nightly release"
+          elif [[ "$VERSION" == *"beta"* ]]; then
             echo "prerelease=true" >> $GITHUB_OUTPUT
+            echo "name=Ori $VERSION (Beta)" >> $GITHUB_OUTPUT
             echo "This is a beta release"
-          elif [[ "${{ github.ref_name }}" == *"rc"* ]]; then
+          elif [[ "$VERSION" == *"rc"* ]]; then
             echo "prerelease=true" >> $GITHUB_OUTPUT
+            echo "name=Ori $VERSION (Release Candidate)" >> $GITHUB_OUTPUT
             echo "This is a release candidate"
           else
             echo "prerelease=false" >> $GITHUB_OUTPUT
+            echo "name=Ori $VERSION" >> $GITHUB_OUTPUT
             echo "This is a stable release"
+          fi
+
+      - name: Generate release body
+        id: release_body
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$VERSION" == *"alpha"* ]]; then
+            cat << 'BODY' > release_body.md
+          ## ⚠️ Nightly Release
+
+          This is an **alpha/nightly** build intended for testing and development.
+          It may contain bugs and breaking changes.
+
+          ### Installation
+
+          **Quick install (Linux/macOS):**
+          ```bash
+          curl -fsSL https://ori-lang.com/install.sh | sh
+          ```
+
+          **Manual download:** See assets below for your platform.
+
+          ### What's New
+
+          See the auto-generated changelog below for details.
+
+          ---
+          BODY
+          else
+            cat << 'BODY' > release_body.md
+          ## Installation
+
+          **Quick install (Linux/macOS):**
+          ```bash
+          curl -fsSL https://ori-lang.com/install.sh | sh
+          ```
+
+          **Manual download:** See assets below for your platform.
+
+          ### What's New
+
+          See the auto-generated changelog below for details.
+
+          ---
+          BODY
           fi
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          name: ${{ steps.release_type.outputs.name }}
+          body_path: release_body.md
           files: |
             artifacts/*
           generate_release_notes: true
           prerelease: ${{ steps.release_type.outputs.prerelease }}
+          make_latest: ${{ steps.release_type.outputs.prerelease != 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -324,6 +324,10 @@ mod tests {
     use crate::ErrorCode;
     use ori_ir::Span;
 
+    /// Test fixture version - intentionally stable for snapshot testing.
+    /// This is NOT the compiler version; it's a constant for test reproducibility.
+    const TEST_TOOL_VERSION: &str = "0.1.0";
+
     fn sample_diagnostic() -> Diagnostic {
         Diagnostic::error(ErrorCode::E2001)
             .with_message("type mismatch: expected `int`, found `str`")
@@ -336,7 +340,7 @@ mod tests {
     #[test]
     fn test_sarif_emitter_basic() {
         let mut output = Vec::new();
-        let mut emitter = SarifEmitter::new(&mut output, "oric", "0.1.0")
+        let mut emitter = SarifEmitter::new(&mut output, "oric", TEST_TOOL_VERSION)
             .with_artifact("src/main.ori")
             .with_source("let x = 42\nlet y = \"hello\"");
 
@@ -360,7 +364,7 @@ mod tests {
     #[test]
     fn test_sarif_emitter_multiple_diagnostics() {
         let mut output = Vec::new();
-        let mut emitter = SarifEmitter::new(&mut output, "oric", "0.1.0");
+        let mut emitter = SarifEmitter::new(&mut output, "oric", TEST_TOOL_VERSION);
 
         let diag1 = Diagnostic::error(ErrorCode::E1001).with_message("parse error");
         let diag2 = Diagnostic::warning(ErrorCode::E3001).with_message("pattern warning");
@@ -382,7 +386,8 @@ mod tests {
     fn test_sarif_emitter_related_locations() {
         let mut output = Vec::new();
         let source = "let x = 10\nlet y = x + z";
-        let mut emitter = SarifEmitter::new(&mut output, "oric", "0.1.0").with_source(source);
+        let mut emitter =
+            SarifEmitter::new(&mut output, "oric", TEST_TOOL_VERSION).with_source(source);
 
         let diag = Diagnostic::error(ErrorCode::E2003)
             .with_message("unknown identifier `z`")
@@ -405,7 +410,8 @@ mod tests {
     fn test_sarif_emitter_line_column_conversion() {
         let mut output = Vec::new();
         let source = "line1\nline2\nline3";
-        let mut emitter = SarifEmitter::new(&mut output, "oric", "0.1.0").with_source(source);
+        let mut emitter =
+            SarifEmitter::new(&mut output, "oric", TEST_TOOL_VERSION).with_source(source);
 
         // Span at "line2" (offset 6-11)
         let diag = Diagnostic::error(ErrorCode::E1001)
@@ -426,7 +432,7 @@ mod tests {
     #[test]
     fn test_sarif_emitter_rules_deduplication() {
         let mut output = Vec::new();
-        let mut emitter = SarifEmitter::new(&mut output, "oric", "0.1.0");
+        let mut emitter = SarifEmitter::new(&mut output, "oric", TEST_TOOL_VERSION);
 
         // Two diagnostics with same error code
         let diag1 = Diagnostic::error(ErrorCode::E2001).with_message("error 1");
@@ -451,7 +457,7 @@ mod tests {
     #[test]
     fn test_sarif_emitter_escapes_json() {
         let mut output = Vec::new();
-        let mut emitter = SarifEmitter::new(&mut output, "oric", "0.1.0");
+        let mut emitter = SarifEmitter::new(&mut output, "oric", TEST_TOOL_VERSION);
 
         let diag =
             Diagnostic::error(ErrorCode::E1001).with_message("error with \"quotes\" and\nnewline");

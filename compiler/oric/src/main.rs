@@ -80,7 +80,7 @@ fn main() {
             print_usage();
         }
         "version" | "--version" | "-v" => {
-            println!("Ori Compiler 0.1.0-alpha.1");
+            println!("Ori Compiler {}", env!("CARGO_PKG_VERSION"));
             println!("Salsa-first incremental compilation");
         }
         "--explain" | "explain" => {
