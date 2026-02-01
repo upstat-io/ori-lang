@@ -1,4 +1,5 @@
 [
+  {"date": "2026-02-01", "type": "feat", "message": "Pre-intern builtin types and centralize constants", "hash": "97ee75b"},
   {"date": "2026-01-31", "type": "feat", "message": "Implement core traits for Duration, Size, and Ordering types", "hash": "54c7896"},
   {"date": "2026-01-31", "type": "docs", "message": "Approve wasm-playground-proposal", "hash": "0c46ba3"},
   {"date": "2026-01-31", "type": "docs", "message": "Approve language proposals and add package management plan", "hash": "989e66c"},
