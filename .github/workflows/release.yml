@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
 
+# Cancel previous runs on the same tag (e.g., if tag is force-pushed)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   LLVM_VERSION: "17"
