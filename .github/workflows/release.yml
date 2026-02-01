@@ -146,29 +146,45 @@ jobs:
           name: ori-${{ matrix.name }}
           path: ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz
 
-  # Windows builds use KyleMayes/install-llvm-action
+  # Windows builds use vovkos/llvm-package-windows (complete dev packages)
+  # Official LLVM binaries lack llvm-config.exe and dev headers needed by llvm-sys
   build-windows:
     name: Build Windows (x86_64)
     needs: validate
     runs-on: windows-latest
     timeout-minutes: 45
-    continue-on-error: true  # Windows LLVM can be flaky
+    continue-on-error: true  # Windows LLVM linking can still be problematic
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LLVM
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: ${{ env.LLVM_VERSION }}
+      - name: Download LLVM development package
+        run: |
+          $LLVM_URL = "https://github.com/vovkos/llvm-package-windows/releases/download/llvm-17.0.6/llvm-17.0.6-windows-amd64-msvc17-msvcrt.7z"
+          Write-Host "Downloading LLVM from $LLVM_URL"
+          Invoke-WebRequest -Uri $LLVM_URL -OutFile llvm.7z
+          Write-Host "Extracting LLVM..."
+          7z x llvm.7z -ollvm
+          # The archive extracts to a subdirectory
+          $LLVM_DIR = (Get-ChildItem -Path llvm -Directory | Select-Object -First 1).FullName
+          Write-Host "LLVM extracted to: $LLVM_DIR"
+          echo "LLVM_DIR=$LLVM_DIR" >> $env:GITHUB_ENV
 
       - name: Setup LLVM environment
         run: |
-          echo "$env:LLVM_PATH\bin" >> $env:GITHUB_PATH
-          echo "LLVM_SYS_170_PREFIX=$env:LLVM_PATH" >> $env:GITHUB_ENV
-          # Verify LLVM installation (llvm-config doesn't exist on Windows)
-          Test-Path "$env:LLVM_PATH\bin\clang.exe" || (Write-Error "LLVM not found" && exit 1)
-          & "$env:LLVM_PATH\bin\clang.exe" --version
+          # Set environment variables for llvm-sys
+          echo "LLVM_SYS_170_PREFIX=$env:LLVM_DIR" >> $env:GITHUB_ENV
+          echo "$env:LLVM_DIR\bin" >> $env:GITHUB_PATH
+          # Verify installation - this package includes llvm-config
+          Write-Host "LLVM_SYS_170_PREFIX=$env:LLVM_DIR"
+          Write-Host "Contents of LLVM bin directory:"
+          Get-ChildItem "$env:LLVM_DIR\bin" | Select-Object -First 10 | ForEach-Object { Write-Host "  $($_.Name)" }
+          if (Test-Path "$env:LLVM_DIR\bin\llvm-config.exe") {
+            Write-Host "llvm-config.exe found!"
+            & "$env:LLVM_DIR\bin\llvm-config.exe" --version
+          } else {
+            Write-Host "Warning: llvm-config.exe not found, but llvm-sys may still work via PREFIX"
+          }
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
