@@ -160,7 +160,8 @@ jobs:
 
       - name: Download LLVM development package
         run: |
-          $LLVM_URL = "https://github.com/vovkos/llvm-package-windows/releases/download/llvm-17.0.6/llvm-17.0.6-windows-amd64-msvc17-msvcrt.7z"
+          # Use libcmt variant for static linking (llvm-sys doesn't support dynamic linking on Windows)
+          $LLVM_URL = "https://github.com/vovkos/llvm-package-windows/releases/download/llvm-17.0.6/llvm-17.0.6-windows-amd64-msvc17-libcmt.7z"
           Write-Host "Downloading LLVM from $LLVM_URL"
           Invoke-WebRequest -Uri $LLVM_URL -OutFile llvm.7z
           Write-Host "Extracting LLVM..."
