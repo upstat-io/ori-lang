@@ -1,4 +1,5 @@
 [
+  {"date": "2026-01-31", "type": "docs", "message": "Approve wasm-playground-proposal", "hash": "0c46ba3"},
   {"date": "2026-01-31", "type": "docs", "message": "Approve language proposals and add package management plan", "hash": "989e66c"},
   {"date": "2026-01-31", "type": "refactor", "message": "Reorganize parser tests and approve language proposals", "hash": "243a1c5"},
   {"date": "2026-01-31", "type": "feat", "message": "Never type, operator traits, and const-generics proposal", "hash": "4260519"},
