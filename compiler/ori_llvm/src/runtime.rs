@@ -16,17 +16,15 @@
 // FFI functions dereference pointers from LLVM-generated code (always valid)
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
+use std::cell::RefCell;
 use std::ffi::CStr;
-use std::sync::atomic::{AtomicBool, Ordering};
 
-use parking_lot::Mutex;
-
-/// Global flag to track if a panic occurred (for test assertions).
-static PANIC_OCCURRED: AtomicBool = AtomicBool::new(false);
-
-/// Global storage for panic message.
-/// Uses `parking_lot::Mutex` which doesn't poison on panic, eliminating `.unwrap()` calls.
-static PANIC_MESSAGE: Mutex<Option<String>> = Mutex::new(None);
+// Thread-local panic state for test isolation.
+// Each test thread gets its own panic tracking, preventing race conditions.
+thread_local! {
+    static PANIC_OCCURRED: RefCell<bool> = const { RefCell::new(false) };
+    static PANIC_MESSAGE: RefCell<Option<String>> = const { RefCell::new(None) };
+}
 
 /// Ori string representation: { i64 len, *const u8 data }
 #[repr(C)]
@@ -116,8 +114,6 @@ pub extern "C" fn ori_print_bool(b: bool) {
 /// This function is called from LLVM-compiled code.
 #[no_mangle]
 pub extern "C" fn ori_panic(s: *const OriStr) {
-    PANIC_OCCURRED.store(true, Ordering::SeqCst);
-
     let msg = if s.is_null() {
         "panic!".to_string()
     } else {
@@ -127,8 +123,9 @@ pub extern "C" fn ori_panic(s: *const OriStr) {
         text.to_string()
     };
 
-    // Store message for later retrieval
-    *PANIC_MESSAGE.lock() = Some(msg.clone());
+    // Store panic state in thread-local storage
+    PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
+    PANIC_MESSAGE.with(|m| *m.borrow_mut() = Some(msg.clone()));
 
     // Don't actually panic - just set the flag
     // This allows tests to check for expected panics
@@ -141,8 +138,6 @@ pub extern "C" fn ori_panic(s: *const OriStr) {
 /// This function is called from LLVM-compiled code.
 #[no_mangle]
 pub extern "C" fn ori_panic_cstr(s: *const i8) {
-    PANIC_OCCURRED.store(true, Ordering::SeqCst);
-
     let msg = if s.is_null() {
         "panic!".to_string()
     } else {
@@ -151,25 +146,27 @@ pub extern "C" fn ori_panic_cstr(s: *const i8) {
         cstr.to_string_lossy().to_string()
     };
 
-    *PANIC_MESSAGE.lock() = Some(msg.clone());
+    // Store panic state in thread-local storage
+    PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
+    PANIC_MESSAGE.with(|m| *m.borrow_mut() = Some(msg.clone()));
 
     eprintln!("ori panic: {msg}");
 }
 
 /// Check if a panic occurred (for test assertions).
 pub fn did_panic() -> bool {
-    PANIC_OCCURRED.load(Ordering::SeqCst)
+    PANIC_OCCURRED.with(|p| *p.borrow())
 }
 
 /// Get the panic message if one occurred.
 pub fn get_panic_message() -> Option<String> {
-    PANIC_MESSAGE.lock().clone()
+    PANIC_MESSAGE.with(|m| m.borrow().clone())
 }
 
 /// Reset panic state (call before each test).
 pub fn reset_panic_state() {
-    PANIC_OCCURRED.store(false, Ordering::SeqCst);
-    *PANIC_MESSAGE.lock() = None;
+    PANIC_OCCURRED.with(|p| *p.borrow_mut() = false);
+    PANIC_MESSAGE.with(|m| *m.borrow_mut() = None);
 }
 
 /// Assert that a condition is true.
@@ -185,8 +182,10 @@ pub extern "C" fn ori_assert(condition: bool) {
 pub extern "C" fn ori_assert_eq_int(actual: i64, expected: i64) {
     if actual != expected {
         eprintln!("assertion failed: {actual} != {expected}");
-        PANIC_OCCURRED.store(true, Ordering::SeqCst);
-        *PANIC_MESSAGE.lock() = Some(format!("assertion failed: {actual} != {expected}"));
+        PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
+        PANIC_MESSAGE.with(|m| {
+            *m.borrow_mut() = Some(format!("assertion failed: {actual} != {expected}"));
+        });
     }
 }
 
@@ -195,8 +194,10 @@ pub extern "C" fn ori_assert_eq_int(actual: i64, expected: i64) {
 pub extern "C" fn ori_assert_eq_bool(actual: bool, expected: bool) {
     if actual != expected {
         eprintln!("assertion failed: {actual} != {expected}");
-        PANIC_OCCURRED.store(true, Ordering::SeqCst);
-        *PANIC_MESSAGE.lock() = Some(format!("assertion failed: {actual} != {expected}"));
+        PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
+        PANIC_MESSAGE.with(|m| {
+            *m.borrow_mut() = Some(format!("assertion failed: {actual} != {expected}"));
+        });
     }
 }
 
@@ -352,10 +353,12 @@ pub extern "C" fn ori_assert_eq_str(actual: *const OriStr, expected: *const OriS
 
     if actual_str != expected_str {
         eprintln!("assertion failed: \"{actual_str}\" != \"{expected_str}\"");
-        PANIC_OCCURRED.store(true, Ordering::SeqCst);
-        *PANIC_MESSAGE.lock() = Some(format!(
-            "assertion failed: \"{actual_str}\" != \"{expected_str}\""
-        ));
+        PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
+        PANIC_MESSAGE.with(|m| {
+            *m.borrow_mut() = Some(format!(
+                "assertion failed: \"{actual_str}\" != \"{expected_str}\""
+            ));
+        });
     }
 }
 
