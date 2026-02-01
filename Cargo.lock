@@ -592,7 +592,7 @@ checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "ori_diagnostic"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.8"
 dependencies = [
  "ori_ir",
  "pretty_assertions",
@@ -600,7 +600,7 @@ dependencies = [
 
 [[package]]
 name = "ori_eval"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.8"
 dependencies = [
  "ori_diagnostic",
  "ori_ir",
@@ -617,7 +617,7 @@ dependencies = [
 
 [[package]]
 name = "ori_fmt"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.8"
 dependencies = [
  "ori_ir",
  "ori_lexer",
@@ -629,7 +629,7 @@ dependencies = [
 
 [[package]]
 name = "ori_ir"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.8"
 dependencies = [
  "parking_lot",
  "pretty_assertions",
@@ -638,7 +638,7 @@ dependencies = [
 
 [[package]]
 name = "ori_lexer"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.8"
 dependencies = [
  "logos",
  "ori_ir",
@@ -647,7 +647,7 @@ dependencies = [
 
 [[package]]
 name = "ori_llvm"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.8"
 dependencies = [
  "inkwell",
  "ori_ir",
@@ -659,7 +659,7 @@ dependencies = [
 
 [[package]]
 name = "ori_macros"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -669,7 +669,7 @@ dependencies = [
 
 [[package]]
 name = "ori_parse"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.8"
 dependencies = [
  "ori_diagnostic",
  "ori_ir",
@@ -680,7 +680,7 @@ dependencies = [
 
 [[package]]
 name = "ori_patterns"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.8"
 dependencies = [
  "ori_ir",
  "ori_types",
@@ -690,14 +690,14 @@ dependencies = [
 
 [[package]]
 name = "ori_stack"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.8"
 dependencies = [
  "stacker",
 ]
 
 [[package]]
 name = "ori_typeck"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.8"
 dependencies = [
  "ori_diagnostic",
  "ori_ir",
@@ -712,7 +712,7 @@ dependencies = [
 
 [[package]]
 name = "ori_types"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.8"
 dependencies = [
  "ori_diagnostic",
  "ori_ir",
@@ -723,7 +723,7 @@ dependencies = [
 
 [[package]]
 name = "oric"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.8"
 dependencies = [
  "criterion",
  "logos",
