@@ -13,7 +13,7 @@ sections:
     status: complete
   - id: "21B.3"
     title: Debug Information
-    status: not-started
+    status: complete
   - id: "21B.4"
     title: Optimization Pipeline
     status: not-started
@@ -107,31 +107,31 @@ sections:
 
 ## 21B.3 Debug Information
 
-- [ ] **Implement**: DIBuilder integration
-  - [ ] Create debug compilation unit
-  - [ ] Create debug files and directories
-  - [ ] Set producer metadata
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/debug_tests.rs`
+- [x] **Implement**: DIBuilder integration
+  - [x] Create debug compilation unit
+  - [x] Create debug files and directories
+  - [x] Set producer metadata
+  - [x] **Rust Tests**: `ori_llvm/src/aot/debug.rs` (18 tests)
 
-- [ ] **Implement**: Source location tracking
-  - [ ] DILocation for each expression
-  - [ ] Line/column mapping from spans
-  - [ ] Scope hierarchy (file, function, block)
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/location_tests.rs`
+- [x] **Implement**: Source location tracking
+  - [x] DILocation for each expression
+  - [x] Line/column mapping from spans (LineMap)
+  - [x] Scope hierarchy (file, function, block)
+  - [x] **Rust Tests**: `ori_llvm/src/aot/debug.rs` (5 additional tests)
 
-- [ ] **Implement**: Type debug info
-  - [ ] Primitive type debug info
-  - [ ] Struct type debug info
-  - [ ] Enum/sum type debug info
-  - [ ] Generic type debug info
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/type_debug_tests.rs`
+- [x] **Implement**: Type debug info
+  - [x] Primitive type debug info
+  - [x] Struct type debug info
+  - [x] Enum/sum type debug info
+  - [x] Generic type debug info (Option, Result, List)
+  - [x] **Rust Tests**: `ori_llvm/src/aot/debug.rs` (9 additional tests)
 
-- [ ] **Implement**: Debug format emission
-  - [ ] DWARF 4 (Linux, macOS, WASM)
-  - [ ] dSYM bundle (macOS, default)
-  - [ ] CodeView/PDB (Windows)
-  - [ ] Debug levels: none, line-tables, full
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/format_tests.rs`
+- [x] **Implement**: Debug format emission
+  - [x] DWARF 4 (Linux, macOS, WASM)
+  - [x] dSYM bundle configuration (macOS)
+  - [x] CodeView/PDB configuration (Windows)
+  - [x] Debug levels: none, line-tables, full
+  - [x] **Rust Tests**: `ori_llvm/src/aot/debug.rs` (10 additional tests)
 
 ---
 
