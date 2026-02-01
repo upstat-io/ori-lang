@@ -10,12 +10,6 @@ repository = "https://github.com/upstat-io/ori-lang"
 # Build only in container: ./docker/llvm/run.sh cargo build -p ori_llvm
 
 [dependencies]
-# LLVM bindings
-# Note: force-dynamic required for Linux/macOS. Windows doesn't support dynamic LLVM
-# linking in llvm-sys, so Windows builds are marked continue-on-error until we
-# set up a proper static LLVM build with all targets.
-inkwell = { version = "0.8", features = ["llvm17-0-force-dynamic"] }
-
 # Ori crates (relative paths since excluded from workspace)
 ori_ir = { path = "../ori_ir" }
 ori_types = { path = "../ori_types" }
@@ -26,6 +20,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Concurrency primitives
 parking_lot = "0.12"
+
+# LLVM bindings - platform-specific linking
+# Linux/macOS: dynamic linking (requires LLVM installed or in Docker)
+# Windows: static linking (requires pre-built LLVM package)
+[target.'cfg(not(windows))'.dependencies]
+inkwell = { version = "0.8", features = ["llvm17-0-force-dynamic"] }
+
+[target.'cfg(windows)'.dependencies]
+inkwell = { version = "0.8", features = ["llvm17-0"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4"
