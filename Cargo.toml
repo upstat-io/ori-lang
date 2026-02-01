@@ -16,9 +16,11 @@ members = [
 ]
 # Excluded crates:
 # - ori_llvm: Requires LLVM - build only in container: ./docker/llvm/run.sh
+# - ori_rt: Runtime library for AOT - build only in container
 # - ori-lsp: Not yet updated to use new compiler
 exclude = [
     "compiler/ori_llvm",
+    "compiler/ori_rt",
     "tools/ori-lsp",
 ]
 

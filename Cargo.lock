@@ -652,6 +652,7 @@ dependencies = [
  "inkwell",
  "llvm-sys",
  "ori_ir",
+ "ori_rt",
  "parking_lot",
  "tracing",
  "tracing-subscriber",
@@ -687,6 +688,10 @@ dependencies = [
  "pretty_assertions",
  "rustc-hash",
 ]
+
+[[package]]
+name = "ori_rt"
+version = "0.1.0-alpha.8"
 
 [[package]]
 name = "ori_stack"

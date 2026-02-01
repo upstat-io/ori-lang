@@ -161,11 +161,16 @@ dependencies = [
  "inkwell",
  "llvm-sys",
  "ori_ir",
+ "ori_rt",
  "parking_lot",
  "pretty_assertions",
  "tracing",
  "tracing-subscriber",
 ]
+
+[[package]]
+name = "ori_rt"
+version = "0.1.0-alpha.8"
 
 [[package]]
 name = "parking_lot"

@@ -78,10 +78,13 @@
 //! - `linker`: Platform-agnostic linker driver
 
 pub mod debug;
+pub mod incremental;
 pub mod linker;
 pub mod mangle;
 pub mod object;
 pub mod passes;
+pub mod runtime;
+pub mod syslib;
 pub mod target;
 
 // Re-export key types from target
@@ -113,3 +116,9 @@ pub use linker::{
     GccLinker, LibraryKind, LinkInput, LinkLibrary, LinkOutput, LinkerDetection, LinkerDriver,
     LinkerError, LinkerFlavor, LinkerImpl, MsvcLinker, WasmLinker,
 };
+
+// Re-export key types from runtime
+pub use runtime::{RuntimeConfig, RuntimeNotFound};
+
+// Re-export key types from syslib
+pub use syslib::{find_library, library_exists, LibrarySearchOrder, SysLibConfig, SysLibError};
