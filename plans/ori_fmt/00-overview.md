@@ -1,5 +1,7 @@
 # Ori Formatter Roadmap
 
+> **ROADMAP**: Section 22.1 in `plans/roadmap/section-22-tooling.md`
+
 **Zero-config formatting with one canonical style.**
 
 This roadmap tracks implementation of `ori fmt`, the official Ori formatter. The formatter enforces a single, consistent style across all Ori codebases—no configuration, no debates.
@@ -14,17 +16,17 @@ This roadmap tracks implementation of `ori fmt`, the official Ori formatter. The
 
 ## Tier Overview
 
-| Tier | Phases | Focus |
-|------|--------|-------|
+| Tier | Sections | Focus |
+|------|----------|-------|
 | **Tier 1: Foundation** | 1-2 | Core algorithm and declarations |
 | **Tier 2: Expressions** | 3-4 | Expression and pattern formatting |
 | **Tier 3: Collections & Comments** | 5-6 | Collections and comment handling |
 | **Tier 4: Integration** | 7-8 | Tooling integration and polish |
 
-## Phases
+## Sections
 
-| Phase | Name | Description |
-|-------|------|-------------|
+| Section | Name | Description |
+|---------|------|-------------|
 | 1 | Core Algorithm | Width calculation, two-pass rendering, line breaking |
 | 2 | Declarations | Functions, types, traits, impls, imports, constants |
 | 3 | Expressions | Calls, chains, conditionals, lambdas, binary expressions |
@@ -58,21 +60,21 @@ This roadmap tracks implementation of `ori fmt`, the official Ori formatter. The
 ## Dependencies
 
 ```
-Phase 1 (Core Algorithm)
+Section 1 (Core Algorithm)
     ↓
-Phase 2 (Declarations) ← Can start after Phase 1 basics
+Section 2 (Declarations) ← Can start after Section 1 basics
     ↓
-Phase 3 (Expressions) ← Requires Phase 1 complete
+Section 3 (Expressions) ← Requires Section 1 complete
     ↓
-Phase 4 (Patterns) ← Requires Phase 3 basics
+Section 4 (Patterns) ← Requires Section 3 basics
     ↓
-Phase 5 (Collections) ← Requires Phase 1 complete
+Section 5 (Collections) ← Requires Section 1 complete
     ↓
-Phase 6 (Comments) ← Requires Phase 1-2 complete
+Section 6 (Comments) ← Requires Section 1-2 complete
     ↓
-Phase 7 (Tooling) ← Requires Phases 1-6 substantially complete
+Section 7 (Tooling) ← Requires Sections 1-6 substantially complete
     ↓
-Phase 8 (Polish) ← Can run in parallel with Phase 7
+Section 8 (Polish) ← Can run in parallel with Section 7
 ```
 
 ## Implementation Crates

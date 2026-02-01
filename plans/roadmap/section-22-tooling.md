@@ -35,6 +35,9 @@ sections:
   - id: "22.10"
     title: Section Completion Checklist
     status: not-started
+  - id: "22.11"
+    title: Package Management
+    status: not-started
 ---
 
 # Section 22: Tooling
@@ -446,6 +449,50 @@ Enhance `sync-grammar` skill with operator verification checklist to catch discr
 - [ ] **Document**: Verification process in sync-grammar skill
   - [ ] Output format specification
   - [ ] Steps for verifying new operators
+
+---
+
+## 22.11 Package Management
+
+> **DETAILED PLAN**: `plans/pkg_mgmt/` — Phased implementation with tracking
+> **DESIGN**: `plans/pkg_mgmt/design.md` — Full specification
+
+Package management for Ori projects with registry support.
+
+### Core Features
+
+- [ ] **Implement**: Manifest parsing (`oripk.toml`)
+  - [ ] Package metadata, dependencies, features
+  - [ ] **Rust Tests**: `ori_pkg/src/manifest_tests.rs`
+
+- [ ] **Implement**: Lock file (`oripk.lock`)
+  - [ ] Checksum-based integrity verification
+  - [ ] **Rust Tests**: `ori_pkg/src/lock_tests.rs`
+
+- [ ] **Implement**: Version resolution
+  - [ ] Exact versions only, single version policy
+  - [ ] **Rust Tests**: `ori_pkg/src/resolution_tests.rs`
+
+- [ ] **Implement**: Package cache
+  - [ ] Global cache at `~/.ori/cache/`
+  - [ ] **Rust Tests**: `ori_pkg/src/cache_tests.rs`
+
+### CLI Commands
+
+- [ ] **Implement**: `ori install` — Install dependencies
+- [ ] **Implement**: `ori add <pkg>` — Add a dependency
+- [ ] **Implement**: `ori remove <pkg>` — Remove a dependency
+- [ ] **Implement**: `ori upgrade` — Upgrade dependencies
+- [ ] **Implement**: `ori sync` — Sync to lock file
+- [ ] **Implement**: `ori check` — Verify dependencies
+- [ ] **Implement**: `ori publish` — Publish to registry
+- [ ] **Implement**: `ori search <query>` — Search registry
+
+### Registry
+
+- [ ] **Implement**: Registry protocol (Cloudflare-based)
+- [ ] **Implement**: Registry client
+- [ ] **Deploy**: Production registry infrastructure
 
 ---
 

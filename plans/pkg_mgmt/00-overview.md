@@ -1,5 +1,6 @@
 # Ori Package Management Roadmap
 
+> **ROADMAP**: Section 22.11 in `plans/roadmap/section-22-tooling.md`
 > **Implementation Plan** — Package management system for Ori
 
 ---
@@ -20,52 +21,52 @@ From the proposal — Key differentiators:
 
 ---
 
-## Phase Overview
+## Section Overview
 
-### Tier 1: Foundation (Phases 1-3)
+### Tier 1: Foundation (Sections 1-3)
 
 Core manifest, lock file, and resolution.
 
-| Phase | Focus |
-|-------|-------|
+| Section | Focus |
+|---------|-------|
 | 1 | Manifest & Lock File |
 | 2 | Version Resolution |
 | 3 | Cache & Installation |
 
-### Tier 2: Registry (Phases 4-5)
+### Tier 2: Registry (Sections 4-5)
 
 Registry protocol and client.
 
-| Phase | Focus |
-|-------|-------|
+| Section | Focus |
+|---------|-------|
 | 4 | Registry Protocol |
 | 5 | Registry Client |
 
-### Tier 3: Commands (Phases 6-8)
+### Tier 3: Commands (Sections 6-8)
 
 CLI commands for package management.
 
-| Phase | Focus |
-|-------|-------|
+| Section | Focus |
+|---------|-------|
 | 6 | Dependency Commands |
 | 7 | Publishing |
 | 8 | Workspaces |
 
-### Tier 4: Developer Experience (Phases 9-10)
+### Tier 4: Developer Experience (Sections 9-10)
 
 Scripts, REPL, and tooling.
 
-| Phase | Focus |
-|-------|-------|
+| Section | Focus |
+|---------|-------|
 | 9 | Scripts |
 | 10 | Tooling (REPL, docs, etc.) |
 
-### Tier 5: Infrastructure (Phase 11)
+### Tier 5: Infrastructure (Section 11)
 
 Cloudflare deployment.
 
-| Phase | Focus |
-|-------|-------|
+| Section | Focus |
+|---------|-------|
 | 11 | Registry Infrastructure |
 
 ---
@@ -73,21 +74,21 @@ Cloudflare deployment.
 ## Dependency Graph
 
 ```
-Phase 1 (Manifest) → Phase 2 (Resolution) → Phase 3 (Cache)
-    → Phase 4 (Registry Protocol) → Phase 5 (Registry Client)
-    → Phase 6 (Dep Commands) → Phase 7 (Publishing)
-    → Phase 8 (Workspaces)
-    → Phase 9 (Scripts)
-    → Phase 10 (Tooling)
+Section 1 (Manifest) → Section 2 (Resolution) → Section 3 (Cache)
+    → Section 4 (Registry Protocol) → Section 5 (Registry Client)
+    → Section 6 (Dep Commands) → Section 7 (Publishing)
+    → Section 8 (Workspaces)
+    → Section 9 (Scripts)
+    → Section 10 (Tooling)
 
-Phase 4-5 (Registry) → Phase 11 (Infrastructure)
+Section 4-5 (Registry) → Section 11 (Infrastructure)
 ```
 
 ---
 
 ## Success Criteria
 
-A phase is complete when:
+A section is complete when:
 
 1. **Implemented** — Code in `compiler/oric/` or `ori_pkg/`
 2. **Tested** — Tests in `tests/spec/pkg/` or Rust unit tests
@@ -97,8 +98,8 @@ A phase is complete when:
 
 ## Milestones
 
-| Milestone | Phases | Exit Criteria |
-|-----------|--------|---------------|
+| Milestone | Sections | Exit Criteria |
+|-----------|----------|---------------|
 | **M1: Local Projects** | 1-3 | oripk.toml, oripk.lock, local deps work |
 | **M2: Registry** | 4-5 | Can fetch packages from registry |
 | **M3: Full CLI** | 6-8 | install, remove, upgrade, sync, check, publish, workspaces |
@@ -112,5 +113,6 @@ A phase is complete when:
 | Document | Purpose |
 |----------|---------|
 | `00-overview.md` | This file |
+| `index.md` | Keyword index for quick finding |
 | `design.md` | Full design specification |
-| `phase-XX-*.md` | Individual phase details |
+| `section-XX-*.md` | Individual section details |

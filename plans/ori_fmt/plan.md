@@ -4,14 +4,14 @@ This document explains how to work with the Ori formatter roadmap.
 
 ## Execution Rules
 
-### 1. Phase Ordering
+### 1. Section Ordering
 
-Work through phases in numerical order within each tier. Some parallelization is possible:
+Work through sections in numerical order within each tier. Some parallelization is possible:
 
-- **Tier 1** (Phases 1-2): Sequential—Phase 2 depends on Phase 1
-- **Tier 2** (Phases 3-4): Sequential—patterns build on expressions
-- **Tier 3** (Phases 5-6): Can parallelize—collections and comments are independent
-- **Tier 4** (Phases 7-8): Can parallelize—integration and polish are independent
+- **Tier 1** (Sections 1-2): Sequential—Section 2 depends on Section 1
+- **Tier 2** (Sections 3-4): Sequential—patterns build on expressions
+- **Tier 3** (Sections 5-6): Can parallelize—collections and comments are independent
+- **Tier 4** (Sections 7-8): Can parallelize—integration and polish are independent
 
 ### 2. Task Completion
 
@@ -31,7 +31,7 @@ Every formatting feature requires:
 
 ### 4. Design Document References
 
-Each phase references the authoritative design documents:
+Each section references the authoritative design documents:
 - `docs/tooling/formatter/design/` contains all specifications
 - If implementation differs from design, update the design doc first
 - Design decisions should be documented in proposals if significant
@@ -57,14 +57,14 @@ plans/ori_fmt/
 ├── 00-overview.md          # This overview
 ├── plan.md                 # How to use (this file)
 ├── priority-and-tracking.md # Current status
-├── phase-01-core-algorithm.md
-├── phase-02-declarations.md
-├── phase-03-expressions.md
-├── phase-04-patterns.md
-├── phase-05-collections.md
-├── phase-06-comments.md
-├── phase-07-tooling.md
-└── phase-08-polish.md
+├── section-01-core-algorithm.md
+├── section-02-declarations.md
+├── section-03-expressions.md
+├── section-04-patterns.md
+├── section-05-collections.md
+├── section-06-comments.md
+├── section-07-tooling.md
+└── section-08-polish.md
 ```
 
 ## Test Organization
@@ -112,24 +112,24 @@ tests/fmt/
 │   └── constants/
 │       ├── simple.ori
 │       └── public.ori
-├── expressions/           # Phase 3
+├── expressions/           # Section 3
 │   ├── calls.ori
 │   ├── chains.ori
 │   ├── conditionals.ori
 │   └── lambdas.ori
-├── patterns/              # Phase 4
+├── patterns/              # Section 4
 │   ├── run.ori
 │   ├── try.ori
 │   ├── match.ori
 │   └── parallel.ori
-├── collections/           # Phase 5
+├── collections/           # Section 5
 │   ├── lists.ori
 │   ├── maps.ori
 │   └── structs.ori
-├── comments/              # Phase 6
+├── comments/              # Section 6
 │   ├── regular.ori
 │   └── doc.ori
-└── edge-cases/            # Phase 8
+└── edge-cases/            # Section 8
     ├── nested.ori
     └── complex.ori
 ```

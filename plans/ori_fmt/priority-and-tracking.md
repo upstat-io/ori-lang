@@ -11,32 +11,32 @@ Current status of the Ori formatter implementation.
 | Tier 3 | Collections & Comments | ✅ Complete |
 | Tier 4 | Integration | 🔶 Partial |
 
-## Phase Status
+## Section Status
 
 ### Tier 1: Foundation
 
-| Phase | Name | Status | Notes |
+| Section | Name | Status | Notes |
 |-------|------|--------|-------|
 | 1 | Core Algorithm | ✅ Complete | Width calculator, formatter core, tab conversion, idempotency |
 | 2 | Declarations | ✅ Complete | ModuleFormatter with all declaration types, golden tests passing |
 
 ### Tier 2: Expressions
 
-| Phase | Name | Status | Notes |
+| Section | Name | Status | Notes |
 |-------|------|--------|-------|
 | 3 | Expressions | ✅ Complete | Calls, chains, conditionals, lambdas, bindings, binary ops (9 golden test suites) |
 | 4 | Patterns | ✅ Complete | run, try, match, for (4 golden test suites, 15 test files). loop(...) not yet supported by parser |
 
 ### Tier 3: Collections & Comments
 
-| Phase | Name | Status | Notes |
+| Section | Name | Status | Notes |
 |-------|------|--------|-------|
 | 5 | Collections | ✅ Complete | Lists, maps, tuples, structs, ranges (5 golden test suites, 14 test files). Spread operators not yet in parser |
 | 6 | Comments | ✅ Complete | Doc comment reordering, @param/@field ordering, edge cases (3 golden test suites, 13 test files). Comments inside bodies deferred |
 
 ### Tier 4: Integration
 
-| Phase | Name | Status | Notes |
+| Section | Name | Status | Notes |
 |-------|------|--------|-------|
 | 7 | Tooling | 🔶 Partial | CLI complete (ori fmt), LSP and WASM pending |
 | 8 | Polish | ✅ Complete | Edge cases, idempotence, fuzz tests (171), error messages, documentation (4 guides) |
@@ -136,7 +136,7 @@ if (result.success) {
 
 **Status**: Direct integration is temporary. Will migrate to LSP once `ori_lsp` is implemented.
 
-### 2026-01-30: Phase 7.5 Incremental Formatting Complete
+### 2026-01-30: Section 7.5 Incremental Formatting Complete
 
 Implemented incremental formatting API for formatting only changed declarations:
 
@@ -176,7 +176,7 @@ Implemented incremental formatting API for formatting only changed declarations:
 - Imports and configs require full format (they're block-formatted)
 - Re-parses entire file (incremental parsing would improve this)
 
-### 2026-01-30: Phase 8.11 Documentation Complete
+### 2026-01-30: Section 8.11 Documentation Complete
 
 Created comprehensive user-facing documentation for the formatter:
 
@@ -212,9 +212,9 @@ Created comprehensive user-facing documentation for the formatter:
    - Always-stacked constructs
    - Comment formatting
 
-**Status**: Phase 8 (Polish) complete. Tier 4 (Integration) remains partial (LSP, WASM pending).
+**Status**: Section 8 (Polish) complete. Tier 4 (Integration) remains partial (LSP, WASM pending).
 
-### 2026-01-30: Phase 8.9 Fuzz Testing Complete
+### 2026-01-30: Section 8.9 Fuzz Testing Complete
 
 Implemented comprehensive property-based fuzz testing for formatter idempotence:
 
@@ -264,7 +264,7 @@ Implemented comprehensive property-based fuzz testing for formatter idempotence:
 - Line width: long chains, long function names, long param names, long type annotations, very long expressions (5 tests)
 - Complex: full module, complex expression composition, deeply nested everything (3 tests)
 
-### 2026-01-30: Phase 8.10 Error Messages Complete
+### 2026-01-30: Section 8.10 Error Messages Complete
 
 Implemented rich error messages for formatter parse failures:
 
@@ -289,7 +289,7 @@ Implemented rich error messages for formatter parse failures:
 
 **Design Decision**: Partial formatting (format what we can) not implemented, matching gofmt/rustfmt behavior which require valid syntax.
 
-### 2026-01-30: Phase 8.9 Idempotence Testing Complete
+### 2026-01-30: Section 8.9 Idempotence Testing Complete
 
 Implemented comprehensive round-trip idempotence testing (`format(format(code)) == format(code)`):
 
@@ -316,13 +316,13 @@ Implemented comprehensive round-trip idempotence testing (`format(format(code)) 
    - Binary ops, unary ops, ranges, lambdas, conditionals get parens as receivers
    - Example: `(0..10).iter()` not `0..10.iter()` which would misbind
 
-**Remaining Phase 8 Work**:
+**Remaining Section 8 Work**:
 - Fuzz testing for idempotence
 - Property-based testing (AST equivalence)
 - Error messages (section 8.10)
 - Documentation (section 8.11)
 
-### 2026-01-30: Phase 7.5 & 8.8 Performance Complete
+### 2026-01-30: Section 7.5 & 8.8 Performance Complete
 
 Implemented performance benchmarks and parallel processing:
 
@@ -345,7 +345,7 @@ Implemented performance benchmarks and parallel processing:
 **Remaining Performance Work:**
 - Incremental formatting (only changed regions)
 
-### 2026-01-30: Phase 8.7 Real-World Examples Complete
+### 2026-01-30: Section 8.7 Real-World Examples Complete
 
 Added 5 real-world example golden tests:
 
@@ -361,13 +361,13 @@ Added 5 real-world example golden tests:
 - `?` error propagation operator not in expression position (use `try` pattern instead)
 - Sum types with 4+ variants break to multi-line format
 
-**Remaining Phase 8 Work**:
+**Remaining Section 8 Work**:
 - Performance benchmarks (section 8.8)
 - Idempotence verification (section 8.9)
 - Error messages (section 8.10)
 - Documentation (section 8.11)
 
-### 2026-01-30: Phase 8 Boundary Cases & Unicode Width
+### 2026-01-30: Section 8 Boundary Cases & Unicode Width
 
 Completed remaining 8.3 (Boundary Cases) and 8.5 (Unicode Handling) tasks:
 
@@ -385,7 +385,7 @@ Completed remaining 8.3 (Boundary Cases) and 8.5 (Unicode Handling) tasks:
 **Blocked**:
 - Unicode identifiers blocked by lexer (ASCII-only: `[a-zA-Z_][a-zA-Z0-9_]*`)
 
-### 2026-01-30: Phase 8 Edge Cases Continued
+### 2026-01-30: Section 8 Edge Cases Continued
 
 Added more edge case golden tests:
 
@@ -401,7 +401,7 @@ Added more edge case golden tests:
 **Test Harness Update**:
 - Added `golden_tests_edge_cases_long` test entry for the new `long/` directory
 
-**Remaining Phase 8 Work**:
+**Remaining Section 8 Work**:
 - Long strings/tokens (section 8.3)
 - Unicode identifiers & RTL (section 8.5)
 - Real-world examples (section 8.7)
@@ -410,7 +410,7 @@ Added more edge case golden tests:
 - Error messages (section 8.10)
 - Documentation (section 8.11)
 
-### 2026-01-30: Phase 8 Edge Cases Started
+### 2026-01-30: Section 8 Edge Cases Started
 
 Added 5 edge case golden test suites with 17 test files:
 
@@ -427,7 +427,7 @@ Added 5 edge case golden test suites with 17 test files:
 - Long bodies (>20 chars) break naturally at semantic points (else, operators, etc.)
 - Implementation: `calculate_function_trailing_width()` in declarations.rs
 
-**Remaining Phase 8 Work**:
+**Remaining Section 8 Work**:
 - Long identifiers (section 8.2)
 - Long strings/tokens (section 8.3)
 - Multi-byte width calculation (section 8.5)
@@ -435,7 +435,7 @@ Added 5 edge case golden test suites with 17 test files:
 - Performance benchmarks (section 8.8)
 - Idempotence verification (section 8.9)
 
-### 2026-01-30: Phase 7 CLI Integration Complete
+### 2026-01-30: Section 7 CLI Integration Complete
 
 Implemented the `ori fmt` command with full CLI integration:
 
@@ -467,12 +467,12 @@ Options:
   --help       Show this help message
 ```
 
-**Remaining Work** (Phase 7):
+**Remaining Work** (Section 7):
 - LSP integration (textDocument/formatting)
 - WASM compilation for playground
 - CI integration documentation
 
-### 2026-01-30: Phase 7 CLI Completion
+### 2026-01-30: Section 7 CLI Completion
 
 Completed the remaining CLI features for `ori fmt`:
 
@@ -492,9 +492,9 @@ Completed the remaining CLI features for `ori fmt`:
 - `target/` directory
 - `node_modules/` directory
 
-### 2026-01-30: Phase 6 Comment Formatting Complete
+### 2026-01-30: Section 6 Comment Formatting Complete
 
-Completed Phase 6 with full doc comment reordering and edge case handling:
+Completed Section 6 with full doc comment reordering and edge case handling:
 
 **New Features**:
 - Doc comment reordering: Description → Param/Field → Warning → Example
@@ -522,9 +522,9 @@ Completed Phase 6 with full doc comment reordering and edge case handling:
 - Comments inside function bodies
 - Inline comment conversion (move to own line)
 
-**Status**: Phase 6 complete. Tier 3 complete. Ready for Tier 4 (Integration).
+**Status**: Section 6 complete. Tier 3 complete. Ready for Tier 4 (Integration).
 
-### 2026-01-30: Comment Preservation Infrastructure (Phase 6 Started)
+### 2026-01-30: Comment Preservation Infrastructure (Section 6 Started)
 
 Added comment preservation infrastructure:
 
@@ -548,14 +548,14 @@ Added comment preservation infrastructure:
 - `tests/fmt/comments/regular/` - Regular comment tests (2 files)
 - `tests/fmt/comments/doc/` - Doc comment tests (3 files)
 
-**Remaining Work** (Phase 6 completion):
+**Remaining Work** (Section 6 completion):
 - Doc comment reordering when out of order
 - `@param` order matching function signature
 - `@field` order matching struct fields
 - Comments inside function bodies
 - Edge cases (empty comments, EOF comments)
 
-### 2026-01-30: Collection Golden Tests (Phase 5 Complete)
+### 2026-01-30: Collection Golden Tests (Section 5 Complete)
 
 Added 5 collection golden test suites with 14 test files:
 
@@ -577,13 +577,13 @@ Added 5 collection golden test suites with 14 test files:
 - Added multi-line support in lists: `skip_newlines()` after `[`, after commas, before `]`
 - Added multi-line support in tuples: `skip_newlines()` after `(`, after commas, before `)`
 
-**Compiler Dependencies** (Phase 15C - not formatter limitations):
-- Spread operators (`...`) - see `plans/roadmap/phase-15C-literals-operators.md`
-- Stepped ranges (`by`) - see `plans/roadmap/phase-15C-literals-operators.md`
+**Compiler Dependencies** (Section 15C - not formatter limitations):
+- Spread operators (`...`) - see `plans/roadmap/section-15C-literals-operators.md`
+- Stepped ranges (`by`) - see `plans/roadmap/section-15C-literals-operators.md`
 
-**Status**: Phase 5 (Collections) complete. Ready for Phase 6 (Comments).
+**Status**: Section 5 (Collections) complete. Ready for Section 6 (Comments).
 
-### 2026-01-30: Pattern Golden Tests (Phase 4 Complete)
+### 2026-01-30: Pattern Golden Tests (Section 4 Complete)
 
 Added 4 pattern golden test suites with 15 test files:
 
@@ -603,9 +603,9 @@ Added 4 pattern golden test suites with 15 test files:
 - Immutable bindings: `let $x = ...` with `$` in pattern name
 - All pattern constructs (run, try, match, for) format correctly
 
-**Status**: Tier 2 (Expressions) complete. Phase 3 and Phase 4 done. Ready for Tier 3 (Collections & Comments).
+**Status**: Tier 2 (Expressions) complete. Section 3 and Section 4 done. Ready for Tier 3 (Collections & Comments).
 
-### 2026-01-30: Expression Golden Tests (Phase 3 Complete)
+### 2026-01-30: Expression Golden Tests (Section 3 Complete)
 
 Added 9 expression golden test suites with 22 test files:
 
@@ -628,9 +628,9 @@ Added 9 expression golden test suites with 22 test files:
 - `$` immutable modifier only valid at module level, not in run patterns
 - Parentheses around expressions not preserved in AST (affects range precedence)
 
-**Status**: Phase 3 complete. Ready for Phase 4 (Patterns).
+**Status**: Section 3 complete. Ready for Section 4 (Patterns).
 
-### 2026-01-29: Golden Tests Complete (Phase 2 Done)
+### 2026-01-29: Golden Tests Complete (Section 2 Done)
 
 Completed golden test infrastructure for formatter verification:
 
@@ -638,7 +638,7 @@ Completed golden test infrastructure for formatter verification:
 - Integration tests using ori_lexer and ori_parse as dev-dependencies
 - Discovers and runs all `.ori` files in `tests/fmt/` directory
 - Supports `.expected` files for non-idempotent transformations
-- Comment stripping (comment preservation is Phase 6)
+- Comment stripping (comment preservation is Section 6)
 - Whitespace normalization for comparison
 - Idempotency testing: format(format(x)) == format(x)
 
@@ -687,7 +687,7 @@ Implemented `declarations.rs` (~950 lines) with `ModuleFormatter`:
 
 ### 2026-01-29: Tab Conversion & Idempotency Tests
 
-Completed Phase 1 remaining items:
+Completed Section 1 remaining items:
 
 **Tab-to-Space Conversion** (`lib.rs`):
 - Added `tabs_to_spaces()` function for source preprocessing
@@ -697,9 +697,9 @@ Completed Phase 1 remaining items:
 **Idempotency Tests** (`formatter/tests.rs`):
 - Added 44 new formatter tests (idempotency + literal/operator/control flow formatting)
 - AST-level idempotency verified: format(AST) produces consistent output
-- Full parse-format-parse round-trip deferred to Phase 7 (requires parser integration)
+- Full parse-format-parse round-trip deferred to Section 7 (requires parser integration)
 
-**Status**: Phase 1 nearly complete. Blank line handling deferred to Phase 2 (requires top-level item support).
+**Status**: Section 1 nearly complete. Blank line handling deferred to Section 2 (requires top-level item support).
 
 ### 2026-01-29: Formatter Core Implementation
 
