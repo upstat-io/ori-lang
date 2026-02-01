@@ -8,12 +8,18 @@ on:
       - 'compiler/**'
       - '.github/workflows/deploy-website.yml'
       - 'docs/**'
+  # Also trigger after CI completes to get fresh test results
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [master]
   workflow_dispatch:
 
 permissions:
   contents: read
   pages: write
   id-token: write
+  actions: read  # Needed to download artifacts from other workflows
 
 concurrency:
   group: pages
@@ -25,6 +31,43 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Fetch test results from CI
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: ci.yml
+          branch: master
+          name: test-results
+          path: website/public
+          if_no_artifact_found: warn
+        continue-on-error: true
+
+      - name: Fetch LLVM test results from CI
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: ci.yml
+          branch: master
+          name: llvm-test-results
+          path: website/public
+          if_no_artifact_found: warn
+        continue-on-error: true
+
+      - name: Merge test results
+        run: |
+          cd website/public
+          # Create default if missing
+          if [ ! -f test-results.json ]; then
+            echo '{"rust_tests": 0, "ori_tests": 0, "rust_failed": 0, "ori_failed": 0}' > test-results.json
+          fi
+          if [ ! -f llvm-test-results.json ]; then
+            echo '{"llvm_tests": 0, "llvm_failed": 0}' > llvm-test-results.json
+          fi
+          # Merge into single file
+          jq -s '.[0] * .[1]' test-results.json llvm-test-results.json > combined-test-results.json
+          mv combined-test-results.json test-results.json
+          rm -f llvm-test-results.json
+          echo "Test results:"
+          cat test-results.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
