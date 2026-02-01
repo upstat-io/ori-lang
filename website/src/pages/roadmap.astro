@@ -238,7 +238,8 @@ function extractTasksFromBody(body: string): Map<string, Task[]> {
   let currentTasks: Task[] = [];
 
   for (const line of lines) {
-    const sectionMatch = line.match(/^##\s+(\d+(?:\.\d+)?[A-Z]?)\s+(.+)/);
+    // Match section headers: digits, uppercase letters, dots in any combination (e.g., 1, 1.1, 7A, 21B.1)
+    const sectionMatch = line.match(/^##\s+([\dA-Z.]+)\s+(.+)/);
     if (sectionMatch) {
       if (currentSectionId) {
         result.set(currentSectionId, currentTasks);

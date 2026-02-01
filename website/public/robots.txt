@@ -1,4 +1,12 @@
+# Ori Programming Language - robots.txt
+# https://ori-lang.com
+
+# Allow all bots
 User-agent: *
 Allow: /
 
+# Sitemap location
 Sitemap: https://ori-lang.com/sitemap-index.xml
+
+# Host directive (some crawlers use this)
+Host: https://ori-lang.com
