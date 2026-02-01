@@ -1,3 +1,26 @@
+---
+phase: 7B
+title: Option & Result
+status: not-started
+tier: 2
+goal: Option and Result type methods
+spec:
+  - spec/11-built-in-functions.md
+sections:
+  - id: "7B.1"
+    title: Option Functions
+    status: not-started
+  - id: "7B.2"
+    title: Result Functions
+    status: not-started
+  - id: "7B.3"
+    title: Error Return Traces
+    status: not-started
+  - id: "7B.4"
+    title: Phase Completion Checklist
+    status: not-started
+---
+
 # Phase 7B: Option & Result
 
 **Goal**: Option and Result type methods

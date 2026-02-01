@@ -1,3 +1,47 @@
+---
+phase: 4
+title: Module System
+status: in-progress
+tier: 1
+goal: Multi-file compilation
+spec:
+  - spec/12-modules.md
+sections:
+  - id: "4.1"
+    title: Module Definition
+    status: complete
+  - id: "4.2"
+    title: Import Parsing
+    status: complete
+  - id: "4.3"
+    title: Visibility
+    status: complete
+  - id: "4.4"
+    title: Module Resolution
+    status: in-progress
+  - id: "4.5"
+    title: Test Modules
+    status: complete
+  - id: "4.6"
+    title: Prelude
+    status: complete
+  - id: "4.7"
+    title: Import Graph Tooling
+    status: not-started
+  - id: "4.8"
+    title: Module System Details
+    status: not-started
+  - id: "4.9"
+    title: Remaining Work (Pre-existing)
+    status: in-progress
+  - id: "4.10"
+    title: Phase Completion Checklist
+    status: complete
+  - id: "4.11"
+    title: Extension Methods
+    status: not-started
+---
+
 # Phase 4: Module System
 
 **Goal**: Multi-file compilation

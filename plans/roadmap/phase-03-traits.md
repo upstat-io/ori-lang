@@ -1,3 +1,84 @@
+---
+phase: 3
+title: Traits and Implementations
+status: in-progress
+tier: 1
+goal: Trait-based polymorphism
+spec:
+  - spec/07-properties-of-types.md
+  - spec/08-declarations.md
+sections:
+  - id: "3.0"
+    title: Core Library Traits
+    status: complete
+  - id: "3.1"
+    title: Trait Declarations
+    status: complete
+  - id: "3.2"
+    title: Trait Implementations
+    status: complete
+  - id: "3.3"
+    title: Trait Bounds
+    status: complete
+  - id: "3.4"
+    title: Associated Types
+    status: complete
+  - id: "3.5"
+    title: Derive Traits
+    status: complete
+  - id: "3.6"
+    title: Phase Completion Checklist
+    status: complete
+  - id: "3.7"
+    title: Clone Trait Formal Definition
+    status: not-started
+  - id: "3.8"
+    title: Iterator Traits
+    status: not-started
+  - id: "3.8.1"
+    title: Iterator Performance and Semantics
+    status: not-started
+  - id: "3.9"
+    title: Debug Trait
+    status: not-started
+  - id: "3.10"
+    title: Trait Resolution and Conflict Handling
+    status: not-started
+  - id: "3.11"
+    title: Object Safety Rules
+    status: not-started
+  - id: "3.12"
+    title: Custom Subscripting (Index Trait)
+    status: not-started
+  - id: "3.13"
+    title: Additional Core Traits
+    status: not-started
+  - id: "3.14"
+    title: Comparable and Hashable Traits
+    status: in-progress
+  - id: "3.15"
+    title: Derived Traits Formal Semantics
+    status: not-started
+  - id: "3.16"
+    title: Formattable Trait
+    status: not-started
+  - id: "3.17"
+    title: Into Trait
+    status: not-started
+  - id: "3.18"
+    title: Ordering Type
+    status: in-progress
+  - id: "3.19"
+    title: Default Type Parameters on Traits
+    status: complete
+  - id: "3.20"
+    title: Default Associated Types
+    status: complete
+  - id: "3.21"
+    title: Operator Traits
+    status: in-progress
+---
+
 # Phase 3: Traits and Implementations
 
 **Goal**: Trait-based polymorphism

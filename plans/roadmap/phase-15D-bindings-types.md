@@ -1,3 +1,27 @@
+---
+phase: "15D"
+title: Bindings & Types
+status: not-started
+tier: 5
+goal: Implement binding syntax changes and type system simplifications
+sections:
+  - id: "15D.1"
+    title: Pre/Post Checks for run Pattern
+    status: not-started
+  - id: "15D.2"
+    title: as Conversion Syntax
+    status: not-started
+  - id: "15D.3"
+    title: Simplified Bindings with $ for Immutability
+    status: not-started
+  - id: "15D.4"
+    title: Remove dyn Keyword for Trait Objects
+    status: not-started
+  - id: "15D.5"
+    title: Phase Completion Checklist
+    status: not-started
+---
+
 # Phase 15D: Bindings & Types
 
 **Goal**: Implement binding syntax changes and type system simplifications

@@ -1,3 +1,46 @@
+---
+phase: 7D
+title: Stdlib Modules
+status: not-started
+tier: 2
+goal: Standard library modules including validate, resilience, math, testing, time, json, fs
+spec: []
+sections:
+  - id: "7D.1"
+    title: std.validate Module
+    status: not-started
+  - id: "7D.2"
+    title: std.resilience Module
+    status: not-started
+  - id: "7D.3"
+    title: std.math Module — Overflow-Safe Arithmetic
+    status: not-started
+  - id: "7D.4"
+    title: std.testing Module
+    status: not-started
+  - id: "7D.5"
+    title: Developer Functions
+    status: not-started
+  - id: "7D.6"
+    title: std.time Module
+    status: not-started
+  - id: "7D.7"
+    title: std.json Module
+    status: not-started
+  - id: "7D.8"
+    title: std.fs Module
+    status: not-started
+  - id: "7D.9"
+    title: std.crypto Module
+    status: not-started
+  - id: "7D.10"
+    title: Duration and Size to Stdlib
+    status: not-started
+  - id: "7D.11"
+    title: Phase Completion Checklist
+    status: not-started
+---
+
 # Phase 7D: Stdlib Modules
 
 **Goal**: Standard library modules including validate, resilience, math, testing, time, json, fs

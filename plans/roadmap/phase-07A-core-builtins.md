@@ -1,3 +1,38 @@
+---
+phase: 7A
+title: Core Built-ins
+status: not-started
+tier: 2
+goal: Type conversions, assertions, I/O, and core built-in functions
+spec:
+  - spec/11-built-in-functions.md
+sections:
+  - id: "7A.1"
+    title: Type Conversions
+    status: not-started
+  - id: "7A.2"
+    title: Assertions
+    status: not-started
+  - id: "7A.3"
+    title: I/O and Other
+    status: not-started
+  - id: "7A.4"
+    title: Float NaN Behavior
+    status: not-started
+  - id: "7A.5"
+    title: Developer Functions
+    status: not-started
+  - id: "7A.6"
+    title: Additional Built-in Functions
+    status: not-started
+  - id: "7A.7"
+    title: Resource Management
+    status: not-started
+  - id: "7A.8"
+    title: Phase Completion Checklist
+    status: not-started
+---
+
 # Phase 7A: Core Built-ins
 
 **Goal**: Type conversions, assertions, I/O, and core built-in functions

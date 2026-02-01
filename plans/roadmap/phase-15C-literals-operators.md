@@ -1,3 +1,30 @@
+---
+phase: "15C"
+title: Literals & Operators
+status: not-started
+tier: 5
+goal: Implement string interpolation, spread operator, and range step syntax
+sections:
+  - id: "15C.1"
+    title: String Interpolation
+    status: not-started
+  - id: "15C.2"
+    title: Spread Operator
+    status: not-started
+  - id: "15C.3"
+    title: Range with Step
+    status: not-started
+  - id: "15C.4"
+    title: Computed Map Keys
+    status: not-started
+  - id: "15C.5"
+    title: Floor Division (div) Operator Fix
+    status: not-started
+  - id: "15C.6"
+    title: Phase Completion Checklist
+    status: not-started
+---
+
 # Phase 15C: Literals & Operators
 
 **Goal**: Implement string interpolation, spread operator, and range step syntax

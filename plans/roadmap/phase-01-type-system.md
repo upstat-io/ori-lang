@@ -1,3 +1,37 @@
+---
+phase: 1
+title: Type System Foundation
+status: complete
+tier: 1
+goal: Fix type checking to properly use type annotations
+spec:
+  - spec/06-types.md
+  - spec/07-properties-of-types.md
+  - spec/08-declarations.md
+sections:
+  - id: "1.1"
+    title: Primitive Types
+    status: complete
+  - id: "1.1A"
+    title: Duration and Size Types
+    status: complete
+  - id: "1.1B"
+    title: Never Type Semantics
+    status: in-progress
+  - id: "1.2"
+    title: Parameter Type Annotations
+    status: complete
+  - id: "1.3"
+    title: Lambda Type Annotations
+    status: complete
+  - id: "1.4"
+    title: Let Binding Types
+    status: complete
+  - id: "1.5"
+    title: Phase Completion Checklist
+    status: complete
+---
+
 # Phase 1: Type System Foundation
 
 **Goal**: Fix type checking to properly use type annotations

@@ -1,3 +1,27 @@
+---
+phase: "15B"
+title: Function Syntax
+status: not-started
+tier: 5
+goal: Implement function-related syntax proposals
+sections:
+  - id: "15B.1"
+    title: Remove Dot Prefix from Named Arguments
+    status: not-started
+  - id: "15B.2"
+    title: Default Parameter Values
+    status: not-started
+  - id: "15B.3"
+    title: Multiple Function Clauses
+    status: not-started
+  - id: "15B.4"
+    title: Positional Lambdas for Single-Parameter Functions
+    status: not-started
+  - id: "15B.5"
+    title: Phase Completion Checklist
+    status: not-started
+---
+
 # Phase 15B: Function Syntax
 
 **Goal**: Implement function-related syntax proposals

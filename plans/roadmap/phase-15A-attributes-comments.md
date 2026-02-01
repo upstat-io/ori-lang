@@ -1,3 +1,27 @@
+---
+phase: "15A"
+title: Attributes & Comments
+status: not-started
+tier: 5
+goal: Implement approved attribute syntax changes and comment restrictions
+sections:
+  - id: "15A.1"
+    title: Simplified Attribute Syntax
+    status: not-started
+  - id: "15A.2"
+    title: function_seq vs function_exp Formalization
+    status: not-started
+  - id: "15A.3"
+    title: Inline Comments Prohibition
+    status: not-started
+  - id: "15A.4"
+    title: Simplified Doc Comment Syntax
+    status: not-started
+  - id: "15A.5"
+    title: Phase Completion Checklist
+    status: not-started
+---
+
 # Phase 15A: Attributes & Comments
 
 **Goal**: Implement approved attribute syntax changes and comment restrictions

@@ -1,3 +1,46 @@
+---
+phase: 5
+title: Type Declarations
+status: in-progress
+tier: 1
+goal: User-defined types
+spec:
+  - spec/06-types.md
+  - spec/07-properties-of-types.md
+  - spec/08-declarations.md
+sections:
+  - id: "5.1"
+    title: Struct Types
+    status: complete
+  - id: "5.2"
+    title: Sum Types (Enums)
+    status: complete
+  - id: "5.3"
+    title: Newtypes
+    status: in-progress
+  - id: "5.4"
+    title: Generic Types
+    status: in-progress
+  - id: "5.5"
+    title: Compound Types
+    status: not-started
+  - id: "5.6"
+    title: Built-in Generic Types
+    status: not-started
+  - id: "5.7"
+    title: Derive Attributes
+    status: not-started
+  - id: "5.8"
+    title: Visibility
+    status: not-started
+  - id: "5.9"
+    title: Associated Functions
+    status: not-started
+  - id: "5.10"
+    title: Phase Completion Checklist
+    status: not-started
+---
+
 # Phase 5: Type Declarations
 
 **Goal**: User-defined types

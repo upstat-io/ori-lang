@@ -1,3 +1,44 @@
+---
+phase: 11
+title: Foreign Function Interface (FFI)
+status: not-started
+tier: 4
+goal: Enable Ori to call C libraries, system APIs, and JavaScript APIs (WASM target)
+spec:
+  - spec/23-ffi.md
+sections:
+  - id: "11.1"
+    title: Extern Block Syntax
+    status: not-started
+  - id: "11.2"
+    title: C ABI Types
+    status: not-started
+  - id: "11.3"
+    title: "#repr Attribute"
+    status: not-started
+  - id: "11.4"
+    title: Unsafe Blocks
+    status: not-started
+  - id: "11.5"
+    title: FFI Capability
+    status: not-started
+  - id: "11.6"
+    title: Callbacks (Native)
+    status: not-started
+  - id: "11.7"
+    title: Build System Integration
+    status: not-started
+  - id: "11.8"
+    title: compile_error Built-in
+    status: not-started
+  - id: "11.9"
+    title: WASM Target (Phase 2)
+    status: not-started
+  - id: "11.10"
+    title: JsValue and Async (Phase 3-4)
+    status: not-started
+---
+
 # Phase 11: Foreign Function Interface (FFI)
 
 **Goal**: Enable Ori to call C libraries, system APIs, and JavaScript APIs (WASM target)
