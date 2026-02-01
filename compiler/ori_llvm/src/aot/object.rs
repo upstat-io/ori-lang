@@ -102,6 +102,19 @@ impl From<TargetError> for EmitError {
     }
 }
 
+/// Validate that the parent directory exists for an output path.
+fn validate_parent_exists(path: &Path) -> Result<(), EmitError> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            return Err(EmitError::InvalidPath {
+                path: path.to_string_lossy().into_owned(),
+                reason: "parent directory does not exist".to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Output format for code emission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -257,15 +270,7 @@ impl ObjectEmitter {
     pub fn emit_bitcode(&self, module: &Module<'_>, path: &Path) -> Result<(), EmitError> {
         let path_str = path.to_string_lossy();
 
-        // Validate path
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() && !parent.exists() {
-                return Err(EmitError::InvalidPath {
-                    path: path_str.to_string(),
-                    reason: "parent directory does not exist".to_string(),
-                });
-            }
-        }
+        validate_parent_exists(path)?;
 
         // Write bitcode using inkwell's built-in method
         if module.write_bitcode_to_path(path) {
@@ -294,15 +299,7 @@ impl ObjectEmitter {
     pub fn emit_llvm_ir(&self, module: &Module<'_>, path: &Path) -> Result<(), EmitError> {
         let path_str = path.to_string_lossy();
 
-        // Validate path
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() && !parent.exists() {
-                return Err(EmitError::InvalidPath {
-                    path: path_str.to_string(),
-                    reason: "parent directory does not exist".to_string(),
-                });
-            }
-        }
+        validate_parent_exists(path)?;
 
         // Print IR to file
         module
@@ -370,15 +367,7 @@ impl ObjectEmitter {
     ) -> Result<(), EmitError> {
         let path_str = path.to_string_lossy();
 
-        // Validate path
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() && !parent.exists() {
-                return Err(EmitError::InvalidPath {
-                    path: path_str.to_string(),
-                    reason: "parent directory does not exist".to_string(),
-                });
-            }
-        }
+        validate_parent_exists(path)?;
 
         // Emit using LLVM
         self.machine

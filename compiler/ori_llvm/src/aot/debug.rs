@@ -276,6 +276,9 @@ impl DebugInfoConfig {
 pub enum DebugInfoError {
     /// Failed to create basic type.
     BasicType { name: String, message: String },
+    /// Failed to create a basic type during LLVM debug info generation.
+    /// This indicates an LLVM internal error and should not happen with valid inputs.
+    BasicTypeCreation { name: String },
     /// Debug info is disabled.
     Disabled,
 }
@@ -286,12 +289,29 @@ impl std::fmt::Display for DebugInfoError {
             Self::BasicType { name, message } => {
                 write!(f, "failed to create debug type '{name}': {message}")
             }
+            Self::BasicTypeCreation { name } => {
+                write!(f, "LLVM failed to create basic debug type '{name}'")
+            }
             Self::Disabled => write!(f, "debug info is disabled"),
         }
     }
 }
 
 impl std::error::Error for DebugInfoError {}
+
+/// Cold path for basic type creation failure.
+///
+/// This function is marked `#[cold]` because basic type creation should
+/// never fail under normal circumstances. A failure here indicates a
+/// serious LLVM internal error.
+#[cold]
+#[inline(never)]
+fn create_basic_type_failed(name: &str) -> ! {
+    panic!(
+        "LLVM failed to create basic debug type '{name}'. \
+         This indicates an LLVM internal error - please check LLVM installation."
+    )
+}
 
 /// Cached debug type information.
 struct TypeCache<'ctx> {
@@ -484,6 +504,11 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
     }
 
     /// Get or create a basic type with caching.
+    ///
+    /// # Panics
+    ///
+    /// Panics if LLVM fails to create the basic debug type. This indicates
+    /// a serious LLVM internal error and should not happen with valid inputs.
     fn get_or_create_basic_type(
         &self,
         name: &'static str,
@@ -497,19 +522,18 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
 
         // Create the type (void types need special handling)
         let ty = if size_bits == 0 {
-            // For void, create a minimal type
+            // For void, create a minimal type. Try zero-size first, then fallback.
             self.inner
                 .create_basic_type("void", 0, encoding, DIFlags::ZERO)
-                .unwrap_or_else(|_| {
+                .or_else(|_| {
                     // Fallback: create as "unspecified" with 1 bit
-                    self.inner
-                        .create_basic_type("void", 1, 0x00, DIFlags::ZERO)
-                        .expect("failed to create void debug type")
+                    self.inner.create_basic_type("void", 1, 0x00, DIFlags::ZERO)
                 })
+                .unwrap_or_else(|_| create_basic_type_failed("void"))
         } else {
             self.inner
                 .create_basic_type(name, size_bits, encoding, DIFlags::ZERO)
-                .expect("failed to create basic debug type")
+                .unwrap_or_else(|_| create_basic_type_failed(name))
         };
 
         cache.primitives.insert(name, ty);
@@ -659,6 +683,8 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
     /// * `count` - Number of elements
     /// * `size_bits` - Total size in bits
     /// * `align_bits` - Alignment in bits
+    // Single-element vec with range is intentional here for LLVM's debug info API
+    // which requires a slice of subscript ranges even for 1D arrays.
     #[allow(clippy::single_range_in_vec_init)]
     pub fn create_array_type(
         &self,
@@ -768,21 +794,29 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
     }
 
     /// Create debug info for Result<T, E>: { tag: byte, payload: union }.
+    ///
+    /// The payload size is the maximum of ok and error sizes, representing
+    /// the union semantics of a sum type where either variant can occupy the space.
     pub fn result_type(
         &self,
         ok_ty: DIType<'ctx>,
         ok_size_bits: u64,
-        _err_ty: DIType<'ctx>,
-        _err_size_bits: u64,
+        err_ty: DIType<'ctx>,
+        err_size_bits: u64,
     ) -> DICompositeType<'ctx> {
         let byte_ty = self.byte_type().as_type();
 
         // Result enum: Ok=0, Err=1
         let tag_ty = self.create_enum_type("ResultTag", 0, 8, 8, &[("Ok", 0), ("Err", 1)], byte_ty);
 
-        // For simplicity, we use the larger payload size
-        // In practice, this would be a union
-        let payload_size = ok_size_bits.max(64); // min 64 for Error type
+        // Use the larger of ok and error sizes for proper union semantics
+        let payload_size = ok_size_bits.max(err_size_bits);
+        // Use the type with the larger size for the payload field in debug info
+        let (payload_ty, payload_name) = if ok_size_bits >= err_size_bits {
+            (ok_ty, "ok_payload")
+        } else {
+            (err_ty, "err_payload")
+        };
 
         let fields = [
             FieldInfo {
@@ -793,8 +827,8 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
                 line: 0,
             },
             FieldInfo {
-                name: "payload",
-                ty: ok_ty,
+                name: payload_name,
+                ty: payload_ty,
                 size_bits: payload_size,
                 offset_bits: 64,
                 line: 0,

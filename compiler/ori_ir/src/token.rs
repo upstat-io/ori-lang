@@ -4,7 +4,7 @@
 
 use super::{Name, Span};
 use std::fmt;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 
 /// A token with its span in the source.
 ///
@@ -488,7 +488,7 @@ impl fmt::Debug for SizeUnit {
 ///
 /// # Salsa Compatibility
 /// Has all required traits: Clone, Eq, `PartialEq`, Hash, Debug, Default
-#[derive(Clone, Eq, PartialEq, Default)]
+#[derive(Clone, Eq, PartialEq, Hash, Default)]
 pub struct TokenList {
     tokens: Vec<Token>,
 }
@@ -546,12 +546,6 @@ impl TokenList {
     #[inline]
     pub fn into_vec(self) -> Vec<Token> {
         self.tokens
-    }
-}
-
-impl Hash for TokenList {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.tokens.hash(state);
     }
 }
 

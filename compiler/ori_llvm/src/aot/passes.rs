@@ -149,20 +149,25 @@ pub enum LtoMode {
     Full,
 }
 
+/// Get the pipeline level suffix string for an optimization level.
+fn level_suffix(level: OptimizationLevel) -> &'static str {
+    match level {
+        OptimizationLevel::O0 => "O0",
+        OptimizationLevel::O1 => "O1",
+        OptimizationLevel::O2 => "O2",
+        OptimizationLevel::O3 => "O3",
+        OptimizationLevel::Os => "Os",
+        OptimizationLevel::Oz => "Oz",
+    }
+}
+
 impl LtoMode {
     /// Get the pre-link pipeline string for this LTO mode.
     ///
     /// Returns `None` if LTO is off (use regular `default<OX>` instead).
     #[must_use]
     pub fn prelink_pipeline_string(&self, opt_level: OptimizationLevel) -> Option<String> {
-        let level = match opt_level {
-            OptimizationLevel::O0 => "O0",
-            OptimizationLevel::O1 => "O1",
-            OptimizationLevel::O2 => "O2",
-            OptimizationLevel::O3 => "O3",
-            OptimizationLevel::Os => "Os",
-            OptimizationLevel::Oz => "Oz",
-        };
+        let level = level_suffix(opt_level);
 
         match self {
             Self::Off => None,
@@ -177,14 +182,7 @@ impl LtoMode {
     /// Returns `None` if LTO is off.
     #[must_use]
     pub fn lto_pipeline_string(&self, opt_level: OptimizationLevel) -> Option<String> {
-        let level = match opt_level {
-            OptimizationLevel::O0 => "O0",
-            OptimizationLevel::O1 => "O1",
-            OptimizationLevel::O2 => "O2",
-            OptimizationLevel::O3 => "O3",
-            OptimizationLevel::Os => "Os",
-            OptimizationLevel::Oz => "Oz",
-        };
+        let level = level_suffix(opt_level);
 
         match self {
             Self::Off => None,
@@ -469,6 +467,57 @@ impl fmt::Display for OptimizationError {
 
 impl std::error::Error for OptimizationError {}
 
+/// Extract error message from LLVM error, disposing the error.
+///
+/// # Safety
+/// The error pointer must be valid and non-null.
+unsafe fn extract_llvm_error_message(error: llvm_sys::error::LLVMErrorRef) -> String {
+    let msg_ptr = llvm_sys::error::LLVMGetErrorMessage(error);
+    if msg_ptr.is_null() {
+        "unknown error".to_string()
+    } else {
+        let msg = std::ffi::CStr::from_ptr(msg_ptr)
+            .to_string_lossy()
+            .into_owned();
+        llvm_sys::error::LLVMDisposeErrorMessage(msg_ptr);
+        msg
+    }
+}
+
+/// RAII guard for `LLVMPassBuilderOptionsRef`.
+///
+/// Ensures proper cleanup of pass builder options even on early returns or panics.
+struct PassBuilderOptionsGuard {
+    options: llvm_sys::transforms::pass_builder::LLVMPassBuilderOptionsRef,
+}
+
+impl PassBuilderOptionsGuard {
+    /// Create a new pass builder options guard.
+    ///
+    /// Returns `None` if LLVM fails to create the options.
+    fn new() -> Option<Self> {
+        let options = unsafe { llvm_sys::transforms::pass_builder::LLVMCreatePassBuilderOptions() };
+        if options.is_null() {
+            None
+        } else {
+            Some(Self { options })
+        }
+    }
+
+    /// Get the underlying options pointer for LLVM API calls.
+    fn as_ptr(&self) -> llvm_sys::transforms::pass_builder::LLVMPassBuilderOptionsRef {
+        self.options
+    }
+}
+
+impl Drop for PassBuilderOptionsGuard {
+    fn drop(&mut self) {
+        unsafe {
+            llvm_sys::transforms::pass_builder::LLVMDisposePassBuilderOptions(self.options);
+        }
+    }
+}
+
 /// Run optimization passes on a module using the LLVM new pass manager.
 ///
 /// This uses the LLVM 17 C API for the new pass manager, specifically
@@ -499,7 +548,6 @@ pub fn run_optimization_passes(
     config: &OptimizationConfig,
 ) -> Result<(), OptimizationError> {
     use llvm_sys::transforms::pass_builder::{
-        LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions,
         LLVMPassBuilderOptionsSetDebugLogging, LLVMPassBuilderOptionsSetInlinerThreshold,
         LLVMPassBuilderOptionsSetLoopInterleaving, LLVMPassBuilderOptionsSetLoopUnrolling,
         LLVMPassBuilderOptionsSetLoopVectorization, LLVMPassBuilderOptionsSetMergeFunctions,
@@ -507,35 +555,39 @@ pub fn run_optimization_passes(
         LLVMRunPasses,
     };
 
-    // Create pass builder options
-    let options = unsafe { LLVMCreatePassBuilderOptions() };
-    if options.is_null() {
-        return Err(OptimizationError::PassBuilderOptionsCreationFailed);
-    }
+    // Create pass builder options with RAII cleanup
+    let guard = PassBuilderOptionsGuard::new()
+        .ok_or(OptimizationError::PassBuilderOptionsCreationFailed)?;
 
     // Configure options based on config
     unsafe {
         LLVMPassBuilderOptionsSetLoopVectorization(
-            options,
+            guard.as_ptr(),
             config.effective_loop_vectorization().into(),
         );
         LLVMPassBuilderOptionsSetSLPVectorization(
-            options,
+            guard.as_ptr(),
             config.effective_slp_vectorization().into(),
         );
-        LLVMPassBuilderOptionsSetLoopUnrolling(options, config.effective_loop_unrolling().into());
+        LLVMPassBuilderOptionsSetLoopUnrolling(
+            guard.as_ptr(),
+            config.effective_loop_unrolling().into(),
+        );
         LLVMPassBuilderOptionsSetLoopInterleaving(
-            options,
+            guard.as_ptr(),
             config.effective_loop_interleaving().into(),
         );
-        LLVMPassBuilderOptionsSetMergeFunctions(options, config.effective_merge_functions().into());
+        LLVMPassBuilderOptionsSetMergeFunctions(
+            guard.as_ptr(),
+            config.effective_merge_functions().into(),
+        );
 
         if let Some(threshold) = config.inliner_threshold {
-            LLVMPassBuilderOptionsSetInlinerThreshold(options, threshold as i32);
+            LLVMPassBuilderOptionsSetInlinerThreshold(guard.as_ptr(), threshold as i32);
         }
 
-        LLVMPassBuilderOptionsSetVerifyEach(options, config.verify_each.into());
-        LLVMPassBuilderOptionsSetDebugLogging(options, config.debug_logging.into());
+        LLVMPassBuilderOptionsSetVerifyEach(guard.as_ptr(), config.verify_each.into());
+        LLVMPassBuilderOptionsSetDebugLogging(guard.as_ptr(), config.debug_logging.into());
     }
 
     // Build the pipeline string
@@ -547,35 +599,22 @@ pub fn run_optimization_passes(
     }
 
     let pipeline_cstr =
-        CString::new(pipeline.clone()).expect("pipeline string should not contain null bytes");
+        CString::new(pipeline.clone()).map_err(|_| OptimizationError::InvalidPipeline {
+            pipeline: pipeline.clone(),
+            message: "pipeline contains null bytes".to_string(),
+        })?;
 
     // Get raw pointers for LLVM C API
     let module_ref = module.as_mut_ptr();
     let tm_ref = target_machine.as_mut_ptr();
 
-    // Run the passes
-    let error = unsafe { LLVMRunPasses(module_ref, pipeline_cstr.as_ptr(), tm_ref, options) };
-
-    // Clean up options
-    unsafe {
-        LLVMDisposePassBuilderOptions(options);
-    }
+    // Run the passes (guard is dropped automatically after this, cleaning up options)
+    let error =
+        unsafe { LLVMRunPasses(module_ref, pipeline_cstr.as_ptr(), tm_ref, guard.as_ptr()) };
 
     // Check for errors
     if !error.is_null() {
-        let message = unsafe {
-            let msg_ptr = llvm_sys::error::LLVMGetErrorMessage(error);
-            let msg = if msg_ptr.is_null() {
-                "unknown error".to_string()
-            } else {
-                let msg = std::ffi::CStr::from_ptr(msg_ptr)
-                    .to_string_lossy()
-                    .into_owned();
-                llvm_sys::error::LLVMDisposeErrorMessage(msg_ptr);
-                msg
-            };
-            msg
-        };
+        let message = unsafe { extract_llvm_error_message(error) };
         return Err(OptimizationError::PassesFailed { message });
     }
 
@@ -608,14 +647,11 @@ pub fn run_custom_pipeline(
     target_machine: &TargetMachine,
     pipeline: &str,
 ) -> Result<(), OptimizationError> {
-    use llvm_sys::transforms::pass_builder::{
-        LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPasses,
-    };
+    use llvm_sys::transforms::pass_builder::LLVMRunPasses;
 
-    let options = unsafe { LLVMCreatePassBuilderOptions() };
-    if options.is_null() {
-        return Err(OptimizationError::PassBuilderOptionsCreationFailed);
-    }
+    // Create pass builder options with RAII cleanup
+    let guard = PassBuilderOptionsGuard::new()
+        .ok_or(OptimizationError::PassBuilderOptionsCreationFailed)?;
 
     let pipeline_cstr = CString::new(pipeline).map_err(|_| OptimizationError::InvalidPipeline {
         pipeline: pipeline.to_string(),
@@ -625,26 +661,12 @@ pub fn run_custom_pipeline(
     let module_ref = module.as_mut_ptr();
     let tm_ref = target_machine.as_mut_ptr();
 
-    let error = unsafe { LLVMRunPasses(module_ref, pipeline_cstr.as_ptr(), tm_ref, options) };
-
-    unsafe {
-        LLVMDisposePassBuilderOptions(options);
-    }
+    // Run the passes (guard is dropped automatically after this, cleaning up options)
+    let error =
+        unsafe { LLVMRunPasses(module_ref, pipeline_cstr.as_ptr(), tm_ref, guard.as_ptr()) };
 
     if !error.is_null() {
-        let message = unsafe {
-            let msg_ptr = llvm_sys::error::LLVMGetErrorMessage(error);
-            let msg = if msg_ptr.is_null() {
-                "unknown error".to_string()
-            } else {
-                let msg = std::ffi::CStr::from_ptr(msg_ptr)
-                    .to_string_lossy()
-                    .into_owned();
-                llvm_sys::error::LLVMDisposeErrorMessage(msg_ptr);
-                msg
-            };
-            msg
-        };
+        let message = unsafe { extract_llvm_error_message(error) };
         return Err(OptimizationError::PassesFailed { message });
     }
 
