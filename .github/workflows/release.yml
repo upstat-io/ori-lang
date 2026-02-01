@@ -166,7 +166,9 @@ jobs:
         run: |
           echo "$env:LLVM_PATH\bin" >> $env:GITHUB_PATH
           echo "LLVM_SYS_170_PREFIX=$env:LLVM_PATH" >> $env:GITHUB_ENV
-          & "$env:LLVM_PATH\bin\llvm-config.exe" --version
+          # Verify LLVM installation (llvm-config doesn't exist on Windows)
+          Test-Path "$env:LLVM_PATH\bin\clang.exe" || (Write-Error "LLVM not found" && exit 1)
+          & "$env:LLVM_PATH\bin\clang.exe" --version
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
