@@ -443,6 +443,36 @@ impl TypeRegistry {
     }
 }
 
+// =============================================================================
+// Built-in Type Registration
+// =============================================================================
+
+/// Register built-in enum types that are part of the language.
+///
+/// These types are always available without explicit imports:
+/// - `Ordering` with variants `Less`, `Equal`, `Greater`
+pub fn register_builtin_types(registry: &mut TypeRegistry, interner: &ori_ir::StringInterner) {
+    // Register Ordering enum: type Ordering = Less | Equal | Greater
+    let ordering_name = interner.intern("Ordering");
+    let less_name = interner.intern("Less");
+    let equal_name = interner.intern("Equal");
+    let greater_name = interner.intern("Greater");
+
+    // All variants are unit variants (no fields)
+    let variants = vec![
+        (less_name, vec![]),
+        (equal_name, vec![]),
+        (greater_name, vec![]),
+    ];
+
+    registry.register_enum(
+        ordering_name,
+        variants,
+        ori_ir::Span::default(), // Built-in, no source location
+        vec![],                  // No type parameters
+    );
+}
+
 /// Information about a variant constructor.
 #[derive(Clone, Debug)]
 pub struct VariantConstructorInfo {

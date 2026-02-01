@@ -4,10 +4,24 @@
 //! is fixed (not user-extensible), so pattern matching is preferred over
 //! trait objects for better performance and exhaustiveness checking.
 
+use ori_ir::StringInterner;
 use ori_patterns::{
     division_by_zero, integer_overflow, modulo_by_zero, no_such_method, wrong_arg_count,
     wrong_arg_type, EvalError, EvalResult, Heap, ScalarInt, Value,
 };
+
+// Duration formatting constants (nanoseconds per unit)
+const NS_PER_H: u64 = 60 * 60 * 1_000_000_000;
+const NS_PER_M: u64 = 60 * 1_000_000_000;
+const NS_PER_S: u64 = 1_000_000_000;
+const NS_PER_MS: u64 = 1_000_000;
+const NS_PER_US: u64 = 1_000;
+
+// Size formatting constants (bytes per unit)
+const BYTES_PER_TB: u64 = 1024 * 1024 * 1024 * 1024;
+const BYTES_PER_GB: u64 = 1024 * 1024 * 1024;
+const BYTES_PER_MB: u64 = 1024 * 1024;
+const BYTES_PER_KB: u64 = 1024;
 
 // Factory Helper Functions
 
@@ -73,6 +87,10 @@ fn dispatch_duration_associated(method: &str, args: &[Value]) -> EvalResult {
         "from_seconds" => duration_from_int(method, args, NS_PER_S),
         "from_minutes" => duration_from_int(method, args, NS_PER_M),
         "from_hours" => duration_from_int(method, args, NS_PER_H),
+        "default" => {
+            require_args("default", 0, args.len())?;
+            Ok(Value::Duration(0)) // 0ns is the default Duration
+        }
         _ => Err(no_such_method(method, "Duration")),
     }
 }
@@ -91,6 +109,10 @@ fn dispatch_size_associated(method: &str, args: &[Value]) -> EvalResult {
         "from_megabytes" => size_from_int(method, args, BYTES_PER_MB),
         "from_gigabytes" => size_from_int(method, args, BYTES_PER_GB),
         "from_terabytes" => size_from_int(method, args, BYTES_PER_TB),
+        "default" => {
+            require_args("default", 0, args.len())?;
+            Ok(Value::Size(0)) // 0b is the default Size
+        }
         _ => Err(no_such_method(method, "Size")),
     }
 }
@@ -179,6 +201,33 @@ fn require_size_arg(method: &str, args: &[Value], index: usize) -> Result<u64, E
     match args.get(index) {
         Some(Value::Size(s)) => Ok(*s),
         _ => Err(wrong_arg_type(method, "Size")),
+    }
+}
+
+/// Extract a bool argument at the given index.
+#[inline]
+fn require_bool_arg(method: &str, args: &[Value], index: usize) -> Result<bool, EvalError> {
+    match args.get(index) {
+        Some(Value::Bool(b)) => Ok(*b),
+        _ => Err(wrong_arg_type(method, "bool")),
+    }
+}
+
+/// Extract a char argument at the given index.
+#[inline]
+fn require_char_arg(method: &str, args: &[Value], index: usize) -> Result<char, EvalError> {
+    match args.get(index) {
+        Some(Value::Char(c)) => Ok(*c),
+        _ => Err(wrong_arg_type(method, "char")),
+    }
+}
+
+/// Extract a byte argument at the given index.
+#[inline]
+fn require_byte_arg(method: &str, args: &[Value], index: usize) -> Result<u8, EvalError> {
+    match args.get(index) {
+        Some(Value::Byte(b)) => Ok(*b),
+        _ => Err(wrong_arg_type(method, "byte")),
     }
 }
 
@@ -287,20 +336,31 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
 /// enum-based dispatch which is faster than trait objects for fixed type sets.
 ///
 /// Handles operator trait methods (add, sub, mul, etc.) uniformly for all types.
-pub fn dispatch_builtin_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+pub fn dispatch_builtin_method(
+    receiver: Value,
+    method: &str,
+    args: Vec<Value>,
+    interner: &StringInterner,
+) -> EvalResult {
     match &receiver {
-        Value::Int(_) => dispatch_int_method(receiver, method, args),
-        Value::Float(_) => dispatch_float_method(receiver, method, args),
-        Value::Bool(_) => dispatch_bool_method(receiver, method, args),
-        Value::List(_) => dispatch_list_method(receiver, method, args),
-        Value::Str(_) => dispatch_string_method(receiver, method, args),
+        Value::Int(_) => dispatch_int_method(receiver, method, args, interner),
+        Value::Float(_) => dispatch_float_method(receiver, method, args, interner),
+        Value::Bool(_) => dispatch_bool_method(receiver, method, args, interner),
+        Value::Char(_) => dispatch_char_method(receiver, method, args, interner),
+        Value::Byte(_) => dispatch_byte_method(receiver, method, args, interner),
+        Value::List(_) => dispatch_list_method(receiver, method, args, interner),
+        Value::Str(_) => dispatch_string_method(receiver, method, args, interner),
         Value::Map(_) => dispatch_map_method(receiver, method, args),
         Value::Range(_) => dispatch_range_method(receiver, method, args),
-        Value::Some(_) | Value::None => dispatch_option_method(receiver, method, args),
-        Value::Ok(_) | Value::Err(_) => dispatch_result_method(receiver, method, args),
+        Value::Some(_) | Value::None => dispatch_option_method(receiver, method, args, interner),
+        Value::Ok(_) | Value::Err(_) => dispatch_result_method(receiver, method, args, interner),
         Value::Newtype { .. } => dispatch_newtype_method(receiver, method, args),
-        Value::Duration(_) => dispatch_duration_method(receiver, method, args),
-        Value::Size(_) => dispatch_size_method(receiver, method, args),
+        Value::Duration(_) => dispatch_duration_method(receiver, method, args, interner),
+        Value::Size(_) => dispatch_size_method(receiver, method, args, interner),
+        // Ordering type (prelude sum type with built-in methods)
+        v if is_ordering_variant(v, interner) => {
+            dispatch_ordering_method(receiver, method, args, interner)
+        }
         _ => Err(no_such_method(method, receiver.type_name())),
     }
 }
@@ -312,7 +372,12 @@ pub fn dispatch_builtin_method(receiver: Value, method: &str, args: Vec<Value>) 
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-fn dispatch_int_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+fn dispatch_int_method(
+    receiver: Value,
+    method: &str,
+    args: Vec<Value>,
+    interner: &StringInterner,
+) -> EvalResult {
     let Value::Int(a) = receiver else {
         unreachable!("dispatch_int_method called with non-int receiver")
     };
@@ -414,6 +479,12 @@ fn dispatch_int_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalR
                 EvalError::new(format!("shift amount {} out of range (0-63)", b.raw()))
             })
         }
+        // Comparable trait
+        "compare" => {
+            require_args("compare", 1, args.len())?;
+            let b = require_scalar_int_arg("compare", &args, 0)?;
+            Ok(ordering_to_value(a.cmp(&b), interner))
+        }
         _ => Err(no_such_method(method, "int")),
     }
 }
@@ -423,7 +494,12 @@ fn dispatch_int_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalR
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-fn dispatch_float_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+fn dispatch_float_method(
+    receiver: Value,
+    method: &str,
+    args: Vec<Value>,
+    interner: &StringInterner,
+) -> EvalResult {
     let Value::Float(a) = receiver else {
         unreachable!("dispatch_float_method called with non-float receiver")
     };
@@ -453,6 +529,13 @@ fn dispatch_float_method(receiver: Value, method: &str, args: Vec<Value>) -> Eva
             require_args("neg", 0, args.len())?;
             Ok(Value::Float(-a))
         }
+        // Comparable trait - IEEE 754 total ordering
+        "compare" => {
+            require_args("compare", 1, args.len())?;
+            let b = require_float_arg("compare", &args, 0)?;
+            // Use total_cmp for IEEE 754 total ordering (handles NaN consistently)
+            Ok(ordering_to_value(a.total_cmp(&b), interner))
+        }
         _ => Err(no_such_method(method, "float")),
     }
 }
@@ -462,7 +545,12 @@ fn dispatch_float_method(receiver: Value, method: &str, args: Vec<Value>) -> Eva
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-fn dispatch_bool_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+fn dispatch_bool_method(
+    receiver: Value,
+    method: &str,
+    args: Vec<Value>,
+    interner: &StringInterner,
+) -> EvalResult {
     let Value::Bool(a) = receiver else {
         unreachable!("dispatch_bool_method called with non-bool receiver")
     };
@@ -472,7 +560,65 @@ fn dispatch_bool_method(receiver: Value, method: &str, args: Vec<Value>) -> Eval
             require_args("not", 0, args.len())?;
             Ok(Value::Bool(!a))
         }
+        // Comparable trait - false < true
+        "compare" => {
+            require_args("compare", 1, args.len())?;
+            let b = require_bool_arg("compare", &args, 0)?;
+            Ok(ordering_to_value(a.cmp(&b), interner))
+        }
         _ => Err(no_such_method(method, "bool")),
+    }
+}
+
+/// Dispatch methods on char values.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
+fn dispatch_char_method(
+    receiver: Value,
+    method: &str,
+    args: Vec<Value>,
+    interner: &StringInterner,
+) -> EvalResult {
+    let Value::Char(c) = receiver else {
+        unreachable!("dispatch_char_method called with non-char receiver")
+    };
+
+    match method {
+        // Comparable trait - Unicode codepoint order
+        "compare" => {
+            require_args("compare", 1, args.len())?;
+            let other = require_char_arg("compare", &args, 0)?;
+            Ok(ordering_to_value(c.cmp(&other), interner))
+        }
+        _ => Err(no_such_method(method, "char")),
+    }
+}
+
+/// Dispatch methods on byte values.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
+fn dispatch_byte_method(
+    receiver: Value,
+    method: &str,
+    args: Vec<Value>,
+    interner: &StringInterner,
+) -> EvalResult {
+    let Value::Byte(b) = receiver else {
+        unreachable!("dispatch_byte_method called with non-byte receiver")
+    };
+
+    match method {
+        // Comparable trait - numeric order
+        "compare" => {
+            require_args("compare", 1, args.len())?;
+            let other = require_byte_arg("compare", &args, 0)?;
+            Ok(ordering_to_value(b.cmp(&other), interner))
+        }
+        _ => Err(no_such_method(method, "byte")),
     }
 }
 
@@ -502,7 +648,12 @@ fn dispatch_newtype_method(receiver: Value, method: &str, args: Vec<Value>) -> E
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-fn dispatch_list_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+fn dispatch_list_method(
+    receiver: Value,
+    method: &str,
+    args: Vec<Value>,
+    interner: &StringInterner,
+) -> EvalResult {
     let Value::List(items) = receiver else {
         unreachable!("dispatch_list_method called with non-list receiver")
     };
@@ -523,6 +674,12 @@ fn dispatch_list_method(receiver: Value, method: &str, args: Vec<Value>) -> Eval
             result.extend_from_slice(other);
             Ok(Value::list(result))
         }
+        "compare" => {
+            require_args("compare", 1, args.len())?;
+            let other = require_list_arg("compare", &args, 0)?;
+            let ord = compare_lists(&items, other, interner)?;
+            Ok(ordering_to_value(ord, interner))
+        }
         _ => Err(no_such_method(method, "list")),
     }
 }
@@ -532,7 +689,12 @@ fn dispatch_list_method(receiver: Value, method: &str, args: Vec<Value>) -> Eval
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-fn dispatch_string_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+fn dispatch_string_method(
+    receiver: Value,
+    method: &str,
+    args: Vec<Value>,
+    interner: &StringInterner,
+) -> EvalResult {
     let Value::Str(s) = receiver else {
         unreachable!("dispatch_string_method called with non-string receiver")
     };
@@ -563,6 +725,12 @@ fn dispatch_string_method(receiver: Value, method: &str, args: Vec<Value>) -> Ev
             let other = require_str_arg("add", &args, 0)?;
             let result = format!("{}{}", &**s, other);
             Ok(Value::string(result))
+        }
+        // Comparable trait - lexicographic (Unicode codepoint)
+        "compare" => {
+            require_args("compare", 1, args.len())?;
+            let other = require_str_arg("compare", &args, 0)?;
+            Ok(ordering_to_value(s.as_str().cmp(other), interner))
         }
         _ => Err(no_such_method(method, "str")),
     }
@@ -624,7 +792,12 @@ fn dispatch_map_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalR
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-fn dispatch_option_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+fn dispatch_option_method(
+    receiver: Value,
+    method: &str,
+    args: Vec<Value>,
+    interner: &StringInterner,
+) -> EvalResult {
     match (method, &receiver) {
         ("unwrap" | "unwrap_or", Value::Some(v)) => Ok((**v).clone()),
         ("unwrap", Value::None) => Err(EvalError::new("called unwrap on None")),
@@ -637,6 +810,12 @@ fn dispatch_option_method(receiver: Value, method: &str, args: Vec<Value>) -> Ev
                 None => unreachable!("require_args verified length is 1"),
             }
         }
+        // Comparable trait - None < Some(_)
+        ("compare", _) => {
+            require_args("compare", 1, args.len())?;
+            let ord = compare_option_values(&receiver, &args[0], interner)?;
+            Ok(ordering_to_value(ord, interner))
+        }
         _ => Err(no_such_method(method, "Option")),
     }
 }
@@ -646,12 +825,26 @@ fn dispatch_option_method(receiver: Value, method: &str, args: Vec<Value>) -> Ev
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-fn dispatch_result_method(receiver: Value, method: &str, _args: Vec<Value>) -> EvalResult {
-    match (method, &receiver) {
-        ("unwrap", Value::Ok(v)) => Ok((**v).clone()),
-        ("unwrap", Value::Err(e)) => Err(EvalError::new(format!("called unwrap on Err: {e:?}"))),
-        ("is_ok", Value::Ok(_)) | ("is_err", Value::Err(_)) => Ok(Value::Bool(true)),
-        ("is_ok", Value::Err(_)) | ("is_err", Value::Ok(_)) => Ok(Value::Bool(false)),
+fn dispatch_result_method(
+    receiver: Value,
+    method: &str,
+    args: Vec<Value>,
+    interner: &StringInterner,
+) -> EvalResult {
+    match method {
+        "unwrap" => match &receiver {
+            Value::Ok(v) => Ok((**v).clone()),
+            Value::Err(e) => Err(EvalError::new(format!("called unwrap on Err: {e:?}"))),
+            _ => unreachable!(),
+        },
+        "is_ok" => Ok(Value::Bool(matches!(&receiver, Value::Ok(_)))),
+        "is_err" => Ok(Value::Bool(matches!(&receiver, Value::Err(_)))),
+        "compare" => {
+            require_args("compare", 1, args.len())?;
+            let other = &args[0];
+            let ord = compare_result_values(&receiver, other, interner)?;
+            Ok(ordering_to_value(ord, interner))
+        }
         _ => Err(no_such_method(method, "Result")),
     }
 }
@@ -662,7 +855,15 @@ fn dispatch_result_method(receiver: Value, method: &str, _args: Vec<Value>) -> E
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-fn dispatch_duration_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+fn dispatch_duration_method(
+    receiver: Value,
+    method: &str,
+    args: Vec<Value>,
+    interner: &StringInterner,
+) -> EvalResult {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
     let Value::Duration(ns) = receiver else {
         unreachable!("dispatch_duration_method called with non-duration receiver")
     };
@@ -682,23 +883,23 @@ fn dispatch_duration_method(receiver: Value, method: &str, args: Vec<Value>) -> 
                 .map(Value::Duration)
                 .ok_or_else(|| integer_overflow("duration addition"))
         }
-        "sub" => {
-            require_args("sub", 1, args.len())?;
-            let other = require_duration_arg("sub", &args, 0)?;
+        "sub" | "subtract" => {
+            require_args(method, 1, args.len())?;
+            let other = require_duration_arg(method, &args, 0)?;
             ns.checked_sub(other)
                 .map(Value::Duration)
                 .ok_or_else(|| integer_overflow("duration subtraction"))
         }
-        "mul" => {
-            require_args("mul", 1, args.len())?;
-            let scalar = require_int_arg("mul", &args, 0)?;
+        "mul" | "multiply" => {
+            require_args(method, 1, args.len())?;
+            let scalar = require_int_arg(method, &args, 0)?;
             ns.checked_mul(scalar)
                 .map(Value::Duration)
                 .ok_or_else(|| integer_overflow("duration multiplication"))
         }
-        "div" => {
-            require_args("div", 1, args.len())?;
-            let scalar = require_int_arg("div", &args, 0)?;
+        "div" | "divide" => {
+            require_args(method, 1, args.len())?;
+            let scalar = require_int_arg(method, &args, 0)?;
             if scalar == 0 {
                 Err(division_by_zero())
             } else {
@@ -707,9 +908,9 @@ fn dispatch_duration_method(receiver: Value, method: &str, args: Vec<Value>) -> 
                     .ok_or_else(|| integer_overflow("duration division"))
             }
         }
-        "rem" => {
-            require_args("rem", 1, args.len())?;
-            let other = require_duration_arg("rem", &args, 0)?;
+        "rem" | "remainder" => {
+            require_args(method, 1, args.len())?;
+            let other = require_duration_arg(method, &args, 0)?;
             if other == 0 {
                 Err(modulo_by_zero())
             } else {
@@ -718,13 +919,73 @@ fn dispatch_duration_method(receiver: Value, method: &str, args: Vec<Value>) -> 
                     .ok_or_else(|| integer_overflow("duration modulo"))
             }
         }
-        "neg" => {
-            require_args("neg", 0, args.len())?;
+        "neg" | "negate" => {
+            require_args(method, 0, args.len())?;
             ns.checked_neg()
                 .map(Value::Duration)
                 .ok_or_else(|| integer_overflow("duration negation"))
         }
+        // Trait methods
+        "hash" => {
+            require_args("hash", 0, args.len())?;
+            let mut hasher = DefaultHasher::new();
+            "Duration".hash(&mut hasher);
+            ns.hash(&mut hasher);
+            #[expect(
+                clippy::cast_possible_wrap,
+                reason = "Hash values are opaque identifiers"
+            )]
+            Ok(Value::int(hasher.finish() as i64))
+        }
+        "clone" => {
+            require_args("clone", 0, args.len())?;
+            Ok(Value::Duration(ns))
+        }
+        "to_str" => {
+            require_args("to_str", 0, args.len())?;
+            Ok(Value::string(format_duration(ns)))
+        }
+        "equals" => {
+            require_args("equals", 1, args.len())?;
+            let other = require_duration_arg("equals", &args, 0)?;
+            Ok(Value::Bool(ns == other))
+        }
+        "compare" => {
+            require_args("compare", 1, args.len())?;
+            let other = require_duration_arg("compare", &args, 0)?;
+            Ok(ordering_to_value(ns.cmp(&other), interner))
+        }
         _ => Err(no_such_method(method, "Duration")),
+    }
+}
+
+/// Format a Duration (nanoseconds) as a human-readable string.
+fn format_duration(ns: i64) -> String {
+    let abs_ns = ns.unsigned_abs();
+    let sign = if ns < 0 { "-" } else { "" };
+
+    if abs_ns == 0 {
+        return "0ns".to_string();
+    }
+
+    // Use the largest unit that gives a whole number
+    if abs_ns.is_multiple_of(NS_PER_H) {
+        let hours = abs_ns / NS_PER_H;
+        format!("{sign}{hours}h")
+    } else if abs_ns.is_multiple_of(NS_PER_M) {
+        let minutes = abs_ns / NS_PER_M;
+        format!("{sign}{minutes}m")
+    } else if abs_ns.is_multiple_of(NS_PER_S) {
+        let seconds = abs_ns / NS_PER_S;
+        format!("{sign}{seconds}s")
+    } else if abs_ns.is_multiple_of(NS_PER_MS) {
+        let milliseconds = abs_ns / NS_PER_MS;
+        format!("{sign}{milliseconds}ms")
+    } else if abs_ns.is_multiple_of(NS_PER_US) {
+        let microseconds = abs_ns / NS_PER_US;
+        format!("{sign}{microseconds}us")
+    } else {
+        format!("{sign}{abs_ns}ns")
     }
 }
 
@@ -734,7 +995,15 @@ fn dispatch_duration_method(receiver: Value, method: &str, args: Vec<Value>) -> 
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-fn dispatch_size_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+fn dispatch_size_method(
+    receiver: Value,
+    method: &str,
+    args: Vec<Value>,
+    interner: &StringInterner,
+) -> EvalResult {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
     let Value::Size(bytes) = receiver else {
         unreachable!("dispatch_size_method called with non-size receiver")
     };
@@ -761,17 +1030,17 @@ fn dispatch_size_method(receiver: Value, method: &str, args: Vec<Value>) -> Eval
                 .map(Value::Size)
                 .ok_or_else(|| integer_overflow("size addition"))
         }
-        "sub" => {
-            require_args("sub", 1, args.len())?;
-            let other = require_size_arg("sub", &args, 0)?;
+        "sub" | "subtract" => {
+            require_args(method, 1, args.len())?;
+            let other = require_size_arg(method, &args, 0)?;
             bytes
                 .checked_sub(other)
                 .map(Value::Size)
                 .ok_or_else(|| EvalError::new("size subtraction would result in negative value"))
         }
-        "mul" => {
-            require_args("mul", 1, args.len())?;
-            let scalar = require_int_arg("mul", &args, 0)?;
+        "mul" | "multiply" => {
+            require_args(method, 1, args.len())?;
+            let scalar = require_int_arg(method, &args, 0)?;
             if scalar < 0 {
                 return Err(EvalError::new("cannot multiply Size by negative integer"));
             }
@@ -781,9 +1050,9 @@ fn dispatch_size_method(receiver: Value, method: &str, args: Vec<Value>) -> Eval
                 .map(Value::Size)
                 .ok_or_else(|| integer_overflow("size multiplication"))
         }
-        "div" => {
-            require_args("div", 1, args.len())?;
-            let scalar = require_int_arg("div", &args, 0)?;
+        "div" | "divide" => {
+            require_args(method, 1, args.len())?;
+            let scalar = require_int_arg(method, &args, 0)?;
             if scalar == 0 {
                 return Err(division_by_zero());
             }
@@ -796,9 +1065,9 @@ fn dispatch_size_method(receiver: Value, method: &str, args: Vec<Value>) -> Eval
                 .map(Value::Size)
                 .ok_or_else(|| integer_overflow("size division"))
         }
-        "rem" => {
-            require_args("rem", 1, args.len())?;
-            let other = require_size_arg("rem", &args, 0)?;
+        "rem" | "remainder" => {
+            require_args(method, 1, args.len())?;
+            let other = require_size_arg(method, &args, 0)?;
             if other == 0 {
                 Err(modulo_by_zero())
             } else {
@@ -808,6 +1077,293 @@ fn dispatch_size_method(receiver: Value, method: &str, args: Vec<Value>) -> Eval
                     .ok_or_else(|| integer_overflow("size modulo"))
             }
         }
+        // Trait methods
+        "hash" => {
+            require_args("hash", 0, args.len())?;
+            let mut hasher = DefaultHasher::new();
+            "Size".hash(&mut hasher);
+            bytes.hash(&mut hasher);
+            #[expect(
+                clippy::cast_possible_wrap,
+                reason = "Hash values are opaque identifiers"
+            )]
+            Ok(Value::int(hasher.finish() as i64))
+        }
+        "clone" => {
+            require_args("clone", 0, args.len())?;
+            Ok(Value::Size(bytes))
+        }
+        "to_str" => {
+            require_args("to_str", 0, args.len())?;
+            Ok(Value::string(format_size(bytes)))
+        }
+        "equals" => {
+            require_args("equals", 1, args.len())?;
+            let other = require_size_arg("equals", &args, 0)?;
+            Ok(Value::Bool(bytes == other))
+        }
+        "compare" => {
+            require_args("compare", 1, args.len())?;
+            let other = require_size_arg("compare", &args, 0)?;
+            Ok(ordering_to_value(bytes.cmp(&other), interner))
+        }
         _ => Err(no_such_method(method, "Size")),
+    }
+}
+
+/// Format a Size (bytes) as a human-readable string.
+fn format_size(bytes: u64) -> String {
+    if bytes == 0 {
+        return "0b".to_string();
+    }
+
+    // Use the largest unit that gives a whole number
+    if bytes.is_multiple_of(BYTES_PER_TB) {
+        let terabytes = bytes / BYTES_PER_TB;
+        format!("{terabytes}tb")
+    } else if bytes.is_multiple_of(BYTES_PER_GB) {
+        let gigabytes = bytes / BYTES_PER_GB;
+        format!("{gigabytes}gb")
+    } else if bytes.is_multiple_of(BYTES_PER_MB) {
+        let megabytes = bytes / BYTES_PER_MB;
+        format!("{megabytes}mb")
+    } else if bytes.is_multiple_of(BYTES_PER_KB) {
+        let kilobytes = bytes / BYTES_PER_KB;
+        format!("{kilobytes}kb")
+    } else {
+        format!("{bytes}b")
+    }
+}
+
+/// Compare two Option values.
+///
+/// Per spec: None < Some(_). When both are Some, compare inner values.
+fn compare_option_values(
+    a: &Value,
+    b: &Value,
+    interner: &StringInterner,
+) -> Result<std::cmp::Ordering, EvalError> {
+    use std::cmp::Ordering;
+    match (a, b) {
+        (Value::None, Value::None) => Ok(Ordering::Equal),
+        (Value::None, Value::Some(_)) => Ok(Ordering::Less),
+        (Value::Some(_), Value::None) => Ok(Ordering::Greater),
+        (Value::Some(a_inner), Value::Some(b_inner)) => compare_values(a_inner, b_inner, interner),
+        _ => Err(EvalError::new("compare requires Option values")),
+    }
+}
+
+/// Compare two values of the same type.
+///
+/// Used for comparing inner values of Option and other compound types.
+fn compare_values(
+    a: &Value,
+    b: &Value,
+    interner: &StringInterner,
+) -> Result<std::cmp::Ordering, EvalError> {
+    use std::cmp::Ordering;
+    match (a, b) {
+        (Value::Int(a), Value::Int(b)) => Ok(a.cmp(b)),
+        (Value::Float(a), Value::Float(b)) => Ok(a.total_cmp(b)),
+        (Value::Bool(a), Value::Bool(b)) => Ok(a.cmp(b)),
+        (Value::Str(a), Value::Str(b)) => Ok(a.as_str().cmp(b.as_str())),
+        (Value::Char(a), Value::Char(b)) => Ok(a.cmp(b)),
+        (Value::Byte(a), Value::Byte(b)) => Ok(a.cmp(b)),
+        (Value::Duration(a), Value::Duration(b)) => Ok(a.cmp(b)),
+        (Value::Size(a), Value::Size(b)) => Ok(a.cmp(b)),
+        (Value::None, Value::None) => Ok(Ordering::Equal),
+        (Value::None, Value::Some(_)) | (Value::Ok(_), Value::Err(_)) => Ok(Ordering::Less),
+        (Value::Some(_), Value::None) | (Value::Err(_), Value::Ok(_)) => Ok(Ordering::Greater),
+        (Value::Some(a_inner), Value::Some(b_inner))
+        | (Value::Ok(a_inner), Value::Ok(b_inner))
+        | (Value::Err(a_inner), Value::Err(b_inner)) => compare_values(a_inner, b_inner, interner),
+        // List comparison: lexicographic
+        (Value::List(a_items), Value::List(b_items)) => compare_lists(a_items, b_items, interner),
+        _ => Err(EvalError::new(format!(
+            "cannot compare {} with {}",
+            a.type_name(),
+            b.type_name()
+        ))),
+    }
+}
+
+/// Compare two lists lexicographically.
+///
+/// Compares element by element. First difference determines the result.
+/// If one is a prefix of the other, the shorter list is less.
+fn compare_lists(
+    a: &[Value],
+    b: &[Value],
+    interner: &StringInterner,
+) -> Result<std::cmp::Ordering, EvalError> {
+    use std::cmp::Ordering;
+    for (a_item, b_item) in a.iter().zip(b.iter()) {
+        let ord = compare_values(a_item, b_item, interner)?;
+        if ord != Ordering::Equal {
+            return Ok(ord);
+        }
+    }
+    // All compared elements are equal, compare lengths
+    Ok(a.len().cmp(&b.len()))
+}
+
+/// Compare two Result values.
+///
+/// Per spec: Ok(_) < Err(_). When both are same variant, compare inner values.
+fn compare_result_values(
+    a: &Value,
+    b: &Value,
+    interner: &StringInterner,
+) -> Result<std::cmp::Ordering, EvalError> {
+    use std::cmp::Ordering;
+    match (a, b) {
+        (Value::Ok(a_inner), Value::Ok(b_inner)) | (Value::Err(a_inner), Value::Err(b_inner)) => {
+            compare_values(a_inner, b_inner, interner)
+        }
+        (Value::Ok(_), Value::Err(_)) => Ok(Ordering::Less),
+        (Value::Err(_), Value::Ok(_)) => Ok(Ordering::Greater),
+        _ => Err(EvalError::new("compare requires Result values")),
+    }
+}
+
+/// Convert Rust Ordering to Ori Ordering value.
+///
+/// Creates an Ordering variant (Less, Equal, or Greater) using the interner.
+fn ordering_to_value(ord: std::cmp::Ordering, interner: &StringInterner) -> Value {
+    use std::cmp::Ordering;
+    let ordering_type = interner.intern("Ordering");
+    let variant_name = match ord {
+        Ordering::Less => interner.intern("Less"),
+        Ordering::Equal => interner.intern("Equal"),
+        Ordering::Greater => interner.intern("Greater"),
+    };
+    Value::variant(ordering_type, variant_name, vec![])
+}
+
+// Ordering Type Method Dispatch
+
+/// Dispatch methods on Ordering values.
+///
+/// Implements the methods specified in ordering-type-proposal.md:
+/// - `is_less()`, `is_equal()`, `is_greater()` → `bool`
+/// - `is_less_or_equal()`, `is_greater_or_equal()` → `bool`
+/// - `reverse()` → `Ordering`
+/// - `compare()` → `Ordering` (Comparable trait)
+/// - `equals()` → `bool` (Eq trait)
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
+fn dispatch_ordering_method(
+    receiver: Value,
+    method: &str,
+    args: Vec<Value>,
+    interner: &StringInterner,
+) -> EvalResult {
+    let Value::Variant {
+        variant_name,
+        type_name,
+        ..
+    } = &receiver
+    else {
+        unreachable!("dispatch_ordering_method called with non-variant receiver")
+    };
+
+    // Resolve variant name to determine which Ordering value we have
+    let variant_str = interner.lookup(*variant_name);
+
+    match method {
+        // Predicate methods
+        "is_less" => Ok(Value::Bool(variant_str == "Less")),
+        "is_equal" => Ok(Value::Bool(variant_str == "Equal")),
+        "is_greater" => Ok(Value::Bool(variant_str == "Greater")),
+        "is_less_or_equal" => Ok(Value::Bool(variant_str == "Less" || variant_str == "Equal")),
+        "is_greater_or_equal" => Ok(Value::Bool(
+            variant_str == "Greater" || variant_str == "Equal",
+        )),
+
+        // Reverse method
+        "reverse" => {
+            let new_variant = match variant_str {
+                "Less" => interner.intern("Greater"),
+                "Equal" => interner.intern("Equal"),
+                "Greater" => interner.intern("Less"),
+                _ => unreachable!("invalid Ordering variant: {}", variant_str),
+            };
+            Ok(Value::variant(*type_name, new_variant, vec![]))
+        }
+
+        // Clone trait
+        "clone" => Ok(receiver),
+
+        // Printable and Debug traits (same representation for Ordering)
+        "to_str" | "debug" => Ok(Value::string(variant_str)),
+
+        // Hashable trait
+        "hash" => {
+            let hash_val = match variant_str {
+                "Less" => -1i64,
+                "Equal" => 0i64,
+                "Greater" => 1i64,
+                _ => unreachable!("invalid Ordering variant"),
+            };
+            Ok(Value::Int(hash_val.into()))
+        }
+
+        // Eq trait
+        "equals" => {
+            require_args("equals", 1, args.len())?;
+            let other = &args[0];
+            let Value::Variant {
+                variant_name: other_variant,
+                ..
+            } = other
+            else {
+                return Err(EvalError::new("equals requires Ordering value"));
+            };
+            let other_str = interner.lookup(*other_variant);
+            Ok(Value::Bool(variant_str == other_str))
+        }
+
+        // Comparable trait: Less < Equal < Greater
+        "compare" => {
+            require_args("compare", 1, args.len())?;
+            let other = &args[0];
+            let Value::Variant {
+                variant_name: other_variant,
+                ..
+            } = other
+            else {
+                return Err(EvalError::new("compare requires Ordering value"));
+            };
+            let other_str = interner.lookup(*other_variant);
+
+            // Convert to numeric for comparison: Less=-1, Equal=0, Greater=1
+            let self_ord = match variant_str {
+                "Less" => -1i8,
+                "Equal" => 0i8,
+                "Greater" => 1i8,
+                _ => unreachable!("invalid Ordering variant"),
+            };
+            let other_ord = match other_str {
+                "Less" => -1i8,
+                "Equal" => 0i8,
+                "Greater" => 1i8,
+                _ => unreachable!("invalid Ordering variant"),
+            };
+
+            Ok(ordering_to_value(self_ord.cmp(&other_ord), interner))
+        }
+
+        _ => Err(no_such_method(method, "Ordering")),
+    }
+}
+
+/// Check if a `Value::Variant` is an Ordering type.
+fn is_ordering_variant(value: &Value, interner: &StringInterner) -> bool {
+    if let Value::Variant { type_name, .. } = value {
+        interner.lookup(*type_name) == "Ordering"
+    } else {
+        false
     }
 }

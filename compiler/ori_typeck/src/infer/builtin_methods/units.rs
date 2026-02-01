@@ -36,55 +36,103 @@ impl BuiltinMethodHandler for UnitsMethodHandler {
     fn check(
         &self,
         _ctx: &mut InferenceContext,
-        _interner: &StringInterner,
+        interner: &StringInterner,
         receiver_ty: &Type,
         method: &str,
         _args: &[Type],
         _span: Span,
     ) -> MethodTypeResult {
         match receiver_ty {
-            Type::Duration => check_duration_method(method),
-            Type::Size => check_size_method(method),
+            Type::Duration => check_duration_method(method, interner),
+            Type::Size => check_size_method(method, interner),
             _ => unreachable!("handles() verified type is Duration or Size"),
         }
     }
 }
 
-/// Check unit extraction methods that return `int`.
-///
-/// Both Duration and Size have extraction methods that convert the value
-/// to a specific unit (e.g., `seconds()`, `bytes()`). This helper factors
-/// out the common pattern.
-fn check_unit_method(method: &str, type_name: &str, valid_methods: &[&str]) -> MethodTypeResult {
-    if valid_methods.contains(&method) {
-        MethodTypeResult::Ok(Type::Int)
-    } else {
-        MethodTypeResult::Err(MethodTypeError::new(
-            format!("unknown method `{method}` for type `{type_name}`"),
-            ErrorCode::E2002,
-        ))
-    }
-}
-
-/// Duration extraction methods.
-const DURATION_METHODS: &[&str] = &[
+/// Duration extraction methods (returning int).
+const DURATION_INT_METHODS: &[&str] = &[
     "nanoseconds",
     "microseconds",
     "milliseconds",
     "seconds",
     "minutes",
     "hours",
+    "hash", // Hashable trait
 ];
 
-/// Size extraction methods.
-const SIZE_METHODS: &[&str] = &["bytes", "kilobytes", "megabytes", "gigabytes", "terabytes"];
+/// Size extraction methods (returning int).
+const SIZE_INT_METHODS: &[&str] = &[
+    "bytes",
+    "kilobytes",
+    "megabytes",
+    "gigabytes",
+    "terabytes",
+    "hash", // Hashable trait
+];
 
-fn check_duration_method(method: &str) -> MethodTypeResult {
-    check_unit_method(method, "Duration", DURATION_METHODS)
+fn check_duration_method(method: &str, interner: &StringInterner) -> MethodTypeResult {
+    // Check int-returning methods
+    if DURATION_INT_METHODS.contains(&method) {
+        return MethodTypeResult::Ok(Type::Int);
+    }
+    // Clone returns self type
+    if method == "clone" {
+        return MethodTypeResult::Ok(Type::Duration);
+    }
+    // to_str returns str (Printable trait)
+    if method == "to_str" {
+        return MethodTypeResult::Ok(Type::Str);
+    }
+    // equals returns bool (Eq trait)
+    if method == "equals" {
+        return MethodTypeResult::Ok(Type::Bool);
+    }
+    // compare returns Ordering (Comparable trait)
+    if method == "compare" {
+        let ordering = interner.intern("Ordering");
+        return MethodTypeResult::Ok(Type::Named(ordering));
+    }
+    // Operator method aliases
+    if method == "negate" || method == "neg" {
+        return MethodTypeResult::Ok(Type::Duration);
+    }
+    MethodTypeResult::Err(MethodTypeError::new(
+        format!("unknown method `{method}` for type `Duration`"),
+        ErrorCode::E2002,
+    ))
 }
 
-fn check_size_method(method: &str) -> MethodTypeResult {
-    check_unit_method(method, "Size", SIZE_METHODS)
+fn check_size_method(method: &str, interner: &StringInterner) -> MethodTypeResult {
+    // Check int-returning methods
+    if SIZE_INT_METHODS.contains(&method) {
+        return MethodTypeResult::Ok(Type::Int);
+    }
+    // Clone returns self type
+    if method == "clone" {
+        return MethodTypeResult::Ok(Type::Size);
+    }
+    // to_str returns str (Printable trait)
+    if method == "to_str" {
+        return MethodTypeResult::Ok(Type::Str);
+    }
+    // equals returns bool (Eq trait)
+    if method == "equals" {
+        return MethodTypeResult::Ok(Type::Bool);
+    }
+    // compare returns Ordering (Comparable trait)
+    if method == "compare" {
+        let ordering = interner.intern("Ordering");
+        return MethodTypeResult::Ok(Type::Named(ordering));
+    }
+    // Operator method alias
+    if method == "remainder" || method == "rem" {
+        return MethodTypeResult::Ok(Type::Size);
+    }
+    MethodTypeResult::Err(MethodTypeError::new(
+        format!("unknown method `{method}` for type `Size`"),
+        ErrorCode::E2002,
+    ))
 }
 
 /// Check unit factory methods (associated functions).
@@ -141,12 +189,23 @@ const SIZE_FACTORIES: &[&str] = &[
     "from_terabytes",
 ];
 
-/// Check Duration associated functions (factory methods).
+/// Check Duration associated functions (factory methods and default).
 fn check_duration_associated(
     ctx: &mut InferenceContext,
     method: &str,
     args: &[Type],
 ) -> Option<MethodTypeResult> {
+    // Default trait associated function
+    if method == "default" {
+        if !args.is_empty() {
+            return Some(MethodTypeResult::Err(MethodTypeError::new(
+                format!("Duration.default expects 0 arguments, found {}", args.len()),
+                ErrorCode::E2004,
+            )));
+        }
+        return Some(MethodTypeResult::Ok(Type::Duration));
+    }
+
     check_unit_associated(
         ctx,
         method,
@@ -157,11 +216,22 @@ fn check_duration_associated(
     )
 }
 
-/// Check Size associated functions (factory methods).
+/// Check Size associated functions (factory methods and default).
 fn check_size_associated(
     ctx: &mut InferenceContext,
     method: &str,
     args: &[Type],
 ) -> Option<MethodTypeResult> {
+    // Default trait associated function
+    if method == "default" {
+        if !args.is_empty() {
+            return Some(MethodTypeResult::Err(MethodTypeError::new(
+                format!("Size.default expects 0 arguments, found {}", args.len()),
+                ErrorCode::E2004,
+            )));
+        }
+        return Some(MethodTypeResult::Ok(Type::Size));
+    }
+
     check_unit_associated(ctx, method, args, "Size", SIZE_FACTORIES, Type::Size)
 }

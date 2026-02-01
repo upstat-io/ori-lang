@@ -8,6 +8,7 @@ mod list;
 mod map;
 mod numeric;
 mod option;
+mod ordering;
 mod result;
 mod string;
 mod units;
@@ -31,8 +32,16 @@ pub use units::UnitsMethodHandler;
 /// Sorted by type then method for deterministic comparison.
 pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     // bool
+    ("bool", "compare"),
     ("bool", "to_string"),
+    // byte
+    ("byte", "compare"),
+    ("byte", "to_string"),
+    // char
+    ("char", "compare"),
+    ("char", "to_string"),
     // duration
+    ("duration", "compare"),
     ("duration", "hours"),
     ("duration", "microseconds"),
     ("duration", "milliseconds"),
@@ -56,6 +65,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("int", "min"),
     ("int", "to_string"),
     // list
+    ("list", "compare"),
     ("list", "contains"),
     ("list", "filter"),
     ("list", "find"),
@@ -80,6 +90,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("map", "values"),
     // option
     ("option", "and_then"),
+    ("option", "compare"),
     ("option", "filter"),
     ("option", "is_none"),
     ("option", "is_some"),
@@ -87,8 +98,18 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("option", "ok_or"),
     ("option", "unwrap"),
     ("option", "unwrap_or"),
+    // ordering
+    ("ordering", "compare"),
+    ("ordering", "equals"),
+    ("ordering", "is_equal"),
+    ("ordering", "is_greater"),
+    ("ordering", "is_greater_or_equal"),
+    ("ordering", "is_less"),
+    ("ordering", "is_less_or_equal"),
+    ("ordering", "reverse"),
     // result
     ("result", "and_then"),
+    ("result", "compare"),
     ("result", "err"),
     ("result", "is_err"),
     ("result", "is_ok"),
@@ -100,6 +121,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("result", "unwrap_or"),
     // size
     ("size", "bytes"),
+    ("size", "compare"),
     ("size", "gigabytes"),
     ("size", "kilobytes"),
     ("size", "megabytes"),
@@ -107,6 +129,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     // str
     ("str", "bytes"),
     ("str", "chars"),
+    ("str", "compare"),
     ("str", "contains"),
     ("str", "ends_with"),
     ("str", "is_empty"),
@@ -227,13 +250,17 @@ impl BuiltinMethodRegistry {
                 self.result
                     .check(ctx, interner, receiver_ty, method, args, span)
             }
-            Type::Int | Type::Float | Type::Bool => {
+            Type::Int | Type::Float | Type::Bool | Type::Char | Type::Byte => {
                 self.numeric
                     .check(ctx, interner, receiver_ty, method, args, span)
             }
             Type::Duration | Type::Size => {
                 self.units
                     .check(ctx, interner, receiver_ty, method, args, span)
+            }
+            // Ordering type (prelude sum type with built-in methods)
+            ty if ordering::is_ordering_type(ty, interner) => {
+                ordering::check_ordering_method(method, interner)
             }
             _ => return None,
         })

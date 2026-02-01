@@ -1,0 +1,182 @@
+// Spec: 06-types.md § Duration Type, Size Type
+// Spec: 07-properties-of-types.md § Comparable
+// Tests for Comparable trait implementation on Duration and Size types
+// Tests the explicit compare() method that returns Ordering
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Duration — Comparable Trait (compare method)
+// =============================================================================
+
+@test_duration_compare_less tests @duration_cmp_less () -> void = run(
+    let result = 100ms.compare(other: 200ms),
+    assert(cond: result.is_less()),
+    assert(cond: !result.is_equal()),
+    assert(cond: !result.is_greater()),
+)
+
+@duration_cmp_less () -> Ordering = 100ms.compare(other: 200ms)
+
+@test_duration_compare_equal tests @duration_cmp_equal () -> void = run(
+    let result = 1s.compare(other: 1000ms),
+    assert(cond: result.is_equal()),
+    assert(cond: !result.is_less()),
+    assert(cond: !result.is_greater()),
+)
+
+@duration_cmp_equal () -> Ordering = 1s.compare(other: 1000ms)
+
+@test_duration_compare_greater tests @duration_cmp_greater () -> void = run(
+    let result = 500ms.compare(other: 100ms),
+    assert(cond: result.is_greater()),
+    assert(cond: !result.is_less()),
+    assert(cond: !result.is_equal()),
+)
+
+@duration_cmp_greater () -> Ordering = 500ms.compare(other: 100ms)
+
+@test_duration_compare_zero tests @duration_cmp_zero () -> void = run(
+    let result = 0ns.compare(other: 0ms),
+    assert(cond: result.is_equal()),
+)
+
+@duration_cmp_zero () -> Ordering = 0ns.compare(other: 0ms)
+
+@test_duration_compare_negative tests @duration_cmp_neg () -> void = run(
+    // Negative is less than positive
+    let result = (-100ms).compare(other: 100ms),
+    assert(cond: result.is_less()),
+)
+
+@duration_cmp_neg () -> Ordering = (-100ms).compare(other: 100ms)
+
+@test_duration_compare_both_negative tests @duration_cmp_both_neg () -> void = run(
+    // -200ms is less than -100ms
+    let result = (-200ms).compare(other: -100ms),
+    assert(cond: result.is_less()),
+)
+
+@duration_cmp_both_neg () -> Ordering = (-200ms).compare(other: -100ms)
+
+@test_duration_compare_mixed_units tests @duration_cmp_mixed () -> void = run(
+    // 1 second equals 1000 milliseconds
+    assert(cond: 1s.compare(other: 1000ms).is_equal()),
+    // 61 seconds is greater than 1 minute
+    assert(cond: 61s.compare(other: 1m).is_greater()),
+    // 59 seconds is less than 1 minute
+    assert(cond: 59s.compare(other: 1m).is_less()),
+)
+
+@duration_cmp_mixed () -> bool = 100ms < 200ms
+
+@test_duration_compare_ordering_methods tests @duration_ordering_methods () -> void = run(
+    let less = 100ms.compare(other: 200ms),
+    let equal = 100ms.compare(other: 100ms),
+    let greater = 200ms.compare(other: 100ms),
+
+    // is_less_or_equal
+    assert(cond: less.is_less_or_equal()),
+    assert(cond: equal.is_less_or_equal()),
+    assert(cond: !greater.is_less_or_equal()),
+
+    // is_greater_or_equal
+    assert(cond: !less.is_greater_or_equal()),
+    assert(cond: equal.is_greater_or_equal()),
+    assert(cond: greater.is_greater_or_equal()),
+)
+
+@duration_ordering_methods () -> bool = 100ms < 200ms
+
+// =============================================================================
+// Size — Comparable Trait (compare method)
+// =============================================================================
+
+@test_size_compare_less tests @size_cmp_less () -> void = run(
+    let result = 100b.compare(other: 200b),
+    assert(cond: result.is_less()),
+    assert(cond: !result.is_equal()),
+    assert(cond: !result.is_greater()),
+)
+
+@size_cmp_less () -> Ordering = 100b.compare(other: 200b)
+
+@test_size_compare_equal tests @size_cmp_equal () -> void = run(
+    let result = 1kb.compare(other: 1024b),
+    assert(cond: result.is_equal()),
+    assert(cond: !result.is_less()),
+    assert(cond: !result.is_greater()),
+)
+
+@size_cmp_equal () -> Ordering = 1kb.compare(other: 1024b)
+
+@test_size_compare_greater tests @size_cmp_greater () -> void = run(
+    let result = 1mb.compare(other: 512kb),
+    assert(cond: result.is_greater()),
+    assert(cond: !result.is_less()),
+    assert(cond: !result.is_equal()),
+)
+
+@size_cmp_greater () -> Ordering = 1mb.compare(other: 512kb)
+
+@test_size_compare_zero tests @size_cmp_zero () -> void = run(
+    let result = 0b.compare(other: 0kb),
+    assert(cond: result.is_equal()),
+)
+
+@size_cmp_zero () -> Ordering = 0b.compare(other: 0kb)
+
+@test_size_compare_mixed_units tests @size_cmp_mixed () -> void = run(
+    // 1 kilobyte equals 1024 bytes
+    assert(cond: 1kb.compare(other: 1024b).is_equal()),
+    // 1025 bytes is greater than 1 kilobyte
+    assert(cond: 1025b.compare(other: 1kb).is_greater()),
+    // 1023 bytes is less than 1 kilobyte
+    assert(cond: 1023b.compare(other: 1kb).is_less()),
+)
+
+@size_cmp_mixed () -> bool = 1kb == 1024b
+
+@test_size_compare_large tests @size_cmp_large () -> void = run(
+    // Large size comparisons
+    assert(cond: 1tb.compare(other: 1024gb).is_equal()),
+    assert(cond: 2tb.compare(other: 1tb).is_greater()),
+)
+
+@size_cmp_large () -> Ordering = 1tb.compare(other: 1024gb)
+
+@test_size_compare_ordering_methods tests @size_ordering_methods () -> void = run(
+    let less = 100b.compare(other: 200b),
+    let equal = 100b.compare(other: 100b),
+    let greater = 200b.compare(other: 100b),
+
+    // is_less_or_equal
+    assert(cond: less.is_less_or_equal()),
+    assert(cond: equal.is_less_or_equal()),
+    assert(cond: !greater.is_less_or_equal()),
+
+    // is_greater_or_equal
+    assert(cond: !less.is_greater_or_equal()),
+    assert(cond: equal.is_greater_or_equal()),
+    assert(cond: greater.is_greater_or_equal()),
+)
+
+@size_ordering_methods () -> bool = 100b < 200b
+
+// =============================================================================
+// Ordering Type Tests
+// =============================================================================
+
+@test_ordering_reverse tests @ordering_reverse () -> void = run(
+    let less = 100ms.compare(other: 200ms),
+    let greater = 200ms.compare(other: 100ms),
+
+    assert(cond: less.reverse().is_greater()),
+    assert(cond: greater.reverse().is_less()),
+)
+
+@ordering_reverse () -> Ordering = 100ms.compare(other: 200ms)
+
+// Note: The `then` and `then_with` methods are specified but not yet implemented.
+// Parser treats `then` as a keyword even in method position.
+// See: roadmap/phase-03-traits.md § Ordering Type

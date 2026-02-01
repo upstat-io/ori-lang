@@ -12,16 +12,20 @@ impl TypeChecker<'_> {
     pub fn check_module(mut self, module: &Module) -> TypedModule {
         let mut function_types = Vec::new();
 
-        // Pass 0a: Register user-defined types (structs, enums, newtypes)
+        // Pass 0a: Register built-in types (Ordering, etc.)
+        // Must be done before user types, as user code may reference these.
+        crate::registry::register_builtin_types(&mut self.registries.types, self.context.interner);
+
+        // Pass 0b: Register user-defined types (structs, enums, newtypes)
         // Must be done before traits, as traits/impls may reference these types.
         self.register_types(module);
 
-        // Pass 0b: Register traits and implementations
+        // Pass 0c: Register traits and implementations
         self.register_traits(module);
         self.register_impls(module);
         self.register_def_impls(module);
 
-        // Pass 0c: Register derived trait implementations
+        // Pass 0d: Register derived trait implementations
         // Must be done after register_types so we know the type structure,
         // but after register_impls so explicit impls take precedence.
         crate::derives::register_derived_impls(
@@ -30,7 +34,7 @@ impl TypeChecker<'_> {
             self.context.interner,
         );
 
-        // Pass 0d: Register config variables
+        // Pass 0e: Register config variables
         self.register_configs(module);
 
         // First pass: collect function signatures

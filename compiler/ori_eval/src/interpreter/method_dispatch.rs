@@ -79,14 +79,14 @@ impl Interpreter<'_> {
             }
             MethodResolution::Builtin => {
                 let method_name = self.interner.lookup(method);
-                dispatch_builtin_method(receiver, method_name, args)
+                dispatch_builtin_method(receiver, method_name, args, self.interner)
             }
             MethodResolution::NotFound => {
                 // This shouldn't happen as BuiltinResolver always returns Builtin,
                 // but if it does, fall back to dispatch_builtin_method which will
                 // produce an appropriate error
                 let method_name = self.interner.lookup(method);
-                dispatch_builtin_method(receiver, method_name, args)
+                dispatch_builtin_method(receiver, method_name, args, self.interner)
             }
         }
     }

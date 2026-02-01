@@ -938,10 +938,11 @@ impl<'a> Interpreter<'a> {
             .define_global(name, Value::FunctionVal(func, display_name));
     }
 
-    /// Register all `function_val` (type conversion) functions.
+    /// Register all `function_val` (type conversion) functions and built-in values.
     ///
-    /// `function_val`: Type conversion functions like int(x), str(x), float(x)
-    /// that allow positional arguments per the spec.
+    /// Includes:
+    /// - Type conversion functions like int(x), str(x), float(x) (positional args per spec)
+    /// - Built-in enum variants like Less, Equal, Greater (Ordering type)
     pub fn register_prelude(&mut self) {
         use crate::{
             function_val_byte, function_val_float, function_val_int, function_val_str,
@@ -956,6 +957,24 @@ impl<'a> Interpreter<'a> {
 
         // Thread/parallel introspection (internal use)
         self.register_function_val("thread_id", function_val_thread_id, "thread_id");
+
+        // Built-in Ordering enum variants (Less, Equal, Greater)
+        // These are unit variants of the Ordering type, used by compare() and comparison operators
+        let ordering_name = self.interner.intern("Ordering");
+        let less_name = self.interner.intern("Less");
+        let equal_name = self.interner.intern("Equal");
+        let greater_name = self.interner.intern("Greater");
+
+        self.env
+            .define_global(less_name, Value::variant(ordering_name, less_name, vec![]));
+        self.env.define_global(
+            equal_name,
+            Value::variant(ordering_name, equal_name, vec![]),
+        );
+        self.env.define_global(
+            greater_name,
+            Value::variant(ordering_name, greater_name, vec![]),
+        );
     }
 
     /// Get captured print output.

@@ -141,21 +141,33 @@ const tiers: Tier[] = [
         spec: "spec/06-types.md, spec/07-properties-of-types.md",
         sections: [
           { name: "Primitive Types", tasks: [
-            { name: "int, float, bool, str types", done: true },
-            { name: "char, byte types", done: true },
+            { name: "int, float, bool, str, char, byte types", done: true },
             { name: "void, Never types", done: true },
+          ]},
+          { name: "Duration and Size Types", tasks: [
+            { name: "Duration/Size literal tokenization", done: true },
+            { name: "Duration/Size type representation", done: true },
+            { name: "Duration/Size arithmetic", done: true },
+            { name: "Duration/Size extraction methods", done: true },
+            { name: "Duration/Size factory methods", done: false },
+            { name: "Duration/Size LLVM arithmetic", done: false },
+            { name: "Duration/Size trait implementations", done: false },
+          ]},
+          { name: "Never Type Semantics", tasks: [
+            { name: "Never coercion to any type", done: true },
+            { name: "panic/todo/unreachable return Never", done: true },
+            { name: "break/continue Never type", done: false },
+            { name: "Never in exhaustiveness checking", done: false },
+            { name: "Never struct field restriction", done: false },
           ]},
           { name: "Parameter Type Annotations", tasks: [
             { name: "type_id_to_type() helper", done: true },
-            { name: "Use Param.ty in infer_function_signature()", done: true },
+            { name: "infer_function_signature() with Param.ty", done: true },
             { name: "Handle declared return types", done: true },
           ]},
-          { name: "Lambda Type Annotations", tasks: [
+          { name: "Lambda and Let Types", tasks: [
             { name: "Typed lambda parameters", done: true },
-            { name: "Explicit return type", done: true },
-          ]},
-          { name: "Let Binding Types", tasks: [
-            { name: "Type annotation in let bindings", done: true },
+            { name: "Let binding type annotations", done: true },
           ]},
         ],
       },
@@ -186,30 +198,38 @@ const tiers: Tier[] = [
         num: 3,
         name: "Traits",
         status: "partial",
-        note: "Core complete (3.0-3.6); approved proposals 3.7-3.18 pending, operator LLVM pending",
+        note: "Core complete (3.0-3.6, 3.19-3.21); approved proposals 3.7-3.18 pending, operator LLVM pending",
         goal: "Implement trait system with bounds and implementations",
         spec: "spec/08-declarations.md",
         sections: [
-          { name: "Trait Definitions", tasks: [
-            { name: "Trait declaration parsing", done: true },
-            { name: "Required methods", done: true },
-            { name: "Default implementations", done: true },
+          { name: "Core Traits (3.0-3.6)", tasks: [
+            { name: "Trait declarations and methods", done: true },
+            { name: "Trait implementations and coherence", done: true },
+            { name: "Trait bounds and where clauses", done: true },
             { name: "Associated types", done: true },
+            { name: "Derive traits (Eq, Clone, Hashable, Printable, Default)", done: true },
           ]},
-          { name: "Trait Implementations", tasks: [
-            { name: "impl Trait for Type", done: true },
-            { name: "Generic implementations", done: true },
-            { name: "Coherence checking", done: true },
+          { name: "Default Type Params & Associated Types (3.19-3.20)", tasks: [
+            { name: "Default type parameters on traits", done: true },
+            { name: "Default associated types", done: true },
           ]},
-          { name: "Trait Bounds", tasks: [
-            { name: "Single bounds", done: true },
-            { name: "Multiple bounds (T: A + B)", done: true },
-            { name: "Where clauses", done: true },
+          { name: "Operator Traits (3.21)", tasks: [
+            { name: "Operator traits in interpreter", done: true },
+            { name: "Operator traits LLVM codegen", done: false },
           ]},
-          { name: "Derive Macros", tasks: [
-            { name: "Eq derive", done: true },
-            { name: "Clone derive", done: true },
-            { name: "Default derive", done: true },
+          { name: "Approved Proposals (3.7-3.18)", tasks: [
+            { name: "Clone trait formal definition", done: false },
+            { name: "Iterator traits", done: false },
+            { name: "Debug trait", done: false },
+            { name: "Trait resolution and conflicts", done: false },
+            { name: "Object safety rules", done: false },
+            { name: "Index trait", done: false },
+            { name: "Additional core traits", done: false },
+            { name: "Comparable/Hashable traits", done: false },
+            { name: "Derived traits semantics", done: false },
+            { name: "Formattable trait", done: false },
+            { name: "Into trait", done: false },
+            { name: "Ordering type", done: false },
           ]},
         ],
       },
