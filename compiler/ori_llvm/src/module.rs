@@ -19,6 +19,7 @@ use ori_ir::{ExprArena, Function, Name, StringInterner, TestDef, TypeId};
 
 use crate::builder::Builder;
 use crate::context::CodegenCx;
+use crate::functions::body::FunctionBodyConfig;
 
 /// Compiler for a complete Ori module.
 ///
@@ -105,14 +106,14 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
         let builder = Builder::build(&self.cx, entry_bb);
 
         // Compile the body
-        builder.compile_function_body(
-            &param_names,
+        builder.compile_function_body(&FunctionBodyConfig {
+            param_names: &param_names,
             return_type,
-            func.body,
+            body: func.body,
             arena,
             expr_types,
-            llvm_func,
-        );
+            function: llvm_func,
+        });
     }
 
     /// Compile a test definition.
@@ -130,7 +131,14 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
         let entry_bb = self.cx.llcx().append_basic_block(llvm_func, "entry");
         let builder = Builder::build(&self.cx, entry_bb);
 
-        builder.compile_function_body(&[], TypeId::VOID, test.body, arena, expr_types, llvm_func);
+        builder.compile_function_body(&FunctionBodyConfig {
+            param_names: &[],
+            return_type: TypeId::VOID,
+            body: test.body,
+            arena,
+            expr_types,
+            function: llvm_func,
+        });
     }
 
     /// Get a compiled function by name.

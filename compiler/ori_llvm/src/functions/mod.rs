@@ -9,7 +9,7 @@
 //! - PHI node construction
 //! - Built-in type conversions
 
-mod body;
+pub mod body;
 mod builtins;
 mod calls;
 mod expressions;

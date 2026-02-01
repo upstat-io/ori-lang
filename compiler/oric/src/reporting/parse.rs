@@ -58,7 +58,9 @@ impl Render for ParseProblem {
             ParseProblem::MissingFunctionBody { span, name } => Diagnostic::error(ErrorCode::E1007)
                 .with_message(format!("function `@{name}` is missing its body"))
                 .with_label(*span, "expected `=` followed by function body")
-                .with_suggestion("add a body: @{name} (...) -> Type = expression"),
+                .with_suggestion(format!(
+                    "add function body after `=`: @{name} (...) -> Type = <expression>"
+                )),
 
             ParseProblem::InvalidPatternSyntax {
                 span,
@@ -131,7 +133,7 @@ impl Render for ParseProblem {
                         "`{exp_name}` requires named properties (`name: value`)"
                     ))
                     .with_label(*span, "use named properties")
-                    .with_suggestion(format!("example: {exp_name}(over: items, transform: fn)"))
+                    .with_suggestion("use named properties for all arguments (e.g., `name: value`)")
             }
 
             ParseProblem::ReservedBuiltinName { span, name } => Diagnostic::error(ErrorCode::E1014)

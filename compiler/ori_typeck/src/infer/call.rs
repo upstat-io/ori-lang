@@ -2,7 +2,7 @@
 //!
 //! Handles function calls, method calls, and named argument calls.
 
-use super::builtin_methods::{BuiltinMethodRegistry, MethodTypeResult};
+use super::builtin_methods::MethodTypeResult;
 use super::infer_expr;
 use crate::checker::TypeChecker;
 use ori_ir::{CallArgRange, ExprId, ExprKind, ExprRange, Name, Span};
@@ -62,10 +62,10 @@ pub fn infer_call(
 /// Check a function call.
 fn check_call(checker: &mut TypeChecker<'_>, func: &Type, args: &[Type], span: Span) -> Type {
     let result = checker.inference.ctx.fresh_var();
-    let expected = Type::Function {
-        params: args.to_vec(),
-        ret: Box::new(result.clone()),
-    };
+    let expected = checker
+        .inference
+        .ctx
+        .make_function(args.to_vec(), result.clone());
 
     if let Err(e) = checker.inference.ctx.unify(func, &expected) {
         checker.report_type_error(&e, span);
@@ -399,8 +399,13 @@ fn infer_method_call_core(
         }
 
         // Skip self parameter when unifying
-        let param_types: Vec<_> = method_lookup.params.iter().skip(1).collect();
-        for (i, (param_ty, arg_ty)) in param_types.iter().zip(arg_types.iter()).enumerate() {
+        for (i, (param_ty, arg_ty)) in method_lookup
+            .params
+            .iter()
+            .skip(1)
+            .zip(arg_types.iter())
+            .enumerate()
+        {
             if let Err(e) = checker.inference.ctx.unify(param_ty, arg_ty) {
                 let arg_span = arg_spans.get(i).copied().unwrap_or(span);
                 checker.report_type_error(&e, arg_span);
@@ -463,9 +468,8 @@ fn infer_builtin_method(
         }
     }
 
-    // Use the registry to check the method
-    let registry = BuiltinMethodRegistry::new();
-    if let Some(result) = registry.check(
+    // Use the cached registry to check the method
+    if let Some(result) = checker.registries.builtin_methods.check(
         &mut checker.inference.ctx,
         checker.context.interner,
         receiver_ty,
@@ -516,10 +520,12 @@ fn infer_builtin_associated_function(
 ) -> Type {
     let method_str = checker.context.interner.lookup(method);
 
-    let registry = BuiltinMethodRegistry::new();
-    if let Some(result) =
-        registry.check_associated(&mut checker.inference.ctx, type_name, method_str, arg_types)
-    {
+    if let Some(result) = checker.registries.builtin_methods.check_associated(
+        &mut checker.inference.ctx,
+        type_name,
+        method_str,
+        arg_types,
+    ) {
         return match result {
             MethodTypeResult::Ok(ty) => ty,
             MethodTypeResult::Err(e) => {

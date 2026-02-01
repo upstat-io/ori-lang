@@ -8,21 +8,40 @@ use tracing::instrument;
 
 use crate::builder::Builder;
 
+/// Configuration for compiling a function body.
+///
+/// Groups the parameters needed for `compile_function_body` into a single struct
+/// to reduce parameter count and improve readability.
+pub struct FunctionBodyConfig<'a, 'll> {
+    /// Parameter names for the function.
+    pub param_names: &'a [Name],
+    /// The return type of the function.
+    pub return_type: TypeId,
+    /// The expression ID of the function body.
+    pub body: ExprId,
+    /// The expression arena containing the body expressions.
+    pub arena: &'a ExprArena,
+    /// Expression type annotations.
+    pub expr_types: &'a [TypeId],
+    /// The LLVM function value to compile into.
+    pub function: FunctionValue<'ll>,
+}
+
 impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a function body after declaration.
     ///
     /// This assumes the function has already been declared and we just need to
     /// compile its body. The builder should be positioned at the entry block.
-    #[instrument(skip(self, arena, expr_types, function), level = "debug")]
-    pub fn compile_function_body(
-        &self,
-        param_names: &[Name],
-        return_type: TypeId,
-        body: ExprId,
-        arena: &ExprArena,
-        expr_types: &[TypeId],
-        function: FunctionValue<'ll>,
-    ) {
+    #[instrument(skip(self, config), level = "debug")]
+    pub fn compile_function_body(&self, config: &FunctionBodyConfig<'_, 'll>) {
+        let FunctionBodyConfig {
+            param_names,
+            return_type,
+            body,
+            arena,
+            expr_types,
+            function,
+        } = *config;
         // Build parameter map
         let mut locals: HashMap<Name, BasicValueEnum<'ll>> = HashMap::new();
 

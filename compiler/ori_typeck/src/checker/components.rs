@@ -19,6 +19,7 @@ use ori_patterns::PatternRegistry;
 use ori_types::{InferenceContext, SharedTypeInterner, Type, TypeEnv};
 
 use super::types::{FunctionType, TypeCheckError};
+use crate::infer::builtin_methods::BuiltinMethodRegistry;
 use crate::registry::{TraitRegistry, TypeRegistry};
 use crate::shared::SharedRegistry;
 
@@ -83,6 +84,8 @@ pub struct Registries {
     pub types: TypeRegistry,
     /// Registry for traits and implementations.
     pub traits: TraitRegistry,
+    /// Registry for built-in method type checking (ZST handlers).
+    pub builtin_methods: BuiltinMethodRegistry,
 }
 
 impl Registries {
@@ -92,6 +95,7 @@ impl Registries {
             pattern: SharedRegistry::new(PatternRegistry::new()),
             types: TypeRegistry::new(),
             traits: TraitRegistry::new(),
+            builtin_methods: BuiltinMethodRegistry::new(),
         }
     }
 
@@ -101,6 +105,7 @@ impl Registries {
             pattern,
             types: TypeRegistry::new(),
             traits: TraitRegistry::new(),
+            builtin_methods: BuiltinMethodRegistry::new(),
         }
     }
 }
