@@ -102,6 +102,9 @@ pub mod evaluator;
 pub mod module;
 pub mod runtime;
 
+// -- AOT compilation --
+pub mod aot;
+
 // Re-export key types from new architecture
 pub use builder::Builder;
 pub use compile_ctx::CompileCtx;

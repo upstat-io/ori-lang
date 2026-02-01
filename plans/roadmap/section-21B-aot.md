@@ -1,13 +1,13 @@
 ---
 section: "21B"
 title: AOT Compilation
-status: not-started
+status: in-progress
 tier: 8
 goal: Generate native executables and WebAssembly from Ori source code
 sections:
   - id: "21B.1"
     title: Target Configuration
-    status: not-started
+    status: complete
   - id: "21B.2"
     title: Object File Emission
     status: not-started
@@ -39,7 +39,7 @@ sections:
 
 # Section 21B: AOT Compilation
 
-**Status:** 📋 Planned
+**Status:** 🔶 In Progress
 **Proposal:** `proposals/approved/aot-compilation-proposal.md`
 **Depends on:** Section 21A (LLVM Backend - JIT working)
 
@@ -49,22 +49,23 @@ sections:
 
 ## 21B.1 Target Configuration
 
-- [ ] **Implement**: Target triple parsing and validation
-  - [ ] Parse `<arch>-<vendor>-<os>[-<env>]` format
-  - [ ] Validate against supported targets list
-  - [ ] Native target auto-detection
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/target_tests.rs`
+- [x] **Implement**: Target triple parsing and validation
+  - [x] Parse `<arch>-<vendor>-<os>[-<env>]` format
+  - [x] Validate against supported targets list
+  - [x] Native target auto-detection
+  - [x] **Rust Tests**: `ori_llvm/src/aot/target.rs` (20 tests)
 
-- [ ] **Implement**: Data layout configuration
-  - [ ] LLVM data layout string per target
-  - [ ] Pointer size, alignment, endianness
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/layout_tests.rs`
+- [x] **Implement**: Data layout configuration
+  - [x] LLVM data layout string per target
+  - [x] Pointer size, alignment, endianness
+  - [x] Module configuration with target triple and data layout
+  - [x] **Rust Tests**: `ori_llvm/src/aot/target.rs`
 
-- [ ] **Implement**: CPU feature detection
-  - [ ] `--cpu=native` auto-detection
-  - [ ] `--features=+avx2,-sse4` parsing
-  - [ ] Target feature validation
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/features_tests.rs`
+- [x] **Implement**: CPU feature detection
+  - [x] `--cpu=native` auto-detection (`with_cpu_native()`)
+  - [x] `--features=+avx2,-sse4` parsing
+  - [x] Host CPU feature detection (`get_host_cpu_features()`)
+  - [x] **Rust Tests**: `ori_llvm/src/aot/target.rs`
 
 **Supported targets (initial):**
 | Target | Description |
