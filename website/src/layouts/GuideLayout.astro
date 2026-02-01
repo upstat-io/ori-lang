@@ -8,21 +8,59 @@ interface Props {
 }
 
 const { title, description } = Astro.props;
+const currentPath = Astro.url.pathname;
+
+// Build SEO-optimized description
+const seoDescription = description ||
+  `${title} - Learn Ori programming with step-by-step tutorials. Master ${title.toLowerCase()} with practical examples and best practices.`;
+
+// Build keywords
+const keywords = `${title}, Ori tutorial, learn Ori, Ori guide, programming tutorial, getting started with Ori, Ori examples`;
+
+// Build breadcrumbs
+const breadcrumbs = [
+  { name: 'Home', url: '/' },
+  { name: 'Guide', url: '/guide/' },
+  { name: title, url: currentPath },
+];
 ---
 
 <BaseLayout
   title={`${title} — Ori Guide`}
-  description={description || `Learn about ${title} in Ori.`}
-  keywords="Ori guide, tutorial, programming language"
+  description={seoDescription}
+  keywords={keywords}
   ogType="article"
+  breadcrumbs={breadcrumbs}
 >
   <div class="guide-layout">
     <GuideSidebar />
-    <main class="guide-content">
-      <article class="guide-article">
-        <slot />
+    <div class="guide-content">
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        <ol class="breadcrumb-list" itemscope itemtype="https://schema.org/BreadcrumbList">
+          {breadcrumbs.slice(0, -1).map((crumb, index) => (
+            <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+              <a href={crumb.url} itemprop="item">
+                <span itemprop="name">{crumb.name}</span>
+              </a>
+              <meta itemprop="position" content={String(index + 1)} />
+              <span class="breadcrumb-sep" aria-hidden="true">/</span>
+            </li>
+          ))}
+          <li class="breadcrumb-item breadcrumb-current" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+            <span itemprop="name">{title}</span>
+            <meta itemprop="position" content={String(breadcrumbs.length)} />
+          </li>
+        </ol>
+      </nav>
+      <article class="guide-article" itemscope itemtype="https://schema.org/TechArticle">
+        <meta itemprop="headline" content={title} />
+        <meta itemprop="description" content={seoDescription} />
+        <meta itemprop="author" content="upstat-io" />
+        <div itemprop="articleBody">
+          <slot />
+        </div>
       </article>
-    </main>
+    </div>
   </div>
 </BaseLayout>
 
@@ -35,9 +73,48 @@ const { title, description } = Astro.props;
   .guide-content {
     flex: 1;
     min-width: 0;
-    padding: var(--space-8, 2rem) var(--space-8, 2rem);
+    padding: var(--space-6) var(--space-8);
     max-width: var(--max-width-narrow, 800px);
     margin: 0 auto;
+  }
+
+  .breadcrumb {
+    margin-bottom: var(--space-6);
+  }
+
+  .breadcrumb-list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1);
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: var(--text-sm);
+  }
+
+  .breadcrumb-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .breadcrumb-item a {
+    color: var(--color-text-muted);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+  }
+
+  .breadcrumb-item a:hover {
+    color: var(--color-accent);
+  }
+
+  .breadcrumb-sep {
+    color: var(--color-border);
+  }
+
+  .breadcrumb-current {
+    color: var(--color-text-secondary);
   }
 
   .guide-article {
@@ -102,6 +179,10 @@ const { title, description } = Astro.props;
 
     .guide-content {
       padding: var(--space-4, 1rem);
+    }
+
+    .breadcrumb {
+      margin-bottom: var(--space-4);
     }
   }
 </style>

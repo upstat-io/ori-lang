@@ -6,13 +6,63 @@ import Features from '../components/landing/Features.astro';
 import VirtuousCycle from '../components/landing/VirtuousCycle.astro';
 import GetStarted from '../components/landing/GetStarted.astro';
 import Playground from '../components/playground/Playground.svelte';
+
+// Homepage-specific structured data for FAQ
+const faqSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: [
+    {
+      '@type': 'Question',
+      name: 'What is Ori programming language?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Ori is a statically-typed programming language with mandatory testing, dependency-aware integrity, and explicit effects. Every function must have tests, and changes are automatically traced through the dependency graph.'
+      }
+    },
+    {
+      '@type': 'Question',
+      name: 'How does mandatory testing work in Ori?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'In Ori, every function (except @main) requires associated tests. If a function lacks tests, the code won\'t compile. Tests live in the dependency graph, so changing a function automatically runs its tests and the tests of all callers.'
+      }
+    },
+    {
+      '@type': 'Question',
+      name: 'What are capabilities in Ori?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Capabilities are Ori\'s effect system. Functions declare what effects they can perform (like Http, FileSystem, or Clock) using the "uses" keyword. This makes side effects explicit and mocking trivial for testing.'
+      }
+    },
+    {
+      '@type': 'Question',
+      name: 'How does Ori handle memory management?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Ori uses Automatic Reference Counting (ARC) for memory management. There\'s no garbage collector and no borrow checker. Closures capture by value, and there are no shared mutable references, ensuring memory safety through value semantics.'
+      }
+    },
+    {
+      '@type': 'Question',
+      name: 'Is Ori free and open source?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Yes, Ori is completely free and open source under the MIT license. You can find the source code, contribute, and report issues on GitHub at github.com/upstat-io/ori-lang.'
+      }
+    }
+  ]
+};
 ---
 
 <BaseLayout
   title="Ori — Code That Proves Itself"
-  description="A programming language with mandatory testing, dependency-aware integrity, and explicit effects. Every function tested. Every change traced. Every effect explicit."
-  keywords="Ori, programming language, mandatory testing, static typing, type inference, dependency tracking, code integrity, compiler"
+  description="Ori is a statically-typed programming language with mandatory testing, dependency-aware integrity, and explicit effects. Every function tested. Every change traced. Every effect explicit. Free and open source."
+  keywords="Ori programming language, mandatory testing language, static typing, type inference, dependency tracking, code verification, effect system, capabilities, ARC memory management, functional programming, open source programming language"
 >
+  <script type="application/ld+json" set:html={JSON.stringify(faqSchema)} slot="head" />
+
   <Hero />
   <CodeShowcase>
     <Playground
