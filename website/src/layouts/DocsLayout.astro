@@ -5,24 +5,85 @@ import DocsSidebar from '../components/docs/DocsSidebar.astro';
 interface Props {
   title: string;
   description?: string;
+  section?: string;
 }
 
-const { title, description } = Astro.props;
+const { title, description, section } = Astro.props;
+const currentPath = Astro.url.pathname;
+
+// Determine the docs section from the URL
+const pathParts = currentPath.split('/').filter(Boolean);
+const docsSection = pathParts[1] || 'docs'; // spec, compiler-design, formatter, lsp
+
+// Build SEO-optimized description
+const seoDescription = description ||
+  `Learn about ${title} in the Ori programming language documentation. Comprehensive reference for ${title.toLowerCase()} covering syntax, semantics, and examples.`;
+
+// Build keywords based on section and title
+const sectionKeywords: Record<string, string> = {
+  'spec': 'Ori specification, language spec, syntax reference, grammar',
+  'compiler-design': 'Ori compiler, compiler design, implementation, architecture',
+  'formatter': 'Ori formatter, code formatting, style guide, auto-format',
+  'lsp': 'Ori LSP, language server, IDE support, editor integration',
+};
+
+const keywords = `${title}, Ori docs, ${sectionKeywords[docsSection] || 'Ori documentation'}, programming language reference`;
+
+// Build breadcrumbs
+const sectionTitles: Record<string, string> = {
+  'spec': 'Specification',
+  'compiler-design': 'Compiler Design',
+  'formatter': 'Formatter',
+  'lsp': 'LSP',
+};
+
+const breadcrumbs = [
+  { name: 'Home', url: '/' },
+  { name: 'Docs', url: '/docs/' },
+  { name: sectionTitles[docsSection] || 'Docs', url: `/docs/${docsSection}/` },
+  { name: title, url: currentPath },
+];
 ---
 
 <BaseLayout
-  title={`${title} — Ori Docs`}
-  description={description || `Learn about ${title} in Ori — a programming language with mandatory testing and dependency-aware integrity.`}
-  keywords={`Ori docs, ${title.toLowerCase()}, documentation, programming language, tutorial`}
+  title={`${title} — Ori ${sectionTitles[docsSection] || 'Docs'}`}
+  description={seoDescription}
+  keywords={keywords}
   ogType="article"
+  breadcrumbs={breadcrumbs}
 >
   <div class="docs-layout">
     <DocsSidebar />
-    <main class="docs-content">
-      <article class="docs-article">
-        <slot />
+    <div class="docs-content">
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        <ol class="breadcrumb-list" itemscope itemtype="https://schema.org/BreadcrumbList">
+          {breadcrumbs.slice(0, -1).map((crumb, index) => (
+            <li class="breadcrumb-item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+              <a href={crumb.url} itemprop="item">
+                <span itemprop="name">{crumb.name}</span>
+              </a>
+              <meta itemprop="position" content={String(index + 1)} />
+              <span class="breadcrumb-sep" aria-hidden="true">/</span>
+            </li>
+          ))}
+          <li class="breadcrumb-item breadcrumb-current" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+            <span itemprop="name">{title}</span>
+            <meta itemprop="position" content={String(breadcrumbs.length)} />
+          </li>
+        </ol>
+      </nav>
+      <article class="docs-article" itemscope itemtype="https://schema.org/TechArticle">
+        <meta itemprop="headline" content={title} />
+        <meta itemprop="description" content={seoDescription} />
+        <meta itemprop="author" content="upstat-io" />
+        <header class="article-header">
+          <h1 itemprop="name">{title}</h1>
+        </header>
+        <div itemprop="articleBody">
+          <slot />
+        </div>
       </article>
-    </main>
+    </div>
   </div>
 </BaseLayout>
 
@@ -35,17 +96,60 @@ const { title, description } = Astro.props;
   .docs-content {
     flex: 1;
     min-width: 0;
-    padding: var(--space-8, 2rem) var(--space-8, 2rem);
+    padding: var(--space-6, 1.5rem) var(--space-8, 2rem);
     max-width: var(--max-width-narrow, 800px);
     margin: 0 auto;
   }
 
-  .docs-article {
-    line-height: var(--leading-relaxed, 1.65);
+  .breadcrumb {
+    margin-bottom: var(--space-6);
   }
 
-  .docs-article :global(h1) {
-    margin-bottom: var(--space-6, 1.5rem);
+  .breadcrumb-list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1);
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: var(--text-sm);
+  }
+
+  .breadcrumb-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .breadcrumb-item a {
+    color: var(--color-text-muted);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+  }
+
+  .breadcrumb-item a:hover {
+    color: var(--color-accent);
+  }
+
+  .breadcrumb-sep {
+    color: var(--color-border);
+  }
+
+  .breadcrumb-current {
+    color: var(--color-text-secondary);
+  }
+
+  .article-header {
+    margin-bottom: var(--space-6);
+  }
+
+  .article-header h1 {
+    margin: 0;
+  }
+
+  .docs-article {
+    line-height: var(--leading-relaxed, 1.65);
   }
 
   .docs-article :global(h2) {
@@ -103,8 +207,11 @@ const { title, description } = Astro.props;
     .docs-content {
       padding: var(--space-4, 1rem);
     }
-  }
 
+    .breadcrumb {
+      margin-bottom: var(--space-4);
+    }
+  }
 
   /* Mermaid diagram styles */
   .docs-article :global(.mermaid) {
