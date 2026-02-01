@@ -80,7 +80,10 @@ const DURATION_TRAITS: &[&str] = &[
     "Eq",
     "Comparable",
     "Clone",
+    "Hashable",
+    "Default",
     "Printable",
+    "Sendable",
     // Operator traits
     "Add",
     "Sub",
@@ -93,7 +96,10 @@ const SIZE_TRAITS: &[&str] = &[
     "Eq",
     "Comparable",
     "Clone",
+    "Hashable",
+    "Default",
     "Printable",
+    "Sendable",
     // Operator traits
     "Add",
     "Sub",

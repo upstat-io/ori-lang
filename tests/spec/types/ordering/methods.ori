@@ -1,0 +1,217 @@
+// Spec: 06-types.md § Ordering Type
+// Spec: 07-properties-of-types.md § Comparable
+// Proposal: proposals/approved/ordering-type-proposal.md
+// Tests for Ordering type methods
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Ordering Type — Predicate Methods
+// =============================================================================
+
+// --- is_less ---
+
+@test_is_less_on_less tests @is_less_less () -> void =
+    assert(cond: Less.is_less())
+
+@is_less_less () -> bool = Less.is_less()
+
+@test_is_less_on_equal tests @is_less_equal () -> void =
+    assert(cond: !Equal.is_less())
+
+@is_less_equal () -> bool = Equal.is_less()
+
+@test_is_less_on_greater tests @is_less_greater () -> void =
+    assert(cond: !Greater.is_less())
+
+@is_less_greater () -> bool = Greater.is_less()
+
+// --- is_equal ---
+
+@test_is_equal_on_less tests @is_equal_less () -> void =
+    assert(cond: !Less.is_equal())
+
+@is_equal_less () -> bool = Less.is_equal()
+
+@test_is_equal_on_equal tests @is_equal_equal () -> void =
+    assert(cond: Equal.is_equal())
+
+@is_equal_equal () -> bool = Equal.is_equal()
+
+@test_is_equal_on_greater tests @is_equal_greater () -> void =
+    assert(cond: !Greater.is_equal())
+
+@is_equal_greater () -> bool = Greater.is_equal()
+
+// --- is_greater ---
+
+@test_is_greater_on_less tests @is_greater_less () -> void =
+    assert(cond: !Less.is_greater())
+
+@is_greater_less () -> bool = Less.is_greater()
+
+@test_is_greater_on_equal tests @is_greater_equal () -> void =
+    assert(cond: !Equal.is_greater())
+
+@is_greater_equal () -> bool = Equal.is_greater()
+
+@test_is_greater_on_greater tests @is_greater_greater () -> void =
+    assert(cond: Greater.is_greater())
+
+@is_greater_greater () -> bool = Greater.is_greater()
+
+// --- is_less_or_equal ---
+
+@test_is_less_or_equal_on_less tests @is_loe_less () -> void =
+    assert(cond: Less.is_less_or_equal())
+
+@is_loe_less () -> bool = Less.is_less_or_equal()
+
+@test_is_less_or_equal_on_equal tests @is_loe_equal () -> void =
+    assert(cond: Equal.is_less_or_equal())
+
+@is_loe_equal () -> bool = Equal.is_less_or_equal()
+
+@test_is_less_or_equal_on_greater tests @is_loe_greater () -> void =
+    assert(cond: !Greater.is_less_or_equal())
+
+@is_loe_greater () -> bool = Greater.is_less_or_equal()
+
+// --- is_greater_or_equal ---
+
+@test_is_greater_or_equal_on_less tests @is_goe_less () -> void =
+    assert(cond: !Less.is_greater_or_equal())
+
+@is_goe_less () -> bool = Less.is_greater_or_equal()
+
+@test_is_greater_or_equal_on_equal tests @is_goe_equal () -> void =
+    assert(cond: Equal.is_greater_or_equal())
+
+@is_goe_equal () -> bool = Equal.is_greater_or_equal()
+
+@test_is_greater_or_equal_on_greater tests @is_goe_greater () -> void =
+    assert(cond: Greater.is_greater_or_equal())
+
+@is_goe_greater () -> bool = Greater.is_greater_or_equal()
+
+// =============================================================================
+// Ordering Type — reverse Method
+// =============================================================================
+
+@test_reverse_less tests @reverse_less () -> void =
+    assert(cond: Less.reverse().is_greater())
+
+@reverse_less () -> Ordering = Less.reverse()
+
+@test_reverse_equal tests @reverse_equal () -> void =
+    assert(cond: Equal.reverse().is_equal())
+
+@reverse_equal () -> Ordering = Equal.reverse()
+
+@test_reverse_greater tests @reverse_greater () -> void =
+    assert(cond: Greater.reverse().is_less())
+
+@reverse_greater () -> Ordering = Greater.reverse()
+
+@test_reverse_is_involution tests @reverse_involution () -> void = run(
+    // reverse(reverse(x)) == x
+    assert(cond: Less.reverse().reverse().is_less()),
+    assert(cond: Equal.reverse().reverse().is_equal()),
+    assert(cond: Greater.reverse().reverse().is_greater()),
+)
+
+@reverse_involution () -> bool = Less.reverse().reverse().is_less()
+
+// =============================================================================
+// Ordering Type — Usage with compare()
+// =============================================================================
+// Note: These tests require the Comparable trait implementation on int,
+// which returns Ordering. Skipped until Comparable is implemented for primitives.
+
+@test_compare_returns_ordering tests @compare_result () -> void = run(
+    let result = 1.compare(other: 2),
+    assert(cond: result.is_less()),
+)
+
+@compare_result () -> Ordering = 1.compare(other: 2)
+
+@test_compare_int_less tests @cmp_int_less () -> void =
+    assert(cond: 1.compare(other: 2).is_less())
+
+@cmp_int_less () -> bool = 1.compare(other: 2).is_less()
+
+@test_compare_int_equal tests @cmp_int_equal () -> void =
+    assert(cond: 5.compare(other: 5).is_equal())
+
+@cmp_int_equal () -> bool = 5.compare(other: 5).is_equal()
+
+@test_compare_int_greater tests @cmp_int_greater () -> void =
+    assert(cond: 10.compare(other: 3).is_greater())
+
+@cmp_int_greater () -> bool = 10.compare(other: 3).is_greater()
+
+// =============================================================================
+// Ordering Type — Clone Trait
+// =============================================================================
+
+@test_ordering_clone tests @ordering_clone () -> void = run(
+    let original = Less,
+    let cloned = original.clone(),
+    assert(cond: cloned.is_less()),
+)
+
+@ordering_clone () -> Ordering = Less.clone()
+
+// =============================================================================
+// Ordering Type — Printable Trait
+// =============================================================================
+
+@test_ordering_to_str_less tests @to_str_less () -> void =
+    assert_eq(actual: Less.to_str(), expected: "Less")
+
+@to_str_less () -> str = Less.to_str()
+
+@test_ordering_to_str_equal tests @to_str_equal () -> void =
+    assert_eq(actual: Equal.to_str(), expected: "Equal")
+
+@to_str_equal () -> str = Equal.to_str()
+
+@test_ordering_to_str_greater tests @to_str_greater () -> void =
+    assert_eq(actual: Greater.to_str(), expected: "Greater")
+
+@to_str_greater () -> str = Greater.to_str()
+
+// =============================================================================
+// Ordering Type — Hashable Trait
+// =============================================================================
+
+@test_ordering_hash_distinct tests @hash_distinct () -> void = run(
+    let h_less = Less.hash(),
+    let h_equal = Equal.hash(),
+    let h_greater = Greater.hash(),
+    // All three must be distinct
+    assert(cond: h_less != h_equal),
+    assert(cond: h_equal != h_greater),
+    assert(cond: h_less != h_greater),
+)
+
+@hash_distinct () -> int = Less.hash()
+
+// =============================================================================
+// Ordering Type — then and then_with Methods
+// =============================================================================
+
+// Note: The `then` method is BLOCKED because `then` is a keyword in Ori
+// (used in if...then...else). Once resolved, these tests can be enabled.
+//
+// #skip("then is a keyword")
+// @test_then_equal_continues tests @then_equal () -> void = run(
+//     let result = Equal.then(other: Less),
+//     assert(cond: result.is_less()),
+// )
+//
+// #skip("then is a keyword")
+// @test_then_less_returns_self tests @then_less () -> void = run(
+//     let result = Less.then(other: Greater),
+//     assert(cond: result.is_less()),
+// )

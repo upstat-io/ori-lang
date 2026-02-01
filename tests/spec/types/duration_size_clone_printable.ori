@@ -1,0 +1,242 @@
+// Spec: 06-types.md § Duration Type, Size Type
+// Spec: 07-properties-of-types.md § Clone, Printable
+// Tests for Clone and Printable trait implementations on Duration and Size types
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Duration — Clone Trait
+// =============================================================================
+
+@test_duration_clone_basic tests @duration_clone_basic () -> void = run(
+    let d = 100ms,
+    let d2 = d.clone(),
+    assert_eq(actual: d2, expected: 100ms),
+)
+
+@duration_clone_basic () -> Duration = 100ms.clone()
+
+@test_duration_clone_preserves_value tests @duration_clone_value () -> void = run(
+    // Clone preserves exact value
+    let d = 1h + 30m + 45s,
+    let d2 = d.clone(),
+    assert_eq(actual: d2.seconds(), expected: d.seconds()),
+)
+
+@duration_clone_value () -> Duration = (1h + 30m).clone()
+
+@test_duration_clone_negative tests @duration_clone_neg () -> void = run(
+    let d = -500ms,
+    let d2 = d.clone(),
+    assert_eq(actual: d2, expected: -500ms),
+)
+
+@duration_clone_neg () -> Duration = (-500ms).clone()
+
+@test_duration_clone_zero tests @duration_clone_zero () -> void = run(
+    let d = 0ns,
+    let d2 = d.clone(),
+    assert_eq(actual: d2, expected: 0ns),
+)
+
+@duration_clone_zero () -> Duration = 0ns.clone()
+
+@test_duration_clone_independent tests @duration_clone_indep () -> void = run(
+    // Modifying original doesn't affect clone
+    let d1 = 100ms,
+    let d2 = d1.clone(),
+    let d3 = d1 + 50ms,
+    assert_eq(actual: d2, expected: 100ms),
+    assert_eq(actual: d3, expected: 150ms),
+)
+
+@duration_clone_indep () -> bool = run(
+    let d1 = 100ms,
+    let d2 = d1.clone(),
+    d1 == d2,
+)
+
+// =============================================================================
+// Duration — Printable Trait
+// =============================================================================
+
+@test_duration_to_str_basic tests @duration_to_str_basic () -> void = run(
+    // to_str returns human-readable format
+    let s = 100ms.to_str(),
+    assert(cond: len(collection: s) > 0),
+)
+
+@duration_to_str_basic () -> str = 100ms.to_str()
+
+@test_duration_to_str_hours tests @duration_to_str_h () -> void = run(
+    let s = 2h.to_str(),
+    assert(cond: s.contains(substring: "2")),
+    assert(cond: s.contains(substring: "h")),
+)
+
+@duration_to_str_h () -> str = 2h.to_str()
+
+@test_duration_to_str_minutes tests @duration_to_str_m () -> void = run(
+    let s = 30m.to_str(),
+    assert(cond: s.contains(substring: "30")),
+    assert(cond: s.contains(substring: "m")),
+)
+
+@duration_to_str_m () -> str = 30m.to_str()
+
+@test_duration_to_str_seconds tests @duration_to_str_s () -> void = run(
+    let s = 45s.to_str(),
+    assert(cond: s.contains(substring: "45")),
+    assert(cond: s.contains(substring: "s")),
+)
+
+@duration_to_str_s () -> str = 45s.to_str()
+
+@test_duration_to_str_milliseconds tests @duration_to_str_ms () -> void = run(
+    let s = 500ms.to_str(),
+    assert(cond: s.contains(substring: "500")),
+    assert(cond: s.contains(substring: "ms")),
+)
+
+@duration_to_str_ms () -> str = 500ms.to_str()
+
+@test_duration_to_str_microseconds tests @duration_to_str_us () -> void = run(
+    let s = 750us.to_str(),
+    assert(cond: s.contains(substring: "750")),
+    assert(cond: s.contains(substring: "us")),
+)
+
+@duration_to_str_us () -> str = 750us.to_str()
+
+@test_duration_to_str_nanoseconds tests @duration_to_str_ns () -> void = run(
+    let s = 999ns.to_str(),
+    assert(cond: s.contains(substring: "999")),
+    assert(cond: s.contains(substring: "ns")),
+)
+
+@duration_to_str_ns () -> str = 999ns.to_str()
+
+@test_duration_to_str_negative tests @duration_to_str_neg () -> void = run(
+    let s = (-100ms).to_str(),
+    assert(cond: s.contains(substring: "-")),
+)
+
+@duration_to_str_neg () -> str = (-100ms).to_str()
+
+@test_duration_to_str_zero tests @duration_to_str_zero () -> void = run(
+    let s = 0ns.to_str(),
+    assert(cond: s.contains(substring: "0")),
+)
+
+@duration_to_str_zero () -> str = 0ns.to_str()
+
+// =============================================================================
+// Size — Clone Trait
+// =============================================================================
+
+@test_size_clone_basic tests @size_clone_basic () -> void = run(
+    let s = 1kb,
+    let s2 = s.clone(),
+    assert_eq(actual: s2, expected: 1kb),
+)
+
+@size_clone_basic () -> Size = 1kb.clone()
+
+@test_size_clone_preserves_value tests @size_clone_value () -> void = run(
+    // Clone preserves exact value
+    let s = 1gb + 512mb,
+    let s2 = s.clone(),
+    assert_eq(actual: s2.bytes(), expected: s.bytes()),
+)
+
+@size_clone_value () -> Size = (1gb + 512mb).clone()
+
+@test_size_clone_zero tests @size_clone_zero () -> void = run(
+    let s = 0b,
+    let s2 = s.clone(),
+    assert_eq(actual: s2, expected: 0b),
+)
+
+@size_clone_zero () -> Size = 0b.clone()
+
+@test_size_clone_large tests @size_clone_large () -> void = run(
+    let s = 1tb,
+    let s2 = s.clone(),
+    assert_eq(actual: s2, expected: 1tb),
+)
+
+@size_clone_large () -> Size = 1tb.clone()
+
+@test_size_clone_independent tests @size_clone_indep () -> void = run(
+    // Modifying original doesn't affect clone
+    let s1 = 1kb,
+    let s2 = s1.clone(),
+    let s3 = s1 + 512b,
+    assert_eq(actual: s2, expected: 1kb),
+    assert_eq(actual: s3, expected: 1536b),
+)
+
+@size_clone_indep () -> bool = run(
+    let s1 = 1kb,
+    let s2 = s1.clone(),
+    s1 == s2,
+)
+
+// =============================================================================
+// Size — Printable Trait
+// =============================================================================
+
+@test_size_to_str_basic tests @size_to_str_basic () -> void = run(
+    // to_str returns human-readable format
+    let s = 1kb.to_str(),
+    assert(cond: len(collection: s) > 0),
+)
+
+@size_to_str_basic () -> str = 1kb.to_str()
+
+@test_size_to_str_terabytes tests @size_to_str_tb () -> void = run(
+    let s = 2tb.to_str(),
+    assert(cond: s.contains(substring: "2")),
+    assert(cond: s.contains(substring: "tb")),
+)
+
+@size_to_str_tb () -> str = 2tb.to_str()
+
+@test_size_to_str_gigabytes tests @size_to_str_gb () -> void = run(
+    let s = 4gb.to_str(),
+    assert(cond: s.contains(substring: "4")),
+    assert(cond: s.contains(substring: "gb")),
+)
+
+@size_to_str_gb () -> str = 4gb.to_str()
+
+@test_size_to_str_megabytes tests @size_to_str_mb () -> void = run(
+    let s = 512mb.to_str(),
+    assert(cond: s.contains(substring: "512")),
+    assert(cond: s.contains(substring: "mb")),
+)
+
+@size_to_str_mb () -> str = 512mb.to_str()
+
+@test_size_to_str_kilobytes tests @size_to_str_kb () -> void = run(
+    let s = 64kb.to_str(),
+    assert(cond: s.contains(substring: "64")),
+    assert(cond: s.contains(substring: "kb")),
+)
+
+@size_to_str_kb () -> str = 64kb.to_str()
+
+@test_size_to_str_bytes tests @size_to_str_b () -> void = run(
+    let s = 256b.to_str(),
+    assert(cond: s.contains(substring: "256")),
+    assert(cond: s.contains(substring: "b")),
+)
+
+@size_to_str_b () -> str = 256b.to_str()
+
+@test_size_to_str_zero tests @size_to_str_zero () -> void = run(
+    let s = 0b.to_str(),
+    assert(cond: s.contains(substring: "0")),
+)
+
+@size_to_str_zero () -> str = 0b.to_str()

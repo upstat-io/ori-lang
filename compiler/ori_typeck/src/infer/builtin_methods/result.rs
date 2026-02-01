@@ -17,7 +17,7 @@ impl BuiltinMethodHandler for ResultMethodHandler {
     fn check(
         &self,
         ctx: &mut InferenceContext,
-        _interner: &StringInterner,
+        interner: &StringInterner,
         receiver_ty: &Type,
         method: &str,
         _args: &[Type],
@@ -51,6 +51,7 @@ impl BuiltinMethodHandler for ResultMethodHandler {
                     err: Box::new(result_err),
                 })
             }
+            "compare" => MethodTypeResult::Ok(Type::Named(interner.intern("Ordering"))),
             _ => MethodTypeResult::Err(MethodTypeError::new(
                 format!("unknown method `{method}` for type `Result<T, E>`"),
                 ErrorCode::E2002,

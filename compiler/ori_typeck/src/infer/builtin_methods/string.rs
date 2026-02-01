@@ -17,7 +17,7 @@ impl BuiltinMethodHandler for StringMethodHandler {
     fn check(
         &self,
         _ctx: &mut InferenceContext,
-        _interner: &StringInterner,
+        interner: &StringInterner,
         _receiver_ty: &Type,
         method: &str,
         _args: &[Type],
@@ -32,6 +32,7 @@ impl BuiltinMethodHandler for StringMethodHandler {
             "split" => MethodTypeResult::Ok(Type::List(Box::new(Type::Str))),
             "chars" => MethodTypeResult::Ok(Type::List(Box::new(Type::Char))),
             "bytes" => MethodTypeResult::Ok(Type::List(Box::new(Type::Byte))),
+            "compare" => MethodTypeResult::Ok(Type::Named(interner.intern("Ordering"))),
             _ => MethodTypeResult::Err(MethodTypeError::new(
                 format!("unknown method `{method}` for type `str`"),
                 ErrorCode::E2002,

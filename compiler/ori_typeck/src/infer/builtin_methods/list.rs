@@ -17,7 +17,7 @@ impl BuiltinMethodHandler for ListMethodHandler {
     fn check(
         &self,
         ctx: &mut InferenceContext,
-        _interner: &StringInterner,
+        interner: &StringInterner,
         receiver_ty: &Type,
         method: &str,
         args: &[Type],
@@ -46,6 +46,7 @@ impl BuiltinMethodHandler for ListMethodHandler {
                     MethodTypeResult::Ok(ctx.fresh_var())
                 }
             }
+            "compare" => MethodTypeResult::Ok(Type::Named(interner.intern("Ordering"))),
             _ => MethodTypeResult::Err(MethodTypeError::new(
                 format!("unknown method `{method}` for type `[T]`"),
                 ErrorCode::E2002,

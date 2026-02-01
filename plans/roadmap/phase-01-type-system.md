@@ -4,7 +4,7 @@
 
 > **SPEC**: `spec/06-types.md`, `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
-**Status**: 🔶 Partial — Core complete (1.1-1.5), approved proposals pending (1.1A Duration/Size traits, 1.1B Never semantics)
+**Status**: ✅ Complete — Core (1.1-1.5) complete, 1.1A trait implementations complete with Ori tests, 1.1B core Never semantics complete (advanced features pending)
 
 ---
 
@@ -97,7 +97,7 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
 
 - [x] **Implement**: Compile error for unary negation on Size
   - [x] **Rust Tests**: `ori_typeck/src/infer/expressions/operators.rs` — Size negation check
-  - [ ] **Ori Tests**: `tests/compile-fail/size_unary_negation.ori`
+  - [x] **Ori Tests**: `tests/compile-fail/size_unary_negation.ori`
 
 - [x] **Implement**: Runtime panic for Duration overflow
   - [x] **Ori Tests**: Built into checked arithmetic (panics on overflow)
@@ -110,30 +110,47 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
 - [x] **Implement**: Duration extraction methods (.nanoseconds(), .microseconds(), etc.)
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — Duration extraction method tests
 
-- [ ] **Implement**: Duration factory methods (Duration.from_seconds(), etc.)
-  - [ ] **Ori Tests**: `tests/spec/types/duration_factory.ori`
-  - **Note**: Requires associated function syntax support (Type.method())
+- [x] **Implement**: Duration factory methods (Duration.from_seconds(), etc.)
+  - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — Duration factory method tests
+  - **Note**: Associated function syntax implemented in Phase 5.9
 
 - [x] **Implement**: Size extraction methods (.bytes(), .kilobytes(), etc.)
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — Size extraction method tests
 
-- [ ] **Implement**: Size factory methods (Size.from_bytes(), etc.)
-  - [ ] **Ori Tests**: `tests/spec/types/size_factory.ori`
-  - **Note**: Requires associated function syntax support (Type.method())
+- [x] **Implement**: Size factory methods (Size.from_bytes(), etc.)
+  - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — Size factory method tests
+  - **Note**: Associated function syntax implemented in Phase 5.9
 
 ### Trait Implementations
 
-- [ ] **Implement**: Eq, Comparable, Hashable for Duration
-  - [ ] **Ori Tests**: `tests/spec/types/duration_traits.ori`
+- [x] **Implement**: Eq, Comparable for Duration
+  - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — Duration comparison operators
+  - [x] **Ori Tests**: `tests/spec/types/duration_size_comparable.ori` — Duration compare() method
 
-- [ ] **Implement**: Eq, Comparable, Hashable for Size
-  - [ ] **Ori Tests**: `tests/spec/types/size_traits.ori`
+- [x] **Implement**: Eq, Comparable for Size
+  - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — Size comparison operators
+  - [x] **Ori Tests**: `tests/spec/types/duration_size_comparable.ori` — Size compare() method
 
-- [ ] **Implement**: Clone, Debug, Printable, Default for Duration
-  - [ ] **Ori Tests**: `tests/spec/types/duration_traits.ori`
+- [x] **Implement**: Clone, Printable for Duration
+  - [x] **Ori Tests**: `tests/spec/types/duration_size_clone_printable.ori` — Duration clone/to_str tests
 
-- [ ] **Implement**: Clone, Debug, Printable, Default for Size
-  - [ ] **Ori Tests**: `tests/spec/types/size_traits.ori`
+- [x] **Implement**: Clone, Printable for Size
+  - [x] **Ori Tests**: `tests/spec/types/duration_size_clone_printable.ori` — Size clone/to_str tests
+
+- [x] **Implement**: Hashable for Duration and Size
+  - [x] **Rust Implementation**: `ori_eval/src/methods.rs` — hash method
+  - [x] **Bound Checking**: `ori_typeck/src/checker/bound_checking.rs` — Hashable trait
+  - [x] **Ori Tests**: `tests/spec/types/duration_size_hashable.ori`
+
+- [x] **Implement**: Default for Duration and Size (0ns and 0b)
+  - [x] **Rust Implementation**: `ori_eval/src/methods.rs` — Duration.default(), Size.default()
+  - [x] **Type Checking**: `ori_typeck/src/infer/builtin_methods/units.rs` — default associated function
+  - [x] **Bound Checking**: `ori_typeck/src/checker/bound_checking.rs` — Default trait
+  - [x] **Ori Tests**: `tests/spec/types/duration_size_default.ori`
+
+- [x] **Implement**: Sendable for Duration and Size
+  - [x] **Bound Checking**: `ori_typeck/src/checker/bound_checking.rs` — Sendable trait
+  - [x] **Ori Tests**: `tests/spec/types/duration_size_sendable.ori`
 
 ---
 

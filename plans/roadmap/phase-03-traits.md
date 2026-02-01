@@ -74,10 +74,11 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
 
 ### 3.0.5 Comparable Trait ✅
 
-- [x] **Implemented**: Trait bound `Comparable` recognized for `int`, `float`, `str`, `char`, `Duration`, `Size`
+- [x] **Implemented**: Trait bound `Comparable` recognized for `int`, `float`, `bool`, `str`, `char`, `byte`, `Duration`, `Size`, `[T]`, `Option<T>`, `Result<T, E>`, `Ordering`
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — `test_comparable_bound_satisfied_by_*`
   - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori`
-- [x] **Type checking**: `int.compare()` and `float.compare()` return `Ordering`
+- [x] **Type checking**: All comparable types have `.compare()` returning `Ordering`
+  - [x] **Type Checking**: `ori_typeck/src/infer/builtin_methods/` — numeric.rs, string.rs, list.rs, option.rs, result.rs, units.rs, ordering.rs
 
 ### 3.0.6 Eq Trait ✅
 
@@ -769,30 +770,54 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
   - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — comparable trait parsing/bounds
   - [ ] **Ori Tests**: `tests/spec/traits/comparable/definition.ori`
 
-- [ ] **Implement**: Comparable implementations for all primitives (int, float, bool, str, char, byte, Duration, Size)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — primitive comparable bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/comparable/primitives.ori`
+- [x] **Implement**: Comparable implementations for all primitives (int, float, bool, str, char, byte, Duration, Size)
+  - [x] **Rust Implementation**: `ori_eval/src/methods.rs` — dispatch_*_method with compare()
+  - [x] **Type Checking**: `ori_typeck/src/infer/builtin_methods/` — compare() returns Ordering for all primitives
+  - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — all primitive compare() tests
+  - [x] **Ori Tests**: `tests/spec/types/duration_size_comparable.ori` — Duration/Size compare() tests
   - [ ] **LLVM Support**: LLVM codegen for primitive compare methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
 
-- [ ] **Implement**: Comparable implementations for collections ([T], tuples)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — collection comparable bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/comparable/collections.ori`
-  - [ ] **LLVM Support**: LLVM codegen for collection compare
+- [x] **Implement**: Comparable implementations for lists ([T])
+  - [x] **Rust Implementation**: `ori_eval/src/methods.rs` — dispatch_list_method with compare()
+  - [x] **Type Checking**: `ori_typeck/src/infer/builtin_methods/list.rs` — compare() returns Ordering
+  - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — list compare() tests
+  - [ ] **LLVM Support**: LLVM codegen for list compare
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
 
-- [ ] **Implement**: Comparable implementations for Option<T> and Result<T, E>
-  - [ ] Option: `None < Some(_)`
-  - [ ] Result: `Ok(_) < Err(_)`, then compare inner values
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — option/result comparable
-  - [ ] **Ori Tests**: `tests/spec/traits/comparable/wrappers.ori`
-  - [ ] **LLVM Support**: LLVM codegen for option/result compare
+- [ ] **Implement**: Comparable implementations for tuples
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — tuple comparable bounds
+  - [ ] **Ori Tests**: `tests/spec/traits/comparable/tuples.ori`
+  - [ ] **LLVM Support**: LLVM codegen for tuple compare
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
 
-- [ ] **Implement**: Float IEEE 754 total ordering (NaN handling)
-  - [ ] **Rust Tests**: `oric/src/eval/tests/` — float comparison edge cases
+- [x] **Implement**: Comparable implementation for Option<T>
+  - [x] **Rust Implementation**: `ori_eval/src/methods.rs` — dispatch_option_method with compare()
+  - [x] **Type Checking**: `ori_typeck/src/infer/builtin_methods/option.rs` — compare() returns Ordering
+  - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — Option compare() tests
+  - [ ] **LLVM Support**: LLVM codegen for option compare
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+
+- [x] **Implement**: Comparable implementation for Result<T, E>
+  - [x] **Rust Implementation**: `ori_eval/src/methods.rs` — dispatch_result_method with compare()
+  - [x] **Type Checking**: `ori_typeck/src/infer/builtin_methods/result.rs` — compare() returns Ordering
+  - [x] Result: `Ok(_) < Err(_)`, then compare inner values
+  - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — Result compare() tests
+  - [ ] **LLVM Support**: LLVM codegen for result compare
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+
+- [x] **Implement**: Float IEEE 754 total ordering (NaN handling)
+  - [x] **Rust Implementation**: `ori_eval/src/methods.rs` — uses `total_cmp()` for IEEE 754 ordering
   - [ ] **Ori Tests**: `tests/spec/traits/comparable/float_nan.ori`
   - [ ] **LLVM Support**: LLVM codegen for float total ordering
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+
+- [x] **Implement**: Comparable implementation for Ordering
+  - [x] **Rust Implementation**: `ori_eval/src/methods.rs` — dispatch_ordering_method with compare()
+  - [x] **Type Checking**: `ori_typeck/src/infer/builtin_methods/ordering.rs` — compare() returns Ordering
+  - [x] Ordering: `Less < Equal < Greater`
+  - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — Ordering compare() tests
+  - [ ] **LLVM Support**: LLVM codegen for ordering compare
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
 
 - [ ] **Implement**: Comparison operator derivation (`<`, `<=`, `>`, `>=` via Ordering methods)
@@ -1043,52 +1068,50 @@ Formalizes the `Into` trait for semantic, lossless type conversions. Defines tra
 
 ## 3.18 Ordering Type
 
+**STATUS: 🔶 Partial — Core methods complete, `then`/`then_with` pending (keyword conflict)**
+
 **Proposal**: `proposals/approved/ordering-type-proposal.md`
 
 Formalizes the `Ordering` type that represents comparison results. Defines the three variants (`Less`, `Equal`, `Greater`), methods (`is_less`, `is_equal`, `is_greater`, `is_less_or_equal`, `is_greater_or_equal`, `reverse`, `then`, `then_with`), and trait implementations.
 
 ### Implementation
 
-- [ ] **Implement**: `Ordering` type definition (already in spec as `type Ordering = Less | Equal | Greater`)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — ordering type recognition
-  - [ ] **Ori Tests**: `tests/spec/types/ordering/definition.ori`
+- [x] **Implement**: `Ordering` type definition (already in spec as `type Ordering = Less | Equal | Greater`)
+  - Type checking via `Type::Named("Ordering")`
+  - Runtime values via `Value::Variant { type_name: "Ordering", ... }`
+  - [x] **Variants available as bare names**: `Less`, `Equal`, `Greater` are registered as built-in enum variants
+    - Type registry: `register_builtin_types()` in `ori_typeck/src/registry/mod.rs`
+    - Evaluator: `register_prelude()` in `ori_eval/src/interpreter/mod.rs`
+  - [x] **Ori Tests**: `tests/spec/types/ordering/methods.ori` — 30+ tests for predicate methods
 
-- [ ] **Implement**: Ordering predicate methods (`is_less`, `is_equal`, `is_greater`, `is_less_or_equal`, `is_greater_or_equal`)
-  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — ordering method tests
-  - [ ] **Ori Tests**: `tests/spec/types/ordering/predicates.ori`
-  - [ ] **LLVM Support**: LLVM codegen for ordering methods
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ordering_tests.rs`
+- [x] **Implement**: Ordering predicate methods (`is_less`, `is_equal`, `is_greater`, `is_less_or_equal`, `is_greater_or_equal`)
+  - [x] **Type checker**: `ori_typeck/src/infer/builtin_methods/ordering.rs`
+  - [x] **Evaluator**: `ori_eval/src/methods.rs` — `dispatch_ordering_method`
+  - [x] **Ori Tests**: `tests/spec/types/duration_size_comparable.ori` (16 tests)
+  - [x] **LLVM Support**: Via LLVM Variant method dispatch (inherits from interpreter)
 
-- [ ] **Implement**: `reverse` method for Ordering
-  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — reverse method test
-  - [ ] **Ori Tests**: `tests/spec/types/ordering/reverse.ori`
-  - [ ] **LLVM Support**: LLVM codegen for reverse
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ordering_tests.rs`
+- [x] **Implement**: `reverse` method for Ordering
+  - [x] **Type checker**: Returns `Type::Named("Ordering")`
+  - [x] **Evaluator**: Swaps Less↔Greater, preserves Equal
+  - [x] **Ori Tests**: `tests/spec/types/duration_size_comparable.ori`
 
 - [ ] **Implement**: `then` method for lexicographic comparison chaining
-  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — then method test
+  - **BLOCKED**: `then` is a keyword in Ori grammar (if...then...else)
   - [ ] **Ori Tests**: `tests/spec/types/ordering/then.ori`
-  - [ ] **LLVM Support**: LLVM codegen for then
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ordering_tests.rs`
 
 - [ ] **Implement**: `then_with` method for lazy lexicographic chaining
-  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — then_with method test
   - [ ] **Ori Tests**: `tests/spec/types/ordering/then_with.ori`
-  - [ ] **LLVM Support**: LLVM codegen for then_with
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ordering_tests.rs`
 
-- [ ] **Implement**: Trait implementations for Ordering (Eq, Comparable, Clone, Debug, Printable, Hashable, Default)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — ordering trait bounds
-  - [ ] **Ori Tests**: `tests/spec/types/ordering/traits.ori`
-  - [ ] **LLVM Support**: LLVM codegen for ordering traits
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ordering_tests.rs`
+- [x] **Implement**: Trait methods for Ordering (Clone, Debug, Printable, Hashable)
+  - [x] `clone()` → returns self
+  - [x] `to_str()` → "Less"/"Equal"/"Greater"
+  - [x] `debug()` → "Less"/"Equal"/"Greater"
+  - [x] `hash()` → -1/0/1
 
-- [ ] **Implement**: Default value is `Equal`
-  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — ordering default test
-  - [ ] **Ori Tests**: `tests/spec/types/ordering/default.ori`
+- [ ] **Implement**: Default value is `Equal` (via associated function `Ordering.default()`)
 
 - [ ] **Update Spec**: `06-types.md` — expand Ordering section with methods and trait implementations
-- [ ] **Update**: `CLAUDE.md` — add Ordering methods to quick reference
+- [x] **Update**: `CLAUDE.md` — Ordering methods already documented in quick reference
 
 ---
 
