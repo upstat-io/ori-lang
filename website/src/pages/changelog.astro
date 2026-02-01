@@ -15,16 +15,20 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       </p>
       <div class="stats" id="stats">
         <div class="stat">
-          <span class="stat-value" id="total-count">-</span>
-          <span class="stat-label">Commits</span>
-        </div>
-        <div class="stat">
           <span class="stat-value" id="feat-count">-</span>
           <span class="stat-label">Features</span>
         </div>
         <div class="stat">
           <span class="stat-value" id="fix-count">-</span>
           <span class="stat-label">Fixes</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="refactor-count">-</span>
+          <span class="stat-label">Refactors</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="docs-count">-</span>
+          <span class="stat-label">Docs</span>
         </div>
       </div>
     </section>
@@ -125,6 +129,9 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         var typeLabel = typeLabels[entry.type] || 'Chore';
         html += '<div class="entry-card">';
         html += '<span class="entry-type ' + typeClass + '">' + typeLabel + '</span>';
+        if (entry.scope) {
+          html += '<span class="entry-scope">' + entry.scope + '</span>';
+        }
         html += '<span class="entry-message">' + entry.message + '</span>';
         html += '<code class="entry-hash">' + entry.hash + '</code>';
         html += '</div>';
@@ -193,14 +200,17 @@ import BaseLayout from '../layouts/BaseLayout.astro';
   }
 
   function updateStats() {
-    document.getElementById('total-count').textContent = allEntries.length;
-    var featCount = 0, fixCount = 0;
+    var counts = { feat: 0, fix: 0, refactor: 0, docs: 0 };
     for (var i = 0; i < allEntries.length; i++) {
-      if (allEntries[i].type === 'feat') featCount++;
-      if (allEntries[i].type === 'fix') fixCount++;
+      var type = allEntries[i].type;
+      if (counts.hasOwnProperty(type)) {
+        counts[type]++;
+      }
     }
-    document.getElementById('feat-count').textContent = featCount;
-    document.getElementById('fix-count').textContent = fixCount;
+    document.getElementById('feat-count').textContent = counts.feat;
+    document.getElementById('fix-count').textContent = counts.fix;
+    document.getElementById('refactor-count').textContent = counts.refactor;
+    document.getElementById('docs-count').textContent = counts.docs;
   }
 
   function applyFilter(filter) {
@@ -440,6 +450,17 @@ import BaseLayout from '../layouts/BaseLayout.astro';
   :global(.type-chore) {
     background: var(--color-bg-tertiary);
     color: var(--color-text-secondary);
+  }
+
+  :global(.entry-scope) {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: var(--weight-medium);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-muted);
+    font-family: var(--font-mono);
   }
 
   :global(.entry-message) {
