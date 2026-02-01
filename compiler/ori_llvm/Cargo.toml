@@ -11,7 +11,8 @@ repository = "https://github.com/upstat-io/ori-lang"
 
 [dependencies]
 # LLVM bindings
-inkwell = { version = "0.8", features = ["llvm17-0-force-dynamic"] }
+# Note: Using llvm17-0 (not force-dynamic) to support static linking on Windows
+inkwell = { version = "0.8", features = ["llvm17-0"] }
 
 # Ori crates (relative paths since excluded from workspace)
 ori_ir = { path = "../ori_ir" }
