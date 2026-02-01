@@ -146,49 +146,36 @@ jobs:
           name: ori-${{ matrix.name }}
           path: ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz
 
-  # Windows builds are currently disabled because llvm-sys doesn't support
-  # dynamic LLVM linking on Windows, and static linking requires:
-  # 1. An LLVM build with all target backends (vovkos packages only have X86)
-  # 2. Static zlib/zstd libraries
-  # TODO: Set up a proper static LLVM build for Windows
+  # Windows builds use our custom LLVM package with all targets
+  # See: https://github.com/upstat-io/llvm-package-windows
   build-windows:
     name: Build Windows (x86_64)
     needs: validate
-    runs-on: windows-latest
-    timeout-minutes: 45
-    if: false  # Disabled until static LLVM build is set up
+    runs-on: windows-2022
+    timeout-minutes: 60
+    # Re-enable once llvm-package-windows is set up with v17.0.6 release
+    if: false  # TODO: Enable after creating upstat-io/llvm-package-windows
+
+    env:
+      LLVM_SYS_170_PREFIX: C:\LLVM
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download LLVM development package
+      - name: Download LLVM
         run: |
-          # Use libcmt variant for static linking (llvm-sys doesn't support dynamic linking on Windows)
-          $LLVM_URL = "https://github.com/vovkos/llvm-package-windows/releases/download/llvm-17.0.6/llvm-17.0.6-windows-amd64-msvc17-libcmt.7z"
+          # Download our pre-built LLVM with all targets
+          $LLVM_URL = "https://github.com/upstat-io/llvm-package-windows/releases/download/v17.0.6/LLVM-17.0.6-win64.7z"
           Write-Host "Downloading LLVM from $LLVM_URL"
-          Invoke-WebRequest -Uri $LLVM_URL -OutFile llvm.7z
-          Write-Host "Extracting LLVM..."
-          7z x llvm.7z -ollvm
-          # The archive extracts to a subdirectory
-          $LLVM_DIR = (Get-ChildItem -Path llvm -Directory | Select-Object -First 1).FullName
-          Write-Host "LLVM extracted to: $LLVM_DIR"
-          echo "LLVM_DIR=$LLVM_DIR" >> $env:GITHUB_ENV
+          curl.exe -fLO $LLVM_URL
+          Write-Host "Extracting LLVM to C:\LLVM..."
+          7z x LLVM-17.0.6-win64.7z -oC:\LLVM
 
-      - name: Setup LLVM environment
+      - name: Verify LLVM
         run: |
-          # Set environment variables for llvm-sys
-          echo "LLVM_SYS_170_PREFIX=$env:LLVM_DIR" >> $env:GITHUB_ENV
-          echo "$env:LLVM_DIR\bin" >> $env:GITHUB_PATH
-          # Verify installation - this package includes llvm-config
-          Write-Host "LLVM_SYS_170_PREFIX=$env:LLVM_DIR"
-          Write-Host "Contents of LLVM bin directory:"
-          Get-ChildItem "$env:LLVM_DIR\bin" | Select-Object -First 10 | ForEach-Object { Write-Host "  $($_.Name)" }
-          if (Test-Path "$env:LLVM_DIR\bin\llvm-config.exe") {
-            Write-Host "llvm-config.exe found!"
-            & "$env:LLVM_DIR\bin\llvm-config.exe" --version
-          } else {
-            Write-Host "Warning: llvm-config.exe not found, but llvm-sys may still work via PREFIX"
-          }
+          Write-Host "LLVM_SYS_170_PREFIX = $env:LLVM_SYS_170_PREFIX"
+          & "$env:LLVM_SYS_170_PREFIX\bin\llvm-config.exe" --version
+          & "$env:LLVM_SYS_170_PREFIX\bin\llvm-config.exe" --targets-built
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
