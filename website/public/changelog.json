@@ -1,4 +1,5 @@
 [
+  {"date": "2026-02-01", "type": "fix", "scope": "ci", "message": "disable Windows LLVM builds temporarily", "hash": "7dcb697"},
   {"date": "2026-02-01", "type": "fix", "scope": "llvm", "message": "use static linking on Windows", "hash": "5feed95"},
   {"date": "2026-02-01", "type": "docs", "scope": "roadmap", "message": "fix phase statuses and update continue-roadmap command", "hash": "1aa0f7d"},
   {"date": "2026-02-01", "type": "fix", "scope": "llvm", "message": "use thread-local storage for panic state", "hash": "6256cfb"},
@@ -97,6 +98,5 @@
   {"date": "2026-01-23", "type": "feat", "message": "implement import resolution and support for cross-module functions", "hash": "c993aed"},
   {"date": "2026-01-23", "type": "feat", "message": "add proposals for no circular imports and app-wide panic handler", "hash": "2f9937f"},
   {"date": "2026-01-22", "type": "feat", "message": "update ARC documentation to reflect compile-time cycle prevention and remove backup collector references", "hash": "fb3bf63"},
-  {"date": "2026-01-22", "type": "feat", "message": "introduce integer overflow behavior proposal", "hash": "d5f13e3"},
-  {"date": "2026-01-22", "type": "feat", "message": "add proposals for enhanced parallel and concurrency support in Sigil", "hash": "7108211"}
+  {"date": "2026-01-22", "type": "feat", "message": "introduce integer overflow behavior proposal", "hash": "d5f13e3"}
 ]

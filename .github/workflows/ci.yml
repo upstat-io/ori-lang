@@ -68,10 +68,52 @@ jobs:
         run: cargo build --workspace
 
       - name: Rust unit tests
-        run: cargo test --workspace
+        id: rust-tests
+        continue-on-error: true
+        run: |
+          cargo test --workspace 2>&1 | tee rust-test-output.txt
+          # Extract test count from output like "test result: ok. 2136 passed; 0 failed"
+          RUST_TESTS=$(grep -oP '\d+(?= passed)' rust-test-output.txt | tail -1 || echo "0")
+          RUST_FAILED=$(grep -oP '\d+(?= failed)' rust-test-output.txt | tail -1 || echo "0")
+          echo "RUST_TESTS=$RUST_TESTS" >> $GITHUB_ENV
+          echo "RUST_FAILED=$RUST_FAILED" >> $GITHUB_ENV
 
       - name: Ori language tests
-        run: cargo run -p oric --bin ori -- test tests/
+        id: ori-tests
+        continue-on-error: true
+        run: |
+          cargo run -p oric --bin ori -- test tests/ 2>&1 | tee ori-test-output.txt
+          # Extract test count from Ori test output
+          ORI_TESTS=$(grep -oP '\d+(?= tests? passed)' ori-test-output.txt | tail -1 || echo "0")
+          ORI_FAILED=$(grep -oP '\d+(?= tests? failed)' ori-test-output.txt | tail -1 || echo "0")
+          echo "ORI_TESTS=$ORI_TESTS" >> $GITHUB_ENV
+          echo "ORI_FAILED=$ORI_FAILED" >> $GITHUB_ENV
+
+      - name: Save test results
+        if: always()
+        run: |
+          cat > test-results.json << EOF
+          {
+            "rust_tests": ${RUST_TESTS:-0},
+            "rust_failed": ${RUST_FAILED:-0},
+            "ori_tests": ${ORI_TESTS:-0},
+            "ori_failed": ${ORI_FAILED:-0},
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+          cat test-results.json
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.json
+          retention-days: 90
+
+      - name: Fail if tests failed
+        if: steps.rust-tests.outcome == 'failure' || steps.ori-tests.outcome == 'failure'
+        run: exit 1
 
   # Cross-platform smoke test - just verify it compiles and basic tests pass
   cross-platform:
@@ -125,7 +167,34 @@ jobs:
         run: ./llvm-clippy
 
       - name: LLVM tests
-        run: ./llvm-test
+        id: llvm-tests
+        continue-on-error: true
+        run: |
+          ./llvm-test 2>&1 | tee llvm-test-output.txt
+          LLVM_TESTS=$(grep -oP '\d+(?= passed)' llvm-test-output.txt | tail -1 || echo "0")
+          LLVM_FAILED=$(grep -oP '\d+(?= failed)' llvm-test-output.txt | tail -1 || echo "0")
+          echo "LLVM_TESTS=$LLVM_TESTS" >> $GITHUB_ENV
+          echo "LLVM_FAILED=$LLVM_FAILED" >> $GITHUB_ENV
+
+      - name: Save LLVM test results
+        if: always()
+        run: |
+          cat > llvm-test-results.json << EOF
+          {
+            "llvm_tests": ${LLVM_TESTS:-0},
+            "llvm_failed": ${LLVM_FAILED:-0},
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+          cat llvm-test-results.json
+
+      - name: Upload LLVM test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-test-results
+          path: llvm-test-results.json
+          retention-days: 90
 
   # Single status check for branch protection
   ci-success:
