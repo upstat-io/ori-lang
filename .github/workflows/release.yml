@@ -21,6 +21,20 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag is on master branch
+        run: |
+          # Check if the tagged commit is reachable from master
+          if ! git merge-base --is-ancestor ${{ github.sha }} origin/master; then
+            echo "ERROR: Release tags must be on the master branch."
+            echo ""
+            echo "The tagged commit (${{ github.sha }}) is not on master."
+            echo "Please ensure you're tagging a commit that has been merged to master."
+            exit 1
+          fi
+          echo "Tag is on master branch - OK"
 
       - name: Extract expected version from tag
         id: tag_version

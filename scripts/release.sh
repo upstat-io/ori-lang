@@ -95,6 +95,21 @@ main() {
         usage
     fi
 
+    # Ensure we're on master branch
+    local current_branch
+    current_branch=$(git branch --show-current)
+    if [[ "$current_branch" != "master" && "$current_branch" != "main" ]]; then
+        echo -e "${RED}ERROR${NC}: Releases must be created from the master branch."
+        echo ""
+        echo "Current branch: $current_branch"
+        echo ""
+        echo "To release, first merge your changes to master:"
+        echo "  git checkout master"
+        echo "  git merge $current_branch"
+        echo "  ./scripts/release.sh"
+        exit 1
+    fi
+
     # Get current version
     local current_version
     current_version=$(get_current_version)
