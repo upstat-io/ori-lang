@@ -31,6 +31,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for changelog generation
 
       - name: Fetch test results from CI
         uses: dawidd6/action-download-artifact@v6
@@ -97,6 +99,10 @@ jobs:
 
       - name: Copy WASM to website
         run: bash scripts/copy-wasm.sh
+        working-directory: website
+
+      - name: Generate changelog
+        run: bash scripts/generate-changelog.sh
         working-directory: website
 
       - name: Build website
