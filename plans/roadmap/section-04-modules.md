@@ -1,5 +1,5 @@
 ---
-phase: 4
+section: 4
 title: Module System
 status: in-progress
 tier: 1
@@ -35,14 +35,14 @@ sections:
     title: Remaining Work (Pre-existing)
     status: in-progress
   - id: "4.10"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: complete
   - id: "4.11"
     title: Extension Methods
     status: not-started
 ---
 
-# Phase 4: Module System
+# Section 4: Module System
 
 **Goal**: Multi-file compilation
 
@@ -219,7 +219,7 @@ sections:
   - [x] `is_some`, `is_none`, `is_ok`, `is_err`
   - [x] `len`, `is_empty`
   - [x] `compare`, `min`, `max`
-  - Note: Trait definitions in prelude (Eq, Comparable, etc.) parse but need Phase 3 for full integration
+  - Note: Trait definitions in prelude (Eq, Comparable, etc.) parse but need Section 3 for full integration
 
 ---
 
@@ -410,13 +410,13 @@ Extension methods add methods to existing types without modifying their definiti
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/extension_tests.rs`
 
 **Note on Type Definitions:**
-- Full prelude with user-defined Option, Result, etc. requires Phase 5 (Type Declarations)
+- Full prelude with user-defined Option, Result, etc. requires Section 5 (Type Declarations)
 - Currently using built-in types in evaluator
-- See phase-05-type-declarations.md § 5.1-5.4 for type definition work
+- See section-05-type-declarations.md § 5.1-5.4 for type definition work
 
 ---
 
-## 4.10 Phase Completion Checklist
+## 4.10 Section Completion Checklist
 
 - [x] Core module imports working (relative, module, private, aliases)
 - [x] Visibility system working (`pub`, private by default, `::`)
@@ -430,8 +430,8 @@ Extension methods add methods to existing types without modifying their definiti
 - [x] Module alias syntax (`use std.net.http as http`) — parsing/runtime complete
 - [x] Re-exports (`pub use`) — parsing complete
 - [x] Qualified access (`module.function()`) — runtime complete, type checker pending
-- [ ] Type definitions parsing (see Phase 5)
+- [ ] Type definitions parsing (see Section 5)
 - [x] Run full test suite: `./test-all`
 
 **Exit Criteria**: Multi-file projects compile ✅ (core support complete)
-**Status**: Phase 4 parsing and runtime complete. Type checker support for module namespaces pending.
+**Status**: Section 4 parsing and runtime complete. Type checker support for module namespaces pending.

@@ -11,11 +11,11 @@ Before starting:
 
 ### Execution Rules
 
-1. **Follow phase order strictly** — Dependencies are encoded in the numbering
-2. **Within each phase**, complete sections in order (X.1 → X.2 → ...)
+1. **Follow section order strictly** — Dependencies are encoded in the numbering
+2. **Within each section**, complete sections in order (X.1 → X.2 → ...)
 3. **Within each section**, complete items top to bottom
 4. **Each item requires**: Implementation → Tests → Documentation
-5. **Do not skip phases** unless marked complete or explicitly skipped
+5. **Do not skip sections** unless marked complete or explicitly skipped
 
 ### Item Structure
 
@@ -28,16 +28,16 @@ Before starting:
 ### Updating Progress
 
 - Check boxes as items complete: `[ ]` → `[x]`
-- Update `priority-and-tracking.md` phase status
+- Update `priority-and-tracking.md` section status
 - Save after each update
 
-### Phase File Frontmatter Format
+### Section File Frontmatter Format
 
-Each phase file uses YAML frontmatter for machine-parseable metadata. This enables the website to dynamically read roadmap data instead of hard-coding it.
+Each section file uses YAML frontmatter for machine-parseable metadata. This enables the website to dynamically read roadmap data instead of hard-coding it.
 
 ```yaml
 ---
-phase: 1                           # int or string ("7A", "15B", "21A")
+section: 1                           # int or string ("7A", "15B", "21A")
 title: Type System Foundation
 status: in-progress                # not-started | in-progress | complete
 tier: 1                            # 1-8 (see tier descriptions below)
@@ -65,31 +65,31 @@ sections:
 - Mix of `[x]` and `[ ]` → `in-progress`
 - All `[ ]` → `not-started`
 
-**Phase status derivation:**
-- All sections `complete` → phase `complete`
-- Any section `in-progress` or mix of statuses → phase `in-progress`
-- All sections `not-started` → phase `not-started`
+**Section status derivation:**
+- All sections `complete` → section `complete`
+- Any section `in-progress` or mix of statuses → section `in-progress`
+- All sections `not-started` → section `not-started`
 
 ### Adding New Items
 
-When adding new implementation items to the roadmap, consider creating a new phase file if:
+When adding new implementation items to the roadmap, consider creating a new section file if:
 
 1. **Scope warrants separation** — The new work represents a distinct, cohesive unit (e.g., a new stdlib module, a major language feature)
-2. **Phase file is getting large** — If a phase file exceeds ~150-200 items or ~400 lines, consider splitting
-3. **Clear boundaries exist** — The new items have minimal dependencies on other items in the same phase
-4. **Different timeline** — The new work could reasonably be done independently of existing phase items
+2. **Section file is getting large** — If a section file exceeds ~150-200 items or ~400 lines, consider splitting
+3. **Clear boundaries exist** — The new items have minimal dependencies on other items in the same section
+4. **Different timeline** — The new work could reasonably be done independently of existing section items
 
-**How to create a new phase:**
-1. Use letter suffixes for sub-phases within a tier (e.g., 7E, 15E)
-2. Use the next number for entirely new phases (coordinate with tier structure)
-3. Follow naming convention: `phase-NN-descriptive-name.md` or `phase-NNA-descriptive-name.md`
-4. Update three files: new phase file, `00-overview.md` tier table, `priority-and-tracking.md` status table
-5. Keep phases focused — each phase should have a clear goal and exit criteria
+**How to create a new section:**
+1. Use letter suffixes for sub-sections within a tier (e.g., 7E, 15E)
+2. Use the next number for entirely new sections (coordinate with tier structure)
+3. Follow naming convention: `section-NN-descriptive-name.md` or `section-NNA-descriptive-name.md`
+4. Update three files: new section file, `00-overview.md` tier table, `priority-and-tracking.md` status table
+5. Keep sections focused — each section should have a clear goal and exit criteria
 
-**When NOT to create a new phase:**
-- Small additions (1-5 items) that fit naturally into an existing phase
-- Items that are tightly coupled to existing phase work
-- Approved proposals that specify which phase they belong to (follow the proposal)
+**When NOT to create a new section:**
+- Small additions (1-5 items) that fit naturally into an existing section
+- Items that are tightly coupled to existing section work
+- Approved proposals that specify which section they belong to (follow the proposal)
 
 ---
 
@@ -114,12 +114,12 @@ New proposals from Rust prelude comparison (2026-01-27). These enhance Ori's pre
 
 ### Syntax Changes
 
-- [x] **`as` Conversion Syntax** — APPROVED → See Phase 15.7
+- [x] **`as` Conversion Syntax** — APPROVED → See Section 15.7
   - Proposal: `proposals/approved/as-conversion-proposal.md`
   - Removes special-case positional argument exception
   - Adds `As<T>`, `TryAs<T>` traits to prelude
   - Strict: `as` only for infallible, `as?` for fallible, explicit methods for lossy
-  - **Affects**: Phase 3 (Traits), Phase 15 (Syntax)
+  - **Affects**: Section 3 (Traits), Section 15 (Syntax)
 
 ### New Prelude Traits
 
@@ -127,13 +127,13 @@ New proposals from Rust prelude comparison (2026-01-27). These enhance Ori's pre
   - Proposal: `proposals/drafts/iterator-traits-proposal.md`
   - Enables user types in `for` loops
   - Formalizes `.map()`, `.filter()`, `.fold()` as trait extensions
-  - **Affects**: Phase 3 (Traits), Phase 7 (Stdlib)
+  - **Affects**: Section 3 (Traits), Section 7 (Stdlib)
 
 - [ ] **Debug Trait** — Separate from `Printable` for developer-facing output
   - Proposal: `proposals/drafts/debug-trait-proposal.md`
   - Derivable structural representation
   - Enables `dbg` function
-  - **Affects**: Phase 3 (Traits), Phase 7 (Stdlib)
+  - **Affects**: Section 3 (Traits), Section 7 (Stdlib)
 
 ### New Prelude Functions
 
@@ -142,7 +142,7 @@ New proposals from Rust prelude comparison (2026-01-27). These enhance Ori's pre
   - `todo(reason:)` → `Never` — marks unfinished code
   - `unreachable(reason:)` → `Never` — marks impossible branches
   - `dbg(value:, label:)` → `T` — debug print that returns value
-  - **Affects**: Phase 7 (Stdlib)
+  - **Affects**: Section 7 (Stdlib)
 
 ### Behavioral Decisions (No Proposal Needed)
 
@@ -152,79 +152,79 @@ New proposals from Rust prelude comparison (2026-01-27). These enhance Ori's pre
 
 ---
 
-## Phase Execution Order
+## Section Execution Order
 
 ### Tier 1: Foundation (REQUIRED FIRST)
 
-| Order | Phase | Document | Focus |
+| Order | Section | Document | Focus |
 |-------|-------|----------|-------|
-| 1 | Phase 1 | [phase-01-type-system.md](./phase-01-type-system.md) | Type annotations |
-| 2 | Phase 2 | [phase-02-type-inference.md](./phase-02-type-inference.md) | Type inference |
-| 2.5 | Phase 5.1 | [phase-05-type-declarations.md](./phase-05-type-declarations.md) § 5.1 | Struct types (needed for Phase 3 tests) |
-| 3 | Phase 3 | [phase-03-traits.md](./phase-03-traits.md) | Trait system |
-| 4 | Phase 4 | [phase-04-modules.md](./phase-04-modules.md) | Module system |
-| 5 | Phase 5.2+ | [phase-05-type-declarations.md](./phase-05-type-declarations.md) § 5.2-5.8 | Sum types, newtypes, generics |
+| 1 | Section 1 | [section-01-type-system.md](./section-01-type-system.md) | Type annotations |
+| 2 | Section 2 | [section-02-type-inference.md](./section-02-type-inference.md) | Type inference |
+| 2.5 | Section 5.1 | [section-05-type-declarations.md](./section-05-type-declarations.md) § 5.1 | Struct types (needed for Section 3 tests) |
+| 3 | Section 3 | [section-03-traits.md](./section-03-traits.md) | Trait system |
+| 4 | Section 4 | [section-04-modules.md](./section-04-modules.md) | Module system |
+| 5 | Section 5.2+ | [section-05-type-declarations.md](./section-05-type-declarations.md) § 5.2-5.8 | Sum types, newtypes, generics |
 
-> **Note**: Phase 5.1 (struct types) was moved earlier because Phase 3 trait tests require user-defined types.
+> **Note**: Section 5.1 (struct types) was moved earlier because Section 3 trait tests require user-defined types.
 
 ### Tier 2: Capabilities & Stdlib
 
-| Order | Phase | Document | Focus |
+| Order | Section | Document | Focus |
 |-------|-------|----------|-------|
-| 6 | Phase 6 | [phase-06-capabilities.md](./phase-06-capabilities.md) | Effect tracking |
-| 7A | Phase 7A | [phase-07A-core-builtins.md](./phase-07A-core-builtins.md) | Core built-ins |
-| 7B | Phase 7B | [phase-07B-option-result.md](./phase-07B-option-result.md) | Option & Result |
-| 7C | Phase 7C | [phase-07C-collections.md](./phase-07C-collections.md) | Collections & iteration |
-| 7D | Phase 7D | [phase-07D-stdlib-modules.md](./phase-07D-stdlib-modules.md) | Stdlib modules |
+| 6 | Section 6 | [section-06-capabilities.md](./section-06-capabilities.md) | Effect tracking |
+| 7A | Section 7A | [section-07A-core-builtins.md](./section-07A-core-builtins.md) | Core built-ins |
+| 7B | Section 7B | [section-07B-option-result.md](./section-07B-option-result.md) | Option & Result |
+| 7C | Section 7C | [section-07C-collections.md](./section-07C-collections.md) | Collections & iteration |
+| 7D | Section 7D | [section-07D-stdlib-modules.md](./section-07D-stdlib-modules.md) | Stdlib modules |
 
 ### Tier 3: Core Patterns
 
-| Order | Phase | Document | Focus |
+| Order | Section | Document | Focus |
 |-------|-------|----------|-------|
-| 8 | Phase 8 | [phase-08-patterns.md](./phase-08-patterns.md) | Pattern evaluation |
-| 9 | Phase 9 | [phase-09-match.md](./phase-09-match.md) | Match expressions |
-| 10 | Phase 10 | [phase-10-control-flow.md](./phase-10-control-flow.md) | Control flow |
+| 8 | Section 8 | [section-08-patterns.md](./section-08-patterns.md) | Pattern evaluation |
+| 9 | Section 9 | [section-09-match.md](./section-09-match.md) | Match expressions |
+| 10 | Section 10 | [section-10-control-flow.md](./section-10-control-flow.md) | Control flow |
 
 ### Tier 4: FFI & Interop
 
-| Order | Phase | Document | Focus |
+| Order | Section | Document | Focus |
 |-------|-------|----------|-------|
-| 11 | Phase 11 | [phase-11-ffi.md](./phase-11-ffi.md) | Foreign functions |
-| 12 | Phase 12 | [phase-12-variadic-functions.md](./phase-12-variadic-functions.md) | Variable arguments |
+| 11 | Section 11 | [section-11-ffi.md](./section-11-ffi.md) | Foreign functions |
+| 12 | Section 12 | [section-12-variadic-functions.md](./section-12-variadic-functions.md) | Variable arguments |
 
 ### Tier 5: Language Completion
 
-| Order | Phase | Document | Focus |
+| Order | Section | Document | Focus |
 |-------|-------|----------|-------|
-| 13 | Phase 13 | [phase-13-conditional-compilation.md](./phase-13-conditional-compilation.md) | Platform/feature support |
-| 14 | Phase 14 | [phase-14-testing.md](./phase-14-testing.md) | Testing framework |
-| 15A | Phase 15A | [phase-15A-attributes-comments.md](./phase-15A-attributes-comments.md) | Attributes & comments |
-| 15B | Phase 15B | [phase-15B-function-syntax.md](./phase-15B-function-syntax.md) | Function syntax |
-| 15C | Phase 15C | [phase-15C-literals-operators.md](./phase-15C-literals-operators.md) | Literals & operators |
-| 15D | Phase 15D | [phase-15D-bindings-types.md](./phase-15D-bindings-types.md) | Bindings & types |
+| 13 | Section 13 | [section-13-conditional-compilation.md](./section-13-conditional-compilation.md) | Platform/feature support |
+| 14 | Section 14 | [section-14-testing.md](./section-14-testing.md) | Testing framework |
+| 15A | Section 15A | [section-15A-attributes-comments.md](./section-15A-attributes-comments.md) | Attributes & comments |
+| 15B | Section 15B | [section-15B-function-syntax.md](./section-15B-function-syntax.md) | Function syntax |
+| 15C | Section 15C | [section-15C-literals-operators.md](./section-15C-literals-operators.md) | Literals & operators |
+| 15D | Section 15D | [section-15D-bindings-types.md](./section-15D-bindings-types.md) | Bindings & types |
 
 ### Tier 6: Async & Concurrency
 
-| Order | Phase | Document | Focus |
+| Order | Section | Document | Focus |
 |-------|-------|----------|-------|
-| 16 | Phase 16 | [phase-16-async.md](./phase-16-async.md) | Async support |
-| 17 | Phase 17 | [phase-17-concurrency.md](./phase-17-concurrency.md) | Select, cancel, channels |
+| 16 | Section 16 | [section-16-async.md](./section-16-async.md) | Async support |
+| 17 | Section 17 | [section-17-concurrency.md](./section-17-concurrency.md) | Select, cancel, channels |
 
 ### Tier 7: Advanced Type System
 
-| Order | Phase | Document | Focus |
+| Order | Section | Document | Focus |
 |-------|-------|----------|-------|
-| 18 | Phase 18 | [phase-18-const-generics.md](./phase-18-const-generics.md) | Const type params |
-| 19 | Phase 19 | [phase-19-existential-types.md](./phase-19-existential-types.md) | impl Trait |
+| 18 | Section 18 | [section-18-const-generics.md](./section-18-const-generics.md) | Const type params |
+| 19 | Section 19 | [section-19-existential-types.md](./section-19-existential-types.md) | impl Trait |
 
 ### Tier 8: Advanced Features
 
-| Order | Phase | Document | Focus |
+| Order | Section | Document | Focus |
 |-------|-------|----------|-------|
-| 20 | Phase 20 | [phase-20-reflection.md](./phase-20-reflection.md) | Runtime introspection |
-| 21A | Phase 21A | [phase-21A-llvm.md](./phase-21A-llvm.md) | LLVM backend |
-| 21B | Phase 21B | [phase-21B-aot.md](./phase-21B-aot.md) | AOT compilation |
-| 22 | Phase 22 | [phase-22-tooling.md](./phase-22-tooling.md) | Formatter, LSP, REPL |
+| 20 | Section 20 | [section-20-reflection.md](./section-20-reflection.md) | Runtime introspection |
+| 21A | Section 21A | [section-21A-llvm.md](./section-21A-llvm.md) | LLVM backend |
+| 21B | Section 21B | [section-21B-aot.md](./section-21B-aot.md) | AOT compilation |
+| 22 | Section 22 | [section-22-tooling.md](./section-22-tooling.md) | Formatter, LSP, REPL |
 
 ---
 
@@ -250,84 +250,84 @@ cargo st tests/spec/types/primitives.ori
 
 ---
 
-## Phase Dependencies Quick Reference
+## Section Dependencies Quick Reference
 
-> **NOTE**: Dependencies show minimum requirements to START a phase. Tiers represent the
-> recommended execution order for practical reasons (e.g., Phase 18 only needs Phases 1-2
+> **NOTE**: Dependencies show minimum requirements to START a section. Tiers represent the
+> recommended execution order for practical reasons (e.g., Section 18 only needs Sections 1-2
 > but is in Tier 7 because const generics are an advanced feature better tackled after
 > core language completion).
 
 ```
 Can start immediately (no deps):
-  - Phase 1, 2
-  - Phase 5.1 (struct types) — no dependencies on other phases
+  - Section 1, 2
+  - Section 5.1 (struct types) — no dependencies on other sections
 
-After Phase 2 (type inference):
-  - Phase 3 (traits) — implementation can start
-  - NOTE: Phase 3 TESTING requires Phase 5.1 (struct types for impl tests)
+After Section 2 (type inference):
+  - Section 3 (traits) — implementation can start
+  - NOTE: Section 3 TESTING requires Section 5.1 (struct types for impl tests)
 
-After Phase 3 (traits):
-  - Phase 4 (modules)
-  - Phase 6 (capabilities) — placed here to unblock Phase 8 cache
-  - Phase 19 (existential types) [deferred to Tier 7]
+After Section 3 (traits):
+  - Section 4 (modules)
+  - Section 6 (capabilities) — placed here to unblock Section 8 cache
+  - Section 19 (existential types) [deferred to Tier 7]
 
-After Phase 4 (modules):
-  - Phase 5.2+ (sum types, newtypes, generics) — visibility needs modules
+After Section 4 (modules):
+  - Section 5.2+ (sum types, newtypes, generics) — visibility needs modules
 
-After Phase 5 (type declarations):
-  - Phase 6 (capabilities) — if not already done
-  - Phase 7 (stdlib) — also requires Phase 3
+After Section 5 (type declarations):
+  - Section 6 (capabilities) — if not already done
+  - Section 7 (stdlib) — also requires Section 3
 
-After Phase 6 (capabilities):
-  - Phase 7 (stdlib)
-  - Phase 8-10 (core patterns) — Phase 8 cache now unblocked
-  - Phase 11 (FFI) - needs Unsafe capability
-  - Phase 14 (testing) - uses capabilities for mocking
-  - Phase 16 (async)
+After Section 6 (capabilities):
+  - Section 7 (stdlib)
+  - Section 8-10 (core patterns) — Section 8 cache now unblocked
+  - Section 11 (FFI) - needs Unsafe capability
+  - Section 14 (testing) - uses capabilities for mocking
+  - Section 16 (async)
 
-After Phase 8 (patterns):
-  - Phase 13 (conditional compilation)
+After Section 8 (patterns):
+  - Section 13 (conditional compilation)
 
-After Phase 11 (FFI):
-  - Phase 12 (variadics) - for C variadics
-  - Phase 20 (reflection)
+After Section 11 (FFI):
+  - Section 12 (variadics) - for C variadics
+  - Section 20 (reflection)
 
-After Phase 16 (async):
-  - Phase 17 (concurrency)
+After Section 16 (async):
+  - Section 17 (concurrency)
 
-After Phases 1-2 (type system):
-  - Phase 18 (const generics) [deferred to Tier 7]
+After Sections 1-2 (type system):
+  - Section 18 (const generics) [deferred to Tier 7]
 
-After core complete (Phases 1-15):
-  - Phase 21 (codegen)
-  - Phase 22 (tooling)
+After core complete (Sections 1-15):
+  - Section 21 (codegen)
+  - Section 22 (tooling)
 ```
 
 ---
 
 ## Source Plan Mapping
 
-| New Phase | V3 Source | Gap Source | Notes |
+| New Section | V3 Source | Gap Source | Notes |
 |-----------|-----------|------------|-------|
-| 1: Type System | phase-01 | — | |
-| 2: Type Inference | phase-02 | — | |
-| 3: Traits | phase-07 | — | |
-| 4: Modules | phase-08 | — | |
-| 5: Type Declarations | phase-06 | — | |
-| 6: Capabilities | phase-11 | — | **Swapped with Stdlib** |
-| 7A-D: Stdlib | phase-09 | — | **Split into 4 sub-phases** |
-| 8: Patterns | phase-03 | — | |
-| 9: Match | phase-04 | — | |
-| 10: Control Flow | phase-05 | — | |
-| 11: FFI | — | phase-01 | |
-| 12: Variadic Functions | — | phase-04 | |
-| 13: Conditional Compilation | — | phase-03 | |
-| 14: Testing | phase-10 | — | |
-| 15A-D: Syntax Proposals | phase-15.1-15.5 | — | **Split into 4 sub-phases** |
-| 16: Async | phase-12 | — | |
-| 17: Concurrency | phase-15.7 | phase-05, phase-06 | |
-| 18: Const Generics | — | phase-07 | |
-| 19: Existential Types | — | phase-08 | |
-| 20: Reflection | — | phase-09 | |
-| 21A-B: Codegen | phase-13 | — | **Split into LLVM + AOT** |
-| 22: Tooling | phase-14 | — | |
+| 1: Type System | section-01 | — | |
+| 2: Type Inference | section-02 | — | |
+| 3: Traits | section-07 | — | |
+| 4: Modules | section-08 | — | |
+| 5: Type Declarations | section-06 | — | |
+| 6: Capabilities | section-11 | — | **Swapped with Stdlib** |
+| 7A-D: Stdlib | section-09 | — | **Split into 4 sub-sections** |
+| 8: Patterns | section-03 | — | |
+| 9: Match | section-04 | — | |
+| 10: Control Flow | section-05 | — | |
+| 11: FFI | — | section-01 | |
+| 12: Variadic Functions | — | section-04 | |
+| 13: Conditional Compilation | — | section-03 | |
+| 14: Testing | section-10 | — | |
+| 15A-D: Syntax Proposals | section-15.1-15.5 | — | **Split into 4 sub-sections** |
+| 16: Async | section-12 | — | |
+| 17: Concurrency | section-15.7 | section-05, section-06 | |
+| 18: Const Generics | — | section-07 | |
+| 19: Existential Types | — | section-08 | |
+| 20: Reflection | — | section-09 | |
+| 21A-B: Codegen | section-13 | — | **Split into LLVM + AOT** |
+| 22: Tooling | section-14 | — | |

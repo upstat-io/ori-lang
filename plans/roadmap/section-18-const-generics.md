@@ -1,5 +1,5 @@
 ---
-phase: 18
+section: 18
 title: Const Generics
 status: not-started
 tier: 7
@@ -34,13 +34,13 @@ sections:
     status: not-started
 ---
 
-# Phase 18: Const Generics
+# Section 18: Const Generics
 
 **Goal**: Enable type parameters that are compile-time constant values
 
 **Criticality**: Medium — Type-level programming, fixed-size arrays
 
-**Dependencies**: Phases 1-2 (Type System Foundation)
+**Dependencies**: Sections 1-2 (Type System Foundation)
 
 ---
 
@@ -619,7 +619,7 @@ impl FixedSize for [int, max 5] {
 
 ---
 
-## Phase Completion Checklist
+## Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Spec updated: `spec/06-types.md` and `spec/07-properties-of-types.md` const generics sections

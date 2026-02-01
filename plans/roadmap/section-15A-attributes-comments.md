@@ -1,5 +1,5 @@
 ---
-phase: "15A"
+section: "15A"
 title: Attributes & Comments
 status: not-started
 tier: 5
@@ -18,11 +18,11 @@ sections:
     title: Simplified Doc Comment Syntax
     status: not-started
   - id: "15A.5"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: not-started
 ---
 
-# Phase 15A: Attributes & Comments
+# Section 15A: Attributes & Comments
 
 **Goal**: Implement approved attribute syntax changes and comment restrictions
 
@@ -217,7 +217,7 @@ Simplify doc comment syntax by removing verbose markers:
 
 ---
 
-## 15A.5 Phase Completion Checklist
+## 15A.5 Section Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[x]`
 - [ ] All spec docs updated

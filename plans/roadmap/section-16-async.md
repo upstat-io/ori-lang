@@ -1,5 +1,5 @@
 ---
-phase: 16
+section: 16
 title: Async Support
 status: not-started
 tier: 6
@@ -20,25 +20,25 @@ sections:
     title: Async Error Traces
     status: not-started
   - id: "16.5"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: not-started
 ---
 
-# Phase 16: Async Support
+# Section 16: Async Support
 
 **Goal**: Async/await semantics via capabilities
 
 > **SPEC**: `spec/14-capabilities.md § Async Capability`
 > **DESIGN**: `design/10-async/index.md`
 
-> **PREREQUISITE FOR**: Phase 17 (Concurrency Extended) — select, cancellation, enhanced channels.
+> **PREREQUISITE FOR**: Section 17 (Concurrency Extended) — select, cancellation, enhanced channels.
 
 > **Future Enhancements**: Approved proposal `parallel-concurrency-proposal.md` adds:
 > - `Sendable` trait for safe cross-task transfer
 > - Role-based channels (`Producer<T>`, `Consumer<T>`)
 > - Ownership transfer semantics for channel send
 > - Process isolation primitives
-> See Phase 17 for implementation details.
+> See Section 17 for implementation details.
 
 ---
 
@@ -128,7 +128,7 @@ Implements error trace preservation across task boundaries in async code.
 
 ---
 
-## 16.5 Phase Completion Checklist
+## 16.5 Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Spec updated: `spec/14-capabilities.md` async section, `spec/10-patterns.md` concurrency patterns

@@ -1,5 +1,5 @@
 ---
-phase: 11
+section: 11
 title: Foreign Function Interface (FFI)
 status: not-started
 tier: 4
@@ -32,14 +32,14 @@ sections:
     title: compile_error Built-in
     status: not-started
   - id: "11.9"
-    title: WASM Target (Phase 2)
+    title: WASM Target (Section 2)
     status: not-started
   - id: "11.10"
-    title: JsValue and Async (Phase 3-4)
+    title: JsValue and Async (Section 3-4)
     status: not-started
 ---
 
-# Phase 11: Foreign Function Interface (FFI)
+# Section 11: Foreign Function Interface (FFI)
 
 **Goal**: Enable Ori to call C libraries, system APIs, and JavaScript APIs (WASM target)
 
@@ -456,7 +456,7 @@ compile_error("std.fs is not available for WASM.")
 
 ---
 
-## 11.9 WASM Target (Phase 2)
+## 11.9 WASM Target (Section 2)
 
 ### JS FFI
 
@@ -484,7 +484,7 @@ extern "js" {
 
 ---
 
-## 11.10 JsValue and Async (Phase 3-4)
+## 11.10 JsValue and Async (Section 3-4)
 
 ### JsValue Type
 
@@ -532,7 +532,7 @@ extern "js" {
 
 ---
 
-## Phase Completion Checklist
+## Section Completion Checklist
 
 - [ ] All items above have checkboxes marked `[x]`
 - [ ] Spec file `spec/23-ffi.md` complete

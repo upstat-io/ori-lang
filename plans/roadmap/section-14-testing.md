@@ -1,5 +1,5 @@
 ---
-phase: 14
+section: 14
 title: Testing Framework
 status: not-started
 tier: 5
@@ -44,11 +44,11 @@ sections:
     title: Test Execution Model Implementation
     status: not-started
   - id: "14.13"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: not-started
 ---
 
-# Phase 14: Testing Framework
+# Section 14: Testing Framework
 
 **Goal**: Mandatory testing enforcement with dependency-aware execution and incremental test execution during compilation
 
@@ -60,8 +60,8 @@ sections:
 > - `proposals/approved/test-execution-model-proposal.md` — Consolidated implementation model (data structures, algorithms, cache)
 
 > **NOTE - Pending Syntax Changes**: The approved proposals change attribute syntax:
-> - Attribute syntax: `#[skip("reason")]` → `#skip("reason")` (Phase 15.1)
-> See Phase 15 (Approved Syntax Proposals) for details. Implement with new syntax directly to avoid migration.
+> - Attribute syntax: `#[skip("reason")]` → `#skip("reason")` (Section 15.1)
+> See Section 15 (Approved Syntax Proposals) for details. Implement with new syntax directly to avoid migration.
 
 ---
 
@@ -159,9 +159,9 @@ sections:
 
 > **CROSS-REFERENCE**: Assertion built-in functions (`assert`, `assert_eq`, `assert_ne`, `assert_some`,
 > `assert_none`, `assert_ok`, `assert_err`, `assert_panics`, `assert_panics_with`) are implemented in
-> **Phase 7 (Standard Library)**, section 7.5.
+> **Section 7 (Standard Library)**, section 7.5.
 >
-> This phase focuses on the testing *framework* (test declarations, dependency tracking, test runner).
+> This section focuses on the testing *framework* (test declarations, dependency tracking, test runner).
 > The assertions themselves are always-available built-in functions from the prelude.
 
 ---
@@ -515,7 +515,7 @@ Test results are cached for incremental builds.
 
 ---
 
-## 14.13 Phase Completion Checklist
+## 14.13 Section Completion Checklist
 
 - [ ] All items in 14.1-14.12 have all three checkboxes marked `[x]`
 - [ ] Spec updated: `spec/13-testing.md` reflects implementation

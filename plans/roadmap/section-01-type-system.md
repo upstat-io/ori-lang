@@ -1,5 +1,5 @@
 ---
-phase: 1
+section: 1
 title: Type System Foundation
 status: in-progress
 tier: 1
@@ -28,11 +28,11 @@ sections:
     title: Let Binding Types
     status: complete
   - id: "1.5"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: complete
 ---
 
-# Phase 1: Type System Foundation
+# Section 1: Type System Foundation
 
 **Goal**: Fix type checking to properly use type annotations
 
@@ -146,14 +146,14 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
 
 - [x] **Implement**: Duration factory methods (Duration.from_seconds(), etc.)
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — Duration factory method tests
-  - **Note**: Associated function syntax implemented in Phase 5.9
+  - **Note**: Associated function syntax implemented in Section 5.9
 
 - [x] **Implement**: Size extraction methods (.bytes(), .kilobytes(), etc.)
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — Size extraction method tests
 
 - [x] **Implement**: Size factory methods (Size.from_bytes(), etc.)
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — Size factory method tests
-  - **Note**: Associated function syntax implemented in Phase 5.9
+  - **Note**: Associated function syntax implemented in Section 5.9
 
 ### Trait Implementations
 
@@ -289,10 +289,10 @@ Formalize the Never type as the bottom type with coercion rules, type inference 
 
 ---
 
-## 1.5 Phase Completion Checklist
+## 1.5 Section Completion Checklist
 
 - [x] All items above have all three checkboxes marked `[x]`
 - [x] 80+% test coverage (241 unit tests passing, exceeds 152 target)
 - [x] Run full test suite: `./test-all` — **241 unit tests + 64 spec tests pass**
 
-**Phase 1 Status**: ✅ Complete
+**Section 1 Status**: ✅ Complete

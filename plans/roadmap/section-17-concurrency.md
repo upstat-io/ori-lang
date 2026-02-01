@@ -1,5 +1,5 @@
 ---
-phase: 17
+section: 17
 title: Concurrency Extended
 status: not-started
 tier: 6
@@ -33,11 +33,11 @@ sections:
     title: Timeout and Spawn Pattern Semantics
     status: not-started
   - id: "17.9"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: not-started
 ---
 
-# Phase 17: Concurrency Extended
+# Section 17: Concurrency Extended
 
 **Goal**: Complete concurrency support with Sendable trait, role-based channels, nursery pattern, and structured concurrency
 
@@ -50,7 +50,7 @@ sections:
 > - `docs/ori_lang/proposals/approved/nursery-cancellation-proposal.md`
 > - `docs/ori_lang/proposals/approved/timeout-spawn-patterns-proposal.md`
 
-**Dependencies**: Phase 16 (Async Support)
+**Dependencies**: Section 16 (Async Support)
 
 ---
 
@@ -58,7 +58,7 @@ sections:
 
 **Proposal**: `proposals/approved/task-async-context-proposal.md`
 
-Foundational definitions for tasks, async contexts, and suspension points that the rest of Phase 17 depends on.
+Foundational definitions for tasks, async contexts, and suspension points that the rest of Section 17 depends on.
 
 ### Implementation
 
@@ -561,7 +561,7 @@ Formalizes semantics for `timeout` and `spawn` patterns including cancellation b
 
 ---
 
-## 17.9 Phase Completion Checklist
+## 17.9 Section Completion Checklist
 
 - [ ] All items in 17.1-17.8 have checkboxes marked `[x]`
 - [ ] Spec updated: `spec/06-types.md` — Sendable, Producer, Consumer, CloneableProducer, CloneableConsumer, CancellationError, CancellationReason

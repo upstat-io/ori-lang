@@ -1,5 +1,5 @@
 ---
-phase: 7B
+section: 7B
 title: Option & Result
 status: not-started
 tier: 2
@@ -17,11 +17,11 @@ sections:
     title: Error Return Traces
     status: not-started
   - id: "7B.4"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: not-started
 ---
 
-# Phase 7B: Option & Result
+# Section 7B: Option & Result
 
 **Goal**: Option and Result type methods
 
@@ -171,7 +171,7 @@ Implements Result trace methods and context storage for error propagation debugg
 
 ---
 
-## 7B.4 Phase Completion Checklist
+## 7B.4 Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md

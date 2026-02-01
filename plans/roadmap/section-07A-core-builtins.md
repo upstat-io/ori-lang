@@ -1,5 +1,5 @@
 ---
-phase: 7A
+section: 7A
 title: Core Built-ins
 status: not-started
 tier: 2
@@ -29,11 +29,11 @@ sections:
     title: Resource Management
     status: not-started
   - id: "7A.8"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: not-started
 ---
 
-# Phase 7A: Core Built-ins
+# Section 7A: Core Built-ins
 
 **Goal**: Type conversions, assertions, I/O, and core built-in functions
 
@@ -387,7 +387,7 @@ Adds `drop_early` function for explicit early resource release.
 
 ---
 
-## 7A.8 Phase Completion Checklist
+## 7A.8 Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md

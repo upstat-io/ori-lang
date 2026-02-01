@@ -1,5 +1,5 @@
 ---
-phase: "15B"
+section: "15B"
 title: Function Syntax
 status: not-started
 tier: 5
@@ -18,11 +18,11 @@ sections:
     title: Positional Lambdas for Single-Parameter Functions
     status: not-started
   - id: "15B.5"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: not-started
 ---
 
-# Phase 15B: Function Syntax
+# Section 15B: Function Syntax
 
 **Goal**: Implement function-related syntax proposals
 
@@ -465,7 +465,7 @@ error[E2011]: named arguments required for direct function calls
 
 ---
 
-## 15B.5 Phase Completion Checklist
+## 15B.5 Section Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[x]`
 - [ ] All spec docs updated

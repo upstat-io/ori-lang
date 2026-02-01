@@ -1,5 +1,5 @@
 ---
-phase: "21A"
+section: "21A"
 title: LLVM Backend
 status: in-progress
 tier: 8
@@ -60,11 +60,11 @@ sections:
     title: Architecture (Reference)
     status: complete
   - id: "21.19"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: not-started
 ---
 
-# Phase 21A: LLVM Backend
+# Section 21A: LLVM Backend
 
 **Status:** 🔶 Partial — JIT working, basic codegen functional, many features missing
 
@@ -700,14 +700,14 @@ ori_llvm/src/
 
 ---
 
-## 21.19 Phase Completion Checklist
+## 21.19 Section Completion Checklist
 
 **Infrastructure:**
 - [x] JIT compilation working
 - [x] All current Ori tests pass (1572/1572, 39 skipped)
 - [x] All Rust unit tests pass (206/206)
 - [x] Architecture follows Rust patterns
-- [ ] AOT compilation (see Phase 21B)
+- [ ] AOT compilation (see Section 21B)
 
 **Type System:**
 - [x] Primitive types

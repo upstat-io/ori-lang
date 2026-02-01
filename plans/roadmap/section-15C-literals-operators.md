@@ -1,5 +1,5 @@
 ---
-phase: "15C"
+section: "15C"
 title: Literals & Operators
 status: not-started
 tier: 5
@@ -21,11 +21,11 @@ sections:
     title: Floor Division (div) Operator Fix
     status: not-started
   - id: "15C.6"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: not-started
 ---
 
-# Phase 15C: Literals & Operators
+# Section 15C: Literals & Operators
 
 **Goal**: Implement string interpolation, spread operator, and range step syntax
 
@@ -446,7 +446,7 @@ Fix parser discrepancy where `div` operator is in grammar but missing from parse
 
 ---
 
-## 15C.6 Phase Completion Checklist
+## 15C.6 Section Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[x]`
 - [ ] All spec docs updated

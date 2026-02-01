@@ -1,5 +1,5 @@
 ---
-phase: 7D
+section: 7D
 title: Stdlib Modules
 status: not-started
 tier: 2
@@ -37,11 +37,11 @@ sections:
     title: Duration and Size to Stdlib
     status: not-started
   - id: "7D.11"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: not-started
 ---
 
-# Phase 7D: Stdlib Modules
+# Section 7D: Stdlib Modules
 
 **Goal**: Standard library modules including validate, resilience, math, testing, time, json, fs
 
@@ -1260,8 +1260,8 @@ Move Duration and Size from compiler built-ins to pure Ori library types using o
 
 ### 7D.10.1 Prerequisites
 
-- [x] Operator traits (Phase 3.21) — `Add`, `Sub`, `Mul`, `Div`, `Neg`, `Rem`
-- [x] Associated functions (Phase 3.x) — `Type.method()` syntax
+- [x] Operator traits (Section 3.21) — `Add`, `Sub`, `Mul`, `Div`, `Neg`, `Rem`
+- [x] Associated functions (Section 3.x) — `Type.method()` syntax
 
 ### 7D.10.2 Literal Suffix Desugaring
 
@@ -1329,7 +1329,7 @@ Move Duration and Size from compiler built-ins to pure Ori library types using o
 
 ---
 
-## 7D.11 Phase Completion Checklist
+## 7D.11 Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
