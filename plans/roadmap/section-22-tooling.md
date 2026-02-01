@@ -1,5 +1,5 @@
 ---
-phase: 22
+section: 22
 title: Tooling
 status: in-progress
 tier: 8
@@ -33,11 +33,11 @@ sections:
     title: Grammar Synchronization Verification
     status: not-started
   - id: "22.10"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: not-started
 ---
 
-# Phase 22: Tooling
+# Section 22: Tooling
 
 **Goal**: Developer experience
 
@@ -114,7 +114,7 @@ sections:
 > **PROPOSAL**: `proposals/approved/lsp-implementation-proposal.md` — Architecture decisions
 > **CRATE**: `compiler/ori_lsp/` — LSP server implementation
 
-### Formatting (from ori_fmt Phase 7.2)
+### Formatting (from ori_fmt Section 7.2)
 
 - [ ] **Implement**: `textDocument/formatting` request handler
   - [ ] **Rust Tests**: `ori_lsp/src/handlers/formatting.rs` — document formatting
@@ -185,7 +185,7 @@ sections:
 
 > **NOTE**: This section covers the TEST RUNNER CLI commands, which are largely complete.
 > The TESTING FRAMEWORK features (mandatory testing, dependency-aware execution, incremental tests)
-> are in Phase 14 and are not yet implemented. The test runner runs tests; the framework enforces
+> are in Section 14 and are not yet implemented. The test runner runs tests; the framework enforces
 > testing requirements and manages test dependencies.
 
 - [x] **Implement**: `ori test` command — run all tests — design/11-testing/index.md
@@ -291,7 +291,7 @@ Expose Salsa's dependency tracking to users for debugging and impact analysis.
 
 Machine-readable diagnostics with actionable fix suggestions. Enables AI agents to programmatically consume errors and auto-fix safe issues.
 
-**Existing Infrastructure:** Core types (`Applicability`, `Suggestion`, `Substitution`) already exist in `ori_diagnostic/src/diagnostic.rs`. This phase enhances the JSON emitter and adds CLI flags for auto-fix.
+**Existing Infrastructure:** Core types (`Applicability`, `Suggestion`, `Substitution`) already exist in `ori_diagnostic/src/diagnostic.rs`. This section enhances the JSON emitter and adds CLI flags for auto-fix.
 
 ### 22.7.1 SourceLoc Type (Step 1)
 
@@ -449,7 +449,7 @@ Enhance `sync-grammar` skill with operator verification checklist to catch discr
 
 ---
 
-## 22.10 Phase Completion Checklist
+## 22.10 Section Completion Checklist
 
 - [ ] All items above have all three checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md

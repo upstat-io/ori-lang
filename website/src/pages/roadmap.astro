@@ -104,14 +104,14 @@ interface Section {
   tasks: Task[];
 }
 
-interface Phase {
+interface RoadmapSection {
   num: number | string;
   name: string;
   status: "complete" | "partial" | "not-started";
   note?: string;
   goal: string;
   spec?: string;
-  sections: Section[];
+  subsections: Section[];
 }
 
 interface Tier {
@@ -119,14 +119,14 @@ interface Tier {
   name: string;
   status: string;
   description: string;
-  phases: Phase[];
+  sections: RoadmapSection[];
   milestone: string;
   milestoneStatus: string;
   exitCriteria: string;
 }
 
 // ============================================================================
-// Phase File Loading (Dynamic)
+// Section File Loading (Dynamic)
 // ============================================================================
 
 interface YamlSection {
@@ -136,7 +136,7 @@ interface YamlSection {
 }
 
 interface YamlFrontmatter {
-  phase: number | string;
+  section: number | string;
   title: string;
   status: string;
   tier: number;
@@ -284,8 +284,8 @@ function extractTasksFromBody(body: string): Map<string, Task[]> {
   return result;
 }
 
-// Load and parse a single phase file
-function loadPhaseFile(filepath: string): Phase | null {
+// Load and parse a single section file
+function loadSectionFile(filepath: string): RoadmapSection | null {
   if (!existsSync(filepath)) return null;
 
   const content = readFileSync(filepath, 'utf-8');
@@ -302,14 +302,14 @@ function loadPhaseFile(filepath: string): Phase | null {
 
   const tasksMap = extractTasksFromBody(body);
 
-  const sections: Section[] = frontmatter.sections.map(s => ({
+  const subsections: Section[] = frontmatter.sections.map(s => ({
     name: `${s.id} ${s.title}`,
     tasks: tasksMap.get(s.id) || [],
   }));
 
   let doneCount = 0, totalCount = 0;
-  for (const section of sections) {
-    for (const task of section.tasks) {
+  for (const subsection of subsections) {
+    for (const task of subsection.tasks) {
       totalCount++;
       if (task.done) doneCount++;
     }
@@ -320,25 +320,25 @@ function loadPhaseFile(filepath: string): Phase | null {
     frontmatter.status === 'in-progress' ? 'partial' : 'not-started';
 
   return {
-    num: frontmatter.phase,
+    num: frontmatter.section,
     name: frontmatter.title,
     status,
     note: totalCount > 0 ? `${doneCount}/${totalCount} tasks` : undefined,
     goal: frontmatter.goal,
     spec: Array.isArray(frontmatter.spec) ? frontmatter.spec.join(', ') : frontmatter.spec,
-    sections,
+    subsections,
   };
 }
 
-// Load all phase files and organize by tier
-function loadAllPhases(): Map<number, Phase[]> {
+// Load all section files and organize by tier
+function loadAllSections(): Map<number, RoadmapSection[]> {
   const roadmapDir = join(process.cwd(), '..', 'plans', 'roadmap');
-  const phases = new Map<number, Phase[]>();
+  const sections = new Map<number, RoadmapSection[]>();
 
-  if (!existsSync(roadmapDir)) return phases;
+  if (!existsSync(roadmapDir)) return sections;
 
   const files = readdirSync(roadmapDir)
-    .filter(f => f.startsWith('phase-') && f.endsWith('.md'))
+    .filter(f => f.startsWith('section-') && f.endsWith('.md'))
     .sort();
 
   for (const file of files) {
@@ -349,19 +349,19 @@ function loadAllPhases(): Map<number, Phase[]> {
     if (!tierMatch) continue;
 
     const tier = parseInt(tierMatch[1], 10);
-    const phase = loadPhaseFile(filepath);
+    const section = loadSectionFile(filepath);
 
-    if (phase) {
-      if (!phases.has(tier)) phases.set(tier, []);
-      phases.get(tier)!.push(phase);
+    if (section) {
+      if (!sections.has(tier)) sections.set(tier, []);
+      sections.get(tier)!.push(section);
     }
   }
 
-  return phases;
+  return sections;
 }
 
 // Tier metadata (stable, rarely changes)
-const tierMetadata: Omit<Tier, 'phases' | 'status'>[] = [
+const tierMetadata: Omit<Tier, 'sections' | 'status'>[] = [
   { id: 1, name: "Foundation", description: "Core type system and language fundamentals", milestone: "M1: Bootstrapped", milestoneStatus: "partial", exitCriteria: "Can write programs using traits and modules" },
   { id: 2, name: "Capabilities & Stdlib", description: "Effect tracking and standard library", milestone: "M2: Capabilities & Stdlib", milestoneStatus: "partial", exitCriteria: "Capabilities working, stdlib available" },
   { id: 3, name: "Core Patterns", description: "Pattern evaluation and control flow", milestone: "M3: Core Patterns", milestoneStatus: "partial", exitCriteria: "run/try/recurse/parallel working, match expressions complete" },
@@ -372,33 +372,33 @@ const tierMetadata: Omit<Tier, 'phases' | 'status'>[] = [
   { id: 8, name: "Advanced Features", description: "LLVM backend, AOT compilation, tooling", milestone: "M8: Full Featured", milestoneStatus: "partial", exitCriteria: "Full IDE support, generic serialization, native binaries" },
 ];
 
-// Build tiers with dynamically loaded phases
+// Build tiers with dynamically loaded sections
 function buildTiers(): Tier[] {
-  const phasesByTier = loadAllPhases();
+  const sectionsByTier = loadAllSections();
 
   return tierMetadata.map(meta => {
-    const phases = phasesByTier.get(meta.id) || [];
+    const sections = sectionsByTier.get(meta.id) || [];
 
     let status: string;
-    if (phases.length === 0 || phases.every(p => p.status === 'not-started')) {
+    if (sections.length === 0 || sections.every(s => s.status === 'not-started')) {
       status = 'not-started';
-    } else if (phases.every(p => p.status === 'complete')) {
+    } else if (sections.every(s => s.status === 'complete')) {
       status = 'complete';
     } else {
       status = 'partial';
     }
 
-    return { ...meta, phases, status };
+    return { ...meta, sections, status };
   });
 }
 
 const tiers: Tier[] = buildTiers();
 
 // ============================================================================
-// End Phase File Loading
+// End Section File Loading
 // ============================================================================
 
-const _legacyDataRemoved = "Hard-coded phase data removed - now loaded from plans/roadmap/phase-*.md";
+const _legacyDataRemoved = "Hard-coded section data removed - now loaded from plans/roadmap/section-*.md";
 const statusLabels: Record<string, string> = {
   "complete": "Complete",
   "partial": "In Progress",
@@ -409,19 +409,19 @@ const statusLabels: Record<string, string> = {
   "near-complete": "Near Complete",
 };
 
-// Extract phases by status for the collapsible sections
-const completedPhases: Phase[] = [];
-const inProgressPhases: Phase[] = [];
-const plannedPhases: Phase[] = [];
+// Extract sections by status for the collapsible groups
+const completedSections: RoadmapSection[] = [];
+const inProgressSections: RoadmapSection[] = [];
+const plannedSections: RoadmapSection[] = [];
 
 for (const tier of tiers) {
-  for (const phase of tier.phases) {
-    if (phase.status === "complete") {
-      completedPhases.push(phase);
-    } else if (phase.status === "partial") {
-      inProgressPhases.push(phase);
+  for (const section of tier.sections) {
+    if (section.status === "complete") {
+      completedSections.push(section);
+    } else if (section.status === "partial") {
+      inProgressSections.push(section);
     } else {
-      plannedPhases.push(phase);
+      plannedSections.push(section);
     }
   }
 }
@@ -436,11 +436,11 @@ const statusColors: Record<string, string> = {
   "near-complete": "warning",
 };
 
-function countTasks(sections: Section[]): { done: number; total: number } {
+function countTasks(subsections: Section[]): { done: number; total: number } {
   let done = 0;
   let total = 0;
-  for (const section of sections) {
-    for (const task of section.tasks) {
+  for (const subsection of subsections) {
+    for (const task of subsection.tasks) {
       total++;
       if (task.done) done++;
     }
@@ -488,26 +488,26 @@ const testResults = loadTestResults();
 
 <BaseLayout
   title="Roadmap — Ori"
-  description="Ori compiler roadmap: 22 phases across 8 tiers. Track progress on type system, traits, capabilities, async, FFI, LLVM backend, and tooling."
+  description="Ori compiler roadmap: 22 sections across 8 tiers. Track progress on type system, traits, capabilities, async, FFI, LLVM backend, and tooling."
   keywords="Ori roadmap, compiler development, language features, type system, async, FFI, LLVM, tooling"
 >
   <main class="roadmap-page">
     <section class="roadmap-hero">
       <h1>Compiler Roadmap</h1>
       <p class="roadmap-subtitle">
-        {tiers.reduce((acc, t) => acc + t.phases.length, 0)} phases across {tiers.length} tiers. Click any phase to view details.
+        {tiers.reduce((acc, t) => acc + t.sections.length, 0)} sections across {tiers.length} tiers. Click any section to view details.
       </p>
       <div class="stats">
         <div class="stat">
-          <span class="stat-value">{completedPhases.length}</span>
+          <span class="stat-value">{completedSections.length}</span>
           <span class="stat-label">Completed</span>
         </div>
         <div class="stat">
-          <span class="stat-value">{inProgressPhases.length}</span>
+          <span class="stat-value">{inProgressSections.length}</span>
           <span class="stat-label">In Progress</span>
         </div>
         <div class="stat">
-          <span class="stat-value">{plannedPhases.length}</span>
+          <span class="stat-value">{plannedSections.length}</span>
           <span class="stat-label">Planned</span>
         </div>
       </div>
@@ -517,21 +517,21 @@ const testResults = loadTestResults();
       <div class="timeline-container">
         <div class="timeline-flow">
           {tiers.flatMap((tier, tierIdx) =>
-            tier.phases.map((phase, phaseIdx) => {
-              const isFirst = tierIdx === 0 && phaseIdx === 0;
-              const statusClass = phase.status === 'complete' ? 'complete' :
-                                  phase.status === 'partial' ? 'in-progress' : 'planned';
+            tier.sections.map((section, sectionIdx) => {
+              const isFirst = tierIdx === 0 && sectionIdx === 0;
+              const statusClass = section.status === 'complete' ? 'complete' :
+                                  section.status === 'partial' ? 'in-progress' : 'planned';
               return (
                 <Fragment>
                   {!isFirst && <span class="timeline-arrow">→</span>}
                   <button
                     class={`timeline-node ${statusClass}`}
-                    data-tooltip={phase.name}
-                    data-scroll-to={`phase-${phase.num}`}
+                    data-tooltip={section.name}
+                    data-scroll-to={`section-${section.num}`}
                     type="button"
                   >
-                    Phase {phase.num}
-                    <span class="tooltip">{phase.name}</span>
+                    Section {section.num}
+                    <span class="tooltip">{section.name}</span>
                   </button>
                 </Fragment>
               );
@@ -551,26 +551,26 @@ const testResults = loadTestResults();
         <summary class="status-header in-progress">
           <span class="status-icon">◐</span>
           <h2>In Progress</h2>
-          <span class="status-count">{inProgressPhases.length} phases</span>
+          <span class="status-count">{inProgressSections.length} sections</span>
           <span class="expand-icon"></span>
         </summary>
-        <div class="status-phases">
-          {inProgressPhases.map((phase) => {
-            const { done, total } = countTasks(phase.sections);
+        <div class="status-sections">
+          {inProgressSections.map((section) => {
+            const { done, total } = countTasks(section.subsections);
             return (
               <button
-                id={`phase-${phase.num}`}
-                class="phase-card partial"
-                data-phase={JSON.stringify(phase)}
+                id={`section-${section.num}`}
+                class="section-card partial"
+                data-section={JSON.stringify(section)}
                 type="button"
               >
-                <div class="phase-header">
-                  <span class="phase-num">Phase {phase.num}</span>
-                  <span class="phase-status warning">In Progress</span>
+                <div class="section-header">
+                  <span class="section-num">Section {section.num}</span>
+                  <span class="section-status warning">In Progress</span>
                 </div>
-                <h3>{phase.name}</h3>
-                <p class="phase-note">{phase.note || phase.goal}</p>
-                <div class="phase-progress">
+                <h3>{section.name}</h3>
+                <p class="section-note">{section.note || section.goal}</p>
+                <div class="section-progress">
                   <div class="progress-bar">
                     <div class="progress-fill" style={`width: ${total > 0 ? (done / total) * 100 : 0}%`}></div>
                   </div>
@@ -588,26 +588,26 @@ const testResults = loadTestResults();
         <summary class="status-header planned">
           <span class="status-icon">○</span>
           <h2>Planned</h2>
-          <span class="status-count">{plannedPhases.length} phases</span>
+          <span class="status-count">{plannedSections.length} sections</span>
           <span class="expand-icon"></span>
         </summary>
-        <div class="status-phases">
-          {plannedPhases.map((phase) => {
-            const { done, total } = countTasks(phase.sections);
+        <div class="status-sections">
+          {plannedSections.map((section) => {
+            const { done, total } = countTasks(section.subsections);
             return (
               <button
-                id={`phase-${phase.num}`}
-                class="phase-card not-started"
-                data-phase={JSON.stringify(phase)}
+                id={`section-${section.num}`}
+                class="section-card not-started"
+                data-section={JSON.stringify(section)}
                 type="button"
               >
-                <div class="phase-header">
-                  <span class="phase-num">Phase {phase.num}</span>
-                  <span class="phase-status muted">Not Started</span>
+                <div class="section-header">
+                  <span class="section-num">Section {section.num}</span>
+                  <span class="section-status muted">Not Started</span>
                 </div>
-                <h3>{phase.name}</h3>
-                <p class="phase-note">{phase.note || phase.goal}</p>
-                <div class="phase-progress">
+                <h3>{section.name}</h3>
+                <p class="section-note">{section.note || section.goal}</p>
+                <div class="section-progress">
                   <div class="progress-bar">
                     <div class="progress-fill" style={`width: ${total > 0 ? (done / total) * 100 : 0}%`}></div>
                   </div>
@@ -625,26 +625,26 @@ const testResults = loadTestResults();
         <summary class="status-header completed">
           <span class="status-icon">✓</span>
           <h2>Completed</h2>
-          <span class="status-count">{completedPhases.length} phases</span>
+          <span class="status-count">{completedSections.length} sections</span>
           <span class="expand-icon"></span>
         </summary>
-        <div class="status-phases">
-          {completedPhases.map((phase) => {
-            const { done, total } = countTasks(phase.sections);
+        <div class="status-sections">
+          {completedSections.map((section) => {
+            const { done, total } = countTasks(section.subsections);
             return (
               <button
-                id={`phase-${phase.num}`}
-                class="phase-card complete"
-                data-phase={JSON.stringify(phase)}
+                id={`section-${section.num}`}
+                class="section-card complete"
+                data-section={JSON.stringify(section)}
                 type="button"
               >
-                <div class="phase-header">
-                  <span class="phase-num">Phase {phase.num}</span>
-                  <span class="phase-status success">Complete</span>
+                <div class="section-header">
+                  <span class="section-num">Section {section.num}</span>
+                  <span class="section-status success">Complete</span>
                 </div>
-                <h3>{phase.name}</h3>
-                <p class="phase-note">{phase.note || phase.goal}</p>
-                <div class="phase-progress">
+                <h3>{section.name}</h3>
+                <p class="section-note">{section.note || section.goal}</p>
+                <div class="section-progress">
                   <div class="progress-bar">
                     <div class="progress-fill" style={`width: 100%`}></div>
                   </div>
@@ -658,12 +658,14 @@ const testResults = loadTestResults();
     </section>
 
     <section class="test-results">
-      <h2>Current Test Results</h2>
-      <p class="test-results-subtitle">
-        {testResults.timestamp
-          ? `Last updated: ${new Date(testResults.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-          : 'Results from latest CI run'}
-      </p>
+      <div class="test-results-header">
+        <h2>Current Test Results</h2>
+        <span class="test-results-date">
+          {testResults.timestamp
+            ? new Date(testResults.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+            : 'Latest CI run'}
+        </span>
+      </div>
       <div class="results-grid">
         <div class="result-card">
           <span class="result-value">{testResults.rust_tests.toLocaleString()}</span>
@@ -789,7 +791,7 @@ const testResults = loadTestResults();
 
     <section class="roadmap-cta">
       <h2>Want to contribute?</h2>
-      <p>The roadmap lives in <code>plans/roadmap/</code>. Each phase has detailed implementation tasks.</p>
+      <p>The roadmap lives in <code>plans/roadmap/</code>. Each section has detailed implementation tasks.</p>
       <div class="cta-buttons">
         <a href="https://github.com/upstat-io/ori-lang/tree/master/plans/roadmap" class="btn btn-primary" target="_blank" rel="noopener">View Full Roadmap</a>
         <a href="https://github.com/upstat-io/ori-lang" class="btn btn-secondary" target="_blank" rel="noopener">GitHub</a>
@@ -798,11 +800,11 @@ const testResults = loadTestResults();
   </main>
 
   <!-- Modal -->
-  <div class="modal-overlay" id="phase-modal">
+  <div class="modal-overlay" id="section-modal">
     <div class="modal-container">
       <div class="modal-header">
         <div class="modal-header-content">
-          <div class="modal-phase-num" id="modal-phase-num"></div>
+          <div class="modal-section-num" id="modal-section-num"></div>
           <h2 class="modal-title" id="modal-title"></h2>
           <span class="modal-status" id="modal-status"></span>
         </div>
@@ -810,7 +812,7 @@ const testResults = loadTestResults();
       </div>
       <div class="modal-body">
         <p class="modal-goal" id="modal-goal"></p>
-        <div class="modal-sections" id="modal-sections"></div>
+        <div class="modal-subsections" id="modal-subsections"></div>
       </div>
     </div>
   </div>
@@ -818,9 +820,9 @@ const testResults = loadTestResults();
 
 <script is:inline>
   (function() {
-    const modal = document.getElementById('phase-modal');
+    const modal = document.getElementById('section-modal');
     const modalClose = modal ? modal.querySelector('.modal-close') : null;
-    const phaseCards = document.querySelectorAll('.phase-card');
+    const sectionCards = document.querySelectorAll('.section-card');
     const timelineNodes = document.querySelectorAll('.timeline-node');
 
     const statusLabels = {
@@ -835,41 +837,41 @@ const testResults = loadTestResults();
       "not-started": "muted"
     };
 
-    function openModal(phaseData) {
-      if (!phaseData || !modal) return;
+    function openModal(sectionData) {
+      if (!sectionData || !modal) return;
 
-      const phase = JSON.parse(phaseData);
+      const section = JSON.parse(sectionData);
 
-      var phaseNum = document.getElementById('modal-phase-num');
+      var sectionNum = document.getElementById('modal-section-num');
       var title = document.getElementById('modal-title');
       var status = document.getElementById('modal-status');
       var goal = document.getElementById('modal-goal');
-      var sections = document.getElementById('modal-sections');
+      var subsections = document.getElementById('modal-subsections');
 
-      if (phaseNum) phaseNum.textContent = 'Phase ' + phase.num;
-      if (title) title.textContent = phase.name;
+      if (sectionNum) sectionNum.textContent = 'Section ' + section.num;
+      if (title) title.textContent = section.name;
       if (status) {
-        status.textContent = statusLabels[phase.status] || phase.status;
-        status.className = 'modal-status ' + (statusColors[phase.status] || 'muted');
+        status.textContent = statusLabels[section.status] || section.status;
+        status.className = 'modal-status ' + (statusColors[section.status] || 'muted');
       }
-      if (goal) goal.textContent = phase.goal;
+      if (goal) goal.textContent = section.goal;
 
-      if (sections) {
+      if (subsections) {
         var html = '';
-        for (var i = 0; i < phase.sections.length; i++) {
-          var section = phase.sections[i];
-          html += '<div class="modal-section">';
-          html += '<h4>' + section.name + '</h4>';
+        for (var i = 0; i < section.subsections.length; i++) {
+          var subsection = section.subsections[i];
+          html += '<div class="modal-subsection">';
+          html += '<h4>' + subsection.name + '</h4>';
           html += '<ul class="task-list">';
-          for (var j = 0; j < section.tasks.length; j++) {
-            var task = section.tasks[j];
+          for (var j = 0; j < subsection.tasks.length; j++) {
+            var task = subsection.tasks[j];
             var cls = task.done ? 'done' : 'pending';
             html += '<li class="' + cls + '">' + task.name + '</li>';
           }
           html += '</ul>';
           html += '</div>';
         }
-        sections.innerHTML = html;
+        subsections.innerHTML = html;
       }
 
       modal.classList.add('active');
@@ -883,14 +885,14 @@ const testResults = loadTestResults();
       }
     }
 
-    for (var i = 0; i < phaseCards.length; i++) {
+    for (var i = 0; i < sectionCards.length; i++) {
       (function(card) {
         card.addEventListener('click', function(e) {
           e.preventDefault();
-          var phaseData = card.getAttribute('data-phase');
-          openModal(phaseData);
+          var sectionData = card.getAttribute('data-section');
+          openModal(sectionData);
         });
-      })(phaseCards[i]);
+      })(sectionCards[i]);
     }
 
     // Timeline node scroll handling
@@ -1125,30 +1127,30 @@ const testResults = loadTestResults();
     transform: rotate(90deg);
   }
 
-  .status-phases {
+  .status-sections {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
     gap: var(--space-3);
     padding: 0 var(--space-4) var(--space-4);
   }
 
-  .status-section .phase-card {
+  .status-section .section-card {
     background: var(--color-bg-secondary);
   }
 
-  .status-section .phase-card:hover {
+  .status-section .section-card:hover {
     background: var(--color-bg-tertiary);
   }
 
-  .phase-card.highlight.complete {
+  .section-card.highlight.complete {
     animation: highlight-flash-success 1.5s ease-out;
   }
 
-  .phase-card.highlight.partial {
+  .section-card.highlight.partial {
     animation: highlight-flash-warning 1.5s ease-out;
   }
 
-  .phase-card.highlight.not-started {
+  .section-card.highlight.not-started {
     animation: highlight-flash-muted 1.5s ease-out;
   }
 
@@ -1167,8 +1169,8 @@ const testResults = loadTestResults();
     100% { background: var(--color-bg-secondary); }
   }
 
-  /* Phases */
-  .phase-card {
+  /* Sections */
+  .section-card {
     display: flex;
     flex-direction: column;
     height: 140px;
@@ -1188,30 +1190,30 @@ const testResults = loadTestResults();
     outline: none;
   }
 
-  .phase-card:focus-visible {
+  .section-card:focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }
 
-  .phase-card:hover {
+  .section-card:hover {
     background: var(--color-bg-tertiary);
     border-color: var(--color-border-hover, var(--color-border));
   }
 
-  .phase-card.complete {
+  .section-card.complete {
     border-left: 3px solid var(--color-success);
   }
 
-  .phase-card.partial {
+  .section-card.partial {
     border-left: 3px solid var(--color-warning);
   }
 
-  .phase-card.not-started {
+  .section-card.not-started {
     border-left: 3px solid var(--color-text-muted);
     opacity: 0.8;
   }
 
-  .phase-header {
+  .section-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1219,35 +1221,35 @@ const testResults = loadTestResults();
     flex-shrink: 0;
   }
 
-  .phase-num {
+  .section-num {
     font-size: var(--text-xs);
     font-weight: var(--weight-medium);
     color: var(--color-text-muted);
   }
 
-  .phase-status {
+  .section-status {
     font-size: var(--text-xs);
     font-weight: var(--weight-medium);
     padding: 2px 6px;
     border-radius: var(--radius-sm);
   }
 
-  .phase-status.success {
+  .section-status.success {
     background: rgba(74, 222, 128, 0.15);
     color: var(--color-success);
   }
 
-  .phase-status.warning {
+  .section-status.warning {
     background: rgba(251, 191, 36, 0.15);
     color: var(--color-warning);
   }
 
-  .phase-status.muted {
+  .section-status.muted {
     background: var(--color-bg-tertiary);
     color: var(--color-text-muted);
   }
 
-  .phase-card h3 {
+  .section-card h3 {
     font-size: var(--text-sm);
     font-weight: var(--weight-semibold);
     color: var(--color-text-primary);
@@ -1255,7 +1257,7 @@ const testResults = loadTestResults();
     flex-shrink: 0;
   }
 
-  .phase-progress {
+  .section-progress {
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -1278,11 +1280,11 @@ const testResults = loadTestResults();
     transition: width var(--transition-base);
   }
 
-  .phase-card.complete .progress-fill {
+  .section-card.complete .progress-fill {
     background: var(--color-success);
   }
 
-  .phase-card.partial .progress-fill {
+  .section-card.partial .progress-fill {
     background: var(--color-warning);
   }
 
@@ -1292,7 +1294,7 @@ const testResults = loadTestResults();
     white-space: nowrap;
   }
 
-  .phase-note {
+  .section-note {
     font-size: var(--text-xs);
     color: var(--color-text-secondary);
     margin: 0;
@@ -1377,7 +1379,7 @@ const testResults = loadTestResults();
     padding: var(--space-4);
   }
 
-  .modal-phase-num {
+  .modal-section-num {
     font-size: 10px;
     font-weight: var(--weight-medium);
     color: var(--color-text-muted);
@@ -1428,19 +1430,19 @@ const testResults = loadTestResults();
     display: none;
   }
 
-  .modal-sections {
+  .modal-subsections {
     padding: var(--space-3) var(--space-4);
   }
 
-  .modal-section {
+  .modal-subsection {
     margin-bottom: var(--space-3);
   }
 
-  .modal-section:last-child {
+  .modal-subsection:last-child {
     margin-bottom: 0;
   }
 
-  :global(.modal-section h4) {
+  :global(.modal-subsection h4) {
     font-size: 11px;
     font-weight: 600;
     color: var(--color-text-muted);
@@ -1660,14 +1662,27 @@ const testResults = loadTestResults();
 
   /* Test Results */
   .test-results {
+    margin-top: var(--space-12);
     margin-bottom: var(--space-12);
   }
 
-  .test-results h2 {
-    font-size: var(--text-xl);
-    font-weight: var(--weight-semibold);
+  .test-results-header {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
     margin-bottom: var(--space-4);
+  }
+
+  .test-results h2 {
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-bold);
     color: var(--color-text-primary);
+    margin: 0;
+  }
+
+  .test-results-date {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
   }
 
   .results-grid {
@@ -1994,7 +2009,7 @@ const testResults = loadTestResults();
       gap: var(--space-6);
     }
 
-    .phases {
+    .status-sections {
       grid-template-columns: 1fr;
     }
 

@@ -1,5 +1,5 @@
 ---
-phase: 12
+section: 12
 title: Variadic Functions
 status: not-started
 tier: 4
@@ -25,13 +25,13 @@ sections:
     status: not-started
 ---
 
-# Phase 12: Variadic Functions
+# Section 12: Variadic Functions
 
 **Goal**: Enable functions with variable number of arguments
 
 **Criticality**: Medium — API design flexibility, required for C interop
 
-**Dependencies**: Phase 11 (FFI) for C variadic interop
+**Dependencies**: Section 11 (FFI) for C variadic interop
 
 **Proposal**: `proposals/approved/variadic-functions-proposal.md`
 
@@ -312,18 +312,18 @@ process_commands(("init", 1), ("run", 2), ("cleanup", 3))
 
 ### Decision
 
-Defer to future consideration. Current phase focuses on function parameters only.
+Defer to future consideration. Current section focuses on function parameters only.
 
 ---
 
-## Phase Completion Checklist
+## Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Spec updated: `spec/08-declarations.md` variadic section complete
 - [ ] CLAUDE.md updated with variadic syntax
 - [ ] Homogeneous variadics work
 - [ ] Spread operator works
-- [ ] C variadic interop works (after Phase 11)
+- [ ] C variadic interop works (after Section 11)
 - [ ] All tests pass: `./test-all`
 
 **Exit Criteria**: Can implement `format()` and call C's `printf()`

@@ -1,5 +1,5 @@
 ---
-phase: 13
+section: 13
 title: Conditional Compilation
 status: not-started
 tier: 5
@@ -39,7 +39,7 @@ sections:
     status: not-started
 ---
 
-# Phase 13: Conditional Compilation
+# Section 13: Conditional Compilation
 
 **Goal**: Enable platform-specific code and feature flags
 
@@ -638,7 +638,7 @@ Causes a compile-time error with the given message. Valid only in compile-time e
 
 ---
 
-## Phase Completion Checklist
+## Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Spec updated: `spec/24-conditional-compilation.md` complete

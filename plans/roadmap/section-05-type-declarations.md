@@ -1,5 +1,5 @@
 ---
-phase: 5
+section: 5
 title: Type Declarations
 status: in-progress
 tier: 1
@@ -37,11 +37,11 @@ sections:
     title: Associated Functions
     status: not-started
   - id: "5.10"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: not-started
 ---
 
-# Phase 5: Type Declarations
+# Section 5: Type Declarations
 
 **Goal**: User-defined types
 
@@ -270,7 +270,7 @@ sections:
 > **NOTE - Pending Syntax Change**: Approved proposal changes attribute syntax:
 > - Current: `#[derive(Eq, Clone)]`
 > - New: `#derive(Eq, Clone)`
-> See Phase 15 (Approved Syntax Proposals) § 15.1. Implement with new syntax directly.
+> See Section 15 (Approved Syntax Proposals) § 15.1. Implement with new syntax directly.
 
 - [ ] **Implement**: Parse `#derive(Trait1, Trait2)` — spec/08-declarations.md § Attributes
   - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — derive attribute parsing
@@ -396,7 +396,7 @@ Generalize associated functions to work for ANY type with an `impl` block, remov
 
 ---
 
-## 5.10 Phase Completion Checklist
+## 5.10 Section Completion Checklist
 
 - [ ] All items above have all three checkboxes marked `[x]`
 - [ ] 80+% test coverage

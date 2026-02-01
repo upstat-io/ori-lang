@@ -1,9 +1,9 @@
 ---
-phase: 6
+section: 6
 title: Capabilities System
 status: in-progress
 tier: 2
-goal: Effect tracking (moved earlier to unblock Phase 8 cache and Phase 11 FFI)
+goal: Effect tracking (moved earlier to unblock Section 8 cache and Section 11 FFI)
 spec:
   - spec/14-capabilities.md
 sections:
@@ -47,13 +47,13 @@ sections:
     title: Intrinsics Capability
     status: not-started
   - id: "6.15"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: in-progress
 ---
 
-# Phase 6: Capabilities System
+# Section 6: Capabilities System
 
-**Goal**: Effect tracking (moved earlier to unblock Phase 8 cache and Phase 11 FFI)
+**Goal**: Effect tracking (moved earlier to unblock Section 8 cache and Section 11 FFI)
 
 > **SPEC**: `spec/14-capabilities.md`
 > **DESIGN**: `design/14-capabilities/index.md`
@@ -103,8 +103,8 @@ sections:
   - [x] **Ori Tests**: `tests/spec/capabilities/suspend.ori` — design notes document this
 
 - [ ] **Implement**: Concurrency with `parallel` — spec/14-capabilities.md § Suspend Capability
-  - [ ] **Deferred to Phase 8**: `parallel` pattern evaluation
-  - [ ] **Ori Tests**: `tests/spec/patterns/parallel.ori` (Phase 8)
+  - [ ] **Deferred to Section 8**: `parallel` pattern evaluation
+  - [ ] **Ori Tests**: `tests/spec/patterns/parallel.ori` (Section 8)
 
 ---
 
@@ -140,13 +140,13 @@ sections:
 ## 6.6 Standard Capabilities
 
 > **STATUS**: Trait definitions complete in `library/std/prelude.ori`
-> Real implementations deferred to Phase 7 (Stdlib).
+> Real implementations deferred to Section 7 (Stdlib).
 
 - [x] **Define**: Trait interfaces — spec/14-capabilities.md § Standard Capabilities
   - [x] **Location**: `library/std/prelude.ori` — trait definitions
   - [x] **Traits**: Http, FileSystem, Cache, Clock, Random, Logger, Env
 
-- [ ] **Implement** (Phase 7): Real capability implementations
+- [ ] **Implement** (Section 7): Real capability implementations
   - [ ] `std.net.http` — Http capability impl
   - [ ] `std.fs` — FileSystem capability impl
   - [ ] `std.time` — Clock capability impl
@@ -182,20 +182,20 @@ sections:
 
 ## 6.9 Unsafe Capability (FFI Prep)
 
-> **PREREQUISITE FOR**: Phase 11 (FFI)
+> **PREREQUISITE FOR**: Section 11 (FFI)
 > The Unsafe capability is required for FFI. Implement this before starting FFI work.
 
 - [x] **Implement**: `Unsafe` marker capability
   - [x] Defined in prelude as marker trait (no methods): `library/std/prelude.ori`
   - [ ] **Ori Tests**: `tests/spec/capabilities/unsafe.ori` — basic tests
 
-- [ ] **Implement**: Unsafe capability requirements (Phase 11)
+- [ ] **Implement**: Unsafe capability requirements (Section 11)
   - [ ] Required for: raw pointer operations (future)
   - [ ] Required for: extern function calls (future)
   - [ ] Required for: unsafe blocks (future)
   - [ ] Tests added when FFI implemented
 
-- [ ] **Implement**: AllowUnsafe provider type (Phase 11)
+- [ ] **Implement**: AllowUnsafe provider type (Section 11)
   - [ ] Concrete type that satisfies Unsafe capability
   - [ ] For use in tests: `with Unsafe = AllowUnsafe in ...`
   - [ ] Added when FFI tests need it
@@ -417,12 +417,12 @@ Low-level SIMD, bit manipulation, and hardware feature detection. Atomics deferr
 
 ---
 
-## 6.15 Phase Completion Checklist
+## 6.15 Section Completion Checklist
 
 - [x] 6.1-6.5 complete (declaration, traits, async, providing, propagation)
-- [x] 6.6 trait definitions in prelude (implementations in Phase 7)
+- [x] 6.6 trait definitions in prelude (implementations in Section 7)
 - [x] 6.7-6.8 complete (testing/mocking, compile-time enforcement)
-- [x] 6.9 Unsafe marker trait defined (FFI enforcement in Phase 11)
+- [x] 6.9 Unsafe marker trait defined (FFI enforcement in Section 11)
 - [ ] 6.10 Default implementations (`def impl`) — pending implementation
 - [ ] 6.11 Capability Composition — pending implementation
 - [ ] 6.12 Default Implementation Resolution — pending implementation
@@ -434,9 +434,9 @@ Low-level SIMD, bit manipulation, and hardware feature detection. Atomics deferr
 
 **Exit Criteria**: Effect tracking works per spec (6.1-6.9 ✅, 6.10-6.14 pending)
 
-**Remaining for Phase 7 (Stdlib)**:
+**Remaining for Section 7 (Stdlib)**:
 - Real capability implementations (Http, FileSystem, etc.)
 - Integration with stdlib modules
 
-**Remaining for Phase 11 (FFI)**:
+**Remaining for Section 11 (FFI)**:
 - Unsafe capability enforcement for extern functions

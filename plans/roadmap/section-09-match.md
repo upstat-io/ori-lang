@@ -1,5 +1,5 @@
 ---
-phase: 9
+section: 9
 title: Match Expressions
 status: not-started
 tier: 3
@@ -23,11 +23,11 @@ sections:
     title: Exhaustiveness Checking
     status: not-started
   - id: "9.5"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: not-started
 ---
 
-# Phase 9: Match Expressions
+# Section 9: Match Expressions
 
 **Goal**: Full pattern matching support
 
@@ -270,7 +270,7 @@ Pattern matrix decomposition algorithm (Maranget's algorithm) for exhaustiveness
 
 ---
 
-## 9.5 Phase Completion Checklist
+## 9.5 Section Completion Checklist
 
 - [ ] All items above have all three checkboxes marked `[x]`
 - [ ] Spec updated: `spec/10-patterns.md` reflects implementation

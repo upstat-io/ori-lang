@@ -1,5 +1,5 @@
 ---
-phase: 20
+section: 20
 title: Runtime Reflection
 status: not-started
 tier: 7
@@ -33,13 +33,13 @@ sections:
     status: not-started
 ---
 
-# Phase 20: Runtime Reflection
+# Section 20: Runtime Reflection
 
 **Goal**: Enable runtime type introspection and dynamic operations
 
 **Criticality**: Low — Serialization, debugging, metaprogramming
 
-**Dependencies**: Phase 3 (Traits), Phase 5 (Type Declarations), Phase 7 (Derive Macros), Phase 11 (Generics)
+**Dependencies**: Section 3 (Traits), Section 5 (Type Declarations), Section 7 (Derive Macros), Section 11 (Generics)
 
 **Proposal**: `proposals/approved/reflection-api-proposal.md` — ✅ APPROVED 2026-01-31
 
@@ -522,7 +522,7 @@ Per `proposals/approved/reflection-api-proposal.md § Deferred Decisions`:
 
 ---
 
-## Phase Completion Checklist
+## Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Spec updated: `spec/27-reflection.md` complete

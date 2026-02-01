@@ -1,5 +1,5 @@
 ---
-phase: "15D"
+section: "15D"
 title: Bindings & Types
 status: not-started
 tier: 5
@@ -18,11 +18,11 @@ sections:
     title: Remove dyn Keyword for Trait Objects
     status: not-started
   - id: "15D.5"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: not-started
 ---
 
-# Phase 15D: Bindings & Types
+# Section 15D: Bindings & Types
 
 **Goal**: Implement binding syntax changes and type system simplifications
 
@@ -373,7 +373,7 @@ let items: [Serializable] = ...
 
 ---
 
-## 15D.5 Phase Completion Checklist
+## 15D.5 Section Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[x]`
 - [ ] All spec docs updated

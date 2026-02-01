@@ -1,5 +1,5 @@
 ---
-phase: 2
+section: 2
 title: Complete Type Inference
 status: complete
 tier: 1
@@ -18,11 +18,11 @@ sections:
     title: Type Error Improvements
     status: complete
   - id: "2.4"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: complete
 ---
 
-# Phase 2: Complete Type Inference
+# Section 2: Complete Type Inference
 
 **Goal**: Full Hindley-Milner type inference
 
@@ -89,7 +89,7 @@ All 13 compile-fail tests pass: `ori test tests/compile-fail/`
 
 ---
 
-## 2.4 Phase Completion Checklist
+## 2.4 Section Completion Checklist
 
 - [x] All 2.1 and 2.2 items complete
 - [x] All 2.3 items complete

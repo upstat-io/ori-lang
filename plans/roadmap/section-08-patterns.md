@@ -1,5 +1,5 @@
 ---
-phase: 8
+section: 8
 title: Pattern Evaluation
 status: in-progress
 tier: 3
@@ -41,11 +41,11 @@ sections:
     title: Resilience Patterns — MOVED TO STDLIB
     status: complete
   - id: "8.12"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: complete
 ---
 
-# Phase 8: Pattern Evaluation
+# Section 8: Pattern Evaluation
 
 **Goal**: All patterns evaluate correctly
 
@@ -75,7 +75,7 @@ The spec formalizes two distinct pattern categories:
 
 ## 8.1 run (Sequential Execution) [function_seq]
 
-> **Future Enhancement**: Approved proposal `proposals/approved/checks-proposal.md` adds `.pre_check:` and `.post_check:` properties to `run`. See Phase 15.5.
+> **Future Enhancement**: Approved proposal `proposals/approved/checks-proposal.md` adds `.pre_check:` and `.post_check:` properties to `run`. See Section 15.5.
 
 - [x] **Implement**: Grammar `run_expr = "run" "(" { binding "," } expression ")"` — spec/10-patterns.md § run
   - [x] **Rust Tests**: `oric/src/patterns/run.rs` — run pattern execution tests
@@ -396,7 +396,7 @@ The spec formalizes two distinct pattern categories:
 > **STATUS**: IMPLEMENTED. Uses FunctionSeq::ForPattern with match arm syntax.
 >
 > **NOTE**: This is the `for(over:, match:, default:)` **pattern** with named arguments.
-> The `for x in items do/yield expr` **expression** syntax is a separate construct in Phase 10 (Control Flow).
+> The `for x in items do/yield expr` **expression** syntax is a separate construct in Section 10 (Control Flow).
 
 - [x] **Implement**: `.over:` property — spec/10-patterns.md § for
   - [x] **Rust Tests**: `oric/src/patterns/for.rs` — for pattern execution tests
@@ -411,7 +411,7 @@ The spec formalizes two distinct pattern categories:
 
 ## 8.10 Data Transformation — MOVED TO STDLIB
 
-> **MOVED**: Per "Lean Core, Rich Libraries", these are now stdlib functions (Phase 7 - Stdlib).
+> **MOVED**: Per "Lean Core, Rich Libraries", these are now stdlib functions (Section 7 - Stdlib).
 
 | Pattern | Stdlib Location | Notes |
 |---------|-----------------|-------|
@@ -425,7 +425,7 @@ The spec formalizes two distinct pattern categories:
 
 ## 8.11 Resilience Patterns — MOVED TO STDLIB
 
-> **MOVED**: Per "Lean Core, Rich Libraries", these are now stdlib functions (Phase 7 - Stdlib).
+> **MOVED**: Per "Lean Core, Rich Libraries", these are now stdlib functions (Section 7 - Stdlib).
 
 | Pattern | Stdlib Location | Notes |
 |---------|-----------------|-------|
@@ -435,7 +435,7 @@ The spec formalizes two distinct pattern categories:
 
 ---
 
-## 8.12 Phase Completion Checklist
+## 8.12 Section Completion Checklist
 
 - [x] All compiler patterns implemented
 - [x] Data transformation patterns moved to stdlib

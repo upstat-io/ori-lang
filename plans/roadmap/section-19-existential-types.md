@@ -1,5 +1,5 @@
 ---
-phase: 19
+section: 19
 title: Existential Types (impl Trait)
 status: not-started
 tier: 7
@@ -24,13 +24,13 @@ sections:
     status: not-started
 ---
 
-# Phase 19: Existential Types (impl Trait)
+# Section 19: Existential Types (impl Trait)
 
 **Goal**: Enable returning opaque types that implement a trait without exposing concrete type
 
 **Criticality**: Low — API design improvement
 
-**Dependencies**: Phase 3 (Traits)
+**Dependencies**: Section 3 (Traits)
 
 **Proposal**: `proposals/approved/existential-types-proposal.md`
 
@@ -341,7 +341,7 @@ error: `impl Trait` is only allowed in return position
 
 ---
 
-## Phase Completion Checklist
+## Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Spec updated: `spec/06-types.md` existential types section

@@ -1,5 +1,5 @@
 ---
-phase: 10
+section: 10
 title: Control Flow
 status: in-progress
 tier: 3
@@ -35,11 +35,11 @@ sections:
     title: Index Expressions
     status: complete
   - id: "10.9"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: not-started
 ---
 
-# Phase 10: Control Flow
+# Section 10: Control Flow
 
 **Goal**: Complete control flow constructs
 
@@ -102,7 +102,7 @@ sections:
 ## 10.2 for Expressions
 
 > **NOTE**: This is the `for x in items do/yield expr` **expression** syntax for iteration.
-> The `for(over:, match:, default:)` **pattern** with named arguments is a separate construct in Phase 8.
+> The `for(over:, match:, default:)` **pattern** with named arguments is a separate construct in Section 8.
 
 **Imperative form (do):**
 
@@ -538,7 +538,7 @@ sections:
 
 ---
 
-## 10.9 Phase Completion Checklist
+## 10.9 Section Completion Checklist
 
 - [ ] All items above have all three checkboxes marked `[x]`
 - [ ] Spec updated: `spec/09-expressions.md`, `spec/19-control-flow.md` reflect implementation

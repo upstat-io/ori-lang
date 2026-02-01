@@ -1,5 +1,5 @@
 ---
-phase: 3
+section: 3
 title: Traits and Implementations
 status: in-progress
 tier: 1
@@ -27,7 +27,7 @@ sections:
     title: Derive Traits
     status: complete
   - id: "3.6"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: complete
   - id: "3.7"
     title: Clone Trait Formal Definition
@@ -79,7 +79,7 @@ sections:
     status: in-progress
 ---
 
-# Phase 3: Traits and Implementations
+# Section 3: Traits and Implementations
 
 **Goal**: Trait-based polymorphism
 
@@ -98,7 +98,7 @@ from the compiler core to trait methods. The compiler now only provides:
 - `print(msg: str)` - I/O
 - `panic(msg: str)` - Control flow
 
-**Moved to traits (must implement in this phase):**
+**Moved to traits (must implement in this section):**
 - `len(collection)` -> `Len` trait with `.len()` method
 - `is_empty(collection)` -> `IsEmpty` trait with `.is_empty()` method
 - `is_some(option)`, `is_none(option)` -> `Option` methods
@@ -357,7 +357,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
 
 ---
 
-## 3.6 Phase Completion Checklist
+## 3.6 Section Completion Checklist
 
 - [x] Core library traits (3.0): All complete ✅
 - [x] Trait declarations (3.1): All complete ✅
@@ -370,7 +370,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
 
 **Exit Criteria**: Trait-based code compiles and runs ✅
 
-**Phase 3 Complete** (2026-01-25)
+**Section 3 Complete** (2026-01-25)
 
 ---
 
@@ -797,7 +797,7 @@ Introduces the `Index` trait for read-only custom subscripting, allowing user-de
 
 **Proposal**: `proposals/approved/additional-traits-proposal.md`
 
-Formalizes three core traits: `Printable`, `Default`, and `Traceable`. The `Iterable`, `Iterator`, `DoubleEndedIterator`, and `Collect` traits are already defined in the spec and implemented in Phase 3.8.
+Formalizes three core traits: `Printable`, `Default`, and `Traceable`. The `Iterable`, `Iterator`, `DoubleEndedIterator`, and `Collect` traits are already defined in the spec and implemented in Section 3.8.
 
 ### Implementation
 
@@ -1301,7 +1301,7 @@ Defines traits for arithmetic, bitwise, and unary operators that user-defined ty
   - [x] **Files**: `ori_eval/src/interpreter/mod.rs` — `eval_binary()`, `binary_op_to_method()`
   - [x] **Files**: `ori_eval/src/methods.rs` — operator methods for primitives
   - [x] **Ori Tests**: `tests/spec/traits/operators/user_defined.ori`
-  - [ ] **LLVM Support**: LLVM codegen for operator trait dispatch (see Phase 21A § 21.2)
+  - [ ] **LLVM Support**: LLVM codegen for operator trait dispatch (see Section 21A § 21.2)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/operator_trait_tests.rs`
 
 - [x] **Implement**: Built-in operator trait implementations for primitives

@@ -148,14 +148,14 @@ checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
 name = "ori_diagnostic"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "ori_ir",
 ]
 
 [[package]]
 name = "ori_ir"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "parking_lot",
  "rustc-hash",
@@ -163,7 +163,7 @@ dependencies = [
 
 [[package]]
 name = "ori_llvm"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "inkwell",
  "ori_ir",
@@ -176,7 +176,7 @@ dependencies = [
 
 [[package]]
 name = "ori_types"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "ori_diagnostic",
  "ori_ir",

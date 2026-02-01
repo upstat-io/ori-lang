@@ -1,5 +1,5 @@
 ---
-phase: "21B"
+section: "21B"
 title: AOT Compilation
 status: not-started
 tier: 8
@@ -33,15 +33,15 @@ sections:
     title: Error Handling
     status: not-started
   - id: "21B.10"
-    title: Phase Completion Checklist
+    title: Section Completion Checklist
     status: not-started
 ---
 
-# Phase 21B: AOT Compilation
+# Section 21B: AOT Compilation
 
 **Status:** 📋 Planned
 **Proposal:** `proposals/approved/aot-compilation-proposal.md`
-**Depends on:** Phase 21A (LLVM Backend - JIT working)
+**Depends on:** Section 21A (LLVM Backend - JIT working)
 
 **Goal:** Generate native executables and WebAssembly from Ori source code.
 
@@ -169,7 +169,7 @@ sections:
   - [ ] **Rust Tests**: `ori_llvm/src/aot/linker_tests.rs`
 
 - [ ] **Implement**: Runtime library (libori_rt)
-  - [ ] Consolidate Phase 21A runtime functions
+  - [ ] Consolidate Section 21A runtime functions
   - [ ] Memory: `ori_alloc`, `ori_free`, `ori_realloc`
   - [ ] Reference counting: `ori_rc_inc`, `ori_rc_dec`, `ori_rc_new`
   - [ ] Strings: `ori_str_concat`, `ori_str_from_int`, etc.
@@ -305,7 +305,7 @@ sections:
 
 ---
 
-## 21B.10 Phase Completion Checklist
+## 21B.10 Section Completion Checklist
 
 **Target Configuration:**
 - [ ] Target triple parsing and validation
