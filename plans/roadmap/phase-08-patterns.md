@@ -1,7 +1,7 @@
 ---
 phase: 8
 title: Pattern Evaluation
-status: complete
+status: in-progress
 tier: 3
 goal: All patterns evaluate correctly
 spec:
