@@ -367,7 +367,31 @@ Machine-readable diagnostics with actionable fix suggestions. Enables AI agents 
 
 ---
 
-## 22.8 Grammar Synchronization Verification
+## 22.8 WASM Playground
+
+> **PROPOSAL**: `proposals/approved/wasm-playground-proposal.md`
+> **CRATE**: `playground/wasm/` — WASM bindings for portable compiler subset
+
+**Status**: ✅ Core complete, 🔶 Examples pending
+
+### Core Implementation (Complete)
+
+- [x] **Implement**: WASM crate with `run_ori()`, `format_ori()`, `version()` exports
+- [x] **Implement**: Monaco editor integration with Ori syntax highlighting (Monarch grammar)
+- [x] **Implement**: URL-based code sharing (base64 fragment)
+- [x] **Implement**: Full-screen playground page (`/playground`)
+- [x] **Implement**: Embedded playground on landing page
+- [x] **Implement**: Basic examples (5): Hello World, Fibonacci, Factorial, List Operations, Structs
+
+### Pending Work
+
+- [ ] **Implement**: Extended examples (5): Sum Types, Error Handling, Iterators, Traits, Generics
+  - [ ] **Ori Tests**: Example code must compile and run correctly
+- [ ] **Document**: Stdlib availability and limitations (prelude only)
+
+---
+
+## 22.9 Grammar Synchronization Verification
 
 > **PROPOSAL**: `proposals/approved/grammar-sync-formalization-proposal.md`
 
@@ -386,7 +410,7 @@ Enhance `sync-grammar` skill with operator verification checklist to catch discr
 
 ---
 
-## 22.9 Phase Completion Checklist
+## 22.10 Phase Completion Checklist
 
 - [ ] All items above have all three checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md

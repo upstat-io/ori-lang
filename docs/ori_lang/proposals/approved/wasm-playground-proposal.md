@@ -1,8 +1,9 @@
 # Proposal: WASM Playground
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-31
+**Approved:** 2026-01-31
 **Affects:** Tooling, developer experience, website, onboarding
 
 ---
@@ -33,34 +34,53 @@ A browser-based playground addresses these issues by providing:
 
 ---
 
+## Implementation Status
+
+| Feature | Status |
+|---------|--------|
+| WASM crate with run/format/version exports | ✅ Complete |
+| Monaco editor with Ori syntax | ✅ Complete |
+| URL-based code sharing | ✅ Complete |
+| Full-screen playground page | ✅ Complete |
+| Embedded playground on landing | ✅ Complete |
+| Basic examples (5) | ✅ Complete |
+| Expanded examples (10) | 🔶 Pending |
+| Stdlib documentation | 🔶 Pending |
+
+---
+
 ## Architecture
 
-### Component Structure
+### Directory Structure
+
+The playground lives at the repo root level:
 
 ```
-playground/                    # Standalone playground app (Vite + Svelte)
-├── wasm/                     # Rust WASM crate source
-│   ├── Cargo.toml
-│   └── src/lib.rs            # WASM bindings
-├── pkg/                      # Generated WASM output
-└── src/                      # Svelte components (symlinked)
-
-website/                       # Main Ori website (Astro)
-├── src/
-│   ├── pages/
-│   │   ├── playground.astro  # Full-screen playground page
-│   │   └── index.astro       # Landing page with embedded playground
-│   ├── components/
-│   │   └── playground/       # Shared Playground components
-│   │       ├── Playground.svelte
-│   │       ├── MonacoEditor.svelte
-│   │       ├── OutputPane.svelte
-│   │       ├── PlaygroundToolbar.svelte
-│   │       ├── wasm-runner.ts
-│   │       ├── examples.ts
-│   │       └── ori-monarch.ts
-│   └── wasm/                 # Type definitions
-└── public/wasm/              # Static WASM assets
+ori_lang/                      # Repository root
+├── compiler/                 # Compiler crates
+├── playground/               # WASM playground
+│   ├── wasm/                # WASM crate (Cargo.toml references ../../compiler/)
+│   │   ├── Cargo.toml
+│   │   └── src/lib.rs       # WASM bindings
+│   ├── pkg/                 # Generated WASM output
+│   └── src/                 # Svelte components (symlinked)
+├── website/                  # Main Ori website (Astro)
+│   ├── src/
+│   │   ├── pages/
+│   │   │   ├── playground.astro  # Full-screen playground page
+│   │   │   └── index.astro       # Landing page with embedded playground
+│   │   ├── components/
+│   │   │   └── playground/       # Shared Playground components
+│   │   │       ├── Playground.svelte
+│   │   │       ├── MonacoEditor.svelte
+│   │   │       ├── OutputPane.svelte
+│   │   │       ├── PlaygroundToolbar.svelte
+│   │   │       ├── wasm-runner.ts
+│   │   │       ├── examples.ts
+│   │   │       └── ori-monarch.ts
+│   │   └── wasm/                 # Type definitions
+│   └── public/wasm/              # Static WASM assets
+└── ...
 ```
 
 ### WASM Crate Design
@@ -120,7 +140,10 @@ interface RunResult {
 3. Type check with `ori_typeck::type_check()`
 4. Create interpreter with `InterpreterBuilder`
 5. Register prelude functions and derived traits
-6. Find and execute `@main` function
+6. Execute code:
+   - If `@main` function exists: execute it
+   - If no `@main` but a single top-level expression: evaluate it
+   - Otherwise: show error "No @main function found"
 7. Capture print output via buffer handler
 8. Return result as JSON
 
@@ -245,13 +268,21 @@ Action buttons:
 
 ### Example Programs
 
-Five built-in examples for onboarding:
+Ten built-in examples for onboarding:
 
+**Core (implemented):**
 1. **Hello World** — Basic `print()` call
 2. **Fibonacci** — Memoized recursion with `recurse()` pattern
 3. **Factorial** — Recursive function with guards
 4. **List Operations** — `map()`, `filter()`, `fold()` on arrays
-5. **Structs** — Type definition, methods via `impl`
+5. **Structs and Methods** — Type definition, methods via `impl`
+
+**Extended (pending):**
+6. **Sum Types** — `Option`, `Result`, pattern matching with `match()`
+7. **Error Handling** — `try()` pattern with `?` propagation
+8. **Iterators** — Lazy iteration with `for...yield` comprehensions
+9. **Traits** — Defining and implementing traits
+10. **Generics** — Generic functions and type constraints
 
 ### Development Workflow
 
@@ -424,6 +455,8 @@ async function initWasm(): Promise<boolean> {
 | 6 | Static vs bundled WASM? | Static serving from /public/wasm/ |
 | 7 | SSR handling? | Dynamic import, client-only components |
 | 8 | Dev workflow? | Hot reload via window.reloadWasm() |
+| 9 | No @main behavior? | Evaluate single expression; otherwise require @main |
+| 10 | Stdlib availability? | Prelude only (no capability-requiring modules) |
 
 ---
 
@@ -487,6 +520,27 @@ Generate WASM bytecode from Ori instead of interpreting.
 - **Collaborative editing**: Share live sessions
 - **Test execution**: Run tests in playground
 - **REPL mode**: Incremental evaluation
+
+---
+
+## Standard Library Availability
+
+**Decision**: The playground includes the interpreter's prelude only.
+
+**Available**:
+- All prelude types: `Option`, `Result`, `Error`, `Ordering`, `PanicInfo`, etc.
+- All prelude traits: `Eq`, `Comparable`, `Clone`, `Debug`, `Iterator`, `Printable`, etc.
+- All built-in functions: `print()`, `assert()`, `panic()`, `dbg()`, `todo()`, `unreachable()`, etc.
+- Basic collection methods: `map`, `filter`, `fold`, `find`, `collect`, `any`, `all`
+
+**Not Available** (require capabilities or FFI):
+- `std.time` — requires Clock capability
+- `std.fs` — requires FileSystem capability
+- `std.http` — requires Http capability
+- `std.crypto` — requires Crypto capability and native FFI
+- `std.json` — requires FFI (yyjson/pure Ori)
+
+**Future Enhancement**: Consider adding mockable stdlib modules that work without real capabilities.
 
 ---
 

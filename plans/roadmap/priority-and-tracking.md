@@ -69,7 +69,7 @@
 | 20 | Reflection | ⏳ Not started | |
 | 21A | LLVM Backend | 🔶 Partial | JIT working; 977/996 tests pass (19 skipped); destructuring support added |
 | 21B | AOT Compilation | 📋 Planned | Object file generation, optimization, linking — see `phase-21B-aot.md` |
-| 22 | Tooling | 🔶 Partial | Formatter CLI complete (440 tests); LSP/WASM pending |
+| 22 | Tooling | 🔶 Partial | Formatter CLI complete (440 tests); WASM playground core complete; LSP pending |
 
 ---
 
@@ -837,6 +837,16 @@
 - DAP debugging support deferred to Phase 2
 - Blocked on: None (can be implemented independently)
 
+**WASM Playground** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/wasm-playground-proposal.md`
+- Implementation: Phase 22.8
+- Separate WASM crate (`playground/wasm/`) using portable compiler crates
+- Monaco editor with Ori syntax highlighting
+- URL-based code sharing (base64 fragment)
+- Prelude only (no capability-requiring stdlib modules)
+- Core complete; extended examples pending
+- Blocked on: None
+
 **Labeled Loops** — ✅ APPROVED 2026-01-31
 - Proposal: `proposals/approved/labeled-loops-proposal.md`
 - Implementation: Phase 10.3
@@ -1102,7 +1112,7 @@
 - [ ] Code generation
 - [x] Formatter (CLI complete, 440 tests)
 - [ ] LSP server
-- [ ] WASM playground
+- [x] WASM playground (core complete, extended examples pending)
 
 **Exit criteria**: Full IDE support, generic serialization
 
