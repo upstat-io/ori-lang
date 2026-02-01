@@ -10,37 +10,152 @@ interface Props {
   ogImage?: string;
   ogType?: 'website' | 'article';
   noindex?: boolean;
+  publishedDate?: string;
+  modifiedDate?: string;
+  breadcrumbs?: Array<{ name: string; url: string }>;
 }
 
 const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 
 const {
   title,
-  description = 'A programming language with strict static typing, mandatory testing, and dependency-aware integrity. If it compiles, it has tests. If it has tests, they pass.',
-  keywords = 'programming language, static typing, mandatory testing, type inference, compiler, Ori',
+  description = 'Ori is a statically-typed programming language with mandatory testing, dependency-aware integrity, and explicit effects. Every function tested. Every change traced.',
+  keywords = 'Ori programming language, static typing, mandatory testing, type inference, dependency tracking, code verification, compiler, functional programming',
   ogImage = '/og-image.svg',
   ogType = 'website',
   noindex = false,
+  publishedDate,
+  modifiedDate,
+  breadcrumbs,
 } = Astro.props;
 
-const siteName = 'Ori';
+const siteName = 'Ori Programming Language';
+const siteTagline = 'Code That Proves Itself';
 const twitterHandle = '@upaborern';
+const currentYear = new Date().getFullYear();
 
-const structuredData = {
+// Build the full title with site name
+const fullTitle = title.includes('Ori') ? title : `${title} | ${siteName}`;
+
+// Organization schema (appears on all pages)
+const organizationSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'Organization',
+  '@id': 'https://ori-lang.com/#organization',
+  name: 'Ori',
+  url: 'https://ori-lang.com',
+  logo: {
+    '@type': 'ImageObject',
+    url: 'https://ori-lang.com/logo.png',
+    width: 512,
+    height: 512,
+  },
+  sameAs: [
+    'https://github.com/upstat-io/ori-lang',
+    'https://github.com/upstat-io/ori-lang/discussions',
+  ],
+  contactPoint: {
+    '@type': 'ContactPoint',
+    contactType: 'technical support',
+    url: 'https://github.com/upstat-io/ori-lang/discussions',
+  },
+};
+
+// WebSite schema with search action
+const websiteSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  '@id': 'https://ori-lang.com/#website',
+  name: siteName,
+  alternateName: 'Ori',
+  description: 'Official website for the Ori programming language',
+  url: 'https://ori-lang.com',
+  publisher: { '@id': 'https://ori-lang.com/#organization' },
+  inLanguage: 'en-US',
+  potentialAction: {
+    '@type': 'SearchAction',
+    target: {
+      '@type': 'EntryPoint',
+      urlTemplate: 'https://ori-lang.com/docs/spec/01-notation?q={search_term_string}',
+    },
+    'query-input': 'required name=search_term_string',
+  },
+};
+
+// Software application schema
+const softwareSchema = {
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
+  '@id': 'https://ori-lang.com/#software',
   name: 'Ori',
   applicationCategory: 'DeveloperApplication',
-  operatingSystem: 'Cross-platform',
+  applicationSubCategory: 'Programming Language',
+  operatingSystem: 'Cross-platform (Linux, macOS, Windows)',
   description: description,
   url: 'https://ori-lang.com',
-  author: {
-    '@type': 'Organization',
-    name: 'upstat-io',
-    url: 'https://github.com/upstat-io',
+  downloadUrl: 'https://github.com/upstat-io/ori-lang/releases',
+  softwareVersion: '0.1-alpha',
+  releaseNotes: 'https://ori-lang.com/changelog',
+  author: { '@id': 'https://ori-lang.com/#organization' },
+  offers: {
+    '@type': 'Offer',
+    price: '0',
+    priceCurrency: 'USD',
   },
   license: 'https://opensource.org/licenses/MIT',
+  programmingLanguage: {
+    '@type': 'ComputerLanguage',
+    name: 'Ori',
+    url: 'https://ori-lang.com',
+  },
+  featureList: [
+    'Static typing with type inference',
+    'Mandatory testing for all functions',
+    'Dependency-aware test execution',
+    'Explicit effect system with capabilities',
+    'Automatic Reference Counting (ARC)',
+    'Pattern matching',
+    'First-class functions',
+  ],
 };
+
+// Breadcrumb schema (if breadcrumbs provided)
+const breadcrumbSchema = breadcrumbs ? {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: breadcrumbs.map((crumb, index) => ({
+    '@type': 'ListItem',
+    position: index + 1,
+    name: crumb.name,
+    item: new URL(crumb.url, Astro.site).toString(),
+  })),
+} : null;
+
+// Article schema for docs/articles
+const articleSchema = ogType === 'article' ? {
+  '@context': 'https://schema.org',
+  '@type': 'TechArticle',
+  headline: title,
+  description: description,
+  url: canonicalURL.toString(),
+  datePublished: publishedDate || '2024-01-01',
+  dateModified: modifiedDate || new Date().toISOString().split('T')[0],
+  author: { '@id': 'https://ori-lang.com/#organization' },
+  publisher: { '@id': 'https://ori-lang.com/#organization' },
+  inLanguage: 'en-US',
+  isPartOf: { '@id': 'https://ori-lang.com/#website' },
+  about: { '@id': 'https://ori-lang.com/#software' },
+  mainEntityOfPage: canonicalURL.toString(),
+} : null;
+
+// Combine all schemas
+const allSchemas = [
+  organizationSchema,
+  websiteSchema,
+  softwareSchema,
+  breadcrumbSchema,
+  articleSchema,
+].filter(Boolean);
 ---
 
 <!DOCTYPE html>
@@ -50,48 +165,117 @@ const structuredData = {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <!-- Primary Meta Tags -->
-  <title>{title}</title>
-  <meta name="title" content={title} />
+  <title>{fullTitle}</title>
+  <meta name="title" content={fullTitle} />
   <meta name="description" content={description} />
   <meta name="keywords" content={keywords} />
   <meta name="author" content="upstat-io" />
-  {noindex && <meta name="robots" content="noindex, nofollow" />}
+  <meta name="generator" content={Astro.generator} />
+  {noindex ? (
+    <meta name="robots" content="noindex, nofollow" />
+  ) : (
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+  )}
 
   <!-- Canonical URL -->
   <link rel="canonical" href={canonicalURL} />
 
+  <!-- Language -->
+  <meta http-equiv="content-language" content="en-US" />
+  <link rel="alternate" hreflang="en" href={canonicalURL} />
+  <link rel="alternate" hreflang="x-default" href={canonicalURL} />
+
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content={ogType} />
   <meta property="og:url" content={canonicalURL} />
-  <meta property="og:title" content={title} />
+  <meta property="og:title" content={fullTitle} />
   <meta property="og:description" content={description} />
   <meta property="og:image" content={new URL(ogImage, Astro.site)} />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content={`${siteName} - ${siteTagline}`} />
   <meta property="og:site_name" content={siteName} />
   <meta property="og:locale" content="en_US" />
+  {ogType === 'article' && publishedDate && (
+    <meta property="article:published_time" content={publishedDate} />
+  )}
+  {ogType === 'article' && modifiedDate && (
+    <meta property="article:modified_time" content={modifiedDate} />
+  )}
+  {ogType === 'article' && (
+    <meta property="article:author" content="upstat-io" />
+  )}
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:site" content={twitterHandle} />
+  <meta name="twitter:creator" content={twitterHandle} />
   <meta name="twitter:url" content={canonicalURL} />
-  <meta name="twitter:title" content={title} />
+  <meta name="twitter:title" content={fullTitle} />
   <meta name="twitter:description" content={description} />
   <meta name="twitter:image" content={new URL(ogImage, Astro.site)} />
-  <meta name="twitter:creator" content={twitterHandle} />
+  <meta name="twitter:image:alt" content={`${siteName} - ${siteTagline}`} />
+
+  <!-- Mobile & PWA -->
+  <meta name="theme-color" content="#3b82f6" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Ori" />
+  <meta name="application-name" content="Ori" />
+  <meta name="msapplication-TileColor" content="#3b82f6" />
+  <meta name="msapplication-config" content="/browserconfig.xml" />
 
   <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon.svg" />
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.svg" />
+  <link rel="mask-icon" href="/favicon.svg" color="#3b82f6" />
 
-  <!-- Fonts -->
+  <!-- Performance Hints -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+  <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+
+  <!-- Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 
   <!-- Structured Data -->
-  <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />
+  {allSchemas.map(schema => (
+    <script type="application/ld+json" set:html={JSON.stringify(schema)} />
+  ))}
+
+  <!-- Security -->
+  <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+  <meta http-equiv="X-Frame-Options" content="SAMEORIGIN" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
 </head>
 <body>
+  <a href="#main-content" class="skip-link">Skip to main content</a>
   <Header />
-  <slot />
+  <main id="main-content">
+    <slot />
+  </main>
   <Footer />
 </body>
 </html>
+
+<style is:global>
+  .skip-link {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    background: var(--color-accent);
+    color: white;
+    padding: var(--space-2) var(--space-4);
+    z-index: 1000;
+    transition: top 0.2s;
+  }
+
+  .skip-link:focus {
+    top: 0;
+  }
+</style>

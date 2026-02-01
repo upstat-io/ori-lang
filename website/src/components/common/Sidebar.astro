@@ -23,10 +23,36 @@ interface Props {
 
 const { sections, expandAllByDefault = false } = Astro.props;
 const currentPath = Astro.url.pathname;
+
+// Find the current page title for the mobile dropdown
+let currentPageTitle = 'Navigation';
+for (const section of sections) {
+  for (const item of section.items) {
+    const href = `${section.basePath}/${item.id}`;
+    if (currentPath === href || currentPath === `${href}/`) {
+      currentPageTitle = item.title;
+    }
+  }
+  for (const subsection of section.subsections || []) {
+    for (const item of subsection.items) {
+      const href = `${section.basePath}/${item.id}`;
+      if (currentPath === href || currentPath === `${href}/`) {
+        currentPageTitle = item.title;
+      }
+    }
+  }
+}
 ---
 
-<aside class="sidebar">
-  <nav class="sidebar-nav">
+<aside class="sidebar" data-sidebar>
+  <button class="sidebar-toggle" data-sidebar-toggle aria-expanded="false">
+    <span class="sidebar-toggle-text">{currentPageTitle}</span>
+    <svg class="sidebar-toggle-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <polyline points="6 9 12 15 18 9"></polyline>
+    </svg>
+  </button>
+
+  <nav class="sidebar-nav" data-sidebar-nav>
     {sections.map(section => (
       <div class="sidebar-section">
         <h3 class="sidebar-section-title">{section.title}</h3>
@@ -73,6 +99,34 @@ const currentPath = Astro.url.pathname;
   </nav>
 </aside>
 
+<script is:inline>
+  document.addEventListener('DOMContentLoaded', function() {
+    var sidebar = document.querySelector('[data-sidebar]');
+    var toggle = document.querySelector('[data-sidebar-toggle]');
+    var nav = document.querySelector('[data-sidebar-nav]');
+
+    if (!sidebar || !toggle || !nav) {
+      console.log('Sidebar elements not found');
+      return;
+    }
+
+    toggle.addEventListener('click', function(e) {
+      e.preventDefault();
+      var isOpen = sidebar.classList.toggle('open');
+      toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    });
+
+    // Close dropdown when clicking a link
+    var links = nav.querySelectorAll('a');
+    for (var i = 0; i < links.length; i++) {
+      links[i].addEventListener('click', function() {
+        sidebar.classList.remove('open');
+        toggle.setAttribute('aria-expanded', 'false');
+      });
+    }
+  });
+</script>
+
 <style>
   .sidebar {
     width: var(--sidebar-width);
@@ -84,6 +138,10 @@ const currentPath = Astro.url.pathname;
     height: calc(100vh - var(--header-height));
     position: sticky;
     top: var(--header-height);
+  }
+
+  .sidebar-toggle {
+    display: none;
   }
 
   .sidebar-nav {
@@ -175,32 +233,77 @@ const currentPath = Astro.url.pathname;
     margin-top: var(--space-1);
   }
 
+  /* Mobile dropdown styles */
   @media (max-width: 768px) {
     .sidebar {
       width: 100%;
       height: auto;
       position: static;
       border-right: none;
-      border-bottom: 1px solid var(--color-border);
-      padding: var(--space-4) 0;
+      border-bottom: none;
+      padding: var(--space-4);
+      overflow: visible;
+      background: var(--color-bg-primary);
+    }
+
+    .sidebar-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: var(--space-3) var(--space-4);
+      background: var(--color-bg-tertiary);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      font-size: var(--text-sm);
+      font-weight: var(--weight-medium);
+      color: var(--color-text-primary);
+      text-align: left;
+      font-family: inherit;
+    }
+
+    .sidebar-toggle:hover {
+      border-color: var(--color-text-muted);
+    }
+
+    :global(.sidebar.open) .sidebar-toggle {
+      border-bottom-left-radius: 0;
+      border-bottom-right-radius: 0;
+      border-bottom-color: transparent;
+    }
+
+    .sidebar-toggle-text {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .sidebar-toggle-icon {
+      flex-shrink: 0;
+      color: var(--color-text-secondary);
+      transition: transform 0.2s ease;
+    }
+
+    :global(.sidebar.open) .sidebar-toggle-icon {
+      transform: rotate(180deg);
+    }
+
+    .sidebar-nav {
+      display: none;
+      max-height: 60vh;
+      overflow-y: auto;
+      background: var(--color-bg-tertiary);
+      border: 1px solid var(--color-border);
+      border-top: none;
+      border-bottom-left-radius: var(--radius-md);
+      border-bottom-right-radius: var(--radius-md);
+      padding: var(--space-3);
+    }
+
+    :global(.sidebar.open) .sidebar-nav {
+      display: block;
     }
   }
 </style>
-
-<script is:inline>
-  (function() {
-    const sidebar = document.querySelector('.sidebar');
-    if (!sidebar) return;
-
-    const savedScroll = sessionStorage.getItem('sidebar-scroll');
-    if (savedScroll) {
-      sidebar.scrollTop = parseInt(savedScroll, 10);
-    }
-
-    document.querySelectorAll('.sidebar-link').forEach(link => {
-      link.addEventListener('click', () => {
-        sessionStorage.setItem('sidebar-scroll', sidebar.scrollTop.toString());
-      });
-    });
-  })();
-</script>
