@@ -72,9 +72,9 @@ jobs:
         continue-on-error: true
         run: |
           cargo test --workspace 2>&1 | tee rust-test-output.txt
-          # Extract test count from output like "test result: ok. 2136 passed; 0 failed"
-          RUST_TESTS=$(grep -oP '\d+(?= passed)' rust-test-output.txt | tail -1 || echo "0")
-          RUST_FAILED=$(grep -oP '\d+(?= failed)' rust-test-output.txt | tail -1 || echo "0")
+          # Sum all "X passed" counts from "test result:" lines
+          RUST_TESTS=$(grep -oE '[0-9]+ passed' rust-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
+          RUST_FAILED=$(grep -oE '[0-9]+ failed' rust-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
           echo "RUST_TESTS=$RUST_TESTS" >> $GITHUB_ENV
           echo "RUST_FAILED=$RUST_FAILED" >> $GITHUB_ENV
 
@@ -83,9 +83,9 @@ jobs:
         continue-on-error: true
         run: |
           cargo run -p oric --bin ori -- test tests/ 2>&1 | tee ori-test-output.txt
-          # Extract test count from Ori test output
-          ORI_TESTS=$(grep -oP '\d+(?= tests? passed)' ori-test-output.txt | tail -1 || echo "0")
-          ORI_FAILED=$(grep -oP '\d+(?= tests? failed)' ori-test-output.txt | tail -1 || echo "0")
+          # Extract from "1677 passed, 0 failed" format
+          ORI_TESTS=$(grep -oE '[0-9]+ passed' ori-test-output.txt | grep -oE '^[0-9]+' | tail -1 || echo "0")
+          ORI_FAILED=$(grep -oE '[0-9]+ failed' ori-test-output.txt | grep -oE '^[0-9]+' | tail -1 || echo "0")
           echo "ORI_TESTS=$ORI_TESTS" >> $GITHUB_ENV
           echo "ORI_FAILED=$ORI_FAILED" >> $GITHUB_ENV
 
@@ -171,8 +171,9 @@ jobs:
         continue-on-error: true
         run: |
           ./llvm-test 2>&1 | tee llvm-test-output.txt
-          LLVM_TESTS=$(grep -oP '\d+(?= passed)' llvm-test-output.txt | tail -1 || echo "0")
-          LLVM_FAILED=$(grep -oP '\d+(?= failed)' llvm-test-output.txt | tail -1 || echo "0")
+          # Sum all "X passed" counts from test output
+          LLVM_TESTS=$(grep -oE '[0-9]+ passed' llvm-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
+          LLVM_FAILED=$(grep -oE '[0-9]+ failed' llvm-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
           echo "LLVM_TESTS=$LLVM_TESTS" >> $GITHUB_ENV
           echo "LLVM_FAILED=$LLVM_FAILED" >> $GITHUB_ENV
 
