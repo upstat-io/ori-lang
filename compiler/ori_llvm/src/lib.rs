@@ -115,10 +115,13 @@ pub use evaluator::FunctionSig;
 mod builtin_methods;
 mod collections;
 mod control_flow;
-mod functions;
+pub mod functions;
 mod matching;
 mod operators;
 mod types;
+
+// Re-export FunctionBodyConfig from functions module
+pub use functions::body::FunctionBodyConfig;
 
 #[cfg(test)]
 mod tests;

@@ -345,6 +345,7 @@ impl<'a> EvalContext<'a> {
     ///
     /// If the property exists, attaches its span to the error.
     /// Otherwise, uses the first property's span as a fallback.
+    #[cold]
     pub fn error_with_prop_span(&self, message: impl Into<String>, prop_name: &str) -> EvalError {
         let err = EvalError::new(message);
         if let Some(span) = self.prop_span(prop_name) {

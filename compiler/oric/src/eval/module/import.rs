@@ -43,6 +43,7 @@ pub struct ImportError {
 }
 
 impl ImportError {
+    #[cold]
     pub fn new(message: impl Into<String>) -> Self {
         ImportError {
             message: message.into(),
@@ -51,6 +52,7 @@ impl ImportError {
     }
 
     /// Create an error with a source span.
+    #[cold]
     pub fn with_span(message: impl Into<String>, span: ori_ir::Span) -> Self {
         ImportError {
             message: message.into(),

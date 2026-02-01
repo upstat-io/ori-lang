@@ -1,0 +1,152 @@
+//! Method dispatch for collection types (list, str, map, range).
+
+use super::compare::{compare_lists, ordering_to_value};
+use super::helpers::{
+    len_to_value, require_args, require_int_arg, require_list_arg, require_str_arg,
+};
+use ori_ir::StringInterner;
+use ori_patterns::{no_such_method, EvalResult, Value};
+
+/// Dispatch methods on list values.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
+pub fn dispatch_list_method(
+    receiver: Value,
+    method: &str,
+    args: Vec<Value>,
+    interner: &StringInterner,
+) -> EvalResult {
+    let Value::List(items) = receiver else {
+        unreachable!("dispatch_list_method called with non-list receiver")
+    };
+
+    match method {
+        "len" => len_to_value(items.len(), "list"),
+        "is_empty" => Ok(Value::Bool(items.is_empty())),
+        "first" => Ok(items.first().cloned().map_or(Value::None, Value::some)),
+        "last" => Ok(items.last().cloned().map_or(Value::None, Value::some)),
+        "contains" => {
+            require_args("contains", 1, args.len())?;
+            Ok(Value::Bool(items.contains(&args[0])))
+        }
+        "add" => {
+            require_args("add", 1, args.len())?;
+            let other = require_list_arg("add", &args, 0)?;
+            let mut result = (*items).clone();
+            result.extend_from_slice(other);
+            Ok(Value::list(result))
+        }
+        "compare" => {
+            require_args("compare", 1, args.len())?;
+            let other = require_list_arg("compare", &args, 0)?;
+            let ord = compare_lists(&items, other, interner)?;
+            Ok(ordering_to_value(ord, interner))
+        }
+        _ => Err(no_such_method(method, "list")),
+    }
+}
+
+/// Dispatch methods on string values.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
+pub fn dispatch_string_method(
+    receiver: Value,
+    method: &str,
+    args: Vec<Value>,
+    interner: &StringInterner,
+) -> EvalResult {
+    let Value::Str(s) = receiver else {
+        unreachable!("dispatch_string_method called with non-string receiver")
+    };
+
+    match method {
+        "len" => len_to_value(s.len(), "string"),
+        "is_empty" => Ok(Value::Bool(s.is_empty())),
+        "to_uppercase" => Ok(Value::string(s.to_uppercase())),
+        "to_lowercase" => Ok(Value::string(s.to_lowercase())),
+        "trim" => Ok(Value::string(s.trim().to_string())),
+        "contains" => {
+            require_args("contains", 1, args.len())?;
+            let needle = require_str_arg("contains", &args, 0)?;
+            Ok(Value::Bool(s.contains(needle)))
+        }
+        "starts_with" => {
+            require_args("starts_with", 1, args.len())?;
+            let prefix = require_str_arg("starts_with", &args, 0)?;
+            Ok(Value::Bool(s.starts_with(prefix)))
+        }
+        "ends_with" => {
+            require_args("ends_with", 1, args.len())?;
+            let suffix = require_str_arg("ends_with", &args, 0)?;
+            Ok(Value::Bool(s.ends_with(suffix)))
+        }
+        "add" => {
+            require_args("add", 1, args.len())?;
+            let other = require_str_arg("add", &args, 0)?;
+            let result = format!("{}{}", &**s, other);
+            Ok(Value::string(result))
+        }
+        // Comparable trait - lexicographic (Unicode codepoint)
+        "compare" => {
+            require_args("compare", 1, args.len())?;
+            let other = require_str_arg("compare", &args, 0)?;
+            Ok(ordering_to_value(s.as_str().cmp(other), interner))
+        }
+        _ => Err(no_such_method(method, "str")),
+    }
+}
+
+/// Dispatch methods on range values.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
+pub fn dispatch_range_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+    let Value::Range(r) = receiver else {
+        unreachable!("dispatch_range_method called with non-range receiver")
+    };
+
+    match method {
+        "len" => len_to_value(r.len(), "range"),
+        "contains" => {
+            require_args("contains", 1, args.len())?;
+            let n = require_int_arg("contains", &args, 0)?;
+            Ok(Value::Bool(r.contains(n)))
+        }
+        _ => Err(no_such_method(method, "range")),
+    }
+}
+
+/// Dispatch methods on map values.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
+pub fn dispatch_map_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+    let Value::Map(map) = receiver else {
+        unreachable!("dispatch_map_method called with non-map receiver")
+    };
+
+    match method {
+        "len" => len_to_value(map.len(), "map"),
+        "is_empty" => Ok(Value::Bool(map.is_empty())),
+        "contains_key" => {
+            require_args("contains_key", 1, args.len())?;
+            let key = require_str_arg("contains_key", &args, 0)?;
+            Ok(Value::Bool(map.contains_key(key)))
+        }
+        "keys" => {
+            let keys: Vec<Value> = map.keys().map(|k| Value::string(k.clone())).collect();
+            Ok(Value::list(keys))
+        }
+        "values" => {
+            let values: Vec<Value> = map.values().cloned().collect();
+            Ok(Value::list(values))
+        }
+        _ => Err(no_such_method(method, "map")),
+    }
+}
