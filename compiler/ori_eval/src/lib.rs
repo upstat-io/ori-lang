@@ -132,6 +132,8 @@ pub use function_val::{
     function_val_byte, function_val_float, function_val_int, function_val_str,
     function_val_thread_id,
 };
+#[cfg(target_arch = "wasm32")]
+pub use interpreter::DEFAULT_MAX_CALL_DEPTH;
 pub use interpreter::{Interpreter, InterpreterBuilder, ScopedInterpreter};
 pub use ori_stack::ensure_sufficient_stack;
 pub use print_handler::{

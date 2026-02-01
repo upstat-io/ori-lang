@@ -12,6 +12,8 @@ impl Interpreter<'_> {
     pub(super) fn eval_call(&mut self, func: &Value, args: &[Value]) -> EvalResult {
         match func {
             Value::Function(f) => {
+                // Check recursion limit before making the call (WASM only)
+                self.check_recursion_limit()?;
                 check_arg_count(f, args)?;
 
                 // Create new environment with captures, then push a local scope
@@ -51,6 +53,9 @@ impl Interpreter<'_> {
                 if let Some(cached) = mf.get_cached(args) {
                     return Ok(cached);
                 }
+
+                // Check recursion limit before making the call (WASM only)
+                self.check_recursion_limit()?;
 
                 // Not cached - evaluate the underlying function
                 let f = &mf.func;

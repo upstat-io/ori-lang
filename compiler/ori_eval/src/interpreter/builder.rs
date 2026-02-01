@@ -5,6 +5,8 @@ use super::resolvers::{
     UserRegistryResolver,
 };
 use super::Interpreter;
+#[cfg(target_arch = "wasm32")]
+use super::DEFAULT_MAX_CALL_DEPTH;
 use crate::{
     stdout_handler, Environment, SharedMutableRegistry, SharedPrintHandler, SharedRegistry,
     UserMethodRegistry,
@@ -22,10 +24,14 @@ pub struct InterpreterBuilder<'a> {
     user_method_registry: Option<SharedMutableRegistry<UserMethodRegistry>>,
     print_handler: Option<SharedPrintHandler>,
     owns_scoped_env: bool,
+    call_depth: usize,
+    #[cfg(target_arch = "wasm32")]
+    max_call_depth: usize,
 }
 
 impl<'a> InterpreterBuilder<'a> {
     /// Create a new builder.
+    #[cfg(target_arch = "wasm32")]
     pub fn new(interner: &'a StringInterner, arena: &'a ExprArena) -> Self {
         Self {
             interner,
@@ -36,6 +42,24 @@ impl<'a> InterpreterBuilder<'a> {
             user_method_registry: None,
             print_handler: None,
             owns_scoped_env: false,
+            call_depth: 0,
+            max_call_depth: DEFAULT_MAX_CALL_DEPTH,
+        }
+    }
+
+    /// Create a new builder.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new(interner: &'a StringInterner, arena: &'a ExprArena) -> Self {
+        Self {
+            interner,
+            arena,
+            env: None,
+            registry: None,
+            imported_arena: None,
+            user_method_registry: None,
+            print_handler: None,
+            owns_scoped_env: false,
+            call_depth: 0,
         }
     }
 
@@ -87,7 +111,30 @@ impl<'a> InterpreterBuilder<'a> {
         self
     }
 
-    /// Build the interpreter.
+    /// Set the initial call depth for recursion tracking.
+    ///
+    /// Used when creating child interpreters for function calls to propagate
+    /// the current call depth.
+    #[must_use]
+    pub fn call_depth(mut self, depth: usize) -> Self {
+        self.call_depth = depth;
+        self
+    }
+
+    /// Set the maximum call depth for recursion limiting (WASM only).
+    ///
+    /// Default is 200, which is conservative for browser environments.
+    /// WASM runtimes outside browsers (Node.js, Wasmtime, etc.) may support
+    /// higher limits depending on their stack configuration.
+    #[cfg(target_arch = "wasm32")]
+    #[must_use]
+    pub fn max_call_depth(mut self, limit: usize) -> Self {
+        self.max_call_depth = limit;
+        self
+    }
+
+    /// Build the interpreter (WASM version with max_call_depth).
+    #[cfg(target_arch = "wasm32")]
     pub fn build(self) -> Interpreter<'a> {
         let pat_reg = self
             .registry
@@ -113,6 +160,46 @@ impl<'a> InterpreterBuilder<'a> {
             arena: self.arena,
             env: self.env.unwrap_or_default(),
             self_name,
+            call_depth: self.call_depth,
+            max_call_depth: self.max_call_depth,
+            registry: pat_reg,
+            user_method_registry: user_meth_reg,
+            method_dispatcher,
+            imported_arena: self.imported_arena,
+            prelude_loaded: false,
+            print_handler: self.print_handler.unwrap_or_else(stdout_handler),
+            owns_scoped_env: self.owns_scoped_env,
+        }
+    }
+
+    /// Build the interpreter (native version without `max_call_depth`).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn build(self) -> Interpreter<'a> {
+        let pat_reg = self
+            .registry
+            .unwrap_or_else(|| SharedRegistry::new(PatternRegistry::new()));
+
+        let user_meth_reg = self
+            .user_method_registry
+            .unwrap_or_else(|| SharedMutableRegistry::new(UserMethodRegistry::new()));
+
+        // Build method dispatcher once. Because user_method_registry uses interior
+        // mutability (RwLock), the dispatcher will see methods registered later.
+        let method_dispatcher = MethodDispatcher::new(vec![
+            MethodResolverKind::UserRegistry(UserRegistryResolver::new(user_meth_reg.clone())),
+            MethodResolverKind::Collection(CollectionMethodResolver::new(self.interner)),
+            MethodResolverKind::Builtin(BuiltinMethodResolver::new()),
+        ]);
+
+        // Pre-compute the Name for "self" to avoid repeated interning
+        let self_name = self.interner.intern("self");
+
+        Interpreter {
+            interner: self.interner,
+            arena: self.arena,
+            env: self.env.unwrap_or_default(),
+            self_name,
+            call_depth: self.call_depth,
             registry: pat_reg,
             user_method_registry: user_meth_reg,
             method_dispatcher,

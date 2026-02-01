@@ -8,7 +8,7 @@ use ori_ir::{SharedArena, SharedInterner};
 use ori_eval::{
     buffer_handler, collect_extend_methods, collect_impl_methods, register_module_functions,
     register_newtype_constructors, register_variant_constructors, InterpreterBuilder,
-    UserMethodRegistry, Value,
+    UserMethodRegistry, Value, DEFAULT_MAX_CALL_DEPTH,
 };
 use ori_typeck::derives::process_derives;
 use ori_typeck::type_check;
@@ -45,6 +45,10 @@ fn console_error_panic_hook(info: &std::panic::PanicHookInfo) {
 
 /// Run Ori source code and return the result as JSON.
 ///
+/// Parameters:
+/// - `source`: The Ori source code to run
+/// - `max_call_depth`: Optional maximum recursion depth (defaults to 200)
+///
 /// Returns a JSON object with:
 /// - `success`: boolean indicating if execution succeeded
 /// - `output`: the program output (if successful)
@@ -52,14 +56,20 @@ fn console_error_panic_hook(info: &std::panic::PanicHookInfo) {
 /// - `error`: error message (if failed)
 /// - `error_type`: "parse", "type", or "runtime" (if failed)
 #[wasm_bindgen]
-pub fn run_ori(source: &str) -> String {
-    let result = run_ori_internal(source);
+pub fn run_ori(source: &str, max_call_depth: Option<usize>) -> String {
+    let result = run_ori_internal(source, max_call_depth);
     serde_json::to_string(&result).unwrap_or_else(|e| {
         format!(r#"{{"success":false,"error":"Serialization error: {}","error_type":"internal"}}"#, e)
     })
 }
 
-fn run_ori_internal(source: &str) -> RunResult {
+/// Get the default maximum call depth for WASM.
+#[wasm_bindgen]
+pub fn default_max_call_depth() -> usize {
+    DEFAULT_MAX_CALL_DEPTH
+}
+
+fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
     // Create a shared interner for the session
     let interner = SharedInterner::default();
 
@@ -104,6 +114,7 @@ fn run_ori_internal(source: &str) -> RunResult {
     let print_handler = buffer_handler();
     let mut interpreter = InterpreterBuilder::new(&interner, &parse_result.arena)
         .print_handler(print_handler.clone())
+        .max_call_depth(max_call_depth.unwrap_or(DEFAULT_MAX_CALL_DEPTH))
         .build();
 
     // Register built-in function_val functions (int, str, float, byte)

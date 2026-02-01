@@ -127,6 +127,7 @@ pub use errors::{
     parse_error,
     propagated_error_message,
     range_bound_not_int,
+    recursion_limit_exceeded,
     self_outside_method,
     tuple_index_out_of_bounds,
     tuple_pattern_mismatch,

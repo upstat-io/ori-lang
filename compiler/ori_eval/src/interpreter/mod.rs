@@ -81,10 +81,26 @@ use ori_ir::{
     ArmRange, BinaryOp, BindingPattern, ExprArena, ExprId, ExprKind, Name, SharedArena, StmtKind,
     StringInterner, UnaryOp,
 };
+#[cfg(target_arch = "wasm32")]
+use ori_patterns::recursion_limit_exceeded;
 use ori_patterns::{
     propagated_error_message, EvalContext, EvalError, EvalResult, PatternExecutor, PatternRegistry,
 };
 use ori_stack::ensure_sufficient_stack;
+
+/// Default maximum call depth for WASM builds to prevent stack exhaustion.
+///
+/// WASM has a fixed stack that cannot grow dynamically like native builds.
+/// This limit prevents cryptic "Maximum call stack size exceeded" errors
+/// by failing gracefully with a clear "maximum recursion depth exceeded" message.
+///
+/// The default (200) is conservative for browser environments. WASM runtimes
+/// outside browsers (Node.js, Wasmtime, etc.) may support higher limits.
+///
+/// On native builds, `stacker` handles deep recursion by growing the stack,
+/// so this limit is not enforced.
+#[cfg(target_arch = "wasm32")]
+pub const DEFAULT_MAX_CALL_DEPTH: usize = 200;
 
 /// Tree-walking interpreter for Ori expressions.
 ///
@@ -99,6 +115,18 @@ pub struct Interpreter<'a> {
     pub env: Environment,
     /// Pre-computed Name for "self" keyword (avoids repeated interning).
     pub self_name: Name,
+    /// Current call depth for recursion limit tracking (WASM only).
+    ///
+    /// On WASM builds, this is checked against `max_call_depth` to prevent
+    /// stack exhaustion. On native builds with `stacker`, this is tracked
+    /// but not enforced.
+    pub(crate) call_depth: usize,
+    /// Maximum call depth before erroring (WASM only).
+    ///
+    /// Configurable at runtime via `InterpreterBuilder::max_call_depth()`.
+    /// Defaults to `DEFAULT_MAX_CALL_DEPTH` (200).
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) max_call_depth: usize,
     /// Pattern registry for `function_exp` evaluation.
     pub registry: SharedRegistry<PatternRegistry>,
     /// User-defined method registry for impl block methods.
@@ -222,6 +250,34 @@ impl<'a> Interpreter<'a> {
     /// Create an interpreter builder for more configuration options.
     pub fn builder(interner: &'a StringInterner, arena: &'a ExprArena) -> InterpreterBuilder<'a> {
         InterpreterBuilder::new(interner, arena)
+    }
+
+    /// Check if the current call depth exceeds the recursion limit.
+    ///
+    /// On WASM, this enforces the configured `max_call_depth` to prevent stack exhaustion.
+    /// On native builds with `stacker`, this is a no-op since the stack grows dynamically.
+    #[cfg(target_arch = "wasm32")]
+    #[inline]
+    pub(crate) fn check_recursion_limit(&self) -> Result<(), EvalError> {
+        if self.call_depth >= self.max_call_depth {
+            Err(recursion_limit_exceeded(self.max_call_depth))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Check if the current call depth exceeds the recursion limit.
+    ///
+    /// On native builds, this is a no-op since `stacker` handles stack growth.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[inline]
+    #[expect(
+        clippy::unused_self,
+        clippy::unnecessary_wraps,
+        reason = "API parity with WASM version which uses self.call_depth and returns Result"
+    )]
+    pub(crate) fn check_recursion_limit(&self) -> Result<(), EvalError> {
+        Ok(())
     }
 
     /// Evaluate an expression.
@@ -908,6 +964,7 @@ impl<'a> Interpreter<'a> {
     /// A new interpreter configured to evaluate the function body.
     /// The returned interpreter's lifetime is tied to `func_arena`, not `self`,
     /// but requires that `'a` outlives `'b` since we pass the interner through.
+    #[cfg(target_arch = "wasm32")]
     pub(crate) fn create_function_interpreter<'b>(
         &self,
         func_arena: &'b ExprArena,
@@ -922,6 +979,28 @@ impl<'a> Interpreter<'a> {
             .imported_arena(imported_arena)
             .user_method_registry(self.user_method_registry.clone())
             .print_handler(self.print_handler.clone())
+            .call_depth(self.call_depth.saturating_add(1))
+            .max_call_depth(self.max_call_depth)
+            .with_scoped_env_ownership() // RAII: scope will be popped when interpreter drops
+            .build()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn create_function_interpreter<'b>(
+        &self,
+        func_arena: &'b ExprArena,
+        call_env: Environment,
+    ) -> Interpreter<'b>
+    where
+        'a: 'b,
+    {
+        let imported_arena = SharedArena::new(func_arena.clone());
+        InterpreterBuilder::new(self.interner, func_arena)
+            .env(call_env)
+            .imported_arena(imported_arena)
+            .user_method_registry(self.user_method_registry.clone())
+            .print_handler(self.print_handler.clone())
+            .call_depth(self.call_depth.saturating_add(1))
             .with_scoped_env_ownership() // RAII: scope will be popped when interpreter drops
             .build()
     }

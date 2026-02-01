@@ -139,6 +139,13 @@ Each step is a Salsa query with automatic caching. If the input doesn't change, 
 - [LLVM Backend Overview](10-llvm-backend/index.md) - JIT compilation architecture
 - [Closures](10-llvm-backend/closures.md) - Closure representation and calling conventions
 
+### Platform Targets
+
+- [Platform Targets Overview](11-platform-targets/index.md) - Native vs WASM compilation
+- [Conditional Compilation](11-platform-targets/conditional-compilation.md) - Platform-specific code patterns
+- [WASM Target](11-platform-targets/wasm-target.md) - WebAssembly considerations
+- [Recursion Limits](11-platform-targets/recursion-limits.md) - Stack safety implementation
+
 ### Appendices
 
 - [Salsa Patterns](appendices/A-salsa-patterns.md) - Common Salsa usage patterns
@@ -162,6 +169,7 @@ The compiler is organized as a multi-crate workspace:
 | `ori_patterns` | `compiler/ori_patterns/src/` | Pattern definitions, Value types, EvalError, EvalContext |
 | `ori_eval` | `compiler/ori_eval/src/` | Environment, OperatorRegistry (core eval components) |
 | `ori_llvm` | `compiler/ori_llvm/src/` | LLVM backend for JIT/AOT compilation (requires Docker) |
+| `ori_stack` | `compiler/ori_stack/src/` | Stack management (stacker on native, no-op on WASM) |
 | `ori-macros` | `compiler/ori-macros/src/` | Diagnostic derive macros |
 | `oric` | `compiler/oric/src/` | CLI, Salsa queries, eval orchestration, reporting |
 
