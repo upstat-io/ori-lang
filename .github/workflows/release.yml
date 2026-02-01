@@ -146,14 +146,17 @@ jobs:
           name: ori-${{ matrix.name }}
           path: ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz
 
-  # Windows builds use vovkos/llvm-package-windows (complete dev packages)
-  # Official LLVM binaries lack llvm-config.exe and dev headers needed by llvm-sys
+  # Windows builds are currently disabled because llvm-sys doesn't support
+  # dynamic LLVM linking on Windows, and static linking requires:
+  # 1. An LLVM build with all target backends (vovkos packages only have X86)
+  # 2. Static zlib/zstd libraries
+  # TODO: Set up a proper static LLVM build for Windows
   build-windows:
     name: Build Windows (x86_64)
     needs: validate
     runs-on: windows-latest
     timeout-minutes: 45
-    continue-on-error: true  # Windows LLVM linking can still be problematic
+    if: false  # Disabled until static LLVM build is set up
 
     steps:
       - uses: actions/checkout@v4
@@ -209,9 +212,8 @@ jobs:
 
   release:
     name: Create Release
-    # Windows is optional (continue-on-error), so use if: always() pattern
-    needs: [build-linux, build-macos, build-windows]
-    if: always() && needs.build-linux.result == 'success' && needs.build-macos.result == 'success'
+    # Windows builds are currently disabled, so only depend on Linux and macOS
+    needs: [build-linux, build-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
