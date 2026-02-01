@@ -110,7 +110,7 @@ jobs:
       matrix:
         include:
           - arch: x86_64
-            runner: macos-13
+            runner: macos-15-intel
             target: x86_64-apple-darwin
             name: darwin-x86_64
           - arch: aarch64
@@ -148,19 +148,23 @@ jobs:
           path: ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz
 
   # Windows builds install LLVM via choco
+  # Note: Windows LLVM builds are experimental - may fail
   build-windows:
     name: Build Windows (x86_64)
     needs: validate
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    continue-on-error: true  # Windows LLVM is tricky, don't block release
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Install LLVM
         run: |
-          choco install llvm --version=${{ env.LLVM_VERSION }}.0.6 -y
+          choco install llvm --yes
           echo "LLVM_SYS_170_PREFIX=C:\Program Files\LLVM" >> $env:GITHUB_ENV
+          # Verify installation
+          & "C:\Program Files\LLVM\bin\llvm-config.exe" --version
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -184,7 +188,9 @@ jobs:
 
   release:
     name: Create Release
+    # Windows is optional (continue-on-error), so use if: always() pattern
     needs: [build-linux, build-macos, build-windows]
+    if: always() && needs.build-linux.result == 'success' && needs.build-macos.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
