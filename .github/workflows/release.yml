@@ -7,6 +7,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  LLVM_VERSION: "17"
 
 jobs:
   validate:
@@ -47,74 +48,143 @@ jobs:
       - name: Check version synchronization
         run: ./scripts/sync-version.sh --check
 
-  build:
-    name: Build ${{ matrix.target }}
+  # Linux builds use Docker container with LLVM pre-installed
+  build-linux:
+    name: Build Linux (${{ matrix.arch }})
     needs: validate
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+          - arch: x86_64
+            target: x86_64-unknown-linux-gnu
             name: linux-x86_64
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-            name: linux-aarch64
-            cross: true
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            name: darwin-x86_64
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            name: darwin-aarch64
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            name: windows-x86_64
+          # TODO: Enable aarch64 once cross-compilation with LLVM is sorted
+          # - arch: aarch64
+          #   target: aarch64-unknown-linux-gnu
+          #   name: linux-aarch64
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build LLVM Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/llvm
+          load: true
+          tags: ori-llvm:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build with LLVM
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/workspace ori-llvm:latest \
+            cargo build --release --features llvm -p oric
+
+      - name: Package
+        run: |
+          cd target/release
+          strip ori
+          tar -czvf ../../ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz ori
+          cd ../..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ori-${{ matrix.name }}
+          path: ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz
+
+  # macOS builds install LLVM via Homebrew
+  build-macos:
+    name: Build macOS (${{ matrix.arch }})
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: macos-13
+            target: x86_64-apple-darwin
+            name: darwin-x86_64
+          - arch: aarch64
+            runner: macos-14
+            target: aarch64-apple-darwin
+            name: darwin-aarch64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM
+        run: |
+          brew install llvm@${{ env.LLVM_VERSION }}
+          echo "LLVM_SYS_170_PREFIX=$(brew --prefix llvm@${{ env.LLVM_VERSION }})" >> $GITHUB_ENV
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools
-        if: matrix.cross
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: Build with LLVM
+        run: cargo build --release --features llvm -p oric --target ${{ matrix.target }}
 
-      - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-
-      - name: Package (Unix)
-        if: matrix.os != 'windows-latest'
+      - name: Package
         run: |
           cd target/${{ matrix.target }}/release
+          strip ori
           tar -czvf ../../../ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz ori
-          cd ../../..
-
-      - name: Package (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          cd target/${{ matrix.target }}/release
-          7z a ../../../ori-${{ github.ref_name }}-${{ matrix.name }}.zip ori.exe
           cd ../../..
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ori-${{ matrix.name }}
-          path: ori-${{ github.ref_name }}-${{ matrix.name }}.*
+          path: ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz
+
+  # Windows builds install LLVM via choco
+  build-windows:
+    name: Build Windows (x86_64)
+    needs: validate
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM
+        run: |
+          choco install llvm --version=${{ env.LLVM_VERSION }}.0.6 -y
+          echo "LLVM_SYS_170_PREFIX=C:\Program Files\LLVM" >> $env:GITHUB_ENV
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build with LLVM
+        run: cargo build --release --features llvm -p oric --target x86_64-pc-windows-msvc
+
+      - name: Package
+        run: |
+          cd target/x86_64-pc-windows-msvc/release
+          7z a ../../../ori-${{ github.ref_name }}-windows-x86_64.zip ori.exe
+          cd ../../..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ori-windows-x86_64
+          path: ori-${{ github.ref_name }}-windows-x86_64.zip
 
   release:
     name: Create Release
-    needs: build
+    needs: [build-linux, build-macos, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -142,7 +212,6 @@ jobs:
           if [[ "$VERSION" == *"alpha"* ]]; then
             echo "prerelease=true" >> $GITHUB_OUTPUT
             echo "name=Ori $VERSION (Nightly)" >> $GITHUB_OUTPUT
-            echo "tag_name=nightly" >> $GITHUB_OUTPUT
             echo "This is an alpha/nightly release"
           elif [[ "$VERSION" == *"beta"* ]]; then
             echo "prerelease=true" >> $GITHUB_OUTPUT
@@ -159,7 +228,6 @@ jobs:
           fi
 
       - name: Generate release body
-        id: release_body
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           if [[ "$VERSION" == *"alpha"* ]]; then
@@ -173,7 +241,7 @@ jobs:
 
           **Quick install (Linux/macOS):**
           ```bash
-          curl -fsSL https://ori-lang.com/install.sh | sh
+          curl -fsSL https://raw.githubusercontent.com/upstat-io/ori-lang/master/install.sh | sh
           ```
 
           **Manual download:** See assets below for your platform.
@@ -190,7 +258,7 @@ jobs:
 
           **Quick install (Linux/macOS):**
           ```bash
-          curl -fsSL https://ori-lang.com/install.sh | sh
+          curl -fsSL https://raw.githubusercontent.com/upstat-io/ori-lang/master/install.sh | sh
           ```
 
           **Manual download:** See assets below for your platform.
