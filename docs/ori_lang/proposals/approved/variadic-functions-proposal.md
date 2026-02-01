@@ -1,8 +1,9 @@
 # Proposal: Variadic Functions
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric
 **Created:** 2026-01-31
+**Approved:** 2026-01-31
 **Affects:** Parser, type checker, evaluator, codegen, FFI
 
 ---
@@ -39,7 +40,7 @@ sum(numbers: [1, 2, 3])  // Verbose: explicit list + named argument
 sum(numbers: [])         // Empty case requires empty list
 
 // Current: format requires awkward list of trait objects
-@format (template: str, args: [dyn Printable]) -> str = ...
+@format (template: str, args: [Printable]) -> str = ...
 
 format(template: "{} + {} = {}", args: [1, 2, 3])  // Clunky
 ```
@@ -66,7 +67,7 @@ This is verbose and unergonomic for common patterns like:
 Ori prioritizes type safety while providing ergonomic APIs:
 
 1. **Homogeneous variadics** — All arguments must be the same type (`...int`)
-2. **Trait-bounded variadics** — Accept any type implementing a trait (`...dyn Printable`)
+2. **Trait object variadics** — Accept any type implementing a trait (`...Printable`)
 3. **Spread expansion** — Pass lists as variadic arguments (`fn(...list)`)
 4. **C interop** — Separate syntax for calling C variadics (unsafe)
 
@@ -91,8 +92,8 @@ sum()               // 0 (empty variadic is valid)
 Inside the function, the variadic parameter is received as a list:
 
 ```ori
-@debug_all (values: ...dyn Debug) -> void = run(
-    for value in values do    // values: [dyn Debug]
+@debug_all (values: ...Debug) -> void = run(
+    for value in values do    // values: [Debug]
         print(msg: value.debug())
 )
 ```
@@ -100,12 +101,19 @@ Inside the function, the variadic parameter is received as a list:
 ### Grammar
 
 ```ebnf
-Parameter         = Identifier ":" Type | VariadicParameter ;
-VariadicParameter = Identifier ":" "..." Type ;
+// Function parameters
+param          = identifier ":" type | variadic_param .
+variadic_param = identifier ":" "..." type .
 
-// In call expressions, spread into variadic position
-CallArgument      = [ Identifier ":" ] Expression
-                  | "..." Expression ;
+// Extern block parameters (includes C variadics)
+extern_param   = identifier ":" type | c_variadic .
+c_variadic     = "..." .  /* C-style, no type - only valid in extern "c" blocks */
+
+// Call arguments (includes spread for variadic calls)
+call_arg       = named_arg | positional_arg | spread_arg .
+named_arg      = identifier ":" expression .
+positional_arg = expression .
+spread_arg     = "..." expression .
 ```
 
 ### Constraints
@@ -113,7 +121,8 @@ CallArgument      = [ Identifier ":" ] Expression
 1. **One variadic parameter per function** — At most one variadic parameter allowed
 2. **Must be last** — Variadic parameter must appear after all required parameters
 3. **Cannot have default** — Variadic parameters cannot have default values (the default is empty list)
-4. **Named argument optional** — When calling, the variadic argument name may be omitted
+4. **Positional only at call site** — Variadic arguments are always positional; the parameter name cannot be used at call sites
+5. **Named args before variadic** — All named arguments must precede the variadic position
 
 ```ori
 // Valid
@@ -161,21 +170,20 @@ add(...[1, 2])  // Error: spread not allowed (non-variadic function)
 
 ### Calling Convention
 
-When calling a variadic function:
+When calling a variadic function, named arguments for required parameters come first, followed by positional variadic arguments:
 
 ```ori
 @log (level: str, messages: ...str) -> void
 
-// Named arguments for required params, then variadic args
+// Named arguments for required params, then variadic args (positional)
 log(level: "INFO", "Request received", "User: 123")
-
-// Or with explicit variadic name (optional)
-log(level: "INFO", messages: "Request received", "User: 123")
 
 // Spread
 let context = ["user=123", "action=login"]
 log(level: "INFO", "Request", ...context)
 ```
+
+The variadic parameter name (`messages`) cannot be used at call sites — variadic arguments are always positional after any named arguments.
 
 ### Minimum Argument Count
 
@@ -208,10 +216,10 @@ print_all(1, "a")         // Error: cannot unify int and str
 
 ### Trait Object Variadics
 
-For heterogeneous arguments, use `dyn Trait`:
+For heterogeneous arguments, use a trait name directly as the variadic type:
 
 ```ori
-@print_any (items: ...dyn Printable) -> void = run(
+@print_any (items: ...Printable) -> void = run(
     for item in items do
         print(msg: item.to_str())
 )
@@ -219,21 +227,56 @@ For heterogeneous arguments, use `dyn Trait`:
 print_any(1, "hello", true)  // OK: all implement Printable
 ```
 
-The arguments are boxed as trait objects and collected into `[dyn Printable]`.
+The arguments are boxed as trait objects and collected into `[Printable]`.
 
 ### Type Inference
 
-The variadic element type can be inferred:
+The variadic element type can be inferred from arguments:
 
 ```ori
 @collect<T> (items: ...T) -> [T] = items
 
 collect(1, 2, 3)       // infers T = int, returns [int]
 collect("a", "b")      // infers T = str, returns [str]
-collect()              // Error: cannot infer T (no arguments)
+collect()              // Error E0XXX: cannot infer type T (no variadic arguments provided)
 
 // With explicit type annotation
 collect<int>()         // OK: [int] (empty)
+```
+
+When a generic type parameter `T` is only constrained by a variadic parameter `...T`, calls with zero arguments cannot infer `T`. An explicit type annotation is required. This applies even when `T` has bounds:
+
+```ori
+@display<T: Printable> (items: ...T) -> void = ...
+
+display()              // Error: cannot infer T
+display<str>()         // OK: empty variadic with T = str
+```
+
+### Function Type Representation
+
+A variadic function's type is represented as accepting a list. When stored as a function value, variadic functions lose their special calling syntax:
+
+```ori
+@sum (numbers: ...int) -> int = ...
+
+// sum has type ([int]) -> int
+let f: ([int]) -> int = sum
+
+// Must call with list when using function value
+f([1, 2, 3])  // 6
+
+// Direct call retains variadic syntax
+sum(1, 2, 3)  // 6
+```
+
+This means variadic functions can be passed to higher-order functions that expect `([T]) -> R`:
+
+```ori
+@apply_to_numbers (fn: ([int]) -> int, numbers: [int]) -> int =
+    fn(numbers)
+
+apply_to_numbers(fn: sum, numbers: [1, 2, 3])  // 6
 ```
 
 ---
@@ -286,7 +329,7 @@ extern "c" {
 ### Format Function
 
 ```ori
-@format (template: str, args: ...dyn Printable) -> str = run(
+@format (template: str, args: ...Printable) -> str = run(
     let mut result = ""
     let mut arg_index = 0
     let mut i = 0
@@ -376,7 +419,7 @@ def process(*args):
     pass
 ```
 
-Ori maintains type safety by requiring all variadic arguments to be the same type (or implement the same trait). For truly heterogeneous needs, use `...dyn Trait` or explicit tuple/struct parameters.
+Ori maintains type safety by requiring all variadic arguments to be the same type (or implement the same trait). For truly heterogeneous needs, use `...Trait` (trait object variadic) or explicit tuple/struct parameters.
 
 ### Why `...T` Syntax?
 
@@ -430,15 +473,16 @@ add(...[1, 2])  // Still an error — not variadic
 
 ---
 
-## The Three Uses of `...`
+## The Four Uses of `...`
 
-This proposal introduces the third use of `...` in Ori:
+This proposal introduces additional uses of `...` in Ori:
 
 | Context | Syntax | Meaning |
 |---------|--------|---------|
 | Spread expression | `[...list]` | Expand collection in literal |
 | Variadic parameter | `items: ...int` | Accept variable arguments |
-| Spread in call | `fn(...list)` | Pass list to variadic (NEW) |
+| Spread in call | `fn(...list)` | Pass list to variadic |
+| C variadic (extern only) | `@printf (...)` | Untyped C va_list |
 
 Additionally, `..` (two dots) is used in rest patterns:
 
@@ -447,7 +491,7 @@ Additionally, `..` (two dots) is used in rest patterns:
 | Rest pattern | `[x, ..rest]` | Bind remaining elements |
 
 The distinction:
-- `...` (three dots) — spread/variadic (expressions and types)
+- `...` (three dots) — spread/variadic (expressions, types, and C FFI)
 - `..` (two dots) — rest pattern (pattern matching only)
 
 ---
@@ -466,7 +510,7 @@ The distinction:
 2. Type check call arguments against variadic type
 3. Handle spread expressions in calls — verify list element type
 4. Infer generic type parameters from variadic arguments
-5. Box trait objects for `...dyn Trait`
+5. Box trait objects for trait object variadics (`...Printable`)
 
 ### Evaluator Changes
 
@@ -521,7 +565,7 @@ format(
 | Spread | `sum(...list)` | Expand list into variadic |
 | Mixed | `sum(0, ...list, 10)` | Literals and spread |
 | Generic | `...T` | Type inferred from args |
-| Trait bound | `...dyn Printable` | Heterogeneous via boxing |
+| Trait object | `...Printable` | Heterogeneous via boxing |
 | Minimum args | `(first: T, rest: ...T)` | Use required params |
 | C variadic | `extern ... { @fn (...) }` | Unsafe, no type |
 

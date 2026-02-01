@@ -4,7 +4,9 @@
 
 **Criticality**: Low — Serialization, debugging, metaprogramming
 
-**Dependencies**: Phase 11 (FFI), Phases 1-3 (Type System)
+**Dependencies**: Phase 3 (Traits), Phase 5 (Type Declarations), Phase 7 (Derive Macros), Phase 11 (Generics)
+
+**Proposal**: `proposals/approved/reflection-api-proposal.md` — ✅ APPROVED 2026-01-31
 
 ---
 
@@ -12,10 +14,12 @@
 
 | Question | Decision | Rationale |
 |----------|----------|-----------|
-| Scope | Opt-in per type | Performance, code size |
-| Operations | Read-only initially | Safety, complexity |
-| Type info | Minimal but useful | Balance info vs overhead |
-| Integration | Via trait | Consistent with Ori |
+| Scope | Opt-in per type via `#derive(Reflect)` | Performance, code size |
+| Operations | Read-only (v1) | Safety, complexity |
+| Type-erased container | `Unknown` type | Safe downcasting, type-safe API |
+| Type info | Static `TypeInfo` metadata | O(1) access, no runtime construction |
+| Integration | `Reflect` trait in prelude | Consistent with Ori |
+| Enum support | `@current_variant` method | Essential for enum inspection |
 
 ---
 
@@ -39,17 +43,18 @@
 
 ## 20.1 Reflect Trait
 
-**Spec section**: `spec/27-reflection.md § Reflect Trait`
+**Proposal**: `proposals/approved/reflection-api-proposal.md § The Reflect Trait`
 
 ### Syntax
 
 ```ori
-// Trait for reflectable types
+// Trait for reflectable types (defined in std.reflect, exported to prelude)
 trait Reflect {
     @type_info (self) -> TypeInfo
     @field_count (self) -> int
-    @field_name (self, index: int) -> Option<str>
-    @field_value (self, index: int) -> Option<dyn Any>
+    @field_by_index (self, index: int) -> Option<Unknown>
+    @field_by_name (self, name: str) -> Option<Unknown>
+    @current_variant (self) -> Option<VariantInfo>
 }
 
 // Derived automatically
@@ -62,71 +67,83 @@ type Person = {
 // Usage
 let person = Person { name: "Alice", age: 30 }
 let info = person.type_info()
-print(`Type: {info.name}`)  // "Person"
+print(msg: `Type: {info.name}`)  // "Person"
 
-for i in 0..person.field_count() do run(
-    let name = person.field_name(index: i).unwrap()
-    let value = person.field_value(index: i).unwrap()
-    print(`{name}: {value.to_str()}`)
-)
+for (name, value) in person.fields() do
+    print(msg: `{name}: {value.type_name()}`)
 ```
 
 ### Implementation
 
 - [ ] **Spec**: Add `spec/27-reflection.md`
   - [ ] Reflect trait definition
-  - [ ] TypeInfo type
-  - [ ] Operations available
-  - [ ] **LLVM Support**: LLVM codegen for Reflect trait spec
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — Reflect trait spec codegen
+  - [ ] TypeInfo, FieldInfo, VariantInfo types
+  - [ ] Unknown type
+  - [ ] **LLVM Support**: LLVM codegen for Reflect trait
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
-- [ ] **Stdlib**: Reflect trait
-  - [ ] Define in std.reflect
-  - [ ] TypeInfo struct
-  - [ ] **LLVM Support**: LLVM codegen for Reflect trait stdlib
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — Reflect trait stdlib codegen
+- [ ] **Stdlib**: Reflect trait in std.reflect
+  - [ ] Trait definition with all 5 methods
+  - [ ] Export to prelude
+  - [ ] **LLVM Support**: LLVM codegen for std.reflect
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
-- [ ] **Derive**: Reflect derive macro
-  - [ ] Generate field metadata
-  - [ ] Generate accessors
-  - [ ] **LLVM Support**: LLVM codegen for Reflect derive macro
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — Reflect derive macro codegen
+- [ ] **Derive**: `#derive(Reflect)` macro
+  - [ ] Generate static TypeInfo constant
+  - [ ] Generate field accessors (match-based)
+  - [ ] Generate `current_variant` for enums (None for structs)
+  - [ ] Conditional derivation for generics (`T: Reflect`)
+  - [ ] **LLVM Support**: LLVM codegen for derive macro
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
 - [ ] **Test**: `tests/spec/reflect/basic.ori`
-  - [ ] Derive Reflect
+  - [ ] Derive Reflect for struct
+  - [ ] Derive Reflect for enum
   - [ ] Access type info
   - [ ] Iterate fields
-  - [ ] **LLVM Support**: LLVM codegen for basic reflection tests
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — basic reflection tests codegen
+  - [ ] Current variant for enums
+  - [ ] **LLVM Support**: LLVM codegen for basic tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
 ---
 
-## 20.2 TypeInfo
+## 20.2 TypeInfo and Related Types
 
-**Spec section**: `spec/27-reflection.md § Type Information`
+**Proposal**: `proposals/approved/reflection-api-proposal.md § The TypeInfo Structure`
 
-### Structure
+### Types
 
 ```ori
 type TypeInfo = {
     name: str,           // "Person"
     module: str,         // "myapp.models"
     kind: TypeKind,      // Struct, Enum, Primitive, etc.
-    fields: [FieldInfo], // For structs
-    variants: [VariantInfo], // For enums
+    fields: [FieldInfo], // For structs (empty for others)
+    variants: [VariantInfo], // For enums (empty for others)
+    type_params: [str],  // Generic parameter names: ["T", "E"]
 }
 
-type TypeKind = Struct | Enum | Primitive | List | Map | Function | Trait
+type TypeKind =
+    | Struct
+    | Enum
+    | Primitive
+    | List
+    | Map
+    | Tuple
+    | Function
+    | Trait
 
 type FieldInfo = {
     name: str,
-    type_name: str,
-    offset: int,  // For FFI/unsafe access
+    type_name: str,      // Type as string: "Option<str>"
+    index: int,          // 0-based position
+    is_optional: bool,   // True if type is Option<T>
 }
 
 type VariantInfo = {
-    name: str,
-    fields: [FieldInfo],
+    name: str,           // Variant name: "Some", "None"
+    index: int,          // Variant index (for matching)
+    fields: [FieldInfo], // Payload fields (empty for unit variants)
 }
 ```
 
@@ -137,302 +154,336 @@ type VariantInfo = {
   - [ ] TypeKind variants
   - [ ] FieldInfo, VariantInfo
   - [ ] **LLVM Support**: LLVM codegen for TypeInfo structure
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — TypeInfo structure codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
-- [ ] **Stdlib**: TypeInfo types
-  - [ ] In std.reflect
-  - [ ] Read-only accessors
+- [ ] **Stdlib**: TypeInfo types in std.reflect
+  - [ ] All types defined
+  - [ ] Export to prelude
   - [ ] **LLVM Support**: LLVM codegen for TypeInfo types
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — TypeInfo types codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
-- [ ] **Codegen**: Generate type metadata
+- [ ] **Codegen**: Generate static type metadata
   - [ ] Emit TypeInfo at compile time
-  - [ ] Optimize for space
-  - [ ] **LLVM Support**: LLVM codegen for type metadata generation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — type metadata generation codegen
+  - [ ] One instance per type (interned)
+  - [ ] O(1) access from type_info() method
+  - [ ] **LLVM Support**: LLVM codegen for static metadata
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
 - [ ] **Test**: `tests/spec/reflect/type_info.ori`
   - [ ] Struct TypeInfo
-  - [ ] Enum TypeInfo
+  - [ ] Enum TypeInfo with variants
   - [ ] Nested types
+  - [ ] Generic types
   - [ ] **LLVM Support**: LLVM codegen for TypeInfo tests
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — TypeInfo tests codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
 ---
 
-## 20.3 Any Type
+## 20.3 Unknown Type
 
-**Spec section**: `spec/27-reflection.md § Any Type`
+**Proposal**: `proposals/approved/reflection-api-proposal.md § The Unknown Type`
 
 ### Syntax
 
 ```ori
-// Any can hold any value with type info
-type Any = {
-    value: *void,
-    type_info: TypeInfo,
+// Type-erased container with safe downcasting
+type Unknown = {
+    ::value: ErasedValue,    // Internal: opaque compiler type
+    ::type_info: TypeInfo,
 }
 
-impl Any {
-    @new<T: Reflect> (value: T) -> Any
+impl Unknown {
+    @new<T: Reflect> (value: T) -> Unknown
     @type_name (self) -> str
-    @is<T> (self) -> bool
-    @downcast<T> (self) -> Option<T>
+    @type_info (self) -> TypeInfo
+    @is<T: Reflect> (self) -> bool
+    @downcast<T: Reflect> (self) -> Option<T>
+    @unwrap<T: Reflect> (self) -> T
+    @unwrap_or<T: Reflect> (self, default: T) -> T
 }
 
 // Usage
-let any: Any = Any.new(42)
-print(any.type_name())  // "int"
+let value: Unknown = Unknown.new(value: 42)
+print(msg: value.type_name())  // "int"
 
-if any.is<int>() then
-    let value = any.downcast<int>().unwrap()
-    print(`Value: {value}`)
+match value.downcast<int>() {
+    Some(n) -> print(msg: `Value: {n}`),
+    None -> print(msg: "Not an int"),
+}
 ```
 
 ### Implementation
 
-- [ ] **Spec**: Any type semantics
-  - [ ] Boxing
-  - [ ] Type checking
-  - [ ] Downcasting
-  - [ ] **LLVM Support**: LLVM codegen for Any type semantics
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — Any type semantics codegen
+- [ ] **Spec**: Unknown type semantics
+  - [ ] Type erasure mechanism
+  - [ ] Safe downcasting
+  - [ ] Reference counting (ARC-compatible)
+  - [ ] **LLVM Support**: LLVM codegen for Unknown type
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
-- [ ] **Stdlib**: Any type
-  - [ ] Generic new
-  - [ ] Type checking
-  - [ ] Safe downcast
-  - [ ] **LLVM Support**: LLVM codegen for Any type stdlib
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — Any type stdlib codegen
+- [ ] **Stdlib**: Unknown type in std.reflect
+  - [ ] All methods implemented
+  - [ ] Export to prelude
+  - [ ] **LLVM Support**: LLVM codegen for Unknown stdlib
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
-- [ ] **Codegen**: Type ID generation
-  - [ ] Unique ID per type
-  - [ ] Runtime comparison
-  - [ ] **LLVM Support**: LLVM codegen for type ID generation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — type ID generation codegen
+- [ ] **Codegen**: Type identity
+  - [ ] Unique type ID per type (name + module hash)
+  - [ ] Runtime type comparison
+  - [ ] ErasedValue internal representation
+  - [ ] **LLVM Support**: LLVM codegen for type identity
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
-- [ ] **Test**: `tests/spec/reflect/any.ori`
-  - [ ] Create Any
-  - [ ] Type checking
+- [ ] **Test**: `tests/spec/reflect/unknown.ori`
+  - [ ] Create Unknown from primitives
+  - [ ] Create Unknown from structs
+  - [ ] Type checking with is<T>()
   - [ ] Downcast success/failure
-  - [ ] **LLVM Support**: LLVM codegen for Any type tests
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — Any type tests codegen
+  - [ ] unwrap and unwrap_or
+  - [ ] **LLVM Support**: LLVM codegen for Unknown tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
 ---
 
-## 20.4 Dynamic Field Access
+## 20.4 Standard Reflect Implementations
 
-**Spec section**: `spec/27-reflection.md § Dynamic Access`
+**Proposal**: `proposals/approved/reflection-api-proposal.md § Standard Library Reflect Implementations`
+
+### Types with Built-in Reflect
+
+```ori
+// Primitives (all implement Reflect)
+int, float, str, bool, char, byte, void
+
+// Collections (conditional on element types)
+[T] where T: Reflect
+{K: V} where K: Reflect, V: Reflect
+Set<T> where T: Reflect
+
+// Option and Result (conditional)
+Option<T> where T: Reflect
+Result<T, E> where T: Reflect, E: Reflect
+
+// Tuples (conditional on all elements)
+(), (T), (T, U), etc.
+
+// Special types
+Duration, Size
+```
+
+### Implementation
+
+- [ ] **Stdlib**: Primitive Reflect implementations
+  - [ ] int, float, str, bool, char, byte, void
+  - [ ] TypeKind::Primitive for all
+  - [ ] **LLVM Support**: LLVM codegen for primitive Reflect
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+
+- [ ] **Stdlib**: Collection Reflect implementations
+  - [ ] Lists, maps, sets with conditional bounds
+  - [ ] Tuples up to reasonable arity
+  - [ ] **LLVM Support**: LLVM codegen for collection Reflect
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+
+- [ ] **Stdlib**: Option/Result Reflect implementations
+  - [ ] TypeKind::Enum with variants
+  - [ ] **LLVM Support**: LLVM codegen for Option/Result Reflect
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+
+- [ ] **Test**: `tests/spec/reflect/stdlib.ori`
+  - [ ] Primitive type info
+  - [ ] Collection type info
+  - [ ] Option/Result type info
+  - [ ] **LLVM Support**: LLVM codegen for stdlib Reflect tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+
+---
+
+## 20.5 Field Iteration Extension
+
+**Proposal**: `proposals/approved/reflection-api-proposal.md § Iteration Over Fields`
 
 ### Syntax
 
 ```ori
-// Access field by name
-@get_field (obj: dyn Reflect, name: str) -> Option<dyn Any> = run(
-    let info = obj.type_info()
-    for i in 0..obj.field_count() do
-        if obj.field_name(index: i) == Some(name) then
-            return obj.field_value(index: i)
-    None
-)
+// Extension for field iteration
+extend<T: Reflect> T {
+    @fields (self) -> impl Iterator where Item == (str, Unknown)
+}
 
 // Usage
-let person = Person { name: "Alice", age: 30 }
-let name = get_field(obj: person, name: "name")  // Some("Alice")
-let missing = get_field(obj: person, name: "email")  // None
+for (name, value) in person.fields() do
+    print(msg: `{name}: {value.type_name()}`)
 ```
 
 ### Implementation
 
-- [ ] **Spec**: Dynamic access semantics
-  - [ ] By index
-  - [ ] By name
-  - [ ] Error handling
-  - [ ] **LLVM Support**: LLVM codegen for dynamic access semantics
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — dynamic access semantics codegen
+- [ ] **Stdlib**: fields() extension method
+  - [ ] In std.reflect
+  - [ ] Returns iterator of (name, Unknown) tuples
+  - [ ] **LLVM Support**: LLVM codegen for fields() extension
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
-- [ ] **Stdlib**: Access helpers
-  - [ ] get_field function
-  - [ ] Field iteration
-  - [ ] **LLVM Support**: LLVM codegen for access helpers
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — access helpers codegen
-
-- [ ] **Test**: `tests/spec/reflect/dynamic_access.ori`
-  - [ ] Get by name
-  - [ ] Get by index
-  - [ ] Missing field
-  - [ ] **LLVM Support**: LLVM codegen for dynamic access tests
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — dynamic access tests codegen
+- [ ] **Test**: `tests/spec/reflect/field_iteration.ori`
+  - [ ] Iterate struct fields
+  - [ ] Iterate enum variant fields
+  - [ ] Empty iteration for unit types
+  - [ ] **LLVM Support**: LLVM codegen for iteration tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
 ---
 
-## 20.5 Serialization Use Case
+## 20.6 Generic Serialization Use Case
 
-**Spec section**: `spec/27-reflection.md § Serialization`
+**Proposal**: `proposals/approved/reflection-api-proposal.md § Examples`
 
 ### Example: JSON Serialization
 
 ```ori
-use std.reflect { Reflect, TypeInfo, TypeKind }
 use std.json { JsonValue }
+use std.reflect { Reflect, TypeKind }
 
-@to_json<T: Reflect> (value: T) -> JsonValue = run(
-    let info = value.type_info()
-
-    match(info.kind,
-        Primitive -> primitive_to_json(value: value),
-        Struct -> run(
-            let mut obj = JsonValue.object()
-            for i in 0..value.field_count() do
-                let name = value.field_name(index: i).unwrap()
-                let field_val = value.field_value(index: i).unwrap()
-                obj = obj.set(key: name, value: to_json(value: field_val))
-            obj
-        ),
-        List -> run(
-            let mut arr = JsonValue.array()
-            // iterate list...
-            arr
-        ),
-        _ -> JsonValue.null(),
-    )
+@to_json_generic<T: Reflect> (value: T) -> JsonValue = run(
+    let info = value.type_info(),
+    match info.kind {
+        Primitive -> to_json_primitive(value:),
+        Struct -> to_json_struct(value:),
+        Enum -> to_json_enum(value:),
+        List -> to_json_list(value:),
+        Map -> to_json_map(value:),
+        _ -> JsonValue.Null,
+    },
 )
 
-@primitive_to_json (value: dyn Any) -> JsonValue = run(
-    if value.is<int>() then
-        JsonValue.number(n: float(value.downcast<int>().unwrap()))
-    else if value.is<str>() then
-        JsonValue.string(s: value.downcast<str>().unwrap())
-    else if value.is<bool>() then
-        JsonValue.bool(b: value.downcast<bool>().unwrap())
-    else
-        JsonValue.null()
+@to_json_struct<T: Reflect> (value: T) -> JsonValue = run(
+    let pairs = for (name, field_value) in value.fields()
+        yield (name, to_json_unknown(value: field_value)),
+    JsonValue.Object(pairs.collect()),
 )
 
-// Usage
-#derive(Reflect)
-type User = { name: str, age: int, active: bool }
-
-let user = User { name: "Alice", age: 30, active: true }
-let json = to_json(value: user)
-// {"name": "Alice", "age": 30, "active": true}
+@to_json_unknown (value: Unknown) -> JsonValue = match value.type_info().kind {
+    Primitive -> match value.type_name() {
+        "int" -> JsonValue.Number(value.unwrap<int>() as float),
+        "float" -> JsonValue.Number(value.unwrap<float>()),
+        "str" -> JsonValue.String(value.unwrap<str>()),
+        "bool" -> JsonValue.Bool(value.unwrap<bool>()),
+        _ -> JsonValue.Null,
+    },
+    _ -> JsonValue.Null,
+}
 ```
 
 ### Implementation
 
-- [ ] **Stdlib**: JSON serialization
-  - [ ] Generic to_json
-  - [ ] Generic from_json
+- [ ] **Stdlib**: Generic JSON serialization in std.json
+  - [ ] to_json for Reflect types
+  - [ ] from_json for Reflect + Default types
   - [ ] **LLVM Support**: LLVM codegen for JSON serialization
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — JSON serialization codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
 - [ ] **Documentation**: Serialization guide
   - [ ] Custom serializers
   - [ ] Performance considerations
-  - [ ] **LLVM Support**: LLVM codegen for serialization examples
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — serialization examples codegen
+  - [ ] **LLVM Support**: LLVM codegen for guide examples
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
 - [ ] **Test**: `tests/spec/reflect/serialization.ori`
   - [ ] Struct to JSON
-  - [ ] JSON to struct
-  - [ ] Nested types
+  - [ ] Nested structs to JSON
+  - [ ] Enum to JSON
   - [ ] **LLVM Support**: LLVM codegen for serialization tests
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — serialization tests codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
 ---
 
-## 20.6 Performance Considerations
+## 20.7 Error Handling
 
-**Spec section**: `spec/27-reflection.md § Performance`
+**Proposal**: `proposals/approved/reflection-api-proposal.md § Error Handling`
 
-### Opt-in Design
+### Error Codes
+
+| Code | Error | Context |
+|------|-------|---------|
+| E0450 | Cannot derive Reflect | Field type doesn't implement Reflect |
+
+### Panic Messages
 
 ```ori
-// Only types with #derive(Reflect) have reflection overhead
-type FastType = { x: int }  // No reflection, no overhead
-
-#derive(Reflect)
-type ReflectableType = { x: int }  // Has metadata
-
-// Type info is static, computed once
-let info = value.type_info()  // Fast: returns pointer to static data
+// Downcast failure
+let value: Unknown = Unknown.new(value: "hello")
+let n = value.unwrap<int>()
+// panic: type mismatch: expected `int`, found `str`
 ```
+
+### Implementation
+
+- [ ] **Diagnostics**: E0450 for derive failures
+  - [ ] Point to non-Reflect field
+  - [ ] Suggest derive or different type
+  - [ ] **LLVM Support**: LLVM codegen for diagnostics
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+
+- [ ] **Test**: `tests/spec/reflect/errors.ori`
+  - [ ] Compile fail for non-Reflect field
+  - [ ] Runtime panic message for unwrap failure
+  - [ ] **LLVM Support**: LLVM codegen for error tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+
+---
+
+## 20.8 Performance Considerations
+
+**Proposal**: `proposals/approved/reflection-api-proposal.md § Performance Considerations`
 
 ### Overhead
 
 | Operation | Cost |
 |-----------|------|
-| type_info() | O(1) - pointer to static |
-| field_count() | O(1) - stored in TypeInfo |
-| field_name() | O(1) - indexed lookup |
-| field_value() | O(1) - computed offset |
-| downcast() | O(1) - TypeId comparison |
+| type_info() | O(1) — pointer to static |
+| field_count() | O(1) — stored in TypeInfo |
+| field_by_index() | O(1) — match dispatch |
+| field_by_name() | O(1) — static hash map |
+| Unknown.new() | O(1) — one allocation + TypeInfo pointer |
+| downcast() | O(1) — type ID comparison |
+
+### Opt-Out
+
+```ori
+// No #derive(Reflect) = zero reflection overhead
+type HotPath = {
+    data: [float],
+    count: int,
+}
+```
 
 ### Implementation
 
 - [ ] **Codegen**: Minimize overhead
-  - [ ] Static TypeInfo tables
+  - [ ] Static TypeInfo tables (read-only memory)
   - [ ] No per-instance cost
-  - [ ] Lazy initialization
-  - [ ] **LLVM Support**: LLVM codegen for minimized overhead
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — minimized overhead codegen
-
-- [ ] **Documentation**: Performance guide
-  - [ ] When to use reflection
-  - [ ] Alternatives for hot paths
-  - [ ] **LLVM Support**: LLVM codegen for performance guide examples
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — performance guide examples codegen
+  - [ ] Compile-time hash map for field_by_name
+  - [ ] **LLVM Support**: LLVM codegen for optimized overhead
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
 - [ ] **Benchmarks**: Reflection performance
   - [ ] Type info access
   - [ ] Field iteration
-  - [ ] Serialization
-  - [ ] **LLVM Support**: LLVM codegen for reflection benchmarks
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — reflection benchmarks codegen
+  - [ ] Serialization throughput
+  - [ ] **LLVM Support**: LLVM codegen for benchmarks
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
 ---
 
-## 20.7 Limitations
+## Deferred to Future Proposals
 
-**Spec section**: `spec/27-reflection.md § Limitations`
+Per `proposals/approved/reflection-api-proposal.md § Deferred Decisions`:
 
-### Read-Only (Phase 1)
-
-```ori
-// Cannot set fields dynamically (initially)
-// This would require:
-// - Mutable reflection
-// - Type system integration
-// - Safety considerations
-```
-
-### No Dynamic Type Creation
-
-```ori
-// Cannot create types at runtime
-// Ori is statically typed
-```
-
-### No Method Reflection
-
-```ori
-// Initially, no method invocation via reflection
-// Focus on data (fields) first
-```
-
-### Implementation
-
-- [ ] **Spec**: Document limitations
-  - [ ] What's not supported
-  - [ ] Rationale
-  - [ ] Future possibilities
-  - [ ] **LLVM Support**: LLVM codegen for limitations documentation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — limitations codegen
-
-- [ ] **Diagnostics**: Clear errors
-  - [ ] When attempting unsupported operations
-  - [ ] **LLVM Support**: LLVM codegen for reflection diagnostics
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs` — reflection diagnostics codegen
+1. **Trait Object Reflection** — Whether trait objects store TypeInfo in vtable
+2. **Function Reflection** — TypeInfo for function parameter/return types
+3. **Const Generics Reflection** — How `[T, max N]` reflects capacity
+4. **Derive Attributes** — `#reflect(skip)`, `#reflect(rename: ...)`
+5. **Method Reflection** — Dynamic method invocation
+6. **Mutable Reflection** — Modifying values through reflection
 
 ---
 
@@ -440,15 +491,16 @@ let info = value.type_info()  // Fast: returns pointer to static data
 
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Spec updated: `spec/27-reflection.md` complete
-- [ ] CLAUDE.md updated with reflection syntax
-- [ ] Reflect trait works
-- [ ] TypeInfo accessible
-- [ ] Any type works
-- [ ] Dynamic field access works
+- [ ] CLAUDE.md updated with Reflect, Unknown, TypeInfo
+- [ ] Reflect trait works with derive
+- [ ] TypeInfo accessible at runtime
+- [ ] Unknown type works with safe downcasting
+- [ ] current_variant works for enums
+- [ ] fields() extension works
 - [ ] JSON serialization example works
 - [ ] All tests pass: `./test-all`
 
-**Exit Criteria**: Can implement generic JSON serialization/deserialization
+**Exit Criteria**: Can implement generic JSON serialization/deserialization using reflection
 
 ---
 
@@ -457,37 +509,26 @@ let info = value.type_info()  // Fast: returns pointer to static data
 ```ori
 use std.reflect { Reflect, TypeKind }
 
-// Generic debug printer using reflection
-@debug<T: Reflect> (value: T) -> str = run(
-    let info = value.type_info()
-
-    match(info.kind,
-        Primitive -> value.to_str(),
-
+@debug_print<T: Reflect> (value: T, indent: int = 0) -> str = run(
+    let info = value.type_info(),
+    let prefix = " ".repeat(count: indent * 2),
+    match info.kind {
         Struct -> run(
-            let mut result = `{info.name} \{`
-            for i in 0..value.field_count() do run(
-                if i > 0 then result = result + ", "
-                let name = value.field_name(index: i).unwrap()
-                let field_val = value.field_value(index: i).unwrap()
-                result = result + `{name}: {debug(value: field_val)}`
-            )
-            result + "}"
+            let fields_str = for (name, field) in value.fields()
+                yield `{prefix}  {name}: {debug_print(value: field, indent: indent + 1)}`,
+            `{info.name} {{\n{fields_str.join(separator: ",\n")}\n{prefix}}}`,
         ),
-
         Enum -> run(
-            // Handle enum variants
-            `{info.name}::{value.variant_name()}`
+            let variant = value.current_variant().unwrap().name,
+            if value.field_count() == 0 then variant
+            else run(
+                let fields_str = for (_, field) in value.fields()
+                    yield debug_print(value: field, indent: indent + 1),
+                `{variant}({fields_str.join(separator: ", ")})`,
+            ),
         ),
-
-        List -> run(
-            let mut result = "["
-            // iterate and debug each element
-            result + "]"
-        ),
-
-        _ -> `<{info.name}>`,
-    )
+        _ -> value.to_str(),
+    },
 )
 
 // Usage
@@ -502,6 +543,15 @@ let line = Line {
     end: Point { x: 10, y: 20 },
 }
 
-print(debug(value: line))
-// Line {start: Point {x: 0, y: 0}, end: Point {x: 10, y: 20}}
+print(msg: debug_print(value: line))
+// Line {
+//   start: Point {
+//     x: 0,
+//     y: 0
+//   },
+//   end: Point {
+//     x: 10,
+//     y: 20
+//   }
+// }
 ```

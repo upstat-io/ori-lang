@@ -1,13 +1,14 @@
 # Proposal: Reflection API
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Ori Language Team
 **Created:** 2026-01-31
+**Approved:** 2026-01-31
 **Affects:** Compiler (type system, derive macros), stdlib, spec
 
 ## Summary
 
-This proposal introduces a reflection API for Ori that enables runtime type introspection while maintaining the language's safety guarantees. The design centers on an opt-in `Reflect` trait with static metadata tables, an `Any` type for type-erased values with safe downcasting, and a `TypeInfo` structure providing comprehensive type metadata. The primary use case is generic serialization/deserialization (JSON, TOML, etc.).
+This proposal introduces a reflection API for Ori that enables runtime type introspection while maintaining the language's safety guarantees. The design centers on an opt-in `Reflect` trait with static metadata tables, an `Unknown` type for type-erased values with safe downcasting, and a `TypeInfo` structure providing comprehensive type metadata. The primary use case is generic serialization/deserialization (JSON, TOML, etc.).
 
 ## Motivation
 
@@ -53,11 +54,14 @@ trait Reflect {
     // Field access by index (for iteration)
     @field_count (self) -> int
 
-    // Get field value as Any by index (0-based)
-    @field_by_index (self, index: int) -> Option<Any>
+    // Get field value as Unknown by index (0-based)
+    @field_by_index (self, index: int) -> Option<Unknown>
 
-    // Get field value as Any by name
-    @field_by_name (self, name: str) -> Option<Any>
+    // Get field value as Unknown by name
+    @field_by_name (self, name: str) -> Option<Unknown>
+
+    // Get current variant info (for enums; returns None for structs)
+    @current_variant (self) -> Option<VariantInfo>
 }
 ```
 
@@ -135,20 +139,22 @@ assert_eq(actual: len(collection: info.fields), expected: 3)
 assert_eq(actual: info.fields[0].name, expected: "name")
 ```
 
-### 3. The `Any` Type
+### 3. The `Unknown` Type
+
+The `Unknown` type is a type-erased container with safe downcasting. Unlike TypeScript's `any` or `unknown`, Ori's `Unknown` requires explicit downcasting before any operations — you cannot call methods or access fields on an `Unknown` value directly.
 
 ```ori
 // Type-erased container with safe downcasting
 
-type Any = {
+type Unknown = {
     // Private: holds erased value and type info
     ::value: ErasedValue,
     ::type_info: TypeInfo,
 }
 
-impl Any {
-    // Create an Any from a reflecting value
-    @new<T: Reflect> (value: T) -> Any
+impl Unknown {
+    // Create an Unknown from a reflecting value
+    @new<T: Reflect> (value: T) -> Unknown
 
     // Get the type name
     @type_name (self) -> str
@@ -156,7 +162,7 @@ impl Any {
     // Get full type info
     @type_info (self) -> TypeInfo
 
-    // Check if this Any holds a value of type T
+    // Check if this Unknown holds a value of type T
     @is<T: Reflect> (self) -> bool
 
     // Attempt to downcast to concrete type T
@@ -170,10 +176,12 @@ impl Any {
 }
 ```
 
+> **Note:** `ErasedValue` is an internal compiler type representing the type-erased value storage. It is not accessible to user code.
+
 **Usage:**
 
 ```ori
-let value: Any = Any.new(value: 42)
+let value: Unknown = Unknown.new(value: 42)
 
 assert(condition: value.is<int>())
 assert_eq(actual: value.type_name(), expected: "int")
@@ -234,17 +242,19 @@ impl Reflect for Point {
 
     @field_count (self) -> int = 2
 
-    @field_by_index (self, index: int) -> Option<Any> = match index {
-        0 -> Some(Any.new(value: self.x)),
-        1 -> Some(Any.new(value: self.y)),
+    @field_by_index (self, index: int) -> Option<Unknown> = match index {
+        0 -> Some(Unknown.new(value: self.x)),
+        1 -> Some(Unknown.new(value: self.y)),
         _ -> None,
     }
 
-    @field_by_name (self, name: str) -> Option<Any> = match name {
-        "x" -> Some(Any.new(value: self.x)),
-        "y" -> Some(Any.new(value: self.y)),
+    @field_by_name (self, name: str) -> Option<Unknown> = match name {
+        "x" -> Some(Unknown.new(value: self.x)),
+        "y" -> Some(Unknown.new(value: self.y)),
         _ -> None,
     }
+
+    @current_variant (self) -> Option<VariantInfo> = None
 }
 ```
 
@@ -286,19 +296,25 @@ impl Reflect for Shape {
         Point -> 0,
     }
 
-    @field_by_index (self, index: int) -> Option<Any> = match self {
-        Circle(radius) if index == 0 -> Some(Any.new(value: radius)),
-        Rectangle(width, _) if index == 0 -> Some(Any.new(value: width)),
-        Rectangle(_, height) if index == 1 -> Some(Any.new(value: height)),
+    @field_by_index (self, index: int) -> Option<Unknown> = match self {
+        Circle(radius) if index == 0 -> Some(Unknown.new(value: radius)),
+        Rectangle(width, _) if index == 0 -> Some(Unknown.new(value: width)),
+        Rectangle(_, height) if index == 1 -> Some(Unknown.new(value: height)),
         _ -> None,
     }
 
-    @field_by_name (self, name: str) -> Option<Any> = match self {
-        Circle(radius) if name == "radius" -> Some(Any.new(value: radius)),
-        Rectangle(width, _) if name == "width" -> Some(Any.new(value: width)),
-        Rectangle(_, height) if name == "height" -> Some(Any.new(value: height)),
+    @field_by_name (self, name: str) -> Option<Unknown> = match self {
+        Circle(radius) if name == "radius" -> Some(Unknown.new(value: radius)),
+        Rectangle(width, _) if name == "width" -> Some(Unknown.new(value: width)),
+        Rectangle(_, height) if name == "height" -> Some(Unknown.new(value: height)),
         _ -> None,
     }
+
+    @current_variant (self) -> Option<VariantInfo> = Some(match self {
+        Circle(_) -> $SHAPE_CIRCLE_VARIANT,
+        Rectangle(_, _) -> $SHAPE_RECTANGLE_VARIANT,
+        Point -> $SHAPE_POINT_VARIANT,
+    })
 }
 ```
 
@@ -324,6 +340,8 @@ impl<T: Reflect> Reflect for Container<T> {
     )
 
     // ... other methods
+
+    @current_variant (self) -> Option<VariantInfo> = None
 }
 ```
 
@@ -349,7 +367,7 @@ impl<T: Reflect> Reflect for Container<T> {
 ```ori
 // Helper for iterating all fields of a reflecting value
 extend<T: Reflect> T {
-    @fields (self) -> impl Iterator<Item = (str, Any)> = run(
+    @fields (self) -> impl Iterator where Item == (str, Unknown) = run(
         let count = self.field_count(),
         let info = self.type_info(),
         (0..count).iter()
@@ -376,6 +394,15 @@ for (name, value) in person.fields() do
 // email: Option<str>
 ```
 
+## Object Safety
+
+The `Reflect` trait methods return concrete types (`TypeInfo`, `int`, `Option<Unknown>`, `Option<VariantInfo>`), making them individually object-safe. However, `Reflect` is not practically usable as a trait object because:
+
+1. Deriving requires the concrete type at compile time
+2. `Unknown.new<T: Reflect>()` requires the concrete type `T`
+
+For dynamic dispatch over reflecting types, use `Unknown` which provides runtime type information via `type_info()`.
+
 ## Examples
 
 ### Example 1: Generic JSON Serialization
@@ -399,11 +426,11 @@ use std.reflect { Reflect, TypeKind }
 
 @to_json_struct<T: Reflect> (value: T) -> JsonValue = run(
     let pairs = for (name, field_value) in value.fields()
-        yield (name, to_json_any(value: field_value)),
+        yield (name, to_json_unknown(value: field_value)),
     JsonValue.Object(pairs.collect()),
 )
 
-@to_json_any (value: Any) -> JsonValue = match value.type_info().kind {
+@to_json_unknown (value: Unknown) -> JsonValue = match value.type_info().kind {
     Primitive -> match value.type_name() {
         "int" -> JsonValue.Number(value.unwrap<int>() as float),
         "float" -> JsonValue.Number(value.unwrap<float>()),
@@ -432,7 +459,7 @@ use std.reflect { Reflect, TypeKind }
             `{info.name} {{\n{fields_str.join(separator: ",\n")}\n{prefix}}}`,
         ),
         Enum -> run(
-            let variant = get_variant_name(value:),
+            let variant = value.current_variant().unwrap().name,
             if value.field_count() == 0 then variant
             else run(
                 let fields_str = for (_, field) in value.fields()
@@ -466,7 +493,7 @@ type ValidationError = {
             },
 )
 
-@is_empty_str (value: Any) -> bool = match value.downcast<str>() {
+@is_empty_str (value: Unknown) -> bool = match value.downcast<str>() {
     Some(s) -> is_empty(collection: s),
     None -> false,
 }
@@ -534,9 +561,9 @@ Reflection operations are pure—they don't require capabilities. The `Reflect` 
 
 ### ARC-Safe
 
-- `Any` owns its value (reference counted)
+- `Unknown` owns its value (reference counted)
 - No shared mutable references through reflection
-- Field access returns copies wrapped in `Any`
+- Field access returns copies wrapped in `Unknown`
 - No raw pointers or unsafe memory access
 
 ### Opt-in Design
@@ -579,7 +606,7 @@ error[E0450]: cannot derive `Reflect` for `Container`
 ### Downcast Errors
 
 ```ori
-let value: Any = Any.new(value: "hello")
+let value: Unknown = Unknown.new(value: "hello")
 let result = value.downcast<int>()  // Returns None
 
 // unwrap panics with clear message
@@ -619,20 +646,20 @@ static PERSON_TYPE_INFO: TypeInfo = TypeInfo { ... };
 - By index: O(1) via match dispatch
 - By name: O(1) via static hash map (generated at compile time)
 
-### Any Boxing
+### Unknown Boxing
 
-Creating `Any` requires:
+Creating `Unknown` requires:
 - One allocation for the erased value (reference counted)
 - One pointer copy for TypeInfo reference
 
-This is comparable to `Box<dyn Trait>` in Rust.
+This is comparable to trait object allocation in other languages.
 
 ### Code Size
 
 Each reflecting type adds:
 - One static `TypeInfo` (tens to hundreds of bytes)
 - Match-based field accessors (linear in field count)
-- No vtables or dynamic dispatch beyond `Any`
+- No vtables or dynamic dispatch beyond `Unknown`
 
 ### Opt-Out for Performance
 
@@ -666,7 +693,7 @@ The following are explicitly deferred to future proposals:
 trait MethodReflect: Reflect {
     @method_count (self) -> int
     @method_by_name (self, name: str) -> Option<MethodInfo>
-    @call (self, method: str, args: [Any]) -> Result<Any, str>
+    @call (self, method: str, args: [Unknown]) -> Result<Unknown, str>
 }
 ```
 
@@ -675,7 +702,7 @@ trait MethodReflect: Reflect {
 ```ori
 // Future: modify values through reflection
 trait ReflectMut: Reflect {
-    @set_field_by_name (self, name: str, value: Any) -> Result<void, str>
+    @set_field_by_name (self, name: str, value: Unknown) -> Result<void, str>
 }
 ```
 
@@ -686,6 +713,17 @@ trait ReflectMut: Reflect {
 @create_struct (name: str, fields: [(str, TypeInfo)]) -> TypeInfo
 ```
 
+## Deferred Decisions
+
+The following are explicitly deferred to future proposals:
+
+1. **Trait Object Reflection** — Whether trait objects (`Trait` as a type) should implement `Reflect` and store TypeInfo in the vtable
+2. **Function Reflection** — TypeInfo for function parameter/return types
+3. **Const Generics** — How `[T, max N]` reflects its capacity
+4. **Derive Attributes** — Support for `#reflect(skip)` or `#reflect(rename: ...)`
+
+See Future Extensions for method reflection and mutable reflection.
+
 ## Spec Changes Required
 
 ### New Spec Section: 27-reflection.md
@@ -693,7 +731,7 @@ trait ReflectMut: Reflect {
 Add comprehensive section covering:
 - Reflect trait definition
 - TypeInfo structure
-- Any type
+- Unknown type
 - Derive semantics
 - Standard implementations
 
@@ -706,7 +744,7 @@ Add `Reflect` to the list of derivable traits.
 Add to prelude:
 - `Reflect` trait
 - `TypeInfo`, `TypeKind`, `FieldInfo`, `VariantInfo` types
-- `Any` type
+- `Unknown` type
 
 ### Update: std.reflect Module
 
@@ -723,7 +761,7 @@ New module with:
 | Metadata Storage | Static, compile-time generated |
 | Field Access | O(1) by index and name |
 | Type Safety | All operations return `Option` or `Result` |
-| Any Type | Reference-counted, type-erased container |
+| Unknown Type | Reference-counted, type-erased container |
 | Mutable Reflection | Not supported (deferred) |
 | Method Reflection | Not supported (deferred) |
 | Private Fields | Not visible to reflection |
@@ -732,18 +770,7 @@ New module with:
 | Collections | Implement when element types reflect |
 | Performance | Zero cost for non-reflecting types |
 | Code Size | Static metadata per reflecting type |
-
-## Open Questions
-
-1. **Trait Object Reflection** — Should `dyn Trait` implement `Reflect`? This requires storing TypeInfo in the vtable.
-
-2. **Function Reflection** — Should function types have TypeInfo for parameter/return types?
-
-3. **Const Generics** — How should `[T, max N]` reflect its capacity?
-
-4. **Variant Access** — Should enums provide `@current_variant (self) -> VariantInfo`?
-
-5. **Derive Attributes** — Should reflection support attributes like `#reflect(skip)` or `#reflect(rename: "json_name")`?
+| Variant Access | `@current_variant` returns current enum variant |
 
 ## Conclusion
 

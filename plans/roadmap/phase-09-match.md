@@ -4,6 +4,25 @@
 
 > **SPEC**: `spec/10-patterns.md`
 
+**Proposals**:
+- `proposals/approved/match-expression-syntax-proposal.md` — Match expression and pattern syntax
+- `proposals/approved/pattern-matching-exhaustiveness-proposal.md` — Exhaustiveness checking
+
+---
+
+## 9.0 Match Expression Syntax
+
+**Proposal**: `proposals/approved/match-expression-syntax-proposal.md`
+
+Documents the existing implementation of match expressions. Key specifications:
+- `match(scrutinee, pattern -> expression, ...)` syntax
+- Guard syntax `.match(condition)`
+- Pattern types: literal, binding, wildcard, variant, struct, tuple, list, range, or-pattern, at-pattern
+- Top-to-bottom, first-match-wins evaluation
+- Integer-only literal patterns (no float patterns)
+
+Status: **IMPLEMENTED** — This proposal formalizes existing behavior.
+
 ---
 
 ## 9.1 match Expression

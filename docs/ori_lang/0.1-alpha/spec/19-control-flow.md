@@ -30,19 +30,19 @@ If any expression terminates early (via `break`, `continue`, `?`, or panic), sub
 `break` exits the innermost enclosing loop.
 
 ```ori
-loop(
+loop(run(
     if done then break,
     process(),
-)
+))
 ```
 
 `break` may include a value. The loop expression evaluates to this value:
 
 ```ori
-let result = loop(
+let result = loop(run(
     let x = compute(),
     if x > 100 then break x,
-)
+))
 // result = first x greater than 100
 ```
 
@@ -73,6 +73,17 @@ for x in items yield
     if x < 0 then continue 0,  // use 0 instead
     x * 2,
 ```
+
+### Continue in Loop
+
+In `loop(...)`, `continue` skips to the next iteration. `continue value` is an error (E0861) — loops do not accumulate values:
+
+```ori
+loop(run(
+    if skip then continue,  // OK: start next iteration
+    if bad then continue 42,  // error E0861: loop doesn't collect
+    process(),
+))
 
 ## Labeled Loops
 
