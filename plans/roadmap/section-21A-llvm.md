@@ -68,7 +68,7 @@ sections:
 
 **Status:** 🔶 Partial — JIT working, basic codegen functional, many features missing
 
-## Current Test Results (2026-01-31)
+## Current Test Results (2026-02-01)
 
 | Test Suite | Passed | Failed | Skipped | Total |
 |------------|--------|--------|---------|-------|
@@ -344,103 +344,191 @@ sections:
 
 ## 21.8 Concurrency Patterns
 
+**Related Proposals:**
+- `proposals/approved/parallel-execution-guarantees-proposal.md`
+- `proposals/approved/timeout-spawn-patterns-proposal.md`
+- `proposals/approved/nursery-cancellation-proposal.md`
+- `proposals/approved/sendable-channels-proposal.md`
+- `proposals/approved/cache-pattern-proposal.md`
+- `proposals/approved/task-async-context-proposal.md`
+
 - [ ] **Implement**: Parallel pattern
   - [ ] `parallel(tasks:, max_concurrent:, timeout:)` → `[Result]`
-  - [ ] Task spawning and scheduling
-  - [ ] Result collection
-  - [ ] Timeout handling
+  - [ ] Task spawning using OS threads or async runtime
+  - [ ] Result collection preserving task order
+  - [ ] Timeout handling with cancellation propagation
   - [ ] `uses Suspend` capability requirement
+  - [ ] `Sendable` bound on task return types
+  - [ ] **Rust Tests**: `ori_llvm/src/concurrency/parallel_tests.rs`
 
 - [ ] **Implement**: Spawn pattern
   - [ ] `spawn(tasks:, max_concurrent:)` → `void`
-  - [ ] Fire-and-forget semantics
-  - [ ] Background execution
+  - [ ] Fire-and-forget semantics (errors logged, not propagated)
+  - [ ] Background execution with structured lifetime
+  - [ ] Tasks must complete before parent scope exits
+  - [ ] **Rust Tests**: `ori_llvm/src/concurrency/spawn_tests.rs`
 
 - [ ] **Implement**: Timeout pattern
   - [ ] `timeout(op:, after:)` → `Result<T, TimeoutError>`
-  - [ ] Operation cancellation on timeout
-  - [ ] Proper cleanup
+  - [ ] Operation cancellation on timeout via `is_cancelled()` checks
+  - [ ] Cleanup: resources released, destructors run
+  - [ ] Cooperative cancellation model (no preemption)
+  - [ ] **Rust Tests**: `ori_llvm/src/concurrency/timeout_tests.rs`
 
 - [ ] **Implement**: Cache pattern
   - [ ] `cache(key:, op:, ttl:)` codegen
-  - [ ] Cache key handling
-  - [ ] TTL management
-  - [ ] Cache invalidation
+  - [ ] Cache key hashing via `Hashable` trait
+  - [ ] TTL management with Duration type
+  - [ ] Thread-safe cache access
+  - [ ] `uses Cache` capability requirement
+  - [ ] **Rust Tests**: `ori_llvm/src/concurrency/cache_tests.rs`
 
 - [ ] **Implement**: Nursery pattern
   - [ ] `nursery(body:, on_error:, timeout:)` codegen
-  - [ ] `NurseryErrorMode` handling (CancelRemaining, CollectAll, FailFast)
-  - [ ] Structured concurrency guarantees
+  - [ ] `NurseryErrorMode.CancelRemaining`: cancel siblings on first failure
+  - [ ] `NurseryErrorMode.CollectAll`: run all, collect all errors
+  - [ ] `NurseryErrorMode.FailFast`: return first error immediately
+  - [ ] Structured concurrency: all children complete before nursery returns
+  - [ ] Cancellation propagation via `CancellationError`
+  - [ ] **Rust Tests**: `ori_llvm/src/concurrency/nursery_tests.rs`
 
 - [ ] **Implement**: Channel operations
   - [ ] `channel<T>(buffer:)` → `(Producer, Consumer)` creation
-  - [ ] `channel_in`, `channel_out`, `channel_all` selection
-  - [ ] Send/receive operations
-  - [ ] Buffer management
+  - [ ] `T: Sendable` bound enforced at compile time
+  - [ ] `channel_in`, `channel_out`, `channel_all` selection patterns
+  - [ ] Blocking send/receive operations
+  - [ ] Bounded buffer with backpressure
+  - [ ] `CloneableProducer<T>`, `CloneableConsumer<T>` variants
+  - [ ] **Rust Tests**: `ori_llvm/src/concurrency/channel_tests.rs`
+
+- [ ] **Implement**: Sendable trait enforcement
+  - [ ] Check `Sendable` bound for all cross-task data
+  - [ ] Compile error for non-Sendable types in parallel contexts
+  - [ ] Interior mutability rules per `sendable-interior-mutability-proposal.md`
 
 ---
 
 ## 21.9 Capabilities & With Pattern
 
+**Related Proposals:**
+- `proposals/approved/capability-composition-proposal.md`
+- `proposals/approved/with-pattern-proposal.md`
+- `proposals/approved/default-impl-proposal.md`
+- `proposals/approved/default-impl-resolution-proposal.md`
+- `proposals/approved/intrinsics-capability-proposal.md`
+
 - [ ] **Implement**: Capability tracking
-  - [ ] `uses Capability` declaration checking
-  - [ ] Capability propagation through calls
-  - [ ] Missing capability errors
+  - [ ] `uses Capability` declaration in function signatures
+  - [ ] Capability propagation through call graph
+  - [ ] Compile error if capability not available at call site
+  - [ ] Transitive capability requirements
+  - [ ] **Rust Tests**: `ori_llvm/src/capabilities/tracking_tests.rs`
 
 - [ ] **Implement**: Capability provision
   - [ ] `with Cap = impl in expr` codegen
   - [ ] Multiple capabilities: `with A = a, B = b in expr`
-  - [ ] Provider instance binding
-  - [ ] Scope-based capability resolution
+  - [ ] Provider vtable generation
+  - [ ] Implicit capability parameter threading
+  - [ ] Scope-based resolution (innermost `with` wins)
+  - [ ] **Rust Tests**: `ori_llvm/src/capabilities/provision_tests.rs`
 
 - [ ] **Implement**: Default implementations
-  - [ ] `def impl` resolution
-  - [ ] Override with `with` pattern
-  - [ ] `without def` import handling
+  - [ ] `def impl` vtable generation at module level
+  - [ ] Resolution order: with scope > imported def impl > local def impl
+  - [ ] Override with explicit `with` pattern
+  - [ ] `without def` import to exclude default impl
+  - [ ] One def impl per trait per module
+  - [ ] **Rust Tests**: `ori_llvm/src/capabilities/default_impl_tests.rs`
 
 - [ ] **Implement**: Standard capabilities
-  - [ ] `Print` (default provided)
-  - [ ] `Http`, `FileSystem`, `Clock`, `Random`
-  - [ ] `Crypto`, `Cache`, `Logger`, `Env`
-  - [ ] `Intrinsics`, `Suspend`, `FFI`
+  - [ ] `Print` (default provided, writes to stdout)
+  - [ ] `Http` (network requests)
+  - [ ] `FileSystem` (file I/O)
+  - [ ] `Clock` (time queries)
+  - [ ] `Random` (random number generation)
+  - [ ] `Crypto` (cryptographic operations)
+  - [ ] `Cache` (memoization and caching)
+  - [ ] `Logger` (structured logging)
+  - [ ] `Env` (environment variables)
+  - [ ] `Intrinsics` (SIMD, bit ops per intrinsics-capability-proposal)
+  - [ ] `Suspend` (async/concurrency marker)
+  - [ ] `FFI` (foreign function interface)
+  - [ ] **Rust Tests**: `ori_llvm/src/capabilities/standard_tests.rs`
 
 ---
 
 ## 21.10 Collections & Iterators
 
+**Related Proposals:**
+- `proposals/approved/iterator-traits-proposal.md`
+- `proposals/approved/iterator-performance-semantics-proposal.md`
+- `proposals/approved/computed-map-keys-proposal.md`
+- `proposals/approved/fixed-capacity-list-proposal.md`
+
 - [ ] **Implement**: List operations
-  - [ ] `.push()`, `.pop()` methods
-  - [ ] `.insert()`, `.remove()` methods
-  - [ ] `.get()` → `Option<T>`
-  - [ ] Capacity management
-  - [ ] List iteration
+  - [ ] `.push(element:)` - append to end, grow if needed
+  - [ ] `.pop()` → `Option<T>` - remove and return last element
+  - [ ] `.insert(at:, element:)` - insert at index, shift elements
+  - [ ] `.remove(at:)` → `T` - remove at index, shift elements
+  - [ ] `.get(index:)` → `Option<T>` - safe indexed access
+  - [ ] `list[index]` → `T` - direct access (panics if out of bounds)
+  - [ ] `list[# - 1]` - length-relative indexing
+  - [ ] Capacity management: grow by 2x when full
+  - [ ] List iteration: `for x in list do ...`
+  - [ ] **Rust Tests**: `ori_llvm/src/collections/list_tests.rs`
 
 - [ ] **Implement**: Map operations
-  - [ ] Map literal codegen with computed keys: `{[expr]: value}`
-  - [ ] `.get()` → `Option<V>`
-  - [ ] `.insert()`, `.remove()` methods
-  - [ ] `.contains_key()` method
-  - [ ] Map iteration (key-value pairs)
+  - [ ] Map literal: `{key: value}`, `{"string": value}`
+  - [ ] Computed keys: `{[expr]: value}` where expr is evaluated
+  - [ ] `.get(key:)` → `Option<V>` - lookup by key
+  - [ ] `map[key]` → `Option<V>` - subscript access
+  - [ ] `.insert(key:, value:)` - insert or update
+  - [ ] `.remove(key:)` → `Option<V>` - remove and return
+  - [ ] `.contains_key(key:)` → `bool`
+  - [ ] Map iteration: yields `(K, V)` tuples
+  - [ ] Spread in literals: `{...base, key: value}`
+  - [ ] **Rust Tests**: `ori_llvm/src/collections/map_tests.rs`
 
 - [ ] **Implement**: Set operations
-  - [ ] Set type representation
-  - [ ] Set literal support
-  - [ ] `.insert()`, `.remove()`, `.contains()` methods
-  - [ ] Set operations: union, intersection, difference
+  - [ ] `Set<T>` type representation (hash set)
+  - [ ] Set creation: `Set.from_list(list:)`
+  - [ ] `.insert(element:)` → `bool` (true if new)
+  - [ ] `.remove(element:)` → `bool` (true if existed)
+  - [ ] `.contains(element:)` → `bool`
+  - [ ] `.union(other:)`, `.intersection(other:)`, `.difference(other:)`
+  - [ ] Set iteration: yields `T` elements
+  - [ ] `T: Hashable + Eq` bound
+  - [ ] **Rust Tests**: `ori_llvm/src/collections/set_tests.rs`
 
 - [ ] **Implement**: Iterator trait codegen
-  - [ ] `Iterator.next()` method dispatch
-  - [ ] `DoubleEndedIterator.next_back()` dispatch
-  - [ ] `.map()`, `.filter()`, `.fold()` method chains
-  - [ ] `.collect()` into target collection
-  - [ ] `.enumerate()`, `.zip()`, `.chain()`
-  - [ ] `.take()`, `.skip()`, `.cycle()`
-  - [ ] `.rev()`, `.last()`, `.rfind()`, `.rfold()`
+  - [ ] `Iterator` trait: `type Item; @next (self) -> (Option<Self.Item>, Self)`
+  - [ ] `DoubleEndedIterator` trait: `@next_back (self) -> (Option<Self.Item>, Self)`
+  - [ ] Fused iterator semantics: `None` stays `None`
+  - [ ] `.map(transform:)` - lazy transformation
+  - [ ] `.filter(predicate:)` - lazy filtering
+  - [ ] `.fold(initial:, op:)` - eager reduction
+  - [ ] `.collect()` into target collection via `Collect` trait
+  - [ ] `.enumerate()` - yield `(index, item)` tuples
+  - [ ] `.zip(other:)` - pair with another iterator
+  - [ ] `.chain(other:)` - concatenate iterators
+  - [ ] `.take(count:)`, `.skip(count:)` - limit iteration
+  - [ ] `.cycle()` - repeat infinitely
+  - [ ] Copy elision: avoid intermediate allocations
+  - [ ] **Rust Tests**: `ori_llvm/src/collections/iterator_tests.rs`
+
+- [ ] **Implement**: DoubleEndedIterator methods
+  - [ ] `.rev()` - reverse iteration order
+  - [ ] `.last()` - get last element
+  - [ ] `.rfind(predicate:)` - find from end
+  - [ ] `.rfold(initial:, op:)` - fold from end
+  - [ ] **Rust Tests**: `ori_llvm/src/collections/double_ended_tests.rs`
 
 - [ ] **Implement**: Infinite iterators
-  - [ ] `repeat(value:)` codegen
-  - [ ] `(0..).iter()` infinite range
-  - [ ] Proper bounding with `.take(count:)`
+  - [ ] `repeat(value:)` → infinite iterator yielding value
+  - [ ] `(0..).iter()` → infinite range from 0
+  - [ ] `(0.. by -1).iter()` → infinite descending (requires bound)
+  - [ ] Must use `.take(count:)` before `.collect()`
+  - [ ] **Rust Tests**: `ori_llvm/src/collections/infinite_tests.rs`
 
 ---
 
@@ -507,74 +595,128 @@ sections:
 
 ## 21.13 FFI Support
 
+**Related Proposals:**
+- `proposals/approved/platform-ffi-proposal.md`
+
 - [ ] **Implement**: C FFI
-  - [ ] `extern "c" from "lib" { ... }` declaration parsing
-  - [ ] C type bindings: `c_char`, `c_int`, `c_float`, `c_double`, `c_size`, etc.
-  - [ ] Function name mapping with `as "name"`
-  - [ ] `CPtr` opaque pointer type
-  - [ ] `Option<CPtr>` for nullable pointers
+  - [ ] `extern "c" from "lib" { ... }` declaration codegen
+  - [ ] C type bindings: `c_char`, `c_short`, `c_int`, `c_long`, `c_longlong`
+  - [ ] C type bindings: `c_float`, `c_double`, `c_size`
+  - [ ] Function name mapping with `as "native_name"`
+  - [ ] `CPtr` opaque pointer type (size_t sized)
+  - [ ] `Option<CPtr>` for nullable pointers (None = null)
+  - [ ] C variadic functions: `extern "c" { @printf (fmt: CPtr, ...) -> c_int }`
+  - [ ] Library linking: `-l<lib>` flag generation
+  - [ ] **Rust Tests**: `ori_llvm/src/ffi/c_ffi_tests.rs`
 
 - [ ] **Implement**: Unsafe blocks
-  - [ ] `unsafe { ... }` block codegen
-  - [ ] `uses FFI` capability requirement
-  - [ ] Pointer operations: `ptr_read`, `ptr_write`
+  - [ ] `unsafe { ... }` block codegen (same as safe, marker only)
+  - [ ] `uses FFI` capability requirement at call sites
+  - [ ] Pointer operations: `ptr_read<T>(ptr:)`, `ptr_write<T>(ptr:, value:)`
+  - [ ] Pointer arithmetic (future)
+  - [ ] **Rust Tests**: `ori_llvm/src/ffi/unsafe_tests.rs`
 
 - [ ] **Implement**: JavaScript FFI (WASM target)
-  - [ ] `extern "js" { ... }` declaration
-  - [ ] `extern "js" from "./file.js"` imports
-  - [ ] `JsValue` handle type
+  - [ ] `extern "js" { ... }` declaration codegen
+  - [ ] `extern "js" from "./file.js"` imports with path resolution
+  - [ ] `JsValue` handle type (index into JS heap slab)
   - [ ] `JsPromise<T>` async handling
-  - [ ] Implicit promise resolution at binding sites
+  - [ ] Implicit promise resolution at `let` binding sites
+  - [ ] String marshalling: Ori str ↔ JS TextEncoder/TextDecoder
+  - [ ] **Rust Tests**: `ori_llvm/src/ffi/js_ffi_tests.rs`
 
 - [ ] **Implement**: Memory layout control
-  - [ ] `#repr("c")` struct representation
-  - [ ] C-compatible struct layout
-  - [ ] Callback support
+  - [ ] `#repr("c")` struct attribute
+  - [ ] C-compatible struct layout (field order, padding, alignment)
+  - [ ] Callback support: Ori functions as C function pointers
+  - [ ] **Rust Tests**: `ori_llvm/src/ffi/layout_tests.rs`
 
 ---
 
 ## 21.14 Conditional Compilation
 
+**Related Proposals:**
+- `proposals/approved/conditional-compilation-proposal.md`
+
 - [ ] **Implement**: Target conditionals
-  - [ ] `#target(os: "linux")` codegen (only compile matching branch)
-  - [ ] `#target(arch:)`, `#target(family:)`
-  - [ ] `any_os:`, `not_os:` predicates
-  - [ ] File-level: `#!target(...)`
+  - [ ] `#target(os: "linux")` - compile only if target OS matches
+  - [ ] `#target(arch: "x86_64")` - compile only if arch matches
+  - [ ] `#target(family: "unix")` - compile only if family matches
+  - [ ] `any_os: ["linux", "macos"]` - compile if any match
+  - [ ] `not_os: "windows"` - compile if OS doesn't match
+  - [ ] File-level: `#!target(...)` at top of file
+  - [ ] Non-matching branches not emitted to object file
+  - [ ] **Rust Tests**: `ori_llvm/src/conditional/target_tests.rs`
 
 - [ ] **Implement**: Config conditionals
-  - [ ] `#cfg(debug)`, `#cfg(release)`
-  - [ ] `#cfg(feature: "name")`, `any_feature:`, `not_feature:`
+  - [ ] `#cfg(debug)` - compile only in debug builds
+  - [ ] `#cfg(release)` - compile only in release builds
+  - [ ] `#cfg(feature: "name")` - compile if feature enabled
+  - [ ] `any_feature: ["a", "b"]` - compile if any feature enabled
+  - [ ] `not_feature: "x"` - compile if feature not enabled
+  - [ ] `not_debug` - compile only in release
+  - [ ] **Rust Tests**: `ori_llvm/src/conditional/config_tests.rs`
 
 - [ ] **Implement**: Compile-time constants
-  - [ ] `$target_os`, `$target_arch`, `$target_family`
-  - [ ] `$debug`, `$release`
-  - [ ] False branch not type-checked
+  - [ ] `$target_os` → `"linux"` | `"macos"` | `"windows"` | ...
+  - [ ] `$target_arch` → `"x86_64"` | `"aarch64"` | `"wasm32"` | ...
+  - [ ] `$target_family` → `"unix"` | `"windows"` | `"wasm"`
+  - [ ] `$debug` → `true` in debug builds, `false` otherwise
+  - [ ] `$release` → `true` in release builds, `false` otherwise
+  - [ ] False branch not type-checked (dead code elimination)
+  - [ ] **Rust Tests**: `ori_llvm/src/conditional/const_tests.rs`
 
 - [ ] **Implement**: Compile errors
-  - [ ] `compile_error("msg")` codegen
+  - [ ] `compile_error("msg")` emits error at compile time
+  - [ ] Used with conditionals for unsupported configurations
+  - [ ] **Rust Tests**: `ori_llvm/src/conditional/error_tests.rs`
 
 ---
 
 ## 21.15 Memory Management (ARC)
 
+**Related Proposals:**
+- `proposals/approved/drop-trait-proposal.md`
+- `proposals/approved/memory-model-edge-cases-proposal.md`
+- `proposals/approved/clone-trait-proposal.md`
+
 - [ ] **Implement**: Reference counting
-  - [ ] Atomic refcount allocation for heap types
-  - [ ] `fetch_add` on clone/share
-  - [ ] `fetch_sub` on drop
-  - [ ] Free when refcount reaches zero
+  - [ ] Heap allocation with atomic refcount header: `{ refcount: AtomicU64, data: T }`
+  - [ ] `fetch_add(1, Acquire)` on clone/share
+  - [ ] `fetch_sub(1, Release)` on drop
+  - [ ] Free when refcount reaches zero (after acquire fence)
+  - [ ] Stack-allocated values: no refcount (moved or copied)
+  - [ ] **Rust Tests**: `ori_llvm/src/arc/refcount_tests.rs`
 
 - [ ] **Implement**: Drop trait codegen
-  - [ ] **Rust Tests**: `tests/drop_tests.rs`
-  - [ ] Detect types implementing Drop trait
-  - [ ] Generate destructor calls when refcount reaches zero
-  - [ ] Destructor called before memory reclamation
+  - [ ] Detect types implementing `Drop` trait
+  - [ ] Generate destructor call when refcount reaches zero
+  - [ ] Destructor runs before memory reclamation
+  - [ ] `@drop (self) -> void` signature
+  - [ ] Drop cannot declare `uses Suspend` (compile error)
+  - [ ] **Rust Tests**: `ori_llvm/src/arc/drop_tests.rs`
 
 - [ ] **Implement**: Destruction ordering
-  - [ ] **Rust Tests**: `tests/destruction_order_tests.rs`
-  - [ ] Reverse declaration order for local bindings
-  - [ ] Reverse declaration order for struct fields
-  - [ ] Back-to-front for list elements
-  - [ ] Right-to-left for tuple elements
+  - [ ] Local bindings: reverse declaration order
+  - [ ] Struct fields: reverse declaration order
+  - [ ] List elements: back-to-front (last element first)
+  - [ ] Tuple elements: right-to-left `(a, b, c)` → c, b, a
+  - [ ] Map entries: unspecified order (no guarantees)
+  - [ ] **Rust Tests**: `ori_llvm/src/arc/order_tests.rs`
+
+- [ ] **Implement**: Panic during destruction
+  - [ ] Single panic in destructor: propagate normally
+  - [ ] Other destructors still run after first panic
+  - [ ] Double panic (destructor panics during unwind): immediate abort
+  - [ ] Abort message: "panic during panic - aborting"
+  - [ ] **Rust Tests**: `ori_llvm/src/arc/panic_tests.rs`
+
+- [ ] **Implement**: Early drop
+  - [ ] `drop_early(value:)` built-in
+  - [ ] Immediately decrements refcount and runs destructor if zero
+  - [ ] Value cannot be used after `drop_early`
+  - [ ] Compile error if value used after drop
+  - [ ] **Rust Tests**: `ori_llvm/src/arc/early_drop_tests.rs`
 
 - [ ] **Implement**: Panic during destruction
   - [ ] **Rust Tests**: `tests/destructor_panic_tests.rs`
