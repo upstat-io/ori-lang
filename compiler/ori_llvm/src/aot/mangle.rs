@@ -586,4 +586,119 @@ mod tests {
         // Windows mangler should still produce valid output
         assert_eq!(mangler.mangle_function("", "main"), "_ori_main");
     }
+
+    #[test]
+    fn test_mangle_special_characters_extended() {
+        let mangler = Mangler::new();
+
+        // Comma in generic types (e.g., Map<int, str>)
+        assert!(mangler.mangle_function("", "Map<int, str>").contains("$C"));
+
+        // Parentheses in function types
+        assert!(mangler.mangle_function("", "(int) -> str").contains("$LP"));
+        assert!(mangler.mangle_function("", "(int) -> str").contains("$RP"));
+
+        // Colon in qualified paths
+        assert!(mangler.mangle_function("", "Foo::Bar").contains("$CC"));
+
+        // Dash in identifiers
+        assert!(mangler.mangle_function("", "my-func").contains("$D"));
+
+        // Space gets converted to underscore
+        assert!(mangler.mangle_function("", "my func").contains('_'));
+    }
+
+    #[test]
+    fn test_mangle_hex_escape() {
+        let mangler = Mangler::new();
+
+        // Characters not in the allowed set get hex-escaped
+        // '@' = 0x40 = 64
+        let result = mangler.mangle_function("", "foo@bar");
+        assert!(result.contains("$40"));
+
+        // '#' = 0x23 = 35
+        let result = mangler.mangle_function("", "foo#bar");
+        assert!(result.contains("$23"));
+    }
+
+    #[test]
+    fn test_mangle_module_with_special_paths() {
+        let mangler = Mangler::new();
+
+        // Module path with backslash (Windows-style)
+        let result = mangler.mangle_function("foo\\bar", "baz");
+        assert_eq!(result, "_ori_foo$bar$baz");
+
+        // Module path with colon gets encoded as module separator
+        let result = mangler.mangle_function("C:/foo", "bar");
+        // Colon becomes $ (module separator), so C: becomes C$
+        assert!(result.contains("$"));
+    }
+
+    #[test]
+    fn test_demangle_special_characters() {
+        // Demangle symbols with special character encodings
+
+        // Array type with brackets
+        let demangled = demangle("_ori_$LBint$RB");
+        assert!(demangled.is_some());
+        assert!(demangled.as_ref().unwrap().contains('['));
+        assert!(demangled.as_ref().unwrap().contains(']'));
+
+        // Function type with parentheses
+        let demangled = demangle("_ori_$LPint$RP");
+        assert!(demangled.is_some());
+        assert!(demangled.as_ref().unwrap().contains('('));
+        assert!(demangled.as_ref().unwrap().contains(')'));
+
+        // Comma in generics
+        let demangled = demangle("_ori_Map$Cint");
+        assert!(demangled.is_some());
+        assert!(demangled.unwrap().contains(','));
+
+        // Dash in identifier
+        let demangled = demangle("_ori_my$Dfunc");
+        assert!(demangled.is_some());
+        assert!(demangled.unwrap().contains('-'));
+
+        // Generic marker $G adds opening angle bracket
+        let demangled = demangle("_ori_identity$Gint");
+        assert!(demangled.is_some());
+        assert!(demangled.unwrap().contains('<'));
+
+        // Associated function marker
+        let demangled = demangle("_ori_Option$A$some");
+        assert!(demangled.is_some());
+        assert!(demangled.unwrap().contains('.'));
+
+        // Qualified path with double colon $CC
+        let demangled = demangle("_ori_foo$CCbar");
+        assert!(demangled.is_some());
+        assert!(demangled.unwrap().contains("::"));
+
+        // Open angle bracket via $LT
+        let demangled = demangle("_ori_Option$LTint");
+        assert!(demangled.is_some());
+        assert!(demangled.unwrap().contains('<'));
+    }
+
+    #[test]
+    fn test_demangle_incomplete_escapes() {
+        // Test incomplete escape sequences - these should fallback gracefully
+
+        // Incomplete $L (no following char) - falls back to $L
+        let demangled = demangle("_ori_test$L");
+        assert!(demangled.is_some());
+
+        // Incomplete $R (no following char) - falls back to $R
+        let demangled = demangle("_ori_test$R");
+        assert!(demangled.is_some());
+
+        // Incomplete $C with CC check
+        let demangled = demangle("_ori_test$C");
+        assert!(demangled.is_some());
+        // Should be treated as comma
+        assert!(demangled.unwrap().contains(','));
+    }
 }

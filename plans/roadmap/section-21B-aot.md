@@ -16,7 +16,7 @@ sections:
     status: complete
   - id: "21B.4"
     title: Optimization Pipeline
-    status: not-started
+    status: complete
   - id: "21B.5"
     title: Linking
     status: not-started
@@ -137,26 +137,26 @@ sections:
 
 ## 21B.4 Optimization Pipeline
 
-- [ ] **Implement**: Pass manager configuration
-  - [ ] LLVM new pass manager setup
-  - [ ] Module pass pipeline
-  - [ ] Function pass pipeline
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/passes_tests.rs`
+- [x] **Implement**: Pass manager configuration
+  - [x] LLVM new pass manager setup (via llvm-sys C API)
+  - [x] Module pass pipeline (`LLVMRunPasses` with `default<OX>` strings)
+  - [x] Function pass pipeline (via module adapters)
+  - [x] **Rust Tests**: `ori_llvm/src/aot/passes.rs` (25 tests)
 
-- [ ] **Implement**: Optimization levels
-  - [ ] O0: No optimization (fastest compile)
-  - [ ] O1: Basic optimization (CSE, SimplifyCFG, DCE)
-  - [ ] O2: Standard optimization (LICM, GVN, inlining)
-  - [ ] O3: Aggressive optimization (vectorization, full unrolling)
-  - [ ] Os: Size optimization
-  - [ ] Oz: Aggressive size optimization
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/opt_level_tests.rs`
+- [x] **Implement**: Optimization levels
+  - [x] O0: No optimization (fastest compile)
+  - [x] O1: Basic optimization (CSE, SimplifyCFG, DCE)
+  - [x] O2: Standard optimization (LICM, GVN, inlining)
+  - [x] O3: Aggressive optimization (vectorization, full unrolling)
+  - [x] Os: Size optimization
+  - [x] Oz: Aggressive size optimization
+  - [x] **Rust Tests**: `ori_llvm/src/aot/passes.rs`
 
-- [ ] **Implement**: LTO support
-  - [ ] Thin LTO (parallel, fast)
-  - [ ] Full LTO (maximum optimization)
-  - [ ] LTO object emission
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/lto_tests.rs`
+- [x] **Implement**: LTO support
+  - [x] Thin LTO (parallel, fast) - `thinlto-pre-link<OX>`, `thinlto<OX>`
+  - [x] Full LTO (maximum optimization) - `lto-pre-link<OX>`, `lto<OX>`
+  - [x] LTO object emission configuration
+  - [x] **Rust Tests**: `ori_llvm/src/aot/passes.rs`
 
 ---
 

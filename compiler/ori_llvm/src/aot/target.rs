@@ -896,4 +896,147 @@ mod tests {
         let config = config.with_feature("avx2").without_feature("sse3");
         assert_eq!(config.features(), "-sse4.1,+avx2,-sse3");
     }
+
+    #[test]
+    fn test_target_error_display_all_variants() {
+        // UnsupportedTarget
+        let err = TargetError::UnsupportedTarget {
+            triple: "riscv64-unknown-linux-gnu".to_string(),
+            supported: vec!["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"],
+        };
+        let display = err.to_string();
+        assert!(display.contains("unsupported target"));
+        assert!(display.contains("riscv64-unknown-linux-gnu"));
+        assert!(display.contains("x86_64-unknown-linux-gnu"));
+
+        // InitializationFailed
+        let err = TargetError::InitializationFailed("LLVM init failed".to_string());
+        assert_eq!(
+            err.to_string(),
+            "failed to initialize LLVM target: LLVM init failed"
+        );
+
+        // TargetMachineCreationFailed
+        let err = TargetError::TargetMachineCreationFailed("machine error".to_string());
+        assert_eq!(
+            err.to_string(),
+            "failed to create target machine: machine error"
+        );
+
+        // InvalidTripleFormat
+        let err = TargetError::InvalidTripleFormat {
+            triple: "bad".to_string(),
+            reason: "too few components".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "invalid target triple 'bad': too few components"
+        );
+
+        // InvalidCpu
+        let err = TargetError::InvalidCpu {
+            cpu: "bad-cpu".to_string(),
+            target: "x86_64".to_string(),
+        };
+        assert_eq!(err.to_string(), "invalid CPU 'bad-cpu' for target 'x86_64'");
+
+        // InvalidFeature
+        let err = TargetError::InvalidFeature {
+            feature: "bad-feature".to_string(),
+            reason: "unknown feature".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "invalid feature 'bad-feature': unknown feature"
+        );
+    }
+
+    #[test]
+    fn test_target_triple_display() {
+        let components = TargetTripleComponents {
+            arch: "x86_64".to_string(),
+            vendor: "unknown".to_string(),
+            os: "linux".to_string(),
+            env: Some("gnu".to_string()),
+        };
+        assert_eq!(format!("{}", components), "x86_64-unknown-linux-gnu");
+
+        let components = TargetTripleComponents {
+            arch: "aarch64".to_string(),
+            vendor: "apple".to_string(),
+            os: "darwin".to_string(),
+            env: None,
+        };
+        assert_eq!(format!("{}", components), "aarch64-apple-darwin");
+    }
+
+    #[test]
+    fn test_target_config_builder_all_options() {
+        if let Ok(config) = TargetConfig::native() {
+            // Test all builder methods
+            let config = config
+                .with_cpu("generic")
+                .with_features("+avx2,-sse3")
+                .with_opt_level(OptimizationLevel::Aggressive)
+                .with_reloc_mode(RelocMode::PIC)
+                .with_code_model(CodeModel::Small);
+
+            assert_eq!(config.cpu(), "generic");
+            assert_eq!(config.features(), "+avx2,-sse3");
+            assert_eq!(config.opt_level(), OptimizationLevel::Aggressive);
+        }
+    }
+
+    #[test]
+    fn test_target_config_accessors() {
+        if let Ok(config) = TargetConfig::native() {
+            // Test various accessors
+            assert!(!config.triple().is_empty());
+            let _components = config.components();
+            let _family = config.family();
+            let _ptr_size = config.pointer_size();
+            let _ptr_align = config.pointer_align();
+            assert!(config.is_little_endian());
+        }
+    }
+
+    #[test]
+    fn test_parse_features_with_whitespace() {
+        let features = parse_features(" +avx2 , +fma , -sse3 ").unwrap();
+        assert_eq!(features.len(), 3);
+        assert_eq!(features[0], ("avx2", true));
+        assert_eq!(features[1], ("fma", true));
+        assert_eq!(features[2], ("sse3", false));
+    }
+
+    #[test]
+    fn test_target_config_target_checks() {
+        let components = TargetTripleComponents::parse("x86_64-unknown-linux-gnu").unwrap();
+        let config = TargetConfig {
+            triple: "x86_64-unknown-linux-gnu".to_string(),
+            components,
+            cpu: "generic".to_string(),
+            features: String::new(),
+            opt_level: OptimizationLevel::None,
+            reloc_mode: RelocMode::Default,
+            code_model: CodeModel::Default,
+        };
+        assert!(config.is_linux());
+        assert!(!config.is_macos());
+        assert!(!config.is_windows());
+        assert!(!config.is_wasm());
+
+        let components = TargetTripleComponents::parse("wasm32-unknown-unknown").unwrap();
+        let config = TargetConfig {
+            triple: "wasm32-unknown-unknown".to_string(),
+            components,
+            cpu: "generic".to_string(),
+            features: String::new(),
+            opt_level: OptimizationLevel::None,
+            reloc_mode: RelocMode::Default,
+            code_model: CodeModel::Default,
+        };
+        assert!(config.is_wasm());
+        assert_eq!(config.pointer_size(), 4);
+    }
 }

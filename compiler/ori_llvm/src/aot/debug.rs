@@ -83,6 +83,16 @@ impl DebugLevel {
     }
 }
 
+impl std::fmt::Display for DebugLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => write!(f, "none"),
+            Self::LineTablesOnly => write!(f, "line-tables"),
+            Self::Full => write!(f, "full"),
+        }
+    }
+}
+
 /// Debug format for different platforms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DebugFormat {
@@ -116,6 +126,15 @@ impl DebugFormat {
     #[must_use]
     pub fn is_codeview(&self) -> bool {
         matches!(self, Self::CodeView)
+    }
+}
+
+impl std::fmt::Display for DebugFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Dwarf => write!(f, "DWARF"),
+            Self::CodeView => write!(f, "CodeView"),
+        }
     }
 }
 
@@ -1773,5 +1792,454 @@ mod tests {
         assert_eq!(config.level, DebugLevel::LineTablesOnly);
         assert!(config.optimized);
         assert!(config.split_debug_info);
+    }
+
+    #[test]
+    fn test_debug_config_with_format() {
+        let config = DebugInfoConfig::new(DebugLevel::Full).with_format(DebugFormat::CodeView);
+        assert_eq!(config.format, DebugFormat::CodeView);
+
+        let config = DebugInfoConfig::new(DebugLevel::Full).with_format(DebugFormat::Dwarf);
+        assert_eq!(config.format, DebugFormat::Dwarf);
+    }
+
+    #[test]
+    fn test_debug_config_with_split_debug_info() {
+        let config = DebugInfoConfig::new(DebugLevel::Full).with_split_debug_info(true);
+        assert!(config.split_debug_info);
+
+        let config = DebugInfoConfig::new(DebugLevel::Full).with_split_debug_info(false);
+        assert!(!config.split_debug_info);
+    }
+
+    #[test]
+    fn test_debug_level_display() {
+        assert_eq!(format!("{}", DebugLevel::None), "none");
+        assert_eq!(format!("{}", DebugLevel::LineTablesOnly), "line-tables");
+        assert_eq!(format!("{}", DebugLevel::Full), "full");
+    }
+
+    #[test]
+    fn test_debug_format_display() {
+        assert_eq!(format!("{}", DebugFormat::Dwarf), "DWARF");
+        assert_eq!(format!("{}", DebugFormat::CodeView), "CodeView");
+    }
+
+    #[test]
+    fn test_debug_info_error_all_variants() {
+        let err = DebugInfoError::BasicType {
+            name: "int".to_string(),
+            message: "invalid size".to_string(),
+        };
+        assert!(err.to_string().contains("int"));
+        assert!(err.to_string().contains("invalid size"));
+        assert!(err.to_string().contains("failed to create"));
+
+        let err = DebugInfoError::Disabled;
+        assert!(err.to_string().contains("disabled"));
+    }
+
+    #[test]
+    fn test_line_map_offset_at_start() {
+        let source = "first\nsecond\nthird";
+        let map = LineMap::new(source);
+
+        // Offset 0 should be line 1, column 1
+        let (line, col) = map.offset_to_line_col(0);
+        assert_eq!(line, 1);
+        assert_eq!(col, 1);
+    }
+
+    #[test]
+    fn test_line_map_mid_line() {
+        let source = "hello world";
+        let map = LineMap::new(source);
+
+        // Offset 6 should be line 1, column 7 ("w" in "world")
+        let (line, col) = map.offset_to_line_col(6);
+        assert_eq!(line, 1);
+        assert_eq!(col, 7);
+    }
+
+    #[test]
+    fn test_line_map_multiline() {
+        let source = "line1\nline2\nline3";
+        let map = LineMap::new(source);
+
+        // Start of line 2 (offset 6)
+        let (line, col) = map.offset_to_line_col(6);
+        assert_eq!(line, 2);
+        assert_eq!(col, 1);
+
+        // Middle of line 3 (offset 14, "ne3")
+        let (line, col) = map.offset_to_line_col(14);
+        assert_eq!(line, 3);
+        assert_eq!(col, 3);
+    }
+
+    #[test]
+    fn test_line_map_past_end() {
+        let source = "short";
+        let map = LineMap::new(source);
+
+        // Offset past end should return last line
+        let (line, _col) = map.offset_to_line_col(100);
+        assert_eq!(line, 1);
+        // Column will be clamped to line length
+    }
+
+    #[test]
+    fn test_debug_context_with_function_type() {
+        let context = Context::create();
+        let module = context.create_module("test");
+        let config = DebugInfoConfig::new(DebugLevel::Full);
+
+        let source = "@add (a: int, b: int) -> int = a + b";
+        let path = Path::new("/src/math.ori");
+
+        let ctx = DebugContext::new(&module, &context, config, path, source)
+            .expect("debug info should be enabled");
+
+        // Create function with type info
+        let int_ty = ctx.di().int_type().as_type();
+        let subroutine = ctx.di().create_subroutine_type(
+            Some(int_ty),      // return type
+            &[int_ty, int_ty], // parameters
+        );
+        let _subprogram = ctx
+            .di()
+            .create_function("add", None, 1, subroutine, false, true);
+
+        ctx.finalize();
+        assert!(module.verify().is_ok());
+    }
+
+    #[test]
+    fn test_debug_context_clear_location() {
+        let context = Context::create();
+        let module = context.create_module("test");
+        let config = DebugInfoConfig::new(DebugLevel::Full);
+
+        let source = "let x = 1";
+        let path = Path::new("/src/test.ori");
+
+        let ctx = DebugContext::new(&module, &context, config, path, source)
+            .expect("debug info should be enabled");
+
+        // Create a function
+        let fn_type = context.void_type().fn_type(&[], false);
+        let fn_val = module.add_function("test", fn_type, None);
+        let subprogram = ctx.create_function_at_offset("test", 0);
+        fn_val.set_subprogram(subprogram);
+
+        // Create entry block
+        let entry = context.append_basic_block(fn_val, "entry");
+        let ir_builder = context.create_builder();
+        ir_builder.position_at_end(entry);
+
+        ctx.enter_function(subprogram);
+
+        // Set and then clear location
+        ctx.set_location_from_offset_in_current_scope(&ir_builder, 4);
+        ctx.di().clear_location(&ir_builder);
+
+        ir_builder.build_return(None).unwrap();
+
+        ctx.finalize();
+        assert!(module.verify().is_ok());
+    }
+
+    #[test]
+    fn test_debug_config_with_profiling_enabled() {
+        let config = DebugInfoConfig::new(DebugLevel::Full)
+            .with_profiling(true)
+            .with_optimized(true)
+            .with_split_debug_info(true);
+
+        assert!(config.debug_info_for_profiling);
+        assert!(config.optimized);
+        assert!(config.split_debug_info);
+    }
+
+    #[test]
+    fn test_debug_info_error_std_error_impl() {
+        use std::error::Error;
+
+        let err = DebugInfoError::BasicType {
+            name: "test".to_string(),
+            message: "failed".to_string(),
+        };
+
+        // Test that it implements std::error::Error
+        let _: &dyn Error = &err;
+        assert!(err.source().is_none());
+    }
+
+    #[test]
+    fn test_debug_subroutine_with_void_return() {
+        let context = Context::create();
+        let module = context.create_module("test");
+        let config = DebugInfoConfig::new(DebugLevel::Full);
+
+        let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
+            .expect("debug info should be enabled");
+
+        // Void function: () -> void
+        let subroutine = builder.create_subroutine_type(None, &[]);
+        let _subprogram = builder.create_function("void_func", None, 1, subroutine, false, true);
+
+        // Function with linkage name
+        let subroutine2 = builder.create_subroutine_type(None, &[]);
+        let _subprogram2 = builder.create_function(
+            "exported_func",
+            Some("_ori_exported_func"),
+            2,
+            subroutine2,
+            false,
+            true,
+        );
+
+        builder.finalize();
+        assert!(module.verify().is_ok());
+    }
+
+    #[test]
+    fn test_debug_builder_level_accessor() {
+        let context = Context::create();
+        let module = context.create_module("test");
+        let config = DebugInfoConfig::new(DebugLevel::LineTablesOnly);
+
+        let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
+            .expect("debug info should be enabled");
+
+        assert_eq!(builder.level(), DebugLevel::LineTablesOnly);
+
+        builder.finalize();
+    }
+
+    #[test]
+    fn test_debug_builder_file_accessor() {
+        let context = Context::create();
+        let module = context.create_module("test");
+        let config = DebugInfoConfig::new(DebugLevel::Full);
+
+        let builder = DebugInfoBuilder::new(&module, &context, config, "myfile.ori", "/home/user")
+            .expect("debug info should be enabled");
+
+        // Verify file() returns the file metadata
+        let file = builder.file();
+        assert!(!file.as_mut_ptr().is_null());
+
+        builder.finalize();
+    }
+
+    #[test]
+    fn test_debug_builder_compile_unit_accessor() {
+        let context = Context::create();
+        let module = context.create_module("test");
+        let config = DebugInfoConfig::new(DebugLevel::Full);
+
+        let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
+            .expect("debug info should be enabled");
+
+        // Verify compile_unit() returns the compile unit
+        let cu = builder.compile_unit();
+        assert!(!cu.as_mut_ptr().is_null());
+
+        builder.finalize();
+    }
+
+    #[test]
+    fn test_debug_string_type_detailed() {
+        let context = Context::create();
+        let module = context.create_module("test");
+        let config = DebugInfoConfig::new(DebugLevel::Full);
+
+        let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
+            .expect("debug info should be enabled");
+
+        // Call string_type and verify it produces a valid composite type
+        let str_ty = builder.string_type();
+        assert!(!str_ty.as_mut_ptr().is_null());
+
+        // Create string_type again to test caching behavior
+        let str_ty2 = builder.string_type();
+        assert!(!str_ty2.as_mut_ptr().is_null());
+
+        builder.finalize();
+        assert!(module.verify().is_ok());
+    }
+
+    #[test]
+    fn test_debug_option_type_detailed() {
+        let context = Context::create();
+        let module = context.create_module("test");
+        let config = DebugInfoConfig::new(DebugLevel::Full);
+
+        let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
+            .expect("debug info should be enabled");
+
+        let int_ty = builder.int_type().as_type();
+
+        // Create Option<int> with explicit size
+        let option_ty = builder.option_type(int_ty, 64);
+        assert!(!option_ty.as_mut_ptr().is_null());
+
+        // Create Option<bool> with smaller payload
+        let bool_ty = builder.bool_type().as_type();
+        let option_bool = builder.option_type(bool_ty, 8);
+        assert!(!option_bool.as_mut_ptr().is_null());
+
+        builder.finalize();
+        assert!(module.verify().is_ok());
+    }
+
+    #[test]
+    fn test_debug_result_type_detailed() {
+        let context = Context::create();
+        let module = context.create_module("test");
+        let config = DebugInfoConfig::new(DebugLevel::Full);
+
+        let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
+            .expect("debug info should be enabled");
+
+        let int_ty = builder.int_type().as_type();
+        let str_ty = builder.string_type().as_type();
+
+        // Create Result<int, str>
+        let result_ty = builder.result_type(int_ty, 64, str_ty, 128);
+        assert!(!result_ty.as_mut_ptr().is_null());
+
+        // Create Result<bool, int> with smaller ok type
+        let bool_ty = builder.bool_type().as_type();
+        let result_small = builder.result_type(bool_ty, 8, int_ty, 64);
+        assert!(!result_small.as_mut_ptr().is_null());
+
+        builder.finalize();
+        assert!(module.verify().is_ok());
+    }
+
+    #[test]
+    fn test_debug_list_type_detailed() {
+        let context = Context::create();
+        let module = context.create_module("test");
+        let config = DebugInfoConfig::new(DebugLevel::Full);
+
+        let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
+            .expect("debug info should be enabled");
+
+        let int_ty = builder.int_type().as_type();
+        let float_ty = builder.float_type().as_type();
+
+        // Create [int]
+        let list_int = builder.list_type(int_ty);
+        assert!(!list_int.as_mut_ptr().is_null());
+
+        // Create [float]
+        let list_float = builder.list_type(float_ty);
+        assert!(!list_float.as_mut_ptr().is_null());
+
+        builder.finalize();
+        assert!(module.verify().is_ok());
+    }
+
+    #[test]
+    fn test_debug_struct_with_many_fields() {
+        let context = Context::create();
+        let module = context.create_module("test");
+        let config = DebugInfoConfig::new(DebugLevel::Full);
+
+        let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
+            .expect("debug info should be enabled");
+
+        let int_ty = builder.int_type().as_type();
+        let float_ty = builder.float_type().as_type();
+        let bool_ty = builder.bool_type().as_type();
+        let str_ty = builder.string_type().as_type();
+
+        // Create a struct with many fields
+        let fields = [
+            FieldInfo {
+                name: "id",
+                ty: int_ty,
+                size_bits: 64,
+                offset_bits: 0,
+                line: 1,
+            },
+            FieldInfo {
+                name: "value",
+                ty: float_ty,
+                size_bits: 64,
+                offset_bits: 64,
+                line: 2,
+            },
+            FieldInfo {
+                name: "active",
+                ty: bool_ty,
+                size_bits: 8,
+                offset_bits: 128,
+                line: 3,
+            },
+            FieldInfo {
+                name: "name",
+                ty: str_ty,
+                size_bits: 128,
+                offset_bits: 192,
+                line: 4,
+            },
+        ];
+
+        let _struct_ty = builder.create_struct_type("Record", 1, 320, 64, &fields);
+
+        builder.finalize();
+        assert!(module.verify().is_ok());
+    }
+
+    #[test]
+    fn test_debug_enum_many_variants() {
+        let context = Context::create();
+        let module = context.create_module("test");
+        let config = DebugInfoConfig::new(DebugLevel::Full);
+
+        let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
+            .expect("debug info should be enabled");
+
+        let byte_ty = builder.byte_type().as_type();
+
+        // Create an enum with many variants
+        let _enum_ty = builder.create_enum_type(
+            "Status",
+            1,
+            8,
+            8,
+            &[
+                ("Pending", 0),
+                ("Running", 1),
+                ("Success", 2),
+                ("Failed", 3),
+                ("Cancelled", 4),
+            ],
+            byte_ty,
+        );
+
+        builder.finalize();
+        assert!(module.verify().is_ok());
+    }
+
+    #[test]
+    fn test_debug_char_type() {
+        let context = Context::create();
+        let module = context.create_module("test");
+        let config = DebugInfoConfig::new(DebugLevel::Full);
+
+        let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
+            .expect("debug info should be enabled");
+
+        // Test char_type accessor
+        let char_ty = builder.char_type();
+        assert!(!char_ty.as_mut_ptr().is_null());
+
+        builder.finalize();
+        assert!(module.verify().is_ok());
     }
 }
