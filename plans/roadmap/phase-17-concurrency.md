@@ -1,3 +1,42 @@
+---
+phase: 17
+title: Concurrency Extended
+status: not-started
+tier: 6
+goal: Complete concurrency support with Sendable trait, role-based channels, nursery pattern, and structured concurrency
+sections:
+  - id: "17.0"
+    title: Task and Async Context Definitions
+    status: not-started
+  - id: "17.1"
+    title: Sendable Trait
+    status: not-started
+  - id: "17.2"
+    title: Role-Based Channel Types
+    status: not-started
+  - id: "17.3"
+    title: Channel Constructors
+    status: not-started
+  - id: "17.4"
+    title: Ownership Transfer on Send
+    status: not-started
+  - id: "17.5"
+    title: nursery Pattern
+    status: not-started
+  - id: "17.6"
+    title: Parallel Execution Guarantees
+    status: not-started
+  - id: "17.7"
+    title: Nursery Cancellation Semantics
+    status: not-started
+  - id: "17.8"
+    title: Timeout and Spawn Pattern Semantics
+    status: not-started
+  - id: "17.9"
+    title: Phase Completion Checklist
+    status: not-started
+---
+
 # Phase 17: Concurrency Extended
 
 **Goal**: Complete concurrency support with Sendable trait, role-based channels, nursery pattern, and structured concurrency

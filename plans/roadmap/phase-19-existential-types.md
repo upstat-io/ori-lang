@@ -1,3 +1,29 @@
+---
+phase: 19
+title: Existential Types (impl Trait)
+status: not-started
+tier: 7
+goal: Enable returning opaque types that implement a trait without exposing concrete type
+spec:
+  - spec/06-types.md
+sections:
+  - id: "19.1"
+    title: Return Position impl Trait
+    status: not-started
+  - id: "19.2"
+    title: Type Inference
+    status: not-started
+  - id: "19.3"
+    title: Associated Type Constraints
+    status: not-started
+  - id: "19.4"
+    title: Limitations and Errors
+    status: not-started
+  - id: "19.5"
+    title: impl Trait vs dyn Trait
+    status: not-started
+---
+
 # Phase 19: Existential Types (impl Trait)
 
 **Goal**: Enable returning opaque types that implement a trait without exposing concrete type

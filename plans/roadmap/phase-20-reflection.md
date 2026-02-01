@@ -1,3 +1,38 @@
+---
+phase: 20
+title: Runtime Reflection
+status: not-started
+tier: 7
+goal: Enable runtime type introspection and dynamic operations
+spec:
+  - spec/27-reflection.md
+sections:
+  - id: "20.1"
+    title: Reflect Trait
+    status: not-started
+  - id: "20.2"
+    title: TypeInfo and Related Types
+    status: not-started
+  - id: "20.3"
+    title: Unknown Type
+    status: not-started
+  - id: "20.4"
+    title: Standard Reflect Implementations
+    status: not-started
+  - id: "20.5"
+    title: Field Iteration Extension
+    status: not-started
+  - id: "20.6"
+    title: Generic Serialization Use Case
+    status: not-started
+  - id: "20.7"
+    title: Error Handling
+    status: not-started
+  - id: "20.8"
+    title: Performance Considerations
+    status: not-started
+---
+
 # Phase 20: Runtime Reflection
 
 **Goal**: Enable runtime type introspection and dynamic operations

@@ -1,3 +1,29 @@
+---
+phase: 16
+title: Async Support
+status: not-started
+tier: 6
+goal: Async/await semantics via capabilities
+spec:
+  - spec/14-capabilities.md
+sections:
+  - id: "16.1"
+    title: Async via Capability
+    status: not-started
+  - id: "16.2"
+    title: Structured Concurrency
+    status: not-started
+  - id: "16.3"
+    title: Concurrency Patterns
+    status: not-started
+  - id: "16.4"
+    title: Async Error Traces
+    status: not-started
+  - id: "16.5"
+    title: Phase Completion Checklist
+    status: not-started
+---
+
 # Phase 16: Async Support
 
 **Goal**: Async/await semantics via capabilities

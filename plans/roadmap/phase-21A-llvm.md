@@ -1,3 +1,69 @@
+---
+phase: "21A"
+title: LLVM Backend
+status: in-progress
+tier: 8
+goal: JIT compilation and LLVM codegen for Ori language
+sections:
+  - id: "21.1"
+    title: LLVM Setup & Infrastructure
+    status: complete
+  - id: "21.2"
+    title: Type Lowering
+    status: in-progress
+  - id: "21.3"
+    title: Expression Codegen
+    status: in-progress
+  - id: "21.4"
+    title: Operator Trait Dispatch
+    status: in-progress
+  - id: "21.5"
+    title: Control Flow
+    status: in-progress
+  - id: "21.6"
+    title: Pattern Matching
+    status: in-progress
+  - id: "21.7"
+    title: Function Sequences & Expressions
+    status: in-progress
+  - id: "21.8"
+    title: Concurrency Patterns
+    status: not-started
+  - id: "21.9"
+    title: Capabilities & With Pattern
+    status: not-started
+  - id: "21.10"
+    title: Collections & Iterators
+    status: not-started
+  - id: "21.11"
+    title: Lambda & Closure Support
+    status: in-progress
+  - id: "21.12"
+    title: Built-in Functions
+    status: in-progress
+  - id: "21.13"
+    title: FFI Support
+    status: not-started
+  - id: "21.14"
+    title: Conditional Compilation
+    status: not-started
+  - id: "21.15"
+    title: Memory Management (ARC)
+    status: not-started
+  - id: "21.16"
+    title: Optimization Passes
+    status: not-started
+  - id: "21.17"
+    title: Runtime Support
+    status: in-progress
+  - id: "21.18"
+    title: Architecture (Reference)
+    status: complete
+  - id: "21.19"
+    title: Phase Completion Checklist
+    status: not-started
+---
+
 # Phase 21A: LLVM Backend
 
 **Status:** 🔶 Partial — JIT working, basic codegen functional, many features missing
