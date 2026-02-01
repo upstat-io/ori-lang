@@ -1,9 +1,11 @@
 # Proposal: Match Expression Syntax
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-31
+**Approved:** 2026-01-31
 **Affects:** Compiler, parser, type system, spec
+**Depends On:** Pattern Matching Exhaustiveness Proposal (approved)
 
 ---
 
@@ -188,7 +190,7 @@ true
 false
 ```
 
-Matches exact literal values. Negative integer literals are supported.
+Matches exact literal values. Numeric literals must be integers; float literals are not supported in patterns. Negative integer literals are supported.
 
 ```ori
 match(n,
@@ -416,47 +418,7 @@ Patterns are checked against the scrutinee type:
 
 ## Grammar
 
-```ebnf
-match_expr     = "match" "(" expression "," match_arm { "," match_arm } [ "," ] ")" .
-match_arm      = match_pattern [ guard ] "->" expression .
-guard          = ".match" "(" expression ")" .
-
-match_pattern  = literal_pattern
-               | identifier_pattern
-               | wildcard_pattern
-               | variant_pattern
-               | struct_pattern
-               | tuple_pattern
-               | list_pattern
-               | range_pattern
-               | or_pattern
-               | at_pattern .
-
-literal_pattern    = [ "-" ] ( int_literal | float_literal )
-                   | string_literal
-                   | char_literal
-                   | bool_literal .
-
-identifier_pattern = identifier .
-wildcard_pattern   = "_" .
-
-variant_pattern    = type_path [ "(" [ match_pattern { "," match_pattern } ] ")" ] .
-
-struct_pattern     = [ type_path ] "{" [ field_pattern { "," field_pattern } ] [ ".." ] "}" .
-field_pattern      = identifier [ ":" match_pattern ] .
-
-tuple_pattern      = "(" [ match_pattern { "," match_pattern } ] ")" .
-
-list_pattern       = "[" [ list_pattern_elems ] "]" .
-list_pattern_elems = match_pattern { "," match_pattern } [ "," ".." [ identifier ] ]
-                   | ".." [ identifier ] .
-
-range_pattern      = literal_pattern ( ".." | "..=" ) literal_pattern .
-
-or_pattern         = match_pattern "|" match_pattern .
-
-at_pattern         = identifier "@" match_pattern .
-```
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § PATTERNS
 
 ---
 

@@ -1219,6 +1219,16 @@ cargo st tests/spec/patterns/     # Tier 3
 
 **Known issue:** Parallel test runner has a thread-safety panic (index out of bounds on ExprArena). Individual test directories pass; full test run may show panic but still completes.
 
+**Match Expression Syntax** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/match-expression-syntax-proposal.md`
+- Implementation: Phase 9.0 (formalizes existing implementation)
+- Documents `match(scrutinee, pattern -> expression, ...)` syntax
+- Guard syntax `.match(condition)` for conditional matching
+- Pattern types: literal, binding, wildcard, variant, struct, tuple, list, range, or-pattern, at-pattern
+- Integer-only literal patterns (no float patterns)
+- Depends on: Pattern Matching Exhaustiveness Proposal (approved)
+- Blocked on: None (already implemented)
+
 **Pattern Matching Exhaustiveness** — ✅ APPROVED 2026-01-30
 - Proposal: `proposals/approved/pattern-matching-exhaustiveness-proposal.md`
 - Implementation: Phase 9.4
@@ -1249,6 +1259,51 @@ cargo st tests/spec/patterns/     # Tier 3
 - Empty iteration executes no body, returns `void`
 - Desugars to `.iter().for_each()` (requires `for_each` on Iterator)
 - Blocked on: None (iterator-traits complete)
+
+**Loop Expression** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/loop-expression-proposal.md`
+- Implementation: Phase 10.3
+- `loop(body)` infinite loop until `break`
+- Body is single expression; use `run(...)` for sequences
+- Type inferred from break values; `void` for break without value; `Never` for infinite loops
+- Multiple breaks must have compatible types (E0860)
+- `continue value` is error (E0861) — loops don't collect
+- Labeled loops: `loop:name(body)` with `break:name`/`continue:name`
+- Blocked on: None (labeled-loops and never-type complete)
+
+**Variadic Functions** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/variadic-functions-proposal.md`
+- Implementation: Phase 12
+- Homogeneous variadics: `@sum (numbers: ...int) -> int` — all args same type
+- Trait object variadics: `@print_any (items: ...Printable)` — any type implementing trait
+- Spread into variadic: `sum(...list)` — expand list into variadic position
+- C variadic interop: `extern "c" { @printf (...) }` — unsafe, no type
+- Function type: variadic `@f (items: ...T) -> R` has type `([T]) -> R`
+- Empty calls require explicit type annotation for generic variadics
+- Variadic args are positional only at call site (no named argument for variadic param)
+- Blocked on: Phase 11 (FFI) for C variadic interop
+
+**Reflection API** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/reflection-api-proposal.md`
+- Implementation: Phase 20
+- Opt-in `Reflect` trait with `#derive(Reflect)` for type introspection
+- `Unknown` type for type-erased values with safe downcasting
+- `TypeInfo`, `FieldInfo`, `VariantInfo` for compile-time metadata
+- `@current_variant` method for enum variant inspection
+- Standard implementations for all primitives and collections
+- Field iteration via `.fields()` extension method
+- Enables generic serialization (JSON, TOML, etc.)
+- Blocked on: None (Phase 3 complete)
+
+**Package Version Resolution** — ✅ APPROVED 2026-01-31
+- Proposal: `proposals/approved/package-version-resolution-proposal.md`
+- Implementation: `plans/pkg_mgmt/phase-02-resolution.md`
+- Exact versions only — no caret, tilde, or ranges
+- Single version policy — only one version per package in dependency graph
+- Bundled stdlib — `std.*` ships with `ori`, no version needed in manifest
+- Conflicts produce errors with patch suggestions
+- `[patch]` section for version overrides
+- Blocked on: None (part of package management infrastructure)
 
 ---
 

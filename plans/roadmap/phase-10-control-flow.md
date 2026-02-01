@@ -6,6 +6,7 @@
 > **PROPOSALS**:
 > - `proposals/approved/if-expression-proposal.md` — Conditional expression semantics
 > - `proposals/approved/error-return-traces-proposal.md` — Automatic error trace collection
+> - `proposals/approved/loop-expression-proposal.md` — Loop expression semantics
 
 ---
 
@@ -164,6 +165,8 @@
 
 ## 10.3 loop Expression
 
+**Proposal**: `proposals/approved/loop-expression-proposal.md`
+
 - [ ] **Implement**: Parse `loop(body)` — spec/09-expressions.md § Loop Expressions
   - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — loop parsing
   - [ ] **Ori Tests**: `tests/spec/expressions/loops.ori`
@@ -175,6 +178,12 @@
   - [ ] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for break handling
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — break handling codegen
+
+- [ ] **Implement**: Body is single expression; use `run(...)` for sequences — proposals/approved/loop-expression-proposal.md § Body
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — loop body parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/loops.ori`
+  - [ ] **LLVM Support**: LLVM codegen for loop body
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — loop body codegen
 
 - [ ] **Implement**: Parse `break` with optional value — spec/19-control-flow.md § Break
   - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — break parsing
@@ -188,11 +197,41 @@
   - [ ] **LLVM Support**: LLVM codegen for continue
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — continue codegen
 
-- [ ] **Implement**: Result type from `break` value — spec/19-control-flow.md § Break
+- [ ] **Implement**: `continue value` error in loop — proposals/approved/loop-expression-proposal.md § Continue With Value
+  - [ ] Error E0861 when continue has value in loop context
+  - [ ] Helpful suggestion to use break or remove value
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/loops.rs` — continue value validation
+  - [ ] **Ori Tests**: `tests/compile-fail/loop_continue_value.ori`
+  - [ ] **LLVM Support**: N/A (compile-time check)
+  - [ ] **LLVM Rust Tests**: N/A
+
+- [ ] **Implement**: Result type from `break` value — proposals/approved/loop-expression-proposal.md § Loop Type
   - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — break type inference
   - [ ] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for break type inference
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — break type inference codegen
+
+- [ ] **Implement**: Type `void` for break without value — proposals/approved/loop-expression-proposal.md § Break Without Value
+  - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — void loop type
+  - [ ] **Ori Tests**: `tests/spec/expressions/loops.ori`
+  - [ ] **LLVM Support**: LLVM codegen for void loop
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — void loop codegen
+
+- [ ] **Implement**: Type `Never` for infinite loops — proposals/approved/loop-expression-proposal.md § Infinite Loop Type
+  - [ ] Loop with no break has type Never
+  - [ ] Coerces to any type in value context
+  - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — Never loop type
+  - [ ] **Ori Tests**: `tests/spec/expressions/loops.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Never loop
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — Never loop codegen
+
+- [ ] **Implement**: Multiple break paths type unification — proposals/approved/loop-expression-proposal.md § Multiple Break Paths
+  - [ ] All breaks must have compatible types
+  - [ ] Error E0860 for type mismatch
+  - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — break type unification
+  - [ ] **Ori Tests**: `tests/compile-fail/loop_break_type_mismatch.ori`
+  - [ ] **LLVM Support**: LLVM codegen for break unification
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — break unification codegen
 
 **Labeled loops:**
 

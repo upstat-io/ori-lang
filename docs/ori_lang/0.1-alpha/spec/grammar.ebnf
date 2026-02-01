@@ -162,8 +162,11 @@ extension_item   = identifier "." identifier .
 // --- FFI (Foreign Function Interface) ---
 // See: spec/23-ffi.md
 
-extern_block = [ "pub" ] "extern" string_literal [ "from" string_literal ] "{" { extern_item } "}" .
-extern_item  = "@" identifier params "->" type [ "as" string_literal ] .
+extern_block  = [ "pub" ] "extern" string_literal [ "from" string_literal ] "{" { extern_item } "}" .
+extern_item   = "@" identifier extern_params "->" type [ "as" string_literal ] .
+extern_params = "(" [ extern_param { "," extern_param } ] [ c_variadic ] ")" .
+extern_param  = identifier ":" type .
+c_variadic    = "," "..." .  /* C-style variadic - only valid in extern "c" blocks */
 
 
 // ============================================================================
@@ -237,7 +240,8 @@ method_sig     = "@" identifier params "->" type .
 default_method = method_sig "=" expression .
 assoc_type     = "type" identifier [ ":" bounds ] [ "=" type ] .
 params         = "(" [ param { "," param } ] ")" .
-param          = identifier ":" type .
+param          = identifier ":" type | variadic_param .
+variadic_param = identifier ":" "..." type .
 
 // --- Implementations ---
 // See: 08-declarations.md § Implementations
@@ -340,9 +344,10 @@ postfix_op     = "." identifier [ call_args ]        /* field/method access */
                | "as" type                           /* infallible type conversion */
                | "as?" type .                        /* fallible type conversion */
 call_args      = "(" [ call_arg { "," call_arg } ] ")" .
-call_arg       = named_arg | positional_arg .
+call_arg       = named_arg | positional_arg | spread_arg .
 named_arg      = identifier ":" expression .
 positional_arg = expression .
+spread_arg     = "..." expression .  /* spread into variadic position only */
 
 // --- Unary Expressions ---
 // See: 09-expressions.md § Unary Expressions
@@ -485,7 +490,7 @@ match_pattern = literal_pattern
               | or_pattern
               | at_pattern .
 
-literal_pattern     = [ "-" ] ( int_literal | float_literal ) | string_literal | char_literal | bool_literal .
+literal_pattern     = [ "-" ] int_literal | string_literal | char_literal | bool_literal .
 identifier_pattern  = identifier .
 wildcard_pattern    = "_" .
 variant_pattern     = type_path [ "(" [ match_pattern { "," match_pattern } ] ")" ] .

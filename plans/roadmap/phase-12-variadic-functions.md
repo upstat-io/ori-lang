@@ -6,6 +6,8 @@
 
 **Dependencies**: Phase 11 (FFI) for C variadic interop
 
+**Proposal**: `proposals/approved/variadic-functions-proposal.md`
+
 ---
 
 ## Design Decisions
@@ -179,8 +181,8 @@ print_all(1, 2, 3)              // OK: all int
 print_all("a", "b", "c")        // OK: all str
 print_all(1, "a")               // Error: mixed types
 
-// With explicit heterogeneous (dyn trait)
-@print_any (items: ...dyn Printable) -> void = run(
+// With explicit heterogeneous (trait object)
+@print_any (items: ...Printable) -> void = run(
     for item in items do print(item.to_str())
 )
 
@@ -305,7 +307,7 @@ Defer to future consideration. Current phase focuses on function parameters only
 
 ```ori
 // Ori's format function (like Python's format or Rust's format!)
-@format (template: str, args: ...dyn Printable) -> str = run(
+@format (template: str, args: ...Printable) -> str = run(
     let mut result = ""
     let mut arg_index = 0
     let mut i = 0

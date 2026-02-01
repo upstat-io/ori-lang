@@ -666,16 +666,85 @@ See [Control Flow § Labeled Loops](19-control-flow.md#labeled-loops) for label 
 
 ## Loop Expression
 
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § loop_expr
+
+The `loop(...)` expression repeatedly evaluates its body until a `break` is encountered.
+
+### Syntax
+
 ```ori
-loop(
-    match(ch.receive(),
-        Some(v) -> process(v),
-        None -> break,
-    ),
-)
+loop(body)
+loop:name(body)  // labeled
 ```
 
-`break` exits; `continue` skips to next iteration.
+### Body
+
+The body is a single expression. For multiple expressions, use `run(...)`:
+
+```ori
+// Single expression
+loop(process_next())
+
+// Multiple expressions
+loop(run(
+    let x = compute(),
+    if done(x) then break x,
+    update(x),
+))
+```
+
+### Loop Type
+
+The type of a `loop` expression is determined by its break values:
+
+- **Break with value**: Loop type is the break value type
+- **Break without value**: Loop type is `void`
+- **No break**: Loop type is `Never` (infinite loop)
+
+```ori
+let result: int = loop(run(
+    let x = compute(),
+    if x > 100 then break x,
+))  // type: int
+
+loop(run(
+    let msg = receive(),
+    if is_shutdown(msg) then break,
+    process(msg),
+))  // type: void
+
+@server () -> Never = loop(handle_request())  // type: Never
+```
+
+### Multiple Break Paths
+
+All break paths must produce compatible types:
+
+```ori
+loop(run(
+    if a then break 1,      // int
+    if b then break "two",  // error E0860: expected int, found str
+))
+```
+
+### Continue
+
+`continue` skips the rest of the current iteration:
+
+```ori
+loop(run(
+    let item = next(),
+    if is_none(item) then break,
+    if skip(item.unwrap()) then continue,
+    process(item.unwrap()),
+))
+```
+
+`continue value` in a loop is an error (E0861). Loops do not accumulate values.
+
+### Labeled Loops
+
+Labels allow `break` and `continue` to target a specific loop. See [Control Flow § Labeled Loops](19-control-flow.md#labeled-loops) for label semantics.
 
 ## Lambda
 
