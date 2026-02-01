@@ -1,10 +1,10 @@
-# Phase 5: Collections
+# Section 5: Collections
 
 **Goal**: Implement formatting for collection types: lists, maps, tuples, struct literals, and ranges.
 
 > **DESIGN**: `docs/tooling/formatter/design/02-constructs/collections.md`
 
-## Phase Status: ✅ Complete
+## Section Status: ✅ Complete
 
 ## 5.1 Lists
 
@@ -209,9 +209,9 @@ Ranges are always inline (never break).
 - Complexity detection: simple items (literals, identifiers) wrap, complex items (calls, structs, nested) one-per-line
 - Multi-line collection literals: parser updated to skip newlines in lists/tuples
 
-**Compiler features not yet implemented** (Phase 15C dependencies):
-- Spread operators (`...`) - see `plans/roadmap/phase-15C-literals-operators.md`
-- Stepped ranges (`by`) - see `plans/roadmap/phase-15C-literals-operators.md`
+**Compiler features not yet implemented** (Section 15C dependencies):
+- Spread operators (`...`) - see `plans/roadmap/section-15C-literals-operators.md`
+- Stepped ranges (`by`) - see `plans/roadmap/section-15C-literals-operators.md`
 
 These are language features requiring lexer, parser, type checker, and evaluator changes. The formatter will automatically support them once implemented in the compiler.
 

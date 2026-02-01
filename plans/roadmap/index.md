@@ -557,7 +557,7 @@ ori build, build command
 ---
 
 ### Section 22: Tooling
-**File:** `section-22-tooling.md` | **Tier:** 8 | **Status:** Not Started
+**File:** `section-22-tooling.md` | **Tier:** 8 | **Status:** Partial
 
 ```
 tooling, CLI, command line
@@ -569,6 +569,10 @@ ori build, compile, AOT
 diagnostic, error message
 warning, lint, suggestion
 LSP, language server, IDE
+package, pkg, dependency, dependencies
+oripk.toml, oripk.lock, manifest
+ori install, ori add, ori remove
+ori publish, registry, cache
 ```
 
 ---
