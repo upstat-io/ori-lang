@@ -143,6 +143,17 @@ pub fn integer_overflow(operation: &str) -> EvalError {
     EvalError::new(format!("integer overflow in {operation}"))
 }
 
+/// Maximum recursion depth exceeded error.
+///
+/// Used on WASM to prevent stack exhaustion with a clear error message
+/// instead of a cryptic "memory access out of bounds".
+#[cold]
+pub fn recursion_limit_exceeded(limit: usize) -> EvalError {
+    EvalError::new(format!(
+        "maximum recursion depth exceeded (WASM limit: {limit})"
+    ))
+}
+
 // Method Call Errors
 
 /// No such method on a type.
@@ -607,6 +618,14 @@ mod tests {
         let err = integer_overflow("addition");
         assert!(err.message.contains("overflow"));
         assert!(err.message.contains("addition"));
+    }
+
+    #[test]
+    fn test_recursion_limit_exceeded() {
+        let err = recursion_limit_exceeded(200);
+        assert!(err.message.contains("recursion"));
+        assert!(err.message.contains("200"));
+        assert!(err.message.contains("WASM"));
     }
 
     // Method Call Errors

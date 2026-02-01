@@ -400,6 +400,9 @@ impl Interpreter<'_> {
         method: &UserMethod,
         args: &[Value],
     ) -> EvalResult {
+        // Check recursion limit before making the call (WASM only)
+        self.check_recursion_limit()?;
+
         // Method params include 'self' as first parameter
         if method.params.len() != args.len() + 1 {
             return Err(wrong_function_args(method.params.len() - 1, args.len()));
@@ -440,6 +443,9 @@ impl Interpreter<'_> {
         method: &UserMethod,
         args: &[Value],
     ) -> EvalResult {
+        // Check recursion limit before making the call (WASM only)
+        self.check_recursion_limit()?;
+
         // Associated functions don't have 'self', so params == args
         if method.params.len() != args.len() {
             return Err(wrong_function_args(method.params.len(), args.len()));
