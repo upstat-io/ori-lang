@@ -5,8 +5,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-WASM_DIR="$SCRIPT_DIR/playground/wasm"
-PKG_DIR="$SCRIPT_DIR/playground/pkg"
+WASM_DIR="$SCRIPT_DIR/website/playground-wasm"
+PKG_DIR="$WASM_DIR/pkg"
 WEBSITE_WASM_DIR="$SCRIPT_DIR/website/src/wasm"
 
 # Check for --clean flag
@@ -16,7 +16,7 @@ if [[ "$1" == "--clean" ]]; then
 fi
 
 echo "=== Building WASM ==="
-cd "$WASM_DIR" && wasm-pack build --target web --out-dir ../pkg
+cd "$WASM_DIR" && wasm-pack build --target web --out-dir pkg
 
 echo "=== Copying to website ==="
 mkdir -p "$WEBSITE_WASM_DIR"

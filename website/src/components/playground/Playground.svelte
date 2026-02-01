@@ -34,7 +34,7 @@
       wasmVersion = 'WASM not loaded';
       result = {
         success: false,
-        error: 'Failed to load WASM module.\n\nBuild with:\ncd playground/wasm && wasm-pack build --target web --out-dir ../pkg',
+        error: 'Failed to load WASM module.\n\nBuild with:\ncd website/playground-wasm && wasm-pack build --target web --out-dir pkg',
         error_type: 'runtime',
       };
       status = 'error';

@@ -5,7 +5,6 @@ on:
     branches: [master]
     paths:
       - 'website/**'
-      - 'playground/wasm/**'
       - 'compiler/**'
       - '.github/workflows/deploy-website.yml'
       - 'docs/**'
@@ -35,7 +34,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: playground/wasm -> playground/wasm/target
+          workspaces: website/playground-wasm -> website/playground-wasm/target
           cache-on-failure: true
 
       - name: Install wasm-pack
@@ -43,8 +42,8 @@ jobs:
 
       - name: Build WASM
         run: |
-          cd playground/wasm
-          wasm-pack build --target web --out-dir ../pkg --release
+          cd website/playground-wasm
+          wasm-pack build --target web --out-dir pkg --release
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

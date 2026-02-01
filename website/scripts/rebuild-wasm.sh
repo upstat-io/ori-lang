@@ -8,11 +8,11 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WEBSITE_DIR="$(dirname "$SCRIPT_DIR")"
-WASM_DIR="$WEBSITE_DIR/../playground/wasm"
+WASM_DIR="$WEBSITE_DIR/playground-wasm"
 
 echo "Building WASM..."
 cd "$WASM_DIR"
-wasm-pack build --target web --release --out-dir ../pkg
+wasm-pack build --target web --release --out-dir pkg
 
 echo ""
 echo "Copying to website..."
