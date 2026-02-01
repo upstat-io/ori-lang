@@ -5,7 +5,7 @@
 //!
 //! # Architecture
 //!
-//! The linker driver uses a trait-based dispatch pattern (inspired by rustc):
+//! The linker driver uses enum-based dispatch:
 //!
 //! ```text
 //! ┌─────────────────────────────────────────────────────────┐
@@ -26,7 +26,7 @@
 //!
 //! # Key Features
 //!
-//! - **Trait-based dispatch**: Clean abstraction with platform-specific implementations
+//! - **Enum-based dispatch**: Static dispatch with exhaustiveness checking
 //! - **Response file support**: Automatic handling of long command lines
 //! - **Static/dynamic hints**: Clean API for switching between static and dynamic linking
 //! - **Three-tier argument system**: Separates linker args from cc wrapper args
@@ -49,6 +49,14 @@
 //! })?;
 //! ```
 
+mod gcc;
+mod msvc;
+mod wasm;
+
+pub use gcc::GccLinker;
+pub use msvc::MsvcLinker;
+pub use wasm::WasmLinker;
+
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fmt;
@@ -56,7 +64,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use super::target::{TargetConfig, TargetTripleComponents};
+use crate::aot::target::{TargetConfig, TargetTripleComponents};
 
 // ============================================================================
 // Error Types
@@ -124,64 +132,52 @@ impl fmt::Display for LinkerError {
 impl std::error::Error for LinkerError {}
 
 // ============================================================================
-// Link Configuration
+// Output Types
 // ============================================================================
 
-/// Output type for the linker.
+/// Type of output to produce from linking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LinkOutput {
-    /// Executable binary.
+    /// Standard executable.
     #[default]
     Executable,
+    /// Position-independent executable (PIE).
+    PositionIndependentExecutable,
     /// Shared library (.so, .dylib, .dll).
     SharedLibrary,
     /// Static library (.a, .lib).
     StaticLibrary,
-    /// Position-independent executable.
-    PositionIndependentExecutable,
 }
 
 impl LinkOutput {
-    /// Get the typical file extension for this output type on the given platform.
+    /// Get the appropriate file extension for this output type.
     #[must_use]
     pub fn extension(&self, target: &TargetTripleComponents) -> &'static str {
-        match self {
-            Self::Executable | Self::PositionIndependentExecutable => {
-                if target.is_windows() {
-                    "exe"
-                } else {
-                    ""
-                }
-            }
-            Self::SharedLibrary => {
-                if target.is_windows() {
-                    "dll"
-                } else if target.is_macos() {
-                    "dylib"
-                } else {
-                    "so"
-                }
-            }
-            Self::StaticLibrary => {
-                if target.is_windows() {
-                    "lib"
-                } else {
-                    "a"
-                }
-            }
+        match (self, target.os.as_str()) {
+            (Self::Executable | Self::PositionIndependentExecutable, "windows") => "exe",
+            (Self::Executable | Self::PositionIndependentExecutable, _) => "",
+            (Self::SharedLibrary, "windows") => "dll",
+            (Self::SharedLibrary, "darwin") => "dylib",
+            (Self::SharedLibrary, _) => "so",
+            (Self::StaticLibrary, "windows") => "lib",
+            (Self::StaticLibrary, _) => "a",
         }
     }
 }
 
-/// How to link a library.
+// ============================================================================
+// Library Types
+// ============================================================================
+
+/// Kind of library to link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LibraryKind {
-    /// Let the linker decide (default).
+    /// Let the linker decide (usually prefers dynamic).
     #[default]
     Unspecified,
-    /// Link statically.
+    /// Force static linking.
     Static,
-    /// Link dynamically.
+    /// Force dynamic linking.
     Dynamic,
 }
 
@@ -190,57 +186,61 @@ pub enum LibraryKind {
 pub struct LinkLibrary {
     /// Library name (without lib prefix or extension).
     pub name: String,
-    /// How to link this library.
+    /// Library kind (static/dynamic/unspecified).
     pub kind: LibraryKind,
-    /// Optional path to search for this library.
+    /// Optional search path for this specific library.
     pub search_path: Option<PathBuf>,
 }
 
 impl LinkLibrary {
-    /// Create a new library with default settings.
+    /// Create a new library reference.
     #[must_use]
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new(name: &str) -> Self {
         Self {
-            name: name.into(),
+            name: name.to_string(),
             kind: LibraryKind::Unspecified,
             search_path: None,
         }
     }
 
-    /// Link this library statically.
+    /// Set this library to static linking.
     #[must_use]
     pub fn static_lib(mut self) -> Self {
         self.kind = LibraryKind::Static;
         self
     }
 
-    /// Link this library dynamically.
+    /// Set this library to dynamic linking.
     #[must_use]
     pub fn dynamic_lib(mut self) -> Self {
         self.kind = LibraryKind::Dynamic;
         self
     }
 
-    /// Add a search path for this library.
+    /// Set a search path for this library.
     #[must_use]
-    pub fn with_search_path(mut self, path: impl Into<PathBuf>) -> Self {
-        self.search_path = Some(path.into());
+    pub fn with_search_path(mut self, path: &str) -> Self {
+        self.search_path = Some(PathBuf::from(path));
         self
     }
 }
 
-/// Input configuration for a link operation.
+// ============================================================================
+// Link Input
+// ============================================================================
+
+/// Input configuration for the linker.
 #[derive(Debug, Clone, Default)]
 pub struct LinkInput {
     /// Object files to link.
     pub objects: Vec<PathBuf>,
     /// Output file path.
     pub output: PathBuf,
-    /// Output type (executable, shared library, etc.).
+    /// Type of output to produce.
     pub output_kind: LinkOutput,
     /// Libraries to link.
     pub libraries: Vec<LinkLibrary>,
-    /// Additional library search paths.
+    /// Library search paths.
     pub library_paths: Vec<PathBuf>,
     /// Symbols to export (for shared libraries).
     pub exported_symbols: Vec<String>,
@@ -248,29 +248,33 @@ pub struct LinkInput {
     pub lto: bool,
     /// Strip debug symbols.
     pub strip: bool,
-    /// Enable dead code elimination.
+    /// Enable garbage collection of unused sections.
     pub gc_sections: bool,
-    /// Additional raw arguments to pass to the linker.
+    /// Additional linker arguments.
     pub extra_args: Vec<String>,
-    /// Linker to use (None = auto-detect).
+    /// Override the linker flavor.
     pub linker: Option<LinkerFlavor>,
 }
 
-/// Which linker implementation to use.
+// ============================================================================
+// Linker Flavor
+// ============================================================================
+
+/// Linker flavor/family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LinkerFlavor {
-    /// GNU-style linker via cc wrapper (gcc, clang).
+    /// GNU-compatible (gcc, clang).
     Gcc,
-    /// LLVM's LLD linker.
+    /// LLVM LLD.
     Lld,
-    /// Microsoft's link.exe.
+    /// Microsoft Visual C++.
     Msvc,
-    /// WebAssembly linker (wasm-ld).
+    /// WebAssembly (wasm-ld).
     WasmLd,
 }
 
 impl LinkerFlavor {
-    /// Get the default linker flavor for a target.
+    /// Determine the default linker flavor for a target.
     #[must_use]
     pub fn for_target(target: &TargetTripleComponents) -> Self {
         if target.is_wasm() {
@@ -284,442 +288,113 @@ impl LinkerFlavor {
 }
 
 // ============================================================================
-// Linker Trait
+// Linker Implementation Enum
 // ============================================================================
 
-/// Trait for platform-specific linker implementations.
+/// Enum-based linker dispatch.
 ///
-/// Each implementation knows how to construct linker command lines
-/// for its respective platform.
-pub trait Linker {
-    /// Get the command being built.
-    fn cmd(&mut self) -> &mut Command;
+/// Uses enum dispatch instead of trait objects for:
+/// - Exhaustiveness checking at compile time
+/// - Static dispatch (no vtable overhead)
+/// - No heap allocation for the linker itself
+pub enum LinkerImpl {
+    /// GCC/Clang-style linker (Unix).
+    Gcc(GccLinker),
+    /// MSVC-style linker (Windows).
+    Msvc(MsvcLinker),
+    /// WebAssembly linker.
+    Wasm(WasmLinker),
+}
 
-    /// Get the target configuration.
-    fn target(&self) -> &TargetConfig;
-
+impl LinkerImpl {
     /// Set the output file.
-    fn set_output(&mut self, path: &Path);
+    pub fn set_output(&mut self, path: &Path) {
+        match self {
+            Self::Gcc(l) => l.set_output(path),
+            Self::Msvc(l) => l.set_output(path),
+            Self::Wasm(l) => l.set_output(path),
+        }
+    }
 
-    /// Set the output kind (executable, shared library, etc.).
-    fn set_output_kind(&mut self, kind: LinkOutput);
+    /// Set the output kind.
+    pub fn set_output_kind(&mut self, kind: LinkOutput) {
+        match self {
+            Self::Gcc(l) => l.set_output_kind(kind),
+            Self::Msvc(l) => l.set_output_kind(kind),
+            Self::Wasm(l) => l.set_output_kind(kind),
+        }
+    }
 
-    /// Add an object file to link.
-    fn add_object(&mut self, path: &Path);
+    /// Add an object file.
+    pub fn add_object(&mut self, path: &Path) {
+        match self {
+            Self::Gcc(l) => l.add_object(path),
+            Self::Msvc(l) => l.add_object(path),
+            Self::Wasm(l) => l.add_object(path),
+        }
+    }
 
     /// Add a library search path.
-    fn add_library_path(&mut self, path: &Path);
+    pub fn add_library_path(&mut self, path: &Path) {
+        match self {
+            Self::Gcc(l) => l.add_library_path(path),
+            Self::Msvc(l) => l.add_library_path(path),
+            Self::Wasm(l) => l.add_library_path(path),
+        }
+    }
 
-    /// Link a library by name.
-    ///
-    /// The `kind` parameter specifies static vs dynamic linking.
-    fn link_library(&mut self, name: &str, kind: LibraryKind);
+    /// Link a library.
+    pub fn link_library(&mut self, name: &str, kind: LibraryKind) {
+        match self {
+            Self::Gcc(l) => l.link_library(name, kind),
+            Self::Msvc(l) => l.link_library(name, kind),
+            Self::Wasm(l) => l.link_library(name, kind),
+        }
+    }
 
     /// Enable garbage collection of unused sections.
-    fn gc_sections(&mut self, enable: bool);
+    pub fn gc_sections(&mut self, enable: bool) {
+        match self {
+            Self::Gcc(l) => l.gc_sections(enable),
+            Self::Msvc(l) => l.gc_sections(enable),
+            Self::Wasm(l) => l.gc_sections(enable),
+        }
+    }
 
     /// Strip debug symbols from output.
-    fn strip_symbols(&mut self, strip: bool);
+    pub fn strip_symbols(&mut self, strip: bool) {
+        match self {
+            Self::Gcc(l) => l.strip_symbols(strip),
+            Self::Msvc(l) => l.strip_symbols(strip),
+            Self::Wasm(l) => l.strip_symbols(strip),
+        }
+    }
 
-    /// Add symbols to export (for shared libraries).
-    fn export_symbols(&mut self, symbols: &[String]);
+    /// Export symbols.
+    pub fn export_symbols(&mut self, symbols: &[String]) {
+        match self {
+            Self::Gcc(l) => l.export_symbols(symbols),
+            Self::Msvc(l) => l.export_symbols(symbols),
+            Self::Wasm(l) => l.export_symbols(symbols),
+        }
+    }
 
-    /// Add a raw argument to the linker command.
-    ///
-    /// This bypasses any argument translation.
-    fn add_arg(&mut self, arg: &str);
-
-    /// Add a linker-specific argument.
-    ///
-    /// For cc wrappers, this adds `-Wl,<arg>`.
-    /// For direct linker invocation, this adds the arg directly.
-    fn link_arg(&mut self, arg: &str);
+    /// Add a raw argument.
+    pub fn add_arg(&mut self, arg: &str) {
+        match self {
+            Self::Gcc(l) => l.add_arg(arg),
+            Self::Msvc(l) => l.add_arg(arg),
+            Self::Wasm(l) => l.add_arg(arg),
+        }
+    }
 
     /// Finalize and get the command to execute.
-    fn finalize(self: Box<Self>) -> Command;
-}
-
-// ============================================================================
-// GCC/Clang Linker (Unix)
-// ============================================================================
-
-/// GNU/Clang-style linker implementation.
-///
-/// Uses `cc` or `clang` as a wrapper, which handles:
-/// - CRT object linking (crt1.o, crti.o, etc.)
-/// - Standard library linking
-/// - Proper argument ordering
-pub struct GccLinker {
-    cmd: Command,
-    target: TargetConfig,
-    /// Track current static/dynamic mode for hint optimization.
-    hint_static: bool,
-}
-
-impl GccLinker {
-    /// Create a new GCC-style linker.
-    pub fn new(target: &TargetConfig) -> Self {
-        // Use clang on macOS, cc otherwise
-        let linker = if target.is_macos() { "clang" } else { "cc" };
-        let cmd = Command::new(linker);
-
-        Self {
-            cmd,
-            target: target.clone(),
-            hint_static: false,
+    pub fn finalize(self) -> Command {
+        match self {
+            Self::Gcc(l) => l.finalize(),
+            Self::Msvc(l) => l.finalize(),
+            Self::Wasm(l) => l.finalize(),
         }
-    }
-
-    /// Create a new linker using a specific compiler/linker path.
-    pub fn with_path(target: &TargetConfig, path: &str) -> Self {
-        Self {
-            cmd: Command::new(path),
-            target: target.clone(),
-            hint_static: false,
-        }
-    }
-
-    /// Switch to static linking mode.
-    fn hint_static(&mut self) {
-        if !self.hint_static {
-            self.hint_static = true;
-            if !self.target.is_macos() {
-                // macOS doesn't support -Bstatic
-                self.cmd.arg("-Wl,-Bstatic");
-            }
-        }
-    }
-
-    /// Switch to dynamic linking mode.
-    fn hint_dynamic(&mut self) {
-        if self.hint_static {
-            self.hint_static = false;
-            if !self.target.is_macos() {
-                self.cmd.arg("-Wl,-Bdynamic");
-            }
-        }
-    }
-}
-
-impl Linker for GccLinker {
-    fn cmd(&mut self) -> &mut Command {
-        &mut self.cmd
-    }
-
-    fn target(&self) -> &TargetConfig {
-        &self.target
-    }
-
-    fn set_output(&mut self, path: &Path) {
-        self.cmd.arg("-o").arg(path);
-    }
-
-    fn set_output_kind(&mut self, kind: LinkOutput) {
-        match kind {
-            LinkOutput::SharedLibrary => {
-                self.cmd.arg("-shared");
-                if self.target.is_macos() {
-                    // macOS uses -dynamiclib
-                    self.cmd.arg("-dynamiclib");
-                } else {
-                    self.cmd.arg("-fPIC");
-                }
-            }
-            LinkOutput::PositionIndependentExecutable => {
-                self.cmd.arg("-pie");
-                self.cmd.arg("-fPIE");
-            }
-            // Executable: Default, no special flags needed
-            // StaticLibrary: Created with ar, not the linker (handled specially by driver)
-            LinkOutput::Executable | LinkOutput::StaticLibrary => {}
-        }
-    }
-
-    fn add_object(&mut self, path: &Path) {
-        self.cmd.arg(path);
-    }
-
-    fn add_library_path(&mut self, path: &Path) {
-        self.cmd.arg("-L").arg(path);
-    }
-
-    fn link_library(&mut self, name: &str, kind: LibraryKind) {
-        match kind {
-            LibraryKind::Unspecified => {
-                // Let the linker decide
-                self.cmd.arg(format!("-l{name}"));
-            }
-            LibraryKind::Static => {
-                if self.target.is_macos() {
-                    // macOS: use -l with full path or -force_load
-                    // For now, just use -l and hope for the best
-                    // A more robust solution would search for the .a file
-                    self.cmd.arg(format!("-l{name}"));
-                } else {
-                    self.hint_static();
-                    self.cmd.arg(format!("-l{name}"));
-                    self.hint_dynamic(); // Reset to dynamic for subsequent libs
-                }
-            }
-            LibraryKind::Dynamic => {
-                self.hint_dynamic();
-                self.cmd.arg(format!("-l{name}"));
-            }
-        }
-    }
-
-    fn gc_sections(&mut self, enable: bool) {
-        if enable {
-            if self.target.is_macos() {
-                self.cmd.arg("-Wl,-dead_strip");
-            } else {
-                self.cmd.arg("-Wl,--gc-sections");
-            }
-        }
-    }
-
-    fn strip_symbols(&mut self, strip: bool) {
-        if strip {
-            if self.target.is_macos() {
-                self.cmd.arg("-Wl,-S"); // Strip debug symbols only
-            } else {
-                self.cmd.arg("-Wl,--strip-all");
-            }
-        }
-    }
-
-    fn export_symbols(&mut self, symbols: &[String]) {
-        if symbols.is_empty() {
-            return;
-        }
-
-        if self.target.is_macos() {
-            // macOS: use -exported_symbols_list
-            // For simplicity, we add individual -exported_symbol flags
-            for sym in symbols {
-                self.cmd.arg(format!("-Wl,-exported_symbol,_{sym}"));
-            }
-        } else {
-            // Linux: use --export-dynamic for all, or version script for specific
-            // For simplicity, export all dynamic symbols
-            self.cmd.arg("-Wl,--export-dynamic");
-        }
-    }
-
-    fn add_arg(&mut self, arg: &str) {
-        self.cmd.arg(arg);
-    }
-
-    fn link_arg(&mut self, arg: &str) {
-        // Wrap in -Wl for cc wrapper
-        self.cmd.arg(format!("-Wl,{arg}"));
-    }
-
-    fn finalize(self: Box<Self>) -> Command {
-        self.cmd
-    }
-}
-
-// ============================================================================
-// MSVC Linker (Windows)
-// ============================================================================
-
-/// Microsoft Visual C++ linker implementation.
-///
-/// Uses `link.exe` directly (not via a compiler wrapper).
-pub struct MsvcLinker {
-    cmd: Command,
-    target: TargetConfig,
-}
-
-impl MsvcLinker {
-    /// Create a new MSVC linker.
-    pub fn new(target: &TargetConfig) -> Self {
-        Self {
-            cmd: Command::new("link.exe"),
-            target: target.clone(),
-        }
-    }
-
-    /// Create a new linker using LLD in MSVC compatibility mode.
-    pub fn with_lld(target: &TargetConfig) -> Self {
-        let mut cmd = Command::new("lld-link");
-        // LLD-link is MSVC-compatible by default
-        cmd.arg("/nologo");
-
-        Self {
-            cmd,
-            target: target.clone(),
-        }
-    }
-}
-
-impl Linker for MsvcLinker {
-    fn cmd(&mut self) -> &mut Command {
-        &mut self.cmd
-    }
-
-    fn target(&self) -> &TargetConfig {
-        &self.target
-    }
-
-    fn set_output(&mut self, path: &Path) {
-        self.cmd.arg(format!("/OUT:{}", path.display()));
-    }
-
-    fn set_output_kind(&mut self, kind: LinkOutput) {
-        match kind {
-            LinkOutput::Executable | LinkOutput::PositionIndependentExecutable => {
-                // Default for link.exe
-                self.cmd.arg("/SUBSYSTEM:CONSOLE");
-            }
-            LinkOutput::SharedLibrary => {
-                self.cmd.arg("/DLL");
-            }
-            LinkOutput::StaticLibrary => {
-                // Use lib.exe instead - handled by driver
-            }
-        }
-    }
-
-    fn add_object(&mut self, path: &Path) {
-        self.cmd.arg(path);
-    }
-
-    fn add_library_path(&mut self, path: &Path) {
-        self.cmd.arg(format!("/LIBPATH:{}", path.display()));
-    }
-
-    fn link_library(&mut self, name: &str, _kind: LibraryKind) {
-        // MSVC doesn't distinguish static/dynamic at link time the same way
-        // The library extension (.lib) determines this
-        self.cmd.arg(format!("{name}.lib"));
-    }
-
-    fn gc_sections(&mut self, enable: bool) {
-        if enable {
-            self.cmd.arg("/OPT:REF"); // Remove unreferenced functions
-            self.cmd.arg("/OPT:ICF"); // Identical COMDAT folding
-        }
-    }
-
-    fn strip_symbols(&mut self, strip: bool) {
-        if strip {
-            self.cmd.arg("/DEBUG:NONE");
-        }
-    }
-
-    fn export_symbols(&mut self, symbols: &[String]) {
-        for sym in symbols {
-            self.cmd.arg(format!("/EXPORT:{sym}"));
-        }
-    }
-
-    fn add_arg(&mut self, arg: &str) {
-        self.cmd.arg(arg);
-    }
-
-    fn link_arg(&mut self, arg: &str) {
-        // MSVC link.exe takes args directly
-        self.cmd.arg(arg);
-    }
-
-    fn finalize(self: Box<Self>) -> Command {
-        self.cmd
-    }
-}
-
-// ============================================================================
-// WebAssembly Linker
-// ============================================================================
-
-/// WebAssembly linker implementation using wasm-ld.
-pub struct WasmLinker {
-    cmd: Command,
-    target: TargetConfig,
-}
-
-impl WasmLinker {
-    /// Create a new WebAssembly linker.
-    pub fn new(target: &TargetConfig) -> Self {
-        Self {
-            cmd: Command::new("wasm-ld"),
-            target: target.clone(),
-        }
-    }
-}
-
-impl Linker for WasmLinker {
-    fn cmd(&mut self) -> &mut Command {
-        &mut self.cmd
-    }
-
-    fn target(&self) -> &TargetConfig {
-        &self.target
-    }
-
-    fn set_output(&mut self, path: &Path) {
-        self.cmd.arg("-o").arg(path);
-    }
-
-    fn set_output_kind(&mut self, kind: LinkOutput) {
-        match kind {
-            LinkOutput::Executable => {
-                // WASM "executable" - entry point is _start or main
-                self.cmd.arg("--entry=_start");
-            }
-            LinkOutput::SharedLibrary => {
-                // WASM module without entry point
-                self.cmd.arg("--no-entry");
-                self.cmd.arg("--export-dynamic");
-            }
-            LinkOutput::StaticLibrary | LinkOutput::PositionIndependentExecutable => {
-                // Not applicable to WASM
-            }
-        }
-    }
-
-    fn add_object(&mut self, path: &Path) {
-        self.cmd.arg(path);
-    }
-
-    fn add_library_path(&mut self, path: &Path) {
-        self.cmd.arg("-L").arg(path);
-    }
-
-    fn link_library(&mut self, name: &str, _kind: LibraryKind) {
-        // WASM linking is always static
-        self.cmd.arg(format!("-l{name}"));
-    }
-
-    fn gc_sections(&mut self, enable: bool) {
-        if enable {
-            self.cmd.arg("--gc-sections");
-        }
-    }
-
-    fn strip_symbols(&mut self, strip: bool) {
-        if strip {
-            self.cmd.arg("--strip-all");
-        }
-    }
-
-    fn export_symbols(&mut self, symbols: &[String]) {
-        for sym in symbols {
-            self.cmd.arg(format!("--export={sym}"));
-        }
-    }
-
-    fn add_arg(&mut self, arg: &str) {
-        self.cmd.arg(arg);
-    }
-
-    fn link_arg(&mut self, arg: &str) {
-        self.cmd.arg(arg);
-    }
-
-    fn finalize(self: Box<Self>) -> Command {
-        self.cmd
     }
 }
 
@@ -767,27 +442,28 @@ impl LinkerDriver {
             .linker
             .unwrap_or_else(|| LinkerFlavor::for_target(self.target.components()));
 
-        // Create the appropriate linker
-        let mut linker: Box<dyn Linker> = match flavor {
-            LinkerFlavor::Gcc => Box::new(GccLinker::new(&self.target)),
+        // Create the appropriate linker using enum dispatch (not trait objects)
+        // This provides exhaustiveness checking, static dispatch, and no heap allocation
+        let mut linker = match flavor {
+            LinkerFlavor::Gcc => LinkerImpl::Gcc(GccLinker::new(&self.target)),
             LinkerFlavor::Lld => {
                 if self.target.is_windows() {
-                    Box::new(MsvcLinker::with_lld(&self.target))
+                    LinkerImpl::Msvc(MsvcLinker::with_lld(&self.target))
                 } else if self.target.is_wasm() {
-                    Box::new(WasmLinker::new(&self.target))
+                    LinkerImpl::Wasm(WasmLinker::new(&self.target))
                 } else {
                     // Use clang with -fuse-ld=lld
                     let mut gcc = GccLinker::with_path(&self.target, "clang");
                     gcc.cmd().arg("-fuse-ld=lld");
-                    Box::new(gcc)
+                    LinkerImpl::Gcc(gcc)
                 }
             }
-            LinkerFlavor::Msvc => Box::new(MsvcLinker::new(&self.target)),
-            LinkerFlavor::WasmLd => Box::new(WasmLinker::new(&self.target)),
+            LinkerFlavor::Msvc => LinkerImpl::Msvc(MsvcLinker::new(&self.target)),
+            LinkerFlavor::WasmLd => LinkerImpl::Wasm(WasmLinker::new(&self.target)),
         };
 
         // Configure linker
-        Self::configure_linker(&mut *linker, input)?;
+        Self::configure_linker(&mut linker, input)?;
 
         // Get the final command
         let cmd = linker.finalize();
@@ -797,7 +473,7 @@ impl LinkerDriver {
     }
 
     /// Configure the linker with all input settings.
-    fn configure_linker(linker: &mut dyn Linker, input: &LinkInput) -> Result<(), LinkerError> {
+    fn configure_linker(linker: &mut LinkerImpl, input: &LinkInput) -> Result<(), LinkerError> {
         // Set output kind first (affects other options)
         linker.set_output_kind(input.output_kind);
 
@@ -898,7 +574,7 @@ impl LinkerDriver {
     }
 
     /// Check if the error is retryable.
-    fn should_retry(stderr: &str) -> bool {
+    pub(crate) fn should_retry(stderr: &str) -> bool {
         // Common retryable errors (from rustc's experience)
         let retryable_patterns = [
             "unrecognized option",
@@ -959,7 +635,7 @@ impl LinkerDriver {
     }
 
     /// Create a response file and return a command that uses it.
-    fn create_response_file(cmd: &Command) -> Result<Command, LinkerError> {
+    pub(crate) fn create_response_file(cmd: &Command) -> Result<Command, LinkerError> {
         // Create temp file
         let temp_dir = std::env::temp_dir();
         let rsp_path = temp_dir.join(format!("ori_link_{}.rsp", std::process::id()));
@@ -1141,7 +817,7 @@ mod tests {
         linker.add_library_path(Path::new("/usr/lib"));
         linker.link_library("c", LibraryKind::Dynamic);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"-o".into()));
@@ -1158,7 +834,7 @@ mod tests {
 
         linker.set_output_kind(LinkOutput::SharedLibrary);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"-shared".into()));
@@ -1172,7 +848,7 @@ mod tests {
 
         linker.gc_sections(true);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"-Wl,--gc-sections".into()));
@@ -1185,7 +861,7 @@ mod tests {
 
         linker.gc_sections(true);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"-Wl,-dead_strip".into()));
@@ -1200,7 +876,7 @@ mod tests {
         linker.add_object(Path::new("main.obj"));
         linker.link_library("kernel32", LibraryKind::Dynamic);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.iter().any(|a| a.starts_with("/OUT:")));
@@ -1215,7 +891,7 @@ mod tests {
 
         linker.gc_sections(true);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"/OPT:REF".into()));
@@ -1231,7 +907,7 @@ mod tests {
         linker.add_object(Path::new("main.o"));
         linker.set_output_kind(LinkOutput::Executable);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"-o".into()));
@@ -1246,7 +922,7 @@ mod tests {
 
         linker.set_output_kind(LinkOutput::SharedLibrary);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"--no-entry".into()));
@@ -1307,7 +983,7 @@ mod tests {
         // Back to dynamic (automatic reset)
         linker.link_library("c", LibraryKind::Dynamic);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         // Should have -Bstatic before b and -Bdynamic after
@@ -1326,7 +1002,7 @@ mod tests {
 
         linker.export_symbols(&["foo".to_string(), "bar".to_string()]);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"-Wl,--export-dynamic".into()));
@@ -1339,7 +1015,7 @@ mod tests {
 
         linker.export_symbols(&["foo".to_string()]);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args
@@ -1354,7 +1030,7 @@ mod tests {
 
         linker.export_symbols(&["foo".to_string()]);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"/EXPORT:foo".into()));
@@ -1367,7 +1043,7 @@ mod tests {
 
         linker.export_symbols(&["main".to_string(), "malloc".to_string()]);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"--export=main".into()));
@@ -1378,6 +1054,7 @@ mod tests {
     // Additional tests for improved coverage
     // ========================================================================
 
+    #[allow(dead_code)]
     fn test_target_windows_gnu() -> TargetConfig {
         let components = TargetTripleComponents::parse("x86_64-pc-windows-gnu").unwrap();
         TargetConfig::from_components(components)
@@ -1471,7 +1148,7 @@ mod tests {
         let target = test_target();
         let linker = GccLinker::with_path(&target, "/usr/bin/gcc-12");
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         assert_eq!(cmd.get_program().to_string_lossy(), "/usr/bin/gcc-12");
     }
 
@@ -1482,7 +1159,7 @@ mod tests {
 
         linker.strip_symbols(true);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"-Wl,--strip-all".into()));
@@ -1495,7 +1172,7 @@ mod tests {
 
         linker.strip_symbols(true);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"-Wl,-S".into()));
@@ -1508,7 +1185,7 @@ mod tests {
 
         linker.set_output_kind(LinkOutput::PositionIndependentExecutable);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"-pie".into()));
@@ -1522,7 +1199,7 @@ mod tests {
 
         linker.set_output_kind(LinkOutput::SharedLibrary);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"-shared".into()));
@@ -1536,7 +1213,7 @@ mod tests {
 
         linker.link_arg("--as-needed");
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"-Wl,--as-needed".into()));
@@ -1549,7 +1226,7 @@ mod tests {
 
         linker.add_arg("-v");
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"-v".into()));
@@ -1562,7 +1239,7 @@ mod tests {
 
         linker.link_library("m", LibraryKind::Unspecified);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"-lm".into()));
@@ -1578,7 +1255,7 @@ mod tests {
         // macOS doesn't use -Bstatic, just -l
         linker.link_library("ssl", LibraryKind::Static);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"-lssl".into()));
@@ -1594,7 +1271,7 @@ mod tests {
         // Static library output is a no-op (handled by ar)
         linker.set_output_kind(LinkOutput::StaticLibrary);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         // Should not have -shared or other flags
@@ -1608,7 +1285,7 @@ mod tests {
 
         linker.gc_sections(false);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(!args.iter().any(|a| a.contains("gc-sections")));
@@ -1621,7 +1298,7 @@ mod tests {
 
         linker.strip_symbols(false);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(!args.iter().any(|a| a.contains("strip")));
@@ -1634,7 +1311,7 @@ mod tests {
 
         linker.export_symbols(&[]);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         // Empty export should not add --export-dynamic
@@ -1657,7 +1334,7 @@ mod tests {
         // Access cmd directly and add arg
         linker.cmd().arg("--help");
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"--help".into()));
@@ -1670,7 +1347,7 @@ mod tests {
         let target = test_target_windows();
         let linker = MsvcLinker::with_lld(&target);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         assert_eq!(cmd.get_program().to_string_lossy(), "lld-link");
 
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
@@ -1684,7 +1361,7 @@ mod tests {
 
         linker.strip_symbols(true);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"/DEBUG:NONE".into()));
@@ -1697,7 +1374,7 @@ mod tests {
 
         linker.set_output_kind(LinkOutput::SharedLibrary);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"/DLL".into()));
@@ -1710,7 +1387,7 @@ mod tests {
 
         linker.add_library_path(Path::new("C:\\libs"));
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.iter().any(|a| a.starts_with("/LIBPATH:")));
@@ -1723,7 +1400,7 @@ mod tests {
 
         linker.link_arg("/VERBOSE");
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"/VERBOSE".into()));
@@ -1746,7 +1423,7 @@ mod tests {
 
         linker.gc_sections(true);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"--gc-sections".into()));
@@ -1759,7 +1436,7 @@ mod tests {
 
         linker.strip_symbols(true);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"--strip-all".into()));
@@ -1772,7 +1449,7 @@ mod tests {
 
         linker.add_library_path(Path::new("/wasm/lib"));
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"-L".into()));
@@ -1787,7 +1464,7 @@ mod tests {
         // WASM ignores library kind - always static
         linker.link_library("c", LibraryKind::Dynamic);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"-lc".into()));
@@ -1801,7 +1478,7 @@ mod tests {
         linker.add_arg("--verbose");
         linker.link_arg("--allow-undefined");
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"--verbose".into()));
@@ -1824,7 +1501,7 @@ mod tests {
         // Even when specifying static, wasm just uses -l
         linker.link_library("wasi", LibraryKind::Static);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"-lwasi".into()));
@@ -1867,7 +1544,7 @@ mod tests {
     fn test_linker_driver_configure_linker() {
         // Test that configure_linker sets all fields correctly
         let target = test_target();
-        let mut linker = GccLinker::new(&target);
+        let mut linker = LinkerImpl::Gcc(GccLinker::new(&target));
 
         let input = LinkInput {
             objects: vec![PathBuf::from("main.o"), PathBuf::from("lib.o")],
@@ -1887,7 +1564,7 @@ mod tests {
 
         LinkerDriver::configure_linker(&mut linker, &input).unwrap();
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         // Check objects
@@ -1930,7 +1607,7 @@ mod tests {
     #[test]
     fn test_linker_driver_with_library_search_path() {
         let target = test_target();
-        let mut linker = GccLinker::new(&target);
+        let mut linker = LinkerImpl::Gcc(GccLinker::new(&target));
 
         let input = LinkInput {
             objects: vec![PathBuf::from("main.o")],
@@ -1941,7 +1618,7 @@ mod tests {
 
         LinkerDriver::configure_linker(&mut linker, &input).unwrap();
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         // Library's search path should be added
@@ -2046,7 +1723,7 @@ mod tests {
         linker.link_library("b", LibraryKind::Static);
         linker.link_library("c", LibraryKind::Dynamic);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         // Each static library triggers hint_static + hint_dynamic
@@ -2070,7 +1747,7 @@ mod tests {
 
         linker.export_symbols(&["foo".to_string(), "bar".to_string(), "baz".to_string()]);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         // Should have individual -exported_symbol for each
@@ -2089,7 +1766,7 @@ mod tests {
         // PIE on Windows is just a regular executable
         linker.set_output_kind(LinkOutput::PositionIndependentExecutable);
 
-        let cmd = Box::new(linker).finalize();
+        let cmd = linker.finalize();
         let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         assert!(args.contains(&"/SUBSYSTEM:CONSOLE".into()));

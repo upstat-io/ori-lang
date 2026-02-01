@@ -86,8 +86,8 @@ pub mod target;
 
 // Re-export key types from target
 pub use target::{
-    get_host_cpu_features, get_host_cpu_name, parse_features, TargetConfig, TargetError,
-    TargetTripleComponents, SUPPORTED_TARGETS,
+    get_host_cpu_features, get_host_cpu_name, is_supported_target, parse_features, TargetConfig,
+    TargetError, TargetTripleComponents, SUPPORTED_TARGETS,
 };
 
 // Re-export key types from object
@@ -110,6 +110,6 @@ pub use passes::{
 
 // Re-export key types from linker
 pub use linker::{
-    LibraryKind, LinkInput, LinkLibrary, LinkOutput, Linker, LinkerDetection, LinkerDriver,
-    LinkerError, LinkerFlavor,
+    GccLinker, LibraryKind, LinkInput, LinkLibrary, LinkOutput, LinkerDetection, LinkerDriver,
+    LinkerError, LinkerFlavor, LinkerImpl, MsvcLinker, WasmLinker,
 };

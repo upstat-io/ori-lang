@@ -299,18 +299,17 @@ impl std::fmt::Display for DebugInfoError {
 
 impl std::error::Error for DebugInfoError {}
 
-/// Cold path for basic type creation failure.
+/// Create a `DebugInfoError::BasicTypeCreation` error (cold path).
 ///
 /// This function is marked `#[cold]` because basic type creation should
 /// never fail under normal circumstances. A failure here indicates a
 /// serious LLVM internal error.
 #[cold]
 #[inline(never)]
-fn create_basic_type_failed(name: &str) -> ! {
-    panic!(
-        "LLVM failed to create basic debug type '{name}'. \
-         This indicates an LLVM internal error - please check LLVM installation."
-    )
+fn basic_type_creation_error(name: &str) -> DebugInfoError {
+    DebugInfoError::BasicTypeCreation {
+        name: name.to_string(),
+    }
 }
 
 /// Cached debug type information.
@@ -473,51 +472,82 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
     // -- Type Creation --
 
     /// Get or create a debug type for `int` (64-bit signed integer).
-    pub fn int_type(&self) -> DIBasicType<'ctx> {
+    ///
+    /// # Errors
+    ///
+    /// Returns `DebugInfoError::BasicTypeCreation` if LLVM fails to create
+    /// the type, which indicates an LLVM internal error.
+    pub fn int_type(&self) -> Result<DIBasicType<'ctx>, DebugInfoError> {
         self.get_or_create_basic_type("int", 64, 0x05) // DW_ATE_signed
     }
 
     /// Get or create a debug type for `float` (64-bit float).
-    pub fn float_type(&self) -> DIBasicType<'ctx> {
+    ///
+    /// # Errors
+    ///
+    /// Returns `DebugInfoError::BasicTypeCreation` if LLVM fails to create
+    /// the type, which indicates an LLVM internal error.
+    pub fn float_type(&self) -> Result<DIBasicType<'ctx>, DebugInfoError> {
         self.get_or_create_basic_type("float", 64, 0x04) // DW_ATE_float
     }
 
     /// Get or create a debug type for `bool` (1-bit boolean).
-    pub fn bool_type(&self) -> DIBasicType<'ctx> {
+    ///
+    /// # Errors
+    ///
+    /// Returns `DebugInfoError::BasicTypeCreation` if LLVM fails to create
+    /// the type, which indicates an LLVM internal error.
+    pub fn bool_type(&self) -> Result<DIBasicType<'ctx>, DebugInfoError> {
         self.get_or_create_basic_type("bool", 8, 0x02) // DW_ATE_boolean (8-bit for DWARF)
     }
 
     /// Get or create a debug type for `char` (32-bit Unicode).
-    pub fn char_type(&self) -> DIBasicType<'ctx> {
+    ///
+    /// # Errors
+    ///
+    /// Returns `DebugInfoError::BasicTypeCreation` if LLVM fails to create
+    /// the type, which indicates an LLVM internal error.
+    pub fn char_type(&self) -> Result<DIBasicType<'ctx>, DebugInfoError> {
         self.get_or_create_basic_type("char", 32, 0x08) // DW_ATE_unsigned_char
     }
 
     /// Get or create a debug type for `byte` (8-bit unsigned).
-    pub fn byte_type(&self) -> DIBasicType<'ctx> {
+    ///
+    /// # Errors
+    ///
+    /// Returns `DebugInfoError::BasicTypeCreation` if LLVM fails to create
+    /// the type, which indicates an LLVM internal error.
+    pub fn byte_type(&self) -> Result<DIBasicType<'ctx>, DebugInfoError> {
         self.get_or_create_basic_type("byte", 8, 0x08) // DW_ATE_unsigned_char
     }
 
     /// Get or create a debug type for `void`.
-    pub fn void_type(&self) -> DIBasicType<'ctx> {
+    ///
+    /// # Errors
+    ///
+    /// Returns `DebugInfoError::BasicTypeCreation` if LLVM fails to create
+    /// the type, which indicates an LLVM internal error.
+    pub fn void_type(&self) -> Result<DIBasicType<'ctx>, DebugInfoError> {
         // DWARF doesn't have a void type, use unspecified
         self.get_or_create_basic_type("void", 0, 0x00)
     }
 
     /// Get or create a basic type with caching.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if LLVM fails to create the basic debug type. This indicates
-    /// a serious LLVM internal error and should not happen with valid inputs.
+    /// Returns `DebugInfoError::BasicTypeCreation` if LLVM fails to create
+    /// the type. This indicates a serious LLVM internal error and should
+    /// not happen with valid inputs.
     fn get_or_create_basic_type(
         &self,
         name: &'static str,
         size_bits: u64,
         encoding: u32,
-    ) -> DIBasicType<'ctx> {
+    ) -> Result<DIBasicType<'ctx>, DebugInfoError> {
         let mut cache = self.type_cache.borrow_mut();
         if let Some(&ty) = cache.primitives.get(name) {
-            return ty;
+            return Ok(ty);
         }
 
         // Create the type (void types need special handling)
@@ -529,15 +559,15 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
                     // Fallback: create as "unspecified" with 1 bit
                     self.inner.create_basic_type("void", 1, 0x00, DIFlags::ZERO)
                 })
-                .unwrap_or_else(|_| create_basic_type_failed("void"))
+                .map_err(|_| basic_type_creation_error("void"))?
         } else {
             self.inner
                 .create_basic_type(name, size_bits, encoding, DIFlags::ZERO)
-                .unwrap_or_else(|_| create_basic_type_failed(name))
+                .map_err(|_| basic_type_creation_error(name))?
         };
 
         cache.primitives.insert(name, ty);
-        ty
+        Ok(ty)
     }
 
     /// Create a subroutine (function) type.
@@ -733,9 +763,14 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
     // -- Ori-specific type helpers --
 
     /// Create debug info for Ori's string type: { len: int, data: ptr }.
-    pub fn string_type(&self) -> DICompositeType<'ctx> {
-        let int_ty = self.int_type().as_type();
-        let ptr_ty = self.create_pointer_type("*byte", self.byte_type().as_type(), 64);
+    ///
+    /// # Errors
+    ///
+    /// Returns `DebugInfoError::BasicTypeCreation` if LLVM fails to create
+    /// the underlying int or byte types.
+    pub fn string_type(&self) -> Result<DICompositeType<'ctx>, DebugInfoError> {
+        let int_ty = self.int_type()?.as_type();
+        let ptr_ty = self.create_pointer_type("*byte", self.byte_type()?.as_type(), 64);
 
         let fields = [
             FieldInfo {
@@ -754,16 +789,21 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
             },
         ];
 
-        self.create_struct_type("str", 0, 128, 64, &fields)
+        Ok(self.create_struct_type("str", 0, 128, 64, &fields))
     }
 
     /// Create debug info for Option<T>: { tag: byte, payload: T }.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DebugInfoError::BasicTypeCreation` if LLVM fails to create
+    /// the underlying byte type for the tag.
     pub fn option_type(
         &self,
         payload_ty: DIType<'ctx>,
         payload_size_bits: u64,
-    ) -> DICompositeType<'ctx> {
-        let byte_ty = self.byte_type().as_type();
+    ) -> Result<DICompositeType<'ctx>, DebugInfoError> {
+        let byte_ty = self.byte_type()?.as_type();
 
         // Alignment: max of tag (8) and payload alignment
         let align_bits = 64u32; // Assume 8-byte alignment for simplicity
@@ -790,21 +830,25 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         ];
 
         let total_size = 64 + payload_size_bits; // tag + padding + payload
-        self.create_struct_type("Option", 0, total_size, align_bits, &fields)
+        Ok(self.create_struct_type("Option", 0, total_size, align_bits, &fields))
     }
 
     /// Create debug info for Result<T, E>: { tag: byte, payload: union }.
     ///
     /// The payload size is the maximum of ok and error sizes, representing
     /// the union semantics of a sum type where either variant can occupy the space.
+    /// # Errors
+    ///
+    /// Returns `DebugInfoError::BasicTypeCreation` if LLVM fails to create
+    /// the underlying byte type for the tag.
     pub fn result_type(
         &self,
         ok_ty: DIType<'ctx>,
         ok_size_bits: u64,
         err_ty: DIType<'ctx>,
         err_size_bits: u64,
-    ) -> DICompositeType<'ctx> {
-        let byte_ty = self.byte_type().as_type();
+    ) -> Result<DICompositeType<'ctx>, DebugInfoError> {
+        let byte_ty = self.byte_type()?.as_type();
 
         // Result enum: Ok=0, Err=1
         let tag_ty = self.create_enum_type("ResultTag", 0, 8, 8, &[("Ok", 0), ("Err", 1)], byte_ty);
@@ -836,12 +880,20 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         ];
 
         let total_size = 64 + payload_size;
-        self.create_struct_type("Result", 0, total_size, 64, &fields)
+        Ok(self.create_struct_type("Result", 0, total_size, 64, &fields))
     }
 
     /// Create debug info for a list type: { len, cap, data }.
-    pub fn list_type(&self, element_ty: DIType<'ctx>) -> DICompositeType<'ctx> {
-        let int_ty = self.int_type().as_type();
+    ///
+    /// # Errors
+    ///
+    /// Returns `DebugInfoError::BasicTypeCreation` if LLVM fails to create
+    /// the underlying int type for length and capacity.
+    pub fn list_type(
+        &self,
+        element_ty: DIType<'ctx>,
+    ) -> Result<DICompositeType<'ctx>, DebugInfoError> {
+        let int_ty = self.int_type()?.as_type();
         let ptr_ty = self.create_pointer_type("*elem", element_ty, 64);
 
         let fields = [
@@ -868,7 +920,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
             },
         ];
 
-        self.create_struct_type("[T]", 0, 192, 64, &fields)
+        Ok(self.create_struct_type("[T]", 0, 192, 64, &fields))
     }
 
     // -- Function Debug Info --
@@ -914,10 +966,19 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
     /// Create a simple function debug info entry.
     ///
     /// Convenience method that creates a void-returning function with no parameters.
-    pub fn create_simple_function(&self, name: &str, line: u32) -> DISubprogram<'ctx> {
-        let void_type = self.void_type();
+    ///
+    /// # Errors
+    ///
+    /// Returns `DebugInfoError::BasicTypeCreation` if LLVM fails to create
+    /// the void type for the return type.
+    pub fn create_simple_function(
+        &self,
+        name: &str,
+        line: u32,
+    ) -> Result<DISubprogram<'ctx>, DebugInfoError> {
+        let void_type = self.void_type()?;
         let subroutine = self.create_subroutine_type(Some(void_type.as_type()), &[]);
-        self.create_function(name, None, line, subroutine, false, true)
+        Ok(self.create_function(name, None, line, subroutine, false, true))
     }
 
     /// Attach debug info to a function value.
@@ -1126,7 +1187,16 @@ impl<'ctx> DebugContext<'ctx> {
     }
 
     /// Create debug info for a function at a given span offset.
-    pub fn create_function_at_offset(&self, name: &str, span_start: u32) -> DISubprogram<'ctx> {
+    ///
+    /// # Errors
+    ///
+    /// Returns `DebugInfoError::BasicTypeCreation` if LLVM fails to create
+    /// the void type for the return type.
+    pub fn create_function_at_offset(
+        &self,
+        name: &str,
+        span_start: u32,
+    ) -> Result<DISubprogram<'ctx>, DebugInfoError> {
         let (line, _col) = self.line_map.offset_to_line_col(span_start);
         self.builder.create_simple_function(name, line)
     }
@@ -1320,15 +1390,15 @@ mod tests {
             .expect("debug info should be enabled");
 
         // Create basic types (should not panic)
-        let _int_ty = builder.int_type();
-        let _float_ty = builder.float_type();
-        let _bool_ty = builder.bool_type();
-        let _char_ty = builder.char_type();
-        let _byte_ty = builder.byte_type();
+        let _int_ty = builder.int_type().unwrap();
+        let _float_ty = builder.float_type().unwrap();
+        let _bool_ty = builder.bool_type().unwrap();
+        let _char_ty = builder.char_type().unwrap();
+        let _byte_ty = builder.byte_type().unwrap();
 
         // Second call should return cached type
-        let int_ty1 = builder.int_type();
-        let int_ty2 = builder.int_type();
+        let int_ty1 = builder.int_type().unwrap();
+        let int_ty2 = builder.int_type().unwrap();
         // Types should be equal (same pointer) - use as_mut_ptr for comparison
         assert_eq!(int_ty1.as_mut_ptr(), int_ty2.as_mut_ptr());
 
@@ -1350,7 +1420,7 @@ mod tests {
         let fn_val = module.add_function("test_func", fn_type, None);
 
         // Create function debug info
-        let void_ty = builder.void_type();
+        let void_ty = builder.void_type().unwrap();
         let subroutine = builder.create_subroutine_type(Some(void_ty.as_type()), &[]);
         let subprogram = builder.create_function("test_func", None, 1, subroutine, false, true);
 
@@ -1381,7 +1451,7 @@ mod tests {
             .expect("debug info should be enabled");
 
         // Create function
-        let subprogram = builder.create_simple_function("test_func", 1);
+        let subprogram = builder.create_simple_function("test_func", 1).unwrap();
 
         // Create lexical block
         let block = builder.create_lexical_block(subprogram.as_debug_info_scope(), 2, 1);
@@ -1427,7 +1497,7 @@ mod tests {
         );
 
         // Push function scope
-        let subprogram = builder.create_simple_function("func", 1);
+        let subprogram = builder.create_simple_function("func", 1).unwrap();
         builder.push_scope(subprogram.as_debug_info_scope());
 
         // Current scope should be function
@@ -1480,7 +1550,7 @@ mod tests {
             .expect("debug info should be enabled");
 
         // Create function at offset 11 (start of @main on line 2)
-        let _subprogram = ctx.create_function_at_offset("main", 11);
+        let _subprogram = ctx.create_function_at_offset("main", 11).unwrap();
 
         ctx.finalize();
         assert!(module.verify().is_ok());
@@ -1499,7 +1569,7 @@ mod tests {
             .expect("debug info should be enabled");
 
         // Create function at line 1
-        let subprogram = ctx.create_function_at_offset("outer", 0);
+        let subprogram = ctx.create_function_at_offset("outer", 0).unwrap();
 
         // Enter function scope
         ctx.enter_function(subprogram);
@@ -1531,7 +1601,7 @@ mod tests {
         // Create a function
         let fn_type = context.void_type().fn_type(&[], false);
         let fn_val = module.add_function("test_func", fn_type, None);
-        let subprogram = ctx.create_function_at_offset("test_func", 0);
+        let subprogram = ctx.create_function_at_offset("test_func", 0).unwrap();
         fn_val.set_subprogram(subprogram);
 
         // Create entry block
@@ -1578,8 +1648,8 @@ mod tests {
         let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
             .expect("debug info should be enabled");
 
-        let int_ty = builder.int_type().as_type();
-        let float_ty = builder.float_type().as_type();
+        let int_ty = builder.int_type().unwrap().as_type();
+        let float_ty = builder.float_type().unwrap().as_type();
 
         // Create Point { x: int, y: float }
         let fields = [
@@ -1614,7 +1684,7 @@ mod tests {
         let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
             .expect("debug info should be enabled");
 
-        let byte_ty = builder.byte_type().as_type();
+        let byte_ty = builder.byte_type().unwrap().as_type();
 
         // Create Color enum
         let _enum_ty = builder.create_enum_type(
@@ -1639,7 +1709,7 @@ mod tests {
         let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
             .expect("debug info should be enabled");
 
-        let int_ty = builder.int_type().as_type();
+        let int_ty = builder.int_type().unwrap().as_type();
         let _ptr_ty = builder.create_pointer_type("*int", int_ty, 64);
 
         builder.finalize();
@@ -1655,7 +1725,7 @@ mod tests {
         let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
             .expect("debug info should be enabled");
 
-        let int_ty = builder.int_type().as_type();
+        let int_ty = builder.int_type().unwrap().as_type();
         // [int; 10] - array of 10 ints, each 64 bits = 640 bits total
         let _array_ty = builder.create_array_type(int_ty, 10, 640, 64);
 
@@ -1672,7 +1742,7 @@ mod tests {
         let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
             .expect("debug info should be enabled");
 
-        let int_ty = builder.int_type().as_type();
+        let int_ty = builder.int_type().unwrap().as_type();
         // type UserId = int
         let _typedef = builder.create_typedef("UserId", int_ty, 1, 64);
 
@@ -1689,7 +1759,7 @@ mod tests {
         let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
             .expect("debug info should be enabled");
 
-        let _str_ty = builder.string_type();
+        let _str_ty = builder.string_type().unwrap();
 
         builder.finalize();
         assert!(module.verify().is_ok());
@@ -1704,8 +1774,8 @@ mod tests {
         let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
             .expect("debug info should be enabled");
 
-        let int_ty = builder.int_type().as_type();
-        let _option_ty = builder.option_type(int_ty, 64);
+        let int_ty = builder.int_type().unwrap().as_type();
+        let _option_ty = builder.option_type(int_ty, 64).unwrap();
 
         builder.finalize();
         assert!(module.verify().is_ok());
@@ -1720,9 +1790,9 @@ mod tests {
         let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
             .expect("debug info should be enabled");
 
-        let int_ty = builder.int_type().as_type();
-        let str_ty = builder.string_type().as_type();
-        let _result_ty = builder.result_type(int_ty, 64, str_ty, 128);
+        let int_ty = builder.int_type().unwrap().as_type();
+        let str_ty = builder.string_type().unwrap().as_type();
+        let _result_ty = builder.result_type(int_ty, 64, str_ty, 128).unwrap();
 
         builder.finalize();
         assert!(module.verify().is_ok());
@@ -1737,8 +1807,8 @@ mod tests {
         let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
             .expect("debug info should be enabled");
 
-        let int_ty = builder.int_type().as_type();
-        let _list_ty = builder.list_type(int_ty);
+        let int_ty = builder.int_type().unwrap().as_type();
+        let _list_ty = builder.list_type(int_ty).unwrap();
 
         builder.finalize();
         assert!(module.verify().is_ok());
@@ -1935,7 +2005,7 @@ mod tests {
             .expect("debug info should be enabled");
 
         // Create function with type info
-        let int_ty = ctx.di().int_type().as_type();
+        let int_ty = ctx.di().int_type().unwrap().as_type();
         let subroutine = ctx.di().create_subroutine_type(
             Some(int_ty),      // return type
             &[int_ty, int_ty], // parameters
@@ -1963,7 +2033,7 @@ mod tests {
         // Create a function
         let fn_type = context.void_type().fn_type(&[], false);
         let fn_val = module.add_function("test", fn_type, None);
-        let subprogram = ctx.create_function_at_offset("test", 0);
+        let subprogram = ctx.create_function_at_offset("test", 0).unwrap();
         fn_val.set_subprogram(subprogram);
 
         // Create entry block
@@ -2093,11 +2163,11 @@ mod tests {
             .expect("debug info should be enabled");
 
         // Call string_type and verify it produces a valid composite type
-        let str_ty = builder.string_type();
+        let str_ty = builder.string_type().unwrap();
         assert!(!str_ty.as_mut_ptr().is_null());
 
         // Create string_type again to test caching behavior
-        let str_ty2 = builder.string_type();
+        let str_ty2 = builder.string_type().unwrap();
         assert!(!str_ty2.as_mut_ptr().is_null());
 
         builder.finalize();
@@ -2113,15 +2183,15 @@ mod tests {
         let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
             .expect("debug info should be enabled");
 
-        let int_ty = builder.int_type().as_type();
+        let int_ty = builder.int_type().unwrap().as_type();
 
         // Create Option<int> with explicit size
-        let option_ty = builder.option_type(int_ty, 64);
+        let option_ty = builder.option_type(int_ty, 64).unwrap();
         assert!(!option_ty.as_mut_ptr().is_null());
 
         // Create Option<bool> with smaller payload
-        let bool_ty = builder.bool_type().as_type();
-        let option_bool = builder.option_type(bool_ty, 8);
+        let bool_ty = builder.bool_type().unwrap().as_type();
+        let option_bool = builder.option_type(bool_ty, 8).unwrap();
         assert!(!option_bool.as_mut_ptr().is_null());
 
         builder.finalize();
@@ -2137,16 +2207,16 @@ mod tests {
         let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
             .expect("debug info should be enabled");
 
-        let int_ty = builder.int_type().as_type();
-        let str_ty = builder.string_type().as_type();
+        let int_ty = builder.int_type().unwrap().as_type();
+        let str_ty = builder.string_type().unwrap().as_type();
 
         // Create Result<int, str>
-        let result_ty = builder.result_type(int_ty, 64, str_ty, 128);
+        let result_ty = builder.result_type(int_ty, 64, str_ty, 128).unwrap();
         assert!(!result_ty.as_mut_ptr().is_null());
 
         // Create Result<bool, int> with smaller ok type
-        let bool_ty = builder.bool_type().as_type();
-        let result_small = builder.result_type(bool_ty, 8, int_ty, 64);
+        let bool_ty = builder.bool_type().unwrap().as_type();
+        let result_small = builder.result_type(bool_ty, 8, int_ty, 64).unwrap();
         assert!(!result_small.as_mut_ptr().is_null());
 
         builder.finalize();
@@ -2162,15 +2232,15 @@ mod tests {
         let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
             .expect("debug info should be enabled");
 
-        let int_ty = builder.int_type().as_type();
-        let float_ty = builder.float_type().as_type();
+        let int_ty = builder.int_type().unwrap().as_type();
+        let float_ty = builder.float_type().unwrap().as_type();
 
         // Create [int]
-        let list_int = builder.list_type(int_ty);
+        let list_int = builder.list_type(int_ty).unwrap();
         assert!(!list_int.as_mut_ptr().is_null());
 
         // Create [float]
-        let list_float = builder.list_type(float_ty);
+        let list_float = builder.list_type(float_ty).unwrap();
         assert!(!list_float.as_mut_ptr().is_null());
 
         builder.finalize();
@@ -2186,10 +2256,10 @@ mod tests {
         let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
             .expect("debug info should be enabled");
 
-        let int_ty = builder.int_type().as_type();
-        let float_ty = builder.float_type().as_type();
-        let bool_ty = builder.bool_type().as_type();
-        let str_ty = builder.string_type().as_type();
+        let int_ty = builder.int_type().unwrap().as_type();
+        let float_ty = builder.float_type().unwrap().as_type();
+        let bool_ty = builder.bool_type().unwrap().as_type();
+        let str_ty = builder.string_type().unwrap().as_type();
 
         // Create a struct with many fields
         let fields = [
@@ -2238,7 +2308,7 @@ mod tests {
         let builder = DebugInfoBuilder::new(&module, &context, config, "test.ori", ".")
             .expect("debug info should be enabled");
 
-        let byte_ty = builder.byte_type().as_type();
+        let byte_ty = builder.byte_type().unwrap().as_type();
 
         // Create an enum with many variants
         let _enum_ty = builder.create_enum_type(
@@ -2270,7 +2340,7 @@ mod tests {
             .expect("debug info should be enabled");
 
         // Test char_type accessor
-        let char_ty = builder.char_type();
+        let char_ty = builder.char_type().unwrap();
         assert!(!char_ty.as_mut_ptr().is_null());
 
         builder.finalize();

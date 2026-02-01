@@ -593,9 +593,10 @@ pub fn run_optimization_passes(
     // Build the pipeline string
     let mut pipeline = config.pipeline_string();
 
-    // Append extra passes if specified
+    // Append extra passes if specified (using push_str to avoid allocation)
     if let Some(extra) = &config.extra_passes {
-        pipeline = format!("{pipeline},{extra}");
+        pipeline.push(',');
+        pipeline.push_str(extra);
     }
 
     let pipeline_cstr =
