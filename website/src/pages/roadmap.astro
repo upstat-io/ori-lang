@@ -334,7 +334,7 @@ const tiers: Tier[] = [
       {
         num: "7A",
         name: "Core Built-ins",
-        status: "partial",
+        status: "not-started",
         note: "Type conversions, assertions, I/O, developer functions",
         goal: "Core built-in functions and type conversions",
         spec: "library/std/",
@@ -346,14 +346,14 @@ const tiers: Tier[] = [
             { name: "Float truncation methods", done: false },
           ]},
           { name: "Assertions", tasks: [
-            { name: "assert, assert_eq, assert_ne", done: true },
-            { name: "assert_some, assert_none", done: true },
-            { name: "assert_ok, assert_err", done: true },
-            { name: "assert_panics, assert_panics_with", done: true },
+            { name: "assert, assert_eq, assert_ne", done: false },
+            { name: "assert_some, assert_none", done: false },
+            { name: "assert_ok, assert_err", done: false },
+            { name: "assert_panics, assert_panics_with", done: false },
           ]},
           { name: "I/O Functions", tasks: [
-            { name: "print function", done: true },
-            { name: "panic function", done: true },
+            { name: "print function", done: false },
+            { name: "panic function", done: false },
           ]},
           { name: "Developer Functions", tasks: [
             { name: "todo() placeholder function", done: false },
@@ -368,20 +368,20 @@ const tiers: Tier[] = [
       {
         num: "7B",
         name: "Option & Result",
-        status: "partial",
+        status: "not-started",
         note: "Option/Result methods",
         goal: "Methods for Option<T> and Result<T, E> types",
         spec: "library/std/",
         sections: [
           { name: "Option Methods", tasks: [
-            { name: "map, and_then, filter", done: true },
-            { name: "unwrap_or, ok_or", done: true },
-            { name: "is_some, is_none", done: true },
+            { name: "map, and_then, filter", done: false },
+            { name: "unwrap_or, ok_or", done: false },
+            { name: "is_some, is_none", done: false },
           ]},
           { name: "Result Methods", tasks: [
-            { name: "map, map_err, and_then", done: true },
-            { name: "unwrap_or, ok, err", done: true },
-            { name: "is_ok, is_err", done: true },
+            { name: "map, map_err, and_then", done: false },
+            { name: "unwrap_or, ok, err", done: false },
+            { name: "is_ok, is_err", done: false },
             { name: "context for error traces", done: false },
           ]},
         ],
@@ -389,16 +389,16 @@ const tiers: Tier[] = [
       {
         num: "7C",
         name: "Collections & Iteration",
-        status: "partial",
-        note: "Collection methods done (map, filter, fold, find, collect)",
+        status: "not-started",
+        note: "Collection methods, iterator traits, Debug trait",
         goal: "Collection methods and iterator traits",
         spec: "library/std/",
         sections: [
           { name: "Collection Methods", tasks: [
-            { name: "List: map, filter, fold, find", done: true },
-            { name: "List: any, all", done: true },
-            { name: "Range: collect, map, filter, fold", done: true },
-            { name: "Map: len, is_empty", done: true },
+            { name: "List: map, filter, fold, find", done: false },
+            { name: "List: any, all", done: false },
+            { name: "Range: collect, map, filter, fold", done: false },
+            { name: "Map: len, is_empty", done: false },
           ]},
           { name: "Iterator Traits", tasks: [
             { name: "Iterator trait with next()", done: false },
@@ -503,21 +503,21 @@ const tiers: Tier[] = [
       {
         num: 9,
         name: "Match Expressions",
-        status: "partial",
-        note: "Guards and exhaustiveness pending",
+        status: "not-started",
+        note: "Match expression, pattern types, guards, exhaustiveness",
         goal: "Pattern matching with exhaustiveness checking",
         spec: "spec/10-patterns.md",
         sections: [
           { name: "Basic Patterns", tasks: [
-            { name: "Literal patterns", done: true },
-            { name: "Variable binding", done: true },
-            { name: "Wildcard (_)", done: true },
-            { name: "Variant patterns", done: true },
+            { name: "Literal patterns", done: false },
+            { name: "Variable binding", done: false },
+            { name: "Wildcard (_)", done: false },
+            { name: "Variant patterns", done: false },
           ]},
           { name: "Advanced Patterns", tasks: [
-            { name: "Struct patterns", done: true },
-            { name: "List patterns with rest (..)", done: true },
-            { name: "Or patterns (A | B)", done: true },
+            { name: "Struct patterns", done: false },
+            { name: "List patterns with rest (..)", done: false },
+            { name: "Or patterns (A | B)", done: false },
             { name: "At patterns (x @ pat)", done: false },
           ]},
           { name: "Guards & Exhaustiveness", tasks: [
@@ -530,8 +530,8 @@ const tiers: Tier[] = [
       {
         num: 10,
         name: "Control Flow",
-        status: "not-started",
-        note: "",
+        status: "partial",
+        note: "Basic loop and control done; labels pending",
         goal: "Loops, break, continue, labeled blocks",
         spec: "spec/19-control-flow.md",
         sections: [
@@ -542,8 +542,8 @@ const tiers: Tier[] = [
           ]},
           { name: "Control", tasks: [
             { name: "break expression", done: true },
-            { name: "break with value", done: true },
-            { name: "continue expression", done: true },
+            { name: "break with value", done: false },
+            { name: "continue expression", done: false },
           ]},
           { name: "Labels", tasks: [
             { name: "Labeled loops (loop:name)", done: false },
@@ -700,14 +700,14 @@ const tiers: Tier[] = [
       {
         num: "15B",
         name: "Function Syntax",
-        status: "not-started",
-        note: "Remove dot prefix, default params, function clauses, positional lambdas",
+        status: "partial",
+        note: "Named args parsing done; defaults, clauses, positional lambdas pending",
         goal: "Function declaration and call syntax changes",
         spec: "docs/ori_lang/proposals/",
         sections: [
           { name: "Remove Dot Prefix", tasks: [
+            { name: "Parser accepts IDENTIFIER ':' for named args", done: true },
             { name: "Update all built-ins to named args", done: false },
-            { name: "print(msg:), len(collection:), assert(condition:)", done: false },
           ]},
           { name: "Default Parameters", tasks: [
             { name: "param: Type = default_expr syntax", done: false },
@@ -1099,11 +1099,11 @@ function countTasks(sections: Section[]): { done: number; total: number } {
           <span class="stat-label">Completed</span>
         </div>
         <div class="stat">
-          <span class="stat-value">13</span>
+          <span class="stat-value">11</span>
           <span class="stat-label">In Progress</span>
         </div>
         <div class="stat">
-          <span class="stat-value">15</span>
+          <span class="stat-value">17</span>
           <span class="stat-label">Planned</span>
         </div>
       </div>
