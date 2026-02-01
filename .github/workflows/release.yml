@@ -146,24 +146,24 @@ jobs:
           name: ori-${{ matrix.name }}
           path: ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz
 
-  # Windows builds install LLVM via choco
-  # Note: Windows LLVM builds are experimental - may fail
+  # Windows builds use KyleMayes/install-llvm-action
   build-windows:
     name: Build Windows (x86_64)
     needs: validate
     runs-on: windows-latest
     timeout-minutes: 45
-    continue-on-error: true  # Windows LLVM is tricky, don't block release
+    continue-on-error: true  # Windows LLVM can be flaky
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Install LLVM
-        run: |
-          choco install llvm --yes
-          echo "LLVM_SYS_170_PREFIX=C:\Program Files\LLVM" >> $env:GITHUB_ENV
-          # Verify installation
-          & "C:\Program Files\LLVM\bin\llvm-config.exe" --version
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: ${{ env.LLVM_VERSION }}
+
+      - name: Verify LLVM
+        run: llvm-config --version
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
