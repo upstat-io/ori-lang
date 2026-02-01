@@ -1,3 +1,27 @@
+---
+phase: 2
+title: Complete Type Inference
+status: complete
+tier: 1
+goal: Full Hindley-Milner type inference
+spec:
+  - spec/06-types.md
+  - spec/07-properties-of-types.md
+sections:
+  - id: "2.1"
+    title: Unification Algorithm
+    status: complete
+  - id: "2.2"
+    title: Expression Type Inference
+    status: complete
+  - id: "2.3"
+    title: Type Error Improvements
+    status: complete
+  - id: "2.4"
+    title: Phase Completion Checklist
+    status: complete
+---
+
 # Phase 2: Complete Type Inference
 
 **Goal**: Full Hindley-Milner type inference

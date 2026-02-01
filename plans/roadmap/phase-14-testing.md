@@ -1,3 +1,53 @@
+---
+phase: 14
+title: Testing Framework
+status: not-started
+tier: 5
+goal: Mandatory testing enforcement with dependency-aware execution and incremental test execution during compilation
+spec:
+  - spec/13-testing.md
+sections:
+  - id: "14.1"
+    title: Test Requirement
+    status: not-started
+  - id: "14.2"
+    title: Test Declaration
+    status: not-started
+  - id: "14.3"
+    title: Test Attributes
+    status: not-started
+  - id: "14.4"
+    title: Test Functions
+    status: not-started
+  - id: "14.5"
+    title: Assertions
+    status: not-started
+  - id: "14.6"
+    title: Test Organization
+    status: not-started
+  - id: "14.7"
+    title: Test Execution
+    status: not-started
+  - id: "14.8"
+    title: Compile-Fail Tests
+    status: not-started
+  - id: "14.9"
+    title: Dependency-Aware Test Execution
+    status: not-started
+  - id: "14.10"
+    title: Test Utilities
+    status: not-started
+  - id: "14.11"
+    title: Incremental Test Execution
+    status: not-started
+  - id: "14.12"
+    title: Test Execution Model Implementation
+    status: not-started
+  - id: "14.13"
+    title: Phase Completion Checklist
+    status: not-started
+---
+
 # Phase 14: Testing Framework
 
 **Goal**: Mandatory testing enforcement with dependency-aware execution and incremental test execution during compilation

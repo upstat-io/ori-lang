@@ -1,3 +1,32 @@
+---
+phase: 9
+title: Match Expressions
+status: not-started
+tier: 3
+goal: Full pattern matching support
+spec:
+  - spec/10-patterns.md
+sections:
+  - id: "9.0"
+    title: Match Expression Syntax
+    status: not-started
+  - id: "9.1"
+    title: match Expression
+    status: not-started
+  - id: "9.2"
+    title: Pattern Types
+    status: not-started
+  - id: "9.3"
+    title: Pattern Guards
+    status: not-started
+  - id: "9.4"
+    title: Exhaustiveness Checking
+    status: not-started
+  - id: "9.5"
+    title: Phase Completion Checklist
+    status: not-started
+---
+
 # Phase 9: Match Expressions
 
 **Goal**: Full pattern matching support

@@ -1,3 +1,56 @@
+---
+phase: 6
+title: Capabilities System
+status: in-progress
+tier: 2
+goal: Effect tracking (moved earlier to unblock Phase 8 cache and Phase 11 FFI)
+spec:
+  - spec/14-capabilities.md
+sections:
+  - id: "6.1"
+    title: Capability Declaration
+    status: complete
+  - id: "6.2"
+    title: Capability Traits
+    status: complete
+  - id: "6.3"
+    title: Suspend Capability
+    status: complete
+  - id: "6.4"
+    title: Providing Capabilities
+    status: complete
+  - id: "6.5"
+    title: Capability Propagation
+    status: complete
+  - id: "6.6"
+    title: Standard Capabilities
+    status: complete
+  - id: "6.7"
+    title: Testing with Capabilities
+    status: complete
+  - id: "6.8"
+    title: Capability Constraints
+    status: complete
+  - id: "6.9"
+    title: Unsafe Capability (FFI Prep)
+    status: in-progress
+  - id: "6.10"
+    title: Default Implementations (def impl)
+    status: in-progress
+  - id: "6.11"
+    title: Capability Composition
+    status: not-started
+  - id: "6.12"
+    title: Default Implementation Resolution
+    status: not-started
+  - id: "6.14"
+    title: Intrinsics Capability
+    status: not-started
+  - id: "6.15"
+    title: Phase Completion Checklist
+    status: in-progress
+---
+
 # Phase 6: Capabilities System
 
 **Goal**: Effect tracking (moved earlier to unblock Phase 8 cache and Phase 11 FFI)

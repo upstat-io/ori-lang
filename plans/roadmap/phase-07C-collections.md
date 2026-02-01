@@ -1,3 +1,38 @@
+---
+phase: 7C
+title: Collections & Iteration
+status: not-started
+tier: 2
+goal: Collection methods, iterator traits, and Debug trait
+spec:
+  - spec/11-built-in-functions.md
+sections:
+  - id: "7C.1"
+    title: Collection Functions
+    status: not-started
+  - id: "7C.2"
+    title: Collection Methods on [T]
+    status: not-started
+  - id: "7C.3"
+    title: Range Methods
+    status: not-started
+  - id: "7C.4"
+    title: Collection Methods (len, is_empty)
+    status: not-started
+  - id: "7C.5"
+    title: Comparable Methods (min, max, compare)
+    status: not-started
+  - id: "7C.6"
+    title: Iterator Traits
+    status: not-started
+  - id: "7C.7"
+    title: Debug Trait
+    status: not-started
+  - id: "7C.8"
+    title: Phase Completion Checklist
+    status: not-started
+---
+
 # Phase 7C: Collections & Iteration
 
 **Goal**: Collection methods, iterator traits, and Debug trait

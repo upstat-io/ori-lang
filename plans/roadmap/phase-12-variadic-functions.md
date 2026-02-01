@@ -1,3 +1,30 @@
+---
+phase: 12
+title: Variadic Functions
+status: not-started
+tier: 4
+goal: Enable functions with variable number of arguments
+spec:
+  - spec/08-declarations.md
+  - spec/23-ffi.md
+sections:
+  - id: "12.1"
+    title: Homogeneous Variadics
+    status: not-started
+  - id: "12.2"
+    title: Minimum Argument Count
+    status: not-started
+  - id: "12.3"
+    title: Trait Bounds on Variadics
+    status: not-started
+  - id: "12.4"
+    title: C Variadic Interop
+    status: not-started
+  - id: "12.5"
+    title: Variadic in Patterns
+    status: not-started
+---
+
 # Phase 12: Variadic Functions
 
 **Goal**: Enable functions with variable number of arguments

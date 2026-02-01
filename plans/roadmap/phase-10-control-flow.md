@@ -1,3 +1,44 @@
+---
+phase: 10
+title: Control Flow
+status: in-progress
+tier: 3
+goal: Complete control flow constructs
+spec:
+  - spec/09-expressions.md
+  - spec/17-blocks-and-scope.md
+  - spec/19-control-flow.md
+  - spec/20-errors-and-panics.md
+sections:
+  - id: "10.1"
+    title: if Expression
+    status: not-started
+  - id: "10.2"
+    title: for Expressions
+    status: not-started
+  - id: "10.3"
+    title: loop Expression
+    status: not-started
+  - id: "10.4"
+    title: Error Propagation (?)
+    status: not-started
+  - id: "10.5"
+    title: Let Bindings
+    status: not-started
+  - id: "10.6"
+    title: Scoping
+    status: not-started
+  - id: "10.7"
+    title: Panics
+    status: not-started
+  - id: "10.8"
+    title: Index Expressions
+    status: complete
+  - id: "10.9"
+    title: Phase Completion Checklist
+    status: not-started
+---
+
 # Phase 10: Control Flow
 
 **Goal**: Complete control flow constructs

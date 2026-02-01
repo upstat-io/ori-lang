@@ -1,3 +1,50 @@
+---
+phase: 8
+title: Pattern Evaluation
+status: complete
+tier: 3
+goal: All patterns evaluate correctly
+spec:
+  - spec/10-patterns.md
+sections:
+  - id: "8.1"
+    title: run (Sequential Execution)
+    status: complete
+  - id: "8.2"
+    title: try (Error Propagation)
+    status: complete
+  - id: "8.3"
+    title: recurse (Recursive Functions)
+    status: in-progress
+  - id: "8.4"
+    title: parallel (All-Settled Concurrent Execution)
+    status: complete
+  - id: "8.5"
+    title: spawn (Fire and Forget)
+    status: complete
+  - id: "8.6"
+    title: timeout (Time-Bounded)
+    status: complete
+  - id: "8.7"
+    title: cache (Memoization with TTL)
+    status: in-progress
+  - id: "8.8"
+    title: with (Resource Management)
+    status: in-progress
+  - id: "8.9"
+    title: for (Iteration with Early Exit)
+    status: complete
+  - id: "8.10"
+    title: Data Transformation — MOVED TO STDLIB
+    status: complete
+  - id: "8.11"
+    title: Resilience Patterns — MOVED TO STDLIB
+    status: complete
+  - id: "8.12"
+    title: Phase Completion Checklist
+    status: complete
+---
+
 # Phase 8: Pattern Evaluation
 
 **Goal**: All patterns evaluate correctly

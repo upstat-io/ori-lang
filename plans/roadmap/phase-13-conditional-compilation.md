@@ -1,3 +1,44 @@
+---
+phase: 13
+title: Conditional Compilation
+status: not-started
+tier: 5
+goal: Enable platform-specific code and feature flags
+spec:
+  - spec/24-conditional-compilation.md
+sections:
+  - id: "13.1"
+    title: Target Attribute
+    status: not-started
+  - id: "13.2"
+    title: OR Conditions
+    status: not-started
+  - id: "13.3"
+    title: Negation
+    status: not-started
+  - id: "13.4"
+    title: Cfg Attribute
+    status: not-started
+  - id: "13.5"
+    title: Feature Flags
+    status: not-started
+  - id: "13.6"
+    title: File-Level Conditions
+    status: not-started
+  - id: "13.7"
+    title: Compile-Time Constants
+    status: not-started
+  - id: "13.8"
+    title: Build Configuration
+    status: not-started
+  - id: "13.9"
+    title: Diagnostics
+    status: not-started
+  - id: "13.10"
+    title: compile_error Built-in
+    status: not-started
+---
+
 # Phase 13: Conditional Compilation
 
 **Goal**: Enable platform-specific code and feature flags
