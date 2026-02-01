@@ -544,6 +544,26 @@ impl Default for TargetConfig {
     }
 }
 
+impl TargetConfig {
+    /// Create a target configuration from pre-parsed components.
+    ///
+    /// This is useful for testing or when you already have parsed triple components.
+    /// Note: This does not initialize LLVM targets, so methods like `create_target_machine`
+    /// may fail unless you've called the appropriate initialization functions.
+    #[must_use]
+    pub fn from_components(components: TargetTripleComponents) -> Self {
+        Self {
+            triple: components.to_string(),
+            components,
+            cpu: "generic".to_string(),
+            features: String::new(),
+            opt_level: OptimizationLevel::None,
+            reloc_mode: RelocMode::Default,
+            code_model: CodeModel::Default,
+        }
+    }
+}
+
 // -- LLVM Target Initialization --
 
 static NATIVE_TARGET_INIT: Once = Once::new();
