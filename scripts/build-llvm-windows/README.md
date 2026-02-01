@@ -12,14 +12,14 @@ One-click script to build LLVM 17.0.6 with all targets for Windows.
 Open PowerShell and run:
 
 ```powershell
-\\wsl$\Ubuntu\home\eric\ori_lang\scripts\build-llvm-windows\build.ps1
+powershell -ExecutionPolicy Bypass -File \\wsl$\Ubuntu\home\eric\ori_lang\scripts\build-llvm-windows\build.ps1
 ```
 
-Or copy to a Windows path first (faster):
+Or copy to a Windows path first (faster file access):
 
 ```powershell
 cp \\wsl$\Ubuntu\home\eric\ori_lang\scripts\build-llvm-windows\build.ps1 C:\
-C:\build.ps1
+powershell -ExecutionPolicy Bypass -File C:\build.ps1
 ```
 
 The script will:
