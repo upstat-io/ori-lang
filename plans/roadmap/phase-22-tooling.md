@@ -1,3 +1,42 @@
+---
+phase: 22
+title: Tooling
+status: in-progress
+tier: 8
+goal: Developer experience
+sections:
+  - id: "22.1"
+    title: Formatter
+    status: complete
+  - id: "22.2"
+    title: LSP Server
+    status: not-started
+  - id: "22.3"
+    title: Edit Operations
+    status: not-started
+  - id: "22.4"
+    title: REPL
+    status: not-started
+  - id: "22.5"
+    title: Test Runner
+    status: complete
+  - id: "22.6"
+    title: Causality Tracking
+    status: not-started
+  - id: "22.7"
+    title: Structured Diagnostics
+    status: not-started
+  - id: "22.8"
+    title: WASM Playground
+    status: in-progress
+  - id: "22.9"
+    title: Grammar Synchronization Verification
+    status: not-started
+  - id: "22.10"
+    title: Phase Completion Checklist
+    status: not-started
+---
+
 # Phase 22: Tooling
 
 **Goal**: Developer experience

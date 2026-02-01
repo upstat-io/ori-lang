@@ -1,3 +1,42 @@
+---
+phase: "21B"
+title: AOT Compilation
+status: not-started
+tier: 8
+goal: Generate native executables and WebAssembly from Ori source code
+sections:
+  - id: "21B.1"
+    title: Target Configuration
+    status: not-started
+  - id: "21B.2"
+    title: Object File Emission
+    status: not-started
+  - id: "21B.3"
+    title: Debug Information
+    status: not-started
+  - id: "21B.4"
+    title: Optimization Pipeline
+    status: not-started
+  - id: "21B.5"
+    title: Linking
+    status: not-started
+  - id: "21B.6"
+    title: Incremental Compilation
+    status: not-started
+  - id: "21B.7"
+    title: WebAssembly Backend
+    status: not-started
+  - id: "21B.8"
+    title: CLI Integration
+    status: not-started
+  - id: "21B.9"
+    title: Error Handling
+    status: not-started
+  - id: "21B.10"
+    title: Phase Completion Checklist
+    status: not-started
+---
+
 # Phase 21B: AOT Compilation
 
 **Status:** 📋 Planned

@@ -31,6 +31,45 @@ Before starting:
 - Update `priority-and-tracking.md` phase status
 - Save after each update
 
+### Phase File Frontmatter Format
+
+Each phase file uses YAML frontmatter for machine-parseable metadata. This enables the website to dynamically read roadmap data instead of hard-coding it.
+
+```yaml
+---
+phase: 1                           # int or string ("7A", "15B", "21A")
+title: Type System Foundation
+status: in-progress                # not-started | in-progress | complete
+tier: 1                            # 1-8 (see tier descriptions below)
+goal: Fix type checking to properly use type annotations
+spec:                              # string or array (optional)
+  - spec/06-types.md
+sections:
+  - id: "1.1"                      # matches ## X.Y headers in body
+    title: Primitive Types
+    status: complete               # not-started | in-progress | complete
+  - id: "1.2"
+    title: Type Annotations
+    status: in-progress
+---
+```
+
+**Status values:**
+- `not-started` — No checkboxes completed in section
+- `in-progress` — Some checkboxes completed, some pending
+- `complete` — All checkboxes completed
+
+**Determining section status from body:**
+- Analyze checkbox patterns (`[x]` vs `[ ]`) under each `## X.Y` header
+- All `[x]` → `complete`
+- Mix of `[x]` and `[ ]` → `in-progress`
+- All `[ ]` → `not-started`
+
+**Phase status derivation:**
+- All sections `complete` → phase `complete`
+- Any section `in-progress` or mix of statuses → phase `in-progress`
+- All sections `not-started` → phase `not-started`
+
 ### Adding New Items
 
 When adding new implementation items to the roadmap, consider creating a new phase file if:

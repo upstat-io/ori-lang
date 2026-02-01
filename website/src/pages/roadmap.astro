@@ -125,978 +125,266 @@ interface Tier {
   exitCriteria: string;
 }
 
-const tiers: Tier[] = [
-  {
-    id: 1,
-    name: "Foundation",
-    status: "partial",
-    description: "Core type system and language fundamentals",
-    phases: [
-      {
-        num: 1,
-        name: "Type System Foundation",
-        status: "partial",
-        note: "87/99 tasks; Duration/Size arithmetic and Never semantics pending",
-        goal: "Fix type checking to properly use type annotations",
-        spec: "spec/06-types.md, spec/07-properties-of-types.md",
-        sections: [
-          { name: "1.1 Primitive Types", tasks: [
-            { name: "int, float, bool, str, char, byte types", done: true },
-            { name: "void type", done: true },
-            { name: "Never type", done: true },
-          ]},
-          { name: "1.1A Duration and Size Types", tasks: [
-            { name: "Duration/Size literal tokenization", done: true },
-            { name: "Duration/Size type representation", done: true },
-            { name: "Duration/Size arithmetic operators", done: false },
-            { name: "Duration/Size extraction methods", done: true },
-            { name: "Duration/Size factory methods", done: true },
-            { name: "Duration/Size trait implementations", done: true },
-          ]},
-          { name: "1.1B Never Type Semantics", tasks: [
-            { name: "Never coerces to any type T", done: true },
-            { name: "panic/todo/unreachable return Never", done: true },
-            { name: "break/continue have type Never", done: false },
-            { name: "Early-return ? operator has type Never", done: false },
-            { name: "Infinite loop has type Never", done: false },
-            { name: "Never struct field restriction (E0920)", done: false },
-          ]},
-          { name: "1.2-1.4 Type Annotations", tasks: [
-            { name: "Parameter type annotations", done: true },
-            { name: "Lambda type annotations", done: true },
-            { name: "Let binding type annotations", done: true },
-          ]},
-        ],
-      },
-      {
-        num: 2,
-        name: "Complete Type Inference",
-        status: "complete",
-        note: "30/30 tasks complete",
-        goal: "Implement Hindley-Milner style type inference",
-        spec: "spec/06-types.md",
-        sections: [
-          { name: "2.1 Unification Algorithm", tasks: [
-            { name: "Occurs check", done: true },
-            { name: "Substitution application", done: true },
-            { name: "Generalization (let-polymorphism)", done: true },
-            { name: "Instantiation", done: true },
-          ]},
-          { name: "2.2 Expression Type Inference", tasks: [
-            { name: "Local variable inference", done: true },
-            { name: "Lambda parameter inference", done: true },
-            { name: "Generic type argument inference", done: true },
-            { name: "Collection element type inference", done: true },
-          ]},
-          { name: "2.3 Type Error Improvements", tasks: [
-            { name: "Expected vs found messages", done: true },
-            { name: "Type conversion hints", done: true },
-            { name: "Source location in errors", done: true },
-          ]},
-        ],
-      },
-      {
-        num: 3,
-        name: "Traits and Implementations",
-        status: "partial",
-        note: "103/263 tasks; core traits done, Iterator/Debug/resolution pending",
-        goal: "Implement trait system with bounds and implementations",
-        spec: "spec/08-declarations.md",
-        sections: [
-          { name: "3.0-3.6 Core Traits", tasks: [
-            { name: "Trait declarations and methods", done: true },
-            { name: "Trait implementations and coherence", done: true },
-            { name: "Trait bounds and where clauses", done: true },
-            { name: "Associated types", done: true },
-            { name: "Derive traits (Eq, Clone, Hashable, Printable)", done: true },
-          ]},
-          { name: "3.7-3.9 Clone, Iterator, Debug", tasks: [
-            { name: "Clone trait formal definition", done: false },
-            { name: "Iterator trait and methods", done: false },
-            { name: "DoubleEndedIterator trait", done: false },
-            { name: "Iterable and Collect traits", done: false },
-            { name: "Debug trait and derivation", done: false },
-          ]},
-          { name: "3.10-3.12 Resolution and Safety", tasks: [
-            { name: "Diamond problem resolution", done: false },
-            { name: "Coherence/orphan rules", done: false },
-            { name: "Object safety checking", done: false },
-            { name: "Index trait (custom subscripting)", done: false },
-          ]},
-          { name: "3.13-3.18 Additional Traits", tasks: [
-            { name: "Printable/Default formal definition", done: false },
-            { name: "Comparable/Hashable formal definition", done: false },
-            { name: "Formattable trait", done: false },
-            { name: "Into trait", done: false },
-            { name: "Ordering type methods", done: true },
-          ]},
-          { name: "3.19-3.21 Type Parameters and Operators", tasks: [
-            { name: "Default type parameters on traits", done: true },
-            { name: "Default associated types", done: true },
-            { name: "Operator traits in interpreter", done: true },
-            { name: "Operator traits LLVM codegen", done: false },
-          ]},
-        ],
-      },
-      {
-        num: 4,
-        name: "Module System",
-        status: "partial",
-        note: "53/91 tasks; core complete, extension methods pending",
-        goal: "Implement module system with imports and visibility",
-        spec: "spec/12-modules.md",
-        sections: [
-          { name: "4.1-4.3 Core Modules", tasks: [
-            { name: "Module structure and file mapping", done: true },
-            { name: "Relative and package imports", done: true },
-            { name: "Named imports and aliases", done: true },
-            { name: "pub visibility modifier", done: true },
-            { name: "Private access (::prefix)", done: true },
-          ]},
-          { name: "4.4-4.6 Resolution", tasks: [
-            { name: "File path resolution", done: true },
-            { name: "Cycle detection", done: true },
-            { name: "Name resolution", done: true },
-            { name: "Prelude auto-import", done: true },
-          ]},
-          { name: "4.7-4.8 Advanced Features", tasks: [
-            { name: "ori check --cycles command", done: false },
-            { name: "lib.ori entry point", done: false },
-            { name: "Multi-level re-exports", done: false },
-          ]},
-          { name: "4.11 Extension Methods", tasks: [
-            { name: "extend Type { } syntax", done: false },
-            { name: "Constrained extensions", done: false },
-            { name: "Extension import syntax", done: false },
-            { name: "Resolution order and conflicts", done: false },
-          ]},
-        ],
-      },
-      {
-        num: 5,
-        name: "Type Declarations",
-        status: "partial",
-        note: "36/74 tasks; core types done, associated functions pending",
-        goal: "User-defined types: structs, enums, newtypes",
-        spec: "spec/06-types.md, spec/08-declarations.md",
-        sections: [
-          { name: "5.1-5.2 Struct and Sum Types", tasks: [
-            { name: "Struct declaration and literals", done: true },
-            { name: "Field access and shorthand", done: true },
-            { name: "Sum type variants", done: true },
-            { name: "Pattern matching on variants", done: true },
-          ]},
-          { name: "5.3-5.4 Newtypes and Generics", tasks: [
-            { name: "Newtype declaration", done: true },
-            { name: "Distinct type identity", done: true },
-            { name: ".inner accessor (not .unwrap())", done: false },
-            { name: "Generic type parameters", done: true },
-            { name: "Constrained generics <T: Trait>", done: false },
-          ]},
-          { name: "5.5-5.8 Compound and Built-in Types", tasks: [
-            { name: "List, Map, Set, Tuple types", done: false },
-            { name: "Option<T>, Result<T, E>", done: false },
-            { name: "#derive attribute parsing", done: false },
-            { name: "pub type visibility", done: false },
-          ]},
-          { name: "5.9 Associated Functions", tasks: [
-            { name: "Type.method() syntax", done: false },
-            { name: "Methods without self in impl", done: false },
-            { name: "Self as return type", done: false },
-            { name: "LLVM codegen for associated functions", done: false },
-          ]},
-        ],
-      },
-    ],
-    milestone: "M1: Bootstrapped",
-    milestoneStatus: "partial",
-    exitCriteria: "Can write programs using traits and modules",
-  },
-  {
-    id: 2,
-    name: "Capabilities & Stdlib",
-    status: "partial",
-    description: "Effect tracking and standard library",
-    phases: [
-      {
-        num: 6,
-        name: "Capabilities System",
-        status: "partial",
-        note: "46/93 tasks; core done, composition and intrinsics pending",
-        goal: "Implement capability system for effect tracking",
-        spec: "spec/14-capabilities.md",
-        sections: [
-          { name: "6.1-6.5 Core Capabilities", tasks: [
-            { name: "uses clause parsing", done: true },
-            { name: "Multiple capabilities", done: true },
-            { name: "Suspend capability", done: true },
-            { name: "with...in expression", done: true },
-            { name: "Capability propagation", done: true },
-          ]},
-          { name: "6.6-6.10 Standard Capabilities", tasks: [
-            { name: "Standard capability traits", done: true },
-            { name: "Mock implementations for testing", done: true },
-            { name: "def impl syntax", done: true },
-            { name: "DefImpl type checking", done: true },
-            { name: "Evaluator def impl dispatch", done: true },
-          ]},
-          { name: "6.11-6.12 Capability Composition", tasks: [
-            { name: "Multi-binding with syntax", done: false },
-            { name: "Nested with...in shadowing", done: false },
-            { name: "Resolution priority order", done: false },
-            { name: "without def import syntax", done: false },
-          ]},
-          { name: "6.14 Intrinsics Capability", tasks: [
-            { name: "SIMD float operations", done: false },
-            { name: "Bit manipulation operations", done: false },
-            { name: "Hardware feature detection", done: false },
-            { name: "LLVM backend SIMD codegen", done: false },
-          ]},
-        ],
-      },
-      {
-        num: "7A",
-        name: "Core Built-ins",
-        status: "not-started",
-        note: "0/98 tasks; type conversions, assertions, developer functions",
-        goal: "Core built-in functions and type conversions",
-        spec: "library/std/",
-        sections: [
-          { name: "7A.1 Type Conversions", tasks: [
-            { name: "As<T> trait for infallible conversions", done: false },
-            { name: "TryAs<T> trait for fallible conversions", done: false },
-            { name: "x as T / x as? T syntax", done: false },
-            { name: "Remove int()/float()/str()/byte() syntax", done: false },
-          ]},
-          { name: "7A.2-7A.3 Assertions and I/O", tasks: [
-            { name: "assert, assert_eq, assert_ne", done: false },
-            { name: "assert_some/none, assert_ok/err", done: false },
-            { name: "print, panic functions", done: false },
-            { name: "compare, min, max functions", done: false },
-          ]},
-          { name: "7A.5-7A.6 Developer Functions", tasks: [
-            { name: "todo() and unreachable()", done: false },
-            { name: "dbg() debug helper", done: false },
-            { name: "PanicInfo struct and @panic handler", done: false },
-            { name: "repeat<T>() infinite iterator", done: false },
-          ]},
-          { name: "7A.7 Resource Management", tasks: [
-            { name: "drop_early() function", done: false },
-          ]},
-        ],
-      },
-      {
-        num: "7B",
-        name: "Option & Result",
-        status: "not-started",
-        note: "0/68 tasks; Option/Result methods and error traces",
-        goal: "Methods for Option<T> and Result<T, E> types",
-        spec: "library/std/",
-        sections: [
-          { name: "7B.1 Option Methods", tasks: [
-            { name: "is_some, is_none", done: false },
-            { name: "map, and_then, filter", done: false },
-            { name: "unwrap_or, ok_or", done: false },
-          ]},
-          { name: "7B.2 Result Methods", tasks: [
-            { name: "is_ok, is_err", done: false },
-            { name: "map, map_err, and_then", done: false },
-            { name: "unwrap_or, ok, err", done: false },
-          ]},
-          { name: "7B.3 Error Return Traces", tasks: [
-            { name: "Result.trace() and trace_entries()", done: false },
-            { name: "Trace collection at ? propagation", done: false },
-            { name: "Result.context() method", done: false },
-          ]},
-        ],
-      },
-      {
-        num: "7C",
-        name: "Collections & Iteration",
-        status: "not-started",
-        note: "0/148 tasks; collection methods, iterators, Debug",
-        goal: "Collection methods and iterator traits",
-        spec: "library/std/",
-        sections: [
-          { name: "7C.1-7C.4 Collection Methods", tasks: [
-            { name: "List: map, filter, fold, find, any, all", done: false },
-            { name: "List: push, concat, reverse, sort", done: false },
-            { name: "Range: map, filter, fold, collect", done: false },
-            { name: "len() and is_empty() for all collections", done: false },
-          ]},
-          { name: "7C.6 Iterator Traits", tasks: [
-            { name: "Iterator trait with next()", done: false },
-            { name: "Iterable trait with iter()", done: false },
-            { name: "Collect trait for collection building", done: false },
-            { name: "for loop desugaring", done: false },
-          ]},
-          { name: "7C.7 Debug Trait", tasks: [
-            { name: "Debug trait definition", done: false },
-            { name: "#derive(Debug) for structs and enums", done: false },
-            { name: "String escaping in Debug output", done: false },
-          ]},
-        ],
-      },
-      {
-        num: "7D",
-        name: "Stdlib Modules",
-        status: "partial",
-        note: "2/263 tasks; time/json/fs/crypto proposals approved",
-        goal: "Standard library modules: validate, resilience, math, time, json, fs, crypto",
-        spec: "library/std/",
-        sections: [
-          { name: "7D.1-7D.3 Core Modules", tasks: [
-            { name: "std.validate module", done: false },
-            { name: "std.resilience retry/backoff", done: false },
-            { name: "std.math overflow functions", done: false },
-          ]},
-          { name: "7D.6 std.time Module", tasks: [
-            { name: "Instant, DateTime, Timezone types", done: false },
-            { name: "Duration methods", done: false },
-            { name: "Clock capability and MockClock", done: false },
-          ]},
-          { name: "7D.7 std.json Module", tasks: [
-            { name: "JsonValue type, parse/stringify", done: false },
-            { name: "#derive(Json) support", done: false },
-            { name: "Streaming JsonParser", done: false },
-          ]},
-          { name: "7D.8-7D.9 std.fs and std.crypto", tasks: [
-            { name: "Path, FileInfo, FileError types", done: false },
-            { name: "read, write, list_dir functions", done: false },
-            { name: "Crypto key pairs and algorithms", done: false },
-            { name: "Password hashing, encryption, signatures", done: false },
-          ]},
-        ],
-      },
-    ],
-    milestone: "M2: Capabilities & Stdlib",
-    milestoneStatus: "partial",
-    exitCriteria: "Capabilities working, stdlib available",
-  },
-  {
-    id: 3,
-    name: "Core Patterns",
-    status: "partial",
-    description: "Pattern evaluation and control flow",
-    phases: [
-      {
-        num: 8,
-        name: "Pattern Evaluation",
-        status: "partial",
-        note: "53/91 tasks; run/try/recurse done, cache/memo pending",
-        goal: "Implement compiler patterns: run, try, recurse, parallel, etc.",
-        spec: "spec/09-expressions.md",
-        sections: [
-          { name: "8.1-8.2 Sequential Patterns", tasks: [
-            { name: "run(...) pattern with bindings", done: true },
-            { name: "try(...) with ? propagation", done: true },
-          ]},
-          { name: "8.3 Recurse Pattern", tasks: [
-            { name: "condition/base/step properties", done: true },
-            { name: "self() recursive call", done: true },
-            { name: "Memoization (memo: true)", done: true },
-            { name: "self() outside step error (E1001)", done: false },
-            { name: "Parallel recursion", done: false },
-            { name: "TCO for tail position", done: false },
-          ]},
-          { name: "8.4-8.6 Concurrency Patterns", tasks: [
-            { name: "parallel(...) returns [Result]", done: true },
-            { name: "spawn(...) fire-and-forget", done: true },
-            { name: "timeout(...) pattern", done: true },
-          ]},
-          { name: "8.7-8.9 Resource Patterns", tasks: [
-            { name: "cache(...) basic pattern", done: true },
-            { name: "cache TTL and stampede prevention", done: false },
-            { name: "with(...) acquire/use/release", done: true },
-            { name: "for(...) pattern with match/default", done: true },
-          ]},
-        ],
-      },
-      {
-        num: 9,
-        name: "Match Expressions",
-        status: "not-started",
-        note: "0/95 tasks; match expression, patterns, guards, exhaustiveness",
-        goal: "Pattern matching with exhaustiveness checking",
-        spec: "spec/10-patterns.md",
-        sections: [
-          { name: "9.1 Match Expression", tasks: [
-            { name: "match(...) grammar and parsing", done: false },
-            { name: "Evaluate scrutinee and test arms", done: false },
-            { name: "Guard expression evaluation", done: false },
-          ]},
-          { name: "9.2 Pattern Types", tasks: [
-            { name: "Literal and binding patterns", done: false },
-            { name: "Wildcard and variant patterns", done: false },
-            { name: "Struct and list patterns", done: false },
-            { name: "Range and or patterns", done: false },
-            { name: "At patterns (x @ pat)", done: false },
-          ]},
-          { name: "9.4 Exhaustiveness Checking", tasks: [
-            { name: "Pattern matrix decomposition", done: false },
-            { name: "Constructor enumeration", done: false },
-            { name: "Match must be exhaustive (E0123)", done: false },
-            { name: "Guards require catch-all (E0124)", done: false },
-            { name: "Unreachable pattern detection (W0456)", done: false },
-          ]},
-        ],
-      },
-      {
-        num: 10,
-        name: "Control Flow",
-        status: "partial",
-        note: "4/86 tasks; basic if/for done, loops and labels pending",
-        goal: "Loops, break, continue, labeled blocks",
-        spec: "spec/19-control-flow.md",
-        sections: [
-          { name: "10.1 If Expression", tasks: [
-            { name: "if cond then expr else expr", done: false },
-            { name: "Branch type unification", done: false },
-            { name: "Never coercion in branches", done: false },
-          ]},
-          { name: "10.2 For Expressions", tasks: [
-            { name: "for x in items do expr", done: false },
-            { name: "for x in items yield expr", done: false },
-            { name: "for with if guard", done: false },
-            { name: "Nested for clauses", done: false },
-          ]},
-          { name: "10.3 Loop Expression", tasks: [
-            { name: "loop(body) expression", done: false },
-            { name: "break with optional value", done: false },
-            { name: "continue expression", done: false },
-            { name: "Labeled loops (loop:name)", done: false },
-            { name: "Labeled break/continue", done: false },
-          ]},
-          { name: "10.4-10.7 Error and Panics", tasks: [
-            { name: "Postfix ? operator", done: false },
-            { name: "Automatic trace collection", done: false },
-            { name: "catch(expr) pattern", done: false },
-            { name: "PanicInfo type", done: false },
-          ]},
-        ],
-      },
-    ],
-    milestone: "M3: Core Patterns",
-    milestoneStatus: "partial",
-    exitCriteria: "All pattern and control flow constructs working",
-  },
-  {
-    id: 4,
-    name: "FFI & Interop",
-    status: "planned",
-    description: "Foreign code integration",
-    phases: [
-      {
-        num: 11,
-        name: "Foreign Function Interface (FFI)",
-        status: "not-started",
-        note: "0/57 tasks; unified native/WASM FFI",
-        goal: "Call C functions and JavaScript APIs",
-        spec: "spec/16-ffi.md",
-        sections: [
-          { name: "11.1-11.2 Extern Blocks and C Types", tasks: [
-            { name: "extern \"c\" from \"lib\" syntax", done: false },
-            { name: "C type aliases (c_int, c_size, etc.)", done: false },
-            { name: "Type checker FFI validation", done: false },
-            { name: "LLVM codegen for extern blocks", done: false },
-          ]},
-          { name: "11.3-11.4 Layout and Safety", tasks: [
-            { name: "#repr(\"c\") struct layout", done: false },
-            { name: "unsafe { } blocks", done: false },
-            { name: "Track unsafe context", done: false },
-          ]},
-          { name: "11.5-11.7 Capability and Linking", tasks: [
-            { name: "FFI capability requirement", done: false },
-            { name: "Callback wrappers", done: false },
-            { name: "Link directives", done: false },
-          ]},
-          { name: "11.8-11.10 WASM and JS", tasks: [
-            { name: "compile_error() built-in", done: false },
-            { name: "WASM code generation", done: false },
-            { name: "JsValue handle type", done: false },
-            { name: "JsPromise<T> implicit resolution", done: false },
-          ]},
-        ],
-      },
-      {
-        num: 12,
-        name: "Variadic Functions",
-        status: "not-started",
-        note: "0/29 tasks; homogeneous variadics and C interop",
-        goal: "Support variadic functions for C interop",
-        spec: "Design pending",
-        sections: [
-          { name: "12.1-12.2 Homogeneous Variadics", tasks: [
-            { name: "...T variadic parameter syntax", done: false },
-            { name: "Variadic type checking", done: false },
-            { name: "Minimum argument validation", done: false },
-            { name: "LLVM codegen for variadics", done: false },
-          ]},
-          { name: "12.3-12.4 Bounds and C Interop", tasks: [
-            { name: "Trait bounds on variadics", done: false },
-            { name: "C variadic syntax (...)", done: false },
-            { name: "va_list ABI handling", done: false },
-          ]},
-        ],
-      },
-    ],
-    milestone: "M4: FFI & Interop",
-    milestoneStatus: "not-started",
-    exitCriteria: "Can call C libraries",
-  },
-  {
-    id: 5,
-    name: "Language Completion",
-    status: "planned",
-    description: "Platform support and testing framework",
-    phases: [
-      {
-        num: 13,
-        name: "Conditional Compilation",
-        status: "not-started",
-        note: "0/62 tasks; #target and #cfg attributes",
-        goal: "Platform and feature-based compilation",
-        spec: "spec/08-declarations.md",
-        sections: [
-          { name: "13.1-13.3 Target Attributes", tasks: [
-            { name: "#target(os:, arch:, family:)", done: false },
-            { name: "any_os/any_arch OR conditions", done: false },
-            { name: "not_os/not_arch negation", done: false },
-          ]},
-          { name: "13.4-13.6 Config Attributes", tasks: [
-            { name: "#cfg(debug/release)", done: false },
-            { name: "#cfg(feature:) attribute", done: false },
-            { name: "File-level #!target(...)", done: false },
-          ]},
-          { name: "13.7-13.10 Constants and Errors", tasks: [
-            { name: "$target_os, $target_arch, $target_family", done: false },
-            { name: "$debug, $release constants", done: false },
-            { name: "compile_error() built-in", done: false },
-          ]},
-        ],
-      },
-      {
-        num: 14,
-        name: "Testing Framework",
-        status: "not-started",
-        note: "0/110 tasks; mandatory testing with dependency tracking",
-        goal: "Mandatory testing with dependency tracking",
-        spec: "spec/13-testing.md",
-        sections: [
-          { name: "14.1-14.4 Test Declaration", tasks: [
-            { name: "@test tests @target syntax", done: false },
-            { name: "Floating tests (tests _)", done: false },
-            { name: "#skip, #compile_fail, #fail attributes", done: false },
-          ]},
-          { name: "14.6-14.8 Test Execution", tasks: [
-            { name: "Parallel test runner", done: false },
-            { name: "Test isolation", done: false },
-            { name: "Compile-fail tests", done: false },
-          ]},
-          { name: "14.9-14.10 Dependency-Aware Execution", tasks: [
-            { name: "Reverse dependency lookup", done: false },
-            { name: "--direct/--closure/--full modes", done: false },
-            { name: "Test utilities (tempdir, setenv)", done: false },
-          ]},
-          { name: "14.11-14.12 Incremental Testing", tasks: [
-            { name: "ori check runs affected tests", done: false },
-            { name: "--no-test and --strict flags", done: false },
-            { name: "Hash-based test caching", done: false },
-          ]},
-        ],
-      },
-      {
-        num: "15A",
-        name: "Attributes & Comments",
-        status: "not-started",
-        note: "0/29 tasks; simplified attributes, inline comments",
-        goal: "Attribute syntax changes and comment rules",
-        spec: "docs/ori_lang/proposals/",
-        sections: [
-          { name: "15A.1 Simplified Attribute Syntax", tasks: [
-            { name: "#name(...) syntax (remove brackets)", done: false },
-            { name: "Generalize to all declarations", done: false },
-            { name: "ori fmt auto-migration", done: false },
-          ]},
-          { name: "15A.2-15A.3 Formalization", tasks: [
-            { name: "function_seq vs function_exp AST types", done: false },
-            { name: "Parser enforces named args for builtins", done: false },
-            { name: "Inline comments rejection", done: false },
-          ]},
-        ],
-      },
-      {
-        num: "15B",
-        name: "Function Syntax",
-        status: "partial",
-        note: "1/74 tasks; named args parsing done",
-        goal: "Function declaration and call syntax changes",
-        spec: "docs/ori_lang/proposals/",
-        sections: [
-          { name: "15B.1 Remove Dot Prefix", tasks: [
-            { name: "Parser accepts IDENTIFIER ':'", done: true },
-            { name: "Update all built-ins to named args", done: false },
-            { name: "ori migrate command", done: false },
-          ]},
-          { name: "15B.2 Default Parameters", tasks: [
-            { name: "param: Type = default_expr syntax", done: false },
-            { name: "Call-time evaluation", done: false },
-            { name: "Trait method defaults", done: false },
-          ]},
-          { name: "15B.3 Function Clauses", tasks: [
-            { name: "Pattern matching in parameters", done: false },
-            { name: "if guards", done: false },
-            { name: "Exhaustiveness across clauses", done: false },
-          ]},
-          { name: "15B.4 Positional Lambdas", tasks: [
-            { name: "items.map(x -> x * 2) syntax", done: false },
-            { name: "Single-parameter function check", done: false },
-          ]},
-        ],
-      },
-      {
-        num: "15C",
-        name: "Literals & Operators",
-        status: "not-started",
-        note: "0/56 tasks; string interpolation, spread, range step",
-        goal: "Literal syntax and operator additions",
-        spec: "docs/ori_lang/proposals/",
-        sections: [
-          { name: "15C.1 String Interpolation", tasks: [
-            { name: "Template strings with backticks", done: false },
-            { name: "{expr} and {expr:spec} syntax", done: false },
-            { name: "Formattable trait and FormatSpec", done: false },
-          ]},
-          { name: "15C.2 Spread Operator", tasks: [
-            { name: "[...a, ...b] list spread", done: false },
-            { name: "{...a, ...b} map spread", done: false },
-            { name: "T { ...s, x: v } struct spread", done: false },
-          ]},
-          { name: "15C.3-15C.5 Range and Operators", tasks: [
-            { name: "0..10 by 2 step syntax", done: false },
-            { name: "Computed map keys [expr]: value", done: false },
-            { name: "Floor division (div) operator", done: false },
-          ]},
-        ],
-      },
-      {
-        num: "15D",
-        name: "Bindings & Types",
-        status: "not-started",
-        note: "0/37 tasks; pre/post checks, as conversion, $ bindings",
-        goal: "Binding syntax and type system changes",
-        spec: "docs/ori_lang/proposals/",
-        sections: [
-          { name: "15D.1 Pre/Post Checks", tasks: [
-            { name: "pre_check: for run pattern", done: false },
-            { name: "post_check: lambda validation", done: false },
-            { name: "Custom messages with | syntax", done: false },
-          ]},
-          { name: "15D.2 as Conversion Syntax", tasks: [
-            { name: "x as T / x as? T parsing", done: false },
-            { name: "As<T>, TryAs<T> trait desugaring", done: false },
-            { name: "Remove int()/float()/str()/byte()", done: false },
-          ]},
-          { name: "15D.3 Simplified Bindings", tasks: [
-            { name: "let x mutable, let $x immutable", done: false },
-            { name: "Remove mut keyword", done: false },
-            { name: "Module-level requires $", done: false },
-          ]},
-          { name: "15D.4 Remove dyn Keyword", tasks: [
-            { name: "Trait names as trait objects", done: false },
-            { name: "Object safety validation", done: false },
-          ]},
-        ],
-      },
-    ],
-    milestone: "M5: Language Complete",
-    milestoneStatus: "not-started",
-    exitCriteria: "All core language features complete (Phases 1-15)",
-  },
-  {
-    id: 6,
-    name: "Async & Concurrency",
-    status: "future",
-    description: "Async runtime and concurrent programming",
-    phases: [
-      {
-        num: 16,
-        name: "Async Support",
-        status: "not-started",
-        note: "0/17 tasks; async capability and traces",
-        goal: "Async runtime with capability-based effects",
-        spec: "spec/14-capabilities.md",
-        sections: [
-          { name: "16.1-16.2 Async Capability", tasks: [
-            { name: "uses Suspend declaration", done: false },
-            { name: "Sync vs async distinction", done: false },
-            { name: "Structured concurrency", done: false },
-            { name: "No shared mutable state", done: false },
-          ]},
-          { name: "16.3-16.4 Patterns and Traces", tasks: [
-            { name: "parallel, timeout, channels", done: false },
-            { name: "Task boundary marker in traces", done: false },
-            { name: "Trace preservation across tasks", done: false },
-          ]},
-        ],
-      },
-      {
-        num: 17,
-        name: "Concurrency Extended",
-        status: "not-started",
-        note: "0/73 tasks; Sendable, channels, nursery, cancellation",
-        goal: "Advanced concurrency primitives",
-        spec: "spec/14-capabilities.md",
-        sections: [
-          { name: "17.0-17.1 Task Model and Sendable", tasks: [
-            { name: "Task isolation and async context", done: false },
-            { name: "Sendable marker trait", done: false },
-            { name: "Closure capture analysis", done: false },
-            { name: "Atomic reference counting", done: false },
-          ]},
-          { name: "17.2-17.4 Channels", tasks: [
-            { name: "Producer<T>, Consumer<T> types", done: false },
-            { name: "CloneableProducer, CloneableConsumer", done: false },
-            { name: "channel(), channel_in/out/all()", done: false },
-            { name: "Ownership transfer on send", done: false },
-          ]},
-          { name: "17.5-17.6 Nursery Pattern", tasks: [
-            { name: "nursery pattern parsing", done: false },
-            { name: "NurseryErrorMode variants", done: false },
-            { name: "max_concurrent and timeout", done: false },
-            { name: "Result order guarantee", done: false },
-          ]},
-          { name: "17.7-17.8 Cancellation and Timeout", tasks: [
-            { name: "Cooperative cancellation model", done: false },
-            { name: "CancellationError, CancellationReason", done: false },
-            { name: "is_cancelled() built-in", done: false },
-            { name: "timeout pattern semantics", done: false },
-            { name: "spawn fire-and-forget semantics", done: false },
-          ]},
-        ],
-      },
-    ],
-    milestone: "M6: Production Async",
-    milestoneStatus: "not-started",
-    exitCriteria: "Can write server with graceful shutdown",
-  },
-  {
-    id: 7,
-    name: "Advanced Type System",
-    status: "future",
-    description: "Power-user type features",
-    phases: [
-      {
-        num: 18,
-        name: "Const Generics",
-        status: "not-started",
-        note: "0/48 tasks; const params, evaluation, fixed-capacity lists",
-        goal: "Compile-time constant type parameters",
-        spec: "spec/06-types.md",
-        sections: [
-          { name: "18.0 Const Evaluation Termination", tasks: [
-            { name: "Step limit (1M operations)", done: false },
-            { name: "Recursion depth limit (1000)", done: false },
-            { name: "Memory/time limits (100MB/10s)", done: false },
-            { name: "Local mutation in const functions", done: false },
-            { name: "Const evaluation caching", done: false },
-          ]},
-          { name: "18.1-18.4 Const Type Parameters", tasks: [
-            { name: "$N: int syntax for const params", done: false },
-            { name: "Const parameter validation", done: false },
-            { name: "Const expressions in types", done: false },
-          ]},
-          { name: "18.2 Fixed-Capacity Lists", tasks: [
-            { name: "[T, max N] type syntax", done: false },
-            { name: "Subtyping: [T, max N] <: [T]", done: false },
-            { name: "capacity(), is_full(), remaining()", done: false },
-            { name: "to_fixed<$N>(), try_to_fixed<$N>()", done: false },
-          ]},
-          { name: "18.5-18.7 Const Bounds", tasks: [
-            { name: "where N > 0 const bounds", done: false },
-            { name: "Arithmetic in const bounds", done: false },
-            { name: "Default const values", done: false },
-            { name: "Const in trait bounds", done: false },
-          ]},
-        ],
-      },
-      {
-        num: 19,
-        name: "Existential Types (impl Trait)",
-        status: "not-started",
-        note: "0/69 tasks; impl Trait return and constraints",
-        goal: "impl Trait return types",
-        spec: "Design pending",
-        sections: [
-          { name: "19.1-19.2 Return Position", tasks: [
-            { name: "-> impl Trait syntax", done: false },
-            { name: "Type inference for impl Trait", done: false },
-            { name: "All paths same concrete type", done: false },
-          ]},
-          { name: "19.3-19.4 Associated Type Constraints", tasks: [
-            { name: "impl Iterator where Item == T", done: false },
-            { name: "Multi-trait: impl A + B", done: false },
-            { name: "Reject invalid positions", done: false },
-          ]},
-          { name: "19.5 impl vs dyn Trait", tasks: [
-            { name: "Static vs dynamic dispatch docs", done: false },
-            { name: "Best practices guide", done: false },
-          ]},
-        ],
-      },
-    ],
-    milestone: "M7: Advanced Types",
-    milestoneStatus: "not-started",
-    exitCriteria: "Can write matrix library with compile-time checking",
-  },
-  {
-    id: 8,
-    name: "Advanced Features",
-    status: "partial",
-    description: "Reflection, native compilation, and tooling",
-    phases: [
-      {
-        num: 20,
-        name: "Runtime Reflection",
-        status: "not-started",
-        note: "0/83 tasks; Reflect trait, TypeInfo, Unknown",
-        goal: "Runtime type introspection",
-        spec: "Design pending",
-        sections: [
-          { name: "20.1-20.3 Reflect and TypeInfo", tasks: [
-            { name: "Reflect trait in std.reflect", done: false },
-            { name: "#derive(Reflect) macro", done: false },
-            { name: "TypeInfo structure", done: false },
-            { name: "Unknown type for downcasting", done: false },
-          ]},
-          { name: "20.4-20.6 Implementations", tasks: [
-            { name: "Primitive Reflect implementations", done: false },
-            { name: "Collection Reflect implementations", done: false },
-            { name: "fields() extension method", done: false },
-            { name: "Generic JSON serialization", done: false },
-          ]},
-        ],
-      },
-      {
-        num: "21A",
-        name: "LLVM Backend",
-        status: "partial",
-        note: "41/200 tasks; JIT working, many features pending",
-        goal: "Compile to native code via LLVM JIT",
-        spec: "Implementation-specific",
-        sections: [
-          { name: "21.1-21.2 Setup and Types", tasks: [
-            { name: "LLVM context and module init", done: true },
-            { name: "Primitive type mapping", done: true },
-            { name: "Option/Result types", done: false },
-            { name: "Collection types", done: false },
-            { name: "Duration/Size types", done: false },
-          ]},
-          { name: "21.3-21.4 Expressions and Operators", tasks: [
-            { name: "Basic expression codegen", done: true },
-            { name: "Range with step, spread, coalesce", done: false },
-            { name: "User-defined operator dispatch", done: false },
-            { name: "Bitwise operators", done: false },
-          ]},
-          { name: "21.5-21.7 Control Flow and Functions", tasks: [
-            { name: "Basic control flow", done: true },
-            { name: "Labeled loops, break with value", done: false },
-            { name: "Pattern matching improvements", done: false },
-            { name: "Function sequences (run, try, match)", done: false },
-            { name: "Recurse pattern", done: false },
-          ]},
-          { name: "21.8-21.10 Concurrency and Collections", tasks: [
-            { name: "parallel, spawn, timeout patterns", done: false },
-            { name: "Channel operations", done: false },
-            { name: "List, Map, Set operations", done: false },
-            { name: "Iterator trait codegen", done: false },
-          ]},
-          { name: "21.11-21.17 Advanced Features", tasks: [
-            { name: "Basic lambdas", done: true },
-            { name: "Built-in functions", done: true },
-            { name: "FFI and unsafe blocks", done: false },
-            { name: "ARC memory management", done: false },
-            { name: "Optimization passes", done: false },
-          ]},
-        ],
-      },
-      {
-        num: "21B",
-        name: "AOT Compilation",
-        status: "not-started",
-        note: "0/77 tasks; object files, optimization, linking",
-        goal: "Ahead-of-time compilation to native executables",
-        spec: "Implementation-specific",
-        sections: [
-          { name: "21B.1-21B.3 Target and Debug", tasks: [
-            { name: "Target triple configuration", done: false },
-            { name: "Object file emission", done: false },
-            { name: "Debug info (DWARF)", done: false },
-            { name: "Symbol mangling", done: false },
-          ]},
-          { name: "21B.4-21B.6 Optimization and Linking", tasks: [
-            { name: "O0-O3 optimization levels", done: false },
-            { name: "LTO support", done: false },
-            { name: "Linker driver", done: false },
-            { name: "Runtime library (libori_rt)", done: false },
-            { name: "Incremental compilation", done: false },
-          ]},
-          { name: "21B.7-21B.8 WASM and CLI", tasks: [
-            { name: "WASM target configuration", done: false },
-            { name: "JS binding generation", done: false },
-            { name: "ori build command", done: false },
-            { name: "ori targets command", done: false },
-          ]},
-        ],
-      },
-      {
-        num: 22,
-        name: "Tooling",
-        status: "partial",
-        note: "71/125 tasks; formatter and test runner complete",
-        goal: "Developer tooling ecosystem",
-        spec: "Implementation-specific",
-        sections: [
-          { name: "22.1 Formatter", tasks: [
-            { name: "Width calculation engine", done: true },
-            { name: "ori fmt command", done: true },
-            { name: "ori fmt --check/--diff", done: true },
-            { name: ".orifmtignore support", done: true },
-            { name: "Parallel file processing", done: true },
-          ]},
-          { name: "22.2 Language Server", tasks: [
-            { name: "textDocument/formatting", done: false },
-            { name: "Go to definition", done: false },
-            { name: "Find references", done: false },
-            { name: "Hover and completions", done: false },
-          ]},
-          { name: "22.5 Test Runner", tasks: [
-            { name: "ori test command", done: true },
-            { name: "Parallel execution", done: true },
-            { name: "Test filtering and output", done: true },
-            { name: "Coverage report", done: true },
-          ]},
-          { name: "22.6-22.7 Causality and Diagnostics", tasks: [
-            { name: "ori impact @target", done: false },
-            { name: "ori why @target", done: false },
-            { name: "JSON output mode (--json)", done: false },
-            { name: "Auto-fix (--fix)", done: false },
-          ]},
-          { name: "22.8 WASM Playground", tasks: [
-            { name: "WASM crate exports", done: true },
-            { name: "Monaco editor integration", done: true },
-            { name: "URL-based code sharing", done: true },
-            { name: "Extended examples", done: false },
-          ]},
-        ],
-      },
-    ],
-    milestone: "M8: Full Featured",
-    milestoneStatus: "partial",
-    exitCriteria: "Full IDE support, generic serialization, native binaries",
-  },
+// ============================================================================
+// Phase File Loading (Dynamic)
+// ============================================================================
+
+interface YamlSection {
+  id: string;
+  title: string;
+  status: string;
+}
+
+interface YamlFrontmatter {
+  phase: number | string;
+  title: string;
+  status: string;
+  tier: number;
+  goal: string;
+  spec?: string | string[];
+  sections: YamlSection[];
+}
+
+// Parse simple YAML frontmatter (handles our specific schema)
+function parseYamlFrontmatter(yaml: string): YamlFrontmatter | null {
+  const lines = yaml.trim().split('\n');
+  const result: Record<string, unknown> = {};
+  let currentKey = '';
+  let currentArray: unknown[] | null = null;
+  let currentObject: Record<string, unknown> | null = null;
+  let inArray = false;
+
+  for (const line of lines) {
+    if (!line.trim()) continue;
+
+    // Check for array item (starts with "  - ")
+    const arrayItemMatch = line.match(/^(\s*)- (.+)$/);
+    if (arrayItemMatch) {
+      const [, indent, value] = arrayItemMatch;
+      const indentLevel = indent.length;
+
+      const objectMatch = value.match(/^(\w+):\s*(.*)$/);
+      if (objectMatch && indentLevel >= 2) {
+        const [, key, val] = objectMatch;
+        if (key === 'id') {
+          if (currentObject && currentArray) {
+            currentArray.push(currentObject);
+          }
+          currentObject = { id: val.replace(/^["']|["']$/g, '') };
+        } else if (currentObject) {
+          currentObject[key] = val.replace(/^["']|["']$/g, '');
+        }
+      } else if (inArray && currentArray) {
+        currentArray.push(value.trim());
+      }
+      continue;
+    }
+
+    // Check for indented object property (continuation of array object)
+    const indentedKvMatch = line.match(/^(\s+)(\w+):\s*(.*)$/);
+    if (indentedKvMatch && currentObject) {
+      const [, indent, key, val] = indentedKvMatch;
+      if (indent.length >= 4) {
+        currentObject[key] = val.replace(/^["']|["']$/g, '');
+        continue;
+      }
+    }
+
+    // Top-level key: value
+    const kvMatch = line.match(/^(\w+):\s*(.*)$/);
+    if (kvMatch) {
+      if (currentKey && currentArray) {
+        if (currentObject) {
+          currentArray.push(currentObject);
+          currentObject = null;
+        }
+        result[currentKey] = currentArray;
+        currentArray = null;
+      }
+
+      const [, key, value] = kvMatch;
+      currentKey = key;
+
+      if (value === '' || value === undefined) {
+        currentArray = [];
+        inArray = true;
+      } else {
+        let parsed: unknown = value.replace(/^["']|["']$/g, '');
+        if (parsed === 'true') parsed = true;
+        else if (parsed === 'false') parsed = false;
+        else if (/^\d+$/.test(parsed as string)) parsed = parseInt(parsed as string, 10);
+        result[key] = parsed;
+        inArray = false;
+      }
+    }
+  }
+
+  if (currentKey && currentArray) {
+    if (currentObject) {
+      currentArray.push(currentObject);
+    }
+    result[currentKey] = currentArray;
+  }
+
+  return result as unknown as YamlFrontmatter;
+}
+
+// Extract tasks from markdown body by parsing checkboxes under section headers
+function extractTasksFromBody(body: string): Map<string, Task[]> {
+  const result = new Map<string, Task[]>();
+  const lines = body.split('\n');
+
+  let currentSectionId = '';
+  let currentTasks: Task[] = [];
+
+  for (const line of lines) {
+    const sectionMatch = line.match(/^##\s+(\d+(?:\.\d+)?[A-Z]?)\s+(.+)/);
+    if (sectionMatch) {
+      if (currentSectionId) {
+        result.set(currentSectionId, currentTasks);
+      }
+      currentSectionId = sectionMatch[1];
+      currentTasks = [];
+      continue;
+    }
+
+    // Match: - [x] **Verb**: Description text — optional spec reference
+    const checkboxMatch = line.match(/^-\s+\[([ xX])\]\s+\*\*(.+?)\*\*:?\s*(.*)/);
+    if (checkboxMatch && currentSectionId) {
+      const done = checkboxMatch[1].toLowerCase() === 'x';
+      const verb = checkboxMatch[2].trim();
+      const description = checkboxMatch[3]
+        ?.replace(/\s*—\s*spec\/.*$/, '')  // Remove spec reference
+        ?.replace(/\s*—\s*[A-Za-z\/]+\.md.*$/, '')  // Remove any .md reference
+        ?.replace(/`/g, '')  // Remove backticks
+        ?.trim() || '';
+      const name = description || verb;  // Use description if available, else verb
+      currentTasks.push({ name, done });
+    }
+  }
+
+  if (currentSectionId) {
+    result.set(currentSectionId, currentTasks);
+  }
+
+  return result;
+}
+
+// Load and parse a single phase file
+function loadPhaseFile(filepath: string): Phase | null {
+  if (!existsSync(filepath)) return null;
+
+  const content = readFileSync(filepath, 'utf-8');
+  if (!content.startsWith('---')) return null;
+
+  const endIndex = content.indexOf('---', 3);
+  if (endIndex === -1) return null;
+
+  const frontmatterStr = content.slice(3, endIndex);
+  const body = content.slice(endIndex + 3);
+
+  const frontmatter = parseYamlFrontmatter(frontmatterStr);
+  if (!frontmatter) return null;
+
+  const tasksMap = extractTasksFromBody(body);
+
+  const sections: Section[] = frontmatter.sections.map(s => ({
+    name: `${s.id} ${s.title}`,
+    tasks: tasksMap.get(s.id) || [],
+  }));
+
+  let doneCount = 0, totalCount = 0;
+  for (const section of sections) {
+    for (const task of section.tasks) {
+      totalCount++;
+      if (task.done) doneCount++;
+    }
+  }
+
+  const status: "complete" | "partial" | "not-started" =
+    frontmatter.status === 'complete' ? 'complete' :
+    frontmatter.status === 'in-progress' ? 'partial' : 'not-started';
+
+  return {
+    num: frontmatter.phase,
+    name: frontmatter.title,
+    status,
+    note: totalCount > 0 ? `${doneCount}/${totalCount} tasks` : undefined,
+    goal: frontmatter.goal,
+    spec: Array.isArray(frontmatter.spec) ? frontmatter.spec.join(', ') : frontmatter.spec,
+    sections,
+  };
+}
+
+// Load all phase files and organize by tier
+function loadAllPhases(): Map<number, Phase[]> {
+  const roadmapDir = join(process.cwd(), '..', 'plans', 'roadmap');
+  const phases = new Map<number, Phase[]>();
+
+  if (!existsSync(roadmapDir)) return phases;
+
+  const files = readdirSync(roadmapDir)
+    .filter(f => f.startsWith('phase-') && f.endsWith('.md'))
+    .sort();
+
+  for (const file of files) {
+    const filepath = join(roadmapDir, file);
+    const content = readFileSync(filepath, 'utf-8');
+
+    const tierMatch = content.match(/^tier:\s*(\d+)/m);
+    if (!tierMatch) continue;
+
+    const tier = parseInt(tierMatch[1], 10);
+    const phase = loadPhaseFile(filepath);
+
+    if (phase) {
+      if (!phases.has(tier)) phases.set(tier, []);
+      phases.get(tier)!.push(phase);
+    }
+  }
+
+  return phases;
+}
+
+// Tier metadata (stable, rarely changes)
+const tierMetadata: Omit<Tier, 'phases' | 'status'>[] = [
+  { id: 1, name: "Foundation", description: "Core type system and language fundamentals", milestone: "M1: Bootstrapped", milestoneStatus: "partial", exitCriteria: "Can write programs using traits and modules" },
+  { id: 2, name: "Capabilities & Stdlib", description: "Effect tracking and standard library", milestone: "M2: Capabilities & Stdlib", milestoneStatus: "partial", exitCriteria: "Capabilities working, stdlib available" },
+  { id: 3, name: "Core Patterns", description: "Pattern evaluation and control flow", milestone: "M3: Core Patterns", milestoneStatus: "partial", exitCriteria: "run/try/recurse/parallel working, match expressions complete" },
+  { id: 4, name: "FFI & Interop", description: "Foreign function interface and C/JS interop", milestone: "M4: FFI & Interop", milestoneStatus: "not-started", exitCriteria: "Can call C and JavaScript functions" },
+  { id: 5, name: "Language Completion", description: "Testing, conditional compilation, syntax proposals", milestone: "M5: Language Complete", milestoneStatus: "not-started", exitCriteria: "All core language features implemented" },
+  { id: 6, name: "Async & Concurrency", description: "Async/await and concurrent execution", milestone: "M6: Production Async", milestoneStatus: "not-started", exitCriteria: "Full async support with channels and nurseries" },
+  { id: 7, name: "Advanced Types", description: "Const generics, existential types, reflection", milestone: "M7: Advanced Types", milestoneStatus: "not-started", exitCriteria: "Advanced type system features complete" },
+  { id: 8, name: "Advanced Features", description: "LLVM backend, AOT compilation, tooling", milestone: "M8: Full Featured", milestoneStatus: "partial", exitCriteria: "Full IDE support, generic serialization, native binaries" },
 ];
 
+// Build tiers with dynamically loaded phases
+function buildTiers(): Tier[] {
+  const phasesByTier = loadAllPhases();
+
+  return tierMetadata.map(meta => {
+    const phases = phasesByTier.get(meta.id) || [];
+
+    let status: string;
+    if (phases.length === 0 || phases.every(p => p.status === 'not-started')) {
+      status = 'not-started';
+    } else if (phases.every(p => p.status === 'complete')) {
+      status = 'complete';
+    } else {
+      status = 'partial';
+    }
+
+    return { ...meta, phases, status };
+  });
+}
+
+const tiers: Tier[] = buildTiers();
+
+// ============================================================================
+// End Phase File Loading
+// ============================================================================
+
+const _legacyDataRemoved = "Hard-coded phase data removed - now loaded from plans/roadmap/phase-*.md";
 const statusLabels: Record<string, string> = {
   "complete": "Complete",
   "partial": "In Progress",
@@ -1156,19 +444,19 @@ function countTasks(sections: Section[]): { done: number; total: number } {
     <section class="roadmap-hero">
       <h1>Compiler Roadmap</h1>
       <p class="roadmap-subtitle">
-        29 phases across 8 tiers. Click any phase to view details.
+        {tiers.reduce((acc, t) => acc + t.phases.length, 0)} phases across {tiers.length} tiers. Click any phase to view details.
       </p>
       <div class="stats">
         <div class="stat">
-          <span class="stat-value">1</span>
+          <span class="stat-value">{completedPhases.length}</span>
           <span class="stat-label">Completed</span>
         </div>
         <div class="stat">
-          <span class="stat-value">11</span>
+          <span class="stat-value">{inProgressPhases.length}</span>
           <span class="stat-label">In Progress</span>
         </div>
         <div class="stat">
-          <span class="stat-value">17</span>
+          <span class="stat-value">{plannedPhases.length}</span>
           <span class="stat-label">Planned</span>
         </div>
       </div>
@@ -1441,15 +729,17 @@ Branches:
 
   <!-- Modal -->
   <div class="modal-overlay" id="phase-modal">
-    <div class="modal-content">
+    <div class="modal-container">
       <button class="modal-close" type="button" aria-label="Close modal">&times;</button>
-      <div class="modal-header">
+      <div class="modal-content">
+        <div class="modal-header">
         <div class="modal-phase-num" id="modal-phase-num"></div>
         <h2 class="modal-title" id="modal-title"></h2>
         <span class="modal-status" id="modal-status"></span>
       </div>
       <p class="modal-goal" id="modal-goal"></p>
       <div class="modal-sections" id="modal-sections"></div>
+      </div>
     </div>
   </div>
 </BaseLayout>
@@ -1910,15 +1200,21 @@ Branches:
     visibility: visible;
   }
 
-  .modal-content {
+  .modal-container {
     background: var(--color-bg-primary);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     max-width: 480px;
     width: 100%;
     max-height: 80vh;
-    overflow-y: auto;
     position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .modal-content {
+    overflow-y: auto;
+    flex: 1;
   }
 
   .modal-close {
@@ -1928,7 +1224,7 @@ Branches:
     width: 24px;
     height: 24px;
     border: none;
-    background: transparent;
+    background: var(--color-bg-primary);
     color: var(--color-text-muted);
     font-size: var(--text-sm);
     cursor: pointer;
@@ -1936,6 +1232,7 @@ Branches:
     align-items: center;
     justify-content: center;
     border-radius: var(--radius-sm);
+    z-index: 10;
   }
 
   .modal-close:hover {

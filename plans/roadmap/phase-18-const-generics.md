@@ -1,3 +1,39 @@
+---
+phase: 18
+title: Const Generics
+status: not-started
+tier: 7
+goal: Enable type parameters that are compile-time constant values
+spec:
+  - spec/06-types.md
+  - spec/07-properties-of-types.md
+sections:
+  - id: "18.0"
+    title: Const Evaluation Termination
+    status: not-started
+  - id: "18.1"
+    title: Const Type Parameters
+    status: not-started
+  - id: "18.2"
+    title: Fixed-Capacity Lists
+    status: not-started
+  - id: "18.3"
+    title: Fixed-Size Arrays (Future)
+    status: not-started
+  - id: "18.4"
+    title: Const Expressions in Types
+    status: not-started
+  - id: "18.5"
+    title: Const Bounds
+    status: not-started
+  - id: "18.6"
+    title: Default Const Values
+    status: not-started
+  - id: "18.7"
+    title: Const in Trait Bounds
+    status: not-started
+---
+
 # Phase 18: Const Generics
 
 **Goal**: Enable type parameters that are compile-time constant values
