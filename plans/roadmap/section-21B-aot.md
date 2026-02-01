@@ -19,7 +19,7 @@ sections:
     status: complete
   - id: "21B.5"
     title: Linking
-    status: not-started
+    status: in-progress
   - id: "21B.6"
     title: Incremental Compilation
     status: not-started
@@ -162,12 +162,12 @@ sections:
 
 ## 21B.5 Linking
 
-- [ ] **Implement**: Linker driver
-  - [ ] Linux: invoke via `cc` or `ld`
-  - [ ] macOS: invoke via `clang` or `ld64`
-  - [ ] Windows: invoke `link.exe` or `lld-link`
-  - [ ] LLD support (`--linker=lld`)
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/linker_tests.rs`
+- [x] **Implement**: Linker driver
+  - [x] Linux: invoke via `cc` or `ld`
+  - [x] macOS: invoke via `clang` or `ld64`
+  - [x] Windows: invoke `link.exe` or `lld-link`
+  - [x] LLD support (`--linker=lld`)
+  - [x] **Rust Tests**: `ori_llvm/src/aot/linker.rs` (68 tests, 81% coverage)
 
 - [ ] **Implement**: Runtime library (libori_rt)
   - [ ] Consolidate Section 21A runtime functions

@@ -27,11 +27,13 @@
 //! - [`DebugInfoBuilder`]: DWARF/CodeView debug information generation
 //! - [`OptimizationConfig`]: Optimization pass pipeline configuration
 //! - [`run_optimization_passes`]: Run LLVM optimization passes on a module
+//! - [`LinkerDriver`]: Platform-agnostic linker driver for producing executables
 //!
 //! # Example
 //!
 //! ```ignore
 //! use ori_llvm::aot::{TargetConfig, ObjectEmitter, OutputFormat, DebugInfoConfig, DebugLevel};
+//! use ori_llvm::aot::{LinkerDriver, LinkInput, LinkOutput};
 //! use std::path::Path;
 //!
 //! // Native compilation with debug info
@@ -49,6 +51,15 @@
 //! }
 //! emitter.emit_object(&module, Path::new("output.o"))?;
 //!
+//! // Link into executable
+//! let driver = LinkerDriver::new(&target);
+//! driver.link(LinkInput {
+//!     objects: vec!["output.o".into()],
+//!     output: "myapp".into(),
+//!     output_kind: LinkOutput::Executable,
+//!     ..Default::default()
+//! })?;
+//!
 //! // Cross-compilation
 //! let target = TargetConfig::from_triple("aarch64-apple-darwin")?
 //!     .with_cpu("apple-m1")
@@ -64,8 +75,10 @@
 //! - `mangle`: Symbol name mangling
 //! - `debug`: Debug information generation (DWARF/CodeView)
 //! - `passes`: Optimization pipeline (LLVM new pass manager)
+//! - `linker`: Platform-agnostic linker driver
 
 pub mod debug;
+pub mod linker;
 pub mod mangle;
 pub mod object;
 pub mod passes;
@@ -93,4 +106,10 @@ pub use debug::{
 pub use passes::{
     run_custom_pipeline, run_optimization_passes, LtoMode, OptimizationConfig, OptimizationError,
     OptimizationLevel,
+};
+
+// Re-export key types from linker
+pub use linker::{
+    LibraryKind, LinkInput, LinkLibrary, LinkOutput, Linker, LinkerDetection, LinkerDriver,
+    LinkerError, LinkerFlavor,
 };
