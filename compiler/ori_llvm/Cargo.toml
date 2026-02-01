@@ -26,15 +26,19 @@ parking_lot = "0.12"
 # Windows: static linking (requires pre-built LLVM package)
 [target.'cfg(not(windows))'.dependencies]
 inkwell = { version = "0.8", features = ["llvm17-0-force-dynamic"] }
+# llvm-sys for new pass manager C API (LLVMRunPasses, etc.)
+llvm-sys = { version = "170", features = ["force-dynamic"] }
 
 [target.'cfg(windows)'.dependencies]
 inkwell = { version = "0.8", features = ["llvm17-0"] }
+llvm-sys = "170"
 
 [dev-dependencies]
 pretty_assertions = "1.4"
 
 [lints.rust]
-unsafe_code = "deny"
+# unsafe_code is required for llvm-sys FFI calls
+unsafe_code = "allow"
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }

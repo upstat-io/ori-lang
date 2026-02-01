@@ -25,6 +25,8 @@
 //! - [`ObjectEmitter`]: Emit LLVM modules as object files
 //! - [`OutputFormat`]: Output format selection (object, assembly, bitcode, LLVM IR)
 //! - [`DebugInfoBuilder`]: DWARF/CodeView debug information generation
+//! - [`OptimizationConfig`]: Optimization pass pipeline configuration
+//! - [`run_optimization_passes`]: Run LLVM optimization passes on a module
 //!
 //! # Example
 //!
@@ -61,10 +63,12 @@
 //! - `object`: Object file emission
 //! - `mangle`: Symbol name mangling
 //! - `debug`: Debug information generation (DWARF/CodeView)
+//! - `passes`: Optimization pipeline (LLVM new pass manager)
 
 pub mod debug;
 pub mod mangle;
 pub mod object;
+pub mod passes;
 pub mod target;
 
 // Re-export key types from target
@@ -83,4 +87,10 @@ pub use mangle::{demangle, is_ori_symbol, Mangler, MANGLE_PREFIX};
 pub use debug::{
     DebugContext, DebugFormat, DebugInfoBuilder, DebugInfoConfig, DebugInfoError, DebugLevel,
     FieldInfo, LineMap,
+};
+
+// Re-export key types from passes
+pub use passes::{
+    run_custom_pipeline, run_optimization_passes, LtoMode, OptimizationConfig, OptimizationError,
+    OptimizationLevel,
 };

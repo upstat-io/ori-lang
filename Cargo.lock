@@ -650,6 +650,7 @@ name = "ori_llvm"
 version = "0.1.0-alpha.8"
 dependencies = [
  "inkwell",
+ "llvm-sys",
  "ori_ir",
  "ori_types",
  "parking_lot",
