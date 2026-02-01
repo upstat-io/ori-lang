@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: Type System Foundation
-status: complete
+status: in-progress
 tier: 1
 goal: Fix type checking to properly use type annotations
 spec:
