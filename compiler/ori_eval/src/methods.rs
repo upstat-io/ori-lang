@@ -4,24 +4,12 @@
 //! is fixed (not user-extensible), so pattern matching is preferred over
 //! trait objects for better performance and exhaustiveness checking.
 
+use ori_ir::builtin_constants::{duration, size};
 use ori_ir::StringInterner;
 use ori_patterns::{
     division_by_zero, integer_overflow, modulo_by_zero, no_such_method, wrong_arg_count,
-    wrong_arg_type, EvalError, EvalResult, Heap, ScalarInt, Value,
+    wrong_arg_type, EvalError, EvalResult, Heap, OrderingValue, ScalarInt, Value,
 };
-
-// Duration formatting constants (nanoseconds per unit)
-const NS_PER_H: u64 = 60 * 60 * 1_000_000_000;
-const NS_PER_M: u64 = 60 * 1_000_000_000;
-const NS_PER_S: u64 = 1_000_000_000;
-const NS_PER_MS: u64 = 1_000_000;
-const NS_PER_US: u64 = 1_000;
-
-// Size formatting constants (bytes per unit)
-const BYTES_PER_TB: u64 = 1024 * 1024 * 1024 * 1024;
-const BYTES_PER_GB: u64 = 1024 * 1024 * 1024;
-const BYTES_PER_MB: u64 = 1024 * 1024;
-const BYTES_PER_KB: u64 = 1024;
 
 // Factory Helper Functions
 
@@ -73,20 +61,13 @@ pub fn dispatch_associated_function(type_name: &str, method: &str, args: Vec<Val
 
 /// Dispatch Duration associated functions (factory methods).
 fn dispatch_duration_associated(method: &str, args: &[Value]) -> EvalResult {
-    // Duration multipliers (nanoseconds per unit)
-    const NS_PER_US: i64 = 1_000;
-    const NS_PER_MS: i64 = 1_000_000;
-    const NS_PER_S: i64 = 1_000_000_000;
-    const NS_PER_M: i64 = 60_000_000_000;
-    const NS_PER_H: i64 = 3_600_000_000_000;
-
     match method {
         "from_nanoseconds" => duration_from_int(method, args, 1),
-        "from_microseconds" => duration_from_int(method, args, NS_PER_US),
-        "from_milliseconds" => duration_from_int(method, args, NS_PER_MS),
-        "from_seconds" => duration_from_int(method, args, NS_PER_S),
-        "from_minutes" => duration_from_int(method, args, NS_PER_M),
-        "from_hours" => duration_from_int(method, args, NS_PER_H),
+        "from_microseconds" => duration_from_int(method, args, duration::NS_PER_US),
+        "from_milliseconds" => duration_from_int(method, args, duration::NS_PER_MS),
+        "from_seconds" => duration_from_int(method, args, duration::NS_PER_S),
+        "from_minutes" => duration_from_int(method, args, duration::NS_PER_M),
+        "from_hours" => duration_from_int(method, args, duration::NS_PER_H),
         "default" => {
             require_args("default", 0, args.len())?;
             Ok(Value::Duration(0)) // 0ns is the default Duration
@@ -97,18 +78,12 @@ fn dispatch_duration_associated(method: &str, args: &[Value]) -> EvalResult {
 
 /// Dispatch Size associated functions (factory methods).
 fn dispatch_size_associated(method: &str, args: &[Value]) -> EvalResult {
-    // Size multipliers (bytes per unit, binary 1024-based)
-    const BYTES_PER_KB: u64 = 1024;
-    const BYTES_PER_MB: u64 = 1024 * 1024;
-    const BYTES_PER_GB: u64 = 1024 * 1024 * 1024;
-    const BYTES_PER_TB: u64 = 1024 * 1024 * 1024 * 1024;
-
     match method {
         "from_bytes" => size_from_int(method, args, 1),
-        "from_kilobytes" => size_from_int(method, args, BYTES_PER_KB),
-        "from_megabytes" => size_from_int(method, args, BYTES_PER_MB),
-        "from_gigabytes" => size_from_int(method, args, BYTES_PER_GB),
-        "from_terabytes" => size_from_int(method, args, BYTES_PER_TB),
+        "from_kilobytes" => size_from_int(method, args, size::BYTES_PER_KB),
+        "from_megabytes" => size_from_int(method, args, size::BYTES_PER_MB),
+        "from_gigabytes" => size_from_int(method, args, size::BYTES_PER_GB),
+        "from_terabytes" => size_from_int(method, args, size::BYTES_PER_TB),
         "default" => {
             require_args("default", 0, args.len())?;
             Ok(Value::Size(0)) // 0b is the default Size
@@ -357,10 +332,7 @@ pub fn dispatch_builtin_method(
         Value::Newtype { .. } => dispatch_newtype_method(receiver, method, args),
         Value::Duration(_) => dispatch_duration_method(receiver, method, args, interner),
         Value::Size(_) => dispatch_size_method(receiver, method, args, interner),
-        // Ordering type (prelude sum type with built-in methods)
-        v if is_ordering_variant(v, interner) => {
-            dispatch_ordering_method(receiver, method, args, interner)
-        }
+        Value::Ordering(_) => dispatch_ordering_method(receiver, method, args, interner),
         _ => Err(no_such_method(method, receiver.type_name())),
     }
 }
@@ -961,6 +933,8 @@ fn dispatch_duration_method(
 
 /// Format a Duration (nanoseconds) as a human-readable string.
 fn format_duration(ns: i64) -> String {
+    use duration::unsigned as dur;
+
     let abs_ns = ns.unsigned_abs();
     let sign = if ns < 0 { "-" } else { "" };
 
@@ -969,20 +943,20 @@ fn format_duration(ns: i64) -> String {
     }
 
     // Use the largest unit that gives a whole number
-    if abs_ns.is_multiple_of(NS_PER_H) {
-        let hours = abs_ns / NS_PER_H;
+    if abs_ns.is_multiple_of(dur::NS_PER_H) {
+        let hours = abs_ns / dur::NS_PER_H;
         format!("{sign}{hours}h")
-    } else if abs_ns.is_multiple_of(NS_PER_M) {
-        let minutes = abs_ns / NS_PER_M;
+    } else if abs_ns.is_multiple_of(dur::NS_PER_M) {
+        let minutes = abs_ns / dur::NS_PER_M;
         format!("{sign}{minutes}m")
-    } else if abs_ns.is_multiple_of(NS_PER_S) {
-        let seconds = abs_ns / NS_PER_S;
+    } else if abs_ns.is_multiple_of(dur::NS_PER_S) {
+        let seconds = abs_ns / dur::NS_PER_S;
         format!("{sign}{seconds}s")
-    } else if abs_ns.is_multiple_of(NS_PER_MS) {
-        let milliseconds = abs_ns / NS_PER_MS;
+    } else if abs_ns.is_multiple_of(dur::NS_PER_MS) {
+        let milliseconds = abs_ns / dur::NS_PER_MS;
         format!("{sign}{milliseconds}ms")
-    } else if abs_ns.is_multiple_of(NS_PER_US) {
-        let microseconds = abs_ns / NS_PER_US;
+    } else if abs_ns.is_multiple_of(dur::NS_PER_US) {
+        let microseconds = abs_ns / dur::NS_PER_US;
         format!("{sign}{microseconds}us")
     } else {
         format!("{sign}{abs_ns}ns")
@@ -1118,17 +1092,17 @@ fn format_size(bytes: u64) -> String {
     }
 
     // Use the largest unit that gives a whole number
-    if bytes.is_multiple_of(BYTES_PER_TB) {
-        let terabytes = bytes / BYTES_PER_TB;
+    if bytes.is_multiple_of(size::BYTES_PER_TB) {
+        let terabytes = bytes / size::BYTES_PER_TB;
         format!("{terabytes}tb")
-    } else if bytes.is_multiple_of(BYTES_PER_GB) {
-        let gigabytes = bytes / BYTES_PER_GB;
+    } else if bytes.is_multiple_of(size::BYTES_PER_GB) {
+        let gigabytes = bytes / size::BYTES_PER_GB;
         format!("{gigabytes}gb")
-    } else if bytes.is_multiple_of(BYTES_PER_MB) {
-        let megabytes = bytes / BYTES_PER_MB;
+    } else if bytes.is_multiple_of(size::BYTES_PER_MB) {
+        let megabytes = bytes / size::BYTES_PER_MB;
         format!("{megabytes}mb")
-    } else if bytes.is_multiple_of(BYTES_PER_KB) {
-        let kilobytes = bytes / BYTES_PER_KB;
+    } else if bytes.is_multiple_of(size::BYTES_PER_KB) {
+        let kilobytes = bytes / size::BYTES_PER_KB;
         format!("{kilobytes}kb")
     } else {
         format!("{bytes}b")
@@ -1228,19 +1202,20 @@ fn compare_result_values(
 
 /// Convert Rust Ordering to Ori Ordering value.
 ///
-/// Creates an Ordering variant (Less, Equal, or Greater) using the interner.
-fn ordering_to_value(ord: std::cmp::Ordering, interner: &StringInterner) -> Value {
-    use std::cmp::Ordering;
-    let ordering_type = interner.intern("Ordering");
-    let variant_name = match ord {
-        Ordering::Less => interner.intern("Less"),
-        Ordering::Equal => interner.intern("Equal"),
-        Ordering::Greater => interner.intern("Greater"),
-    };
-    Value::variant(ordering_type, variant_name, vec![])
+/// Creates a first-class `Value::Ordering` value.
+fn ordering_to_value(ord: std::cmp::Ordering, _interner: &StringInterner) -> Value {
+    Value::ordering_from_cmp(ord)
 }
 
 // Ordering Type Method Dispatch
+
+/// Extract `OrderingValue` from `Value::Ordering`.
+fn extract_ordering(value: &Value) -> Option<OrderingValue> {
+    match value {
+        Value::Ordering(ord) => Some(*ord),
+        _ => None,
+    }
+}
 
 /// Dispatch methods on Ordering values.
 ///
@@ -1260,52 +1235,45 @@ fn dispatch_ordering_method(
     args: Vec<Value>,
     interner: &StringInterner,
 ) -> EvalResult {
-    let Value::Variant {
-        variant_name,
-        type_name,
-        ..
-    } = &receiver
-    else {
-        unreachable!("dispatch_ordering_method called with non-variant receiver")
+    // Extract OrderingValue from either Value::Ordering or legacy Value::Variant
+    let Some(ord) = extract_ordering(&receiver) else {
+        unreachable!("dispatch_ordering_method called with non-ordering receiver")
     };
-
-    // Resolve variant name to determine which Ordering value we have
-    let variant_str = interner.lookup(*variant_name);
 
     match method {
         // Predicate methods
-        "is_less" => Ok(Value::Bool(variant_str == "Less")),
-        "is_equal" => Ok(Value::Bool(variant_str == "Equal")),
-        "is_greater" => Ok(Value::Bool(variant_str == "Greater")),
-        "is_less_or_equal" => Ok(Value::Bool(variant_str == "Less" || variant_str == "Equal")),
+        "is_less" => Ok(Value::Bool(ord == OrderingValue::Less)),
+        "is_equal" => Ok(Value::Bool(ord == OrderingValue::Equal)),
+        "is_greater" => Ok(Value::Bool(ord == OrderingValue::Greater)),
+        "is_less_or_equal" => Ok(Value::Bool(
+            ord == OrderingValue::Less || ord == OrderingValue::Equal,
+        )),
         "is_greater_or_equal" => Ok(Value::Bool(
-            variant_str == "Greater" || variant_str == "Equal",
+            ord == OrderingValue::Greater || ord == OrderingValue::Equal,
         )),
 
         // Reverse method
         "reverse" => {
-            let new_variant = match variant_str {
-                "Less" => interner.intern("Greater"),
-                "Equal" => interner.intern("Equal"),
-                "Greater" => interner.intern("Less"),
-                _ => unreachable!("invalid Ordering variant: {}", variant_str),
+            let reversed = match ord {
+                OrderingValue::Less => OrderingValue::Greater,
+                OrderingValue::Equal => OrderingValue::Equal,
+                OrderingValue::Greater => OrderingValue::Less,
             };
-            Ok(Value::variant(*type_name, new_variant, vec![]))
+            Ok(Value::Ordering(reversed))
         }
 
         // Clone trait
-        "clone" => Ok(receiver),
+        "clone" => Ok(Value::Ordering(ord)),
 
         // Printable and Debug traits (same representation for Ordering)
-        "to_str" | "debug" => Ok(Value::string(variant_str)),
+        "to_str" | "debug" => Ok(Value::string(ord.name())),
 
         // Hashable trait
         "hash" => {
-            let hash_val = match variant_str {
-                "Less" => -1i64,
-                "Equal" => 0i64,
-                "Greater" => 1i64,
-                _ => unreachable!("invalid Ordering variant"),
+            let hash_val = match ord {
+                OrderingValue::Less => -1i64,
+                OrderingValue::Equal => 0i64,
+                OrderingValue::Greater => 1i64,
             };
             Ok(Value::Int(hash_val.into()))
         }
@@ -1313,57 +1281,25 @@ fn dispatch_ordering_method(
         // Eq trait
         "equals" => {
             require_args("equals", 1, args.len())?;
-            let other = &args[0];
-            let Value::Variant {
-                variant_name: other_variant,
-                ..
-            } = other
-            else {
+            let Some(other_ord) = extract_ordering(&args[0]) else {
                 return Err(EvalError::new("equals requires Ordering value"));
             };
-            let other_str = interner.lookup(*other_variant);
-            Ok(Value::Bool(variant_str == other_str))
+            Ok(Value::Bool(ord == other_ord))
         }
 
         // Comparable trait: Less < Equal < Greater
         "compare" => {
             require_args("compare", 1, args.len())?;
-            let other = &args[0];
-            let Value::Variant {
-                variant_name: other_variant,
-                ..
-            } = other
-            else {
+            let Some(other_ord) = extract_ordering(&args[0]) else {
                 return Err(EvalError::new("compare requires Ordering value"));
             };
-            let other_str = interner.lookup(*other_variant);
-
-            // Convert to numeric for comparison: Less=-1, Equal=0, Greater=1
-            let self_ord = match variant_str {
-                "Less" => -1i8,
-                "Equal" => 0i8,
-                "Greater" => 1i8,
-                _ => unreachable!("invalid Ordering variant"),
-            };
-            let other_ord = match other_str {
-                "Less" => -1i8,
-                "Equal" => 0i8,
-                "Greater" => 1i8,
-                _ => unreachable!("invalid Ordering variant"),
-            };
-
-            Ok(ordering_to_value(self_ord.cmp(&other_ord), interner))
+            // Tags are ordered: Less(0) < Equal(1) < Greater(2)
+            Ok(ordering_to_value(
+                ord.to_tag().cmp(&other_ord.to_tag()),
+                interner,
+            ))
         }
 
         _ => Err(no_such_method(method, "Ordering")),
-    }
-}
-
-/// Check if a `Value::Variant` is an Ordering type.
-fn is_ordering_variant(value: &Value, interner: &StringInterner) -> bool {
-    if let Value::Variant { type_name, .. } = value {
-        interner.lookup(*type_name) == "Ordering"
-    } else {
-        false
     }
 }

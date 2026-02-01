@@ -33,6 +33,8 @@ pub enum Type {
     Duration,
     /// Size type (4kb, 10mb)
     Size,
+    /// Ordering type (Less | Equal | Greater)
+    Ordering,
 
     /// Function type: (params) -> return
     Function { params: Vec<Type>, ret: Box<Type> },
@@ -172,6 +174,7 @@ impl Type {
             Type::Never => TypeId::NEVER,
             Type::Duration => interner.intern(TypeData::Duration),
             Type::Size => interner.intern(TypeData::Size),
+            Type::Ordering => interner.intern(TypeData::Ordering),
             Type::Error => interner.error(),
 
             // Container types with single inner type
@@ -264,6 +267,7 @@ impl Type {
             Type::Never => "Never".to_string(),
             Type::Duration => "Duration".to_string(),
             Type::Size => "Size".to_string(),
+            Type::Ordering => "Ordering".to_string(),
             Type::Function { params, ret } => {
                 let params_str: Vec<_> = params.iter().map(|p| p.display(interner)).collect();
                 format!("({}) -> {}", params_str.join(", "), ret.display(interner))

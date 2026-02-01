@@ -258,10 +258,8 @@ impl BuiltinMethodRegistry {
                 self.units
                     .check(ctx, interner, receiver_ty, method, args, span)
             }
-            // Ordering type (prelude sum type with built-in methods)
-            ty if ordering::is_ordering_type(ty, interner) => {
-                ordering::check_ordering_method(method, interner)
-            }
+            // Ordering type (first-class built-in type)
+            Type::Ordering => ordering::check_ordering_method(method),
             _ => return None,
         })
     }

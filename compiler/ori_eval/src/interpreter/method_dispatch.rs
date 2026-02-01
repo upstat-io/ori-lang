@@ -371,6 +371,7 @@ impl Interpreter<'_> {
             Value::Void => self.interner.intern("void"),
             Value::Duration(_) => self.interner.intern("Duration"),
             Value::Size(_) => self.interner.intern("Size"),
+            Value::Ordering(_) => self.interner.intern("Ordering"),
             Value::List(_) => self.interner.intern("list"),
             Value::Map(_) => self.interner.intern("map"),
             Value::Tuple(_) => self.interner.intern("tuple"),

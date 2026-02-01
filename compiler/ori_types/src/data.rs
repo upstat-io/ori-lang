@@ -50,6 +50,8 @@ pub enum TypeData {
     Duration,
     /// Size type (4kb, 10mb)
     Size,
+    /// Ordering type (Less | Equal | Greater)
+    Ordering,
 
     // Compound types with TypeId children
     /// Function type: (params) -> return
@@ -149,6 +151,7 @@ impl TypeData {
                 | TypeData::Never
                 | TypeData::Duration
                 | TypeData::Size
+                | TypeData::Ordering
         )
     }
 

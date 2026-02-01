@@ -314,14 +314,22 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
             TypeId::FLOAT => self.scx.type_f64().into(),
             TypeId::BOOL => self.scx.type_i1().into(),
             TypeId::CHAR => self.scx.type_i32().into(), // Unicode codepoint
-            TypeId::BYTE => self.scx.type_i8().into(),
             TypeId::STR => self.string_type().into(),
-            // INT, VOID, NEVER, and unknown types (including unresolved type variables)
-            // default to i64. This handles generic functions where T is not yet resolved.
-            // Using i64 as the fallback ensures type compatibility with extracted
-            // values from Option/Result structs.
+            // BYTE and ORDERING are both i8 (Ordering: Less=0, Equal=1, Greater=2)
+            TypeId::BYTE | TypeId::ORDERING => self.scx.type_i8().into(),
+            // INT, DURATION, SIZE, VOID, NEVER, and unknown types default to i64.
+            // Duration is i64 nanoseconds, Size is i64 bytes.
+            // This handles generic functions where T is not yet resolved.
             _ => self.scx.type_i64().into(),
         }
+    }
+
+    /// Get the Ordering type (i8).
+    ///
+    /// Ordering is represented as i8: Less=0, Equal=1, Greater=2.
+    #[inline]
+    pub fn ordering_type(&self) -> inkwell::types::IntType<'ll> {
+        self.scx.type_i8()
     }
 
     /// Get the string type: { i64 len, ptr data }
@@ -480,12 +488,15 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
 
     /// Get a default value for a type.
     pub fn default_value(&self, type_id: TypeId) -> inkwell::values::BasicValueEnum<'ll> {
+        use ori_ir::builtin_constants::ordering::unsigned as ord;
         match type_id {
             TypeId::INT => self.scx.type_i64().const_int(0, false).into(),
             TypeId::FLOAT => self.scx.type_f64().const_float(0.0).into(),
             TypeId::BOOL => self.scx.type_i1().const_int(0, false).into(),
             TypeId::CHAR => self.scx.type_i32().const_int(0, false).into(),
             TypeId::BYTE => self.scx.type_i8().const_int(0, false).into(),
+            // Ordering defaults to Equal (as per spec)
+            TypeId::ORDERING => self.scx.type_i8().const_int(ord::EQUAL, false).into(),
             _ => self.scx.type_ptr().const_null().into(),
         }
     }

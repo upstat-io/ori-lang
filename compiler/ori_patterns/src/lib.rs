@@ -58,8 +58,8 @@ pub use registry::PatternRegistry;
 pub use signature::{DefaultValue, FunctionSignature, OptionalArg, PatternSignature};
 pub use user_methods::{MethodEntry, UserMethod, UserMethodRegistry};
 pub use value::{
-    FunctionValFn, FunctionValue, Heap, MemoizedFunctionValue, RangeValue, ScalarInt, StringLookup,
-    StructLayout, StructValue, Value,
+    FunctionValFn, FunctionValue, Heap, MemoizedFunctionValue, OrderingValue, RangeValue,
+    ScalarInt, StringLookup, StructLayout, StructValue, Value,
 };
 
 // Note: ScopedBinding and ScopedBindingType are defined later in this file and auto-exported

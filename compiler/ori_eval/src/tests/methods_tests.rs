@@ -423,30 +423,39 @@ mod result_methods {
 
 mod ordering_methods {
     use super::*;
-
-    /// Create an Ordering value (Less, Equal, or Greater).
-    fn ordering(interner: &StringInterner, variant: &str) -> Value {
-        let type_name = interner.intern("Ordering");
-        let variant_name = interner.intern(variant);
-        Value::variant(type_name, variant_name, vec![])
-    }
+    use ori_patterns::OrderingValue;
 
     #[test]
     fn is_less() {
         let interner = test_interner();
         assert_eq!(
-            dispatch_builtin_method(ordering(&interner, "Less"), "is_less", vec![], &interner)
-                .unwrap(),
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Less),
+                "is_less",
+                vec![],
+                &interner
+            )
+            .unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            dispatch_builtin_method(ordering(&interner, "Equal"), "is_less", vec![], &interner)
-                .unwrap(),
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Equal),
+                "is_less",
+                vec![],
+                &interner
+            )
+            .unwrap(),
             Value::Bool(false)
         );
         assert_eq!(
-            dispatch_builtin_method(ordering(&interner, "Greater"), "is_less", vec![], &interner)
-                .unwrap(),
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Greater),
+                "is_less",
+                vec![],
+                &interner
+            )
+            .unwrap(),
             Value::Bool(false)
         );
     }
@@ -455,18 +464,28 @@ mod ordering_methods {
     fn is_equal() {
         let interner = test_interner();
         assert_eq!(
-            dispatch_builtin_method(ordering(&interner, "Less"), "is_equal", vec![], &interner)
-                .unwrap(),
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Less),
+                "is_equal",
+                vec![],
+                &interner
+            )
+            .unwrap(),
             Value::Bool(false)
         );
         assert_eq!(
-            dispatch_builtin_method(ordering(&interner, "Equal"), "is_equal", vec![], &interner)
-                .unwrap(),
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Equal),
+                "is_equal",
+                vec![],
+                &interner
+            )
+            .unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
             dispatch_builtin_method(
-                ordering(&interner, "Greater"),
+                Value::Ordering(OrderingValue::Greater),
                 "is_equal",
                 vec![],
                 &interner
@@ -480,13 +499,8 @@ mod ordering_methods {
     fn is_greater() {
         let interner = test_interner();
         assert_eq!(
-            dispatch_builtin_method(ordering(&interner, "Less"), "is_greater", vec![], &interner)
-                .unwrap(),
-            Value::Bool(false)
-        );
-        assert_eq!(
             dispatch_builtin_method(
-                ordering(&interner, "Equal"),
+                Value::Ordering(OrderingValue::Less),
                 "is_greater",
                 vec![],
                 &interner
@@ -496,7 +510,17 @@ mod ordering_methods {
         );
         assert_eq!(
             dispatch_builtin_method(
-                ordering(&interner, "Greater"),
+                Value::Ordering(OrderingValue::Equal),
+                "is_greater",
+                vec![],
+                &interner
+            )
+            .unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Greater),
                 "is_greater",
                 vec![],
                 &interner
@@ -511,7 +535,7 @@ mod ordering_methods {
         let interner = test_interner();
         assert_eq!(
             dispatch_builtin_method(
-                ordering(&interner, "Less"),
+                Value::Ordering(OrderingValue::Less),
                 "is_less_or_equal",
                 vec![],
                 &interner
@@ -521,7 +545,7 @@ mod ordering_methods {
         );
         assert_eq!(
             dispatch_builtin_method(
-                ordering(&interner, "Equal"),
+                Value::Ordering(OrderingValue::Equal),
                 "is_less_or_equal",
                 vec![],
                 &interner
@@ -531,7 +555,7 @@ mod ordering_methods {
         );
         assert_eq!(
             dispatch_builtin_method(
-                ordering(&interner, "Greater"),
+                Value::Ordering(OrderingValue::Greater),
                 "is_less_or_equal",
                 vec![],
                 &interner
@@ -546,7 +570,7 @@ mod ordering_methods {
         let interner = test_interner();
         assert_eq!(
             dispatch_builtin_method(
-                ordering(&interner, "Less"),
+                Value::Ordering(OrderingValue::Less),
                 "is_greater_or_equal",
                 vec![],
                 &interner
@@ -556,7 +580,7 @@ mod ordering_methods {
         );
         assert_eq!(
             dispatch_builtin_method(
-                ordering(&interner, "Equal"),
+                Value::Ordering(OrderingValue::Equal),
                 "is_greater_or_equal",
                 vec![],
                 &interner
@@ -566,7 +590,7 @@ mod ordering_methods {
         );
         assert_eq!(
             dispatch_builtin_method(
-                ordering(&interner, "Greater"),
+                Value::Ordering(OrderingValue::Greater),
                 "is_greater_or_equal",
                 vec![],
                 &interner
@@ -581,40 +605,46 @@ mod ordering_methods {
         let interner = test_interner();
 
         // Less.reverse() -> Greater
-        let result =
-            dispatch_builtin_method(ordering(&interner, "Less"), "reverse", vec![], &interner)
-                .unwrap();
-        if let Value::Variant { variant_name, .. } = result {
-            assert_eq!(interner.lookup(variant_name), "Greater");
-        } else {
-            panic!("Expected Variant, got {result:?}");
-        }
+        assert_eq!(
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Less),
+                "reverse",
+                vec![],
+                &interner
+            )
+            .unwrap(),
+            Value::Ordering(OrderingValue::Greater)
+        );
 
         // Equal.reverse() -> Equal
-        let result =
-            dispatch_builtin_method(ordering(&interner, "Equal"), "reverse", vec![], &interner)
-                .unwrap();
-        if let Value::Variant { variant_name, .. } = result {
-            assert_eq!(interner.lookup(variant_name), "Equal");
-        } else {
-            panic!("Expected Variant, got {result:?}");
-        }
+        assert_eq!(
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Equal),
+                "reverse",
+                vec![],
+                &interner
+            )
+            .unwrap(),
+            Value::Ordering(OrderingValue::Equal)
+        );
 
         // Greater.reverse() -> Less
-        let result =
-            dispatch_builtin_method(ordering(&interner, "Greater"), "reverse", vec![], &interner)
-                .unwrap();
-        if let Value::Variant { variant_name, .. } = result {
-            assert_eq!(interner.lookup(variant_name), "Less");
-        } else {
-            panic!("Expected Variant, got {result:?}");
-        }
+        assert_eq!(
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Greater),
+                "reverse",
+                vec![],
+                &interner
+            )
+            .unwrap(),
+            Value::Ordering(OrderingValue::Less)
+        );
     }
 
     #[test]
     fn clone() {
         let interner = test_interner();
-        let original = ordering(&interner, "Less");
+        let original = Value::Ordering(OrderingValue::Less);
         let cloned = dispatch_builtin_method(original.clone(), "clone", vec![], &interner).unwrap();
         assert_eq!(original, cloned);
     }
@@ -623,18 +653,33 @@ mod ordering_methods {
     fn to_str() {
         let interner = test_interner();
         assert_eq!(
-            dispatch_builtin_method(ordering(&interner, "Less"), "to_str", vec![], &interner)
-                .unwrap(),
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Less),
+                "to_str",
+                vec![],
+                &interner
+            )
+            .unwrap(),
             Value::string("Less")
         );
         assert_eq!(
-            dispatch_builtin_method(ordering(&interner, "Equal"), "to_str", vec![], &interner)
-                .unwrap(),
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Equal),
+                "to_str",
+                vec![],
+                &interner
+            )
+            .unwrap(),
             Value::string("Equal")
         );
         assert_eq!(
-            dispatch_builtin_method(ordering(&interner, "Greater"), "to_str", vec![], &interner)
-                .unwrap(),
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Greater),
+                "to_str",
+                vec![],
+                &interner
+            )
+            .unwrap(),
             Value::string("Greater")
         );
     }
@@ -643,18 +688,33 @@ mod ordering_methods {
     fn hash() {
         let interner = test_interner();
         assert_eq!(
-            dispatch_builtin_method(ordering(&interner, "Less"), "hash", vec![], &interner)
-                .unwrap(),
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Less),
+                "hash",
+                vec![],
+                &interner
+            )
+            .unwrap(),
             Value::int(-1)
         );
         assert_eq!(
-            dispatch_builtin_method(ordering(&interner, "Equal"), "hash", vec![], &interner)
-                .unwrap(),
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Equal),
+                "hash",
+                vec![],
+                &interner
+            )
+            .unwrap(),
             Value::int(0)
         );
         assert_eq!(
-            dispatch_builtin_method(ordering(&interner, "Greater"), "hash", vec![], &interner)
-                .unwrap(),
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Greater),
+                "hash",
+                vec![],
+                &interner
+            )
+            .unwrap(),
             Value::int(1)
         );
     }
@@ -663,7 +723,7 @@ mod ordering_methods {
     fn no_such_method() {
         let interner = test_interner();
         assert!(dispatch_builtin_method(
-            ordering(&interner, "Less"),
+            Value::Ordering(OrderingValue::Less),
             "nonexistent",
             vec![],
             &interner
