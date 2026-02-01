@@ -652,7 +652,6 @@ dependencies = [
  "inkwell",
  "llvm-sys",
  "ori_ir",
- "ori_types",
  "parking_lot",
  "tracing",
  "tracing-subscriber",

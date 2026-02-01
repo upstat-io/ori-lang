@@ -12,7 +12,6 @@ repository = "https://github.com/upstat-io/ori-lang"
 [dependencies]
 # Ori crates (relative paths since excluded from workspace)
 ori_ir = { path = "../ori_ir" }
-ori_types = { path = "../ori_types" }
 
 # Debug instrumentation
 tracing = "0.1"

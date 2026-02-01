@@ -227,10 +227,10 @@ impl Mangler {
     }
 
     // -- Internal encoding helpers --
-    // Note: These take &self for future extensibility (e.g., windows_compat flag)
-    // even though they don't currently use instance state.
 
     /// Encode a module path, replacing path separators.
+    // Takes &self for API consistency and future extensibility (e.g., windows_compat
+    // platform-specific encoding using self.windows_compat).
     #[allow(clippy::unused_self)]
     fn encode_module_path(&self, out: &mut String, path: &str) {
         for c in path.chars() {
@@ -246,6 +246,8 @@ impl Mangler {
     }
 
     /// Encode an identifier (function/type name).
+    // Takes &self for API consistency and future extensibility (e.g., windows_compat
+    // platform-specific encoding using self.windows_compat).
     #[allow(clippy::unused_self)]
     fn encode_identifier(&self, out: &mut String, name: &str) {
         for c in name.chars() {
@@ -269,6 +271,8 @@ impl Mangler {
     }
 
     /// Encode a type name with special handling for compound types.
+    // Takes &self for API consistency and future extensibility (e.g., windows_compat
+    // platform-specific encoding using self.windows_compat).
     #[allow(clippy::unused_self)]
     fn encode_type_name(&self, out: &mut String, type_name: &str) {
         // Handle common collection types
