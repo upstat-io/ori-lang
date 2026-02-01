@@ -10,7 +10,7 @@ sections:
     status: complete
   - id: "21B.2"
     title: Object File Emission
-    status: not-started
+    status: complete
   - id: "21B.3"
     title: Debug Information
     status: not-started
@@ -83,25 +83,25 @@ sections:
 
 ## 21B.2 Object File Emission
 
-- [ ] **Implement**: LLVM TargetMachine creation
-  - [ ] Configure target triple, CPU, features
-  - [ ] Set relocation model (pic, static)
-  - [ ] Set code model (small, medium, large)
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/machine_tests.rs`
+- [x] **Implement**: LLVM TargetMachine creation
+  - [x] Configure target triple, CPU, features
+  - [x] Set relocation model (pic, static)
+  - [x] Set code model (small, medium, large)
+  - [x] **Rust Tests**: `ori_llvm/src/aot/target.rs` (existing tests)
 
-- [ ] **Implement**: Object file writing
-  - [ ] ELF output (Linux)
-  - [ ] Mach-O output (macOS)
-  - [ ] COFF output (Windows)
-  - [ ] WASM output (WebAssembly)
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/object_tests.rs`
+- [x] **Implement**: Object file writing
+  - [x] ELF output (Linux)
+  - [x] Mach-O output (macOS)
+  - [x] COFF output (Windows)
+  - [x] WASM output (WebAssembly)
+  - [x] **Rust Tests**: `ori_llvm/src/aot/object.rs` (12 tests)
 
-- [ ] **Implement**: Symbol mangling
-  - [ ] `_ori_<module>_<function>` scheme
-  - [ ] Type suffixes for overloads
-  - [ ] Trait method mangling
-  - [ ] `ori demangle` command
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/mangle_tests.rs`
+- [x] **Implement**: Symbol mangling
+  - [x] `_ori_<module>_<function>` scheme
+  - [x] Type suffixes for overloads (generic mangling)
+  - [x] Trait method mangling
+  - [x] Demangle function for `ori demangle` command
+  - [x] **Rust Tests**: `ori_llvm/src/aot/mangle.rs` (15 tests)
 
 ---
 
