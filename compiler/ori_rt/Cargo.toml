@@ -1,0 +1,32 @@
+[package]
+name = "ori_rt"
+version = "0.1.0-alpha.8"
+edition = "2021"
+description = "Ori runtime library for AOT-compiled programs"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/upstat-io/ori-lang"
+
+# This crate is EXCLUDED from the main workspace because it requires
+# a staticlib build that's only needed for AOT compilation.
+# Build in container: ./docker/llvm/run.sh cargo build -p ori_rt
+
+# Build both rlib (for Rust consumers like ori_llvm) and staticlib (for AOT linking)
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# No dependencies - pure runtime functions
+
+[lints.rust]
+# unsafe_code is required for C FFI entry points
+unsafe_code = "allow"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# FFI functions take raw pointers from LLVM-generated code
+not_unsafe_ptr_arg_deref = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"

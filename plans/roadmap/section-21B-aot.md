@@ -19,10 +19,10 @@ sections:
     status: complete
   - id: "21B.5"
     title: Linking
-    status: in-progress
+    status: complete
   - id: "21B.6"
     title: Incremental Compilation
-    status: not-started
+    status: complete
   - id: "21B.7"
     title: WebAssembly Backend
     status: not-started
@@ -169,52 +169,52 @@ sections:
   - [x] LLD support (`--linker=lld`)
   - [x] **Rust Tests**: `ori_llvm/src/aot/linker.rs` (68 tests, 81% coverage)
 
-- [ ] **Implement**: Runtime library (libori_rt)
-  - [ ] Consolidate Section 21A runtime functions
-  - [ ] Memory: `ori_alloc`, `ori_free`, `ori_realloc`
-  - [ ] Reference counting: `ori_rc_inc`, `ori_rc_dec`, `ori_rc_new`
-  - [ ] Strings: `ori_str_concat`, `ori_str_from_int`, etc.
-  - [ ] Collections: `ori_list_new`, `ori_map_new`, etc.
-  - [ ] Panic: `ori_panic`, `ori_panic_handler`
-  - [ ] I/O: `ori_print`, `ori_stdin_read`
-  - [ ] Static linking (default)
-  - [ ] Dynamic linking (--link=dynamic)
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/runtime_tests.rs`
+- [x] **Implement**: Runtime library (libori_rt)
+  - [x] Consolidate Section 21A runtime functions
+  - [x] Memory: `ori_alloc`, `ori_free`, `ori_realloc`
+  - [x] Reference counting: `ori_rc_inc`, `ori_rc_dec`, `ori_rc_new`
+  - [x] Strings: `ori_str_concat`, `ori_str_from_int`, etc.
+  - [x] Collections: `ori_list_new`, `ori_map_new`, etc.
+  - [x] Panic: `ori_panic`, `ori_panic_handler`
+  - [x] I/O: `ori_print`, `ori_stdin_read`
+  - [x] Static linking (default)
+  - [x] Dynamic linking (--link=dynamic)
+  - [x] **Rust Tests**: `ori_rt/src/lib.rs` (19 tests), `ori_llvm/src/aot/runtime.rs` (4 tests)
 
-- [ ] **Implement**: System library detection
-  - [ ] Platform-specific library paths
-  - [ ] Sysroot support for cross-compilation
-  - [ ] Library search order
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/syslib_tests.rs`
+- [x] **Implement**: System library detection
+  - [x] Platform-specific library paths
+  - [x] Sysroot support for cross-compilation
+  - [x] Library search order
+  - [x] **Rust Tests**: `ori_llvm/src/aot/syslib.rs` (14 tests)
 
 ---
 
 ## 21B.6 Incremental Compilation
 
-- [ ] **Implement**: Source hashing
-  - [ ] Content hash per source file
-  - [ ] Store hashes in `build/cache/`
-  - [ ] Detect hash mismatches
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/hash_tests.rs`
+- [x] **Implement**: Source hashing
+  - [x] Content hash per source file (FxHash algorithm)
+  - [x] Store hashes in `build/cache/`
+  - [x] Detect hash mismatches
+  - [x] **Rust Tests**: `ori_llvm/src/aot/incremental/hash.rs` (14 tests)
 
-- [ ] **Implement**: Dependency tracking
-  - [ ] Import graph analysis
-  - [ ] Transitive dependency detection
-  - [ ] Store deps in `build/cache/deps/`
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/deps_tests.rs`
+- [x] **Implement**: Dependency tracking
+  - [x] Import graph analysis
+  - [x] Transitive dependency detection
+  - [x] Topological ordering for compilation
+  - [x] **Rust Tests**: `ori_llvm/src/aot/incremental/deps.rs` (12 tests)
 
-- [ ] **Implement**: Cache management
-  - [ ] Cache validation (source + deps + flags + version)
-  - [ ] Cache hit: skip recompilation
-  - [ ] Cache miss: recompile and update cache
-  - [ ] Parallel cache access
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/cache_tests.rs`
+- [x] **Implement**: Cache management
+  - [x] Cache validation (source + deps + flags + version)
+  - [x] Cache hit: skip recompilation
+  - [x] Cache miss: recompile and update cache
+  - [x] Parallel cache access
+  - [x] **Rust Tests**: `ori_llvm/src/aot/incremental/cache.rs` (11 tests)
 
-- [ ] **Implement**: Parallel compilation
-  - [ ] `--jobs=N` flag
-  - [ ] Auto-detect core count (`--jobs=auto`)
-  - [ ] Thread pool for module compilation
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/parallel_tests.rs`
+- [x] **Implement**: Parallel compilation
+  - [x] `--jobs=N` flag
+  - [x] Auto-detect core count (`--jobs=auto`)
+  - [x] Thread pool for module compilation
+  - [x] **Rust Tests**: `ori_llvm/src/aot/incremental/parallel.rs` (12 tests)
 
 ---
 
