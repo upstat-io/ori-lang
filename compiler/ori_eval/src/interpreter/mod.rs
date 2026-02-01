@@ -959,22 +959,15 @@ impl<'a> Interpreter<'a> {
         self.register_function_val("thread_id", function_val_thread_id, "thread_id");
 
         // Built-in Ordering enum variants (Less, Equal, Greater)
-        // These are unit variants of the Ordering type, used by compare() and comparison operators
-        let ordering_name = self.interner.intern("Ordering");
+        // These are first-class Ordering values, used by compare() and comparison operators
         let less_name = self.interner.intern("Less");
         let equal_name = self.interner.intern("Equal");
         let greater_name = self.interner.intern("Greater");
 
+        self.env.define_global(less_name, Value::ordering_less());
+        self.env.define_global(equal_name, Value::ordering_equal());
         self.env
-            .define_global(less_name, Value::variant(ordering_name, less_name, vec![]));
-        self.env.define_global(
-            equal_name,
-            Value::variant(ordering_name, equal_name, vec![]),
-        );
-        self.env.define_global(
-            greater_name,
-            Value::variant(ordering_name, greater_name, vec![]),
-        );
+            .define_global(greater_name, Value::ordering_greater());
     }
 
     /// Get captured print output.

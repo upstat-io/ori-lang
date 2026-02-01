@@ -27,6 +27,7 @@ macro_rules! type_leaf_pattern {
             | Type::Never
             | Type::Duration
             | Type::Size
+            | Type::Ordering
             | Type::Error
     };
 }
@@ -44,6 +45,7 @@ macro_rules! type_data_leaf_pattern {
             | TypeData::Never
             | TypeData::Duration
             | TypeData::Size
+            | TypeData::Ordering
             | TypeData::Error
     };
 }

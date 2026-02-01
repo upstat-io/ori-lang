@@ -112,6 +112,7 @@ pub use traits::{BackendTypes, BuilderMethods, CodegenMethods, TypeMethods};
 pub use evaluator::FunctionSig;
 
 // -- Private codegen modules (expression compilation on Builder) --
+mod builtin_methods;
 mod collections;
 mod control_flow;
 mod functions;

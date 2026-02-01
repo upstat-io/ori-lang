@@ -71,7 +71,8 @@ impl TypeShard {
             TypeData::Never,    // 7 = TypeId::NEVER
             TypeData::Duration, // 8 - we skip INFER (it's special)
             TypeData::Size,     // 9 - we skip SELF_TYPE (it's special)
-            TypeData::Error,    // 10 = first compound, but we use it for Error
+            TypeData::Error,    // 10 = TypeId::ERROR
+            TypeData::Ordering, // 11 = TypeId::ORDERING
         ];
 
         for (idx, data) in primitives.into_iter().enumerate() {
@@ -165,6 +166,7 @@ impl TypeInterner {
             TypeData::Duration => return Ok(TypeId::from_shard_local(0, 8)),
             TypeData::Size => return Ok(TypeId::from_shard_local(0, 9)),
             TypeData::Error => return Ok(TypeId::from_shard_local(0, 10)),
+            TypeData::Ordering => return Ok(TypeId::from_shard_local(0, 11)),
             _ => {}
         }
 
@@ -254,6 +256,7 @@ impl TypeInterner {
             TypeData::Never => Type::Never,
             TypeData::Duration => Type::Duration,
             TypeData::Size => Type::Size,
+            TypeData::Ordering => Type::Ordering,
             TypeData::Error => Type::Error,
 
             // Container types with single inner type
@@ -446,8 +449,8 @@ impl TypeInterner {
 
     /// Check if the interner has only pre-interned primitives.
     pub fn is_empty(&self) -> bool {
-        // Shard 0 has 11 pre-interned types (primitives + error)
-        self.len() <= 11
+        // Shard 0 has 12 pre-interned types (primitives + error + ordering)
+        self.len() <= 12
     }
 }
 

@@ -339,6 +339,9 @@ impl<'ll> Builder<'_, 'll, '_> {
     ///
     /// Handles both instance methods (receiver is a value) and associated functions
     /// (receiver is a type name, which won't compile to a value).
+    ///
+    /// Built-in methods are handled first for primitive types (int, float, bool,
+    /// char, byte) before falling back to user-defined method lookup.
     pub(crate) fn compile_method_call(
         &self,
         receiver: ExprId,
@@ -350,12 +353,36 @@ impl<'ll> Builder<'_, 'll, '_> {
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
+        // Get receiver type for built-in method dispatch
+        let receiver_type = expr_types
+            .get(receiver.index())
+            .copied()
+            .unwrap_or(TypeId::INFER);
+
         // Try to compile receiver
         let recv_val = self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx);
 
-        // Compile arguments
+        // Get argument IDs
         let arg_ids = arena.get_expr_list(args);
 
+        // Try built-in method first if we have a receiver value
+        if let Some(recv) = recv_val {
+            if let Some(result) = self.compile_builtin_method(
+                recv,
+                receiver_type,
+                method,
+                arg_ids,
+                arena,
+                expr_types,
+                locals,
+                function,
+                loop_ctx,
+            ) {
+                return Some(result);
+            }
+        }
+
+        // Fall back to user method lookup
         // If receiver compiled to a value, it's an instance method - include receiver as first arg
         // If receiver is None (type name for associated function), don't include it
         let mut compiled_args: Vec<BasicValueEnum<'ll>> = match recv_val {
@@ -384,6 +411,9 @@ impl<'ll> Builder<'_, 'll, '_> {
     ///
     /// Handles both instance methods (receiver is a value) and associated functions
     /// (receiver is a type name, which won't compile to a value).
+    ///
+    /// Built-in methods are handled first for primitive types (int, float, bool,
+    /// char, byte) before falling back to user-defined method lookup.
     pub(crate) fn compile_method_call_named(
         &self,
         receiver: ExprId,
@@ -395,12 +425,39 @@ impl<'ll> Builder<'_, 'll, '_> {
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
+        // Get receiver type for built-in method dispatch
+        let receiver_type = expr_types
+            .get(receiver.index())
+            .copied()
+            .unwrap_or(TypeId::INFER);
+
         // Try to compile receiver
         let recv_val = self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx);
 
+        // Get call args and extract expression IDs for builtin method dispatch
+        let call_args = arena.get_call_args(args);
+        let arg_ids: Vec<ExprId> = call_args.iter().map(|a| a.value).collect();
+
+        // Try built-in method first if we have a receiver value
+        if let Some(recv) = recv_val {
+            if let Some(result) = self.compile_builtin_method(
+                recv,
+                receiver_type,
+                method,
+                &arg_ids,
+                arena,
+                expr_types,
+                locals,
+                function,
+                loop_ctx,
+            ) {
+                return Some(result);
+            }
+        }
+
+        // Fall back to user method lookup
         // If receiver compiled to a value, it's an instance method - include receiver as first arg
         // If receiver is None (type name for associated function), don't include it
-        let call_args = arena.get_call_args(args);
         let mut compiled_args: Vec<BasicValueEnum<'ll>> = match recv_val {
             Some(val) => vec![val],
             None => vec![],

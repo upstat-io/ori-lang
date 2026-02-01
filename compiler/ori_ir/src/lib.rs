@@ -36,6 +36,9 @@ macro_rules! static_assert_size {
 
 mod arena;
 pub mod ast;
+pub mod builtin_constants;
+pub mod builtin_methods;
+mod builtin_type;
 mod comment;
 mod derives;
 mod expr_id;
@@ -117,6 +120,7 @@ pub use ast::{
     Visibility,
     WhereClause,
 };
+pub use builtin_type::BuiltinType;
 pub use comment::{Comment, CommentKind, CommentList};
 pub use derives::{DerivedMethodInfo, DerivedTrait};
 pub use expr_id::{

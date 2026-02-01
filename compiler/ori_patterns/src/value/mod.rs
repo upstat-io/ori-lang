@@ -42,6 +42,58 @@ pub use composite::{FunctionValue, MemoizedFunctionValue, RangeValue, StructLayo
 pub use heap::Heap;
 pub use scalar_int::ScalarInt;
 
+/// Ordering value representing comparison results.
+///
+/// This is a first-class representation of the `Ordering` type, avoiding
+/// the overhead of `Value::Variant` for this frequently-used type.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum OrderingValue {
+    /// Left operand is less than right.
+    Less,
+    /// Operands are equal.
+    Equal,
+    /// Left operand is greater than right.
+    Greater,
+}
+
+impl OrderingValue {
+    /// Create from the raw i8 tag value.
+    ///
+    /// Uses the same convention as `ori_ir::builtin_constants::ordering`:
+    /// - 0 = Less
+    /// - 1 = Equal
+    /// - 2 = Greater
+    #[must_use]
+    pub const fn from_tag(tag: i8) -> Option<Self> {
+        match tag {
+            0 => Some(Self::Less),
+            1 => Some(Self::Equal),
+            2 => Some(Self::Greater),
+            _ => None,
+        }
+    }
+
+    /// Get the raw i8 tag value.
+    #[must_use]
+    pub const fn to_tag(self) -> i8 {
+        match self {
+            Self::Less => 0,
+            Self::Equal => 1,
+            Self::Greater => 2,
+        }
+    }
+
+    /// Get the display name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Less => "Less",
+            Self::Equal => "Equal",
+            Self::Greater => "Greater",
+        }
+    }
+}
+
 /// Type conversion function signature.
 ///
 /// `function_val`: type conversion functions like int(x), str(x), float(x)
@@ -68,6 +120,8 @@ pub enum Value {
     Duration(i64),
     /// Size value (in bytes, always non-negative).
     Size(u64),
+    /// Ordering value (Less, Equal, Greater).
+    Ordering(OrderingValue),
 
     // Heap Types (use Heap<T> for enforced Arc usage)
     /// String value.
@@ -334,6 +388,36 @@ impl Value {
         Value::NewtypeConstructor { type_name }
     }
 
+    /// Create an `Ordering::Less` value.
+    #[inline]
+    pub const fn ordering_less() -> Self {
+        Value::Ordering(OrderingValue::Less)
+    }
+
+    /// Create an `Ordering::Equal` value.
+    #[inline]
+    pub const fn ordering_equal() -> Self {
+        Value::Ordering(OrderingValue::Equal)
+    }
+
+    /// Create an `Ordering::Greater` value.
+    #[inline]
+    pub const fn ordering_greater() -> Self {
+        Value::Ordering(OrderingValue::Greater)
+    }
+
+    /// Create an Ordering value from a comparison result.
+    ///
+    /// Returns Less if `cmp < 0`, Equal if `cmp == 0`, Greater if `cmp > 0`.
+    #[inline]
+    pub const fn ordering_from_cmp(cmp: std::cmp::Ordering) -> Self {
+        match cmp {
+            std::cmp::Ordering::Less => Value::Ordering(OrderingValue::Less),
+            std::cmp::Ordering::Equal => Value::Ordering(OrderingValue::Equal),
+            std::cmp::Ordering::Greater => Value::Ordering(OrderingValue::Greater),
+        }
+    }
+
     /// Create a module namespace for qualified access.
     ///
     /// # Example
@@ -437,6 +521,7 @@ impl Value {
             Value::FunctionVal(_, _) => "function_val",
             Value::Duration(_) => "Duration",
             Value::Size(_) => "Size",
+            Value::Ordering(_) => "Ordering",
             Value::Range(_) => "Range",
             Value::ModuleNamespace(_) => "module",
             Value::Error(_) => "error",
@@ -510,6 +595,7 @@ impl Value {
             Value::FunctionVal(_, name) => format!("<function_val {name}>"),
             Value::Duration(ns) => format_duration(*ns),
             Value::Size(bytes) => format!("{bytes}b"),
+            Value::Ordering(ord) => ord.name().to_string(),
             Value::Range(r) => format!("{r:?}"),
             Value::ModuleNamespace(_) => "<module>".to_string(),
             Value::Error(msg) => format!("Error({msg})"),
@@ -535,6 +621,7 @@ impl Value {
             }
             (Value::Duration(a), Value::Duration(b)) => a == b,
             (Value::Size(a), Value::Size(b)) => a == b,
+            (Value::Ordering(a), Value::Ordering(b)) => a == b,
             (
                 Value::Variant {
                     type_name: t1,
@@ -619,6 +706,7 @@ impl fmt::Debug for Value {
             Value::FunctionVal(_, name) => write!(f, "FunctionVal({name})"),
             Value::Duration(ms) => write!(f, "Duration({ms}ms)"),
             Value::Size(bytes) => write!(f, "Size({bytes}b)"),
+            Value::Ordering(ord) => write!(f, "Ordering({ord:?})"),
             Value::Range(r) => write!(f, "Range({r:?})"),
             Value::ModuleNamespace(ns) => write!(f, "ModuleNamespace({} items)", ns.len()),
             Value::Error(msg) => write!(f, "Error({msg})"),
@@ -715,6 +803,7 @@ impl fmt::Display for Value {
                     write!(f, "{bytes}b")
                 }
             }
+            Value::Ordering(ord) => write!(f, "{}", ord.name()),
             Value::Range(r) => {
                 if r.inclusive {
                     write!(f, "{}..={}", r.start, r.end)
@@ -745,6 +834,7 @@ impl PartialEq for Value {
             (Value::List(a), Value::List(b)) | (Value::Tuple(a), Value::Tuple(b)) => a == b,
             (Value::Duration(a), Value::Duration(b)) => a == b,
             (Value::Size(a), Value::Size(b)) => a == b,
+            (Value::Ordering(a), Value::Ordering(b)) => a == b,
             (Value::FunctionVal(_, name_a), Value::FunctionVal(_, name_b)) => name_a == name_b,
             // Functions are equal by body identity
             (Value::Function(a), Value::Function(b)) => a.body == b.body,
@@ -819,6 +909,7 @@ impl std::hash::Hash for Value {
             Value::Void | Value::None => {}
             Value::Duration(d) => d.hash(state),
             Value::Size(s) => s.hash(state),
+            Value::Ordering(ord) => ord.hash(state),
             Value::Some(v) | Value::Ok(v) | Value::Err(v) => v.hash(state),
             Value::List(items) | Value::Tuple(items) => {
                 for item in items.iter() {

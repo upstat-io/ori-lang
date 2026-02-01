@@ -46,6 +46,8 @@ pub enum EvalOutput {
     Duration(i64),
     /// Size in bytes.
     Size(u64),
+    /// Ordering value (Less=0, Equal=1, Greater=2).
+    Ordering(i8),
     /// Range value.
     Range {
         start: i64,
@@ -97,6 +99,7 @@ impl EvalOutput {
             Value::Err(v) => EvalOutput::Err(Box::new(Self::from_value(v, interner))),
             Value::Duration(ms) => EvalOutput::Duration(*ms),
             Value::Size(bytes) => EvalOutput::Size(*bytes),
+            Value::Ordering(ord) => EvalOutput::Ordering(ord.to_tag()),
             Value::Range(r) => EvalOutput::Range {
                 start: r.start,
                 end: r.end,
@@ -188,6 +191,12 @@ impl EvalOutput {
             EvalOutput::Err(v) => format!("Err({})", v.display()),
             EvalOutput::Duration(ms) => format!("{ms}ms"),
             EvalOutput::Size(bytes) => format!("{bytes}b"),
+            EvalOutput::Ordering(tag) => match tag {
+                0 => "Less".to_string(),
+                1 => "Equal".to_string(),
+                2 => "Greater".to_string(),
+                _ => format!("Ordering({tag})"),
+            },
             EvalOutput::Range {
                 start,
                 end,
@@ -232,6 +241,8 @@ impl PartialEq for EvalOutput {
             | (EvalOutput::Duration(a), EvalOutput::Duration(b)) => a == b,
             (EvalOutput::Bool(a), EvalOutput::Bool(b)) => a == b,
             (EvalOutput::Byte(a), EvalOutput::Byte(b)) => a == b,
+            // i8 types (Ordering tag)
+            (EvalOutput::Ordering(a), EvalOutput::Ordering(b)) => a == b,
             (EvalOutput::Char(a), EvalOutput::Char(b)) => a == b,
             // u64 types (Float stored as bits, Size in bytes)
             (EvalOutput::Float(a), EvalOutput::Float(b))
@@ -292,6 +303,7 @@ impl Hash for EvalOutput {
             EvalOutput::Bool(b) => b.hash(state),
             EvalOutput::Char(c) => c.hash(state),
             EvalOutput::Byte(b) => b.hash(state),
+            EvalOutput::Ordering(tag) => tag.hash(state),
             // u64 types
             EvalOutput::Float(bits) | EvalOutput::Size(bits) => {
                 bits.hash(state);

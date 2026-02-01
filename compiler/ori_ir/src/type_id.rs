@@ -42,8 +42,20 @@ impl TypeId {
     pub const INFER: TypeId = TypeId(8); // Placeholder during inference
     pub const SELF_TYPE: TypeId = TypeId(9); // Self type in trait/impl contexts
 
-    /// First ID for compound types (after primitives).
-    pub const FIRST_COMPOUND: u32 = 10;
+    // Duration and Size are pre-interned at same indices as INFER/SELF_TYPE.
+    // This is intentional: INFER/SELF_TYPE are never stored in the type interner,
+    // they're just markers for type checking. After type checking, the LLVM backend
+    // only sees Duration(8) and Size(9), never INFER or SELF_TYPE.
+    pub const DURATION: TypeId = TypeId(8);
+    pub const SIZE: TypeId = TypeId(9);
+    pub const ERROR: TypeId = TypeId(10);
+    /// Ordering type (Less | Equal | Greater).
+    ///
+    /// Represented as i8 in LLVM: Less=0, Equal=1, Greater=2.
+    pub const ORDERING: TypeId = TypeId(11);
+
+    /// First ID for dynamically allocated compound types.
+    pub const FIRST_COMPOUND: u32 = 12;
 
     /// Maximum local index per shard (2^28 - 1).
     pub const MAX_LOCAL: u32 = 0x0FFF_FFFF;
@@ -99,10 +111,10 @@ impl TypeId {
         self.0
     }
 
-    /// Check if this is a primitive type.
+    /// Check if this is a primitive type (pre-interned in shard 0).
     #[inline]
     pub const fn is_primitive(self) -> bool {
-        // Primitives are in shard 0, indices 0-9
+        // Pre-interned types: INT(0)..ERROR(10), compound types start at 11
         self.0 < Self::FIRST_COMPOUND
     }
 
@@ -139,6 +151,7 @@ impl fmt::Debug for TypeId {
             Self::NEVER => write!(f, "TypeId::NEVER"),
             Self::INFER => write!(f, "TypeId::INFER"),
             Self::SELF_TYPE => write!(f, "TypeId::SELF_TYPE"),
+            Self::ORDERING => write!(f, "TypeId::ORDERING"),
             _ => write!(f, "TypeId({})", self.0),
         }
     }
@@ -160,6 +173,10 @@ mod tests {
         assert!(TypeId::FLOAT.is_primitive());
         assert!(TypeId::VOID.is_primitive());
         assert!(TypeId::INFER.is_primitive());
+        assert!(TypeId::DURATION.is_primitive());
+        assert!(TypeId::SIZE.is_primitive());
+        assert!(TypeId::ERROR.is_primitive());
+        assert!(TypeId::ORDERING.is_primitive());
     }
 
     #[test]
@@ -215,23 +232,40 @@ mod tests {
 
     #[test]
     fn test_primitives_shard_zero() {
-        // All primitives should be in shard 0 for backward compatibility
-        let primitives = [
-            TypeId::INT,
-            TypeId::FLOAT,
-            TypeId::BOOL,
-            TypeId::STR,
-            TypeId::CHAR,
-            TypeId::BYTE,
-            TypeId::VOID,
-            TypeId::NEVER,
-            TypeId::INFER,
-            TypeId::SELF_TYPE,
-        ];
-
-        for (i, &prim) in primitives.iter().enumerate() {
-            assert_eq!(prim.shard(), 0, "Primitive at index {i} not in shard 0");
-            assert_eq!(prim.local(), i, "Primitive at index {i} has wrong local");
-        }
+        // All pre-interned types should be in shard 0.
+        // Note: INFER/DURATION share index 8, SELF_TYPE/SIZE share index 9.
+        // This is intentional since INFER/SELF_TYPE are never in the interner.
+        assert_eq!(TypeId::INT.shard(), 0);
+        assert_eq!(TypeId::INT.local(), 0);
+        assert_eq!(TypeId::FLOAT.shard(), 0);
+        assert_eq!(TypeId::FLOAT.local(), 1);
+        assert_eq!(TypeId::BOOL.shard(), 0);
+        assert_eq!(TypeId::BOOL.local(), 2);
+        assert_eq!(TypeId::STR.shard(), 0);
+        assert_eq!(TypeId::STR.local(), 3);
+        assert_eq!(TypeId::CHAR.shard(), 0);
+        assert_eq!(TypeId::CHAR.local(), 4);
+        assert_eq!(TypeId::BYTE.shard(), 0);
+        assert_eq!(TypeId::BYTE.local(), 5);
+        assert_eq!(TypeId::VOID.shard(), 0);
+        assert_eq!(TypeId::VOID.local(), 6);
+        assert_eq!(TypeId::NEVER.shard(), 0);
+        assert_eq!(TypeId::NEVER.local(), 7);
+        // INFER and DURATION share index 8
+        assert_eq!(TypeId::INFER.shard(), 0);
+        assert_eq!(TypeId::INFER.local(), 8);
+        assert_eq!(TypeId::DURATION.shard(), 0);
+        assert_eq!(TypeId::DURATION.local(), 8);
+        // SELF_TYPE and SIZE share index 9
+        assert_eq!(TypeId::SELF_TYPE.shard(), 0);
+        assert_eq!(TypeId::SELF_TYPE.local(), 9);
+        assert_eq!(TypeId::SIZE.shard(), 0);
+        assert_eq!(TypeId::SIZE.local(), 9);
+        // ERROR at index 10
+        assert_eq!(TypeId::ERROR.shard(), 0);
+        assert_eq!(TypeId::ERROR.local(), 10);
+        // ORDERING at index 11
+        assert_eq!(TypeId::ORDERING.shard(), 0);
+        assert_eq!(TypeId::ORDERING.local(), 11);
     }
 }

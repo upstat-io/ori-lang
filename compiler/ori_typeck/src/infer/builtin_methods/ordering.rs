@@ -6,7 +6,6 @@
 //! - `reverse()` → `Ordering`
 
 use ori_diagnostic::ErrorCode;
-use ori_ir::StringInterner;
 
 use super::{MethodTypeError, MethodTypeResult};
 use ori_types::Type;
@@ -20,17 +19,8 @@ const ORDERING_BOOL_METHODS: &[&str] = &[
     "is_greater_or_equal",
 ];
 
-/// Check if a type is the Ordering type.
-pub fn is_ordering_type(ty: &Type, interner: &StringInterner) -> bool {
-    if let Type::Named(name) = ty {
-        interner.lookup(*name) == "Ordering"
-    } else {
-        false
-    }
-}
-
 /// Type check a method call on an Ordering value.
-pub fn check_ordering_method(method: &str, interner: &StringInterner) -> MethodTypeResult {
+pub fn check_ordering_method(method: &str) -> MethodTypeResult {
     // Predicate methods return bool
     if ORDERING_BOOL_METHODS.contains(&method) {
         return MethodTypeResult::Ok(Type::Bool);
@@ -38,14 +28,12 @@ pub fn check_ordering_method(method: &str, interner: &StringInterner) -> MethodT
 
     // reverse() returns Ordering
     if method == "reverse" {
-        let ordering = interner.intern("Ordering");
-        return MethodTypeResult::Ok(Type::Named(ordering));
+        return MethodTypeResult::Ok(Type::Ordering);
     }
 
     // clone() returns Ordering (Clone trait)
     if method == "clone" {
-        let ordering = interner.intern("Ordering");
-        return MethodTypeResult::Ok(Type::Named(ordering));
+        return MethodTypeResult::Ok(Type::Ordering);
     }
 
     // hash() returns int (Hashable trait)
@@ -70,8 +58,7 @@ pub fn check_ordering_method(method: &str, interner: &StringInterner) -> MethodT
 
     // compare() returns Ordering (Comparable trait - Ordering is comparable with itself)
     if method == "compare" {
-        let ordering = interner.intern("Ordering");
-        return MethodTypeResult::Ok(Type::Named(ordering));
+        return MethodTypeResult::Ok(Type::Ordering);
     }
 
     MethodTypeResult::Err(MethodTypeError::new(
