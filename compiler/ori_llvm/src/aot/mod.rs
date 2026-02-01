@@ -24,19 +24,27 @@
 //! - [`TargetConfig`]: Target triple, CPU, and feature configuration
 //! - [`ObjectEmitter`]: Emit LLVM modules as object files
 //! - [`OutputFormat`]: Output format selection (object, assembly, bitcode, LLVM IR)
+//! - [`DebugInfoBuilder`]: DWARF/CodeView debug information generation
 //!
 //! # Example
 //!
 //! ```ignore
-//! use ori_llvm::aot::{TargetConfig, ObjectEmitter, OutputFormat};
+//! use ori_llvm::aot::{TargetConfig, ObjectEmitter, OutputFormat, DebugInfoConfig, DebugLevel};
 //! use std::path::Path;
 //!
-//! // Native compilation
+//! // Native compilation with debug info
 //! let target = TargetConfig::native()?;
 //! let emitter = ObjectEmitter::new(&target)?;
 //!
+//! // Configure debug info
+//! let debug_config = DebugInfoConfig::new(DebugLevel::Full);
+//! let debug_builder = DebugInfoBuilder::new(&module, &context, debug_config, "main.ori", "src");
+//!
 //! // Configure and emit module
 //! emitter.configure_module(&module)?;
+//! if let Some(di) = debug_builder {
+//!     di.finalize();
+//! }
 //! emitter.emit_object(&module, Path::new("output.o"))?;
 //!
 //! // Cross-compilation
@@ -52,7 +60,9 @@
 //! - `target`: Target configuration and machine creation
 //! - `object`: Object file emission
 //! - `mangle`: Symbol name mangling
+//! - `debug`: Debug information generation (DWARF/CodeView)
 
+pub mod debug;
 pub mod mangle;
 pub mod object;
 pub mod target;
@@ -68,3 +78,9 @@ pub use object::{EmitError, ObjectEmitter, OutputFormat};
 
 // Re-export key types from mangle
 pub use mangle::{demangle, is_ori_symbol, Mangler, MANGLE_PREFIX};
+
+// Re-export key types from debug
+pub use debug::{
+    DebugContext, DebugFormat, DebugInfoBuilder, DebugInfoConfig, DebugInfoError, DebugLevel,
+    FieldInfo, LineMap,
+};
