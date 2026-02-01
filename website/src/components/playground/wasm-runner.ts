@@ -1,4 +1,8 @@
 import type { RunResult, FormatResult } from './types';
+// Import the WASM JS module - Vite will bundle this properly
+import * as wasmBindings from '../../wasm/ori_playground_wasm.js';
+// Import the WASM binary URL - Vite handles this with ?url
+import wasmBinaryUrl from '../../wasm/ori_playground_wasm_bg.wasm?url';
 
 let wasmModule: {
   run_ori: (code: string) => string;
@@ -8,9 +12,6 @@ let wasmModule: {
 
 let initPromise: Promise<boolean> | null = null;
 
-// Cache buster for dev mode - increment to force reload
-let cacheBuster = 0;
-
 /**
  * Reset the WASM module to force a reload on next init.
  * Call this after rebuilding WASM to pick up changes.
@@ -18,7 +19,6 @@ let cacheBuster = 0;
 export function resetWasm(): void {
   wasmModule = null;
   initPromise = null;
-  cacheBuster++;
 }
 
 export async function initWasm(): Promise<boolean> {
@@ -27,13 +27,10 @@ export async function initWasm(): Promise<boolean> {
 
   initPromise = (async () => {
     try {
-      // Load WASM JS from public folder - works in both dev and production
-      // In dev, Vite serves public/ at root. In prod, it's a static asset.
-      const isDev = import.meta.env?.DEV;
-      const cacheBust = isDev ? `?t=${Date.now()}&v=${cacheBuster}` : '';
-      const wasm = await import(/* @vite-ignore */ `/wasm/ori_playground_wasm.js${cacheBust}`);
-      await wasm.default();
-      wasmModule = wasm;
+      // Initialize the WASM module with the binary URL
+      // The default export is the init function that loads the .wasm file
+      await (wasmBindings as any).default(wasmBinaryUrl);
+      wasmModule = wasmBindings as any;
       return true;
     } catch (e: any) {
       console.error('Failed to load WASM:', e);
@@ -59,7 +56,7 @@ export function runOri(code: string): { result: RunResult; elapsed: string } {
     return {
       result: {
         success: false,
-        error: 'WASM module not loaded.\n\nBuild with:\ncd playground/wasm && wasm-pack build --target web --out-dir ../pkg',
+        error: 'WASM module not loaded.\n\nBuild with:\ncd website/playground-wasm && wasm-pack build --target web --out-dir pkg',
         error_type: 'runtime',
       },
       elapsed: '0ms',
