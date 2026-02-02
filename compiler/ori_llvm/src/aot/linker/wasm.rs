@@ -437,7 +437,7 @@ mod tests {
 
     #[test]
     fn test_wasm_linker_apply_config() {
-        use crate::aot::wasm::{WasmMemoryConfig, WasmStackConfig};
+        use crate::aot::wasm::{WasmFeatures, WasmMemoryConfig, WasmStackConfig};
 
         let target = test_target();
         let mut linker = WasmLinker::new(&target);
@@ -445,8 +445,11 @@ mod tests {
         let config = WasmConfig {
             memory: WasmMemoryConfig::default().with_initial_pages(32),
             stack: WasmStackConfig::default().with_size_kb(256),
-            bulk_memory: true,
-            simd: true,
+            features: WasmFeatures {
+                bulk_memory: true,
+                simd: true,
+                ..WasmFeatures::default()
+            },
             ..WasmConfig::default()
         };
 

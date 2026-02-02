@@ -211,7 +211,7 @@ fn test_stack_config_custom() {
 fn test_wasm_config_bulk_memory() {
     let config = WasmConfig::default().with_bulk_memory(true);
 
-    assert!(config.bulk_memory);
+    assert!(config.bulk_memory());
 
     let args = config.linker_args();
     assert!(args.contains(&"--enable-bulk-memory".to_string()));
@@ -224,7 +224,7 @@ fn test_wasm_config_bulk_memory() {
 fn test_wasm_config_simd() {
     let config = WasmConfig::default().with_simd(true);
 
-    assert!(config.simd);
+    assert!(config.simd());
 
     let args = config.linker_args();
     assert!(args.contains(&"--enable-simd".to_string()));
@@ -237,7 +237,7 @@ fn test_wasm_config_simd() {
 fn test_wasm_config_reference_types() {
     let config = WasmConfig::default().with_reference_types(true);
 
-    assert!(config.reference_types);
+    assert!(config.reference_types());
 
     let args = config.linker_args();
     assert!(args.contains(&"--enable-reference-types".to_string()));
@@ -251,7 +251,7 @@ fn test_wasm_config_multivalue() {
     let config = WasmConfig::default();
 
     // Enabled by default
-    assert!(config.multi_value);
+    assert!(config.multi_value());
 
     let args = config.linker_args();
     assert!(args.contains(&"--enable-multivalue".to_string()));
@@ -264,7 +264,7 @@ fn test_wasm_config_multivalue() {
 fn test_wasm_config_exception_handling() {
     let config = WasmConfig::default().with_exception_handling(true);
 
-    assert!(config.exception_handling);
+    assert!(config.exception_handling());
 
     let args = config.linker_args();
     assert!(args.contains(&"--enable-exception-handling".to_string()));
@@ -301,10 +301,10 @@ fn test_wasm_config_standalone() {
     let config = WasmConfig::standalone();
 
     assert!(!config.wasi);
-    assert!(!config.generate_js_bindings);
-    assert!(!config.generate_dts);
-    assert!(config.bulk_memory);
-    assert!(!config.simd);
+    assert!(!config.generate_js_bindings());
+    assert!(!config.generate_dts());
+    assert!(config.bulk_memory());
+    assert!(!config.simd());
 }
 
 /// Test: Browser WASM configuration
@@ -315,9 +315,9 @@ fn test_wasm_config_browser() {
     let config = WasmConfig::browser();
 
     assert!(!config.wasi);
-    assert!(config.generate_js_bindings);
-    assert!(config.generate_dts);
-    assert!(config.bulk_memory);
+    assert!(config.generate_js_bindings());
+    assert!(config.generate_dts());
+    assert!(config.bulk_memory());
 }
 
 /// Test: WASI WASM configuration
