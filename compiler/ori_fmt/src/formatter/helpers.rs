@@ -75,6 +75,60 @@ impl<I: StringLookup> Formatter<'_, I> {
         }
     }
 
+    /// Emit a call target expression inline, wrapping in parentheses if needed for precedence.
+    ///
+    /// Call targets like `(x -> x + 1)(5)` or `(if cond then f else g)(5)` need
+    /// parentheses to be parsed correctly.
+    pub(super) fn emit_call_target_inline(&mut self, func: ExprId) {
+        let expr = self.arena.get_expr(func);
+        if super::needs_receiver_parens(expr) {
+            self.ctx.emit("(");
+            self.emit_inline(func);
+            self.ctx.emit(")");
+        } else {
+            self.emit_inline(func);
+        }
+    }
+
+    /// Format a call target expression, wrapping in parentheses if needed for precedence.
+    pub(super) fn format_call_target(&mut self, func: ExprId) {
+        let expr = self.arena.get_expr(func);
+        if super::needs_receiver_parens(expr) {
+            self.ctx.emit("(");
+            self.format(func);
+            self.ctx.emit(")");
+        } else {
+            self.format(func);
+        }
+    }
+
+    /// Emit a for-loop iterator expression inline, wrapping in parentheses if needed.
+    ///
+    /// Iterator expressions like `(for y in items yield y)` need parentheses
+    /// to avoid ambiguity with the outer `for` loop.
+    pub(super) fn emit_iter_inline(&mut self, iter: ExprId) {
+        let expr = self.arena.get_expr(iter);
+        if super::needs_iter_parens(expr) {
+            self.ctx.emit("(");
+            self.emit_inline(iter);
+            self.ctx.emit(")");
+        } else {
+            self.emit_inline(iter);
+        }
+    }
+
+    /// Format a for-loop iterator expression, wrapping in parentheses if needed.
+    pub(super) fn format_iter(&mut self, iter: ExprId) {
+        let expr = self.arena.get_expr(iter);
+        if super::needs_iter_parens(expr) {
+            self.ctx.emit("(");
+            self.format(iter);
+            self.ctx.emit(")");
+        } else {
+            self.format(iter);
+        }
+    }
+
     pub(super) fn emit_broken_expr_list(&mut self, range: ExprRange) {
         let items = self.arena.get_expr_list(range);
         if items.is_empty() {

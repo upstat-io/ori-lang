@@ -592,7 +592,10 @@ impl<'a> Interpreter<'a> {
                 let val = v.map(|x| self.eval(x)).transpose()?.unwrap_or(Value::Void);
                 Err(EvalError::break_with(val))
             }
-            ExprKind::Continue => Err(EvalError::continue_signal()),
+            ExprKind::Continue(v) => {
+                let val = v.map(|x| self.eval(x)).transpose()?.unwrap_or(Value::Void);
+                Err(EvalError::continue_with(val))
+            }
             ExprKind::Assign { target, value } => {
                 let val = self.eval(*value)?;
                 self.eval_assign(*target, val)
@@ -835,7 +838,7 @@ impl<'a> Interpreter<'a> {
         body: ExprId,
         is_yield: bool,
     ) -> EvalResult {
-        use crate::exec::control::{parse_loop_control, LoopAction};
+        use crate::exec::control::{to_loop_action, LoopAction};
 
         /// Result of a single loop iteration with RAII guard.
         enum IterResult {
@@ -898,6 +901,8 @@ impl<'a> Interpreter<'a> {
         };
 
         if is_yield {
+            use crate::exec::control::to_loop_action;
+
             let (lower, _) = items.size_hint();
             let mut results = Vec::with_capacity(lower);
             for item in items {
@@ -911,17 +916,28 @@ impl<'a> Interpreter<'a> {
                             Ok(_) => {}
                         }
                     }
-                    // Evaluate body
+                    // Evaluate body and handle loop control
                     match eval.eval(body) {
                         Ok(v) => IterResult::Yield(v),
-                        Err(e) => IterResult::Error(e),
+                        Err(e) => match to_loop_action(e) {
+                            LoopAction::Continue => IterResult::Continue,
+                            LoopAction::ContinueWith(v) => IterResult::Yield(v),
+                            LoopAction::Break(v) => IterResult::Break(v),
+                            LoopAction::Error(e) => IterResult::Error(e),
+                        },
                     }
                 });
 
                 match iter_result {
                     IterResult::Continue => {}
                     IterResult::Yield(v) => results.push(v),
-                    IterResult::Break(v) => return Ok(v),
+                    IterResult::Break(v) => {
+                        // For for...yield, break value adds final element
+                        if !matches!(v, Value::Void) {
+                            results.push(v);
+                        }
+                        return Ok(Value::list(results));
+                    }
                     IterResult::Error(e) => return Err(e),
                 }
             }
@@ -941,10 +957,12 @@ impl<'a> Interpreter<'a> {
                     // Evaluate body and handle loop control
                     match eval.eval(body) {
                         Ok(_) => IterResult::Continue,
-                        Err(e) => match parse_loop_control(&e.message) {
-                            LoopAction::Continue => IterResult::Continue,
+                        Err(e) => match to_loop_action(e) {
+                            LoopAction::Continue | LoopAction::ContinueWith(_) => {
+                                IterResult::Continue
+                            }
                             LoopAction::Break(v) => IterResult::Break(v),
-                            LoopAction::Error(_) => IterResult::Error(e),
+                            LoopAction::Error(e) => IterResult::Error(e),
                         },
                     }
                 });
@@ -962,14 +980,14 @@ impl<'a> Interpreter<'a> {
 
     /// Evaluate a loop expression using `exec::control` helpers.
     fn eval_loop(&mut self, body: ExprId) -> EvalResult {
-        use crate::exec::control::{parse_loop_control, LoopAction};
+        use crate::exec::control::{to_loop_action, LoopAction};
         loop {
             match self.eval(body) {
                 Ok(_) => {}
-                Err(e) => match parse_loop_control(&e.message) {
-                    LoopAction::Continue => {}
+                Err(e) => match to_loop_action(e) {
+                    LoopAction::Continue | LoopAction::ContinueWith(_) => {}
                     LoopAction::Break(v) => return Ok(v),
-                    LoopAction::Error(_) => return Err(e),
+                    LoopAction::Error(e) => return Err(e),
                 },
             }
         }

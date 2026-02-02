@@ -59,6 +59,24 @@ pub(super) fn break_width<I: StringLookup>(
     }
 }
 
+/// Calculate width of `continue` or `continue value`.
+pub(super) fn continue_width<I: StringLookup>(
+    calc: &mut WidthCalculator<'_, I>,
+    value: Option<ExprId>,
+) -> usize {
+    match value {
+        Some(expr) => {
+            let val_w = calc.width(expr);
+            if val_w == ALWAYS_STACKED {
+                return ALWAYS_STACKED;
+            }
+            // "continue " + val
+            9 + val_w
+        }
+        None => 8, // "continue"
+    }
+}
+
 /// Calculate width of `if cond then expr [else expr]`.
 pub(super) fn if_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,

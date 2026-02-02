@@ -223,7 +223,6 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         | ExprKind::FunctionRef(_)
         | ExprKind::HashLength
         | ExprKind::None
-        | ExprKind::Continue
         | ExprKind::Error => {}
 
         // Single child
@@ -236,7 +235,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         ExprKind::Loop { body } => {
             visitor.visit_expr_id(*body, arena);
         }
-        ExprKind::Return(val) | ExprKind::Break(val) => {
+        ExprKind::Return(val) | ExprKind::Break(val) | ExprKind::Continue(val) => {
             if let Some(id) = val {
                 visitor.visit_expr_id(*id, arena);
             }

@@ -1,0 +1,6 @@
+// Iterator expression as method receiver
+// Spec: 16-formatting.md § Parentheses Preservation
+
+@fold (xs: [int]) -> int = (for x in xs yield x * 2).fold(0, (a, b) -> a + b)
+
+@cnt (xs: [int]) -> int = (for x in xs yield x).count()

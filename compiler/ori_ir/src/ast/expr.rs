@@ -221,7 +221,9 @@ pub enum ExprKind {
     Break(Option<ExprId>),
 
     /// Continue loop
-    Continue,
+    /// Optional value is only valid in `for...yield` context (substitutes the element)
+    /// Error E0861 if value provided in `loop()` context
+    Continue(Option<ExprId>),
 
     /// Await async operation
     Await(ExprId),
@@ -356,7 +358,7 @@ impl fmt::Debug for ExprKind {
             ExprKind::None => write!(f, "None"),
             ExprKind::Return(val) => write!(f, "Return({val:?})"),
             ExprKind::Break(val) => write!(f, "Break({val:?})"),
-            ExprKind::Continue => write!(f, "Continue"),
+            ExprKind::Continue(val) => write!(f, "Continue({val:?})"),
             ExprKind::Await(inner) => write!(f, "Await({inner:?})"),
             ExprKind::Try(inner) => write!(f, "Try({inner:?})"),
             ExprKind::Assign { target, value } => write!(f, "Assign({target:?}, {value:?})"),

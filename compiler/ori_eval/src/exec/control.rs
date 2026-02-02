@@ -491,8 +491,13 @@ where
 
 /// Result of a for loop iteration.
 pub enum LoopAction {
+    /// Skip current iteration (continue without value)
     Continue,
+    /// Substitute yielded value (continue with value in for...yield)
+    ContinueWith(Value),
+    /// Exit loop with value
     Break(Value),
+    /// Propagate error
     Error(EvalError),
 }
 
@@ -581,8 +586,16 @@ where
                 LoopAction::Continue => {
                     results.push(result);
                 }
+                LoopAction::ContinueWith(val) => {
+                    // In yield mode, substitute the yielded value
+                    results.push(val);
+                }
                 LoopAction::Break(val) => {
-                    return Ok(val);
+                    // Break with value adds final element
+                    if !matches!(val, Value::Void) {
+                        results.push(val);
+                    }
+                    return Ok(Value::list(results));
                 }
                 LoopAction::Error(e) => {
                     return Err(e);
@@ -600,7 +613,7 @@ where
             }; // scope popped when guard drops
 
             match action {
-                LoopAction::Continue => {}
+                LoopAction::Continue | LoopAction::ContinueWith(_) => {}
                 LoopAction::Break(val) => {
                     return Ok(val);
                 }
@@ -620,7 +633,7 @@ where
 {
     loop {
         match eval_fn(body)? {
-            LoopAction::Continue => {}
+            LoopAction::Continue | LoopAction::ContinueWith(_) => {}
             LoopAction::Break(val) => {
                 return Ok(val);
             }
@@ -658,7 +671,8 @@ pub fn to_loop_action(error: EvalError) -> LoopAction {
     use ori_patterns::ControlFlow;
 
     match error.control_flow {
-        Some(ControlFlow::Continue) => LoopAction::Continue,
+        Some(ControlFlow::Continue(v)) if !matches!(v, Value::Void) => LoopAction::ContinueWith(v),
+        Some(ControlFlow::Continue(_)) => LoopAction::Continue,
         Some(ControlFlow::Break(v)) => LoopAction::Break(v),
         Some(ControlFlow::Return(_)) => LoopAction::Error(error),
         None => {

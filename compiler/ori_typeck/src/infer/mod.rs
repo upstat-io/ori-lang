@@ -170,7 +170,7 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
         // Control flow
         ExprKind::Return(value) => infer_return(checker, *value),
         ExprKind::Break(value) => infer_break(checker, *value),
-        ExprKind::Continue => Type::Never,
+        ExprKind::Continue(value) => infer_continue(checker, *value),
 
         ExprKind::Await(inner) => infer_await(checker, *inner, span),
         ExprKind::Try(inner) => infer_try(checker, *inner, span),

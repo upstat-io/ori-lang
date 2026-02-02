@@ -154,8 +154,12 @@ fn test_continue_without_loop_context() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
+    let arena = ExprArena::new();
+    let expr_types: Vec<ori_ir::TypeId> = vec![];
+    let mut locals = std::collections::HashMap::new();
+
     // Continue without loop context should return None
-    let result = builder.compile_continue(None);
+    let result = builder.compile_continue(None, &arena, &expr_types, &mut locals, function, None);
 
     assert!(
         result.is_none(),

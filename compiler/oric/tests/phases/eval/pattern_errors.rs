@@ -66,7 +66,7 @@ fn test_control_flow_continue() {
     let err = EvalError::continue_signal();
     assert_eq!(err.message, "continue");
     assert!(err.is_control_flow());
-    assert_eq!(err.control_flow, Some(ControlFlow::Continue));
+    assert_eq!(err.control_flow, Some(ControlFlow::Continue(Value::Void)));
 }
 
 #[test]

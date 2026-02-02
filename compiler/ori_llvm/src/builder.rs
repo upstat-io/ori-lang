@@ -793,7 +793,9 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             }
 
             // Continue
-            ExprKind::Continue => self.compile_continue(loop_ctx),
+            ExprKind::Continue(value) => {
+                self.compile_continue(*value, arena, expr_types, locals, function, loop_ctx)
+            }
 
             // Tuple
             ExprKind::Tuple(range) => {

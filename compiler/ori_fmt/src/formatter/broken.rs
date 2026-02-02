@@ -25,13 +25,13 @@ impl<I: StringLookup> Formatter<'_, I> {
 
             // Calls - one argument per line
             ExprKind::Call { func, args } => {
-                self.emit_inline(*func);
+                self.format_call_target(*func);
                 self.ctx.emit("(");
                 self.emit_broken_expr_list(*args);
                 self.ctx.emit(")");
             }
             ExprKind::CallNamed { func, args } => {
-                self.emit_inline(*func);
+                self.format_call_target(*func);
                 self.ctx.emit("(");
                 self.emit_broken_call_args(*args);
                 self.ctx.emit(")");
@@ -257,7 +257,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.emit("for ");
                 self.ctx.emit(self.interner.lookup(*binding));
                 self.ctx.emit(" in ");
-                self.format(*iter);
+                self.format_iter(*iter);
                 if let Some(guard_id) = guard {
                     self.ctx.emit(" if ");
                     self.format(*guard_id);

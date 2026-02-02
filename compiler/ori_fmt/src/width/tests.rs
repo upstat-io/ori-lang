@@ -521,7 +521,7 @@ fn test_width_continue() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
 
-    let cont = make_expr(&mut arena, ExprKind::Continue);
+    let cont = make_expr(&mut arena, ExprKind::Continue(None));
     let mut calc = WidthCalculator::new(&arena, &interner);
 
     assert_eq!(calc.width(cont), 8); // "continue"

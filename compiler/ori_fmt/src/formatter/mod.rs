@@ -80,7 +80,7 @@ fn unary_op_str(op: UnaryOp) -> &'static str {
 /// Expressions that need parentheses as receivers:
 /// - Binary operations (all have lower precedence than `.`)
 /// - Unary operations (lower precedence than `.`)
-/// - Conditionals, lambdas, etc.
+/// - Conditionals, lambdas, for/loop, etc.
 fn needs_receiver_parens(expr: &ori_ir::Expr) -> bool {
     matches!(
         expr.kind,
@@ -90,6 +90,19 @@ fn needs_receiver_parens(expr: &ori_ir::Expr) -> bool {
             | ExprKind::Lambda { .. }
             | ExprKind::Let { .. }
             | ExprKind::Range { .. }
+            | ExprKind::For { .. }
+            | ExprKind::Loop { .. }
+    )
+}
+
+/// Check if an expression needs parentheses when used as the iterator in a `for` loop.
+///
+/// Without parentheses, `for x in for y in items yield y yield x + 1` is ambiguous.
+/// With parentheses, `for x in (for y in items yield y) yield x + 1` is clear.
+fn needs_iter_parens(expr: &ori_ir::Expr) -> bool {
+    matches!(
+        expr.kind,
+        ExprKind::For { .. } | ExprKind::If { .. } | ExprKind::Lambda { .. } | ExprKind::Let { .. }
     )
 }
 

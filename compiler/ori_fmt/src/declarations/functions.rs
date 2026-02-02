@@ -76,8 +76,10 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             expr_formatter.format(body);
             let body_output = expr_formatter.ctx.as_str().trim_end();
             self.ctx.emit(body_output);
-        } else if self.is_conditional(body) {
-            // Conditionals break to new line: " =\n    if cond then ... else ..."
+        } else if self.should_break_body_to_newline(body) {
+            // Conditionals and for loops break to new line when they don't fit
+            // " =\n    if cond then ... else ..."
+            // " =\n    for x in items yield ..."
             self.ctx.emit(" =");
             self.ctx.emit_newline();
             self.ctx.indent();
@@ -104,9 +106,15 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         }
     }
 
-    /// Check if an expression is a conditional (if-then-else).
-    fn is_conditional(&self, body: ExprId) -> bool {
-        matches!(self.arena.get_expr(body).kind, ori_ir::ExprKind::If { .. })
+    /// Check if an expression should break to a new line when it doesn't fit.
+    ///
+    /// Per spec, conditionals (if-then-else) and for loops break to new line
+    /// rather than staying on the same line and breaking internally.
+    fn should_break_body_to_newline(&self, body: ExprId) -> bool {
+        matches!(
+            self.arena.get_expr(body).kind,
+            ori_ir::ExprKind::If { .. } | ori_ir::ExprKind::For { .. }
+        )
     }
 
     /// Format params without considering trailing content (for method params, etc.).
