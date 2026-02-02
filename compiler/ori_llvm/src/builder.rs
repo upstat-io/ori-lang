@@ -150,6 +150,16 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             .expect("build_unreachable");
     }
 
+    /// Build a global string pointer (C-style null-terminated string).
+    ///
+    /// Returns a pointer to the string data that can be passed to C functions.
+    pub fn build_global_string_ptr(&self, value: &str, name: &str) -> PointerValue<'ll> {
+        self.llbuilder
+            .build_global_string_ptr(value, name)
+            .expect("build_global_string_ptr")
+            .as_pointer_value()
+    }
+
     // -- Arithmetic --
 
     /// Build integer addition.

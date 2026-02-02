@@ -1,6 +1,11 @@
 #!/bin/bash
-# Run ALL tests: Rust unit tests, Ori language tests, and LLVM backend tests
+# Run ALL tests: Rust unit tests and Ori language tests
 # Usage: ./test-all [-v|--verbose]
+#
+# This script runs:
+# 1. All Rust unit tests (including ori_llvm, ori_rt)
+# 2. Ori language spec tests (interpreter backend)
+# 3. Ori language spec tests (LLVM backend)
 #
 # By default, only shows output for failing tests.
 # Use -v or --verbose to see all output.
@@ -22,29 +27,28 @@ NC='\033[0m' # No Color
 # Temp files for capturing output
 RUST_OUTPUT=$(mktemp)
 ORI_INTERP_OUTPUT=$(mktemp)
-LLVM_RUST_OUTPUT=$(mktemp)
 ORI_LLVM_OUTPUT=$(mktemp)
 
 # Cleanup temp files on exit
 cleanup() {
-    rm -f "$RUST_OUTPUT" "$ORI_INTERP_OUTPUT" "$LLVM_RUST_OUTPUT" "$ORI_LLVM_OUTPUT"
+    rm -f "$RUST_OUTPUT" "$ORI_INTERP_OUTPUT" "$ORI_LLVM_OUTPUT"
 }
 trap cleanup EXIT
 
 # Track if any suite failed
 ANY_FAILED=0
 
-# --- Run Rust unit tests ---
+# --- Run Rust unit tests (includes ori_llvm, ori_rt) ---
 echo "=== Running Rust unit tests ==="
 if [[ $VERBOSE -eq 1 ]]; then
-    if cargo t 2>&1 | tee "$RUST_OUTPUT"; then
+    if cargo test --workspace 2>&1 | tee "$RUST_OUTPUT"; then
         RUST_STATUS="passed"
     else
         RUST_STATUS="FAILED"
         ANY_FAILED=1
     fi
 else
-    if cargo t 2>&1 > "$RUST_OUTPUT"; then
+    if cargo test --workspace 2>&1 > "$RUST_OUTPUT"; then
         RUST_STATUS="passed"
         # Show just the summary line
         grep -E "^test result:" "$RUST_OUTPUT" | tail -1
@@ -92,43 +96,19 @@ ORI_INTERP_FAILED="${ORI_INTERP_NUMS[1]:-0}"
 ORI_INTERP_SKIPPED="${ORI_INTERP_NUMS[2]:-0}"
 
 echo ""
-echo "=== Running LLVM Rust unit tests (Docker) ==="
-if [[ $VERBOSE -eq 1 ]]; then
-    if ./llvm-test 2>&1 | tee "$LLVM_RUST_OUTPUT"; then
-        LLVM_RUST_STATUS="passed"
-    else
-        LLVM_RUST_STATUS="FAILED"
-        ANY_FAILED=1
-    fi
-else
-    if ./llvm-test 2>&1 > "$LLVM_RUST_OUTPUT"; then
-        LLVM_RUST_STATUS="passed"
-        # Show just the summary line
-        grep -E "^test result:" "$LLVM_RUST_OUTPUT" | tail -1
-    else
-        LLVM_RUST_STATUS="FAILED"
-        ANY_FAILED=1
-        # Show full output on failure
-        cat "$LLVM_RUST_OUTPUT"
-    fi
-fi
-
-# Parse LLVM Rust test results
-LLVM_RUST_PASSED=$(grep -E "^test result:" "$LLVM_RUST_OUTPUT" | sed 's/.*ok\. \([0-9]*\) passed.*/\1/' | awk '{sum += $1} END {print sum+0}')
-LLVM_RUST_FAILED=$(grep -E "^test result:" "$LLVM_RUST_OUTPUT" | sed 's/.*; \([0-9]*\) failed.*/\1/' | awk '{sum += $1} END {print sum+0}')
-LLVM_RUST_IGNORED=$(grep -E "^test result:" "$LLVM_RUST_OUTPUT" | sed 's/.*; \([0-9]*\) ignored.*/\1/' | awk '{sum += $1} END {print sum+0}')
-
-echo ""
 echo "=== Running Ori language tests (LLVM backend) ==="
+# Build with LLVM feature first (quietly)
+cargo build -p oric --features llvm --release -q 2>/dev/null || true
+
 if [[ $VERBOSE -eq 1 ]]; then
-    if ./docker/llvm/run.sh ori test tests/ 2>&1 | tee "$ORI_LLVM_OUTPUT"; then
+    if ./target/release/ori test --backend=llvm tests/ 2>&1 | tee "$ORI_LLVM_OUTPUT"; then
         ORI_LLVM_STATUS="passed"
     else
         ORI_LLVM_STATUS="FAILED"
         ANY_FAILED=1
     fi
 else
-    if ./docker/llvm/run.sh ori test tests/ 2>&1 > "$ORI_LLVM_OUTPUT"; then
+    if ./target/release/ori test --backend=llvm tests/ 2>&1 > "$ORI_LLVM_OUTPUT"; then
         ORI_LLVM_STATUS="passed"
         # Show just the summary line
         grep -E "[0-9]+ passed, [0-9]+ failed" "$ORI_LLVM_OUTPUT" | tail -1
@@ -158,14 +138,13 @@ printf "%-30s %8s %8s %8s\n" "Test Suite" "Passed" "Failed" "Skipped"
 printf "%-30s %8s %8s %8s\n" "------------------------------" "--------" "--------" "--------"
 printf "%-30s %8d %8d %8d\n" "Rust unit tests" "$RUST_PASSED" "$RUST_FAILED" "$RUST_IGNORED"
 printf "%-30s %8d %8d %8d\n" "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED"
-printf "%-30s %8d %8d %8d\n" "LLVM Rust unit tests" "$LLVM_RUST_PASSED" "$LLVM_RUST_FAILED" "$LLVM_RUST_IGNORED"
 printf "%-30s %8d %8d %8d\n" "Ori spec (LLVM backend)" "$ORI_LLVM_PASSED" "$ORI_LLVM_FAILED" "$ORI_LLVM_SKIPPED"
 printf "%-30s %8s %8s %8s\n" "------------------------------" "--------" "--------" "--------"
 
 # Calculate totals
-TOTAL_PASSED=$((RUST_PASSED + ORI_INTERP_PASSED + LLVM_RUST_PASSED + ORI_LLVM_PASSED))
-TOTAL_FAILED=$((RUST_FAILED + ORI_INTERP_FAILED + LLVM_RUST_FAILED + ORI_LLVM_FAILED))
-TOTAL_SKIPPED=$((RUST_IGNORED + ORI_INTERP_SKIPPED + LLVM_RUST_IGNORED + ORI_LLVM_SKIPPED))
+TOTAL_PASSED=$((RUST_PASSED + ORI_INTERP_PASSED + ORI_LLVM_PASSED))
+TOTAL_FAILED=$((RUST_FAILED + ORI_INTERP_FAILED + ORI_LLVM_FAILED))
+TOTAL_SKIPPED=$((RUST_IGNORED + ORI_INTERP_SKIPPED + ORI_LLVM_SKIPPED))
 
 printf "${BOLD}%-30s %8d %8d %8d${NC}\n" "TOTAL" "$TOTAL_PASSED" "$TOTAL_FAILED" "$TOTAL_SKIPPED"
 echo ""

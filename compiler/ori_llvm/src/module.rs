@@ -15,11 +15,24 @@
 use inkwell::context::Context;
 use inkwell::values::FunctionValue;
 
-use ori_ir::{ExprArena, Function, Name, StringInterner, TestDef, TypeId};
+use ori_ir::{ExprArena, Function, Name, ParsedType, StringInterner, TestDef, TypeId};
 
 use crate::builder::Builder;
 use crate::context::CodegenCx;
 use crate::functions::body::FunctionBodyConfig;
+
+/// Convert a `ParsedType` to a `TypeId`.
+///
+/// Only handles primitive types for now. Returns None for complex types
+/// which will fall back to INT.
+fn parsed_type_to_type_id(ty: &ParsedType) -> Option<TypeId> {
+    match ty {
+        ParsedType::Primitive(id) => Some(*id),
+        // For tuples, lists, functions, etc. we'd need more sophisticated handling
+        // For now, return None to use the fallback
+        _ => None,
+    }
+}
 
 /// Compiler for a complete Ori module.
 ///
@@ -84,15 +97,30 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
         let params = arena.get_params(func.params);
         let param_names: Vec<Name> = params.iter().map(|p| p.name).collect();
 
-        // Use signature if provided, otherwise fall back to INT
+        // Use signature if provided, otherwise extract from AST declarations
         // Clone params to avoid lifetime complexity with the else branch.
         // Cost is O(n) where n = param count, typically small (<10).
         let (param_types, return_type) = if let Some(sig) = sig {
             (sig.params.clone(), sig.return_type)
         } else {
-            // Fallback: use INT for all types
-            let param_types: Vec<TypeId> = params.iter().map(|_| TypeId::INT).collect();
-            (param_types, TypeId::INT)
+            // Extract types from parameter declarations
+            let param_types: Vec<TypeId> = params
+                .iter()
+                .map(|p| {
+                    p.ty.as_ref()
+                        .and_then(parsed_type_to_type_id)
+                        .unwrap_or(TypeId::INT)
+                })
+                .collect();
+
+            // Extract return type from function declaration
+            let return_type = func
+                .return_ty
+                .as_ref()
+                .and_then(parsed_type_to_type_id)
+                .unwrap_or(TypeId::VOID);
+
+            (param_types, return_type)
         };
 
         // Phase 1: Declare the function

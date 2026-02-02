@@ -12,15 +12,13 @@ members = [
     "compiler/ori_fmt",
     "compiler/ori_macros",
     "compiler/ori_stack",
+    "compiler/ori_llvm",
+    "compiler/ori_rt",
     "compiler/oric",
 ]
 # Excluded crates:
-# - ori_llvm: Requires LLVM - build only in container: ./docker/llvm/run.sh
-# - ori_rt: Runtime library for AOT - build only in container
 # - ori-lsp: Not yet updated to use new compiler
 exclude = [
-    "compiler/ori_llvm",
-    "compiler/ori_rt",
     "tools/ori-lsp",
 ]
 
@@ -55,6 +53,7 @@ ori_typeck = { path = "compiler/ori_typeck" }
 ori_eval = { path = "compiler/ori_eval" }
 ori_fmt = { path = "compiler/ori_fmt" }
 ori_llvm = { path = "compiler/ori_llvm" }
+ori_rt = { path = "compiler/ori_rt" }
 ori_macros = { path = "compiler/ori_macros" }
 ori_stack = { path = "compiler/ori_stack" }
 

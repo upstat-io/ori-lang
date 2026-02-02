@@ -21,9 +21,14 @@ use tempfile::TempDir;
 /// Get the path to the `ori` binary.
 /// Assumes the binary is built in the workspace target directory.
 fn ori_binary() -> PathBuf {
-    // In the Docker container, the binary is at /workspace/target/release/ori
-    // when built with --release, or /workspace/target/debug/ori otherwise.
-    let workspace_root = PathBuf::from("/workspace");
+    // Find workspace root by looking for Cargo.toml with [workspace]
+    // Start from CARGO_MANIFEST_DIR and walk up
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir
+        .ancestors()
+        .find(|p| p.join("Cargo.toml").exists() && p.join("compiler").exists())
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("/workspace")); // Docker fallback
 
     // Try release first (faster tests), then debug
     let release_path = workspace_root.join("target/release/ori");
@@ -776,5 +781,130 @@ fn test_build_unsupported_target() {
         stderr.contains("unsupported") || stderr.contains("error") || stderr.contains("target"),
         "Expected unsupported target error: {}",
         stderr
+    );
+}
+
+// ============================================================================
+// Dependency Error Tests
+// ============================================================================
+
+/// Ori program that imports a missing module.
+const MISSING_DEPENDENCY_PROGRAM: &str = r#"
+use "./nonexistent_module" { some_function }
+
+@main () -> void = run(
+    some_function(),
+)
+"#;
+
+/// Test: `ori build` with missing dependency fails gracefully.
+///
+/// Verifies that the compiler reports a helpful error when an imported
+/// module cannot be found.
+#[test]
+fn test_build_missing_dependency() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source = create_test_source(&temp_dir, "missing_dep.ori", MISSING_DEPENDENCY_PROGRAM);
+    let output = temp_dir.path().join("missing_dep");
+
+    let result = Command::new(ori_binary())
+        .args([
+            "build",
+            source.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute ori build");
+
+    // Should fail with non-zero exit code
+    assert!(
+        !result.status.success(),
+        "ori build should have failed for missing dependency"
+    );
+
+    // Should have error message about missing import
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        stderr.contains("cannot find")
+            || stderr.contains("not found")
+            || stderr.contains("import error"),
+        "Expected missing module error in stderr: {}",
+        stderr
+    );
+
+    // Output file should not exist
+    assert!(
+        !output.exists(),
+        "Output binary should not exist for failed build"
+    );
+}
+
+// ============================================================================
+// Incremental Compilation Tests
+// ============================================================================
+
+/// Test: `ori build` with unchanged source should be fast (incremental rebuild).
+///
+/// This test verifies that the incremental compilation cache works:
+/// 1. First build: full compilation
+/// 2. Second build (no changes): should be faster (cache hit)
+///
+/// Note: This test requires incremental compilation to be wired up.
+/// Currently marked as ignored until the feature is fully integrated.
+#[test]
+#[ignore = "Incremental compilation not yet wired up in ori build (see 21B.6)"]
+fn test_build_incremental_unchanged() {
+    use std::time::Instant;
+
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source = create_test_source(&temp_dir, "incremental.ori", SIMPLE_PROGRAM);
+    let output = temp_dir.path().join("incremental");
+
+    // First build: full compilation
+    let start1 = Instant::now();
+    let result1 = Command::new(ori_binary())
+        .args([
+            "build",
+            source.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute first ori build");
+
+    assert!(
+        result1.status.success(),
+        "First build failed: {}",
+        String::from_utf8_lossy(&result1.stderr)
+    );
+    let duration1 = start1.elapsed();
+
+    // Second build: should use cache
+    let start2 = Instant::now();
+    let result2 = Command::new(ori_binary())
+        .args([
+            "build",
+            source.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute second ori build");
+
+    assert!(
+        result2.status.success(),
+        "Second build failed: {}",
+        String::from_utf8_lossy(&result2.stderr)
+    );
+    let duration2 = start2.elapsed();
+
+    // Second build should be significantly faster (at least 2x)
+    // This is a heuristic - cache hits should be much faster than full builds
+    assert!(
+        duration2 < duration1 / 2,
+        "Incremental build not faster: first={:?}, second={:?}",
+        duration1,
+        duration2
     );
 }

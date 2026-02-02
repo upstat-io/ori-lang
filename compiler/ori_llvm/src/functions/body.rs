@@ -66,6 +66,14 @@ impl<'ll> Builder<'_, 'll, '_> {
         // Compile body (no loop context at top level)
         let result = self.compile_expr(body, arena, expr_types, &mut locals, function, None);
 
+        // If the body already terminated (e.g., panic, unreachable, infinite loop),
+        // don't add another terminator - the block is already complete.
+        if let Some(block) = self.current_block() {
+            if block.get_terminator().is_some() {
+                return;
+            }
+        }
+
         // Get the function's declared return type from LLVM
         let fn_ret_type = function.get_type().get_return_type();
 

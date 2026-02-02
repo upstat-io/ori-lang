@@ -244,13 +244,20 @@ impl TargetConfig {
         let triple_str = triple.as_str().to_string_lossy().into_owned();
         let components = TargetTripleComponents::parse(&triple_str)?;
 
+        // Use PIC for Linux targets to support PIE linking (modern default)
+        let reloc_mode = if components.is_linux() {
+            RelocMode::PIC
+        } else {
+            RelocMode::Default
+        };
+
         Ok(Self {
             triple: triple_str,
             components,
             cpu: "generic".to_string(),
             features: String::new(),
             opt_level: OptimizationLevel::None,
-            reloc_mode: RelocMode::Default,
+            reloc_mode,
             code_model: CodeModel::Default,
         })
     }
@@ -277,13 +284,20 @@ impl TargetConfig {
         // Initialize the appropriate LLVM target
         initialize_target_for_triple(&components)?;
 
+        // Use PIC for Linux targets to support PIE linking (modern default)
+        let reloc_mode = if components.is_linux() {
+            RelocMode::PIC
+        } else {
+            RelocMode::Default
+        };
+
         Ok(Self {
             triple: triple.to_string(),
             components,
             cpu: "generic".to_string(),
             features: String::new(),
             opt_level: OptimizationLevel::None,
-            reloc_mode: RelocMode::Default,
+            reloc_mode,
             code_model: CodeModel::Default,
         })
     }
@@ -573,13 +587,20 @@ impl TargetConfig {
     /// may fail unless you've called the appropriate initialization functions.
     #[must_use]
     pub fn from_components(components: TargetTripleComponents) -> Self {
+        // Use PIC for Linux targets to support PIE linking (modern default)
+        let reloc_mode = if components.is_linux() {
+            RelocMode::PIC
+        } else {
+            RelocMode::Default
+        };
+
         Self {
             triple: components.to_string(),
             components,
             cpu: "generic".to_string(),
             features: String::new(),
             opt_level: OptimizationLevel::None,
-            reloc_mode: RelocMode::Default,
+            reloc_mode,
             code_model: CodeModel::Default,
         }
     }
