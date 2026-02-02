@@ -29,6 +29,8 @@ pub(crate) enum RawToken {
     Break,
     #[token("continue")]
     Continue,
+    #[token("return")]
+    Return,
     #[token("def")]
     Def,
     #[token("do")]
@@ -134,6 +136,8 @@ pub(crate) enum RawToken {
     Timeout,
     #[token("try")]
     Try,
+    #[token("by")]
+    By,
 
     #[token("print")]
     Print,

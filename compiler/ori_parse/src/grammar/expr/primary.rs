@@ -348,6 +348,21 @@ impl Parser<'_> {
                     .alloc_expr(Expr::new(ExprKind::Continue(value), span.merge(end_span))))
             }
 
+            // Return is not valid in Ori - provide helpful error for users from other languages
+            TokenKind::Return => {
+                self.advance();
+                Err(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1015,
+                    "`return` is not valid in Ori",
+                    span,
+                )
+                .with_context(
+                    "Ori is expression-based: the last expression in a block is its value",
+                )
+                .with_help("For early error exit, use the `?` operator: `let x = fallible()?`")
+                .with_help("For loop exit with value, use `break value`"))
+            }
+
             // Loop expression: loop(body)
             TokenKind::Loop => self.parse_loop_expr(),
 

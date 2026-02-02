@@ -20,8 +20,6 @@ pub enum ControlFlow {
     /// Continue to the next iteration of a loop.
     /// In `for...yield` context, may carry a substitution value.
     Continue(Value),
-    /// Return from a function, optionally with a value.
-    Return(Value),
 }
 
 /// Evaluation error.
@@ -31,7 +29,7 @@ pub struct EvalError {
     pub message: String,
     /// If this error is from `?` propagation, holds the original Err/None value.
     pub propagated_value: Option<Value>,
-    /// If this is a control flow signal (break/continue/return), holds the signal.
+    /// If this is a control flow signal (break/continue), holds the signal.
     pub control_flow: Option<ControlFlow>,
     /// Source location where the error occurred.
     ///
@@ -86,16 +84,6 @@ impl EvalError {
             message: format!("continue:{value}"),
             propagated_value: None,
             control_flow: Some(ControlFlow::Continue(value)),
-            span: None,
-        }
-    }
-
-    /// Create a return signal with a value.
-    pub fn return_with(value: Value) -> Self {
-        EvalError {
-            message: format!("return:{value}"),
-            propagated_value: None,
-            control_flow: Some(ControlFlow::Return(value)),
             span: None,
         }
     }

@@ -76,10 +76,12 @@ pub fn infer_map(checker: &mut TypeChecker<'_>, entries: MapEntryRange, _span: S
 /// - If neither, defaults to `Range<int>`
 ///
 /// Unifies start and end types if both are present.
+/// Step expression, if present, must be an integer.
 pub fn infer_range(
     checker: &mut TypeChecker<'_>,
     start: Option<ExprId>,
     end: Option<ExprId>,
+    step: Option<ExprId>,
 ) -> Type {
     let elem_ty = if let Some(start_id) = start {
         infer_expr(checker, start_id)
@@ -97,5 +99,14 @@ pub fn infer_range(
             }
         }
     }
+
+    // Step must be an integer (matches range element type)
+    if let Some(step_id) = step {
+        let step_ty = infer_expr(checker, step_id);
+        if let Err(e) = checker.inference.ctx.unify(&elem_ty, &step_ty) {
+            checker.report_type_error(&e, checker.context.arena.get_expr(step_id).span);
+        }
+    }
+
     checker.inference.ctx.make_range(elem_ty)
 }

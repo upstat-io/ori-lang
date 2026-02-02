@@ -403,6 +403,7 @@ fn test_range_literal() {
         kind: ExprKind::Range {
             start: Some(start),
             end: Some(end),
+            step: None,
             inclusive: false,
         },
         span: ori_ir::Span::new(0, 1),

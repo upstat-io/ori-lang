@@ -91,6 +91,109 @@ connect(host: "localhost", timeout: 60s)  // override timeout only
 
 See [Expressions § Function Call](09-expressions.md#function-call) for call semantics.
 
+### Variadic Parameters
+
+A _variadic parameter_ accepts zero or more arguments of the same type:
+
+```ori
+@sum (numbers: ...int) -> int =
+    numbers.fold(initial: 0, op: (acc, n) -> acc + n)
+
+sum(1, 2, 3)     // 6
+sum()            // 0 (empty variadic)
+```
+
+Inside the function, the variadic parameter is received as a list.
+
+**Constraints:**
+
+| Rule | Description |
+|------|-------------|
+| One per function | At most one variadic parameter allowed |
+| Must be last | Variadic parameter must appear after all required parameters |
+| No default | Variadic parameters cannot have default values (default is empty list) |
+| Positional at call | Variadic arguments are always positional; parameter name cannot be used |
+
+```ori
+@log (level: str, messages: ...str) -> void
+log(level: "INFO", "Request", "User: 123")  // Named + variadic
+
+@max (first: int, rest: ...int) -> int  // Requires at least one argument
+```
+
+**Allowed variadic types:**
+
+| Type | Example | Behavior |
+|------|---------|----------|
+| Concrete | `...int` | All arguments must be `int` |
+| Generic | `...T` | Type inferred from arguments |
+| Trait object | `...Printable` | Arguments boxed as trait objects |
+
+```ori
+@print_all<T: Printable> (items: ...T) -> void
+print_all(1, 2, 3)        // T = int
+print_all(1, "a")         // ERROR: cannot unify int and str
+
+@print_any (items: ...Printable) -> void
+print_any(1, "hello", true)  // OK: all implement Printable
+```
+
+**Spread into variadic:**
+
+The spread operator `...` expands a list into variadic arguments:
+
+```ori
+let nums = [1, 2, 3]
+sum(...nums)           // 6
+sum(0, ...nums, 10)    // 14
+```
+
+Spread in non-variadic function calls remains an error.
+
+**Type inference:**
+
+When a generic type parameter is only constrained by a variadic parameter, calls with zero arguments cannot infer the type:
+
+```ori
+@collect<T> (items: ...T) -> [T] = items
+
+collect(1, 2, 3)   // T = int inferred
+collect()          // ERROR: cannot infer T
+collect<int>()     // OK: explicit type
+```
+
+**Function type representation:**
+
+A variadic function's type is represented as accepting a list:
+
+```ori
+@sum (numbers: ...int) -> int = ...
+
+let f: ([int]) -> int = sum  // Variadic stored as list-accepting function
+f([1, 2, 3])                 // Must call with list when using function value
+sum(1, 2, 3)                 // Direct call retains variadic syntax
+```
+
+### C Variadic Functions
+
+C variadic functions use a different, untyped mechanism:
+
+```ori
+extern "c" from "libc" {
+    @printf (format: CPtr, ...) -> c_int as "printf"
+}
+```
+
+| Feature | Ori `...T` | C `...` |
+|---------|------------|---------|
+| Type safety | Homogeneous, checked | Unchecked |
+| Context | Safe code | `unsafe` block only |
+| Type annotation | Required | None |
+
+C-style `...` (without type) is only valid in `extern "c"` declarations. Calling C variadic functions requires `unsafe`.
+
+See [FFI](24-ffi.md) for details on C interop.
+
 ## Types
 
 ```ori
@@ -478,6 +581,132 @@ Only one extension for a given method may be in scope. Conflicts are detected ba
 extension "a" { Iterator.sum }
 extension "b" { Iterator.sum }  // ERROR: conflicting extension imports
 ```
+
+## Attributes
+
+Attributes modify declarations with metadata or directives.
+
+> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § ATTRIBUTES
+
+### Syntax
+
+```ori
+#attribute_name
+#attribute_name(args)
+```
+
+Attributes precede the declaration they modify. Multiple attributes can be applied:
+
+```ori
+#derive(Eq, Clone)
+#repr("c")
+type Point = { x: int, y: int }
+```
+
+### Standard Attributes
+
+#### #derive
+
+Generates trait implementations automatically:
+
+```ori
+#derive(Eq, Hashable, Clone, Debug)
+type Point = { x: int, y: int }
+```
+
+See [Types § Derive](06-types.md#derive) for derivable traits and semantics.
+
+#### #repr
+
+Controls memory representation:
+
+| Syntax | Effect |
+|--------|--------|
+| `#repr("c")` | C-compatible struct layout |
+
+```ori
+#repr("c")
+type CTimeSpec = {
+    tv_sec: int,
+    tv_nsec: int
+}
+```
+
+Required for structs passed to C via FFI. See [FFI § C Structs](24-ffi.md#c-structs).
+
+#### #target
+
+Conditional compilation based on platform:
+
+```ori
+#target(os: "linux")
+@linux_only () -> void = ...
+
+#target(arch: "x86_64", os: "linux")
+@linux_x64 () -> void = ...
+```
+
+See [Conditional Compilation](25-conditional-compilation.md) for full syntax.
+
+#### #cfg
+
+Conditional compilation based on build configuration:
+
+```ori
+#cfg(debug)
+@debug_log (msg: str) -> void = print(msg: `[DEBUG] {msg}`)
+
+#cfg(feature: "ssl")
+@secure_connect () -> void = ...
+```
+
+See [Conditional Compilation](25-conditional-compilation.md) for full syntax.
+
+### Test Attributes
+
+#### #skip
+
+Skips a test with an optional reason:
+
+```ori
+#skip("pending implementation")
+@test_feature tests @feature () -> void = ...
+```
+
+#### #compile_fail
+
+Asserts that code fails to compile with the expected error:
+
+```ori
+#compile_fail("E0100")
+@test_type_error tests @f () -> void =
+    let x: int = "string"  // Expected type error
+```
+
+#### #fail
+
+Asserts that a test panics with the expected message:
+
+```ori
+#fail("index out of bounds")
+@test_panic tests @f () -> void =
+    let list: [int] = []
+    list[0]  // Expected panic
+```
+
+See [Testing](13-testing.md) for test semantics.
+
+### File-Level Attributes
+
+The `#!` prefix applies an attribute to the entire file:
+
+```ori
+#!target(os: "linux")
+
+// Entire file is Linux-only
+```
+
+File-level attributes must appear before any declarations.
 
 ## Tests
 

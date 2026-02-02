@@ -31,11 +31,52 @@ Source Text → Lexer → Parser → AST → Formatter → Formatted Text
 
 ### Crate Structure
 
+The formatter uses a 5-layer architecture. See [5-Layer Architecture](../03-layers/index.md) for design details.
+
 ```
 compiler/ori_fmt/
 ├── src/
 │   ├── lib.rs              # Public API, tabs_to_spaces()
-│   ├── width/              # Width calculation module
+│   │
+│   │   # === 5-Layer Architecture ===
+│   ├── spacing/            # Layer 1: Token spacing (O(1) lookup)
+│   │   ├── action.rs       # SpaceAction enum
+│   │   ├── category.rs     # TokenCategory grouping
+│   │   ├── matcher.rs      # TokenMatcher patterns
+│   │   ├── rules.rs        # Declarative spacing rules
+│   │   ├── lookup.rs       # RulesMap O(1) lookup
+│   │   └── tests.rs
+│   ├── packing/            # Layer 2: Container packing decisions
+│   │   ├── strategy.rs     # Packing enum, determine_packing()
+│   │   ├── construct.rs    # ConstructKind (22 container types)
+│   │   ├── separator.rs    # Separator enum
+│   │   ├── simple.rs       # Simple item detection
+│   │   └── tests.rs
+│   ├── shape/              # Layer 3: Width tracking
+│   │   ├── core.rs         # Shape struct
+│   │   └── tests.rs
+│   ├── rules/              # Layer 4: Breaking rules (8 rules)
+│   │   ├── method_chain.rs
+│   │   ├── short_body.rs
+│   │   ├── boolean_break.rs
+│   │   ├── chained_else_if.rs
+│   │   ├── nested_for.rs
+│   │   ├── parentheses.rs
+│   │   ├── run_rule.rs
+│   │   ├── loop_rule.rs
+│   │   └── tests.rs
+│   ├── formatter/          # Layer 5: Orchestration
+│   │   ├── mod.rs          # Main Formatter struct
+│   │   ├── inline.rs       # Single-line rendering
+│   │   ├── broken.rs       # Multi-line rendering
+│   │   ├── stacked.rs      # Always-stacked constructs
+│   │   ├── helpers.rs      # Collection helpers
+│   │   ├── patterns.rs     # Pattern rendering
+│   │   ├── literals.rs     # Literal rendering
+│   │   └── tests.rs
+│   │
+│   │   # === Support Modules ===
+│   ├── width/              # Width calculation
 │   │   ├── mod.rs          # WidthCalculator, ALWAYS_STACKED
 │   │   ├── calls.rs        # Call/method call width
 │   │   ├── collections.rs  # List/map/tuple/struct width
@@ -46,13 +87,11 @@ compiler/ori_fmt/
 │   │   ├── operators.rs    # Binary/unary operator width
 │   │   ├── patterns.rs     # Binding pattern width
 │   │   └── wrappers.rs     # Ok/Err/Some/etc. width
-│   ├── formatter/          # Core formatting engine
-│   │   └── mod.rs          # Formatter struct, format/emit_inline/emit_broken/emit_stacked
-│   ├── context.rs          # FormatContext, column/indent tracking
-│   ├── emitter.rs          # Emitter trait, StringEmitter implementation
-│   ├── declarations.rs     # ModuleFormatter for top-level items
-│   ├── comments.rs         # CommentIndex, doc comment reordering
-│   └── incremental.rs      # Incremental formatting for LSP
+│   ├── declarations/       # Module-level formatting
+│   ├── comments/           # Comment preservation
+│   ├── context/            # FormatContext, column/indent tracking
+│   ├── emitter/            # Emitter trait, StringEmitter
+│   └── incremental/        # Incremental formatting for LSP
 └── tests/
     ├── golden_tests.rs     # Golden file tests
     ├── idempotence_tests.rs # Idempotence verification
@@ -65,12 +104,18 @@ compiler/ori_fmt/
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
+| `SpaceAction` | `spacing/action.rs` | Token spacing decisions (Layer 1) |
+| `TokenCategory` | `spacing/category.rs` | Abstract token types for matching (Layer 1) |
+| `Packing` | `packing/strategy.rs` | Container packing strategies (Layer 2) |
+| `ConstructKind` | `packing/construct.rs` | Container type enumeration (Layer 2) |
+| `Shape` | `shape/core.rs` | Width tracking through recursion (Layer 3) |
+| `*Rule` | `rules/*.rs` | 8 Ori-specific breaking rules (Layer 4) |
+| `Formatter` | `formatter/mod.rs` | Top-down rendering, orchestration (Layer 5) |
 | `WidthCalculator` | `width/mod.rs` | Bottom-up width calculation with caching |
-| `Formatter` | `formatter/mod.rs` | Top-down rendering with inline/broken/stacked modes |
-| `FormatContext` | `context.rs` | Column tracking, indentation, line width checking |
-| `ModuleFormatter` | `declarations.rs` | Module-level formatting (functions, types, etc.) |
-| `CommentIndex` | `comments.rs` | Comment association and doc comment reordering |
-| `Emitter` | `emitter.rs` | Output abstraction (StringEmitter implemented) |
+| `FormatContext` | `context/` | Column tracking, indentation, line width checking |
+| `ModuleFormatter` | `declarations/` | Module-level formatting (functions, types, etc.) |
+| `CommentIndex` | `comments/` | Comment association and doc comment reordering |
+| `Emitter` | `emitter/` | Output abstraction (StringEmitter implemented) |
 
 ## Width Calculation
 

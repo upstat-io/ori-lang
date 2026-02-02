@@ -218,7 +218,7 @@ fn collect_free_vars_impl(
         }
 
         // Control flow with optional value
-        ExprKind::Return(value) | ExprKind::Break(value) | ExprKind::Continue(value) => {
+        ExprKind::Break(value) | ExprKind::Continue(value) => {
             if let Some(id) = value {
                 collect_free_vars_impl(checker, *id, bound, free);
             }

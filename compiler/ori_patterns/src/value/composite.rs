@@ -413,25 +413,49 @@ pub struct RangeValue {
     pub start: i64,
     /// End of range.
     pub end: i64,
+    /// Step increment (default 1). Can be negative for descending ranges.
+    pub step: i64,
     /// Whether end is inclusive.
     pub inclusive: bool,
 }
 
 impl RangeValue {
-    /// Create an exclusive range.
+    /// Create an exclusive range with step 1.
     pub fn exclusive(start: i64, end: i64) -> Self {
         RangeValue {
             start,
             end,
+            step: 1,
             inclusive: false,
         }
     }
 
-    /// Create an inclusive range.
+    /// Create an inclusive range with step 1.
     pub fn inclusive(start: i64, end: i64) -> Self {
         RangeValue {
             start,
             end,
+            step: 1,
+            inclusive: true,
+        }
+    }
+
+    /// Create an exclusive range with custom step.
+    pub fn exclusive_with_step(start: i64, end: i64, step: i64) -> Self {
+        RangeValue {
+            start,
+            end,
+            step,
+            inclusive: false,
+        }
+    }
+
+    /// Create an inclusive range with custom step.
+    pub fn inclusive_with_step(start: i64, end: i64, step: i64) -> Self {
+        RangeValue {
+            start,
+            end,
+            step,
             inclusive: true,
         }
     }
@@ -442,12 +466,74 @@ impl RangeValue {
         reason = "range bound arithmetic on user-provided i64 values"
     )]
     pub fn iter(&self) -> impl Iterator<Item = i64> {
-        let end = if self.inclusive {
-            self.end + 1
-        } else {
-            self.end
+        let start = self.start;
+        let end = self.end;
+        let step = self.step;
+        let inclusive = self.inclusive;
+
+        // Check if the range is empty (start not within bounds)
+        let initial = match step.cmp(&0) {
+            std::cmp::Ordering::Greater => {
+                if inclusive {
+                    if start <= end {
+                        Some(start)
+                    } else {
+                        None
+                    }
+                } else if start < end {
+                    Some(start)
+                } else {
+                    None
+                }
+            }
+            std::cmp::Ordering::Less => {
+                if inclusive {
+                    if start >= end {
+                        Some(start)
+                    } else {
+                        None
+                    }
+                } else if start > end {
+                    Some(start)
+                } else {
+                    None
+                }
+            }
+            std::cmp::Ordering::Equal => None, // step == 0, no iteration
         };
-        self.start..end
+
+        std::iter::successors(initial, move |&current| {
+            let next = current + step;
+            match step.cmp(&0) {
+                std::cmp::Ordering::Greater => {
+                    if inclusive {
+                        if next <= end {
+                            Some(next)
+                        } else {
+                            None
+                        }
+                    } else if next < end {
+                        Some(next)
+                    } else {
+                        None
+                    }
+                }
+                std::cmp::Ordering::Less => {
+                    if inclusive {
+                        if next >= end {
+                            Some(next)
+                        } else {
+                            None
+                        }
+                    } else if next > end {
+                        Some(next)
+                    } else {
+                        None
+                    }
+                }
+                std::cmp::Ordering::Equal => None,
+            }
+        })
     }
 
     /// Get the length of the range.
@@ -456,13 +542,29 @@ impl RangeValue {
         reason = "range bound arithmetic on user-provided i64 values"
     )]
     pub fn len(&self) -> usize {
-        let end = if self.inclusive {
-            self.end + 1
+        if self.step == 0 {
+            return 0;
+        }
+
+        let adjusted_end = if self.inclusive {
+            if self.step > 0 {
+                self.end + 1
+            } else {
+                self.end - 1
+            }
         } else {
             self.end
         };
-        let diff = (end - self.start).max(0);
-        usize::try_from(diff).unwrap_or(usize::MAX)
+
+        let diff = if self.step > 0 {
+            (adjusted_end - self.start).max(0)
+        } else {
+            (self.start - adjusted_end).max(0)
+        };
+
+        let step_abs = self.step.abs();
+        let count = (diff + step_abs - 1) / step_abs; // ceiling division
+        usize::try_from(count).unwrap_or(usize::MAX)
     }
 
     /// Check if the range is empty.
@@ -471,12 +573,36 @@ impl RangeValue {
     }
 
     /// Check if a value is contained in the range.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "range bound arithmetic on user-provided i64 values"
+    )]
     pub fn contains(&self, value: i64) -> bool {
-        if self.inclusive {
-            value >= self.start && value <= self.end
-        } else {
-            value >= self.start && value < self.end
+        // Check bounds first
+        let in_bounds = match self.step.cmp(&0) {
+            std::cmp::Ordering::Greater => {
+                if self.inclusive {
+                    value >= self.start && value <= self.end
+                } else {
+                    value >= self.start && value < self.end
+                }
+            }
+            std::cmp::Ordering::Less => {
+                if self.inclusive {
+                    value <= self.start && value >= self.end
+                } else {
+                    value <= self.start && value > self.end
+                }
+            }
+            std::cmp::Ordering::Equal => return false, // step == 0, no values
+        };
+
+        if !in_bounds {
+            return false;
         }
+
+        // Check alignment with step
+        (value - self.start) % self.step == 0
     }
 }
 

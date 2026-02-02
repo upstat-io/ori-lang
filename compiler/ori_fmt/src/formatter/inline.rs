@@ -216,6 +216,7 @@ impl<I: StringLookup> Formatter<'_, I> {
             ExprKind::Range {
                 start,
                 end,
+                step,
                 inclusive,
             } => {
                 if let Some(s) = start {
@@ -229,6 +230,10 @@ impl<I: StringLookup> Formatter<'_, I> {
                 if let Some(e) = end {
                     self.emit_inline(*e);
                 }
+                if let Some(step_expr) = step {
+                    self.ctx.emit(" by ");
+                    self.emit_inline(*step_expr);
+                }
             }
 
             // Result/Option wrappers
@@ -238,13 +243,6 @@ impl<I: StringLookup> Formatter<'_, I> {
             ExprKind::None => self.ctx.emit("None"),
 
             // Control flow jumps
-            ExprKind::Return(val) => {
-                self.ctx.emit("return");
-                if let Some(val_id) = val {
-                    self.ctx.emit_space();
-                    self.emit_inline(*val_id);
-                }
-            }
             ExprKind::Break(val) => {
                 self.ctx.emit("break");
                 if let Some(val_id) = val {

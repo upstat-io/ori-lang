@@ -433,8 +433,9 @@ impl<'a> Interpreter<'a> {
             ExprKind::Range {
                 start,
                 end,
+                step,
                 inclusive,
-            } => crate::exec::expr::eval_range(*start, *end, *inclusive, |e| self.eval(e)),
+            } => crate::exec::expr::eval_range(*start, *end, *step, *inclusive, |e| self.eval(e)),
 
             // Access
             ExprKind::Index { receiver, index } => {
@@ -584,10 +585,6 @@ impl<'a> Interpreter<'a> {
                 Ok(Value::Struct(StructValue::new(*name, field_values)))
             }
 
-            ExprKind::Return(v) => {
-                let val = v.map(|x| self.eval(x)).transpose()?.unwrap_or(Value::Void);
-                Err(EvalError::return_with(val))
-            }
             ExprKind::Break(v) => {
                 let val = v.map(|x| self.eval(x)).transpose()?.unwrap_or(Value::Void);
                 Err(EvalError::break_with(val))
@@ -855,13 +852,20 @@ impl<'a> Interpreter<'a> {
                 index: usize,
             },
             Range {
-                iter: std::ops::Range<i64>,
+                current: Option<i64>,
+                end: i64,
+                step: i64,
+                inclusive: bool,
             },
         }
 
         impl Iterator for ForIterator {
             type Item = Value;
 
+            #[expect(
+                clippy::arithmetic_side_effects,
+                reason = "range bound arithmetic on user-provided i64 values"
+            )]
             fn next(&mut self) -> Option<Value> {
                 match self {
                     ForIterator::List { list, index } => {
@@ -873,7 +877,42 @@ impl<'a> Interpreter<'a> {
                             None
                         }
                     }
-                    ForIterator::Range { iter } => iter.next().map(Value::int),
+                    ForIterator::Range {
+                        current,
+                        end,
+                        step,
+                        inclusive,
+                    } => {
+                        let curr = (*current)?;
+                        let next_val = curr + *step;
+
+                        // Check if current is in bounds
+                        let in_bounds = match (*step).cmp(&0) {
+                            std::cmp::Ordering::Greater => {
+                                if *inclusive {
+                                    curr <= *end
+                                } else {
+                                    curr < *end
+                                }
+                            }
+                            std::cmp::Ordering::Less => {
+                                if *inclusive {
+                                    curr >= *end
+                                } else {
+                                    curr > *end
+                                }
+                            }
+                            std::cmp::Ordering::Equal => false, // step == 0, stop immediately
+                        };
+
+                        if in_bounds {
+                            *current = Some(next_val);
+                            Some(Value::int(curr))
+                        } else {
+                            *current = None;
+                            None
+                        }
+                    }
                 }
             }
 
@@ -883,7 +922,7 @@ impl<'a> Interpreter<'a> {
                         let remaining = list.len().saturating_sub(*index);
                         (remaining, Some(remaining))
                     }
-                    ForIterator::Range { iter } => iter.size_hint(),
+                    ForIterator::Range { .. } => (0, None),
                 }
             }
         }
@@ -891,11 +930,10 @@ impl<'a> Interpreter<'a> {
         let items = match iter {
             Value::List(list) => ForIterator::List { list, index: 0 },
             Value::Range(range) => ForIterator::Range {
-                iter: range.start..if range.inclusive {
-                    range.end.saturating_add(1)
-                } else {
-                    range.end
-                },
+                current: Some(range.start),
+                end: range.end,
+                step: range.step,
+                inclusive: range.inclusive,
             },
             _ => return Err(for_requires_iterable()),
         };

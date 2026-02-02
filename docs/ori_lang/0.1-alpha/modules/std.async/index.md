@@ -266,14 +266,22 @@ Pauses for duration.
 ```ori
 use std.async { sleep }
 
-@retry_with_backoff<T> (f: () -> Result<T, Error> uses Async, attempts: int) -> Result<T, Error> uses Async = run(
-    for i in 0..attempts do
-        match(f(),
-            Ok(v) -> return Ok(v),
-            Err(_) if i < attempts - 1 -> sleep(100ms * pow(2, i)),
-            Err(e) -> return Err(e),
+@retry_with_backoff<T> (f: () -> Result<T, Error> uses Async, attempts: int) -> Result<T, Error> uses Async =
+    // Fold through attempts, keeping last error or first success
+    (0..attempts).fold(
+        initial: Err(Error.from("no attempts")),
+        f: (acc, i) -> match(acc,
+            Ok(v) -> Ok(v),  // Already succeeded, keep it
+            Err(_) -> match(f(),
+                Ok(v) -> Ok(v),
+                Err(e) if i < attempts - 1 -> run(
+                    sleep(100ms * pow(2, i)),
+                    Err(e),
+                ),
+                Err(e) -> Err(e),
+            ),
         ),
-)
+    )
 ```
 
 ---

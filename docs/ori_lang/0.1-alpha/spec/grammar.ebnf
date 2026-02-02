@@ -53,13 +53,13 @@ identifier = ( letter | "_" ) { letter | digit | "_" } .
 
 // --- Keywords ---
 // See: 03-lexical-elements.md § Keywords
-// Reserved: async, break, continue, def, do, else, extern, false, for, if, impl, in, let,
-//           loop, match, pub, self, Self, then, trait, true, type, unsafe, use,
+// Reserved: break, continue, def, do, else, extern, false, for, if, impl, in, let,
+//           loop, match, pub, self, Self, suspend, then, trait, true, type, unsafe, use,
 //           uses, void, where, with, yield
-// Context-sensitive (patterns): cache, catch, for, match, nursery, parallel,
-//           recurse, run, spawn, timeout, try, with
+// Context-sensitive (patterns): cache, catch, collect, filter, find, fold, for, map,
+//           match, nursery, parallel, recurse, retry, run, spawn, timeout, try, validate, with
 // Context-sensitive (imports): without (only in import items, before "def")
-// Context-sensitive (other): by (only after range expressions)
+// Context-sensitive (other): by (only after range expressions), max (fixed-capacity lists)
 // Context-sensitive (type conversion, call position): int, float, str, byte
 
 // --- Operators ---
@@ -105,12 +105,17 @@ template_brace   = "{{" | "}}" .
 interpolation    = '{' expression [ ':' format_spec ] '}' .
 
 // Format specifiers for template strings
-format_spec      = [ [ fill ] align ] [ width ] [ '.' precision ] [ format_type ] .
-fill             = unicode_char - align .
+// See: 07-properties-of-types.md § Format Spec Syntax
+// Syntax: [[fill]align][sign][#][0][width][.precision][type]
+format_spec      = [ [ fill ] align ] [ sign ] [ alt_form ] [ zero_pad ] [ width ] [ '.' precision ] [ format_type ] .
+fill             = unicode_char - ( align | sign ) .
 align            = '<' | '>' | '^' .
+sign             = '+' | '-' | ' ' .
+alt_form         = '#' .
+zero_pad         = '0' .
 width            = decimal_lit .
 precision        = decimal_lit .
-format_type      = 'b' | 'x' | 'X' | 'o' | 'e' | 'E' .
+format_type      = 'b' | 'o' | 'x' | 'X' | 'e' | 'E' | 'f' | '%' .
 
 // Character literals
 char_literal = "'" char_char "'" .
@@ -121,11 +126,17 @@ char_escape  = '\' ( "'" | '\' | 'n' | 't' | 'r' | '0' ) .
 bool_literal = "true" | "false" .
 
 // Duration literals
-duration_literal = int_literal duration_unit .
+// See: 06-types.md § Duration
+// Decimal syntax (e.g., 0.5s) is compile-time sugar computed via integer arithmetic
+duration_literal = ( int_literal | decimal_duration ) duration_unit .
+decimal_duration = decimal_lit "." decimal_lit .  /* e.g., 0.5, 1.25 */
 duration_unit    = "ns" | "us" | "ms" | "s" | "m" | "h" .
 
 // Size literals
-size_literal = int_literal size_unit .
+// See: 06-types.md § Size
+// Decimal syntax (e.g., 1.5kb) is compile-time sugar computed via integer arithmetic
+size_literal = ( int_literal | decimal_size ) size_unit .
+decimal_size = decimal_lit "." decimal_lit .  /* e.g., 0.5, 1.5 */
 size_unit    = "b" | "kb" | "mb" | "gb" | "tb" .
 
 
@@ -155,7 +166,7 @@ reexport = "pub" "use" import_path import_list .
 // --- Extensions ---
 // See: 12-modules.md § Extensions
 
-extension_def    = "extend" identifier [ where_clause ] "{" { method } "}" .
+extension_def    = "extend" [ generics ] type [ where_clause ] "{" { method } "}" .
 extension_import = "extension" import_path "{" extension_item { "," extension_item } "}" .
 extension_item   = identifier "." identifier .
 
@@ -272,9 +283,15 @@ constant_decl = "let" "$" identifier [ ":" type ] "=" expression .
 // ============================================================================
 
 type          = type_path [ type_args ]
+              | trait_object_bounds            /* Printable + Hashable */
               | list_type | fixed_list_type | map_type | tuple_type | function_type
               | impl_trait_type .
 type_path     = identifier { "." identifier } .
+
+// --- Bounded Trait Objects ---
+// See: 06-types.md § Bounded Trait Objects
+// Multiple trait bounds as a type: `@store (item: Printable + Hashable) -> void`
+trait_object_bounds = type_path "+" type_path { "+" type_path } .
 
 // --- Existential Types (impl Trait) ---
 // See: 06-types.md § Existential Types

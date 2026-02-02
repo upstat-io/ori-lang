@@ -97,7 +97,7 @@ impl Parser<'_> {
 
     /// Inner expression parsing logic (wrapped by `parse_expr` for stack safety).
     fn parse_expr_inner(&mut self) -> Result<ExprId, ParseError> {
-        let left = self.parse_binary_or()?;
+        let left = self.parse_coalesce()?;
 
         // Check for assignment (= but not == or =>)
         if self.check(&TokenKind::Eq) {
@@ -119,7 +119,13 @@ impl Parser<'_> {
     }
 
     parse_binary_level! {
-        /// Parse || (lowest precedence binary).
+        /// Parse ?? (null coalesce - lowest precedence binary operator).
+        parse_coalesce, parse_binary_or,
+        token: TokenKind::DoubleQuestion, op: BinaryOp::Coalesce
+    }
+
+    parse_binary_level! {
+        /// Parse || (logical or).
         parse_binary_or, parse_binary_and,
         token: TokenKind::PipePipe, op: BinaryOp::Or
     }
@@ -158,9 +164,11 @@ impl Parser<'_> {
         parse_comparison, parse_range, match_comparison_op
     }
 
-    // parse_range stays hand-written (unique range logic)
+    // parse_range stays hand-written (unique range + step logic)
 
-    /// Parse range operators (.. and ..=).
+    /// Parse range operators (.. and ..=) with optional step (by).
+    ///
+    /// Grammar: `range_expr = shift_expr [ ( ".." | "..=" ) [ shift_expr ] [ "by" shift_expr ] ]`
     fn parse_range(&mut self) -> Result<ExprId, ParseError> {
         let mut left = self.parse_shift()?;
 
@@ -170,9 +178,11 @@ impl Parser<'_> {
             let inclusive = self.check(&TokenKind::DotDotEq);
             self.advance();
 
+            // Parse end expression (optional for open-ended ranges like 0..)
             let end = if self.check(&TokenKind::Comma)
                 || self.check(&TokenKind::RParen)
                 || self.check(&TokenKind::RBracket)
+                || self.check(&TokenKind::By)
                 || self.is_at_end()
             {
                 None
@@ -180,7 +190,21 @@ impl Parser<'_> {
                 Some(self.parse_shift()?)
             };
 
-            let span = if let Some(end_expr) = end {
+            // Parse optional step: `by <expr>`
+            let step = if self.check(&TokenKind::By) {
+                self.advance();
+                Some(self.parse_shift()?)
+            } else {
+                None
+            };
+
+            // Compute span from start to end/step
+            let span = if let Some(step_expr) = step {
+                self.arena
+                    .get_expr(left)
+                    .span
+                    .merge(self.arena.get_expr(step_expr).span)
+            } else if let Some(end_expr) = end {
                 self.arena
                     .get_expr(left)
                     .span
@@ -193,6 +217,7 @@ impl Parser<'_> {
                 ExprKind::Range {
                     start: Some(left),
                     end,
+                    step,
                     inclusive,
                 },
                 span,

@@ -134,6 +134,8 @@ pub enum TokenCategory {
     Timeout,
     /// try
     Try,
+    /// by (range step)
+    By,
     /// print
     Print,
     /// panic
@@ -419,6 +421,7 @@ impl From<&TokenKind> for TokenCategory {
             TokenKind::Run => TokenCategory::Run,
             TokenKind::Timeout => TokenCategory::Timeout,
             TokenKind::Try => TokenCategory::Try,
+            TokenKind::By => TokenCategory::By,
             TokenKind::Print => TokenCategory::Print,
             TokenKind::Panic => TokenCategory::Panic,
             TokenKind::Todo => TokenCategory::Todo,
@@ -469,9 +472,11 @@ impl From<&TokenKind> for TokenCategory {
             TokenKind::Div => TokenCategory::Div,
             TokenKind::Newline => TokenCategory::Newline,
             TokenKind::Eof => TokenCategory::Eof,
-            TokenKind::Error | TokenKind::FloatDurationError | TokenKind::FloatSizeError => {
-                TokenCategory::Error
-            }
+            // Return is recognized but invalid - treat as error for spacing
+            TokenKind::Return
+            | TokenKind::Error
+            | TokenKind::FloatDurationError
+            | TokenKind::FloatSizeError => TokenCategory::Error,
         }
     }
 }

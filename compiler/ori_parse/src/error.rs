@@ -13,6 +13,8 @@ pub struct ParseError {
     pub span: Span,
     /// Optional context for suggestions.
     pub context: Option<String>,
+    /// Optional help messages.
+    pub help: Vec<String>,
 }
 
 impl ParseError {
@@ -23,6 +25,7 @@ impl ParseError {
             message: message.into(),
             span,
             context: None,
+            help: Vec::new(),
         }
     }
 
@@ -33,10 +36,23 @@ impl ParseError {
         self
     }
 
+    /// Add a help message.
+    #[must_use]
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help.push(help.into());
+        self
+    }
+
     /// Convert to a full Diagnostic for rich error reporting.
     pub fn to_diagnostic(&self) -> ori_diagnostic::Diagnostic {
-        ori_diagnostic::Diagnostic::error(self.code)
+        let mut diag = ori_diagnostic::Diagnostic::error(self.code)
             .with_message(&self.message)
-            .with_label(self.span, self.context.as_deref().unwrap_or("here"))
+            .with_label(self.span, self.context.as_deref().unwrap_or("here"));
+
+        for help in &self.help {
+            diag = diag.with_note(help);
+        }
+
+        diag
     }
 }

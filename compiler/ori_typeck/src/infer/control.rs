@@ -185,14 +185,6 @@ pub fn infer_let(
     Type::Unit
 }
 
-/// Infer type for return expression.
-pub fn infer_return(checker: &mut TypeChecker<'_>, value: Option<ExprId>) -> Type {
-    if let Some(id) = value {
-        infer_expr(checker, id);
-    }
-    Type::Never
-}
-
 /// Infer type for break expression.
 pub fn infer_break(checker: &mut TypeChecker<'_>, value: Option<ExprId>) -> Type {
     if let Some(id) = value {

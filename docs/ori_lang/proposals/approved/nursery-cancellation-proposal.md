@@ -304,7 +304,7 @@ If a destructor panics during cancellation unwinding:
         let partial = phase1(item),
 
         // Check if we should continue
-        if is_cancelled() then return Err(CancellationError { ... }),
+        if is_cancelled() then Err(CancellationError { ... })?,
 
         // More heavy computation
         phase2(partial),

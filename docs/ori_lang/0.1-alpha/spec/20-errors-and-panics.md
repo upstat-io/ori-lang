@@ -92,27 +92,29 @@ The `PanicInfo` type contains structured information about a panic:
 ```ori
 type PanicInfo = {
     message: str,
-    file: str,
-    line: int,
-    column: int,
+    location: TraceEntry,
+    stack_trace: [TraceEntry],
+    thread_id: Option<int>,
 }
 ```
+
+| Field | Description |
+|-------|-------------|
+| `message` | The panic message string |
+| `location` | Source location where the panic occurred |
+| `stack_trace` | Full call stack at panic time |
+| `thread_id` | Task identifier if in concurrent context |
 
 `PanicInfo` is available in the prelude. It implements `Printable` and `Debug`:
 
 ```ori
 impl Printable for PanicInfo {
     @to_str (self) -> str =
-        `panic at {self.file}:{self.line}:{self.column}: {self.message}`
-}
-
-impl Debug for PanicInfo {
-    @debug (self) -> str =
-        `PanicInfo \{ message: {self.message.debug()}, file: {self.file.debug()}, line: {self.line}, column: {self.column} \}`
+        `panic at {self.location.file}:{self.location.line}:{self.location.column}: {self.message}`
 }
 ```
 
-> **Note:** The `catch` pattern returns `Result<T, str>`, not `Result<T, PanicInfo>`. `PanicInfo` is intended for future panic hook functionality.
+> **Note:** The `catch` pattern returns `Result<T, str>`, not `Result<T, PanicInfo>`. `PanicInfo` is available for custom panic handlers via the optional `@panic` entry point.
 
 ## Integer Overflow
 

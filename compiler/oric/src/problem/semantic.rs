@@ -86,9 +86,6 @@ pub enum SemanticProblem {
     /// Continue outside loop.
     ContinueOutsideLoop { span: Span },
 
-    /// Return outside function.
-    ReturnOutsideFunction { span: Span },
-
     /// Self reference outside method.
     SelfOutsideMethod { span: Span },
 
@@ -172,7 +169,6 @@ impl_has_span! {
             TestTargetNotFound,
             BreakOutsideLoop,
             ContinueOutsideLoop,
-            ReturnOutsideFunction,
             SelfOutsideMethod,
             InfiniteRecursion,
             UnusedVariable,

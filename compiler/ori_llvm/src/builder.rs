@@ -876,11 +876,6 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                 *stmts, *result, arena, expr_types, locals, function, loop_ctx,
             ),
 
-            // Return from function
-            ExprKind::Return(value) => {
-                self.compile_return(*value, arena, expr_types, locals, function, loop_ctx)
-            }
-
             // Assignment: target = value
             ExprKind::Assign { target, value } => self.compile_assign(
                 *target, *value, arena, expr_types, locals, function, loop_ctx,
@@ -896,10 +891,11 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                 self.compile_map(*entries, arena, expr_types, locals, function, loop_ctx)
             }
 
-            // Range: start..end
+            // Range: start..end or start..end by step
             ExprKind::Range {
                 start,
                 end,
+                step: _,
                 inclusive,
             } => self.compile_range(
                 *start, *end, *inclusive, arena, expr_types, locals, function, loop_ctx,

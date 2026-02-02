@@ -70,13 +70,6 @@ mod to_loop_action_tests {
     }
 
     #[test]
-    fn control_flow_return_returns_error() {
-        let err = EvalError::return_with(Value::int(42));
-        let action = to_loop_action(err);
-        assert!(matches!(action, LoopAction::Error(_)));
-    }
-
-    #[test]
     fn no_control_flow_falls_back_to_string_parsing() {
         let err = EvalError::new("continue");
         let action = to_loop_action(err);

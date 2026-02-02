@@ -688,6 +688,11 @@ sections:
   - [ ] Stack-allocated values: no refcount (moved or copied)
   - [ ] **Rust Tests**: `ori_llvm/src/arc/refcount_tests.rs`
 
+- [x] **Spec**: Drop trait in `spec/06-types.md` § Drop Trait ✅ DONE
+  - [x] Trait definition, execution timing, LIFO order
+  - [x] Constraints (no async, must return void, panic during unwind = abort)
+  - [x] drop_early built-in function
+
 - [ ] **Implement**: Drop trait codegen
   - [ ] Detect types implementing `Drop` trait
   - [ ] Generate destructor call when refcount reaches zero

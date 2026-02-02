@@ -19,6 +19,38 @@ The compiler implements only constructs that require **special syntax** or **sta
 
 This keeps the compiler small (~30K lines), focused, and maintainable. The stdlib can evolve without compiler changes. When considering new features, ask: *"Does this need special syntax or static analysis?"* If no, it's a library function.
 
+## Expression-Based Design
+
+Ori is an **expression-based language**. Every construct produces a value, and the last expression in any block becomes that block's value. There is no `return` keyword.
+
+| Construct | Value |
+|-----------|-------|
+| Function body | Last expression is the return value |
+| `if...then...else` | Each branch is an expression |
+| `match` arms | Each arm is an expression |
+| `run(...)` block | Last statement's value |
+| `for...yield` | Collected values form a list |
+
+**Early exit mechanisms:**
+- `?` operator — propagate `Err` or `None` (via `EvalError`)
+- `break [value]` — exit loop, optionally with a value
+- `panic(msg:)` — terminate with `Never` type
+
+The `return` token is recognized by the lexer only to produce a helpful error message for users coming from other languages.
+
+**Reference languages with expression-based design:**
+
+| Language | Notes |
+|----------|-------|
+| **Rust** | Closest model — blocks/`if`/`match` are expressions; `return` exists but rarely used |
+| **Gleam** | No `return` keyword; last expression is value; similar philosophy to Ori |
+| **Roc** | No `return`; purely expression-based; functional |
+| **Ruby** | Everything is an expression; implicit returns |
+| **Elixir** | Last expression is return value; no explicit return |
+| **OCaml/F#** | ML family; all constructs are expressions |
+| **Kotlin** | Lambdas use last expression; `if` is an expression |
+| **Scala** | Expression-oriented; `return` discouraged |
+
 ## Overview
 
 The Ori compiler is a Rust-based incremental compiler built on the Salsa framework. It is organized as a **multi-crate workspace** with clear separation of concerns:

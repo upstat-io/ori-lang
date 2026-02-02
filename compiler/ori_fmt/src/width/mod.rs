@@ -42,7 +42,7 @@ use collections::{list_width, map_width, range_width, struct_width, tuple_width}
 use compounds::{duration_width, size_width};
 use control::{
     assign_width, block_width, break_width, continue_width, field_width, for_width, if_width,
-    index_width, return_width, with_capability_width,
+    index_width, with_capability_width,
 };
 use helpers::{accumulate_widths, COMMA_SEPARATOR_WIDTH};
 use literals::{bool_width, char_width, float_width, int_width, string_width};
@@ -257,8 +257,9 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
             ExprKind::Range {
                 start,
                 end,
+                step,
                 inclusive,
-            } => range_width(self, *start, *end, *inclusive),
+            } => range_width(self, *start, *end, *step, *inclusive),
 
             // Result/Option wrappers - delegated to wrappers module
             ExprKind::Ok(inner) => ok_width(self, *inner),
@@ -267,7 +268,6 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
             ExprKind::None => 4, // "None"
 
             // Control flow jumps - delegated to control module
-            ExprKind::Return(val) => return_width(self, *val),
             ExprKind::Break(val) => break_width(self, *val),
             ExprKind::Continue(val) => continue_width(self, *val),
 

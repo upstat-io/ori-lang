@@ -65,6 +65,7 @@ pub enum TokenKind {
     Async,
     Break,
     Continue,
+    Return,
     Def,
     Do,
     Else,
@@ -120,6 +121,7 @@ pub enum TokenKind {
     Run,
     Timeout,
     Try,
+    By, // Context-sensitive: range step (0..10 by 2)
 
     Print,
     Panic,
@@ -277,6 +279,7 @@ impl TokenKind {
             TokenKind::Async => "async",
             TokenKind::Break => "break",
             TokenKind::Continue => "continue",
+            TokenKind::Return => "return",
             TokenKind::Def => "def",
             TokenKind::Do => "do",
             TokenKind::Else => "else",
@@ -325,6 +328,7 @@ impl TokenKind {
             TokenKind::Run => "run",
             TokenKind::Timeout => "timeout",
             TokenKind::Try => "try",
+            TokenKind::By => "by",
             TokenKind::Print => "print",
             TokenKind::Panic => "panic",
             TokenKind::Todo => "todo",

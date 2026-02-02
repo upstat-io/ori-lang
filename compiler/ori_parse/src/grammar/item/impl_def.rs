@@ -1,5 +1,6 @@
 //! Impl block parsing.
 
+use crate::context::ParseContext;
 use crate::{ParseError, ParseResult, Parser};
 use ori_ir::{
     DefImplDef, GenericParamRange, ImplAssocType, ImplDef, ImplMethod, ParsedTypeRange, TokenKind,
@@ -120,7 +121,7 @@ impl Parser<'_> {
         // = body
         self.expect(&TokenKind::Eq)?;
         self.skip_newlines();
-        let body = self.parse_expr()?;
+        let body = self.with_context(ParseContext::IN_FUNCTION, Self::parse_expr)?;
 
         let end_span = self.arena.get_expr(body).span;
 
