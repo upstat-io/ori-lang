@@ -462,7 +462,30 @@ sections:
 
 > **CRITICAL** - 0% coverage. No tests for full: parse → typeck → codegen → link → execute
 
-- [ ] **Test**: End-to-end execution
+**Proposal:** `proposals/approved/aot-test-backend-proposal.md`
+
+### 21B.10.1 AOT Test Backend Infrastructure
+
+- [ ] **Implement**: Runtime panic detection API (`ori_rt`)
+  - [ ] Add `ori_rt_had_panic() -> bool`
+  - [ ] Add `ori_rt_reset_panic() -> void`
+  - [ ] **Rust Tests**: `ori_rt/src/panic.rs`
+
+- [ ] **Implement**: `AotTestExecutor` (`ori_llvm/src/aot/test_executor.rs`)
+  - [ ] `AotTestExecutor::native()` — create executor for host target
+  - [ ] Test wrapper generation (main function with panic check)
+  - [ ] `execute_test()` — full compile → emit → link → run flow
+  - [ ] **Rust Tests**: `ori_llvm/src/aot/test_executor.rs`
+
+- [ ] **Implement**: Test runner integration
+  - [ ] Add `Backend::AOT` enum variant
+  - [ ] Add `--backend=aot` CLI flag
+  - [ ] Wire up `run_file_aot()` in test runner
+  - [ ] **Rust Tests**: `oric/src/test/runner_aot_tests.rs`
+
+### 21B.10.2 End-to-End Test Scenarios
+
+- [ ] **Test**: End-to-end execution via AOT backend
   - [ ] Compile and run "hello world"
   - [ ] Compile and run with arguments
   - [ ] Compile and run with exit code
@@ -470,11 +493,15 @@ sections:
   - [ ] Compile and run with stderr capture
   - [ ] Compile shared library and load dynamically
   - [ ] Compile static library and link
-  - [ ] Compile WASM and run with wasmtime/wasmer
   - [ ] Compile with FFI and call C function
   - [ ] Compile with multiple source files
   - [ ] Compile with dependencies
   - [ ] Cross-compile and verify binary format
+
+- [ ] **Test**: Spec test validation
+  - [ ] Run `tests/spec/` through `--backend=aot`
+  - [ ] Compare results: Interpreter vs JIT vs AOT
+  - [ ] Document any backend-specific differences
 
 ---
 
