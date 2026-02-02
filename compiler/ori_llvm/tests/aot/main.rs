@@ -4,6 +4,7 @@
 //! - Rust: `tests/run-make/` integration tests
 //! - Zig: `test/link/` and `test/standalone/` tests
 
+pub mod cli;
 pub mod codegen;
 pub mod cross;
 pub mod linking;

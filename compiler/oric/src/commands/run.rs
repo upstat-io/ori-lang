@@ -4,6 +4,9 @@ use oric::query::{evaluated, parsed, typed};
 use oric::{CompilerDb, SourceFile};
 use std::path::PathBuf;
 
+#[cfg(feature = "llvm")]
+use std::path::Path;
+
 use super::read_file;
 
 /// Run an Ori source file: parse, type-check, and evaluate it.
@@ -47,7 +50,10 @@ pub(crate) fn run_file(path: &str) {
     // Evaluate only if no errors
     let eval_result = evaluated(&db, file);
     if eval_result.is_failure() {
-        eprintln!("Runtime error: {}", eval_result.error.unwrap_or_default());
+        let error_msg = eval_result
+            .error
+            .unwrap_or_else(|| "unknown runtime error".to_string());
+        eprintln!("error: runtime error in '{path}': {error_msg}");
         std::process::exit(1);
     }
 
@@ -57,6 +63,319 @@ pub(crate) fn run_file(path: &str) {
         match result {
             EvalOutput::Void => {}
             _ => println!("{}", result.display()),
+        }
+    }
+}
+
+/// Run an Ori source file using AOT compilation.
+///
+/// This mode compiles the source to a native executable and caches it.
+/// Subsequent runs with unchanged source reuse the cached binary.
+#[cfg(feature = "llvm")]
+pub(crate) fn run_file_compiled(path: &str) {
+    use ori_llvm::inkwell::context::Context;
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use std::process::Command;
+    use std::time::Instant;
+
+    use ori_llvm::aot::{
+        LinkInput, LinkOutput, LinkerDriver, ObjectEmitter, OutputFormat, RuntimeConfig,
+    };
+
+    use super::compile_common::{check_source, compile_to_llvm};
+    use oric::{CompilerDb, SourceFile};
+
+    let start = Instant::now();
+
+    // Read source file
+    let content = read_file(path);
+
+    // Compute content hash for caching
+    let content_hash = {
+        let mut hasher = DefaultHasher::new();
+        content.hash(&mut hasher);
+        // Include compiler version in hash for cache invalidation
+        env!("CARGO_PKG_VERSION").hash(&mut hasher);
+        hasher.finish()
+    };
+
+    // Determine cache directory and binary path
+    let cache_dir = get_cache_dir();
+    let source_name = Path::new(path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("program");
+    let binary_name = format!("{}-{:016x}", source_name, content_hash);
+    let binary_path = cache_dir.join(&binary_name);
+
+    // Check if cached binary exists and is valid
+    if binary_path.exists() {
+        // Cache hit - execute directly
+        let exec_start = Instant::now();
+        let status = match Command::new(&binary_path).status() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!(
+                    "error: failed to execute cached binary '{}': {}",
+                    binary_path.display(),
+                    e
+                );
+                eprintln!(
+                    "hint: try removing the cache with: rm -rf {}",
+                    cache_dir.display()
+                );
+                std::process::exit(1);
+            }
+        };
+
+        if std::env::var("ORI_DEBUG").is_ok() {
+            eprintln!(
+                "  Cache hit: executed in {:.2}ms",
+                exec_start.elapsed().as_secs_f64() * 1000.0
+            );
+        }
+
+        std::process::exit(status.code().unwrap_or(1));
+    }
+
+    // Cache miss - need to compile
+    eprintln!("  Compiling {} (first run)...", path);
+
+    // Parse and type-check (shared with build_file)
+    let db = CompilerDb::new();
+    let file = SourceFile::new(&db, PathBuf::from(path), content.clone());
+
+    let (parse_result, type_result) = match check_source(&db, file, path) {
+        Some(results) => results,
+        None => std::process::exit(1),
+    };
+
+    // Configure target (native)
+    let target = match ori_llvm::aot::TargetConfig::native() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("error: failed to initialize native target: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    // Generate LLVM IR (shared with build_file)
+    let context = Context::create();
+    let llvm_module = compile_to_llvm(&context, &db, &parse_result, &type_result, path);
+
+    // Configure module for target
+    let emitter = match ObjectEmitter::new(&target) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("error: failed to create object emitter: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    if let Err(e) = emitter.configure_module(&llvm_module) {
+        eprintln!("error: failed to configure module: {e}");
+        std::process::exit(1);
+    }
+
+    // Run optimization passes (O2 for good performance)
+    let opt_config = ori_llvm::aot::OptimizationConfig::new(ori_llvm::aot::OptimizationLevel::O2);
+    if let Err(e) =
+        ori_llvm::aot::run_optimization_passes(&llvm_module, emitter.machine(), &opt_config)
+    {
+        eprintln!("error: optimization failed: {e}");
+        std::process::exit(1);
+    }
+
+    // Ensure cache directory exists
+    if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+        eprintln!("warning: could not create cache directory: {e}");
+    }
+
+    // Emit object file to temp location
+    let obj_path = cache_dir.join(format!("{}.o", binary_name));
+
+    if let Err(e) = emitter.emit(&llvm_module, &obj_path, OutputFormat::Object) {
+        eprintln!("error: failed to emit object file: {e}");
+        std::process::exit(1);
+    }
+
+    // Link into executable
+    let driver = LinkerDriver::new(&target);
+
+    // Find runtime library
+    let runtime_config = match RuntimeConfig::detect() {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("error: {e}");
+            eprintln!("hint: ensure libori_rt is built and available");
+            std::process::exit(1);
+        }
+    };
+
+    let mut link_input = LinkInput {
+        objects: vec![obj_path.clone()],
+        output: binary_path.clone(),
+        output_kind: LinkOutput::Executable,
+        gc_sections: true, // Remove unused sections
+        ..Default::default()
+    };
+
+    runtime_config.configure_link(&mut link_input);
+
+    if let Err(e) = driver.link(&link_input) {
+        eprintln!("error: linking failed: {e}");
+        // Clean up partial artifacts
+        let _ = std::fs::remove_file(&obj_path);
+        std::process::exit(1);
+    }
+
+    // Clean up object file
+    let _ = std::fs::remove_file(&obj_path);
+
+    let compile_time = start.elapsed();
+    eprintln!("  Compiled in {:.2}s", compile_time.as_secs_f64());
+
+    // Execute the compiled binary
+    let status = match Command::new(&binary_path).status() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!(
+                "error: failed to execute compiled binary '{}': {}",
+                binary_path.display(),
+                e
+            );
+            std::process::exit(1);
+        }
+    };
+
+    std::process::exit(status.code().unwrap_or(1));
+}
+
+/// Get the cache directory for compiled binaries.
+#[cfg(feature = "llvm")]
+fn get_cache_dir() -> PathBuf {
+    // Try XDG cache directory first, fall back to home directory
+    if let Ok(xdg_cache) = std::env::var("XDG_CACHE_HOME") {
+        return PathBuf::from(xdg_cache).join("ori").join("compiled");
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        return PathBuf::from(home)
+            .join(".cache")
+            .join("ori")
+            .join("compiled");
+    }
+
+    // Fall back to temp directory
+    std::env::temp_dir().join("ori-cache").join("compiled")
+}
+
+/// Run with compile mode when LLVM feature is not enabled.
+#[cfg(not(feature = "llvm"))]
+pub(crate) fn run_file_compiled(_path: &str) {
+    eprintln!("error: the '--compile' flag requires the LLVM backend");
+    eprintln!();
+    eprintln!("The Ori compiler was built without LLVM support.");
+    eprintln!("To enable AOT compilation, rebuild with the 'llvm' feature:");
+    eprintln!();
+    eprintln!("  cargo build --features llvm");
+    eprintln!();
+    eprintln!("Or use the LLVM-enabled Docker container:");
+    eprintln!();
+    eprintln!("  ./docker/llvm/run.sh ori run --compile <file.ori>");
+    std::process::exit(1);
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "llvm")]
+    mod llvm_tests {
+        use super::super::get_cache_dir;
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        #[test]
+        fn test_cache_dir_exists_or_creatable() {
+            let cache_dir = get_cache_dir();
+            // Should be a valid path
+            assert!(!cache_dir.as_os_str().is_empty());
+            // Should contain "ori" somewhere in the path
+            let path_str = cache_dir.to_string_lossy();
+            assert!(path_str.contains("ori"), "cache dir should contain 'ori'");
+        }
+
+        #[test]
+        fn test_cache_dir_is_absolute_or_temp() {
+            let cache_dir = get_cache_dir();
+            // Should be either absolute or in temp
+            let is_absolute = cache_dir.is_absolute();
+            let is_in_temp = cache_dir.starts_with(std::env::temp_dir());
+            assert!(
+                is_absolute || is_in_temp,
+                "cache dir should be absolute or in temp: {:?}",
+                cache_dir
+            );
+        }
+
+        #[test]
+        fn test_content_hash_deterministic() {
+            let content = "let x = 42";
+            let version = env!("CARGO_PKG_VERSION");
+
+            let hash1 = {
+                let mut hasher = DefaultHasher::new();
+                content.hash(&mut hasher);
+                version.hash(&mut hasher);
+                hasher.finish()
+            };
+
+            let hash2 = {
+                let mut hasher = DefaultHasher::new();
+                content.hash(&mut hasher);
+                version.hash(&mut hasher);
+                hasher.finish()
+            };
+
+            assert_eq!(hash1, hash2, "same content should produce same hash");
+        }
+
+        #[test]
+        fn test_content_hash_differs_for_different_content() {
+            let version = env!("CARGO_PKG_VERSION");
+
+            let hash1 = {
+                let mut hasher = DefaultHasher::new();
+                "let x = 42".hash(&mut hasher);
+                version.hash(&mut hasher);
+                hasher.finish()
+            };
+
+            let hash2 = {
+                let mut hasher = DefaultHasher::new();
+                "let x = 43".hash(&mut hasher);
+                version.hash(&mut hasher);
+                hasher.finish()
+            };
+
+            assert_ne!(
+                hash1, hash2,
+                "different content should produce different hash"
+            );
+        }
+
+        #[test]
+        fn test_binary_name_format() {
+            let source_name = "hello";
+            let content_hash: u64 = 0x1234567890ABCDEF;
+            let binary_name = format!("{}-{:016x}", source_name, content_hash);
+
+            assert_eq!(binary_name, "hello-1234567890abcdef");
+            assert!(binary_name.contains(source_name));
+            // Hash should be exactly 16 hex characters
+            let parts: Vec<&str> = binary_name.split('-').collect();
+            assert_eq!(parts.len(), 2);
+            assert_eq!(parts[1].len(), 16);
         }
     }
 }

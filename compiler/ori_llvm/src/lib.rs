@@ -114,6 +114,9 @@ pub use traits::{BackendTypes, BuilderMethods, CodegenMethods, TypeMethods};
 // Re-export from existing modules
 pub use evaluator::FunctionSig;
 
+// Re-export inkwell for downstream crates that need LLVM types
+pub use inkwell;
+
 // -- Private codegen modules (expression compilation on Builder) --
 mod builtin_methods;
 mod collections;

@@ -129,9 +129,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         var typeLabel = typeLabels[entry.type] || 'Chore';
         html += '<div class="entry-card">';
         html += '<span class="entry-type ' + typeClass + '">' + typeLabel + '</span>';
-        if (entry.scope) {
-          html += '<span class="entry-scope">' + entry.scope + '</span>';
-        }
+        html += '<span class="entry-scope">' + (entry.scope || '') + '</span>';
         html += '<span class="entry-message">' + entry.message + '</span>';
         html += '<code class="entry-hash">' + entry.hash + '</code>';
         html += '</div>';
@@ -419,12 +417,14 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 
   :global(.entry-type) {
     flex-shrink: 0;
+    min-width: 62px;
     font-size: 10px;
     font-weight: var(--weight-medium);
     padding: 2px 6px;
     border-radius: var(--radius-sm);
     text-transform: uppercase;
     letter-spacing: 0.02em;
+    text-align: center;
   }
 
   :global(.type-feat) {
@@ -454,6 +454,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 
   :global(.entry-scope) {
     flex-shrink: 0;
+    min-width: 60px;
     font-size: 10px;
     font-weight: var(--weight-medium);
     padding: 2px 6px;
@@ -461,6 +462,12 @@ import BaseLayout from '../layouts/BaseLayout.astro';
     background: var(--color-bg-tertiary);
     color: var(--color-text-muted);
     font-family: var(--font-mono);
+    text-align: center;
+  }
+
+  :global(.entry-scope:empty) {
+    background: transparent;
+    visibility: hidden;
   }
 
   :global(.entry-message) {

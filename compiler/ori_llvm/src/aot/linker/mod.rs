@@ -66,9 +66,7 @@ use std::process::{Command, Output};
 
 use crate::aot::target::{TargetConfig, TargetTripleComponents};
 
-// ============================================================================
-// Error Types
-// ============================================================================
+// --- Error Types ---
 
 /// Error type for linker operations.
 #[derive(Debug, Clone)]
@@ -131,9 +129,7 @@ impl fmt::Display for LinkerError {
 
 impl std::error::Error for LinkerError {}
 
-// ============================================================================
-// Output Types
-// ============================================================================
+// --- Output Types ---
 
 /// Type of output to produce from linking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -165,9 +161,7 @@ impl LinkOutput {
     }
 }
 
-// ============================================================================
-// Library Types
-// ============================================================================
+// --- Library Types ---
 
 /// Kind of library to link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -225,9 +219,7 @@ impl LinkLibrary {
     }
 }
 
-// ============================================================================
-// Link Input
-// ============================================================================
+// --- Link Input ---
 
 /// Input configuration for the linker.
 #[derive(Debug, Clone, Default)]
@@ -256,9 +248,7 @@ pub struct LinkInput {
     pub linker: Option<LinkerFlavor>,
 }
 
-// ============================================================================
-// Linker Flavor
-// ============================================================================
+// --- Linker Flavor ---
 
 /// Linker flavor/family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -287,9 +277,7 @@ impl LinkerFlavor {
     }
 }
 
-// ============================================================================
-// Linker Implementation Enum
-// ============================================================================
+// --- Linker Implementation Enum ---
 
 /// Enum-based linker dispatch.
 ///
@@ -306,101 +294,47 @@ pub enum LinkerImpl {
     Wasm(WasmLinker),
 }
 
-impl LinkerImpl {
-    /// Set the output file.
-    pub fn set_output(&mut self, path: &Path) {
-        match self {
-            Self::Gcc(l) => l.set_output(path),
-            Self::Msvc(l) => l.set_output(path),
-            Self::Wasm(l) => l.set_output(path),
+/// Generates forwarding methods for `LinkerImpl` that dispatch to all variants.
+///
+/// This macro eliminates boilerplate for the enum-based dispatch pattern,
+/// where each method simply forwards to the underlying linker implementation.
+macro_rules! impl_linker_forward {
+    // Methods that take &mut self and return nothing
+    (mut $method:ident($($arg:ident: $ty:ty),* $(,)?)) => {
+        pub fn $method(&mut self, $($arg: $ty),*) {
+            match self {
+                Self::Gcc(l) => l.$method($($arg),*),
+                Self::Msvc(l) => l.$method($($arg),*),
+                Self::Wasm(l) => l.$method($($arg),*),
+            }
         }
-    }
-
-    /// Set the output kind.
-    pub fn set_output_kind(&mut self, kind: LinkOutput) {
-        match self {
-            Self::Gcc(l) => l.set_output_kind(kind),
-            Self::Msvc(l) => l.set_output_kind(kind),
-            Self::Wasm(l) => l.set_output_kind(kind),
+    };
+    // Methods that consume self and return a value
+    (self $method:ident() -> $ret:ty) => {
+        pub fn $method(self) -> $ret {
+            match self {
+                Self::Gcc(l) => l.$method(),
+                Self::Msvc(l) => l.$method(),
+                Self::Wasm(l) => l.$method(),
+            }
         }
-    }
-
-    /// Add an object file.
-    pub fn add_object(&mut self, path: &Path) {
-        match self {
-            Self::Gcc(l) => l.add_object(path),
-            Self::Msvc(l) => l.add_object(path),
-            Self::Wasm(l) => l.add_object(path),
-        }
-    }
-
-    /// Add a library search path.
-    pub fn add_library_path(&mut self, path: &Path) {
-        match self {
-            Self::Gcc(l) => l.add_library_path(path),
-            Self::Msvc(l) => l.add_library_path(path),
-            Self::Wasm(l) => l.add_library_path(path),
-        }
-    }
-
-    /// Link a library.
-    pub fn link_library(&mut self, name: &str, kind: LibraryKind) {
-        match self {
-            Self::Gcc(l) => l.link_library(name, kind),
-            Self::Msvc(l) => l.link_library(name, kind),
-            Self::Wasm(l) => l.link_library(name, kind),
-        }
-    }
-
-    /// Enable garbage collection of unused sections.
-    pub fn gc_sections(&mut self, enable: bool) {
-        match self {
-            Self::Gcc(l) => l.gc_sections(enable),
-            Self::Msvc(l) => l.gc_sections(enable),
-            Self::Wasm(l) => l.gc_sections(enable),
-        }
-    }
-
-    /// Strip debug symbols from output.
-    pub fn strip_symbols(&mut self, strip: bool) {
-        match self {
-            Self::Gcc(l) => l.strip_symbols(strip),
-            Self::Msvc(l) => l.strip_symbols(strip),
-            Self::Wasm(l) => l.strip_symbols(strip),
-        }
-    }
-
-    /// Export symbols.
-    pub fn export_symbols(&mut self, symbols: &[String]) {
-        match self {
-            Self::Gcc(l) => l.export_symbols(symbols),
-            Self::Msvc(l) => l.export_symbols(symbols),
-            Self::Wasm(l) => l.export_symbols(symbols),
-        }
-    }
-
-    /// Add a raw argument.
-    pub fn add_arg(&mut self, arg: &str) {
-        match self {
-            Self::Gcc(l) => l.add_arg(arg),
-            Self::Msvc(l) => l.add_arg(arg),
-            Self::Wasm(l) => l.add_arg(arg),
-        }
-    }
-
-    /// Finalize and get the command to execute.
-    pub fn finalize(self) -> Command {
-        match self {
-            Self::Gcc(l) => l.finalize(),
-            Self::Msvc(l) => l.finalize(),
-            Self::Wasm(l) => l.finalize(),
-        }
-    }
+    };
 }
 
-// ============================================================================
-// Linker Driver
-// ============================================================================
+impl LinkerImpl {
+    impl_linker_forward!(mut set_output(path: &Path));
+    impl_linker_forward!(mut set_output_kind(kind: LinkOutput));
+    impl_linker_forward!(mut add_object(path: &Path));
+    impl_linker_forward!(mut add_library_path(path: &Path));
+    impl_linker_forward!(mut link_library(name: &str, kind: LibraryKind));
+    impl_linker_forward!(mut gc_sections(enable: bool));
+    impl_linker_forward!(mut strip_symbols(strip: bool));
+    impl_linker_forward!(mut export_symbols(symbols: &[String]));
+    impl_linker_forward!(mut add_arg(arg: &str));
+    impl_linker_forward!(self finalize() -> Command);
+}
+
+// --- Linker Driver ---
 
 /// High-level linker driver that orchestrates the linking process.
 ///
@@ -670,9 +604,7 @@ impl LinkerDriver {
     }
 }
 
-// ============================================================================
-// Linker Detection
-// ============================================================================
+// --- Linker Detection ---
 
 /// Detect available linkers on the system.
 #[derive(Debug, Clone, Default)]
@@ -736,9 +668,7 @@ impl LinkerDetection {
     }
 }
 
-// ============================================================================
-// Tests
-// ============================================================================
+// --- Tests ---
 
 #[cfg(test)]
 mod tests {
@@ -1050,9 +980,7 @@ mod tests {
         assert!(args.contains(&"--export=malloc".into()));
     }
 
-    // ========================================================================
     // Additional tests for improved coverage
-    // ========================================================================
 
     #[allow(dead_code)]
     fn test_target_windows_gnu() -> TargetConfig {

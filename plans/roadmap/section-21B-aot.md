@@ -28,7 +28,7 @@ sections:
     status: complete
   - id: "21B.8"
     title: CLI Integration
-    status: not-started
+    status: in-progress
   - id: "21B.9"
     title: Error Handling
     status: not-started
@@ -365,50 +365,51 @@ sections:
 
 ## 21B.8 CLI Integration
 
-- [ ] **Implement**: `ori build` command
-  - [ ] Parse all flags (--release, --target, --opt, etc.)
-  - [ ] Output path handling (-o, --out-dir)
-  - [ ] Emit mode (--emit=obj, llvm-ir, llvm-bc, asm)
-  - [ ] Library modes (--lib, --dylib)
-  - [ ] Verbose output (-v)
-  - [ ] **Rust Tests**: `oric/src/commands/build_tests.rs`
+- [x] **Implement**: `ori build` command
+  - [x] Parse all flags (--release, --target, --opt, etc.)
+  - [x] Output path handling (-o, --out-dir)
+  - [x] Emit mode (--emit=obj, llvm-ir, llvm-bc, asm)
+  - [x] Library modes (--lib, --dylib)
+  - [x] Verbose output (-v)
+  - [x] **Rust Tests**: `oric/src/commands/build.rs` (36 tests)
   - [ ] **Ori Tests**: `tests/spec/tooling/build.ori`
 
-- [ ] **Implement**: `ori targets` command
-  - [ ] List all supported targets
-  - [ ] `--installed` flag for targets with sysroots
-  - [ ] **Rust Tests**: `oric/src/commands/targets_tests.rs`
+- [x] **Implement**: `ori targets` command
+  - [x] List all supported targets
+  - [x] `--installed` flag for targets with sysroots
+  - [x] **Rust Tests**: `oric/src/commands/targets.rs` (8 tests, requires LLVM feature)
 
-- [ ] **Implement**: `ori target` command (cross-compilation)
-  - [ ] `ori target add <target>` - download sysroot
-  - [ ] `ori target remove <target>` - remove sysroot
-  - [ ] `ori target list` - list installed targets
-  - [ ] Sysroot management
-  - [ ] **Rust Tests**: `oric/src/commands/target_tests.rs`
+- [x] **Implement**: `ori target` command (cross-compilation)
+  - [x] `ori target add <target>` - download sysroot
+  - [x] `ori target remove <target>` - remove sysroot
+  - [x] `ori target list` - list installed targets
+  - [x] Sysroot management
+  - [x] **Rust Tests**: `oric/src/commands/target.rs` (7 tests)
 
-- [ ] **Implement**: `ori demangle` command
-  - [ ] Parse mangled symbol names
-  - [ ] Output demangled Ori names
-  - [ ] **Rust Tests**: `oric/src/commands/demangle_tests.rs`
+- [x] **Implement**: `ori demangle` command
+  - [x] Parse mangled symbol names
+  - [x] Output demangled Ori names
+  - [x] **Rust Tests**: `oric/src/commands/demangle.rs` (9 tests, requires LLVM feature)
 
-- [ ] **Implement**: `ori run --compile` mode
-  - [ ] AOT compile then execute
-  - [ ] Faster repeated runs
-  - [ ] Cache compiled binary
-  - [ ] **Rust Tests**: `oric/src/commands/run_aot_tests.rs`
+- [x] **Implement**: `ori run --compile` mode
+  - [x] AOT compile then execute
+  - [x] Faster repeated runs
+  - [x] Cache compiled binary (hash-based in ~/.cache/ori/compiled/)
+  - [x] **Rust Tests**: `oric/src/commands/run.rs` (5 tests, requires LLVM feature)
 
-- [ ] **Test**: CLI integration (CRITICAL - 0% coverage)
-  - [ ] `ori build` basic compilation
-  - [ ] `ori build --target` cross-compilation
-  - [ ] `ori build --release` optimization mode
-  - [ ] `ori build --emit=obj,asm,llvm-ir` output types
-  - [ ] `ori build -o <path>` output path
-  - [ ] `ori build --verbose` verbose output
-  - [ ] `ori targets` list supported targets
-  - [ ] `ori targets --installed` list installed targets
-  - [ ] `ori targets --add <target>` add target support
+- [x] **Test**: CLI integration (24 tests in `ori_llvm/tests/aot/cli.rs`)
+  - [x] `ori build` basic compilation
+  - [x] `ori build --target` cross-compilation (WASM object emission)
+  - [x] `ori build --release` optimization mode
+  - [x] `ori build --emit=obj,asm,llvm-ir` output types
+  - [x] `ori build -o <path>` output path
+  - [x] `ori build --verbose` verbose output
+  - [x] `ori targets` list supported targets
+  - [x] `ori targets --installed` list installed targets
+  - [x] `ori target list/add/remove` target management
   - [ ] Build with missing dependencies error
-  - [ ] Build with invalid source error
+  - [x] Build with invalid source error
+  - [x] Build with unsupported target error
   - [ ] Build incremental (unchanged = no rebuild)
 
 ---
@@ -639,7 +640,7 @@ sections:
 **Object Emission (21B.2):**
 - [x] ELF, Mach-O, COFF, WASM output
 - [x] Symbol mangling scheme
-- [ ] `ori demangle` command
+- [x] `ori demangle` command (with tests)
 - [ ] Object file verification tests (10 scenarios)
 - [ ] Symbol management tests (9 scenarios)
 
@@ -680,12 +681,12 @@ sections:
 - [ ] WASM advanced tests (10 scenarios)
 
 **CLI (21B.8):**
-- [ ] `ori build` command
-- [ ] `ori targets` command
-- [ ] `ori target add/remove` commands
-- [ ] `ori demangle` command
-- [ ] `ori run --compile` mode
-- [ ] CLI integration tests (12 scenarios)
+- [x] `ori build` command (with tests)
+- [x] `ori targets` command (with tests)
+- [x] `ori target add/remove` commands (with tests)
+- [x] `ori demangle` command (with tests)
+- [x] `ori run --compile` mode (with tests)
+- [x] CLI integration tests (24 end-to-end tests)
 
 **Error Handling (21B.9):**
 - [ ] Linker error reporting
