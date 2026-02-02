@@ -39,8 +39,7 @@ const sectionTitles: Record<string, string> = {
 
 const breadcrumbs = [
   { name: 'Home', url: '/' },
-  { name: 'Docs', url: '/docs/' },
-  { name: sectionTitles[docsSection] || 'Docs', url: `/docs/${docsSection}/` },
+  { name: sectionTitles[docsSection] || 'Docs', url: `/docs/${docsSection}/index` },
   { name: title, url: currentPath },
 ];
 ---
@@ -76,9 +75,6 @@ const breadcrumbs = [
         <meta itemprop="headline" content={title} />
         <meta itemprop="description" content={seoDescription} />
         <meta itemprop="author" content="upstat-io" />
-        <header class="article-header">
-          <h1 itemprop="name">{title}</h1>
-        </header>
         <div itemprop="articleBody">
           <slot />
         </div>
@@ -140,16 +136,12 @@ const breadcrumbs = [
     color: var(--color-text-secondary);
   }
 
-  .article-header {
-    margin-bottom: var(--space-6);
-  }
-
-  .article-header h1 {
-    margin: 0;
-  }
-
   .docs-article {
     line-height: var(--leading-relaxed, 1.65);
+  }
+
+  .docs-article :global(h1) {
+    margin-bottom: var(--space-6, 1.5rem);
   }
 
   .docs-article :global(h2) {
