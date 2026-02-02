@@ -22,13 +22,16 @@ sections:
     status: complete
   - id: "21B.6"
     title: Incremental Compilation
-    status: complete
+    status: in-progress
   - id: "21B.7"
     title: WebAssembly Backend
     status: complete
   - id: "21B.8"
     title: CLI Integration
     status: in-progress
+  - id: "21B.8.5"
+    title: Multi-File Compilation
+    status: not-started
   - id: "21B.9"
     title: Error Handling
     status: not-started
@@ -308,6 +311,13 @@ sections:
   - [x] Thread pool for module compilation
   - [x] **Rust Tests**: `ori_llvm/src/aot/incremental/parallel.rs` (12 tests)
 
+- [ ] **Integrate**: Wire up cache to `ori build` command
+  - [ ] Add cache lookup before compilation in `build_file()`
+  - [ ] Store compiled objects in cache after successful build
+  - [ ] Add `--no-cache` flag to bypass incremental compilation
+  - [ ] Add verbose output for cache hits/misses
+  - [ ] **Blocks**: 21B.8 incremental test (`test_build_incremental_unchanged`)
+
 - [ ] **Test**: Incremental compilation advanced (MEDIUM priority)
   - [ ] Source hash computation
   - [ ] Dependency graph tracking
@@ -372,7 +382,7 @@ sections:
   - [x] Library modes (--lib, --dylib)
   - [x] Verbose output (-v)
   - [x] **Rust Tests**: `oric/src/commands/build.rs` (36 tests)
-  - [ ] **Ori Tests**: `tests/spec/tooling/build.ori`
+  - [x] **CLI Tests**: `ori_llvm/tests/aot/cli.rs` (25 tests)
 
 - [x] **Implement**: `ori targets` command
   - [x] List all supported targets
@@ -397,7 +407,7 @@ sections:
   - [x] Cache compiled binary (hash-based in ~/.cache/ori/compiled/)
   - [x] **Rust Tests**: `oric/src/commands/run.rs` (5 tests, requires LLVM feature)
 
-- [x] **Test**: CLI integration (24 tests in `ori_llvm/tests/aot/cli.rs`)
+- [x] **Test**: CLI integration (25 tests in `ori_llvm/tests/aot/cli.rs`)
   - [x] `ori build` basic compilation
   - [x] `ori build --target` cross-compilation (WASM object emission)
   - [x] `ori build --release` optimization mode
@@ -407,10 +417,93 @@ sections:
   - [x] `ori targets` list supported targets
   - [x] `ori targets --installed` list installed targets
   - [x] `ori target list/add/remove` target management
-  - [ ] Build with missing dependencies error
+  - [x] Build with missing dependencies error
   - [x] Build with invalid source error
   - [x] Build with unsupported target error
-  - [ ] Build incremental (unchanged = no rebuild)
+  - [ ] Build incremental (unchanged = no rebuild) — blocked on 21B.6 integration
+
+---
+
+## 21B.8.5 Multi-File Compilation
+
+**Proposal:** `proposals/approved/multi-file-aot-proposal.md`
+
+Enable AOT compilation of Ori programs with imports. Currently, `ori build` produces broken binaries when the source uses `use` statements.
+
+### 21B.8.5.1 Dependency Graph Infrastructure
+
+- [ ] **Implement**: `DependencyGraph::from_entry()` in `ori_llvm/src/aot/multi_file.rs`
+  - [ ] Build import graph from entry file using existing `resolve_import`
+  - [ ] Handle relative imports (`./helper`, `../utils`)
+  - [ ] Handle directory modules (`./http` → `http/mod.ori`)
+  - [ ] Handle stdlib imports (`std.math` via `ORI_STDLIB`)
+  - [ ] **Rust Tests**: `ori_llvm/src/aot/multi_file.rs`
+
+- [ ] **Implement**: Topological sorting for compilation order
+  - [ ] Sort modules so dependencies compile before dependents
+  - [ ] Integrate with existing cycle detection (E5003)
+  - [ ] **Rust Tests**: `ori_llvm/src/aot/multi_file.rs`
+
+### 21B.8.5.2 Per-Module Compilation
+
+- [ ] **Implement**: `compile_module_to_object()` function
+  - [ ] Compile single module to object file
+  - [ ] Use module-qualified name mangling (`_ori_<module>_<function>`)
+  - [ ] Generate `declare` for imported symbols (linker resolves)
+  - [ ] **Rust Tests**: `ori_llvm/src/aot/multi_file.rs`
+
+- [ ] **Implement**: Update `ori demangle` for module paths
+  - [ ] Parse `_ori_helper_my_assert` → `helper.@my_assert`
+  - [ ] Handle nested paths (`_ori_http_client_connect` → `http/client.@connect`)
+  - [ ] **Rust Tests**: `oric/src/commands/demangle.rs`
+
+### 21B.8.5.3 Linking Integration
+
+- [ ] **Implement**: Multi-file linking in `compile_multi_file()`
+  - [ ] Collect all object files from dependency graph
+  - [ ] Pass to existing linker infrastructure
+  - [ ] Handle stdlib library paths via `ORI_STDLIB`
+  - [ ] **Rust Tests**: `ori_llvm/src/aot/multi_file.rs`
+
+### 21B.8.5.4 Cache Integration
+
+- [ ] **Implement**: Wire incremental cache (21B.6) to multi-file builds
+  - [ ] Check cache for each module before compilation
+  - [ ] Store module hash including import signatures
+  - [ ] Invalidate dependents when module changes
+  - [ ] **Rust Tests**: `ori_llvm/src/aot/multi_file.rs`
+
+### 21B.8.5.5 Error Handling
+
+- [ ] **Implement**: Multi-file error reporting
+  - [ ] E5004: Import target not found (searched paths in note)
+  - [ ] E5005: Imported item not found (with "did you mean?" suggestions)
+  - [ ] E5006: Imported item is private (suggest `::` prefix)
+  - [ ] **Rust Tests**: `ori_llvm/src/aot/multi_file.rs`
+
+### 21B.8.5.6 Testing
+
+- [ ] **Test**: Basic multi-file compilation
+  - [ ] `use "./helper" { func }` compiles and runs
+  - [ ] Transitive imports (A imports B imports C)
+  - [ ] Module alias (`use "./mod" as m`)
+
+- [ ] **Test**: Directory modules
+  - [ ] `use "./http"` resolves to `http/mod.ori`
+  - [ ] Re-exports via `pub use`
+
+- [ ] **Test**: Error cases
+  - [ ] Circular import detection (E5003)
+  - [ ] Missing import target (E5004)
+  - [ ] Missing item in module (E5005)
+  - [ ] Private item without `::` (E5006)
+
+- [ ] **Test**: Stdlib imports
+  - [ ] `use std.math { abs }` with `ORI_STDLIB` set
+
+- [ ] **Test**: Incremental builds
+  - [ ] Change one module → only that module recompiles
+  - [ ] Change import signature → dependents recompile
 
 ---
 
@@ -671,6 +764,7 @@ sections:
 - [x] Dependency tracking
 - [x] Cache management
 - [x] Parallel compilation
+- [ ] Wire up cache to `ori build` command (blocks 21B.8 incremental test)
 - [ ] Incremental advanced tests (8 scenarios)
 
 **WebAssembly (21B.7):**
@@ -686,7 +780,16 @@ sections:
 - [x] `ori target add/remove` commands (with tests)
 - [x] `ori demangle` command (with tests)
 - [x] `ori run --compile` mode (with tests)
-- [x] CLI integration tests (24 end-to-end tests)
+- [x] CLI integration tests (25 end-to-end tests)
+- [ ] Build incremental test (blocked on 21B.6 integration)
+
+**Multi-File Compilation (21B.8.5):**
+- [ ] Dependency graph infrastructure
+- [ ] Per-module compilation with name mangling
+- [ ] Linking integration
+- [ ] Cache integration (reuse 21B.6)
+- [ ] Error handling (E5004-E5006)
+- [ ] Multi-file tests (13 scenarios)
 
 **Error Handling (21B.9):**
 - [ ] Linker error reporting
@@ -721,6 +824,7 @@ sections:
 | Priority | Category | Scenarios |
 |----------|----------|-----------|
 | CRITICAL | CLI Integration (21B.8) | 12 |
+| CRITICAL | Multi-File Compilation (21B.8.5) | 13 |
 | CRITICAL | Error Handling (21B.9) | 20 |
 | CRITICAL | End-to-End Pipeline (21B.10) | 12 |
 | CRITICAL | Performance/Stress (21B.11) | 8 |
@@ -733,9 +837,9 @@ sections:
 | MEDIUM | Debug Info (21B.3) | 9 |
 | LOW | ABI/FFI (21B.13) | 15 |
 | LOW | Architecture (21B.14) | 7 |
-| **Total** | | **~177 scenarios** |
+| **Total** | | **~190 scenarios** |
 
-**Exit Criteria:** Native executables and WASM modules can be generated from Ori source with full debug support, optimization levels, and incremental compilation. All test scenarios pass with comprehensive coverage.
+**Exit Criteria:** Native executables and WASM modules can be generated from Ori source with full debug support, optimization levels, incremental compilation, and multi-file import support. All test scenarios pass with comprehensive coverage.
 
 ---
 

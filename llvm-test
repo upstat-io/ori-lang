@@ -1,4 +1,9 @@
 #!/bin/bash
-# Run LLVM tests in Docker container
+# Run LLVM-related Rust tests
+# Tests both ori_llvm and ori_rt crates
+#
 # Usage: ./llvm-test [additional args...]
-exec ./docker/llvm/run.sh cargo test "$@"
+#
+# Note: Requires LLVM 17 installed. Path configured in .cargo/config.toml
+
+cargo test -p ori_llvm -p ori_rt "$@"

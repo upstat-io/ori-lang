@@ -1,4 +1,4 @@
-//! Ori Runtime Library (libori_rt)
+//! Ori Runtime Library (`libori_rt`)
 //!
 //! This crate provides runtime support for AOT-compiled Ori programs.
 //! It contains C-ABI functions that are called by LLVM-generated code.
@@ -26,6 +26,17 @@
 
 #![allow(unsafe_code)]
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
+// FFI code uses i64 for ABI compatibility - casts are intentional and safe
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_ptr_alignment)]
+// Prefer explicit match over let-else for clarity in FFI error handling
+#![allow(clippy::manual_let_else)]
+// Tests use &var to get pointers - this is intentional
+#![allow(clippy::borrow_as_ptr)]
+#![allow(clippy::ptr_cast_constness)]
+#![allow(clippy::cast_slice_from_raw_parts)]
 
 use std::cell::RefCell;
 use std::ffi::CStr;
@@ -206,7 +217,7 @@ pub extern "C" fn ori_realloc(
 /// Create a new reference-counted object.
 ///
 /// Allocates memory for the header + data, initializes refcount to 1.
-/// Returns a pointer to the RcHeader, or null on failure.
+/// Returns a pointer to the `RcHeader`, or null on failure.
 #[no_mangle]
 pub extern "C" fn ori_rc_new(size: usize) -> *mut RcHeader {
     let header_size = std::mem::size_of::<RcHeader>();
@@ -360,8 +371,9 @@ pub extern "C" fn ori_panic(s: *const OriStr) {
     // Print to stderr
     eprintln!("ori panic: {msg}");
 
-    // In AOT mode, we would call std::process::exit(1) here
-    // For now, we keep JIT compatibility by not terminating
+    // Terminate the process - in JIT mode, the execution engine catches this
+    // before it reaches here by checking did_panic() after each execution.
+    std::process::exit(1);
 }
 
 /// Panic with a C string message.
@@ -379,6 +391,8 @@ pub extern "C" fn ori_panic_cstr(s: *const i8) {
     PANIC_MESSAGE.with(|m| *m.borrow_mut() = Some(msg.clone()));
 
     eprintln!("ori panic: {msg}");
+
+    std::process::exit(1);
 }
 
 /// Assert that a condition is true.

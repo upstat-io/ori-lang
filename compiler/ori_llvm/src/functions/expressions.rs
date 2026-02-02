@@ -11,6 +11,7 @@ use crate::LoopContext;
 
 impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a `FunctionExp` (recurse, parallel, etc.).
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn compile_function_exp(
         &self,
         exp: &FunctionExp,
@@ -87,22 +88,66 @@ impl<'ll> Builder<'_, 'll, '_> {
             }
 
             FunctionExpKind::Print => {
-                // Find msg parameter
+                // Find msg parameter and call runtime print function
                 for ne in named_exprs {
                     let name = self.cx().interner.lookup(ne.name);
                     if name == "msg" {
-                        // Compile the message (but we don't have a runtime print yet)
-                        let _msg = self
-                            .compile_expr(ne.value, arena, expr_types, locals, function, loop_ctx);
-                        // Would call runtime print function here
+                        // Compile the message expression
+                        if let Some(msg) = self
+                            .compile_expr(ne.value, arena, expr_types, locals, function, loop_ctx)
+                        {
+                            // Get the ori_print function
+                            if let Some(print_fn) = self.cx().llmod().get_function("ori_print") {
+                                // Allocate stack space for the string struct
+                                let str_type = self.cx().string_type();
+                                let msg_ptr = self.alloca(str_type.into(), "print_msg");
+
+                                // Store the string value
+                                self.store(msg, msg_ptr);
+
+                                // Call ori_print with the pointer
+                                self.call(print_fn, &[msg_ptr.into()], "print_call");
+                            }
+                        }
+                        break;
                     }
                 }
                 None // print returns void
             }
 
-            FunctionExpKind::Panic | FunctionExpKind::Todo | FunctionExpKind::Unreachable => {
-                // All three diverging patterns - would call runtime panic function
-                // For now, just create unreachable
+            FunctionExpKind::Panic => {
+                // Call runtime panic function with message, then unreachable
+                for ne in named_exprs {
+                    let name = self.cx().interner.lookup(ne.name);
+                    if name == "msg" {
+                        if let Some(msg) = self
+                            .compile_expr(ne.value, arena, expr_types, locals, function, loop_ctx)
+                        {
+                            if let Some(panic_fn) = self.cx().llmod().get_function("ori_panic") {
+                                let str_type = self.cx().string_type();
+                                let msg_ptr = self.alloca(str_type.into(), "panic_msg");
+                                self.store(msg, msg_ptr);
+                                self.call(panic_fn, &[msg_ptr.into()], "panic_call");
+                            }
+                        }
+                        break;
+                    }
+                }
+                self.unreachable();
+                None
+            }
+
+            FunctionExpKind::Todo | FunctionExpKind::Unreachable => {
+                // Call runtime panic with static message, then unreachable
+                if let Some(panic_fn) = self.cx().llmod().get_function("ori_panic_cstr") {
+                    let msg = match exp.kind {
+                        FunctionExpKind::Todo => "not yet implemented",
+                        FunctionExpKind::Unreachable => "entered unreachable code",
+                        _ => "panic",
+                    };
+                    let msg_ptr = self.build_global_string_ptr(msg, "panic_msg");
+                    self.call(panic_fn, &[msg_ptr.into()], "panic_call");
+                }
                 self.unreachable();
                 None
             }

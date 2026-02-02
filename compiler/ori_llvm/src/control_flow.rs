@@ -44,7 +44,11 @@ impl<'ll> Builder<'_, 'll, '_> {
         let then_val =
             self.compile_expr(then_branch, arena, expr_types, locals, function, loop_ctx);
         let then_exit_bb = self.current_block()?;
-        self.br(merge_bb);
+        // Only branch to merge if the block isn't already terminated (e.g., by panic/break/return)
+        let then_terminated = then_exit_bb.get_terminator().is_some();
+        if !then_terminated {
+            self.br(merge_bb);
+        }
 
         // Compile else branch
         self.position_at_end(else_bb);
@@ -59,15 +63,34 @@ impl<'ll> Builder<'_, 'll, '_> {
             }
         };
         let else_exit_bb = self.current_block()?;
-        self.br(merge_bb);
+        // Only branch to merge if the block isn't already terminated
+        let else_terminated = else_exit_bb.get_terminator().is_some();
+        if !else_terminated {
+            self.br(merge_bb);
+        }
 
         // Merge block with phi node
         self.position_at_end(merge_bb);
 
-        // If both branches produce values, create a phi node
-        match (then_val, else_val) {
-            (Some(t), Some(e)) => {
+        // If both branches terminated (diverged), the merge block is unreachable
+        if then_terminated && else_terminated {
+            self.unreachable();
+            return None;
+        }
+
+        // If both branches produce values and reach merge, create a phi node
+        match (then_val, else_val, then_terminated, else_terminated) {
+            (Some(t), Some(e), false, false) => {
+                // Both branches reach merge with values
                 self.build_phi_from_incoming(result_type, &[(t, then_exit_bb), (e, else_exit_bb)])
+            }
+            (Some(t), _, false, true) => {
+                // Only then branch reaches merge
+                Some(t)
+            }
+            (_, Some(e), true, false) => {
+                // Only else branch reaches merge
+                Some(e)
             }
             _ => None,
         }
