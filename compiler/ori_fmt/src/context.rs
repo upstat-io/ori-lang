@@ -1,9 +1,21 @@
-//! Formatting Context
+//! Formatting Context (Layer 1 & 3 Integration)
 //!
 //! Tracks state during formatting: column position, indentation level, and output.
 //! Provides methods for emitting text while maintaining state.
+//!
+//! # Layer Integration
+//!
+//! This module integrates with:
+//! - **Layer 1 (Spacing)**: Token-aware emission via `emit_token()` and `spacing_for()`
+//! - **Layer 3 (Shape)**: Width tracking via internal `Shape` struct
+//!
+//! The `FormatContext` uses `Shape` internally to track available width and
+//! make breaking decisions, and can use `spacing::lookup_spacing()` for
+//! determining inter-token spacing.
 
 use crate::emitter::{Emitter, StringEmitter};
+use crate::shape::Shape;
+use crate::spacing::{lookup_spacing, SpaceAction, TokenCategory};
 
 /// Default maximum line width before breaking.
 pub const MAX_LINE_WIDTH: usize = 100;
@@ -13,18 +25,29 @@ pub const INDENT_WIDTH: usize = 4;
 
 /// Configuration for the formatter.
 ///
-/// Controls formatting behavior such as line width limits.
-#[derive(Debug, Clone, Copy)]
+/// Controls formatting behavior like line width, indentation, and trailing commas.
+/// This is the unified configuration type used throughout the formatter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FormatConfig {
     /// Maximum line width before breaking to multiple lines.
-    /// Defaults to 100 characters.
+    /// Defaults to 100 characters (Spec line 19).
     pub max_width: usize,
+
+    /// Indentation size in spaces.
+    /// Defaults to 4 spaces (Spec line 18).
+    pub indent_size: usize,
+
+    /// Whether to add trailing commas in multi-line lists.
+    /// Defaults to `Always` (Spec line 20).
+    pub trailing_commas: TrailingCommas,
 }
 
 impl Default for FormatConfig {
     fn default() -> Self {
         Self {
             max_width: MAX_LINE_WIDTH,
+            indent_size: INDENT_WIDTH,
+            trailing_commas: TrailingCommas::Always,
         }
     }
 }
@@ -32,7 +55,64 @@ impl Default for FormatConfig {
 impl FormatConfig {
     /// Create a new config with the specified max width.
     pub fn with_max_width(max_width: usize) -> Self {
-        Self { max_width }
+        Self {
+            max_width,
+            ..Default::default()
+        }
+    }
+
+    /// Create a new config with the specified indent size.
+    pub fn with_indent_size(indent_size: usize) -> Self {
+        Self {
+            indent_size,
+            ..Default::default()
+        }
+    }
+
+    /// Check if trailing commas should be added in multi-line context.
+    #[inline]
+    pub fn add_trailing_comma(&self, is_multiline: bool, had_trailing: bool) -> bool {
+        match self.trailing_commas {
+            TrailingCommas::Always => is_multiline,
+            TrailingCommas::Never => false,
+            TrailingCommas::Preserve => had_trailing && is_multiline,
+        }
+    }
+}
+
+/// Trailing comma behavior for multi-line lists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub enum TrailingCommas {
+    /// Always add trailing commas in multi-line (default).
+    ///
+    /// Spec line 20: "Trailing commas required in multi-line"
+    #[default]
+    Always,
+
+    /// Never add trailing commas.
+    Never,
+
+    /// Preserve user's choice (keep if present, don't add if absent).
+    Preserve,
+}
+
+impl TrailingCommas {
+    /// Check if this setting always adds trailing commas.
+    #[inline]
+    pub fn is_always(self) -> bool {
+        matches!(self, TrailingCommas::Always)
+    }
+
+    /// Check if this setting never adds trailing commas.
+    #[inline]
+    pub fn is_never(self) -> bool {
+        matches!(self, TrailingCommas::Never)
+    }
+
+    /// Check if this setting preserves user choice.
+    #[inline]
+    pub fn is_preserve(self) -> bool {
+        matches!(self, TrailingCommas::Preserve)
     }
 }
 
@@ -42,13 +122,24 @@ impl FormatConfig {
 /// - Current column position (0-indexed)
 /// - Current indentation level
 /// - Configuration (max width, etc.)
+/// - Shape for width tracking (Layer 3)
+/// - Last token category for spacing (Layer 1)
 ///
-/// All emit operations update the column position automatically.
+/// All emit operations update the column position and shape automatically.
+///
+/// # Layer Integration
+///
+/// - **Layer 1 (Spacing)**: Tracks last token category for `spacing_for()` lookups
+/// - **Layer 3 (Shape)**: Uses `Shape` internally for `fits()` width decisions
 pub struct FormatContext<E: Emitter = StringEmitter> {
     emitter: E,
     column: usize,
     indent_level: usize,
     config: FormatConfig,
+    /// Shape for Layer 3 width tracking
+    shape: Shape,
+    /// Last token category for Layer 1 spacing decisions
+    last_token: Option<TokenCategory>,
 }
 
 impl FormatContext<StringEmitter> {
@@ -86,7 +177,9 @@ impl<E: Emitter> FormatContext<E> {
             emitter,
             column: 0,
             indent_level: 0,
+            shape: Shape::new(config.max_width),
             config,
+            last_token: None,
         }
     }
 
@@ -119,8 +212,19 @@ impl<E: Emitter> FormatContext<E> {
     ///
     /// Used when formatting sub-expressions that continue on the same line
     /// as previous content (e.g., function body after `= `).
+    ///
+    /// # Layer 3 Integration
+    ///
+    /// Updates both the column AND the shape's available width to ensure
+    /// `fits()` returns correct results for the current position.
     pub fn set_column(&mut self, column: usize) {
         self.column = column;
+        // Sync shape: reduce available width by the column offset
+        self.shape = Shape {
+            width: self.config.max_width.saturating_sub(column),
+            offset: column,
+            indent: self.shape.indent,
+        };
     }
 
     /// Check if adding `width` characters would exceed the line limit.
@@ -129,32 +233,132 @@ impl<E: Emitter> FormatContext<E> {
     }
 
     /// Check if content of `width` would fit on the current line.
+    ///
+    /// # Layer 3 Integration
+    ///
+    /// Delegates to `Shape::fits()` for consistent width-based decisions.
     pub fn fits(&self, width: usize) -> bool {
-        self.column + width <= self.config.max_width
+        self.shape.fits(width)
+    }
+
+    /// Get the current shape for width tracking.
+    ///
+    /// # Layer 3 Integration
+    ///
+    /// Returns the internal `Shape` used for width-based breaking decisions.
+    pub fn shape(&self) -> &Shape {
+        &self.shape
     }
 
     /// Emit a text fragment.
     pub fn emit(&mut self, text: &str) {
         self.emitter.emit(text);
         self.column += text.len();
+        self.shape = self.shape.consume(text.len());
     }
 
     /// Emit a single space.
     pub fn emit_space(&mut self) {
         self.emitter.emit_space();
         self.column += 1;
+        self.shape = self.shape.consume(1);
+    }
+
+    // ========================================================================
+    // Layer 1 (Spacing) Integration
+    // ========================================================================
+
+    /// Get the spacing action required between the last emitted token and a new token.
+    ///
+    /// # Layer 1 Integration
+    ///
+    /// Uses `spacing::lookup_spacing()` to determine the appropriate spacing
+    /// action based on the declarative rules in `spacing/rules.rs`.
+    ///
+    /// Returns `None` if no previous token was recorded.
+    pub fn spacing_for(&self, next_token: TokenCategory) -> Option<SpaceAction> {
+        self.last_token.map(|last| lookup_spacing(last, next_token))
+    }
+
+    /// Emit a token with automatic spacing based on Layer 1 rules.
+    ///
+    /// # Layer 1 Integration
+    ///
+    /// This method:
+    /// 1. Looks up spacing between last token and this token
+    /// 2. Emits appropriate spacing (space, newline, or nothing)
+    /// 3. Emits the token text
+    /// 4. Updates the last token for future spacing decisions
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// ctx.emit_token(TokenCategory::Ident, "foo");
+    /// ctx.emit_token(TokenCategory::Plus, "+");  // Auto-adds space before
+    /// ctx.emit_token(TokenCategory::Ident, "bar"); // Auto-adds space before
+    /// // Result: "foo + bar"
+    /// ```
+    pub fn emit_token(&mut self, category: TokenCategory, text: &str) {
+        // Check if we need spacing before this token
+        if let Some(action) = self.spacing_for(category) {
+            match action {
+                SpaceAction::Space => self.emit_space(),
+                SpaceAction::Newline => self.emit_newline_indent(),
+                SpaceAction::None | SpaceAction::Preserve => {}
+            }
+        }
+
+        // Emit the token
+        self.emit(text);
+
+        // Update last token for next spacing decision
+        self.last_token = Some(category);
+    }
+
+    /// Set the last token category without emitting.
+    ///
+    /// # Layer 1 Integration
+    ///
+    /// Use this when you've emitted a token through other means (e.g., `emit()`)
+    /// and want to set up correct spacing for subsequent tokens.
+    pub fn set_last_token(&mut self, category: TokenCategory) {
+        self.last_token = Some(category);
+    }
+
+    /// Clear the last token (e.g., after a newline or at start of context).
+    ///
+    /// # Layer 1 Integration
+    ///
+    /// This prevents spacing rules from applying at line starts.
+    pub fn clear_last_token(&mut self) {
+        self.last_token = None;
     }
 
     /// Emit a newline and reset column to 0.
+    ///
+    /// # Layer 1 Integration
+    ///
+    /// Clears the last token since we're at the start of a new line.
     pub fn emit_newline(&mut self) {
         self.emitter.emit_newline();
         self.column = 0;
+        self.shape = self.shape.next_line(self.config.max_width);
+        self.last_token = None; // Clear token state at line start
     }
 
     /// Emit indentation at the current level and update column.
     pub fn emit_indent(&mut self) {
         self.emitter.emit_indent(self.indent_level);
-        self.column = self.indent_level * INDENT_WIDTH;
+        let indent_width = self.indent_level * INDENT_WIDTH;
+        self.column = indent_width;
+        // After newline, shape has full width. Consume the indent width.
+        // Note: next_line() already accounts for shape.indent, but emit_indent
+        // may be called with different indent levels, so we sync by consuming.
+        self.shape = Shape {
+            width: self.config.max_width.saturating_sub(indent_width),
+            offset: indent_width,
+            indent: self.shape.indent,
+        };
     }
 
     /// Emit a newline followed by indentation.
@@ -166,11 +370,13 @@ impl<E: Emitter> FormatContext<E> {
     /// Increment indentation level.
     pub fn indent(&mut self) {
         self.indent_level += 1;
+        self.shape = self.shape.indent(INDENT_WIDTH);
     }
 
     /// Decrement indentation level.
     pub fn dedent(&mut self) {
         self.indent_level = self.indent_level.saturating_sub(1);
+        self.shape = self.shape.dedent(INDENT_WIDTH);
     }
 
     /// Execute a closure with increased indentation.

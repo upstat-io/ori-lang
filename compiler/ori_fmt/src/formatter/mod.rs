@@ -1,16 +1,33 @@
-//! Formatter Core
+//! Formatter Core (Layer 5: Orchestration)
 //!
-//! Top-down rendering engine that decides inline vs broken format for each node.
-//! Uses width calculations to make formatting decisions.
+//! Top-down rendering engine that orchestrates all formatter layers to produce
+//! formatted output. This is the main entry point for expression formatting.
+//!
+//! # 5-Layer Architecture
+//!
+//! This formatter integrates with the 5-layer architecture:
+//!
+//! - **Layer 1 (Spacing)**: O(1) token spacing rules via `spacing::RulesMap`
+//! - **Layer 2 (Packing)**: Container packing decisions via `packing::Packing`
+//! - **Layer 3 (Shape)**: Width tracking via `shape::Shape`
+//! - **Layer 4 (Rules)**: Breaking rules via `rules::*Rule` structs
+//! - **Layer 5 (Orchestration)**: This module - coordinates all layers
 //!
 //! # Algorithm
 //!
 //! 1. For each node, check if it's an always-stacked construct
 //! 2. If not, check if inline width + current column <= 100
 //! 3. If it fits, render inline
-//! 4. Otherwise, render broken
+//! 4. Otherwise, render broken (consulting Layer 4 rules)
 //!
 //! Nested constructs break independently based on their own width.
+//!
+//! # Layer Integration Points
+//!
+//! - `helpers::is_simple_item()` → Layer 2 `packing::is_simple_item()`
+//! - `helpers::format_receiver()` → Layer 4 `rules::needs_parens(Receiver)`
+//! - `helpers::format_call_target()` → Layer 4 `rules::needs_parens(CallTarget)`
+//! - `helpers::format_iter()` → Layer 4 `rules::needs_parens(IteratorSource)`
 //!
 //! # Modules
 //!
@@ -19,7 +36,7 @@
 //! - [`stacked`]: Always-multi-line constructs (run, try, match)
 //! - [`patterns`]: Match and binding pattern rendering
 //! - [`literals`]: Literal value rendering
-//! - [`helpers`]: Collection and wrapper helpers
+//! - [`helpers`]: Collection and wrapper helpers (Layer 2, 4 integration)
 
 mod broken;
 mod helpers;
@@ -33,7 +50,7 @@ mod tests;
 use crate::context::{FormatConfig, FormatContext};
 use crate::emitter::StringEmitter;
 use crate::width::{WidthCalculator, ALWAYS_STACKED};
-use ori_ir::{BinaryOp, ExprArena, ExprId, ExprKind, StringLookup, UnaryOp};
+use ori_ir::{BinaryOp, ExprArena, ExprId, StringLookup, UnaryOp};
 
 /// Get string representation of a binary operator.
 fn binary_op_str(op: BinaryOp) -> &'static str {
@@ -73,38 +90,8 @@ fn unary_op_str(op: UnaryOp) -> &'static str {
     }
 }
 
-/// Check if an expression needs parentheses when used as a receiver for method call,
-/// field access, or indexing. This is needed for expressions with lower precedence
-/// than member access (`.`), which has the highest precedence.
-///
-/// Expressions that need parentheses as receivers:
-/// - Binary operations (all have lower precedence than `.`)
-/// - Unary operations (lower precedence than `.`)
-/// - Conditionals, lambdas, for/loop, etc.
-fn needs_receiver_parens(expr: &ori_ir::Expr) -> bool {
-    matches!(
-        expr.kind,
-        ExprKind::Binary { .. }
-            | ExprKind::Unary { .. }
-            | ExprKind::If { .. }
-            | ExprKind::Lambda { .. }
-            | ExprKind::Let { .. }
-            | ExprKind::Range { .. }
-            | ExprKind::For { .. }
-            | ExprKind::Loop { .. }
-    )
-}
-
-/// Check if an expression needs parentheses when used as the iterator in a `for` loop.
-///
-/// Without parentheses, `for x in for y in items yield y yield x + 1` is ambiguous.
-/// With parentheses, `for x in (for y in items yield y) yield x + 1` is clear.
-fn needs_iter_parens(expr: &ori_ir::Expr) -> bool {
-    matches!(
-        expr.kind,
-        ExprKind::For { .. } | ExprKind::If { .. } | ExprKind::Lambda { .. } | ExprKind::Let { .. }
-    )
-}
+// Note: Parentheses logic moved to rules::ParenthesesRule (Layer 4)
+// See rules::needs_parens() and rules::ParenPosition
 
 /// Formatter for Ori source code.
 ///
