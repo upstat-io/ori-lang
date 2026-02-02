@@ -8,6 +8,7 @@ mod error;
 mod grammar;
 mod progress;
 mod recovery;
+mod scratch;
 
 #[cfg(test)]
 mod tests;
@@ -16,7 +17,7 @@ pub use context::ParseContext;
 pub use cursor::Cursor;
 pub use error::ParseError;
 pub use progress::{ParseResult, Progress, WithProgress};
-pub use recovery::{synchronize, RecoverySet};
+pub use recovery::{synchronize, TokenSet, FUNCTION_BOUNDARY, STMT_BOUNDARY};
 
 use ori_ir::{
     ExprArena, Function, Module, Name, Span, StringInterner, TestDef, Token, TokenKind, TokenList,
@@ -477,11 +478,11 @@ impl<'a> Parser<'a> {
 
     /// Recovery: skip to next statement (@ or use or EOF)
     fn recover_to_next_statement(&mut self) {
-        recovery::synchronize(&mut self.cursor, RecoverySet::STMT_BOUNDARY);
+        recovery::synchronize(&mut self.cursor, recovery::STMT_BOUNDARY);
     }
 
     fn recover_to_function(&mut self) {
-        recovery::synchronize(&mut self.cursor, RecoverySet::FUNCTION_BOUNDARY);
+        recovery::synchronize(&mut self.cursor, recovery::FUNCTION_BOUNDARY);
     }
 }
 

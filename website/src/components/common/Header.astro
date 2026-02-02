@@ -1,13 +1,20 @@
 ---
 const currentPath = Astro.url.pathname;
 const navLinks = [
-  { href: '/', label: 'Home' },
-  { href: '/guide/01-getting-started', label: 'Guide' },
-  { href: '/docs/spec/01-notation', label: 'Docs' },
-  { href: '/playground', label: 'Playground' },
-  { href: '/changelog', label: 'Changelog' },
-  { href: '/roadmap', label: 'Roadmap' },
+  { href: '/', label: 'Home', matchPrefix: null },
+  { href: '/guide/01-getting-started', label: 'Guide', matchPrefix: '/guide/' },
+  { href: '/docs/spec/index', label: 'Docs', matchPrefix: '/docs/' },
+  { href: '/playground', label: 'Playground', matchPrefix: '/playground' },
+  { href: '/changelog', label: 'Changelog', matchPrefix: '/changelog' },
+  { href: '/roadmap', label: 'Roadmap', matchPrefix: '/roadmap' },
 ];
+
+const isActive = (link: typeof navLinks[0]) => {
+  if (link.matchPrefix === null) {
+    return currentPath === link.href;
+  }
+  return currentPath.startsWith(link.matchPrefix);
+};
 ---
 
 <header class="site-header">
@@ -38,7 +45,7 @@ const navLinks = [
         {navLinks.map(link => (
           <a
             href={link.href}
-            class:list={['nav-link', { active: currentPath === link.href || (link.href !== '/' && currentPath.startsWith(link.href)) }]}
+            class:list={['nav-link', { active: isActive(link) }]}
           >
             {link.label}
           </a>

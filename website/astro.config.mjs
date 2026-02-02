@@ -4,6 +4,7 @@ import mdx from '@astrojs/mdx';
 import sitemap from '@astrojs/sitemap';
 import { readFileSync } from 'fs';
 import remarkInclude from './src/remark/remark-include.mjs';
+import remarkMdLinks from './src/remark/remark-md-links.mjs';
 
 const oriGrammar = JSON.parse(
   readFileSync('./src/shiki/ori.tmLanguage.json', 'utf-8')
@@ -31,7 +32,7 @@ export default defineConfig({
   site: 'https://ori-lang.com',
   integrations: [svelte(), mdx(), sitemap()],
   markdown: {
-    remarkPlugins: [remarkInclude],
+    remarkPlugins: [remarkInclude, remarkMdLinks],
     shikiConfig: {
       langs: [oriLanguage, ebnfLanguage],
     },

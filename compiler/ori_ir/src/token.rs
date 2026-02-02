@@ -189,7 +189,157 @@ pub enum TokenKind {
     FloatSizeError,
 }
 
+/// Number of [`TokenKind`] variants. Used for bitset sizing and test verification.
+#[cfg(test)]
+pub(crate) const TOKEN_KIND_COUNT: usize = 115;
+
 impl TokenKind {
+    /// Get a unique index for this token's discriminant (0-114).
+    ///
+    /// This is used for O(1) bitset membership testing in `TokenSet`.
+    /// The index is stable across calls but may change between compiler versions.
+    ///
+    /// # Performance
+    /// This is a simple match that compiles to a discriminant extraction,
+    /// which is typically a single memory load on the tag field.
+    #[inline]
+    pub const fn discriminant_index(&self) -> u8 {
+        match self {
+            // Data-carrying variants (indices 0-6)
+            Self::Int(_) => 0,
+            Self::Float(_) => 1,
+            Self::String(_) => 2,
+            Self::Char(_) => 3,
+            Self::Duration(_, _) => 4,
+            Self::Size(_, _) => 5,
+            Self::Ident(_) => 6,
+
+            // Keywords (indices 7-42)
+            Self::Async => 7,
+            Self::Break => 8,
+            Self::Continue => 9,
+            Self::Return => 10,
+            Self::Def => 11,
+            Self::Do => 12,
+            Self::Else => 13,
+            Self::False => 14,
+            Self::For => 15,
+            Self::If => 16,
+            Self::Impl => 17,
+            Self::In => 18,
+            Self::Let => 19,
+            Self::Loop => 20,
+            Self::Match => 21,
+            Self::Mut => 22,
+            Self::Pub => 23,
+            Self::SelfLower => 24,
+            Self::SelfUpper => 25,
+            Self::Then => 26,
+            Self::Trait => 27,
+            Self::True => 28,
+            Self::Type => 29,
+            Self::Use => 30,
+            Self::Uses => 31,
+            Self::Void => 32,
+            Self::Where => 33,
+            Self::With => 34,
+            Self::Yield => 35,
+
+            // Additional keywords (indices 36-41)
+            Self::Tests => 36,
+            Self::As => 37,
+            Self::Dyn => 38,
+            Self::Extend => 39,
+            Self::Extension => 40,
+            Self::Skip => 41,
+
+            // Type keywords (indices 42-48)
+            Self::IntType => 42,
+            Self::FloatType => 43,
+            Self::BoolType => 44,
+            Self::StrType => 45,
+            Self::CharType => 46,
+            Self::ByteType => 47,
+            Self::NeverType => 48,
+
+            // Result/Option constructors (indices 49-52)
+            Self::Ok => 49,
+            Self::Err => 50,
+            Self::Some => 51,
+            Self::None => 52,
+
+            // Pattern keywords (indices 53-65)
+            Self::Cache => 53,
+            Self::Catch => 54,
+            Self::Parallel => 55,
+            Self::Spawn => 56,
+            Self::Recurse => 57,
+            Self::Run => 58,
+            Self::Timeout => 59,
+            Self::Try => 60,
+            Self::By => 61,
+            Self::Print => 62,
+            Self::Panic => 63,
+            Self::Todo => 64,
+            Self::Unreachable => 65,
+
+            // Punctuation (indices 66-88)
+            Self::HashBracket => 66,
+            Self::At => 67,
+            Self::Dollar => 68,
+            Self::Hash => 69,
+            Self::LParen => 70,
+            Self::RParen => 71,
+            Self::LBrace => 72,
+            Self::RBrace => 73,
+            Self::LBracket => 74,
+            Self::RBracket => 75,
+            Self::Colon => 76,
+            Self::DoubleColon => 77,
+            Self::Comma => 78,
+            Self::Dot => 79,
+            Self::DotDot => 80,
+            Self::DotDotEq => 81,
+            Self::Arrow => 82,
+            Self::FatArrow => 83,
+            Self::Pipe => 84,
+            Self::Question => 85,
+            Self::DoubleQuestion => 86,
+            Self::Underscore => 87,
+            Self::Semicolon => 88,
+
+            // Operators (indices 89-109)
+            Self::Eq => 89,
+            Self::EqEq => 90,
+            Self::NotEq => 91,
+            Self::Lt => 92,
+            Self::LtEq => 93,
+            Self::Shl => 94,
+            Self::Gt => 95,
+            Self::GtEq => 96,
+            Self::Shr => 97,
+            Self::Plus => 98,
+            Self::Minus => 99,
+            Self::Star => 100,
+            Self::Slash => 101,
+            Self::Percent => 102,
+            Self::Bang => 103,
+            Self::Tilde => 104,
+            Self::Amp => 105,
+            Self::AmpAmp => 106,
+            Self::PipePipe => 107,
+            Self::Caret => 108,
+            Self::Div => 109,
+
+            // Special tokens (indices 110-114)
+            Self::Newline => 110,
+            Self::Eof => 111,
+            Self::Error => 112,
+            Self::FloatDurationError => 113,
+            Self::FloatSizeError => 114,
+        }
+    }
+
     /// Check if this token can start an expression.
     pub fn can_start_expr(&self) -> bool {
         matches!(
@@ -616,6 +766,155 @@ mod size_asserts {
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_discriminant_index_uniqueness() {
+        // Verify all discriminant indices are unique and within range
+        let mut seen = [false; TOKEN_KIND_COUNT];
+
+        // Test representative tokens from each category
+        let tokens = [
+            TokenKind::Int(0),
+            TokenKind::Float(0),
+            TokenKind::String(crate::Name::EMPTY),
+            TokenKind::Char('a'),
+            TokenKind::Duration(0, DurationUnit::Seconds),
+            TokenKind::Size(0, SizeUnit::Bytes),
+            TokenKind::Ident(crate::Name::EMPTY),
+            TokenKind::Async,
+            TokenKind::Break,
+            TokenKind::Continue,
+            TokenKind::Return,
+            TokenKind::Def,
+            TokenKind::Do,
+            TokenKind::Else,
+            TokenKind::False,
+            TokenKind::For,
+            TokenKind::If,
+            TokenKind::Impl,
+            TokenKind::In,
+            TokenKind::Let,
+            TokenKind::Loop,
+            TokenKind::Match,
+            TokenKind::Mut,
+            TokenKind::Pub,
+            TokenKind::SelfLower,
+            TokenKind::SelfUpper,
+            TokenKind::Then,
+            TokenKind::Trait,
+            TokenKind::True,
+            TokenKind::Type,
+            TokenKind::Use,
+            TokenKind::Uses,
+            TokenKind::Void,
+            TokenKind::Where,
+            TokenKind::With,
+            TokenKind::Yield,
+            TokenKind::Tests,
+            TokenKind::As,
+            TokenKind::Dyn,
+            TokenKind::Extend,
+            TokenKind::Extension,
+            TokenKind::Skip,
+            TokenKind::IntType,
+            TokenKind::FloatType,
+            TokenKind::BoolType,
+            TokenKind::StrType,
+            TokenKind::CharType,
+            TokenKind::ByteType,
+            TokenKind::NeverType,
+            TokenKind::Ok,
+            TokenKind::Err,
+            TokenKind::Some,
+            TokenKind::None,
+            TokenKind::Cache,
+            TokenKind::Catch,
+            TokenKind::Parallel,
+            TokenKind::Spawn,
+            TokenKind::Recurse,
+            TokenKind::Run,
+            TokenKind::Timeout,
+            TokenKind::Try,
+            TokenKind::By,
+            TokenKind::Print,
+            TokenKind::Panic,
+            TokenKind::Todo,
+            TokenKind::Unreachable,
+            TokenKind::HashBracket,
+            TokenKind::At,
+            TokenKind::Dollar,
+            TokenKind::Hash,
+            TokenKind::LParen,
+            TokenKind::RParen,
+            TokenKind::LBrace,
+            TokenKind::RBrace,
+            TokenKind::LBracket,
+            TokenKind::RBracket,
+            TokenKind::Colon,
+            TokenKind::DoubleColon,
+            TokenKind::Comma,
+            TokenKind::Dot,
+            TokenKind::DotDot,
+            TokenKind::DotDotEq,
+            TokenKind::Arrow,
+            TokenKind::FatArrow,
+            TokenKind::Pipe,
+            TokenKind::Question,
+            TokenKind::DoubleQuestion,
+            TokenKind::Underscore,
+            TokenKind::Semicolon,
+            TokenKind::Eq,
+            TokenKind::EqEq,
+            TokenKind::NotEq,
+            TokenKind::Lt,
+            TokenKind::LtEq,
+            TokenKind::Shl,
+            TokenKind::Gt,
+            TokenKind::GtEq,
+            TokenKind::Shr,
+            TokenKind::Plus,
+            TokenKind::Minus,
+            TokenKind::Star,
+            TokenKind::Slash,
+            TokenKind::Percent,
+            TokenKind::Bang,
+            TokenKind::Tilde,
+            TokenKind::Amp,
+            TokenKind::AmpAmp,
+            TokenKind::PipePipe,
+            TokenKind::Caret,
+            TokenKind::Div,
+            TokenKind::Newline,
+            TokenKind::Eof,
+            TokenKind::Error,
+            TokenKind::FloatDurationError,
+            TokenKind::FloatSizeError,
+        ];
+
+        assert_eq!(
+            tokens.len(),
+            TOKEN_KIND_COUNT,
+            "Test should cover all {TOKEN_KIND_COUNT} token kinds",
+        );
+
+        for token in &tokens {
+            let idx = token.discriminant_index() as usize;
+            assert!(
+                idx < TOKEN_KIND_COUNT,
+                "Discriminant index {idx} out of range for {token:?}",
+            );
+            assert!(
+                !seen[idx],
+                "Duplicate discriminant index {idx} for {token:?}",
+            );
+            seen[idx] = true;
+        }
+
+        // Verify all indices are used
+        for (i, &s) in seen.iter().enumerate() {
+            assert!(s, "Discriminant index {i} is not assigned to any token");
+        }
+    }
 
     #[test]
     fn test_token_hash() {
